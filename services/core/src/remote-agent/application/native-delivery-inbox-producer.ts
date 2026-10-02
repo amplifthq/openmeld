@@ -1,15 +1,136 @@
-import type { AgentTaskTerminalOutcome } from "@openmeld/schemas/types";
+import { formatPublicAgentFailureFacts } from "@openmeld/schemas";
+import type {
+  AgentTaskTerminalOutcome,
+  InboxSourceCandidate,
+  InboxSourceTarget,
+} from "@openmeld/schemas/types";
 import {
   ensureInboxItem,
   resolveInboxItemsBySource,
 } from "../../inbox/application/inbox-item-service";
 import {
   readInboxItemBySource,
+  repairLegacyTaskContinuationInboxItem,
   replaceInboxSourceTargetsIfCurrent,
 } from "../../inbox/infrastructure/d1/inbox-item-repo";
+import type { RemoteAgentNativeDeliveryRecord } from "../infrastructure/d1/native-delivery-ledger-repo";
+import { buildTaskContinuationAdmissionFailureFacts } from "./native-delivery-failure-facts";
 import type { SlackInboxSourceTarget } from "./slack-inbox-source-target";
 
 type SlackTerminalStatus = AgentTaskTerminalOutcome["status"];
+
+type TaskContinuationInboxInput = {
+  attempts: number;
+  db: D1Database;
+  delivery: RemoteAgentNativeDeliveryRecord;
+  occurredAtMs: number;
+  languageTag?: string;
+};
+
+export async function projectTaskContinuationAdmissionExhaustedInboxItem(
+  input: TaskContinuationInboxInput
+): Promise<void> {
+  const projection = buildTaskContinuationInboxProjection(input);
+  if (!projection) {
+    return;
+  }
+  await repairLegacyTaskContinuationInboxItem({
+    ...projection,
+    db: input.db,
+    nowMs: input.occurredAtMs,
+  });
+  await ensureInboxItem({
+    candidate: projection.candidate,
+    db: input.db,
+    nowMs: input.occurredAtMs,
+  });
+}
+
+export async function repairTaskContinuationAdmissionExhaustedInboxItem(
+  input: TaskContinuationInboxInput
+): Promise<void> {
+  const projection = buildTaskContinuationInboxProjection(input);
+  if (projection) {
+    await repairLegacyTaskContinuationInboxItem({
+      ...projection,
+      db: input.db,
+      nowMs: input.occurredAtMs,
+    });
+  }
+}
+
+function buildTaskContinuationInboxProjection(
+  input: TaskContinuationInboxInput
+): {
+  candidate: InboxSourceCandidate;
+  legacySourceTarget: InboxSourceTarget;
+} | null {
+  const recipientUserId = input.delivery.onBehalfOfUserId?.trim() ?? "";
+  const trigger = input.delivery.workerSubmitRequest?.turnEnvelope.trigger;
+  if (
+    input.delivery.conversationKind !== "space" ||
+    input.delivery.routineRunId ||
+    !recipientUserId ||
+    (trigger?.source !== "task_continuation" &&
+      trigger?.source !== "task_watch_continuation")
+  ) {
+    return null;
+  }
+  // The trigger's result belongs to the watched task, possibly in another
+  // Space. Only this delivery's own publication or thread is a local target.
+  const signalId =
+    input.delivery.publishedSignalId?.trim() ||
+    input.delivery.threadContext?.rootSignalId;
+  const presentation = formatPublicAgentFailureFacts(
+    buildTaskContinuationAdmissionFailureFacts({
+      delivery: input.delivery,
+      maxAttempts: input.attempts,
+      languageTag: input.languageTag,
+    })
+  );
+  const candidate: InboxSourceCandidate = {
+    attention: "update",
+    contextLabel: "Center Agent",
+    importance: "normal",
+    kind: "system_issue",
+    occurredAtMs: input.occurredAtMs,
+    organizationId: input.delivery.organizationId,
+    preview: presentation.body,
+    recipientUserId,
+    sourceFacts: {
+      recipientReasons: ["requester"],
+      version: 1,
+    },
+    sourceKey: `${input.delivery.deliveryId}:admission_retry_exhausted`,
+    sourceKind: "remote_agent_native_delivery",
+    sourceTarget: {
+      kind: "space",
+      ...(signalId ? { signalId } : {}),
+      spaceId: input.delivery.spaceId,
+      ...(input.delivery.threadContext?.rootSignalId
+        ? {
+            threadRootSignalId: input.delivery.threadContext.rootSignalId,
+          }
+        : {}),
+    },
+    title: presentation.title,
+  };
+  const legacySignalId =
+    "publishedSignalId" in trigger.outcome
+      ? trigger.outcome.publishedSignalId?.trim()
+      : null;
+  return {
+    candidate,
+    legacySourceTarget: {
+      kind: "space",
+      signalId: legacySignalId || input.delivery.triggerMessageId,
+      spaceId: input.delivery.spaceId,
+      ...(input.delivery.threadContext?.rootSignalId
+        ? { threadRootSignalId: input.delivery.threadContext.rootSignalId }
+        : {}),
+    },
+  };
+}
 
 export async function projectLinkedSlackNativeDeliveryInboxItem(input: {
   db: D1Database;

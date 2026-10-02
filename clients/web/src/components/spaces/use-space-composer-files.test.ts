@@ -1,4 +1,5 @@
 import { OpenMeldApiClientHttpError } from "@openmeld/api-client";
+import { SPACE_FILE_MAX_SIZE_BYTES } from "@openmeld/schemas";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	act,
@@ -779,10 +780,48 @@ describe("composer attachment submission", () => {
 		expect(api.stageComposerUpload).toHaveBeenCalledTimes(1);
 	});
 
+	it("shows a recoverable connection error without exposing upload internals", async () => {
+		const hook = setup();
+		api.stageComposerUpload.mockRejectedValue(
+			Object.assign(
+				new Error(
+					"space.composer_uploads.stage request could not reach localhost (Failed to fetch)"
+				),
+				{ code: "network.request_failed" }
+			)
+		);
+		await act(async () =>
+			hook.result.current.addFiles([new File(["text"], "sample.txt")])
+		);
+		const failed = hook.result.current.files[0];
+		if (!failed) {
+			throw new Error("Missing failed attachment");
+		}
+		expect(failed).toMatchObject({
+			errorMessage: "Couldn't connect. Check your connection and try again.",
+			failurePhase: "stage",
+			status: "failed",
+		});
+		api.stageComposerUpload.mockImplementation(async (input) => ({
+			id: input.uploadId,
+			name: input.name,
+			mimeType: input.mimeType,
+			sizeBytes: 4,
+			expiresAt: "2099-09-10T00:00:00.000Z",
+		}));
+		await act(async () => hook.result.current.retryFile(failed.localId));
+		expect(hook.result.current.files[0]).toMatchObject({
+			errorMessage: null,
+			status: "ready",
+		});
+	});
+
 	it("rejects oversized files before upload while keeping other attachments", async () => {
 		const hook = setup();
 		const oversized = new File(["too large"], "large.pdf");
-		Object.defineProperty(oversized, "size", { value: 251 * 1024 * 1024 });
+		Object.defineProperty(oversized, "size", {
+			value: SPACE_FILE_MAX_SIZE_BYTES + 1,
+		});
 		await act(async () =>
 			hook.result.current.addFiles([
 				oversized,
@@ -795,7 +834,7 @@ describe("composer attachment submission", () => {
 		);
 		expect(hook.result.current.files[0]).toMatchObject({
 			status: "failed",
-			errorMessage: expect.stringContaining("250 MiB upload limit"),
+			errorMessage: expect.stringContaining("1024 MiB upload limit"),
 		});
 		expect(hook.result.current.files[0]?.errorMessage).toContain(
 			"paste a link"

@@ -11,6 +11,7 @@ import type {
 	SignalEnvelope,
 	SpaceAccessMode,
 	SpaceInboxUnreadTarget,
+	SpaceInboxUnreadTargetsResponse,
 	SpaceLinkJoinPolicy,
 	SpaceMembersSnapshot,
 	SpaceMessageFileReference,
@@ -22,7 +23,9 @@ import type {
 } from "@openmeld/schemas/types";
 import {
 	applyWakeProgressSignals,
+	buildWakeProgressItemFromTransientSignal,
 	filterVisibleWakeProgressItems,
+	readWakeProgressTerminalSignalEvidence,
 	resolveSpaceDeleteActionVisibility,
 } from "@openmeld/space";
 import { skipToken, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -1094,11 +1097,15 @@ function useClearRejectedSpaceConversationCache(input: {
 	]);
 }
 
-function resolveConfirmedViewedThroughHandler(input: {
+function resolveConfirmedViewedUpdatesHandler(input: {
 	isCurrentAccessConfirmed: boolean;
-	onViewedThroughTs?: (throughTs: number) => Promise<void> | void;
-}): ((throughTs: number) => Promise<void> | void) | undefined {
-	return input.isCurrentAccessConfirmed ? input.onViewedThroughTs : undefined;
+	onViewedUpdates?: (
+		targets: readonly SpaceInboxUnreadTarget[]
+	) => Promise<void> | void;
+}):
+	| ((targets: readonly SpaceInboxUnreadTarget[]) => Promise<void> | void)
+	| undefined {
+	return input.isCurrentAccessConfirmed ? input.onViewedUpdates : undefined;
 }
 
 function shouldShowSpaceLandingLoading(input: {
@@ -1199,8 +1206,8 @@ export type SpaceLandingController =
 			onRetryComposerFile: (localId: string) => Promise<void>;
 			onRetryComposerFileCleanup: (localId: string) => Promise<void>;
 			onRetryComposerFileRestoration: () => void;
-			onConversationViewedThroughTs?: (
-				timestamp: number
+			onConversationViewedUpdates?: (
+				targets: readonly SpaceInboxUnreadTarget[]
 			) => Promise<void> | void;
 			onJumpToDate: (date: Date) => Promise<string | null>;
 			onLoadEarlierHistory: () => Promise<void>;
@@ -1429,6 +1436,8 @@ function useWakeProgressPresentationInvariant(input: {
 	confirmedItems: readonly WakeProgressItem[];
 	presentedItems: readonly WakeProgressItem[];
 	restoredItems: readonly WakeProgressItem[];
+	historicalSignals: readonly SignalEnvelope[];
+	presentationCreatedAtMs: number;
 	cachedSpaceSummaryItems?: readonly WakeProgressItem[];
 	cachedOwnSummaryItems?: readonly WakeProgressItem[];
 	streamProjections: readonly SpaceConversationVisibleStreamProjection[];
@@ -1454,6 +1463,7 @@ function useWakeProgressPresentationInvariant(input: {
 				fromCachedSpaceSummary: anomaly.fromCachedSpaceSummary,
 				fromCachedOwnSummary: anomaly.fromCachedOwnSummary,
 				fromBootstrapStream: false,
+				fromHistoricalSignal: anomaly.fromHistoricalSignal,
 				spaceSummaryFetchedAfterMount: input.spaceSummaryFetchedAfterMount,
 				ownSummaryFetchedAfterMount: input.ownSummaryFetchedAfterMount,
 				bootstrapFetchedAfterMount: input.bootstrapFetchedAfterMount,
@@ -1482,6 +1492,7 @@ function useWakeProgressPresentationInvariant(input: {
 			fromCachedSpaceSummary: false,
 			fromCachedOwnSummary: false,
 			fromBootstrapStream: true,
+			fromHistoricalSignal: false,
 			spaceSummaryFetchedAfterMount: input.spaceSummaryFetchedAfterMount,
 			ownSummaryFetchedAfterMount: input.ownSummaryFetchedAfterMount,
 			bootstrapFetchedAfterMount: input.bootstrapFetchedAfterMount,
@@ -1553,10 +1564,14 @@ export function useSpaceLandingController(input: {
 		signalIds: readonly string[];
 	}) => Promise<void> | void;
 	onInitialPendingMessageConsumed?: () => void;
-	onViewedThroughTs?: (throughTs: number) => Promise<void> | void;
+	onViewedUpdates?: (
+		targets: readonly SpaceInboxUnreadTarget[]
+	) => Promise<void> | void;
 	unreadStateReady?: boolean;
 	unreadTotalCount: number;
 	unreadTargets?: readonly SpaceInboxUnreadTarget[];
+	unreadScopes?: SpaceInboxUnreadTargetsResponse["scopes"];
+	unreadBoundaryVersion?: number;
 	organizationId?: string | null;
 	orgSlug?: string;
 	ownerAccountId: string;
@@ -1830,6 +1845,7 @@ export function useSpaceLandingController(input: {
 	});
 	const unreadState = useSpaceUnread({
 		identity: [
+			input.unreadBoundaryVersion,
 			input.ownerAccountId,
 			input.organizationId,
 			input.spaceId,
@@ -1837,6 +1853,7 @@ export function useSpaceLandingController(input: {
 		].join(":"),
 		isReady: input.unreadStateReady === true,
 		targets: input.unreadTargets ?? [],
+		scopes: input.unreadScopes,
 	});
 	const composerSession = useSpaceComposerSession({
 		authoring: {
@@ -2335,6 +2352,8 @@ export function useSpaceLandingController(input: {
 		confirmedItems: confirmedWakeProgressItems,
 		presentedItems: presentedWakeProgressItems,
 		restoredItems: restoredWakeProgressItems,
+		historicalSignals: wakeOutcomeSignals,
+		presentationCreatedAtMs: wakeProgressPresentationQuery.data.createdAtMs,
 		cachedSpaceSummaryItems: activeWakeProgressSummaryQuery.data?.items,
 		cachedOwnSummaryItems: ownActiveWakeProgressQuery.data?.items,
 		streamProjections: agentStreamProjections,
@@ -2723,9 +2742,9 @@ export function useSpaceLandingController(input: {
 		onRetryComposerFile: composerFilesController.retryFile,
 		onRetryComposerFileCleanup: composerFilesController.retryCleanup,
 		onRetryComposerFileRestoration: composerFilesController.retryRestoration,
-		onConversationViewedThroughTs: resolveConfirmedViewedThroughHandler({
+		onConversationViewedUpdates: resolveConfirmedViewedUpdatesHandler({
 			isCurrentAccessConfirmed: statusReady && unreadState.isReady,
-			onViewedThroughTs: input.onViewedThroughTs,
+			onViewedUpdates: input.onViewedUpdates,
 		}),
 		onCloseThread: closeThread,
 		onCreateThread: threadController.onCreateThread,
@@ -2985,6 +3004,8 @@ export function useSpaceLandingController(input: {
 				agentProfileIds: resolveComposerWakeProgressTargetProfileIds({
 					explicitActivationTargets:
 						preparedSubmission.messageEnvelope?.activationTargets ?? [],
+					explicitReferenceTargets:
+						preparedSubmission.messageEnvelope?.referenceTargets,
 					membersSnapshot,
 					senderProfileId: input.profileId,
 					status: currentStatus,
@@ -3165,6 +3186,8 @@ export function useSpaceLandingController(input: {
 			? []
 			: resolveComposerWakeProgressTargetProfileIds({
 					explicitActivationTargets,
+					explicitReferenceTargets:
+						sendInput.preparedSubmission.messageEnvelope?.referenceTargets,
 					membersSnapshot,
 					senderProfileId: input.profileId,
 					status: sendInput.status,
@@ -4300,6 +4323,8 @@ function useSpaceThreadController(input: {
 			agentProfileIds: resolveComposerWakeProgressTargetProfileIds({
 				explicitActivationTargets:
 					preparedSubmission.messageEnvelope?.activationTargets ?? [],
+				explicitReferenceTargets:
+					preparedSubmission.messageEnvelope?.referenceTargets,
 				membersSnapshot: input.membersSnapshot,
 				senderProfileId: input.profileId,
 				status: input.status,
@@ -4634,10 +4659,19 @@ function useWakeProgressPolling(input: {
 			openMeldProfileId: profileId,
 			signals,
 		});
+		// History can close a Wake, but an old transient cannot prove it is still running.
+		const terminalSignals = signals.filter(
+			(signal) =>
+				buildWakeProgressItemFromTransientSignal(signal)?.terminal === true ||
+				readWakeProgressTerminalSignalEvidence(signal) !== null
+		);
+		if (terminalSignals.length === 0) {
+			return;
+		}
 		setItems((currentItems) => {
 			const nextItems = applyWakeProgressSignals({
 				currentItems,
-				signals,
+				signals: terminalSignals,
 			});
 			return areWakeProgressItemsEqual(currentItems, nextItems)
 				? currentItems

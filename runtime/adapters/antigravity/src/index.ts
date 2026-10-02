@@ -70,7 +70,6 @@ export {
   buildAntigravityArgs,
   invokeAntigravityCliTransport,
 } from "./transport/antigravity-cli-transport.js";
-export { parseAntigravityUsageLimits } from "./usage/antigravity-usage-limits.js";
 
 export function createAntigravityAdapter(
   options: AntigravityAdapterOptions = {}

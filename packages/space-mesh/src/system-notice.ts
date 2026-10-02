@@ -50,7 +50,7 @@ export function buildSystemNoticeText(input: {
         return `${targetName} stopped making progress on this Wake. Reconnect the computer before trying again.`;
       }
       if (input.variant === "local_runtime_lost") {
-        return `${targetName} was interrupted when its computer reconnected.`;
+        return `OpenMeld Service stopped or disconnected while ${targetName} was working on this Wake. Start OpenMeld again before retrying.`;
       }
       return reason
         ? `${actorName} couldn't reply: ${reason}`

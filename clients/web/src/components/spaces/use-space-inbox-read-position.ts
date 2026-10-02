@@ -1,205 +1,137 @@
 import type { SpaceInboxUnreadTarget } from "@openmeld/schemas/types";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef } from "react";
-import { markCurrentSpaceInboxReadThrough } from "#/lib/organizations/inbox";
+import { useCallback, useRef, useState } from "react";
+import { mutateCurrentSpaceInboxRead } from "#/lib/organizations/inbox";
 import {
 	inboxQueryKeys,
 	invalidateInboxFacts,
-	spaceInboxSummaryQueryOptions,
 	spaceInboxUnreadTargetsQueryOptions,
 } from "#/query/organizations/inbox";
 import {
-	optimisticallyMarkSpaceInboxReadThrough,
+	optimisticallyMarkSpaceInboxItemsRead,
 	type SpaceInboxUnreadDestination,
 } from "#/query/organizations/inbox-read-through-cache";
-import { createSpaceInboxReadThroughCoordinator } from "./space-inbox-read-through-coordinator";
-
-export type SpaceInboxReadPosition = {
-	isReady: boolean;
-	latestUnreadOccurredAtMs: number | null;
-	markReadThrough: (
-		throughOccurredAtMs: number,
-		threadRootSignalId?: string
-	) => Promise<void>;
-	prepareCatchUpMain: () => Promise<PreparedSpaceInboxCatchUp | null>;
-	targets: readonly SpaceInboxUnreadTarget[];
-	totalUnreadCount: number;
-};
-
-export type PreparedSpaceInboxCatchUp = {
-	abandon: () => void;
-	commit: () => Promise<void>;
-};
 
 export function useSpaceInboxReadPosition(input: {
 	destination: SpaceInboxUnreadDestination;
 	organizationId: string | null;
 	profileId: string;
 	spaceId: string;
-}): SpaceInboxReadPosition {
+}) {
 	const queryClient = useQueryClient();
-	const unreadTargetsQuery = useQuery(
+	const query = useQuery(
 		spaceInboxUnreadTargetsQueryOptions({
 			enabled: input.organizationId !== null,
 			organizationId: input.organizationId ?? "",
 			spaceId: input.spaceId,
 		})
 	);
-	const summaryQuery = useQuery(
-		spaceInboxSummaryQueryOptions({
-			enabled: input.organizationId !== null,
-			organizationId: input.organizationId ?? "",
-		})
-	);
-	const summaryItem = summaryQuery.data?.spaces?.find(
-		(space) => space.spaceId === input.spaceId
-	);
-	const persistOne = useCallback(
-		async (throughOccurredAtMs: number, threadRootSignalId?: string) => {
-			if (!(input.organizationId && throughOccurredAtMs > 0)) {
-				return;
-			}
-			await queryClient.cancelQueries({
-				queryKey: inboxQueryKeys.organization(input.organizationId),
-			});
-			const optimisticUpdate = optimisticallyMarkSpaceInboxReadThrough({
-				destination: input.destination,
-				organizationId: input.organizationId,
-				queryClient,
-				spaceId: input.spaceId,
-				...(threadRootSignalId ? { threadRootSignalId } : {}),
-				throughOccurredAtMs,
-			});
-			try {
-				await markCurrentSpaceInboxReadThrough({
-					organizationId: input.organizationId,
-					spaceId: input.spaceId,
-					...(threadRootSignalId ? { threadRootSignalId } : {}),
-					throughOccurredAtMs,
-				});
-			} catch (error) {
-				optimisticUpdate.rollback();
-				try {
-					await invalidateInboxFacts({
+	const writes = useRef(Promise.resolve());
+	const [readBoundaryVersion, setReadBoundaryVersion] = useState(0);
+	const refresh = useCallback(
+		() =>
+			input.organizationId
+				? invalidateInboxFacts({
 						organizationId: input.organizationId,
 						queryClient,
+					})
+				: Promise.resolve(),
+		[input.organizationId, queryClient]
+	);
+	const markViewed = useCallback(
+		(targets: readonly SpaceInboxUnreadTarget[]) => {
+			const organizationId = input.organizationId;
+			if (!organizationId || targets.length === 0) {
+				return Promise.resolve();
+			}
+			const write = writes.current
+				.catch(() => undefined)
+				.then(async () => {
+					const items = targets.map((target) => {
+						if (!target.itemId) {
+							throw new Error(
+								"Unread updates are still loading. Refresh this Space and try again."
+							);
+						}
+						return { itemId: target.itemId, occurredAtMs: target.occurredAtMs };
 					});
-				} catch (refreshError) {
-					console.warn(
-						"Failed to refresh Inbox after a read-position write failed.",
-						refreshError
+					await queryClient.cancelQueries({
+						queryKey: inboxQueryKeys.organization(organizationId),
+					});
+					const optimistic = optimisticallyMarkSpaceInboxItemsRead({
+						destination: input.destination,
+						spaceId: input.spaceId,
+						organizationId,
+						queryClient,
+						items,
+					});
+					try {
+						for (let offset = 0; offset < items.length; offset += 500) {
+							await mutateCurrentSpaceInboxRead({
+								organizationId,
+								body: {
+									operation: "read",
+									spaceId: input.spaceId,
+									items: items.slice(offset, offset + 500),
+								},
+							});
+						}
+					} catch (error) {
+						optimistic.rollback();
+						await refresh().catch(() => undefined);
+						throw error;
+					}
+					await refresh().catch((error) =>
+						console.warn("Could not refresh unread updates.", error)
 					);
-				}
-				throw error;
-			}
-			await invalidateInboxFacts({
-				organizationId: input.organizationId,
-				queryClient,
-			});
+				});
+			writes.current = write;
+			return write;
 		},
-		[input.destination, input.organizationId, input.spaceId, queryClient]
+		[
+			input.destination,
+			input.organizationId,
+			input.spaceId,
+			queryClient,
+			refresh,
+		]
 	);
-	const enqueuePersist = useMemo(
-		() =>
-			createSpaceInboxReadThroughCoordinator(
-				async ({ threadRootSignalId, throughOccurredAtMs }) =>
-					await persistOne(throughOccurredAtMs, threadRootSignalId)
-			),
-		[persistOne]
-	);
-	const persist = useCallback(
-		async (throughOccurredAtMs: number, threadRootSignalId?: string) =>
-			await enqueuePersist({
-				...(threadRootSignalId ? { threadRootSignalId } : {}),
-				throughOccurredAtMs,
-			}),
-		[enqueuePersist]
-	);
-	const retryCutoffRef = useRef<{
-		cutoff: number;
-		scopeKey: string;
-	} | null>(null);
-	const identityScopeKey = `${input.organizationId ?? ""}:${input.profileId}:${input.spaceId}`;
-	const activeScopeKeyRef = useRef<string | null>(null);
-	useEffect(() => {
-		activeScopeKeyRef.current = identityScopeKey;
-		retryCutoffRef.current = null;
-		return () => {
-			if (activeScopeKeyRef.current === identityScopeKey) {
-				activeScopeKeyRef.current = null;
-			}
-		};
-	}, [identityScopeKey]);
-	const prepareCatchUpMain = useCallback(async () => {
+	const prepareMarkAllRead = useCallback(async () => {
 		if (!input.organizationId) {
-			return null;
+			throw new Error("Sign in to mark updates as read.");
 		}
-		const scopeKey = `${input.organizationId}:${input.profileId}:${input.spaceId}`;
-		let preparedCutoff =
-			retryCutoffRef.current?.scopeKey === scopeKey
-				? retryCutoffRef.current
-				: null;
-		if (preparedCutoff === null) {
-			const summary = await queryClient.fetchQuery({
-				...spaceInboxSummaryQueryOptions({
-					organizationId: input.organizationId,
-				}),
-				staleTime: 0,
-			});
-			if (scopeKey !== activeScopeKeyRef.current) {
-				return null;
-			}
-			const space = summary.spaces.find(
-				(candidate) => candidate.spaceId === input.spaceId
-			);
-			if (!space) {
-				if ((unreadTargetsQuery.data?.totalUnreadCount ?? 0) > 0) {
-					throw new Error(
-						"OpenMeld couldn’t confirm which messages are unread. Try again."
-					);
-				}
-				return null;
-			}
-			preparedCutoff = {
-				cutoff: space.latestUnreadOccurredAtMs,
-				scopeKey,
-			};
-			retryCutoffRef.current = preparedCutoff;
+		const organizationId = input.organizationId;
+		const prepared = await mutateCurrentSpaceInboxRead({
+			organizationId,
+			body: { operation: "prepare", spaceId: input.spaceId },
+		});
+		if (prepared.operation !== "prepare") {
+			throw new Error("Could not prepare unread updates. Try again.");
 		}
-		const cutoff = preparedCutoff;
 		return {
-			abandon: () => {
-				if (retryCutoffRef.current === cutoff) {
-					retryCutoffRef.current = null;
-				}
-			},
+			unreadCount: prepared.unreadCount,
 			commit: async () => {
-				if (scopeKey !== activeScopeKeyRef.current) {
-					return;
-				}
-				await persist(cutoff.cutoff);
-				if (
-					scopeKey === activeScopeKeyRef.current &&
-					retryCutoffRef.current === cutoff
-				) {
-					retryCutoffRef.current = null;
-				}
+				await writes.current.catch(() => undefined);
+				await mutateCurrentSpaceInboxRead({
+					organizationId,
+					body: {
+						operation: "clear",
+						spaceId: input.spaceId,
+						snapshotId: prepared.snapshotId,
+					},
+				});
+				await refresh();
+				setReadBoundaryVersion((version) => version + 1);
 			},
 		};
-	}, [
-		input.organizationId,
-		input.profileId,
-		input.spaceId,
-		persist,
-		queryClient,
-		unreadTargetsQuery.data?.totalUnreadCount,
-	]);
+	}, [input.organizationId, input.spaceId, refresh]);
 	return {
-		isReady: unreadTargetsQuery.isSuccess,
-		latestUnreadOccurredAtMs: summaryItem?.latestUnreadOccurredAtMs ?? null,
-		markReadThrough: persist,
-		prepareCatchUpMain,
-		targets: unreadTargetsQuery.data?.targets ?? [],
-		totalUnreadCount: unreadTargetsQuery.data?.totalUnreadCount ?? 0,
+		isReady: query.isSuccess,
+		readBoundaryVersion,
+		targets: query.data?.targets ?? [],
+		scopes: query.data?.scopes,
+		totalUnreadCount: query.data?.totalUnreadCount ?? 0,
+		markViewed,
+		prepareMarkAllRead,
 	};
 }

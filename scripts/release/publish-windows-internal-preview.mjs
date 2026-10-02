@@ -10,6 +10,7 @@ import {
   DESKTOP_WINDOWS_INTERNAL_PREVIEW_KEY,
   desktopWindowsInternalPreviewLocation,
   desktopWindowsInternalPreviewSchema,
+  localComponentsReleaseManifestSchema,
 } from "../../packages/schemas/dist/index.js";
 import {
   checkDesktopPublisher,
@@ -47,9 +48,14 @@ function fileSha256(path) {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
 
-function validateArtifactFiles(directory, bundle) {
+function validateArtifactFiles(
+  directory,
+  bundle,
+  roles = Object.keys(ARTIFACT_PATHS)
+) {
   const files = {};
-  for (const [role, pattern] of Object.entries(ARTIFACT_PATHS)) {
+  for (const role of roles) {
+    const pattern = ARTIFACT_PATHS[role];
     const file = bundle.files?.[role];
     if (
       !file ||
@@ -74,13 +80,15 @@ function validateArtifactFiles(directory, bundle) {
   return files;
 }
 
-function validateBundle(directory, requireMain) {
-  const bundle = JSON.parse(
-    readFileSync(
-      join(directory, "dev-tmp/windows-internal-preview/bundle.json"),
-      "utf8"
-    )
+function matchesDesktopPointer(pointer, file) {
+  return (
+    pointer.sha256 === file.sha256 &&
+    pointer.sizeBytes === file.sizeBytes &&
+    file.objectKey === desktopWindowsInternalPreviewLocation(pointer).objectKey
   );
+}
+
+function validateSourceIdentity(bundle, requireMain) {
   const sourceSha = git("rev-parse", "HEAD");
   if (
     !SHA.test(sourceSha) ||
@@ -94,9 +102,49 @@ function validateBundle(directory, requireMain) {
   if (requireMain) {
     git("merge-base", "--is-ancestor", sourceSha, "origin/main");
   }
+  return sourceSha;
+}
+
+function validateSourceComponentPolicy(componentPolicy) {
+  if (!componentPolicy) {
+    throw new Error(
+      "Windows preview requires source-matched CLI and Service component policies."
+    );
+  }
+  const sourcePolicy = localComponentsReleaseManifestSchema.parse(
+    JSON.parse(
+      readFileSync(join(root, "release/local-components.json"), "utf8")
+    )
+  );
+  if (
+    JSON.stringify(componentPolicy.cli) !==
+      JSON.stringify(sourcePolicy.components.cli) ||
+    JSON.stringify(componentPolicy.service) !==
+      JSON.stringify(sourcePolicy.components.service)
+  ) {
+    throw new Error(
+      "Windows preview policies do not match the exact source release manifest."
+    );
+  }
+}
+
+function validateBundle(directory, requireMain, cliOnly = false) {
+  const bundle = JSON.parse(
+    readFileSync(
+      join(
+        directory,
+        `dev-tmp/windows-internal-preview/${cliOnly ? "bundle-cli.json" : "bundle.json"}`
+      ),
+      "utf8"
+    )
+  );
+  const sourceSha = validateSourceIdentity(bundle, requireMain);
   const manifest = cliBinaryManifestSchema.parse(bundle.manifest);
-  const pointer = desktopWindowsInternalPreviewSchema.parse(bundle.pointer);
-  if (pointer.releaseSha !== sourceSha) {
+  validateSourceComponentPolicy(manifest.channels.stable.componentPolicy);
+  const pointer = cliOnly
+    ? undefined
+    : desktopWindowsInternalPreviewSchema.parse(bundle.pointer);
+  if (pointer && pointer.releaseSha !== sourceSha) {
     throw new Error(
       "Windows preview Desktop source does not match the release checkout."
     );
@@ -113,7 +161,11 @@ function validateBundle(directory, requireMain) {
       "Windows preview manifest must select only the unsigned Windows pair."
     );
   }
-  const files = validateArtifactFiles(directory, bundle);
+  const files = validateArtifactFiles(
+    directory,
+    bundle,
+    cliOnly ? ["cli", "service", "helper"] : undefined
+  );
   for (const role of ["cli", "service", "helper"]) {
     const file = files[role];
     const stem =
@@ -141,10 +193,7 @@ function validateBundle(directory, requireMain) {
   if (
     !(matches(cli, files.cli) && matches(service, files.service)) ||
     helper.sha256 !== files.helper.sha256 ||
-    pointer.sha256 !== files.desktop.sha256 ||
-    pointer.sizeBytes !== files.desktop.sizeBytes ||
-    files.desktop.objectKey !==
-      desktopWindowsInternalPreviewLocation(pointer).objectKey
+    (pointer && !matchesDesktopPointer(pointer, files.desktop))
   ) {
     throw new Error(
       "Windows preview manifest does not describe the exact downloaded bytes."
@@ -184,9 +233,9 @@ function putObject({ key, path, contentType, cacheControl, env }) {
 async function main() {
   const mode = process.argv[2];
   const directory = process.argv[3];
-  if (mode !== "check" && mode !== "publish") {
+  if (!["check", "publish", "check-cli", "publish-cli"].includes(mode)) {
     throw new Error(
-      "Use check or publish with the exact-source artifact directory."
+      "Use check, publish, check-cli, or publish-cli with the exact-source artifact directory."
     );
   }
   if (!directory) {
@@ -194,8 +243,13 @@ async function main() {
       "Pass the downloaded exact-source Windows preview artifact directory."
     );
   }
-  const selected = validateBundle(resolve(directory), mode === "publish");
-  if (mode === "check") {
+  const cliOnly = mode.endsWith("-cli");
+  const selected = validateBundle(
+    resolve(directory),
+    mode.startsWith("publish"),
+    cliOnly
+  );
+  if (mode.startsWith("check")) {
     process.stdout.write(
       `Windows preview artifact matches ${selected.sourceSha}. No object was published.\n`
     );
@@ -208,7 +262,9 @@ async function main() {
     sourceSha: selected.sourceSha,
   });
   try {
-    for (const role of ["helper", "service", "cli", "desktop"]) {
+    for (const role of cliOnly
+      ? ["helper", "service", "cli"]
+      : ["helper", "service", "cli", "desktop"]) {
       const file = selected.files[role];
       putObject({
         key: file.objectKey,
@@ -222,17 +278,9 @@ async function main() {
       root,
       "dev-tmp/windows-preview-upload-manifest.json"
     );
-    const pointerPath = join(
-      root,
-      "dev-tmp/windows-preview-upload-pointer.json"
-    );
     writeFileSync(
       manifestPath,
       `${JSON.stringify(selected.manifest, null, 2)}\n`
-    );
-    writeFileSync(
-      pointerPath,
-      `${JSON.stringify(selected.pointer, null, 2)}\n`
     );
     putObject({
       key: "cli/windows-preview/manifest.json",
@@ -241,13 +289,23 @@ async function main() {
       cacheControl: "public, max-age=60, must-revalidate",
       env,
     });
-    putObject({
-      key: DESKTOP_WINDOWS_INTERNAL_PREVIEW_KEY,
-      path: pointerPath,
-      contentType: "application/json; charset=utf-8",
-      cacheControl: "no-store",
-      env,
-    });
+    if (selected.pointer) {
+      const pointerPath = join(
+        root,
+        "dev-tmp/windows-preview-upload-pointer.json"
+      );
+      writeFileSync(
+        pointerPath,
+        `${JSON.stringify(selected.pointer, null, 2)}\n`
+      );
+      putObject({
+        key: DESKTOP_WINDOWS_INTERNAL_PREVIEW_KEY,
+        path: pointerPath,
+        contentType: "application/json; charset=utf-8",
+        cacheControl: "no-store",
+        env,
+      });
+    }
   } finally {
     releaseProductionScopeLease({
       cwd: root,
@@ -256,7 +314,7 @@ async function main() {
     });
   }
   process.stdout.write(
-    `Windows internal preview published from ${selected.sourceSha}. Verify both Web URLs before sharing them.\n`
+    `Windows ${cliOnly ? "CLI" : "CLI and Desktop"} internal preview published from ${selected.sourceSha}. Publication closeout is pending: verify public URLs, then run guarded Core --redeploy and retain newly admitted Worker/catalogue evidence before sharing completion.\n`
   );
 }
 

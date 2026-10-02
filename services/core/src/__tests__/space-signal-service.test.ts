@@ -567,6 +567,11 @@ const buildWakeProgressItemFromLookupTrace = async (
   const bindings = {} as CoreBindings;
   Object.defineProperties(space, {
     bindings: { value: bindings },
+    ctx: {
+      value: {
+        storage: { sql: createActiveWakeProgressSql({ outboxRows: [] }) },
+      },
+    },
     env: { value: bindings },
     readSpaceDispatchTrace: {
       value: vi.fn(async () => ({ trace })),
@@ -816,6 +821,11 @@ async function readWakeProgressPreAgentWakeStopEligibilityForTest(
             options.headLifecycleReadStatus ?? "accepted",
         }),
         ...(options.db ? { OPENMELD_DB: options.db } : {}),
+      },
+    },
+    ctx: {
+      value: {
+        storage: { sql: createActiveWakeProgressSql({ outboxRows: [] }) },
       },
     },
     spaceId: { value: "space-1" },
@@ -5913,6 +5923,7 @@ describe("space signal service", () => {
       expect.objectContaining({
         clientMessageId: outboxRecord.sourceClientMessageId,
         dispatchId: outboxRecord.dispatchId,
+        message: "@Codex Agent is working...",
         phase: "running",
         sourceSignalId: outboxRecord.sourceEventId,
         targetProfileId: outboxRecord.targetProfileId,
@@ -5956,6 +5967,46 @@ describe("space signal service", () => {
         terminal: false,
       }),
     ]);
+  });
+
+  it("shows a task continuation's own hosted working dispatch after the original Wake", async () => {
+    const sourceSignal = createWakeProgressSourceSignal({
+      clientMessageId: "client-message-parent-1",
+      id: "signal-parent-1",
+    });
+    const response = await readActiveWakeProgressForTest({
+      activeNativeDeliveryRows: [
+        {
+          dispatchId: "dispatch-parent-continuation-1",
+          nativeDeliveryStatus: "accepted",
+          sourceClientMessageId: null,
+          sourceEventId: sourceSignal.id,
+          targetProfileId: "agt_33333333-3333-4333-8333-333333333333",
+        },
+      ],
+      includeWakeStopEligibility: true,
+      outboxRows: [],
+      sourceSignals: [sourceSignal],
+    });
+
+    expect(response.items).toContainEqual(
+      expect.objectContaining({
+        clientMessageId: null,
+        dispatchId: "dispatch-parent-continuation-1",
+        message: "@Agent is working...",
+        phase: "running",
+        sourceSignalId: sourceSignal.id,
+        terminal: false,
+      })
+    );
+    expect(
+      response.items.find(
+        (item) => item.dispatchId === "dispatch-parent-continuation-1"
+      )?.wakeStopEligibility
+    ).toMatchObject({
+      controlMode: "cancel",
+      status: "eligible",
+    });
   });
 
   it("rehydrates Stop-enabled hosted progress without an active outbox record", async () => {

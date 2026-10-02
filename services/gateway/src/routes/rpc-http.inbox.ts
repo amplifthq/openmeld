@@ -36,6 +36,8 @@ import {
   markSpaceInboxReadThroughResponseSchema,
   mutateInboxFeedBodySchema,
   mutateInboxFeedResponseSchema,
+  mutateSpaceInboxReadBodySchema,
+  mutateSpaceInboxReadResponseSchema,
   spaceInboxSummaryResponseSchema,
   spaceInboxUnreadTargetsResponseSchema,
   spaceInboxUnreadTargetsRouteParamsSchema,
@@ -272,6 +274,9 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
       c,
       execute: async () =>
         await c.var.coreRpc.getSpaceInboxUnreadTargets({
+          ...(c.req.query("includeItemIds") === "true"
+            ? { includeItemIds: true }
+            : {}),
           context: buildCoreRpcContext(c),
           spaceId: params.data.spaceId,
         }),
@@ -301,6 +306,30 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
       method: "POST",
       responseSchema: markSpaceInboxReadThroughResponseSchema,
       route: SPACE_INBOX_READ_THROUGH_ROUTE,
+    });
+  });
+
+  app.post("/v1/inbox/spaces/read", async (c) => {
+    const route = "/v1/inbox/spaces/read";
+    const body = await parseBody(
+      c,
+      route,
+      "POST",
+      mutateSpaceInboxReadBodySchema
+    );
+    if (!body.ok) {
+      return body.response;
+    }
+    return executeRpcRoute({
+      c,
+      method: "POST",
+      route,
+      responseSchema: mutateSpaceInboxReadResponseSchema,
+      execute: () =>
+        c.var.coreRpc.mutateSpaceInboxRead({
+          body: body.data,
+          context: buildCoreRpcContext(c),
+        }),
     });
   });
 

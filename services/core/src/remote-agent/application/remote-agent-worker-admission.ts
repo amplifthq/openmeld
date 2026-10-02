@@ -2,10 +2,14 @@ import {
   REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_PUBLIC_COPY,
   REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_REASON_CODE,
   remoteAgentWorkerCancellationResponseSchema,
+  remoteAgentWorkerReadAdmissionResponseSchema,
+  remoteAgentWorkerReadAdmissionStopResponseSchema,
+  remoteAgentWorkerSubmitCapabilitiesSchema,
   remoteAgentWorkerSubmitTurnResponseSchema,
   resolveMappedPublicAgentFailureReason,
 } from "@openmeld/schemas";
 import type {
+  RemoteAgentWorkerReadAdmissionStopResponse,
   RemoteAgentWorkerSubmitMessagesResult,
   RemoteAgentWorkerSubmitTurnRequest,
   RemoteAgentWorkerSubmitTurnResponse,
@@ -16,20 +20,24 @@ import {
 } from "../../center-agent/center-agent-repository";
 import type { CoreBindings } from "../../lib/bindings";
 import { identityDb } from "../../lib/bindings";
-import { isRpcReceiverMethodNotImplementedError } from "../../rpc/errors";
+import {
+  isRpcReceiverMethodNotImplementedError,
+  isRpcReceiverMethodNotImplementedErrorForMethod,
+} from "../../rpc/errors";
+import {
+  REMOTE_AGENT_DAILY_QUOTA_EXCEEDED_MESSAGE,
+  REMOTE_AGENT_DAILY_QUOTA_EXCEEDED_REASON_CODE,
+  readAiUsageAllowance,
+} from "../../usage/ai-usage-policy";
 import {
   advanceRemoteAgentConversationGeneration,
   markRemoteAgentConversationGenerationStarted,
   type RemoteAgentConversationGeneration,
   readRemoteAgentConversationGeneration,
 } from "../infrastructure/d1/conversation-generation-repo";
-import { admitRemoteAgentDailyDelivery } from "../infrastructure/d1/daily-admission-repo";
+import type { RemoteAgentNativeDeliveryRecord } from "../infrastructure/d1/native-delivery-ledger-repo";
 import { replaceRemoteAgentWorkerSubmitRequestForGeneration } from "../infrastructure/d1/native-delivery-ledger-repo";
-import {
-  REMOTE_AGENT_DAILY_QUOTA_EXCEEDED_MESSAGE,
-  REMOTE_AGENT_DAILY_QUOTA_EXCEEDED_REASON_CODE,
-  resolveRemoteAgentDailyAdmissionLimit,
-} from "./daily-admission-policy";
+import { reportNativeDeliveryAdmissionEvidence } from "./native-delivery-admission-evidence";
 import { requirePersonalRemoteAgentBinding } from "./personal-remote-agent-binding";
 import {
   buildRemoteAgentConversationContinuityContext,
@@ -38,6 +46,12 @@ import {
   resolveRemoteAgentLogicalConversationId,
   resolveRemoteAgentRuntimeConversationId,
 } from "./remote-agent-conversation-continuity";
+import {
+  forwardSpaceStopAfterRemoteAgentAdmission,
+  isRemoteAgentRequestStopRequested,
+  RemoteAgentWakeStoppedBeforeAdmissionError,
+} from "./space-wake-stop-intent";
+import { requireTaskContinuationSummaryPolicy } from "./task-continuation-summary-policy";
 
 export type RemoteAgentWorkerAdmission =
   | {
@@ -83,6 +97,104 @@ const ROUTINE_RUN_HISTORY_LIMIT_RESPONSE = {
     "This Routine Run could not continue after its execution history reached the safety limit.",
   reasonCode: REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_REASON_CODE,
 } as const;
+
+/** Select optional fields only before the owning ledger freezes a new request. */
+export async function resolveRemoteAgentWorkerTaskAttribution(
+  worker: NonNullable<CoreBindings["OPENMELD_REMOTE_AGENT_WORKER"]>,
+  taskId: string | undefined
+): Promise<{ taskId?: string }> {
+  if (!(taskId && worker.readSubmitTurnCapabilities)) {
+    return {};
+  }
+  let value: unknown;
+  try {
+    value = await worker.readSubmitTurnCapabilities({ v: 1 });
+  } catch (error) {
+    if (
+      isRpcReceiverMethodNotImplementedErrorForMethod(
+        error,
+        "readSubmitTurnCapabilities"
+      )
+    ) {
+      return {};
+    }
+    throw error;
+  }
+  remoteAgentWorkerSubmitCapabilitiesSchema.parse(value);
+  return { taskId };
+}
+
+/** null means an older receiver; not_found means a current owner has no fence. */
+export async function readRemoteAgentWorkerAdmissionStop(input: {
+  request: RemoteAgentWorkerSubmitTurnRequest;
+  worker: Pick<
+    NonNullable<CoreBindings["OPENMELD_REMOTE_AGENT_WORKER"]>,
+    "readAdmissionStop"
+  >;
+}): Promise<RemoteAgentWorkerReadAdmissionStopResponse | null> {
+  if (!input.worker.readAdmissionStop) {
+    return null;
+  }
+  let value: unknown;
+  try {
+    value = await input.worker.readAdmissionStop(input.request);
+  } catch (error) {
+    if (
+      isRpcReceiverMethodNotImplementedErrorForMethod(
+        error,
+        "readAdmissionStop"
+      )
+    ) {
+      return null;
+    }
+    throw error;
+  }
+  const response =
+    remoteAgentWorkerReadAdmissionStopResponseSchema.parse(value);
+  if (response.status === "not_found") {
+    return response;
+  }
+  const { stopIntent } = response;
+  if (
+    stopIntent.organizationId !== input.request.organizationId ||
+    stopIntent.spaceId !== input.request.spaceId ||
+    stopIntent.idempotencyKey !== input.request.idempotencyKey
+  ) {
+    throw new Error("remote_agent.admission_stop_receipt_identity_mismatch");
+  }
+  return response;
+}
+
+/** Recover the original ACK without replaying an admission request. */
+export async function readRemoteAgentWorkerAdmission(input: {
+  admissionDelivery?: RemoteAgentNativeDeliveryRecord;
+  request: RemoteAgentWorkerSubmitTurnRequest;
+  worker: Pick<
+    NonNullable<CoreBindings["OPENMELD_REMOTE_AGENT_WORKER"]>,
+    "readAdmission"
+  >;
+}): Promise<RemoteAgentWorkerSubmitMessagesResult | null> {
+  if (!input.worker.readAdmission) {
+    // Mixed-version receiver: preserve the existing exact-idempotency policy.
+    return null;
+  }
+  const response = remoteAgentWorkerReadAdmissionResponseSchema.parse(
+    await input.worker.readAdmission(input.request)
+  );
+  if (response.status !== "found") {
+    return null;
+  }
+  if (response.ack.idempotencyKey !== input.request.idempotencyKey) {
+    throw new Error("remote_agent.admission_receipt_identity_mismatch");
+  }
+  reportNativeDeliveryAdmissionEvidence({
+    delivery: input.admissionDelivery,
+    observedAtMs: Date.now(),
+    phase: "acknowledged",
+    submissionId: response.ack.submissionId,
+  });
+  return response.ack;
+}
 
 function cannotResumeRoutineRunGeneration(input: {
   generation: RemoteAgentConversationGeneration;
@@ -161,6 +273,8 @@ async function validatePersonalRemoteAgentAdmission(input: {
 }
 
 export async function submitRemoteAgentWorkerAdmission(input: {
+  admissionDelivery?: RemoteAgentNativeDeliveryRecord;
+  continuitySourceDispatchId?: string;
   db: D1Database;
   env: CoreBindings;
   nowMs: number;
@@ -168,6 +282,39 @@ export async function submitRemoteAgentWorkerAdmission(input: {
   request: RemoteAgentWorkerSubmitTurnRequest;
   worker: NonNullable<CoreBindings["OPENMELD_REMOTE_AGENT_WORKER"]>;
 }): Promise<RemoteAgentWorkerAdmission> {
+  const started = performance.now();
+  const startedAtMs = Date.now();
+  reportNativeDeliveryAdmissionEvidence({
+    delivery: input.admissionDelivery,
+    observedAtMs: startedAtMs,
+    phase: "preparing",
+  });
+  try {
+    const result = await performRemoteAgentWorkerAdmission(input);
+    const observedAtMs = Date.now();
+    reportNativeDeliveryAdmissionEvidence({
+      delivery: input.admissionDelivery,
+      elapsedMs: Math.max(0, Math.round(performance.now() - started)),
+      observedAtMs,
+      phase: "admission_finished",
+      outcome: result.status,
+    });
+    return result;
+  } catch (error) {
+    const observedAtMs = Date.now();
+    reportNativeDeliveryAdmissionEvidence({
+      delivery: input.admissionDelivery,
+      elapsedMs: Math.max(0, Math.round(performance.now() - started)),
+      observedAtMs,
+      phase: "unexpected_error",
+    });
+    throw error;
+  }
+}
+
+async function performRemoteAgentWorkerAdmission(
+  input: Parameters<typeof submitRemoteAgentWorkerAdmission>[0]
+): Promise<RemoteAgentWorkerAdmission> {
   const centerAgentDb = identityDb(input.env);
   const personalRejection = await validatePersonalRemoteAgentAdmission(input);
   if (personalRejection) {
@@ -189,16 +336,32 @@ export async function submitRemoteAgentWorkerAdmission(input: {
     }
   }
 
-  const dailyAdmission = await admitRemoteAgentDailyDelivery({
+  // A previously saved Stop must not spend an admission or be reported as a
+  // quota failure. Keep the authorization fence immediately before submission
+  // as well: this read-only preflight does not close the concurrent Stop race.
+  try {
+    if (await isRemoteAgentRequestStopRequested(input.env, input.request)) {
+      return resolveWorkerSubmitFailure(
+        new RemoteAgentWakeStoppedBeforeAdmissionError()
+      );
+    }
+  } catch (error) {
+    return resolveWorkerSubmitFailure(error);
+  }
+  await requireTaskContinuationSummaryPolicy({
+    env: input.env,
+    requests: [
+      input.request,
+      input.admissionDelivery?.workerSubmitRequest ?? null,
+      input.admissionDelivery?.executionRecoverySubmitRequest ?? null,
+    ],
+  });
+  const allowance = await readAiUsageAllowance({
     db: input.db,
-    idempotencyKey: input.request.idempotencyKey,
-    limit: resolveRemoteAgentDailyAdmissionLimit(
-      input.env.OPENMELD_REMOTE_AGENT_DAILY_ADMISSION_LIMIT
-    ),
     nowMs: input.nowMs,
     organizationId: input.organizationId,
   });
-  if (dailyAdmission.status === "rejected") {
+  if (allowance.exhausted) {
     return {
       response: {
         message: REMOTE_AGENT_DAILY_QUOTA_EXCEEDED_MESSAGE,
@@ -237,21 +400,22 @@ export async function submitRemoteAgentWorkerAdmission(input: {
     }
   }
 
-  let response: RemoteAgentWorkerSubmitTurnResponse;
+  let parsed: ReturnType<
+    typeof remoteAgentWorkerSubmitTurnResponseSchema.safeParse
+  >;
   try {
     // Once admitted, downstream failures do not roll back the daily count.
     // Retries reuse the ledger marker above and therefore are never recounted.
-    response = await submitRemoteAgentWorkerTurn(input.worker, request);
+    parsed = await submitRemoteAgentWorkerTurn(
+      input.worker,
+      request,
+      input.env,
+      input.admissionDelivery
+    );
   } catch (error) {
-    return {
-      error,
-      status: isRpcReceiverMethodNotImplementedError(error)
-        ? "receiver_unavailable"
-        : "outcome_unknown",
-    };
+    return resolveWorkerSubmitFailure(error);
   }
 
-  const parsed = remoteAgentWorkerSubmitTurnResponseSchema.safeParse(response);
   if (!parsed.success) {
     return { error: parsed.error, status: "protocol_error" };
   }
@@ -304,6 +468,7 @@ async function handleRejectedWorkerOutcome(input: {
 }
 
 async function prepareGenerationRequest(input: {
+  continuitySourceDispatchId?: string;
   db: D1Database;
   env: CoreBindings;
   generation: RemoteAgentConversationGeneration;
@@ -321,6 +486,9 @@ async function prepareGenerationRequest(input: {
     input.generation.startedAtMs === null
   ) {
     continuityContext = await buildRemoteAgentConversationContinuityContext({
+      ...(input.continuitySourceDispatchId
+        ? { sourceDispatchId: input.continuitySourceDispatchId }
+        : {}),
       db: input.db,
       env: input.env,
       generation: input.generation.generation,
@@ -347,6 +515,7 @@ async function prepareGenerationRequest(input: {
 }
 
 async function rolloverRemoteAgentConversation(input: {
+  admissionDelivery?: RemoteAgentNativeDeliveryRecord;
   currentGeneration: RemoteAgentConversationGeneration;
   db: D1Database;
   env: CoreBindings;
@@ -383,18 +552,19 @@ async function rolloverRemoteAgentConversation(input: {
     return { error, status: "protocol_error" };
   }
 
-  let response: RemoteAgentWorkerSubmitTurnResponse;
+  let parsed: ReturnType<
+    typeof remoteAgentWorkerSubmitTurnResponseSchema.safeParse
+  >;
   try {
-    response = await submitRemoteAgentWorkerTurn(input.worker, request);
+    parsed = await submitRemoteAgentWorkerTurn(
+      input.worker,
+      request,
+      input.env,
+      input.admissionDelivery
+    );
   } catch (error) {
-    return {
-      error,
-      status: isRpcReceiverMethodNotImplementedError(error)
-        ? "receiver_unavailable"
-        : "outcome_unknown",
-    };
+    return resolveWorkerSubmitFailure(error);
   }
-  const parsed = remoteAgentWorkerSubmitTurnResponseSchema.safeParse(response);
   if (!parsed.success) {
     return { error: parsed.error, status: "protocol_error" };
   }
@@ -408,7 +578,8 @@ async function rolloverRemoteAgentConversation(input: {
   };
 }
 
-async function finishAcknowledgedAdmission(input: {
+export async function finishAcknowledgedAdmission(input: {
+  admissionDelivery?: RemoteAgentNativeDeliveryRecord;
   ack: RemoteAgentWorkerSubmitMessagesResult;
   db: D1Database;
   env: CoreBindings;
@@ -417,6 +588,40 @@ async function finishAcknowledgedAdmission(input: {
   request: RemoteAgentWorkerSubmitTurnRequest;
   worker: NonNullable<CoreBindings["OPENMELD_REMOTE_AGENT_WORKER"]>;
 }): Promise<RemoteAgentWorkerAdmission> {
+  const started = performance.now();
+  reportNativeDeliveryAdmissionEvidence({
+    delivery: input.admissionDelivery,
+    observedAtMs: Date.now(),
+    phase: "postprocessing_started",
+    submissionId: input.ack.submissionId,
+  });
+  try {
+    const result = await performAcknowledgedAdmissionPostprocessing(input);
+    reportNativeDeliveryAdmissionEvidence({
+      delivery: input.admissionDelivery,
+      observedAtMs: Date.now(),
+      elapsedMs: Math.max(0, Math.round(performance.now() - started)),
+      phase: "postprocessing_finished",
+      outcome: result.status,
+      submissionId: input.ack.submissionId,
+    });
+    return result;
+  } catch (error) {
+    reportNativeDeliveryAdmissionEvidence({
+      delivery: input.admissionDelivery,
+      observedAtMs: Date.now(),
+      elapsedMs: Math.max(0, Math.round(performance.now() - started)),
+      phase: "postprocessing_finished",
+      outcome: "unexpected_error",
+      submissionId: input.ack.submissionId,
+    });
+    throw error;
+  }
+}
+
+async function performAcknowledgedAdmissionPostprocessing(
+  input: Parameters<typeof finishAcknowledgedAdmission>[0]
+): Promise<RemoteAgentWorkerAdmission> {
   if (input.request.v === 4) {
     try {
       await markRemoteAgentConversationGenerationStarted({
@@ -438,6 +643,7 @@ async function finishAcknowledgedAdmission(input: {
       );
     }
   }
+  await forwardSpaceStopAfterRemoteAgentAdmission(input);
   const pauseFenceFailure = await requestCancellationWhenPausedAfterAdmission({
     ...input,
     centerAgentDb: identityDb(input.env),
@@ -509,13 +715,60 @@ async function requestCancellationWhenPausedAfterAdmission(input: {
   }
 }
 
-function submitRemoteAgentWorkerTurn(
+function resolveWorkerSubmitFailure(
+  error: unknown
+): Exclude<RemoteAgentWorkerAdmission, { status: "acknowledged" }> {
+  if (error instanceof RemoteAgentWakeStoppedBeforeAdmissionError) {
+    return {
+      status: "rejected",
+      response: {
+        message: error.message,
+        reasonCode: "remote_agent.execution_cancelled",
+      },
+    };
+  }
+  return {
+    error,
+    status: isRpcReceiverMethodNotImplementedError(error)
+      ? "receiver_unavailable"
+      : "outcome_unknown",
+  };
+}
+
+async function submitRemoteAgentWorkerTurn(
   worker: NonNullable<CoreBindings["OPENMELD_REMOTE_AGENT_WORKER"]>,
-  request: RemoteAgentWorkerSubmitTurnRequest
-): Promise<RemoteAgentWorkerSubmitTurnResponse> {
+  request: RemoteAgentWorkerSubmitTurnRequest,
+  env: CoreBindings,
+  admissionDelivery?: RemoteAgentNativeDeliveryRecord
+): Promise<
+  ReturnType<typeof remoteAgentWorkerSubmitTurnResponseSchema.safeParse>
+> {
+  if (await isRemoteAgentRequestStopRequested(env, request, true)) {
+    throw new RemoteAgentWakeStoppedBeforeAdmissionError();
+  }
+  reportNativeDeliveryAdmissionEvidence({
+    delivery: admissionDelivery,
+    observedAtMs: Date.now(),
+    phase: "sending",
+  });
   // RPC proxies expose arbitrary method properties; direct invocation is the
   // only reliable capability check after the binding itself is present.
-  return (worker as RequiredRemoteAgentWorkerSubmitter).submitConversationTurn(
-    request
-  );
+  const started = performance.now();
+  const response = await (
+    worker as RequiredRemoteAgentWorkerSubmitter
+  ).submitConversationTurn(request);
+  const parsed = remoteAgentWorkerSubmitTurnResponseSchema.safeParse(response);
+  if (parsed.success && !("outcome" in parsed.data)) {
+    // Record the validated receipt before generation writes, Stop forwarding
+    // or pause cancellation can wait or fail. This is evidence, not authority.
+    reportNativeDeliveryAdmissionEvidence({
+      delivery: admissionDelivery,
+      observedAtMs: Date.now(),
+      elapsedMs: Math.max(0, Math.round(performance.now() - started)),
+      phase: "acknowledged",
+      accepted: parsed.data.accepted,
+      submissionId: parsed.data.submissionId,
+    });
+  }
+  return parsed;
 }

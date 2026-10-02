@@ -1,11 +1,18 @@
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { DaemonServiceRuntimeStatus } from "../src/config/daemon-state";
-import { OPENMELD_HOME_ENV_KEY } from "../src/config/paths";
+import { daemonRuntimeBundlesPath } from "../src/config/daemon-state";
+import {
+  OPENMELD_HOME_ENV_KEY,
+  resolveOpenMeldRootDir,
+} from "../src/config/paths";
+import { daemonServiceExecutableWrapperPath } from "../src/local-service/lifecycle/daemon-service-bundle";
 import {
   requiresLegacySharedDaemonServiceMigration,
   resolveLegacySharedDaemonPathInput,
   shouldInspectLegacySharedDaemonService,
 } from "../src/local-service/lifecycle/daemon-service-legacy-shared";
+import type { DaemonServiceManager } from "../src/local-service/lifecycle/daemon-service-manager";
 
 describe("local service legacy shared", () => {
   it("only inspects legacy production service state from the production lane", () => {
@@ -90,6 +97,7 @@ describe("local service legacy shared", () => {
         enabled: true,
       }),
     };
+    const expectedWrapper = daemonServiceExecutableWrapperPath(pathInput);
 
     expect(
       requiresLegacySharedDaemonServiceMigration({
@@ -102,8 +110,7 @@ describe("local service legacy shared", () => {
           enabled: true,
           definitionPath:
             "/Users/felix/Library/LaunchAgents/com.openmeld.openmeld-background-service.plist",
-          commandSummary:
-            "com.openmeld.openmeld-background-service /Users/felix/.openmeld/runtime/daemon/service-manager/openmeld-service service run --mode foreground",
+          commandSummary: `com.openmeld.openmeld-background-service ${expectedWrapper} service run --mode foreground`,
         },
         ownedProcesses: [],
       })
@@ -126,6 +133,40 @@ describe("local service legacy shared", () => {
         ownedProcesses: [],
       })
     ).toBe(true);
+  });
+
+  it("does not treat the current direct Windows task as a legacy service", () => {
+    const pathInput = {
+      env: { OPENMELD_ENV_PRESET: "prod" },
+      homeDir: "/Users/felix",
+    };
+    const executable = join(
+      daemonRuntimeBundlesPath(pathInput),
+      "0.3.225-verified",
+      "openmeld.exe"
+    );
+    expect(
+      requiresLegacySharedDaemonServiceMigration({
+        pathInput,
+        runtimeStatus: createRuntimeStatus(),
+        serviceManager: {
+          controller: "windows-service",
+        } as DaemonServiceManager,
+        serviceManagerStatus: {
+          installed: true,
+          running: false,
+          enabled: true,
+          definitionPath: "Task Scheduler: OpenMeld (current user)",
+          commandSummary: `${executable} service run --mode foreground`,
+          commandSpec: {
+            executable,
+            args: ["service", "run", "--mode", "foreground"],
+            env: { OPENMELD_HOME: resolveOpenMeldRootDir(pathInput) },
+          },
+        },
+        ownedProcesses: [],
+      })
+    ).toBe(false);
   });
 
   it("requires migration when legacy-detached runtime state remains without a registered prod service", () => {

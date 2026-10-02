@@ -1,3 +1,4 @@
+import { resolveRemoteAgentExecutionScope } from "@openmeld/schemas";
 import type {
   OpenMeldDaemonDispatchQueueMessage,
   RemoteAgentWorkerAuthorContext,
@@ -137,6 +138,47 @@ describe("remote agent turn envelope", () => {
         mode: "automatic",
       },
     });
+  });
+
+  it("keeps a verified Agent sender usable as the execution principal", async () => {
+    const envelope = await resolveRemoteAgentTurnEnvelope({
+      author: {
+        displayName: "Center Agent",
+        profileId: "agt_center",
+        profileKind: "agent",
+      } as RemoteAgentWorkerAuthorContext,
+      centerAgentProfileId: "agt_center",
+      db: createTeamTurnEnvelopeDb({
+        agentSender: true,
+      }) as unknown as D1Database,
+      message: {
+        ...createDispatchMessage(),
+        sourceSignalSnapshot: {
+          text: "Wake the personal Agent",
+          profileId: "agt_center",
+          profileKind: "agent",
+        },
+        spaceId: "space_shared",
+        spaceNameSnapshot: "Launch Room",
+      },
+      organizationId: "org_team",
+    });
+
+    expect(envelope.sender).toMatchObject({
+      kind: "agent_profile",
+      id: "agt_center",
+      profileId: "agt_center",
+      verified: true,
+    });
+    expect(
+      resolveRemoteAgentExecutionScope({
+        agentProfileId: "agt_personal",
+        bindingId: "binding_personal",
+        organizationId: "org_team",
+        spaceId: "space_shared",
+        turnEnvelope: envelope,
+      }).principal
+    ).toEqual({ kind: "agent", profileId: "agt_center" });
   });
 
   it("marks non-DM Space wakes as shared Space triggers", () => {
@@ -353,7 +395,7 @@ function createTurnEnvelopeDb() {
   };
 }
 
-function createTeamTurnEnvelopeDb() {
+function createTeamTurnEnvelopeDb(input?: { agentSender?: boolean }) {
   return {
     prepare(sql: string) {
       return {
@@ -385,22 +427,38 @@ function createTeamTurnEnvelopeDb() {
                 };
               }
               if (sql.includes("FROM openmeld_profiles")) {
-                return {
-                  member_id: "member_123",
-                  owner_user_id: "user_123",
-                  profile_id: "hum_123",
-                  profile_kind: "human",
-                  profile_name: "Felix",
-                  role: "owner",
-                };
+                return input?.agentSender
+                  ? {
+                      member_id: null,
+                      owner_user_id: null,
+                      profile_id: "agt_center",
+                      profile_kind: "agent",
+                      profile_name: "Center Agent",
+                      role: null,
+                    }
+                  : {
+                      member_id: "member_123",
+                      owner_user_id: "user_123",
+                      profile_id: "hum_123",
+                      profile_kind: "human",
+                      profile_name: "Felix",
+                      role: "owner",
+                    };
               }
               if (sql.includes("FROM space_index_spaces")) {
-                return {
-                  direct_message_pair_key: "agt_center:hum_123",
-                  organization_id: "org_team",
-                  space_id: "space_dm",
-                  space_purpose: "openmeld_dm_space",
-                };
+                return input?.agentSender
+                  ? {
+                      direct_message_pair_key: null,
+                      organization_id: "org_team",
+                      space_id: "space_shared",
+                      space_purpose: null,
+                    }
+                  : {
+                      direct_message_pair_key: "agt_center:hum_123",
+                      organization_id: "org_team",
+                      space_id: "space_dm",
+                      space_purpose: "openmeld_dm_space",
+                    };
               }
               throw new Error(`Unexpected SQL: ${sql}`);
             },

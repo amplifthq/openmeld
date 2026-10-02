@@ -1275,6 +1275,69 @@
       "when": 1789980923359,
       "tag": "0181_loud_dark_beast",
       "breakpoints": true
+    },
+    {
+      "idx": 182,
+      "version": "6",
+      "when": 1790065762927,
+      "tag": "0182_grey_captain_marvel",
+      "breakpoints": true
+    },
+    {
+      "idx": 183,
+      "version": "6",
+      "when": 1790428558600,
+      "tag": "0183_warm_dark_beast",
+      "breakpoints": true
+    },
+    {
+      "idx": 184,
+      "version": "6",
+      "when": 1790485312805,
+      "tag": "0184_lethal_ultimates",
+      "breakpoints": true
+    },
+    {
+      "idx": 185,
+      "version": "6",
+      "when": 1790507988646,
+      "tag": "0185_stiff_ultron",
+      "breakpoints": true
+    },
+    {
+      "idx": 186,
+      "version": "6",
+      "when": 1790562717086,
+      "tag": "0186_tiresome_nico_minoru",
+      "breakpoints": true
+    },
+    {
+      "idx": 187,
+      "version": "6",
+      "when": 1790745402389,
+      "tag": "0187_large_omega_flight",
+      "breakpoints": true
+    },
+    {
+      "idx": 188,
+      "version": "6",
+      "when": 1790849026699,
+      "tag": "0188_classy_puff_adder",
+      "breakpoints": true
+    },
+    {
+      "idx": 189,
+      "version": "6",
+      "when": 1790891888543,
+      "tag": "0189_serious_killmonger",
+      "breakpoints": true
+    },
+    {
+      "idx": 190,
+      "version": "6",
+      "when": 1790957116862,
+      "tag": "0190_chemical_supreme_intelligence",
+      "breakpoints": true
     }
   ]
 }

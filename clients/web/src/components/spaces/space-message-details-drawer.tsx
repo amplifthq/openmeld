@@ -599,7 +599,6 @@ function ActivityItemRow(input: {
 						) : null}
 						{canJump && item.jumpSignalId ? (
 							<ActivityJumpButton
-								item={item}
 								onJump={() => activity.onJumpToMessage(item.jumpSignalId ?? "")}
 							/>
 						) : null}
@@ -797,11 +796,8 @@ function ActivityActorIcon(input: { item: MessageDetailsActivityItem }) {
 	);
 }
 
-function ActivityJumpButton(input: {
-	item: MessageDetailsActivityItem;
-	onJump: () => void;
-}) {
-	const label = resolveActivityJumpLabel(input.item);
+function ActivityJumpButton(input: { onJump: () => void }) {
+	const label = "Go to message";
 	return (
 		<Tooltip>
 			<TooltipTrigger
@@ -821,16 +817,6 @@ function ActivityJumpButton(input: {
 			<TooltipContent side="bottom">{label}</TooltipContent>
 		</Tooltip>
 	);
-}
-
-function resolveActivityJumpLabel(item: MessageDetailsActivityItem): string {
-	if (item.kind === "message") {
-		return "Show message in Messages";
-	}
-	if (item.status === "replied") {
-		return "Show reply in Messages";
-	}
-	return "Show update in Messages";
 }
 
 function ActivityReplyContext(input: {
@@ -857,7 +843,7 @@ function ActivityReplyContext(input: {
 						<TooltipTrigger
 							render={
 								<Button
-									aria-label="Show original message in Messages"
+									aria-label="Go to message"
 									className="size-7"
 									onClick={() => input.onJumpToMessage(replyToSignalId)}
 									size="icon-sm"
@@ -868,9 +854,7 @@ function ActivityReplyContext(input: {
 								</Button>
 							}
 						/>
-						<TooltipContent side="bottom">
-							Show original message in Messages
-						</TooltipContent>
+						<TooltipContent side="bottom">Go to message</TooltipContent>
 					</Tooltip>
 				) : null}
 			</div>

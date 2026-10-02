@@ -16,6 +16,7 @@ import type {
   AgentTaskNeedsAttentionObservation,
   AgentTaskTerminalOutcome,
   SubmitAgentControllerTaskLifecycleEventItem,
+  WorkingLanguageTag,
 } from "@openmeld/schemas/types";
 import {
   type AgentDelegationRecord,
@@ -207,6 +208,110 @@ export async function registerAgentTaskCompletionSubscription(input: {
     observerTaskKey,
     watchedTask,
     watchedTaskKey,
+  });
+}
+
+/** A new intent and identity; the old subscription and outcome remain immutable. */
+export async function recordTaskSummaryRecoveryIntent(input: {
+  db: D1Database;
+  nowMs: number;
+  source: AgentTaskCompletionSubscriptionRecord;
+  recoveryId: string;
+  operatorUserId: string;
+}): Promise<AgentTaskCompletionSubscriptionRecord | null> {
+  await input.db
+    .prepare(`
+    UPDATE agent_task_completion_subscriptions
+    SET continuation_json = json_set(continuation_json, '$.summaryRecoveryIntent',
+      json(COALESCE(json_extract(continuation_json, '$.summaryRecoveryIntent'), ?))),
+      updated_at_ms = ?
+    WHERE subscription_id = ? AND state IN ('settled', 'cancelled')
+      AND json_extract(continuation_json, '$.kind') = 'resume_agent'
+      AND NOT EXISTS (SELECT 1 FROM agent_task_terminal_outcomes parent
+        WHERE parent.task_key = observer_task_key AND parent.status = 'stopped')
+  `)
+    .bind(
+      JSON.stringify({
+        recoveryId: input.recoveryId,
+        operatorUserId: input.operatorUserId,
+      }),
+      input.nowMs,
+      input.source.subscriptionId
+    )
+    .run();
+  const source = await readAgentTaskCompletionSubscription({
+    db: input.db,
+    subscriptionId: input.source.subscriptionId,
+  });
+  const intent =
+    source?.continuation?.kind === "resume_agent"
+      ? source.continuation.summaryRecoveryIntent
+      : undefined;
+  return intent?.recoveryId === input.recoveryId &&
+    intent.operatorUserId === input.operatorUserId
+    ? source
+    : null;
+}
+
+export async function registerManualTaskSummaryRecovery(input: {
+  db: D1Database;
+  nowMs: number;
+  source: AgentTaskCompletionSubscriptionRecord;
+  subscriptionId: string;
+  operatorUserId: string;
+  replyLanguageTag?: WorkingLanguageTag;
+}): Promise<AgentTaskCompletionSubscriptionRecord> {
+  const source = input.source;
+  if (source.continuation?.kind !== "resume_agent" || !source.outcome) {
+    throw new Error("task_summary_recovery.source_unavailable");
+  }
+  const replyLanguageTag =
+    input.replyLanguageTag ?? source.continuation.replyLanguageTag;
+  const continuation = agentTaskContinuationSchema.parse({
+    kind: "resume_agent",
+    delegationId: source.continuation.delegationId,
+    ...(replyLanguageTag ? { replyLanguageTag } : {}),
+    instruction:
+      "Summarize the existing delegated results for the original requester. Read each exact published result through authorized tools first. Mark unavailable child results explicitly. Do not wake children again or repeat the original request or external writes.",
+    summaryRecovery: {
+      operatorUserId: input.operatorUserId,
+      sourceSubscriptionId: source.subscriptionId,
+    },
+  });
+  await input.db
+    .prepare(`
+    INSERT INTO agent_task_completion_subscriptions (
+      subscription_id, idempotency_key, organization_id, observer_task_key,
+      observer_task_handle_json, watched_task_key, watched_task_handle_json,
+      completion_condition, continuation_json, continuation_idempotency_key,
+      state, last_event_id, outcome_json, created_at_ms, updated_at_ms
+    )
+    SELECT ?, ?, organization_id, observer_task_key, observer_task_handle_json,
+      watched_task_key, watched_task_handle_json, completion_condition, ?, ?,
+      'ready', last_event_id, outcome_json, ?, ?
+    FROM agent_task_completion_subscriptions source
+    WHERE source.subscription_id = ? AND source.state IN ('settled', 'cancelled')
+      AND json_extract(source.continuation_json, '$.summaryRecoveryIntent.recoveryId') = ?
+      AND json_extract(source.continuation_json, '$.summaryRecoveryIntent.operatorUserId') = ?
+      AND NOT EXISTS (SELECT 1 FROM agent_task_terminal_outcomes parent
+        WHERE parent.task_key = source.observer_task_key AND parent.status = 'stopped')
+    ON CONFLICT(subscription_id) DO NOTHING
+  `)
+    .bind(
+      input.subscriptionId,
+      `manual-summary:${input.subscriptionId}`,
+      JSON.stringify(continuation),
+      buildContinuationIdempotencyKey(input.subscriptionId),
+      input.nowMs,
+      input.nowMs,
+      source.subscriptionId,
+      input.subscriptionId,
+      input.operatorUserId
+    )
+    .run();
+  return requireAgentTaskCompletionSubscription({
+    db: input.db,
+    subscriptionId: input.subscriptionId,
   });
 }
 
@@ -911,6 +1016,29 @@ export async function readAgentTaskCompletionSubscription(input: {
     .bind(requireNonEmpty(input.subscriptionId, "subscriptionId"))
     .first<AgentTaskCompletionSubscriptionRow>();
   return row ? parseSubscriptionRow(row) : null;
+}
+
+/** Read the existing continuation fact without claiming or changing its state. */
+export async function readAgentTaskContinuationReplyLanguage(input: {
+  db: D1Database;
+  subscriptionId: string;
+  organizationId: string;
+  continuationIdempotencyKey: string;
+}): Promise<string | undefined> {
+  const subscription = await readAgentTaskCompletionSubscription(input);
+  if (!subscription) {
+    return undefined;
+  }
+  if (
+    subscription.organizationId !== input.organizationId ||
+    subscription.continuationIdempotencyKey !== input.continuationIdempotencyKey
+  ) {
+    throw new Error("agent_task_continuation.language_identity_mismatch");
+  }
+  const continuation = subscription.continuation;
+  return continuation && "replyLanguageTag" in continuation
+    ? continuation.replyLanguageTag
+    : undefined;
 }
 
 export async function listAgentTaskCompletionSubscriptionsNeedingEnqueue(input: {

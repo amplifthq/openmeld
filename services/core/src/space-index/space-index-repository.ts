@@ -121,6 +121,8 @@ export type SpaceIndexProjectionDriftDiagnostic = {
 
 type SpaceIndexJoinedRow = {
   center_agent_profile_id: string | null;
+  message_preview_revision: number | null;
+  message_preview_json: string | null;
   direct_message_pair_key: string | null;
   direct_message_converted_at_ms: number | null;
   space_id: string;
@@ -731,12 +733,6 @@ export async function listAccountSpacesFromSpaceIndex(
   const sections = partitionAccountSpaceIndexItems(
     buildAccountSpaceItems(input, rows)
   );
-  if (input.includeMessagePreviews === true) {
-    await attachSpaceMessagePreviews(input.db, [
-      ...sections.pinnedItems,
-      ...sections.spaceItems,
-    ]);
-  }
   if (input.includeMemberPreviews === true) {
     await attachSpaceMemberPreviews(input.db, [
       ...sections.pinnedItems,
@@ -751,31 +747,6 @@ export async function listAccountSpacesFromSpaceIndex(
     return sections;
   }
   return { ...sections, recentlyDeletedItems };
-}
-
-async function attachSpaceMessagePreviews(
-  db: D1Database,
-  items: AccountSpaceIndexItem[]
-): Promise<void> {
-  for (let offset = 0; offset < items.length; offset += 90) {
-    const chunk = items.slice(offset, offset + 90);
-    const byId = new Map(chunk.map((item) => [item.spaceId, item]));
-    const rows = await db
-      .prepare(
-        `SELECT space_id, message_preview_json AS preview_json FROM space_index_spaces WHERE status = 'active' AND message_preview_revision IS NOT NULL AND space_id IN (${chunk.map(() => "?").join(",")})`
-      )
-      .bind(...chunk.map((item) => item.spaceId))
-      .all<{ space_id: string; preview_json: string | null }>();
-    for (const row of rows.results) {
-      const item = byId.get(row.space_id);
-      if (item) {
-        item.messagePreview =
-          accountSpaceIndexItemSchema.shape.messagePreview.parse(
-            row.preview_json === null ? null : JSON.parse(row.preview_json)
-          );
-      }
-    }
-  }
 }
 
 // Only enrich the already authorized candidate list. Read at most three active
@@ -1270,14 +1241,20 @@ export async function listCenterAgentSessionIndexRows(input: {
   limit: number;
   before?: { createdAtMs: number; spaceId: string };
 }): Promise<
-  Array<{ spaceId: string; name: string | null; createdAtMs: number | null }>
+  Array<{
+    spaceId: string;
+    name: string | null;
+    createdAtMs: number | null;
+    messagePreview?: AccountSpaceIndexItem["messagePreview"];
+  }>
 > {
   const beforeClause = input.before
     ? "AND (COALESCE(s.space_created_at_ms, 0) < ? OR (COALESCE(s.space_created_at_ms, 0) = ? AND s.space_id < ?))"
     : "";
   const rows = await input.db
     .prepare(`
-    SELECT s.space_id, s.space_name, s.space_created_at_ms
+    SELECT s.space_id, s.space_name, s.space_created_at_ms,
+      s.message_preview_revision, s.message_preview_json
     FROM space_index_spaces s
     WHERE s.organization_id = ? AND s.direct_message_pair_key = ?
       AND s.space_purpose = ? AND s.direct_message_converted_at_ms IS NULL
@@ -1303,11 +1280,23 @@ export async function listCenterAgentSessionIndexRows(input: {
       space_id: string;
       space_name: string | null;
       space_created_at_ms: number | null;
+      message_preview_revision: number | null;
+      message_preview_json: string | null;
     }>();
   return rows.results.map((row) => ({
     spaceId: row.space_id,
     name: row.space_name,
     createdAtMs: row.space_created_at_ms,
+    ...(row.message_preview_revision === null
+      ? {}
+      : {
+          messagePreview:
+            accountSpaceIndexItemSchema.shape.messagePreview.parse(
+              row.message_preview_json === null
+                ? null
+                : JSON.parse(row.message_preview_json)
+            ),
+        }),
   }));
 }
 
@@ -1739,6 +1728,8 @@ async function listAccountScopedRows(
         ${ACCOUNT_SCOPED_CANDIDATE_SPACES_CTE}
         SELECT
           cad.agent_profile_id AS center_agent_profile_id,
+          s.message_preview_revision,
+          s.message_preview_json,
           s.space_id,
           s.organization_id,
           s.organization_visibility,
@@ -1820,6 +1811,8 @@ async function listProfileScopedRows(
         )
         SELECT
           cad.agent_profile_id AS center_agent_profile_id,
+          s.message_preview_revision,
+          s.message_preview_json,
           s.space_id,
           s.organization_id,
           s.organization_visibility,
@@ -1910,6 +1903,7 @@ function buildAccountSpaceItems(
           includeDirectMessageProfileIds:
             input.includeDirectMessageProfileIds === true,
           includePurposes: input.includePurposes === true,
+          includeMessagePreviews: input.includeMessagePreviews === true,
           joinedProfile,
           openProfileRankMs,
           row,
@@ -1948,6 +1942,7 @@ function createAccountSpaceItemDraft(input: {
   gatewayHost: string;
   includeDirectMessageProfileIds: boolean;
   includePurposes: boolean;
+  includeMessagePreviews: boolean;
   joinedProfile: AccountSpaceIndexJoinedProfile;
   openProfileRankMs: number;
   row: SpaceIndexJoinedRow;
@@ -1976,6 +1971,17 @@ function createAccountSpaceItemDraft(input: {
     spaceId: input.row.space_id,
     spaceName: input.row.space_name ?? "Untitled space",
     spaceNameSnapshot: input.row.space_name,
+    ...(input.row.message_preview_revision !== null &&
+    input.includeMessagePreviews
+      ? {
+          messagePreview:
+            accountSpaceIndexItemSchema.shape.messagePreview.parse(
+              input.row.message_preview_json === null
+                ? null
+                : JSON.parse(input.row.message_preview_json)
+            ),
+        }
+      : {}),
     ...(input.includePurposes
       ? {
           activeAgentCount: input.row.active_agent_count ?? null,

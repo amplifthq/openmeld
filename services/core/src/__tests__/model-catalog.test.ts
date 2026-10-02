@@ -49,7 +49,7 @@ describe("model catalog config", () => {
       "creationDefaults"
     );
 
-    expect(catalog.agentControllers.codex?.defaultModelId).toBe("gpt-5.6-sol");
+    expect(catalog.agentControllers.codex?.defaultModelId).toBe("gpt-6.1-sol");
     expect(catalog.agentControllers["claude-code"]?.defaultModelId).toBe(
       "claude-opus-5"
     );
@@ -90,7 +90,7 @@ describe("model catalog config", () => {
       schemaVersion: 1,
       agentControllers: {
         codex: {
-          defaultModelId: "gpt-5.6-sol",
+          defaultModelId: "gpt-6.1-sol",
         },
         cursor: {
           defaultModelId: "default[]",

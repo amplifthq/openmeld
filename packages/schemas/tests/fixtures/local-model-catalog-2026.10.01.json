@@ -1,0 +1,369 @@
+{
+  "capture": {
+    "observedAt": "2026-10-01T04:06:58.140806Z",
+    "commands": [
+      "cursor-agent acp",
+      "opencode models opencode --verbose",
+      "opencode models opencode-go --verbose",
+      "opencode models openai --verbose"
+    ],
+    "versions": {
+      "cursor": "2026.09.28-64d2043",
+      "opencode": "1.18.33"
+    },
+    "scope": "Vendor response fields for newly added models; account metadata and session identifiers omitted. Inference was not performed."
+  },
+  "cursor": {
+    "configOptions": [
+      {
+        "value": "claude-opus-5-5[context=300k,effort=medium,fast=false]",
+        "name": "claude-opus-5-5"
+      },
+      {
+        "value": "claude-sonnet-5-5[context=300k,reasoning_effort=high]",
+        "name": "claude-sonnet-5-5"
+      }
+    ],
+    "availableModels": [
+      {
+        "modelId": "claude-opus-5-5[context=300k,effort=medium,fast=false]",
+        "name": "claude-opus-5-5"
+      },
+      {
+        "modelId": "claude-sonnet-5-5[context=300k,reasoning_effort=high]",
+        "name": "claude-sonnet-5-5"
+      }
+    ]
+  },
+  "opencode": [
+    {
+      "id": "gpt-6-luna",
+      "providerID": "opencode-go",
+      "name": "GPT-6 Luna",
+      "status": "active",
+      "variants": {
+        "none": {
+          "reasoningEffort": "none",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "low": {
+          "reasoningEffort": "low",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "medium": {
+          "reasoningEffort": "medium",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "high": {
+          "reasoningEffort": "high",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "xhigh": {
+          "reasoningEffort": "xhigh",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "max": {
+          "reasoningEffort": "max",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        }
+      }
+    },
+    {
+      "id": "longcat-2.5-preview-free",
+      "providerID": "opencode-go",
+      "name": "LongCat 2.5 Preview Free",
+      "status": "active",
+      "variants": {
+        "low": {
+          "reasoningEffort": "low"
+        },
+        "medium": {
+          "reasoningEffort": "medium"
+        },
+        "high": {
+          "reasoningEffort": "high"
+        }
+      }
+    },
+    {
+      "id": "space-bunny-free",
+      "providerID": "opencode-go",
+      "name": "Space Bunny Free",
+      "status": "active",
+      "variants": {
+        "low": {
+          "reasoningEffort": "low"
+        },
+        "medium": {
+          "reasoningEffort": "medium"
+        },
+        "high": {
+          "reasoningEffort": "high"
+        },
+        "xhigh": {
+          "reasoningEffort": "xhigh"
+        },
+        "max": {
+          "reasoningEffort": "max"
+        }
+      }
+    },
+    {
+      "id": "gpt-6-astra-ultrafast",
+      "providerID": "openai",
+      "name": "GPT-6 Astra Ultrafast",
+      "status": "active",
+      "variants": {
+        "low": {
+          "reasoningEffort": "low",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "medium": {
+          "reasoningEffort": "medium",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "high": {
+          "reasoningEffort": "high",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "xhigh": {
+          "reasoningEffort": "xhigh",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "max": {
+          "reasoningEffort": "max",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        }
+      }
+    },
+    {
+      "id": "gpt-6-luna",
+      "providerID": "openai",
+      "name": "GPT-6 Luna",
+      "status": "active",
+      "variants": {
+        "none": {
+          "reasoningEffort": "none",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "low": {
+          "reasoningEffort": "low",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "medium": {
+          "reasoningEffort": "medium",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "high": {
+          "reasoningEffort": "high",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "xhigh": {
+          "reasoningEffort": "xhigh",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "max": {
+          "reasoningEffort": "max",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        }
+      }
+    },
+    {
+      "id": "gpt-6-luna-fast",
+      "providerID": "openai",
+      "name": "GPT-6 Luna Fast",
+      "status": "active",
+      "variants": {
+        "none": {
+          "reasoningEffort": "none",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "low": {
+          "reasoningEffort": "low",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "medium": {
+          "reasoningEffort": "medium",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "high": {
+          "reasoningEffort": "high",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "xhigh": {
+          "reasoningEffort": "xhigh",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "max": {
+          "reasoningEffort": "max",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        }
+      }
+    },
+    {
+      "id": "gpt-6-sol",
+      "providerID": "openai",
+      "name": "GPT-6 Sol",
+      "status": "active",
+      "variants": {
+        "none": {
+          "reasoningEffort": "none",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "low": {
+          "reasoningEffort": "low",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "medium": {
+          "reasoningEffort": "medium",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "high": {
+          "reasoningEffort": "high",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "xhigh": {
+          "reasoningEffort": "xhigh",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "max": {
+          "reasoningEffort": "max",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        }
+      }
+    },
+    {
+      "id": "gpt-6-sol-fast",
+      "providerID": "openai",
+      "name": "GPT-6 Sol Fast",
+      "status": "active",
+      "variants": {
+        "none": {
+          "reasoningEffort": "none",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "low": {
+          "reasoningEffort": "low",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "medium": {
+          "reasoningEffort": "medium",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "high": {
+          "reasoningEffort": "high",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "xhigh": {
+          "reasoningEffort": "xhigh",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "max": {
+          "reasoningEffort": "max",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        }
+      }
+    },
+    {
+      "id": "gpt-6.1-sol",
+      "providerID": "openai",
+      "name": "GPT-6.1 Sol",
+      "status": "active",
+      "variants": {
+        "low": {
+          "reasoningEffort": "low",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "medium": {
+          "reasoningEffort": "medium",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "high": {
+          "reasoningEffort": "high",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "xhigh": {
+          "reasoningEffort": "xhigh",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "max": {
+          "reasoningEffort": "max",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        }
+      }
+    },
+    {
+      "id": "gpt-6.1-sol-fast",
+      "providerID": "openai",
+      "name": "GPT-6.1 Sol Fast",
+      "status": "active",
+      "variants": {
+        "low": {
+          "reasoningEffort": "low",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "medium": {
+          "reasoningEffort": "medium",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "high": {
+          "reasoningEffort": "high",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "xhigh": {
+          "reasoningEffort": "xhigh",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "max": {
+          "reasoningEffort": "max",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        }
+      }
+    }
+  ]
+}

@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   type InstalledLaunchCandidatesOptions,
   type InstalledLaunchCandidatesResolution,
@@ -19,6 +19,59 @@ import {
 const DEFAULT_CODEX_COMMAND = "codex";
 const CODEX_APP_BUNDLE_NAMES = ["Codex.app", "ChatGPT.app"] as const;
 const CODEX_CONTROL_PROBE_TIMEOUT_MS = 15_000;
+const CODEX_APP_COMMAND_LAYOUTS = [
+  ["codex"],
+  ["codex-cli", "CodexCLI.app", "Contents", "MacOS", "codex"],
+] as const;
+
+// Only relocate within the already selected host app. Never silently switch an
+// App installation to a standalone CLI or to another host application.
+export async function refreshCodexPersistedLaunchContract(input: {
+  launchContract: RuntimeAgentControllerLaunchContract;
+}): Promise<RuntimeAgentControllerLaunchContract> {
+  const selected = input.launchContract;
+  if (selected.kind !== "executable") {
+    return selected;
+  }
+  const resources = resolveCodexAppResources(selected.commandPath);
+  if (!resources) {
+    return selected;
+  }
+  const verification = await verifyLaunchContractFiles({
+    launchContract: selected,
+  });
+  if (
+    verification.ok ||
+    verification.failureReason !== "installation_missing"
+  ) {
+    return selected;
+  }
+  for (const layout of CODEX_APP_COMMAND_LAYOUTS) {
+    const candidate = { ...selected, commandPath: join(resources, ...layout) };
+    if (candidate.commandPath === selected.commandPath) {
+      continue;
+    }
+    if ((await verifyCodexLaunchContract({ launchContract: candidate })).ok) {
+      return candidate;
+    }
+  }
+  return selected;
+}
+
+function resolveCodexAppResources(commandPath: string): string | null {
+  for (const layout of CODEX_APP_COMMAND_LAYOUTS) {
+    const suffix = join("Contents", "Resources", ...layout);
+    if (!commandPath.endsWith(`/${suffix}`)) {
+      continue;
+    }
+    const app = commandPath.slice(0, -(suffix.length + 1));
+    if (!CODEX_APP_BUNDLE_NAMES.some((name) => app.endsWith(`/${name}`))) {
+      continue;
+    }
+    return join(app, "Contents", "Resources");
+  }
+  return null;
+}
 
 export type CodexInstalledLaunchCandidatesOptions =
   InstalledLaunchCandidatesOptions & {
@@ -173,8 +226,10 @@ function resolveCodexAppBundleCommandDirectories(
   const home = normalizeOptionalText(process.env.HOME) ?? homedir();
   const roots = appBundleRoots ?? ["/Applications", join(home, "Applications")];
   return roots.flatMap((root) =>
-    CODEX_APP_BUNDLE_NAMES.map((appBundleName) =>
-      join(root, appBundleName, "Contents", "Resources")
+    CODEX_APP_BUNDLE_NAMES.flatMap((appBundleName) =>
+      CODEX_APP_COMMAND_LAYOUTS.map((layout) =>
+        dirname(join(root, appBundleName, "Contents", "Resources", ...layout))
+      )
     )
   );
 }

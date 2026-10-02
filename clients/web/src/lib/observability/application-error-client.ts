@@ -1,25 +1,37 @@
 import { toStructuredApiClientFailure } from "@openmeld/api-client";
 import {
 	WEB_APPLICATION_ERROR_PATH,
+	type WebApplicationErrorBoundary,
 	type WebApplicationErrorQueryCategory,
 	type WebApplicationErrorQueryDiagnostic,
 	type WebApplicationErrorReport,
 	type WebApplicationErrorSource,
 	webApplicationErrorReportSchema,
+	webApplicationErrorRouteIdSchema,
 } from "@openmeld/schemas";
 import {
 	summarizeApplicationError,
 	WEB_ERROR_BUILD,
 } from "./application-error";
+import { readRecentReactUpdates } from "./react-update-trace";
 import { browserDiagnosticContext } from "./space-open";
 
 const DIAGNOSTIC_REQUEST_ID = /^[A-Za-z0-9_.:-]+$/;
 
 let readRouteId: () => string | null = () => null;
+let lastNavigation: { fromRouteId: string; startedAt: number } | null = null;
 export function setApplicationErrorRouteReader(
 	reader: () => string | null
 ): void {
 	readRouteId = reader;
+}
+
+/** Retain only the route template that led into this page, never a URL or search params. */
+export function recordApplicationErrorNavigation(fromRouteId: string): void {
+	const parsed = webApplicationErrorRouteIdSchema.safeParse(fromRouteId);
+	lastNavigation = parsed.success
+		? { fromRouteId: parsed.data, startedAt: performance.now() }
+		: null;
 }
 
 // Bounded, in-memory deduplication: no account data or browser persistence.
@@ -29,20 +41,31 @@ export function reportClientApplicationError(
 	error: unknown,
 	source: WebApplicationErrorSource,
 	resource?: string,
-	query?: WebApplicationErrorQueryDiagnostic
+	query?: WebApplicationErrorQueryDiagnostic,
+	reactBoundary?: WebApplicationErrorBoundary
 ): void {
 	if (typeof window === "undefined") {
 		return;
 	}
 	try {
-		const summary = summarizeApplicationError(error, resource);
-		const routeId = readRouteId();
-		const key = JSON.stringify([routeId, summary, query]);
+		const report = createApplicationErrorReport(
+			error,
+			source,
+			resource,
+			query,
+			reactBoundary
+		);
+		const key = JSON.stringify([
+			report.routeId,
+			report.navigation?.fromRouteId,
+			report.reactBoundary,
+			report.error,
+			query,
+		]);
 		if (reported.has(key) || reported.size >= 20) {
 			return;
 		}
 		reported.add(key);
-		const report = createApplicationErrorReport(error, source, resource, query);
 		// keepalive allows a small report to outlive the automatic page refresh.
 		// Never retry a failed diagnostic request or report its own failure.
 		sendApplicationErrorReport(report).catch(() => undefined);
@@ -51,13 +74,28 @@ export function reportClientApplicationError(
 	}
 }
 
+export function reportCaughtComponentError(
+	error: unknown,
+	boundary: WebApplicationErrorBoundary
+): void {
+	reportClientApplicationError(
+		error,
+		"react_caught",
+		undefined,
+		undefined,
+		boundary
+	);
+}
+
 export function reportClientQueryError(
 	error: unknown,
-	category: WebApplicationErrorQueryCategory
+	category: WebApplicationErrorQueryCategory,
+	stage?: WebApplicationErrorQueryDiagnostic["stage"]
 ): void {
 	const failure = toStructuredApiClientFailure(error);
 	reportClientApplicationError(error, "query", undefined, {
 		category,
+		...(stage ? { stage } : {}),
 		failure: {
 			code: failure.code,
 			requestId: normalizeDiagnosticRequestId(failure.requestId),
@@ -105,6 +143,7 @@ export function reportUnconfirmedWakeProgressPresentation(
 			wakeProgress.fromCachedSpaceSummary,
 			wakeProgress.fromCachedOwnSummary,
 			wakeProgress.fromBootstrapStream,
+			wakeProgress.fromHistoricalSignal,
 			wakeProgress.spaceSummaryFetchedAfterMount,
 			wakeProgress.ownSummaryFetchedAfterMount,
 			wakeProgress.bootstrapFetchedAfterMount,
@@ -123,8 +162,15 @@ function createApplicationErrorReport(
 	error: unknown,
 	source: WebApplicationErrorSource,
 	resource?: string,
-	query?: WebApplicationErrorQueryDiagnostic
+	query?: WebApplicationErrorQueryDiagnostic,
+	reactBoundary?: WebApplicationErrorBoundary
 ): WebApplicationErrorReport {
+	const elapsedMs = lastNavigation
+		? Math.floor(performance.now() - lastNavigation.startedAt)
+		: -1;
+	const summary = summarizeApplicationError(error, resource);
+	const reactUpdateTrace =
+		summary.code === "react_update_depth" ? readRecentReactUpdates(error) : [];
 	return {
 		version: 1,
 		id: crypto.randomUUID(),
@@ -133,8 +179,18 @@ function createApplicationErrorReport(
 		buildId: WEB_ERROR_BUILD.id,
 		sourceSha: WEB_ERROR_BUILD.sha,
 		routeId: readRouteId(),
+		...(lastNavigation && elapsedMs >= 0 && elapsedMs <= 600_000
+			? {
+					navigation: {
+						fromRouteId: lastNavigation.fromRouteId,
+						elapsedMs,
+					},
+				}
+			: {}),
+		...(reactBoundary ? { reactBoundary } : {}),
+		...(reactUpdateTrace.length > 0 ? { reactUpdateTrace } : {}),
 		...(query ? { query } : {}),
-		error: summarizeApplicationError(error, resource),
+		error: summary,
 	};
 }
 

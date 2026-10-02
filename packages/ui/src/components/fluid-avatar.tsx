@@ -58,7 +58,12 @@ export function FluidAvatar({
   }, [color, size]);
   useLayoutEffect(() => {
     const canvas = canvasRef.current;
-    if (!(canvas && readyRef.current && requested)) {
+    if (!(canvas && readyRef.current)) {
+      return;
+    }
+    if (!requested) {
+      timeRef.current = 0;
+      drawFluidAvatar(canvas, color);
       return;
     }
     let visible = false;
@@ -67,6 +72,10 @@ export function FluidAvatar({
     const update = () => {
       stop?.();
       stop = undefined;
+      if (reduced.matches) {
+        timeRef.current = 0;
+        drawFluidAvatar(canvas, color);
+      }
       if (requested && visible && !reduced.matches) {
         stop = animateFluidAvatar((deltaSeconds) => {
           const nextTime = timeRef.current + deltaSeconds;

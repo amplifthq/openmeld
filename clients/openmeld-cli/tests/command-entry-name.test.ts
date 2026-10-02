@@ -13,6 +13,12 @@ describe("command entry name", () => {
   });
 
   it("normalizes route tokens for aliases and subcommands", () => {
+    expect(resolveCommandEntryNameFromTokens(["files", "copy"])).toBe(
+      "files.copy"
+    );
+    expect(resolveCommandEntryNameFromTokens(["files", "copy-to-space"])).toBe(
+      "files.copy-to-space"
+    );
     expect(
       resolveCommandEntryNameFromTokens(["profiles", "execution-mode"])
     ).toBe("profile.execution-mode");

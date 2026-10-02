@@ -917,7 +917,8 @@ const writeFakeCodexAppServerFixture = async (fixturePath) => {
       "  const failureMessage = process.env.OPENMELD_FAKE_CODEX_APP_SERVER_TURN_FAILURE_MESSAGE;",
       "  const turn = status === 'interrupted' ? buildInterruptedTurn() : failureMessage ? buildFailedTurn(failureMessage) : buildCompletedTurn(activeTurn.threadId, activeTurn.prompt, activeTurn.cwd);",
       "  const tokenUsage = process.env.OPENMELD_FAKE_CODEX_APP_SERVER_TOKEN_USAGE;",
-      "  if (tokenUsage) write({ jsonrpc: '2.0', method: 'thread/tokenUsage/updated', params: { threadId: activeTurn.threadId, turnId: activeTurn.turnId, tokenUsage: JSON.parse(tokenUsage) } });",
+      // Codex can rebroadcast unchanged usage during a rate-limit update.
+      "  if (tokenUsage) for (let repeat = 0; repeat < 2; repeat++) write({ jsonrpc: '2.0', method: 'thread/tokenUsage/updated', params: { threadId: activeTurn.threadId, turnId: activeTurn.turnId, tokenUsage: JSON.parse(tokenUsage) } });",
       "  if (process.env.OPENMELD_FAKE_CODEX_APP_SERVER_CONTEXT_COMPACTION === '1') write({ jsonrpc: '2.0', method: 'item/completed', params: { threadId: activeTurn.threadId, turnId: activeTurn.turnId, item: { id: 'compact-1', type: 'contextCompaction' } } });",
       "  for (const delta of readDeltaOutput()) {",
       "    write({ jsonrpc: '2.0', method: 'item/agentMessage/delta', params: { itemId: 'msg-delta-1', delta } });",
@@ -938,6 +939,7 @@ const writeFakeCodexAppServerFixture = async (fixturePath) => {
       "    return;",
       "  }",
       "  if (message.method === 'initialized') return;",
+      "  if (message.method === process.env.OPENMELD_FAKE_CODEX_MISSING_METHOD) { write({ id: message.id, error: { code: -32601, message: 'Method not found' } }); return; }",
       "  if (message.method === 'config/read') { write({ id: message.id, result: { config: { mcp_servers: { openmeld_internal_dispatch_space_action: JSON.parse(process.env.OPENMELD_FAKE_CODEX_SPACE_POLICY ?? '{}') } }, origins: {}, layers: null } }); return; }",
       "  if (message.method === 'configRequirements/read') { write({ id: message.id, result: { requirements: JSON.parse(process.env.OPENMELD_FAKE_CODEX_MANAGED_REQUIREMENTS ?? 'null') } }); return; }",
       "  if (message.method === 'command/exec') { write({ jsonrpc: '2.0', id: message.id, result: { exitCode: 0, stdout: 'denied:denied:allowed:denied', stderr: '' } }); return; }",
@@ -1058,7 +1060,35 @@ const writeFakeCodexAppServerFixture = async (fixturePath) => {
 
 for (const scenario of [
   { name: "new native thread", version: "0.150.1", native: true },
+  {
+    name: "bundled prerelease resumes the native conversation",
+    version: "0.159.0-alpha.12.1",
+    existing: true,
+    source: "user/openmeld-space-tools-v1",
+    native: true,
+  },
+  {
+    name: "unsupported native conversation reports the controller version",
+    version: "0.150.1-alpha.1",
+    existing: true,
+    source: "user/openmeld-space-tools-v1",
+    error: "context.space_tool_version_unsupported",
+  },
   { name: "older controller", version: "0.149.0", native: false },
+  {
+    name: "new conversation keeps MCP when policy capability is missing",
+    version: "0.159.0-alpha.12.1",
+    missingMethod: "configRequirements/read",
+    native: false,
+  },
+  {
+    name: "native conversation distinguishes missing policy capability",
+    version: "0.159.0-alpha.12.1",
+    existing: true,
+    source: "user/openmeld-space-tools-v1",
+    missingMethod: "configRequirements/read",
+    error: "context.space_tool_capability_unavailable",
+  },
   {
     name: "legacy MCP thread",
     version: "0.150.1",
@@ -1122,7 +1152,7 @@ for (const scenario of [
   },
   {
     name: "changed native-thread policy",
-    version: "0.150.1",
+    version: "0.159.0-alpha.12.1",
     existing: true,
     source: "user/openmeld-space-tools-v1",
     policy: { disabled_tools: ["reply"] },
@@ -1252,6 +1282,7 @@ for (const scenario of [
           OPENMELD_USER_FACING_CLI_COMMAND: "openmeld",
           OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath,
           OPENMELD_FAKE_CODEX_NATIVE_VERSION: scenario.version,
+          OPENMELD_FAKE_CODEX_MISSING_METHOD: scenario.missingMethod,
           ...(scenario.deliveryOnly
             ? { OPENMELD_SPACE_ACTION_DELIVERY_ONLY: "1" }
             : {}),
@@ -1975,6 +2006,17 @@ test("invokeCodexAppServerTransport keeps the controller process out of the work
       streamingMode: "final",
     });
     assert.equal(result.telemetry.contextCompactionObserved, true);
+    assert.equal(result.telemetry.aiUsage.length, 1);
+    assert.equal(result.telemetry.aiUsage[0].model, "gpt-5.5");
+    assert.deepEqual(result.telemetry.aiUsage[0].tokens, {
+      input: 1000,
+      output: 40,
+      cacheRead: 800,
+      cacheWrite: 0,
+      reasoning: 20,
+      total: 1060,
+    });
+    assert.equal(result.telemetry.aiUsage[0].cost, null);
     assert.deepEqual(result.telemetry.tokenUsage, {
       last: {
         cacheWriteInputTokens: 0,

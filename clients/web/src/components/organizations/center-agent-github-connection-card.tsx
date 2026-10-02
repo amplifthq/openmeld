@@ -64,7 +64,10 @@ type WaitingAuthorization = {
 	scope: AuthorizationScope;
 };
 type GitHubConnectionCardMode = "all" | "member" | "shared";
-type GitHubConnectionCardPresentation = "management" | "onboarding";
+type GitHubConnectionCardPresentation =
+	| "management"
+	| "onboarding"
+	| "conversation";
 
 export function CenterAgentGitHubConnectionCard(input: {
 	organizationName?: string;
@@ -178,21 +181,25 @@ export function CenterAgentGitHubConnectionCard(input: {
 	);
 
 	const authorizationMutation = useMutation({
-		mutationFn: async (scope: AuthorizationScope) => {
-			if (scope === "shared") {
+		mutationFn: async (request: {
+			scope: AuthorizationScope;
+			existingInstallation?: boolean;
+		}) => {
+			if (request.scope === "shared") {
 				return {
 					authorization:
 						await startCurrentOrganizationSharedGitHubAuthorization({
+							existingInstallation: request.existingInstallation,
 							organizationId: input.organizationId,
 						}),
-					scope,
+					scope: request.scope,
 				} as const;
 			}
 			return {
 				authorization: await startCurrentMemberGitHubAuthorization({
 					organizationId: input.organizationId,
 				}),
-				scope,
+				scope: request.scope,
 			} as const;
 		},
 		onError: (error) => {
@@ -242,7 +249,10 @@ export function CenterAgentGitHubConnectionCard(input: {
 	const connectionActionsDisabled = !connectionSnapshotIsCurrent;
 	const authorizationDisabled = authorizationBusy || connectionActionsDisabled;
 
-	const handleConnect = (scope: AuthorizationScope) => {
+	const handleConnect = (
+		scope: AuthorizationScope,
+		existingInstallation = false
+	) => {
 		setLocalError(null);
 		const popup = prepareAuthorizationBrowser(
 			scope === "shared"
@@ -258,7 +268,7 @@ export function CenterAgentGitHubConnectionCard(input: {
 		}
 		authorizationPopupRef.current = popup;
 		input.onAuthorizationStateChange?.(true);
-		authorizationMutation.mutate(scope);
+		authorizationMutation.mutate({ scope, existingInstallation });
 	};
 	const cancelAuthorization = () => {
 		closeAuthorizationBrowser(authorizationPopupRef.current);
@@ -392,7 +402,10 @@ function GitHubConnectionCardContent(input: {
 	loading: boolean;
 	mode: GitHubConnectionCardMode;
 	onCancelAuthorization: () => void;
-	onConnect: (scope: AuthorizationScope) => void;
+	onConnect: (
+		scope: AuthorizationScope,
+		existingInstallation?: boolean
+	) => void;
 	onDisconnect: (request: GitHubDisconnectRequest) => void;
 	onRetry: () => void;
 	otherMemberConnections: ConnectorConnection[];
@@ -471,6 +484,7 @@ function GitHubConnectionCardContent(input: {
 					loading={input.loading}
 					onCancelAuthorization={input.onCancelAuthorization}
 					onConnect={() => input.onConnect("shared")}
+					onConnectExisting={() => input.onConnect("shared", true)}
 					onDisconnect={() => input.onDisconnect({ scope: "shared" })}
 					organizationName={input.organizationName}
 					presentation={input.presentation}
@@ -687,6 +701,7 @@ function SharedGitHubSection(input: {
 	loading: boolean;
 	onCancelAuthorization: () => void;
 	onConnect: () => void;
+	onConnectExisting: () => void;
 	onDisconnect: () => void;
 	presentation: GitHubConnectionCardPresentation;
 	scopeName: "Organization" | "Workspace";
@@ -714,15 +729,28 @@ function SharedGitHubSection(input: {
 				!input.canManage ||
 				input.loading ||
 				!canShowAuthorizationAction ? null : (
-					<GitHubAuthorizationAction
-						checking={input.statusChecking}
-						connectLabel="Install GitHub Plugin"
-						disabled={input.authorizationDisabled}
-						onCancel={input.onCancelAuthorization}
-						onConnect={input.onConnect}
-						waiting={input.waiting}
-						waitingLabel="Waiting for GitHub..."
-					/>
+					<div className="flex items-center gap-2">
+						<GitHubAuthorizationAction
+							checking={input.statusChecking}
+							connectLabel="Install GitHub Plugin"
+							disabled={input.authorizationDisabled}
+							onCancel={input.onCancelAuthorization}
+							onConnect={input.onConnect}
+							waiting={input.waiting}
+							waitingLabel="Waiting for GitHub..."
+						/>
+						{input.waiting ? null : (
+							<Button
+								disabled={input.authorizationDisabled}
+								onClick={input.onConnectExisting}
+								size="sm"
+								type="button"
+								variant="ghost"
+							>
+								Connect installed GitHub Plugin
+							</Button>
+						)}
+					</div>
 				)
 			}
 			description={description}

@@ -1,12 +1,17 @@
 import {
+  appendPluginConnectionReplyLink,
+  buildOpenMeldNavigationAction,
   CENTER_AGENT_CONTEXT_WINDOW_EXCEEDED_PUBLIC_COPY,
   CENTER_AGENT_EMPTY_REPLY_PUBLIC_COPY,
+  CENTER_AGENT_OUTPUT_LIMIT_EXCEEDED_PUBLIC_COPY,
   CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY,
   type CenterAgentModelRoute,
   centerAgentModelRouteSchema,
   conversationCompactionMarkerSchema,
   type ModelCatalogReadOptions,
   type OpenMeldNavigationTarget,
+  ORGANIZATION_SKILL_RELEASE_UNAVAILABLE_PUBLIC_COPY,
+  ORGANIZATION_SKILL_RELEASE_UNAVAILABLE_REASON_CODE,
   openMeldNavigationTargetSchema,
   openMeldRuntimeProfileIdSchema,
   REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES,
@@ -27,6 +32,8 @@ import {
 } from "@openmeld/schemas";
 import type {
   AgentActivityOverviewResponse,
+  AiUsageQueryResponse,
+  CenterAgentAiUsageRpcInput,
   CenterAgentAuthorizeAnonymousMemberToolResponse,
   CenterAgentAuthorizeAnonymousMemberToolRpcInput,
   CenterAgentCreateOrganizationInviteLinkResponse,
@@ -126,13 +133,18 @@ import type {
   CreateCenterAgentRoutineResponse,
   DeleteCenterAgentRoutineResponse,
   ListCenterAgentRoutinesResponse,
+  ListFileRootResponse,
   ModelCatalog,
   OpenMeldRequestContext,
   OrganizationDocumentPromptContextResponse,
   OrganizationDocumentPromptContextRpcInput,
+  OrganizationSkillRuntimeCatalogResponse,
   OrganizationSkillRuntimeReleaseSelection,
   OrganizationSkillRuntimeSnapshotResponse,
   PauseCenterAgentRoutineResponse,
+  ReadOrganizationSkillRuntimeCatalogRpcInput,
+  ReadOrganizationSkillRuntimeResourceResponse,
+  ReadOrganizationSkillRuntimeResourceRpcInput,
   ReadOrganizationSkillRuntimeSnapshotRpcInput,
   RecordCenterAgentMemberResearchComputerFileResponse,
   RecordCenterAgentMemberResearchComputerFileRpcInput,
@@ -141,18 +153,27 @@ import type {
   RemoteAgentCoreCallbackBody,
   RemoteAgentCoreCallbackEvent,
   RemoteAgentCoreCallbackResponse,
+  RemoteAgentListTeamFilesRpcInput,
+  RemoteAgentReadTeamFileResponse,
+  RemoteAgentReadTeamFileRpcInput,
   RemoteAgentRuntimeEvidenceOutcomeReasonCode,
+  RemoteAgentSaveTeamFileResponse,
+  RemoteAgentSaveTeamFileRpcInput,
   RemoteAgentStreamDeltaCallbackBody,
   RemoteAgentStreamPartCallbackBody,
   RemoteAgentTurnEnvelope,
   RemoteAgentWorkerSubmitMessagesResult,
   RemoteAgentWorkerSubmitTurnRequest,
   RemoteAgentWorkLoopCheckpoint,
+  RemoteAiUsageWrite,
+  RemoteAiUsageWriteResponse,
   ResolveSpaceFileContentInput,
   ResolveSpaceFileContentResponse,
   ResumeCenterAgentRoutineResponse,
   SpaceAttachmentDescriptor,
   SpaceFileDescriptor,
+  SpaceFileUploadCommand,
+  SpaceFileUploadResponse,
   SpaceMessageAttachment,
   SpaceMessageFileReference,
   StartCenterAgentMemberResearchResponse,
@@ -160,6 +181,7 @@ import type {
 } from "@openmeld/schemas/types";
 import { normalizeRemoteAgentCompletedAnswer } from "./completed-answer";
 import {
+  isOrganizationSkillReleaseUnavailable,
   isRemoteAgentContextWindowExceeded,
   isRemoteAgentToolResultTooLarge,
   normalizeRemoteAgentErrorMessage,
@@ -205,6 +227,13 @@ export type RemoteAgentAnonymousIdentityBoundary = {
 };
 
 export type RemoteAgentCallbackContext = {
+  // Kept outside the legacy navigation union so older runtime readers can drain.
+  pluginConnectionTarget?: Extract<
+    OpenMeldNavigationTarget,
+    { kind: "plugin_connection" }
+  >;
+  // Absent only on pre-isolation admissions; cleanup must retain their old address.
+  computerIsolationVersion?: 1 | 2;
   accepted: boolean;
   acceptedAt: string;
   agentProfileId: string;
@@ -226,6 +255,7 @@ export type RemoteAgentCallbackContext = {
   outputAttachments?: SpaceMessageAttachment[];
   outputFiles?: SpaceMessageFileReference[];
   dispatchId: string;
+  taskId?: string;
   idempotencyKey: string;
   lastCoreResponse?: RemoteAgentCoreCallbackResponse;
   lastFailureFact?: RemoteAgentFailureFact;
@@ -259,7 +289,18 @@ export type RemoteAgentReadableStorage = {
   ): Promise<Map<string, T>>;
 };
 
+export type RemoteAgentConditionalWrite<T = unknown> = {
+  key: string;
+  expectedValue: T;
+  nextValue: T;
+};
+
 export type RemoteAgentWritableStorage = {
+  /** Update both existing records atomically, or neither when either is stale. */
+  compareAndSetPair<A, B>(
+    first: RemoteAgentConditionalWrite<A>,
+    second: RemoteAgentConditionalWrite<B>
+  ): Promise<boolean>;
   compareAndSet<T>(
     key: string,
     expectedValue: T,
@@ -295,6 +336,14 @@ export type RemoteAgentStorage = RemoteAgentReadableStorage &
   RemoteAgentWritableStorage;
 
 export type RemoteAgentCoreWorkerBinding = {
+  recordRemoteAiUsage?(
+    input: RemoteAiUsageWrite
+  ): Promise<RemoteAiUsageWriteResponse>;
+  centerAgentReadAiUsage?(
+    input: CenterAgentAiUsageRpcInput
+  ): Promise<AiUsageQueryResponse>;
+  authorizeRemoteAgentExecutionAccess?(input: unknown): Promise<unknown>;
+  acknowledgeRemoteAgentAdmission?(input: unknown): Promise<unknown>;
   getModelCatalog?(
     options?: ModelCatalogReadOptions
   ): Promise<ModelCatalog> | ModelCatalog;
@@ -519,6 +568,15 @@ export type RemoteAgentCoreWorkerBinding = {
   centerAgentListSpaceFiles?(
     input: CenterAgentListSpaceFilesRpcInput
   ): Promise<CenterAgentListSpaceFilesResponse>;
+  remoteAgentListTeamFiles?(
+    input: RemoteAgentListTeamFilesRpcInput
+  ): Promise<ListFileRootResponse>;
+  remoteAgentReadTeamFile?(
+    input: RemoteAgentReadTeamFileRpcInput
+  ): Promise<RemoteAgentReadTeamFileResponse>;
+  remoteAgentSaveTeamFile?(
+    input: RemoteAgentSaveTeamFileRpcInput
+  ): Promise<RemoteAgentSaveTeamFileResponse>;
   centerAgentReadSpaceFile?(
     input: CenterAgentReadSpaceFileRpcInput
   ): Promise<CenterAgentReadSpaceFileResponse>;
@@ -549,6 +607,7 @@ export type RemoteAgentCoreWorkerBinding = {
   centerAgentReadDispatchHistory?(input: unknown): Promise<unknown>;
   centerAgentReadSpaceContext?(input: unknown): Promise<unknown>;
   centerAgentReadSpaceWakeProgress?(input: unknown): Promise<unknown>;
+  centerAgentStopSpaceWake?(input: unknown): Promise<unknown>;
   centerAgentRecordConnectorActionAudit?(
     input: CenterAgentRecordConnectorActionAuditBody & {
       context: OpenMeldRequestContext;
@@ -576,6 +635,7 @@ export type RemoteAgentCoreWorkerBinding = {
   personalRemoteAgentSpaceTool?(input: unknown): Promise<unknown>;
   centerAgentListAgentTasks?(input: unknown): Promise<unknown>;
   centerAgentWatchAgentTask?(input: unknown): Promise<unknown>;
+  centerAgentContinueTaskSummary?(input: unknown): Promise<unknown>;
   inspectExecutionRecovery?(input: unknown): Promise<unknown>;
   executeExecutionRecovery?(input: unknown): Promise<unknown>;
   recordSpaceAttachment?(input: {
@@ -598,6 +658,31 @@ export type RemoteAgentCoreWorkerBinding = {
     spaceId: string;
     content: ResolveSpaceFileContentInput;
   }): Promise<ResolveSpaceFileContentResponse & { bytes: ArrayBuffer }>;
+  streamSpaceFileContent?(
+    input: {
+      context: OpenMeldRequestContext;
+      spaceId: string;
+      content: ResolveSpaceFileContentInput;
+    },
+    spaceFilesOriginVersion?: string
+  ): Promise<
+    ResolveSpaceFileContentResponse & { bytes: ReadableStream<Uint8Array> }
+  >;
+  resolveSpaceFileContent?(input: {
+    context: OpenMeldRequestContext;
+    spaceId: string;
+    content: ResolveSpaceFileContentInput;
+  }): Promise<ResolveSpaceFileContentResponse>;
+  spaceFileUpload?(
+    input: {
+      context: OpenMeldRequestContext;
+      spaceId: string;
+      uploadId: string;
+      command: SpaceFileUploadCommand;
+      body?: ReadableStream<Uint8Array>;
+    },
+    spaceFilesOriginVersion?: string
+  ): Promise<SpaceFileUploadResponse>;
   deleteSpaceAttachmentRecord?(input: {
     attachmentId: string;
   }): Promise<{ deleted: boolean }>;
@@ -607,6 +692,12 @@ export type RemoteAgentCoreWorkerBinding = {
   readOrganizationSkillRuntimeSnapshot?(
     input: ReadOrganizationSkillRuntimeSnapshotRpcInput
   ): Promise<OrganizationSkillRuntimeSnapshotResponse>;
+  readOrganizationSkillRuntimeCatalog?(
+    input: ReadOrganizationSkillRuntimeCatalogRpcInput
+  ): Promise<OrganizationSkillRuntimeCatalogResponse>;
+  readOrganizationSkillRuntimeResource?(
+    input: ReadOrganizationSkillRuntimeResourceRpcInput
+  ): Promise<ReadOrganizationSkillRuntimeResourceResponse>;
   recordOrganizationSkillActivation?(
     input: RecordOrganizationSkillActivationRpcInput
   ): Promise<RecordOrganizationSkillActivationResponse>;
@@ -675,6 +766,7 @@ export function createRemoteAgentCallbackContext(input: {
   request: RemoteAgentWorkerSubmitTurnRequest;
 }): RemoteAgentCallbackContext {
   return {
+    computerIsolationVersion: 2,
     accepted: input.ack.accepted,
     acceptedAt: new Date(input.nowMs).toISOString(),
     ...(input.request.replyRecovery
@@ -693,6 +785,7 @@ export function createRemoteAgentCallbackContext(input: {
       ? { runtimeConversationId: input.request.runtimeConversation.id }
       : {}),
     dispatchId: input.request.dispatchId,
+    taskId: input.request.taskId,
     idempotencyKey: input.request.idempotencyKey,
     ...(input.request.v === 1 ? {} : { modelRoute: input.request.modelRoute }),
     organizationId: input.request.organizationId,
@@ -933,16 +1026,27 @@ async function writeRemoteAgentNavigationTarget(input: {
     }
     if (
       input.target
-        ? areNavigationTargetsEqual(current.navigationTarget, input.target)
-        : current.navigationTarget === undefined
+        ? areNavigationTargetsEqual(
+            current.pluginConnectionTarget ?? current.navigationTarget,
+            input.target
+          )
+        : current.navigationTarget === undefined &&
+          current.pluginConnectionTarget === undefined
     ) {
       return current;
     }
-    const { navigationTarget: _navigationTarget, ...contextWithoutTarget } =
-      current;
-    const updated: RemoteAgentCallbackContext = input.target
-      ? { ...contextWithoutTarget, navigationTarget: input.target }
-      : contextWithoutTarget;
+    const {
+      navigationTarget: _navigationTarget,
+      pluginConnectionTarget: _pluginConnectionTarget,
+      ...contextWithoutTarget
+    } = current;
+    let updated: RemoteAgentCallbackContext = contextWithoutTarget;
+    if (input.target) {
+      updated =
+        input.target.kind === "plugin_connection"
+          ? { ...contextWithoutTarget, pluginConnectionTarget: input.target }
+          : { ...contextWithoutTarget, navigationTarget: input.target };
+    }
     if (await input.storage.compareAndSet(key, current, updated)) {
       notifyRemoteAgentCallbackContextWaiters(input.submissionId);
       return updated;
@@ -1096,6 +1200,27 @@ export function buildRemoteAgentCoreCallbackBody(input: {
   context: RemoteAgentCallbackContext;
   text: string;
 }): RemoteAgentCoreCallbackBody {
+  const pluginTarget =
+    input.context.pluginConnectionTarget ??
+    (input.context.navigationTarget?.kind === "plugin_connection"
+      ? input.context.navigationTarget
+      : null);
+  const organizationWebUrl = input.context.turnEnvelope?.organization.webUrl;
+  if (pluginTarget && !organizationWebUrl) {
+    throw new Error(
+      "A Plugin connection requires the admitted Organization Web URL."
+    );
+  }
+  const text =
+    pluginTarget && organizationWebUrl
+      ? appendPluginConnectionReplyLink({
+          action: buildOpenMeldNavigationAction({
+            organizationWebUrl,
+            target: pluginTarget,
+          }),
+          text: normalizeRemoteAgentCompletedAnswer(input.text),
+        })
+      : normalizeRemoteAgentCompletedAnswer(input.text);
   return remoteAgentCoreCallbackBodySchema.parse({
     agentProfileId: input.context.agentProfileId,
     bindingId: input.context.bindingId,
@@ -1103,7 +1228,7 @@ export function buildRemoteAgentCoreCallbackBody(input: {
     dispatchId: input.context.dispatchId,
     idempotencyKey: input.context.idempotencyKey,
     organizationId: input.context.organizationId,
-    ...(input.context.navigationTarget
+    ...(input.context.navigationTarget && !pluginTarget
       ? { navigationTarget: input.context.navigationTarget }
       : {}),
     ...(input.context.conversationCompaction
@@ -1112,7 +1237,7 @@ export function buildRemoteAgentCoreCallbackBody(input: {
     spaceId: input.context.spaceId,
     status: "completed",
     submissionId: input.context.submissionId,
-    text: normalizeRemoteAgentCompletedAnswer(input.text),
+    text,
     ...(input.context.mentionTargets?.length
       ? { mentionTargets: input.context.mentionTargets }
       : {}),
@@ -1813,6 +1938,9 @@ function resolveRemoteAgentResultFailureCode(
   if (isRemoteAgentToolResultTooLarge(result.error)) {
     return REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_REASON_CODE;
   }
+  if (isOrganizationSkillReleaseUnavailable(result.error)) {
+    return ORGANIZATION_SKILL_RELEASE_UNAVAILABLE_REASON_CODE;
+  }
   if (
     result.failureReasonCode &&
     result.failureReasonCode !==
@@ -1831,8 +1959,12 @@ function resolveRemoteAgentFailureMessage(code: string): string {
       return CENTER_AGENT_CONTEXT_WINDOW_EXCEEDED_PUBLIC_COPY;
     case "remote_agent.empty_assistant_response":
       return CENTER_AGENT_EMPTY_REPLY_PUBLIC_COPY;
+    case "remote_agent.turn.output_limit_exceeded":
+      return CENTER_AGENT_OUTPUT_LIMIT_EXCEEDED_PUBLIC_COPY;
     case REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_REASON_CODE:
       return REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_PUBLIC_COPY;
+    case ORGANIZATION_SKILL_RELEASE_UNAVAILABLE_REASON_CODE:
+      return ORGANIZATION_SKILL_RELEASE_UNAVAILABLE_PUBLIC_COPY;
     case REMOTE_AGENT_TOOL_SAFETY_LIMIT_REASON_CODE:
       return REMOTE_AGENT_TOOL_SAFETY_LIMIT_PUBLIC_COPY;
     case "remote_agent.turn_not_completed":
@@ -1939,6 +2071,9 @@ function isRemoteAgentCallbackContext(
   const candidate = value as Partial<RemoteAgentCallbackContext>;
   return (
     candidate.v === 1 &&
+    (candidate.computerIsolationVersion === undefined ||
+      candidate.computerIsolationVersion === 1 ||
+      candidate.computerIsolationVersion === 2) &&
     typeof candidate.submissionId === "string" &&
     typeof candidate.idempotencyKey === "string" &&
     typeof candidate.organizationId === "string" &&
@@ -1959,6 +2094,14 @@ function isRemoteAgentCallbackContext(
     (candidate.navigationTarget === undefined ||
       openMeldNavigationTargetSchema.safeParse(candidate.navigationTarget)
         .success) &&
+    (candidate.pluginConnectionTarget === undefined ||
+      (candidate.navigationTarget === undefined &&
+        candidate.pluginConnectionTarget !== null &&
+        typeof candidate.pluginConnectionTarget === "object" &&
+        candidate.pluginConnectionTarget.kind === "plugin_connection" &&
+        openMeldNavigationTargetSchema.safeParse(
+          candidate.pluginConnectionTarget
+        ).success)) &&
     (candidate.anonymousIdentityBoundary === undefined ||
       isRemoteAgentAnonymousIdentityBoundary(
         candidate.anonymousIdentityBoundary

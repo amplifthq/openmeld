@@ -66,14 +66,56 @@ export type ImportOrganizationSkillFromGitHubBody = z.infer<
 export type ImportOrganizationSkillFromGitHubResponse = z.infer<
   Schemas["importOrganizationSkillFromGitHubResponseSchema"]
 >;
+export type ImportOrganizationSkillFromFilesBody = z.infer<
+  Schemas["importOrganizationSkillFromFilesBodySchema"]
+>;
+export type ImportOrganizationSkillFromFilesResponse = z.infer<
+  Schemas["importOrganizationSkillFromFilesResponseSchema"]
+>;
+export type PreviewOrganizationSkillFromFilesBody = z.infer<
+  Schemas["previewOrganizationSkillFromFilesBodySchema"]
+>;
+export type OrganizationSkillFilesPreview = z.infer<
+  Schemas["organizationSkillFilesPreviewSchema"]
+>;
+export type PreviewOrganizationSkillFromFilesResponse = z.infer<
+  Schemas["previewOrganizationSkillFromFilesResponseSchema"]
+>;
 export type PreviewOrganizationSkillFromGitHubBody = z.infer<
   Schemas["previewOrganizationSkillFromGitHubBodySchema"]
 >;
 export type OrganizationSkillGitHubPreview = z.infer<
   Schemas["organizationSkillGitHubPreviewSchema"]
 >;
+export type OrganizationSkillGitHubRepositoryPreview = z.infer<
+  Schemas["organizationSkillGitHubRepositoryPreviewSchema"]
+>;
 export type PreviewOrganizationSkillFromGitHubResponse = z.infer<
   Schemas["previewOrganizationSkillFromGitHubResponseSchema"]
+>;
+export type PreviewOrganizationSkillRepositoryBody = z.infer<
+  Schemas["previewOrganizationSkillRepositoryBodySchema"]
+>;
+export type PreviewOrganizationSkillRepositoryResponse = z.infer<
+  Schemas["previewOrganizationSkillRepositoryResponseSchema"]
+>;
+export type OrganizationSkillImportBatch = z.infer<
+  Schemas["organizationSkillImportBatchSchema"]
+>;
+export type BeginOrganizationSkillImportBatchBody = z.infer<
+  Schemas["beginOrganizationSkillImportBatchBodySchema"]
+>;
+export type BeginOrganizationSkillImportBatchResponse = z.infer<
+  Schemas["beginOrganizationSkillImportBatchResponseSchema"]
+>;
+export type GetOrganizationSkillImportBatchResponse = z.infer<
+  Schemas["getOrganizationSkillImportBatchResponseSchema"]
+>;
+export type ListOrganizationSkillImportBatchesResponse = z.infer<
+  Schemas["listOrganizationSkillImportBatchesResponseSchema"]
+>;
+export type ListOrganizationSkillImportBatchesRpcInput = z.infer<
+  Schemas["listOrganizationSkillImportBatchesRpcInputSchema"]
 >;
 export type CenterAgentReadOrganizationSkillsRpcInput = z.infer<
   Schemas["centerAgentReadOrganizationSkillsRpcInputSchema"]
@@ -95,6 +137,12 @@ export type OrganizationSkillRuntimeReleaseSelection = z.infer<
 >;
 export type OrganizationSkillRuntimeSnapshotResponse = z.infer<
   Schemas["organizationSkillRuntimeSnapshotResponseSchema"]
+>;
+export type OrganizationSkillRuntimeCatalogResponse = z.infer<
+  Schemas["organizationSkillRuntimeCatalogResponseSchema"]
+>;
+export type ReadOrganizationSkillRuntimeCatalogRpcInput = z.infer<
+  Schemas["readOrganizationSkillRuntimeCatalogRpcInputSchema"]
 >;
 export type ListOrganizationSkillsRpcInput = z.infer<
   Schemas["listOrganizationSkillsRpcInputSchema"]
@@ -120,11 +168,32 @@ export type DeleteOrganizationSkillRpcInput = z.infer<
 export type ImportOrganizationSkillFromGitHubRpcInput = z.infer<
   Schemas["importOrganizationSkillFromGitHubRpcInputSchema"]
 >;
+export type ImportOrganizationSkillFromFilesRpcInput = z.infer<
+  Schemas["importOrganizationSkillFromFilesRpcInputSchema"]
+>;
+export type PreviewOrganizationSkillFromFilesRpcInput = z.infer<
+  Schemas["previewOrganizationSkillFromFilesRpcInputSchema"]
+>;
 export type PreviewOrganizationSkillFromGitHubRpcInput = z.infer<
   Schemas["previewOrganizationSkillFromGitHubRpcInputSchema"]
 >;
+export type PreviewOrganizationSkillRepositoryRpcInput = z.infer<
+  Schemas["previewOrganizationSkillRepositoryRpcInputSchema"]
+>;
+export type BeginOrganizationSkillImportBatchRpcInput = z.infer<
+  Schemas["beginOrganizationSkillImportBatchRpcInputSchema"]
+>;
+export type GetOrganizationSkillImportBatchRpcInput = z.infer<
+  Schemas["getOrganizationSkillImportBatchRpcInputSchema"]
+>;
 export type ReadOrganizationSkillRuntimeSnapshotRpcInput = z.infer<
   Schemas["readOrganizationSkillRuntimeSnapshotRpcInputSchema"]
+>;
+export type ReadOrganizationSkillRuntimeResourceRpcInput = z.infer<
+  Schemas["readOrganizationSkillRuntimeResourceRpcInputSchema"]
+>;
+export type ReadOrganizationSkillRuntimeResourceResponse = z.infer<
+  Schemas["readOrganizationSkillRuntimeResourceResponseSchema"]
 >;
 export type RecordOrganizationSkillActivationRpcInput = z.infer<
   Schemas["recordOrganizationSkillActivationRpcInputSchema"]

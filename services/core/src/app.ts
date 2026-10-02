@@ -11,6 +11,9 @@ import type { HonoBindings } from "./lib/bindings";
 import { resolveActiveOrganizationMembership } from "./organizations/organization-context";
 import { registerConfigRoutes } from "./routes/config";
 import { registerDaemonRoutes } from "./routes/daemon";
+import { registerFileRootContentRoutes } from "./routes/file-root-content";
+import { registerFileRootRoutes } from "./routes/file-roots";
+import { registerOrganizationSkillResourceRoutes } from "./routes/organization-skill-resources";
 import { registerPrepareSessionRoutes } from "./routes/prepare-session";
 import { registerRootRoutes } from "./routes/root";
 import { registerSpaceRoutes } from "./routes/spaces";
@@ -143,6 +146,9 @@ export function createHttpApp() {
   registerDaemonRoutes(app);
   registerPrepareSessionRoutes(app);
   registerSpaceRoutes(app);
+  registerFileRootRoutes(app);
+  registerFileRootContentRoutes(app);
+  registerOrganizationSkillResourceRoutes(app);
   registerAccountInvalidationRoute(app);
 
   app.onError((error, c) => {

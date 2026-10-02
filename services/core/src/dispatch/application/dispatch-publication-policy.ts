@@ -36,6 +36,7 @@ export type DispatchPublicationPlan =
       blockedExplicitAction: boolean;
       kind: "message";
       messageEnvelope: MessageEnvelope;
+      placement?: "conversation" | "thread";
       files?: SpaceMessageFileReference[];
       observedThroughSignalId?: string | null;
       publicOutcome: "post_message" | "raw_context_sharing";
@@ -456,6 +457,9 @@ function resolveExplicitActionPlan(input: {
         blockedExplicitAction: false,
         kind: "message",
         messageEnvelope: input.action.messageEnvelope,
+        ...(input.action.placement
+          ? { placement: input.action.placement }
+          : {}),
         ...(input.action.files ? { files: input.action.files } : {}),
         observedThroughSignalId: normalizeOptionalText(
           input.action.observedThroughSignalId

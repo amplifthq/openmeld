@@ -168,7 +168,7 @@ export async function readPendingGitHubAppInstallationRecord(input: {
         FROM github_app_installation_states
         WHERE organization_id = ?
           AND user_id = ?
-          AND status = 'verifying'
+          AND status IN ('installing', 'verifying')
           AND expires_at_ms > ?
         ORDER BY created_at_ms DESC
         LIMIT 1

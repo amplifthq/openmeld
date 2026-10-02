@@ -405,7 +405,7 @@ describe("directory Human Profile model", () => {
 		});
 
 		expect(rows.find((row) => row.userId === "user-a")?.agentProfiles).toEqual([
-			{
+			expect.objectContaining({
 				agentControllerRef: "builtin:claude-code",
 				avatarImageUrl: null,
 				id: "agent-claude",
@@ -413,8 +413,8 @@ describe("directory Human Profile model", () => {
 				modelSelectionIsKnown: true,
 				name: "Ari Claude",
 				path: "/o/acme/people/11111111-1111-4111-8111-111111111111/agents/agent-claude",
-			},
-			{
+			}),
+			expect.objectContaining({
 				agentControllerRef: "builtin:codex",
 				avatarImageUrl: null,
 				id: "agent-codex",
@@ -422,13 +422,13 @@ describe("directory Human Profile model", () => {
 				modelSelectionIsKnown: true,
 				name: "Ari Codex",
 				path: "/o/acme/people/11111111-1111-4111-8111-111111111111/agents/agent-codex",
-			},
+			}),
 		]);
 		expect(rows.find((row) => row.userId === "user-a")?.agentProfilesPath).toBe(
 			"/o/acme/people/11111111-1111-4111-8111-111111111111/agents"
 		);
 		expect(rows.find((row) => row.userId === "user-b")?.agentProfiles).toEqual([
-			{
+			expect.objectContaining({
 				agentControllerRef: "builtin:grok-build",
 				avatarImageUrl: null,
 				id: "agent-grok",
@@ -436,7 +436,7 @@ describe("directory Human Profile model", () => {
 				modelSelectionIsKnown: true,
 				name: "Builder",
 				path: "/o/acme/people/22222222-2222-4222-8222-222222222222/agents/agent-grok",
-			},
+			}),
 		]);
 	});
 
@@ -486,6 +486,8 @@ describe("directory Human Profile model", () => {
 			agentProfiles: [
 				{
 					agentControllerRef: "builtin:codex",
+					avatarModelId: "openai/gpt-6-sol",
+					avatarStyle: "fluid",
 					modelSelection: { modelId: "gpt-5.6-sol" },
 					avatarUrl: undefined,
 					isCenterAgent: false,
@@ -505,6 +507,8 @@ describe("directory Human Profile model", () => {
 		expect(rows.find((row) => row.userId === "user-b")?.agentProfiles).toEqual([
 			{
 				agentControllerRef: "builtin:codex",
+				avatarModelId: "openai/gpt-6-sol",
+				avatarStyle: "fluid",
 				avatarImageUrl: null,
 				id: "agent-team",
 				modelSelection: { modelId: "gpt-5.6-sol" },

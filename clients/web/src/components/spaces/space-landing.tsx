@@ -97,6 +97,7 @@ import {
 	resolveWakeFailureTargetContext,
 	type WakeFailureTargetContext,
 } from "#/lib/spaces/wake-failure-display";
+import { useDelayedPending } from "#/lib/use-delayed-pending";
 import {
 	refreshWebAgentReadinessAfterCoreFactsChanged,
 	refreshWebAgentReadinessFacts,
@@ -213,6 +214,16 @@ const SpaceTasksPanel = lazy(() =>
 	}))
 );
 
+function DelayedSpaceTasksFallback() {
+	return useDelayedPending(true) ? <SpaceTasksSkeleton /> : null;
+}
+
+function DelayedSpaceFilesFallback() {
+	return useDelayedPending(true) ? (
+		<SpaceFilesSkeleton className="p-6" showToolbar />
+	) : null;
+}
+
 function SpaceTasksPanelSlot(input: {
 	enabled: boolean;
 	membersSnapshot: SpaceMembersSnapshot | null;
@@ -225,7 +236,7 @@ function SpaceTasksPanelSlot(input: {
 		return null;
 	}
 	return (
-		<Suspense fallback={<SpaceTasksSkeleton />}>
+		<Suspense fallback={<DelayedSpaceTasksFallback />}>
 			<SpaceTasksPanel
 				key={input.spaceId}
 				membersSnapshot={input.membersSnapshot}
@@ -554,14 +565,12 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 		centerAgentProfileId: currentSpaceIsCenterAgentDirectMessage
 			? centerAgentState.centerAgentProfileId
 			: null,
-		onViewedThroughTs:
-			input.readingEnabled === false
-				? undefined
-				: (throughOccurredAtMs) =>
-						spaceInboxReadPosition.markReadThrough(throughOccurredAtMs),
+		onViewedUpdates: spaceInboxReadPosition.markViewed,
 		unreadStateReady: spaceInboxReadPosition.isReady,
 		unreadTotalCount: spaceInboxReadPosition.totalUnreadCount,
 		unreadTargets: spaceInboxReadPosition.targets,
+		unreadScopes: spaceInboxReadPosition.scopes,
+		unreadBoundaryVersion: spaceInboxReadPosition.readBoundaryVersion,
 		onInitialPendingMessageConsumed: input.onInitialPendingMessageConsumed,
 		onWakeFinalOutcomeFactsRefresh: refreshWakeFinalOutcomeFacts,
 		ownerAccountId: recovery.storageScope,
@@ -2276,7 +2285,7 @@ function SpaceLandingConversation({
 			emptyStateTitle={isDirectMessage ? undefined : EMPTY_SPACE_TITLE}
 			ephemeralActivityItems={controller.ephemeralActivityItems}
 			files={
-				<Suspense fallback={<SpaceFilesSkeleton className="p-6" showToolbar />}>
+				<Suspense fallback={<DelayedSpaceFilesFallback />}>
 					<SpaceFilesPanel
 						fileToOpen={spaceFileToOpen}
 						key={controller.spaceId}
@@ -2318,14 +2327,9 @@ function SpaceLandingConversation({
 			onOpenSpaceFile={openSpaceFile}
 			onOpenThread={controller.onOpenThread}
 			onOpenUnreadThread={controller.onOpenUnreadThread}
-			onPrepareCatchUpUnread={
-				input.readingEnabled !== false &&
-				currentProfileIsActiveSpaceMember &&
-				spaceInboxReadPosition.isReady &&
-				spaceInboxReadPosition.targets.some(
-					(target) => target.threadRootSignalId === null
-				)
-					? spaceInboxReadPosition.prepareCatchUpMain
+			onPrepareMarkAllRead={
+				input.readingEnabled !== false
+					? spaceInboxReadPosition.prepareMarkAllRead
 					: undefined
 			}
 			onRecoverExecution={controller.onRecoverExecution}
@@ -2338,7 +2342,11 @@ function SpaceLandingConversation({
 			onSend={controller.onSend}
 			onSendStarterPrompt={controller.onSendText}
 			onSpaceViewChange={spaceFileNavigation.changeSpaceView}
-			onViewedThroughTs={controller.onConversationViewedThroughTs}
+			onViewedUpdates={
+				input.readingEnabled !== false
+					? controller.onConversationViewedUpdates
+					: undefined
+			}
 			onWakeStopRequest={controller.onWakeStopRequest}
 			orgSlug={input.orgSlug}
 			pendingActionSurface={pendingActionSurface}
@@ -2417,8 +2425,8 @@ function SpaceLandingConversation({
 			threads={controller.threads}
 			threadsErrorMessage={controller.threadsErrorMessage}
 			timelineItems={controller.timelineItems}
-			unreadBatchOccurredAtMs={spaceInboxReadPosition.latestUnreadOccurredAtMs}
 			unreadCount={controller.unreadCount}
+			unreadScopes={spaceInboxReadPosition.scopes}
 			unreadTargets={spaceInboxReadPosition.targets}
 			viewState={{
 				composerFileLimitReached: controller.composerFileLimitReached,
@@ -2952,18 +2960,10 @@ function SpaceLandingSecondaryPanels({
 				onSend={controller.onThreadSend}
 				onSendText={controller.onThreadSendText}
 				onShowMessageInMain={onShowMessageInMain}
-				onViewedThroughTs={
-					input.readingEnabled === false || !spaceInboxReadPosition.isReady
-						? undefined
-						: async (throughOccurredAtMs) => {
-								const rootSignalId = controller.activeThread?.rootSignalId;
-								if (rootSignalId) {
-									await spaceInboxReadPosition.markReadThrough(
-										throughOccurredAtMs,
-										rootSignalId
-									);
-								}
-							}
+				onViewedUpdates={
+					input.readingEnabled !== false
+						? controller.onConversationViewedUpdates
+						: undefined
 				}
 				onWakeStopRequest={controller.onWakeStopRequest}
 				open={controller.threadPanelOpen}
@@ -2980,6 +2980,8 @@ function SpaceLandingSecondaryPanels({
 				spaceReferencesById={spaceReferencesById}
 				spaceTimelineItems={controller.timelineItems}
 				textareaRef={controller.threadTextareaRef}
+				unreadBoundaryVersion={spaceInboxReadPosition.readBoundaryVersion}
+				unreadScopes={spaceInboxReadPosition.scopes}
 				unreadStateReady={spaceInboxReadPosition.isReady}
 				unreadTargets={spaceInboxReadPosition.targets}
 				wakeFailureTargetContextsByProfileId={

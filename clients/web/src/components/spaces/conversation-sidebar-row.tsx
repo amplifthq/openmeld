@@ -1,8 +1,6 @@
 import { Button } from "@openmeld/ui/components/button";
 import {
 	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuItem,
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
@@ -11,6 +9,12 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
+import { FluidContextMenu } from "@openmeld/ui/fluid/context-menu";
+import {
+	FluidDropdownMenuContent as DropdownMenuContent,
+	FluidDropdownMenuItem as DropdownMenuItem,
+	FluidDropdownMenuGroup,
+} from "@openmeld/ui/fluid/dropdown-menu";
 import { FluidNavMenuItem } from "@openmeld/ui/fluid/nav-menu";
 import {
 	SidebarMenuActions,
@@ -21,7 +25,6 @@ import {
 	ArchiveIcon,
 	ArrowUUpLeftIcon,
 	ChatCircleTextIcon,
-	CloudIcon,
 	DotsThreeIcon,
 	FolderIcon,
 	PencilSimpleIcon,
@@ -31,6 +34,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { ObjectMenuItems } from "#/components/app/object-menu-items";
 import { useSortableSidebarItem } from "#/components/app/sidebar-drag";
 import { SidebarRowAction } from "#/components/app/sidebar-row-action";
 import {
@@ -69,6 +73,7 @@ import {
 	SpaceMemberAvatars,
 } from "./space-member-avatars";
 import { SpaceProfileIcon } from "./space-profile-icon";
+import { SpaceUnreadLink } from "./space-unread-link";
 
 type ConversationSidebarRowProps = {
 	attentionTone: "danger" | "warning" | null;
@@ -141,15 +146,21 @@ function DirectMessageSidebarRow(input: ConversationSidebarRowProps) {
 	);
 }
 
+function ConversationSidebarRowTime({ timestamp }: { timestamp: number }) {
+	const nowMs = useNowMs(60_000);
+	return (
+		<SidebarConversationTime
+			hideOlderUntilHover
+			now={new Date(nowMs)}
+			timestamp={timestamp}
+		/>
+	);
+}
+
 function ConversationSidebarRowContent(
 	input: ConversationSidebarRowProps & ConversationRowPreview
 ) {
-	const chat =
-		input.conversation.kind === "direct-message"
-			? input.conversation.chat
-			: null;
 	const { timestamp, previewText } = input;
-	const nowMs = useNowMs(timestamp === null ? null : 60_000);
 	const presentation = input.activeWakeSummary
 		? resolveSpaceActiveWakePresentation(input.activeWakeSummary)
 		: null;
@@ -164,7 +175,7 @@ function ConversationSidebarRowContent(
 		name: input.title,
 		disabled: input.disabled || !!input.dragDisabled,
 	});
-	return (
+	const row = (
 		<FluidNavMenuItem
 			className="group/chat relative"
 			index={input.index}
@@ -195,12 +206,19 @@ function ConversationSidebarRowContent(
 									]
 										.filter(Boolean)
 										.join(", ")}
-									className="absolute inset-0 rounded-md outline-none focus-visible:ring-1 focus-visible:ring-ring"
+									className="flex shrink-0 items-center rounded-md outline-none before:absolute before:inset-0 before:rounded-md focus-visible:before:ring-1 focus-visible:before:ring-ring [&_canvas[data-bot-avatar]]:relative"
 									resetScroll={false}
-									to={input.url}
+									{...conversationNavigationTarget(input.url)}
 								/>
 							}
-						/>
+						>
+							<ConversationIcon
+								conversation={input.conversation}
+								memberAppearances={input.memberAppearances}
+								summary={input.activeWakeSummary}
+								title={input.title}
+							/>
+						</TooltipTrigger>
 						<TooltipContent
 							className="max-w-sm flex-col items-start whitespace-normal text-left"
 							side="right"
@@ -210,12 +228,6 @@ function ConversationSidebarRowContent(
 						</TooltipContent>
 					</Tooltip>
 					<span className="pointer-events-none contents">
-						<ConversationIcon
-							conversation={input.conversation}
-							memberAppearances={input.memberAppearances}
-							summary={input.activeWakeSummary}
-							title={input.title}
-						/>
 						<span className="flex min-w-0 flex-1 flex-col gap-0.5">
 							<span
 								className="flex min-w-0 items-center gap-2"
@@ -229,28 +241,8 @@ function ConversationSidebarRowContent(
 										{input.title}
 									</span>
 								</span>
-								{chat?.session && (
-									<Tooltip>
-										<TooltipTrigger
-											render={
-												<span
-													aria-label="Agent direct message"
-													className="inline-flex shrink-0 text-muted-foreground"
-													role="img"
-												/>
-											}
-										>
-											<CloudIcon aria-hidden="true" className="size-3" />
-										</TooltipTrigger>
-										<TooltipContent>Agent direct message</TooltipContent>
-									</Tooltip>
-								)}
 								{timestamp !== null && !presentation && (
-									<SidebarConversationTime
-										hideOlderUntilHover
-										now={new Date(nowMs)}
-										timestamp={timestamp}
-									/>
+									<ConversationSidebarRowTime timestamp={timestamp} />
 								)}
 								{presentation && input.attentionTone && (
 									<span
@@ -290,17 +282,30 @@ function ConversationSidebarRowContent(
 			) : (
 				(hasUnread || input.attentionTone) && (
 					<SidebarMenuBadge>
-						<span
-							aria-hidden="true"
-							className={`status-dot ${resolveInboxIndicatorClassName(input.attentionTone)}`}
-							data-conversation-unread-indicator="true"
-						/>
+						{input.attentionTone ? (
+							<span
+								aria-hidden="true"
+								className={`status-dot ${resolveInboxIndicatorClassName(input.attentionTone)}`}
+								data-conversation-unread-indicator="true"
+							/>
+						) : (
+							<SpaceUnreadLink
+								count={input.unreadCount}
+								spaceId={input.conversation.spaceId}
+								url={input.url}
+							/>
+						)}
 					</SidebarMenuBadge>
 				)
 			)}
 
 			<ConversationRowActions {...input} />
 		</FluidNavMenuItem>
+	);
+	return (
+		<FluidContextMenu className="w-56" target={row}>
+			<ConversationRowMenuItems {...input} />
+		</FluidContextMenu>
 	);
 }
 
@@ -514,6 +519,7 @@ function ConversationIcon(input: {
 		return (
 			<ChatIcon
 				chat={input.conversation.chat}
+				size="sidebar"
 				summary={input.summary}
 				title={input.title}
 			/>
@@ -524,11 +530,12 @@ function ConversationIcon(input: {
 		return (
 			<SpaceMemberAvatars
 				appearances={input.memberAppearances}
+				compactSize={24}
 				members={members}
 			/>
 		);
 	}
-	return <ChatCircleTextIcon aria-label="Space" className="size-5 shrink-0" />;
+	return <ChatCircleTextIcon aria-label="Space" className="size-6 shrink-0" />;
 }
 
 export function resolvePreviewText(
@@ -540,21 +547,22 @@ export function resolvePreviewText(
 	if (preview?.isError) {
 		return "Couldn’t load preview. Open chat to retry.";
 	}
-	if (!preview || preview.isPending) {
-		return "Loading message…";
-	}
 	return "";
 }
 
 export function ChatIcon(input: {
 	chat: Chat;
 	title: string;
+	size?: "sm" | "sidebar";
 	summary?: SpaceSidebarActiveWakeSummary;
 }) {
 	if (input.chat.session) {
 		return (
 			<CenterAgentChatAvatar
+				avatarStyle={input.chat.centerAgentAvatarStyle}
+				profileId={input.chat.centerAgentProfileId}
 				profileName={input.chat.centerAgentProfileName}
+				size={input.size === "sidebar" ? 28 : 24}
 				working={
 					input.summary?.statuses?.some(
 						(status) => status.kind === "working"
@@ -567,10 +575,12 @@ export function ChatIcon(input: {
 		<SpaceProfileIcon
 			agentControllerRef={input.chat.peer?.agentControllerRef ?? null}
 			avatarImageUrl={input.chat.peer?.avatarUrl}
+			avatarModelId={input.chat.peer?.avatarModelId}
+			avatarStyle={input.chat.peer?.avatarStyle}
 			profileId={input.chat.peer?.profileId ?? input.chat.spaceId}
 			profileKind={input.chat.peer?.profileKind ?? "human"}
 			profileName={input.title}
-			size="sm"
+			size={input.size ?? "sm"}
 		/>
 	);
 }
@@ -604,54 +614,77 @@ function ConversationRowActions(input: ConversationSidebarRowProps) {
 					align="end"
 					className="w-56 max-w-[calc(100vw-2rem)]"
 				>
-					{input.onRename && (
-						<DropdownMenuItem
-							disabled={input.disabled}
-							onClick={input.onRename}
-						>
-							<PencilSimpleIcon aria-hidden="true" />
-							Rename
-						</DropdownMenuItem>
-					)}
-					<DropdownMenuItem disabled={input.disabled} onClick={togglePin}>
-						<PushPinIcon
-							aria-hidden="true"
-							weight={input.section === "pinned" ? "fill" : "regular"}
-						/>
-						{input.section === "pinned" ? "Unpin" : "Pin"}
-					</DropdownMenuItem>
-					{input.groups
-						.filter((g) => g.id !== input.section && g.id !== "pinned")
-						.map((g) => (
-							<DropdownMenuItem
-								disabled={input.disabled}
-								key={g.id}
-								onClick={() => input.onMove(g.id)}
-							>
-								<FolderIcon aria-hidden="true" />
-								<span className="truncate" title={`Move to ${g.name}`}>
-									Move to {g.name}
-								</span>
-							</DropdownMenuItem>
-						))}
-					{input.onArchive && (
-						<>
-							<DropdownMenuSeparator />
-							<DropdownMenuItem
-								disabled={input.disabled}
-								onClick={input.onArchive}
-							>
-								{input.archived ? (
-									<ArrowUUpLeftIcon aria-hidden="true" />
-								) : (
-									<ArchiveIcon aria-hidden="true" />
-								)}
-								{input.archived ? "Unarchive" : "Archive"}
-							</DropdownMenuItem>
-						</>
-					)}
+					<ConversationRowMenuItems {...input} />
 				</DropdownMenuContent>
 			</DropdownMenu>
 		</SidebarMenuActions>
+	);
+}
+
+function ConversationRowMenuItems(input: ConversationSidebarRowProps) {
+	const togglePin = () =>
+		input.section === "pinned" ? input.onUnpin() : input.onMove("pinned");
+	return (
+		<>
+			<ObjectMenuItems href={input.url} />
+			<DropdownMenuSeparator />
+			<FluidDropdownMenuGroup>
+				{input.onRename && (
+					<DropdownMenuItem
+						disabled={input.disabled}
+						index={0}
+						onClick={input.onRename}
+					>
+						<PencilSimpleIcon aria-hidden="true" />
+						Rename
+					</DropdownMenuItem>
+				)}
+				<DropdownMenuItem
+					disabled={input.disabled}
+					index={1}
+					onClick={togglePin}
+				>
+					<PushPinIcon
+						aria-hidden="true"
+						weight={input.section === "pinned" ? "fill" : "regular"}
+					/>
+					{input.section === "pinned" ? "Unpin" : "Pin"}
+				</DropdownMenuItem>
+				{input.groups
+					.filter((g) => g.id !== input.section && g.id !== "pinned")
+					.map((g, index) => (
+						<DropdownMenuItem
+							disabled={input.disabled}
+							index={index + 2}
+							key={g.id}
+							onClick={() => input.onMove(g.id)}
+						>
+							<FolderIcon aria-hidden="true" />
+							<span className="truncate" title={`Move to ${g.name}`}>
+								Move to {g.name}
+							</span>
+						</DropdownMenuItem>
+					))}
+			</FluidDropdownMenuGroup>
+			{input.onArchive && (
+				<>
+					<DropdownMenuSeparator />
+					<FluidDropdownMenuGroup>
+						<DropdownMenuItem
+							disabled={input.disabled}
+							index={input.groups.length + 2}
+							onClick={input.onArchive}
+						>
+							{input.archived ? (
+								<ArrowUUpLeftIcon aria-hidden="true" />
+							) : (
+								<ArchiveIcon aria-hidden="true" />
+							)}
+							{input.archived ? "Unarchive" : "Archive"}
+						</DropdownMenuItem>
+					</FluidDropdownMenuGroup>
+				</>
+			)}
+		</>
 	);
 }

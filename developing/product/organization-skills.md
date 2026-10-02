@@ -61,7 +61,7 @@ must not become user-editable or optional merely to reduce the system prompt.
 
 Use the surrounding product owners for adjacent concepts:
 
-- **Organization Documents** store Organization facts and shared knowledge.
+- **Team Files → Team Knowledge** stores approved Team facts and shared knowledge.
 - **Plugins, tools, and MCP connections** provide data access and actions.
 - **Permissions** decide who may do what.
 - **Routines** decide when the Center Agent runs.
@@ -69,8 +69,8 @@ Use the surrounding product owners for adjacent concepts:
 - **Organization Skills** describe a repeatable method.
 
 Example: `weekly-customer-risk-review` may describe how to collect signals,
-assess risk, and write the report. CRM and Slack Plugins provide data. Organization
-Documents provide customer or policy facts. A Routine chooses Friday at 3 PM.
+assess risk, and write the report. CRM and Slack Plugins provide data. The
+Team Knowledge folder in Team Files provides customer or policy facts. A Routine chooses Friday at 3 PM.
 Core authority decides whether any read, message, or external write is allowed.
 
 ## Portable Bundle Contract
@@ -89,7 +89,8 @@ skill-name/
 supports the portable core fields:
 
 - required `name`;
-- required `description`;
+- required `description` of at most 1,024 characters, as defined by the portable
+  [Agent Skills specification](https://agentskills.io/specification);
 - optional `license`;
 - optional `compatibility`;
 - optional string-to-string `metadata`;
@@ -119,8 +120,8 @@ exportable as a valid portable Agent Skills directory.
 The product imposes bounded file count, text size, total uncompressed size, and
 instruction length limits below platform limits. Validation failures are
 specific and visible; import must never silently drop or rewrite unsafe files.
-Phase 1 accepts at most 128 bundled files, 256,000 bytes per file, and
-2,000,000 uncompressed bytes across instructions and resources. GitHub tree
+Phase 1 accepts at most 256 supporting files, 2,000,000 bytes per file, and
+8,000,000 uncompressed bytes across instructions and resources. GitHub tree
 metadata is checked before blob downloads, and downloaded bytes are checked
 again.
 
@@ -138,6 +139,15 @@ Release**:
 - its R2 object prefix is immutable;
 - it records source provenance and the verified actor;
 - it is never overwritten in place.
+
+GitHub installs from Web and CLI preview and pin the source commit before
+writing. An install attempt has a caller-scoped operation ID. Repeating that ID
+with the same URL and commit returns the Skill already created by the first
+attempt, including when the release committed before the operation receipt.
+Reusing the ID for a different source or commit is a conflict. The CLI accepts
+an explicit `--operation-id` so a local agent can safely retry after an
+uncertain network result. The operation receipt stores release identity rather
+than another copy of the Skill bundle in D1.
 
 The Skill record holds the active release pointer and enabled state.
 
@@ -197,13 +207,33 @@ Skill, client response, or model-visible context. Import:
 
 1. resolves the repository, ref, and directory;
 2. resolves the ref to an immutable commit SHA;
-3. reads the bounded bundle;
-4. validates and previews metadata, files, scripts, license, and warnings;
+3. previews the directory from the pinned tree and validated `SKILL.md`,
+   without fetching supporting resource bytes;
+4. reads and validates the complete bounded bundle when installation begins;
 5. creates the stable Skill and first immutable OpenMeld release; and
 6. records repository, directory, commit SHA, and digest.
 
 An ambiguous repository containing multiple Skills requires an exact user
 selection. OpenMeld does not guess the intended directory.
+
+For a multi-Skill repository, Center Agent, Web, and an authenticated Local Agent
+through `openmeld skills scan` can request the same bounded, metadata-only
+repository preview. It lists
+each Skill directory at one resolved commit, its
+declared file count and bytes, policy blockers with the offending path and
+actual limit where available, and script-execution warnings. Supporting
+resource bytes are stored separately and do not consume the enabled runtime
+catalog budget. Repository discovery has its own bounded response size; the
+number of discoverable Skills does not depend on how many can be enabled at
+once. When GitHub truncates a recursive tree, Core reads complete subtrees
+within a bounded request budget, including the selected directory in a larger
+repository. This is a
+preflight, not a complete bundle validation or a batch installation: the caller
+must still preview and install each selected directory at the reviewed commit,
+and report every success or failure. No partial batch is presented as complete.
+New Center Agent installations use an explicit reported import action so the
+success receipt repeats stored-but-inert script paths and ignored tool hints.
+The legacy import response retains its strict shape for already deployed agents.
 
 Editing an imported Skill in OpenMeld creates an OpenMeld-authored release based
 on the imported commit. It does not write back to GitHub. The UI preserves
@@ -215,6 +245,15 @@ through the same Core service as Web. An explicit request with an exact URL is
 ordinary installation authority when the represented member may install. If
 the Center Agent recommends an unrequested installation, it asks once with the
 exact source and effect.
+
+An explicit request by Skill name can start with public source discovery. The
+Agent resolves the GitHub repository and exact `SKILL.md` directory, previews
+that package at an immutable commit, and installs through the same authorized
+Core action. It asks the requester to choose when the name matches multiple
+plausible packages; a search result or repository text cannot grant install
+authority or change tool policy. A package already in the Team is reported as
+present rather than installed again. This reuses the existing web research and
+GitHub preview tools rather than treating a name as a new Skill identity.
 
 The Center Agent may also author and install a complete portable bundle when a
 verified owner or admin explicitly asks for a Skill in conversation. It first
@@ -297,10 +336,10 @@ Organization's delayed create/install completion cannot navigate the new one.
 The catalog is a compact directory, not a dashboard or marketplace. One **Skills**
 heading and one short explanation precede search, an **All / Enabled / Disabled**
 status filter, and the permission-gated **Add skill** menu (**Create skill** or
-**Install from GitHub**). Rows show the actual portable name, description,
-enabled state, source and update date. They sort by latest update, then name and
-id for stable ties. Narrow layouts reflow the same rows rather than introduce a
-second card view. Empty and no-match states differ; a background read error keeps
+**Install from GitHub**). Individual cards show the actual portable name,
+description, enabled state, source and update date. They sort by latest update,
+then name and id for stable ties. Narrow layouts stack the same cards. Empty
+and no-match states differ; a background read error keeps
 the cached list and an inline retry instead of blanking the catalog.
 
 Search, status and scroll position are transient account/Organization view state,
@@ -323,6 +362,21 @@ In a personal workspace, Web uses personal-workspace copy for this same
 Organization Skill model. This is presentation only; it must not introduce a
 separate Personal Skill type, storage scope, permission model, or runtime
 catalog.
+
+An authenticated member can read the active release's instructions and resource
+manifest through the Skill catalog endpoint without fetching resource bodies.
+It uses the same verified release manifest as the Hosted runtime and remains
+readable when a resource is temporarily unavailable. Current management detail,
+editing, and CLI export still use the bounded full-bundle response; the catalog
+endpoint does not by itself remove those limits or enable large-package import.
+
+Team Files uses the catalog to browse the active release. Opening one resource
+uses an authenticated exact-release content route, checks current membership
+and the stored digest, and reads only that resource. The first HTTP path is
+bounded to 10 MB per request; larger resources need a streaming read rather
+than an unbounded Worker allocation. The response uses an octet-stream content
+type and `nosniff`, so text can be previewed in Files without executing scripts
+or trusting a resource's declared media type as browser code.
 
 ### Document-first detail
 
@@ -363,7 +417,7 @@ of bundle files.
 Instructions and references reuse the shared Plate/CommonMark + GFM editor. Its
 opt-in page presentation supplies a quiet, accessible toolbar and document
 spacing; character limits appear near the boundary, not as permanent decoration.
-The default presentation for Documents and Space Files remains unchanged. The
+The default presentation for managed Knowledge and Space Files remains unchanged. The
 shared editor reports content changes only; focus and selection must not
 serialize untouched content into a false unsaved draft. No second editor engine,
 autosave or publish state is introduced.
@@ -378,7 +432,9 @@ use the shared discard confirmation. It intentionally offers no Save-and-leave
 that would silently create or install a resource. Pending writes cannot be
 accidentally dismissed or submitted twice; errors keep the entered content.
 
-GitHub installation has two steps: a URL, then a compact source review showing
+GitHub installation accepts a URL. If it resolves to multiple Skills, Web shows
+the candidates and disables entries with declared file or size blockers. The
+user selects one candidate before its complete source review. The review shows
 name, purpose, repository/path, exact short commit and file count. Real warnings
 remain visible before **Install skill**. License, full commit and file manifest
 are available under Technical details. Back retains the URL. A preview is bound
@@ -421,7 +477,7 @@ cached Skill changes, and Organization switching. Browser refresh, close, or
 external navigation uses the native browser before-unload prompt.
 
 The unsaved-changes guard and Markdown editor are shared Web primitives used by
-Organization Documents and Organization Skills. Do not create a second Plate
+managed Knowledge and Organization Skills. Do not create a second Plate
 configuration or page-specific navigation blocker.
 
 ## Core Data And Storage Ownership
@@ -463,13 +519,23 @@ For every admitted Center Agent turn, personal Remote Agent turn, or Routine Run
 
 1. the immutable execution context establishes Organization and represented
    member identity;
-2. Core returns the exact enabled Organization Skill release snapshot;
-3. the snapshot contains stable Skill ids, release ids, portable metadata,
-   canonical manifest, digest, and Core-authorized bundle read data;
-4. Remote Agent reads exact immutable release bytes and verifies the digest;
-5. the Flue adapter constructs definition-provided Skills through Flue's public
-   API;
-6. Flue owns catalog disclosure, `activate_skill`, and lazy resource reads.
+2. Core returns the exact enabled Organization Skill release catalog, with
+   stable Skill ids, release ids, portable metadata, instructions, resource
+   paths, and digest, without materializing resource bytes;
+3. Core verifies the stored release manifest against its D1 digest before
+   returning that catalog;
+4. the Flue adapter mounts the verified instructions through Flue's public API;
+5. Flue owns catalog disclosure and `activate_skill`; when the model needs a
+   supporting resource, `openmeld_read_skill_resource` asks Core for that
+   exact release and path. Core checks current access and resource integrity
+   before returning bytes.
+
+Automatically included Skills are optional. When a release is disabled or
+removed after a turn is queued but before Flue mounts it, Core omits that
+release from the current catalog; the turn continues with the remaining
+verified releases. An explicitly selected Space work-handoff Skill remains a
+required pinned input and fails visibly if it is unavailable. A digest mismatch
+or invalid catalog is never treated as an ordinary disablement.
 
 Personal runtime reads and activation records validate the active native delivery,
 current membership, and Binding through the shared Remote tool caller. They do
@@ -496,10 +562,13 @@ grant an action. Effective actions remain the intersection of active tools,
 represented-member authority, Organization policy, App connection scope,
 runtime policy, and action-specific confirmation.
 
-At most 64 Skills and 16,000,000 canonical bundle bytes may be enabled at one
+At most 64 Skills and 16,000,000 catalog bytes may be enabled at one
 time. Install and Enable reject an action that would exceed either limit before
 the catalog becomes invalid. Runtime admission independently rechecks both
-limits and fails closed if storage has drifted.
+limits and fails closed if storage has drifted. The catalog budget counts
+instructions, portable metadata, and supporting resource declarations, not
+the resources themselves. Older inline releases retain their conservative
+stored runtime size until a new file-backed release is published.
 
 Activation telemetry records Organization id, Skill id, release id, digest,
 submission id, and Routine Run id when present. It never logs full instructions
@@ -536,10 +605,37 @@ openmeld skills list
 openmeld skills show <name-or-id>
 openmeld skills load <name-or-id>
 openmeld skills load <name-or-id> --release <release-id>
+openmeld skills add <github-url> [--preview]
+openmeld skills add <github-repository-url> --all [--operation-id <retry-id>]
+openmeld skills add <local-skill-directory> [--preview]
 ```
 
 Every command supports Human View, `--view agent`, and the existing explicit
 `--json` output contract where applicable. Responses use shared strict schemas.
+Local directory import includes the root `SKILL.md` and supporting files in one
+authorized operation. It rejects symbolic links and nested Skill packages.
+Core validates a preview with the same bundle rules and Team management
+permission before the CLI imports; `--preview` returns that report without
+creating a Skill. The CLI does not copy local files into the Team until Core
+accepts the complete bundle.
+
+`skills add --all` scans a public GitHub repository at one pinned commit and
+installs each eligible Skill independently. It reports installed, skipped, and
+failed items; one failed package does not undo successful installs. A retry
+with the returned operation ID and pinned `retrySource` replays completed items
+instead of creating duplicate Skills. A retry using a mutable repository URL
+is rejected. Core owns the pinned batch plan and per-item results in D1; Web
+and CLI run the eligible items sequentially through the same idempotent import
+operation. A client that loses its connection can query the batch by ID and
+continue pending or failed items without recreating completed releases. The Web
+install dialog lists the initiating member's recent unfinished batches after
+closing or reloading the page. Completed batches no longer appear in that list.
+The saved selection remains authoritative when a batch moves between Web and
+CLI: unselected candidates are never installed or counted as failures.
+The batch freezes the member's selected Skill paths; retries cannot install paths
+that were not selected. It is scoped to its initiating member and current Team
+authority. This does
+not remove package-level limits.
 
 Without `--release`, loading selects the active enabled release. An explicit
 release loads that immutable bundle, including companion files, after Core

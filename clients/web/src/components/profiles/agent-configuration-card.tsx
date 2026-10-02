@@ -241,6 +241,7 @@ export function AgentConfigurationCard(input: {
 export function AgentConfigurationReadoutCard(input: {
 	itemId: string;
 	label: string;
+	headerAccessory?: ReactNode;
 	children: ReactNode;
 }) {
 	return (
@@ -249,9 +250,12 @@ export function AgentConfigurationReadoutCard(input: {
 				aria-label={input.label}
 				className="h-full min-h-28 min-w-0 rounded-md p-4"
 			>
-				<h3 className="font-medium text-muted-foreground text-xs">
-					{input.label}
-				</h3>
+				<div className="flex items-center justify-between gap-2">
+					<h3 className="font-medium text-muted-foreground text-xs">
+						{input.label}
+					</h3>
+					{input.headerAccessory}
+				</div>
 				<div className="mt-3 min-w-0">{input.children}</div>
 			</section>
 		</AgentConfigurationSurface>

@@ -499,8 +499,12 @@ New profiles default to "<Organization name> Center Agent" so they remain
 recognizable across Organizations. A missing or blank Organization name falls
 back to "Center Agent", and an Organization name that already ends with
 "Center Agent" is not given a duplicate suffix. Existing profiles are not
-renamed by ensure. Future Center Agent settings may let an org customize the
-name, role description, avatar, or instructions, but that customization edits
+renamed by ensure. Center Agent settings let an authorized organization owner
+or admin choose a Bot avatar or the abstract fluid avatar on the managed
+profile. An unset avatar uses a stable Bot choice derived from that profile's
+identity, so every member sees the same default. The user previews choices in
+place and explicitly saves the selected avatar. Future customization of the
+role description or instructions also edits
 the same managed profile. It must not create a second Center Agent or turn an
 arbitrary ordinary Agent Profile into the Center Agent. The UI shows a
 badge/label derived from the designation to convey "this is our org's Center
@@ -965,6 +969,19 @@ turn and its new Native Delivery from the observer delivery's frozen locator;
 the subscription never copies or overrides that destination. This also permits
 one Space parent to watch work in another Space without making either Space the
 coordination owner.
+
+If a Space continuation receives no worker ACK during its admission window,
+Core retries that same Native Delivery at most twice after the initial attempt,
+with 15-second and 30-second backoff. Every attempt reuses the frozen worker
+request, delivery id, dispatch id, and idempotency key; it never creates a new
+continuation or consumes the subscription again. A real worker ACK, including
+an already-observed idempotent ACK, closes retry eligibility immediately.
+After three unacknowledged attempts, Core publishes one explicit failure in the
+original result thread and creates one urgent, action-required Inbox item for
+the represented member linked to that result. The member does not need to poll
+or remember to Wake the parent, and accepted or running work is never replayed
+by this admission recovery.
+
 Stopping the parent cancels pending continuations and planned fallbacks, and
 forwards the existing exact Wake Stop request to every active Space Wake child.
 Every cancellation target is attempted even when one fails. Hosted
@@ -1147,7 +1164,7 @@ another execution authority.
 
 GLM 5.3 Flash, Grok 4.6, and Grok 4.5 are provider-declared as text-and-image
 models; DeepSeek V4 Flash is text-only. Regardless of the primary model's
-capability, every current-version image first uses frozen Grok 4.6 as the
+capability, every current-version image first uses frozen GPT-6 Luna as the
 auxiliary image-understanding model. The primary receives its bounded
 untrusted description, not the raw image. An auxiliary or primary model
 failure fails the turn; OpenMeld never switches the primary automatically.
@@ -1722,10 +1739,13 @@ repository outside the installation grant fails visibly with the matching
 remedy.
 
 The installation start is bound to one Organization, installer, Center Agent
-profile, and target connection by a single-use ten-minute opaque state. GitHub
-returns the installation id to OpenMeld's public setup callback. OpenMeld then
-uses a temporary verifier connection to prove that the same signed-in GitHub
-user can see that installation before OpenConnector stores the final
+profile, and target connection by a single-use ten-minute opaque state. For a
+new installation, GitHub returns the installation id to OpenMeld's public setup
+callback. For an App already installed, OpenMeld starts user authorization
+directly and accepts the installation only when that user can access exactly
+one organization installation of the configured App. If several installations
+are accessible, setup must stop instead of guessing an account. Both paths use
+a temporary verifier connection before OpenConnector stores the final
 installation credential. Core stores the installation id and connection
 ownership metadata, never an installation token, App private key, OAuth client
 secret, or user token.
@@ -2035,9 +2055,26 @@ of a personal registration does not grant use of its credentials. Connections
 remain scoped to one Organization; personal ownership does not imply cross-Org
 credential reuse.
 
-An absent policy preserves historical Center access and shared personal-Remote
-access, while Local access and personal-Remote access to a member connection
-start disabled. Moving navigation alone never expands existing authority.
+New personal and shared registrations persist explicit `none` for every Agent
+consumer before provider authorization. Provider consent/activation is not an
+Agent grant. The connection owner must explicitly save Agent permissions through
+the existing revisioned, audited access editor. The same editor follows the
+connection form in Plugins, Onboarding and conversation setup.
+
+Historical registrations with an absent policy retain their shipped Center and
+shared personal-Remote access; Local access and personal-Remote access to a member
+connection remain disabled. New inserts must not reuse this legacy null-policy
+compatibility rule. Reauthorization of the same Organization/scope/owner/service
+registration preserves its existing policy but advances its access revision so
+an earlier permission draft cannot overwrite the new authorization. Access may
+only be saved while the connection is active, fenced in the same audit/write
+transaction. Access revisions are monotonic fences, not a count of grant events.
+A different member or Organization has a different registration and starts with
+no access. Shared setup attribution may change between authorized administrators;
+the Organization remains the credential-policy owner, not the last installer.
+These connection-level grants do not attest a provider account identity beyond
+what the existing connector verification proves. Moving navigation alone never
+expands existing authority.
 Read-only access requires trusted action metadata declaring a read. Unknown and
 destructive effects require write permission and exact-action confirmation.
 Personal Remote Agents may use their owner's connection only for a verified
@@ -2079,11 +2116,10 @@ Management location follows the owner instead of repeating mutation controls:
   visibly separate, has no disconnect
   or repair controls, and accepts success only from the owning Core projection.
   Center Agent remains the ongoing management home.
-- The Center Agent Chat page has no Channels or Plugins mutation copy. It may show
-  a read-only status shortcut and compact handoff dialog when context makes the
-  canonical Center Agent destination useful, but the dialog must only
-  deep-link; it must not install, move, disconnect, or otherwise manage the
-  integration.
+- The Center Agent Chat page does not duplicate Channels or Plugins settings.
+  A Plugin connection message may open the same authorized connection and access
+  surface in a compact dialog; it does not implement separate management logic
+  or permissions. Other status shortcuts use the canonical management page.
 - When the Center Agent tells a user to complete or repair App access, it uses a
   structured Navigation Action for the current Organization's canonical App
   page. The reply gives the outcome, one concrete next step, and that direct

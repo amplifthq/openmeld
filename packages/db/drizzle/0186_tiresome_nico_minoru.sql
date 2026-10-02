@@ -1,0 +1,1 @@
+ALTER TABLE `openmeld_profiles` ADD `avatar_style` text;

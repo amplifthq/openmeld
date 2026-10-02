@@ -1,4 +1,6 @@
 // biome-ignore-all lint/performance/noBarrelFile: Package entrypoint intentionally exposes the Cursor adapter contract.
+export { projectCursorUsageLimits } from "./usage/cursor-usage-limits.js";
+
 import {
   type AdapterCancelRequest,
   type AdapterCancelResult,

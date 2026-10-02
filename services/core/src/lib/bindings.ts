@@ -34,6 +34,7 @@ import type {
   SummarizeAgentActivityDigestRpcResponse,
 } from "@openmeld/schemas/types";
 import type { AccountInvalidationHub } from "../account-invalidation/account-invalidation-hub";
+import type { OrganizationFileRoot } from "../files/organization-file-root";
 import type { PrepareSessionHub } from "../prepare-session/transport/do/prepare-session-hub";
 import type { LarkChannelConnector } from "../remote-agent/transport/lark/lark-channel-connector";
 import type { RuntimeTransportHub } from "../runtime-transport/transport/do/runtime-transport-hub";
@@ -99,6 +100,7 @@ type CoreAuthDispatchBindingRpc = {
     organizationId?: string | null;
     profileId?: string | null;
     profileName?: string | null;
+    avatarStyle?: string | null;
   }): Promise<AuthAgentProfileRpcResult>;
   updateAgentProfileDefaultProjectInOrganization?(input: {
     defaultProjectId: string | null;
@@ -122,6 +124,7 @@ type CoreAuthDispatchBindingRpc = {
   >;
   resolveProfileById?(input: {
     openMeldProfileId?: string | null;
+    includeAvatarStyle?: boolean;
   }): Promise<AuthRpcResolveProfileByIdResult>;
   resolveProfilesByIds?(
     input: AuthRpcResolveProfilesByIdsInput
@@ -162,6 +165,21 @@ export type RemoteAgentWorkerBindingRpc = {
   ): Promise<
     import("@openmeld/schemas/types").RemoteAgentWorkerExecutionQueryResponse
   >;
+  readAdmission?(
+    input: RemoteAgentWorkerSubmitTurnRequest
+  ): Promise<
+    import("@openmeld/schemas/types").RemoteAgentWorkerReadAdmissionResponse
+  >;
+  readSubmitTurnCapabilities?(
+    input: import("@openmeld/schemas/types").RemoteAgentWorkerSubmitCapabilitiesRequest
+  ): Promise<
+    import("@openmeld/schemas/types").RemoteAgentWorkerSubmitCapabilities
+  >;
+  readAdmissionStop?(
+    input: RemoteAgentWorkerSubmitTurnRequest
+  ): Promise<
+    import("@openmeld/schemas/types").RemoteAgentWorkerReadAdmissionStopResponse
+  >;
   readRuntimeDiagnostics?(
     input: import("@openmeld/schemas/types").RemoteAgentWorkerRuntimeDiagnosticsRequest
   ): Promise<
@@ -186,6 +204,7 @@ export type CoreBindings = {
   OPENMELD_ACCOUNT_INVALIDATIONS?: DurableObjectNamespace<AccountInvalidationHub>;
   OPENMELD_LARK_CHANNEL_CONNECTOR?: DurableObjectNamespace<LarkChannelConnector>;
   OPENMELD_SPACES: DurableObjectNamespace<Space>;
+  OPENMELD_FILE_ROOTS?: DurableObjectNamespace<OrganizationFileRoot>;
   OPENMELD_RUNTIME_TRANSPORT?: DurableObjectNamespace<RuntimeTransportHub>;
   OPENMELD_PREPARE_SESSION_HUB?: DurableObjectNamespace<PrepareSessionHub>;
   OPENMELD_DB?: D1Database;
@@ -203,6 +222,7 @@ export type CoreBindings = {
   OPENMELD_REMOTE_AGENT_WORKER?: RemoteAgentWorkerBindingRpc;
   OPENMELD_SPACE_ATTACHMENTS?: R2Bucket;
   OPENMELD_ORGANIZATION_SKILLS?: R2Bucket;
+  OPENMELD_SKILL_FILE_BACKED_WRITES?: string;
   OPENMELD_ROUTINE_RUN_WORKFLOW?: Workflow<{ runId: string }>;
   OPENMELD_ROUTINE_ENGINE_DEFAULT?: string;
   OPENMELD_AGENT_ACTIVITY_DIGEST_ENABLED?: string;
@@ -210,7 +230,6 @@ export type CoreBindings = {
   OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED?: string;
   OPENMELD_REMOTE_AGENT_DESIGNATION_ENABLED?: string;
   OPENMELD_REMOTE_AGENT_BLOCKED_ORGANIZATION_IDS?: string;
-  OPENMELD_REMOTE_AGENT_DAILY_ADMISSION_LIMIT?: string;
   OPENMELD_SLACK_RICH_CONTEXT_REPRO_ENABLED?: string;
   OPENMELD_TASK_CONTINUATION_DESTINATION_NEUTRAL_ENABLED?: string;
   OPENMELD_LARK_CHANNEL_ENABLED?: string;
@@ -238,10 +257,6 @@ export type CoreBindings = {
   OPENMELD_DAEMON_DISPATCH_OUTBOX_DELIVERY_MODE?: string;
   OPENMELD_WORKER_ENVIRONMENT?: string;
   CORS_ORIGINS?: string;
-  // Reserved for a future observability-only split (physical-db-split.md): when
-  // set "true" it gates the wake-evidence retention sweep. Currently UNSET — the
-  // 4-way split was reverted (single DB), so no split-active deploy exists.
-  OPENMELD_SPLIT_ACTIVE?: string;
 };
 
 // Per-domain D1 accessors. Each returns its domain binding, falling back to the

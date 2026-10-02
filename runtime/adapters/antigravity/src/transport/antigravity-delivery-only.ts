@@ -17,8 +17,8 @@ import {
   type RuntimeAgentControllerLaunchContract,
 } from "@openmeld/adapter-core";
 import { execPlatformFile } from "@openmeld/adapter-core/process-launch";
+import { supportsAgentControllerVersion } from "@openmeld/agent-runtime";
 
-const VERSION = /^1\.2\.(\d+)$/u;
 const LINE_END = /\r?\n/u;
 const EXTENSION_SETTING = /hook|plugin|sidecar|extension|mcp/iu;
 const TRANSIENT_CLI_ENTRIES = new Set([
@@ -82,8 +82,7 @@ export async function prepareAntigravityDeliveryScope(input: {
     env,
     input.workdir
   );
-  const match = version.trim().match(VERSION);
-  if (!match || Number(match[1]) < 9) {
+  if (!supportsAgentControllerVersion(version, ">=1.2.9 <1.3.0-0")) {
     throw scopeError(
       "This native Antigravity version has not verified restricted agent loading."
     );

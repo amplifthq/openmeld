@@ -74,6 +74,47 @@ test("focused PR validation keeps checks for changed workspaces with adjacent te
     commands.every((args) => !args.some((arg) => arg.startsWith("--shard=")))
   );
 });
+
+test("Core feedback selects the runner that actually contains each changed test", () => {
+  const paths = [
+    "services/core/tests-node/local-contract.test.ts",
+    "services/core/tests-split-gate/dispatch-queue-hot-path.split-routing.test.ts",
+    "services/core/tests/remote-agent-routine-delivery.integration.test.ts",
+  ];
+  const commands = planPrChecks(paths, {
+    feedback: true,
+    existingFiles: paths,
+    workspaces: [
+      {
+        directory: "services/core",
+        name: "@openmeld/core",
+        test: "vitest run --config vitest.boundary.config.ts",
+      },
+    ],
+  });
+  assert.deepEqual(
+    commands
+      .filter((args) => args.includes("vitest"))
+      .map((args) => ({
+        config: args[args.indexOf("--config") + 1],
+        test: args.at(-1),
+      })),
+    [
+      {
+        config: "vitest.boundary.config.ts",
+        test: "tests-node/local-contract.test.ts",
+      },
+      {
+        config: "vitest.split-gate.config.ts",
+        test: "tests-split-gate/dispatch-queue-hot-path.split-routing.test.ts",
+      },
+      {
+        config: "vitest.config.ts",
+        test: "tests/remote-agent-routine-delivery.integration.test.ts",
+      },
+    ]
+  );
+});
 test("Worker changes select the existing Zod contract guard before expensive tests", () => {
   for (const feedback of [true, false]) {
     for (const file of [

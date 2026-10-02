@@ -9,6 +9,7 @@ import {
   DISPATCH_ACTIVITY_DISPATCHING_PURPOSE,
   DISPATCH_ACTIVITY_FAILED_PURPOSE,
   DISPATCH_ACTIVITY_RETRYING_PURPOSE,
+  REMOTE_AGENT_EXECUTION_CONFIRMATION_PENDING_REASON_CODE,
   REMOTE_AGENT_FAILURE_PURPOSE,
   resolveMappedPublicAgentFailureReason,
 } from "@openmeld/schemas";
@@ -62,6 +63,7 @@ export type WakeProgressDraft = Omit<
 > & {
   phase: WakeProgressPhase;
   message?: string;
+  runtimeKind?: "hosted" | "workstation";
   runtimeDeviceDisplayName?: string | null;
   terminal?: boolean;
 };
@@ -70,12 +72,14 @@ export function buildWakeProgressMessage(input: {
   phase: WakeProgressPhase;
   targetLabel: string;
   errorCode?: string | null;
+  runtimeKind?: "hosted" | "workstation";
   runtimeDeviceDisplayName?: string | null;
 }): string {
   const targetLabel = formatWakeTargetLabel(input.targetLabel);
-  const runtimeLocation = formatWakeProgressRuntimeLocation(
-    input.runtimeDeviceDisplayName
-  );
+  const runtimeLocation =
+    input.runtimeKind === "hosted"
+      ? ""
+      : ` ${formatWakeProgressRuntimeLocation(input.runtimeDeviceDisplayName)}`;
   switch (input.phase) {
     case "sending":
       return "Sending message...";
@@ -84,9 +88,15 @@ export function buildWakeProgressMessage(input: {
     case "queued":
       return `Wake for ${targetLabel} is queued.`;
     case "connecting":
-      return `Connecting to ${targetLabel} ${runtimeLocation}...`;
+      return `Connecting to ${targetLabel}${runtimeLocation}...`;
     case "running":
-      return `${targetLabel} is working ${runtimeLocation}...`;
+      if (
+        input.errorCode ===
+        REMOTE_AGENT_EXECUTION_CONFIRMATION_PENDING_REASON_CODE
+      ) {
+        return `OpenMeld cannot confirm the result for ${targetLabel}. Later work in this conversation may be waiting. Stop this request to release it once the Agent confirms that execution has ended. Do not resend the original request.`;
+      }
+      return `${targetLabel} is working${runtimeLocation}...`;
     case "writing":
       return `${targetLabel} started writing...`;
     case "publishing":
@@ -116,6 +126,7 @@ export function createWakeProgressItem(
   const {
     failureReasonCode,
     message,
+    runtimeKind,
     runtimeDeviceDisplayName,
     terminal: draftTerminal,
     ...itemDraft
@@ -129,7 +140,10 @@ export function createWakeProgressItem(
   const normalizedFailureReasonCode =
     draft.phase === "failed" ||
     draft.phase === "publication_unknown" ||
-    draft.phase === "publishing"
+    draft.phase === "publishing" ||
+    (draft.phase === "running" &&
+      failureReasonCode ===
+        REMOTE_AGENT_EXECUTION_CONFIRMATION_PENDING_REASON_CODE)
       ? normalizeOptionalText(failureReasonCode)
       : null;
   return {
@@ -140,6 +154,8 @@ export function createWakeProgressItem(
       message ??
       buildWakeProgressMessage({
         phase: draft.phase,
+        errorCode: normalizedFailureReasonCode,
+        runtimeKind,
         runtimeDeviceDisplayName,
         targetLabel: draft.targetLabel,
       }),

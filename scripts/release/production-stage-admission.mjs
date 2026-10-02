@@ -67,10 +67,25 @@ export function assertProductionStageAdmission(input) {
     );
   }
 
+  // A multi-scope selection is intent, not proof that Core's receiver has
+  // deployed. Remote must enter a later, receipt-verified stage.
+  const coreMustPrecedeRemote =
+    selected.has("remote-agent") &&
+    dependencies.some(
+      ({ component, edge }) =>
+        edge[0] === "core" &&
+        edge[1] === "remote-agent" &&
+        !isProductionCompatibilityReceiverSatisfied(
+          input.components,
+          component,
+          edge,
+          input.sourceSha
+        )
+    );
   const prerequisiteScopes = [...required].filter(
     (scope) =>
       !(
-        selected.has(scope) ||
+        (selected.has(scope) && !(scope === "core" && coreMustPrecedeRemote)) ||
         input.components.some(
           (component) =>
             component.scope === scope && component.state === "current"

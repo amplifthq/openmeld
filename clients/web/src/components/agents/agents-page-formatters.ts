@@ -176,7 +176,7 @@ export function isAgentProfileWorkAwaitingOriginalStopError(
 		return false;
 	}
 	return (
-		(error as { code?: unknown }).code ===
+		(error as { upstreamCode?: unknown }).upstreamCode ===
 		"agent_profile_work_recovery.awaiting_original_stop"
 	);
 }

@@ -642,9 +642,16 @@ function createContext(
   source: ContextSource | null
 ): ContextRecord {
   const selection = request.selection;
+  const implicitPreferences =
+    selection.mode === "auto" &&
+    !source &&
+    snapshot.controllerSnapshot.agentControllerRef === "builtin:codex"
+      ? ({ access: "workspace", workspace: "current" } as const)
+      : {};
   const preferences: Partial<
     Pick<ExecutionContextAssignment, "access" | "workspace">
-  > = selection.mode === "resume" ? {} : selection;
+  > =
+    selection.mode === "resume" ? {} : { ...implicitPreferences, ...selection };
   const forkSource = forkCheckpoint(request, source);
   return {
     assignment: {

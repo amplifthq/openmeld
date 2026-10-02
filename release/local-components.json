@@ -1,27 +1,28 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-24T03:42:32.409Z",
+  "updatedAt": "2026-10-02T17:46:20.763Z",
   "components": {
     "cli": {
-      "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-task-result-review-v1",
-      "packageVersion": "0.3.222",
+      "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
+      "packageVersion": "0.3.237",
       "updatePolicy": "available",
-      "reason": "Existing CLI setup, Wake, Space actions, status, trace and self-rescue remain compatible with old and new cloud; the new Remote Agent creation options use additive optional request fields."
+      "reason": "Controller version checks and inventory advice change locally without changing command, setup, Space action, or cloud payload contracts; old and new cloud both accept the CLI."
     },
     "service": {
-      "bundleHash": "818b0a54c1578eb46c4f9373bee8c11b8764c90c2dad378161649e5efd8fbf7d",
-      "bundleVersion": "0.3.222",
-      "runtimeContractEpoch": "runtime-transport-epoch-2026-09-antigravity-permissions",
-      "serviceContractVersion": "openmeld-service-contract-2026-09-antigravity-permissions-v1",
+      "bundleHash": "d30a5591d3d9f1cd286b6d2db6f6fce457572a411abeaed7d8ddf19f78f3ad03",
+      "portableBundleHash": "a1de283ab28743808f41a9a27a518785cb69be00699820c08d944f9f67957714",
+      "bundleVersion": "0.3.237",
+      "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
+      "serviceContractVersion": "openmeld-service-contract-2026-09-local-install-recovery-v1",
       "updatePolicy": "available",
-      "reason": "The Service transport and Wake contracts are unchanged; shared schema additions are optional and old Services can safely continue current and new Wake work."
+      "reason": "Codex preview capability handling fixes a safe rejection; runtime transport payloads, permission checks, active dispatches, and rescue commands remain compatible in both rollout directions."
     },
     "skills": {
-      "bundleHash": "c3ce8a2e5928354908a505326ccdc68b65f7a3e305792d595982fd0a41c33e7e",
+      "bundleHash": "2d2bc74e8aa66f6f78f469f6d4441467ebab07d5e6ccceb89c7b22a24b38746f",
       "skillContractVersion": "openmeld-skills-contract-2026-09-explicit-space-recipients-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Antigravity setup guidance is additive; existing explicit-recipient Wake and reply instructions remain compatible with old and new cloud."
+      "reason": "The Plugin playbook adds guidance without changing the existing managed Skill contract."
     }
   }
 }

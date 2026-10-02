@@ -11,6 +11,7 @@ import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { powerShellEncodedArguments } from "@openmeld/adapter-core/windows-system";
 import { describe, expect, it, vi } from "vitest";
+import { buildDaemonServiceUpdateWorkerSpec } from "../src/local-service/lifecycle/daemon-service-update-worker-manager";
 import { windowsDirectTaskArguments } from "../src/local-service/lifecycle/windows-task-command";
 import {
   readWindowsTaskAction,
@@ -25,6 +26,72 @@ const LOG_LINES = /\r?\n/u;
 describe.skipIf(process.platform !== "win32")(
   "native direct task registration",
   () => {
+    it("registers the maintenance action from a default-home setup", async () => {
+      const artifact = process.env.OPENMELD_TEST_HOST_BINARY;
+      if (!artifact) {
+        throw new Error(
+          "Build and supply the actual Windows Service artifact."
+        );
+      }
+      await withTempHome(async (tempHome) => {
+        // The public setup leaves OPENMELD_HOME unset; use an isolated HOME so
+        // this test never registers against the runner's real user state.
+        Reflect.deleteProperty(process.env, "OPENMELD_HOME");
+        process.env.OPENMELD_ENV_PRESET = "prod";
+        const home = join(tempHome, ".openmeld");
+        const runtime = join(home, "runtime", "daemon");
+        const fingerprint = "a".repeat(64);
+        const executable = join(
+          runtime,
+          "bundles",
+          `maintenance-${fingerprint}`,
+          "openmeld.exe"
+        );
+        await mkdir(dirname(executable), { recursive: true });
+        await copyFile(artifact, executable);
+        const spec = await buildDaemonServiceUpdateWorkerSpec({
+          preparedBundle: {
+            v: 2,
+            schema: "openmeld-daemon-active-bundle-v2",
+            bundleFormat: "binary_v1",
+            bundleId: "native-default-home",
+            createdAt: "2026-09-26T00:00:00.000Z",
+            daemonVersion: "0.3.0",
+            entryScriptRelativePath: "openmeld.exe",
+            sourceDistFingerprint: fingerprint,
+            sourceDistRootPath: dirname(executable),
+            sourceEntryScriptPath: executable,
+            sourceKind: "package_install",
+            sourcePackageRootPath: dirname(executable),
+            updatedAt: "2026-09-26T00:00:00.000Z",
+          },
+        });
+        expect(spec.env.OPENMELD_HOME).toBe(home);
+        const request = {
+          name: `OpenMeld-Default-Home-${randomUUID()}`,
+          legacyScript: join(runtime, "service-update-worker.bat"),
+        };
+        try {
+          await runWindowsUserTask({
+            ...request,
+            operation: "install",
+            executable: spec.executable,
+            arguments: windowsDirectTaskArguments({
+              ...spec,
+              logPath: join(runtime, "worker.log"),
+            }),
+            workingDirectory: spec.workingDirectory,
+            periodic: true,
+          });
+          expect(
+            await runWindowsUserTask({ ...request, operation: "status" })
+          ).toMatchObject({ installed: true, legacy: false });
+        } finally {
+          await runWindowsUserTask({ ...request, operation: "uninstall" });
+        }
+      });
+    }, 90_000);
+
     it("migrates an owned stopped legacy action to the verified GUI entry and rejects a different lane", async () => {
       const artifact = process.env.OPENMELD_TEST_HOST_BINARY;
       if (!artifact) {

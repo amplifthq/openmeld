@@ -1,6 +1,6 @@
 import { Button } from "@openmeld/ui/components/button";
 import { Component, type ReactNode } from "react";
-import { reportClientApplicationError } from "#/lib/observability/application-error-client";
+import { reportCaughtComponentError } from "#/lib/observability/application-error-client";
 
 export class SpaceLandingErrorBoundary extends Component<
 	{ children: ReactNode },
@@ -13,7 +13,7 @@ export class SpaceLandingErrorBoundary extends Component<
 	}
 
 	componentDidCatch(error: Error) {
-		reportClientApplicationError(error, "react_caught");
+		reportCaughtComponentError(error, "space_conversation");
 	}
 
 	render() {

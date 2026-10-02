@@ -486,6 +486,7 @@ describe("Core scheduled task dispatcher", () => {
       results: [],
     }));
     const runAgentActivityRetention = vi.fn(async () => ({
+      budgetExhausted: false,
       aggregates: 0,
       dailySessionKeys: 0,
       digests: 0,
@@ -514,7 +515,6 @@ describe("Core scheduled task dispatcher", () => {
         OPENMELD_WAKE_EVIDENCE_DB: {
           owner: "wake-evidence",
         } as unknown as D1Database,
-        OPENMELD_SPLIT_ACTIVE: "true",
       } as CoreBindings,
       nowMs: 2000,
       retryRoutineFailurePublications,
@@ -615,6 +615,7 @@ describe("Core scheduled task dispatcher", () => {
       Promise.reject(activityError)
     );
     const runAgentActivityRetention = vi.fn(async () => ({
+      budgetExhausted: false,
       aggregates: 0,
       dailySessionKeys: 0,
       digests: 0,
@@ -638,7 +639,6 @@ describe("Core scheduled task dispatcher", () => {
         cron: AGENT_ACTIVITY_RETENTION_CRON,
         env: {
           OPENMELD_DB: {} as D1Database,
-          OPENMELD_SPLIT_ACTIVE: "true",
         } as CoreBindings,
         nowMs: 4000,
         runAgentActivityDailyAggregation,

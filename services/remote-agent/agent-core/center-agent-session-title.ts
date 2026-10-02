@@ -6,6 +6,10 @@ import {
 import type { GenerateCenterAgentSessionTitleResponse } from "@openmeld/schemas/types";
 import * as z from "zod/v4";
 import {
+  createMeteredRemoteFetch,
+  type RemoteAiUsageDurability,
+} from "./ai-usage";
+import {
   buildRemoteAgentAiGatewayHeaders,
   buildRemoteAgentGatewayMetadata,
   type RemoteAgentModelEnv,
@@ -14,7 +18,7 @@ import {
 import { REMOTE_AGENT_OPENROUTER_PROVIDER_ROUTING } from "./openrouter-provider-routing";
 
 // A fixed, low-cost model; independent of the conversation's selected model.
-export const CENTER_AGENT_SESSION_TITLE_MODEL = "z-ai/glm-5.3-flash";
+export const CENTER_AGENT_SESSION_TITLE_MODEL = "openai/gpt-6-luna";
 const MAX_RESPONSE_BYTES = 16 * 1024;
 const completionSchema = z.object({
   choices: z
@@ -31,6 +35,7 @@ export async function generateCenterAgentSessionTitle(input: {
   env: RemoteAgentModelEnv;
   request: unknown;
   fetch?: typeof globalThis.fetch;
+  usageDurability?: RemoteAiUsageDurability;
 }): Promise<GenerateCenterAgentSessionTitleResponse> {
   const parsed = generateCenterAgentSessionTitleInputSchema.safeParse(
     input.request
@@ -49,7 +54,20 @@ export async function generateCenterAgentSessionTitle(input: {
       operation: "session_title",
     },
   });
-  const response = await (input.fetch ?? globalThis.fetch)(
+  const response = await createMeteredRemoteFetch({
+    ...input.usageDurability,
+    coreWorker: input.env.OPENMELD_CORE_WORKER,
+    fetch: input.fetch,
+    model: CENTER_AGENT_SESSION_TITLE_MODEL,
+    scope: {
+      organizationId: request.organizationId,
+      purpose: "session_title",
+      agentProfileId: null,
+      spaceId: request.spaceId,
+      taskId: null,
+      attemptId: null,
+    },
+  })(
     `${resolveRemoteAgentAiGatewayOpenRouterBaseUrl(input.env)}/chat/completions`,
     {
       method: "POST",
@@ -61,7 +79,6 @@ export async function generateCenterAgentSessionTitle(input: {
       signal: AbortSignal.timeout(15_000),
       body: JSON.stringify({
         model: CENTER_AGENT_SESSION_TITLE_MODEL,
-        temperature: 0,
         reasoning: { effort: "low", exclude: true },
         max_tokens: 512,
         stream: false,

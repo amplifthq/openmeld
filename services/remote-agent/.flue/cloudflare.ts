@@ -7,6 +7,7 @@ export { CodemodeRuntime } from "@cloudflare/codemode";
 // loopback WorkerEntrypoint its worker-shell isolate dials back through,
 // and the WorkspaceProxy that carries the container's /ws egress home.
 export { WorkspaceProxy, WorkspaceServiceProxy } from "@cloudflare/computer";
+export { ComputerPreviewOutbound } from "../flue-adapter/computer-preview";
 export { AgentComputer } from "../flue-adapter/computer-workspace";
 
 import {
@@ -16,19 +17,22 @@ import {
   remoteAgentWorkerExecutionQuerySchema,
   remoteAgentWorkerReadUsageDiagnosticsRequestSchema,
   remoteAgentWorkerRuntimeDiagnosticsRequestSchema,
+  remoteAgentWorkerSubmitCapabilitiesRequestSchema,
+  remoteAgentWorkerSubmitCapabilitiesSchema,
   remoteAgentWorkerSubmitTurnRequestSchema,
 } from "@openmeld/schemas";
-import { summarizeAgentActivityDigest } from "../agent-core/agent-activity-digest";
-import { generateCenterAgentSessionTitle } from "../agent-core/center-agent-session-title";
 import {
   type CenterAgentNamespace,
   cancelExecutionInCenterAgent,
+  readAdmissionFromCenterAgent,
+  readAdmissionStopFromCenterAgent,
   readExecutionInputFromCenterAgent,
   readExecutionStateFromCenterAgent,
   readRuntimeDiagnosticsFromCenterAgent,
   readUsageDiagnosticsFromCenterAgent,
   receiveExecutionInputInCenterAgent,
   reconcileExecutionInCenterAgent,
+  runDurableAuxiliaryInference,
   submitConversationTurnToCenterAgent,
 } from "../flue-adapter/cloudflare-entrypoint";
 import {
@@ -39,8 +43,25 @@ import {
 const env = workerEnv as unknown as CloudflareBindings;
 
 export default {
+  readSubmitTurnCapabilities(input: unknown) {
+    const request =
+      remoteAgentWorkerSubmitCapabilitiesRequestSchema.safeParse(input);
+    if (!request.success) {
+      throw request.error;
+    }
+    return Promise.resolve(
+      remoteAgentWorkerSubmitCapabilitiesSchema.parse({
+        v: 1,
+        taskId: true,
+      })
+    );
+  },
   async generateCenterAgentSessionTitle(input: unknown) {
-    return await generateCenterAgentSessionTitle({ env, request: input });
+    return await runDurableAuxiliaryInference({
+      namespace: env.FLUE_CENTER_AGENT_V2_AGENT as CenterAgentNamespace,
+      operation: "generateCenterAgentSessionTitle",
+      request: input,
+    });
   },
   async pluginRuntime(input: unknown) {
     return await executePluginRuntime(input, {
@@ -101,6 +122,21 @@ export default {
     });
   },
 
+  async readAdmission(input: unknown) {
+    const request = remoteAgentWorkerSubmitTurnRequestSchema.parse(input);
+    return await observeRemoteAgentRpc({
+      env,
+      operation: "readAdmission",
+      requestId: request.dispatchId,
+      spaceId: request.spaceId,
+      execute: () =>
+        readAdmissionFromCenterAgent({
+          namespace: env.FLUE_CENTER_AGENT_V2_AGENT as CenterAgentNamespace,
+          request,
+        }),
+    });
+  },
+
   async reconcileExecution(input: unknown) {
     const namespace = env.FLUE_CENTER_AGENT_V2_AGENT as CenterAgentNamespace;
     return await observeRemoteAgentRpc({
@@ -115,17 +151,29 @@ export default {
     });
   },
 
+  async readAdmissionStop(input: unknown) {
+    const request = remoteAgentWorkerSubmitTurnRequestSchema.parse(input);
+    return await observeRemoteAgentRpc({
+      env,
+      operation: "readAdmissionStop",
+      requestId: request.dispatchId,
+      spaceId: request.spaceId,
+      execute: () =>
+        readAdmissionStopFromCenterAgent({
+          namespace: env.FLUE_CENTER_AGENT_V2_AGENT as CenterAgentNamespace,
+          request,
+        }),
+    });
+  },
+
   async summarizeAgentActivityDigest(input: unknown) {
     return await observeRemoteAgentRpc({
       env,
       execute: () =>
-        summarizeAgentActivityDigest({
-          env: env as unknown as Parameters<
-            typeof summarizeAgentActivityDigest
-          >[0]["env"],
-          request: input as Parameters<
-            typeof summarizeAgentActivityDigest
-          >[0]["request"],
+        runDurableAuxiliaryInference({
+          namespace: env.FLUE_CENTER_AGENT_V2_AGENT as CenterAgentNamespace,
+          operation: "summarizeAgentActivityDigest",
+          request: input,
         }),
       operation: "summarizeAgentActivityDigest",
     });

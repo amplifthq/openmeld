@@ -1,4 +1,4 @@
-import { env } from "cloudflare:test";
+import { env, runInDurableObject } from "cloudflare:test";
 import { HOSTED_CENTER_AGENT_CONTROLLER_REF } from "@openmeld/schemas";
 import type {
   AuthRpcResolveProfileByIdResult,
@@ -18,6 +18,7 @@ import {
 import {
   requirePluginPermission,
   requireRemotePluginConnection,
+  updatePluginAccess,
 } from "../src/connectors/plugin-access";
 import {
   rpcListPluginAccess,
@@ -46,6 +47,10 @@ import {
   rpcReconcileCurrentOrganizationConnectorConnections,
 } from "../src/rpc/methods";
 
+import { upsertSpaceMetaRecord } from "../src/space/infrastructure/sql/space-meta-repo";
+import { insertSignalRecord } from "../src/space/infrastructure/sql/space-signal-repo";
+import type { Space } from "../src/space/transport/do/space";
+
 const CONNECTOR_CONNECTION_NAME_PATTERN =
   /^org_[A-Za-z0-9_-]{18}__user_[A-Za-z0-9_-]{18}__github$/u;
 
@@ -71,7 +76,36 @@ describe("Local Agent plugin admission", () => {
         })
       )
       .run();
-    const spaceId = crypto.randomUUID();
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const stub = namespace.get(namespace.newUniqueId());
+    const spaceId = stub.id.toString();
+    const sourceId = crypto.randomUUID();
+    fixture.core.OPENMELD_SPACES = namespace;
+    await runInDurableObject(stub, (_instance, state) => {
+      const now = new Date().toISOString();
+      upsertSpaceMetaRecord(state.storage.sql, {
+        v: 1,
+        spaceId,
+        organizationId: fixture.organizationA,
+        visibility: "private",
+        accessMode: "members_only",
+        createdAt: now,
+        updatedAt: now,
+      });
+      insertSignalRecord(state.storage.sql, {
+        v: 1,
+        id: sourceId,
+        spaceId,
+        ts: Date.now(),
+        type: "signal.text",
+        profile: {
+          kind: "human",
+          profileId: fixture.requesterProfileId,
+          profileName: "Requester",
+        },
+        data: { text: "Read using organization access" },
+      });
+    });
     const dispatchId = crypto.randomUUID();
     await env.OPENMELD_DB.prepare(
       "INSERT INTO space_index_spaces (space_id, organization_id, organization_visibility, status, source_updated_at_ms, projected_at_ms, projection_event_id) VALUES (?, ?, 'private', 'active', 1, 1, ?)"
@@ -85,7 +119,7 @@ describe("Local Agent plugin admission", () => {
         dispatchId,
         dispatchId,
         spaceId,
-        crypto.randomUUID(),
+        sourceId,
         fixture.requesterProfileId,
         fixture.actor
       )
@@ -461,6 +495,286 @@ const OPENCONNECTOR_CONNECTION_NAME_PATTERN =
   /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/u;
 
 describe("Core connector connection ownership", () => {
+  it.each([
+    ["member", "github"],
+    ["shared", "github"],
+    ["member", "linear"],
+    ["shared", "linear"],
+    ["member", "posthog"],
+    ["shared", "posthog"],
+  ] as const)("requires explicit Agent access for a new %s %s connection", async (scope, service) => {
+    const fixture = await seedConnectorFixture();
+    const core = connectorCoreEnv();
+    const request = {
+      context: connectorRequestContext({
+        organizationId: fixture.organizationA,
+        userId: fixture.ownerA,
+        profileId: fixture.ownerProfileId,
+      }),
+      expectedOrganizationId: fixture.organizationA,
+      service,
+    };
+    const begin = () =>
+      scope === "shared"
+        ? rpcBeginCurrentOrganizationSharedConnectorAuthorization(core, request)
+        : rpcBeginCurrentMemberConnectorAuthorization(core, request);
+    const created = await begin();
+    const row = () =>
+      env.OPENMELD_DB.prepare(
+        "SELECT access_policy, access_revision FROM connector_connections WHERE connection_name = ?"
+      )
+        .bind(created.connectionName)
+        .first<{ access_policy: string | null; access_revision: number }>();
+    const none = {
+      center_agent: "none",
+      local_agent: "none",
+      remote_agent: "none",
+    } as const;
+    expect(JSON.parse((await row())?.access_policy ?? "null")).toEqual(none);
+    const activate = () =>
+      rpcReconcileCurrentOrganizationConnectorConnections(core, {
+        ...request,
+        availableConnectionNames: [created.connectionName],
+      });
+    await activate();
+    const listed = await rpcListPluginAccess(core, request);
+    expect(listed.connections).toContainEqual({
+      connectionName: created.connectionName,
+      scope,
+      canManage: true,
+      revision: 0,
+      policy: none,
+    });
+    const access = {
+      db: env.OPENMELD_DB,
+      organizationId: fixture.organizationA,
+      connectionName: created.connectionName,
+    };
+    for (const consumer of [
+      "center_agent",
+      "remote_agent",
+      "local_agent",
+    ] as const) {
+      for (const effect of ["read", "write"] as const) {
+        await expect(
+          requirePluginPermission({ ...access, consumer, effect })
+        ).rejects.toThrow("permission");
+      }
+    }
+    const policy = {
+      center_agent: "read",
+      remote_agent: "read",
+      local_agent: "read",
+    } as const;
+    await rpcUpdatePluginAccess(core, {
+      ...request,
+      connectionName: created.connectionName,
+      expectedRevision: 0,
+      policy,
+    });
+    for (const consumer of [
+      "center_agent",
+      "remote_agent",
+      "local_agent",
+    ] as const) {
+      await expect(
+        requirePluginPermission({ ...access, consumer, effect: "read" })
+      ).resolves.toBe("read");
+      await expect(
+        requirePluginPermission({ ...access, consumer, effect: "write" })
+      ).rejects.toThrow("permission");
+    }
+    const write = { ...none, center_agent: "write" } as const;
+    await rpcUpdatePluginAccess(core, {
+      ...request,
+      connectionName: created.connectionName,
+      expectedRevision: 1,
+      policy: write,
+    });
+    await expect(
+      requirePluginPermission({
+        ...access,
+        consumer: "center_agent",
+        effect: "write",
+      })
+    ).resolves.toBe("write");
+    const beforeReconnect = await row();
+    await begin();
+    await expect(
+      requirePluginPermission({
+        ...access,
+        consumer: "center_agent",
+        effect: "write",
+      })
+    ).rejects.toThrow("no longer available");
+    await expect(
+      rpcUpdatePluginAccess(core, {
+        ...request,
+        connectionName: created.connectionName,
+        expectedRevision: 2,
+        policy,
+      })
+    ).rejects.toThrow();
+    await activate();
+    expect(JSON.parse((await row())?.access_policy ?? "null")).toEqual(write);
+    expect((await row())?.access_revision).toBeGreaterThan(
+      beforeReconnect?.access_revision ?? 0
+    );
+    await expect(
+      rpcUpdatePluginAccess(core, {
+        ...request,
+        connectionName: created.connectionName,
+        expectedRevision: 2,
+        policy,
+      })
+    ).rejects.toThrow("changed");
+    const currentRevision = (await row())?.access_revision;
+    if (currentRevision === undefined) {
+      throw new Error("Missing persisted access revision");
+    }
+    await rpcUpdatePluginAccess(core, {
+      ...request,
+      connectionName: created.connectionName,
+      expectedRevision: currentRevision,
+      policy: none,
+    });
+    await expect(
+      requirePluginPermission({
+        ...access,
+        consumer: "center_agent",
+        effect: "read",
+      })
+    ).rejects.toThrow("permission");
+    const events = await env.OPENMELD_DB.prepare(
+      "SELECT previous_policy FROM connector_access_events WHERE connection_name = ? ORDER BY revision"
+    )
+      .bind(created.connectionName)
+      .all<{ previous_policy: string }>();
+    expect(JSON.parse(events.results[0]?.previous_policy ?? "null")).toEqual(
+      none
+    );
+  });
+
+  it("rejects an old permission draft when reauthorization starts between its read and atomic save", async () => {
+    const fixture = await seedConnectorFixture();
+    const core = connectorCoreEnv();
+    const request = {
+      context: connectorRequestContext({
+        organizationId: fixture.organizationA,
+        userId: fixture.ownerA,
+        profileId: fixture.ownerProfileId,
+      }),
+      expectedOrganizationId: fixture.organizationA,
+      service: "linear" as const,
+    };
+    const created = await rpcBeginCurrentMemberConnectorAuthorization(
+      core,
+      request
+    );
+    await rpcReconcileCurrentOrganizationConnectorConnections(core, {
+      ...request,
+      availableConnectionNames: [created.connectionName],
+    });
+    const db = new Proxy(env.OPENMELD_DB, {
+      get(target, property) {
+        if (property === "batch") {
+          return async (statements: D1PreparedStatement[]) => {
+            await rpcBeginCurrentMemberConnectorAuthorization(core, request);
+            return await target.batch(statements);
+          };
+        }
+        const value = Reflect.get(target, property);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    await expect(
+      updatePluginAccess({
+        db,
+        organizationId: fixture.organizationA,
+        connectionName: created.connectionName,
+        actorProfileId: fixture.ownerProfileId,
+        actorUserId: fixture.ownerA,
+        expectedRevision: 0,
+        policy: {
+          center_agent: "write",
+          local_agent: "write",
+          remote_agent: "write",
+        },
+      })
+    ).rejects.toThrow("changed");
+    expect(
+      (
+        await env.OPENMELD_DB.prepare(
+          "SELECT COUNT(*) AS n FROM connector_access_events WHERE connection_name = ?"
+        )
+          .bind(created.connectionName)
+          .first()
+      )?.n
+    ).toBe(0);
+    const stored = await env.OPENMELD_DB.prepare(
+      "SELECT access_policy FROM connector_connections WHERE connection_name = ?"
+    )
+      .bind(created.connectionName)
+      .first<{ access_policy: string }>();
+    expect(JSON.parse(stored?.access_policy ?? "null")).toEqual({
+      center_agent: "none",
+      local_agent: "none",
+      remote_agent: "none",
+    });
+  });
+
+  it("preserves legacy null grants on the same registration without lending them to a new member", async () => {
+    const fixture = await seedConnectorFixture();
+    const core = connectorCoreEnv();
+    const old = {
+      context: connectorRequestContext({
+        organizationId: fixture.organizationA,
+        userId: fixture.memberA,
+      }),
+      expectedOrganizationId: fixture.organizationA,
+      service: "github" as const,
+    };
+    await rpcBeginCurrentMemberConnectorAuthorization(core, old);
+    await rpcReconcileCurrentOrganizationConnectorConnections(core, {
+      ...old,
+      availableConnectionNames: [fixture.connectionA],
+    });
+    const policy = await rpcListPluginAccess(core, old);
+    expect(policy.connections[0]?.policy.center_agent).toBe("write");
+    expect(
+      (
+        await env.OPENMELD_DB.prepare(
+          "SELECT access_policy FROM connector_connections WHERE connection_name = ?"
+        )
+          .bind(fixture.connectionA)
+          .first()
+      )?.access_policy
+    ).toBeNull();
+    const created = await rpcBeginCurrentMemberConnectorAuthorization(core, {
+      ...old,
+      context: connectorRequestContext({
+        organizationId: fixture.organizationA,
+        userId: fixture.otherMemberA,
+      }),
+    });
+    expect(created.connectionName).not.toBe(fixture.connectionA);
+    expect(
+      JSON.parse(
+        (
+          await env.OPENMELD_DB.prepare(
+            "SELECT access_policy FROM connector_connections WHERE connection_name = ?"
+          )
+            .bind(created.connectionName)
+            .first<{ access_policy: string }>()
+        )?.access_policy ?? "null"
+      )
+    ).toEqual({
+      center_agent: "none",
+      remote_agent: "none",
+      local_agent: "none",
+    });
+  });
+
   it("requires both the personal Remote Agent owner and the represented requester for private access", async () => {
     const fixture = await seedConnectorFixture();
     await env.OPENMELD_DB.prepare(
@@ -639,6 +953,7 @@ describe("Core connector connection ownership", () => {
       },
       requestSignature: "a".repeat(64),
       service: "github",
+      sourceNativeDeliveryId: "delivery-original-request-continuation",
       sourceSpaceId: "space-authorized",
     } as const;
 
@@ -660,6 +975,17 @@ describe("Core connector connection ownership", () => {
     expect(replayedClaim).toMatchObject({
       operation: { status: "pending" },
       replayed: true,
+    });
+    await expect(
+      env.OPENMELD_DB.prepare(
+        `SELECT on_behalf_of_user_id, source_native_delivery_id
+         FROM center_agent_audit_journal WHERE resource_id = ? AND action = 'execute_connector_action'`
+      )
+        .bind(`github:github.create_issue:${baseInput.operationId}`)
+        .first()
+    ).resolves.toEqual({
+      on_behalf_of_user_id: fixture.ownerA,
+      source_native_delivery_id: baseInput.sourceNativeDeliveryId,
     });
     await expect(
       recordCenterAgentConnectorActionOperation({
@@ -695,6 +1021,16 @@ describe("Core connector connection ownership", () => {
       replayed: false,
     });
     expect(replayedCompletion.replayed).toBe(true);
+    await expect(
+      env.OPENMELD_DB.prepare(
+        `SELECT source_native_delivery_id FROM center_agent_audit_journal
+         WHERE resource_id = ? AND action = 'complete_connector_action'`
+      )
+        .bind(`github:github.create_issue:${baseInput.operationId}`)
+        .first()
+    ).resolves.toEqual({
+      source_native_delivery_id: baseInput.sourceNativeDeliveryId,
+    });
     await expect(
       recordCenterAgentConnectorActionOperation({
         ...baseInput,
@@ -1141,6 +1477,115 @@ describe("Core connector connection ownership", () => {
     ).resolves.toEqual({
       provider_execution_id: null,
       status: "pending",
+    });
+  });
+
+  it.each([
+    "github",
+    "posthog",
+  ] as const)("reauthorizes every %s replay against its original live connection", async (service) => {
+    const fixture = await seedConnectorFixture();
+    const center = await seedDesignatedCenterAgent(fixture);
+    const connectionName = await seedSharedConnectorConnection(
+      fixture,
+      service
+    );
+    const member = await env.OPENMELD_DB.prepare(
+      "SELECT id FROM members WHERE organization_id = ? AND user_id = ?"
+    )
+      .bind(fixture.organizationA, fixture.ownerA)
+      .first<{ id: string }>();
+    if (!member) {
+      throw new Error("Missing requester member");
+    }
+    const body = {
+      actionId:
+        service === "github"
+          ? "github.create_issue_comment"
+          : "posthog.create_project",
+      connectionName,
+      context: center.context,
+      effect: "write" as const,
+      operationId: `live-replay-${crypto.randomUUID()}`,
+      outcome: "attempted" as const,
+      providerExecutionId: null,
+      requestSignature: "a".repeat(64),
+      service,
+      speakerMember: { memberId: member.id, userId: fixture.ownerA },
+    };
+    const core = connectorCoreEnv();
+    const first = await rpcCenterAgentRecordConnectorActionOperation(
+      core,
+      body
+    );
+    await expect(
+      rpcCenterAgentRecordConnectorActionOperation(core, body)
+    ).resolves.toMatchObject({
+      replayed: true,
+      executionConnection: first.executionConnection,
+    });
+    for (const permission of ["read", "none"] as const) {
+      await env.OPENMELD_DB.prepare(
+        "UPDATE connector_connections SET access_policy = ? WHERE connection_name = ?"
+      )
+        .bind(
+          JSON.stringify({
+            center_agent: permission,
+            local_agent: "none",
+            remote_agent: "none",
+          }),
+          connectionName
+        )
+        .run();
+      await expect(
+        rpcCenterAgentRecordConnectorActionOperation(core, body)
+      ).rejects.toThrow("plugin.action_forbidden");
+    }
+    await env.OPENMELD_DB.prepare(
+      "UPDATE connector_connections SET access_policy = NULL, status = 'disconnected', disconnected_at_ms = updated_at_ms WHERE connection_name = ?"
+    )
+      .bind(connectionName)
+      .run();
+    await expect(
+      rpcCenterAgentRecordConnectorActionOperation(core, body)
+    ).rejects.toThrow("center_agent.connector_action_connection_invalid");
+    await env.OPENMELD_DB.prepare(
+      "UPDATE connector_connections SET status = 'active', disconnected_at_ms = NULL, user_id = ? WHERE connection_name = ?"
+    )
+      .bind(fixture.otherMemberA, connectionName)
+      .run();
+    await expect(
+      rpcCenterAgentRecordConnectorActionOperation(core, body)
+    ).rejects.toThrow("center_agent.connector_action_connection_invalid");
+    await env.OPENMELD_DB.prepare(
+      "UPDATE connector_connections SET user_id = ? WHERE connection_name = ?"
+    )
+      .bind(fixture.ownerA, connectionName)
+      .run();
+    await expect(
+      rpcCenterAgentRecordConnectorActionOperation(core, {
+        ...body,
+        connectionName: "another-account",
+      })
+    ).rejects.toThrow("center_agent.connector_action_connection_invalid");
+    await env.OPENMELD_DB.prepare("DELETE FROM members WHERE id = ?")
+      .bind(member.id)
+      .run();
+    await expect(
+      rpcCenterAgentRecordConnectorActionOperation(core, body)
+    ).rejects.toThrow("center_agent.member_actor_required");
+    const retained = await env.OPENMELD_DB.prepare(
+      "SELECT status, connection_name, connection_owner_user_id, connection_scope FROM center_agent_connector_action_operations WHERE operation_id = ?"
+    )
+      .bind(body.operationId)
+      .first();
+    expect(retained).toMatchObject({
+      status: "pending",
+      connection_name: connectionName,
+    });
+    expect(retained).toMatchObject({
+      connection_owner_user_id: fixture.ownerA,
+      connection_scope: "shared",
     });
   });
 

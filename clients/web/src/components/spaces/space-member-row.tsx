@@ -166,6 +166,8 @@ function AgentSpaceMemberRow(input: AgentSpaceMemberRowProps) {
 				<SpaceProfileIcon
 					agentControllerRef={input.entry.agentControllerRef}
 					avatarImageUrl={input.entry.avatarUrl}
+					avatarModelId={input.entry.avatarModelId}
+					avatarStyle={input.entry.avatarStyle}
 					className="mt-0.5"
 					isCenterAgent={input.entry.profileId === input.centerAgentProfileId}
 					profileId={input.entry.profileId}
@@ -451,6 +453,8 @@ function HumanSpaceMemberRow(input: HumanSpaceMemberRowProps) {
 				<SpaceProfileIcon
 					agentControllerRef={input.entry.agentControllerRef}
 					avatarImageUrl={input.entry.avatarUrl}
+					avatarModelId={input.entry.avatarModelId}
+					avatarStyle={input.entry.avatarStyle}
 					className="mt-0.5"
 					profileId={input.entry.profileId}
 					profileKind={input.entry.profileKind}

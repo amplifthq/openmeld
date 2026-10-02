@@ -7,6 +7,11 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@openmeld/ui/components/tooltip";
 import { DialogContent } from "@openmeld/ui/fluid/dialog";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import {
@@ -155,17 +160,24 @@ export function useAgentListSelection(
 				: undefined,
 		trigger:
 			onDelete && !active && items.length > 0 ? (
-				<Button
-					onClick={() => {
-						reset();
-						setActive(true);
-					}}
-					size="sm"
-					variant="secondary"
-				>
-					<CheckSquareIcon />
-					Select
-				</Button>
+				<Tooltip>
+					<TooltipTrigger
+						render={
+							<Button
+								aria-label="Select Agents"
+								onClick={() => {
+									reset();
+									setActive(true);
+								}}
+								size="icon-sm"
+								variant="ghost"
+							/>
+						}
+					>
+						<CheckSquareIcon />
+					</TooltipTrigger>
+					<TooltipContent side="bottom">Select Agents</TooltipContent>
+				</Tooltip>
 			) : null,
 		toolbar: active ? (
 			<AgentSelectionToolbar

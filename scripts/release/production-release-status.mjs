@@ -10,7 +10,10 @@ import {
   buildTrustedGitHubRepositoryUrl,
   createTrustedGitEnvironment,
 } from "../ci/trusted-git-network.mjs";
-import { buildProductionReleasePlan } from "./production-release.mjs";
+import {
+  buildProductionReleaseImpact,
+  buildProductionReleasePlan,
+} from "./production-release.mjs";
 import { readGuardedLocalReleaseSources } from "./production-release-evidence.mjs";
 import {
   RELEASE_SCOPES,
@@ -25,7 +28,7 @@ const execFileAsync = promisify(execFile);
 const CHECKOUT_SOURCE_REGEX =
   /git log -1 --format=%H[^\r\n]*\r?\n[^\r\n]*\b([0-9a-f]{40})\b/u;
 const LINE_SPLIT_REGEX = /\r?\n/u;
-const RELEASE_JOB_BATCH_SIZE = 6;
+const RELEASE_JOB_BATCH_SIZE = 16;
 const RELEASE_TITLE_SOURCE_REGEX = /@ ([0-9a-f]{40})$/u;
 const SCOPED_RELEASE_WORKFLOW_REGEX = /Scoped Production Release/u;
 const EXACT_SOURCE_SHA = /^[0-9a-f]{40}$/u;
@@ -441,11 +444,11 @@ function describeReleaseComponent(input) {
   if (!entry) {
     try {
       entry = {
-        plan: adapters.buildPlan({ base: releaseSource.sha, sourceSha }),
+        plan: adapters.buildImpact({ base: releaseSource.sha, sourceSha }),
       };
     } catch (error) {
       entry = {
-        error: `Historical plan from ${releaseSource.sha} failed: ${error.message}`,
+        error: `Source impact from ${releaseSource.sha} failed: ${error.message}`,
       };
     }
     plansByBase.set(releaseSource.sha, entry);
@@ -459,6 +462,7 @@ function describeReleaseComponent(input) {
     ...releaseSource,
     changedPaths: entry.plan.changedPaths,
     compatibilityDependencies: entry.plan.compatibilityDependencies ?? [],
+    compatibilityBridges: entry.plan.compatibilityBridges ?? [],
     compatibilityReceiverWitnesses: (
       entry.plan.compatibilityReceiverWitnesses ?? []
     ).map((witness) => ({
@@ -619,14 +623,33 @@ function describeComponentEvidence(releaseSource) {
   };
 }
 
-async function readLatestSuccessfulReleaseSources(input) {
+export async function readLatestSuccessfulReleaseSources(input) {
   const sources = new Map();
+  // Completed runs are ordered by their last update. Active runs and runs
+  // without a trustworthy update time must always have their jobs inspected:
+  // an active run can finish a deployment after the history snapshot was read.
+  const runsByUpdate = [...input.runs].sort((left, right) => {
+    const leftTime = runUpdateTime(left);
+    const rightTime = runUpdateTime(right);
+    return leftTime === rightTime ? 0 : rightTime - leftTime;
+  });
   for (
     let offset = 0;
-    offset < input.runs.length;
+    offset < runsByUpdate.length;
     offset += RELEASE_JOB_BATCH_SIZE
   ) {
-    const runs = input.runs.slice(offset, offset + RELEASE_JOB_BATCH_SIZE);
+    const remaining = runsByUpdate.slice(offset);
+    const oldestReceipt = Math.min(
+      ...RELEASE_SCOPES.map((scope) =>
+        sources.has(scope)
+          ? Date.parse(sources.get(scope).recordedAt)
+          : Number.NEGATIVE_INFINITY
+      )
+    );
+    if (runUpdateTime(remaining[0]) < oldestReceipt) {
+      break;
+    }
+    const runs = remaining.slice(0, RELEASE_JOB_BATCH_SIZE);
     const jobsByRun = await Promise.all(
       runs.map(async (run) => {
         try {
@@ -663,6 +686,14 @@ async function readLatestSuccessfulReleaseSources(input) {
     }
   }
   return sources;
+}
+
+function runUpdateTime(run) {
+  if (run.status !== "completed") {
+    return Number.POSITIVE_INFINITY;
+  }
+  const value = Date.parse(run.updatedAt);
+  return Number.isFinite(value) ? value : Number.POSITIVE_INFINITY;
 }
 
 async function readReleaseJobSource(job, run, input) {
@@ -958,6 +989,15 @@ function defaultAdapters() {
   return {
     buildPlan: ({ base, sourceSha }) =>
       buildProductionReleasePlan({
+        base,
+        changedPaths: splitLines(
+          runGit(["diff", "--name-only", `${base}...${sourceSha}`])
+        ),
+        scope: "auto",
+        sourceSha,
+      }),
+    buildImpact: ({ base, sourceSha }) =>
+      buildProductionReleaseImpact({
         base,
         changedPaths: splitLines(
           runGit(["diff", "--name-only", `${base}...${sourceSha}`])

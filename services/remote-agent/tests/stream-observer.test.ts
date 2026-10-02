@@ -9,6 +9,7 @@ import {
   createRemoteAgentCallbackContext,
   putRemoteAgentCallbackContext as putRemoteAgentCallbackContextProjection,
   type RemoteAgentCallbackContext,
+  type RemoteAgentConditionalWrite,
   readRemoteAgentCallbackContext,
   recordRemoteAgentWorkLoopCheckpoint,
 } from "../agent-core/callback-context";
@@ -112,8 +113,35 @@ describe("Center Agent stream observation", () => {
     expect(submitRemoteAgentStreamPart).not.toHaveBeenCalled();
   });
 
-  it("publishes real Flue tool lifecycle events without their arguments", async () => {
+  it.each([
+    "space_wake",
+    "task_continuation",
+    "task_watch_continuation",
+  ] as const)("publishes %s tool progress and answer text without private reasoning or arguments", async (source) => {
     const storage = new InMemoryDurableObjectStorage();
+    const request = createSubmitTurnRequest();
+    if (source !== "space_wake") {
+      request.turnEnvelope.interactionEnvironment = "organization_shared";
+      const continuation = {
+        subscriptionId: "subscription-1",
+        watchedTask: {
+          v: 1 as const,
+          kind: "native_delivery" as const,
+          deliveryId: "parent-1",
+        },
+        outcome: {
+          status: "completed" as const,
+          errorCode: null,
+          eventId: "completed-1",
+          occurredAtMs: TEST_NOW_MS,
+          publishedSignalId: "reply-1",
+        },
+      };
+      request.turnEnvelope.trigger =
+        source === "task_continuation"
+          ? { ...continuation, source, delegationId: "delegation-1" }
+          : { ...continuation, source, watchId: "watch-1" };
+    }
     await putRemoteAgentCallbackContext(
       storage,
       createRemoteAgentCallbackContext({
@@ -126,7 +154,7 @@ describe("Center Agent stream observation", () => {
           submissionId: SUBMISSION_ID,
         },
         nowMs: TEST_NOW_MS,
-        request: createSubmitTurnRequest(),
+        request,
       })
     );
     const submitRemoteAgentStreamPart = vi.fn(
@@ -136,10 +164,17 @@ describe("Center Agent stream observation", () => {
       })
     );
     const resolveDependencies = () => ({
-      coreWorker: { submitRemoteAgentStreamPart },
+      coreWorker: { submitRemoteAgentStreamPart, submitRemoteAgentStreamDelta },
       env: {} as CloudflareBindings,
       storage,
     });
+    const submitRemoteAgentStreamDelta = vi.fn(
+      async (body: { sequence: number }) => ({
+        status: "accepted" as const,
+        lastSequence: body.sequence,
+      })
+    );
+    const publisher = createRemoteAgentStreamPublisher();
     const { submissionId: _omittedSubmissionId, ...productionShapedToolStart } =
       toolStartObservation();
 
@@ -147,7 +182,7 @@ describe("Center Agent stream observation", () => {
       handleCenterAgentObservation({
         event: productionShapedToolStart as FlueObservation,
         resolveDependencies,
-        streamPublisher: createRemoteAgentStreamPublisher(),
+        streamPublisher: publisher,
       })
     );
 
@@ -181,6 +216,31 @@ describe("Center Agent stream observation", () => {
     ).resolves.toMatchObject({
       firstVisibleContentAtMs: expect.any(Number),
     });
+    await handleCenterAgentObservation({
+      event: thinkingDeltaObservation("Private reasoning"),
+      resolveDependencies,
+      streamPublisher: publisher,
+    });
+    expect(submitRemoteAgentStreamDelta).not.toHaveBeenCalled();
+    await handleCenterAgentObservation({
+      event: {
+        ...textDeltaObservation("The plan is ready."),
+        timestamp: new Date(TEST_NOW_MS + 1000).toISOString(),
+      } as FlueObservation,
+      resolveDependencies,
+      streamPublisher: publisher,
+    });
+    expect(submitRemoteAgentStreamDelta).toHaveBeenCalledWith(
+      expect.objectContaining({
+        snapshot: "The plan is ready.",
+        sequence: 2,
+        triggerMessageId: request.triggerMessageId,
+        spaceId: request.spaceId,
+      })
+    );
+    await expect(
+      readRemoteAgentCallbackContext(storage, SUBMISSION_ID)
+    ).resolves.toMatchObject({ callbackStatus: "pending" });
   });
 
   it("keeps the GitHub repository label when the tool completion omits arguments", async () => {
@@ -247,6 +307,17 @@ describe("Center Agent stream observation", () => {
 
   it.each([
     { result: {}, outcome: undefined },
+    {
+      result: {
+        status: "outcome_unknown",
+        actionId: "posthog.update_project",
+        operationId: "update-project-1",
+        executionConfirmation: "unknown",
+        providerExecutionId: null,
+        message: "The action may have succeeded. Reconcile update-project-1.",
+      },
+      outcome: "outcome_unknown",
+    },
     {
       result: {
         status: "destructive_confirmation_required",
@@ -936,6 +1007,12 @@ describe("Center Agent stream observation", () => {
         text: "The durable owner answer won.",
       })
     );
+    expect(
+      await readRemoteAgentCallbackContext(
+        harness.resolveDependencies().storage,
+        SUBMISSION_ID
+      )
+    ).toMatchObject({ modelId: "winner/model" });
   });
 
   it("publishes the owner answer when a different success wins the CAS", async () => {
@@ -1477,6 +1554,58 @@ describe("Center Agent stream observation", () => {
     );
   });
 
+  it("reports a reasoning-only length completion as output exhaustion", async () => {
+    const storage = new InMemoryDurableObjectStorage();
+    await putRemoteAgentCallbackContext(
+      storage,
+      createRemoteAgentCallbackContext({
+        ack: {
+          accepted: true,
+          createdAt: TEST_NOW_MS,
+          idempotencyKey: "remote-agent:dispatch_123",
+          requestId: SUBMISSION_ID,
+          status: "pending",
+          submissionId: SUBMISSION_ID,
+        },
+        nowMs: TEST_NOW_MS,
+        request: createSubmitTurnRequest(),
+      })
+    );
+    const completeRemoteAgentSubmission = vi.fn(async () => ({
+      publishedSignalId: "signal_output_limit_failure",
+      status: "accepted" as const,
+    }));
+    const writeDataPoint = vi.fn();
+
+    await handleCenterAgentObservation({
+      event: {
+        ...completedPromptObservation(""),
+        agentOutput: { finishReason: "length", text: "", type: "text" },
+      },
+      resolveDependencies: () => ({
+        coreWorker: { completeRemoteAgentSubmission },
+        env: {
+          OPENMELD_OBSERVABILITY: { writeDataPoint },
+          OPENMELD_WORKER_ENVIRONMENT: "test",
+        } as unknown as CloudflareBindings,
+        storage,
+      }),
+      streamPublisher: createRemoteAgentStreamPublisher(),
+    });
+
+    expect(completeRemoteAgentSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({
+        failureCode: "remote_agent.turn.output_limit_exceeded",
+        failureMessage: expect.stringContaining("response limit"),
+        status: "failed",
+        submissionId: SUBMISSION_ID,
+      })
+    );
+    expect(readBlob(writeDataPoint.mock.calls[0]?.[0], "reasonCode")).toBe(
+      REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES.TURN_OUTPUT_LIMIT_EXCEEDED
+    );
+  });
+
   it("writes timeout evidence when the prompt operation is interrupted", async () => {
     const storage = new InMemoryDurableObjectStorage();
     await putRemoteAgentCallbackContext(
@@ -1552,6 +1681,23 @@ class TerminalCasRaceStorage extends InMemoryDurableObjectStorage {
 
   winNextExecutionCas(key: string, value: unknown): void {
     this.nextWinner = { key, value };
+  }
+
+  override async compareAndSetPair<A, B>(
+    first: RemoteAgentConditionalWrite<A>,
+    second: RemoteAgentConditionalWrite<B>
+  ): Promise<boolean> {
+    if (this.nextWinner?.key === first.key) {
+      const winner = this.nextWinner;
+      this.nextWinner = null;
+      await this.put(first.key, winner.value);
+      await this.put(second.key, {
+        ...second.expectedValue,
+        modelId: "winner/model",
+      });
+      return false;
+    }
+    return await super.compareAndSetPair(first, second);
   }
 
   override async compareAndSet<T>(

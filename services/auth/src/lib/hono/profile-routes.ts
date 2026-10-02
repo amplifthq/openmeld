@@ -4,6 +4,7 @@ import type {
 } from "@openmeld/auth/server";
 import { ProfileValidationError } from "@openmeld/auth/server";
 import { readOpenMeldRequestedOrganizationSelector } from "@openmeld/gateway-contract";
+import { agentAvatarStyleSchema } from "@openmeld/schemas";
 import type { OpenMeldRequestedOrganizationSelector } from "@openmeld/schemas/types";
 import type { Context, Hono } from "hono";
 import { refreshAuthSessionCookie } from "../better-auth/refresh-session-cookie";
@@ -64,6 +65,40 @@ const PROFILE_PATCH_REQUEST_BODY_KEYS = new Set(["profileName"]);
 export const PROFILE_ROUTE_BASE = "/v1/profiles";
 
 export function registerProfileRoutes(app: Hono<AppContext>) {
+  app.patch(
+    `${PROFILE_ROUTE_BASE}/agents/:openMeldProfileId/avatar`,
+    requireTrustedCookieOrigin,
+    async (c) => {
+      const authenticated = requireAuthenticatedUser(c);
+      if (!authenticated.ok) {
+        return authenticated.response;
+      }
+      try {
+        const body = parseStrictObject(
+          await readJsonBody(c),
+          new Set(["avatarStyle"]),
+          "avatar update body"
+        );
+        const avatarStyle = agentAvatarStyleSchema.safeParse(body.avatarStyle);
+        if (!avatarStyle.success) {
+          throw new ProfileValidationError("Choose a valid avatar.");
+        }
+        const profile =
+          await c.var.profileService.updateAgentAvatarStyleForOwner({
+            ownerUserId: String(authenticated.user.id),
+            profileId: c.req.param("openMeldProfileId"),
+            avatarStyle: avatarStyle.data,
+          });
+        return c.json({
+          ok: true,
+          profile: toProfileView(profile, { includeAvatarStyle: true }),
+        });
+      } catch (error) {
+        const failure = toProfileHttpErrorResponse(error);
+        return c.json(failure.body, failure.status);
+      }
+    }
+  );
   app.delete(
     `${PROFILE_ROUTE_BASE}/agents/:openMeldProfileId`,
     requireTrustedCookieOrigin,
@@ -123,7 +158,10 @@ export function registerProfileRoutes(app: Hono<AppContext>) {
       return c.json({
         ok: true,
         profiles: profiles.map((profile) =>
-          toProfileView(profile, { ownerName })
+          toProfileView(profile, {
+            ownerName,
+            includeAvatarStyle: c.req.query("includeAvatarStyle") === "true",
+          })
         ),
       });
     } catch (error) {

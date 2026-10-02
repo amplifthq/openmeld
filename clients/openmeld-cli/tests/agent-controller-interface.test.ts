@@ -20,6 +20,7 @@ import {
   resolveUsageLimitsAfterCompletedProbe,
 } from "../src/local-service/inventory/agent-controller-interface";
 import {
+  ageAgentControllerInterfaceKeeperForTests,
   buildAgentControllerInterfaceKeeperKey,
   recordAgentControllerUsageLimitsObservation,
   resetAgentControllerInterfaceKeeperForTests,
@@ -73,6 +74,12 @@ vi.mock(
 );
 
 beforeEach(() => {
+  vi.stubEnv("AGENT_CLI_CREDENTIAL_STORE", "memory");
+  vi.stubEnv("CURSOR_AUTH_TOKEN", "");
+  vi.stubEnv("CURSOR_API_KEY", "");
+  vi.stubEnv("OPENCODE_AUTH_CONTENT", "{}");
+  vi.stubEnv("OPENROUTER_API_KEY", "");
+  vi.stubEnv("OPENCODE_API_KEY", "");
   vi.stubGlobal(
     "fetch",
     vi.fn((input: string | URL | Request) => {
@@ -93,58 +100,61 @@ afterEach(() => {
   resetAgentControllerInterfaceKeeperForTests();
   warnDaemonEventMock.mockReset();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 describe("agent controller interface inventory", () => {
-  it("reads Antigravity sign-in and both weekly quota groups without running a task", async () => {
+  it("never enters Antigravity authentication during repeated or concurrent status checks", async () => {
     const home = await mkdtemp(join(tmpdir(), "openmeld-aci-antigravity-"));
     try {
       const binPath = join(home, "agy.mjs");
+      const interactionPath = join(home, "interactive-auth-attempt");
       await writeFile(
         binPath,
         [
           "#!/usr/bin/env node",
+          "import { writeFileSync } from 'node:fs';",
           "const args = process.argv.slice(2);",
           "if (args[0] === '--version') { console.log('Antigravity CLI 1.2.7'); process.exit(0); }",
-          "if (args[0] === '--print' && args[1] === '/usage') {",
-          "  console.log('Gemini Models\\tWeekly Limit Remaining\\t99%\\t2026-09-28T07:03:35Z');",
-          "  console.log('Claude and GPT models\\tWeekly Limit Remaining\\t75%\\t2026-09-28T07:32:37Z');",
-          "  process.exit(0);",
-          "}",
+          `writeFileSync(${JSON.stringify(interactionPath)}, args.join(' '));`,
           "process.exit(1);",
         ].join("\n"),
         "utf8"
       );
       await chmod(binPath, 0o755);
 
-      const snapshot = await resolveAgentControllerInterfaceSnapshot({
-        agentControllerRef: "builtin:antigravity",
-        state: createBuiltinAgentTargetState(
-          "antigravity",
-          "Antigravity",
-          binPath
-        ),
-      });
-
-      expect(snapshot).toMatchObject({
-        auth: {
-          label: "Antigravity account connected",
-          status: "authenticated",
-        },
-        controllerId: "antigravity",
-        status: "ready",
-        usageLimits: [
-          {
-            key: "antigravity-gemini:weekly",
-            usedPercent: 1,
-          },
-          {
-            key: "antigravity-other:weekly",
-            usedPercent: 25,
-          },
-        ],
-        version: "1.2.7",
-      });
+      const state = createBuiltinAgentTargetState(
+        "antigravity",
+        "Antigravity",
+        binPath
+      );
+      for (let pass = 0; pass < 2; pass += 1) {
+        const snapshots = await Promise.all(
+          (["fresh", "background", "background"] as const).map((probePolicy) =>
+            resolveAgentControllerInterfaceSnapshot({
+              agentControllerRef: "builtin:antigravity",
+              probePolicy,
+              state,
+            })
+          )
+        );
+        await expect(stat(interactionPath)).rejects.toMatchObject({
+          code: "ENOENT",
+        });
+        for (const snapshot of snapshots) {
+          expect(snapshot).toMatchObject({
+            auth: { status: "unknown" },
+            check: { status: "succeeded" },
+            controllerId: "antigravity",
+            status: "warning",
+            usageLimits: [
+              { status: "unsupported", usedPercent: null, resetsAt: null },
+            ],
+            version: "1.2.7",
+          });
+        }
+        ageAgentControllerInterfaceKeeperForTests(16 * 60_000);
+      }
     } finally {
       await rm(home, { force: true, recursive: true });
     }
@@ -199,7 +209,6 @@ describe("agent controller interface inventory", () => {
           email: "capacity-owner@example.com",
           status: "authenticated",
         },
-        support: "native",
       })
     ).toEqual([
       expect.objectContaining({
@@ -246,7 +255,6 @@ describe("agent controller interface inventory", () => {
           email: "capacity-owner@example.com",
           status: "authenticated",
         },
-        support: "passive",
       })
     ).toEqual(usageLimits);
   });
@@ -345,7 +353,6 @@ describe("agent controller interface inventory", () => {
           email: "capacity-owner@example.com",
           status: "authenticated",
         },
-        support: "native",
       })
     ).toEqual(unavailable);
   });
@@ -383,7 +390,6 @@ describe("agent controller interface inventory", () => {
           email: "previous-capacity-owner@example.com",
           status: "authenticated",
         },
-        support: "native",
       })
     ).toEqual(unavailable);
   });
@@ -726,7 +732,11 @@ describe("agent controller interface inventory", () => {
     }
   });
 
-  it("reports OpenCode as current when the CLI matches the npm release", async () => {
+  it.each([
+    ["1.17.18", "current", null],
+    ["1.17.18-rc.1", "behind_latest", "Update available."],
+    ["1.17.18+build.1", "current", null],
+  ])("reports OpenCode %s against its npm release", async (version, status, message) => {
     const home = await mkdtemp(
       join(tmpdir(), "openmeld-aci-opencode-current-")
     );
@@ -736,7 +746,7 @@ describe("agent controller interface inventory", () => {
         binPath,
         [
           "#!/bin/sh",
-          'if [ "$1" = "--version" ]; then echo "1.17.18"; exit 0; fi',
+          `if [ "$1" = "--version" ]; then echo "${version}"; exit 0; fi`,
           'if [ "$1" = "serve" ]; then echo "opencode server listening on http://127.0.0.1:34567"; sleep 60; exit 0; fi',
           "exit 1",
           "",
@@ -765,10 +775,10 @@ describe("agent controller interface inventory", () => {
       });
 
       expect(snapshot.versionAdvisory).toMatchObject({
-        currentVersion: "1.17.18",
+        currentVersion: version,
         latestVersion: "1.17.18",
-        message: null,
-        status: "current",
+        message,
+        status,
         updateCommand: "npm install -g opencode-ai@latest",
       });
     } finally {

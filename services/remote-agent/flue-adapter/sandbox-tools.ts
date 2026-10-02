@@ -178,7 +178,7 @@ export function getRemoteAgentSandboxToolDefinitions(input: {
     {
       name: "bash",
       description:
-        'Run a shell command on your computer. Both backends operate on the same persistent files. Default backend "worker-shell" is instant text tooling in an isolate: cat, ls, grep, sed, awk, sort, head, tail, find, wc — no npm, node, python, package managers, or network. Pass backend "container" when the command needs a real Linux userland (python3, git, curl, jq, real binaries); it is slower to start because the container must boot, so prefer worker-shell when it can do the job. Returns bounded stdout, stderr, and the exit code.',
+        'Run a shell command on your computer. Both backends operate on the same persistent files. Default backend "worker-shell" is instant text tooling in an isolate: cat, ls, grep, sed, awk, sort, head, tail, find, wc — no npm, node, python, package managers, or network. Pass backend "container" for Node.js 24, pnpm, Python, git, curl, package installation, builds, or other Linux commands; it is slower to start because the container must boot, so prefer worker-shell when it can do the job. Returns bounded stdout, stderr, and the exit code.',
       input: bashInputSchema,
       execute: async (rawInput, options) => {
         const request = parse(bashInputSchema, rawInput);
@@ -197,8 +197,9 @@ export function getRemoteAgentSandboxToolDefinitions(input: {
           : await input.env.exec(request.command, execOptions);
         return {
           exitCode: result.exitCode,
-          stderr: truncateTail(result.stderr),
-          stdout: truncateTail(result.stdout),
+          // Preserve received output for the shared bounded retention owner.
+          stderr: result.stderr,
+          stdout: result.stdout,
         };
       },
     },
@@ -413,17 +414,6 @@ function countOccurrences(value: string, search: string): number {
 
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
-}
-
-function truncateTail(value: string): string {
-  if (value.length <= MAX_READ_CHARS) {
-    const lines = value.split("\n");
-    return lines.length <= MAX_READ_LINES
-      ? value
-      : lines.slice(-MAX_READ_LINES).join("\n");
-  }
-  const tail = value.slice(-MAX_READ_CHARS);
-  return tail.split("\n").slice(-MAX_READ_LINES).join("\n");
 }
 
 function utf8ByteLength(value: string): number {

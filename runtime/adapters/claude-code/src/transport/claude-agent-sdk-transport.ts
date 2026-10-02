@@ -33,7 +33,10 @@ import type {
   ConversationPolicy,
   RuntimeAgentControllerLaunchContract,
 } from "@openmeld/adapter-core";
-import { materializeCliLaunchCommand } from "@openmeld/adapter-core";
+import {
+  materializeCliLaunchCommand,
+  readAdapterAiUsageObservation,
+} from "@openmeld/adapter-core";
 import { resolvePlatformCommand } from "@openmeld/adapter-core/process-launch";
 import { createClaudeAgentSdkToolActivityTracker } from "../output/claude-tool-activity.js";
 import { projectClaudeCodeUsageLimits } from "../usage/claude-code-usage-limits.js";
@@ -338,6 +341,10 @@ export async function invokeClaudeAgentSdkTransport(input: {
     streamingMode: input.streamingMode,
   });
   const providerErrorMessages: string[] = [];
+  const aiUsage = new Map<
+    string,
+    NonNullable<AdapterDispatchTelemetry["aiUsage"]>[number]
+  >();
   const stderrChunks: string[] = [];
   let firstOutputAtMs: number | null = null;
   let firstStderrAtMs: number | null = null;
@@ -448,6 +455,7 @@ export async function invokeClaudeAgentSdkTransport(input: {
         resolvedSessionId,
         resultMessage,
       });
+      observeClaudeAiUsage(aiUsage, message);
       firstOutputAtMs = nextState.firstOutputAtMs;
       latestInteractionOutput = nextState.latestInteractionOutput;
       latestOutput = nextState.latestOutput;
@@ -462,6 +470,7 @@ export async function invokeClaudeAgentSdkTransport(input: {
     }
   } catch (error) {
     throw toClaudeAgentSdkTransportError({
+      aiUsage: [...aiUsage.values()],
       error,
       firstOutputAtMs,
       firstStderrAtMs,
@@ -487,6 +496,7 @@ export async function invokeClaudeAgentSdkTransport(input: {
 
   if (!resultMessage) {
     const telemetry = buildClaudeAgentSdkTelemetry({
+      aiUsage: [...aiUsage.values()],
       firstOutputAtMs,
       firstStderrAtMs,
       invokedAtMs,
@@ -518,6 +528,7 @@ export async function invokeClaudeAgentSdkTransport(input: {
   // needs that shared array here.
   if (isFailedResultMessage(resultMessage)) {
     const telemetry = buildClaudeAgentSdkTelemetry({
+      aiUsage: [...aiUsage.values()],
       firstOutputAtMs,
       firstStderrAtMs,
       invokedAtMs,
@@ -554,6 +565,7 @@ export async function invokeClaudeAgentSdkTransport(input: {
       errorType: "adapter",
       message: "runtime.output.empty: claude finished without agent output",
       telemetry: buildClaudeAgentSdkTelemetry({
+        aiUsage: [...aiUsage.values()],
         firstOutputAtMs,
         firstStderrAtMs,
         invokedAtMs,
@@ -570,6 +582,7 @@ export async function invokeClaudeAgentSdkTransport(input: {
     sessionId:
       canonicalRepairSessionId ?? normalizeOptionalText(resolvedSessionId),
     telemetry: buildClaudeAgentSdkTelemetry({
+      aiUsage: [...aiUsage.values()],
       firstOutputAtMs,
       firstStderrAtMs,
       invokedAtMs,
@@ -631,7 +644,46 @@ async function emitClaudeCodeUsageLimits(input: {
   });
 }
 
+function observeClaudeAiUsage(
+  observations: Map<
+    string,
+    NonNullable<AdapterDispatchTelemetry["aiUsage"]>[number]
+  >,
+  message: SDKMessage
+): void {
+  if (message.type !== "assistant" || !message.message.usage) {
+    return;
+  }
+  const native = message.message;
+  const usage = native.usage;
+  const eventId = `claude:${message.session_id}:${native.id}`;
+  // Repeated message IDs are snapshots, including child-agent messages.
+  const cacheRead = usage.cache_read_input_tokens ?? 0;
+  const cacheWrite = usage.cache_creation_input_tokens ?? 0;
+  const inputTokens = usage.input_tokens + cacheRead + cacheWrite;
+  const observation = readAdapterAiUsageObservation({
+    eventId,
+    provider: "anthropic",
+    model: native.model,
+    source: "claude_message",
+    occurredAtMs: observations.get(eventId)?.occurredAtMs ?? Date.now(),
+    tokens: {
+      input: inputTokens,
+      output: usage.output_tokens,
+      cacheRead,
+      cacheWrite,
+      reasoning: null,
+      total: inputTokens + usage.output_tokens,
+    },
+    cost: null,
+  });
+  if (observation) {
+    observations.set(eventId, observation);
+  }
+}
+
 function buildClaudeAgentSdkTelemetry(input: {
+  aiUsage?: AdapterDispatchTelemetry["aiUsage"];
   firstOutputAtMs: number | null;
   firstStderrAtMs: number | null;
   invokedAtMs: number;
@@ -642,6 +694,7 @@ function buildClaudeAgentSdkTelemetry(input: {
 }): AdapterDispatchTelemetry {
   return {
     completedAtMs: Date.now(),
+    ...(input.aiUsage ? { aiUsage: input.aiUsage } : {}),
     ...(input.firstOutputAtMs === null
       ? {}
       : { firstOutputAtMs: input.firstOutputAtMs }),
@@ -1162,6 +1215,7 @@ function extractPreviewDeltaText(message: SDKMessage): string | null {
 }
 
 function toClaudeAgentSdkTransportError(input: {
+  aiUsage?: AdapterDispatchTelemetry["aiUsage"];
   error: unknown;
   firstOutputAtMs: number | null;
   firstStderrAtMs: number | null;
@@ -1188,6 +1242,7 @@ function toClaudeAgentSdkTransportError(input: {
       errorType: "timeout",
       message: `${code}: claude timed out after ${input.timeoutMs ?? 0}ms`,
       telemetry: buildClaudeAgentSdkTelemetry({
+        aiUsage: input.aiUsage,
         firstOutputAtMs: input.firstOutputAtMs,
         firstStderrAtMs: input.firstStderrAtMs,
         invokedAtMs: input.invokedAtMs,
@@ -1218,6 +1273,7 @@ function toClaudeAgentSdkTransportError(input: {
       ? { providerAccessEvidence: classifiedFailure.providerAccessEvidence }
       : {}),
     telemetry: buildClaudeAgentSdkTelemetry({
+      aiUsage: input.aiUsage,
       firstOutputAtMs: input.firstOutputAtMs,
       firstStderrAtMs: input.firstStderrAtMs,
       invokedAtMs: input.invokedAtMs,

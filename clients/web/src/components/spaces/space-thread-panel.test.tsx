@@ -131,6 +131,19 @@ describe("SpaceThreadPanel", () => {
 		useQueryMock.mockReset();
 	});
 
+	it("jumps from the Thread header to its root message", () => {
+		const onShowMessageInMain = vi.fn();
+		renderThreadPanel({ onShowMessageInMain });
+		const thread = screen.getByRole("complementary", { name: "Thread" });
+		const jump = within(thread).getByRole("button", {
+			name: "Go to message",
+		});
+		expect(jump.className).toContain("size-7");
+		fireEvent.click(jump);
+		expect(onShowMessageInMain).toHaveBeenCalledOnce();
+		expect(onShowMessageInMain).toHaveBeenCalledWith("sig-root");
+	});
+
 	it("separates the thread composer with spacing instead of a top divider", () => {
 		renderThreadPanel();
 
@@ -213,11 +226,11 @@ describe("SpaceThreadPanel", () => {
 					? new DOMRect(0, 150, 500, 1600)
 					: new DOMRect(0, 100, 500, 400);
 			});
-		const onViewedThroughTs = vi.fn().mockResolvedValue(undefined);
+		const onViewedUpdates = vi.fn().mockResolvedValue(undefined);
 		const latestTs = Date.UTC(2026, 4, 27, 10, 0, 9);
 		try {
 			renderThreadPanel({
-				onViewedThroughTs,
+				onViewedUpdates,
 				signals: [createTextSignal({ ts: latestTs })],
 				unreadTargets: [
 					{
@@ -232,10 +245,16 @@ describe("SpaceThreadPanel", () => {
 					},
 				],
 			});
-			await act(async () => vi.advanceTimersByTimeAsync(149));
-			expect(onViewedThroughTs).not.toHaveBeenCalled();
-			await act(async () => vi.advanceTimersByTimeAsync(1));
-			expect(onViewedThroughTs).toHaveBeenCalledExactlyOnceWith(latestTs);
+			await act(async () => vi.advanceTimersByTimeAsync(49));
+			expect(onViewedUpdates).not.toHaveBeenCalled();
+			await act(async () => vi.advanceTimersByTimeAsync(51));
+			expect(onViewedUpdates).toHaveBeenCalledExactlyOnceWith([
+				{
+					signalId: "sig-thread-1",
+					occurredAtMs: latestTs,
+					threadRootSignalId: "sig-root",
+				},
+			]);
 		} finally {
 			focus.mockRestore();
 			geometry.mockRestore();
@@ -367,7 +386,7 @@ describe("SpaceThreadPanel", () => {
 		const activityTrigger = screen.getByRole("button", {
 			name: "Agent is working. Work summary: Reviewing source files…",
 		});
-		expect(activityTrigger.getAttribute("aria-expanded")).toBe("false");
+		expect(activityTrigger.getAttribute("aria-expanded")).toBe("true");
 		const progressRow = activityTrigger.closest(
 			'[data-slot="space-message-progress-row"]'
 		);
@@ -384,8 +403,11 @@ describe("SpaceThreadPanel", () => {
 		);
 
 		fireEvent.click(
-			screen.getByRole("button", { name: "Open message details" })
+			within(messageRow as HTMLElement).getByRole("button", {
+				name: "More actions",
+			})
 		);
+		fireEvent.click(screen.getByRole("menuitem", { name: "Message details" }));
 
 		expect(
 			screen.getByRole("dialog", { name: "Message details" })
@@ -427,17 +449,17 @@ describe("SpaceThreadPanel", () => {
 			messageRow?.querySelector("[data-slot='message-hover-actions']")
 		).toBeNull();
 
-		const detailsButton = within(footer as HTMLElement).getByRole("button", {
-			name: "Message details",
-		});
 		const copyButton = within(footer as HTMLElement).getByRole("button", {
 			name: "Copy message",
 		});
-		for (const button of [copyButton, detailsButton]) {
-			expect(button.className).toContain("size-7");
-			expect(button.className).toContain("border-0");
-			expect(button.className).toContain("bg-transparent");
-		}
+		expect(copyButton.className).toContain("size-7");
+		expect(copyButton.className).toContain("border-0");
+		expect(copyButton.className).toContain("bg-transparent");
+		expect(
+			within(footer as HTMLElement).queryByRole("button", {
+				name: "Message details",
+			})
+		).toBeNull();
 	});
 	it.each([
 		"sig-root",
@@ -461,12 +483,13 @@ describe("SpaceThreadPanel", () => {
 			signals: [createTextSignal({ id: signalId })],
 			spaceTimelineItems: [],
 		});
-		fireEvent.click(screen.getByRole("button", { name: "Message details" }));
+		fireEvent.click(screen.getByRole("button", { name: "More actions" }));
+		fireEvent.click(screen.getByRole("menuitem", { name: "Message details" }));
 		const dialog = await screen.findByRole("dialog", {
 			name: "Message details",
 		});
 		const jump = within(dialog).queryByRole("button", {
-			name: "Show message in Messages",
+			name: "Go to message",
 		});
 		if (signalId === "sig-root") {
 			expect(jump).not.toBeNull();
@@ -526,8 +549,9 @@ describe("SpaceThreadPanel", () => {
 			throw new Error("Expected the Wake source row to render.");
 		}
 		fireEvent.click(
-			within(messageRow).getByRole("button", { name: "Message details" })
+			within(messageRow).getByRole("button", { name: "More actions" })
 		);
+		fireEvent.click(screen.getByRole("menuitem", { name: "Message details" }));
 
 		const dialog = await screen.findByRole("dialog", {
 			name: "Message details",
@@ -618,10 +642,21 @@ describe("SpaceThreadPanel", () => {
 		expect(marker?.getAttribute("aria-busy")).toBeNull();
 	});
 
-	it("uses circular Fluid avatars for Center Agent replies in an ordinary Space thread", () => {
+	it("uses the saved Bot avatar for Center Agent replies in an ordinary Space thread", () => {
 		const centerAgentProfileId = "agt_cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 		renderThreadPanel({
 			centerAgentProfileId,
+			membersSnapshot: createSpaceMembersSnapshot({
+				agents: [
+					{
+						...createSpaceMemberAgentSnapshot({
+							profileId: centerAgentProfileId,
+							profileName: "Center Agent",
+						}),
+						avatarStyle: "star",
+					},
+				],
+			}),
 			signals: [
 				createTextSignal({
 					profileId: centerAgentProfileId,
@@ -635,7 +670,7 @@ describe("SpaceThreadPanel", () => {
 		const avatar = screen.getByTestId(
 			`space-center-agent-profile-avatar-${centerAgentProfileId}`
 		);
-		expect(avatar.getAttribute("data-shape")).toBe("circle");
+		expect(avatar.querySelector("canvas[data-bot-avatar]")).toBeTruthy();
 	});
 
 	it("renders completed Agent Activity once inside its durable thread reply", () => {
@@ -651,7 +686,7 @@ describe("SpaceThreadPanel", () => {
 
 		const bubbleContent = screen
 			.getByText("Here is the thread summary.")
-			.closest("[data-slot='bubble-content']");
+			.closest("[data-slot='space-message-text-surface']");
 		expect(bubbleContent?.contains(activityTriggers[0] ?? null)).toBe(true);
 		const answerElement = screen.getByText("Here is the thread summary.");
 		const directChildren = Array.from(bubbleContent?.children ?? []);
@@ -661,8 +696,8 @@ describe("SpaceThreadPanel", () => {
 		const activitySection = directChildren.find((child) =>
 			child.contains(activityTriggers[0] ?? null)
 		);
-		expect(directChildren.indexOf(answerSection as Element)).toBeLessThan(
-			directChildren.indexOf(activitySection as Element)
+		expect(directChildren.indexOf(activitySection as Element)).toBeLessThan(
+			directChildren.indexOf(answerSection as Element)
 		);
 	});
 
@@ -684,10 +719,10 @@ describe("SpaceThreadPanel", () => {
 
 		const firstMessage = screen
 			.getByText("First consecutive thread message")
-			.closest("[data-slot='message']");
+			.closest("[data-message-row-id='sig-thread-first']");
 		const secondMessage = screen
 			.getByText("Second consecutive thread message")
-			.closest("[data-slot='message']");
+			.closest("[data-message-row-id='sig-thread-second']");
 		expect(firstMessage?.querySelector("time")?.textContent).toMatch(
 			COMPACT_TIME_PATTERN
 		);
@@ -706,6 +741,49 @@ describe("SpaceThreadPanel", () => {
 				message?.querySelector('[data-slot="message-footer"]')
 			).not.toBeNull();
 		}
+	});
+
+	it.each([
+		false,
+		true,
+	])("keeps a thread's mixed files in one rail outside its text (DM=%s)", (isDirectMessage) => {
+		const onOpenSpaceFile = vi.fn();
+		const signal = createTextSignal({ text: "Review these attachments" });
+		if (signal.type !== "signal.text") {
+			throw new Error("Expected text fixture");
+		}
+		signal.data.files = [
+			{
+				fileId: "document-1",
+				name: "review.pdf",
+				mimeType: "application/pdf",
+				sizeBytes: 128,
+				revision: 3,
+			},
+			{
+				fileId: "archive-1",
+				name: "source.zip",
+				mimeType: "application/zip",
+				sizeBytes: 256,
+				revision: 1,
+			},
+		];
+		renderThreadPanel({ isDirectMessage, onOpenSpaceFile, signals: [signal] });
+		const text = screen.getByText("Review these attachments");
+		const file = screen.getByRole("button", {
+			name: "Open review.pdf in Files",
+		});
+		const message = text.closest("[data-slot='bubble-content']");
+		expect(message?.contains(file)).toBe(true);
+		expect(file.closest("[data-slot='space-message-text-surface']")).toBeNull();
+		expect(
+			text.closest("[data-slot='space-message-text-surface']")
+		).not.toBeNull();
+		expect(
+			message?.querySelectorAll("[data-slot='space-attachment-strip']")
+		).toHaveLength(1);
+		fireEvent.click(file);
+		expect(onOpenSpaceFile).toHaveBeenCalledWith("document-1", 3);
 	});
 
 	it("shows direct-message times only in the shared thread toolbars", () => {
@@ -975,11 +1053,7 @@ describe("SpaceThreadPanel", () => {
 		let sourceMessage = screen
 			.getByText("@Runner(wake) please investigate")
 			.closest("[data-message-row-id='sig-thread-wake']");
-		expect(
-			sourceMessage
-				?.closest('[data-slot="message"]')
-				?.getAttribute("data-align")
-		).toBe("end");
+		expect(sourceMessage?.getAttribute("data-align")).toBe("end");
 
 		rerenderThreadPanel({
 			selfProfileId: "human-profile-1",
@@ -1001,11 +1075,7 @@ describe("SpaceThreadPanel", () => {
 		sourceMessage = screen
 			.getByText("@Runner(wake) please investigate")
 			.closest("[data-message-row-id='sig-thread-wake']");
-		expect(
-			sourceMessage
-				?.closest('[data-slot="message"]')
-				?.getAttribute("data-align")
-		).toBe("start");
+		expect(sourceMessage?.getAttribute("data-align")).toBe("start");
 	});
 
 	it("gives a stopped Wake a muted outcome row in the thread instead of a destructive one", () => {

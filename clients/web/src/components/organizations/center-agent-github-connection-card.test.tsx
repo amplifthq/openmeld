@@ -338,6 +338,16 @@ describe("CenterAgentGitHubConnectionCard", () => {
 		).toBeTruthy();
 	});
 
+	it("offers a separate authorization path for an installed GitHub App", async () => {
+		await startSharedGitHubAuthorization("Connect installed GitHub Plugin");
+		expect(
+			startCurrentOrganizationSharedGitHubAuthorizationMock
+		).toHaveBeenCalledWith({
+			existingInstallation: true,
+			organizationId: "org-acme",
+		});
+	});
+
 	it("keeps cached GitHub status visible but disables actions after refresh fails", async () => {
 		const queryClient = createTestQueryClient();
 		queryClient.setQueryData(
@@ -653,7 +663,9 @@ describe("CenterAgentGitHubConnectionCard", () => {
 	});
 });
 
-async function startSharedGitHubAuthorization() {
+async function startSharedGitHubAuthorization(
+	buttonName = "Install GitHub Plugin"
+) {
 	listCurrentOrganizationGitHubConnectionsMock.mockResolvedValue({
 		connections: [],
 		currentUserId: "user-1",
@@ -679,7 +691,7 @@ async function startSharedGitHubAuthorization() {
 	);
 
 	const installButton = await screen.findByRole("button", {
-		name: "Install GitHub Plugin",
+		name: buttonName,
 	});
 	await waitFor(() => {
 		expect(installButton.hasAttribute("disabled")).toBe(false);

@@ -142,7 +142,7 @@ describe("Center Agent Self-Evolution", () => {
 			"Before finishing this Run, post a concise summary to #reply"
 		);
 		expect(body.instructions).toContain(
-			"Never paste the full Organization Documents into Slack"
+			"Never paste the full Team knowledge files into Slack"
 		);
 		expect(body.instructions).toContain(
 			"Use an explicitly documented team working language when one exists"

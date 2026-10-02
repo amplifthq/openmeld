@@ -196,7 +196,38 @@ describe("remote agent callback context", () => {
     });
   });
 
-  it("shortens oversized assistant text explicitly at the callback boundary", () => {
+  it("publishes Plugin setup to old Core as text rather than an unknown navigation discriminator", () => {
+    const request = createSubmitTurnRequest();
+    const context = createRemoteAgentCallbackContext({
+      ack: ACK,
+      nowMs: TEST_NOW_MS,
+      request,
+    });
+    if (!context.turnEnvelope) {
+      throw new Error("fixture requires a turn envelope");
+    }
+    context.turnEnvelope.organization.webUrl =
+      "https://openmeld.example/o/acme";
+    context.pluginConnectionTarget = {
+      kind: "plugin_connection",
+      service: "github",
+      scope: "shared",
+    };
+    const callback = buildRemoteAgentCoreCallbackBody({
+      context,
+      text: "Organization access is required.",
+    });
+    expect(callback).not.toHaveProperty("navigationTarget");
+    if (!("text" in callback)) {
+      throw new Error("Expected a successful reply callback");
+    }
+    expect(callback.text).toBe(
+      "Organization access is required.\n\n[Open Plugin connection](https://openmeld.example/o/acme/plugins/github?scope=organization#openmeld-plugin-connection)"
+    );
+    expect(callback.triggerMessageId).toBe(request.triggerMessageId);
+  });
+
+  it("preserves the explicit oversized assistant text marker at the callback boundary", () => {
     const request = createSubmitTurnRequest();
     const context = createRemoteAgentCallbackContext({
       ack: ACK,
@@ -247,7 +278,7 @@ describe("remote agent callback context", () => {
       failureCode: "remote_agent.turn_not_completed",
       failureDetail: "provider 504",
       failureMessage:
-        "OpenMeld ran into a problem, so Center Agent couldn't finish your request. You didn't do anything wrong. Try again. If it still doesn't work, open Diagnostics in OpenMeld. If you can't open OpenMeld, ask the person who set it up for your team.",
+        "Center Agent couldn't finish your request. Open Diagnostics in OpenMeld for details. If you can't open OpenMeld, ask the person who set it up for your team.",
       idempotencyKey: request.idempotencyKey,
       organizationId: request.organizationId,
       spaceId: request.spaceId,
@@ -658,7 +689,7 @@ describe("remote agent callback context", () => {
       expect.objectContaining({
         failureCode: "remote_agent.turn_not_completed",
         failureMessage:
-          "OpenMeld ran into a problem, so Center Agent couldn't finish your request. You didn't do anything wrong. Try again. If it still doesn't work, open Diagnostics in OpenMeld. If you can't open OpenMeld, ask the person who set it up for your team.",
+          "Center Agent couldn't finish your request. Open Diagnostics in OpenMeld for details. If you can't open OpenMeld, ask the person who set it up for your team.",
         idempotencyKey: request.idempotencyKey,
         status: "failed",
         submissionId: ACK.submissionId,
@@ -1327,6 +1358,45 @@ describe("remote agent callback context", () => {
         failureCode: "remote_agent.provider.rate_limited",
         failureMessage:
           "The model provider rate-limited this request. Wait a moment, then wake the agent again.",
+        status: "failed",
+      })
+    );
+  });
+
+  it("publishes an actionable failure for an explicitly selected Skill that was disabled", async () => {
+    const request = createSubmitTurnRequest();
+    const context = createRemoteAgentCallbackContext({
+      ack: ACK,
+      nowMs: TEST_NOW_MS,
+      request,
+    });
+    const storage = new InMemoryDurableObjectStorage();
+    await putRemoteAgentCallbackContext(storage, context);
+    const completeRemoteAgentSubmission = vi.fn(async () => ({
+      publishedSignalId: "signal-skill-unavailable",
+      status: "accepted" as const,
+    }));
+
+    await handleRemoteAgentChatResponse({
+      coreWorker: { completeRemoteAgentSubmission },
+      nowMs: () => TEST_NOW_MS + 1000,
+      result: {
+        continuation: false,
+        error: new Error(
+          "HTTP 403 organization_skill.release_unavailable: The selected Skill release is unavailable or disabled."
+        ),
+        message: { parts: [] },
+        requestId: ACK.requestId,
+        status: "error",
+      },
+      storage,
+    });
+
+    expect(completeRemoteAgentSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({
+        failureCode: "organization_skill.release_unavailable",
+        failureMessage:
+          "A Skill selected for this request is no longer available. Ask an Organization admin to restore it, or send a new request without that Skill.",
         status: "failed",
       })
     );

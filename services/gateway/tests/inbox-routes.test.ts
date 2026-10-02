@@ -76,6 +76,41 @@ const HUMAN_MENTION_ITEM = {
 };
 
 describe("Inbox routes", () => {
+  it("prepares a Space read selection through verified context and rejects injected recipients", async () => {
+    const { coreRpc, env } = makeEnv();
+    const request = (body: unknown) =>
+      app.fetch(
+        new Request("http://local/v1/inbox/spaces/read", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+        env,
+        TEST_EXECUTION_CONTEXT
+      );
+    expect(
+      (await request({ operation: "prepare", spaceId: "space-1" })).status
+    ).toBe(200);
+    expect(coreRpc.mutateSpaceInboxRead).toHaveBeenCalledWith({
+      body: { operation: "prepare", spaceId: "space-1" },
+      context: expect.any(Object),
+    });
+    expect(
+      (
+        await request({
+          operation: "prepare",
+          spaceId: "space-1",
+          recipientUserId: "other",
+        })
+      ).status
+    ).toBe(400);
+    expect(
+      (await request({ operation: "read", spaceId: "space-1", items: [] }))
+        .status
+    ).toBe(400);
+    expect(coreRpc.mutateSpaceInboxRead).toHaveBeenCalledOnce();
+  });
+
   it("routes bounded notification observations through verified Core context and rejects client scope", async () => {
     const { coreRpc, env } = makeEnv();
     const response = await app.fetch(
@@ -845,6 +880,43 @@ describe("Inbox routes", () => {
       ok: false,
     });
   });
+
+  it("logs the read-position failure reason with the response request ID", async () => {
+    const { coreRpc, env } = makeEnv();
+    coreRpc.markSpaceInboxReadThrough.mockRejectedValueOnce(
+      Object.assign(new Error("Read position is outside the allowed window."), {
+        code: "inbox.invalid_read_position",
+        status: 400,
+      })
+    );
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      const response = await app.fetch(
+        jsonRequest("http://local/v1/inbox/spaces/read-through", "POST", {
+          spaceId: "space-1",
+          throughOccurredAtMs: 1_775_000_000_000,
+        }),
+        env,
+        TEST_EXECUTION_CONTEXT
+      );
+      expect(response.status).toBe(400);
+      expect(response.headers.get("x-openmeld-request-id")).toBe("req-inbox");
+      expect(
+        log.mock.calls
+          .map(
+            ([entry]) => JSON.parse(String(entry)) as Record<string, unknown>
+          )
+          .find((entry) => entry.route === "/v1/inbox/spaces/read-through")
+      ).toMatchObject({
+        errorCode: "inbox.invalid_read_position",
+        reason: "Read position is outside the allowed window.",
+        requestId: "req-inbox",
+        status: 400,
+      });
+    } finally {
+      log.mockRestore();
+    }
+  });
 });
 
 function makeEnv() {
@@ -961,6 +1033,11 @@ function makeEnv() {
     markCenterAgentInboxReadThrough: vi.fn(async () => ({
       markedReadCount: 1,
       readThroughAt: "2026-04-02T02:40:00.000Z",
+    })),
+    mutateSpaceInboxRead: vi.fn(async () => ({
+      operation: "prepare",
+      snapshotId: "selection",
+      unreadCount: 2,
     })),
     markSpaceInboxReadThrough: vi.fn(async () => ({
       markedReadCount: 1,

@@ -16,6 +16,7 @@ import {
 	AgentList,
 	AgentListControls,
 	AgentListFilterChips,
+	type AgentListView,
 	DEFAULT_AGENT_LIST_VIEW,
 } from "./agent-list";
 import {
@@ -28,6 +29,11 @@ import type { AgentCardSelection } from "./agent-list-selection";
 import { AgentProfileSidebarItem } from "./agent-profile-sidebar-item";
 import type { AgentProfilesWorkspaceProps } from "./agent-profiles-workspace";
 
+const DIRECTORY_AGENT_VIEW: AgentListView = {
+	...DEFAULT_AGENT_LIST_VIEW,
+	grouping: "controller-provider",
+};
+
 export function AgentDirectoryLists({
 	input,
 }: {
@@ -36,7 +42,7 @@ export function AgentDirectoryLists({
 	const { currentOrganization } = useAppOrganization();
 	const previewReady = useAgentSidebarPreviewReady();
 	const [search, setSearch] = useState("");
-	const [view, setView] = useState(DEFAULT_AGENT_LIST_VIEW);
+	const [view, setView] = useState<AgentListView>(DIRECTORY_AGENT_VIEW);
 	const items = useMemo(
 		() =>
 			input.profiles.map((profile) => {
@@ -148,17 +154,21 @@ export function AgentDirectoryLists({
 					Task activity unavailable.
 				</output>
 			)}
-			<div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2">
-				<AgentListFilterChips onChange={setView} value={view} />
+			<div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1">
+				<AgentListFilterChips
+					defaults={DIRECTORY_AGENT_VIEW}
+					onChange={setView}
+					value={view}
+				/>
 				<DirectorySearch
 					label={input.person ? "Search Agents" : "Search people or Agents"}
 					onChange={setSearch}
 					value={search}
-					variant="secondary"
 				/>
 				<AgentListControls
 					items={centerItem ? [centerItem, ...items] : items}
 					onChange={setView}
+					resetValue={DIRECTORY_AGENT_VIEW}
 					value={view}
 				/>
 			</div>

@@ -16,6 +16,12 @@ import {
   pluginAccessUpdateBodySchema,
   pluginActionRequestSchema,
   pluginActionResponseSchema,
+  pluginChannelContinueBodySchema,
+  pluginChannelContinueResponseSchema,
+  pluginChannelRequestBodySchema,
+  pluginChannelRequestPreviewSchema,
+  pluginConnectionContinuationBodySchema,
+  pluginConnectionContinuationResponseSchema,
 } from "@openmeld/schemas";
 import type {
   ConnectorCredentialConnectBody,
@@ -31,6 +37,7 @@ import {
 import {
   buildCoreRpcContext,
   executeRpcRoute,
+  readSpacePasswordHeader,
   respondBadRequest,
 } from "./rpc-http.helpers";
 import type { RpcHttpMethod } from "./rpc-http.types";
@@ -71,9 +78,117 @@ type OpenConnectorBindings = {
   GITHUB_OPENMELD_APP_SLUG?: string;
 };
 
+function registerPluginChannelContinuationRoutes(app: Hono<HonoBindings>) {
+  const previewRoute =
+    "/v1/organizations/current/plugins/connection-requests/preview";
+  const continueRoute =
+    "/v1/organizations/current/plugins/connection-requests/continue";
+  app.post(previewRoute, async (c) => {
+    const organization = parseConnectorOrganizationRequest(
+      c,
+      previewRoute,
+      "POST"
+    );
+    if (!organization.ok) {
+      return organization.response;
+    }
+    const parsed = pluginChannelRequestBodySchema.safeParse(
+      await c.req.json().catch(() => null)
+    );
+    if (!parsed.success) {
+      return respondBadRequest({
+        c,
+        route: previewRoute,
+        method: "POST",
+        message: "Choose a valid Plugin setup request.",
+      });
+    }
+    return executeRpcRoute({
+      c,
+      route: previewRoute,
+      method: "POST",
+      retryMode: "none",
+      responseSchema: pluginChannelRequestPreviewSchema,
+      execute: () =>
+        c.var.coreRpc.previewPluginChannelConnection({
+          ...parsed.data,
+          context: buildCoreRpcContext(c),
+          expectedOrganizationId: organization.expectedOrganizationId,
+        }),
+    });
+  });
+  app.post(continueRoute, async (c) => {
+    const organization = parseConnectorOrganizationRequest(
+      c,
+      continueRoute,
+      "POST"
+    );
+    if (!organization.ok) {
+      return organization.response;
+    }
+    const parsed = pluginChannelContinueBodySchema.safeParse(
+      await c.req.json().catch(() => null)
+    );
+    if (!parsed.success) {
+      return respondBadRequest({
+        c,
+        route: continueRoute,
+        method: "POST",
+        message: "Choose a valid Plugin continuation.",
+      });
+    }
+    return executeRpcRoute({
+      c,
+      route: continueRoute,
+      method: "POST",
+      retryMode: "none",
+      responseSchema: pluginChannelContinueResponseSchema,
+      execute: () =>
+        c.var.coreRpc.continuePluginChannelConnection({
+          ...parsed.data,
+          context: buildCoreRpcContext(c),
+          expectedOrganizationId: organization.expectedOrganizationId,
+        }),
+    });
+  });
+}
+
 export function registerConnectorConnectionRoutes(
   app: Hono<HonoBindings>
 ): void {
+  const continuationRoute = "/v1/spaces/:spaceId/plugin-connection/continue";
+  app.post(continuationRoute, async (c) => {
+    const spaceId = c.req.param("spaceId");
+    const parsed = pluginConnectionContinuationBodySchema.safeParse(
+      await c.req.json().catch(() => null)
+    );
+    if (!parsed.success) {
+      return respondBadRequest({
+        c,
+        route: continuationRoute,
+        method: "POST",
+        spaceId,
+        message: "Choose a valid connection continuation.",
+      });
+    }
+    const password = readSpacePasswordHeader(c.req.raw.headers);
+    return executeRpcRoute({
+      c,
+      route: continuationRoute,
+      method: "POST",
+      spaceId,
+      retryMode: "none",
+      responseSchema: pluginConnectionContinuationResponseSchema,
+      execute: () =>
+        c.var.coreRpc.continuePluginConnection({
+          ...parsed.data,
+          context: buildCoreRpcContext(c),
+          spaceId,
+          ...(password === undefined ? {} : { password }),
+        }),
+    });
+  });
+  registerPluginChannelContinuationRoutes(app);
   const actionRoute = "/v1/organizations/current/plugins/actions";
   app.post(actionRoute, async (c) => {
     const organization = parseConnectorOrganizationRequest(
@@ -362,16 +477,45 @@ async function parseConnectorAppRequestBody(
   };
 }
 
-function startAuthorization(
+async function startAuthorization(
   c: Context<HonoBindings>,
   input: {
     route: string;
     scope: "member" | "shared";
   }
-): Response | Promise<Response> {
+): Promise<Response> {
   const request = parseConnectorRouteRequest(c, input.route, "POST");
   if (!request.ok) {
     return request.response;
+  }
+  let existingGitHubInstallation = false;
+  if (input.scope === "shared" && request.service === "github") {
+    const rawBody = await c.req.text();
+    if (rawBody.trim()) {
+      let body: unknown;
+      try {
+        body = JSON.parse(rawBody);
+      } catch {
+        body = null;
+      }
+      if (
+        rawBody.length > 128 ||
+        !body ||
+        typeof body !== "object" ||
+        Array.isArray(body) ||
+        Object.keys(body).length !== 1 ||
+        !("existingInstallation" in body && body.existingInstallation === true)
+      ) {
+        return respondBadRequest({
+          c,
+          code: "invalid_payload",
+          message: "Choose a valid GitHub installation action.",
+          method: "POST",
+          route: input.route,
+        });
+      }
+      existingGitHubInstallation = true;
+    }
   }
   return executeRpcRoute({
     c,
@@ -383,10 +527,21 @@ function startAuthorization(
             context,
             expectedOrganizationId: request.expectedOrganizationId,
           });
-        const authorizationUrl = new URL(
-          `https://github.com/apps/${requireGitHubAppSlug(c.env)}/installations/new`
-        );
-        authorizationUrl.searchParams.set("state", installation.state);
+        const authorizationUrl = existingGitHubInstallation
+          ? new URL(
+              (
+                await createOpenConnectorClient(c.env).startAuthorization({
+                  connectionName: installation.verificationConnectionName,
+                  service: "github",
+                })
+              ).authorizationUrl
+            )
+          : new URL(
+              `https://github.com/apps/${requireGitHubAppSlug(c.env)}/installations/new`
+            );
+        if (!existingGitHubInstallation) {
+          authorizationUrl.searchParams.set("state", installation.state);
+        }
         return {
           authorizationUrl: authorizationUrl.toString(),
           connection: installation.connection,
@@ -566,6 +721,7 @@ async function reconcileGitHubAppInstallation(
   c: Context<HonoBindings>,
   input: {
     connections: OpenConnectorConnection[];
+    expectedAccountLogin?: string;
     expectedOrganizationId: string;
     openConnector: OpenConnectorClient;
   }
@@ -576,6 +732,57 @@ async function reconcileGitHubAppInstallation(
   });
   if (!pending) {
     return input.connections;
+  }
+
+  if (pending.status === "installing") {
+    if (
+      !hasConfiguredGitHubConnection(
+        input.connections,
+        pending.verificationConnectionName
+      )
+    ) {
+      return input.connections;
+    }
+    let installation: { accountLogin: string; installationId: string };
+    try {
+      installation =
+        await input.openConnector.findAccessibleGitHubAppInstallation(
+          pending.verificationConnectionName
+        );
+    } catch {
+      console.warn(
+        "[gateway.github_app.existing_installation_verification_failed]",
+        {
+          organizationId: input.expectedOrganizationId,
+          requestId: c.var.ingressOpenMeldContext.requestId,
+        }
+      );
+      throw new ConnectorConnectionRouteError({
+        code: "connector.github_app_existing_installation_unavailable",
+        message:
+          "GitHub authorization finished, but OpenMeld could not verify one organization installation of this App. Check that you can access the installation in GitHub, then try again.",
+        status: 502,
+      });
+    }
+    const accepted =
+      await c.var.coreRpc.beginExistingGitHubAppInstallationVerification({
+        context: buildCoreRpcContext(c),
+        expectedOrganizationId: input.expectedOrganizationId,
+        installationId: installation.installationId,
+        verificationConnectionName: pending.verificationConnectionName,
+      });
+    if (!accepted) {
+      return input.connections;
+    }
+    return await reconcileGitHubAppInstallation(c, {
+      ...input,
+      expectedAccountLogin: installation.accountLogin,
+    });
+  }
+  if (!pending.installationId) {
+    throw new Error(
+      "GitHub App installation verification has no installation id."
+    );
   }
 
   const targetConfigured = hasConfiguredGitHubConnection(
@@ -596,7 +803,8 @@ async function reconcileGitHubAppInstallation(
   } else if (verifierConfigured) {
     await completeGitHubAppInstallation(c, {
       openConnector: input.openConnector,
-      pending,
+      expectedAccountLogin: input.expectedAccountLogin,
+      pending: { ...pending, installationId: pending.installationId },
     });
     connections = await input.openConnector.listConnections();
   }
@@ -628,6 +836,7 @@ async function reconcileGitHubAppInstallation(
 async function completeGitHubAppInstallation(
   c: Context<HonoBindings>,
   input: {
+    expectedAccountLogin?: string;
     openConnector: OpenConnectorClient;
     pending: {
       installationId: string;
@@ -639,6 +848,9 @@ async function completeGitHubAppInstallation(
 ): Promise<void> {
   try {
     await input.openConnector.completeGitHubAppInstallation({
+      ...(input.expectedAccountLogin
+        ? { expectedAccountLogin: input.expectedAccountLogin }
+        : {}),
       installationId: input.pending.installationId,
       targetConnectionName: input.pending.targetConnectionName,
       verificationConnectionName: input.pending.verificationConnectionName,

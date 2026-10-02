@@ -493,7 +493,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 
 		fireEvent.click(
 			within(repliesSection).getByRole("button", {
-				name: "Show reply in Messages",
+				name: "Go to message",
 			})
 		);
 
@@ -511,7 +511,6 @@ describe("SpaceMessageDetailsDrawer", () => {
 			wakeProgressEntries: [
 				{
 					elapsedStartedAtMs: Date.UTC(2026, 5, 3, 22, 8),
-					lastEvidenceAtMs: Date.UTC(2026, 5, 3, 22, 8),
 					key: "runner-working",
 					kind: "progress",
 					phase: "running",

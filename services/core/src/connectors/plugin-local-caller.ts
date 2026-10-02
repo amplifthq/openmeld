@@ -33,7 +33,7 @@ export async function requireLocalPluginCaller(
     errorCode: "connector.organization_context_changed",
   });
   const actor = input.context.actorContext;
-  const profile = await requireProfile(env, actor.openMeldProfileId);
+  const profile = await requirePluginProfile(env, actor.openMeldProfileId);
   if (
     actor.profileKind !== "agent" ||
     profile.profileKind !== "agent" ||
@@ -70,7 +70,7 @@ export async function requireLocalPluginCaller(
       })
     : null;
   const source = provenance
-    ? await requireProfile(env, provenance.profileId)
+    ? await requirePluginProfile(env, provenance.profileId)
     : null;
   if (source && (source.profileKind !== "human" || !source.ownerUserId)) {
     throw denied(
@@ -108,12 +108,16 @@ export async function requireLocalPluginCaller(
     ownerUserId: member.userId,
     representedUserId,
     sourceSpaceId: provenance?.spaceId ?? null,
+    sourceSignalId: provenance?.sourceSignalId ?? null,
     human: identity.account.defaultHumanProfile,
     personalAllowed: representedUserId === member.userId,
   };
 }
 
-async function requireProfile(env: CoreBindings, profileId: string) {
+export async function requirePluginProfile(
+  env: CoreBindings,
+  profileId: string
+) {
   const result = await callRequiredAuthWorkerRpc({
     authWorker: env.OPENMELD_AUTH_WORKER,
     call: (worker) =>

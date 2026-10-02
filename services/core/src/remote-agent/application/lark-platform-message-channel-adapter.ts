@@ -20,6 +20,7 @@ import {
   publishLarkPlatformNavigationActionCard,
   publishLarkPlatformReply,
   readLarkPlatformChannelContext,
+  readLarkPlatformPluginSourceProof,
   updateLarkPlatformStreamingCardContent,
 } from "./lark-platform-openapi-client";
 import type {
@@ -112,6 +113,29 @@ export function createLarkPlatformMessageChannelAdapter(input: {
 
   return {
     provider: input.provider,
+    async readPluginSourceProof(request) {
+      const locator = requireMatchingLocator({
+        ...request,
+        provider: input.provider,
+      });
+      if (!locator) {
+        return null;
+      }
+      const appSecret = await readAppSecret(request.connection);
+      if (!appSecret) {
+        throw new Error("plugin.channel.provider_access_unavailable");
+      }
+      return await readLarkPlatformPluginSourceProof({
+        appId: request.connection.appId,
+        appSecret,
+        botOpenId: request.connection.botOpenId,
+        provider: input.provider,
+        messageId: request.messageId,
+        chatId: locator.chatId,
+        rootMessageId: locator.rootMessageId,
+        fetchImpl: input.fetchImpl,
+      });
+    },
     async createWorkingCard(publication) {
       const locator = requireMatchingLocator({
         connection: publication.connection,

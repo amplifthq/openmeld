@@ -12,7 +12,8 @@ import { useSurface } from "@openmeld/ui/lib/surface-context";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ArrowRightIcon, PlusIcon } from "@phosphor-icons/react";
 import type { FormEvent, ReactNode } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { registerClientVersionRecoveryBlocker } from "#/client-version-recovery";
 import { ComputerSetupChoiceCard } from "#/components/connect/computer-setup-choice-card";
 import { SpaceVisibilityPicker } from "#/components/spaces/space-visibility-picker";
 import { WelcomeLayout } from "./welcome-layout";
@@ -254,6 +255,13 @@ function CreateSpaceForm(props: {
 		useState<SpaceOrganizationVisibility>("private");
 	const trimmedName = name.trim();
 	const canCreate = trimmedName.length > 0 && !props.isPending;
+	useLayoutEffect(
+		() =>
+			registerClientVersionRecoveryBlocker(
+				() => name.length > 0 || visibility !== "private" || props.isPending
+			),
+		[name, visibility, props.isPending]
+	);
 
 	useEffect(() => {
 		if (!props.isPending) {

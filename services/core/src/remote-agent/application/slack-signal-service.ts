@@ -24,6 +24,7 @@ import type { CoreBindings } from "../../lib/bindings";
 import { identityDb, localStateDb } from "../../lib/bindings";
 import { readOrganizationAccountIdentityProjection } from "../../organizations/organization-context";
 import { CORE_LOG_EVENTS } from "../../shared/observability/log-events";
+import { recordPluginChannelSource } from "../infrastructure/d1/plugin-channel-metadata-repo";
 import {
   claimNextSlackChannelIntroductionItem,
   claimSlackChannelIntroductionRecoveryNotice,
@@ -65,6 +66,7 @@ import {
   submitRemoteAgentSlackNativeDelivery,
   synchronizeRemoteAgentSlackThreadWorkingStatus,
 } from "./native-delivery-service";
+import { buildPluginChannelSourceProof } from "./plugin-channel-source-proof";
 import { resolveSlackBotToken } from "./slack-bot-token";
 import {
   findSlackTopLevelMessageByMetadata,
@@ -1339,6 +1341,12 @@ async function processRemoteAgentSlackAppMention(input: {
     request: deliveryAdmission,
   });
   failureContext.ledgerStarted = true;
+  const pluginSourceProof = await buildSlackPluginSourceProof(event);
+  await recordPluginChannelSource(
+    stateDb,
+    admittedDelivery.deliveryId,
+    pluginSourceProof
+  );
   await showRemoteAgentSlackThreadWorkingStatus({
     channelId: event.channel,
     db: stateDb,
@@ -1409,6 +1417,7 @@ async function processRemoteAgentSlackAppMention(input: {
   });
   const deliveryRequest = {
     ...deliveryAdmission,
+    pluginSourceProof,
     sourceText,
     agentProfileOwnerUserId: centerAgent.ownerUserId,
     modelRoute: centerAgent.modelRoute,
@@ -2158,6 +2167,16 @@ function buildSlackChannelIntroductionItemFailureMessage(input: {
 function normalizeSlackMentionText(value: string): string {
   const normalized = normalizeOptionalText(value);
   return normalized ?? "Help me with this Slack thread.";
+}
+
+function buildSlackPluginSourceProof(event: RemoteAgentSlackConversationEvent) {
+  return buildPluginChannelSourceProof({
+    provider: "slack",
+    messageId: event.ts,
+    providerUserId: event.user,
+    text: event.text ?? "",
+    resourceIds: (event.files ?? []).map((file) => file.id),
+  });
 }
 
 function buildSlackConversationSourceText(input: {

@@ -12,6 +12,7 @@ export type AuthProfileFacts = ReadonlyMap<string, AuthRpcProfileFact | null>;
 export async function readAuthProfileFacts(input: {
   authWorker: CoreBindings["OPENMELD_AUTH_WORKER"] | undefined;
   profileIds: string[];
+  includeAvatarStyle?: boolean;
   deadlineAtMs?: number;
 }): Promise<AuthProfileFacts | null> {
   const ids = [...new Set(input.profileIds)];
@@ -36,7 +37,10 @@ export async function readAuthProfileFacts(input: {
       }
       const batch = ids.slice(offset, offset + AUTH_PROFILE_FACT_BATCH_SIZE);
       const parsed = authRpcResolveProfilesByIdsResultSchema.safeParse(
-        await input.authWorker.resolveProfilesByIds({ profileIds: batch })
+        await input.authWorker.resolveProfilesByIds({
+          profileIds: batch,
+          ...(input.includeAvatarStyle ? { includeAvatarStyle: true } : {}),
+        })
       );
       if (!(parsed.success && parsed.data.ok)) {
         return null;

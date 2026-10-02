@@ -20,10 +20,18 @@ export function createUnsupportedProviderUsageLimits(
 
 export function createUnavailableProviderUsageLimits(
   observedAt: string,
-  provider?: AdapterUsageProvider
+  provider?: AdapterUsageProvider,
+  details?: Partial<Pick<AdapterProviderUsageLimit, "reason" | "resetsAt">>
 ): AdapterProviderUsageLimit[] {
   return [
-    createProviderUsageLimitWithoutFacts("unavailable", observedAt, provider),
+    {
+      ...createProviderUsageLimitWithoutFacts(
+        "unavailable",
+        observedAt,
+        provider
+      ),
+      ...details,
+    },
   ];
 }
 

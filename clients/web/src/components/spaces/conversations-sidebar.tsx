@@ -1,5 +1,9 @@
 import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import {
+	ContextMenu,
+	ContextMenuTrigger,
+} from "@openmeld/ui/components/context-menu";
+import {
 	Dialog,
 	DialogContent,
 	DialogHeader,
@@ -8,34 +12,32 @@ import {
 import {
 	DropdownMenu,
 	DropdownMenuCheckboxItem,
-	DropdownMenuContent,
-	DropdownMenuItem,
 	DropdownMenuRadioGroup,
-	DropdownMenuRadioItem,
 	DropdownMenuSeparator,
 	DropdownMenuSub,
-	DropdownMenuSubContent,
 	DropdownMenuSubTrigger,
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
 import { Input } from "@openmeld/ui/components/input";
 import {
-	Tooltip,
-	TooltipContent,
-	TooltipTrigger,
-} from "@openmeld/ui/components/tooltip";
+	FluidDropdownMenuContent as DropdownMenuContent,
+	FluidDropdownMenuContent,
+	FluidDropdownMenuItem,
+	FluidDropdownMenuRadioItem,
+	FluidDropdownMenuSubContent,
+} from "@openmeld/ui/fluid/dropdown-menu";
 import { FluidNavMenu } from "@openmeld/ui/fluid/nav-menu";
 import {
 	ArchiveIcon,
 	ChatCircleTextIcon,
 	ClockIcon,
-	CompassIcon,
 	DotsThreeIcon,
 	FolderIcon,
 	FunnelSimpleIcon,
 	ListIcon,
 	PlusIcon,
 	RobotIcon,
+	SlidersHorizontalIcon,
 	UsersIcon,
 } from "@phosphor-icons/react";
 import { Link, useNavigate } from "@tanstack/react-router";
@@ -46,6 +48,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { AppModuleSidebarToggle } from "#/components/app/app-module-sidebar";
 import { useAppNavigationPresentation } from "#/components/app/app-navigation-presentation";
 import { resolveInboxAttentionTone } from "#/lib/inbox/attention";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
@@ -53,6 +56,7 @@ import {
 	buildOrganizationNewSpacePath,
 	buildOrganizationSpacesPath,
 } from "#/lib/organizations/organization-routes";
+import { useDelayedPending } from "#/lib/use-delayed-pending";
 import { AppContextualSidebarNav } from "../app/app-contextual-layout";
 import { ControlledSidebarGroupStateProvider } from "../app/app-sidebar-group";
 import { SidebarDrag, SidebarDropSection } from "../app/sidebar-drag";
@@ -119,9 +123,22 @@ function SpaceSidebarEmptyState({
 }
 
 function getConversationFailures(
-	dm: ReturnType<typeof useConversations>["directMessages"]
+	dm: ReturnType<typeof useConversations>["directMessages"],
+	hideAccountSpacesFailure: boolean
 ) {
 	return [
+		{
+			label: "profile",
+			isError:
+				dm.needsDefaultHumanProfile &&
+				!dm.profileId &&
+				(dm.profilesQuery.isError || dm.profilesQuery.isSuccess),
+			isFetching: dm.profilesQuery.isFetching,
+			message: dm.profilesQuery.isError
+				? "Couldn't load your profile."
+				: "No Human Profile is available for this account.",
+			retry: dm.profilesQuery.refetch,
+		},
 		{
 			label: "sidebar settings",
 			isError: dm.store.isError,
@@ -133,7 +150,7 @@ function getConversationFailures(
 		},
 		{
 			label: "conversations",
-			isError: dm.spaces.isError,
+			isError: dm.spaces.isError && !hideAccountSpacesFailure,
 			isFetching: dm.spaces.isFetching,
 			message: dm.spaces.data
 				? "Couldn't refresh conversations. Showing saved conversations."
@@ -161,8 +178,62 @@ function getConversationFailures(
 	].filter((failure) => failure.isError);
 }
 
+function isConversationStatusEvidenceUnavailable(input: {
+	activityUnavailable: boolean;
+	inboxUnavailable: boolean;
+	statuses: string[];
+}): boolean {
+	return (
+		(input.statuses.includes("unread") && input.inboxUnavailable) ||
+		(input.statuses.some((status) => status !== "unread") &&
+			input.activityUnavailable)
+	);
+}
+
+function isConversationListIncomplete(input: {
+	failed: boolean;
+	hasFilters: boolean;
+	hasNextPage: boolean;
+	pending: boolean;
+}): boolean {
+	return input.pending || input.failed || input.hasFilters || input.hasNextPage;
+}
+
+function shouldHoldConversationRows(input: {
+	hasAccountIndex: boolean;
+	isAccountIndexPending: boolean;
+}): boolean {
+	return input.isAccountIndexPending && !input.hasAccountIndex;
+}
+
+function useConversationReadState(
+	dm: ReturnType<typeof useConversations>["directMessages"],
+	waitingForActivity: boolean
+) {
+	const waitingForProfile =
+		dm.needsDefaultHumanProfile && dm.profilesQuery.isPending;
+	const waitingForSpaces = dm.spaces.isPending && !!dm.profileId;
+	const waitingForSessions = dm.sessions.isPending && !!dm.profileId;
+	const pending =
+		waitingForProfile ||
+		waitingForSpaces ||
+		waitingForSessions ||
+		(dm.store.isPending && !dm.store.preferences) ||
+		waitingForActivity;
+	const paused =
+		(waitingForProfile && dm.profilesQuery.fetchStatus === "paused") ||
+		(waitingForSpaces && dm.spaces.fetchStatus === "paused") ||
+		(waitingForSessions && dm.sessions.fetchStatus === "paused");
+	const showDelayedPending = useDelayedPending(pending && !paused);
+	return { pending, paused, showDelayedPending };
+}
+
 export function ConversationsSidebar(
-	input: { currentProfileId?: string; currentSpaceId?: string } = {}
+	input: {
+		currentProfileId?: string;
+		currentSpaceId?: string;
+		hideAccountSpacesFailure?: boolean;
+	} = {}
 ) {
 	const model = useConversations(input);
 	const { dismiss } = useAppNavigationPresentation();
@@ -213,6 +284,11 @@ export function ConversationsSidebar(
 				?.focus(),
 		"Search conversations"
 	);
+	const statusEvidenceUnavailable = isConversationStatusEvidenceUnavailable({
+		activityUnavailable: dm.indicators.activityUnavailable,
+		inboxUnavailable: dm.inbox.isPending || dm.inbox.isError,
+		statuses: filter.statuses,
+	});
 	const active = model.conversations.find(
 		(item) => item.spaceId === model.selected
 	);
@@ -224,7 +300,15 @@ export function ConversationsSidebar(
 		activeSection,
 		!!search.trim() || filter.active
 	);
-	const filtered = model.conversations.filter(
+	// The account index is the source for ordinary Spaces. Keep session-only
+	// discovery from appearing to be the complete sidebar before it resolves.
+	const discoverableConversations = shouldHoldConversationRows({
+		hasAccountIndex: Boolean(dm.spaces.data),
+		isAccountIndexPending: dm.spaces.isPending,
+	})
+		? []
+		: model.conversations;
+	const filtered = discoverableConversations.filter(
 		(item) =>
 			kinds.includes(conversationCategory(item)) &&
 			(item.kind === "direct-message"
@@ -234,10 +318,11 @@ export function ConversationsSidebar(
 				.toLocaleLowerCase()
 				.includes(search.trim().toLocaleLowerCase()) &&
 			filter.includes(model.owner(item)) &&
-			filter.matchesStatus(
-				dm.indicators.unreadBySpaceId.get(item.spaceId)?.unreadCount ?? 0,
-				dm.indicators.activeWakeSummaryBySpaceId.get(item.spaceId)
-			)
+			(statusEvidenceUnavailable ||
+				filter.matchesStatus(
+					dm.indicators.unreadBySpaceId.get(item.spaceId)?.unreadCount ?? 0,
+					dm.indicators.activeWakeSummaryBySpaceId.get(item.spaceId)
+				))
 	);
 	const recentSection: ConversationSection = {
 		id: "recent",
@@ -285,17 +370,23 @@ export function ConversationsSidebar(
 				section.id !== "chats" &&
 				!hasFilters)
 	);
-	const pending =
-		dm.store.isPending ||
-		dm.spaces.isPending ||
-		dm.sessions.isPending ||
-		dm.directory.isPending ||
-		waitingForActivity;
-	const failures = getConversationFailures(dm);
+	const { pending, paused, showDelayedPending } = useConversationReadState(
+		dm,
+		waitingForActivity
+	);
+	const failures = getConversationFailures(
+		dm,
+		input.hideAccountSpacesFailure === true
+	);
 	const failed = failures.length > 0;
 	const showSpaceEmptyState = isSpaceEmptyStateVisible(
 		view,
-		pending || failed || hasFilters,
+		isConversationListIncomplete({
+			failed,
+			hasFilters,
+			hasNextPage: Boolean(dm.sessions.hasNextPage),
+			pending,
+		}),
 		model.conversations
 	);
 	const move = (sectionId: string, id: string, beforeId?: string) => {
@@ -326,20 +417,22 @@ export function ConversationsSidebar(
 	};
 	const creationMenu = (
 		<>
-			<DropdownMenuItem onClick={() => newMessage()}>
+			<FluidDropdownMenuItem index={0} onClick={() => newMessage()}>
 				<ChatCircleTextIcon />
 				New message
-			</DropdownMenuItem>
-			<DropdownMenuItem
-				render={
-					<Link
-						onClick={onNavigate}
-						to={buildOrganizationNewSpacePath(dm.org.slug)}
-					/>
-				}
+			</FluidDropdownMenuItem>
+			<FluidDropdownMenuItem
+				index={1}
+				onClick={() => {
+					dismiss();
+					navigate({ to: buildOrganizationNewSpacePath(dm.org.slug) }).catch(
+						console.error
+					);
+				}}
 			>
-				<PlusIcon /> New Space
-			</DropdownMenuItem>
+				<PlusIcon />
+				New Space
+			</FluidDropdownMenuItem>
 		</>
 	);
 	const viewMenu = (
@@ -352,12 +445,12 @@ export function ConversationsSidebar(
 				}}
 				value={view}
 			>
-				<DropdownMenuRadioItem closeOnClick value="grouped">
+				<FluidDropdownMenuRadioItem closeOnClick index={0} value="grouped">
 					<FolderIcon /> Grouped
-				</DropdownMenuRadioItem>
-				<DropdownMenuRadioItem closeOnClick value="recent">
+				</FluidDropdownMenuRadioItem>
+				<FluidDropdownMenuRadioItem closeOnClick index={1} value="recent">
 					<ClockIcon /> Recent
-				</DropdownMenuRadioItem>
+				</FluidDropdownMenuRadioItem>
 			</DropdownMenuRadioGroup>
 		</>
 	);
@@ -382,7 +475,8 @@ export function ConversationsSidebar(
 					className="relative flex min-w-0 items-center gap-1"
 					ref={headerRef}
 				>
-					<div className="shrink-0" ref={titleRef}>
+					<div className="flex shrink-0 items-center gap-1" ref={titleRef}>
+						<AppModuleSidebarToggle placement="sidebar" />
 						<SpacesDirectoryLink
 							onNavigate={onNavigate}
 							orgSlug={dm.org.slug}
@@ -397,24 +491,6 @@ export function ConversationsSidebar(
 						inert={compactActions}
 						ref={actionsRef}
 					>
-						<Tooltip>
-							<TooltipTrigger
-								render={
-									<Link
-										aria-label="Browse spaces"
-										className={buttonVariants({
-											size: "icon-sm",
-											variant: "ghost",
-										})}
-										onClick={onNavigate}
-										to={buildOrganizationSpacesPath(dm.org.slug)}
-									/>
-								}
-							>
-								<CompassIcon aria-hidden="true" />
-							</TooltipTrigger>
-							<TooltipContent>Browse spaces</TooltipContent>
-						</Tooltip>
 						<DropdownMenu>
 							<DropdownMenuTrigger
 								render={
@@ -435,34 +511,34 @@ export function ConversationsSidebar(
 							<DropdownMenuTrigger
 								render={
 									<Button
-										aria-label="Conversation view"
+										aria-label="View and filters"
 										size="icon-sm"
 										variant="ghost"
 									/>
 								}
 							>
-								<ListIcon />
+								<SlidersHorizontalIcon />
 							</DropdownMenuTrigger>
-							<DropdownMenuContent align="end">{viewMenu}</DropdownMenuContent>
-						</DropdownMenu>
-						<DropdownMenu>
-							<DropdownMenuTrigger
-								render={
-									<Button
-										aria-label="Filter conversations"
-										size="icon-sm"
-										variant="ghost"
-									/>
-								}
-							>
-								<FunnelSimpleIcon />
-							</DropdownMenuTrigger>
-							<DropdownMenuContent
-								align="end"
-								className="w-60 max-w-[calc(100vw-2rem)]"
-							>
-								{filterMenu}
-							</DropdownMenuContent>
+							<FluidDropdownMenuContent align="end" className="w-48">
+								<DropdownMenuSub>
+									<DropdownMenuSubTrigger>
+										<ListIcon aria-hidden="true" />
+										Conversation view
+									</DropdownMenuSubTrigger>
+									<FluidDropdownMenuSubContent className="w-44">
+										{viewMenu}
+									</FluidDropdownMenuSubContent>
+								</DropdownMenuSub>
+								<DropdownMenuSub>
+									<DropdownMenuSubTrigger>
+										<FunnelSimpleIcon aria-hidden="true" />
+										Filter conversations
+									</DropdownMenuSubTrigger>
+									<FluidDropdownMenuSubContent className="w-60 max-w-[calc(100vw-2rem)]">
+										{filterMenu}
+									</FluidDropdownMenuSubContent>
+								</DropdownMenuSub>
+							</FluidDropdownMenuContent>
 						</DropdownMenu>
 					</div>
 					<DropdownMenu>
@@ -479,53 +555,44 @@ export function ConversationsSidebar(
 						>
 							<DotsThreeIcon />
 						</DropdownMenuTrigger>
-						<DropdownMenuContent align="start" className="w-56">
-							<DropdownMenuItem
-								render={
-									<Link
-										onClick={onNavigate}
-										to={buildOrganizationSpacesPath(dm.org.slug)}
-									/>
-								}
-							>
-								<CompassIcon aria-hidden="true" />
-								Browse spaces
-							</DropdownMenuItem>
+						<FluidDropdownMenuContent align="start" className="w-56">
 							<DropdownMenuSub>
 								<DropdownMenuSubTrigger>
 									<PlusIcon aria-hidden="true" />
 									New conversation
 								</DropdownMenuSubTrigger>
-								<DropdownMenuSubContent className="w-60">
+								<FluidDropdownMenuSubContent className="w-60">
 									{creationMenu}
-								</DropdownMenuSubContent>
+								</FluidDropdownMenuSubContent>
 							</DropdownMenuSub>
 							<DropdownMenuSub>
 								<DropdownMenuSubTrigger>
 									<ListIcon aria-hidden="true" />
 									Conversation view
 								</DropdownMenuSubTrigger>
-								<DropdownMenuSubContent className="w-60">
+								<FluidDropdownMenuSubContent className="w-60">
 									{viewMenu}
-								</DropdownMenuSubContent>
+								</FluidDropdownMenuSubContent>
 							</DropdownMenuSub>
 							<DropdownMenuSub>
 								<DropdownMenuSubTrigger>
 									<FunnelSimpleIcon aria-hidden="true" />
 									Filter conversations
 								</DropdownMenuSubTrigger>
-								<DropdownMenuSubContent className="w-60">
+								<FluidDropdownMenuSubContent className="w-60">
 									{filterMenu}
-								</DropdownMenuSubContent>
+								</FluidDropdownMenuSubContent>
 							</DropdownMenuSub>
-						</DropdownMenuContent>
+						</FluidDropdownMenuContent>
 					</DropdownMenu>
 				</div>
 			</div>
 			<div className="mb-2 px-1">
 				<SidebarSearchInput
+					inputClassName="lg:h-7"
 					label="Search conversations"
 					onValueChange={setSearch}
+					placeholder="Find a space..."
 					value={search}
 				/>
 			</div>
@@ -552,16 +619,33 @@ export function ConversationsSidebar(
 					</Button>
 				</div>
 			))}
-			{pending && (
-				<SidebarListSkeleton
-					label="Loading conversations"
-					rowCount={2}
-					showPreview
-				/>
+			{paused && !failed && (
+				<p className="px-2 py-1 text-muted-foreground text-xs">
+					Connect to the internet to load conversations.
+				</p>
 			)}
-			{[pending, failed, showSpaceEmptyState, filtered.length > 0].every(
-				(value) => !value
-			) && (
+			{statusEvidenceUnavailable ? (
+				<p className="px-2 py-1 text-muted-foreground text-xs">
+					Status filters are unavailable. Showing conversations without them.
+				</p>
+			) : null}
+			{showDelayedPending &&
+				!paused &&
+				filtered.length === 0 &&
+				!hasFilters && (
+					<SidebarListSkeleton
+						label="Loading conversations"
+						rowCount={2}
+						showPreview
+					/>
+				)}
+			{[
+				pending,
+				failed,
+				dm.sessions.hasNextPage,
+				showSpaceEmptyState,
+				filtered.length > 0,
+			].every((value) => !value) && (
 				<div className="p-2 text-muted-foreground text-xs">
 					<p>
 						{hasFilters
@@ -578,193 +662,207 @@ export function ConversationsSidebar(
 					</Button>
 				</div>
 			)}
-			{dm.sessions.hasNextPage && (
+			{dm.sessions.isFetchingNextPage && (
 				<p aria-live="polite" className="px-2 text-muted-foreground text-xs">
 					Loading older direct messages…
 				</p>
 			)}
-			<SidebarDrag
-				canDrop={(id, section) =>
-					view === "grouped"
-						? model.canMove(id, section)
-						: section === "pinned" && model.canMove(id, section)
-				}
-				groupIds={
-					view === "grouped" && !model.disabled
-						? model.sections
-								.filter((section) => section.groupId)
-								.map((section) => section.id)
-						: []
-				}
-				onMove={move}
-				onMoveGroup={(id, before) => {
-					const section = model.sections.find((item) => item.id === id);
-					const target = model.sections.find((item) => item.id === before);
-					if (
-						!section?.groupId ||
-						(target && target.kind !== section.kind) ||
-						!dm.store.preferences
-					) {
-						return;
-					}
-					if (section.kind === "space") {
-						dm.store.save({
-							...dm.store.preferences,
-							groups: moveSidebarGroup(
-								dm.store.preferences.groups,
-								section.groupId,
-								target?.groupId
-							),
-						});
-					} else {
-						dm.save({
-							...dm.preferences,
-							groups: moveSidebarGroup(
-								dm.preferences.groups,
-								section.groupId,
-								target?.groupId
-							),
-						});
-					}
-				}}
-			>
-				<ControlledSidebarGroupStateProvider value={disclosure}>
-					<AppContextualSidebarNav
-						activeItemId={model.selected}
-						ariaLabel="Conversations"
-						groups={visible.map((section) => ({
-							id: section.id,
-							label: section.name,
-							ariaLabel: section.name,
-							onRename: section.groupId
-								? (value: string) =>
-										model.updateSection(section, { name: value })
-								: undefined,
-							labelAccessory: (
-								<>
-									{!disclosure.isOpen(section.id) &&
-										unreadCount(section) > 0 && (
-											<span className="mr-1 text-muted-foreground text-xs">
-												{unreadCount(section)} unread
-											</span>
-										)}
-									{view === "grouped" && section.id !== "pinned" && (
-										<SidebarSectionActions
-											addLabel={
-												section.kind === "space"
-													? "Add Space or group"
-													: "Add direct message or group"
-											}
-											disabled={model.disabled}
-											label={section.name}
-											newItemLabel={
-												section.kind === "space"
-													? "New Space"
-													: "New direct message"
-											}
-											onDelete={
-												section.groupId
-													? () => model.updateSection(section, null)
-													: undefined
-											}
-											onNewGroup={(value) => {
-												if (section.kind !== "pinned") {
-													model.addGroup(section.kind, value);
-												}
-											}}
-											onNewItem={() => newItem(section)}
-											onSort={(sort) => model.updateSection(section, { sort })}
-											sort={section.sort}
-										/>
-									)}
-								</>
-							),
-							content: (
-								<SidebarDropSection
-									ids={rows(section).map((item) => item.spaceId)}
-									section={section.id}
-								>
-									<SpaceSidebarEmptyState
-										onNavigate={onNavigate}
-										orgSlug={dm.org.slug}
-										sectionId={section.id}
-										visible={showSpaceEmptyState}
-									/>
-									<FluidNavMenu
-										activeLayoutId="conversation-selection"
-										activeValue={model.selected}
-										aria-label={section.name}
-									>
-										{rows(section).map((item, index) => (
-											<ConversationSidebarRow
-												activeWakeSummary={dm.indicators.activeWakeSummaryBySpaceId.get(
-													item.spaceId
+			<ContextMenu>
+				<ContextMenuTrigger
+					className="select-auto"
+					render={<div className="contents" />}
+				>
+					<SidebarDrag
+						canDrop={(id, section) =>
+							view === "grouped"
+								? model.canMove(id, section)
+								: section === "pinned" && model.canMove(id, section)
+						}
+						groupIds={
+							view === "grouped" && !model.disabled
+								? model.sections
+										.filter((section) => section.groupId)
+										.map((section) => section.id)
+								: []
+						}
+						onMove={move}
+						onMoveGroup={(id, before) => {
+							const section = model.sections.find((item) => item.id === id);
+							const target = model.sections.find((item) => item.id === before);
+							if (
+								!section?.groupId ||
+								(target && target.kind !== section.kind) ||
+								!dm.store.preferences
+							) {
+								return;
+							}
+							if (section.kind === "space") {
+								dm.store.save({
+									...dm.store.preferences,
+									groups: moveSidebarGroup(
+										dm.store.preferences.groups,
+										section.groupId,
+										target?.groupId
+									),
+								});
+							} else {
+								dm.save({
+									...dm.preferences,
+									groups: moveSidebarGroup(
+										dm.preferences.groups,
+										section.groupId,
+										target?.groupId
+									),
+								});
+							}
+						}}
+					>
+						<ControlledSidebarGroupStateProvider value={disclosure}>
+							<AppContextualSidebarNav
+								activeItemId={model.selected}
+								ariaLabel="Conversations"
+								groups={visible.map((section) => ({
+									id: section.id,
+									label: section.name,
+									ariaLabel: section.name,
+									onRename: section.groupId
+										? (value: string) =>
+												model.updateSection(section, { name: value })
+										: undefined,
+									labelAccessory: (
+										<>
+											{!disclosure.isOpen(section.id) &&
+												unreadCount(section) > 0 && (
+													<span className="mr-1 text-muted-foreground text-xs">
+														{unreadCount(section)} unread
+													</span>
 												)}
-												archived={archived}
-												attentionTone={resolveInboxAttentionTone(
-													dm.attentionById.get(item.spaceId) ?? {}
-												)}
-												conversation={item}
-												disabled={model.disabled}
-												dragDisabled={
-													view === "recent" && section.id !== "pinned"
-												}
-												groups={model.sections.filter(
-													(target) =>
-														target.kind === "pinned" ||
-														target.kind === item.kind
-												)}
-												index={index}
-												key={item.spaceId}
-												memberAppearances={memberAppearances}
-												onArchive={
-													item.kind === "direct-message"
-														? () =>
-																dm.save({
-																	...dm.preferences,
-																	archivedIds: archived
-																		? dm.preferences.archivedIds.filter(
-																				(id) => id !== item.spaceId
-																			)
-																		: [
-																				...dm.preferences.archivedIds,
-																				item.spaceId,
-																			],
-																})
-														: undefined
-												}
-												onMove={(target) =>
-													move(target, item.spaceId).catch(console.error)
-												}
-												onRename={
-													item.kind === "direct-message"
-														? () => {
-																setRenaming(item);
-																setName(item.title);
-															}
-														: undefined
-												}
-												onUnpin={() => model.unpin(item).catch(console.error)}
-												profileId={item.profileId}
-												section={section.id}
-												selected={model.selected === item.spaceId}
-												title={item.title}
-												unreadCount={
-													dm.indicators.unreadBySpaceId.get(item.spaceId)
-														?.unreadCount ?? 0
-												}
-												url={item.url}
+											{view === "grouped" && section.id !== "pinned" && (
+												<SidebarSectionActions
+													addLabel={
+														section.kind === "space"
+															? "Add Space or group"
+															: "Add direct message or group"
+													}
+													disabled={model.disabled}
+													label={section.name}
+													newItemLabel={
+														section.kind === "space"
+															? "New Space"
+															: "New direct message"
+													}
+													onDelete={
+														section.groupId
+															? () => model.updateSection(section, null)
+															: undefined
+													}
+													onNewGroup={(value) => {
+														if (section.kind !== "pinned") {
+															model.addGroup(section.kind, value);
+														}
+													}}
+													onNewItem={() => newItem(section)}
+													onSort={(sort) =>
+														model.updateSection(section, { sort })
+													}
+													sort={section.sort}
+												/>
+											)}
+										</>
+									),
+									content: (
+										<SidebarDropSection
+											ids={rows(section).map((item) => item.spaceId)}
+											section={section.id}
+										>
+											<SpaceSidebarEmptyState
+												onNavigate={onNavigate}
+												orgSlug={dm.org.slug}
+												sectionId={section.id}
+												visible={showSpaceEmptyState}
 											/>
-										))}
-									</FluidNavMenu>
-								</SidebarDropSection>
-							),
-						}))}
-						placement="main"
-						title="Conversations"
-					/>
-				</ControlledSidebarGroupStateProvider>
-			</SidebarDrag>
+											<FluidNavMenu
+												activeLayoutId="conversation-selection"
+												activeValue={model.selected}
+												aria-label={section.name}
+											>
+												{rows(section).map((item, index) => (
+													<ConversationSidebarRow
+														activeWakeSummary={dm.indicators.activeWakeSummaryBySpaceId.get(
+															item.spaceId
+														)}
+														archived={archived}
+														attentionTone={resolveInboxAttentionTone(
+															dm.attentionById.get(item.spaceId) ?? {}
+														)}
+														conversation={item}
+														disabled={model.disabled}
+														dragDisabled={
+															view === "recent" && section.id !== "pinned"
+														}
+														groups={model.sections.filter(
+															(target) =>
+																target.kind === "pinned" ||
+																target.kind === item.kind
+														)}
+														index={index}
+														key={item.spaceId}
+														memberAppearances={memberAppearances}
+														onArchive={
+															item.kind === "direct-message"
+																? () =>
+																		dm.save({
+																			...dm.preferences,
+																			archivedIds: archived
+																				? dm.preferences.archivedIds.filter(
+																						(id) => id !== item.spaceId
+																					)
+																				: [
+																						...dm.preferences.archivedIds,
+																						item.spaceId,
+																					],
+																		})
+																: undefined
+														}
+														onMove={(target) =>
+															move(target, item.spaceId).catch(console.error)
+														}
+														onRename={
+															item.kind === "direct-message"
+																? () => {
+																		setRenaming(item);
+																		setName(item.title);
+																	}
+																: undefined
+														}
+														onUnpin={() =>
+															model.unpin(item).catch(console.error)
+														}
+														profileId={item.profileId}
+														section={section.id}
+														selected={model.selected === item.spaceId}
+														title={item.title}
+														unreadCount={
+															dm.indicators.unreadBySpaceId.get(item.spaceId)
+																?.unreadCount ?? 0
+														}
+														url={item.url}
+													/>
+												))}
+											</FluidNavMenu>
+										</SidebarDropSection>
+									),
+								}))}
+								placement="main"
+								title="Conversations"
+							/>
+						</ControlledSidebarGroupStateProvider>
+					</SidebarDrag>
+				</ContextMenuTrigger>
+				<FluidDropdownMenuContent className="w-52">
+					{creationMenu}
+				</FluidDropdownMenuContent>
+			</ContextMenu>
 			{creating && (
 				<NewChatDialog
 					groupId={creatingGroup?.slice(5)}
@@ -857,14 +955,10 @@ function SpacesDirectoryLink({
 	return (
 		<Link
 			aria-label="Spaces"
-			className="flex min-w-20 flex-1 items-center gap-2 rounded-sm font-medium text-sm focus-visible:outline-2"
+			className="flex min-w-20 flex-1 items-center rounded-sm font-medium text-sm focus-visible:outline-2"
 			onClick={onNavigate}
 			to={buildOrganizationSpacesPath(orgSlug)}
 		>
-			<ChatCircleTextIcon
-				aria-hidden="true"
-				className="size-4 shrink-0 text-muted-foreground"
-			/>
 			<span className="truncate">Spaces</span>
 		</Link>
 	);

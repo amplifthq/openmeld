@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   buildRemoteAgentCallbackContextKey,
   createRemoteAgentCallbackContext,
+  listRemoteAgentUsageRecords,
   putRemoteAgentCallbackContext,
   readRemoteAgentCallbackContext,
   redeliverDueRemoteAgentCallbacks,
@@ -12,17 +13,222 @@ import {
   initializeRemoteAgentExecutionState,
   markRemoteAgentExecutionProgress,
   readRemoteAgentCompletedExecutionAnswer,
+  readRemoteAgentExecutionState,
   requestRemoteAgentExecutionCancellation,
+  requestRemoteAgentExecutionFailure,
 } from "../agent-core/execution-state";
+import { normalizeFluePromptUsage } from "../agent-core/usage";
 import {
   reconcileRemoteAgentExecution,
-  reconcileSettledRemoteAgentExecutionFailures,
+  reconcileSettledRemoteAgentExecutions,
 } from "../flue-adapter/execution-reconciliation";
 import { createRemoteAgentStreamPublisher } from "../flue-adapter/streaming";
 import { createSubmitTurnRequest, TEST_NOW_MS } from "./fixtures";
 import { InMemoryDurableObjectStorage } from "./storage";
 
 describe("remote agent execution reconciliation", () => {
+  it.each([
+    "completed",
+    "failed",
+    "aborted",
+  ] as const)("recovers model and aggregate usage for %s after owner settlement but before callback projection, without duplicate usage", async (status) => {
+    const original = new InMemoryDurableObjectStorage();
+    const request = createSubmitTurnRequest();
+    const submissionId = "owner-before-callback";
+    const identity = {
+      idempotencyKey: request.idempotencyKey,
+      organizationId: request.organizationId,
+      spaceId: request.spaceId,
+      submissionId,
+      v: 1 as const,
+    };
+    const usage = normalizeFluePromptUsage({
+      input: 11,
+      output: 7,
+      cacheRead: 3,
+      cacheWrite: 0,
+      totalTokens: 21,
+      cost: { input: 0.01, output: 0.02, total: 0.03 },
+    });
+    await initializeRemoteAgentExecutionState({
+      acceptedAtMs: TEST_NOW_MS,
+      identity,
+      storage: original,
+    });
+    await putRemoteAgentCallbackContext(
+      original,
+      createRemoteAgentCallbackContext({
+        request,
+        nowMs: TEST_NOW_MS,
+        ack: {
+          accepted: true,
+          createdAt: TEST_NOW_MS,
+          idempotencyKey: request.idempotencyKey,
+          requestId: submissionId,
+          status: "pending",
+          submissionId,
+        },
+      })
+    );
+    await completeRemoteAgentExecutionState({
+      identity,
+      storage: original,
+      nowMs: TEST_NOW_MS + 500,
+      ...(status === "completed"
+        ? { status, completedText: "The recorded answer." }
+        : { status }),
+      completionMetadata: { modelId: "actual/model", usage },
+    });
+    // Recreate the process from durable records only, before any projection
+    // or Core callback has run. The owner retains its old 2.0.3-readable shape.
+    const storage = new InMemoryDurableObjectStorage();
+    for (const [key, value] of await original.list()) {
+      await storage.put(key, JSON.parse(JSON.stringify(value)));
+    }
+    const owner = await storage.get<Record<string, unknown>>(
+      buildRemoteAgentExecutionStateKey(submissionId)
+    );
+    expect(owner).not.toHaveProperty("completionMetadata");
+    const readSubmission = vi
+      .fn()
+      .mockRejectedValue(
+        new Error("The runtime is unavailable during callback recovery.")
+      );
+    const send = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new Error("Core transport temporarily unavailable.")
+      )
+      .mockResolvedValue({
+        status: "accepted",
+        publishedSignalId: "published-once",
+      });
+    for (const offset of [1000, 120_000, 240_000]) {
+      await reconcileRemoteAgentExecution({
+        identity,
+        storage,
+        readSubmission,
+        nowMs: () => TEST_NOW_MS + offset,
+        coreWorker: { completeRemoteAgentSubmission: send },
+      });
+    }
+    expect(readSubmission).not.toHaveBeenCalled();
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(
+      await readRemoteAgentCallbackContext(storage, submissionId)
+    ).toMatchObject({
+      modelId: "actual/model",
+      lastUsage: usage,
+      callbackStatus: status === "completed" ? "completed" : "failed",
+    });
+    const usageRecords = await listRemoteAgentUsageRecords(storage);
+    expect(usageRecords).toHaveLength(1);
+    expect(usageRecords[0]).toMatchObject({
+      modelId: "actual/model",
+      usage,
+      submissionId,
+    });
+  });
+  it.each([
+    "late_stop",
+    "safety_failure",
+    "wrong_submission",
+    "wrong_authority",
+  ] as const)("keeps canonical completion recovery fenced by %s", async (guard) => {
+    const storage = new InMemoryDurableObjectStorage();
+    const request = createSubmitTurnRequest();
+    const submissionId = "canonical-result-guard";
+    const identity = {
+      idempotencyKey: request.idempotencyKey,
+      organizationId: request.organizationId,
+      spaceId: request.spaceId,
+      submissionId,
+      v: 1 as const,
+    };
+    await initializeRemoteAgentExecutionState({
+      acceptedAtMs: TEST_NOW_MS,
+      identity,
+      storage,
+    });
+    const context = createRemoteAgentCallbackContext({
+      request,
+      nowMs: TEST_NOW_MS,
+      ack: {
+        accepted: true,
+        createdAt: TEST_NOW_MS,
+        idempotencyKey: request.idempotencyKey,
+        requestId: submissionId,
+        status: "pending",
+        submissionId,
+      },
+    });
+    await putRemoteAgentCallbackContext(storage, context);
+    const send = vi.fn().mockResolvedValue({
+      status: "accepted",
+      publishedSignalId: "guard-result",
+    });
+    const readSubmission = async () => {
+      // Interleave after the reconciler read a nonterminal execution, not
+      // before it started: the final owner CAS must still honor this guard.
+      if (guard === "late_stop") {
+        await requestRemoteAgentExecutionCancellation({
+          identity,
+          storage,
+          nowMs: TEST_NOW_MS + 50,
+        });
+      } else if (guard === "safety_failure") {
+        await requestRemoteAgentExecutionFailure({
+          identity,
+          storage,
+          failure: {
+            code: "remote_agent.turn_not_completed",
+            reasonCode: "remote_agent.turn_not_completed",
+            detail: "Unconfirmed external effect.",
+          },
+        });
+      } else if (guard === "wrong_authority") {
+        await storage.put(buildRemoteAgentCallbackContextKey(submissionId), {
+          ...context,
+          organizationId: "another-organization",
+        });
+      }
+      return {
+        status: "settled" as const,
+        completedOutput: {
+          submissionId:
+            guard === "wrong_submission" ? "another-submission" : submissionId,
+          text: "This answer must not be published.",
+        },
+      };
+    };
+    const recovery = reconcileRemoteAgentExecution({
+      identity,
+      storage,
+      readSubmission,
+      nowMs: () => TEST_NOW_MS + 100,
+      coreWorker: { completeRemoteAgentSubmission: send },
+    });
+    if (guard === "wrong_submission" || guard === "wrong_authority") {
+      await expect(recovery).rejects.toThrow("mismatched");
+      expect(send).not.toHaveBeenCalled();
+      expect(
+        await readRemoteAgentExecutionState({ identity, storage })
+      ).toMatchObject({ execution: { status: "pending" } });
+    } else {
+      await expect(recovery).resolves.toMatchObject({
+        execution: { status: guard === "late_stop" ? "aborted" : "failed" },
+      });
+      expect(send).toHaveBeenCalledOnce();
+      expect(send).toHaveBeenCalledWith(
+        expect.objectContaining({ status: "failed", submissionId })
+      );
+      expect(send).not.toHaveBeenCalledWith(
+        expect.objectContaining({ text: expect.any(String) })
+      );
+    }
+    expect(await listRemoteAgentUsageRecords(storage)).toHaveLength(0);
+  });
+
   it("turns a settled pre-model failure into a Core callback without waiting for Core polling", async () => {
     const storage = new InMemoryDurableObjectStorage();
     const request = createSubmitTurnRequest();
@@ -70,7 +276,7 @@ describe("remote agent execution reconciliation", () => {
     );
 
     await expect(
-      reconcileSettledRemoteAgentExecutionFailures({
+      reconcileSettledRemoteAgentExecutions({
         coreWorker: { completeRemoteAgentSubmission },
         nowMs: () => TEST_NOW_MS + 5000,
         readSubmission,
@@ -78,7 +284,7 @@ describe("remote agent execution reconciliation", () => {
       })
     ).resolves.toEqual({ reconciled: 1 });
     await expect(
-      reconcileSettledRemoteAgentExecutionFailures({
+      reconcileSettledRemoteAgentExecutions({
         coreWorker: { completeRemoteAgentSubmission },
         nowMs: () => TEST_NOW_MS + 10_000,
         readSubmission,
@@ -180,7 +386,7 @@ describe("remote agent execution reconciliation", () => {
       expect.objectContaining({
         failureCode: "remote_agent.turn_not_completed",
         failureMessage:
-          "OpenMeld ran into a problem, so Center Agent couldn't finish your request. You didn't do anything wrong. Try again. If it still doesn't work, open Diagnostics in OpenMeld. If you can't open OpenMeld, ask the person who set it up for your team.",
+          "Center Agent couldn't finish your request. Open Diagnostics in OpenMeld for details. If you can't open OpenMeld, ask the person who set it up for your team.",
         status: "failed",
         submissionId,
       })

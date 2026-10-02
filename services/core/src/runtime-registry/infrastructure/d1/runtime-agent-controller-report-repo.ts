@@ -2,6 +2,7 @@ import {
   type AuthorityOpenMeldServiceRuntimeId,
   areAgentControllerInterfaceAccountsSame,
   createAuthorityOpenMeldServiceRuntimeId,
+  isAgentControllerUsageRefreshUnavailable,
   parseAgentControllerRef,
   type RuntimeAgentControllerReportStatus,
 } from "@openmeld/agent-runtime";
@@ -305,9 +306,7 @@ function preserveLastKnownUsageLimits(input: {
     areAgentControllerInterfaceAccountsSame(
       input.currentReport?.agentControllerInterface?.auth,
       nextSnapshot?.auth
-    ) &&
-    nextLimits?.length === 1 &&
-    nextLimits[0]?.status === "unavailable";
+    ) && isAgentControllerUsageRefreshUnavailable(nextLimits);
   const hasKnownCapacity = currentLimits?.some(
     (limit) => limit.usedPercent !== null
   );

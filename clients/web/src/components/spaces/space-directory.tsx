@@ -61,6 +61,7 @@ import {
 	type SpaceMemberAppearance,
 	SpaceMemberAvatars,
 } from "./space-member-avatars";
+import { SpaceUnreadLink } from "./space-unread-link";
 import { useSpaceDirectoryFilters } from "./use-space-directory-filters";
 import { useSpaceListIndicators } from "./use-space-list-indicators";
 import { WelcomeSpaceLabel } from "./welcome-space-guide";
@@ -575,6 +576,7 @@ function JoinedRow(input: {
 	return (
 		<TableRow
 			className="group/directory-row border-0"
+			contextMenu
 			data-space-id={item.spaceId}
 			index={input.index}
 		>
@@ -591,11 +593,21 @@ function JoinedRow(input: {
 					/>
 				</Link>
 				<div className="mt-1 pl-6 lg:hidden">
-					<RowStatus route={route} status={status} unread={input.unread} />
+					<RowStatus
+						route={route}
+						spaceId={item.spaceId}
+						status={status}
+						unread={input.unread}
+					/>
 				</div>
 			</TableCell>
 			<TableCell className="hidden lg:table-cell">
-				<RowStatus route={route} status={status} unread={input.unread} />
+				<RowStatus
+					route={route}
+					spaceId={item.spaceId}
+					status={status}
+					unread={input.unread}
+				/>
 			</TableCell>
 			<TableCell className="hidden md:table-cell">
 				<MemberPreview
@@ -621,6 +633,7 @@ function JoinedRow(input: {
 						{ id: "spaces", name: "Spaces" },
 						...(input.preferences?.groups ?? []),
 					]}
+					href={`${route.to}?profileId=${encodeURIComponent(route.search.profileId)}`}
 					moveDisabledReason={
 						item.pinnedAt !== null
 							? "Unpin this Space to move it to a group."
@@ -652,6 +665,7 @@ function JoinedRow(input: {
 }
 
 function RowStatus(input: {
+	spaceId: string;
 	status: ReturnType<typeof resolveSpaceActiveWakePresentation> | null;
 	unread: number;
 	route: { to: string; search: { profileId: string } };
@@ -670,7 +684,11 @@ function RowStatus(input: {
 			)}
 			{input.unread > 0 && (
 				<span className="flex items-center gap-2 text-muted-foreground">
-					<span className="status-dot bg-unread" />
+					<SpaceUnreadLink
+						count={input.unread}
+						spaceId={input.spaceId}
+						url={`${input.route.to}?${new URLSearchParams(input.route.search)}`}
+					/>
 					{input.unread} unread
 				</span>
 			)}

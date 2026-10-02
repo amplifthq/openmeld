@@ -719,6 +719,9 @@ const publishOutboxPoisonTerminalFailureNotice = (
 ).publishOutboxPoisonTerminalFailureNotice;
 
 const createOutboxRedriveMethodTarget = () => ({
+  readHostedNativeDeliveryHandoffState: vi.fn(
+    async () => "not_applicable" as const
+  ),
   runPendingDispatchOutboxFlush: (
     Space.prototype as unknown as {
       runPendingDispatchOutboxFlush(): Promise<void>;
@@ -1577,6 +1580,53 @@ describe("space signal consistency matrix", () => {
         dispatchPolicy: "mention_only",
         targetProfileId,
       },
+    ]);
+  });
+
+  it("does not let listen_all re-wake an explicitly referenced Agent", () => {
+    const signal: SignalEnvelope = {
+      v: 1,
+      id: "reference-listen-all",
+      spaceId: "space-1",
+      ts: Date.now(),
+      profile: { kind: "human", profileId: "human-reference-sender" },
+      type: "signal.text",
+      data: {
+        text: "A note about this Agent.",
+        messageEnvelope: createMessageEnvelope({
+          text: "A note about this Agent.",
+          referenceTargets: ["agt-reference"],
+        }),
+      },
+    };
+    const records = prepareDispatchOutboxRecordsForSignal.call(
+      {
+        ctx: {
+          storage: {
+            sql: createDispatchRulesSqlStub(1, {
+              failOnLegacyDispatchPolicyQuery: true,
+              spaceMemberRows: [
+                createDispatchRulesSpaceMemberRow({
+                  profileId: "agt-reference",
+                  profileName: "Mentioned Agent",
+                }),
+                createDispatchRulesSpaceMemberRow({
+                  profileId: "agt-listener",
+                  profileName: "Other Agent",
+                }),
+              ],
+            }),
+          },
+        },
+        readSpaceContractRecord: () => ({
+          ...buildDefaultSpaceContract(),
+          dispatchPolicy: { mode: "listen_all" as const },
+        }),
+      },
+      signal
+    );
+    expect(records.map((record) => record.targetProfileId)).toEqual([
+      "agt-listener",
     ]);
   });
 
@@ -2667,7 +2717,7 @@ describe("space signal consistency matrix", () => {
     expect(syncSpaceBackgroundAlarm).toHaveBeenCalledTimes(1);
   });
 
-  it("rebuilds redrive messages with the latest handoff timestamp", () => {
+  it("keeps the original outbox age across repeated redrives", () => {
     const dispatchMessage = createDispatchMessageFixture(
       "evt-outbox-refresh-enqueued-at"
     );
@@ -2686,7 +2736,22 @@ describe("space signal consistency matrix", () => {
       }
     );
 
+    const redriven = buildDispatchMessageFromRecoveryCandidate.call(
+      {
+        resolveDispatchQueueSourceSignalSnapshot: vi.fn().mockReturnValue(null),
+        resolveDispatchQueueReplyToSnapshot: vi.fn().mockReturnValue(null),
+      },
+      {
+        ...rebuilt,
+        outboxStatus: "handed_off",
+        createdAtMs: 1_700_000_000_000,
+        handedOffAtMs: 1_700_000_030_000,
+      }
+    );
+
     expect(rebuilt.enqueuedAtMs).toBe(1_700_000_015_000);
+    expect(redriven.enqueuedAtMs).toBe(1_700_000_030_000);
+    expect(redriven.outboxCreatedAtMs).toBe(1_700_000_000_000);
   });
 
   it("distinguishes an ordinary thread Wake from explicit context selection", async () => {
@@ -2815,66 +2880,37 @@ describe("space signal consistency matrix", () => {
     });
   });
 
-  it("does not redrive a handed-off outbox record while the latest attempt is still waiting for result", async () => {
+  it.each([
+    {
+      name: "waiting result",
+      sourceEventId: "evt-outbox-active-wait",
+      status: "dispatching",
+      latestAttemptStatus: "waiting_result",
+      latestAttemptErrorCode: null,
+      connectionGeneration: 1,
+      watchdogDecision: { kind: "skip", reason: "still_owned" },
+    },
+    {
+      name: "connection replaced",
+      sourceEventId: "evt-outbox-connection-replaced",
+      status: "dispatching",
+      latestAttemptStatus: "waiting_result",
+      latestAttemptErrorCode: null,
+      connectionGeneration: 1,
+      watchdogDecision: { kind: "submit", reason: "connection_replaced" },
+    },
+    {
+      name: "retryable route error",
+      sourceEventId: "evt-outbox-queued-recovery",
+      status: "failed_retryable",
+      latestAttemptStatus: "failed_retryable",
+      latestAttemptErrorCode: "daemon.session.connection_replaced",
+      connectionGeneration: 2,
+      watchdogDecision: undefined,
+    },
+  ])("retires handed-off payload without replaying work ($name)", async (scenario) => {
     const dispatchMessage = createDispatchMessageFixture(
-      "evt-outbox-active-wait"
-    );
-    const sql = {
-      databaseSize: 0,
-      exec: vi.fn(() => {
-        return {
-          toArray: () => [
-            {
-              payload_json: JSON.stringify(dispatchMessage),
-              status: "queued",
-              created_at_ms: Date.now() - 60_000,
-              queued_at_ms: Date.now() - 60_000,
-            },
-          ],
-        };
-      }),
-    } as unknown as SqlStorage;
-    const enqueueDispatchMessageWithRetry = vi
-      .fn()
-      .mockResolvedValue(undefined);
-
-    await flushPendingDispatchOutbox.call({
-      ...createOutboxRedriveMethodTarget(),
-      ctx: { storage: { sql } },
-      readDispatchLedgerEvidence: vi.fn().mockResolvedValue({
-        kind: "found",
-        row: {
-          status: "dispatching",
-          lastAttemptAtMs: Date.now() - 60_000,
-          latestAttemptStatus: "waiting_result",
-          latestAttemptErrorCode: null,
-          daemonSessionId: "daemon-session-1",
-          connectionGeneration: 1,
-          leaseEpoch: 5,
-        },
-      }),
-      resolveHandedOffOutboxCandidateDecision,
-      readPreAgentStoppedGuardForOutboxCandidate: vi
-        .fn()
-        .mockResolvedValue({ stopped: false }),
-      resolveActiveAttemptWatchdogDecision: vi.fn().mockResolvedValue({
-        kind: "skip",
-        reason: "still_owned",
-      }),
-      writeDispatchOutboxWatchdogDecision: vi.fn().mockResolvedValue(undefined),
-      buildDispatchMessageFromRecoveryCandidate,
-      resolveDispatchQueueSourceSignalSnapshot: vi.fn().mockReturnValue(null),
-      resolveDispatchQueueReplyToSnapshot: vi.fn().mockReturnValue(null),
-      enqueueDispatchMessageWithRetry,
-      syncDispatchOutboxAlarm: vi.fn().mockResolvedValue(undefined),
-    });
-
-    expect(enqueueDispatchMessageWithRetry).not.toHaveBeenCalled();
-  });
-
-  it("leaves handed-off outbox recovery to RuntimeCoordinator when the wait route is connection-replaced", async () => {
-    const dispatchMessage = createDispatchMessageFixture(
-      "evt-outbox-connection-replaced"
+      scenario.sourceEventId
     );
     const sql = {
       databaseSize: 0,
@@ -2897,19 +2933,21 @@ describe("space signal consistency matrix", () => {
     const writeDispatchOutboxWatchdogDecision = vi
       .fn()
       .mockResolvedValue(undefined);
+    const unexpectedCandidateFailure = vi.fn(recordOutboxCandidateFailure);
 
     await flushPendingDispatchOutbox.call({
       ...createOutboxRedriveMethodTarget(),
+      recordOutboxCandidateFailure: unexpectedCandidateFailure,
       ctx: { storage: { sql } },
       readDispatchLedgerEvidence: vi.fn().mockResolvedValue({
         kind: "found",
         row: {
-          status: "dispatching",
+          status: scenario.status,
           lastAttemptAtMs: Date.now() - 60_000,
-          latestAttemptStatus: "waiting_result",
-          latestAttemptErrorCode: null,
+          latestAttemptStatus: scenario.latestAttemptStatus,
+          latestAttemptErrorCode: scenario.latestAttemptErrorCode,
           daemonSessionId: "daemon-session-1",
-          connectionGeneration: 1,
+          connectionGeneration: scenario.connectionGeneration,
           leaseEpoch: 5,
         },
       }),
@@ -2917,10 +2955,9 @@ describe("space signal consistency matrix", () => {
       readPreAgentStoppedGuardForOutboxCandidate: vi
         .fn()
         .mockResolvedValue({ stopped: false }),
-      resolveActiveAttemptWatchdogDecision: vi.fn().mockResolvedValue({
-        kind: "submit",
-        reason: "connection_replaced",
-      }),
+      resolveActiveAttemptWatchdogDecision: vi
+        .fn()
+        .mockResolvedValue(scenario.watchdogDecision),
       writeDispatchOutboxWatchdogDecision,
       buildDispatchMessageFromRecoveryCandidate,
       resolveDispatchQueueSourceSignalSnapshot: vi.fn().mockReturnValue(null),
@@ -2929,64 +2966,14 @@ describe("space signal consistency matrix", () => {
       syncDispatchOutboxAlarm: vi.fn().mockResolvedValue(undefined),
     });
 
-    expect(writeDispatchOutboxWatchdogDecision).not.toHaveBeenCalled();
-    expect(enqueueDispatchMessageWithRetry).not.toHaveBeenCalled();
-  });
-
-  it("leaves handed-off outbox recovery to RuntimeCoordinator when the latest attempt error implies recovery", async () => {
-    const dispatchMessage = createDispatchMessageFixture(
-      "evt-outbox-queued-recovery"
+    // No enqueue alone also passes when processing throws or silently skips.
+    // Require the intended persistence effect and no caught candidate failure.
+    expect(unexpectedCandidateFailure).not.toHaveBeenCalled();
+    expect(sql.exec).toHaveBeenCalledWith(
+      expect.stringContaining("DELETE FROM openMeldDaemon_outbox"),
+      dispatchMessage.dispatchId,
+      "cancelled"
     );
-    const sql = {
-      databaseSize: 0,
-      exec: vi.fn(() => {
-        return {
-          toArray: () => [
-            {
-              payload_json: JSON.stringify(dispatchMessage),
-              status: "queued",
-              created_at_ms: Date.now() - 60_000,
-              queued_at_ms: Date.now() - 60_000,
-            },
-          ],
-        };
-      }),
-    } as unknown as SqlStorage;
-    const enqueueDispatchMessageWithRetry = vi
-      .fn()
-      .mockResolvedValue(undefined);
-    const writeDispatchOutboxWatchdogDecision = vi
-      .fn()
-      .mockResolvedValue(undefined);
-
-    await flushPendingDispatchOutbox.call({
-      ...createOutboxRedriveMethodTarget(),
-      ctx: { storage: { sql } },
-      readDispatchLedgerEvidence: vi.fn().mockResolvedValue({
-        kind: "found",
-        row: {
-          status: "failed_retryable",
-          lastAttemptAtMs: Date.now() - 60_000,
-          latestAttemptStatus: "failed_retryable",
-          latestAttemptErrorCode: "daemon.session.connection_replaced",
-          daemonSessionId: "daemon-session-1",
-          connectionGeneration: 2,
-          leaseEpoch: 5,
-        },
-      }),
-      resolveHandedOffOutboxCandidateDecision,
-      readPreAgentStoppedGuardForOutboxCandidate: vi
-        .fn()
-        .mockResolvedValue({ stopped: false }),
-      resolveActiveAttemptWatchdogDecision: vi.fn(),
-      writeDispatchOutboxWatchdogDecision,
-      buildDispatchMessageFromRecoveryCandidate,
-      resolveDispatchQueueSourceSignalSnapshot: vi.fn().mockReturnValue(null),
-      resolveDispatchQueueReplyToSnapshot: vi.fn().mockReturnValue(null),
-      enqueueDispatchMessageWithRetry,
-      syncDispatchOutboxAlarm: vi.fn().mockResolvedValue(undefined),
-    });
-
     expect(writeDispatchOutboxWatchdogDecision).not.toHaveBeenCalled();
     expect(enqueueDispatchMessageWithRetry).not.toHaveBeenCalled();
   });

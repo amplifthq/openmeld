@@ -53,6 +53,12 @@
   },
   "overrides": [
     {
+      // Registry-owned Evil Charts source retains upstream structure for reviewable updates.
+      // Local product composition and data contracts retain normal linting.
+      "includes": ["packages/ui/src/components/evilcharts/**"],
+      "linter": { "enabled": false }
+    },
+    {
       // Flue agent hooks are not React hooks: resource hooks may be composed
       // conditionally and in loops under Flue's per-render resource contract.
       "includes": [

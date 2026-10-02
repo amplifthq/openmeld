@@ -148,6 +148,7 @@ import { runWhoami } from "./commands/whoami";
 import { runMacOsNativeKeychainHelperIfRequested } from "./config/macos-native-keychain";
 import { resolveOpenMeldEnvironmentTarget } from "./config/openmeld-environment-target";
 import { ensureSystemLayout } from "./config/system-layout";
+import { registerFilesCommands } from "./files/command";
 import { parseNonNegativeIntegerOption } from "./lib/number-options";
 import {
   resolveManagedCliDelegation,
@@ -230,8 +231,11 @@ import {
 } from "./org/command";
 import { runOrganizationInvitationRequests } from "./org/invitation-requests-command";
 import {
+  runOrganizationSkillsAdd,
+  runOrganizationSkillsAddAll,
   runOrganizationSkillsList,
   runOrganizationSkillsLoad,
+  runOrganizationSkillsScan,
   runOrganizationSkillsShow,
 } from "./organization-skills/command";
 import { formatAgentControllerPermissionModeHelp } from "./profile/controller-permission-mode-input";
@@ -1684,10 +1688,22 @@ computerCmd
     }
   );
 
+registerFilesCommands(program, (routeTokens, run) =>
+  runCommandWithEntryChecks({
+    routeTokens,
+    view: getGlobalViewOption(),
+    run,
+  })
+);
+
 const skillsCmd = program
   .command("skills")
   .description("Read and load Organization Skills.")
   .option("--json", "Print one machine-readable JSON envelope.", false);
+
+function skillsJsonRequested(opts: { json?: boolean }): boolean {
+  return opts.json === true || skillsCmd.opts().json === true;
+}
 
 registerPluginCommands(program, {
   view: getGlobalViewOption,
@@ -1785,6 +1801,88 @@ registerSkillsTargetSelectionOptions({
   });
 
 skillsCmd
+  .command("add")
+  .description(
+    "Add a local or GitHub Skill, or every eligible Skill in a repository."
+  )
+  .argument(
+    "<source>",
+    "Local Skill directory or GitHub Skill or repository URL"
+  )
+  .option(
+    "--preview",
+    "Show the exact Skill and source commit without adding it"
+  )
+  .option(
+    "--operation-id <id>",
+    "Reuse this ID to safely retry a GitHub install or repository batch"
+  )
+  .option("--all", "Install every eligible Skill in a GitHub repository")
+  .option("--json", "Print one machine-readable JSON envelope.", false)
+  .action(
+    async (
+      source: string,
+      opts: {
+        all?: boolean;
+        json?: boolean;
+        operationId?: string;
+        preview?: boolean;
+      }
+    ) => {
+      if (opts.all && opts.preview) {
+        throw new Error(
+          "Use skills scan to preview a repository before --all."
+        );
+      }
+      const view = getGlobalViewOption();
+      await runCommandWithEntryChecks({
+        routeTokens: ["skills", "add"],
+        view,
+        run: async () => {
+          if (opts.all) {
+            await runOrganizationSkillsAddAll({
+              json: skillsJsonRequested(opts),
+              operationId: opts.operationId,
+              source,
+              view,
+            });
+          } else {
+            await runOrganizationSkillsAdd({
+              json: skillsJsonRequested(opts),
+              previewOnly: opts.preview === true,
+              operationId: opts.operationId,
+              source,
+              view,
+            });
+          }
+        },
+      });
+    }
+  );
+
+skillsCmd
+  .command("scan")
+  .description(
+    "List the Skills in a GitHub repository without installing them."
+  )
+  .argument("<url>", "GitHub repository or folder URL")
+  .option("--json", "Print one machine-readable JSON envelope.", false)
+  .action(async (url: string, opts: { json?: boolean }) => {
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["skills", "scan"],
+      view,
+      run: async () => {
+        await runOrganizationSkillsScan({
+          json: skillsJsonRequested(opts),
+          url,
+          view,
+        });
+      },
+    });
+  });
+
+skillsCmd
   .command("list")
   .alias("ls")
   .description("List Skills in the active Organization.")
@@ -1796,7 +1894,7 @@ skillsCmd
       view,
       run: async () => {
         await runOrganizationSkillsList({
-          json: opts.json === true,
+          json: skillsJsonRequested(opts),
           view,
         });
         await maybeRunAgentViewRecoveryAfterSuccess({
@@ -1818,7 +1916,7 @@ skillsCmd
       view,
       run: async () => {
         await runOrganizationSkillsShow({
-          json: opts.json === true,
+          json: skillsJsonRequested(opts),
           skill,
           view,
         });
@@ -1845,7 +1943,7 @@ skillsCmd
       view,
       run: async () => {
         await runOrganizationSkillsLoad({
-          json: opts.json === true,
+          json: skillsJsonRequested(opts),
           releaseId: opts.release,
           skill,
           view,
@@ -2900,6 +2998,12 @@ spaceActionCmd
   .command("reply")
   .description("Record a final Space reply for the current dispatch.")
   .argument("[message...]", "Reply message")
+  .addOption(
+    new Option(
+      "--placement <placement>",
+      "Reply location: thread or conversation"
+    ).choices(["thread", "conversation"])
+  )
   .option(
     "--message-file <path>",
     "Read the UTF-8 reply message from a file; use - for stdin"
@@ -2934,6 +3038,10 @@ spaceActionCmd
       messageFilePath:
         typeof opts.messageFile === "string" ? opts.messageFile : undefined,
       messageParts: Array.isArray(messageParts) ? messageParts : [],
+      placement:
+        opts.placement === "thread" || opts.placement === "conversation"
+          ? opts.placement
+          : undefined,
       mentionTargets: Array.isArray(opts.mention) ? opts.mention : [],
       wakeTargets: Array.isArray(opts.wake) ? opts.wake : [],
       referenceTargets: Array.isArray(opts.reference) ? opts.reference : [],

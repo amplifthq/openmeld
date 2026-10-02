@@ -1,0 +1,727 @@
+import type {
+  AiUsageRecord,
+  RemoteAiUsageWrite,
+} from "@openmeld/schemas/types";
+import { describe, expect, it, vi } from "vitest";
+import {
+  createMeteredRemoteFetch,
+  flushRemoteAiUsage,
+} from "../../remote-agent/agent-core/ai-usage";
+import { InMemoryDurableObjectStorage } from "../../remote-agent/tests/storage";
+import type { CoreBindings } from "../src/lib/bindings";
+import { readAiUsageAllowance } from "../src/usage/ai-usage-policy";
+import { queryAiUsage, recordAiUsage } from "../src/usage/ai-usage-repository";
+import { rpcRecordRemoteAiUsage } from "../src/usage/ai-usage-rpc";
+import {
+  applyDrizzleMigrationForTable,
+  createSqliteD1Harness,
+} from "./helpers/sqlite-d1-harness.test-support";
+
+const nowMs = Date.parse("2026-10-01T12:00:00Z");
+const record: AiUsageRecord = {
+  status: "reported",
+  providerRequestId: "request-1",
+  eventId: "openrouter:request-1",
+  provider: "openrouter",
+  model: "openai/test",
+  source: "openrouter_response",
+  occurredAtMs: nowMs,
+  tokens: {
+    input: 100,
+    output: 20,
+    total: 120,
+    cacheRead: 50,
+    cacheWrite: null,
+    reasoning: 10,
+  },
+  cost: { nanoUsd: 500_000_000, kind: "provider_reported" },
+  organizationId: "org-1",
+  runtime: "remote",
+  purpose: "agent",
+  agentProfileId: "agent-1",
+  spaceId: "space-1",
+  taskId: "task-1",
+  attemptId: null,
+  computerId: null,
+  controller: null,
+};
+const query = { fromMs: nowMs - 1, toMs: nowMs + 1 };
+
+describe("Organization AI consumption", () => {
+  it("retains compaction attribution without changing the public agent-purpose aggregate", async () => {
+    const harness = createHarness();
+    try {
+      for (const purpose of [
+        "agent",
+        "compaction",
+        "compaction_prefix",
+      ] as const) {
+        await recordAiUsage(harness.db, {
+          ...record,
+          eventId: `purpose-${purpose}`,
+          purpose,
+          status: "pending",
+        });
+      }
+      const result = await queryAiUsage({
+        db: harness.db,
+        organizationId: "org-1",
+        query: { ...query, groupBy: "agent", includeIssues: true },
+      });
+      expect(result.breakdown?.groups[0]).toMatchObject({
+        purposes: ["agent"],
+        requests: 3,
+        reportedCostNanoUsd: 1_500_000_000,
+      });
+      const rows = await harness.db
+        .prepare(
+          "SELECT DISTINCT purpose FROM ai_usage_records ORDER BY purpose"
+        )
+        .all();
+      expect(rows.results).toEqual([
+        { purpose: "agent" },
+        { purpose: "compaction" },
+        { purpose: "compaction_prefix" },
+      ]);
+      expect(result.issues?.records.map((issue) => issue.purpose)).toEqual([
+        "agent",
+        "agent",
+        "agent",
+      ]);
+    } finally {
+      harness.close();
+    }
+  });
+  it.each([
+    "missing_database",
+    "database_failed",
+  ])("blocks inference when the real admission receiver has %s", async (failure) => {
+    const harness = createHarness();
+    const fetch = vi.fn();
+    const prepare = vi.spyOn(harness.db, "prepare").mockImplementation(() => {
+      throw new Error("D1 unavailable");
+    });
+    try {
+      const request = createMeteredRemoteFetch({
+        coreWorker: {
+          recordRemoteAiUsage: (input: RemoteAiUsageWrite) =>
+            rpcRecordRemoteAiUsage(
+              (failure === "missing_database"
+                ? {}
+                : { OPENMELD_DB: harness.db }) as CoreBindings,
+              input
+            ),
+        },
+        storage: new InMemoryDurableObjectStorage(),
+        model: "requested",
+        fetch,
+        scope: {
+          organizationId: "org-1",
+          purpose: "agent",
+          agentProfileId: null,
+          spaceId: null,
+          taskId: null,
+          attemptId: null,
+        },
+      });
+      await expect(
+        request("https://provider.example/chat/completions")
+      ).rejects.toThrow();
+      expect(fetch).not.toHaveBeenCalled();
+    } finally {
+      prepare.mockRestore();
+      harness.close();
+    }
+  });
+  it("backfills a legacy-Core inference through the real receiver exactly once after a lost settlement ACK", async () => {
+    const harness = createHarness();
+    const storage = new InMemoryDurableObjectStorage();
+    let legacy = true;
+    let loseAck = true;
+    const coreWorker = {
+      recordRemoteAiUsage: async (input: RemoteAiUsageWrite) => {
+        if (legacy) {
+          throw new Error(
+            'The RPC receiver does not implement the method "recordRemoteAiUsage".'
+          );
+        }
+        const result = await rpcRecordRemoteAiUsage(
+          { OPENMELD_DB: harness.db } as CoreBindings,
+          input
+        );
+        if (loseAck) {
+          loseAck = false;
+          throw new Error("settlement ACK lost");
+        }
+        return result;
+      },
+    };
+    try {
+      // Persisted historical records, not authorization for a new inference.
+      const receipt = {
+        ...record,
+        occurredAtMs: Date.now(),
+        cost: { nanoUsd: 10_000_000, kind: "provider_reported" as const },
+      };
+      const audit = {
+        v: 1,
+        reason: "core_receiver_missing",
+        record: { ...receipt, status: "pending", tokens: null, cost: null },
+      };
+      await storage.put(
+        `openmeld:ai-usage:pending:${receipt.eventId}`,
+        receipt
+      );
+      await storage.put(`openmeld:ai-usage:deferred:${receipt.eventId}`, audit);
+      await expect(flushRemoteAiUsage({ storage, coreWorker })).rejects.toThrow(
+        "recordRemoteAiUsage is unavailable"
+      );
+      legacy = false;
+      await expect(flushRemoteAiUsage({ storage, coreWorker })).rejects.toThrow(
+        "settlement ACK lost"
+      );
+      await flushRemoteAiUsage({ storage, coreWorker });
+      const usage = await queryAiUsage({
+        db: harness.db,
+        organizationId: "org-1",
+        query: { fromMs: Date.now() - 60_000, toMs: Date.now() + 60_000 },
+      });
+      expect(usage.models).toMatchObject([
+        { requests: 1, totalTokens: 120, reportedCostNanoUsd: 10_000_000 },
+      ]);
+      expect(
+        (await storage.list({ prefix: "openmeld:ai-usage:pending:" })).size
+      ).toBe(0);
+      expect(
+        (await storage.list({ prefix: "openmeld:ai-usage:deferred:" })).size
+      ).toBe(1);
+      expect(
+        await storage.get(`openmeld:ai-usage:deferred:${receipt.eventId}`)
+      ).toEqual(audit);
+    } finally {
+      harness.close();
+    }
+  });
+  it("keeps selected Agent costs and model buckets inside the organization, including an empty selection", async () => {
+    const harness = createHarness();
+    try {
+      await recordAiUsage(harness.db, record);
+      await recordAiUsage(harness.db, {
+        ...record,
+        eventId: "other-agent",
+        agentProfileId: "agent-2",
+        cost: { kind: "provider_reported", nanoUsd: 900_000_000 },
+      });
+      await recordAiUsage(harness.db, {
+        ...record,
+        eventId: "estimate",
+        model: "estimate-model",
+        cost: { kind: "provider_estimate", nanoUsd: 200_000_000 },
+      });
+      await recordAiUsage(harness.db, {
+        ...record,
+        eventId: "other-org",
+        organizationId: "org-2",
+        cost: { kind: "provider_reported", nanoUsd: 800_000_000 },
+      });
+      const result = await queryAiUsage({
+        db: harness.db,
+        organizationId: "org-1",
+        query: {
+          ...query,
+          runtime: "remote",
+          agentProfileIds: ["agent-1"],
+          bucketBoundariesMs: [query.fromMs, query.toMs],
+          groupTimeSeriesBy: "model",
+          groupBy: "agent",
+        },
+      });
+      expect(result.models).toHaveLength(2);
+      expect(result.timeSeries?.[0]).toMatchObject({
+        requests: 2,
+        reportedCostNanoUsd: 500_000_000,
+        estimatedCostNanoUsd: 200_000_000,
+      });
+      expect(result.timeSeries?.[0]?.models).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            model: record.model,
+            reportedCostNanoUsd: 500_000_000,
+            estimatedCostNanoUsd: 0,
+          }),
+          expect.objectContaining({
+            model: "estimate-model",
+            reportedCostNanoUsd: 0,
+            estimatedCostNanoUsd: 200_000_000,
+          }),
+        ])
+      );
+      expect(
+        result.breakdown?.groups.map((group) => group.agentProfileId)
+      ).toEqual(["agent-1"]);
+      expect(
+        (
+          await queryAiUsage({
+            db: harness.db,
+            organizationId: "org-1",
+            query: { ...query, agentProfileIds: [] },
+          })
+        ).models
+      ).toEqual([]);
+    } finally {
+      harness.close();
+    }
+  });
+  it("buckets native receipts at calendar boundaries without losing missing usage or crossing scope", async () => {
+    const harness = createHarness();
+    // New York's spring transition contains a 23-hour day, followed by two full days.
+    const edges: [number, number, number, number] = [
+      Date.parse("2026-03-08T05:00:00Z"),
+      Date.parse("2026-03-09T04:00:00Z"),
+      Date.parse("2026-03-10T04:00:00Z"),
+      Date.parse("2026-03-11T04:00:00Z"),
+    ];
+    try {
+      for (const [index, receipt] of [
+        { occurredAtMs: edges[0] - 1 },
+        { occurredAtMs: edges[0], controller: "builtin:codex" },
+        { occurredAtMs: edges[1] - 1, controller: "builtin:claude-code" },
+        {
+          occurredAtMs: edges[1],
+          tokens: null,
+          status: "unavailable" as const,
+        },
+        { occurredAtMs: edges[3] },
+        { occurredAtMs: edges[0], organizationId: "org-2" },
+        { occurredAtMs: edges[0], computerId: "computer-2" },
+      ].entries()) {
+        await recordAiUsage(harness.db, {
+          ...record,
+          runtime: "local",
+          computerId: "computer-1",
+          ...receipt,
+          eventId: `bucket-${index}`,
+        });
+      }
+      const result = await queryAiUsage({
+        db: harness.db,
+        organizationId: "org-1",
+        query: {
+          fromMs: edges[0],
+          toMs: edges[3],
+          runtime: "local",
+          computerId: "computer-1",
+          bucketBoundariesMs: edges,
+          groupBy: "task",
+          includeIssues: true,
+        },
+      });
+      expect(result.timeSeries).toEqual([
+        {
+          fromMs: edges[0],
+          toMs: edges[1],
+          requests: 2,
+          inputTokens: 200,
+          outputTokens: 40,
+          totalTokens: 240,
+          missingTokenRequests: 0,
+        },
+        {
+          fromMs: edges[1],
+          toMs: edges[2],
+          requests: 1,
+          inputTokens: 0,
+          outputTokens: 0,
+          totalTokens: 0,
+          missingTokenRequests: 1,
+        },
+        {
+          fromMs: edges[2],
+          toMs: edges[3],
+          requests: 0,
+          inputTokens: 0,
+          outputTokens: 0,
+          totalTokens: 0,
+          missingTokenRequests: 0,
+        },
+      ]);
+      expect(result.models[0]?.totalTokens).toBe(240);
+      expect(result.breakdown?.groups[0]?.totalTokens).toBe(240);
+      expect(result.issues?.records).toHaveLength(1);
+      const grouped = await queryAiUsage({
+        db: harness.db,
+        organizationId: "org-1",
+        query: {
+          fromMs: edges[0],
+          toMs: edges[3],
+          runtime: "local",
+          computerId: "computer-1",
+          bucketBoundariesMs: edges,
+          groupTimeSeriesBy: "controller",
+        },
+      });
+      expect(grouped.timeSeries?.[0]?.controllers).toEqual([
+        {
+          controller: "builtin:claude-code",
+          requests: 1,
+          inputTokens: 100,
+          outputTokens: 20,
+          totalTokens: 120,
+          missingTokenRequests: 0,
+        },
+        {
+          controller: "builtin:codex",
+          requests: 1,
+          inputTokens: 100,
+          outputTokens: 20,
+          totalTokens: 120,
+          missingTokenRequests: 0,
+        },
+      ]);
+      expect(grouped.timeSeries?.[1]?.controllers).toEqual([
+        {
+          controller: null,
+          requests: 1,
+          inputTokens: 0,
+          outputTokens: 0,
+          totalTokens: 0,
+          missingTokenRequests: 1,
+        },
+      ]);
+      expect(grouped.timeSeries?.[2]?.controllers).toEqual([]);
+      expect(
+        grouped.timeSeries?.map(
+          ({ controllers: _controllers, ...bucket }) => bucket
+        )
+      ).toEqual(result.timeSeries);
+      await expect(
+        queryAiUsage({
+          db: harness.db,
+          organizationId: "org-1",
+          query: {
+            fromMs: edges[0],
+            toMs: edges[3],
+            bucketBoundariesMs: [edges[0], edges[0], edges[3]],
+          },
+        })
+      ).rejects.toThrow("Buckets must increase strictly");
+    } finally {
+      harness.close();
+    }
+  });
+  it("isolates one local controller on one enrolled computer across model and task reads", async () => {
+    const harness = createHarness();
+    try {
+      for (const [eventId, organizationId, computerId, controller] of [
+        ["codex", "org-1", "computer-1", "builtin:codex"],
+        ["claude", "org-1", "computer-1", "builtin:claude-code"],
+        ["other-computer", "org-1", "computer-2", "builtin:codex"],
+        ["other-org", "org-2", "computer-1", "builtin:codex"],
+      ] as const) {
+        await recordAiUsage(harness.db, {
+          ...record,
+          eventId,
+          organizationId,
+          computerId,
+          controller,
+          runtime: "local",
+          cost: null,
+        });
+      }
+      const result = await queryAiUsage({
+        db: harness.db,
+        organizationId: "org-1",
+        query: {
+          ...query,
+          runtime: "local",
+          computerId: "computer-1",
+          controller: "builtin:codex",
+          groupBy: "task",
+        },
+      });
+      expect(result.models).toMatchObject([
+        { requests: 1, totalTokens: 120, missingCostRequests: 1 },
+      ]);
+      expect(result.breakdown?.groups).toMatchObject([
+        { taskId: "task-1", requests: 1, totalTokens: 120 },
+      ]);
+      expect(result.coverage?.reportedRequests).toBe(1);
+    } finally {
+      harness.close();
+    }
+  });
+  it("ranks observed tasks and Agents without conflating retries, unknown cost, or other organizations", async () => {
+    const harness = createHarness();
+    try {
+      if (!record.tokens) {
+        throw new Error("Fixture requires native tokens");
+      }
+      for (const value of [
+        {
+          ...record,
+          eventId: "first",
+          taskId: "task-a",
+          attemptId: "attempt-a",
+          dispatchId: "dispatch-a",
+        },
+        {
+          ...record,
+          eventId: "retry",
+          taskId: "task-a",
+          attemptId: "attempt-b",
+          dispatchId: "dispatch-a",
+        },
+        {
+          ...record,
+          eventId: "tool-loop",
+          taskId: "task-a",
+          attemptId: "attempt-b",
+          dispatchId: "dispatch-a",
+        },
+        {
+          ...record,
+          eventId: "local",
+          runtime: "local" as const,
+          taskId: "task-local",
+          agentProfileId: "local-agent",
+          attemptId: "local-attempt",
+          cost: null,
+          tokens: { ...record.tokens, total: 999, input: 979 },
+        },
+        {
+          ...record,
+          eventId: "other-org",
+          organizationId: "org-2",
+          cost: { nanoUsd: 9_000_000_000, kind: "provider_reported" as const },
+        },
+      ]) {
+        await recordAiUsage(harness.db, value);
+      }
+      const result = await queryAiUsage({
+        db: harness.db,
+        organizationId: "org-1",
+        nowMs,
+        query: { ...query, groupBy: "task", sortBy: "cost", limit: 1 },
+      });
+      expect(result.breakdown).toMatchObject({
+        hasMore: true,
+        groups: [
+          {
+            taskId: "task-a",
+            requests: 3,
+            reportedCostNanoUsd: 1_500_000_000,
+            observedExecutionAttempts: 2,
+            observedExecutionRetries: 1,
+            dispatchIds: ["dispatch-a"],
+          },
+        ],
+      });
+      expect(result.models).toHaveLength(2);
+      const local = await queryAiUsage({
+        db: harness.db,
+        organizationId: "org-1",
+        nowMs,
+        query: { ...query, groupBy: "agent", sortBy: "tokens", limit: 1 },
+      });
+      expect(local.breakdown?.groups[0]).toMatchObject({
+        agentProfileId: "local-agent",
+        totalTokens: 999,
+        missingCostRequests: 1,
+        observedExecutionRetries: null,
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("exposes old pending, missing supplier evidence, and collection failures separately", async () => {
+    const harness = createHarness();
+    try {
+      for (const [index, status] of (
+        ["pending", "unavailable", "collection_failed"] as const
+      ).entries()) {
+        await recordAiUsage(harness.db, {
+          ...record,
+          eventId: `coverage-${index}`,
+          status,
+          tokens: null,
+          cost: null,
+        });
+      }
+      const usage = await queryAiUsage({
+        db: harness.db,
+        organizationId: "org-1",
+        nowMs: nowMs + 3_600_001,
+        query: { ...query, includeIssues: true, limit: 1 },
+      });
+      expect(usage.issues).toMatchObject({
+        hasMore: true,
+        records: [
+          {
+            eventId: "coverage-0",
+            status: "pending",
+            tokens: null,
+            cost: null,
+          },
+        ],
+      });
+      expect(usage.coverage).toEqual({
+        scope: "observed_requests",
+        reportedRequests: 0,
+        pendingRequests: 1,
+        stalePendingRequests: 1,
+        unavailableRequests: 1,
+        collectionFailedRequests: 1,
+        missingTokenRequests: 3,
+        missingCostRequests: 3,
+        unassignedTaskRequests: 0,
+        oldestPendingAtMs: nowMs,
+        staleAfterMs: 3_600_000,
+      });
+      await recordAiUsage(harness.db, { ...record, eventId: "coverage-0" });
+      const repaired = await queryAiUsage({
+        db: harness.db,
+        organizationId: "org-1",
+        nowMs: nowMs + 3_600_001,
+        query,
+      });
+      expect(repaired.coverage).toMatchObject({
+        pendingRequests: 0,
+        stalePendingRequests: 0,
+        reportedRequests: 1,
+        oldestPendingAtMs: null,
+      });
+      expect(repaired.models[0]?.requests).toBe(3);
+    } finally {
+      harness.close();
+    }
+  });
+  it("settles a pending receipt once without changing its execution attribution", async () => {
+    const harness = createHarness();
+    try {
+      await recordAiUsage(harness.db, {
+        ...record,
+        status: "pending",
+        tokens: null,
+        cost: null,
+        providerRequestId: null,
+      });
+      await expect(
+        recordAiUsage(harness.db, { ...record, taskId: "wrong-task" })
+      ).rejects.toThrow("identity conflicts");
+      await recordAiUsage(harness.db, record);
+      await recordAiUsage(harness.db, record);
+      const usage = await queryAiUsage({
+        db: harness.db,
+        organizationId: "org-1",
+        query,
+      });
+      expect(usage.models).toMatchObject([
+        {
+          requests: 1,
+          totalTokens: 120,
+          reportedCostNanoUsd: 500_000_000,
+          missingCostRequests: 0,
+        },
+      ]);
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("deduplicates delivery, preserves missing evidence, and isolates organization and task queries", async () => {
+    const harness = createHarness();
+    try {
+      await Promise.all([
+        recordAiUsage(harness.db, record),
+        recordAiUsage(harness.db, record),
+      ]);
+      await recordAiUsage(harness.db, { ...record, organizationId: "org-2" });
+      await recordAiUsage(harness.db, {
+        ...record,
+        eventId: "missing",
+        tokens: null,
+        cost: null,
+      });
+      const usage = await queryAiUsage({
+        db: harness.db,
+        organizationId: "org-1",
+        query,
+      });
+      expect(usage.models).toMatchObject([
+        {
+          requests: 2,
+          totalTokens: 120,
+          inputTokens: 100,
+          outputTokens: 20,
+          reportedCostNanoUsd: 500_000_000,
+          missingTokenRequests: 1,
+          missingCostRequests: 1,
+        },
+      ]);
+      expect(
+        (
+          await queryAiUsage({
+            db: harness.db,
+            organizationId: "org-1",
+            query: { ...query, taskId: "another-task" },
+          })
+        ).models
+      ).toEqual([]);
+      await expect(
+        recordAiUsage(harness.db, {
+          ...record,
+          cost: { nanoUsd: 1, kind: "provider_reported" },
+        })
+      ).rejects.toThrow("identity conflicts");
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("defaults to unlimited and applies a configured daily allowance only to platform spend", async () => {
+    const harness = createHarness();
+    try {
+      await recordAiUsage(harness.db, record);
+      await recordAiUsage(harness.db, {
+        ...record,
+        runtime: "local",
+        eventId: "local-1",
+        cost: { nanoUsd: 9_000_000_000, kind: "provider_estimate" },
+      });
+      const input = { db: harness.db, organizationId: "org-1", nowMs };
+      expect(await readAiUsageAllowance(input)).toMatchObject({
+        dailyLimitNanoUsd: null,
+        usedNanoUsd: 500_000_000,
+        exhausted: false,
+      });
+      harness.run({
+        sql: "INSERT INTO organization_ai_usage_policies VALUES (?, ?, ?)",
+        params: ["org-1", 500_000_000, nowMs],
+      });
+      expect(await readAiUsageAllowance(input)).toMatchObject({
+        exhausted: true,
+      });
+      expect(
+        await readAiUsageAllowance({ ...input, nowMs: nowMs + 86_400_000 })
+      ).toMatchObject({ usedNanoUsd: 0, exhausted: false });
+    } finally {
+      harness.close();
+    }
+  });
+});
+
+function createHarness() {
+  const harness = createSqliteD1Harness();
+  // Identity is a foreign-key fixture; usage tables use their real migrations.
+  harness.run({ sql: "CREATE TABLE organizations (id TEXT PRIMARY KEY)" });
+  for (const organizationId of ["org-1", "org-2"]) {
+    harness.run({
+      sql: "INSERT INTO organizations (id) VALUES (?)",
+      params: [organizationId],
+    });
+  }
+  applyDrizzleMigrationForTable(harness, "ai_usage_records");
+  applyDrizzleMigrationForTable(harness, "organization_ai_usage_policies");
+  return harness;
+}

@@ -4,8 +4,10 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
+import { FluidContextMenuContent } from "@openmeld/ui/fluid/context-menu";
 import {
 	FluidDropdownMenuContent,
+	FluidDropdownMenuGroup,
 	FluidDropdownMenuItem,
 } from "@openmeld/ui/fluid/dropdown-menu";
 import { DotsThreeIcon } from "@phosphor-icons/react";
@@ -27,22 +29,9 @@ export function OrganizationSkillActions(input: {
 	onAction: (action: SkillAction) => void;
 	triggerRef: RefObject<HTMLButtonElement | null>;
 }) {
-	return (
-		<DropdownMenu>
-			<DropdownMenuTrigger
-				aria-label="More actions"
-				ref={input.triggerRef}
-				render={
-					<Button
-						className="relative max-lg:min-h-8 max-lg:min-w-8 max-lg:after:absolute max-lg:after:-inset-1.5 max-lg:after:content-['']"
-						size="icon"
-						variant="ghost"
-					/>
-				}
-			>
-				<DotsThreeIcon aria-hidden="true" className="size-5" />
-			</DropdownMenuTrigger>
-			<FluidDropdownMenuContent align="end" className="w-64">
+	const items = (
+		<>
+			<FluidDropdownMenuGroup>
 				<FluidDropdownMenuItem index={0} onClick={() => input.onAction("copy")}>
 					Copy link
 				</FluidDropdownMenuItem>
@@ -52,7 +41,9 @@ export function OrganizationSkillActions(input: {
 				>
 					How agents use this skill
 				</FluidDropdownMenuItem>
-				<DropdownMenuSeparator />
+			</FluidDropdownMenuGroup>
+			<DropdownMenuSeparator />
+			<FluidDropdownMenuGroup>
 				<FluidDropdownMenuItem
 					index={2}
 					onClick={() => input.onAction("properties")}
@@ -65,9 +56,11 @@ export function OrganizationSkillActions(input: {
 				>
 					Version history
 				</FluidDropdownMenuItem>
-				{input.canManage && (
-					<>
-						<DropdownMenuSeparator />
+			</FluidDropdownMenuGroup>
+			{input.canManage && (
+				<>
+					<DropdownMenuSeparator />
+					<FluidDropdownMenuGroup>
 						{input.managementBlocked && (
 							<p className="px-2 py-1 text-muted-foreground text-xs">
 								Finish saving your changes first.
@@ -87,7 +80,9 @@ export function OrganizationSkillActions(input: {
 						>
 							{input.enabled ? "Disable skill" : "Enable skill"}
 						</FluidDropdownMenuItem>
-						<DropdownMenuSeparator />
+					</FluidDropdownMenuGroup>
+					<DropdownMenuSeparator />
+					<FluidDropdownMenuGroup>
 						<FluidDropdownMenuItem
 							disabled={input.managementBlocked}
 							index={6}
@@ -96,9 +91,34 @@ export function OrganizationSkillActions(input: {
 						>
 							Remove skill
 						</FluidDropdownMenuItem>
-					</>
-				)}
-			</FluidDropdownMenuContent>
-		</DropdownMenu>
+					</FluidDropdownMenuGroup>
+				</>
+			)}
+		</>
+	);
+	return (
+		<>
+			<DropdownMenu>
+				<DropdownMenuTrigger
+					aria-label="More actions"
+					ref={input.triggerRef}
+					render={
+						<Button
+							className="relative max-lg:min-h-8 max-lg:min-w-8 max-lg:after:absolute max-lg:after:-inset-1.5 max-lg:after:content-['']"
+							size="icon"
+							variant="ghost"
+						/>
+					}
+				>
+					<DotsThreeIcon aria-hidden="true" className="size-5" />
+				</DropdownMenuTrigger>
+				<FluidDropdownMenuContent align="end" className="w-64">
+					{items}
+				</FluidDropdownMenuContent>
+			</DropdownMenu>
+			<FluidContextMenuContent className="w-64">
+				{items}
+			</FluidContextMenuContent>
+		</>
 	);
 }

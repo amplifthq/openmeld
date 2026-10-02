@@ -8,6 +8,7 @@ import {
 	accountSpaceActiveWakeSummaryQueryOptions,
 	accountSpaceItemsQueryOptions,
 	selectUsableAccountSpaceActiveWakeSummaryItems,
+	useAccountSpaceActiveWakeSummaryDisplay,
 	useUsableAccountSpaceActiveWakeSummaryItems,
 } from "./account-spaces";
 import {
@@ -101,14 +102,20 @@ describe("account Space Index refresh", () => {
 		expect(options.refetchIntervalInBackground).toBe(false);
 		expect(options.refetchOnWindowFocus).toBe("always");
 
-		const observer = new QueryObserver(queryClient, options);
-		const unsubscribe = observer.subscribe(() => undefined);
+		const onDataChange = vi.fn();
+		const observer = new QueryObserver(queryClient, {
+			...options,
+			notifyOnChangeProps: ["data"],
+		});
+		const unsubscribe = observer.subscribe(onDataChange);
 		await vi.advanceTimersByTimeAsync(0);
 		expect(listAccountSpaceItemsMock).toHaveBeenCalledOnce();
 		await vi.advanceTimersByTimeAsync(ACCOUNT_SPACE_ITEMS_POLL_INTERVAL_MS - 1);
 		expect(listAccountSpaceItemsMock).toHaveBeenCalledOnce();
 		await vi.advanceTimersByTimeAsync(1);
 		expect(listAccountSpaceItemsMock).toHaveBeenCalledTimes(2);
+		// A foreground refresh with identical content must not wake directory readers.
+		expect(onDataChange).toHaveBeenCalledOnce();
 
 		unsubscribe();
 		queryClient.clear();
@@ -264,6 +271,19 @@ describe("account Space active Wake summary", () => {
 			vi.advanceTimersByTime(ACCOUNT_SPACE_ACTIVE_WAKE_SUMMARY_MAX_AGE_MS + 1)
 		);
 		expect(result.current).toEqual([]);
+	});
+
+	it("marks an expired activity snapshot unavailable instead of confirmed empty", () => {
+		vi.useFakeTimers();
+		const data = createPresentationSnapshot(performance.now());
+		const { result } = renderHook(() =>
+			useAccountSpaceActiveWakeSummaryDisplay({ data, isError: false })
+		);
+		expect(result.current).toEqual({ available: true, items: ITEMS });
+		act(() =>
+			vi.advanceTimersByTime(ACCOUNT_SPACE_ACTIVE_WAKE_SUMMARY_MAX_AGE_MS + 1)
+		);
+		expect(result.current).toEqual({ available: false, items: [] });
 	});
 
 	it("fails closed for an SSR snapshot until the browser refetches it", () => {

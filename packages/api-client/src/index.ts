@@ -137,6 +137,8 @@ export type {
   SetCurrentOrganizationFeedbackReportingPolicyInput,
   SubmitFeedbackIssueInput,
 } from "./feedback/types";
+export type { FileRootLocation } from "./file-root/api";
+export { createFileRootApi } from "./file-root/api";
 export { createInboxApi } from "./inbox/api";
 export { isInboxItemInOrganizationScope } from "./inbox/item-scope";
 export {
@@ -247,11 +249,16 @@ export type {
 } from "./organization-documents/types";
 export { createOrganizationSkillsApi } from "./organization-skills/api";
 export {
+  buildOrganizationSkillCatalogPath,
   buildOrganizationSkillEnabledPath,
+  buildOrganizationSkillFilesImportPath,
+  buildOrganizationSkillFilesPreviewPath,
   buildOrganizationSkillGitHubImportPath,
   buildOrganizationSkillGitHubPreviewPath,
   buildOrganizationSkillMaintainersPath,
   buildOrganizationSkillPath,
+  buildOrganizationSkillRepositoryPreviewPath,
+  buildOrganizationSkillResourcePath,
   buildOrganizationSkillsPath,
 } from "./organization-skills/routes";
 export type {

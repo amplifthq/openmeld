@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { getPersonalRemoteAgentTools } from "../agent-core/personal-remote-agent-tools";
 import { buildRemoteAgentSystemPrompt } from "../agent-core/prompt";
+import { createSubmitTurnRequest } from "./fixtures";
 
 describe("personal Remote Agent capabilities", () => {
   it("keeps old Core submissions on the existing tool contract during rollout", () => {
@@ -12,6 +13,7 @@ describe("personal Remote Agent capabilities", () => {
       "openmeld_read_space_messages",
       "openmeld_read_space_members",
       "openmeld_wake_agent_in_space",
+      "openmeld_set_reply_placement",
     ]);
   });
   it("exposes only current conversation reading and explicit same-Space handoffs", async () => {
@@ -32,9 +34,10 @@ describe("personal Remote Agent capabilities", () => {
       "openmeld_read_space_messages",
       "openmeld_read_space_members",
       "openmeld_wake_agent_in_space",
+      "openmeld_set_reply_placement",
     ]);
-    const [, , messages, members, wake] = tools;
-    if (!(messages && members && wake)) {
+    const [, , messages, members, wake, placement] = tools;
+    if (!(messages && members && wake && placement)) {
       throw new Error("expected personal collaboration tools");
     }
     await members.execute({});
@@ -60,11 +63,27 @@ describe("personal Remote Agent capabilities", () => {
       })
     ).rejects.toThrow();
     expect(call).toHaveBeenCalledTimes(2);
+    call.mockResolvedValueOnce({
+      kind: "reply_placement",
+      placement: {
+        dispatchId: "dispatch-1",
+        sourceSignalId: "source-1",
+        profileId: "agent-1",
+        locked: true,
+        threadContext: null,
+      },
+    });
+    await placement.execute({ placement: "conversation" });
+    expect(call).toHaveBeenLastCalledWith({
+      submissionId: "accepted-submission",
+      operation: { kind: "reply_placement", placement: "conversation" },
+    });
   });
 
   it("does not include Center Agent private memory or Organization material in the personal prompt", () => {
     const prompt = buildRemoteAgentSystemPrompt({
       personalAgent: true,
+      turnEnvelope: createSubmitTurnRequest().turnEnvelope,
       organizationBrief: "private-organization-brief",
       organizationDocumentTitles: ["private-document-title"],
       organizationProtectedInformation: "private-protected-value",
@@ -73,5 +92,6 @@ describe("personal Remote Agent capabilities", () => {
     expect(prompt).not.toContain("private-document-title");
     expect(prompt).not.toContain("private-protected-value");
     expect(prompt).toContain("A normal reply does not wake anyone");
+    expect(prompt).toContain("openmeld_set_reply_placement");
   });
 });

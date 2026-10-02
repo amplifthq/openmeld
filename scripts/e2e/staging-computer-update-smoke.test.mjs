@@ -22,8 +22,8 @@ import {
 } from "./staging-computer-update-smoke-local.mjs";
 import { formatStagingSmokeCleanupMessage } from "./staging-computer-update-smoke-runner.mjs";
 
-const SETUP_DOWNLOAD_SCRIPT = `setup_file=$(mktemp "\${TMPDIR:-/tmp}/openmeld-setup.XXXXXX") || exit 1; trap 'rm -f "$setup_file"' EXIT; curl -fsSL --proto '=https' --proto-redir '=https' --connect-timeout 10 --speed-limit 1 --speed-time 30 -o "$setup_file" "$1" || exit 1; [ -s "$setup_file" ] || { echo 'OpenMeld setup download was empty.' >&2; exit 1; }; [ "$(tail -n 1 "$setup_file")" = '# openmeld-setup-script-complete-v1' ] || { echo 'OpenMeld setup download was incomplete.' >&2; exit 1; }; shift; sh "$setup_file" "$@" < /dev/null`;
-const SETUP_COMMAND_PREFIX = `sh -c '${SETUP_DOWNLOAD_SCRIPT.replaceAll("'", "'\\''")}' sh 'https://staging.openmeld.ai/setup?dist=binary&lane=canary' `;
+const SETUP_COMMAND_PREFIX =
+  "curl -fsSL --proto '=https' --proto-redir '=https' 'https://staging.openmeld.ai/setup?dist=binary&lane=canary' | sh -s -- ";
 const SETUP_COMMAND = `${SETUP_COMMAND_PREFIX}setup --start-session start_staging_demo --device-code device_staging_demo --view human`;
 const LEGACY_OTT_SETUP_COMMAND = `${SETUP_COMMAND_PREFIX}setup --start-session start_staging_demo --ott ott_staging_demo --view human`;
 const SETUP_FILE_REQUIRED_PATTERN = /requires --setup-command-file/u;

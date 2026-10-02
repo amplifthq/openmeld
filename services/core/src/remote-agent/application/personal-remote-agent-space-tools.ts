@@ -6,6 +6,10 @@ import {
 } from "@openmeld/schemas";
 import { buildCenterAgentContextMessageProjection } from "../../center-agent/application/center-agent-context-manifest-service";
 import {
+  isCenterAgentDesignationActive,
+  readCenterAgentDesignationRecord,
+} from "../../center-agent/center-agent-repository";
+import {
   type CoreBindings,
   identityDb,
   wakeEvidenceDb,
@@ -26,8 +30,10 @@ import {
   readRemoteAgentNativeDeliveryByIdempotencyKey,
   readRemoteAgentNativeDeliveryBySubmissionId,
 } from "../infrastructure/d1/native-delivery-ledger-repo";
+import { isNativeDeliveryExecutingStatus } from "./native-delivery-execution-status";
 import { requirePersonalRemoteAgentBinding } from "./personal-remote-agent-binding";
 import { resolveRemoteAgentNativeDeliveryRuntimeConversationId } from "./remote-agent-conversation-continuity";
+import { resolveNativeDeliveryReplyPlacement } from "./reply-placement";
 
 export async function requirePersonalRemoteAgentExecution(
   env: CoreBindings,
@@ -60,7 +66,7 @@ export async function requirePersonalRemoteAgentExecution(
   if (
     !delivery ||
     (!preparingSkills &&
-      (delivery.status !== "accepted" ||
+      (!isNativeDeliveryExecutingStatus(delivery.status) ||
         delivery.submissionId !== submissionId))
   ) {
     throw new Error("remote_agent.execution_not_active");
@@ -112,13 +118,13 @@ export async function requirePersonalRemoteAgentExecution(
   if (!(agent && requester)) {
     throw new Error("remote_agent.space_membership_revoked");
   }
-  const activeRequester = await db
-    .prepare(
-      `SELECT p.profile_id FROM openmeld_profiles p JOIN members m ON m.user_id = p.owner_user_id AND m.organization_id = ? WHERE p.profile_id = ? AND p.status = 'active' LIMIT 1`
-    )
-    .bind(delivery.organizationId, request.author.profileId)
-    .first();
-  if (!activeRequester) {
+  if (
+    !(await isActiveRemoteAgentRequesterProfile({
+      db,
+      organizationId: delivery.organizationId,
+      profileId: request.author.profileId,
+    }))
+  ) {
     throw new Error("remote_agent.requester_membership_revoked");
   }
   return {
@@ -132,6 +138,50 @@ export async function requirePersonalRemoteAgentExecution(
   };
 }
 
+/**
+ * The author of a Wake is the requester whose authority the Agent runs under.
+ * It is either a Profile owned by an active member (a human, or a member's own
+ * Agent), or the Organization's designated Center Agent. The Center Agent has
+ * no owner: it delegates on behalf of the verified member who asked it to, and
+ * Core already authorized that delegation before publishing the Wake.
+ */
+export async function isActiveRemoteAgentRequesterProfile(input: {
+  db: D1Database;
+  organizationId: string;
+  profileId: string | null;
+}): Promise<boolean> {
+  if (!input.profileId) {
+    return false;
+  }
+  const memberProfile = await input.db
+    .prepare(
+      `SELECT p.profile_id FROM openmeld_profiles p JOIN members m ON m.user_id = p.owner_user_id AND m.organization_id = ? WHERE p.profile_id = ? AND p.status = 'active' LIMIT 1`
+    )
+    .bind(input.organizationId, input.profileId)
+    .first();
+  if (memberProfile) {
+    return true;
+  }
+  const designation = await readCenterAgentDesignationRecord({
+    db: input.db,
+    organizationId: input.organizationId,
+  });
+  if (
+    !designation ||
+    designation.agentProfileId !== input.profileId ||
+    !isCenterAgentDesignationActive(designation)
+  ) {
+    return false;
+  }
+  const centerAgentProfile = await input.db
+    .prepare(
+      `SELECT profile_id FROM openmeld_profiles WHERE profile_id = ? AND organization_id = ? AND status = 'active' AND profile_kind = 'agent' AND managed_role = 'center_agent' AND owner_user_id IS NULL LIMIT 1`
+    )
+    .bind(input.profileId, input.organizationId)
+    .first();
+  return Boolean(centerAgentProfile);
+}
+
 export async function runPersonalRemoteAgentSpaceTool(
   env: CoreBindings,
   value: unknown
@@ -142,6 +192,21 @@ export async function runPersonalRemoteAgentSpaceTool(
   if (input.operation.kind === "authorize") {
     return personalRemoteAgentSpaceToolResponseSchema.parse({
       kind: "authorize",
+    });
+  }
+  if (input.operation.kind === "reply_placement") {
+    const placement = await resolveNativeDeliveryReplyPlacement({
+      env,
+      delivery,
+      lock: true,
+      placement: input.operation.placement,
+    });
+    if (!placement) {
+      throw new Error("remote_agent.reply_placement_unavailable");
+    }
+    return personalRemoteAgentSpaceToolResponseSchema.parse({
+      kind: "reply_placement",
+      placement,
     });
   }
   if (input.operation.kind === "board") {
@@ -211,6 +276,11 @@ export async function runPersonalRemoteAgentSpaceTool(
     throw new Error("remote_agent.collaboration_limit_reached");
   }
   const operation = input.operation;
+  const placement = await resolveNativeDeliveryReplyPlacement({
+    env,
+    delivery,
+    lock: false,
+  });
   const target = directory.members.find(
     (member) => member.profileId === operation.agentProfileId
   );
@@ -245,6 +315,9 @@ export async function runPersonalRemoteAgentSpaceTool(
     }),
     spaceId: delivery.spaceId,
     text: input.operation.text,
+    ...(placement?.threadContext
+      ? { threadContext: placement.threadContext }
+      : {}),
   });
   return personalRemoteAgentSpaceToolResponseSchema.parse({
     kind: "wake",

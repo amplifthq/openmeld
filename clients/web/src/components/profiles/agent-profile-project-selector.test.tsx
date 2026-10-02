@@ -401,6 +401,56 @@ describe("AgentProfileProjectSelector folder moves", () => {
 		);
 	});
 
+	it("closes a folder move confirmation if the Agent starts working", async () => {
+		connectCandidate.mockResolvedValueOnce({
+			code: "path_conflict",
+			conflictingProjectSlug: "client-app",
+			conflictScope: "another_organization",
+			message: "path conflict",
+			moveConfirmationToken: "move-confirmation-1",
+			moveImpact: "only_connection",
+			status: "rejected",
+		});
+		const queryClient = createTestQueryClient();
+		const selector = (localFolderChangesBlocked: boolean) => (
+			<TestQueryClientProvider queryClient={queryClient}>
+				<AgentProfileProjectSelector
+					disabled={false}
+					localFolderChangesBlocked={localFolderChangesBlocked}
+					manualPath=""
+					onConnectionReady={vi.fn()}
+					onManualPathChange={vi.fn()}
+					onProjectChange={vi.fn()}
+					organizationId="org-1"
+					projectId="project-1"
+					projects={[project()]}
+					selectedBindingGeneration={null}
+				/>
+			</TestQueryClientProvider>
+		);
+		const view = testingRender(selector(false));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Connect and continue" })
+		);
+		await screen.findByRole("heading", {
+			name: "Move this folder to OpenMeld?",
+		});
+
+		view.rerender(selector(true));
+
+		await waitFor(() =>
+			expect(
+				screen.queryByRole("heading", {
+					name: "Move this folder to OpenMeld?",
+				})
+			).toBeNull()
+		);
+		expect(connectCandidate).toHaveBeenCalledTimes(1);
+		expect(
+			screen.getByRole("button", { name: "Connect and continue" })
+		).toHaveProperty("disabled", true);
+	});
+
 	it("rechecks stale move impact before showing a new confirmation", async () => {
 		connectCandidate
 			.mockResolvedValueOnce({

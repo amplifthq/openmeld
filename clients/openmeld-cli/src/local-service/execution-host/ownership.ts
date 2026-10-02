@@ -8,11 +8,22 @@ import { serviceExecutionHostOwnerSchema } from "@openmeld/schemas";
 import { z } from "zod/v4";
 import { acquireLock, releaseLock } from "../../config/lock";
 import { systemDir } from "../../config/paths";
+import {
+  CURRENT_PROCESS_START_IDENTITY,
+  isProcessIdentityAlive,
+  readProcessStartIdentity,
+} from "../../system/process-identity";
 import { ExecutionHostError } from "./channel";
 
 const run = promisify(execFile);
 const WINDOWS_BOOT_EVENT = /^\d+:\d+$/;
 const DECIMAL = /^\d+$/;
+
+type OwnedProcessEvent = {
+  phase: "process_exit" | "process_spawned";
+  processId: number | null;
+  signalTarget: "process" | "process_group";
+};
 
 export async function readExecutionHostBootIdentity(): Promise<string | null> {
   try {
@@ -126,7 +137,8 @@ export async function acquireExecutionHostOwnership(input: {
     if (
       previous &&
       !previous.localQuiescent &&
-      !confirmsNewBoot(previous.bootIdentity, input.bootIdentity)
+      !confirmsNewBoot(previous.bootIdentity, input.bootIdentity) &&
+      !canRecoverPreviousOwnerOnSameBoot(previous)
     ) {
       throw new ExecutionHostError(
         "host.previous_work_unconfirmed",
@@ -134,14 +146,17 @@ export async function acquireExecutionHostOwnership(input: {
       );
     }
     let owner = serviceExecutionHostOwnerSchema.parse({
-      schema: "service-execution-host-owner-v1",
+      schema: "service-execution-host-owner-v2",
       hostInstanceId: input.hostInstanceId,
       ownerUserId: input.ownerUserId,
       deviceId: input.deviceId,
       lane: input.lane,
       pid: process.pid,
+      processStartedAt: CURRENT_PROCESS_START_IDENTITY,
       bootIdentity: input.bootIdentity,
       localQuiescent: true,
+      processEvidenceComplete: true,
+      ownedProcessTrees: [],
     });
     persist(owner);
     function persist(next: typeof owner) {
@@ -158,9 +173,64 @@ export async function acquireExecutionHostOwnership(input: {
         if (owner.localQuiescent === quiescent) {
           return;
         }
-        const next = { ...owner, localQuiescent: quiescent };
+        const next = {
+          ...owner,
+          localQuiescent: quiescent,
+          ...(owner.schema === "service-execution-host-owner-v2"
+            ? {
+                processEvidenceComplete: quiescent,
+                ...(quiescent ? { ownedProcessTrees: [] } : {}),
+              }
+            : {}),
+        };
         // The unsafe transition is durable before any provider operation. A
         // failed write refuses that operation rather than weakening the fence.
+        persist(next);
+        owner = next;
+      },
+      observeOwnedProcess(event: OwnedProcessEvent) {
+        if (owner.schema !== "service-execution-host-owner-v2") {
+          return;
+        }
+        if (event.phase === "process_spawned") {
+          if (event.processId === null) {
+            const next = { ...owner, processEvidenceComplete: false };
+            persist(next);
+            owner = next;
+            return;
+          }
+          const processStartedAt =
+            readProcessStartIdentity(event.processId) ??
+            `fallback:${event.processId}:unknown`;
+          const next = {
+            ...owner,
+            processEvidenceComplete: true,
+            ownedProcessTrees: [
+              ...owner.ownedProcessTrees.filter(
+                (process) => process.pid !== event.processId
+              ),
+              {
+                pid: event.processId,
+                processStartedAt,
+                signalTarget: event.signalTarget,
+              },
+            ],
+          };
+          persist(next);
+          owner = next;
+          return;
+        }
+        if (event.processId === null) {
+          return;
+        }
+        const next = {
+          ...owner,
+          ownedProcessTrees: owner.ownedProcessTrees.filter(
+            (process) =>
+              process.pid !== event.processId ||
+              isOwnedProcessTreeAlive(process)
+          ),
+        };
         persist(next);
         owner = next;
       },
@@ -170,6 +240,50 @@ export async function acquireExecutionHostOwnership(input: {
     await releaseLock(lock);
     throw error;
   }
+}
+
+function canRecoverPreviousOwnerOnSameBoot(
+  previous: ReturnType<typeof readOwner>
+): boolean {
+  if (
+    !previous ||
+    previous.schema !== "service-execution-host-owner-v2" ||
+    !previous.processEvidenceComplete ||
+    isProcessIdentityAlive({
+      ownerPid: previous.pid,
+      ownerProcessStartedAt: previous.processStartedAt,
+    })
+  ) {
+    return false;
+  }
+  return previous.ownedProcessTrees.every(
+    (process) => !isOwnedProcessTreeAlive(process)
+  );
+}
+
+function isOwnedProcessTreeAlive(input: {
+  pid: number;
+  processStartedAt: string;
+  signalTarget: "process" | "process_group";
+}): boolean {
+  if (input.signalTarget === "process_group" && process.platform !== "win32") {
+    try {
+      process.kill(-input.pid, 0);
+      return true;
+    } catch (error) {
+      return !isNodeError(error, "ESRCH");
+    }
+  }
+  return isProcessIdentityAlive({
+    ownerPid: input.pid,
+    ownerProcessStartedAt: input.processStartedAt,
+  });
+}
+
+function isNodeError(error: unknown, code: string): boolean {
+  return (
+    error instanceof Error && "code" in error && String(error.code) === code
+  );
 }
 
 function readOwner(path: string) {

@@ -1,6 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { AppFullWidthLayout } from "#/components/app/app-full-width-layout";
-import { OrganizationDocumentsPage } from "#/components/organization-documents/organization-documents-page";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/o/$orgSlug/documents/")({
 	validateSearch: (search: Record<string, unknown>) => ({
@@ -9,14 +7,19 @@ export const Route = createFileRoute("/o/$orgSlug/documents/")({
 				? search.folder.trim()
 				: undefined,
 	}),
-	component: DocumentsIndexRoute,
+	beforeLoad: ({ params, search }) => {
+		throw redirect({
+			to: "/o/$orgSlug/files",
+			params,
+			search: {
+				view: "knowledge",
+				folder: search.folder,
+				create: undefined,
+				document: undefined,
+				kind: undefined,
+				subjectUserId: undefined,
+			},
+			replace: true,
+		});
+	},
 });
-
-function DocumentsIndexRoute() {
-	const search = Route.useSearch();
-	return (
-		<AppFullWidthLayout>
-			<OrganizationDocumentsPage folderId={search.folder} />
-		</AppFullWidthLayout>
-	);
-}

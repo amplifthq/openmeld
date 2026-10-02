@@ -11,6 +11,7 @@ import {
   createFinalCandidatePlan,
   evidenceMatchesCandidate,
   executeCandidateChecks,
+  resolveCandidateDependencyScope,
 } from "./final-candidate-policy.mjs";
 
 const BASE_SHA = "1".repeat(40);
@@ -38,6 +39,40 @@ const createPlan = (changedPaths, overrides = {}) =>
   });
 
 const checkIds = (plan) => plan.selectedChecks.map((check) => check.id);
+
+test("documentation tooling needs only root dependencies; executable checks retain the workspace", () => {
+  for (const candidateKind of ["pull-request", "merge-group"]) {
+    for (const confidence of ["standard", "full"]) {
+      assert.equal(
+        resolveCandidateDependencyScope(
+          createPlan(["developing/README.md", "changelog/index.json"], {
+            candidateKind,
+            confidence,
+            mode: "remote",
+          })
+        ),
+        "root"
+      );
+    }
+  }
+  for (const changedPaths of [
+    [],
+    ["clients/web/src/sidebar.tsx"],
+    ["package.json", "README.md"],
+    ["release/openmeld-cli-skill/playbooks/agent-onboarding.md"],
+    ["release/local-components.json"],
+    ["scripts/docs/verify-docs-lifecycle.mjs"],
+  ]) {
+    assert.equal(
+      resolveCandidateDependencyScope(createPlan(changedPaths)),
+      "workspace",
+      changedPaths.join(", ")
+    );
+  }
+  const futurePlan = createPlan(["README.md"]);
+  futurePlan.selectedChecks.push({ id: "new-check" });
+  assert.equal(resolveCandidateDependencyScope(futurePlan), "workspace");
+});
 
 test("Final Candidate checks signed Skill Markdown even when the diff is documentation-only", () => {
   for (const [path, selected] of [
@@ -171,10 +206,10 @@ test("a product change with docs and Changelog runs only their static contracts"
   ]);
 });
 
-test("uses strict release-ready verification only on an exact versioned release branch", () => {
+test("a stamped candidate uses strict release-ready verification on any branch", () => {
   const plan = createPlan(
     ["clients/openmeld-cli/package.json", "release/local-components.json"],
-    { branchName: "codex/release-0.4.0-1234abcd" }
+    { branchName: "codex/feature-and-release" }
   );
 
   assert.deepEqual(
@@ -185,7 +220,16 @@ test("uses strict release-ready verification only on an exact versioned release 
   );
 });
 
-test("delivery infrastructure runs its behavior contracts without an empty Turbo lane", () => {
+test("CLI package metadata alone does not force a release stamp", () => {
+  const plan = createPlan(["clients/openmeld-cli/package.json"]);
+  assert.ok(
+    plan.selectedChecks
+      .find((check) => check.id === "local-components-release-ready")
+      .command.includes("--defer-release")
+  );
+});
+
+test("delivery infrastructure relies on focused owner tests before Ready", () => {
   const plan = createPlan([
     ".github/workflows/final-candidate.yml",
     "scripts/ci/final-candidate.mjs",
@@ -195,12 +239,11 @@ test("delivery infrastructure runs its behavior contracts without an empty Turbo
     "diff-integrity",
     "trusted-control-entrypoints",
     "repository-code-quality",
-    "repository-contracts",
   ]);
   assert.ok(plan.riskTags.includes("delivery-infrastructure"));
 });
 
-test("a scripts and Web mixed diff retains control and affected workspace checks", () => {
+test("a scripts and Web mixed diff avoids a repository-wide rerun", () => {
   const plan = createPlan([
     "scripts/ci/final-candidate.mjs",
     "clients/web/src/app.tsx",
@@ -210,7 +253,6 @@ test("a scripts and Web mixed diff retains control and affected workspace checks
     "diff-integrity",
     "trusted-control-entrypoints",
     "repository-code-quality",
-    "repository-contracts",
   ]);
 });
 
@@ -235,7 +277,7 @@ test("a pure delivery infrastructure diff skips only the empty affected lane", (
   );
 });
 
-test("delivery infrastructure with its owner docs and Changelog skips the empty affected lane", () => {
+test("delivery infrastructure with docs checks only its relevant static contracts", () => {
   const plan = createPlan([
     "scripts/ci/final-candidate-reuse.mjs",
     "scripts/ci/final-candidate-reuse.test.mjs",
@@ -247,15 +289,17 @@ test("delivery infrastructure with its owner docs and Changelog skips the empty 
     "diff-integrity",
     "trusted-control-entrypoints",
     "repository-code-quality",
-    "repository-contracts",
+    "documentation-contracts",
+    "changelog-contract",
   ]);
   assert.deepEqual(plan.riskTags, ["executable", "delivery-infrastructure"]);
 });
 
-test("an unclassified operations script retains repository contracts", () => {
+test("an unclassified operations script does not trigger repository-wide contracts", () => {
   const plan = createPlan(["scripts/ops/rebuild-search-index.mjs"]);
 
   assert.ok(!checkIds(plan).includes("affected-unit-tests"));
+  assert.ok(!checkIds(plan).includes("repository-contracts"));
   assert.ok(!plan.riskTags.includes("delivery-infrastructure"));
 });
 

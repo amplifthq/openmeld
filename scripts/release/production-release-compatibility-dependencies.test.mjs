@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import test from "node:test";
 
 import {
@@ -26,6 +27,137 @@ const WINDOWS_PREVIEW_PATHS = [
 ];
 const PENDING_RECEIVER = /pending prerequisite/u;
 const CONTRACT_CYCLE = /incompatible.*dependencies/iu;
+const REMOTE_AI_USAGE = [
+  "packages/schemas/src/schemas/ai-usage.ts",
+  "services/core/src/usage/ai-usage-rpc.ts",
+  "services/remote-agent/agent-core/ai-usage.ts",
+];
+
+// The bridge witnesses this exact historical source, not the moving checkout.
+// Final Candidate already requires complete Git history. Keep the production
+// digest and drift fence intact instead of re-blessing later protocol changes.
+const REVIEWED_SOURCE_SHA = "b660a196af4f24c6a4f4cf3a38cf4ef83b90431b";
+const reviewedSources = new Map();
+function readReviewedSource(path) {
+  if (!reviewedSources.has(path)) {
+    reviewedSources.set(
+      path,
+      execFileSync("git", ["show", `${REVIEWED_SOURCE_SHA}:${path}`], {
+        cwd: new URL("../../", import.meta.url),
+        encoding: "utf8",
+      })
+    );
+  }
+  return reviewedSources.get(path);
+}
+
+test("admits the reviewed Core request bridge while retaining the metering receiver dependency", () => {
+  const base = "e4454cf165b96c7f918e420f28205c2b2ed3c575";
+  const sourceSha = REVIEWED_SOURCE_SHA;
+  const readGitFile = (ref, path) =>
+    ref === base
+      ? "// Core before the metering receiver was introduced."
+      : readReviewedSource(path);
+  const paths = [
+    ...REMOTE_AI_USAGE,
+    "services/remote-agent/.flue/cloudflare.ts",
+  ];
+  const plan = buildProductionReleasePlan({
+    base,
+    sourceSha,
+    changedPaths: paths,
+    scope: "core,remote-agent",
+    readGitFile,
+  });
+  assert.deepEqual(plan.deployScopeOrder, ["core", "remote-agent"]);
+  assert.deepEqual(plan.compatibilityDependencies, [["core", "remote-agent"]]);
+  assert.equal(
+    plan.compatibilityBridges[0].kind,
+    "negotiated-remote-task-attribution"
+  );
+  assert.equal(plan.compatibilityBridges[0].baselineSha, base);
+  const components = [
+    { scope: "core", state: "pending", sha: base, ...plan },
+    { scope: "remote-agent", state: "pending", sha: base, ...plan },
+  ];
+  assert.doesNotThrow(() =>
+    assertProductionStageAdmission({
+      components,
+      sourceSha,
+      selectedScopes: ["core"],
+    })
+  );
+  assert.throws(
+    () =>
+      assertProductionStageAdmission({
+        components,
+        sourceSha,
+        selectedScopes: ["remote-agent"],
+      }),
+    PENDING_RECEIVER
+  );
+});
+
+for (const fault of ["source_drift", "missing_history", "unknown_baseline"]) {
+  test(`refuses to reuse the request bridge after ${fault}`, () => {
+    const base =
+      fault === "unknown_baseline"
+        ? "b".repeat(40)
+        : "e4454cf165b96c7f918e420f28205c2b2ed3c575";
+    assert.throws(
+      () =>
+        buildProductionReleasePlan({
+          base,
+          sourceSha: "a".repeat(40),
+          scope: "core,remote-agent",
+          changedPaths: [
+            ...REMOTE_AI_USAGE,
+            "services/remote-agent/.flue/cloudflare.ts",
+          ],
+          readGitFile: (_ref, path) => {
+            if (fault === "missing_history") {
+              throw new Error("missing source");
+            }
+            const source = readReviewedSource(path);
+            return fault === "source_drift" &&
+              path.endsWith("remote-agent-worker.ts")
+              ? `${source}\n// different contract`
+              : source;
+          },
+        }),
+      CONTRACT_CYCLE
+    );
+  });
+}
+
+test("does not hide the Core metering receiver behind Remote request receiver order", () => {
+  const paths = [
+    ...REMOTE_AI_USAGE,
+    "services/remote-agent/.flue/cloudflare.ts",
+  ];
+  const edges = resolveProductionCompatibilityDependencies(paths);
+  assert.ok(
+    edges.some(
+      ([receiver, producer]) =>
+        receiver === "core" && producer === "remote-agent"
+    )
+  );
+  assert.ok(
+    edges.some(
+      ([receiver, producer]) =>
+        receiver === "remote-agent" && producer === "core"
+    )
+  );
+  assert.throws(
+    () =>
+      buildProductionReleasePlan({
+        changedPaths: paths,
+        sourceSha: "a".repeat(40),
+        scope: "core,remote-agent",
+      }),
+    CONTRACT_CYCLE
+  );
+});
 const INBOX_OBSERVATIONS = [
   "packages/schemas/src/schemas/http/inbox.ts",
   "services/core/src/inbox/application/inbox-notification-observations.ts",
@@ -352,6 +484,86 @@ test("requires every strict worker-response reader before the Remote producer", 
       ["gateway", "remote-agent"],
       ["web", "remote-agent"],
     ]
+  );
+});
+
+test("does not invent a worker-response change for the reviewed hosted progress bridge", () => {
+  const before = [
+    "export const reasons = {",
+    '  TURN_FAILED: "remote_agent.turn.failed",',
+    "};",
+    "export const callbacks = z.union([",
+    '  z.strictObject({ kind: z.literal("text") }),',
+    "]);",
+    "",
+  ].join("\n");
+  const after = before
+    .replace(
+      '  TURN_FAILED: "remote_agent.turn.failed",\n',
+      '  TURN_OUTPUT_LIMIT_EXCEEDED: "remote_agent.turn.output_limit_exceeded",\n  TURN_FAILED: "remote_agent.turn.failed",\n'
+    )
+    .replace(
+      '  z.strictObject({ kind: z.literal("text") }),\n',
+      [
+        '  z.strictObject({ kind: z.literal("text") }),',
+        "  z.strictObject({",
+        "    ...typedRemoteAgentStreamDeltaCallbackIdentitySchema,",
+        '    kind: z.literal("progress"),',
+        '    source: z.literal("hosted.public_progress"),',
+        "  }),",
+        "",
+      ].join("\n")
+    );
+  const changedPaths = [
+    "packages/schemas/src/schemas/runtime/remote-agent-worker.ts",
+    "services/core/src/remote-agent/application/native-delivery-service.ts",
+    "services/remote-agent/.flue/agents/center-agent.ts",
+    "services/remote-agent/.flue/cloudflare.ts",
+    "services/remote-agent/flue-adapter/streaming.ts",
+  ];
+  const streamSource = [
+    'response.reasonCode === "agent_stream.invalid"',
+    "state.sequence = previousSequence",
+    "transientState.progressUnsupported = true",
+  ].join("\n");
+  const planWith = (schemaAfter, streamAfter = streamSource) =>
+    buildProductionReleasePlan({
+      affectedPackages: [],
+      base: "b".repeat(40),
+      changedPaths,
+      readGitFile: (ref, path) => {
+        if (path.endsWith("streaming.ts")) {
+          return streamAfter;
+        }
+        return ref === "b".repeat(40) ? before : schemaAfter;
+      },
+      scope: "core,remote-agent",
+      sourceSha: "a".repeat(40),
+    });
+
+  const bridge = planWith(after);
+  assert.equal(bridge.deployOrderProfile, "remote-agent-receiver-first");
+  assert.deepEqual(bridge.deployScopeOrder, ["remote-agent", "core"]);
+  assert.deepEqual(bridge.compatibilityDependencies, [
+    ["remote-agent", "core"],
+  ]);
+  assert.equal(bridge.changedPaths.includes(changedPaths[0]), true);
+
+  const responseChange = planWith(`${after}export const newResponse = true;\n`);
+  assert.equal(
+    responseChange.compatibilityDependencies.some(
+      ([receiver, producer]) =>
+        receiver === "core" && producer === "remote-agent"
+    ),
+    true
+  );
+  const missingBridge = planWith(after, "no compatibility bridge");
+  assert.equal(
+    missingBridge.compatibilityDependencies.some(
+      ([receiver, producer]) =>
+        receiver === "core" && producer === "remote-agent"
+    ),
+    true
   );
 });
 
