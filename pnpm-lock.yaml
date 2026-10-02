@@ -813,8 +813,8 @@ importers:
         specifier: workspace:*
         version: link:../schemas
       semver:
-        specifier: 7.8.5
-        version: 7.8.5
+        specifier: 7.7.4
+        version: 7.7.4
     devDependencies:
       '@types/node':
         specifier: ^24.3.0
