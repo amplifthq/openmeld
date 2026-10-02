@@ -7,6 +7,8 @@ const env = { OPENMELD_SPACE_ACTION_DELIVERY_ONLY: "1" };
 
 for (const scenario of [
   "narrow",
+  "newer-prerelease",
+  "prerelease-below-floor",
   "old-controller",
   "same-session",
   "unconfirmed-write",
@@ -27,7 +29,12 @@ for (const scenario of [
       global: {
         health: async () => ({
           healthy: true,
-          version: scenario === "old-controller" ? "1.18.0" : "1.18.31",
+          version:
+            {
+              "old-controller": "1.18.0",
+              "newer-prerelease": "1.18.32-beta.1",
+              "prerelease-below-floor": "1.18.31-rc.1",
+            }[scenario] ?? "1.18.31",
         }),
       },
       config: {
@@ -60,15 +67,7 @@ for (const scenario of [
         sourceSessionId: "original",
         env,
       });
-    if (scenario !== "narrow") {
-      await assert.rejects(execute, {
-        code: "space.action.delivery_only_unverified",
-      });
-      assert.deepEqual(
-        writes,
-        scenario === "unconfirmed-write" ? ["fork"] : []
-      );
-    } else {
+    if (["narrow", "newer-prerelease"].includes(scenario)) {
       await execute();
       assert.deepEqual(writes, ["fork"]);
       assert.deepEqual(
@@ -80,6 +79,14 @@ for (const scenario of [
         ["bash", "read", "edit", "task", "skill", "github_*"].map(
           (permission) => ({ permission, pattern: "*", action: "deny" })
         )
+      );
+    } else {
+      await assert.rejects(execute, {
+        code: "space.action.delivery_only_unverified",
+      });
+      assert.deepEqual(
+        writes,
+        scenario === "unconfirmed-write" ? ["fork"] : []
       );
     }
     assert.deepEqual(sessions.original.permission, original);

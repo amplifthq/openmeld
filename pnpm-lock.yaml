@@ -812,10 +812,16 @@ importers:
       '@openmeld/schemas':
         specifier: workspace:*
         version: link:../schemas
+      semver:
+        specifier: 7.7.4
+        version: 7.7.4
     devDependencies:
       '@types/node':
         specifier: ^24.3.0
         version: 24.10.13
+      '@types/semver':
+        specifier: 7.7.1
+        version: 7.7.1
       oxc-resolver:
         specifier: ^11.0.0
         version: 11.17.1
@@ -1275,6 +1281,9 @@ importers:
       '@openmeld/adapter-core':
         specifier: workspace:*
         version: link:../core
+      '@openmeld/agent-runtime':
+        specifier: workspace:*
+        version: link:../../../packages/agent-runtime
     devDependencies:
       '@types/node':
         specifier: ^24.3.0
@@ -1307,6 +1316,9 @@ importers:
       '@openmeld/adapter-core':
         specifier: workspace:*
         version: link:../core
+      '@openmeld/agent-runtime':
+        specifier: workspace:*
+        version: link:../../../packages/agent-runtime
       zod:
         specifier: 'catalog:'
         version: 4.6.5
@@ -1343,6 +1355,9 @@ importers:
       '@openmeld/adapter-core':
         specifier: workspace:*
         version: link:../core
+      '@openmeld/agent-runtime':
+        specifier: workspace:*
+        version: link:../../../packages/agent-runtime
       smol-toml:
         specifier: 1.7.0
         version: 1.7.0
@@ -1375,6 +1390,9 @@ importers:
       '@openmeld/adapter-core':
         specifier: workspace:*
         version: link:../core
+      '@openmeld/agent-runtime':
+        specifier: workspace:*
+        version: link:../../../packages/agent-runtime
     devDependencies:
       '@types/node':
         specifier: ^24.3.0
