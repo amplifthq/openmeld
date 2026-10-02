@@ -4489,9 +4489,9 @@ describe("Remote Agent native delivery callback service", () => {
             threadRootSignalId: THREAD_CONTEXT.rootSignalId,
           }),
           JSON.stringify({
+            version: 1,
             recipientReasons: ["requester"],
             requestCategory: "action",
-            version: 1,
           }),
           oldItem.id
         )

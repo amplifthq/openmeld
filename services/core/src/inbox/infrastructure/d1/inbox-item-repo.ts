@@ -1,5 +1,6 @@
 import {
   inboxSourceCandidateSchema,
+  inboxSourceFactsSchema,
   inboxSourceTargetSchema,
 } from "@openmeld/schemas";
 import type {
@@ -420,11 +421,14 @@ export async function repairLegacyTaskContinuationInboxItem(input: {
     candidate.recipientUserId,
     candidate.sourceKey,
     JSON.stringify(legacyTarget),
-    JSON.stringify({
-      recipientReasons: ["requester"],
-      requestCategory: "action",
-      version: 1,
-    }),
+    // Match the schema-serialized facts written by the original producer.
+    JSON.stringify(
+      inboxSourceFactsSchema.parse({
+        recipientReasons: ["requester"],
+        requestCategory: "action",
+        version: 1,
+      })
+    ),
     candidate.occurredAtMs,
   ];
   // Preserve identity, read, removal and the failed task's source truth. This
