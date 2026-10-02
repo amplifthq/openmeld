@@ -582,10 +582,9 @@ async function startAndAwaitAppServerTurn(input: {
           };
         }
       } catch (error) {
-        if (
-          error instanceof CodexAppServerTransportError &&
-          error.rpcErrorCode === -32_601
-        ) {
+        const transportError =
+          error instanceof CodexAppServerTransportError ? error : null;
+        if (transportError?.rpcErrorCode === -32_601) {
           return {
             status: "not_applied",
             taskId: input.taskId,
@@ -596,8 +595,8 @@ async function startAndAwaitAppServerTurn(input: {
         // before admitting input (including an ended or different active turn).
         // Internal errors and transport failures do not prove non-application.
         if (
-          error instanceof CodexAppServerTransportError &&
-          (error.rpcErrorCode === -32_600 || error.rpcErrorCode === -32_602)
+          transportError?.rpcErrorCode === -32_600 ||
+          transportError?.rpcErrorCode === -32_602
         ) {
           return {
             status: "not_applied",
@@ -605,11 +604,19 @@ async function startAndAwaitAppServerTurn(input: {
             reasonCode: "execution_input.rejected",
           };
         }
+        return {
+          status: "unconfirmed",
+          taskId: input.taskId,
+          reasonCode: "execution_input.application_unconfirmed",
+          diagnosticCode: transportError?.code ?? "runtime.turn_steer_failed",
+          nativeErrorCode: transportError?.rpcErrorCode,
+        };
       }
       return {
         status: "unconfirmed",
         taskId: input.taskId,
         reasonCode: "execution_input.application_unconfirmed",
+        diagnosticCode: "runtime.turn_steer_receipt_mismatch",
       };
     },
     interrupt: async () => {

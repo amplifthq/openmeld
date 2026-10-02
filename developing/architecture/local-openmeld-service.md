@@ -794,6 +794,8 @@ the model finished acting on it. Native
 method/precondition rejection proves non-application; an internal error,
 missing acknowledgement, or mismatched receipt does not. A steering receipt
 timeout leaves the original execution running and never retries the input.
+Unconfirmed receipts retain a bounded diagnostic code and the native numeric
+error code when present, without forwarding provider error text as product copy.
 The native contract is documented in the
 [Codex App Server reference](https://learn.chatgpt.com/docs/app-server#steer-an-active-turn).
 
