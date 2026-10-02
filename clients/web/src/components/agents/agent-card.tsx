@@ -1,7 +1,8 @@
 import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { FluidCardItem } from "@openmeld/ui/fluid/card";
 import { Link } from "@tanstack/react-router";
-import { type ReactNode, useId } from "react";
+import { type ReactNode, useContext, useId } from "react";
+import { AgentGroupAvatar, AgentGroupContext } from "./agent-group-context";
 import type { AgentCardSelection } from "./agent-list-selection";
 
 export function AgentCard(input: {
@@ -17,6 +18,7 @@ export function AgentCard(input: {
 	selection?: AgentCardSelection;
 }) {
 	const selectionId = useId();
+	const group = useContext(AgentGroupContext);
 	const content = (
 		<>
 			{input.selection && (
@@ -31,9 +33,13 @@ export function AgentCard(input: {
 					type="checkbox"
 				/>
 			)}
-			{input.renderAvatar(56)}
-			<span className="min-w-0 flex-1">
-				<span className="flex min-w-0 items-center gap-1.5">
+			<AgentGroupAvatar profileId={input.profileId}>
+				{input.renderAvatar(56)}
+			</AgentGroupAvatar>
+			<span className={group ? "w-full min-w-0" : "min-w-0 flex-1"}>
+				<span
+					className={`flex min-w-0 items-center gap-1.5 ${group ? "justify-center" : ""}`}
+				>
 					<TooltipHint content={input.name}>
 						<span className="min-w-0 truncate font-medium text-foreground text-sm">
 							{input.name}
@@ -54,8 +60,7 @@ export function AgentCard(input: {
 		"aria-label": `${input.selection ? "Select" : "Open"} ${input.name}`,
 		"aria-describedby": input.describedBy,
 		"data-profile-id": input.profileId,
-		className:
-			"relative flex h-24 w-full items-center gap-3 rounded-md p-4 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring",
+		className: `relative flex w-full items-center gap-3 rounded-md p-4 outline-none focus-visible:ring-2 focus-visible:ring-ring ${group ? "min-h-36 flex-col text-center" : "h-24 text-left"}`,
 		onClick: input.onClick,
 	};
 	let action = (

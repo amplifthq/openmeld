@@ -136,6 +136,17 @@ browser Web has no updater controls.
 
 ### Shared Profile and Organization actions
 
+The Team Agent directory and person Agent directory default to Fluid group cards by local
+Controller and remote model provider. Group disclosure is local presentation
+state; it does not mutate the page or section filters. Filtering precedes grouping,
+and the current sort determines the Agents and first three avatar previews within
+each card. A borderless two-by-two preview shows up to three avatars and the
+remaining count. The section's Expand all control hides group holders and restores
+the original flat Agent cards without changing filters or sorting; Show groups
+restores grouping. Existing view settings also offer Controller, Provider, Model, and
+ungrouped presentation. Bulk selection shows all filtered cards so its visible
+selection scope remains explicit. Center Agent presentation stays separate.
+
 Web and the packaged Desktop renderer use the same fixed `/v1/` business routes.
 `lib/auth-business.server.ts` validates public inputs and safe response projections
 while retaining Auth's original HTTP handlers, permissions, middleware, cookies,

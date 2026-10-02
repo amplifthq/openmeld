@@ -50,6 +50,15 @@ and surrounding interactions remain outside the chart primitive. Use Fluid
 surfaces and controls around charts. Preserve null gaps, escaped tooltip text,
 and reduced-motion loading behavior when refreshing registry source.
 
+`components/folder-component` adapts Rare UI's folder artwork and demo content.
+It exposes controlled open state, a content slot, numeric scaling, and decorative
+composition for an external accessible trigger. Repeated instances use unique
+SVG filter IDs; reduced motion removes travel. Agent grouping and shared avatar
+transitions stay in the Web-owned composition. The upstream license and credit
+are retained beside the source and in the repository README. The Web-owned
+`AgentFolders` composition is retained as an unused alternative; the directory
+uses `AgentGroupCards`, composing Fluid Card and Fluid Nav Menu instead.
+
 `VideoPlayer` composes Media Chrome's controls with shared design tokens and solid
 surfaces. It owns no file fetching, credentials, cache, or Space identity. Global
 media hotkeys are disabled so the chat composer retains its keys.

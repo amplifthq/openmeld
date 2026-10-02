@@ -4,6 +4,7 @@ import {
 	type AgentListItem,
 	buildAgentListItem,
 	EMPTY_AGENT_LIST_FILTERS,
+	groupAgentListItems,
 	matchesAgentListItem,
 	sortAgentListItems,
 	sortAgentOwnerGroups,
@@ -36,6 +37,7 @@ function item(
 		availability: "available",
 		type: "Local Agent",
 		controller: "Codex",
+		provider: "OpenAI",
 		model: "GPT",
 		modelBrand: "OpenAI",
 		agentControllerRef: "builtin:codex",
@@ -51,6 +53,49 @@ describe("shared Agent lists", () => {
 	);
 	const fresh = item("fresh", "2026-09-10T00:00:00Z");
 	const idle = item("idle", "2026-09-08T00:00:00Z");
+	it("keeps local controllers separate from remote providers and respects the filtered order", () => {
+		const remote = {
+			...fresh,
+			profile: { ...fresh.profile, openMeldProfileId: "remote" },
+			type: "Remote Agent",
+			controller: "Remote",
+		};
+		const anthropic = {
+			...remote,
+			provider: "Anthropic",
+			modelBrand: "Anthropic",
+			profile: { ...remote.profile, openMeldProfileId: "anthropic" },
+		};
+		const results = sortAgentListItems(
+			[old, remote, anthropic, idle],
+			"recent"
+		);
+		expect(
+			groupAgentListItems(results, "controller-provider").map(
+				([label, agents]) => [
+					label,
+					agents.map((agent) => agent.profile.openMeldProfileId),
+				]
+			)
+		).toEqual([
+			["Anthropic · Remote", ["anthropic"]],
+			["Codex", ["older-active", "idle"]],
+			["OpenAI · Remote", ["remote"]],
+		]);
+		const filtered = results.filter((agent) =>
+			matchesAgentListItem(agent, {
+				...EMPTY_AGENT_LIST_FILTERS,
+				provider: ["OpenAI"],
+				type: ["Remote Agent"],
+			})
+		);
+		expect(
+			groupAgentListItems(filtered, "provider").map(([label, agents]) => [
+				label,
+				agents.map((agent) => agent.profile.openMeldProfileId),
+			])
+		).toEqual([["OpenAI", ["remote"]]]);
+	});
 	it("places newly created and recently working Agents first with one rule", () => {
 		expect(
 			sortAgentListItems([idle, old, fresh], "recent").map(

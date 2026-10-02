@@ -14,6 +14,7 @@ import {
 	DropdownMenuSubTrigger,
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
+import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { FluidCardGroup } from "@openmeld/ui/fluid/card";
 import { FluidNavMenu } from "@openmeld/ui/fluid/nav-menu";
 import {
@@ -39,6 +40,7 @@ import { type ReactNode, useId, useState } from "react";
 import { SidebarFilterBadge } from "#/components/app/sidebar-filter-badge";
 import { DirectorySearch } from "#/components/directory/directory-search";
 import { ModelBrandIcon } from "#/components/models/model-brand-icon";
+import { AgentGroupCards } from "./agent-group-cards";
 import {
 	AGENT_LIST_FACETS,
 	type AgentListFacet,
@@ -70,18 +72,23 @@ const SORT_ICONS = {
 };
 const GROUPINGS = {
 	none: "None",
+	"controller-provider": "Controller / provider",
 	controller: "Controller",
+	provider: "Provider",
 	model: "Model",
 } as const;
 const GROUPING_ICONS = {
 	none: ListIcon,
+	"controller-provider": SquaresFourIcon,
 	controller: SquaresFourIcon,
+	provider: CloudIcon,
 	model: CpuIcon,
 };
 const FACETS = {
 	type: "Agent type",
 	availability: "Availability",
 	controller: "Controller",
+	provider: "Provider",
 	model: "Model",
 } as const;
 const AVAILABILITY = {
@@ -127,7 +134,7 @@ function FacetIcon({
 			}[value as keyof typeof AVAILABILITY] ?? WarningCircleIcon;
 		return <Icon className="size-4" />;
 	}
-	if (facet === "model") {
+	if (facet === "model" || facet === "provider") {
 		return <ModelBrandIcon brand={item?.modelBrand ?? null} />;
 	}
 	return (
@@ -371,6 +378,35 @@ export function AgentListFilterChips(input: {
 	);
 }
 
+function ExpandAllControl({
+	expanded,
+	label,
+	onClick,
+	grouping,
+}: {
+	expanded: boolean;
+	label: string;
+	onClick: () => void;
+	grouping: AgentListGrouping;
+}) {
+	if (grouping === "none") {
+		return null;
+	}
+	return (
+		<TooltipHint content={expanded ? "Show groups" : "Expand all"}>
+			<Button
+				aria-label={`${expanded ? "Show groups for" : "Expand all"} ${label}`}
+				aria-pressed={expanded}
+				onClick={onClick}
+				size="icon-sm"
+				variant="ghost"
+			>
+				{expanded ? <SquaresFourIcon /> : <ListIcon />}
+			</Button>
+		</TooltipHint>
+	);
+}
+
 export function AgentList(input: {
 	items: readonly AgentListItem[];
 	search?: string;
@@ -388,6 +424,7 @@ export function AgentList(input: {
 	onDelete?: DeleteAgents;
 }) {
 	const [collapsed, setCollapsed] = useState(false);
+	const [expandAll, setExpandAll] = useState(false);
 	const contentId = useId();
 	const [override, setOverride] = useState<AgentListView | null>(null);
 	const [search, setSearch] = useState("");
@@ -437,6 +474,15 @@ export function AgentList(input: {
 							className={`flex items-center gap-1 ${search || override ? "" : "opacity-0 group-focus-within/agent-section:opacity-100 group-hover/agent-section:opacity-100 has-[[data-popup-open]]:opacity-100 has-[input]:opacity-100 [@media(hover:none)]:opacity-100"}`}
 							hidden={collapsed}
 						>
+							<ExpandAllControl
+								expanded={expandAll}
+								grouping={view.grouping}
+								label={input.label}
+								onClick={() => {
+									selection.reset();
+									setExpandAll(!expandAll);
+								}}
+							/>
 							<DirectorySearch
 								label={`Search ${input.label}`}
 								onChange={(value) => {
@@ -484,28 +530,16 @@ export function AgentList(input: {
 			<div className="space-y-3" hidden={collapsed} id={contentId}>
 				{selection.toolbar}
 				{displayed.length ? (
-					groupAgentListItems(displayed, view.grouping).map(
-						([label, items]) => (
-							<div className="space-y-2" key={label}>
-								{label && (
-									<h3 className="text-muted-foreground text-xs">
-										{label} · {items.length}
-									</h3>
-								)}
-								<FluidCardGroup>
-									<FluidNavMenu
-										activeValue={null}
-										aria-label={label || input.label}
-										className="[&_[data-sidebar=menu]]:grid [&_[data-sidebar=menu]]:gap-3 [&_[data-sidebar=menu]]:md:grid-cols-2 [&_[data-sidebar=menu]]:xl:grid-cols-3"
-									>
-										{items.map((item, index) =>
-											input.renderCard(item, index, selection.card(item))
-										)}
-									</FluidNavMenu>
-								</FluidCardGroup>
-							</div>
-						)
-					)
+					<AgentListResults
+						flat={selection.active || expandAll}
+						grouping={view.grouping}
+						items={displayed}
+						label={input.label}
+						onToggle={selection.reset}
+						renderCard={(item, index) =>
+							input.renderCard(item, index, selection.card(item))
+						}
+					/>
 				) : (
 					<div className="space-y-2 py-4 text-muted-foreground text-sm">
 						<p>
@@ -531,5 +565,43 @@ export function AgentList(input: {
 				)}
 			</div>
 		</section>
+	);
+}
+
+function AgentListResults({
+	flat,
+	items,
+	grouping,
+	label,
+	renderCard,
+	onToggle,
+}: {
+	flat: boolean;
+	items: AgentListItem[];
+	grouping: AgentListGrouping;
+	label: string;
+	renderCard: (item: AgentListItem, index: number) => ReactNode;
+	onToggle: () => void;
+}) {
+	if (!flat && grouping !== "none") {
+		return (
+			<AgentGroupCards
+				groups={groupAgentListItems(items, grouping)}
+				key={grouping}
+				onToggle={onToggle}
+				renderCard={renderCard}
+			/>
+		);
+	}
+	return (
+		<FluidCardGroup>
+			<FluidNavMenu
+				activeValue={null}
+				aria-label={label}
+				className="[&_[data-sidebar=menu]]:grid [&_[data-sidebar=menu]]:gap-3 [&_[data-sidebar=menu]]:md:grid-cols-2 [&_[data-sidebar=menu]]:xl:grid-cols-3"
+			>
+				{items.map(renderCard)}
+			</FluidNavMenu>
+		</FluidCardGroup>
 	);
 }

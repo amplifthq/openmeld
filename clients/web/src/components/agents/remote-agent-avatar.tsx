@@ -32,6 +32,7 @@ type AgentAvatarProps = Omit<FluidAvatarProps, "seed" | "fallback" | "size"> & {
 	clickable?: boolean;
 	preview?: boolean;
 	fallbackTestId?: string;
+	variant?: "default" | "plain";
 };
 
 export function RemoteAgentAvatar(input: AgentAvatarProps) {
@@ -59,6 +60,7 @@ function AgentAvatarPresentation({
 	agentControllerRef,
 	preview: _preview,
 	fallbackTestId,
+	variant = "default",
 	working = false,
 	clickable = false,
 	animated = working,
@@ -153,19 +155,24 @@ function AgentAvatarPresentation({
 			aria-hidden="true"
 			{...identityAttributes}
 			className={cn(
-				"inline-flex shrink-0 items-center justify-center overflow-hidden bg-surface-2 text-foreground",
+				"inline-flex shrink-0 items-center justify-center overflow-hidden text-foreground",
+				variant !== "plain" && "bg-surface-2",
 				shape === "circle" ? "rounded-full" : "rounded-[22%]",
 				className
 			)}
 			style={{ width: size, height: size }}
 		>
 			{identity.icon === "agent" ? (
-				<RobotIcon className="h-3/5 w-3/5" data-testid={fallbackTestId} />
+				<RobotIcon
+					className={variant === "plain" ? "h-full w-full" : "h-3/5 w-3/5"}
+					data-testid={fallbackTestId}
+				/>
 			) : (
 				<LocalAgentLogo
 					agentId={identity.icon}
 					className="h-full w-full"
 					size="md"
+					variant={variant}
 				/>
 			)}
 		</span>

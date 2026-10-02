@@ -13,19 +13,31 @@ import { formatLocalAgentDisplayName } from "#/components/profiles/local-agent-d
 import { resolveAgentProfileModel } from "#/lib/profiles/agent-profile-model-display";
 
 export type AgentListSort = "recent" | "created" | "name";
-export type AgentListFacet = "type" | "availability" | "controller" | "model";
+export type AgentListFacet =
+	| "type"
+	| "availability"
+	| "controller"
+	| "provider"
+	| "model";
 export type AgentListFilters = Record<AgentListFacet, string[]>;
-export type AgentListGrouping = "none" | "controller" | "model";
+export type AgentListGrouping =
+	| "none"
+	| "controller-provider"
+	| "controller"
+	| "provider"
+	| "model";
 export const EMPTY_AGENT_LIST_FILTERS: AgentListFilters = {
 	type: [],
 	availability: [],
 	controller: [],
+	provider: [],
 	model: [],
 };
 export const AGENT_LIST_FACETS = [
 	"type",
 	"availability",
 	"controller",
+	"provider",
 	"model",
 ] as const;
 export type AgentListItem = {
@@ -34,6 +46,7 @@ export type AgentListItem = {
 	availability: string;
 	type: string;
 	controller: string;
+	provider: string;
 	model: string;
 	modelBrand: string | null;
 	modelId?: string | null;
@@ -112,6 +125,9 @@ export function buildAgentListItem(input: {
 		model: model.catalogModel?.displayName ?? model.modelId ?? "Unknown model",
 		modelBrand: modelBrandName(model.modelId, model.catalogModel?.displayName),
 		modelId: model.modelId,
+		provider:
+			modelBrandName(model.modelId, model.catalogModel?.displayName) ??
+			"Unknown provider",
 		agentControllerRef: ref,
 	};
 	return {
@@ -182,7 +198,15 @@ export function groupAgentListItems(
 ) {
 	const groups = new Map<string, AgentListItem[]>();
 	for (const item of items) {
-		const key = grouping === "none" ? "" : item[grouping];
+		let key = "";
+		if (grouping === "controller-provider") {
+			key =
+				item.type === "Remote Agent"
+					? `${item.provider} · Remote`
+					: item.controller;
+		} else if (grouping !== "none") {
+			key = item[grouping];
+		}
 		const group = groups.get(key) ?? [];
 		group.push(item);
 		groups.set(key, group);
