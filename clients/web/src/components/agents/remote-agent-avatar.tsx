@@ -44,6 +44,7 @@ type AgentAvatarProps = Omit<FluidAvatarProps, "seed" | "fallback" | "size"> & {
 	followPointer?: boolean;
 	preview?: boolean;
 	fallbackTestId?: string;
+	variant?: "default" | "plain";
 };
 
 export function RemoteAgentAvatar(input: AgentAvatarProps) {
@@ -84,6 +85,7 @@ function AgentAvatarPresentation({
 	agentControllerRef,
 	preview: _preview,
 	fallbackTestId,
+	variant = "default",
 	working = false,
 	clickable = false,
 	followPointer,
@@ -193,7 +195,8 @@ function AgentAvatarPresentation({
 			aria-hidden="true"
 			{...identityAttributes}
 			className={cn(
-				"inline-flex shrink-0 items-center justify-center overflow-hidden bg-surface-2 text-foreground",
+				"inline-flex shrink-0 items-center justify-center overflow-hidden text-foreground",
+				variant !== "plain" && "bg-surface-2",
 				shape === "circle" ? "rounded-full" : "rounded-[22%]",
 				className
 			)}
@@ -202,6 +205,7 @@ function AgentAvatarPresentation({
 			<AgentAvatarDefaultIcon
 				fallbackTestId={fallbackTestId}
 				identity={identity}
+				variant={variant}
 			/>
 		</span>
 	);
@@ -210,23 +214,34 @@ function AgentAvatarPresentation({
 function AgentAvatarDefaultIcon({
 	identity,
 	fallbackTestId,
+	variant,
 }: {
 	identity: ReturnType<typeof resolveAgentAvatarIdentity>;
 	fallbackTestId?: string;
+	variant: "default" | "plain";
 }) {
 	if (identity.providerBrand) {
 		return (
-			<ModelBrandIcon brand={identity.providerBrand} className="h-3/5 w-3/5" />
+			<ModelBrandIcon
+				brand={identity.providerBrand}
+				className={variant === "plain" ? "h-full w-full" : "h-3/5 w-3/5"}
+			/>
 		);
 	}
 	if (identity.icon === "agent") {
-		return <RobotIcon className="h-3/5 w-3/5" data-testid={fallbackTestId} />;
+		return (
+			<RobotIcon
+				className={variant === "plain" ? "h-full w-full" : "h-3/5 w-3/5"}
+				data-testid={fallbackTestId}
+			/>
+		);
 	}
 	return (
 		<LocalAgentLogo
 			agentId={identity.icon}
 			className="h-full w-full"
 			size="md"
+			variant={variant}
 		/>
 	);
 }

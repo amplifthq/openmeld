@@ -12,6 +12,7 @@ export function AgentProfileControllerAvatar(input: {
 	profileId: string;
 	profileName: string;
 	working?: boolean;
+	variant?: "default" | "plain";
 	size: number;
 }) {
 	return (
