@@ -8,6 +8,7 @@ audiences: ["members", "operators"]
 
 Inbox counts and grouped views use less database work while continuing to check
 current access. Bulk read and removal still apply only to the view you selected.
+Collapsed update groups now share the same subtle hover highlight as Inbox items.
 
 Activity cleanup can process larger backlogs without double-counting sessions.
 Old Wake diagnostics can expire without deleting in-progress work, recovery
