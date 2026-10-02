@@ -1089,29 +1089,11 @@ function createWakeEvidenceDb(
     activeNativeDeliveryRows?: readonly WakeProgressExecutionRow[];
     executions?: readonly WakeProgressExecutionRow[];
     lookupRows?: readonly WakeProgressExecutionRow[];
-    continuationResultRows?: readonly {
-      dispatchId: string;
-      publishedSignalId: string;
-    }[];
   } = {}
 ): D1Database {
   const prepare = vi.fn((query: string) => {
     const bind = vi.fn((...params: unknown[]) => {
       const all = vi.fn(() => {
-        if (query.includes("FROM agent_task_completion_subscriptions")) {
-          return {
-            results: (input.continuationResultRows ?? []).map((row) => ({
-              continuation_idempotency_key: row.dispatchId,
-              outcome_json: JSON.stringify({
-                errorCode: null,
-                eventId: `event:${row.dispatchId}`,
-                occurredAtMs: Date.UTC(2026, 2, 4, 0, 2, 0),
-                publishedSignalId: row.publishedSignalId,
-                status: "succeeded",
-              }),
-            })),
-          };
-        }
         const sourceSignalIdsJson = params.find(
           (param) => typeof param === "string" && param.startsWith("[")
         );
@@ -1438,10 +1420,6 @@ async function readActiveWakeProgressForTest(input: {
   includeWaitReason?: boolean;
   includeWakeStopEligibility?: boolean;
   lookupRows?: readonly WakeProgressExecutionRow[];
-  continuationResultRows?: readonly {
-    dispatchId: string;
-    publishedSignalId: string;
-  }[];
   memberRows?: readonly ActiveWakeProgressMemberRow[];
   outboxRows: readonly ReturnType<typeof createWakeProgressOutboxRecord>[];
   readSpaceWakeProgress?: (input: {
@@ -1475,7 +1453,6 @@ async function readActiveWakeProgressForTest(input: {
     activeNativeDeliveryRows: input.activeNativeDeliveryRows,
     executions: input.executionRows,
     lookupRows: input.lookupRows ?? input.executionRows,
-    continuationResultRows: input.continuationResultRows,
   });
   const space = Object.create(Space.prototype) as {
     bindings: CoreBindings;
@@ -5997,11 +5974,6 @@ describe("space signal service", () => {
       clientMessageId: "client-message-parent-1",
       id: "signal-parent-1",
     });
-    const childResult = createWakeProgressSourceSignal({
-      clientMessageId: null,
-      id: "signal-child-result-1",
-      targetProfileIds: [],
-    });
     const response = await readActiveWakeProgressForTest({
       activeNativeDeliveryRows: [
         {
@@ -6012,15 +5984,9 @@ describe("space signal service", () => {
           targetProfileId: "agt_33333333-3333-4333-8333-333333333333",
         },
       ],
-      continuationResultRows: [
-        {
-          dispatchId: "dispatch-parent-continuation-1",
-          publishedSignalId: childResult.id,
-        },
-      ],
       includeWakeStopEligibility: true,
       outboxRows: [],
-      sourceSignals: [sourceSignal, childResult],
+      sourceSignals: [sourceSignal],
     });
 
     expect(response.items).toContainEqual(
@@ -6029,7 +5995,7 @@ describe("space signal service", () => {
         dispatchId: "dispatch-parent-continuation-1",
         message: "@Agent is working...",
         phase: "running",
-        sourceSignalId: childResult.id,
+        sourceSignalId: sourceSignal.id,
         terminal: false,
       })
     );

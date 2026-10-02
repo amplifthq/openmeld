@@ -4,6 +4,7 @@ import { useRouterState } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { moveSidebarItemIds } from "#/components/app/sidebar-order";
 import { useSidebarPreferences } from "#/components/app/use-sidebar-preferences";
+import { resolveConversationTitle } from "#/lib/conversations/presentation";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
 	buildOrganizationCenterAgentChatPath,
@@ -192,7 +193,7 @@ export function useChats(input: {
 		{ id: "chats", name: "Direct messages", ...preferences.spaces },
 	];
 	const title = (chat: Chat) =>
-		preferences.titles[chat.spaceId] ?? chat.name ?? "New chat";
+		resolveConversationTitle(chat.spaceId, chat.name, preferences.titles);
 	const owner = (id: string) =>
 		preferences.pinned.spaceIds.includes(id)
 			? "pinned"

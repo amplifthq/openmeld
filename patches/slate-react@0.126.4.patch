@@ -1,0 +1,146 @@
+diff --git a/dist/index.es.js b/dist/index.es.js
+index a8f091669685f590c4abd10e72b4de26ffb7ae1e..965fe1be1f2126bb5e8bac92a0db2681806712b2 100644
+--- a/dist/index.es.js
++++ b/dist/index.es.js
+@@ -2639,6 +2639,55 @@ var useComposing = () => {
+   return useContext(ComposingContext);
+ };
+ 
++// Read native selection before React mutates text nodes, then adopt it before
++// Editable's layout effect writes selection back to the DOM. A parent refresh
++// can otherwise overwrite a click before the deferred selectionchange runs.
++class SelectionBeforeCommit extends React.Component {
++  remember() {
++    var editor = this.props.editor;
++    this.committed = { editor: editor, children: editor.children, selection: editor.selection, marks: editor.marks };
++  }
++  componentDidMount() {
++    this.remember();
++  }
++  getSnapshotBeforeUpdate() {
++    var editor = this.props.editor;
++    var previous = this.committed;
++    var state = this.props.selectionState;
++    var manager = this.props.androidInputManagerRef.current;
++    if (!previous || previous.editor !== editor || previous.children !== editor.children ||
++        previous.selection !== editor.selection || previous.marks !== editor.marks ||
++        this.props.readOnly || !ReactEditor.isFocused(editor) || ReactEditor.isComposing(editor) ||
++        state.isDraggingInternally || state.hasMarkPlaceholder ||
++        (manager && (manager.hasPendingChanges() || manager.hasPendingAction() || manager.isFlushing()))) {
++      return null;
++    }
++    var root = ReactEditor.findDocumentOrShadowRoot(editor);
++    var selection = getSelection(root);
++    if (root.activeElement !== ReactEditor.toDOMNode(editor, editor) || !selection ||
++        !ReactEditor.hasEditableTarget(editor, selection.anchorNode) ||
++        !ReactEditor.hasTarget(editor, selection.focusNode)) {
++      return null;
++    }
++    var range = ReactEditor.toSlateRange(editor, selection, { exactMatch: true, suppressThrow: true });
++    return range && (!editor.selection || !Range.equals(range, editor.selection))
++      ? { range: range, children: editor.children, selection: editor.selection, marks: editor.marks }
++      : null;
++  }
++  componentDidUpdate(_props, _state, snapshot) {
++    var editor = this.props.editor;
++    // A child layout effect may have performed an explicit editor transform.
++    if (snapshot && snapshot.children === editor.children &&
++        snapshot.selection === editor.selection && snapshot.marks === editor.marks) {
++      Transforms.select(editor, snapshot.range);
++    }
++    this.remember();
++  }
++  render() {
++    return React.createElement(RestoreDOM, this.props, this.props.children);
++  }
++}
++
+ var _excluded$1 = ["autoFocus", "decorate", "onDOMBeforeInput", "placeholder", "readOnly", "renderElement", "renderChunk", "renderLeaf", "renderText", "renderPlaceholder", "scrollSelectionIntoView", "style", "as", "disableDefaultStyles"],
+   _excluded2 = ["text"];
+ function ownKeys(e, r) { var t = Object.keys(e); if (Object.getOwnPropertySymbols) { var o = Object.getOwnPropertySymbols(e); r && (o = o.filter(function (r) { return Object.getOwnPropertyDescriptor(e, r).enumerable; })), t.push.apply(t, o); } return t; }
+@@ -3333,7 +3382,11 @@ var Editable = /*#__PURE__*/forwardRef((props, forwardedRef) => {
+     value: isComposing
+   }, /*#__PURE__*/React.createElement(DecorateContext.Provider, {
+     value: decorateContext
+-  }, /*#__PURE__*/React.createElement(RestoreDOM, {
++  }, /*#__PURE__*/React.createElement(SelectionBeforeCommit, {
++    editor: editor,
++    selectionState: state,
++    androidInputManagerRef: androidInputManagerRef,
++    readOnly: readOnly,
+     node: ref,
+     receivedUserInput: receivedUserInput
+   }, /*#__PURE__*/React.createElement(Component, _objectSpread(_objectSpread({
+diff --git a/dist/index.js b/dist/index.js
+index aa05da81ca617b8bcdf45dbb49ca5a2ed0baccda..84991f55c13ef79a72064de31bd7b11403ba379a 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -3072,6 +3072,55 @@ var useComposing = function useComposing() {
+   return React.useContext(ComposingContext);
+ };
+ 
++// Read native selection before React mutates text nodes, then adopt it before
++// Editable's layout effect writes selection back to the DOM. A parent refresh
++// can otherwise overwrite a click before the deferred selectionchange runs.
++class SelectionBeforeCommit extends React.Component {
++  remember() {
++    var editor = this.props.editor;
++    this.committed = { editor: editor, children: editor.children, selection: editor.selection, marks: editor.marks };
++  }
++  componentDidMount() {
++    this.remember();
++  }
++  getSnapshotBeforeUpdate() {
++    var editor = this.props.editor;
++    var previous = this.committed;
++    var state = this.props.selectionState;
++    var manager = this.props.androidInputManagerRef.current;
++    if (!previous || previous.editor !== editor || previous.children !== editor.children ||
++        previous.selection !== editor.selection || previous.marks !== editor.marks ||
++        this.props.readOnly || !ReactEditor.isFocused(editor) || ReactEditor.isComposing(editor) ||
++        state.isDraggingInternally || state.hasMarkPlaceholder ||
++        (manager && (manager.hasPendingChanges() || manager.hasPendingAction() || manager.isFlushing()))) {
++      return null;
++    }
++    var root = ReactEditor.findDocumentOrShadowRoot(editor);
++    var selection = slateDom.getSelection(root);
++    if (root.activeElement !== ReactEditor.toDOMNode(editor, editor) || !selection ||
++        !ReactEditor.hasEditableTarget(editor, selection.anchorNode) ||
++        !ReactEditor.hasTarget(editor, selection.focusNode)) {
++      return null;
++    }
++    var range = ReactEditor.toSlateRange(editor, selection, { exactMatch: true, suppressThrow: true });
++    return range && (!editor.selection || !slate.Range.equals(range, editor.selection))
++      ? { range: range, children: editor.children, selection: editor.selection, marks: editor.marks }
++      : null;
++  }
++  componentDidUpdate(_props, _state, snapshot) {
++    var editor = this.props.editor;
++    // A child layout effect may have performed an explicit editor transform.
++    if (snapshot && snapshot.children === editor.children &&
++        snapshot.selection === editor.selection && snapshot.marks === editor.marks) {
++      slate.Transforms.select(editor, snapshot.range);
++    }
++    this.remember();
++  }
++  render() {
++    return React.createElement(RestoreDOM, this.props, this.props.children);
++  }
++}
++
+ var _excluded$1 = ["autoFocus", "decorate", "onDOMBeforeInput", "placeholder", "readOnly", "renderElement", "renderChunk", "renderLeaf", "renderText", "renderPlaceholder", "scrollSelectionIntoView", "style", "as", "disableDefaultStyles"],
+   _excluded2 = ["text"];
+ function _createForOfIteratorHelper(o, allowArrayLike) { var it = typeof Symbol !== "undefined" && o[Symbol.iterator] || o["@@iterator"]; if (!it) { if (Array.isArray(o) || (it = _unsupportedIterableToArray(o)) || allowArrayLike) { if (it) o = it; var i = 0; var F = function F() {}; return { s: F, n: function n() { if (i >= o.length) return { done: true }; return { done: false, value: o[i++] }; }, e: function e(_e) { throw _e; }, f: F }; } throw new TypeError("Invalid attempt to iterate non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method."); } var normalCompletion = true, didErr = false, err; return { s: function s() { it = it.call(o); }, n: function n() { var step = it.next(); normalCompletion = step.done; return step; }, e: function e(_e2) { didErr = true; err = _e2; }, f: function f() { try { if (!normalCompletion && it["return"] != null) it["return"](); } finally { if (didErr) throw err; } } }; }
+@@ -3773,7 +3822,11 @@ var Editable = /*#__PURE__*/React.forwardRef(function (props, forwardedRef) {
+     value: isComposing
+   }, /*#__PURE__*/React.createElement(DecorateContext.Provider, {
+     value: decorateContext
+-  }, /*#__PURE__*/React.createElement(RestoreDOM, {
++  }, /*#__PURE__*/React.createElement(SelectionBeforeCommit, {
++    editor: editor,
++    selectionState: state,
++    androidInputManagerRef: androidInputManagerRef,
++    readOnly: readOnly,
+     node: ref,
+     receivedUserInput: receivedUserInput
+   }, /*#__PURE__*/React.createElement(Component, _objectSpread(_objectSpread({

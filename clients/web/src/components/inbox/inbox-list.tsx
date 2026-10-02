@@ -30,6 +30,10 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import type { MouseEvent, ReactNode } from "react";
 import { ObjectMenuItems } from "#/components/app/object-menu-items";
 import {
+	presentInboxItem,
+	useConversationNames,
+} from "#/components/spaces/conversation-names";
+import {
 	resolveInboxIndicatorClassName,
 	resolveInboxItemIndicator,
 } from "#/lib/inbox/attention";
@@ -132,20 +136,21 @@ export function InboxItemRow(input: {
 	) => void;
 	showItemActions: boolean;
 }) {
+	const item = presentInboxItem(input.item, useConversationNames());
 	const inlineInvitation =
 		input.density === "default" &&
-		input.item.sourceTarget.kind === "organization_join_request" &&
-		input.item.resolutionStatus === "open";
+		item.sourceTarget.kind === "organization_join_request" &&
+		item.resolutionStatus === "open";
 	const unread = input.feedRow
 		? input.feedRow.unreadCount > 0
-		: input.item.readAt === null;
+		: item.readAt === null;
 	const sourceNavigation = buildInboxItemSourceNavigation({
-		item: input.item,
+		item,
 		orgSlug: input.organizationSlug,
 	});
 	const navigate = useNavigate();
 	const onOpen = () => {
-		input.onOpenItem(input.item);
+		input.onOpenItem(item);
 		if (sourceNavigation.openInNewTab) {
 			window.open(sourceNavigation.href, "_blank", "noopener,noreferrer");
 			return;
@@ -162,7 +167,7 @@ export function InboxItemRow(input: {
 			<ObjectMenuItems href={sourceNavigation.href} onOpen={onOpen} />
 			{input.contextActions ?? (
 				<InboxItemMenuItems
-					item={input.item}
+					item={item}
 					onDismiss={input.onDismiss}
 					onSetRead={input.onSetRead}
 					unread={unread}
@@ -171,7 +176,7 @@ export function InboxItemRow(input: {
 		</>
 	);
 	const handleOpen = () => {
-		input.onOpenItem(input.item);
+		input.onOpenItem(item);
 	};
 	const handleAuxClick = (event: MouseEvent<HTMLAnchorElement>) => {
 		if (event.button === 1) {
@@ -191,7 +196,7 @@ export function InboxItemRow(input: {
 						)}
 						data-inbox-focused={input.focused ? "true" : undefined}
 						data-inbox-read-state={unread ? "unread" : "read"}
-						itemId={input.item.id}
+						itemId={item.id}
 					>
 						<InboxItemSourceLink
 							className={cn(
@@ -206,22 +211,19 @@ export function InboxItemRow(input: {
 							onClick={handleOpen}
 							openInNewTab={sourceNavigation.openInNewTab}
 							ref={(element) => {
-								input.registerItemElement?.(input.item.id, element);
+								input.registerItemElement?.(item.id, element);
 							}}
 						>
 							<span
 								aria-hidden="true"
 								className="mt-2 flex w-2 shrink-0 justify-center"
 							>
-								<InboxItemStatusDot
-									dot={input.feedRow?.dot}
-									item={input.item}
-								/>
+								<InboxItemStatusDot dot={input.feedRow?.dot} item={item} />
 							</span>
 							<InboxLeadingAvatar
 								compact={input.density === "compact"}
 								inlineInvitation={inlineInvitation}
-								item={input.item}
+								item={item}
 							/>
 
 							<span className="min-w-0 flex-1">
@@ -232,13 +234,13 @@ export function InboxItemRow(input: {
 											unread ? "font-semibold" : "font-medium"
 										)}
 									>
-										{input.item.title}
+										{item.title}
 									</span>
 									{unread ? <span className="sr-only">Unread.</span> : null}
-									<InboxItemBadges item={input.item} />
+									<InboxItemBadges item={item} />
 									{inlineInvitation ? (
 										<span className="text-muted-foreground text-xs">
-											<InboxTimestamp occurredAt={input.item.occurredAt} />
+											<InboxTimestamp occurredAt={item.occurredAt} />
 										</span>
 									) : null}
 								</span>
@@ -248,7 +250,7 @@ export function InboxItemRow(input: {
 										inlineInvitation && "hidden"
 									)}
 								>
-									{input.item.preview}
+									{item.preview}
 								</span>
 								<span
 									className={cn(
@@ -257,24 +259,24 @@ export function InboxItemRow(input: {
 										inlineInvitation && "hidden"
 									)}
 								>
-									<InboxRowMetadata feedRow={input.feedRow} item={input.item} />
+									<InboxRowMetadata feedRow={input.feedRow} item={item} />
 								</span>
 							</span>
 						</InboxItemSourceLink>
 
 						{inlineInvitation &&
-						input.item.sourceTarget.kind === "organization_join_request" ? (
+						item.sourceTarget.kind === "organization_join_request" ? (
 							<div className="ps-[4.125rem] pe-4 pb-4">
 								<InvitationReview
 									inline
 									onInteract={handleOpen}
-									requestId={input.item.sourceTarget.requestId}
+									requestId={item.sourceTarget.requestId}
 								/>
 							</div>
 						) : null}
 						{input.children}
 						{input.showItemActions ? (
-							<InboxItemActions menu={menu} title={input.item.title} />
+							<InboxItemActions menu={menu} title={item.title} />
 						) : null}
 					</SharedLayoutItem>
 				}
