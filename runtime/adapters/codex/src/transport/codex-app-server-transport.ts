@@ -3501,6 +3501,17 @@ function toJsonRpcTransportError(
   const message =
     normalizeOptionalText(error.message) ?? "codex app-server error";
   const originalError = createProviderOriginalError(message) ?? undefined;
+  // JSON-RPC method absence is capability evidence, not a missing conversation.
+  // Preserve the protocol code before human-message classification sees "not found".
+  if (error.code === -32_601) {
+    return new CodexAppServerTransportError({
+      code: "runtime.method_unsupported",
+      errorType: "adapter",
+      message,
+      originalError,
+      rpcErrorCode: error.code,
+    });
+  }
   const mcpInitializationFailure =
     classifyCodexRequiredMcpInitializationFailure({
       message,

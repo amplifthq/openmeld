@@ -1076,6 +1076,12 @@ for (const scenario of [
   },
   { name: "older controller", version: "0.149.0", native: false },
   {
+    name: "new conversation keeps MCP when policy capability is missing",
+    version: "0.159.0-alpha.12.1",
+    missingMethod: "configRequirements/read",
+    native: false,
+  },
+  {
     name: "native conversation distinguishes missing policy capability",
     version: "0.159.0-alpha.12.1",
     existing: true,
