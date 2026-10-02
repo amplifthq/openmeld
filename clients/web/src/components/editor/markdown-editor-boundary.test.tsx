@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
-import { reportClientApplicationError } from "#/lib/observability/application-error-client";
+import { reportCaughtComponentError } from "#/lib/observability/application-error-client";
 import { MarkdownEditor } from "./markdown-editor";
 
 const EDITOR_FAILURE = /The editor stopped working/;
@@ -13,7 +13,7 @@ vi.mock("platejs/react", async (importOriginal) => ({
 	},
 }));
 vi.mock("#/lib/observability/application-error-client", () => ({
-	reportClientApplicationError: vi.fn(),
+	reportCaughtComponentError: vi.fn(),
 }));
 
 afterEach(() => {
@@ -34,9 +34,9 @@ it("keeps Markdown content and its save limit available after the rich editor fa
 	);
 
 	expect(screen.getByText(EDITOR_FAILURE)).toBeTruthy();
-	expect(reportClientApplicationError).toHaveBeenCalledWith(
+	expect(reportCaughtComponentError).toHaveBeenCalledWith(
 		expect.objectContaining({ message: "Rich editor failed" }),
-		"react_caught"
+		"markdown_editor"
 	);
 	const fallback = screen.getByRole("textbox", { name: "File contents" });
 	expect((fallback as HTMLTextAreaElement).value).toBe("# Draft");

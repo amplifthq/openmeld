@@ -487,6 +487,14 @@ incoming messages do not refocus the Composer, and deferred editor focus is
 canceled when another surface takes focus. Existing mention clearing and
 message-history navigation rules remain unchanged.
 
+The shared Plate editor must preserve a valid native selection across an
+unchanged React render while Slate's deferred selection handler catches up.
+Selection synchronization belongs to Slate, not a second Composer listener or
+draft writer. The pinned dependency repair and its removal criteria live in
+[`patches/slate-react-selection.md`](../../patches/slate-react-selection.md).
+Run `pnpm --filter openmeld-web test:editor:browser` for the native selection,
+draft, mention, composition, and document-decoration regression matrix.
+
 OpenMeld Web is the primary browser surface for the user-visible collaboration loop:
 
 ```text
