@@ -52,6 +52,7 @@ export function useSpaceHistoryNavigation(input: {
 			);
 			if (
 				window?.identity !== identity &&
+				!saved?.atBottom &&
 				anchor >= 0 &&
 				anchor < visibleSignals.length - 60
 			) {

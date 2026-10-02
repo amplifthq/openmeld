@@ -3532,11 +3532,15 @@ prerendered or placed in a shared server cache; intent prefetch, request-scoped
 SSR data, the account-scoped browser cache, and live invalidation are the
 allowed acceleration layers.
 
-TanStack Router owns the browser's coarse scroll-coordinate fallback. Its
-restoration key is the route pathname rather than the individual
-browser-history entry, and the Space message viewport has a stable id derived
-from the Space id. The conversation records a persisted signal and its viewport
-offset during scrolling and on departure. Reading-position restore and the
+TanStack Router restores ordinary pages by route pathname rather than the
+individual browser-history entry. Space, Chat, public Space, and Desk routes
+opt out through its public `scrollRestoration` option, including server-rendered
+restoration. Their conversation/canvas owners restore their own positions;
+the module sidebar retains its independent scoped scroll memory. The router
+must not replay old pixel coordinates over a restored message or explicit jump.
+The conversation records a persisted signal, its viewport offset, and whether
+the reader is at the live bottom during scrolling and on departure.
+Reading-position restore and the
 history rail's Back action share this anchor selection. Optimistic sends, live
 reply projections, and transient activity rows retain their display identities
 but cannot become history anchors. Prefer the first visible recorded signal;
@@ -3552,13 +3556,18 @@ mounts, before painting the default start position, loading earlier pages if
 needed. Subsequent resize corrections run directly in ResizeObserver's
 before-paint delivery; an extra animation-frame delay would expose the wrong
 position as deferred message layout resolves. The callback adjusts scrolling,
-not observed element sizes. A remembered position disables the MessageScroller's initial
-end jump and automatic following. Resize observation preserves the same message
+not observed element sizes. A remembered historical position disables the
+MessageScroller's initial end jump and automatic following. A saved live-bottom
+position opens the live tail and follows it using the MessageScroller, even when
+new messages have arrived since the previous visit. Older saved records without
+the bottom flag keep their existing message-anchor meaning.
+Resize observation preserves the same message
 as images and deferred layout settle, until deliberate user scrolling takes
 ownership. Reaching the bottom resumes normal following. Different Spaces
 remain independent; explicit message-focus navigation takes priority over the
 remembered position.
-The coarse fallback uses session storage. The semantic anchor keeps each tab's
+The conversation no longer reads a separate coarse-coordinate fallback.
+Its semantic position keeps each tab's
 session position and also saves a seven-day local-storage copy for a new tab or
 browser restart. An existing tab's position wins over another tab's last saved
 position. Auth cleanup removes both copies. This view-local presentation state does not

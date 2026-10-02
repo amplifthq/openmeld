@@ -127,7 +127,9 @@ describe("Composer offscreen Wake bookmarks", () => {
 		vi.useRealTimers();
 	});
 	it("hands off only the current person's offscreen work and avoids edge flicker", async () => {
-		render(<Fixture items={[wake("Atlas"), wake("Other", "someone-else")]} />);
+		const atlas = wake("Atlas");
+		vi.setSystemTime(Date.now() + 60_000);
+		render(<Fixture items={[atlas, wake("Other", "someone-else")]} />);
 		await visibility("Atlas", 1);
 		expect(screen.queryByRole("button", { name: ATLAS_WORKING })).toBeNull();
 		await visibility("Atlas", 0.4);

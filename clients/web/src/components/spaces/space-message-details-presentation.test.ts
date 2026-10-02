@@ -274,7 +274,6 @@ describe("buildSpaceMessageDetailsPresentation", () => {
 			wakeProgressEntries: [
 				{
 					elapsedStartedAtMs: 2,
-					lastEvidenceAtMs: 2,
 					key: "codex-working",
 					kind: "progress",
 					phase: "running",
@@ -312,7 +311,6 @@ describe("buildSpaceMessageDetailsPresentation", () => {
 			wakeProgressEntries: [
 				{
 					elapsedStartedAtMs: 2,
-					lastEvidenceAtMs: 2,
 					key: "codex-working",
 					kind: "progress",
 					phase: "running",
