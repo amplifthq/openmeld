@@ -1547,29 +1547,28 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 								directMessage={input.isDirectMessage}
 							>
 								<MessageHeader className="flex-wrap gap-x-1.5 gap-y-1 px-0">
-									<span data-slot="message-speaker-avatar">
-										<SpaceMessageProfileAvatar
-											agentControllerPending={
-												input.item.actorAgentControllerPending
-											}
-											agentControllerRef={input.item.actorAgentControllerRef}
-											avatarImageUrl={resolveThreadMessageAvatarImageUrl({
-												item: input.item,
-												selfAvatarImageUrl: input.selfAvatarImageUrl,
-												selfProfileId: input.selfProfileId,
-											})}
-											avatarModelId={input.avatarModelId}
-											avatarStyle={input.avatarStyle}
-											displayName={input.item.actorName}
-											isCenterAgent={
-												input.item.actorProfileKind === "agent" &&
-												input.item.actorProfileId === input.centerAgentProfileId
-											}
-											profileId={input.item.actorProfileId}
-											profileKind={input.item.actorProfileKind}
-											working={isSpaceMessageAgentWorking(input.item)}
-										/>
-									</span>
+									<SpaceMessageProfileAvatar
+										agentControllerPending={
+											input.item.actorAgentControllerPending
+										}
+										agentControllerRef={input.item.actorAgentControllerRef}
+										avatarImageUrl={resolveThreadMessageAvatarImageUrl({
+											item: input.item,
+											selfAvatarImageUrl: input.selfAvatarImageUrl,
+											selfProfileId: input.selfProfileId,
+										})}
+										avatarModelId={input.avatarModelId}
+										avatarStyle={input.avatarStyle}
+										displayName={input.item.actorName}
+										isCenterAgent={
+											input.item.actorProfileKind === "agent" &&
+											input.item.actorProfileId === input.centerAgentProfileId
+										}
+										profileId={input.item.actorProfileId}
+										profileKind={input.item.actorProfileKind}
+										responsive
+										working={isSpaceMessageAgentWorking(input.item)}
+									/>
 									{!input.isDirectMessage && (
 										<>
 											<span className="min-w-0 truncate font-normal text-muted-foreground text-xs">

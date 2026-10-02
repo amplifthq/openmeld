@@ -3297,25 +3297,24 @@ function ConversationSpeakerHeader(input: {
 	});
 	const content = (
 		<>
-			<span data-slot="message-speaker-avatar">
-				<SpaceMessageProfileAvatar
-					agentControllerPending={input.run.speaker.agentControllerPending}
-					agentControllerRef={input.run.speaker.agentControllerRef}
-					avatarImageUrl={
-						input.run.speaker.avatarImageUrl ??
-						(input.run.speaker.profileId === input.selfProfileId
-							? input.selfAvatarImageUrl
-							: null)
-					}
-					avatarModelId={input.avatarModelId}
-					avatarStyle={input.avatarStyle}
-					displayName={input.run.speaker.displayName}
-					isCenterAgent={isCenterAgentRun}
-					profileId={input.run.speaker.profileId}
-					profileKind={input.run.speaker.profileKind}
-					working={input.run.items.some(isSpaceMessageAgentWorking)}
-				/>
-			</span>
+			<SpaceMessageProfileAvatar
+				agentControllerPending={input.run.speaker.agentControllerPending}
+				agentControllerRef={input.run.speaker.agentControllerRef}
+				avatarImageUrl={
+					input.run.speaker.avatarImageUrl ??
+					(input.run.speaker.profileId === input.selfProfileId
+						? input.selfAvatarImageUrl
+						: null)
+				}
+				avatarModelId={input.avatarModelId}
+				avatarStyle={input.avatarStyle}
+				displayName={input.run.speaker.displayName}
+				isCenterAgent={isCenterAgentRun}
+				profileId={input.run.speaker.profileId}
+				profileKind={input.run.speaker.profileKind}
+				responsive
+				working={input.run.items.some(isSpaceMessageAgentWorking)}
+			/>
 			{!input.avatarOnly && (
 				<>
 					<span className="min-w-0 break-words font-normal text-muted-foreground text-xs">
@@ -4110,7 +4109,7 @@ function ThreadPreview(input: {
 					className={cn(
 						"inline-flex w-fit items-center gap-1.5 text-xs leading-5 hover:text-foreground hover:underline",
 						input.unreadCount > 0
-							? "font-medium text-unread dark:text-blue-200"
+							? "font-medium text-unread"
 							: "text-muted-foreground"
 					)}
 					href={input.threadHref?.()}

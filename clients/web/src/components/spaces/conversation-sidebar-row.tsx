@@ -205,12 +205,19 @@ function ConversationSidebarRowContent(
 									]
 										.filter(Boolean)
 										.join(", ")}
-									className="absolute inset-0 rounded-md outline-none focus-visible:ring-1 focus-visible:ring-ring"
+									className="flex shrink-0 items-center rounded-md outline-none before:absolute before:inset-0 before:rounded-md focus-visible:before:ring-1 focus-visible:before:ring-ring [&_canvas[data-bot-avatar]]:relative"
 									resetScroll={false}
 									{...conversationNavigationTarget(input.url)}
 								/>
 							}
-						/>
+						>
+							<ConversationIcon
+								conversation={input.conversation}
+								memberAppearances={input.memberAppearances}
+								summary={input.activeWakeSummary}
+								title={input.title}
+							/>
+						</TooltipTrigger>
 						<TooltipContent
 							className="max-w-sm flex-col items-start whitespace-normal text-left"
 							side="right"
@@ -220,12 +227,6 @@ function ConversationSidebarRowContent(
 						</TooltipContent>
 					</Tooltip>
 					<span className="pointer-events-none contents">
-						<ConversationIcon
-							conversation={input.conversation}
-							memberAppearances={input.memberAppearances}
-							summary={input.activeWakeSummary}
-							title={input.title}
-						/>
 						<span className="flex min-w-0 flex-1 flex-col gap-0.5">
 							<span
 								className="flex min-w-0 items-center gap-2"
@@ -509,6 +510,7 @@ function ConversationIcon(input: {
 		return (
 			<ChatIcon
 				chat={input.conversation.chat}
+				size="sidebar"
 				summary={input.summary}
 				title={input.title}
 			/>
@@ -519,11 +521,12 @@ function ConversationIcon(input: {
 		return (
 			<SpaceMemberAvatars
 				appearances={input.memberAppearances}
+				compactSize={24}
 				members={members}
 			/>
 		);
 	}
-	return <ChatCircleTextIcon aria-label="Space" className="size-5 shrink-0" />;
+	return <ChatCircleTextIcon aria-label="Space" className="size-6 shrink-0" />;
 }
 
 export function resolvePreviewText(
@@ -541,6 +544,7 @@ export function resolvePreviewText(
 export function ChatIcon(input: {
 	chat: Chat;
 	title: string;
+	size?: "sm" | "sidebar";
 	summary?: SpaceSidebarActiveWakeSummary;
 }) {
 	if (input.chat.session) {
@@ -549,6 +553,7 @@ export function ChatIcon(input: {
 				avatarStyle={input.chat.centerAgentAvatarStyle}
 				profileId={input.chat.centerAgentProfileId}
 				profileName={input.chat.centerAgentProfileName}
+				size={input.size === "sidebar" ? 28 : 24}
 				working={
 					input.summary?.statuses?.some(
 						(status) => status.kind === "working"
@@ -566,7 +571,7 @@ export function ChatIcon(input: {
 			profileId={input.chat.peer?.profileId ?? input.chat.spaceId}
 			profileKind={input.chat.peer?.profileKind ?? "human"}
 			profileName={input.title}
-			size="sm"
+			size={input.size ?? "sm"}
 		/>
 	);
 }

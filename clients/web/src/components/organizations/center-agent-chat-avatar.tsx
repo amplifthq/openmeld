@@ -5,11 +5,13 @@ export function CenterAgentChatAvatar({
 	profileId,
 	avatarStyle,
 	working = false,
+	size = 24,
 }: {
 	profileName?: string;
 	profileId?: string;
 	avatarStyle?: import("@openmeld/schemas/types").AuthProfileView["avatarStyle"];
 	working?: boolean;
+	size?: 24 | 28;
 }) {
 	return profileName ? (
 		<RemoteAgentAvatar
@@ -17,10 +19,10 @@ export function CenterAgentChatAvatar({
 			profileId={profileId}
 			profileName={profileName}
 			shape="circle"
-			size={24}
+			size={size}
 			working={working}
 		/>
 	) : (
-		<span className="size-6 shrink-0" />
+		<span className="shrink-0" style={{ width: size, height: size }} />
 	);
 }

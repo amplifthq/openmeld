@@ -140,6 +140,7 @@ export function CenterAgentOptimisticConversation(input: {
 				<div
 					aria-label="Center Agent conversation"
 					className="min-h-0 flex-1 overflow-y-auto"
+					data-space-optimistic-conversation=""
 					role="log"
 				>
 					<div
@@ -172,7 +173,7 @@ export function CenterAgentOptimisticConversation(input: {
 										className="w-full min-w-0 gap-0"
 										directMessage
 									>
-										<MessageHeader className="h-6 px-0">
+										<MessageHeader className="px-0">
 											{input.selfProfile ? (
 												<div className="flex items-center gap-1.5">
 													<SpaceMessageProfileAvatar
@@ -181,10 +182,15 @@ export function CenterAgentOptimisticConversation(input: {
 														displayName={input.selfProfile.profileName}
 														profileId={input.selfProfile.openMeldProfileId}
 														profileKind="human"
+														responsive
 													/>
 												</div>
 											) : (
-												<Skeleton className="size-6 animate-none rounded-full" />
+												<span data-slot="message-speaker-avatar">
+													<span data-slot="message-speaker-avatar-content">
+														<Skeleton className="size-8 animate-none rounded-full" />
+													</span>
+												</span>
 											)}
 										</MessageHeader>
 										<PendingMessageSurface message={input.pendingMessage} />

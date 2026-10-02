@@ -136,6 +136,17 @@ browser Web has no updater controls.
 
 ### Shared Profile and Organization actions
 
+The Team Agent directory and person Agent directory default to Fluid group cards by local
+Controller and remote model provider. Group disclosure is local presentation
+state; it does not mutate the page or section filters. Filtering precedes grouping,
+and the current sort determines the Agents and first three avatar previews within
+each card. A borderless two-by-two preview shows up to three avatars and the
+remaining count. The section's Expand all control hides group holders and restores
+the original flat Agent cards without changing filters or sorting; Show groups
+restores grouping. Existing view settings also offer Controller, Provider, Model, and
+ungrouped presentation. Bulk selection shows all filtered cards so its visible
+selection scope remains explicit. Center Agent presentation stays separate.
+
 Web and the packaged Desktop renderer use the same fixed `/v1/` business routes.
 `lib/auth-business.server.ts` validates public inputs and safe response projections
 while retaining Auth's original HTTP handlers, permissions, middleware, cookies,
@@ -1518,6 +1529,12 @@ speaker's avatar beside the name and bubble, with the name aligned to the avatar
 top and the bubble below it. Names use regular-weight, muted, extra-small text;
 the name line compensates for the font's ascent inset to align its visible ink
 slightly above the avatar top.
+Speaker avatars use the transcript viewport's available width: 24px below 640px,
+28px from 640px, and 32px from 1024px. Their column keeps an 8px gap before the
+message content, including grouped messages and either self-message placement.
+Narrow Threads keep the compact size even on a wide desktop. Human, Agent,
+system, and pending first-message avatars share this presentation; inline
+mentions, reaction lists, profile popovers, and sidebar sizes are independent.
 Direct Messages, including Center
 Agent chats, use content-sized bubbles up to the available conversation width
 with a dedicated avatar column. The first

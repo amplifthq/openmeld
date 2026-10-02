@@ -1,4 +1,30 @@
 // Presentation only: recognize model families, never infer execution routing.
+const MODEL_PROVIDER_BRANDS: Record<string, string> = {
+	openai: "OpenAI",
+	anthropic: "Anthropic",
+	google: "Google",
+	deepseek: "DeepSeek",
+	"z-ai": "Z.ai",
+	moonshotai: "Moonshot AI",
+	minimax: "MiniMax",
+	qwen: "Alibaba",
+	"x-ai": "xAI",
+	xiaomi: "Xiaomi",
+	"meta-llama": "Meta",
+	mistralai: "Mistral",
+};
+
+// OpenRouter model IDs carry the model author's exact namespace. Display names
+// and routing-provider labels are not an authority for default avatar branding.
+export function modelProviderBrandName(modelId: string | null): string | null {
+	const [providerId, modelSlug] = modelId?.split("/") ?? [];
+	return providerId &&
+		modelSlug &&
+		Object.hasOwn(MODEL_PROVIDER_BRANDS, providerId)
+		? MODEL_PROVIDER_BRANDS[providerId]
+		: null;
+}
+
 const MODEL_BRANDS = [
 	{ pattern: /\b(gpt|openai|o[134])\b/i, name: "OpenAI" },
 	{ pattern: /\b(claude|anthropic)\b/i, name: "Anthropic" },
