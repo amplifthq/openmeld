@@ -7,10 +7,10 @@ import {
 	type FluidAvatarProps,
 } from "@openmeld/ui/components/fluid-avatar";
 import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
+import { useMediaQuery } from "@openmeld/ui/hooks/use-media-query";
 import { cn } from "@openmeld/ui/lib/utils";
 import { RobotIcon } from "@phosphor-icons/react";
 import { BotAvatar, type BotAvatarType } from "bot-avatars";
-import { useReducedMotion } from "motion/react";
 import { useRef } from "react";
 import { useAgentAvatarProfile } from "#/query/profiles/agent-avatar-context";
 import { resolveAgentAvatarIdentity } from "./agent-avatar-identity";
@@ -69,7 +69,7 @@ function AgentAvatarPresentation({
 	...props
 }: AgentAvatarProps) {
 	const botCanvas = useRef<HTMLCanvasElement>(null);
-	const reducedMotion = useReducedMotion() === true;
+	const reducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
 	const identity = resolveAgentAvatarIdentity({
 		agentControllerRef,
 		avatarStyle,
@@ -99,12 +99,15 @@ function AgentAvatarPresentation({
 		);
 	}
 	if (selectedStyle !== "automatic") {
+		const paused = reducedMotion || !(working || clickable);
 		const bot = (
 			<BotAvatar
 				aria-hidden="true"
 				interactive={clickable && !reducedMotion}
 				jumpEvery={working ? 8 : 0}
-				paused={reducedMotion || !(working || clickable)}
+				// Pausing freezes the current frame; reinitialize at the resting pose.
+				key={`${working}:${paused}`}
+				paused={paused}
 				ref={botCanvas}
 				size={size}
 				state={working ? "working" : "default"}
@@ -117,7 +120,7 @@ function AgentAvatarPresentation({
 				aria-label={`Animate ${profileName}'s avatar`}
 				{...identityAttributes}
 				className={cn(
-					"inline-flex shrink-0 items-center justify-center overflow-hidden",
+					"inline-flex shrink-0 items-center justify-center overflow-visible",
 					shape === "circle" ? "rounded-full" : "rounded-[22%]",
 					className
 				)}
@@ -137,7 +140,7 @@ function AgentAvatarPresentation({
 				aria-hidden="true"
 				{...identityAttributes}
 				className={cn(
-					"inline-flex shrink-0 items-center justify-center overflow-hidden",
+					"inline-flex shrink-0 items-center justify-center overflow-visible",
 					shape === "circle" ? "rounded-full" : "rounded-[22%]",
 					className
 				)}

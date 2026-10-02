@@ -84,8 +84,8 @@ export function SpaceMemberAvatars(input: {
 				<span
 					className={
 						horizontal
-							? "relative flex shrink-0 overflow-hidden bg-background ring-1 ring-background"
-							: `absolute flex overflow-hidden bg-sidebar ring-1 ring-sidebar ${positions[index]}`
+							? "relative flex shrink-0 bg-background ring-1 ring-background"
+							: `absolute flex bg-sidebar ring-1 ring-sidebar ${positions[index]}`
 					}
 					key={member.profileId}
 					style={{
