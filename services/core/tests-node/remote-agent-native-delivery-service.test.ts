@@ -72,6 +72,7 @@ import {
   stopRemoteAgentNativeDelivery,
 } from "../src/remote-agent/application/native-delivery-cancellation-service";
 import { projectTaskContinuationAdmissionExhaustedInboxItem } from "../src/remote-agent/application/native-delivery-inbox-producer";
+import { reconcileTaskContinuationInbox } from "../src/remote-agent/application/native-delivery-inbox-reconciliation";
 import {
   completeRemoteAgentNativeDelivery,
   processRemoteAgentNativeDeliveryDeadlineProbe,
@@ -156,6 +157,113 @@ import { requireRemoteAgentToolCaller } from "../src/remote-agent/application/re
 const UNSUPPORTED_INTERRUPTION_DETAIL = /502|overloaded|Please try again/u;
 
 describe("Remote Agent native delivery callback service", () => {
+  it("finishes an accepted legacy Remote turn across a Core upgrade without redispatch or duplicate publication", async () => {
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentSubmitMigrations(harness);
+    const workerSubmit = vi.fn();
+    const env = buildEnv(harness.db, {
+      remoteAgentWorker: { submitConversationTurn: workerSubmit },
+    });
+    try {
+      // A pre-upgrade accepted delivery is already owned by the old Remote.
+      // The new Core must consume its original callback without another turn.
+      await createAcceptedDelivery({
+        db: harness.db,
+        idempotencyKey: "legacy-inflight",
+        submissionId: "legacy-submission",
+        dispatchId: "legacy-dispatch",
+        spaceId: SPACE_ID,
+        modelRoute: TEST_CENTER_AGENT_MODEL_ROUTE,
+        onBehalfOfProfileId: HUMAN_PROFILE_ID,
+        onBehalfOfUserId: "user_1",
+      });
+      const callback = {
+        agentProfileId: AGENT_PROFILE_ID,
+        bindingId: "binding_1",
+        dispatchId: "legacy-dispatch",
+        idempotencyKey: "legacy-inflight",
+        organizationId: "org_1",
+        spaceId: SPACE_ID,
+        submissionId: "legacy-submission",
+        triggerMessageId: "signal_1",
+        text: "The completed investigation.",
+      };
+      await expect(
+        completeRemoteAgentNativeDelivery(env, callback)
+      ).resolves.toMatchObject({ status: "accepted" });
+      await completeRemoteAgentNativeDelivery(env, callback);
+      expect(workerSubmit).not.toHaveBeenCalled();
+      expect(env.__spaceStub.rpcPostSignal).toHaveBeenCalledOnce();
+    } finally {
+      harness.close();
+    }
+  });
+  it.each([
+    false,
+    true,
+  ])("freezes task attribution for receiver support=%s across an upgrade", async (supported) => {
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentSubmitMigrations(harness);
+    const readSubmitTurnCapabilities = vi.fn(() => {
+      if (!supported) {
+        throw new Error(
+          'The RPC receiver does not implement the method "readSubmitTurnCapabilities".'
+        );
+      }
+      return Promise.resolve({ v: 1 as const, taskId: true as const });
+    });
+    const requests: RemoteAgentWorkerSubmitTurnRequest[] = [];
+    const workerSubmit = vi.fn(
+      (request: RemoteAgentWorkerSubmitTurnRequest) => {
+        requests.push(structuredClone(request));
+        if (!supported) {
+          // Published e4454cf1's strict request has no top-level taskId key.
+          expect(request).not.toHaveProperty("taskId");
+        }
+        if (requests.length === 1) {
+          throw new Error("ACK transport lost");
+        }
+        return Promise.resolve({
+          accepted: false,
+          createdAt: 1200,
+          status: "pending" as const,
+          submissionId: "submission-rolling",
+        });
+      }
+    );
+    const env = buildEnv(harness.db, {
+      remoteAgentWorker: {
+        submitConversationTurn: workerSubmit,
+        readSubmitTurnCapabilities,
+      },
+    });
+    const input = {
+      binding: createBinding(),
+      db: harness.db,
+      env,
+      executionAttemptId: "attempt-rolling",
+      memoryService: null,
+      message: createDispatchMessage({ taskId: "task-rolling" }),
+      nowMs: 1000,
+    };
+    try {
+      await submitRemoteAgentNativeDelivery(input);
+      expect(requests).toHaveLength(1);
+      if (!supported) {
+        expect(requests[0]).not.toHaveProperty("taskId");
+      }
+      if (supported) {
+        expect(requests[0]?.taskId).toBe("task-rolling");
+      }
+      readSubmitTurnCapabilities.mockResolvedValue({ v: 1, taskId: true });
+      await submitRemoteAgentNativeDelivery({ ...input, nowMs: 2000 });
+      expect(requests).toHaveLength(2);
+      expect(requests[1]).toEqual(requests[0]);
+    } finally {
+      harness.close();
+    }
+  });
+
   it.each([
     "completed",
     "failed",
@@ -4156,6 +4264,105 @@ describe("Remote Agent native delivery callback service", () => {
     }
   });
 
+  it("delivers the watched terminal outcome even when its Inbox projection fails", async () => {
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentSubmitMigrations(harness);
+    applyDrizzleMigrationsForTables(harness, [
+      "inbox_items",
+      "inbox_email_deliveries",
+    ]);
+    const probes: RemoteAgentNativeDeliveryDeadlineProbeQueueMessage[] = [];
+    const env = buildEnv(harness.db, {
+      deadlineProbeQueueSend: vi.fn((probe) => {
+        probes.push(probe);
+        return Promise.resolve(probe);
+      }),
+      remoteAgentWorker: {
+        submitConversationTurn: vi.fn(() =>
+          Promise.reject(new Error("admission response was lost"))
+        ),
+      },
+    });
+    try {
+      const delivery = await stageAmbiguousTaskContinuationAdmission({
+        db: harness.db,
+        env,
+        idempotencyKey: "agent-task-continuation:inbox-failure",
+      });
+      const watchedTask = {
+        kind: "native_delivery" as const,
+        v: 1 as const,
+        deliveryId: delivery.deliveryId,
+      };
+      await registerAgentTaskCompletionSubscription({
+        db: harness.db,
+        organizationId: "org_1",
+        completionCondition: "terminal",
+        continuation: null,
+        nowMs: 1300,
+        subscriptionId: "watch-inbox-failure",
+        idempotencyKey: "watch-inbox-failure",
+        observerTask: {
+          kind: "controller_task",
+          v: 1,
+          agentControllerRef: "builtin:codex",
+          hostId: "host-1",
+          taskId: "observer",
+        },
+        watchedTask,
+      });
+      for (let attempt = 1; attempt < 3; attempt += 1) {
+        const watchdog = requireAdmissionProbe(probes, "watchdog", attempt);
+        await processRemoteAgentNativeDeliveryDeadlineProbe({
+          db: harness.db,
+          env,
+          nowMs: watchdog.deadlineAtMs,
+          probe: watchdog,
+        });
+        const retry = requireAdmissionProbe(probes, "retry", attempt + 1);
+        await processRemoteAgentNativeDeliveryDeadlineProbe({
+          db: harness.db,
+          env,
+          nowMs: retry.deadlineAtMs,
+          probe: retry,
+        });
+      }
+      harness.run({
+        sql: "CREATE TRIGGER reject_inbox_projection BEFORE INSERT ON inbox_items BEGIN SELECT RAISE(ABORT, 'inbox unavailable'); END",
+      });
+      const watchdog = requireAdmissionProbe(probes, "watchdog", 3);
+      await expect(
+        processRemoteAgentNativeDeliveryDeadlineProbe({
+          db: harness.db,
+          env,
+          nowMs: watchdog.deadlineAtMs,
+          probe: watchdog,
+        })
+      ).rejects.toThrow();
+      await expect(
+        readAgentTaskTerminalOutcome({
+          db: harness.db,
+          taskKey: buildAgentTaskKey(watchedTask),
+        })
+      ).resolves.toMatchObject({ outcome: { status: "failed" } });
+      expect(harness.queryAll({ sql: "SELECT id FROM inbox_items" })).toEqual(
+        []
+      );
+      harness.run({ sql: "DROP TRIGGER reject_inbox_projection" });
+      await processRemoteAgentNativeDeliveryDeadlineProbe({
+        db: harness.db,
+        env,
+        nowMs: watchdog.deadlineAtMs + 1,
+        probe: watchdog,
+      });
+      expect(
+        harness.queryAll({ sql: "SELECT attention FROM inbox_items" })
+      ).toEqual([{ attention: "update" }]);
+    } finally {
+      harness.close();
+    }
+  });
+
   it.each([
     ["pending", "en", undefined],
     ["sent", "en", undefined],
@@ -4382,9 +4589,9 @@ describe("Remote Agent native delivery callback service", () => {
             threadRootSignalId: THREAD_CONTEXT.rootSignalId,
           }),
           JSON.stringify({
+            version: 1,
             recipientReasons: ["requester"],
             requestCategory: "action",
-            version: 1,
           }),
           oldItem.id
         )
@@ -4440,14 +4647,49 @@ describe("Remote Agent native delivery callback service", () => {
         sql: "UPDATE inbox_items SET occurred_at_ms = ? WHERE id = ?",
         params: [occurrence.occurred_at_ms, oldItem.id],
       });
+      const reconcileInput = {
+        inboxDb: harness.db,
+        sourceDb: harness.db,
+        identityDb: harness.db,
+        coordinationDb: harness.db,
+        organizationId: "org_1",
+        recipientUserId: "user_1",
+      };
+      // A changed source is not the retired producer. Read-time repair must
+      // preserve it without making unrelated Inbox reads fail.
+      harness.run({
+        sql: "UPDATE inbox_items SET source_facts_json = ? WHERE id = ?",
+        params: [
+          JSON.stringify({
+            version: 1,
+            recipientReasons: ["requester"],
+            requestCategory: "review",
+          }),
+          oldItem.id,
+        ],
+      });
+      await expect(
+        reconcileTaskContinuationInbox(reconcileInput)
+      ).resolves.toBeUndefined();
+      expect(
+        harness.queryFirst({
+          sql: "SELECT attention FROM inbox_items WHERE id = ?",
+          params: [oldItem.id],
+        })
+      ).toEqual({ attention: "action_required" });
+      harness.run({
+        sql: "UPDATE inbox_items SET source_facts_json = ? WHERE id = ?",
+        params: [
+          JSON.stringify({
+            version: 1,
+            recipientReasons: ["requester"],
+            requestCategory: "action",
+          }),
+          oldItem.id,
+        ],
+      });
       for (let replay = 0; replay < 2; replay += 1) {
-        await projectTaskContinuationAdmissionExhaustedInboxItem({
-          attempts: 3,
-          db: harness.db,
-          delivery: terminal,
-          occurredAtMs: occurrence.occurred_at_ms,
-          languageTag,
-        });
+        await reconcileTaskContinuationInbox(reconcileInput);
       }
       expect(
         harness.queryAll({

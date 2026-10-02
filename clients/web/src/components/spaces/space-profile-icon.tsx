@@ -11,6 +11,7 @@ const SPACE_PROFILE_ICON_SIZE_CLASS_NAMES = {
 	inline: "size-3.5",
 	lg: "size-16",
 	md: "size-12",
+	sidebar: "size-7",
 	sm: "size-6",
 	xs: "size-5",
 } as const;
@@ -18,12 +19,14 @@ const SPACE_PROFILE_ICON_SIZE_PIXELS = {
 	inline: 14,
 	lg: 64,
 	md: 48,
+	sidebar: 28,
 	sm: 24,
 	xs: 20,
 } as const;
 
 export function SpaceProfileIcon(input: {
 	className?: string;
+	clickable?: boolean;
 	agentControllerRef: string | null;
 	avatarImageUrl?: string | null;
 	avatarStyle?: AgentAvatarStyle | null;
@@ -42,13 +45,17 @@ export function SpaceProfileIcon(input: {
 		return (
 			<RemoteAgentAvatar
 				agentControllerRef={input.agentControllerRef}
+				avatarImageUrl={input.avatarImageUrl}
 				avatarStyle={input.avatarStyle}
 				className={cn(
 					SPACE_PROFILE_ICON_SIZE_CLASS_NAMES[size],
 					input.className
 				)}
+				clickable={input.clickable}
 				data-testid={`space-profile-icon-${input.profileId}`}
 				fallbackTestId={`space-agent-profile-fallback-icon-${input.profileId}`}
+				followPointer={false}
+				modelId={input.avatarModelId}
 				profileId={input.profileId}
 				profileName={input.profileName}
 				shape={input.isCenterAgent ? "circle" : "rounded-square"}

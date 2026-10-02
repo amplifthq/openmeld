@@ -1,5 +1,9 @@
 "use client";
 
+import {
+	HOSTED_CENTER_AGENT_CONTROLLER_REF,
+	HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+} from "@openmeld/agent-runtime";
 import { AvatarAction } from "@openmeld/ui/components/avatar";
 import {
 	CaretLeftIcon,
@@ -47,6 +51,11 @@ export function AgentAvatarEditor(input: {
 			style={{ width: size, height: size }}
 		>
 			<RemoteAgentAvatar
+				agentControllerRef={
+					input.centerAgent
+						? HOSTED_CENTER_AGENT_CONTROLLER_REF
+						: HOSTED_REMOTE_AGENT_CONTROLLER_REF
+				}
 				avatarStyle={changed ? candidate : current}
 				clickable
 				modelId={input.modelId}

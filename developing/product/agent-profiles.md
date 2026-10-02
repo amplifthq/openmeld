@@ -81,22 +81,26 @@ local process. Those objects may help the Agent Profile reply, but they are
 local execution infrastructure, not the teammate identity users collaborate
 with.
 
-Ordinary Agent Profile avatars intentionally use the bound Agent Controller's
+Local Agent Profile avatars intentionally use the bound Agent Controller's
 brand mark, such as Codex, Claude Code, Grok Build, Cursor, or OpenCode, because the mark helps users
-recognize how that profile runs. Rebinding an ordinary Agent Profile updates
+recognize how that profile runs. Rebinding a Local Agent Profile updates
 that mark. An unbound or unknown controller uses the generic agent fallback;
 it must not invent Controller branding.
 Local Agent message headers show the owner's name after a middle dot, without
 an owner avatar or prefix. Profile popovers place availability beside the Agent
 name and show `Owned by` with the owner's small Human Profile avatar and name.
 Hosted Agents retain the `Hosted by OpenMeld` message attribution.
-Hosted Remote Agent avatars use the generic Agent mark by default. They do not
-borrow model vendor branding: a model choice is not the teammate's identity.
-The owner may instead confirm the abstract fluid avatar, which stays in place
-across model changes. Avatar choice belongs to the Agent Profile, not to its
-Binding or a cached model selection. Every Web entrance resolves style, shape,
-and icon from the Organization Profile Directory. Missing `avatarStyle` means
-the automatic Agent/controller mark, never an invented saved Bot selection.
+Hosted Remote Agent default avatars use the selected model provider's logo,
+resolved from the exact provider namespace in the current `avatarModelId`.
+OpenRouter is the calling channel, not the model provider; Remote Agents never
+borrow Local Agent Controller product marks such as Codex or Claude Code.
+Unknown providers or providers without a supported logo use the generic Agent
+mark. A saved custom image or explicitly selected fluid avatar takes precedence
+and stays in place across model changes. Avatar choice belongs to the Agent
+Profile, not to its Binding. Every Web entrance resolves saved style, shape,
+image, and current model identity from the Organization Profile Directory.
+Missing `avatarStyle` means the automatic provider/controller mark, never an
+invented saved Bot selection. Center Agent defaults remain the generic Agent mark.
 Center Agents use circles; other Agents use rounded squares.
 
 OpenMeld also has Human Profiles. A default Human Profile is created for the

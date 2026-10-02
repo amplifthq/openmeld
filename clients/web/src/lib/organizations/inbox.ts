@@ -19,11 +19,10 @@ import type {
 	InboxView,
 	ListInboxItemsResponse,
 	MarkAllInboxItemsReadResponse,
-	MarkCenterAgentInboxReadThroughResponse,
 	MarkInboxItemReadResponse,
-	MarkSpaceInboxReadThroughResponse,
 	MutateInboxFeedBody,
 	MutateInboxFeedResponse,
+	MutateSpaceInboxReadBody,
 	SpaceInboxSummaryResponse,
 	SpaceInboxUnreadTargetsResponse,
 	UpdateInboxMessageNotificationPreferencesBody,
@@ -178,43 +177,17 @@ export async function getCurrentSpaceInboxUnreadTargets(input: {
 	return await runInboxOperation(async () => {
 		const response = await createWebInboxApi(
 			input.organizationId
-		).spaceUnreadTargets({ signal: input.signal, spaceId: input.spaceId });
+		).spaceUnreadTargets({
+			signal: input.signal,
+			spaceId: input.spaceId,
+			includeItemIds: true,
+		});
 		assertOrganizationMatch(response.organizationId, input.organizationId);
 		if (response.spaceId !== input.spaceId) {
 			throw new Error("Space Inbox unread targets response Space mismatch.");
 		}
 		return response;
 	});
-}
-
-export async function markCurrentCenterAgentInboxReadThrough(input: {
-	organizationId: string;
-	spaceId: string;
-	throughOccurredAtMs: number;
-}): Promise<MarkCenterAgentInboxReadThroughResponse> {
-	return await runInboxOperation(async () =>
-		createWebInboxApi(input.organizationId).markCenterAgentReadThrough({
-			spaceId: input.spaceId,
-			throughOccurredAtMs: input.throughOccurredAtMs,
-		})
-	);
-}
-
-export async function markCurrentSpaceInboxReadThrough(input: {
-	organizationId: string;
-	spaceId: string;
-	threadRootSignalId?: string;
-	throughOccurredAtMs: number;
-}): Promise<MarkSpaceInboxReadThroughResponse> {
-	return await runInboxOperation(async () =>
-		createWebInboxApi(input.organizationId).markSpaceReadThrough({
-			spaceId: input.spaceId,
-			...(input.threadRootSignalId
-				? { threadRootSignalId: input.threadRootSignalId }
-				: {}),
-			throughOccurredAtMs: input.throughOccurredAtMs,
-		})
-	);
 }
 
 export async function markCurrentInboxItemRead(input: {
@@ -322,4 +295,15 @@ function assertOrganizationMatch(actual: string, expected: string): void {
 	if (actual !== expected) {
 		throw new Error("Inbox response organization mismatch.");
 	}
+}
+
+export async function mutateCurrentSpaceInboxRead(input: {
+	organizationId: string;
+	body: MutateSpaceInboxReadBody;
+}) {
+	return await runInboxOperation(() =>
+		createWebInboxApi(input.organizationId).mutateSpaceRead({
+			body: input.body,
+		})
+	);
 }

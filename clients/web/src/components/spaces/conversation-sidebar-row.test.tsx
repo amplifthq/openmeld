@@ -35,7 +35,7 @@ it.each<[string, string, Record<string, string>]>([
 		"center-agent",
 		{ session: "session-one" },
 	],
-])("preloads the real conversation target for %s without navigating", async (target, spaceId, search) => {
+])("preloads %s without navigating and opens it through its avatar", async (target, spaceId, search) => {
 	const loader = vi.fn();
 	const url = `/o/team/${target}`;
 	const client = new QueryClient();
@@ -100,6 +100,12 @@ it.each<[string, string, Record<string, string>]>([
 	await waitFor(() => expect(loader).toHaveBeenCalledWith({ spaceId, search }));
 	expect(router.state.location.pathname).toBe("/");
 	expect(link.getAttribute("href")).toBe(url);
+	const avatar = screen.getByLabelText("Space");
+	expect(link.contains(avatar)).toBe(true);
+	fireEvent.click(avatar);
+	await waitFor(() =>
+		expect(router.state.location.pathname).toBe(url.split("?")[0])
+	);
 	cleanup();
 	client.clear();
 });

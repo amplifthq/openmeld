@@ -704,31 +704,88 @@ describe("Core Agent Activity event ingestion", () => {
     await expect(
       runAgentActivityRetention({
         batchLimit: 7,
+        maxBatches: 1,
         db: env.OPENMELD_DB,
         nowMs: retentionNowMs,
       })
-    ).resolves.toMatchObject({ events: 7 });
+    ).resolves.toMatchObject({ events: 7, budgetExhausted: true });
     await expect(
       runAgentActivityRetention({
         batchLimit: 7,
         db: env.OPENMELD_DB,
         nowMs: retentionNowMs,
       })
-    ).resolves.toMatchObject({ events: 7 });
+    ).resolves.toMatchObject({ events: 13, budgetExhausted: false });
     await expect(
       runAgentActivityRetention({
         batchLimit: 7,
-        db: env.OPENMELD_DB,
-        nowMs: retentionNowMs,
-      })
-    ).resolves.toMatchObject({ events: 6 });
-    await expect(
-      runAgentActivityRetention({
-        batchLimit: 7,
+        maxBatches: 1,
         db: env.OPENMELD_DB,
         nowMs: retentionNowMs,
       })
     ).resolves.toMatchObject({ events: 0 });
+  });
+
+  it("keeps expired session-count fences until delayed aggregation has consumed their events", async () => {
+    const fixture = await seedFixture();
+    const observedAtMs = Date.now();
+    const event = buildEvent(fixture, {
+      eventId: `event_${fixture.suffix}_first`,
+      observedAtMs,
+    });
+    await rpcSubmitAgentActivityEvents(
+      env as CoreBindings,
+      submission(fixture, [event])
+    );
+    const cleanupTime = observedAtMs + 40 * 24 * 60 * 60_000;
+    await runAgentActivityDailyAggregation({
+      db: env.OPENMELD_DB,
+      nowMs: cleanupTime,
+    });
+    await rpcSubmitAgentActivityEvents(
+      env as CoreBindings,
+      submission(fixture, [
+        { ...event, eventId: `event_${fixture.suffix}_second` },
+      ])
+    );
+    await runAgentActivityRetention({
+      db: env.OPENMELD_DB,
+      nowMs: cleanupTime + 1,
+    });
+    const pending = await env.OPENMELD_DB.prepare(
+      "SELECT count(*) AS count FROM agent_activity_events WHERE organization_id = ?"
+    )
+      .bind(fixture.organizationId)
+      .first();
+    expect(pending).toEqual({ count: 1 });
+    const keys = await env.OPENMELD_DB.prepare(
+      "SELECT count(*) AS count FROM agent_activity_daily_session_keys WHERE organization_id = ?"
+    )
+      .bind(fixture.organizationId)
+      .first();
+    expect(keys).toEqual({ count: 1 });
+    await runAgentActivityDailyAggregation({
+      db: env.OPENMELD_DB,
+      nowMs: cleanupTime,
+    });
+    expect(
+      await env.OPENMELD_DB.prepare(
+        "SELECT sum(event_count) AS events, sum(session_count) AS sessions FROM agent_activity_daily_aggregates WHERE organization_id = ?"
+      )
+        .bind(fixture.organizationId)
+        .first()
+    ).toEqual({ events: 2, sessions: 1 });
+    await runAgentActivityRetention({
+      db: env.OPENMELD_DB,
+      nowMs: cleanupTime + 1,
+    });
+    expect(
+      await env.OPENMELD_DB.prepare(
+        "SELECT count(*) AS count FROM agent_activity_daily_session_keys WHERE organization_id = ?"
+      )
+        .bind(fixture.organizationId)
+        .first()
+    ).toEqual({ count: 0 });
   });
 
   it("turns abandoned digest claims into explicit failures instead of blocking a Project forever", async () => {

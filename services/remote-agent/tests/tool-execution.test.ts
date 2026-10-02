@@ -69,9 +69,8 @@ describe("Remote Agent tool execution", () => {
     });
     const text = JSON.stringify(result);
     expect(text).toContain("write may already have succeeded");
-    expect(text).toContain(
-      "Do not retry this write or repeat it with a new operationId"
-    );
+    expect(text).toContain("Do not retry this write");
+    expect(text).toContain("Never repeat the write with a new operationId");
     expect(text).toContain("Original operationId: comment-1");
     expect(text).not.toContain("synthetic-private-provider-detail");
   });

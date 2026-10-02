@@ -10,7 +10,10 @@ import {
 } from "../../agent-core/ai-usage";
 import { createRemoteAgentSqlStorage } from "../../flue-adapter/storage";
 
-it("replays a persisted auxiliary usage receipt from workerd SQLite without repeating inference", async () => {
+it.each([
+  "outage",
+  "retained_legacy_audit",
+])("replays a persisted auxiliary usage receipt after %s from workerd SQLite without repeating inference", async (failure) => {
   const namespace = (env as { COMPUTER_PROBE: DurableObjectNamespace })
     .COMPUTER_PROBE;
   const stub = namespace.get(namespace.newUniqueId());
@@ -52,6 +55,22 @@ it("replays a persisted auxiliary usage receipt from workerd SQLite without repe
         ),
     })("https://provider.example/chat/completions");
     await response.text();
+    if (failure === "retained_legacy_audit") {
+      const pending = await storage.list<AiUsageRecord>({
+        prefix: "openmeld:ai-usage:pending:",
+      });
+      const receipt = [...pending.values()][0];
+      if (!receipt) {
+        throw new Error("Expected the persisted provider usage receipt");
+      }
+      // Historical audit format from the removed rollout bridge. New runtime
+      // never creates it, but settlement retries must retain it unchanged.
+      await storage.put(`openmeld:ai-usage:deferred:${receipt.eventId}`, {
+        v: 1,
+        reason: "core_receiver_missing",
+        record: { ...receipt, status: "pending", tokens: null, cost: null },
+      });
+    }
     expect(await state.storage.getAlarm()).not.toBeNull();
   });
   const records = await runInDurableObject(stub, async (_instance, state) => {
@@ -64,8 +83,14 @@ it("replays a persisted auxiliary usage receipt from workerd SQLite without repe
     };
     // A fresh adapter has no in-memory copy of the failed receipt or fetch.
     const storage = createRemoteAgentSqlStorage(state.storage.sql);
+    const auditBefore = await storage.list({
+      prefix: "openmeld:ai-usage:deferred:",
+    });
     await flushRemoteAiUsage({ storage, coreWorker });
     await flushRemoteAiUsage({ storage, coreWorker });
+    expect(
+      await storage.list({ prefix: "openmeld:ai-usage:deferred:" })
+    ).toEqual(auditBefore);
     await state.storage.deleteAlarm();
     return settled;
   });

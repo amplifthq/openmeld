@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
   "controller": "opencode",
-  "observedAt": "2026-09-30T01:12:59.197Z",
-  "fingerprint": "bc2f1cd6a2510151297ab3eb39ed74c047229655ec2992bceed460396b3a5661",
+  "observedAt": "2026-10-02T01:10:44.997Z",
+  "fingerprint": "f30d3be0ae36583fc90287e4e44d6f25e8e17e86b2a99c89323e5f64b81d2230",
   "sources": [
     {
-      "url": "https://github.com/anomalyco/opencode/releases/tag/v1.18.33",
+      "url": "https://github.com/anomalyco/opencode/releases/tag/v1.18.34",
       "kind": "official-release",
       "data": {
-        "tag": "v1.18.33",
-        "publishedAt": "2026-09-28T04:22:46Z",
-        "notes": "## Core\r\n\r\n### Bugfixes\r\n- Cloudflare AI Gateway models now honor provider response and stream timeouts. (@danlapid)\r\n- MCP browser launch failures are now reported when the launcher exits immediately.\r\n- Debug configuration output now redacts credentials and sensitive headers.\r\n- Gemini thinking defaults and effort options now match the supported controls across model generations. (@markmcd)\r\n\r\n**Thank you to 5 community contributors:**\r\n- @dc85:\r\n  - docs(web): add Claude Opus 5.5, GPT 6 Sol, and GPT 6 Luna to Zen (#50708)\r\n- @vglafirov:\r\n  - maint(gitlab): bump gitlab-ai-provider to 6.16.0 (#50742)\r\n- @markmcd:\r\n  - fix(gemini): switch thinking default logic (#50841)\r\n- @remorses:\r\n  - docs(web): link kimaki to product website (#49735)\r\n- @danlapid:\r\n  - fix(opencode): apply provider timeouts to Cloudflare AI Gateway models (#51549)\r\n"
+        "tag": "v1.18.34",
+        "publishedAt": "2026-09-30T22:39:45Z",
+        "notes": "## Core\n\n### Bugfixes\n- Send namespaced session and parent-session identity headers with model requests.\n- Re-sign locally compiled macOS binaries so they run reliably on macOS 27+. (@ryangamerdev)\n- Sign macOS CLI release binaries with a Developer ID.\n\n**Thank you to 3 community contributors:**\n- @dc85:\n  - docs(web): correct GPT 6.1 Sol cache pricing (#52176)\n- @metal-huang:\n  - fix(tui): use path.sep for plugin name extraction in /status dialog (#52328)\n- @ryangamerdev:\n  - fix(opencode): ad-hoc re-sign darwin binaries after local compile (#52183)\n"
       }
     },
     {
@@ -203,6 +203,36 @@
               "cache_read": 0.006
             },
             "canonical_model_id": "deepseek/deepseek-v4.1-flash"
+          },
+          "fledge-alpha-free": {
+            "id": "fledge-alpha-free",
+            "name": "Fledge Alpha Free",
+            "description": "Free-tier preview reasoning model with text and image input and tool use",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "effort",
+                "values": ["low", "high", "max"]
+              }
+            ],
+            "tool_call": true,
+            "temperature": true,
+            "release_date": "2026-10-01",
+            "last_updated": "2026-10-01",
+            "modalities": {
+              "input": ["text", "image"],
+              "output": ["text"]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 1048576,
+              "output": 131072
+            },
+            "cost": {
+              "input": 0,
+              "output": 0
+            }
           },
           "gemini-3.8-flash": {
             "id": "gemini-3.8-flash",
@@ -2334,6 +2364,18 @@
                       "service_tier": "priority"
                     }
                   }
+                },
+                "flex": {
+                  "cost": {
+                    "input": 0.375,
+                    "output": 2.25,
+                    "cache_read": 0.0375
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "flex"
+                    }
+                  }
                 }
               }
             },
@@ -2703,6 +2745,19 @@
                       "reasoning": {
                         "mode": "pro"
                       }
+                    }
+                  }
+                },
+                "ultrafast": {
+                  "cost": {
+                    "input": 60,
+                    "output": 300,
+                    "cache_read": 6,
+                    "cache_write": 75
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "ultrafast"
                     }
                   }
                 }

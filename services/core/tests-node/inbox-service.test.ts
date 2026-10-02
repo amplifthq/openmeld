@@ -12,6 +12,84 @@ import {
 } from "./helpers/sqlite-d1-harness.test-support";
 
 describe("Inbox service", () => {
+  it("opens and dismisses a historical continuation reminder without replaying or resolving the task", async () => {
+    const harness = createInboxHarness();
+    try {
+      const identity = {
+        organizationId: "org_one",
+        recipientUserId: "user_one",
+      };
+      const candidate = {
+        ...identity,
+        contextLabel: "Center Agent",
+        attention: "action_required" as const,
+        importance: "urgent" as const,
+        kind: "system_issue" as const,
+        occurredAtMs: 1000,
+        sourceKind: "remote_agent_native_delivery" as const,
+        sourceKey: "old-delivery:admission_retry_exhausted",
+        sourceTarget: {
+          kind: "space" as const,
+          spaceId: "space_one",
+          signalId: "child-result-from-another-space",
+          threadRootSignalId: "parent-thread",
+        },
+        sourceFacts: {
+          version: 1 as const,
+          recipientReasons: ["requester" as const],
+          requestCategory: "action" as const,
+        },
+        title: "Center Agent could not continue a task",
+        preview:
+          "Open the linked original result in its Space thread and retry from there.",
+      };
+      const item = await ensureInboxItem({
+        db: harness.db,
+        candidate,
+        nowMs: 2000,
+      });
+      const service = createInboxService({ db: harness.db, nowMs: () => 4000 });
+      const read = await service.get({ ...identity, itemId: item.itemId });
+      expect(read.item.sourceTarget).toEqual({
+        kind: "space",
+        spaceId: "space_one",
+        threadRootSignalId: "parent-thread",
+      });
+      expect(read.item.preview).not.toContain("retry");
+      expect(read.item.preview).toContain("remove this reminder from Inbox");
+      expect(
+        (await service.list({ ...identity, view: "all" })).items[0]
+          ?.sourceTarget
+      ).toEqual(read.item.sourceTarget);
+      await service.markRead({ ...identity, itemId: item.itemId, read: true });
+      expect(await service.summary(identity)).toMatchObject({
+        totalUnreadCount: 0,
+        unresolvedActionCount: 1,
+      });
+      await service.dismiss({ ...identity, itemId: item.itemId });
+      await ensureInboxItem({ db: harness.db, candidate, nowMs: 5000 });
+      expect(await service.summary(identity)).toMatchObject({
+        totalUnreadCount: 0,
+        unresolvedActionCount: 0,
+      });
+      expect((await service.list({ ...identity, view: "all" })).items).toEqual(
+        []
+      );
+      const stored = harness.queryFirst<{
+        resolution_status: string;
+        source_target_json: string;
+      }>({
+        sql: "SELECT resolution_status, source_target_json FROM inbox_items WHERE id = ?",
+        params: [item.itemId],
+      });
+      expect(stored?.resolution_status).toBe("open");
+      expect(JSON.parse(stored?.source_target_json ?? "null")).toEqual(
+        candidate.sourceTarget
+      );
+    } finally {
+      harness.close();
+    }
+  });
   it("reads only the insertion watermark when the notification cursor has not moved", async () => {
     const harness = createInboxHarness();
     try {

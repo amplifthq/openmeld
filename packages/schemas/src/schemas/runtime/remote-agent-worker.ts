@@ -364,6 +364,15 @@ export const remoteAgentWorkerSubmitMessagesResultSchema = z.strictObject({
   accepted: z.boolean(),
 });
 
+export const remoteAgentWorkerSubmitCapabilitiesRequestSchema = z.strictObject({
+  v: z.literal(1),
+});
+
+export const remoteAgentWorkerSubmitCapabilitiesSchema = z.strictObject({
+  v: z.literal(1),
+  taskId: z.literal(true),
+});
+
 /** A missing or unfinished receipt never proves that execution did not occur. */
 export const remoteAgentWorkerReadAdmissionResponseSchema =
   z.discriminatedUnion("status", [
@@ -971,6 +980,12 @@ const remoteAgentStreamDeltaCallbackIdentitySchema = {
   triggerMessageId: nonEmptyStringSchema,
   dispatchId: nonEmptyStringSchema,
 };
+
+// Sent by the admitted native execution before it prepares model/tools/Computer.
+// This confirms the existing admission; it never starts or authorizes a new turn.
+export const remoteAgentCoreAdmissionCallbackSchema = z.strictObject({
+  ...remoteAgentStreamDeltaCallbackIdentitySchema,
+});
 
 const legacyRemoteAgentStreamDeltaCallbackBodySchema = z.strictObject({
   v: z.literal(1),

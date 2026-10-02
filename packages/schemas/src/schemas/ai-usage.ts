@@ -48,6 +48,8 @@ export const aiUsageRecordSchema = aiUsageObservationSchema.extend({
   runtime: z.enum(["local", "remote"]),
   purpose: z.enum([
     "agent",
+    "compaction",
+    "compaction_prefix",
     "web_research",
     "image_understanding",
     "session_title",

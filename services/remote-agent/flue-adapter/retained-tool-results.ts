@@ -45,7 +45,11 @@ import {
 } from "../agent-core/result-access";
 import { REMOTE_AGENT_RETAINED_RESULT_PREFIX as PREFIX } from "../agent-core/result-retention";
 import type { RemoteAgentToolDefinition } from "../agent-core/tool-definition";
-import { isRemoteAgentToolResultWithinLimit } from "../agent-core/tool-result-boundary";
+import {
+  isRemoteAgentToolResultWithinBudget,
+  REMOTE_AGENT_TOOL_RESULT_MAX_BYTES,
+  REMOTE_AGENT_TOOL_RESULT_PRESENTATION_MAX_BYTES,
+} from "../agent-core/tool-result-boundary";
 import {
   toBoundedRemoteAgentToolResult,
   toFlueJsonValue,
@@ -73,12 +77,21 @@ type ResultDependencies = {
   coreWorker?: RemoteAgentCoreWorkerBinding;
 };
 
+function presentationBudget(toolName: string): number {
+  // Continuation pages have their own character budget. Re-retaining a
+  // Unicode-heavy page would prevent the model from ever reading it.
+  return toolName === "openmeld_read_tool_result"
+    ? REMOTE_AGENT_TOOL_RESULT_MAX_BYTES
+    : REMOTE_AGENT_TOOL_RESULT_PRESENTATION_MAX_BYTES;
+}
+
 /** A failed display-store write must never turn a completed provider write into a retry. */
 export async function prepareRemoteAgentToolResult(
   input: ResultDependencies & {
     toolName: string;
     value: unknown;
     sources?: RemoteAgentResultSource[];
+    maxBytes?: number;
   }
 ) {
   const json = toFlueJsonValue(input.value);
@@ -86,8 +99,9 @@ export async function prepareRemoteAgentToolResult(
     readRemoteAgentResultSources(input.value),
     input.sources ?? []
   );
+  const maxBytes = input.maxBytes ?? presentationBudget(input.toolName);
   const needsRetention =
-    json !== undefined && !isRemoteAgentToolResultWithinLimit(json);
+    json !== undefined && !isRemoteAgentToolResultWithinBudget(json, maxBytes);
   const scope =
     sources.length || needsRetention
       ? await authorizeResultPresentation(input, sources)
@@ -95,12 +109,13 @@ export async function prepareRemoteAgentToolResult(
   if (scope === null) {
     return withheldResult(input.toolName);
   }
-  if (json === undefined || isRemoteAgentToolResultWithinLimit(json)) {
+  if (!needsRetention) {
     return tagRemoteAgentResultSources(json, sources);
   }
   const bounded = toBoundedRemoteAgentToolResult({
     toolName: input.toolName,
     value: json,
+    maxBytes,
   });
   if (!(isJsonObject(bounded) && isJsonObject(bounded.presentation))) {
     return bounded;
