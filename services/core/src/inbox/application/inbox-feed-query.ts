@@ -76,8 +76,19 @@ export function inboxFeedCte(
         AND ${scope.agentsOnly ? "is_agent = 1" : "1"}
         AND ${scope.peopleOnly ? "is_agent = 0 AND source_kind = 'space_signal' AND kind IN ('space_message', 'space_mention', 'space_reference')" : "1"}
         AND ${conversationPredicate(scope.conversationType)}
+    ), collections AS (
+      SELECT *, CASE
+        WHEN priority_rank != 2 THEN json_array('item', id)
+        WHEN priority_rank = 2 AND json_extract(raw_group_key, '$[0]') = 'conversation'
+          THEN json_array('space', organization_id, recipient_user_id,
+            json_extract(source_target_json, '$.kind'), json_extract(source_target_json, '$.spaceId'))
+        WHEN priority_rank = 2 AND importance = 'normal'
+          AND kind IN ('desktop_update', 'computer_connection', 'system_issue')
+          THEN json_array('system', recipient_user_id)
+        ELSE raw_group_key END AS collection_key
+      FROM filtered
     ), selected AS (
-      SELECT * FROM filtered WHERE ${categoryPredicate(scope.category)}
+      SELECT * FROM collections WHERE ${categoryPredicate(scope.category)}
     )`,
   };
 }
@@ -112,16 +123,39 @@ export const INBOX_FEED_COUNTS_SQL = `SELECT count(*) AS all_count,
   coalesce(sum(read_at_ms IS NULL), 0) AS unread_count,
   coalesce(sum(priority_rank = 0), 0) AS priority_count FROM filtered`;
 
-export function inboxFeedRowsSql(expanded: boolean): string {
-  const partition = expanded ? "id" : "raw_group_key";
-  return `, grouped AS (
-    SELECT *, count(*) OVER (PARTITION BY ${partition}) AS item_count,
+export function inboxFeedRowsSql(
+  expanded: boolean,
+  grouping?: "space",
+  collectionKind?: string
+): string {
+  const space = grouping === "space";
+  const collection = collectionKind === "space" || collectionKind === "system";
+  let partition = expanded ? "id" : "raw_group_key";
+  if (space && !expanded) {
+    partition = "collection_key";
+  }
+  if (space && collectionKind === "space") {
+    partition = "raw_group_key";
+  }
+  let key = partition === "id" ? "json_array('item', id)" : partition;
+  if (space && collectionKind === "space") {
+    key = "json_array('conversation_group', raw_group_key, collection_key)";
+  }
+  let membership = collection ? "collection_key" : "raw_group_key";
+  if (space && collectionKind === "conversation_group") {
+    membership =
+      "json_array('conversation_group', raw_group_key, collection_key)";
+  }
+  return `, collection_counts AS (
+    SELECT collection_key, count(DISTINCT raw_group_key) AS conversation_count FROM selected GROUP BY collection_key
+  ), grouped AS (
+    SELECT selected.*, conversation_count, count(*) OVER (PARTITION BY ${partition}) AS item_count,
       sum(read_at_ms IS NULL) OVER (PARTITION BY ${partition}) AS unread_count,
       max(occurred_at_ms) OVER (PARTITION BY ${partition}) AS latest_occurred_at_ms,
       min(priority_rank) OVER (PARTITION BY ${partition}) AS section_rank,
       row_number() OVER (PARTITION BY ${partition} ORDER BY priority_rank, occurred_at_ms DESC, id) AS anchor_index,
-      ${expanded ? "json_array('item', id)" : "raw_group_key"} AS sort_key
-    FROM selected ${expanded ? "WHERE raw_group_key = ?" : ""}
+      ${key} AS sort_key
+    FROM selected JOIN collection_counts USING (collection_key) ${expanded ? `WHERE ${membership} = ?` : ""}
   ) SELECT * FROM grouped WHERE anchor_index = 1
     AND (? IS NULL OR section_rank > ? OR (section_rank = ? AND latest_occurred_at_ms < ?)
       OR (section_rank = ? AND latest_occurred_at_ms = ? AND sort_key > ?))

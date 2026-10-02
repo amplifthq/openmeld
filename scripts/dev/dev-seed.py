@@ -5,12 +5,12 @@ import json
 from pathlib import Path
 
 from fixtures.context import Context
-from fixtures import people, spaces, messages, sidebar
+from fixtures import people, spaces, messages, sidebar, inbox
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--only", choices=["people", "spaces", "messages"],
+    parser.add_argument("--only", choices=["people", "spaces", "messages", "inbox"],
                         help="Seed one area and its dependencies (default: all).")
     parser.add_argument("--account", help="Refresh an existing lane-local test account by email.")
     args = parser.parse_args()
@@ -21,12 +21,14 @@ def main():
               context.now, context.ident, context.insert)
     owners = people.seed(*common)
     runtime_states = []
-    if args.only in (None, "spaces"):
+    if args.only in (None, "spaces", "inbox"):
         runtime_states = spaces.seed(*common, {"token": context.token}, context.lane["ports"]["gateway"],
                                      f"{context.lane['laneId']}.localhost:{context.lane['ports']['gateway']}", context)
     if args.only in (None, "messages"):
         messages.seed(context)
     sidebar.seed(context)
+    if args.only == "inbox":
+        inbox.seed(context)
     manifest_path = root / "clients/web/scripts/sidebar-preview/runtime-states.generated.json"
     previous = json.loads(manifest_path.read_text()) if manifest_path.exists() else {}
     manifest = next((item.copy() for item in previous.get("organizations", [])

@@ -577,6 +577,7 @@ import {
 } from "./projects/project-center-agent-rpc";
 import { verifyLarkPlatformWebhook } from "./remote-agent/application/lark-platform-webhook-service";
 import { createConfiguredMessageChannelProviderRegistry } from "./remote-agent/application/message-channel-provider-runtime";
+import { acknowledgeRemoteAgentAdmission } from "./remote-agent/application/native-delivery-admission-acknowledgement";
 import { completeRemoteAgentNativeDelivery } from "./remote-agent/application/native-delivery-service";
 import { runPersonalRemoteAgentSpaceTool } from "./remote-agent/application/personal-remote-agent-space-tools";
 import { authorizeRemoteAgentExecutionAccess } from "./remote-agent/application/remote-agent-execution-access";
@@ -3082,6 +3083,10 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
 
   authorizeRemoteAgentExecutionAccess(input: unknown) {
     return authorizeRemoteAgentExecutionAccess(this.env, input);
+  }
+
+  acknowledgeRemoteAgentAdmission(input: unknown) {
+    return acknowledgeRemoteAgentAdmission(this.env, input);
   }
 
   getCenterAgentDesignation(

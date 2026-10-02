@@ -27,6 +27,7 @@ export const inboxFeedQuerySchema = z.strictObject({
   limit: z.coerce.number().int().min(1).max(INBOX_LIST_MAX_LIMIT).optional(),
   snapshotId: identifierSchema.optional(),
   groupKey: opaqueKeySchema.optional(),
+  grouping: z.literal("space").optional(),
 });
 export const inboxFeedCountsSchema = z.strictObject({
   all: countSchema,
@@ -45,6 +46,12 @@ export const inboxFeedRowSchema = z.strictObject({
   section: z.enum(["priority", "open", "activity"]),
   requestCategory: z.enum(["action", "review"]).nullable(),
   dot: z.enum(["blue", "yellow"]).nullable(),
+  group: z
+    .strictObject({
+      kind: z.enum(["space", "system", "conversation"]),
+      conversationCount: countSchema,
+    })
+    .optional(),
 });
 export const inboxFeedResponseSchema = z.strictObject({
   organizationId: identifierSchema,

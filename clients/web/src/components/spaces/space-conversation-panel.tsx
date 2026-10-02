@@ -716,6 +716,7 @@ function SpaceConversationPanelContent(
 		conversationScrollElement,
 		messageScrollActionRef,
 		followLatest,
+		latestNavigationRequest,
 		releaseReadingPosition,
 		loadEarlierHistory,
 		mainFocusStatusMessage,
@@ -778,6 +779,7 @@ function SpaceConversationPanelContent(
 			) : null}
 			{renderInitialSpaceFocusStatus({
 				mainMessage: mainFocusStatusMessage,
+				historyNotice: input.historyNavigation?.notice,
 			})}
 			{input.activeSpaceView === "messages" ? (
 				<SpacePinnedItemsBar
@@ -838,6 +840,7 @@ function SpaceConversationPanelContent(
 									? null
 									: mainTimelineItems.at(-1)?.id
 							}
+							latestNavigationRequest={latestNavigationRequest}
 							scrollElement={conversationScrollElement}
 						/>
 						<MessageScroller className="relative min-h-0 flex-1">
@@ -1490,9 +1493,7 @@ function useSpaceConversationNavigationController(input: {
 	isLoadingEarlierHistory: boolean;
 	mainTimelineItems: readonly SpaceTimelineItem[];
 	onLoadEarlierHistory: () => Promise<void>;
-	onLoadHistoryAround?:
-		| ((id: string, signal?: AbortSignal) => Promise<boolean>)
-		| undefined;
+	onLoadHistoryAround?: SpaceHistoryNavigationController["open"] | undefined;
 	onOpenThread: (threadId: string) => void;
 	onOpenUnreadThread?: SpaceConversationPanelResolvedProps["onOpenUnreadThread"];
 	onSpaceViewChange: (view: SpaceView) => void;
@@ -1528,6 +1529,11 @@ function useSpaceConversationNavigationController(input: {
 		viewport: conversationScrollElement,
 	});
 	const conversationAutoScroll = conversationPosition.autoScroll;
+	const [latestNavigationRequest, setLatestNavigationRequest] = useState(0);
+	const followLatest = useLatestCallback(() => {
+		conversationPosition.followLatest();
+		setLatestNavigationRequest((request) => request + 1);
+	});
 	const conversationDefaultScrollPosition =
 		conversationPosition.defaultScrollPosition;
 	const onConversationScroll = conversationPosition.onScroll;
@@ -1644,6 +1650,15 @@ function useSpaceConversationNavigationController(input: {
 			setPendingPinJump(null);
 		}
 	}, [pendingPinJump, input.mainTimelineItems, jumpToMessage]);
+	const revealHistoryTarget = async (signalId: string) => {
+		const loaded = await input.onLoadHistoryAround?.(signalId);
+		if (loaded === "latest") {
+			followLatest();
+		} else if (loaded) {
+			setPendingPinJump(signalId);
+		}
+		return Boolean(loaded);
+	};
 	const onJumpToPinnedMessage = useLatestCallback(async (signalId: string) => {
 		if (messageElementsBySignalIdRef.current.has(signalId)) {
 			onJumpToMessage(signalId);
@@ -1668,8 +1683,8 @@ function useSpaceConversationNavigationController(input: {
 				if (!opened) {
 					throw new Error("Couldn’t open this thread. Try again.");
 				}
-			} else if (await input.onLoadHistoryAround?.(signalId)) {
-				setPendingPinJump(signalId);
+			} else {
+				await revealHistoryTarget(signalId);
 			}
 		} catch (error) {
 			setMainFocusStatusMessage(
@@ -1708,9 +1723,7 @@ function useSpaceConversationNavigationController(input: {
 				const signalId = target.signalId;
 				if (messageElementsBySignalIdRef.current.has(signalId)) {
 					jumpToMessage(signalId);
-				} else if (await input.onLoadHistoryAround?.(signalId)) {
-					setPendingPinJump(signalId);
-				} else {
+				} else if (!(await revealHistoryTarget(signalId))) {
 					throw new Error(
 						"Couldn’t find this unread message. Refresh this Space and try again."
 					);
@@ -1733,8 +1746,13 @@ function useSpaceConversationNavigationController(input: {
 		? `${targetId}:${input.initialFocusRequestId ?? "initial"}`
 		: null;
 	const loadFocusHistory = useLatestCallback(
-		(signalId: string, signal: AbortSignal) =>
-			input.onLoadHistoryAround?.(signalId, signal)
+		async (signalId: string, signal: AbortSignal) => {
+			const loaded = await input.onLoadHistoryAround?.(signalId, signal);
+			if (!signal.aborted && loaded === "latest") {
+				appliedInitialFocusRef.current = targetKey;
+				followLatest();
+			}
+		}
 	);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: A different route target owns a new request lifetime, including a switch to a loaded message or Thread.
 	useEffect(() => {
@@ -1851,7 +1869,8 @@ function useSpaceConversationNavigationController(input: {
 		messageScrollActionRef,
 		conversationDefaultScrollPosition,
 		conversationScrollElement,
-		followLatest: conversationPosition.followLatest,
+		followLatest,
+		latestNavigationRequest,
 		releaseReadingPosition: conversationPosition.releaseReadingPosition,
 		highlightedSignalId,
 		loadEarlierHistory,
@@ -1969,8 +1988,11 @@ function resolveInitialMainFocusSignalId(
 	);
 }
 
-function renderInitialSpaceFocusStatus(input: { mainMessage: string | null }) {
-	const message = input.mainMessage;
+function renderInitialSpaceFocusStatus(input: {
+	mainMessage: string | null;
+	historyNotice?: string | null;
+}) {
+	const message = input.mainMessage ?? input.historyNotice;
 	if (!message) {
 		return null;
 	}
