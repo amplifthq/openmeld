@@ -4110,7 +4110,7 @@ function ThreadPreview(input: {
 					className={cn(
 						"inline-flex w-fit items-center gap-1.5 text-xs leading-5 hover:text-foreground hover:underline",
 						input.unreadCount > 0
-							? "font-medium text-unread dark:text-blue-200"
+							? "font-medium text-unread"
 							: "text-muted-foreground"
 					)}
 					href={input.threadHref?.()}
