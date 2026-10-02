@@ -15,6 +15,10 @@ import {
 } from "@testing-library/react";
 import type { AnchorHTMLAttributes, ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	type ConversationNames,
+	ConversationNamesContext,
+} from "#/components/spaces/conversation-names";
 import { resolveInboxItemIndicator } from "#/lib/inbox/attention";
 import { requestInboxSourceFocus } from "#/lib/inbox/source-focus-request";
 import { organizationInboxFeedQueryOptions } from "#/query/organizations/inbox-feed";
@@ -122,6 +126,52 @@ afterEach(() => {
 });
 
 describe("canonical Inbox attention page", () => {
+	it.each([
+		"user-123",
+		"another-account",
+	])("uses the current recipient's chat name for grouped and expanded replies (%s)", async (userId) => {
+		const original = item({
+			kind: "agent_reply",
+			title: "Center Agent replied in Original chat",
+			contextLabel: "Center Agent",
+			sourceTarget: {
+				kind: "center_agent",
+				spaceId: "space-123",
+				signalId: "signal-123",
+			},
+		});
+		const older = { ...original, id: "older", preview: "An earlier reply." };
+		renderPage({
+			rows: [row(original, { itemCount: 2 })],
+			expandedRows: [row(older)],
+			conversationNames: {
+				organizationId: "organization-123",
+				userId,
+				names: new Map([
+					[
+						"space-123",
+						{ name: "Issues + PR records", sourceName: "Original chat" },
+					],
+				]),
+			},
+		});
+		const title =
+			userId === "user-123"
+				? "Center Agent replied in Issues + PR records"
+				: original.title;
+		expect(screen.getByText(title)).toBeTruthy();
+		fireEvent.click(screen.getByRole("button", { name: "View 2 activities" }));
+		await waitFor(() => expect(screen.getAllByText(title)).toHaveLength(2));
+		const links = screen
+			.getAllByRole("link")
+			.filter((link) => link.textContent?.includes(title));
+		expect(links[0]?.getAttribute("href")).toContain("session=space-123");
+		expect(links[0]?.getAttribute("href")).toContain(
+			"focusSignalId=signal-123"
+		);
+		expect(mocks.read).not.toHaveBeenCalled();
+	});
+
 	it("renders four categories and independent server-side filters without an Agent tab or administrator gate", () => {
 		const onViewChange = vi.fn();
 		const onUnreadOnlyChange = vi.fn();
@@ -717,6 +767,7 @@ describe("canonical Inbox attention page", () => {
 function renderPage(
 	input: Partial<ComponentProps<typeof InboxPage>> & {
 		rows: InboxFeedRow[];
+		conversationNames?: ConversationNames;
 		nextRows?: InboxFeedRow[];
 		nextPageError?: Error;
 		expandedRows?: InboxFeedRow[];
@@ -766,18 +817,20 @@ function renderPage(
 	);
 	const rendered = render(
 		<QueryClientProvider client={queryClient}>
-			<InboxPage
-				agentsOnly={input.agentsOnly}
-				conversationType={input.conversationType}
-				itemId={input.itemId}
-				onFiltersChange={input.onFiltersChange}
-				onItemDismissed={input.onItemDismissed}
-				onUnreadOnlyChange={input.onUnreadOnlyChange}
-				onViewChange={input.onViewChange ?? vi.fn()}
-				peopleOnly={input.peopleOnly}
-				unreadOnly={input.unreadOnly}
-				view={input.view ?? "all"}
-			/>
+			<ConversationNamesContext value={input.conversationNames ?? null}>
+				<InboxPage
+					agentsOnly={input.agentsOnly}
+					conversationType={input.conversationType}
+					itemId={input.itemId}
+					onFiltersChange={input.onFiltersChange}
+					onItemDismissed={input.onItemDismissed}
+					onUnreadOnlyChange={input.onUnreadOnlyChange}
+					onViewChange={input.onViewChange ?? vi.fn()}
+					peopleOnly={input.peopleOnly}
+					unreadOnly={input.unreadOnly}
+					view={input.view ?? "all"}
+				/>
+			</ConversationNamesContext>
 		</QueryClientProvider>
 	);
 	return { ...rendered, queryClient, queryKey };
