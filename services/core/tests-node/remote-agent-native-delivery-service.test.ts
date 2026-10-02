@@ -4647,15 +4647,49 @@ describe("Remote Agent native delivery callback service", () => {
         sql: "UPDATE inbox_items SET occurred_at_ms = ? WHERE id = ?",
         params: [occurrence.occurred_at_ms, oldItem.id],
       });
+      const reconcileInput = {
+        inboxDb: harness.db,
+        sourceDb: harness.db,
+        identityDb: harness.db,
+        coordinationDb: harness.db,
+        organizationId: "org_1",
+        recipientUserId: "user_1",
+      };
+      // A changed source is not the retired producer. Read-time repair must
+      // preserve it without making unrelated Inbox reads fail.
+      harness.run({
+        sql: "UPDATE inbox_items SET source_facts_json = ? WHERE id = ?",
+        params: [
+          JSON.stringify({
+            version: 1,
+            recipientReasons: ["requester"],
+            requestCategory: "review",
+          }),
+          oldItem.id,
+        ],
+      });
+      await expect(
+        reconcileTaskContinuationInbox(reconcileInput)
+      ).resolves.toBeUndefined();
+      expect(
+        harness.queryFirst({
+          sql: "SELECT attention FROM inbox_items WHERE id = ?",
+          params: [oldItem.id],
+        })
+      ).toEqual({ attention: "action_required" });
+      harness.run({
+        sql: "UPDATE inbox_items SET source_facts_json = ? WHERE id = ?",
+        params: [
+          JSON.stringify({
+            version: 1,
+            recipientReasons: ["requester"],
+            requestCategory: "action",
+          }),
+          oldItem.id,
+        ],
+      });
       for (let replay = 0; replay < 2; replay += 1) {
-        await reconcileTaskContinuationInbox({
-          inboxDb: harness.db,
-          sourceDb: harness.db,
-          identityDb: harness.db,
-          coordinationDb: harness.db,
-          organizationId: "org_1",
-          recipientUserId: "user_1",
-        });
+        await reconcileTaskContinuationInbox(reconcileInput);
       }
       expect(
         harness.queryAll({

@@ -1,7 +1,7 @@
 import { listLegacyTaskContinuationInboxItems } from "../../inbox/infrastructure/d1/inbox-item-repo";
 import { listRemoteAgentNativeDeliveriesByDeliveryIds } from "../infrastructure/d1/native-delivery-ledger-repo";
 import { resolveNativeFailureLanguage } from "./native-delivery-failure-facts";
-import { projectTaskContinuationAdmissionExhaustedInboxItem } from "./native-delivery-inbox-producer";
+import { repairTaskContinuationAdmissionExhaustedInboxItem } from "./native-delivery-inbox-producer";
 
 /** Repair old recipient projections from their source, without replaying execution. */
 export async function reconcileTaskContinuationInbox(input: {
@@ -42,7 +42,7 @@ export async function reconcileTaskContinuationInbox(input: {
     ) {
       continue;
     }
-    await projectTaskContinuationAdmissionExhaustedInboxItem({
+    await repairTaskContinuationAdmissionExhaustedInboxItem({
       db: input.inboxDb,
       delivery,
       attempts: delivery.admissionAttemptCount,

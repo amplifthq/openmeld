@@ -465,11 +465,14 @@ export async function repairLegacyTaskContinuationInboxItem(input: {
     input.db
       .prepare(`UPDATE inbox_items SET attention = 'update', importance = 'normal',
       resolution_status = 'not_applicable',
-      source_target_json = ?, source_facts_json = ?, updated_at_ms = max(updated_at_ms, ?)
+      source_target_json = ?, source_facts_json = ?, title = ?, preview = ?,
+      updated_at_ms = max(updated_at_ms, ?)
       WHERE ${guard}`)
       .bind(
         JSON.stringify(candidate.sourceTarget),
         JSON.stringify(candidate.sourceFacts),
+        candidate.title,
+        candidate.preview ?? null,
         input.nowMs,
         ...bindings
       ),
