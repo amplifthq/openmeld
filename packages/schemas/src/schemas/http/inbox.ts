@@ -394,12 +394,21 @@ export const spaceInboxSummaryResponseSchema = z.strictObject({
 });
 
 export const spaceInboxUnreadTargetSchema = z.strictObject({
+  itemId: identifierSchema.optional(),
   occurredAtMs: timestampMsSchema,
   signalId: identifierSchema,
   threadRootSignalId: identifierSchema.nullable(),
 });
 
 export const spaceInboxUnreadTargetsResponseSchema = z.strictObject({
+  scopes: z
+    .array(
+      z.strictObject({
+        threadRootSignalId: identifierSchema.nullable(),
+        unreadCount: z.number().int().nonnegative(),
+      })
+    )
+    .optional(),
   hasMoreTargets: z.boolean(),
   organizationId: identifierSchema,
   spaceId: identifierSchema,
@@ -433,6 +442,52 @@ export const markSpaceInboxReadThroughResponseSchema = z.strictObject({
   markedReadCount: z.number().int().nonnegative(),
   readThroughAt: isoDateTimeSchema,
 });
+
+export const mutateSpaceInboxReadBodySchema = z.discriminatedUnion(
+  "operation",
+  [
+    z.strictObject({
+      spaceId: identifierSchema,
+      operation: z.literal("prepare"),
+    }),
+    z.strictObject({
+      spaceId: identifierSchema,
+      operation: z.literal("read"),
+      items: z
+        .array(
+          z.strictObject({
+            itemId: identifierSchema,
+            occurredAtMs: timestampMsSchema,
+          })
+        )
+        .min(1)
+        .max(500),
+    }),
+    z.strictObject({
+      spaceId: identifierSchema,
+      operation: z.literal("clear"),
+      snapshotId: identifierSchema,
+    }),
+  ]
+);
+export const mutateSpaceInboxReadRpcInputSchema = z.strictObject({
+  body: mutateSpaceInboxReadBodySchema,
+  context: openMeldRequestContextSchema,
+});
+export const mutateSpaceInboxReadResponseSchema = z.discriminatedUnion(
+  "operation",
+  [
+    z.strictObject({
+      operation: z.literal("prepare"),
+      snapshotId: identifierSchema,
+      unreadCount: z.number().int().nonnegative(),
+    }),
+    z.strictObject({
+      operation: z.literal("read"),
+      markedReadCount: z.number().int().nonnegative(),
+    }),
+  ]
+);
 
 export const inboxNotificationPreferencesResponseSchema = z.strictObject({
   updatedAt: isoDateTimeSchema.nullable(),
@@ -568,6 +623,7 @@ export const getSpaceInboxSummaryRpcInputSchema = z.strictObject({
   context: openMeldRequestContextSchema,
 });
 export const getSpaceInboxUnreadTargetsRpcInputSchema = z.strictObject({
+  includeItemIds: z.boolean().optional(),
   context: openMeldRequestContextSchema,
   spaceId: identifierSchema,
 });

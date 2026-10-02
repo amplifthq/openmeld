@@ -694,65 +694,46 @@ immediately after the label in the full rail and on the icon corner in compact
 or collapsed tiers; it includes an accessible unread-count label and does not
 pulse.
 
-Opening any Space destination does not clear unread state on route entry alone.
-For one open Space, Web reads Core's exact unread message targets and preserves
-their main-conversation or thread-root scope; a browser Space cursor is not an
-unread owner. Web writes one monotonic main-conversation read-through watermark
-only after the document is visible and the message header and beginning of its
-body remain in the conversation viewport for 150 ms. Long messages do not require
-scrolling to their end. Unseen targets above, below, or outside loaded history
-block advancing past their occurrence time; jumping past a message is not reading
-it. Only Core unread targets can advance the watermark, never temporary Agent
-progress, prefetching, or route entry. Background tabs cancel the pending dwell.
-Each thread has its own monotonic read-through watermark, which advances only
-while that exact thread is open and its message beginning passes the same dwell. Main
-and thread watermarks make delayed projections of older already-viewed updates
-arrive read while newer updates remain unread; one scope never clears another.
-Core and Web reject implausible future read positions instead of letting a bad
-client clock suppress later messages. Reading never resolves unfinished source
-work.
-Opening the exact Inbox item marks that item read and deep-links to its source
-Signal in the same conversation.
+Opening a Space never clears unread on route entry alone. The canonical recipient
+Inbox rows own read state. Web acknowledges exact item IDs and occurrence versions
+whose message header and beginning are rendered in a focused, visible viewport.
+A short 50 ms batch retains observations during scrolling; moving away does not
+erase already observed updates. Hidden Threads, unloaded history, background tabs,
+and covered content are not read. Out-of-order reading acknowledges only observed
+items, without advancing over earlier unseen updates. Existing legacy read-through
+endpoints remain supported for older clients; the new viewport path does not write
+those watermarks. Reading never resolves unfinished source work.
 
-Main-conversation unread navigation uses one chronological shortcut for updates
-outside the viewport, combining targets above and below. It reveals the first
-unread target and reports Core's complete unread count rather than the number
-of targets that current viewport geometry happens to expose. Its blue **New
-messages** divider is fixed at the first unread target observed for that Space
-visit; passive visible-message reads do not move or regroup the divider.
-Dismissing the shortcut hides the server-bounded unread batch without writing a
-read watermark, so scrolling or resizing cannot resurrect that batch and a
-later event can show a new shortcut. There is no per-message clicking
-requirement.
+The blue unread pill stays available until the complete Space unread count is zero.
+Its left side always navigates to the earliest remaining target across main and
+Thread messages, opening the exact Thread reply when necessary. Sidebar and Space
+list unread dots use the same ordered targets; ordinary row links keep their normal
+navigation. Navigation itself never marks unrelated messages read. The bottom
+history arrow only returns to the latest message.
 
-The bottom history control remains the single return-to-latest action and does
-not repeat unread counts. When the main conversation has unread targets, an
-explicit activation first returns historical or scrolled views to the mounted
-live tail, then advances only the main-conversation watermark through the
-server-confirmed latest unread occurrence captured for that activation. It
-works even when a short conversation is already at the bottom. New events after
-the captured cutoff remain unread, and thread watermarks remain unchanged. A
-newer history-navigation choice made while that cutoff is being prepared
-abandons the activation before it can return to latest or write; its unused
-cutoff is not retained as a retry.
-Concurrent visible-message and explicit read-through writes are serialized and
-coalesced within their main or exact-thread scope. A failed write keeps the
-same cutoff for retry and reports that navigation succeeded but marking read
-did not; there is no success toast.
+The pill's X has the accessible name and tooltip **Mark all as read**. It opens a
+confirmation dialog that explicitly includes thread replies. Preparation freezes
+canonical Inbox membership on the server using the existing expiring feed snapshot
+storage. Confirming rechecks recipient, Organization, Space and current source
+access; later arrivals and items updated since preparation remain unread. Cancel
+writes no read state. Retry reuses the same selection, and expired selections ask
+the user to reopen the dialog. Clearing does not affect other Spaces or open work.
 
-For a thread target, the chronological shortcut opens that exact thread and
-focuses its first unread target. The thread's blue **New messages** divider is
-also fixed for that thread visit. A thread with recipient-specific unread
-targets has a blue **Open thread** entry with an unread count; the count includes
-replies and reactions, so it is not labeled as a count of new replies. Reading
-the main root or its preview never acknowledges hidden thread replies. Thread
-deep links from Inbox still open the exact thread.
+The main and each Thread keep a stable **New messages** anchor while their scope
+has unread updates, then remove it when that scope reaches zero. **Open thread**
+remains available with neutral styling after its unread count reaches zero. Full
+scope counts and the bounded navigation page come from the same canonical rows;
+counts are not inferred from only the currently loaded page. New clients opt into
+item IDs and scope counts with `includeItemIds=true`, preserving strict legacy
+response shapes. Exact visible reads update shared query projections optimistically,
+restore on failure, and reconcile against Core after persistence. No dismissed-pill
+state or browser read ledger owns unread truth.
 
 This uses Slack's separation of conversation navigation, thread attention, and
 read actions as a precedent, not an identical default: Slack offers immediate
 mark-as-read on conversation entry and includes mentioned users in thread
 notifications. OpenMeld preserves participant-only recipients and the visible
-read-through contract above. References: [Slack read preferences](https://slack.com/help/articles/360043037853-Manage-your-Mark-as-Read-preference)
+visible-read contract above. References: [Slack read preferences](https://slack.com/help/articles/360043037853-Manage-your-Mark-as-Read-preference)
 and [Slack threads](https://slack.com/help/articles/115000769927-Use-threads-to-organize-discussions).
 
 The Center Agent may create an explicit response request only for the verified

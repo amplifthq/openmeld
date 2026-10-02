@@ -28,6 +28,8 @@ import {
   markSpaceInboxReadThroughRpcInputSchema,
   mutateInboxFeedResponseSchema,
   mutateInboxFeedRpcInputSchema,
+  mutateSpaceInboxReadResponseSchema,
+  mutateSpaceInboxReadRpcInputSchema,
   observeInboxNotificationsRpcInputSchema,
   spaceInboxSummaryResponseSchema,
   spaceInboxUnreadTargetsResponseSchema,
@@ -64,6 +66,8 @@ import type {
   MarkSpaceInboxReadThroughRpcInput,
   MutateInboxFeedResponse,
   MutateInboxFeedRpcInput,
+  MutateSpaceInboxReadResponse,
+  MutateSpaceInboxReadRpcInput,
   ObserveInboxNotificationsRpcInput,
   SpaceInboxSummaryResponse,
   SpaceInboxUnreadTargetsResponse,
@@ -81,6 +85,26 @@ import {
   createInboxService,
   InboxServiceError,
 } from "../../application/inbox-service";
+import { mutateSpaceInboxRead } from "../../application/space-inbox-read";
+
+export async function rpcMutateSpaceInboxRead(
+  env: CoreBindings,
+  input: MutateSpaceInboxReadRpcInput
+): Promise<MutateSpaceInboxReadResponse> {
+  const request = parseRequest(mutateSpaceInboxReadRpcInputSchema, input);
+  const prepared = await prepareRequest(env, request.context);
+  return parseResponse(
+    mutateSpaceInboxReadResponseSchema,
+    await runService(() =>
+      mutateSpaceInboxRead({
+        db: prepared.db,
+        organizationId: prepared.organizationId,
+        recipientUserId: prepared.userId,
+        body: request.body,
+      })
+    )
+  );
+}
 
 export async function rpcListInboxFeed(
   env: CoreBindings,
@@ -319,6 +343,7 @@ export async function rpcGetSpaceInboxUnreadTargets(
     spaceInboxUnreadTargetsResponseSchema,
     await runService(() =>
       prepared.service.spaceUnreadTargets({
+        includeItemIds: request.includeItemIds,
         organizationId: prepared.organizationId,
         recipientUserId: prepared.userId,
         spaceId: request.spaceId,
