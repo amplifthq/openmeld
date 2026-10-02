@@ -684,6 +684,7 @@ function SpaceConversationPanelContent(
 	});
 	const navigation = useSpaceConversationNavigationController({
 		activeSpaceView: input.activeSpaceView,
+		isLiveHistory: !input.historyNavigation?.activeWindow,
 		ephemeralActivityItems: input.ephemeralActivityItems,
 		hasEarlierHistory: input.hasEarlierHistory,
 		historyActionErrorMessage: input.historyActionErrorMessage,
@@ -1481,6 +1482,7 @@ function useSpaceConversationPresentationController(
 
 function useSpaceConversationNavigationController(input: {
 	activeSpaceView: SpaceView;
+	isLiveHistory: boolean;
 	ephemeralActivityItems: readonly SpaceEphemeralActivityItem[];
 	hasEarlierHistory: boolean;
 	historyActionErrorMessage: string | null;
@@ -1516,6 +1518,7 @@ function useSpaceConversationNavigationController(input: {
 	const messageElementsBySignalIdRef = useRef(new Map<string, HTMLElement>());
 	const conversationPosition = useSpaceConversationPosition({
 		historyIsPending: input.historyIsPending,
+		isLiveHistory: input.isLiveHistory,
 		historyVersion: input.mainTimelineItems,
 		hasExplicitFocus: Boolean(
 			input.initialFocusSignalId ||
