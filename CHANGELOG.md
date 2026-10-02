@@ -34,6 +34,18 @@ the sidebar toggle is hidden, with balanced padding around title hover backgroun
 
 Evidence: pr:1435, pr:1437, commit:7e47df194953a591cf5d2347bdb302d3ab12dd92, commit:9eecb65683acb67422aa347f48b836b4912c02f2
 
+### Avoid a false task-start failure
+
+Fixed · v0.3.236 · agents
+
+Remote Agents confirm their accepted execution before preparing Computer access,
+preventing a newly started task from being mistaken for an inactive execution.
+Stop requests and current access checks still apply during preparation.
+A temporary follow-up check failure no longer prevents an already accepted
+task from starting.
+
+Evidence: pr:1442, commit:7eba5b84b75cd655b508a8f3cf5959281a11eab3, workflow:37023562187, workflow:37026574132
+
 ### Browse Agents by controller or provider
 
 Improved · agents · web
@@ -44,6 +56,28 @@ in place, or choose Expand all to return to the flat list. Existing search, filt
 available. Avatar transitions respect reduced-motion preferences.
 
 Evidence: pr:1435, pr:1437, commit:7e47df194953a591cf5d2347bdb302d3ab12dd92, commit:9eecb65683acb67422aa347f48b836b4912c02f2
+
+### Browse Inbox updates by Space
+
+Improved · v0.3.236 · inbox
+
+Browse ordinary updates by Space, then by conversation, with a quick action to
+mark a whole group as read. System updates are collected together. All, Mentions,
+Needs action, and Needs review remain available, and pending requests stay visible
+above ordinary updates. Clicking a completed desktop update marks it read in place.
+
+Evidence: pr:1446, commit:7eba5b84b75cd655b508a8f3cf5959281a11eab3, workflow:37023562187, workflow:37024494866, workflow:37025217534
+
+### Catch up on unread Space updates
+
+Improved · v0.3.236 · spaces · inbox
+
+Keep moving through unread updates with a persistent shortcut that opens the next
+unread message, including replies inside threads. Reading updates clears their
+blue indicators. You can also mark a Space's existing updates as read after a
+confirmation, while newer arrivals stay unread.
+
+Evidence: pr:1445, commit:7eba5b84b75cd655b508a8f3cf5959281a11eab3, workflow:37023562187, workflow:37024494866, workflow:37025217534
 
 ### Clearer avatars in the conversation sidebar
 
@@ -74,6 +108,48 @@ Unread thread links use the same blue as sidebar unread indicators and the
 New messages divider in dark mode, making unread replies easier to recognize.
 
 Evidence: pr:1435, pr:1437, commit:7e47df194953a591cf5d2347bdb302d3ab12dd92, commit:9eecb65683acb67422aa347f48b836b4912c02f2
+
+### Keep follow-up work linked to the original conversation
+
+Fixed · v0.3.236 · spaces · center-agent
+
+When an Agent resumes after a delegated task finishes in another Space, its
+activity link stays with the original request. The conversation can also show
+the ongoing work before that request's older messages have loaded.
+
+Evidence: pr:1443, commit:7eba5b84b75cd655b508a8f3cf5959281a11eab3, workflow:37023562187, workflow:37025217534
+
+### Keep Inbox and search conversation names consistent
+
+Fixed · v0.3.236 · inbox · spaces · search
+
+Inbox replies, expanded activities, and message search results use the same
+current conversation names as the sidebar, including personal chat names.
+Renaming a conversation no longer leaves these views showing its old name.
+
+Evidence: pr:1444, commit:7eba5b84b75cd655b508a8f3cf5959281a11eab3, workflow:37025217534
+
+### Keep the cursor in place while editing
+
+Fixed · v0.3.236 · spaces · documents
+
+The message and document editors keep your cursor and text selection in place
+when the surrounding page refreshes before the editor finishes processing your
+selection. Live updates and saved drafts remain enabled.
+
+Evidence: pr:1448, commit:7eba5b84b75cd655b508a8f3cf5959281a11eab3, workflow:37025217534
+
+### Open and clear older task reminders
+
+Fixed · v0.3.236 · inbox · spaces
+
+Older task-continuation reminders open the originating conversation without
+linking to a message from another Space or suggesting an unavailable retry.
+Removing a reminder from Inbox clears its unread and attention counts while
+leaving the task unchanged. Missing message links show the conversation's latest
+messages with a clear explanation instead of an internal error.
+
+Evidence: pr:1442, commit:7eba5b84b75cd655b508a8f3cf5959281a11eab3, workflow:37023562187, workflow:37025217534
 
 ### Recognize Remote Agents by their model provider
 
