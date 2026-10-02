@@ -83,6 +83,18 @@ Profile, Binding, membership and source account/version checks remain mandatory.
 Submitted or terminal work is not authorized by this predicate; the separate
 read-only pre-ACK Skill preparation contract is unchanged.
 
+Native execution acknowledges its exact admitted submission to Core before
+runtime resource preparation, including Computer creation. Core persists that
+evidence through the existing conditional native-delivery ACK writer; the
+ordinary submit response records the same ACK idempotently. Preparation waits
+for this write rather than polling or authorizing a merely submitted delivery.
+The callback rejects mismatched or terminal deliveries and honors the Space
+Stop intent; Remote checks its existing cancellation fence before and after
+the callback. Admission limits remain at the original submission boundary.
+Deploy Core support before the Remote consumer. A missing callback fails closed;
+rollback Remote before removing Core support. No workstation or CLI contract
+changes are required by this internal native-runtime callback.
+
 Space verifies the original human request and the Agent reply at the actual
 message-insertion transaction, using accepted outbox content, current revision,
 a canonical fingerprint and each message's own Thread placement. Main requests

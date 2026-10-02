@@ -1280,6 +1280,11 @@ owner for earlier/newer context and return-to-latest behavior, rather than
 searching a fixed number of pages from the live tail. A newer navigation cancels
 the previous lookup. Main-message links take precedence over a previously open
 Thread; explicit Thread links still open the Thread shell before replies load.
+If an explicit main-message anchor is unavailable, the same history owner reads
+the latest messages from that Space through the authorized API and explains the
+fallback in plain language. It never searches another Space for the message.
+Access and transport failures do not become successful fallback navigation, and
+server diagnostic text is not rendered as the navigation error.
 Inside a Thread, the root message's details offer **Show message in Messages**.
 This in-page action closes the details drawer and focuses the root in the main
 conversation while retaining the open Thread. It reuses the same bounded
@@ -4169,6 +4174,11 @@ without discarding older cached history. An older saved reading anchor opens a
 bounded cached neighborhood; missing anchors use the existing server history
 navigation. Explicit older-history loads expand the visible window, while new
 live messages do not move its start. Space, DM, and Desk readers share this rule.
+If an explicit message anchor is missing, a successful authorized latest-window
+read is a latest-navigation result, not a loading error. The conversation scroll
+owner positions that window after rendering and shows one explanatory notice.
+Permission and network failures retain their failure semantics; no cross-Space
+anchor search is allowed.
 Direct-message previews reuse the Account Space Index projection when provided,
 including its explicit empty value. Only conversations without that projection
 retain the per-conversation preview read.

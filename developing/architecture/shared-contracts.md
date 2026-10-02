@@ -549,6 +549,22 @@ changes still follow the base-aware local-component stamp and publication rules
 in [Production Release](../engineering/production-release.md); an unchanged
 wire contract does not exempt changed bundle inputs from release readiness.
 
+## Hosted preparation admission acknowledgement
+
+`remoteAgentCoreAdmissionCallbackSchema` in `packages/schemas` owns the exact
+Remote-to-Core admission callback identity. The native execution sends it before
+resource preparation. Core validates the frozen delivery identity and persists
+the same admission through its existing conditional ACK writer. The existing
+callback response schema reports acceptance or rejection; no new public response
+fields, execution states, or authorization grants are introduced.
+
+Deploy the Core RPC receiver before its Remote caller; remove the Remote caller
+before rolling back the receiver. New Core accepts old Remote submission ACKs.
+New Remote fails preparation explicitly against old Core. Core-to-Remote submit
+payloads and all Web, Gateway, CLI, Service, Skills, setup, Wake transport,
+Space Action, and diagnostic contracts are unchanged. No local component epoch
+or database migration is required.
+
 ## Hosted reply recovery rollout
 
 The optional `replyRecovery` field on Remote Agent submit requests is owned by
