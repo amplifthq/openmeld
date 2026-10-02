@@ -64,6 +64,26 @@
       "body": "Space and Center Agent conversation titles align with the Messages tab when\nthe sidebar toggle is hidden, with balanced padding around title hover backgrounds."
     },
     {
+      "id": "remote-agent-preparation-admission",
+      "title": "Avoid a false task-start failure",
+      "kind": "fixed",
+      "areas": [
+        "agents"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-10-02",
+      "release": "v0.3.236",
+      "evidence": [
+        "pr:1442",
+        "commit:7eba5b84b75cd655b508a8f3cf5959281a11eab3",
+        "workflow:37023562187",
+        "workflow:37026574132"
+      ],
+      "body": "Remote Agents confirm their accepted execution before preparing Computer access,\npreventing a newly started task from being mistaken for an inactive execution.\nStop requests and current access checks still apply during preparation.\nA temporary follow-up check failure no longer prevents an already accepted\ntask from starting."
+    },
+    {
       "id": "agent-directory-groups",
       "title": "Browse Agents by controller or provider",
       "kind": "improved",
@@ -82,6 +102,49 @@
         "commit:9eecb65683acb67422aa347f48b836b4912c02f2"
       ],
       "body": "The Agent directory starts with compact group cards for local controllers and remote model\nproviders, with avatar previews and a remaining count. Open a group to see its Agents\nin place, or choose Expand all to return to the flat list. Existing search, filters, sorting, and model grouping remain\navailable. Avatar transitions respect reduced-motion preferences."
+    },
+    {
+      "id": "inbox-space-groups",
+      "title": "Browse Inbox updates by Space",
+      "kind": "improved",
+      "areas": [
+        "inbox"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-02",
+      "release": "v0.3.236",
+      "evidence": [
+        "pr:1446",
+        "commit:7eba5b84b75cd655b508a8f3cf5959281a11eab3",
+        "workflow:37023562187",
+        "workflow:37024494866",
+        "workflow:37025217534"
+      ],
+      "body": "Browse ordinary updates by Space, then by conversation, with a quick action to\nmark a whole group as read. System updates are collected together. All, Mentions,\nNeeds action, and Needs review remain available, and pending requests stay visible\nabove ordinary updates. Clicking a completed desktop update marks it read in place."
+    },
+    {
+      "id": "space-unread-navigation",
+      "title": "Catch up on unread Space updates",
+      "kind": "improved",
+      "areas": [
+        "spaces",
+        "inbox"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-02",
+      "release": "v0.3.236",
+      "evidence": [
+        "pr:1445",
+        "commit:7eba5b84b75cd655b508a8f3cf5959281a11eab3",
+        "workflow:37023562187",
+        "workflow:37024494866",
+        "workflow:37025217534"
+      ],
+      "body": "Keep moving through unread updates with a persistent shortcut that opens the next\nunread message, including replies inside threads. Reading updates clears their\nblue indicators. You can also mark a Space's existing updates as read after a\nconfirmation, while newer arrivals stay unread."
     },
     {
       "id": "larger-conversation-sidebar-avatars",
@@ -145,6 +208,89 @@
         "commit:9eecb65683acb67422aa347f48b836b4912c02f2"
       ],
       "body": "Unread thread links use the same blue as sidebar unread indicators and the\nNew messages divider in dark mode, making unread replies easier to recognize."
+    },
+    {
+      "id": "continuation-parent-space-navigation",
+      "title": "Keep follow-up work linked to the original conversation",
+      "kind": "fixed",
+      "areas": [
+        "spaces",
+        "center-agent"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-10-02",
+      "release": "v0.3.236",
+      "evidence": [
+        "pr:1443",
+        "commit:7eba5b84b75cd655b508a8f3cf5959281a11eab3",
+        "workflow:37023562187",
+        "workflow:37025217534"
+      ],
+      "body": "When an Agent resumes after a delegated task finishes in another Space, its\nactivity link stays with the original request. The conversation can also show\nthe ongoing work before that request's older messages have loaded."
+    },
+    {
+      "id": "current-inbox-conversation-names",
+      "title": "Keep Inbox and search conversation names consistent",
+      "kind": "fixed",
+      "areas": [
+        "inbox",
+        "spaces",
+        "search"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-02",
+      "release": "v0.3.236",
+      "evidence": [
+        "pr:1444",
+        "commit:7eba5b84b75cd655b508a8f3cf5959281a11eab3",
+        "workflow:37025217534"
+      ],
+      "body": "Inbox replies, expanded activities, and message search results use the same\ncurrent conversation names as the sidebar, including personal chat names.\nRenaming a conversation no longer leaves these views showing its old name."
+    },
+    {
+      "id": "editor-caret-snapshot-refresh",
+      "title": "Keep the cursor in place while editing",
+      "kind": "fixed",
+      "areas": [
+        "spaces",
+        "documents"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-02",
+      "release": "v0.3.236",
+      "evidence": [
+        "pr:1448",
+        "commit:7eba5b84b75cd655b508a8f3cf5959281a11eab3",
+        "workflow:37025217534"
+      ],
+      "body": "The message and document editors keep your cursor and text selection in place\nwhen the surrounding page refreshes before the editor finishes processing your\nselection. Live updates and saved drafts remain enabled."
+    },
+    {
+      "id": "inbox-historical-continuation-reminders",
+      "title": "Open and clear older task reminders",
+      "kind": "fixed",
+      "areas": [
+        "inbox",
+        "spaces"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-10-02",
+      "release": "v0.3.236",
+      "evidence": [
+        "pr:1442",
+        "commit:7eba5b84b75cd655b508a8f3cf5959281a11eab3",
+        "workflow:37023562187",
+        "workflow:37025217534"
+      ],
+      "body": "Older task-continuation reminders open the originating conversation without\nlinking to a message from another Space or suggesting an unavailable retry.\nRemoving a reminder from Inbox clears its unread and attention counts while\nleaving the task unchanged. Missing message links show the conversation's latest\nmessages with a clear explanation instead of an internal error."
     },
     {
       "id": "remote-agent-provider-avatars",
