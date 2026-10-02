@@ -205,12 +205,19 @@ function ConversationSidebarRowContent(
 									]
 										.filter(Boolean)
 										.join(", ")}
-									className="absolute inset-0 rounded-md outline-none focus-visible:ring-1 focus-visible:ring-ring"
+									className="flex shrink-0 items-center rounded-md outline-none before:absolute before:inset-0 before:rounded-md focus-visible:before:ring-1 focus-visible:before:ring-ring [&_canvas[data-bot-avatar]]:relative"
 									resetScroll={false}
 									{...conversationNavigationTarget(input.url)}
 								/>
 							}
-						/>
+						>
+							<ConversationIcon
+								conversation={input.conversation}
+								memberAppearances={input.memberAppearances}
+								summary={input.activeWakeSummary}
+								title={input.title}
+							/>
+						</TooltipTrigger>
 						<TooltipContent
 							className="max-w-sm flex-col items-start whitespace-normal text-left"
 							side="right"
@@ -220,12 +227,6 @@ function ConversationSidebarRowContent(
 						</TooltipContent>
 					</Tooltip>
 					<span className="pointer-events-none contents">
-						<ConversationIcon
-							conversation={input.conversation}
-							memberAppearances={input.memberAppearances}
-							summary={input.activeWakeSummary}
-							title={input.title}
-						/>
 						<span className="flex min-w-0 flex-1 flex-col gap-0.5">
 							<span
 								className="flex min-w-0 items-center gap-2"

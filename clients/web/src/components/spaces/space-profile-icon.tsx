@@ -26,6 +26,7 @@ const SPACE_PROFILE_ICON_SIZE_PIXELS = {
 
 export function SpaceProfileIcon(input: {
 	className?: string;
+	clickable?: boolean;
 	agentControllerRef: string | null;
 	avatarImageUrl?: string | null;
 	avatarStyle?: AgentAvatarStyle | null;
@@ -50,8 +51,10 @@ export function SpaceProfileIcon(input: {
 					SPACE_PROFILE_ICON_SIZE_CLASS_NAMES[size],
 					input.className
 				)}
+				clickable={input.clickable}
 				data-testid={`space-profile-icon-${input.profileId}`}
 				fallbackTestId={`space-agent-profile-fallback-icon-${input.profileId}`}
+				followPointer={false}
 				modelId={input.avatarModelId}
 				profileId={input.profileId}
 				profileName={input.profileName}

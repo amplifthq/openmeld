@@ -117,7 +117,6 @@
     "@udecode/cn": "^52.3.4",
     "@xyflow/react": "^12.11.2",
     "better-auth": "1.6.30",
-    "bot-avatars": "0.1.1",
     "class-variance-authority": "^0.7.1",
     "cmdk": "^1.1.1",
     "cuelume": "0.2.2",

@@ -35,7 +35,7 @@ vi.mock("#/lib/organizations/organization-directory", async (original) => ({
 	readCurrentOrganizationProfileDirectory: readDirectory,
 }));
 
-vi.mock("bot-avatars", () => ({
+vi.mock("@openmeld/ui/components/bot-avatar", () => ({
 	BotAvatar: ({ type }: { type: string }) => <canvas data-bot-avatar={type} />,
 }));
 

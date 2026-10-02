@@ -428,10 +428,21 @@ Successful saves also send an account/Organization/Profile-scoped browser refres
 hint. Other tabs re-read their own authorized directory; the hint carries no
 avatar data and does not add directories to browser persistence. Model saves
 refresh the same directory projection and update automatic Remote logos.
-Bot avatars do not hop when idle, animate for real working state, and jump once on an
-explicit click. When working ends they return to their resting pose. Their
-wrapper leaves overflow visible so moving Bot geometry is not clipped.
-Reduced-motion preference suppresses their animation.
+Shared `BotAvatar` composes the public `bot-avatars` simulation and renderer so
+click feedback and pointer following are independent. Space/sidebar avatars
+and profile popovers play one small hop on an explicit click without following
+the pointer; popover opening and navigation still belong to their existing
+controls. The Team Center Agent card has a separate avatar button that also
+follows a fine pointer while hovered; its remaining area opens the conversation.
+The avatar editor retains the library's original preview interaction.
+Bot avatars do not hop when idle and animate for real working state. Clicks do
+not queue or restart a hop. Static instances do not subscribe to animation
+frames or visibility observation; active rendering pauses offscreen and in hidden
+documents. A cache of at most 64 independently rendered still frames avoids
+freezing the library's lighting blend when animation stops.
+Finished or interrupted motion returns to the resting pose, and
+reduced motion suppresses animation. Wrappers leave overflow visible so moving
+Bot geometry is not clipped.
 Personal Remote Agents use rounded squares, Center Agents use circles, and Local Agents
 retain their harness logos. Web supplies authoritative working state; the
 primitive never infers work from presence or starts its own status queries.

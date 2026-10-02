@@ -11,14 +11,16 @@ import {
 	AvatarImage,
 } from "@openmeld/ui/components/avatar";
 import {
+	BotAvatar,
+	type BotAvatarType,
+} from "@openmeld/ui/components/bot-avatar";
+import {
 	FluidAvatar,
 	type FluidAvatarProps,
 } from "@openmeld/ui/components/fluid-avatar";
 import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
-import { useMediaQuery } from "@openmeld/ui/hooks/use-media-query";
 import { cn } from "@openmeld/ui/lib/utils";
 import { RobotIcon } from "@phosphor-icons/react";
-import { BotAvatar, type BotAvatarType } from "bot-avatars";
 import { useRef } from "react";
 import { ModelBrandIcon } from "#/components/models/model-brand-icon";
 import { useAgentAvatarProfile } from "#/query/profiles/agent-avatar-context";
@@ -39,6 +41,7 @@ type AgentAvatarProps = Omit<FluidAvatarProps, "seed" | "fallback" | "size"> & {
 	agentControllerRef?: string | null;
 	working?: boolean;
 	clickable?: boolean;
+	followPointer?: boolean;
 	preview?: boolean;
 	fallbackTestId?: string;
 };
@@ -83,6 +86,7 @@ function AgentAvatarPresentation({
 	fallbackTestId,
 	working = false,
 	clickable = false,
+	followPointer,
 	animated = working,
 	shape = "rounded-square",
 	animateOnHover = false,
@@ -91,7 +95,6 @@ function AgentAvatarPresentation({
 	...props
 }: AgentAvatarProps) {
 	const botCanvas = useRef<HTMLCanvasElement>(null);
-	const reducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
 	const identity = resolveAgentAvatarIdentity({
 		agentControllerRef,
 		avatarStyle,
@@ -134,19 +137,16 @@ function AgentAvatarPresentation({
 		);
 	}
 	if (selectedStyle !== "automatic") {
-		const paused = reducedMotion || !(working || clickable);
 		const bot = (
 			<BotAvatar
 				aria-hidden="true"
-				interactive={clickable && !reducedMotion}
-				jumpEvery={working ? 8 : 0}
-				// Pausing freezes the current frame; reinitialize at the resting pose.
-				key={`${working}:${paused}`}
-				paused={paused}
+				followPointer={followPointer}
+				preview={clickable && followPointer === undefined}
 				ref={botCanvas}
 				size={size}
-				state={working ? "working" : "default"}
+				tabIndex={-1}
 				type={selectedStyle}
+				working={working}
 			/>
 		);
 		return clickable ? (
@@ -155,14 +155,16 @@ function AgentAvatarPresentation({
 				aria-label={`Animate ${profileName}'s avatar`}
 				{...identityAttributes}
 				className={cn(
-					"inline-flex shrink-0 items-center justify-center overflow-visible",
+					"inline-flex shrink-0 items-center justify-center overflow-visible focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
 					shape === "circle" ? "rounded-full" : "rounded-[22%]",
 					className
 				)}
 				onClick={(event) => {
 					if (event.target === event.currentTarget) {
 						botCanvas.current?.click();
+						return;
 					}
+					props.onClick?.(event);
 				}}
 				style={{ width: size, height: size }}
 				type="button"
