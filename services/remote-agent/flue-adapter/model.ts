@@ -29,6 +29,7 @@ import {
   getRemoteAgentDeferredToolCount,
   getRemoteAgentExecutionSubmissionId,
 } from "./execution-context";
+import { resolveReviewedPromptPriceTierBoundary } from "./model-context-policy";
 import {
   projectProviderCompletion,
   providerCompletionOperation,
@@ -230,7 +231,10 @@ export async function registerRemoteAgentCloudflareProvider(input: {
     },
     contextCapacity: resolveRemoteAgentProviderContextCapacity({
       contextWindow,
-      reserveTokens: runtimeConfig.compaction.reserveTokens,
+      // Economic compaction is a soft trigger. The summarizer must still be
+      // able to read the history that crossed it; provider admission enforces
+      // the physical window, not the cheaper prompt-price band.
+      reserveTokens: resolveRemoteAgentCompactionReserveTokens(contextWindow),
     }),
     cost: openRouterModel?.cost,
     inputModalities: input.modelRoute?.inputModalities ?? ["text", "image"],
@@ -422,13 +426,13 @@ export function resolveRemoteAgentOpenRouterModelMetadataUrl(
 
 function resolveCompactionThreshold(input: {
   contextWindow: number;
-  pricingOverrides?: readonly OpenRouterPricingOverride[] | null;
+  priceTierBoundary: number | null;
 }): number {
   const baseReserve = resolveRemoteAgentCompactionReserveTokens(
     input.contextWindow
   );
   const baseThreshold = input.contextWindow - baseReserve;
-  const priceTierBoundary = resolvePriceTierBoundary(input.pricingOverrides);
+  const priceTierBoundary = input.priceTierBoundary;
   if (priceTierBoundary === null) {
     return baseThreshold;
   }
@@ -467,9 +471,14 @@ export async function resolveRemoteAgentModelRuntimeConfigForRegistration(input:
     return {
       compaction: {
         keepRecentTokens: REMOTE_AGENT_COMPACTION_KEEP_RECENT_TOKENS,
-        reserveTokens: resolveRemoteAgentCompactionReserveTokens(
-          input.modelRoute.contextWindow
-        ),
+        reserveTokens:
+          input.modelRoute.contextWindow -
+          resolveCompactionThreshold({
+            contextWindow: input.modelRoute.contextWindow,
+            priceTierBoundary: resolveReviewedPromptPriceTierBoundary(
+              input.modelRoute.modelId
+            ),
+          }),
       },
       contextWindow: input.modelRoute.contextWindow,
       maxTokens: input.modelRoute.maxOutputTokens,
@@ -540,7 +549,13 @@ function resolveStaticRemoteAgentModelRuntimeConfig(input: {
       contextLength: 500_000,
       env: input.env,
       modelId: input.modelId,
-      pricingOverrides: [{ min_prompt_tokens: 200_000 }],
+      pricingOverrides: [
+        {
+          min_prompt_tokens: resolveReviewedPromptPriceTierBoundary(
+            input.modelId
+          ),
+        },
+      ],
       providerContextLength: 500_000,
       providerMaxCompletionTokens: null,
     });
@@ -609,7 +624,7 @@ function buildRemoteAgentModelRuntimeConfig(input: {
         contextWindow -
         resolveCompactionThreshold({
           contextWindow,
-          pricingOverrides: input.pricingOverrides,
+          priceTierBoundary: resolvePriceTierBoundary(input.pricingOverrides),
         }),
     },
     contextWindow,

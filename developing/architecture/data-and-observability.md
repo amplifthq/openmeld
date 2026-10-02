@@ -3056,6 +3056,12 @@ contain numeric usage and correlation identifiers, never prompts, completions,
 reasoning content, credentials, or local paths. Missing provider evidence is
 null and appears in missing-evidence counts; it is never fabricated as zero.
 
+The ledger distinguishes model `agent`, `compaction`, and `compaction_prefix`
+requests. Existing public Usage groups and issue receipts classify all three
+as `agent`; this preserves supported strict older clients while operator ledger
+queries retain exact purpose. Core accepts new record purposes before Remote
+Agent emits them. No local-component contract floor changes.
+
 Input includes cached input and output includes reasoning, so detail counters
 must not be added to the total again. Costs use integer nano-USD and distinguish
 provider-reported charges from provider estimates. Local consumption is

@@ -18,6 +18,7 @@ import {
 } from "@openmeld/adapter-grok-build";
 import {
   areAgentControllerInterfaceAccountsSame,
+  compareAgentControllerVersions,
   isAgentControllerUsageRefreshUnavailable,
 } from "@openmeld/agent-runtime";
 import { resolvePublicAgentAvailabilityCopy } from "@openmeld/schemas";
@@ -63,7 +64,7 @@ const CODEX_AUX_INVENTORY_GRACE_MS = 2500;
 const PROBE_OUTPUT_LIMIT = 32_000;
 const CODEX_USER_AGENT_VERSION_RE = /\/([^\s]+)/u;
 const CLI_SEMVER_RE = /\b(\d+\.\d+\.\d+(?:[-+][^\s]+)?)\b/u;
-const SEMVER_CORE_RE = /^v?(\d+)\.(\d+)\.(\d+)/u;
+const CURSOR_BUILD_DATE_RE = /^(\d{4})\.(\d{2})\.(\d{2})-[\da-f]+$/u;
 const WHITESPACE_RE = /\s+/u;
 
 // "fresh" always runs the controller probe and reports its real outcome; it is
@@ -531,7 +532,11 @@ async function resolveControllerVersionAdvisory(input: {
     };
   }
 
-  const versionComparison = compareSemverCore(
+  const compareVersions =
+    input.controllerId === "cursor"
+      ? compareCursorBuildDates
+      : compareAgentControllerVersions;
+  const versionComparison = compareVersions(
     input.currentVersion,
     latestVersion
   );
@@ -586,9 +591,18 @@ function recordLatestVersionFailureDiagnostics(
   }
 }
 
-function compareSemverCore(left: string, right: string): number | null {
-  const leftParts = parseSemverCore(left);
-  const rightParts = parseSemverCore(right);
+// Cursor's YYYY.MM.DD-commit builds are not SemVer; compare their release dates.
+function compareCursorBuildDates(left: string, right: string): number | null {
+  const leftParts = left
+    .trim()
+    .match(CURSOR_BUILD_DATE_RE)
+    ?.slice(1)
+    .map(Number);
+  const rightParts = right
+    .trim()
+    .match(CURSOR_BUILD_DATE_RE)
+    ?.slice(1)
+    .map(Number);
   if (!(leftParts && rightParts)) {
     return null;
   }
@@ -600,18 +614,6 @@ function compareSemverCore(left: string, right: string): number | null {
     }
   }
   return 0;
-}
-
-function parseSemverCore(value: string): [number, number, number] | null {
-  const match = value.trim().match(SEMVER_CORE_RE);
-  if (!match) {
-    return null;
-  }
-  const [, major, minor, patch] = match;
-  if (!(major && minor && patch)) {
-    return null;
-  }
-  return [Number(major), Number(minor), Number(patch)];
 }
 
 async function resolveCodexInterfaceSnapshot(
@@ -710,7 +712,7 @@ async function resolveClaudeCodeInterfaceSnapshot(
   } else if (
     auth.email &&
     version &&
-    (compareSemverCore(version, "2.1.285") ?? -1) >= 0
+    (compareAgentControllerVersions(version, "2.1.285") ?? -1) >= 0
   ) {
     usageLimits = await probeClaudeCodeUsageLimits({
       expectedEmail: auth.email,

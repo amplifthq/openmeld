@@ -46,6 +46,7 @@ export default defineConfig({
   ],
   // Keep workspace-owned runtime dependencies inside the self-contained CLI:
   // croner schedules routines; smol-toml reads native Grok delivery policies.
+  // semver supplies the shared Local Agent version comparison contract.
   // Unacknowledged transitive inlining remains a build error.
-  inlineOnly: ["croner", "smol-toml"],
+  inlineOnly: ["croner", "semver", "smol-toml"],
 });
