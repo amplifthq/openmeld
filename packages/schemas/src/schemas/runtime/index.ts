@@ -14,6 +14,10 @@ export {
   agentControllerInterfaceSnapshotSchema,
   agentControllerInterfaceStatusSchema,
 } from "./agent-controller-interface";
+export {
+  agentExecutionSteerRequestSchema,
+  agentExecutionSteerResponseSchema,
+} from "./agent-execution-steer";
 export { agentFailureFactsSchema } from "./agent-failure";
 export {
   AGENT_TASK_COORDINATION_SCHEMA_VERSION,
