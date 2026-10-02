@@ -3,6 +3,7 @@ import { createSubmitTurnRequest } from "../../remote-agent/tests/fixtures";
 import type { CoreBindings } from "../src/lib/bindings";
 import { acknowledgeRemoteAgentAdmission } from "../src/remote-agent/application/native-delivery-admission-acknowledgement";
 import {
+  listRemoteAgentNativeDeliveriesMissingAcceptedProbe,
   markRemoteAgentNativeDeliveryAck,
   persistRemoteAgentWorkerSubmitRequest,
   readRemoteAgentNativeDeliveryBySubmissionId,
@@ -63,9 +64,10 @@ describe("native execution admission acknowledgement", () => {
         ).toBeNull();
       }
       let stopRequested = true;
+      const send = vi.fn(async () => undefined);
       const env = {
         OPENMELD_DB: harness.db,
-        OPENMELD_DAEMON_DISPATCH_QUEUE: { send: vi.fn(async () => undefined) },
+        OPENMELD_DAEMON_DISPATCH_QUEUE: { send },
         OPENMELD_SPACES: {
           idFromString: (id: string) => id,
           get: () => ({
@@ -100,6 +102,18 @@ describe("native execution admission acknowledgement", () => {
         ).toBeNull();
       }
       stopRequested = false;
+      if (order === "start-before-response") {
+        harness.run({
+          sql: `CREATE TRIGGER reject_ack BEFORE UPDATE ON openMeldRemoteAgent_native_delivery_ledger
+          WHEN NEW.status = 'accepted' BEGIN SELECT RAISE(FAIL, 'ACK storage unavailable'); END`,
+        });
+        await expect(
+          acknowledgeRemoteAgentAdmission(env, callback)
+        ).rejects.toThrow("ACK storage unavailable");
+        expect(send).not.toHaveBeenCalled();
+        harness.run({ sql: "DROP TRIGGER reject_ack" });
+      }
+      send.mockRejectedValueOnce(new Error("Queue temporarily unavailable"));
       await expect(
         acknowledgeRemoteAgentAdmission(env, callback)
       ).resolves.toMatchObject({ status: "accepted" });
@@ -111,11 +125,24 @@ describe("native execution admission acknowledgement", () => {
       ).toMatchObject({
         status: "accepted",
         idempotencyKey: request.idempotencyKey,
+        acceptedProbeNextDueAtMs: null,
       });
+      expect(
+        await listRemoteAgentNativeDeliveriesMissingAcceptedProbe({
+          db: harness.db,
+          nowMs: Date.now(),
+        })
+      ).toMatchObject([{ idempotencyKey: request.idempotencyKey }]);
       await markRemoteAgentNativeDeliveryAck(ack);
       await expect(
         acknowledgeRemoteAgentAdmission(env, callback)
       ).resolves.toMatchObject({ status: "accepted" });
+      expect(
+        await readRemoteAgentNativeDeliveryBySubmissionId({
+          db: harness.db,
+          submissionId: request.dispatchId,
+        })
+      ).toMatchObject({ acceptedProbeNextDueAtMs: expect.any(Number) });
       await expect(
         acknowledgeRemoteAgentAdmission(env, {
           ...callback,
@@ -128,6 +155,23 @@ describe("native execution admission acknowledgement", () => {
           submissionId: "other-submission",
         })
       ).resolves.toMatchObject({ status: "rejected" });
+      // A terminal write during a failed probe must not resurrect admission.
+      harness.run({
+        sql: "UPDATE openMeldRemoteAgent_native_delivery_ledger SET accepted_probe_next_due_at_ms = NULL",
+      });
+      send.mockImplementationOnce(() => {
+        harness.run({
+          sql: "UPDATE openMeldRemoteAgent_native_delivery_ledger SET status = 'failed'",
+        });
+        return Promise.reject(
+          new Error("Queue failed after terminal transition")
+        );
+      });
+      await expect(
+        acknowledgeRemoteAgentAdmission(env, callback)
+      ).resolves.toMatchObject({
+        status: "rejected",
+      });
       harness.run({
         sql: "UPDATE openMeldRemoteAgent_native_delivery_ledger SET status = 'failed'",
       });

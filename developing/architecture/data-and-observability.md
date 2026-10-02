@@ -2190,6 +2190,10 @@ writer and accepted-execution probe before Computer or other execution-scoped
 resources query Core. Both response orders converge on the existing ledger row;
 terminal transitions win, and neither callback creates another execution state
 or relaxes the accepted-execution authorization predicate.
+The durable ACK is the preparation barrier. A later probe scheduling failure
+retains diagnostic evidence and the existing missing/expired-probe recovery;
+it does not reject an already accepted execution. ACK persistence/read failures
+still fail preparation, and a terminal transition during failed scheduling wins.
 Correlated continuation stage events include the existing subscription creation
 and Queue enqueue timestamps at receipt, successful claim, and start/end timings
 for authorization/replay preflight, turn context, memory, Skills, watchdog enqueue

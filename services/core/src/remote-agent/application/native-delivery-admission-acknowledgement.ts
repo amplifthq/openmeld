@@ -3,8 +3,12 @@ import {
   remoteAgentCoreCallbackResponseSchema,
 } from "@openmeld/schemas";
 import { type CoreBindings, wakeEvidenceDb } from "../../lib/bindings";
-import { readRemoteAgentNativeDeliveryByIdempotencyKey } from "../infrastructure/d1/native-delivery-ledger-repo";
-import { markRemoteAgentNativeDeliveryAckWithProbe } from "./native-delivery-accepted-probe";
+import { CORE_LOG_EVENTS } from "../../shared/observability/log-events";
+import {
+  markRemoteAgentNativeDeliveryAck,
+  readRemoteAgentNativeDeliveryByIdempotencyKey,
+} from "../infrastructure/d1/native-delivery-ledger-repo";
+import { ensureRemoteAgentAcceptedDeliveryProbe } from "./native-delivery-accepted-probe";
 import { isNativeDeliveryExecutingStatus } from "./native-delivery-execution-status";
 import { resolveRemoteAgentNativeDeliveryIdentityMismatch } from "./native-delivery-identity";
 import { isRemoteAgentRequestStopRequested } from "./space-wake-stop-intent";
@@ -46,15 +50,47 @@ export async function acknowledgeRemoteAgentAdmission(
       reasonCode: "remote_agent.execution_cancelled",
     });
   }
-  const acknowledged = await markRemoteAgentNativeDeliveryAckWithProbe({
+  let acknowledged = await markRemoteAgentNativeDeliveryAck({
     accepted: true,
     db,
-    env,
     idempotencyKey: body.idempotencyKey,
     nowMs: Date.now(),
     submissionId: body.submissionId,
     workerRequestId: body.submissionId,
   });
+  try {
+    acknowledged = (
+      await ensureRemoteAgentAcceptedDeliveryProbe({
+        db,
+        delivery: acknowledged,
+        env,
+        nowMs: Date.now(),
+      })
+    ).delivery;
+  } catch (error) {
+    // The ACK is durable. Existing probe recovery retries missing/expired
+    // schedules; a probe transport failure must not undo admission.
+    console.warn(
+      "[core.remote_agent.native_delivery.admission_accepted_probe_failed]",
+      {
+        event: CORE_LOG_EVENTS.coreInternalError,
+        deliveryId: acknowledged.deliveryId,
+        dispatchId: acknowledged.dispatchId,
+        submissionId: acknowledged.submissionId,
+        targetProfileId: acknowledged.profileId,
+        error: error instanceof Error ? error.message : String(error),
+      }
+    );
+    // A terminal transition during the failed scheduling attempt still wins.
+    const current = await readRemoteAgentNativeDeliveryByIdempotencyKey({
+      db,
+      idempotencyKey: body.idempotencyKey,
+    });
+    if (!current) {
+      throw new Error("remote_agent.execution_store_unavailable");
+    }
+    acknowledged = current;
+  }
   // A concurrent terminal transition wins the conditional ACK write.
   return remoteAgentCoreCallbackResponseSchema.parse(
     isNativeDeliveryExecutingStatus(acknowledged.status) &&
