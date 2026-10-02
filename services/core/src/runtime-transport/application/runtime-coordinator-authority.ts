@@ -315,6 +315,8 @@ export const RUNTIME_COORDINATOR_LOCAL_ATTEMPT_WITHDRAWAL_SUPERSEDED_REASON_CODE
 export const RUNTIME_COORDINATOR_LOCAL_ATTEMPT_WITHDRAWAL_SERVICE_AWAY_REASON_CODE =
   "runtime_coordinator.local_attempt_withdrawal_service_away" as const;
 
+const INTERACTION_RESPONSE_FINGERPRINT_PATTERN = /^[a-f0-9]{64}$/u;
+
 export const isRuntimeCoordinatorLateResultRecoverable = (input: {
   executionStatus: RuntimeCoordinatorExecutionStatus | null;
   taskResultStatus: RuntimeTransportSubmitTaskResultRequest["taskResult"]["payload"]["status"];
@@ -427,6 +429,14 @@ export type RuntimeCoordinatorRunCommandState = {
    * supported. New command-state writes always set this explicitly.
    */
   pendingInteraction?: RuntimeCoordinatorPendingAgentInteractionState | null;
+  /** Response receipts survive delivery ACKs; no private answer text is retained. */
+  interactionResponseReceipts?: Record<
+    string,
+    {
+      responseFingerprint: string;
+      respondedAtMs: number;
+    }
+  >;
   profileId: string;
   redeliveryCount: number;
   runtimeCoordinatorExecutionId: string;
@@ -1603,6 +1613,24 @@ export const isRuntimeCoordinatorRunCommandState = (
       !daemonServiceLaneSchema.safeParse(record.lastDeliveryProvenance.lane)
         .success) ||
     typeof record.lastDeliveryProvenance.leaseEpoch !== "number"
+  ) {
+    return false;
+  }
+  if (
+    record.interactionResponseReceipts !== undefined &&
+    (typeof record.interactionResponseReceipts !== "object" ||
+      record.interactionResponseReceipts === null ||
+      Array.isArray(record.interactionResponseReceipts) ||
+      Object.values(record.interactionResponseReceipts).some(
+        (receipt) =>
+          !receipt ||
+          typeof receipt.responseFingerprint !== "string" ||
+          !INTERACTION_RESPONSE_FINGERPRINT_PATTERN.test(
+            receipt.responseFingerprint
+          ) ||
+          !Number.isSafeInteger(receipt.respondedAtMs) ||
+          receipt.respondedAtMs < 0
+      ))
   ) {
     return false;
   }
