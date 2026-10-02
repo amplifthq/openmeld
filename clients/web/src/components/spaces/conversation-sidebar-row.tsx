@@ -73,7 +73,7 @@ import {
 	SpaceMemberAvatars,
 } from "./space-member-avatars";
 import { SpaceProfileIcon } from "./space-profile-icon";
-import { SpaceUnreadButton } from "./space-unread-button";
+import { SpaceUnreadLink } from "./space-unread-link";
 
 type ConversationSidebarRowProps = {
 	attentionTone: "danger" | "warning" | null;
@@ -153,29 +153,6 @@ function ConversationSidebarRowTime({ timestamp }: { timestamp: number }) {
 			hideOlderUntilHover
 			now={new Date(nowMs)}
 			timestamp={timestamp}
-		/>
-	);
-}
-
-// Preserve the existing status-dot slot and geometry. Only the dot is a target.
-function ConversationRowIndicator(input: ConversationSidebarRowProps) {
-	if (input.attentionTone) {
-		return (
-			<span
-				aria-hidden="true"
-				className={`status-dot shrink-0 ${resolveInboxIndicatorClassName(input.attentionTone)}`}
-				data-conversation-unread-indicator="true"
-			/>
-		);
-	}
-	if (input.unreadCount <= 0) {
-		return null;
-	}
-	return (
-		<SpaceUnreadButton
-			count={input.unreadCount}
-			spaceId={input.conversation.spaceId}
-			url={input.url}
 		/>
 	);
 }
@@ -267,7 +244,13 @@ function ConversationSidebarRowContent(
 								{timestamp !== null && !presentation && (
 									<ConversationSidebarRowTime timestamp={timestamp} />
 								)}
-								{presentation && <ConversationRowIndicator {...input} />}
+								{presentation && input.attentionTone && (
+									<span
+										aria-hidden="true"
+										className={`status-dot shrink-0 ${resolveInboxIndicatorClassName(input.attentionTone)}`}
+										data-conversation-unread-indicator="true"
+									/>
+								)}
 							</span>
 							{input.previewSignalId && !needsInput ? (
 								<ConversationPreviewLink
@@ -299,7 +282,19 @@ function ConversationSidebarRowContent(
 			) : (
 				(hasUnread || input.attentionTone) && (
 					<SidebarMenuBadge>
-						<ConversationRowIndicator {...input} />
+						{input.attentionTone ? (
+							<span
+								aria-hidden="true"
+								className={`status-dot ${resolveInboxIndicatorClassName(input.attentionTone)}`}
+								data-conversation-unread-indicator="true"
+							/>
+						) : (
+							<SpaceUnreadLink
+								count={input.unreadCount}
+								spaceId={input.conversation.spaceId}
+								url={input.url}
+							/>
+						)}
 					</SidebarMenuBadge>
 				)
 			)}

@@ -61,7 +61,7 @@ import {
 	type SpaceMemberAppearance,
 	SpaceMemberAvatars,
 } from "./space-member-avatars";
-import { SpaceUnreadButton } from "./space-unread-button";
+import { SpaceUnreadLink } from "./space-unread-link";
 import { useSpaceDirectoryFilters } from "./use-space-directory-filters";
 import { useSpaceListIndicators } from "./use-space-list-indicators";
 import { WelcomeSpaceLabel } from "./welcome-space-guide";
@@ -684,7 +684,7 @@ function RowStatus(input: {
 			)}
 			{input.unread > 0 && (
 				<span className="flex items-center gap-2 text-muted-foreground">
-					<SpaceUnreadButton
+					<SpaceUnreadLink
 						count={input.unread}
 						spaceId={input.spaceId}
 						url={`${input.route.to}?${new URLSearchParams(input.route.search)}`}
