@@ -35,6 +35,8 @@ const executionInputRequest = z.strictObject({
   ownerUserId: identityString,
   dispatchId: identityString,
   runtimeCoordinatorExecutionId: identityString,
+  attemptId: identityString,
+  runtimeCoordinatorRunId: identityString,
   targetProfileId: identityString,
   source: z.strictObject({
     spaceId: identityString,

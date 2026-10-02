@@ -70,6 +70,8 @@ export function createServiceExecutionInputReceiver(input: {
     })?.record;
     return record?.runtimeCoordinatorExecutionId ===
       request.runtimeCoordinatorExecutionId &&
+      record.attemptId === request.attemptId &&
+      record.runtimeCoordinatorRunId === request.runtimeCoordinatorRunId &&
       record.targetProfileId === request.targetProfileId
       ? record
       : null;

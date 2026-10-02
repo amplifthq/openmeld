@@ -1027,6 +1027,8 @@ export async function handleDispatchDeliverFrame(input: {
       routeConfig?.agentControllerPermissionMode ?? null,
     dispatchId: parsedTask.dispatchId,
     runtimeCoordinatorExecutionId: parsedTask.runtimeCoordinatorExecutionId,
+    attemptId: parsedTask.attemptId,
+    runtimeCoordinatorRunId: parsedTask.executionTokenEcho.runId,
     targetProfileId: parsedTask.targetProfileId,
     taskId: parsedTask.taskId,
   });

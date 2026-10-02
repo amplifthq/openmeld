@@ -34,6 +34,8 @@ function fixture(steer?: RuntimeAdapter["steer"]) {
     adapterId: "codex",
     dispatchId: "dispatch-1",
     runtimeCoordinatorExecutionId: "execution-1",
+    attemptId: "attempt-1",
+    runtimeCoordinatorRunId: "run-1",
     targetProfileId: "agent-1",
     taskId: "task-1",
   });
@@ -59,6 +61,8 @@ function fixture(steer?: RuntimeAdapter["steer"]) {
     ownerUserId: "owner-1",
     dispatchId: "dispatch-1",
     runtimeCoordinatorExecutionId: "execution-1",
+    attemptId: "attempt-1",
+    runtimeCoordinatorRunId: "run-1",
     targetProfileId: "agent-1",
     source: {
       spaceId: "space-1",
@@ -82,6 +86,32 @@ function fixture(steer?: RuntimeAdapter["steer"]) {
 }
 
 describe("Service exact-execution input receiver", () => {
+  it("does not retarget an input to a replacement attempt of the same logical execution", async () => {
+    const steer = vi.fn(({ taskId }: { taskId: string }) =>
+      Promise.resolve({
+        status: "applied" as const,
+        taskId,
+        threadId: "thread-new",
+        turnId: "turn-new",
+      })
+    );
+    const { call, registry } = fixture(steer);
+    registry.registerTask({
+      adapterId: "codex",
+      dispatchId: "dispatch-1",
+      runtimeCoordinatorExecutionId: "execution-1",
+      targetProfileId: "agent-1",
+      taskId: "replacement-task",
+      attemptId: "attempt-2",
+      runtimeCoordinatorRunId: "run-2",
+    });
+    expect(await call("apply")).toMatchObject({
+      status: "not_applied",
+      reasonCode: "execution_input.target_unavailable",
+    });
+    expect(steer).not.toHaveBeenCalled();
+  });
+
   it("fences retired connectors and leases, retains receipts across reconnect, and allows only reads while draining", async () => {
     const stateRoot = await mkdtemp(join(tmpdir(), "openmeld-input-host-"));
     vi.stubEnv("OPENMELD_HOME", stateRoot);
@@ -190,6 +220,8 @@ describe("Service exact-execution input receiver", () => {
     "ownerUserId",
     "dispatchId",
     "runtimeCoordinatorExecutionId",
+    "attemptId",
+    "runtimeCoordinatorRunId",
     "targetProfileId",
   ] as const)("rejects a mismatched %s before native input", async (key) => {
     const steer = vi.fn();

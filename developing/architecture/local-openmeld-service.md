@@ -800,8 +800,10 @@ The native contract is documented in the
 [Codex App Server reference](https://learn.chatgpt.com/docs/app-server#steer-an-active-turn).
 
 The Execution Host's private inherited IPC `executionInput` method accepts an
-exact owner account, Profile, dispatch and RuntimeCoordinator execution. The
-current connector generation and Profile lease must match; draining admission
+exact owner account, Profile, dispatch, attempt and RuntimeCoordinator execution
+and run. The registry receives these identifiers from the existing admitted
+delivery, never from a new input; a replacement attempt cannot inherit old input.
+The current connector generation and Profile lease must match; draining admission
 rejects new application. Only the existing inflight registry resolves a local
 task. The frozen source retains Space, Signal, author, original requester and
 the `steer` effect; it is correlation, not a grant from the Agent's owner.

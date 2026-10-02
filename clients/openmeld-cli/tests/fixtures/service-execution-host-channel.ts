@@ -44,6 +44,8 @@ registry.registerTask({
   adapterId: "codex",
   dispatchId: "dispatch-1",
   runtimeCoordinatorExecutionId: "execution-1",
+  attemptId: "attempt-1",
+  runtimeCoordinatorRunId: "run-1",
   targetProfileId: "agent-1",
   taskId: "task-1",
 });
