@@ -493,7 +493,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 
 		fireEvent.click(
 			within(repliesSection).getByRole("button", {
-				name: "Show reply in Messages",
+				name: "Go to message",
 			})
 		);
 

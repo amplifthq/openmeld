@@ -175,7 +175,7 @@ conversation is displayed, view navigation pins its resolved Space ID in the
 URL so Files/Messages cannot reselect a different conversation. Explicit
 session links always select their exact identity, including after reload.
 
-Web uses three navigation levels: a fixed 76px application rail, a contextual
+Web uses three navigation levels: a 76px application rail (52px in Icons only), a contextual
 list inside the inset surface, and the current work area. Inbox, Spaces, and
 Team are the rail's destinations, in that order. Desk is temporarily hidden
 from navigation and remains accessible at `/o/{orgSlug}/desk`. Organization
@@ -512,6 +512,11 @@ errors, unhandled rejections, and resource failures share the same bounded
 reporter. Reporting does not decide recovery, mutate application state, or
 retry a failed diagnostic request. See `docs/web-application-errors.md` for
 the privacy, coverage, and operator query contract.
+React update-depth reports capture bounded fixed labels at the Space history
+cache, timeline, and Wake projection writers, including whether an existing
+signal's Agent controller presentation changed. A later manual report for the
+same Error retains that failure-time snapshot. No message, Profile value, or
+Space identity is added to the update trace.
 
 The Space composer isolates a rich-editor failure from the conversation shell.
 Its plain-text fallback keeps the draft and send action available, while edits
@@ -545,6 +550,11 @@ Existing Composer draft persistence remains the draft owner. Unsaved-change
 guards and pending Space sends register recovery blockers using their existing
 facts; recovery leaves those surfaces and native navigation warnings mounted
 rather than discarding unsaved work to make a deployment look seamless.
+Space creation also blocks automatic recovery while its name, visibility, or
+submission is unfinished. A failed lazy Settings section stays within the
+Settings content boundary, leaving the dialog dismissal, workspace, editable
+owners, and pending sends mounted when recovery is deferred. The error remains
+reportable; the boundary does not retry writes or replace recovery policy.
 
 Recovery accepts only module-fetch and CSS-preload failures, not arbitrary
 exceptions from executing a module. Automatic attempts retain a 30-second
@@ -1403,12 +1413,13 @@ The Settings secondary sidebar always shows these two groups:
   Privacy & Safety (or after Center Agent in a Personal Workspace). It opens
   the existing feedback dialog rather than creating a route or a second
   submission contract.
-- **Current Organization name** — **General**, **Center Agent**, **Members**,
+- **Current Organization name** — **General**, **Center Agent**, **Usage**, **Members**,
   **Invitations**, and **Security**. General owns identity and lifecycle, Center
-  Agent owns coordinator identity, connection, model, usage, and audit history,
+  Agent owns coordinator identity, connection, model, and audit history,
   Members owns roles, Invitations owns requests and invitation delivery, and
   Security owns information protection. Security is visible only to owners and
-  admins. A personal workspace shows General only: organization membership
+  admins. Usage owns organization consumption and the signed-in member's Remote
+  Agent view. A personal workspace shows General and Usage: organization membership
   and invitation management do not apply there, and its coordinator belongs to
   Personal. The visible group label is the selected
   Organization's stored name, including for the personal Organization; it is
@@ -1457,18 +1468,59 @@ Rounded-default rollout uses a versioned browser preference key so existing
 users receive the new default once; a Square selection made afterward remains
 explicit and persistent.
 
+Appearance's **Sidebar** group offers **Icons and text** and **Icons only**
+preview cards for the outer app rail. The rail's **Show** context menu changes
+the same `openmeld.appearance.sidebar-display` preference. Web restores its
+document-root CSS projection before paint and synchronizes changes across
+tabs. Both presentations reuse the existing Fluid menu rows. Icons only uses
+the shared 52px Fluid icon width, giving the work area 24px more room while
+preserving navigation destinations and the inner sidebar's width. Narrow
+screen drawers always show full labels.
+
+### Product context menus
+
+Right-click entry points reuse `@openmeld/ui/fluid/context-menu` and the same
+action owners as ordinary menus. They do not introduce a second preference,
+permission, confirmation, or mutation path:
+
+| Surface | Actions |
+| --- | --- |
+| Primary rail destinations | Open and copy link; empty rail retains the display menu |
+| Conversation sidebar and directory rows | Open, copy link, pin/unpin, move; rename/archive when offered by the existing owner |
+| Conversation sidebar empty area | New message and new Space |
+| Space and thread messages | Existing reactions, copy, reply, pin, task, details, edit and recall actions, with their original eligibility |
+| Inbox items and groups | Open/copy source link, read/unread, remove; groups retain their exact snapshot and confirmation boundary |
+| Team people | Open/copy profile link, message, star/unstar using the same sidebar preferences |
+| Agent cards and workspace header | Existing details, editing, messaging, Project/folder, unbind and removal actions; opening either menu refreshes eligibility |
+| Plugin and Skill catalog cards | Open and copy the exact detail destination |
+| Skill detail header | Existing copy, usage, properties, history, maintainers, enable/disable and removal operations |
+| Team and Space file browsers | Existing create, open/download, rename, move/copy, pin, trash/restore actions appropriate to the location and permissions |
+| Knowledge folder/document cards | Open/copy authorized navigation links and existing management menus |
+
+`copyAppLink` resolves relative destinations against Web's current origin or
+Desktop's declared public Web origin, never the packaged renderer origin.
+OpenMeld currently has no general resource deep-link protocol. Do not invent
+one or expose a private download URL as a share link. Knowledge document links
+retain normal access checks; files without a public navigation link retain
+their existing download/copy operations. Editors and selected text retain
+native menus; progress-only message rows do not create empty custom menus.
+
 Appearance also owns the browser-local **Your messages** placement used by
 every Space, Direct Message, Center Agent, and thread conversation that
 renders the shared message primitives. A message placed on the right uses a
-trailing-aligned, content-sized bubble with a responsive maximum width; a
-message placed on the left uses the available transcript width beside its avatar.
+trailing-aligned, content-sized bubble; a message placed on the left uses the
+available transcript width beside its avatar. In the Full width conversation
+layout, a short main-timeline message fits its content, while a long one can
+use the full available width without a separate bubble cap. Centered layout
+limits the conversation column itself.
 Both placements keep their content leading-aligned. Ordinary Spaces put the
 speaker's avatar beside the name and bubble, with the name aligned to the avatar's
 top and the bubble below it. Names use regular-weight, muted, extra-small text;
 the name line compensates for the font's ascent inset to align its visible ink
 slightly above the avatar top.
 Direct Messages, including Center
-Agent chats, use content-sized bubbles with a dedicated avatar column. The first
+Agent chats, use content-sized bubbles up to the available conversation width
+with a dedicated avatar column. The first
 message in a speaker run aligns the avatar with the bubble's top; subsequent
 messages retain the same column. Names and runtime/owner attribution are omitted
 from DM speaker headers, while avatar Profile Details remain available. The
@@ -1533,7 +1585,7 @@ unavailable.
 global App Settings destination (grouped under the current Organization's name,
 or under **Personal** in a Personal Workspace) at `/o/{orgSlug}/settings/center-agent`.
 The historical `/o/{orgSlug}/center-agent/settings` path redirects here.
-It contains Model, Usage, the Audit Log, and the reversible
+It contains Model, the Audit Log, and the reversible
 Organization-wide operating control in **Danger Zone**. Only the immutable
 Organization creator may pause or resume the Center Agent; owner/admin roles do
 not grant this authority. The active state presents **Pause Center Agent** and
@@ -1650,6 +1702,33 @@ resolution waits for the initial Organization projection refresh before using
 cached identity evidence. Stale local-agent checks display **Status out of date**:
 current availability is unknown until the Computer reports a new check. This
 does not mean that the Agent version is outdated or that repair is required.
+
+Local Agent cards show quiet tokens-today text after the account usage ring only when the current
+workspace has recorded positive token consumption for that controller on that
+enrolled Computer. The existing Details dialog includes an OpenMeld usage
+section with Today/Last 7 days, input/output totals, models, and an optional
+top-task disclosure. Periods use the viewer's local calendar days. When only
+the last seven days contain usage, Details starts there; periods without
+recorded tokens are unavailable. No usage records or unsupported collection
+produce no consumption copy, badge, placeholder, or reserved space. These
+statistics remain separate from provider account Usage Limits and do not
+present Local usage as free or as spending the organization allowance.
+Owner and teammate views read the same organization-scoped consumption query.
+
+Computer details place a compact Local Agent token usage card directly below Computer
+Connection. It combines recorded Local Agent tokens on that enrolled Computer
+in the current Organization. The default seven-day area chart uses calendar
+days in the viewer's time zone, including today so far. Details contains the
+7/30-day selector, refresh, and an accessible daily input/output/total table.
+Each controller has an unstacked series, a labelled legend, and its existing
+Local Agent icon in tooltips and table rows. Colors reuse the shared controller
+brand accents; monochrome Cursor and OpenCode logos use fixed amber and teal
+chart accents. Unknown attribution remains explicitly labelled. Daily controller
+rows and curves use the same scoped time-series query.
+Initial loading uses the shared Evil Charts skeleton; no recorded tokens hides
+the card. Explicit missing-token receipts produce gaps instead of known-zero
+points, and partial totals are disclosed in Details. No provider polling or
+inference is performed to load the chart.
 
 Each Local Agent renders its `usageLimits` list inside the existing expandable
 row. Usage Limit evidence does not create a separate page or make the row expand
@@ -1786,15 +1865,23 @@ File access card. Other owned Computers remain visible with guidance to open
 OpenMeld on that Computer; Web does not imply that their local policy can be
 managed remotely. This page never reads, stores, or edits a policy itself.
 
-The **Usage** section on **Center Agent → Center Agent settings** is a read-only
-Organization overview available to every
-active member. It shows today's Organization-wide Center Agent wake admissions,
-the next UTC reset in both local and UTC time, and one current Routine count
-against the shared 50-definition limit. It does not present separate enabled and
-total quotas because every definition may be enabled. It reads the Core-owned
-projections through the shared Web → Gateway → Core contract and does not introduce usage
-history, export, per-user attribution, administrator controls, token counts, or
-billing concepts.
+**Settings → Usage** is a read-only destination available to every active member.
+Its text-only navigation matches the other Settings items. Fluid **Organization /
+My agents** tabs share the current Organization scope. Organization shows recorded
+Center Agent and Remote Agent costs by model, separately recorded Local Agent
+tokens, and the existing 50-definition Routine limit. My agents selects the
+signed-in member's non-Center Agent Profiles from the organization directory and
+shows their Remote runtime consumption; it is a subset of organization usage,
+not another allowance. Empty ownership selects no receipts.
+
+Both cost views reuse the shared chart, model brand icons, and Fluid controls.
+They start at seven local calendar days, with a 30-day selector, refresh, model
+totals, and personal Agent totals in Details. Costs carry a green **Free** badge;
+provider estimates and missing costs are not presented as invoiced charges.
+Local token charts reuse the Computer chart without a Computer filter and remain
+separate from costs. A daily allowance appears only when explicitly configured,
+with the existing UTC reset. No billing controls, export, or task drilldown is
+introduced. These views read the existing Web → Gateway → Core projections.
 
 For a non-personal Organization, **Settings → General** shows the current
 Organization logo as a separate autonomous section before Organization
@@ -2908,6 +2995,21 @@ when that Session is idle.
 a failed save keeps the draft and its diagnostic visible. Dangerous or
 low-frequency actions remain in the overflow menu. This presentation does not
 create a second Agent Profile, Binding, readiness, request, or edit authority.
+Each configuration card validates and submits only its visible fields. Unchanged
+permission modes must not require renewed confirmation for unrelated edits;
+selecting a dangerous permission mode or changing controllers still requires the
+applicable confirmation. A non-editable permission capability is read-only.
+Readiness-backed configuration reads collaboration mode from
+`publicProfileConfiguration`; its compact `primaryBinding` omits that field.
+Model, collaboration, and permission cards close on submission and show a
+presentation-only optimistic value marked **Saving…**. The other model,
+collaboration, and permission editors remain usable; writes to the same Binding wait for the current write
+to settle. Failure restores the confirmed summary and preserves that card's
+draft and error for retry. Only a matching server response means **Saved**.
+Cache reads started before that response cannot overwrite it, and follow-up
+status refreshes run in the background without holding the save open. These
+optimistic summaries never grant permissions, change Wakeability, or become
+Binding execution truth.
 Agent identity controls in messages, Threads, and the Members panel open one
 compact Profile Details popover. It shows the Agent identity, current
 availability, and a primary **Chat with {Agent name}** action. The popover omits
@@ -4328,6 +4430,7 @@ sent revision even after the viewer temporarily returned to the current file.
 - `Reply to` creates a normal reply relation to a message
 - `Reply in thread` opens the thread panel
 - thread replies stay in the thread panel
+- the Thread header's **Go to message** action focuses its root message in Messages
 - the root message may show a compact thread preview
 - the main timeline must not render thread replies as standalone root messages
 
@@ -4576,6 +4679,15 @@ the call is invisible instead of falling back to `connected app action`.
 
 The live work disclosure shares the existing progress row instead of adding a
 second row and keeps Stop immediately after the expandable work summary.
+Work disclosures and link previews must fit the containing message, including
+when a desktop Thread is resized without changing the browser viewport. The
+working label may wrap and increase the header height; the supporting summary
+truncates, and Stop remains within the bubble. Long work-step names wrap instead
+of widening their scroll viewport. Code, tables, and attachment strips retain
+their own horizontal scrolling without widening the message.
+Unchanged work steps retain their rendered motion trees during streaming text
+updates. The shared step uses React's default prop comparison so status, label,
+icon, and content changes still render immediately.
 While the authoritative stream is
 active, that row keeps `Agent is working` as its stable primary state and shows
 the concrete current work as supporting context. Work activity must never
@@ -4610,14 +4722,20 @@ time inside the floating toolbar. Message details remains available for an
 individual message. Message actions form one floating
 toolbar beside the bubble, or slightly over its upper edge when neither side
 has room. As a long message scrolls past the top of the message viewport, the
-toolbar follows that message's lower visible edge so its actions remain in view.
+toolbar aligns with that message's lower visible edge while it fits beside the
+bubble. When it must overlap the bubble, it straddles that lower edge if there
+is room. It remains inside the viewport when the message continues beyond it.
 It prefers the opposite side of a right-aligned self message and the right side
-of a left-aligned message. Phone widths show
-reaction and More actions beside a narrower bubble, keeping the full set of
-actions available from More. The toolbar does not reserve a footer row or change
-the bubble's height. When a message has a failure, the visible
-toolbar keeps only one red Message details icon and More actions;
-Copy, Reply, Thread, and Addressing move into More actions. Toolbar icon controls
+of a left-aligned message. Phone widths show reaction and More actions, keeping
+the full set of actions available from More. The floating toolbar never reserves
+bubble width or a footer row: when it cannot fit beside the bubble, it overlaps
+the upper edge without changing the bubble's width or height. When a message has
+a failure, the visible toolbar keeps only one red Message details icon and More
+actions; Copy, Reply, and Thread move into More actions. Otherwise the expanded
+toolbar shows reaction, Copy, Reply, Thread, and More. More holds Message details,
+Addressing, and other less frequent actions without repeating visible toolbar
+actions. A successful Copy briefly changes its icon to a check; a failed Copy
+leaves the copy icon in place. Toolbar icon controls
 use a compact 28-pixel container with 6-pixel visual padding. A failure colors
 the Message details icon red but does not show a persistent hover or selected
 background; that background appears only through real interaction state. The
@@ -5332,6 +5450,12 @@ indicator instead of its animated Working orb. Both surfaces return to ordinary
 Wake progress as soon as Core projects the conversation as available.
 
 Web uses the shared Wake presentation resolver for status text and Orb variants.
+When current Core projects `remote_agent.execution_confirmation_pending` on an
+active native Wake, the shared resolver shows **Result awaiting confirmation**
+with a neutral pending appearance. It suppresses stale tool-work previews and
+elapsed-working presentation, explains that later work may be waiting, and
+retains the existing viewer-authorized Stop control. It never infers a failed,
+completed, or not-executed outcome, and it does not offer automatic resend.
 Sidebar priority is input needed from the current user, then working/replying,
 then sending/connecting, then queued or waiting. Equal priorities retain Wake
 start order. Other active Spaces in the selected Organization reuse the same
@@ -5344,10 +5468,15 @@ input-waiting Orbs are paused.
 Unfinished Agent replies follow the latest message in their owning conversation.
 The server-selected `replyThreadRootSignalId` takes precedence over the trigger
 message's location once reply placement is known. Before selection, progress
-keeps its source context. A Thread-bound reply has a compact progress marker on
-the main entrance; its complete progress and authorized Stop control stay in the
-Thread. Durable outcomes fetched in Thread history or previews reconcile the
-same Wake presentation as live outcomes.
+keeps its source context, except a shared-Space Center Agent Wake waits for its
+selected destination instead of showing a provisional main-conversation status.
+For a Thread-bound reply, the main message's **Open thread** entrance shows the
+compact current phase and authorized Stop control in place. The Thread shows the
+complete progress and its Stop control. The main message does not show a second
+working row or Stop. A durable Thread reply preview replaces the compact phase,
+including when an older active-progress snapshot has not refreshed yet. Durable
+outcomes fetched in Thread history or previews reconcile the same Wake
+presentation as live outcomes.
 
 Thread entrances retain the viewer's existing Inbox unread targets. Their
 preview rows support pointer and keyboard activation without intercepting real
@@ -6053,10 +6182,12 @@ success or failure of the underlying installation.
 
 For an `update_service` setup run, terminal completion proves only that the CLI
 flow ended. Web must keep the result in a bounded confirming state until both
-the CLI and Service projections arrive and neither still requires an update.
-Missing projection data is not success. If the bounded verification window
-expires, Web shows an explicit OpenMeld release-side failure instead of a false
-completion checkmark or an endless spinner.
+the CLI and Service projections both report current, unblocked, installed
+versions. An optional update still available is not a completed update.
+Missing or unknown projection data is not success. If the bounded
+verification window expires, Web shows an explicit unverified outcome instead of
+a completion checkmark or an endless spinner. Missing evidence alone must not
+be attributed to a release-side failure.
 
 The human-facing command is the Web-generated setup command. On supported macOS
 and Windows x64 it selects binary setup. For explicit `?dist=npm` or npm recovery,

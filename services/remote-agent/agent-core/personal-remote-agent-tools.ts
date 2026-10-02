@@ -2,7 +2,7 @@ import {
   personalRemoteAgentSpaceToolRequestSchema,
   personalRemoteAgentSpaceToolResponseSchema,
 } from "@openmeld/schemas";
-import { object, optional, string } from "valibot";
+import { object, optional, picklist, string } from "valibot";
 import type { RemoteAgentCoreWorkerBinding } from "./callback-context";
 import type { RemoteAgentToolDefinition } from "./tool-definition";
 
@@ -98,6 +98,16 @@ export function getPersonalRemoteAgentTools(input: {
       input: object({ agentProfileId: string(), text: string() }),
       execute: async (operation) =>
         await execute({ ...operation, kind: "wake" }),
+    },
+    {
+      name: "openmeld_set_reply_placement",
+      description:
+        "Choose where this turn's final answer appears before it starts. Shared Spaces default to the triggering message's thread. Choose conversation only when the user asks or a conclusion, decision, or blocker matters to the whole Space.",
+      input: object({
+        placement: picklist(["conversation", "thread"] as const),
+      }),
+      execute: async (operation) =>
+        await execute({ ...operation, kind: "reply_placement" }),
     },
   ];
 }

@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-27T17:10:53.499Z",
+  "updatedAt": "2026-10-01T19:01:13.847Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
-      "packageVersion": "0.3.228",
+      "packageVersion": "0.3.234",
       "updatePolicy": "available",
-      "reason": "Existing CLI setup and commands remain usable across the cloud rollout; new CLI adds Files and Skills commands without changing prior requests."
+      "reason": "Existing CLI setup and commands remain compatible; cloud receivers deploy before the new optional usage telemetry, preserving the current CLI floor."
     },
     "service": {
-      "bundleHash": "f5428e1a74311a86a505457066b415b2d159bf9d6e4ab3736f311db763323d0b",
-      "portableBundleHash": "3ff0c2564aa65d29d4ac1705051759aa366b65456368ed96f948293721260fd2",
-      "bundleVersion": "0.3.228",
+      "bundleHash": "3a708016f4c2a631f5226798a2248ec6a652a6f328cab6f97812d736d50e7541",
+      "portableBundleHash": "8db836d7dd02c8df7384e92dbe5a12c76cc43e0a510e9f5d90d1f1e7ba17770f",
+      "bundleVersion": "0.3.234",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
       "serviceContractVersion": "openmeld-service-contract-2026-09-local-install-recovery-v1",
       "updatePolicy": "available",
-      "reason": "Existing Services retain supported setup and Wake behavior; the new startup-state diagnostics improve recovery without changing the Service wire contract."
+      "reason": "Old Services omit optional AI usage telemetry and retain accepted execution and account lifecycle contracts; new Services ship only after Core receivers, preserving the current Service floor."
     },
     "skills": {
       "bundleHash": "2d2bc74e8aa66f6f78f469f6d4441467ebab07d5e6ccceb89c7b22a24b38746f",

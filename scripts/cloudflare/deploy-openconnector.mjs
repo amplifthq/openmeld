@@ -32,6 +32,10 @@ const overlays = [
     "github-working-copy-policy.mjs",
     ".openmeld-github-working-copy-policy.mjs",
   ],
+  [
+    "github-proxy-runtime-context.mjs",
+    ".openmeld-github-proxy-runtime-context.mjs",
+  ],
 ];
 const createdOverlays = [];
 
@@ -177,7 +181,14 @@ try {
     deploymentEnvironment
   );
   const wranglerPath = path.join(sourceDirectory, "node_modules/.bin/wrangler");
-  const deployArgs = ["deploy", "--config", temporaryConfigName, "--minify"];
+  const deployArgs = [
+    "deploy",
+    "--config",
+    temporaryConfigName,
+    "--minify",
+    "--message",
+    `OpenConnector source ${sourceSha}`,
+  ];
   if (deploymentSecrets) {
     runStreamingWithInput(
       wranglerPath,

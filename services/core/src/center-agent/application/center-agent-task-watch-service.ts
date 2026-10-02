@@ -45,6 +45,7 @@ export async function prepareCenterAgentTaskWatch(input: {
   db: D1Database;
   env: CoreBindings;
   instruction: string;
+  replyLanguageTag?: string;
   nowMs: number;
   organizationId: string;
   parentSubmissionId: string;
@@ -81,6 +82,9 @@ export async function prepareCenterAgentTaskWatch(input: {
   }
 
   const subscriptionId = `sub:${input.watchId}`;
+  const replyLanguage = input.replyLanguageTag
+    ? { replyLanguageTag: input.replyLanguageTag }
+    : {};
   let subscription: AgentTaskCompletionSubscriptionRecord;
   try {
     subscription = await registerAgentTaskCompletionSubscription({
@@ -89,11 +93,13 @@ export async function prepareCenterAgentTaskWatch(input: {
         ? {
             instruction: input.instruction,
             kind: "resume_task_watch",
+            ...replyLanguage,
             watchId: input.watchId,
           }
         : {
             instruction: input.instruction,
             kind: "resume_task_watch",
+            ...replyLanguage,
             sourceSignalId: parentDelivery.triggerMessageId,
             spaceId: parentDelivery.spaceId,
             threadContext: parentDelivery.threadContext,

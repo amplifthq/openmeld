@@ -120,7 +120,10 @@ import { createServiceLocalComponentsObservation } from "../src/local-service/ca
 import { createControlledShutdownCoordinator } from "../src/local-service/carrier/service-runner";
 import { requestLocalDaemonShutdown } from "../src/local-service/control-plane/client";
 import { startLocalDaemonControlPlaneServer } from "../src/local-service/control-plane/server";
-import { DAEMON_STREAM_KEEPALIVE_INTERVAL_MS } from "../src/local-service/core/constants";
+import {
+  DAEMON_STREAM_KEEPALIVE_INTERVAL_MS,
+  HEARTBEAT_RESPONSE_TIMEOUT_MS,
+} from "../src/local-service/core/constants";
 import type {
   CurrentDaemonSocketRef,
   LedgerPaths,
@@ -526,15 +529,18 @@ describe("local service run catalog signal", () => {
     });
   });
 
-  it("completes a controlled shutdown when the transport omits the close reason", async () => {
+  it.each([
+    "user_stop",
+    "controlled_service_update",
+  ] as const)("preserves %s through the final heartbeat when the close reason is omitted", async (stopCause) => {
     vi.useFakeTimers();
     readDaemonCatalogSyncSignalMock.mockResolvedValue(null);
     const lines: Array<{ code: string; text: string }> = [];
     const socket = createMockSocket({
       closeEventReason: "",
     });
-    let requestShutdown!: (cause: "controlled_service_update") => void;
-    const shutdownRequested = new Promise<"controlled_service_update">(
+    let requestShutdown!: (cause: RuntimeTransportStopCause) => void;
+    const shutdownRequested = new Promise<RuntimeTransportStopCause>(
       (resolve) => {
         requestShutdown = resolve;
       }
@@ -546,10 +552,19 @@ describe("local service run catalog signal", () => {
 
     await vi.advanceTimersByTimeAsync(1);
     await flushMicrotasks(() => socket.heartbeatSendCount > 0);
-    requestShutdown("controlled_service_update");
+    requestShutdown(stopCause);
 
     await expect(sessionPromise).resolves.toBeUndefined();
     expect(socket.closeCount).toBe(1);
+    expect(socket.sentFrames).toContainEqual(
+      expect.objectContaining({
+        code: "daemon.session.heartbeat",
+        payload: expect.objectContaining({
+          acceptingDispatches: false,
+          stopCause,
+        }),
+      })
+    );
     expect(
       lines
         .map((line) => line.code)
@@ -560,6 +575,39 @@ describe("local service run catalog signal", () => {
       "daemon.run.controlled_shutdown_final_heartbeat_completed",
       "daemon.run.controlled_shutdown_draining",
     ]);
+  });
+
+  it.each([
+    "rejected",
+    "timeout",
+  ] as const)("does not complete shutdown when the final heartbeat is %s", async (failure) => {
+    vi.useFakeTimers();
+    readDaemonCatalogSyncSignalMock.mockResolvedValue(null);
+    const lines: Array<{ code: string; text: string }> = [];
+    const socket = createMockSocket({
+      rejectStoppingHeartbeat: failure === "rejected",
+      respondToHeartbeat: (frame) =>
+        failure !== "timeout" || frame.payload.acceptingDispatches !== false,
+    });
+    const shutdown = Promise.withResolvers<RuntimeTransportStopCause>();
+    const sessionPromise = runDaemonSocketSession({
+      ...buildKeepaliveSessionInput(socket, lines, 5000),
+      shutdownRequested: shutdown.promise,
+    });
+    // Observe rejection before advancing the deadline; never leave an unhandled promise.
+    const outcome = sessionPromise.then(
+      () => null,
+      (error: unknown) => error
+    );
+    await vi.advanceTimersByTimeAsync(1);
+    await flushMicrotasks(() => socket.heartbeatSendCount > 0);
+    shutdown.resolve("user_stop");
+    await vi.advanceTimersByTimeAsync(HEARTBEAT_RESPONSE_TIMEOUT_MS + 1);
+    expect(await outcome).toBeInstanceOf(Error);
+    expect(lines.map((line) => line.code)).not.toContain(
+      "daemon.run.controlled_shutdown_final_heartbeat_completed"
+    );
+    expect(socket.closeCount).toBe(0);
   });
 
   it("terminates a half-open socket instead of hanging controlled shutdown", async () => {
@@ -1746,6 +1794,8 @@ describe("local service run catalog signal", () => {
 
   it("re-registers current v4 working-folder facts immediately after a local Project connection changes", async () => {
     vi.useFakeTimers();
+    const connectedAtMs = 1_700_000_000_000;
+    vi.setSystemTime(connectedAtMs);
     const onLocalProjectConnectionsChanged = vi.fn();
     handleLocalProjectControlFrameMock.mockResolvedValue({
       code: "daemon.local_project_control.set_default_connection_result",
@@ -1880,6 +1930,7 @@ describe("local service run catalog signal", () => {
       expect.objectContaining({
         code: "daemon.session.register",
         payload: expect.objectContaining({
+          connectedAtMs,
           localWakeRouteReport: expect.objectContaining({
             expectedRoutesContractVersion: "v4",
             workingFolderObservations: [
@@ -2894,6 +2945,7 @@ async function flushMicrotasks(until?: () => boolean): Promise<void> {
 }
 
 function createMockSocket(input?: {
+  rejectStoppingHeartbeat?: boolean;
   closeEventReason?: string;
   executionAdmissionConfirmation?: boolean;
   admissionEvidence?: boolean;
@@ -3012,7 +3064,10 @@ function createMockSocket(input?: {
               v: 1,
               code: "daemon.session.heartbeat",
               payload: {
-                ok: true,
+                ok: !(
+                  input?.rejectStoppingHeartbeat &&
+                  frame.payload.acceptingDispatches === false
+                ),
                 serverNowMs: Date.now(),
                 staleLeases: [],
               },

@@ -14,6 +14,7 @@ import {
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
+import { FluidContextMenuScope } from "@openmeld/ui/fluid/context-menu";
 import { DialogContent } from "@openmeld/ui/fluid/dialog";
 import { ArrowClockwiseIcon, ArrowLeftIcon } from "@phosphor-icons/react";
 import {
@@ -37,8 +38,7 @@ import {
 	UnsavedChangesGuard,
 } from "#/components/forms/unsaved-changes-guard";
 import { OrganizationSkillMaintainersDialog } from "#/components/organization-skills/organization-skill-maintainers-dialog";
-import { getDesktopPlatform } from "#/desktop/platform";
-import { copyTextToClipboard } from "#/lib/clipboard";
+import { copyAppLink } from "#/lib/copy-app-link";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
 	buildOrganizationSkillPath,
@@ -406,14 +406,8 @@ function OrganizationSkillEditor(input: {
 				orgSlug: input.orgSlug,
 				skillId: input.skill.id,
 			});
-			const copy = async () => {
-				const bridge = getDesktopPlatform();
-				const origin = bridge
-					? (await bridge.platform()).webOrigin
-					: window.location.origin;
-				return await copyTextToClipboard(new URL(path, origin).href);
-			};
-			copy()
+
+			copyAppLink(path)
 				.then((copied) => {
 					if (active.current) {
 						setClipboardNotice(
@@ -459,42 +453,46 @@ function OrganizationSkillEditor(input: {
 				onSave={save}
 				saving={busy}
 			/>
-			<div
-				className="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-2 border-b bg-background py-3"
-				data-slot="skill-document-actions"
-			>
-				<Link
-					className={APP_INLINE_BACK_LINK_CLASS_NAME}
-					resetScroll={false}
-					to={buildOrganizationSkillsPath(input.orgSlug)}
-				>
-					<ArrowLeftIcon aria-hidden="true" /> All Skills
-				</Link>
-				<div className="flex flex-wrap items-center gap-2">
-					<output
-						aria-label="Skill save status"
-						className="text-muted-foreground text-xs"
+			<FluidContextMenuScope
+				target={
+					<div
+						className="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-2 border-b bg-background py-3"
+						data-slot="skill-document-actions"
 					>
-						{input.skill.permissions.canEdit ? saveStatus : "Read only"}
-					</output>
-					{input.skill.permissions.canEdit && (
-						<Button
-							className="relative max-lg:min-h-8 max-lg:after:absolute max-lg:after:inset-x-0 max-lg:after:-inset-y-1.5 max-lg:after:content-['']"
-							disabled={!(hasUnsavedChanges && bundleValid) || busy}
-							onClick={save}
+						<Link
+							className={APP_INLINE_BACK_LINK_CLASS_NAME}
+							resetScroll={false}
+							to={buildOrganizationSkillsPath(input.orgSlug)}
 						>
-							{saveMutation.isPending ? "Saving…" : "Save"}
-						</Button>
-					)}
-					<OrganizationSkillActions
-						canManage={input.skill.permissions.canManage}
-						enabled={input.skill.enabled}
-						managementBlocked={hasUnsavedChanges || busy}
-						onAction={handleAction}
-						triggerRef={actionsRef}
-					/>
-				</div>
-			</div>
+							<ArrowLeftIcon aria-hidden="true" /> All Skills
+						</Link>
+						<div className="flex flex-wrap items-center gap-2">
+							<output
+								aria-label="Skill save status"
+								className="text-muted-foreground text-xs"
+							>
+								{input.skill.permissions.canEdit ? saveStatus : "Read only"}
+							</output>
+							{input.skill.permissions.canEdit && (
+								<Button
+									className="relative max-lg:min-h-8 max-lg:after:absolute max-lg:after:inset-x-0 max-lg:after:-inset-y-1.5 max-lg:after:content-['']"
+									disabled={!(hasUnsavedChanges && bundleValid) || busy}
+									onClick={save}
+								>
+									{saveMutation.isPending ? "Saving…" : "Save"}
+								</Button>
+							)}
+							<OrganizationSkillActions
+								canManage={input.skill.permissions.canManage}
+								enabled={input.skill.enabled}
+								managementBlocked={hasUnsavedChanges || busy}
+								onAction={handleAction}
+								triggerRef={actionsRef}
+							/>
+						</div>
+					</div>
+				}
+			/>
 			{catalogRefreshFailed && (
 				<div className="flex flex-wrap items-center gap-2 text-sm" role="alert">
 					<span>Your change was saved, but the catalog could not refresh.</span>

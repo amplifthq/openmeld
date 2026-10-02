@@ -368,6 +368,8 @@ function AgentProfileSummaryAvatar(input: {
 	return (
 		<AgentProfileControllerAvatar
 			agentControllerRef={input.profile.agentControllerRef}
+			avatarStyle={input.profile.avatarStyle}
+			modelId={input.profile.avatarModelId}
 			profileId={input.profile.id}
 			profileName={input.profile.name}
 			size={32}

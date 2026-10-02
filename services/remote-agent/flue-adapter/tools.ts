@@ -71,6 +71,9 @@ export async function getRemoteAgentFlueTools(input: {
   const unverifiedMember =
     input.turnEnvelope?.sender.kind === "member" &&
     !input.turnEnvelope.sender.verified;
+  const summaryOnly =
+    input.turnEnvelope?.trigger.source === "task_continuation" &&
+    input.turnEnvelope.trigger.summaryOnly;
   const availableDefinitions = [
     createHostedPublicProgressTool(input),
     ...(unverifiedMember
@@ -94,7 +97,9 @@ export async function getRemoteAgentFlueTools(input: {
         ]
       : getRemoteAgentOpenMeldToolDefinitions(input)),
     ...(unverifiedMember ? [] : (input.sandboxDefinitions ?? [])),
-  ];
+  ].filter(
+    (definition) => !summaryOnly || SUMMARY_ONLY_TOOL_NAMES.has(definition.name)
+  );
   const definitions = input.personalAgent
     ? availableDefinitions.map((definition) => ({
         ...definition,
@@ -169,6 +174,15 @@ export async function getRemoteAgentFlueTools(input: {
     deferredToolCount: definitions.length - nativeDefinitions.length,
   };
 }
+
+// Both direct tools and Code Mode are built from this same restricted catalog.
+// Progress is presentation only; no business mutations, Computer or Skill code.
+const SUMMARY_ONLY_TOOL_NAMES = new Set([
+  "openmeld_report_progress",
+  "openmeld_read_tool_result",
+  "openmeld_read_space_context",
+  "openmeld_read_space_file",
+]);
 
 function toFlueTool(input: {
   callLimit?: number;

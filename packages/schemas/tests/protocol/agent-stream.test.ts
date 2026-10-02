@@ -22,6 +22,23 @@ const baseFrame = {
 } as const;
 
 describe("Space Agent stream frames", () => {
+  it.each([
+    "outcome_unknown",
+    "future_outcome",
+  ])("keeps unfamiliar work outcome %s uncertain", (outcome) => {
+    const activity = spaceAgentActivitySchema.parse({
+      v: 1,
+      steps: [
+        {
+          toolName: "github_create_issue_comment",
+          state: "output-available",
+          work: { v: 1, key: "github.issue.comment", outcome },
+        },
+      ],
+      truncated: false,
+    });
+    expect(activity.steps[0]?.work?.outcome).toBe("outcome_unknown");
+  });
   it("projects explicit reply locations for current readers and keeps legacy readers compatible", () => {
     const legacy = spaceAgentStreamDeltaFrameSchema.parse({
       ...baseFrame,

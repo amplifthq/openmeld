@@ -107,6 +107,36 @@ describe("OpenMeld Tools update coordinator", () => {
       "update-1"
     );
   });
+  it("reports a failed worker handoff and leaves its operation available for recovery", async () => {
+    const dependencies = createDependencies();
+    let lockHeld = false;
+    dependencies.withCoordinationLock = async <T>(run: () => Promise<T>) => {
+      lockHeld = true;
+      try {
+        return await run();
+      } finally {
+        lockHeld = false;
+      }
+    };
+    dependencies.wakeWorker.mockImplementation(() => {
+      expect(lockHeld).toBe(false);
+      return Promise.reject(
+        new Error("Windows could not start the maintenance task")
+      );
+    });
+    const service = createOpenMeldToolsUpdateCoordinator(dependencies, {
+      executeUpdates: false,
+    });
+
+    await expect(
+      service.requestUpdate({ requestSource: "automatic" })
+    ).rejects.toThrow("Windows could not start the maintenance task");
+    expect(dependencies.state.pendingAttempt?.attempts).toBe(0);
+    await expect(service.resumePendingUpdate()).rejects.toThrow(
+      "Windows could not start the maintenance task"
+    );
+    expect(dependencies.wakeWorker).toHaveBeenCalledTimes(2);
+  });
   it("does nothing automatically after the user turns updates off", async () => {
     const dependencies = createDependencies({
       automaticUpdatesEnabled: false,

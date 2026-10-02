@@ -86,12 +86,26 @@ Execution Host assembles the existing adapters, execution slots, pending human
 interactions, route discovery, controller reporting, and durable result outbox.
 The Host never owns Core readiness, authorization, scheduling, or Space history.
 
+Connector registration, heartbeat responses, and transport errors are handled
+only by `carrier/daemon-frame-transport.ts`. The inherited IPC contract excludes
+those frames from `execution-host/frame-router.ts`; the Host has no connector
+response waiters. Startup result replay and Agent enable/installation controls
+stay with the Host. The connector derives
+adapter capabilities from the Host's reported adapter IDs, not an in-process
+adapter container. Mixed-version cloud negotiation remains a separate contract
+and is not retired by deleting unused local implementation.
+
 The runner starts its control endpoint and registers without waiting for Agent
 inventory. Host initialization, reporting, and execution cross bounded inherited
 IPC; they cannot block the connector's event loop. Host admission is closed until
 its current-generation response confirms it is ready, and closes when that
 observation fails. A shared Host failure may affect all its Agents, not the
 independent connector. Last-known Host observations are not fresh health.
+The negotiated Computer-care observation carries a bounded, path-free Host
+failure code, safe explanation, and recovery action when initialization or a
+health check fails. Core uses that same observation for owner Computer
+readiness and Center Agent Computer reads; `responsive = false` without its
+known cause is not an adequate operator diagnosis.
 
 The runner records only changes to dispatch admission, with a bounded reason
 from its current Host/connection observation. It includes the connection
@@ -114,11 +128,15 @@ usable; older clients do not receive unsolicited acknowledgment frames.
 Only one Host may own an installation's execution resources. Before provider
 work starts, a private process-incarnation receipt records non-quiescence. A clean
 local drain clears that fence. After an unconfirmed owner loss, PID disappearance
-alone does not prove that its children or side effects ended. Replacement needs
-confirmed quiescence or trustworthy operating-system restart evidence; unknown
-or corrupt evidence remains an explicit recovery blocker. This receipt contains
-no task results or approvals and does not authorize replay. It is not a second
-execution ledger. There is no automatic hot adoption or restart of unknown work.
+alone does not prove that its children or side effects ended. The current receipt
+records the Host process identity and each provider-owned process tree before
+execution continues. A same-boot replacement is allowed only when that evidence
+is complete, the exact Host incarnation is gone, and every recorded provider
+process group or Windows job-backed root is gone. Missing process evidence,
+legacy receipts, and corrupt records remain blocked; trustworthy operating-system
+restart evidence is the fallback. This receipt contains no task results or
+approvals and does not authorize replay. It is not a second execution ledger.
+There is no automatic hot adoption or restart of unknown work.
 
 Cloud-result acknowledgment is separate from local quiescence. Stop and update
 readiness query the Host; they do not inspect another socket's private execution
@@ -451,7 +469,13 @@ only when the existing owner-only authentication evidence proves the same
 provider account. An account change, signed-out state, or missing stable account
 identity fails closed to the current `unavailable` evidence instead of carrying
 capacity between accounts. A provider that has never returned usable evidence
-is `unavailable`. A controller with no supported native source is explicitly
+is `unavailable`. Its optional bounded reason distinguishes a sign-in gap,
+inapplicable account capability, omitted provider measurement, and a failed
+refresh. Independently reported reset evidence may remain known without a
+percentage. Grok's verified proto3 implicit float default is zero only for a
+successful unified-billing response with a recognized active period; malformed,
+non-unified, or expired responses never acquire guessed capacity.
+A controller with no supported native source is explicitly
 `unsupported`. The Service does not decide Agent Profile Wakeability, Binding,
 Wake admission, RuntimeCoordinator, routing, or agent selection from these
 states. Core applies the shared versioned capability matrix to the report it
@@ -471,7 +495,7 @@ expired, unavailable, or otherwise unconfirmed Usage does not add a block;
 the separate current Controller readiness and trust requirements still apply.
 Positive fresh capacity remains required for automatic recovery after an
 exhausted execution. A controller that explicitly reports Usage as
-`unsupported`, or whose matrix entry is passive, unsupported, or not evaluated,
+`unsupported`, or whose matrix entry is observational, unsupported, or not evaluated,
 does not use Usage as a Wakeability condition. A separate structured
 provider-access evidence field may be emitted only after an ordinary Wake is
 accepted and returns a definitive account blocker: organization access
@@ -492,22 +516,44 @@ new work under a capability contract they did not implement.
 OpenCode is provider-scoped. Its ordinary provider inventory names connected
 providers but does not expose a universal quota contract. OpenMeld reads the
 official OpenCode Go usage endpoint for that provider's 5-hour, weekly, and
-monthly windows. The OpenCode Go API key is read transiently from OpenCode's
-official local auth input or store, used only for that request, and never
-logged, retained, or projected. Other connected OpenCode providers are
+monthly windows. A Go 403 is an inapplicable account capability, not evidence
+that the signed-in controller or its other providers are broken. OpenRouter's
+official key endpoint supplies independent free-model daily request limits and,
+when bounded, a key budget. Missing reset times remain unknown. OpenRouter
+observations cannot block a paid model or authorize exhausted-work recovery.
+Credentials come from the native provider inventory when exposed, otherwise
+OpenCode's official local auth input or store, then the provider environment
+key. Stored auth takes precedence over environment keys. Custom provider
+endpoints do not send credentials to the default account endpoint. Keys are
+used transiently and never logged, retained, or projected. Other providers are
 `unsupported` until a provider-owned, non-task capacity source is verified.
-Failure to read OpenCode Go usage produces provider-scoped `unavailable`
+Failure to read provider usage produces provider-scoped `unavailable`
 evidence without failing the rest of the Computer inventory.
 
-Antigravity has native Usage support through its signed-in CLI. OpenMeld runs
-`agy --print /usage` as the background ACI probe and parses each reported
-weekly quota independently, preserving the provider label, remaining
-percentage, and reset time supplied by Antigravity. The adapter converts the
-reported remaining percentage into the shared used-percentage contract and
-marks an exact zero remaining as exhausted. Authentication failure becomes the
-existing signed-out ACI state; malformed, timed-out, or otherwise unreadable
-output becomes `unavailable` without failing another Local Agent. The probe
-does not create an OpenMeld Agent Profile, Binding, Wake, or conversation.
+Inventory checks must not initiate interactive sign-in or request interactive
+credential-store access. An explicit status refresh is still a read, not consent
+to sign in. Known signed-out accounts skip quota collection; missing credentials
+or an unreadable credential store must never become zero remaining capacity.
+Only an explicit sign-in action may enter an interactive authorization flow.
+
+Antigravity's `agy --print /usage` can enter authentication and open browser
+login pages or request Keychain access. Until a provider-owned no-interaction
+contract is verified, both fresh and background ACI checks run only `--version`.
+They report authentication as unknown, an explicit warning explaining the
+unavailable checks, and Usage as `unsupported`. They must not claim signed-in
+readiness from installation alone or retain an old numeric quota without current
+account evidence. Status refresh cannot restore Antigravity authentication or
+quota verification in this version; users can inspect them directly in the
+Antigravity CLI. Its existing user-requested execution transport is unchanged.
+The shared Usage support matrix declares Antigravity unsupported so historical
+quota cannot become new capacity authority or authorize automatic recovery.
+
+A completed signed-out check is reusable for the same binary within the normal
+15-minute background TTL. It clears account-bound passive usage, does not arm
+failure retries, and expires normally. A fresh user check bypasses this cache
+to discover an external sign-in immediately. Unknown authentication is not
+proof of sign-out, and transient failed checks retain the existing failure
+policy rather than becoming a permanent negative cache.
 
 Provider-access evidence is provider-neutral and carries its provider, stable
 reason code, observation time, and `wake_failure` source. The Service forwards
@@ -523,13 +569,32 @@ Controller Report, so a Service restart followed by a temporary provider
 failure does not erase stored numeric evidence for a proven unchanged account.
 This is an update to the canonical report row, not a second Usage Limit store.
 
-Claude Code is partially supported through public Agent SDK
-`rate_limit_event` messages already present in OpenMeld-launched turns. Only a
-finite native utilization value and its allowlisted window/reset fields become
-capacity evidence; missing ordinary utilization remains unknown. OpenMeld must
-not install or replace the user's global Claude status line, invoke Claude for
-collection, read Claude credentials, call a private OAuth usage endpoint, or
-substitute transcript token/cost estimates.
+Claude Code uses the public Agent SDK control connection on verified CLI
+versions (2.1.285 or newer), without sending a user message. The probe disables
+hooks, tools, MCP connections, session persistence, and IDE connections, and
+requests usage with `skipBehaviors: true` so collection never scans local
+transcripts. Initialization must prove the same first-party account as native
+ACI authentication before reading usage. SDK account windows are percentages;
+ordinary `rate_limit_event` utilization is a fraction. Dynamic model windows
+and independently known reset times are preserved; monetary and behavior fields
+are discarded. Older versions remain observational with unreported capacity.
+OpenMeld must not replace the user's status line, read Claude credentials, call
+a private OAuth endpoint directly, or substitute transcript token/cost estimates.
+This experimental source is observational and never decides Wake admission or
+automatic recovery.
+
+Cursor reads its native CLI login token transiently from the effective
+environment, its official auth file, or the macOS Keychain with interaction
+disabled. Explicit API keys and memory-only stores never borrow a saved account;
+custom API endpoints never send tokens to the default account endpoint. The
+DashboardService percentages include bonus usage and are displayed independently
+of billing dollars. No browser cookies, IDE database fallback, refresh writes,
+or payment information are used. This internal source is observational because
+paid overage and account-specific limits cannot safely decide Wake admission.
+
+Codex also publishes `account/rateLimits/updated` events through this same
+account-bound keeper after native authentication proves the current account.
+Neither event collection nor account queries start a conversation or model call.
 
 ### Agent Instruction Delivery
 
@@ -727,6 +792,15 @@ RuntimeCoordinator to `running`. Ordinary keepalives between those frames omit
 the additive field so an older Core can still observe fresh local ownership.
 Current Core may recover a lost transition after a WebSocket reconnect or
 Service restart without polling Codex or delaying normal Wake admission.
+Once Core knows the conversation is occupied, repeated same-phase keepalives
+only confirm liveness and do not extend the progress deadline. Availability or
+provider-accepted advancement to `running` restores normal progress tracking;
+the Coordinator's admission record remains the occupancy authority.
+Every registration on one socket reports its original `socketConnectedAtMs`.
+Core also preserves the first connection time on same-socket re-registration,
+so older Services that report the registration time cannot manufacture a
+reconnect. A genuinely new socket retains the existing communication-recovery
+semantics, including after Core restores persisted state.
 
 If Codex explicitly reports that an existing controller conversation is
 missing, the adapter starts one fresh thread and delivers the complete current
@@ -1129,6 +1203,30 @@ not register a linked worktree in the user's source repository. Git hooks,
 ambient Git configuration, filters, lazy fetching, and non-file protocols are
 disabled during preparation. No dirty or ignored source files are copied.
 The resulting task boundary includes only that context's worktree and Git data.
+The workspace owner publishes the actual private Git config, hooks, worktree
+config, `.git` pointer, `commondir`, and `gitdir` paths as shared
+`ExecutionContextGitMetadata` facts. The native Codex boundary makes hooks and
+routing pointers read-only, including replacement and creation, even under
+`repository.git`, which native `.git` protection does not cover. Common and
+worktree config remain writable so normal branch, remote, user and submodule
+operations work. Service-owned Git inspection/preparation disables hooks,
+fsmonitor, credential commands and non-file transports independently of task
+Git; user task Git retains its normal credentials. Before native use, the
+workspace owner saves executable config settings in its protected lane. After
+native-process quiescence it restores new/changed executable settings, retaining
+ordinary settings. Hook-path changes are preserved and reported through public
+task progress: committed repository installers are identified where possible;
+unverified installers require user review. No command values are published.
+The audit is at dispatch completion, not between provider turns in a still-active
+process, and it is not proof that task-authored code or an unverified hook is safe.
+Objects, refs, logs, index and ordinary worktree data remain writable.
+An out-of-boundary metadata path fails closed
+instead of granting extra read access. Retained private repositories reject
+symlinks and multiply linked metadata files before use; direct native protection
+must not be generalized to arbitrary pre-existing aliases in current-folder
+tasks. Other controller boundaries are not certified by Codex sandbox evidence.
+`objects/info/alternates` remains a known native-boundary limitation: preparation
+and reuse reject it, but this protection does not certify task-time object routing.
 Its protected preparation record is outside the task's writable root and binds
 the context identity, source path, starting commit, owned paths, and completion.
 Retry verifies and reuses completed preparation. Incomplete or mismatched records
@@ -1146,6 +1244,12 @@ window without requiring a sandboxed shell to load Node, CLI code, or local
 authentication files. Its Space, source Wake, and acting Profile are fixed by
 the active dispatch, and it rechecks that context after the authorized read.
 This read does not complete or publish the Wake.
+
+An implicit ordinary Codex Wake uses `workspace` access with the `current`
+workspace. The Service resolves that current workspace through the same
+effective Profile working-folder path used by legacy dispatch; it must not
+substitute the Service-owned Space-context scratch directory. Explicit
+Space-only and isolated-project selections retain their separate boundaries.
 
 A selected-file handoff is the narrow writable exception: after preparation,
 the Service adds the dispatch's `workingCopyId` to the adapter boundary and
@@ -1197,6 +1301,11 @@ materializes committed project content as described above; it does not copy the
 parent's dirty working files or implicitly synchronize parent and child. A
 completion without a verified native checkpoint may
 preserve conversation identity but cannot authorize a fork.
+Codex fork preparation reads the target's effective MCP configuration before
+suppressing a native-tool source's alternate Space carrier. It disables an
+existing reserved server without replacing its transport; when absent, it must
+not create a disabled-only server table. Preparation receives no dispatch action
+credentials. Malformed or unreadable effective configuration rejects the fork.
 The Service observes completed turns across the initial invocation, reply repair,
 and reconsideration. Each invocation clears the previous completion evidence;
 each submitted proposal carries its own final verified turn. A missing final
@@ -1444,6 +1553,11 @@ that decision.
   candidate. OpenMeld Service uses the committed Computer session when it starts
   at login. The handoff must not be used to add an
   agent-selection step to Web.
+  Replacing a known Service owner with a different known owner ends the old
+  owner's service using the existing `user_stop` cause, including the legacy
+  system-service stop path. Same-owner maintenance retains
+  `controlled_service_update`. The lifecycle chooses that cause once and keeps
+  it through the local stop journal consumed by the carrier.
   Desktop uses `computer connection-review --json` and
   `setup --connection-intent <json>` for that same boundary. The intent contains
   the expected new account and a non-secret hash of the reviewed old session;
@@ -2199,6 +2313,11 @@ of the macOS LaunchAgent session. Locking the screen does not mean logging out.
 Task registration is process supervision, not Service readiness: startup still
 requires the current Service lease, account/lane alignment, and Core connection.
 
+Background controller status and session-inventory probes must also suppress
+console creation on Windows. A GUI Service parent and piped stdio alone do not
+provide that guarantee: direct Node-compatible child launches use `windowsHide`.
+This does not change the interactive CLI launcher's terminal behavior.
+
 For the retained npm distribution, both tasks start a lane-owned Windows-subsystem host,
 not a console-subsystem PowerShell process. The host creates the existing system
 PowerShell action with `UseShellExecute=false` and `CreateNoWindow=true`, waits
@@ -2301,11 +2420,19 @@ hash differ between macOS and Linux.
 The OS service manager registration is a per-user global resource keyed only by
 the env preset. `OPENMELD_HOME` isolates lane files but does not isolate this
 registration, so any process that mutates a service registration must fail
-closed unless its lane intent is unambiguous: test processes must never mutate
-the published production registration, and a process whose effective root left
-the published production lane must state an explicit `OPENMELD_ENV_PRESET`
-before mutating the production registration. Isolated validation targets the
-`dev-local` or `canary` service identity or stubs the service manager.
+closed unless its lane and root identify the same owner. The production service
+identity may be mutated only from the published production root; an explicit
+`OPENMELD_ENV_PRESET=prod` cannot authorize an isolated root. `openmeld-dev`
+always selects `dev-local`, even when its parent environment carried a production
+preset or production Auth, Gateway, and client defaults. Explicit lane-local
+endpoints remain intact. For compatibility, `OPENMELD_ENV=dev` resolves to the
+same `dev-local` lane; conflicting legacy and canonical selectors fail instead
+of choosing one silently. Test processes never mutate the published production registration.
+Isolated validation targets the `dev-local` or `canary` service identity or
+stubs the service manager. A dispatch-owned runtime may inspect production
+Service state, but it cannot run a production Service mutation that could stop
+or replace the carrier currently executing that dispatch; it may use a confirmed
+development lane for isolated lifecycle validation.
 
 Service alignment must compare the complete environment target persisted in
 that registration: env preset, Gateway URL, Auth URL, and user-facing CLI
@@ -3028,6 +3155,13 @@ Service. That timeout is a compatibility fallback only during an actual version
 upgrade; the existing OpenMeld-owned-process and long-stalled-heartbeat checks
 remain mandatory before any automatic force kill.
 
+The final stopping heartbeat must receive a successful Core acknowledgement.
+A rejected or timed-out heartbeat cannot be reported as a completed controlled
+shutdown. Already accepted work still drains before that failure is returned;
+network failure does not authorize interrupting it or assert that Core observed
+the stop. Core's existing freshness window remains the bound when no stop
+heartbeat reaches it.
+
 Repeated process-discovery failures are aggregated within a bounded local log
 window, retaining the first occurrence, count, duration, affected controller,
 and recovery event. Local diagnostics preserve stable reason codes including
@@ -3318,6 +3452,14 @@ private Agent output through this frame. Core still validates the current
 RuntimeCoordinator token, execution identity, daemon session, lease, and
 authoritative Space placement; emitting a frame does not give the Service Space
 or execution authority.
+
+A supported controller may separately call the dispatch-scoped
+`report_progress` tool with a short deliberate public update. The Service keeps
+an in-memory deduplication set for the active turn, sends a bounded accumulated
+snapshot through RuntimeTransport, and drops the capability when only final
+action repair is allowed. The tool does not write the final action record and
+has no standalone CLI fallback, so a child process cannot bypass the active
+Service execution token or turn progress into a second Space writer.
 
 The Service Thin Core line must not reassign ownership:
 

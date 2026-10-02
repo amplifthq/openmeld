@@ -5,13 +5,49 @@ import {
   serviceExecutionHostCatalogSchema,
   serviceExecutionHostMessageSchema,
   serviceExecutionHostMethods,
+  serviceExecutionHostOwnerSchema,
   serviceExecutionHostRequestSchema,
 } from "../src/service-execution-host";
 
 describe("execution host process boundary", () => {
+  it("retains v1 receipts while requiring exact process-tree evidence in v2", () => {
+    const base = {
+      hostInstanceId: "ab20e7bb-7387-4181-864b-775560aa4b42",
+      ownerUserId: "owner",
+      deviceId: "device",
+      lane: "dev-local",
+      pid: 123,
+      bootIdentity: "darwin:811b4099-be87-4efc-8cc6-20a7ef71a2ed",
+      localQuiescent: false,
+    };
+    expect(
+      serviceExecutionHostOwnerSchema.safeParse({
+        ...base,
+        schema: "service-execution-host-owner-v1",
+      }).success
+    ).toBe(true);
+    expect(
+      serviceExecutionHostOwnerSchema.safeParse({
+        ...base,
+        schema: "service-execution-host-owner-v2",
+        processStartedAt: "ps:Mon Sep 29 07:00:00 2026",
+        processEvidenceComplete: true,
+        ownedProcessTrees: [
+          {
+            pid: 456,
+            processStartedAt: "ps:Mon Sep 29 07:01:00 2026",
+            signalTarget: "process_group",
+          },
+        ],
+      }).success
+    ).toBe(true);
+  });
+
   it.each([
     "daemon.session.register",
     "daemon.session.heartbeat",
+    "daemon.error",
+    "daemon.dispatch.result",
     "daemon.openmeld_tools_control.request",
     "daemon.local_project_control.connect_declared_path",
   ])("does not let execution IPC impersonate %s", (code) => {

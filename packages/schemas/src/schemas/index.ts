@@ -1,6 +1,19 @@
 // biome-ignore-all lint/performance/noBarrelFile: Shared schema package intentionally exposes stable contract entrypoints.
 
 export {
+  aiUsageObservationSchema,
+  aiUsageQueryResponseSchema,
+  aiUsageQuerySchema,
+  aiUsageRecordSchema,
+  aiUsageSummarySchema,
+  aiUsageTokensSchema,
+  centerAgentAiUsageRpcInputSchema,
+  organizationAiUsageRpcInputSchema,
+  remoteAiUsageWriteResponseSchema,
+  remoteAiUsageWriteSchema,
+} from "./ai-usage";
+
+export {
   SERVICE_CONNECTION_ID_QUERY_PARAMETER,
   serviceConnectionDiagnosticIdSchema,
 } from "./daemon/service-connection-correlation";
@@ -64,6 +77,7 @@ export {
   spaceHistoryNavigationQuerySchema,
   spaceHistoryNavigationSchema,
 } from "./http/space-history-navigation";
+export { agentFailureFactsSchema } from "./runtime/agent-failure";
 export {
   CENTER_AGENT_SESSION_TITLE_INPUT_MAX_LENGTH,
   CENTER_AGENT_SESSION_TITLE_MAX_LENGTH,
@@ -651,6 +665,7 @@ export {
   runtimeTransportDispatchLifecycleSnapshotSchema,
   runtimeTransportDispatchPreviewEndRequestSchema,
   runtimeTransportDispatchPreviewRequestSchema,
+  runtimeTransportDispatchProgressRequestSchema,
   runtimeTransportDispatchReasoningRequestSchema,
   runtimeTransportDispatchRuntimeEvidencePhaseSchema,
   runtimeTransportDispatchRuntimeEvidenceRequestSchema,
@@ -1092,6 +1107,8 @@ export {
   centerAgentConnectorActionAuditOutcomeSchema,
   centerAgentConnectorActionExecutionConnectionSchema,
   centerAgentConnectorActionOperationStatusSchema,
+  centerAgentContinueTaskSummaryBodySchema,
+  centerAgentContinueTaskSummaryResponseSchema,
   centerAgentCreateAgentProfileBodySchema,
   centerAgentCreateAgentProfileResponseSchema,
   centerAgentCreateConfiguredAgentProfileBodySchema,
@@ -1190,6 +1207,8 @@ export {
   slackIdentityLinkPreviewBodySchema,
   slackIdentityLinkPreviewResponseSchema,
   slackIdentityLinkTokenSchema,
+  taskSummaryRecoveryAccessRequestSchema,
+  taskSummaryRecoveryAccessResponseSchema,
   updateCenterAgentModelBodySchema,
   updateCenterAgentModelResponseSchema,
   updateCenterAgentOperatingStateBodySchema,
@@ -1984,6 +2003,7 @@ export {
   pluginActionRpcInputSchema,
 } from "./http/plugin-actions";
 export {
+  connectorActionOutcomeUnknownSchema,
   pluginActionEffectSchema,
   pluginRuntimeRequestSchema,
   pluginRuntimeResponseSchema,
@@ -2019,10 +2039,12 @@ export {
   AGENT_PROFILE_CREATION_IDEMPOTENCY_KEY_MAX_LENGTH,
   additionalHumanProfileCreationDisabledErrorResponseSchema,
   additionalHumanProfileCreationDisabledRpcErrorResponseSchema,
+  agentAvatarStyleSchema,
   authProfileKindSchema,
   authProfileManagedRoleSchema,
   authProfileStatusSchema,
   authProfileViewSchema,
+  CENTER_AGENT_BOT_AVATAR_TYPES,
   createAgentProfileBodySchema,
   createAgentProfileResponseSchema,
   createdAgentProfileActionResponseSchema,
@@ -2596,6 +2618,9 @@ export {
   localCliComponentUpdateProjectionSchema,
   localComponentProjectionSchema,
   localComponentStatusSchema,
+  localComponentsAvailabilityCatalogSchema,
+  localComponentsBinaryReleasePolicySchema,
+  localComponentsInstallationSourceSchema,
   localComponentsManifestSchema,
   localComponentsReleaseManifestSchema,
   localComponentsStatusSchema,
@@ -2773,6 +2798,7 @@ export {
 export {
   executionContextAssignmentSchema,
   executionContextCompletionSchema,
+  executionContextGitMetadataSchema,
   executionContextLegacyAssociationSchema,
   executionContextRequestSchema,
   executionContextScopeSchema,
@@ -3007,6 +3033,7 @@ export {
   REMOTE_AGENT_TURN_ENVELOPE_MEMORY_ITEM_TEXT_MAX_CHARS,
   REMOTE_AGENT_WORK_LOOP_CONTINUATION_MAX_ATTEMPTS,
   readGitHubAppWebhookIssueObservation,
+  remoteAgentAdmissionAttemptEvidenceSchema,
   remoteAgentAdmissionStageOperationSchema,
   remoteAgentConversationContinuityContextSchema,
   remoteAgentConversationContinuityEntrySchema,
@@ -3031,6 +3058,7 @@ export {
   remoteAgentStreamDeltaCallbackBodySchema,
   remoteAgentStreamDeltaCallbackResponseSchema,
   remoteAgentStreamPartCallbackBodySchema,
+  remoteAgentTaskContinuationEvidenceSchema,
   remoteAgentTurnEnvelopeMemoryItemSchema,
   remoteAgentTurnEnvelopeMemorySchema,
   remoteAgentTurnEnvelopeMemorySourceSchema,
@@ -3043,6 +3071,7 @@ export {
   remoteAgentTurnRuntimeEvidenceSchema,
   remoteAgentWorkerAdmissionRejectedResponseSchema,
   remoteAgentWorkerAdmissionRejectionCodeSchema,
+  remoteAgentWorkerAdmissionStopIntentSchema,
   remoteAgentWorkerAuthorContextSchema,
   remoteAgentWorkerCancellationRequestSchema,
   remoteAgentWorkerCancellationResponseSchema,
@@ -3054,6 +3083,8 @@ export {
   remoteAgentWorkerExecutionStatusSchema,
   remoteAgentWorkerInputAttachmentSchema,
   remoteAgentWorkerInputAttachmentsSchema,
+  remoteAgentWorkerReadAdmissionResponseSchema,
+  remoteAgentWorkerReadAdmissionStopResponseSchema,
   remoteAgentWorkerReadUsageDiagnosticsRequestSchema,
   remoteAgentWorkerRuntimeDiagnosticsRequestSchema,
   remoteAgentWorkerRuntimeDiagnosticsResponseSchema,

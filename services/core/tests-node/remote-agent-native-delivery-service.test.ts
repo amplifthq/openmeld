@@ -30,11 +30,15 @@ import type {
 } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 import {
+  claimReadyAgentTaskCompletionSubscription,
   readAgentTaskCompletionSubscription,
   readAgentTaskTerminalOutcome,
+  recordAgentTaskTerminalOutcome,
   registerAgentTaskCompletionSubscription,
 } from "../src/agent-task-coordination/infrastructure/d1/agent-task-coordination-repo";
 import { requireCenterAgentContinuationParent } from "../src/center-agent/application/center-agent-delegation-service";
+// biome-ignore lint/performance/noNamespaceImport: Spy on the verified result reader at its owner boundary.
+import * as summaryRecoveryService from "../src/center-agent/application/task-summary-recovery-service";
 import {
   buildCenterAgentMemberMemoryRef,
   buildCenterAgentOrganizationMemoryRef,
@@ -54,12 +58,20 @@ import {
   inspectHostedExecutionRecovery,
 } from "../src/execution-recovery/application/hosted-execution-recovery-coordinator";
 import type { CoreBindings } from "../src/lib/bindings";
+import { setOrganizationWorkingLanguagePreference } from "../src/organizations/organization-working-language-repository";
 import {
   createMessageChannelProviderRegistry,
   type MessageChannelProviderAdapter,
 } from "../src/remote-agent/application/message-channel-adapters";
-import { REMOTE_AGENT_ADMISSION_WATCHDOG_DELAY_SECONDS } from "../src/remote-agent/application/native-delivery-admission-watchdog";
-import { stopRemoteAgentNativeDelivery } from "../src/remote-agent/application/native-delivery-cancellation-service";
+import {
+  REMOTE_AGENT_ADMISSION_WATCHDOG_DELAY_SECONDS,
+  REMOTE_AGENT_TASK_CONTINUATION_ADMISSION_MAX_ATTEMPTS,
+} from "../src/remote-agent/application/native-delivery-admission-watchdog";
+import {
+  requestRemoteAgentNativeDeliveryStop,
+  stopRemoteAgentNativeDelivery,
+} from "../src/remote-agent/application/native-delivery-cancellation-service";
+import { projectTaskContinuationAdmissionExhaustedInboxItem } from "../src/remote-agent/application/native-delivery-inbox-producer";
 import {
   completeRemoteAgentNativeDelivery,
   processRemoteAgentNativeDeliveryDeadlineProbe,
@@ -74,8 +86,11 @@ import {
 import { requirePersonalRemoteAgentBinding } from "../src/remote-agent/application/personal-remote-agent-binding";
 import { runPersonalRemoteAgentSpaceTool } from "../src/remote-agent/application/personal-remote-agent-space-tools";
 import { attachCenterAgentMemoryToTurnEnvelope } from "../src/remote-agent/application/remote-agent-memory-context";
+import { submitRemoteAgentWorkerAdmission } from "../src/remote-agent/application/remote-agent-worker-admission";
+import { resolveNativeDeliveryReplyThreadContext } from "../src/remote-agent/application/reply-placement";
 import {
   claimRemoteAgentNativeDeliveryTerminalFailure,
+  listActiveRemoteAgentNativeDeliveryWakeProgressEvidenceBySpace,
   markRemoteAgentCallbackPublishFailure,
   markRemoteAgentNativeDeliveryAck,
   markRemoteAgentNativeDeliveryCompleted,
@@ -85,6 +100,8 @@ import {
   readRemoteAgentNativeDeliveryByDeliveryId,
   readRemoteAgentNativeDeliveryByIdempotencyKey,
   readRemoteAgentNativeDeliveryBySubmissionId,
+  rearmRemoteAgentNativeDeliveryForWorkLoop,
+  recordRemoteAgentNativeDeliveryExecutionProgress,
   upsertRemoteAgentNativeDeliveryRecord,
 } from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
 import {
@@ -135,6 +152,8 @@ import {
 import { requirePersonalRemoteAgentExecution } from "../src/remote-agent/application/personal-remote-agent-space-tools";
 import { prepareRemoteAgentMemberRequest } from "../src/remote-agent/application/remote-agent-member-request";
 import { requireRemoteAgentToolCaller } from "../src/remote-agent/application/remote-agent-tool-caller";
+
+const UNSUPPORTED_INTERRUPTION_DETAIL = /502|overloaded|Please try again/u;
 
 describe("Remote Agent native delivery callback service", () => {
   it.each([
@@ -527,6 +546,21 @@ describe("Remote Agent native delivery callback service", () => {
       expect(execution.delivery.status).toBe(
         accepted ? "accepted" : "retry_observed"
       );
+      await expect(
+        resolveNativeDeliveryReplyThreadContext({
+          env,
+          delivery: execution.delivery,
+        })
+      ).resolves.toEqual(THREAD_CONTEXT);
+      expect(
+        env.__spaceStub.rpcResolveNativeReplyPlacement
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({
+          dispatchId: "dispatch_1",
+          defaultToThread: true,
+          lock: true,
+        })
+      );
       const sender = execution.request.turnEnvelope.sender;
       if (sender.kind !== "member" || !sender.verified || !sender.ownerUserId) {
         throw new Error("Expected the admitted human requester");
@@ -592,6 +626,50 @@ describe("Remote Agent native delivery callback service", () => {
           limit: 20,
         })
       );
+      const siblingProfileId = "agt_22222222-2222-4222-8222-222222222222";
+      const sibling = directory.members[0];
+      if (!sibling) {
+        throw new Error("Expected the active Agent member");
+      }
+      readDirectory.mockResolvedValueOnce({
+        ...directory,
+        members: [
+          ...directory.members,
+          { ...sibling, profileId: siblingProfileId },
+        ],
+      });
+      await runPersonalRemoteAgentSpaceTool(env, {
+        submissionId: "personal-submission",
+        operation: {
+          kind: "wake",
+          agentProfileId: siblingProfileId,
+          text: "Review this work.",
+        },
+      });
+      expect(
+        env.__spaceStub.rpcPostSignalOnceByClientMessageId
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({ threadContext: THREAD_CONTEXT })
+      );
+      const replyPlacement = await runPersonalRemoteAgentSpaceTool(env, {
+        submissionId: "personal-submission",
+        operation: { kind: "reply_placement", placement: "conversation" },
+      });
+      expect(replyPlacement).toMatchObject({
+        kind: "reply_placement",
+        placement: { dispatchId: "dispatch_1", locked: true },
+      });
+      expect(
+        env.__spaceStub.rpcResolveNativeReplyPlacement
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({
+          dispatchId: "dispatch_1",
+          sourceSignalId: "signal_1",
+          profileId: AGENT_PROFILE_ID,
+          placement: "conversation",
+          lock: true,
+        })
+      );
       for (const kind of ["board", "updates", "authorize"] as const) {
         readDirectory.mockResolvedValueOnce({ ...directory, members: [] });
         await expect(
@@ -601,6 +679,13 @@ describe("Remote Agent native delivery callback service", () => {
           })
         ).rejects.toThrow("space_membership_revoked");
       }
+      readDirectory.mockResolvedValueOnce({ ...directory, members: [] });
+      await expect(
+        runPersonalRemoteAgentSpaceTool(env, {
+          submissionId: "personal-submission",
+          operation: { kind: "reply_placement", placement: "thread" },
+        })
+      ).rejects.toThrow("space_membership_revoked");
       expect(readUpdates).toHaveBeenCalledTimes(1);
       await expect(
         runPersonalRemoteAgentSpaceTool(env, {
@@ -1109,16 +1194,228 @@ describe("Remote Agent native delivery callback service", () => {
     }
   });
 
-  it("submits one idempotent Center Agent continuation with exact child evidence", async () => {
+  it.each(
+    ["persist", "replay", "watchdog", "admission"].flatMap((route) =>
+      ["signal-child-result", null].map((publishedSignalId) => ({
+        route,
+        publishedSignalId,
+      }))
+    )
+  )("rejects a frozen unmarked summary at $route with locator $publishedSignalId", async ({
+    route,
+    publishedSignalId,
+  }) => {
     const harness = createSqliteD1Harness();
     applyRemoteAgentSubmitMigrations(harness);
-    const workerSubmit = vi.fn(async () => ({
-      accepted: true,
-      createdAt: 1200,
-      requestId: "request-continuation",
-      status: "pending" as const,
-      submissionId: "submission-continuation",
-    }));
+    const probes: RemoteAgentNativeDeliveryDeadlineProbeQueueMessage[] = [];
+    const workerSubmit = vi
+      .fn()
+      .mockRejectedValue(new Error("old admission response lost"));
+    const readAdmission = vi.fn();
+    const env = buildEnv(harness.db, {
+      deadlineProbeQueueSend: vi.fn((probe) => {
+        probes.push(probe);
+        return Promise.resolve(probe);
+      }),
+      remoteAgentWorker: {
+        submitConversationTurn: workerSubmit,
+        readAdmission,
+      },
+    });
+    const subscriptionId = "legacy-summary";
+    const idempotencyKey = `agent-task-continuation:${subscriptionId}`;
+    try {
+      const staged = await stageAmbiguousTaskContinuationAdmission({
+        db: harness.db,
+        env,
+        idempotencyKey,
+        subscriptionId,
+      });
+      const saved = staged.workerSubmitRequest;
+      if (!saved) {
+        throw new Error("Missing frozen request");
+      }
+      const watchedTask = {
+        kind: "native_delivery" as const,
+        deliveryId: `child:${idempotencyKey}`,
+        v: 1 as const,
+      };
+      const outcome = {
+        errorCode: null,
+        eventId: "terminal-task-result",
+        occurredAtMs: 1050,
+        publishedSignalId,
+        status: "succeeded" as const,
+      };
+      const legacy = remoteAgentWorkerSubmitTurnRequestSchema.parse({
+        ...saved,
+        turnEnvelope: {
+          ...saved.turnEnvelope,
+          trigger: {
+            source: "task_continuation",
+            delegationId: "delegation-summary",
+            subscriptionId,
+            watchedTask,
+            outcome,
+          },
+        },
+      });
+      // Reproduce an old producer's frozen request, without overwriting it in production.
+      harness.run({
+        sql: "UPDATE openMeldRemoteAgent_native_delivery_ledger SET worker_submit_request_json = ?, execution_recovery_submit_request_json = ? WHERE idempotency_key = ?",
+        params: [
+          JSON.stringify(legacy),
+          JSON.stringify(legacy),
+          idempotencyKey,
+        ],
+      });
+      const observerDelivery =
+        await readRemoteAgentNativeDeliveryBySubmissionId({
+          db: harness.db,
+          submissionId: `parent-submission:${idempotencyKey}`,
+        });
+      if (!observerDelivery) {
+        throw new Error("Missing observer");
+      }
+      await registerAgentTaskCompletionSubscription({
+        db: harness.db,
+        subscriptionId,
+        organizationId: "org_1",
+        idempotencyKey: `register:${subscriptionId}`,
+        nowMs: 1100,
+        completionCondition: "terminal",
+        observerTask: {
+          kind: "native_delivery",
+          deliveryId: observerDelivery.deliveryId,
+          v: 1,
+        },
+        watchedTask,
+        continuation: {
+          kind: "resume_agent",
+          delegationId: "delegation-summary",
+          instruction: "Summarize existing results.",
+          summaryRecovery: {
+            operatorUserId: "user_1",
+            sourceSubscriptionId: "original-summary",
+          },
+        },
+      });
+      workerSubmit.mockClear();
+      const delivery = await readRemoteAgentNativeDeliveryByIdempotencyKey({
+        db: harness.db,
+        idempotencyKey,
+      });
+      if (!delivery) {
+        throw new Error("Missing delivery");
+      }
+      let action: Promise<unknown>;
+      if (route === "persist") {
+        action = persistRemoteAgentWorkerSubmitRequest({
+          db: harness.db,
+          idempotencyKey,
+          nowMs: 1200,
+          workerSubmitRequest: {
+            ...legacy,
+            turnEnvelope: {
+              ...legacy.turnEnvelope,
+              trigger: {
+                source: "task_continuation",
+                delegationId: "delegation-summary",
+                subscriptionId,
+                watchedTask,
+                outcome,
+                summaryOnly: true,
+              },
+            },
+          },
+        });
+      } else if (route === "replay") {
+        action = submitRemoteAgentTaskContinuationDelivery({
+          db: harness.db,
+          env,
+          idempotencyKey,
+          subscriptionId,
+          delegationId: "delegation-summary",
+          delegation: {
+            barrier: "all_terminal",
+            delegationId: "delegation-summary",
+            generation: 1,
+            children: [
+              {
+                agentProfileId: AGENT_PROFILE_ID,
+                role: "primary",
+                state: "terminal",
+                task: watchedTask,
+                terminalOutcome: outcome,
+              },
+            ],
+          },
+          instruction: "Summarize existing results.",
+          summaryOnly: true,
+          observerDelivery,
+          watchedTask,
+          outcome,
+          nowMs: 1200,
+          isAuthorized: async () => true,
+        });
+      } else if (route === "admission") {
+        action = submitRemoteAgentWorkerAdmission({
+          db: harness.db,
+          env,
+          nowMs: 1200,
+          organizationId: "org_1",
+          admissionDelivery: delivery,
+          request: legacy,
+          worker: { submitConversationTurn: workerSubmit, readAdmission },
+        });
+      } else {
+        const probe = requireAdmissionProbe(probes, "watchdog", 1);
+        action = processRemoteAgentNativeDeliveryDeadlineProbe({
+          db: harness.db,
+          env,
+          nowMs: probe.deadlineAtMs,
+          probe,
+        });
+      }
+      await expect(action).rejects.toThrow(
+        "remote_agent.task_continuation.summary_policy_mismatch"
+      );
+      expect(workerSubmit).not.toHaveBeenCalled();
+      expect(readAdmission).not.toHaveBeenCalled();
+      const retained = await readRemoteAgentNativeDeliveryByIdempotencyKey({
+        db: harness.db,
+        idempotencyKey,
+      });
+      expect(retained?.workerSubmitRequest).toEqual(legacy);
+      expect(retained?.executionRecoverySubmitRequest).toEqual(legacy);
+      expect(retained?.idempotencyKey).toBe(idempotencyKey);
+    } finally {
+      harness.close();
+    }
+  });
+
+  it.each([
+    "signal-child-result",
+    null,
+  ])("submits one idempotent continuation with the child's exact result locator %s", async (childSignalId) => {
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentSubmitMigrations(harness);
+    const stageLogs = vi
+      .spyOn(console, "info")
+      .mockImplementation(() => undefined);
+    let finishAuthorization!: (allowed: boolean) => void;
+    const authorization = new Promise<boolean>((resolve) => {
+      finishAuthorization = resolve;
+    });
+    const workerSubmit = vi.fn(
+      async (_request: RemoteAgentWorkerSubmitTurnRequest) => ({
+        accepted: true,
+        createdAt: 1200,
+        requestId: "request-continuation",
+        status: "pending" as const,
+        submissionId: "submission-continuation",
+      })
+    );
     const env = buildEnv(harness.db, {
       dispatchQueueSend: vi.fn(async () => undefined),
       remoteAgentWorker: {
@@ -1201,7 +1498,7 @@ describe("Remote Agent native delivery callback service", () => {
                 errorCode: null,
                 eventId: "terminal-child-1",
                 occurredAtMs: 1050,
-                publishedSignalId: "signal-child-result",
+                publishedSignalId: childSignalId,
                 status: "succeeded" as const,
               },
             },
@@ -1213,7 +1510,7 @@ describe("Remote Agent native delivery callback service", () => {
         env,
         idempotencyKey: "agent-task-continuation:subscription-1",
         instruction: "Synthesize the delegated result.",
-        isAuthorized: async () => true,
+        isAuthorized: async () => await authorization,
         memoryService: continuationMemoryService,
         nowMs: 1100,
         observerDelivery,
@@ -1221,7 +1518,7 @@ describe("Remote Agent native delivery callback service", () => {
           errorCode: null,
           eventId: "terminal-child-1",
           occurredAtMs: 1050,
-          publishedSignalId: "signal-child-result",
+          publishedSignalId: childSignalId,
           status: "succeeded" as const,
         },
         sourceSignalId: "signal_1",
@@ -1237,14 +1534,91 @@ describe("Remote Agent native delivery callback service", () => {
         },
       };
 
-      const first =
-        await submitRemoteAgentTaskContinuationDelivery(continuationInput);
+      await registerAgentTaskCompletionSubscription({
+        db: harness.db,
+        subscriptionId: continuationInput.subscriptionId,
+        organizationId: "org_1",
+        idempotencyKey: "register:summary-1",
+        nowMs: 1050,
+        completionCondition: "terminal",
+        observerTask: {
+          kind: "native_delivery",
+          deliveryId: observerDelivery.deliveryId,
+          v: 1,
+        },
+        watchedTask: continuationInput.watchedTask,
+        continuation: {
+          kind: "resume_agent",
+          delegationId: "delegation-1",
+          instruction: continuationInput.instruction,
+          summaryRecovery: {
+            operatorUserId: "user_1",
+            sourceSubscriptionId: "original-summary",
+          },
+        },
+      });
+      const firstSubmission = submitRemoteAgentTaskContinuationDelivery({
+        ...continuationInput,
+        summaryOnly: true,
+      });
+      expect(stageLogs).toHaveBeenCalledWith(
+        "[core.remote_agent.task_continuation.stage]",
+        expect.objectContaining({
+          idempotencyKey: continuationInput.idempotencyKey,
+          subscriptionId: continuationInput.subscriptionId,
+          stage: "preparation",
+          event: "started",
+        })
+      );
+      expect(workerSubmit).not.toHaveBeenCalled();
+      expect(continuationMemoryService.recallForTurn).not.toHaveBeenCalled();
+      finishAuthorization(true);
+      const first = await firstSubmission;
+      const preparationEvidence = stageLogs.mock.calls
+        .filter(
+          ([event]) => event === "[core.remote_agent.task_continuation.stage]"
+        )
+        .map(([, evidence]) => evidence);
+      for (const stage of [
+        "turn_context",
+        "memory",
+        "skill_selection",
+        "watchdog_enqueue",
+        "source_dispatch",
+      ]) {
+        expect(preparationEvidence).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ stage, event: "started" }),
+            expect.objectContaining({ stage, event: "finished" }),
+          ])
+        );
+      }
+      const serializedEvidence = JSON.stringify(preparationEvidence);
+      expect(serializedEvidence).not.toContain(continuationInput.instruction);
+      expect(serializedEvidence).not.toContain(
+        recalledContinuationMemory.items[0]?.text
+      );
+      expect(stageLogs).toHaveBeenCalledWith(
+        "[core.remote_agent.task_continuation.stage]",
+        expect.objectContaining({
+          idempotencyKey: continuationInput.idempotencyKey,
+          stage: "preparation",
+          event: "finished",
+          elapsedMs: expect.any(Number),
+        })
+      );
       const replay = await submitRemoteAgentTaskContinuationDelivery({
         ...continuationInput,
         nowMs: 1300,
       });
 
       expect(replay).toEqual(first);
+      await expect(
+        submitRemoteAgentTaskContinuationDelivery({
+          ...continuationInput,
+          isAuthorized: async () => false,
+        })
+      ).resolves.toEqual({ status: "cancelled", task: null });
       expect(workerSubmit).toHaveBeenCalledTimes(1);
       expect(workerSubmit).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -1252,7 +1626,7 @@ describe("Remote Agent native delivery callback service", () => {
           messages: [
             expect.objectContaining({
               content: expect.stringContaining(
-                '"publishedSignalId":"signal-child-result"'
+                `"publishedSignalId":${JSON.stringify(childSignalId)}`
               ),
             }),
           ],
@@ -1272,12 +1646,27 @@ describe("Remote Agent native delivery callback service", () => {
                 status: "succeeded",
               }),
               source: "task_continuation",
+              summaryOnly: true,
               subscriptionId: "subscription-1",
               watchedTask: continuationInput.watchedTask,
             },
           }),
         })
       );
+      const instructions =
+        workerSubmit.mock.calls[0]?.[0]?.messages[0]?.content;
+      expect(instructions).toContain("summarize the other available results");
+      expect(instructions).toContain("Do not guess another result locator");
+      if (childSignalId === null) {
+        expect(instructions).toContain(
+          "Result unavailable in this completion evidence"
+        );
+        expect(instructions).toContain("do not repeat the child task");
+      } else {
+        expect(instructions).not.toContain(
+          "Result unavailable in this completion evidence"
+        );
+      }
       expect(continuationMemoryService.recallForTurn).toHaveBeenCalledOnce();
       await expect(
         readRemoteAgentNativeDeliveryByIdempotencyKey({
@@ -1291,6 +1680,7 @@ describe("Remote Agent native delivery callback service", () => {
         submissionId: "submission-continuation",
       });
     } finally {
+      stageLogs.mockRestore();
       harness.close();
     }
   });
@@ -1325,6 +1715,32 @@ describe("Remote Agent native delivery callback service", () => {
         createSignalEnvelope("signal_v4_parent", "Coordinate this task."),
       ],
     });
+    env.__spaceStub.rpcListDispatchConversationContinuitySignalsResult.mockImplementation(
+      async (query) =>
+        query.spaceAccess?.actor.kind === "dispatch_continuation" &&
+        query.spaceAccess.actor.dispatchId === "dispatch-v4-parent"
+          ? {
+              ok: true,
+              value: {
+                signals: [
+                  createSignalEnvelope(
+                    "signal_previous_v4",
+                    "The delegated investigation is ready to summarize."
+                  ),
+                  createSignalEnvelope(
+                    "signal_v4_parent",
+                    "Coordinate this task."
+                  ),
+                ],
+              },
+            }
+          : {
+              code: "space.continuity.dispatch_not_found",
+              message: "The exact Space dispatch is unavailable.",
+              ok: false,
+              status: 404,
+            }
+    );
 
     try {
       await upsertRemoteAgentNativeDeliveryRecord({
@@ -1339,6 +1755,7 @@ describe("Remote Agent native delivery callback service", () => {
         onBehalfOfUserId: "user_1",
         organizationId: "org_1",
         profileId: AGENT_PROFILE_ID,
+        sourceClientMessageId: "client-v4-parent",
         spaceId: SPACE_ID,
         status: "submitted",
         threadContext: THREAD_CONTEXT,
@@ -1361,10 +1778,44 @@ describe("Remote Agent native delivery callback service", () => {
         submissionId: "submission-v4-parent",
         workerRequestId: "request-v4-parent",
       });
+      await upsertRemoteAgentNativeDeliveryRecord({
+        attemptId: null,
+        bindingId: "binding-v4-parent",
+        db: harness.db,
+        dispatchId: "agent-task-continuation:nested-parent",
+        idempotencyKey: "idempotency-v4-nested-parent",
+        nowMs: 980,
+        onBehalfOfDisplayName: "Ari",
+        onBehalfOfProfileId: HUMAN_PROFILE_ID,
+        onBehalfOfUserId: "user_1",
+        organizationId: "org_1",
+        profileId: AGENT_PROFILE_ID,
+        spaceId: SPACE_ID,
+        status: "submitted",
+        threadContext: THREAD_CONTEXT,
+        triggerMessageId: "signal_v4_parent",
+      });
+      await persistTestCenterAgentWorkerSubmitRequest({
+        bindingId: "binding-v4-parent",
+        db: harness.db,
+        dispatchId: "agent-task-continuation:nested-parent",
+        idempotencyKey: "idempotency-v4-nested-parent",
+        requestVersion: 4,
+        spaceId: SPACE_ID,
+        triggerMessageId: "signal_v4_parent",
+      });
+      await markRemoteAgentNativeDeliveryAck({
+        accepted: true,
+        db: harness.db,
+        idempotencyKey: "idempotency-v4-nested-parent",
+        nowMs: 990,
+        submissionId: "submission-v4-nested-parent",
+        workerRequestId: "request-v4-nested-parent",
+      });
       const observerDelivery =
         await readRemoteAgentNativeDeliveryBySubmissionId({
           db: harness.db,
-          submissionId: "submission-v4-parent",
+          submissionId: "submission-v4-nested-parent",
         });
       if (!observerDelivery) {
         throw new Error("expected v4 parent delivery fixture");
@@ -1385,11 +1836,11 @@ describe("Remote Agent native delivery callback service", () => {
           nowMs: 1100,
           observerDelivery,
           outcome: {
-            errorCode: null,
+            errorCode: "runtime_coordinator.delivery_expired",
             eventId: "terminal-v4-child",
             occurredAtMs: 1050,
-            publishedSignalId: "signal-v4-child-result",
-            status: "succeeded",
+            publishedSignalId: "signal-v4-child-expired",
+            status: "failed",
           },
           subscriptionId: "subscription-v4",
           watchedTask: {
@@ -1409,6 +1860,13 @@ describe("Remote Agent native delivery callback service", () => {
       expect(workerSubmit).toHaveBeenCalledTimes(2);
       expect(workerSubmit.mock.calls[0]?.[0]).toMatchObject({
         conversationId: SPACE_ID,
+        messages: [
+          {
+            content: expect.stringContaining(
+              "The child Wake expired before it reached the local Agent. No child task result is available"
+            ),
+          },
+        ],
         runtimeConversation: { generation: 0 },
         v: 4,
       });
@@ -1425,6 +1883,18 @@ describe("Remote Agent native delivery callback service", () => {
       expect(
         env.__spaceStub.rpcListDispatchConversationContinuitySignalsResult
       ).toHaveBeenCalledOnce();
+      expect(
+        env.__spaceStub.rpcListDispatchConversationContinuitySignalsResult
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({
+          spaceAccess: expect.objectContaining({
+            actor: expect.objectContaining({
+              dispatchId: "dispatch-v4-parent",
+              sourceSignalId: "signal_v4_parent",
+            }),
+          }),
+        })
+      );
     } finally {
       harness.close();
     }
@@ -2697,6 +3167,1462 @@ describe("Remote Agent native delivery callback service", () => {
     }
   });
 
+  it.each([
+    ...[0, 1, 3].flatMap((round) =>
+      ["watchdog", "accepted"].flatMap((phase) =>
+        [false, true].map((stopped) => ({
+          round,
+          phase,
+          stopped,
+          mismatch: null,
+        }))
+      )
+    ),
+    ...["organization", "subscription"].map((mismatch) => ({
+      round: 3,
+      phase: "accepted",
+      stopped: true,
+      mismatch,
+    })),
+  ])("checks the trusted continuation chain at round $round/$phase with parent stopped=$stopped mismatch=$mismatch", async ({
+    round,
+    phase,
+    stopped,
+    mismatch,
+  }) => {
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentSubmitMigrations(harness);
+    const subscriptionId = "subscription-loop-stop";
+    const originalKey = `agent-task-continuation:${subscriptionId}`;
+    const cancelExecution = vi.fn<
+      NonNullable<
+        NonNullable<
+          CoreBindings["OPENMELD_REMOTE_AGENT_WORKER"]
+        >["cancelExecution"]
+      >
+    >((input) => {
+      const { conversationId: _conversationId, reason, ...identity } = input;
+      return Promise.resolve({
+        status: "already_cancelled",
+        execution: {
+          ...identity,
+          acceptedAtMs: 2000,
+          cancellationReason: reason ?? null,
+          completedAtMs: 400_000,
+          lastProgressAtMs: 400_000,
+          lastProgressKind: "aborted",
+          status: "aborted",
+        },
+      });
+    });
+    const reconcileExecution = vi
+      .fn()
+      .mockRejectedValue(new Error("probe transport unavailable"));
+    const env = buildEnv(harness.db, {
+      remoteAgentWorker: {
+        submitConversationTurn: vi
+          .fn()
+          .mockRejectedValue(new Error("ACK lost")),
+        cancelExecution,
+        reconcileExecution,
+        readAdmissionStop: async (request) => ({
+          v: 1,
+          status: "found",
+          stopIntent: {
+            v: 1,
+            organizationId: request.organizationId,
+            spaceId: request.spaceId,
+            idempotencyKey: request.idempotencyKey,
+            requestedAtMs: 400_000,
+            reason: "Parent stopped",
+          },
+        }),
+      },
+    });
+    try {
+      let delivery = await stageAmbiguousTaskContinuationAdmission({
+        db: harness.db,
+        env,
+        idempotencyKey: originalKey,
+        subscriptionId,
+        replyLanguageTag: "en",
+      });
+      for (let attempt = 1; attempt <= round; attempt += 1) {
+        delivery = await markRemoteAgentNativeDeliveryAck({
+          db: harness.db,
+          nowMs: 1200 + attempt,
+          idempotencyKey: delivery.idempotencyKey,
+          submissionId: `submission:${attempt - 1}`,
+          accepted: true,
+          workerRequestId: null,
+        });
+        const previousRequest = delivery.executionRecoverySubmitRequest;
+        if (!previousRequest) {
+          throw new Error("Expected the persisted request");
+        }
+        const nextKey = `${delivery.deliveryId}:work-loop:${attempt}`;
+        delivery = await rearmRemoteAgentNativeDeliveryForWorkLoop({
+          db: harness.db,
+          delivery,
+          attempt,
+          nowMs: 1300 + attempt,
+          checkpoint: {
+            v: 1,
+            reason: "tool_call_budget_exhausted",
+            toolCallLimit: 64,
+          },
+          nextIdempotencyKey: nextKey,
+          nextWorkerSubmitRequest:
+            remoteAgentWorkerSubmitTurnRequestSchema.parse({
+              ...previousRequest,
+              idempotencyKey: nextKey,
+              turnEnvelope: {
+                ...previousRequest.turnEnvelope,
+                workLoopContinuation: {
+                  v: 1,
+                  attempt,
+                  reason: "tool_call_budget_exhausted",
+                  previousSubmissionId: delivery.submissionId,
+                },
+              },
+            }),
+        });
+      }
+      if (phase === "accepted") {
+        delivery = await markRemoteAgentNativeDeliveryAck({
+          db: harness.db,
+          nowMs: 2000,
+          idempotencyKey: delivery.idempotencyKey,
+          submissionId: `submission:${round}`,
+          accepted: true,
+          workerRequestId: null,
+        });
+      }
+      const subscription = await readAgentTaskCompletionSubscription({
+        db: harness.db,
+        subscriptionId,
+      });
+      if (!subscription) {
+        throw new Error("Expected the subscription");
+      }
+      if (stopped) {
+        await recordAgentTaskTerminalOutcome({
+          db: harness.db,
+          nowMs: 3000,
+          task: subscription.observerTask,
+          outcome: {
+            status: "stopped",
+            errorCode: "execution_cancelled",
+            eventId: "parent-stopped",
+            occurredAtMs: 3000,
+            publishedSignalId: null,
+          },
+        });
+      }
+      const probe = {
+        ...createDeadlineProbe({
+          idempotencyKey: delivery.idempotencyKey,
+          submissionId:
+            phase === "watchdog"
+              ? `admission_watchdog:${delivery.idempotencyKey}`
+              : `submission:${round}`,
+        }),
+        dispatchId: delivery.dispatchId,
+        deadlineAtMs: 400_000,
+      };
+      if (mismatch) {
+        if (mismatch === "organization") {
+          harness.run({
+            sql: "UPDATE agent_task_completion_subscriptions SET organization_id = 'org_other' WHERE subscription_id = ?",
+            params: [subscriptionId],
+          });
+        } else {
+          const otherSubscriptionId = "other-subscription";
+          await registerAgentTaskCompletionSubscription({
+            db: harness.db,
+            organizationId: subscription.organizationId,
+            observerTask: subscription.observerTask,
+            watchedTask: subscription.watchedTask,
+            continuation: subscription.continuation,
+            completionCondition: subscription.completionCondition,
+            subscriptionId: otherSubscriptionId,
+            idempotencyKey: "register-other-subscription",
+            nowMs: 3001,
+          });
+          await claimReadyAgentTaskCompletionSubscription({
+            db: harness.db,
+            subscriptionId: otherSubscriptionId,
+            claimId: "other-claim",
+            claimLeaseMs: 30_000,
+            nowMs: 3002,
+          });
+          const currentRequest = delivery.executionRecoverySubmitRequest;
+          if (!currentRequest) {
+            throw new Error("Expected the current request");
+          }
+          const foreignRequest = remoteAgentWorkerSubmitTurnRequestSchema.parse(
+            {
+              ...currentRequest,
+              turnEnvelope: {
+                ...currentRequest.turnEnvelope,
+                trigger: {
+                  ...currentRequest.turnEnvelope.trigger,
+                  subscriptionId: otherSubscriptionId,
+                },
+              },
+            }
+          );
+          harness.run({
+            sql: "UPDATE openMeldRemoteAgent_native_delivery_ledger SET execution_recovery_submit_request_json = ? WHERE delivery_id = ?",
+            params: [JSON.stringify(foreignRequest), delivery.deliveryId],
+          });
+        }
+        await expect(
+          processRemoteAgentNativeDeliveryDeadlineProbe({
+            db: harness.db,
+            env,
+            nowMs: probe.deadlineAtMs,
+            probe,
+          })
+        ).rejects.toThrow("stop_identity_mismatch");
+        expect(cancelExecution).not.toHaveBeenCalled();
+        return;
+      }
+      await expect(
+        processRemoteAgentNativeDeliveryDeadlineProbe({
+          db: harness.db,
+          env,
+          nowMs: probe.deadlineAtMs,
+          probe,
+        })
+      ).resolves.toMatchObject({ status: "skipped" });
+      if (stopped) {
+        expect(cancelExecution).toHaveBeenCalledWith(
+          expect.objectContaining({ idempotencyKey: delivery.idempotencyKey })
+        );
+        expect(env.__spaceStub.rpcPostSystemNoticeSignal).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({ noticeType: "wake_stopped" }),
+          })
+        );
+      } else {
+        expect(cancelExecution).not.toHaveBeenCalled();
+      }
+    } finally {
+      harness.close();
+    }
+  });
+
+  it.each([
+    "watchdog",
+    "backoff",
+  ] as const)("keeps a stopped parent ahead of its continuation %s, including a failed Stop transport", async (phase) => {
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentSubmitMigrations(harness);
+    applyDrizzleMigrationsForTables(harness, ["inbox_items"]);
+    const probes: RemoteAgentNativeDeliveryDeadlineProbeQueueMessage[] = [];
+    const workerSubmit = vi
+      .fn()
+      .mockRejectedValue(new Error("ACK response lost"));
+    const cancelExecution = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Stop transport unavailable"))
+      .mockResolvedValue({ status: "not_found" });
+    const readAdmissionStop = vi.fn(
+      async (request: RemoteAgentWorkerSubmitTurnRequest) => ({
+        v: 1 as const,
+        status: "found" as const,
+        stopIntent: {
+          v: 1 as const,
+          organizationId: request.organizationId,
+          spaceId: request.spaceId,
+          idempotencyKey: request.idempotencyKey,
+          requestedAtMs: 1300,
+          reason: "Parent task was stopped.",
+        },
+      })
+    );
+    const env = buildEnv(harness.db, {
+      deadlineProbeQueueSend: vi.fn((probe) => {
+        probes.push(probe);
+        return Promise.resolve(probe);
+      }),
+      remoteAgentWorker: {
+        cancelExecution,
+        readAdmissionStop,
+        submitConversationTurn: workerSubmit,
+      },
+    });
+    const subscriptionId = `subscription-parent-stop-${phase}`;
+    const idempotencyKey = `agent-task-continuation:${subscriptionId}`;
+    try {
+      const staged = await stageAmbiguousTaskContinuationAdmission({
+        db: harness.db,
+        env,
+        idempotencyKey,
+        subscriptionId,
+        replyLanguageTag: "en",
+      });
+      let probe = requireAdmissionProbe(probes, "watchdog", 1);
+      if (phase === "backoff") {
+        await processRemoteAgentNativeDeliveryDeadlineProbe({
+          db: harness.db,
+          env,
+          nowMs: probe.deadlineAtMs,
+          probe,
+        });
+        probe = requireAdmissionProbe(probes, "retry", 2);
+      }
+      const subscription = await readAgentTaskCompletionSubscription({
+        db: harness.db,
+        subscriptionId,
+      });
+      if (!subscription) {
+        throw new Error("Expected the task owner's continuation");
+      }
+      await recordAgentTaskTerminalOutcome({
+        db: harness.db,
+        nowMs: probe.deadlineAtMs - 1,
+        task: subscription.observerTask,
+        outcome: {
+          status: "stopped",
+          errorCode: "execution_cancelled",
+          eventId: `parent-stop-${phase}`,
+          occurredAtMs: probe.deadlineAtMs - 1,
+          publishedSignalId: null,
+        },
+      });
+      await expect(
+        processRemoteAgentNativeDeliveryDeadlineProbe({
+          db: harness.db,
+          env,
+          nowMs: probe.deadlineAtMs,
+          probe,
+        })
+      ).resolves.toMatchObject({
+        status: "skipped",
+        reasonCode: "remote_agent.cancellation_execution_unconfirmed",
+      });
+      expect(workerSubmit).toHaveBeenCalledOnce();
+      expect(env.__spaceStub.rpcPostSystemNoticeSignal).not.toHaveBeenCalled();
+      const repair = probes.at(-1);
+      if (!repair) {
+        throw new Error("Expected a durable Stop repair probe");
+      }
+      await expect(
+        processRemoteAgentNativeDeliveryDeadlineProbe({
+          db: harness.db,
+          env,
+          nowMs: repair.deadlineAtMs,
+          probe: repair,
+        })
+      ).resolves.toMatchObject({
+        status: "skipped",
+        reasonCode: "remote_agent.execution_cancelled",
+      });
+      expect(workerSubmit).toHaveBeenCalledOnce();
+      expect(cancelExecution).toHaveBeenCalledTimes(2);
+      expect(env.__spaceStub.rpcPostSystemNoticeSignal).toHaveBeenCalledOnce();
+      expect(env.__spaceStub.rpcPostSystemNoticeSignal).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            noticeType: "wake_stopped",
+            reasonCode: "remote_agent.execution_cancelled",
+          }),
+        })
+      );
+      await expect(
+        readRemoteAgentNativeDeliveryByIdempotencyKey({
+          db: harness.db,
+          idempotencyKey,
+        })
+      ).resolves.toMatchObject({
+        status: "failed",
+        failureCode: "runtime_coordinator.pre_agent_stop_requested",
+        submissionId: null,
+        acceptedAtMs: null,
+        publishedSignalId: "signal_reply_1",
+      });
+      const task = {
+        kind: "native_delivery" as const,
+        deliveryId: staged.deliveryId,
+        v: 1 as const,
+      };
+      // Observe the stopped task through the existing owner, not a synthetic ACK.
+      await registerAgentTaskCompletionSubscription({
+        completionCondition: "terminal",
+        continuation: null,
+        db: harness.db,
+        idempotencyKey: `observe-${phase}`,
+        nowMs: repair.deadlineAtMs,
+        observerTask: {
+          kind: "native_delivery",
+          deliveryId: `observer-${phase}`,
+          v: 1,
+        },
+        organizationId: "org_1",
+        subscriptionId: `observe-${phase}`,
+        watchedTask: task,
+      });
+      await processRemoteAgentNativeDeliveryDeadlineProbe({
+        db: harness.db,
+        env,
+        nowMs: repair.deadlineAtMs + 1,
+        probe: repair,
+      });
+      await expect(
+        readAgentTaskTerminalOutcome({
+          db: harness.db,
+          taskKey: buildAgentTaskKey(task),
+        })
+      ).resolves.toMatchObject({ outcome: { status: "stopped" } });
+      expect(env.__spaceStub.rpcPostSystemNoticeSignal).toHaveBeenCalledOnce();
+      expect(env.__spaceStub.rpcPostSignal).not.toHaveBeenCalled();
+      expect(
+        env.__spaceStub.rpcPostSignalOnceByClientMessageId
+      ).not.toHaveBeenCalled();
+      expect(
+        harness.queryAll({
+          sql: "SELECT * FROM inbox_items WHERE attention = 'needs_action'",
+          params: [],
+        })
+      ).toHaveLength(0);
+    } finally {
+      harness.close();
+    }
+  });
+
+  it.each([
+    "confirmed",
+    "repair_admission",
+    "repair_accepted",
+  ] as const)("forwards a parent Stop that races with the retry ACK without publishing a failure (%s)", async (phase) => {
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentSubmitMigrations(harness);
+    const probes: RemoteAgentNativeDeliveryDeadlineProbeQueueMessage[] = [];
+    const subscriptionId = "subscription-retry-stop-race";
+    const idempotencyKey = `agent-task-continuation:${subscriptionId}`;
+    const workerSubmit = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("ACK response lost"))
+      .mockImplementationOnce(
+        async (request: RemoteAgentWorkerSubmitTurnRequest) => {
+          const subscription = await readAgentTaskCompletionSubscription({
+            db: harness.db,
+            subscriptionId,
+          });
+          if (!subscription) {
+            throw new Error("Expected the original task owner");
+          }
+          await recordAgentTaskTerminalOutcome({
+            db: harness.db,
+            nowMs: 300_000,
+            task: subscription.observerTask,
+            outcome: {
+              status: "stopped",
+              errorCode: "execution_cancelled",
+              eventId: "parent-stopped-during-submit",
+              occurredAtMs: 300_000,
+              publishedSignalId: null,
+            },
+          });
+          return {
+            accepted: true,
+            createdAt: 300_000,
+            status: "pending",
+            submissionId: request.dispatchId,
+          };
+        }
+      );
+    const cancelExecution = vi.fn<
+      NonNullable<
+        NonNullable<
+          CoreBindings["OPENMELD_REMOTE_AGENT_WORKER"]
+        >["cancelExecution"]
+      >
+    >((input) => {
+      const { conversationId: _conversationId, reason, ...identity } = input;
+      return Promise.resolve({
+        status: "already_cancelled",
+        execution: {
+          ...identity,
+          acceptedAtMs: 300_000,
+          cancellationReason: reason ?? null,
+          completedAtMs: 300_001,
+          lastProgressAtMs: 300_001,
+          lastProgressKind: "aborted",
+          status: "aborted",
+        },
+      });
+    });
+    if (phase !== "confirmed") {
+      cancelExecution.mockRejectedValueOnce(
+        new Error("Stop transport unavailable after ACK")
+      );
+    }
+    const env = buildEnv(harness.db, {
+      deadlineProbeQueueSend: vi.fn((probe) => {
+        probes.push(probe);
+        return Promise.resolve(probe);
+      }),
+      remoteAgentWorker: {
+        cancelExecution,
+        submitConversationTurn: workerSubmit,
+      },
+    });
+    try {
+      await stageAmbiguousTaskContinuationAdmission({
+        db: harness.db,
+        env,
+        idempotencyKey,
+        subscriptionId,
+        replyLanguageTag: "en",
+      });
+      const watchdog = requireAdmissionProbe(probes, "watchdog", 1);
+      await processRemoteAgentNativeDeliveryDeadlineProbe({
+        db: harness.db,
+        env,
+        nowMs: watchdog.deadlineAtMs,
+        probe: watchdog,
+      });
+      const retry = requireAdmissionProbe(probes, "retry", 2);
+      await expect(
+        processRemoteAgentNativeDeliveryDeadlineProbe({
+          db: harness.db,
+          env,
+          nowMs: retry.deadlineAtMs,
+          probe: retry,
+        })
+      ).resolves.toMatchObject({
+        status: "skipped",
+        reasonCode:
+          phase === "confirmed"
+            ? "remote_agent.execution_cancelled"
+            : "remote_agent.cancellation_execution_unconfirmed",
+      });
+      expect(workerSubmit).toHaveBeenCalledTimes(2);
+      expect(cancelExecution).toHaveBeenCalledOnce();
+      if (phase !== "confirmed") {
+        expect(
+          env.__spaceStub.rpcPostSystemNoticeSignal
+        ).not.toHaveBeenCalled();
+        const repair =
+          phase === "repair_admission"
+            ? probes.at(-1)
+            : probes.find(
+                (candidate) => candidate.submissionId === idempotencyKey
+              );
+        if (!repair) {
+          throw new Error("Expected the durable post-ACK Stop repair probe");
+        }
+        await expect(
+          processRemoteAgentNativeDeliveryDeadlineProbe({
+            db: harness.db,
+            env,
+            nowMs: Math.max(repair.deadlineAtMs, retry.deadlineAtMs) + 1,
+            probe: repair,
+          })
+        ).resolves.toMatchObject({
+          status: "skipped",
+          reasonCode: "remote_agent.execution_cancelled",
+        });
+      }
+      expect(env.__spaceStub.rpcPostSystemNoticeSignal).toHaveBeenCalledOnce();
+      expect(env.__spaceStub.rpcPostSystemNoticeSignal).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ noticeType: "wake_stopped" }),
+        })
+      );
+      await processRemoteAgentNativeDeliveryDeadlineProbe({
+        db: harness.db,
+        env,
+        nowMs: retry.deadlineAtMs + 1,
+        probe: retry,
+      });
+      expect(cancelExecution).toHaveBeenCalledTimes(
+        phase === "confirmed" ? 1 : 2
+      );
+      expect(env.__spaceStub.rpcPostSystemNoticeSignal).toHaveBeenCalledOnce();
+      expect(
+        env.__spaceStub.rpcPostSignalOnceByClientMessageId
+      ).not.toHaveBeenCalled();
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("retries a timed-out task continuation and records the later admission", async () => {
+    const admissionLogs = vi.spyOn(console, "info").mockImplementation(() => {
+      // The lost response and the later ACK must remain separate evidence.
+    });
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentSubmitMigrations(harness);
+    const probes: RemoteAgentNativeDeliveryDeadlineProbeQueueMessage[] = [];
+    const workerSubmit = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("admission response was lost"))
+      .mockResolvedValueOnce({
+        accepted: true,
+        createdAt: 1200,
+        requestId: "request-retried-continuation",
+        status: "pending" as const,
+        submissionId: "submission-retried-continuation",
+      });
+    const env = buildEnv(harness.db, {
+      deadlineProbeQueueSend: vi.fn((probe) => {
+        probes.push(probe);
+        return Promise.resolve(probe);
+      }),
+      remoteAgentWorker: { submitConversationTurn: workerSubmit },
+    });
+    const idempotencyKey = "agent-task-continuation:retry-success";
+
+    try {
+      await stageAmbiguousTaskContinuationAdmission({
+        db: harness.db,
+        env,
+        idempotencyKey,
+      });
+      const initialWatchdog = requireAdmissionProbe(probes, "watchdog", 1);
+
+      await expect(
+        processRemoteAgentNativeDeliveryDeadlineProbe({
+          db: harness.db,
+          env,
+          nowMs: initialWatchdog.deadlineAtMs,
+          probe: initialWatchdog,
+        })
+      ).resolves.toMatchObject({
+        reasonCode: "remote_agent.task_continuation.admission_retry_scheduled",
+        status: "skipped",
+      });
+      const retry = requireAdmissionProbe(probes, "retry", 2);
+      expect(retry.submissionId).toBe(initialWatchdog.submissionId);
+      await expect(
+        processRemoteAgentNativeDeliveryDeadlineProbe({
+          db: harness.db,
+          env,
+          nowMs: retry.deadlineAtMs,
+          probe: retry,
+        })
+      ).resolves.toMatchObject({
+        reasonCode:
+          "remote_agent.task_continuation.admission_retry_acknowledged",
+        status: "skipped",
+      });
+      expect(requireAdmissionProbe(probes, "watchdog", 2).submissionId).toBe(
+        initialWatchdog.submissionId
+      );
+
+      expect(workerSubmit).toHaveBeenCalledTimes(2);
+      expect(workerSubmit.mock.calls[0]?.[0]).toMatchObject({
+        dispatchId: idempotencyKey,
+        idempotencyKey,
+      });
+      expect(workerSubmit.mock.calls[1]?.[0]).toMatchObject({
+        dispatchId: idempotencyKey,
+        idempotencyKey,
+      });
+      await expect(
+        readRemoteAgentNativeDeliveryByIdempotencyKey({
+          db: harness.db,
+          idempotencyKey,
+        })
+      ).resolves.toMatchObject({
+        acceptedAtMs: retry.deadlineAtMs,
+        admissionAttemptCount: 2,
+        admissionRetryDueAtMs: null,
+        status: "accepted",
+        submissionId: "submission-retried-continuation",
+      });
+      const evidence = admissionLogs.mock.calls
+        .filter(([label]) => label === "[core.remote_agent.admission_attempt]")
+        .map(([, event]) => event);
+      expect(
+        evidence.filter(
+          (event) =>
+            event.phase === "admission_finished" &&
+            event.outcome === "outcome_unknown"
+        )
+      ).toEqual([expect.objectContaining({ attempt: 1, idempotencyKey })]);
+      expect(
+        evidence.filter((event) => event.phase === "acknowledged")
+      ).toEqual([
+        expect.objectContaining({
+          accepted: true,
+          attempt: 2,
+          currentAttemptSubmittedAtMs: retry.deadlineAtMs,
+          idempotencyKey,
+          submissionId: "submission-retried-continuation",
+        }),
+      ]);
+      expect(env.__spaceStub.rpcPostSignal).not.toHaveBeenCalled();
+    } finally {
+      admissionLogs.mockRestore();
+      harness.close();
+    }
+  });
+
+  it.each([
+    "found",
+    "not_found",
+    "transport_error",
+    "old_receiver",
+    "malformed_response",
+  ] as const)("recovers a lost ACK and keeps the real submission when reconciliation is %s", async (reconciliationStatus) => {
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentSubmitMigrations(harness);
+    const probes: RemoteAgentNativeDeliveryDeadlineProbeQueueMessage[] = [];
+    const submissionId = "original-native-submission";
+    const idempotencyKey = "agent-task-continuation:read-original-ack";
+    const workerSubmit = vi.fn(() =>
+      Promise.reject(new Error("ACK response lost"))
+    );
+    const readAdmission = vi.fn(
+      async (request: RemoteAgentWorkerSubmitTurnRequest) => ({
+        v: 1 as const,
+        status: "found" as const,
+        ack: {
+          accepted: false as const,
+          createdAt: 1100,
+          idempotencyKey: request.idempotencyKey,
+          status: "pending" as const,
+          submissionId,
+        },
+      })
+    );
+    const reconcileExecution = vi.fn(() => {
+      if (
+        reconciliationStatus === "transport_error" ||
+        reconciliationStatus === "old_receiver"
+      ) {
+        return Promise.reject(
+          new Error(
+            reconciliationStatus === "old_receiver"
+              ? "RPC receiver does not implement method reconcileExecution"
+              : "execution reconciliation transport unavailable"
+          )
+        );
+      }
+      if (reconciliationStatus === "malformed_response") {
+        // Deliberately violate the receiver contract to exercise validation.
+        return Promise.resolve({ status: "found", execution: null } as never);
+      }
+      return Promise.resolve(
+        reconciliationStatus === "not_found"
+          ? { status: "not_found" as const }
+          : {
+              status: "found" as const,
+              execution: {
+                v: 1 as const,
+                acceptedAtMs: 1100,
+                cancellationReason: null,
+                completedAtMs: null,
+                idempotencyKey,
+                lastProgressAtMs: 260_000,
+                lastProgressKind: "tool_started" as const,
+                organizationId: "org_1",
+                spaceId: SPACE_ID,
+                status: "running" as const,
+                submissionId,
+              },
+            }
+      );
+    });
+    const env = buildEnv(harness.db, {
+      deadlineProbeQueueSend: vi.fn((probe) => {
+        probes.push(probe);
+        return Promise.resolve(probe);
+      }),
+      remoteAgentWorker: {
+        submitConversationTurn: workerSubmit,
+        readAdmission,
+        reconcileExecution,
+      },
+    });
+    try {
+      const delivery = await stageAmbiguousTaskContinuationAdmission({
+        db: harness.db,
+        env,
+        idempotencyKey,
+      });
+      const watchdog = requireAdmissionProbe(probes, "watchdog", 1);
+      await expect(
+        processRemoteAgentNativeDeliveryDeadlineProbe({
+          db: harness.db,
+          env,
+          nowMs: watchdog.deadlineAtMs,
+          probe: watchdog,
+        })
+      ).resolves.toEqual({
+        reasonCode: "remote_agent.admission_ack_recovered",
+        status: "skipped",
+      });
+      expect(readAdmission).toHaveBeenCalledWith(delivery.workerSubmitRequest);
+      expect(workerSubmit).toHaveBeenCalledOnce();
+      expect(env.__spaceStub.rpcPostSignal).not.toHaveBeenCalled();
+      const acceptedProbe = probes.find(
+        (probe) => probe.submissionId === submissionId
+      );
+      if (!acceptedProbe) {
+        throw new Error("Expected the existing accepted-execution probe");
+      }
+      await processRemoteAgentNativeDeliveryDeadlineProbe({
+        db: harness.db,
+        env,
+        nowMs: acceptedProbe.deadlineAtMs,
+        probe: acceptedProbe,
+      });
+      expect(reconcileExecution).toHaveBeenCalledWith(
+        expect.objectContaining({
+          idempotencyKey,
+          submissionId,
+        })
+      );
+      expect(workerSubmit).toHaveBeenCalledOnce();
+      await expect(
+        readRemoteAgentNativeDeliveryByIdempotencyKey({
+          db: harness.db,
+          idempotencyKey,
+        })
+      ).resolves.toMatchObject({
+        submissionId,
+        admissionAttemptCount: 1,
+        status: "retry_observed",
+        failureCode: null,
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("retains a recovered ACK when scheduling reconciliation fails and repairs its existing probe without replaying startup", async () => {
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentSubmitMigrations(harness);
+    const probes: RemoteAgentNativeDeliveryDeadlineProbeQueueMessage[] = [];
+    const idempotencyKey = "agent-task-continuation:recovered-probe-failure";
+    const submissionId = "original-submission-with-probe-failure";
+    const workerSubmit = vi.fn(() =>
+      Promise.reject(new Error("ACK response lost"))
+    );
+    let rejectAcceptedProbe = true;
+    const env = buildEnv(harness.db, {
+      deadlineProbeQueueSend: vi.fn((probe) => {
+        if (probe.submissionId === submissionId && rejectAcceptedProbe) {
+          rejectAcceptedProbe = false;
+          return Promise.reject(
+            new Error("Accepted probe transport unavailable")
+          );
+        }
+        probes.push(probe);
+        return Promise.resolve(probe);
+      }),
+      remoteAgentWorker: {
+        submitConversationTurn: workerSubmit,
+        readAdmission: vi.fn(
+          async (request: RemoteAgentWorkerSubmitTurnRequest) => ({
+            v: 1 as const,
+            status: "found" as const,
+            ack: {
+              accepted: false as const,
+              createdAt: 1100,
+              idempotencyKey: request.idempotencyKey,
+              status: "pending" as const,
+              submissionId,
+            },
+          })
+        ),
+      },
+    });
+    const evidence = vi.spyOn(console, "info");
+    try {
+      await stageAmbiguousTaskContinuationAdmission({
+        db: harness.db,
+        env,
+        idempotencyKey,
+      });
+      const watchdog = requireAdmissionProbe(probes, "watchdog", 1);
+      await expect(
+        processRemoteAgentNativeDeliveryDeadlineProbe({
+          db: harness.db,
+          env,
+          nowMs: watchdog.deadlineAtMs,
+          probe: watchdog,
+        })
+      ).rejects.toThrow();
+      await expect(
+        readRemoteAgentNativeDeliveryByIdempotencyKey({
+          db: harness.db,
+          idempotencyKey,
+        })
+      ).resolves.toMatchObject({
+        status: "retry_observed",
+        submissionId,
+        admissionAttemptCount: 1,
+        admissionRetryDueAtMs: null,
+        acceptedProbeNextDueAtMs: null,
+      });
+      expect(
+        evidence.mock.calls.filter(
+          ([label, event]) =>
+            label === "[core.remote_agent.admission_attempt]" &&
+            event.idempotencyKey === idempotencyKey &&
+            (event.phase === "timed_out" || event.phase === "retry_scheduled")
+        )
+      ).toEqual([]);
+      await expect(
+        retryMissingRemoteAgentAcceptedDeliveryProbes({
+          db: harness.db,
+          env,
+          nowMs: watchdog.deadlineAtMs + 1,
+        })
+      ).resolves.toMatchObject({ errors: 0 });
+      expect(
+        probes.filter((probe) => probe.submissionId === submissionId)
+      ).toHaveLength(1);
+      expect(workerSubmit).toHaveBeenCalledOnce();
+      expect(env.__spaceStub.rpcPostSignal).not.toHaveBeenCalled();
+    } finally {
+      evidence.mockRestore();
+      harness.close();
+    }
+  });
+
+  it.each([
+    "not_found",
+    "unconfirmed",
+    "old_receiver",
+    "transport_error",
+  ] as const)("does not adopt a synthetic execution from a %s admission receipt", async (status) => {
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentSubmitMigrations(harness);
+    const probes: RemoteAgentNativeDeliveryDeadlineProbeQueueMessage[] = [];
+    const workerSubmit = vi.fn(() =>
+      Promise.reject(new Error("ACK response lost"))
+    );
+    const env = buildEnv(harness.db, {
+      deadlineProbeQueueSend: vi.fn((probe) => {
+        probes.push(probe);
+        return Promise.resolve(probe);
+      }),
+      remoteAgentWorker: {
+        submitConversationTurn: workerSubmit,
+        readAdmission: vi.fn(() => {
+          if (status === "old_receiver" || status === "transport_error") {
+            return Promise.reject(
+              new Error(
+                status === "old_receiver"
+                  ? "RPC receiver does not implement method readAdmission"
+                  : "transport unavailable"
+              )
+            );
+          }
+          return Promise.resolve({ v: 1 as const, status });
+        }),
+      },
+    });
+    const idempotencyKey = `agent-task-continuation:receipt-${status}`;
+    try {
+      await stageAmbiguousTaskContinuationAdmission({
+        db: harness.db,
+        env,
+        idempotencyKey,
+      });
+      const watchdog = requireAdmissionProbe(probes, "watchdog", 1);
+      await processRemoteAgentNativeDeliveryDeadlineProbe({
+        db: harness.db,
+        env,
+        nowMs: watchdog.deadlineAtMs,
+        probe: watchdog,
+      });
+      await expect(
+        readRemoteAgentNativeDeliveryByIdempotencyKey({
+          db: harness.db,
+          idempotencyKey,
+        })
+      ).resolves.toMatchObject({
+        submissionId: null,
+        status: "submitted",
+        admissionAttemptCount: 1,
+      });
+      expect(workerSubmit).toHaveBeenCalledOnce();
+      expect(
+        probes.every((probe) =>
+          probe.submissionId.startsWith("admission_watchdog:")
+        )
+      ).toBe(true);
+    } finally {
+      harness.close();
+    }
+  });
+
+  it.each([
+    ["pending", "en", undefined],
+    ["sent", "en", undefined],
+    ["pending", "zh-Hans", undefined],
+    ["pending", "zh-Hans", "en"],
+    ["pending", "en", "zh-Hans"],
+  ] as const)("alerts the requester after task continuation admission retries are exhausted and preserves %s email evidence in %s (Organization %s)", async (emailState, languageTag, organizationLanguage) => {
+    const admissionLogs = vi.spyOn(console, "info").mockImplementation(() => {
+      // Capture bounded evidence without flooding the test output.
+    });
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentSubmitMigrations(harness);
+    applyDrizzleMigrationsForTables(harness, [
+      "inbox_items",
+      "inbox_email_deliveries",
+    ]);
+    const probes: RemoteAgentNativeDeliveryDeadlineProbeQueueMessage[] = [];
+    const workerSubmit = vi.fn(() =>
+      Promise.reject(new Error("admission response was lost"))
+    );
+    const env = buildEnv(harness.db, {
+      deadlineProbeQueueSend: vi.fn((probe) => {
+        probes.push(probe);
+        return Promise.resolve(probe);
+      }),
+      remoteAgentWorker: { submitConversationTurn: workerSubmit },
+    });
+    const subscriptionId = "subscription-language-exhausted";
+    const idempotencyKey = `agent-task-continuation:${subscriptionId}`;
+
+    try {
+      await setOrganizationWorkingLanguagePreference({
+        db: harness.db,
+        organizationId: "org_1",
+        languageTag: organizationLanguage ?? languageTag,
+        mode: "selected",
+        nowMs: 1,
+        updatedByUserId: "user_1",
+      });
+      const delivery = await stageAmbiguousTaskContinuationAdmission({
+        db: harness.db,
+        env,
+        idempotencyKey,
+        ...(organizationLanguage
+          ? { replyLanguageTag: languageTag, subscriptionId }
+          : {}),
+      });
+      for (
+        let attempt = 1;
+        attempt <= REMOTE_AGENT_TASK_CONTINUATION_ADMISSION_MAX_ATTEMPTS;
+        attempt += 1
+      ) {
+        const watchdog = requireAdmissionProbe(probes, "watchdog", attempt);
+        const outcome = await processRemoteAgentNativeDeliveryDeadlineProbe({
+          db: harness.db,
+          env,
+          nowMs: watchdog.deadlineAtMs,
+          probe: watchdog,
+        });
+        if (attempt === REMOTE_AGENT_TASK_CONTINUATION_ADMISSION_MAX_ATTEMPTS) {
+          expect(outcome).toEqual({ status: "expired" });
+          break;
+        }
+        expect(outcome).toMatchObject({
+          reasonCode:
+            "remote_agent.task_continuation.admission_retry_scheduled",
+          status: "skipped",
+        });
+        const retry = requireAdmissionProbe(probes, "retry", attempt + 1);
+        await expect(
+          processRemoteAgentNativeDeliveryDeadlineProbe({
+            db: harness.db,
+            env,
+            nowMs: retry.deadlineAtMs,
+            probe: retry,
+          })
+        ).resolves.toMatchObject({
+          reasonCode:
+            "remote_agent.task_continuation.admission_retry_outcome_unknown",
+          status: "skipped",
+        });
+      }
+
+      expect(workerSubmit).toHaveBeenCalledTimes(
+        REMOTE_AGENT_TASK_CONTINUATION_ADMISSION_MAX_ATTEMPTS
+      );
+      const evidence = admissionLogs.mock.calls
+        .filter(([label]) => label === "[core.remote_agent.admission_attempt]")
+        .map(([, event]) => event);
+      const sends = evidence.filter((event) => event.phase === "sending");
+      expect(
+        sends.map((event) => ({
+          attempt: event.attempt,
+          currentAttemptSubmittedAtMs: event.currentAttemptSubmittedAtMs,
+        }))
+      ).toEqual([
+        { attempt: 1, currentAttemptSubmittedAtMs: delivery.submittedAtMs },
+        {
+          attempt: 2,
+          currentAttemptSubmittedAtMs: requireAdmissionProbe(probes, "retry", 2)
+            .deadlineAtMs,
+        },
+        {
+          attempt: 3,
+          currentAttemptSubmittedAtMs: requireAdmissionProbe(probes, "retry", 3)
+            .deadlineAtMs,
+        },
+      ]);
+      expect(
+        evidence
+          .filter((event) => event.phase === "timed_out")
+          .map((event) => event.attempt)
+      ).toEqual([1, 2, 3]);
+      expect(
+        evidence.filter(
+          (event) =>
+            event.phase === "admission_finished" &&
+            event.outcome === "outcome_unknown"
+        )
+      ).toHaveLength(3);
+      for (const event of evidence) {
+        expect(event).toMatchObject({
+          deliveryId: delivery.deliveryId,
+          dispatchId: delivery.dispatchId,
+          idempotencyKey,
+          deliveryCreatedAtMs: delivery.createdAtMs,
+        });
+        expect(event).not.toHaveProperty("error");
+        expect(event).not.toHaveProperty("workerSubmitRequest");
+      }
+      await expect(
+        readRemoteAgentNativeDeliveryByIdempotencyKey({
+          db: harness.db,
+          idempotencyKey,
+        })
+      ).resolves.toMatchObject({
+        admissionAttemptCount:
+          REMOTE_AGENT_TASK_CONTINUATION_ADMISSION_MAX_ATTEMPTS,
+        failureCode: "remote_agent.admission_timeout",
+        status: "failed",
+      });
+      expect(env.__spaceStub.rpcPostSignal).toHaveBeenCalledWith(
+        expect.objectContaining({
+          text: expect.stringContaining(
+            languageTag === "en" ? "after 3 attempts" : "共 3 次"
+          ),
+        })
+      );
+      const failureText =
+        env.__spaceStub.rpcPostSignal.mock.calls.at(-1)?.[0]?.text;
+      expect(failureText).toContain(
+        languageTag === "en"
+          ? "There will be no automatic recovery"
+          : "不会再自动恢复"
+      );
+      expect(failureText).toContain(
+        languageTag === "en" ? "may repeat earlier actions" : "可能重复执行"
+      );
+      expect(failureText).toContain(
+        languageTag === "en"
+          ? "summarize the existing results"
+          : "基于已有结果重新汇总"
+      );
+      const failurePreview = harness.queryAll<{ preview: string }>({
+        sql: "SELECT preview FROM inbox_items",
+      })[0]?.preview;
+      expect(failurePreview).toBe(failureText);
+      expect(
+        harness.queryAll<{
+          attention: string;
+          importance: string;
+          preview: string;
+          recipient_user_id: string;
+          source_key: string;
+          source_target_json: string;
+        }>({
+          sql: `
+            SELECT
+              attention,
+              importance,
+              preview,
+              recipient_user_id,
+              source_key,
+              source_target_json
+            FROM inbox_items
+          `,
+        })
+      ).toEqual([
+        expect.objectContaining({
+          attention: "update",
+          importance: "normal",
+          preview: expect.stringContaining(
+            languageTag === "en" ? "3 attempts" : "共 3 次"
+          ),
+          recipient_user_id: "user_1",
+          source_key: `${delivery.deliveryId}:admission_retry_exhausted`,
+          source_target_json: JSON.stringify({
+            kind: "space",
+            signalId: "signal_reply_1",
+            spaceId: SPACE_ID,
+            threadRootSignalId: THREAD_CONTEXT.rootSignalId,
+          }),
+        }),
+      ]);
+      const oldItem = harness.queryAll<{ id: string }>({
+        sql: "SELECT id FROM inbox_items",
+      })[0];
+      if (!oldItem) {
+        throw new Error("Expected a continuation notice");
+      }
+      // A previously shipped projection linked the child result into this
+      // parent's Space and demanded action. Preserve the recipient's choices.
+      await harness.db
+        .prepare(`UPDATE inbox_items SET
+        attention = 'action_required', importance = 'urgent',
+        resolution_status = 'open',
+        source_target_json = ?, source_facts_json = ?,
+        read_at_ms = 900001, cleared_at_ms = 900002 WHERE id = ?`)
+        .bind(
+          JSON.stringify({
+            kind: "space",
+            signalId: "signal-task-result",
+            spaceId: SPACE_ID,
+            threadRootSignalId: THREAD_CONTEXT.rootSignalId,
+          }),
+          JSON.stringify({
+            recipientReasons: ["requester"],
+            requestCategory: "action",
+            version: 1,
+          }),
+          oldItem.id
+        )
+        .run();
+      const terminal = await readRemoteAgentNativeDeliveryByIdempotencyKey({
+        db: harness.db,
+        idempotencyKey,
+      });
+      if (!terminal) {
+        throw new Error("Expected the failed continuation");
+      }
+      const occurrence = harness.queryAll<{ occurred_at_ms: number }>({
+        sql: "SELECT occurred_at_ms FROM inbox_items",
+      })[0];
+      if (!occurrence) {
+        throw new Error("Expected the retained occurrence");
+      }
+      harness.run({
+        sql: `INSERT INTO inbox_email_deliveries
+        (id, inbox_item_id, state, attempt_count, next_attempt_at_ms, message_id, sent_at_ms, created_at_ms, updated_at_ms)
+        VALUES (?, ?, ?, ?, 2000, ?, ?, 2000, 2700)`,
+        params: [
+          "legacy-continuation-email",
+          oldItem.id,
+          emailState,
+          emailState === "sent" ? 1 : 0,
+          emailState === "sent" ? "provider-receipt" : null,
+          emailState === "sent" ? 2700 : null,
+        ],
+      });
+      // A different source occurrence is not a known legacy projection.
+      harness.run({
+        sql: "UPDATE inbox_items SET occurred_at_ms = ? WHERE id = ?",
+        params: [occurrence.occurred_at_ms + 1, oldItem.id],
+      });
+      await expect(
+        projectTaskContinuationAdmissionExhaustedInboxItem({
+          attempts: 3,
+          db: harness.db,
+          delivery: terminal,
+          occurredAtMs: occurrence.occurred_at_ms,
+          languageTag,
+        })
+      ).rejects.toThrow(
+        "Inbox source identity conflicts with an existing item"
+      );
+      expect(
+        harness.queryFirst({
+          sql: "SELECT state FROM inbox_email_deliveries WHERE id = 'legacy-continuation-email'",
+        })
+      ).toEqual({ state: emailState });
+      harness.run({
+        sql: "UPDATE inbox_items SET occurred_at_ms = ? WHERE id = ?",
+        params: [occurrence.occurred_at_ms, oldItem.id],
+      });
+      for (let replay = 0; replay < 2; replay += 1) {
+        await projectTaskContinuationAdmissionExhaustedInboxItem({
+          attempts: 3,
+          db: harness.db,
+          delivery: terminal,
+          occurredAtMs: occurrence.occurred_at_ms,
+          languageTag,
+        });
+      }
+      expect(
+        harness.queryAll({
+          sql: `SELECT id, attention, importance,
+        source_target_json, read_at_ms, cleared_at_ms, resolution_status FROM inbox_items`,
+        })
+      ).toEqual([
+        {
+          id: oldItem.id,
+          attention: "update",
+          importance: "normal",
+          source_target_json: JSON.stringify({
+            kind: "space",
+            signalId: "signal_reply_1",
+            spaceId: SPACE_ID,
+            threadRootSignalId: THREAD_CONTEXT.rootSignalId,
+          }),
+          read_at_ms: 900_001,
+          cleared_at_ms: 900_002,
+          resolution_status: "not_applicable",
+        },
+      ]);
+      expect(
+        harness.queryFirst({
+          sql: "SELECT state, suppressed_reason, message_id, sent_at_ms, attempt_count FROM inbox_email_deliveries WHERE id = 'legacy-continuation-email'",
+        })
+      ).toMatchObject(
+        emailState === "sent"
+          ? {
+              state: "sent",
+              message_id: "provider-receipt",
+              sent_at_ms: 2700,
+              attempt_count: 1,
+            }
+          : {
+              state: "suppressed",
+              suppressed_reason: "item_not_urgent",
+              message_id: null,
+              sent_at_ms: null,
+              attempt_count: 0,
+            }
+      );
+    } finally {
+      admissionLogs.mockRestore();
+      harness.close();
+    }
+  });
+
+  it("does not retry a task continuation accepted before the retry wake", async () => {
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentSubmitMigrations(harness);
+    const probes: RemoteAgentNativeDeliveryDeadlineProbeQueueMessage[] = [];
+    const workerSubmit = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("admission response was lost"));
+    const env = buildEnv(harness.db, {
+      deadlineProbeQueueSend: vi.fn((probe) => {
+        probes.push(probe);
+        return Promise.resolve(probe);
+      }),
+      remoteAgentWorker: { submitConversationTurn: workerSubmit },
+    });
+    const idempotencyKey = "agent-task-continuation:accepted-before-retry";
+
+    try {
+      await stageAmbiguousTaskContinuationAdmission({
+        db: harness.db,
+        env,
+        idempotencyKey,
+      });
+      const initialWatchdog = requireAdmissionProbe(probes, "watchdog", 1);
+      await processRemoteAgentNativeDeliveryDeadlineProbe({
+        db: harness.db,
+        env,
+        nowMs: initialWatchdog.deadlineAtMs,
+        probe: initialWatchdog,
+      });
+      const retry = requireAdmissionProbe(probes, "retry", 2);
+      await markRemoteAgentNativeDeliveryAck({
+        accepted: true,
+        db: harness.db,
+        idempotencyKey,
+        nowMs: retry.deadlineAtMs - 1,
+        submissionId: "submission-late-original-ack",
+        workerRequestId: "request-late-original-ack",
+      });
+
+      await expect(
+        processRemoteAgentNativeDeliveryDeadlineProbe({
+          db: harness.db,
+          env,
+          nowMs: retry.deadlineAtMs,
+          probe: retry,
+        })
+      ).resolves.toMatchObject({
+        reasonCode: "remote_agent.admission_watchdog_already_acknowledged",
+        status: "skipped",
+      });
+      expect(workerSubmit).toHaveBeenCalledOnce();
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("claims a duplicate task continuation retry only once", async () => {
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentSubmitMigrations(harness);
+    const probes: RemoteAgentNativeDeliveryDeadlineProbeQueueMessage[] = [];
+    const workerSubmit = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("admission response was lost"))
+      .mockResolvedValue({
+        accepted: true,
+        createdAt: 1300,
+        requestId: "request-single-retry",
+        status: "pending" as const,
+        submissionId: "submission-single-retry",
+      });
+    const env = buildEnv(harness.db, {
+      deadlineProbeQueueSend: vi.fn((probe) => {
+        probes.push(probe);
+        return Promise.resolve(probe);
+      }),
+      remoteAgentWorker: { submitConversationTurn: workerSubmit },
+    });
+    const idempotencyKey = "agent-task-continuation:duplicate-retry";
+
+    try {
+      await stageAmbiguousTaskContinuationAdmission({
+        db: harness.db,
+        env,
+        idempotencyKey,
+      });
+      const initialWatchdog = requireAdmissionProbe(probes, "watchdog", 1);
+      await processRemoteAgentNativeDeliveryDeadlineProbe({
+        db: harness.db,
+        env,
+        nowMs: initialWatchdog.deadlineAtMs,
+        probe: initialWatchdog,
+      });
+      const retry = requireAdmissionProbe(probes, "retry", 2);
+
+      const outcomes = await Promise.all([
+        processRemoteAgentNativeDeliveryDeadlineProbe({
+          db: harness.db,
+          env,
+          nowMs: retry.deadlineAtMs,
+          probe: retry,
+        }),
+        processRemoteAgentNativeDeliveryDeadlineProbe({
+          db: harness.db,
+          env,
+          nowMs: retry.deadlineAtMs,
+          probe: retry,
+        }),
+      ]);
+
+      expect(workerSubmit).toHaveBeenCalledTimes(2);
+      expect(outcomes).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            reasonCode:
+              "remote_agent.task_continuation.admission_retry_acknowledged",
+          }),
+          expect.objectContaining({
+            reasonCode:
+              "remote_agent.task_continuation.admission_retry_lost_race",
+          }),
+        ])
+      );
+    } finally {
+      harness.close();
+    }
+  });
+
   it("retries an ambiguous Center Agent watch admission without settling it", async () => {
     const harness = createSqliteD1Harness();
     applyRemoteAgentSubmitMigrations(harness);
@@ -3256,6 +5182,264 @@ describe("Remote Agent native delivery callback service", () => {
     }
   });
 
+  it.each([
+    "found",
+    "not_found",
+    "legacy",
+  ] as const)("forwards pre-ACK Stop before settling its visible outcome (fence %s)", async (fenceStatus) => {
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentSubmitMigrations(harness);
+    seedWaitingNativeDeliveryDispatch(harness);
+    const probes: RemoteAgentNativeDeliveryDeadlineProbeQueueMessage[] = [];
+    const workerSubmit = vi.fn((_request: RemoteAgentWorkerSubmitTurnRequest) =>
+      Promise.reject(new Error("ACK response lost"))
+    );
+    const cancelExecution = vi.fn(async () => ({
+      status: "not_found" as const,
+    }));
+    const readAdmissionStop = vi.fn(
+      async (request: RemoteAgentWorkerSubmitTurnRequest) =>
+        fenceStatus === "found"
+          ? {
+              v: 1 as const,
+              status: "found" as const,
+              stopIntent: {
+                v: 1 as const,
+                organizationId: request.organizationId,
+                spaceId: request.spaceId,
+                idempotencyKey: request.idempotencyKey,
+                requestedAtMs: 1200,
+                reason: "User stopped this Wake.",
+              },
+            }
+          : { v: 1 as const, status: "not_found" as const }
+    );
+    const env = buildEnv(harness.db, {
+      deadlineProbeQueueSend: vi.fn((probe) => {
+        probes.push(probe);
+        return Promise.resolve();
+      }),
+      remoteAgentWorker: {
+        submitConversationTurn: workerSubmit,
+        cancelExecution,
+        ...(fenceStatus === "legacy" ? {} : { readAdmissionStop }),
+      },
+    });
+    try {
+      await expect(
+        submitRemoteAgentNativeDelivery({
+          binding: createBinding(),
+          db: harness.db,
+          env,
+          executionAttemptId: "attempt_1",
+          memoryService: null,
+          message: createDispatchMessage(),
+          nowMs: 1000,
+        })
+      ).resolves.toEqual({ shouldAck: false, status: "submitted" });
+      const sentRequest = workerSubmit.mock.calls[0]?.[0] as
+        | RemoteAgentWorkerSubmitTurnRequest
+        | undefined;
+      if (!sentRequest) {
+        throw new Error("Expected an outward admission request");
+      }
+      env.__spaceStub.rpcReadWakeStopIntent.mockResolvedValue({
+        status: "requested",
+      });
+      const readFinalOutcome = vi.fn(async () => ({
+        outcome: "stopped",
+        signalId: "visible-stop",
+      }));
+      Object.assign(env.__spaceStub, {
+        rpcReadFinalReplyClaimOutcome: readFinalOutcome,
+      });
+      const probe = probes[0];
+      if (!probe) {
+        throw new Error("Expected an admission probe");
+      }
+      await processRemoteAgentNativeDeliveryDeadlineProbe({
+        db: harness.db,
+        env,
+        nowMs: probe.deadlineAtMs,
+        probe,
+      });
+      expect(cancelExecution).toHaveBeenCalledWith(
+        expect.objectContaining({
+          idempotencyKey: sentRequest.idempotencyKey,
+          organizationId: sentRequest.organizationId,
+          spaceId: sentRequest.spaceId,
+        })
+      );
+      if (fenceStatus !== "legacy") {
+        expect(readAdmissionStop).toHaveBeenCalledWith(sentRequest);
+      }
+      if (fenceStatus === "not_found") {
+        expect(readFinalOutcome).not.toHaveBeenCalled();
+      } else {
+        expect(cancelExecution.mock.invocationCallOrder[0]).toBeLessThan(
+          readFinalOutcome.mock.invocationCallOrder[0] ?? 0
+        );
+      }
+      await expect(
+        readRemoteAgentNativeDeliveryByIdempotencyKey({
+          db: harness.db,
+          idempotencyKey: sentRequest.idempotencyKey,
+        })
+      ).resolves.toMatchObject({
+        submissionId: null,
+        acceptedAtMs: null,
+        status: fenceStatus === "not_found" ? "submitted" : "failed",
+      });
+      expect(workerSubmit).toHaveBeenCalledTimes(1);
+    } finally {
+      harness.close();
+    }
+  });
+
+  it.each([
+    "found",
+    "not_found",
+    "legacy",
+    "running",
+    "aborted",
+    "wrong_identity",
+    "ack_race",
+  ] as const)("forwards a parent Stop while its continuation ACK is missing (%s)", async (state) => {
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentSubmitMigrations(harness);
+    const workerSubmit = vi.fn((_request: RemoteAgentWorkerSubmitTurnRequest) =>
+      Promise.reject(new Error("ACK response lost"))
+    );
+    const cancelExecution = vi.fn(async (input) => {
+      if (state === "ack_race") {
+        await markRemoteAgentNativeDeliveryAck({
+          accepted: true,
+          db: harness.db,
+          idempotencyKey: input.idempotencyKey,
+          nowMs: 1300,
+          submissionId: input.submissionId,
+        });
+      }
+      if (
+        state !== "running" &&
+        state !== "aborted" &&
+        state !== "wrong_identity"
+      ) {
+        return Promise.resolve({ status: "not_found" as const });
+      }
+      const { conversationId: _conversationId, reason, ...identity } = input;
+      const aborted = state !== "running";
+      return Promise.resolve({
+        status: aborted
+          ? ("already_cancelled" as const)
+          : ("cancellation_requested" as const),
+        execution: {
+          ...identity,
+          organizationId:
+            state === "wrong_identity"
+              ? "different-org"
+              : identity.organizationId,
+          acceptedAtMs: 1200,
+          cancellationReason: reason ?? null,
+          completedAtMs: aborted ? 1300 : null,
+          lastProgressAtMs: 1300,
+          lastProgressKind: aborted
+            ? ("aborted" as const)
+            : ("cancellation_requested" as const),
+          status: aborted
+            ? ("aborted" as const)
+            : ("cancellation_requested" as const),
+        },
+      });
+    });
+    const readAdmissionStop = vi.fn(
+      async (request: RemoteAgentWorkerSubmitTurnRequest) =>
+        state === "found" || state === "ack_race"
+          ? {
+              v: 1 as const,
+              status: "found" as const,
+              stopIntent: {
+                v: 1 as const,
+                organizationId: request.organizationId,
+                spaceId: request.spaceId,
+                idempotencyKey: request.idempotencyKey,
+                requestedAtMs: 1250,
+                reason: "Parent task was stopped.",
+              },
+            }
+          : { v: 1 as const, status: "not_found" as const }
+    );
+    const env = buildEnv(harness.db, {
+      remoteAgentWorker: {
+        submitConversationTurn: workerSubmit,
+        cancelExecution,
+        ...(state === "legacy" ? {} : { readAdmissionStop }),
+      },
+    });
+    try {
+      const delivery = await stageAmbiguousTaskContinuationAdmission({
+        db: harness.db,
+        env,
+        idempotencyKey: `parent-stop:${state}`,
+      });
+      const request = workerSubmit.mock.calls[0]?.[0];
+      if (!request) {
+        throw new Error("Expected the original continuation request");
+      }
+      const stop = requestRemoteAgentNativeDeliveryStop({
+        db: harness.db,
+        delivery,
+        env,
+        nowMs: 1400,
+      });
+      if (state === "wrong_identity") {
+        await expect(stop).rejects.toThrow(
+          "remote_agent.parent_stop_execution_identity_mismatch"
+        );
+      } else {
+        await expect(stop).resolves.toBe(
+          state === "found" || state === "aborted"
+            ? "stopped"
+            : "stop_requested"
+        );
+      }
+      expect(cancelExecution).toHaveBeenCalledWith(
+        expect.objectContaining({
+          organizationId: request.organizationId,
+          spaceId: request.spaceId,
+          idempotencyKey: request.idempotencyKey,
+          submissionId: request.dispatchId,
+        })
+      );
+      if (state === "found" || state === "not_found" || state === "ack_race") {
+        expect(readAdmissionStop).toHaveBeenCalledWith(request);
+      }
+      let expectedStatus = "submitted";
+      if (state === "found" || state === "aborted") {
+        expectedStatus = "failed";
+      } else if (state === "ack_race") {
+        expectedStatus = "accepted";
+      }
+      await expect(
+        readRemoteAgentNativeDeliveryByIdempotencyKey({
+          db: harness.db,
+          idempotencyKey: request.idempotencyKey,
+        })
+      ).resolves.toMatchObject({
+        status: expectedStatus,
+        submissionId: state === "ack_race" ? request.dispatchId : null,
+        acceptedAtMs: state === "ack_race" ? 1300 : null,
+        failureCode:
+          state === "found" || state === "aborted"
+            ? "runtime_coordinator.pre_agent_stop_requested"
+            : null,
+      });
+      expect(workerSubmit).toHaveBeenCalledTimes(1);
+    } finally {
+      harness.close();
+    }
+  });
+
   it("retries an ambiguous Space worker submit without recounting it after UTC midnight", async () => {
     const harness = createSqliteD1Harness();
     applyRemoteAgentSubmitMigrations(harness);
@@ -3348,7 +5532,7 @@ describe("Remote Agent native delivery callback service", () => {
             WHERE organization_id = ?
           `,
         })
-      ).toEqual([{ admitted_count: 1, day_utc: "2026-07-12" }]);
+      ).toEqual([]);
       expect(env.__spaceStub.rpcPostSignal).not.toHaveBeenCalled();
     } finally {
       harness.close();
@@ -3519,21 +5703,15 @@ describe("Remote Agent native delivery callback service", () => {
     }
   });
 
-  it("rejects the 201st daily Space admission with a visible UTC reset message", async () => {
+  it("rejects a Space admission when its AI allowance is exhausted with a visible UTC reset message", async () => {
     const harness = createSqliteD1Harness();
     applyRemoteAgentSubmitMigrations(harness);
     const nowMs = Date.parse("2026-07-12T12:00:00.000Z");
     harness.run({
-      params: ["org_1", "2026-07-12", 200, "seeded_admission", nowMs, nowMs],
+      params: ["org_1", 0, nowMs],
       sql: `
-        INSERT INTO openMeldRemoteAgent_daily_admissions (
-          organization_id,
-          day_utc,
-          admitted_count,
-          last_admission_idempotency_key,
-          created_at_ms,
-          updated_at_ms
-        ) VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO organization_ai_usage_policies
+          (organization_id, daily_limit_nano_usd, updated_at_ms) VALUES (?, ?, ?)
       `,
     });
     const workerSubmit = vi.fn();
@@ -3609,7 +5787,7 @@ describe("Remote Agent native delivery callback service", () => {
             ORDER BY day_utc
           `,
         })
-      ).toEqual([{ admitted_count: 200, day_utc: "2026-07-12" }]);
+      ).toEqual([]);
     } finally {
       harness.close();
     }
@@ -3684,6 +5862,14 @@ describe("Remote Agent native delivery callback service", () => {
         status: "failed",
       });
       expect(env.__spaceStub.rpcPostSignal).toHaveBeenCalledOnce();
+      const failureNotice = env.__spaceStub.rpcPostSignal.mock.calls[0]?.[0];
+      expect(failureNotice?.text).toContain(
+        "OpenMeld could not confirm whether"
+      );
+      expect(failureNotice?.text).toContain(
+        "check its status before starting more work"
+      );
+      expect(failureNotice?.text).not.toContain("Please try again");
       expect(workerCancel).toHaveBeenCalledWith({
         conversationId: SPACE_ID,
         idempotencyKey: "idem_1",
@@ -8244,9 +10430,19 @@ describe("Remote Agent native delivery callback service", () => {
     }
   });
 
-  it("publishes terminal turn failures as Remote Agent native delivery outcomes", async () => {
+  it.each([
+    false,
+    true,
+  ])("publishes terminal turn failures with retained child results=%s exactly once", async (retainedChild) => {
     const harness = createSqliteD1Harness();
     applyRemoteAgentSubmitMigrations(harness);
+    const resultReader = vi
+      .spyOn(summaryRecoveryService, "readInterruptedTaskResults")
+      .mockResolvedValue(
+        retainedChild
+          ? [{ spaceId: SPACE_ID, signalId: "signal-child-result" }]
+          : []
+      );
     try {
       await createAcceptedDelivery({
         db: harness.db,
@@ -8255,7 +10451,11 @@ describe("Remote Agent native delivery callback service", () => {
         spaceId: SPACE_ID,
         threadContext: THREAD_CONTEXT,
       });
-      const env = buildEnv(harness.db, { postSignalId: "signal_failure_1" });
+      const workerSubmit = vi.fn();
+      const env = buildEnv(harness.db, {
+        postSignalId: "signal_failure_1",
+        remoteAgentWorker: { submitConversationTurn: workerSubmit },
+      });
 
       await expect(
         completeRemoteAgentNativeDelivery(env, {
@@ -8289,7 +10489,9 @@ describe("Remote Agent native delivery callback service", () => {
               "Cloudflare AI binding request failed with 502 Bad Gateway.",
             purpose: REMOTE_AGENT_FAILURE_PURPOSE,
           }),
-          text: "Codex couldn't finish your request. Open Diagnostics in OpenMeld for details. If you can't open OpenMeld, ask the person who set it up for your team.",
+          text: expect.stringContaining(
+            "Earlier actions may have taken effect."
+          ),
           threadContext: THREAD_CONTEXT,
         })
       );
@@ -8299,8 +10501,9 @@ describe("Remote Agent native delivery callback service", () => {
         terminal: {
           kind: "failed",
           reasonCode: "remote_agent.turn_not_completed",
-          noticeText:
-            "Codex couldn't finish your request. Open Diagnostics in OpenMeld for details. If you can't open OpenMeld, ask the person who set it up for your team.",
+          noticeText: expect.stringContaining(
+            "Earlier actions may have taken effect."
+          ),
         },
       });
       await expect(
@@ -8317,7 +10520,36 @@ describe("Remote Agent native delivery callback service", () => {
         publishedSignalId: "signal_failure_1",
         status: "failed",
       });
+      const publishedText =
+        env.__spaceStub.rpcPostSignal.mock.calls[0]?.[0]?.text;
+      expect(publishedText).not.toMatch(UNSUPPORTED_INTERRUPTION_DETAIL);
+      if (retainedChild) {
+        expect(publishedText).toContain("[View child result 1](");
+        expect(publishedText).toContain("signal-child-result");
+      } else {
+        expect(publishedText).not.toContain("signal-child-result");
+      }
+      expect(
+        env.__spaceStub.rpcCloseAgentStream.mock.calls[0]?.[0]?.terminal
+          .noticeText
+      ).toBe(publishedText);
+      await completeRemoteAgentNativeDelivery(env, {
+        submissionId: "sub_failed",
+        idempotencyKey: "idem_1",
+        organizationId: "org_1",
+        spaceId: SPACE_ID,
+        agentProfileId: AGENT_PROFILE_ID,
+        bindingId: "binding_1",
+        triggerMessageId: "signal_1",
+        dispatchId: "dispatch_1",
+        status: "failed",
+        failureCode: "remote_agent.turn_not_completed",
+        failureMessage: "Please try again.",
+      });
+      expect(env.__spaceStub.rpcPostSignal).toHaveBeenCalledTimes(1);
+      expect(workerSubmit).not.toHaveBeenCalled();
     } finally {
+      resultReader.mockRestore();
       harness.close();
     }
   });
@@ -8703,6 +10935,336 @@ describe("Remote Agent native delivery callback service", () => {
     }
   });
 
+  it("backs off unavailable reconciliation, preserves uncertainty, and clears it only on an exact native response", async () => {
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentSubmitMigrations(harness);
+    try {
+      await createAcceptedDelivery({
+        db: harness.db,
+        idempotencyKey: "idem_1",
+        submissionId: "sub_uncertain",
+        spaceId: SPACE_ID,
+      });
+      const probe = createDeadlineProbe({
+        idempotencyKey: "idem_1",
+        submissionId: "sub_uncertain",
+      });
+      const reconcileExecution = vi.fn(() =>
+        Promise.reject(new Error("temporary transport failure"))
+      );
+      const dispatchQueueSend = vi.fn(async () => undefined);
+      const env = buildEnv(harness.db, {
+        remoteAgentWorker: { reconcileExecution },
+        dispatchQueueSend,
+      });
+      let nowMs = probe.deadlineAtMs;
+      for (const delaySeconds of [300, 600, 900]) {
+        await processRemoteAgentNativeDeliveryDeadlineProbe({
+          db: harness.db,
+          env,
+          nowMs,
+          probe,
+        });
+        expect(dispatchQueueSend).toHaveBeenLastCalledWith(probe, {
+          delaySeconds,
+        });
+        await expect(
+          readRemoteAgentNativeDeliveryBySubmissionId({
+            db: harness.db,
+            submissionId: "sub_uncertain",
+          })
+        ).resolves.toMatchObject({
+          status: "accepted",
+          completedAtMs: null,
+          failureCode: null,
+          executionReconciliation: {
+            failureKind: "transport",
+            retryState: "retrying",
+          },
+        });
+        nowMs += delaySeconds * 1000;
+      }
+      const progress =
+        await listActiveRemoteAgentNativeDeliveryWakeProgressEvidenceBySpace({
+          db: harness.db,
+          spaceId: SPACE_ID,
+          nowMs,
+        });
+      expect(progress).toEqual([
+        expect.objectContaining({
+          phase: "running",
+          failureReasonCode: "remote_agent.execution_confirmation_pending",
+        }),
+      ]);
+      expect(env.__spaceStub.rpcPostSignal).not.toHaveBeenCalled();
+      const foundEnv = buildEnv(harness.db, {
+        dispatchQueueSend,
+        remoteAgentWorker: {
+          reconcileExecution: vi.fn(async () => ({
+            status: "found" as const,
+            execution: {
+              v: 1 as const,
+              acceptedAtMs: 1000,
+              cancellationReason: null,
+              completedAtMs: null,
+              idempotencyKey: "idem_1",
+              organizationId: "org_1",
+              spaceId: SPACE_ID,
+              submissionId: "sub_uncertain",
+              status: "running" as const,
+              lastProgressAtMs: nowMs,
+              lastProgressKind: "tool_started" as const,
+            },
+          })),
+        },
+      });
+      await processRemoteAgentNativeDeliveryDeadlineProbe({
+        db: harness.db,
+        env: foundEnv,
+        nowMs,
+        probe,
+      });
+      await expect(
+        readRemoteAgentNativeDeliveryBySubmissionId({
+          db: harness.db,
+          submissionId: "sub_uncertain",
+        })
+      ).resolves.toMatchObject({
+        status: "accepted",
+        executionReconciliation: null,
+      });
+      await expect(
+        listActiveRemoteAgentNativeDeliveryWakeProgressEvidenceBySpace({
+          db: harness.db,
+          spaceId: SPACE_ID,
+          nowMs,
+        })
+      ).resolves.toEqual([
+        expect.objectContaining({ failureReasonCode: null }),
+      ]);
+    } finally {
+      harness.close();
+    }
+  });
+
+  it.each([
+    "invalid_response",
+    "unsupported",
+  ] as const)("pauses %s without failing execution and preserves the native Stop exit", async (kind) => {
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentSubmitMigrations(harness);
+    try {
+      await createAcceptedDelivery({
+        db: harness.db,
+        idempotencyKey: "idem_1",
+        submissionId: "sub_paused",
+        spaceId: SPACE_ID,
+      });
+      const probe = createDeadlineProbe({
+        idempotencyKey: "idem_1",
+        submissionId: "sub_paused",
+      });
+      const reconcileExecution = vi.fn(async () => ({
+        status: "found",
+        execution: {},
+      }));
+      const dispatchQueueSend = vi.fn(async () => undefined);
+      const env = buildEnv(harness.db, {
+        dispatchQueueSend,
+        // Intentionally violate the RPC wire contract to exercise its parser.
+        remoteAgentWorker: (kind === "unsupported"
+          ? {}
+          : { reconcileExecution }) as unknown as NonNullable<
+          CoreBindings["OPENMELD_REMOTE_AGENT_WORKER"]
+        >,
+      });
+      await expect(
+        processRemoteAgentNativeDeliveryDeadlineProbe({
+          db: harness.db,
+          env,
+          nowMs: probe.deadlineAtMs,
+          probe,
+        })
+      ).resolves.toEqual({
+        reasonCode: "remote_agent.execution_reconciliation_paused",
+        status: "skipped",
+      });
+      const delivery = await readRemoteAgentNativeDeliveryBySubmissionId({
+        db: harness.db,
+        submissionId: "sub_paused",
+      });
+      if (!delivery) {
+        throw new Error("Missing accepted delivery fixture.");
+      }
+      expect(delivery).toMatchObject({
+        status: "accepted",
+        completedAtMs: null,
+        failureCode: null,
+        submissionId: "sub_paused",
+        executionReconciliation: { failureKind: kind, retryState: "paused" },
+      });
+      await expect(
+        retryMissingRemoteAgentAcceptedDeliveryProbes({
+          db: harness.db,
+          env,
+          nowMs: 10_000_000,
+        })
+      ).resolves.toMatchObject({ enqueued: 0, scanned: 0 });
+      await processRemoteAgentNativeDeliveryDeadlineProbe({
+        db: harness.db,
+        env,
+        nowMs: 10_000_000,
+        probe,
+      });
+      expect(reconcileExecution).toHaveBeenCalledTimes(
+        kind === "unsupported" ? 0 : 1
+      );
+      expect(dispatchQueueSend).not.toHaveBeenCalled();
+      await expect(
+        listActiveRemoteAgentNativeDeliveryWakeProgressEvidenceBySpace({
+          db: harness.db,
+          spaceId: SPACE_ID,
+          nowMs: 10_000_000,
+        })
+      ).resolves.toEqual([
+        expect.objectContaining({
+          phase: "running",
+          failureReasonCode: "remote_agent.execution_confirmation_pending",
+        }),
+      ]);
+      const stoppedEnv = buildEnv(harness.db, {
+        remoteAgentWorker: {
+          cancelExecution: vi.fn(async () => ({
+            status: "already_cancelled" as const,
+            execution: {
+              v: 1 as const,
+              acceptedAtMs: 1000,
+              cancellationReason: "User requested Stop",
+              completedAtMs: 10_000_000,
+              idempotencyKey: "idem_1",
+              organizationId: "org_1",
+              spaceId: SPACE_ID,
+              submissionId: "sub_paused",
+              status: "aborted" as const,
+              lastProgressAtMs: 10_000_000,
+              lastProgressKind: "aborted" as const,
+            },
+          })),
+        },
+      });
+      await expect(
+        requestRemoteAgentNativeDeliveryStop({
+          db: harness.db,
+          env: stoppedEnv,
+          delivery,
+          nowMs: 10_000_000,
+        })
+      ).resolves.toBe("stopped");
+      await expect(
+        listActiveRemoteAgentNativeDeliveryWakeProgressEvidenceBySpace({
+          db: harness.db,
+          spaceId: SPACE_ID,
+          nowMs: 10_000_000,
+        })
+      ).resolves.toEqual([]);
+      expect(env.__spaceStub.rpcPostSignal).not.toHaveBeenCalled();
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("keeps native not_found unknown and lets newer accepted progress supersede an unavailable query", async () => {
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentSubmitMigrations(harness);
+    try {
+      await createAcceptedDelivery({
+        db: harness.db,
+        idempotencyKey: "idem_1",
+        submissionId: "sub_missing",
+        spaceId: SPACE_ID,
+      });
+      const probe = createDeadlineProbe({
+        idempotencyKey: "idem_1",
+        submissionId: "sub_missing",
+      });
+      const dispatchQueueSend = vi.fn(async () => undefined);
+      const env = buildEnv(harness.db, {
+        dispatchQueueSend,
+        remoteAgentWorker: {
+          reconcileExecution: vi.fn(async () => ({
+            status: "not_found" as const,
+          })),
+        },
+      });
+      await processRemoteAgentNativeDeliveryDeadlineProbe({
+        db: harness.db,
+        env,
+        nowMs: probe.deadlineAtMs,
+        probe,
+      });
+      const nowMs = probe.deadlineAtMs + 240_000;
+      await expect(
+        readRemoteAgentNativeDeliveryBySubmissionId({
+          db: harness.db,
+          submissionId: "sub_missing",
+        })
+      ).resolves.toMatchObject({
+        status: "accepted",
+        submissionId: "sub_missing",
+        completedAtMs: null,
+        failureCode: null,
+        executionReconciliation: {
+          failureKind: "not_found",
+          retryState: "retrying",
+        },
+      });
+      await expect(
+        listActiveRemoteAgentNativeDeliveryWakeProgressEvidenceBySpace({
+          db: harness.db,
+          spaceId: SPACE_ID,
+          nowMs,
+        })
+      ).resolves.toEqual([
+        expect.objectContaining({
+          failureReasonCode: "remote_agent.execution_confirmation_pending",
+        }),
+      ]);
+      await recordRemoteAgentNativeDeliveryExecutionProgress({
+        db: harness.db,
+        idempotencyKey: "idem_1",
+        submissionId: "sub_missing",
+        nowMs,
+        sequence: 1,
+      });
+      await expect(
+        listActiveRemoteAgentNativeDeliveryWakeProgressEvidenceBySpace({
+          db: harness.db,
+          spaceId: SPACE_ID,
+          nowMs,
+        })
+      ).resolves.toEqual([
+        expect.objectContaining({ phase: "running", failureReasonCode: null }),
+      ]);
+      // One fresh progress event must not hide unavailable confirmation forever.
+      await expect(
+        listActiveRemoteAgentNativeDeliveryWakeProgressEvidenceBySpace({
+          db: harness.db,
+          spaceId: SPACE_ID,
+          nowMs: nowMs + 240_000,
+        })
+      ).resolves.toEqual([
+        expect.objectContaining({
+          phase: "running",
+          failureReasonCode: "remote_agent.execution_confirmation_pending",
+        }),
+      ]);
+      expect(env.__spaceStub.rpcPostSignal).not.toHaveBeenCalled();
+      expect(dispatchQueueSend).toHaveBeenCalledOnce();
+    } finally {
+      harness.close();
+    }
+  });
+
   it("reconciles accepted native deliveries without imposing a total deadline", async () => {
     const harness = createSqliteD1Harness();
     applyRemoteAgentSubmitMigrations(harness);
@@ -8801,18 +11363,22 @@ describe("Remote Agent native delivery callback service", () => {
           probe,
         })
       ).resolves.toEqual({
-        reasonCode: "remote_agent.execution_reconciliation_unavailable",
+        reasonCode: "remote_agent.execution_reconciliation_paused",
         status: "skipped",
       });
-      expect(dispatchQueueSend).toHaveBeenLastCalledWith(probe, {
-        delaySeconds: 300,
-      });
+      expect(dispatchQueueSend).toHaveBeenCalledOnce();
       await expect(
         readRemoteAgentNativeDeliveryBySubmissionId({
           db: harness.db,
           submissionId: "sub_expired",
         })
-      ).resolves.toMatchObject({ acceptedProbeNextDueAtMs: 860_000 });
+      ).resolves.toMatchObject({
+        executionReconciliation: {
+          failureKind: "unsupported",
+          retryState: "paused",
+        },
+        status: "accepted",
+      });
       expect(mixedVersionEnv.__spaceStub.rpcPostSignal).not.toHaveBeenCalled();
     } finally {
       harness.close();
@@ -9110,6 +11676,11 @@ describe("Remote Agent native delivery callback service", () => {
   ])("retries failed publication and records the %s outcome", async (failureCode) => {
     const harness = createSqliteD1Harness();
     applyRemoteAgentSubmitMigrations(harness);
+    const resultReader = vi
+      .spyOn(summaryRecoveryService, "readInterruptedTaskResults")
+      .mockResolvedValue([
+        { spaceId: SPACE_ID, signalId: "signal-child-result" },
+      ]);
     try {
       seedWaitingNativeDeliveryDispatch(harness);
       await createAcceptedDelivery({
@@ -9147,6 +11718,13 @@ describe("Remote Agent native delivery callback service", () => {
         publishedSignalId: null,
         status: "accepted",
       });
+      const retained = await readRemoteAgentNativeDeliveryBySubmissionId({
+        db: harness.db,
+        submissionId: "sub_failed_retry",
+      });
+      // The visible notice was already claimed. Re-publication must not
+      // regenerate it as result availability changes, or run the model again.
+      resultReader.mockResolvedValue([]);
 
       const recoveredEnv = buildEnv(harness.db, {
         postSignalId: "signal_failure_retry",
@@ -9160,6 +11738,14 @@ describe("Remote Agent native delivery callback service", () => {
         status: "accepted",
         publishedSignalId: "signal_failure_retry",
       });
+      if (failureCode === "remote_agent.turn_not_completed") {
+        expect(recoveredEnv.__spaceStub.rpcPostSignal).toHaveBeenCalledWith(
+          expect.objectContaining({
+            text: retained?.finalPublicationPayload?.text,
+          })
+        );
+        expect(resultReader).toHaveBeenCalledTimes(1);
+      }
       if (
         failureCode === "remote_agent.empty_assistant_response" ||
         failureCode === "remote_agent.turn.output_limit_exceeded"
@@ -9201,6 +11787,7 @@ describe("Remote Agent native delivery callback service", () => {
         dispatchStatus: "failed_terminal",
       });
     } finally {
+      resultReader.mockRestore();
       harness.close();
     }
   });
@@ -9804,6 +12391,7 @@ function applyRemoteAgentLedgerMigration(
   input: Parameters<typeof applyMigrationForTable>[0]
 ) {
   ensureTaskIdentityTables(input);
+  applyMigrationForTable(input, "organization_working_language_preferences");
   applyDrizzleMigrationsForTables(input, [
     "center_agent_tasks",
     "center_agent_task_attempts",
@@ -9816,6 +12404,8 @@ function applyRemoteAgentLedgerMigration(
     "openMeldRemoteAgent_work_loop_attempts",
   ]);
   applyMigrationForTable(input, "openMeldRemoteAgent_daily_admissions");
+  applyMigrationForTable(input, "ai_usage_records");
+  applyMigrationForTable(input, "organization_ai_usage_policies");
   applyMigrationForTable(input, "openMeldRemoteAgent_conversation_generations");
   applyMigrationForTable(input, "slack_workspace_tokens");
   applyMigrationForTable(input, "openMeldDaemon_dispatch_ledger");
@@ -10393,7 +12983,6 @@ type BuildEnvOptions = {
   postSignalFailuresBeforeSuccess?: number;
   postSignalId?: string;
   remoteAgentBlockedOrganizationIds?: string;
-  remoteAgentDailyAdmissionLimit?: string;
   remoteAgentRuntimeEnabled?: string;
   remoteAgentWorker?: CoreBindings["OPENMELD_REMOTE_AGENT_WORKER"];
   slackBotToken?: string;
@@ -10577,8 +13166,6 @@ function buildEnv(
     SLACK_OPENMELD_BOT_TOKEN: options.slackBotToken,
     OPENMELD_REMOTE_AGENT_BLOCKED_ORGANIZATION_IDS:
       options.remoteAgentBlockedOrganizationIds ?? "",
-    OPENMELD_REMOTE_AGENT_DAILY_ADMISSION_LIMIT:
-      options.remoteAgentDailyAdmissionLimit,
     OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED:
       options.remoteAgentRuntimeEnabled ?? "true",
     ...(options.webAppUrl ? { WEB_APP_URL: options.webAppUrl } : {}),
@@ -10926,6 +13513,142 @@ function createDeadlineProbe(input: {
     enqueuedAtMs: 1000,
     deadlineAtMs: 1000 + REMOTE_AGENT_ADMISSION_WATCHDOG_DELAY_SECONDS * 1000,
   };
+}
+
+function requireAdmissionProbe(
+  probes: RemoteAgentNativeDeliveryDeadlineProbeQueueMessage[],
+  kind: "retry" | "watchdog",
+  attempt: number
+): RemoteAgentNativeDeliveryDeadlineProbeQueueMessage {
+  const admissionProbes = probes.filter((candidate) =>
+    candidate.submissionId.startsWith("admission_watchdog:")
+  );
+  const index = kind === "watchdog" ? (attempt - 1) * 2 : (attempt - 2) * 2 + 1;
+  const probe = admissionProbes[index];
+  if (!probe) {
+    throw new Error(`expected admission ${kind} probe for attempt ${attempt}`);
+  }
+  return probe;
+}
+
+async function stageAmbiguousTaskContinuationAdmission(input: {
+  db: D1Database;
+  env: CoreBindings;
+  idempotencyKey: string;
+  replyLanguageTag?: string;
+  subscriptionId?: string;
+}) {
+  await createAcceptedDelivery({
+    db: input.db,
+    idempotencyKey: `parent:${input.idempotencyKey}`,
+    modelRoute: TEST_CENTER_AGENT_MODEL_ROUTE,
+    onBehalfOfProfileId: HUMAN_PROFILE_ID,
+    onBehalfOfUserId: "user_1",
+    spaceId: SPACE_ID,
+    submissionId: `parent-submission:${input.idempotencyKey}`,
+    threadContext: THREAD_CONTEXT,
+  });
+  const observerDelivery = await readRemoteAgentNativeDeliveryBySubmissionId({
+    db: input.db,
+    submissionId: `parent-submission:${input.idempotencyKey}`,
+  });
+  if (!observerDelivery) {
+    throw new Error("expected task continuation parent fixture");
+  }
+  const subscriptionId =
+    input.subscriptionId ?? `subscription:${input.idempotencyKey}`;
+  const watchedTask = {
+    deliveryId: `child:${input.idempotencyKey}`,
+    kind: "native_delivery" as const,
+    v: 1 as const,
+  };
+  if (input.replyLanguageTag) {
+    await registerAgentTaskCompletionSubscription({
+      completionCondition: "terminal",
+      continuation: {
+        kind: "resume_task_watch",
+        watchId: "watch-language",
+        instruction: "Continue the request.",
+        replyLanguageTag: input.replyLanguageTag,
+      },
+      db: input.db,
+      idempotencyKey: `register:${subscriptionId}`,
+      nowMs: 1000,
+      observerTask: {
+        kind: "native_delivery",
+        deliveryId: observerDelivery.deliveryId,
+        v: 1,
+      },
+      organizationId: "org_1",
+      subscriptionId,
+      watchedTask,
+    });
+    await recordAgentTaskTerminalOutcome({
+      db: input.db,
+      nowMs: 1050,
+      task: watchedTask,
+      outcome: {
+        errorCode: null,
+        eventId: "terminal-task-result",
+        occurredAtMs: 1050,
+        publishedSignalId: "signal-task-result",
+        status: "succeeded",
+      },
+    });
+    await claimReadyAgentTaskCompletionSubscription({
+      db: input.db,
+      claimId: "language-claim",
+      claimLeaseMs: 30_000,
+      nowMs: 1060,
+      subscriptionId,
+    });
+  }
+  let submissionError: unknown;
+  try {
+    await submitRemoteAgentTaskContinuationDelivery({
+      db: input.db,
+      env: input.env,
+      idempotencyKey: input.idempotencyKey,
+      instruction: "Continue after the exact task.",
+      replyLanguageTag: input.replyLanguageTag,
+      isAuthorized: async () => true,
+      nowMs: 1100,
+      observerDelivery,
+      outcome: {
+        errorCode: null,
+        eventId: "terminal-task-result",
+        occurredAtMs: 1050,
+        publishedSignalId: "signal-task-result",
+        status: "succeeded",
+      },
+      settlementNowMs: () => 1200,
+      subscriptionId,
+      watchedTask,
+      watchId: `watch:${input.idempotencyKey}`,
+    });
+  } catch (error) {
+    submissionError = error;
+  }
+  if (
+    !(
+      submissionError instanceof Error &&
+      submissionError.message.includes(
+        "remote_agent.task_continuation.submit_outcome_unknown"
+      )
+    )
+  ) {
+    throw new Error("expected an ambiguous task continuation admission", {
+      cause: submissionError,
+    });
+  }
+  const delivery = await readRemoteAgentNativeDeliveryByIdempotencyKey({
+    db: input.db,
+    idempotencyKey: input.idempotencyKey,
+  });
+  if (!delivery) {
+    throw new Error("expected staged task continuation delivery");
+  }
+  return delivery;
 }
 
 function createFailedCallbackBody(input: {

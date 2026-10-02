@@ -18,6 +18,38 @@ afterEach(() => {
 });
 
 describe("SpaceMessageProgressStatus", () => {
+	it("replaces stale work and preview with awaiting confirmation while keeping Stop", () => {
+		const item = createStreamingToolActivityItem();
+		const progress = createStartingItem().activeWakeProgress;
+		if (!progress) {
+			throw new Error("Missing active Wake fixture.");
+		}
+		item.activeWakeProgress = {
+			...progress,
+			failureReasonCode: "remote_agent.execution_confirmation_pending",
+			previewText: "Earlier partial output",
+			startedAtMs: 1,
+		};
+		const view = render(
+			<SpaceMessageProgressStatus
+				control={<button type="button">Stop</button>}
+				entries={[]}
+				item={item}
+			/>
+		);
+		expect(
+			screen.getByRole("status", {
+				name: "Runner · Result awaiting confirmation",
+			})
+		).toBeTruthy();
+		expect(screen.getByRole("button", { name: "Stop" })).toBeTruthy();
+		expect(screen.queryByText(AGENT_WORKING_TEXT_PATTERN)).toBeNull();
+		expect(screen.queryByText("Earlier partial output")).toBeNull();
+		expect(
+			view.container.querySelector('[data-slot="agent-thinking-elapsed"]')
+		).toBeNull();
+		expect(view.container.querySelector(".text-destructive")).toBeNull();
+	});
 	it("shows the authoritative optimistic phase without inventing elapsed time", () => {
 		const view = render(
 			<SpaceMessageProgressStatus entries={[]} item={createStartingItem()} />

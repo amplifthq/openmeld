@@ -7,6 +7,64 @@ import { observe, useModel } from "@flue/runtime";
 import { sqlite, start } from "@flue/runtime/node";
 import { expect, it, vi } from "vitest";
 
+it("keeps later work blocked until its earlier same-conversation submission is natively settled", async () => {
+  const database = sqlite();
+  await database.migrate?.();
+  const { submissionStore: store } = await database.connect();
+  try {
+    for (const submissionId of [
+      "unknown-head",
+      "later-work",
+      "other-conversation",
+    ]) {
+      await store.admitDispatch({
+        submissionId,
+        agent: "Unready",
+        id:
+          submissionId === "other-conversation"
+            ? "independent"
+            : "same-conversation",
+        acceptedAt: new Date().toISOString(),
+        message: { kind: "user", body: "Read the authorized input." },
+      });
+      await store.markSubmissionCanonicalReady(submissionId);
+    }
+    expect(
+      (await store.listRunnableSubmissions()).map((row) => row.submissionId)
+    ).toEqual(["unknown-head", "other-conversation"]);
+    await expect(
+      store.claimSubmission({
+        submissionId: "later-work",
+        attemptId: "later-attempt",
+        ownerId: "native-owner",
+        leaseExpiresAt: Date.now() + 60_000,
+      })
+    ).resolves.toBeNull();
+    // An exact native terminal outcome releases the queue. Core's unavailable
+    // reconciliation must not manufacture this transition from elapsed time.
+    await expect(
+      store.settleQueuedSubmission(
+        "unknown-head",
+        "aborted",
+        new Error("Native owner confirmed Stop.")
+      )
+    ).resolves.toBe(true);
+    expect(
+      (await store.listRunnableSubmissions()).map((row) => row.submissionId)
+    ).toEqual(["later-work", "other-conversation"]);
+    await expect(
+      store.claimSubmission({
+        submissionId: "later-work",
+        attemptId: "later-attempt",
+        ownerId: "native-owner",
+        leaseExpiresAt: Date.now() + 60_000,
+      })
+    ).resolves.toMatchObject({ status: "running", submissionId: "later-work" });
+  } finally {
+    await database.close?.();
+  }
+});
+
 it("bounds failed queued preparation without a wall-clock deadline", async () => {
   const directory = await mkdtemp(join(tmpdir(), "flue-unready-recovery-"));
   const file = join(directory, "runtime.sqlite");

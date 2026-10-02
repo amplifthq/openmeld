@@ -232,6 +232,8 @@ export const remoteAgentTurnEnvelopeTriggerSchema = z.discriminatedUnion(
       delegationId: nonEmptyStringSchema,
       outcome: agentTaskTerminalOutcomeSchema,
       source: z.literal("task_continuation"),
+      // Set by the task owner for manual summary recovery, never model input.
+      summaryOnly: z.literal(true).optional(),
       subscriptionId: nonEmptyStringSchema,
       watchedTask: agentTaskHandleSchema,
     }),

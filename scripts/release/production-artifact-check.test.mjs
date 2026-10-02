@@ -20,6 +20,8 @@ const SSR_ERROR = /SSR/u;
 const SOURCE_ERROR = /source/u;
 const DIRTY_ERROR = /dirty/u;
 const CHECKOUT_ERROR = /checkout changed/u;
+const UNRESOLVED_SERVER_FUNCTION =
+  /Web SSR \/login has an unresolved server function/u;
 const WEB_HEALTH_TIMEOUT_ERROR =
   /did not match the verified release within 3000ms: Web SSR deployment source/u;
 
@@ -100,7 +102,7 @@ test("artifact evidence rejects a moved HEAD or newly dirty checkout", async () 
 test("Web health requires rendered HTML from the exact clean source, not guide.md or stale HTML", async () => {
   const sourceSha = "a".repeat(40);
   const html = `<html><head><meta name="openmeld-source-sha" content="${sourceSha}"/><meta name="openmeld-build-id" content="build-a"/><meta name="openmeld-build-dirty" content="false"/></head><body>OpenMeld<script src="/assets/a.js"></script></body></html>`;
-  let requested;
+  const requested = [];
   const run = (
     body,
     status = 200,
@@ -112,7 +114,7 @@ test("Web health requires rendered HTML from the exact clean source, not guide.m
       sourceSha,
       expectedBuildId,
       fetchImpl: (url) => {
-        requested = url;
+        requested.push(url.pathname);
         return Promise.resolve(
           new Response(body, {
             status,
@@ -122,7 +124,12 @@ test("Web health requires rendered HTML from the exact clean source, not guide.m
       },
     });
   assert.equal((await run(html)).buildId, "build-a");
-  assert.equal(requested.pathname, "/");
+  assert.deepEqual(requested, [
+    "/",
+    "/login",
+    "/forgot-password",
+    "/check-email",
+  ]);
   await assert.rejects(run(html, 200, "text/html", "prior-build"), {
     message: "Web SSR build identity does not match the verified artifact.",
   });
@@ -138,6 +145,28 @@ test("Web health requires rendered HTML from the exact clean source, not guide.m
   await assert.rejects(
     run(html.replace('content="false"', 'content="true"')),
     DIRTY_ERROR
+  );
+});
+
+test("Web admission rejects an auth page with an unresolved server function", async () => {
+  const sourceSha = "a".repeat(40);
+  const html = `<html><head><meta name="openmeld-source-sha" content="${sourceSha}"/><meta name="openmeld-build-id" content="build-a"/><meta name="openmeld-build-dirty" content="false"/></head><body>OpenMeld<script src="/assets/a.js"></script></body></html>`;
+  await assert.rejects(
+    checkProductionWeb({
+      url: "https://web.example",
+      sourceSha,
+      fetchImpl: (url) =>
+        new Response(
+          url.pathname === "/login"
+            ? "Server function info not found for login"
+            : html,
+          {
+            status: url.pathname === "/login" ? 500 : 200,
+            headers: { "content-type": "text/html" },
+          }
+        ),
+    }),
+    UNRESOLVED_SERVER_FUNCTION
   );
 });
 
@@ -173,7 +202,7 @@ test("Web health waits briefly for the deployed SSR page to serve the verified a
     buildId: "verified-build",
     status: 200,
   });
-  assert.equal(requests, 2);
+  assert.equal(requests, 5);
   assert.equal(elapsedMs, 1000);
 
   requests = 0;

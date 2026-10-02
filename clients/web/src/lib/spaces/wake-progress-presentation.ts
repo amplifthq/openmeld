@@ -227,22 +227,26 @@ export function resolveWakeProgressThinkingEntry(input: {
 	if (!step) {
 		return [];
 	}
+	const awaitingConfirmation = step.kind === "confirmation_pending";
 
 	return [
 		{
 			elapsedStartedAtMs:
 				input.showElapsedTime &&
 				item.phase === "running" &&
+				!awaitingConfirmation &&
 				!item.pendingInteraction
 					? (item.startedAtMs ?? null)
 					: null,
 			lastEvidenceAtMs: item.updatedAtMs,
 			key: resolveWakeProgressKey(item),
-			kind: item.previewText ? "preview" : "progress",
+			kind: item.previewText && !awaitingConfirmation ? "preview" : "progress",
 			phase: item.phase,
 			step,
 			targetProfileId: item.targetProfileId,
-			text: item.previewText ?? step.label,
+			text: awaitingConfirmation
+				? step.label
+				: (item.previewText ?? step.label),
 		},
 	];
 }

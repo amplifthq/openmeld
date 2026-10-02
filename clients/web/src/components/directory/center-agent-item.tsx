@@ -88,6 +88,8 @@ export function CenterAgentItem(input: { presentation?: "card" | "sidebar" }) {
 					profileId={profile.profileId}
 					renderAvatar={(size) => (
 						<RemoteAgentAvatar
+							avatarStyle={profile.avatarStyle}
+							profileId={profile.profileId}
 							profileName={profile.profileName}
 							shape="circle"
 							size={size}
@@ -110,6 +112,8 @@ export function CenterAgentItem(input: { presentation?: "card" | "sidebar" }) {
 						to="/o/$orgSlug/chats/center-agent"
 					>
 						<RemoteAgentAvatar
+							avatarStyle={profile.avatarStyle}
+							profileId={profile.profileId}
 							profileName={profile.profileName}
 							shape="circle"
 							size={24}

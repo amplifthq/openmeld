@@ -38,6 +38,10 @@ import {
   centerAgentWakePublications,
 } from "./agent-task-coordination.schema.ts";
 import {
+  aiUsageRecords,
+  organizationAiUsagePolicies,
+} from "./ai-usage.schema.ts";
+import {
   centerAgentAttentionRequests,
   centerAgentAuditJournal,
   centerAgentConnectorActionOperations,
@@ -479,11 +483,16 @@ export const openMeldRemoteAgentNativeDeliveryLedger = sqliteTable(
     createdAtMs: integer("created_at_ms").notNull(),
     updatedAtMs: integer("updated_at_ms").notNull(),
     submittedAtMs: integer("submitted_at_ms"),
+    admissionAttemptCount: integer("admission_attempt_count")
+      .notNull()
+      .default(1),
+    admissionRetryDueAtMs: integer("admission_retry_due_at_ms"),
     acceptedAtMs: integer("accepted_at_ms"),
     callbackReceivedAtMs: integer("callback_received_at_ms"),
     completedAtMs: integer("completed_at_ms"),
     deadlineProbeEnqueuedAtMs: integer("deadline_probe_enqueued_at_ms"),
     acceptedProbeNextDueAtMs: integer("accepted_probe_next_due_at_ms"),
+    executionReconciliationJson: text("execution_reconciliation_json"),
     retiredDeadlineFailureCode: text("retired_deadline_failure_code"),
     retiredDeadlineFailurePublishedSignalId: text(
       "retired_deadline_failure_published_signal_id"
@@ -1669,6 +1678,8 @@ export const agentActivityExecutionLinks = sqliteTable(
 );
 
 export const coreSchema = {
+  aiUsageRecords,
+  organizationAiUsagePolicies,
   spaceInvitations,
   organizationJoinRequests,
   inboxCenterAgentReadWatermarks,

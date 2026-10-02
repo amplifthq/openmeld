@@ -18,6 +18,9 @@ import {
   CENTER_AGENT_SOURCE_MESSAGE_MISSING_PUBLIC_COPY,
   CORE_READINESS_FACTS_CHANGED_MARKER_KIND,
   deriveCenterAgentDirectMessageSpaceProjection,
+  formatPublicAgentFailureFacts,
+  formatPublicInterruptedTaskFailureFacts,
+  formatPublicRoutineFailureFacts,
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
   HOSTED_REMOTE_AGENT_CONTROLLER_REF,
   type NavigationAction,
@@ -29,6 +32,7 @@ import {
   remoteAgentCoreCallbackBodySchema,
   remoteAgentCoreCallbackEventSchema,
   remoteAgentCoreCallbackResponseSchema,
+  remoteAgentExecutionReconciliationObservationSchema,
   remoteAgentWorkerAdmissionRejectionCodeSchema,
   remoteAgentWorkerCancellationResponseSchema,
   remoteAgentWorkerExecutionQueryResponseSchema,
@@ -70,6 +74,7 @@ import type {
 } from "@openmeld/schemas/types";
 import {
   buildDirectMessagePairKey,
+  buildPublicSpaceEntryUrl,
   createAuthenticatedSpaceAccessContext,
   createDispatchContinuationSpaceAccessContext,
   renderDispatchSourceText,
@@ -80,7 +85,11 @@ import {
   readPrimaryAgentProfileBindingRecord,
 } from "../../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
 import { recordAndEnqueueAgentTaskTerminalOutcome } from "../../agent-task-coordination/application/agent-task-terminal-outcome-service";
-import { hasAgentTaskResumeContinuationByObserverTask } from "../../agent-task-coordination/infrastructure/d1/agent-task-coordination-repo";
+import {
+  hasAgentTaskResumeContinuationByObserverTask,
+  readAgentTaskCompletionSubscription,
+  readAgentTaskTerminalOutcome,
+} from "../../agent-task-coordination/infrastructure/d1/agent-task-coordination-repo";
 import { resolveCenterAgentAttentionRequestsForReply } from "../../center-agent/application/center-agent-attention-service";
 import { recordCenterAgentLocalAgentRequest } from "../../center-agent/application/center-agent-interaction-audit-service";
 import {
@@ -88,6 +97,10 @@ import {
   resolveCenterAgentModelRouteForBinding,
 } from "../../center-agent/application/center-agent-model-service";
 import { isHostedCenterAgentExecutionTarget } from "../../center-agent/application/hosted-center-agent-binding";
+import {
+  continueTaskSummary,
+  readInterruptedTaskResults,
+} from "../../center-agent/application/task-summary-recovery-service";
 import { readCenterAgentDesignationRecord } from "../../center-agent/center-agent-repository";
 import { isCenterAgentMemberResearchDelivery } from "../../center-agent-member-research/member-research-repository";
 import { createCoreCenterAgentMemoryService } from "../../center-agent-memory/core-memory-service";
@@ -160,6 +173,10 @@ import {
   readSpaceIndexOrganizationJoinTarget,
 } from "../../space-index/space-index-repository";
 import {
+  REMOTE_AGENT_DAILY_QUOTA_EXCEEDED_REASON_CODE,
+  REMOTE_AGENT_DAILY_QUOTA_EXCEEDED_ROUTINE_REASON,
+} from "../../usage/ai-usage-policy";
+import {
   blockRemoteAgentRoutineRecoveryForTargetMismatch,
   claimRemoteAgentAcceptedDeliveryProbeSchedule,
   claimRemoteAgentFinalPublication,
@@ -171,6 +188,7 @@ import {
   claimRemoteAgentRoutineSubmissionFailure,
   claimRemoteAgentRoutineSubmissionRecoveryAttempt,
   claimRemoteAgentSlackAdmissionFailurePublication,
+  claimRemoteAgentTaskContinuationAdmissionRetry,
   clearPreviousRoutineWorkerSubmitRequest,
   countRemoteAgentWorkLoopAttempts,
   expireRemoteAgentFinalPublicationClaim,
@@ -209,8 +227,10 @@ import {
   readRemoteAgentNativeDeliveryByIdempotencyKey,
   readRemoteAgentNativeDeliveryBySubmissionId,
   readRemoteAgentWorkLoopAttemptByCallbackIdentity,
+  readRemoteAgentWorkLoopOrigin,
   rearmRemoteAgentNativeDeliveryForWorkLoop,
   reconcileRemoteAgentRoutineSubmissionWithTerminalRun,
+  recordRemoteAgentExecutionReconciliation,
   recordRemoteAgentNativeDeliveryRepresentedMember,
   releaseRemoteAgentAcceptedDeliveryProbeSchedule,
   releaseRemoteAgentFinalPublicationClaim,
@@ -218,6 +238,7 @@ import {
   releaseRemoteAgentNativeDeliveryAdmissionWatchdog,
   releaseRemoteAgentSlackAdmissionFailureClaim,
   reopenRetiredDeadlineFailureForLateCallback,
+  scheduleRemoteAgentTaskContinuationAdmissionRetry,
   skipRemoteAgentRoutineSubmissionRecovery,
   suppressLinkedSlackNativeDeliveryInboxProjectionIfRecipientMissing,
   upsertRemoteAgentNativeDeliveryRecord,
@@ -238,10 +259,6 @@ import {
   discardFrozenContextScopeForNewTurn,
   parseCoreOwnedRemoteAgentTurnEnvelope,
 } from "./center-agent-context-scope";
-import {
-  REMOTE_AGENT_DAILY_QUOTA_EXCEEDED_REASON_CODE,
-  REMOTE_AGENT_DAILY_QUOTA_EXCEEDED_ROUTINE_REASON,
-} from "./daily-admission-policy";
 import type { MessageChannelProviderRegistry } from "./message-channel-adapters";
 import { publishRemoteAgentMessageChannelAdmissionFailure } from "./message-channel-admission-watchdog-publication";
 import { createConfiguredMessageChannelProviderRegistry } from "./message-channel-provider-runtime";
@@ -264,17 +281,36 @@ import {
   startRemoteAgentTurnContextAndSkills,
 } from "./native-delivery-admission-concurrency";
 import {
+  observeTaskContinuationPreparation,
+  reportNativeDeliveryAdmissionEvidence,
+} from "./native-delivery-admission-evidence";
+import {
   buildRemoteAgentAdmissionWatchdogSubmissionId,
   enqueueRemoteAgentAdmissionWatchdog,
-  isRemoteAgentAdmissionWatchdogProbe,
+  enqueueRemoteAgentTaskContinuationAdmissionRetry,
+  REMOTE_AGENT_ADMISSION_WATCHDOG_DELAY_SECONDS,
+  REMOTE_AGENT_TASK_CONTINUATION_ADMISSION_MAX_ATTEMPTS,
+  resolveRemoteAgentAdmissionProbe,
+  resolveRemoteAgentTaskContinuationAdmissionRetryDelaySeconds,
 } from "./native-delivery-admission-watchdog";
 import {
   requestRemoteAgentWorkerCancellation as forwardRemoteAgentWorkerCancellation,
+  requestRemoteAgentNativeDeliveryStop,
   stopRemoteAgentNativeDelivery,
 } from "./native-delivery-cancellation-service";
+import {
+  buildRoutineExecutionFailureFacts,
+  buildRoutineUnconfirmedAdmissionFailureFacts,
+  buildTaskContinuationAdmissionFailureFacts,
+  readNativeFailureLanguageFallback,
+  resolveNativeFailureLanguage,
+} from "./native-delivery-failure-facts";
 import { buildRemoteAgentFinalPublicationMetadata } from "./native-delivery-final-publication-identity";
 import { resolveRemoteAgentNativeDeliveryIdentityMismatch } from "./native-delivery-identity";
-import { projectLinkedSlackNativeDeliveryInboxItem } from "./native-delivery-inbox-producer";
+import {
+  projectLinkedSlackNativeDeliveryInboxItem,
+  projectTaskContinuationAdmissionExhaustedInboxItem,
+} from "./native-delivery-inbox-producer";
 import {
   isPersonalRemoteAgentBinding,
   requirePersonalRemoteAgentBinding,
@@ -285,7 +321,10 @@ import { attachCenterAgentMemoryToTurnEnvelope as attachCenterAgentMemoryToTurnE
 import { resolveRemoteAgentRuntimeAvailability } from "./remote-agent-runtime-policy";
 import { truncateRemoteAgentTriggerText } from "./remote-agent-trigger-text";
 import {
+  finishAcknowledgedAdmission,
   type RemoteAgentWorkerAdmission,
+  readRemoteAgentWorkerAdmission,
+  readRemoteAgentWorkerAdmissionStop,
   resolveRemoteAgentAdmissionPublicCopy,
   submitRemoteAgentWorkerAdmission,
 } from "./remote-agent-worker-admission";
@@ -318,6 +357,7 @@ import {
 } from "./space-wake-stop-intent";
 import { buildRemoteAgentStreamId } from "./stream-callback-target";
 import { closeRemoteAgentStreamProjection } from "./stream-delta-service";
+import { requireTaskContinuationSummaryPolicy } from "./task-continuation-summary-policy";
 import {
   readActiveRepresentedHumanSender,
   resolveRemoteAgentMemberResearchTurnEnvelope,
@@ -345,6 +385,8 @@ type RemoteAgentTaskContinuationDeliveryInputBase = {
   env: CoreBindings;
   idempotencyKey: string;
   instruction: string;
+  replyLanguageTag?: string;
+  summaryOnly?: true;
   isAuthorized: () => Promise<boolean>;
   memoryService?: CenterAgentMemoryService | null;
   messageChannelNowMs?: () => number;
@@ -422,12 +464,14 @@ type RemoteAgentSpaceNativeDeliveryResult = {
 
 type NativeDeliveryPublishRecord = Pick<
   RemoteAgentNativeDeliveryRecord,
+  | "admissionAttemptCount"
   | "anonymousMemberSpeaker"
   | "bindingId"
   | "conversationKind"
   | "controllerNormalizationSnapshot"
   | "deliveryId"
   | "dispatchId"
+  | "finalPublicationPayload"
   | "executionRecoverySubmitRequest"
   | "idempotencyKey"
   | "messageChannelLocator"
@@ -516,13 +560,16 @@ type CenterAgentMemoryRuntimeOptions = {
 const REMOTE_AGENT_ADMISSION_TIMEOUT_FAILURE_CODE =
   "remote_agent.admission_timeout";
 const REMOTE_AGENT_ADMISSION_TIMEOUT_FAILURE_TEXT =
-  "Center Agent did not accept this request in time. Please try again.";
+  resolveCenterAgentCallbackFailureMessage({
+    failureCode: REMOTE_AGENT_ADMISSION_TIMEOUT_FAILURE_CODE,
+    failureMessage: "OpenMeld did not receive a startup acknowledgement.",
+  });
 const CENTER_AGENT_ROUTINE_PREPARATION_FAILED_PUBLIC_COPY =
   "Center Agent couldn't prepare this Routine. Run it again. If it keeps happening, open diagnostics in OpenMeld.";
 const CENTER_AGENT_ROUTINE_UNAVAILABLE_PUBLIC_COPY =
   "Center Agent isn't available right now. Run this Routine again in a moment.";
 const CENTER_AGENT_ROUTINE_START_UNCONFIRMED_PUBLIC_COPY =
-  "OpenMeld couldn't confirm whether Center Agent started this Routine, so it did not retry automatically. Run the Routine again.";
+  "OpenMeld could not recover this Routine's startup acknowledgement.";
 const CENTER_AGENT_ROUTINE_START_TIMEOUT_PUBLIC_COPY =
   "This Routine did not start in time. Run it again. If it keeps happening, open diagnostics in OpenMeld.";
 const CENTER_AGENT_ROUTINE_START_FAILED_PUBLIC_COPY =
@@ -558,6 +605,74 @@ class RemoteAgentExecutionReconciliationTimeoutError extends Error {
     super("Remote Agent execution reconciliation timed out.");
     this.name = "RemoteAgentExecutionReconciliationTimeoutError";
   }
+}
+
+class RemoteAgentExecutionReconciliationProtocolError extends Error {
+  readonly failureKind: "invalid_response" | "unsupported";
+  constructor(failureKind: "invalid_response" | "unsupported") {
+    super(`Remote Agent execution reconciliation ${failureKind}.`);
+    this.failureKind = failureKind;
+  }
+}
+
+function parseExactExecutionReconciliation(
+  response: unknown,
+  delivery: RemoteAgentNativeDeliveryRecord,
+  submissionId: string
+) {
+  if (response === undefined) {
+    throw new RemoteAgentExecutionReconciliationProtocolError("unsupported");
+  }
+  const parsed =
+    remoteAgentWorkerExecutionQueryResponseSchema.safeParse(response);
+  if (!parsed.success) {
+    throw new RemoteAgentExecutionReconciliationProtocolError(
+      "invalid_response"
+    );
+  }
+  const result = parsed.data;
+  if (
+    result.status === "found" &&
+    (result.execution.idempotencyKey !== delivery.idempotencyKey ||
+      result.execution.submissionId !== submissionId ||
+      result.execution.organizationId !== delivery.organizationId ||
+      result.execution.spaceId !== delivery.spaceId)
+  ) {
+    throw new RemoteAgentExecutionReconciliationProtocolError(
+      "invalid_response"
+    );
+  }
+  return result;
+}
+
+function unavailableReconciliationObservation(
+  delivery: RemoteAgentNativeDeliveryRecord,
+  nowMs: number,
+  failureKind: "transport" | "invalid_response" | "unsupported" | "not_found"
+) {
+  return remoteAgentExecutionReconciliationObservationSchema.parse({
+    v: 1,
+    consecutiveFailures:
+      (delivery.executionReconciliation?.consecutiveFailures ?? 0) + 1,
+    firstUnavailableAtMs:
+      delivery.executionReconciliation?.firstUnavailableAtMs ?? nowMs,
+    lastObservedAtMs: nowMs,
+    failureKind,
+    retryState:
+      failureKind === "invalid_response" || failureKind === "unsupported"
+        ? "paused"
+        : "retrying",
+  });
+}
+
+function reconciliationBackoffMs(
+  baseDelayMs: number,
+  consecutiveFailures = 1
+): number {
+  return Math.min(
+    900_000,
+    baseDelayMs * 2 ** Math.min(consecutiveFailures - 1, 4)
+  );
 }
 
 export class RemoteAgentSlackSubmissionOutcomeUnknownError extends Error {
@@ -1036,6 +1151,7 @@ export async function submitRemoteAgentNativeDelivery(
       bindingId: input.binding.bindingId,
       triggerMessageId: input.message.sourceEventId,
       dispatchId: input.message.dispatchId,
+      taskId: input.message.taskId,
       sourceClientMessageId: input.message.sourceClientMessageId ?? null,
       idempotencyKey: input.message.idempotencyKey,
       messages: [
@@ -2447,6 +2563,12 @@ async function resolveTaskContinuationTurnContext(input: {
       watchId: input.input.watchId,
     });
   }
+  if (
+    input.input.summaryOnly &&
+    turnEnvelope.trigger.source === "task_continuation"
+  ) {
+    turnEnvelope.trigger.summaryOnly = true;
+  }
   return {
     author: resolveTaskContinuationAuthor({
       observer,
@@ -3010,8 +3132,7 @@ async function publishTaskContinuationSpacePreExecutionFailure(input: {
   failureCode: string;
   failureMessage: string;
 }): Promise<SignalEnvelope> {
-  const replyThreadContext =
-    await resolveNativeDeliveryReplyThreadContext(input);
+  const replyThreadContext = input.delivery.threadContext;
   const targetProfile = await resolveRemoteAgentTargetProfile({
     env: input.env,
     profileId: input.delivery.profileId,
@@ -3180,10 +3301,16 @@ function inheritRemoteAgentTaskContinuationWorkerProtocol(
 export async function submitRemoteAgentTaskContinuationDelivery(
   input: RemoteAgentTaskContinuationDeliveryInput
 ): Promise<RemoteAgentTaskContinuationDeliveryResult> {
-  if (!(await input.isAuthorized())) {
-    return { status: "cancelled", task: null };
-  }
-  const replay = await resolveRemoteAgentTaskContinuationReplay(input);
+  const replay = await observeTaskContinuationPreparation(
+    input,
+    "preparation",
+    async () => {
+      if (!(await input.isAuthorized())) {
+        return { status: "cancelled" as const, task: null };
+      }
+      return await resolveRemoteAgentTaskContinuationReplay(input);
+    }
+  );
   if (replay) {
     return replay;
   }
@@ -3202,27 +3329,39 @@ export async function submitRemoteAgentTaskContinuationDelivery(
     throw new Error("remote_agent.worker_unavailable");
   }
   const { author, targetProfile, turnEnvelope } =
-    await resolveTaskContinuationTurnContext({
-      continuationContext,
-      input,
-    });
+    await observeTaskContinuationPreparation(input, "turn_context", () =>
+      resolveTaskContinuationTurnContext({
+        continuationContext,
+        input,
+      })
+    );
   const continuationInstructions =
     buildRemoteAgentTaskContinuationInstructions(input);
-  const turnEnvelopeWithMemory = await attachCenterAgentMemoryToTurnEnvelope({
-    env: input.env,
-    memoryService: input.memoryService,
-    organizationId: observer.organizationId,
-    query: continuationInstructions,
-    turnEnvelope,
-  });
+  const turnEnvelopeWithMemory = await observeTaskContinuationPreparation(
+    input,
+    "memory",
+    () =>
+      attachCenterAgentMemoryToTurnEnvelope({
+        env: input.env,
+        memoryService: input.memoryService,
+        organizationId: observer.organizationId,
+        query: continuationInstructions,
+        turnEnvelope,
+      })
+  );
   const targetOwnerUserId = normalizeOptionalText(targetProfile.ownerUserId);
   const isRoutineContinuation = turnEnvelope.sender.kind === "routine";
-  const organizationSkillReleases = isRoutineContinuation
-    ? requireRoutineContinuationOrganizationSkillReleases(observer)
-    : await readEnabledOrganizationSkillReleaseSelection({
-        db: input.db,
-        organizationId: observer.organizationId,
-      });
+  const organizationSkillReleases = await observeTaskContinuationPreparation(
+    input,
+    "skill_selection",
+    async () =>
+      isRoutineContinuation
+        ? requireRoutineContinuationOrganizationSkillReleases(observer)
+        : await readEnabledOrganizationSkillReleaseSelection({
+            db: input.db,
+            organizationId: observer.organizationId,
+          })
+  );
   const inheritedWorkerRequest =
     requireInheritedCenterAgentWorkerRequest(observer);
   const request = remoteAgentWorkerSubmitTurnRequestSchema.parse({
@@ -3278,23 +3417,36 @@ export async function submitRemoteAgentTaskContinuationDelivery(
     });
     return { status: "cancelled", task: null };
   }
-  await enqueueRemoteAgentAdmissionWatchdog({
-    ack: {
-      submissionId: buildRemoteAgentAdmissionWatchdogSubmissionId(
-        input.idempotencyKey
-      ),
-    },
-    env: input.env,
-    nowMs: input.nowMs,
-    target: {
-      dispatchId: input.idempotencyKey,
-      idempotencyKey: input.idempotencyKey,
-      organizationId: observer.organizationId,
-      profileId: observer.profileId,
-      spaceId: observer.spaceId,
-    },
-  });
+  await observeTaskContinuationPreparation(input, "watchdog_enqueue", () =>
+    enqueueRemoteAgentAdmissionWatchdog({
+      ack: {
+        submissionId: buildRemoteAgentAdmissionWatchdogSubmissionId(
+          input.idempotencyKey
+        ),
+      },
+      env: input.env,
+      nowMs: input.nowMs,
+      target: {
+        dispatchId: input.idempotencyKey,
+        idempotencyKey: input.idempotencyKey,
+        organizationId: observer.organizationId,
+        profileId: observer.profileId,
+        spaceId: observer.spaceId,
+      },
+    })
+  );
+  const continuitySourceDispatchId = await observeTaskContinuationPreparation(
+    input,
+    "source_dispatch",
+    () =>
+      resolveTaskContinuationSpaceSourceDispatchId({
+        db: input.db,
+        observer,
+      })
+  );
   const admission = await submitRemoteAgentWorkerAdmission({
+    continuitySourceDispatchId,
+    admissionDelivery: durableDelivery,
     db: input.db,
     env: input.env,
     nowMs: input.nowMs,
@@ -3441,6 +3593,16 @@ async function resolveRemoteAgentTaskContinuationReplay(
     db: input.db,
     idempotencyKey: input.idempotencyKey,
   });
+  if (existingDelivery) {
+    await requireTaskContinuationSummaryPolicy({
+      env: input.env,
+      summaryOnly: input.summaryOnly,
+      requests: [
+        existingDelivery.workerSubmitRequest,
+        existingDelivery.executionRecoverySubmitRequest,
+      ],
+    });
+  }
   if (
     existingDelivery &&
     existingDelivery.status !== "submitted" &&
@@ -3700,21 +3862,37 @@ async function stopCancelledFallbackSpaceWake(input: {
 function buildRemoteAgentTaskContinuationInstructions(
   input: RemoteAgentTaskContinuationDeliveryInput
 ): string {
+  const childExecutionNote =
+    "errorCode" in input.outcome &&
+    input.outcome.errorCode === "runtime_coordinator.delivery_expired"
+      ? [
+          "- The child Wake expired before it reached the local Agent. No child task result is available; tell the requester that the task did not run.",
+        ]
+      : [];
+  const languageGuidance = input.replyLanguageTag
+    ? [
+        `Upstream Agent reply-language decision: ${input.replyLanguageTag}. Preserve it for this continuation unless the requester explicitly changes the language. It does not change the Organization language preference.`,
+      ]
+    : [];
   if (input.watchId !== undefined) {
     return [
       input.instruction,
+      ...languageGuidance,
       "",
       "OpenMeld task watch continuation:",
       `- watchId: ${input.watchId}`,
       `- subscriptionId: ${input.subscriptionId}`,
       `- observed task: ${JSON.stringify(input.watchedTask)}`,
       `- observed outcome: ${JSON.stringify(input.outcome)}`,
+      buildTaskContinuationResultAvailabilityNote(input.outcome),
+      ...childExecutionNote,
       "",
-      "Continue only from this exact completion evidence. If a publishedSignalId is present, read that exact result before proceeding. Reply to the original requester in the original conversation.",
+      "Continue only from this exact completion evidence. If a publishedSignalId is present, read that exact result through the existing authorized tools. If it cannot be read, explicitly mark that result unavailable and continue with the available evidence. Do not guess another result locator, relax access checks, or repeat the observed task merely to fill the gap. Reply to the original requester in the original conversation.",
     ].join("\n");
   }
   return [
     input.instruction,
+    ...languageGuidance,
     "",
     "OpenMeld task continuation:",
     `- delegationId: ${input.delegationId}`,
@@ -3723,14 +3901,62 @@ function buildRemoteAgentTaskContinuationInstructions(
     `- subscriptionId: ${input.subscriptionId}`,
     `- triggering child task: ${JSON.stringify(input.watchedTask)}`,
     `- triggering child outcome: ${JSON.stringify(input.outcome)}`,
+    ...childExecutionNote,
     "- delegation children:",
-    ...input.delegation.children.map(
-      (child) =>
-        `  - ${child.agentProfileId} (${child.role}): ${child.state}; outcome=${JSON.stringify(child.terminalOutcome)}`
+    ...input.delegation.children.map((child) =>
+      [
+        `  - ${child.agentProfileId} (${child.role}): ${child.state}; outcome=${JSON.stringify(child.terminalOutcome)}`,
+        child.terminalOutcome
+          ? buildTaskContinuationResultAvailabilityNote(child.terminalOutcome)
+          : "",
+      ]
+        .filter(Boolean)
+        .join("\n")
     ),
     "",
-    "Continue only from this completion evidence. If a publishedSignalId is present, read that exact result before synthesizing. Reply to the original requester in the original conversation.",
+    "Continue only from this completion evidence. If a publishedSignalId is present, read that exact result through the existing authorized tools before synthesizing. If a child's result cannot be read, explicitly mark that child's result unavailable and summarize the other available results. Do not guess another result locator, relax access checks, or repeat a child task merely to fill the gap. Reply to the original requester in the original conversation.",
   ].join("\n");
+}
+
+function buildTaskContinuationResultAvailabilityNote(
+  outcome: AgentTaskCompletionObservation
+): string {
+  if (outcome.status === "needs_attention" || outcome.publishedSignalId) {
+    return "";
+  }
+  return "    Result unavailable in this completion evidence: no published-result locator was supplied. This does not prove that execution never happened or that a retained result was lost. Report the missing result explicitly and continue with the other available evidence; do not repeat the child task.";
+}
+
+async function resolveTaskContinuationSpaceSourceDispatchId(input: {
+  db: D1Database;
+  observer: RemoteAgentNativeDeliveryRecord;
+}): Promise<string> {
+  const { observer } = input;
+  if (observer.conversationKind !== "space" || observer.sourceClientMessageId) {
+    return observer.dispatchId;
+  }
+  // A continuation may itself become the parent of another delegation. Its
+  // dispatch is native-delivery-only; the Space owns the original Wake scope.
+  const source = await input.db
+    .prepare(
+      `SELECT dispatch_id
+       FROM openMeldRemoteAgent_native_delivery_ledger
+       WHERE organization_id = ?
+         AND space_id = ?
+         AND profile_id = ?
+         AND trigger_message_id = ?
+         AND source_client_message_id IS NOT NULL
+       ORDER BY created_at_ms ASC
+       LIMIT 1`
+    )
+    .bind(
+      observer.organizationId,
+      observer.spaceId,
+      observer.profileId,
+      observer.triggerMessageId
+    )
+    .first<{ dispatch_id: string }>();
+  return source?.dispatch_id ?? observer.dispatchId;
 }
 
 function resolveTaskContinuationExternalSpaceEnvelope(
@@ -6136,13 +6362,24 @@ async function failRemoteAgentRoutineDelivery(input: {
         routineId: input.routine.id,
         runId: input.run.id,
       });
-  const text = buildRoutineFailureText({
-    failureCode: input.failureCode,
-    failureReason: input.failureReason,
-    routineName: input.routine.name,
-    runId: input.run.id,
-    runUrl,
-  });
+  const text =
+    input.failureCode === "remote_agent.worker_ack_recovery_expired"
+      ? await buildRoutineUnconfirmedAdmissionFailureText({
+          delivery: existingDelivery,
+          env: input.env,
+          organizationId: input.routine.organizationId,
+          routineName: input.routine.name,
+          runId: input.run.id,
+          runUrl,
+          spaceId: requireRoutineConversationId(input.routine),
+        })
+      : buildRoutineFailureText({
+          failureCode: input.failureCode,
+          failureReason: input.failureReason,
+          routineName: input.routine.name,
+          runId: input.run.id,
+          runUrl,
+        });
   let publishedSignalId: string | null = null;
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     try {
@@ -6450,13 +6687,45 @@ async function publishRetriedRoutineFailure(input: {
         routineId: input.run.routineId,
         runId: input.run.runId,
       });
-  const text = buildRoutineFailureText({
-    failureCode: input.run.failureCode,
-    failureReason: resolveRoutineFailurePublicationReason(input.run),
-    routineName: input.run.routineName,
-    runId: input.run.runId,
-    runUrl,
-  });
+  let text: string;
+  if (input.run.failureCode === "remote_agent.worker_ack_recovery_expired") {
+    text = await buildRoutineUnconfirmedAdmissionFailureText({
+      delivery: input.delivery,
+      env: input.env,
+      organizationId: input.run.organizationId,
+      routineName: input.run.routineName,
+      runId: input.run.runId,
+      runUrl,
+      spaceId: input.conversationId,
+    });
+  } else if (input.delivery && input.delivery.acceptedAtMs !== null) {
+    text = formatPublicRoutineFailureFacts(
+      buildRoutineExecutionFailureFacts({
+        delivery: input.delivery,
+        failureCode: input.run.failureCode,
+        failureDetail: input.run.failureDetail,
+        languageTag: await resolveNativeFailureLanguage({
+          coordinationDb: agentTaskCoordinationDb(input.env),
+          db: identityDb(input.env),
+          delivery: input.delivery,
+        }),
+      }),
+      {
+        agentLabel: "The Agent",
+        routineName: input.run.routineName,
+        runId: input.run.runId,
+        runUrl,
+      }
+    );
+  } else {
+    text = buildRoutineFailureText({
+      failureCode: input.run.failureCode,
+      failureReason: resolveRoutineFailurePublicationReason(input.run),
+      routineName: input.run.routineName,
+      runId: input.run.runId,
+      runUrl,
+    });
+  }
   if (input.run.destinationKind === "message_channel") {
     return await publishRoutineMessageChannelText({
       env: input.env,
@@ -6497,6 +6766,38 @@ async function publishRetriedRoutineFailure(input: {
     purpose: REMOTE_AGENT_FAILURE_PURPOSE,
     text,
   });
+}
+
+async function buildRoutineUnconfirmedAdmissionFailureText(input: {
+  delivery: RemoteAgentNativeDeliveryRecord | null;
+  env: CoreBindings;
+  organizationId: string;
+  routineName: string;
+  runId: string;
+  runUrl?: string;
+  spaceId: string;
+}): Promise<string> {
+  return formatPublicRoutineFailureFacts(
+    buildRoutineUnconfirmedAdmissionFailureFacts({
+      // The retained Run still proves that admission was unconfirmed. Losing
+      // its delivery receipt must not turn that fact into "did not execute".
+      delivery: input.delivery ?? {
+        dispatchId: input.runId,
+        spaceId: input.spaceId,
+      },
+      languageTag: input.delivery
+        ? await resolveNativeFailureLanguage({
+            coordinationDb: agentTaskCoordinationDb(input.env),
+            db: identityDb(input.env),
+            delivery: input.delivery,
+          })
+        : await readNativeFailureLanguageFallback({
+            db: identityDb(input.env),
+            organizationId: input.organizationId,
+          }),
+    }),
+    input
+  );
 }
 
 function resolveRoutineFailurePublicationReason(input: {
@@ -8934,6 +9235,7 @@ function resolveRemoteAgentPublicationErrorCode(error: unknown): string | null {
 function buildRemoteAgentFinalPublicationPayload(input: {
   body: RemoteAgentCoreCallbackBody;
   resumeStatus: "accepted" | "retry_observed";
+  failureText?: string;
 }): RemoteAgentFinalPublicationPayload {
   return {
     attachments:
@@ -8950,7 +9252,8 @@ function buildRemoteAgentFinalPublicationPayload(input: {
     storageVersion: 3,
     text:
       input.body.status === "failed"
-        ? resolveCenterAgentCallbackFailureMessage(input.body)
+        ? (input.failureText ??
+          resolveCenterAgentCallbackFailureMessage(input.body))
         : resolveCenterAgentCompletedCallbackMessage(input.body),
   };
 }
@@ -9480,33 +9783,22 @@ export async function processRemoteAgentNativeDeliveryDeadlineProbe(input: {
   reasonCode?: string;
   status: "expired" | "skipped";
 }> {
-  const isAdmissionWatchdog = isRemoteAgentAdmissionWatchdogProbe(input.probe);
-  const delivery = isAdmissionWatchdog
-    ? await readRemoteAgentNativeDeliveryByIdempotencyKey({
-        db: input.db,
-        idempotencyKey: input.probe.idempotencyKey,
-      })
-    : await readRemoteAgentNativeDeliveryBySubmissionId({
-        db: input.db,
-        submissionId: input.probe.submissionId,
-      });
-  if (isAdmissionWatchdog && !delivery) {
-    throw new Error("remote_agent.admission_watchdog_delivery_missing");
+  const admissionProbe = resolveRemoteAgentAdmissionProbe(input.probe);
+  if (admissionProbe) {
+    return await processRemoteAgentAdmissionDeadlineProbe({
+      ...input,
+      admissionProbe,
+    });
   }
+  const delivery = await readRemoteAgentNativeDeliveryBySubmissionId({
+    db: input.db,
+    submissionId: input.probe.submissionId,
+  });
   if (!remoteAgentDeadlineProbeTargetsDelivery(input.probe, delivery)) {
-    if (isAdmissionWatchdog) {
-      throw new Error("remote_agent.admission_watchdog_delivery_mismatch");
-    }
     return {
       reasonCode: "remote_agent.delivery_deadline_probe_unknown_submission",
       status: "skipped",
     };
-  }
-  if (isAdmissionWatchdog) {
-    return await processRemoteAgentAdmissionWatchdog({
-      ...input,
-      delivery,
-    });
   }
   if (
     await blockRoutineDeliveryForTargetMismatch({
@@ -9525,6 +9817,12 @@ export async function processRemoteAgentNativeDeliveryDeadlineProbe(input: {
       reasonCode: "remote_agent.delivery_deadline_probe_not_due",
       status: "skipped",
     };
+  }
+  if (
+    !isRemoteAgentNativeDeliveryTerminal(delivery) &&
+    (await isTaskContinuationParentStopped({ ...input, delivery }))
+  ) {
+    return await reconcileTaskContinuationParentStop({ ...input, delivery });
   }
   if (delivery.finalPublicationState === "outcome_unknown") {
     await projectRemoteAgentNativeDeliveryTerminalEffects({
@@ -9643,6 +9941,69 @@ export async function processRemoteAgentNativeDeliveryDeadlineProbe(input: {
   return { status: "expired" };
 }
 
+async function processRemoteAgentAdmissionDeadlineProbe(input: {
+  admissionProbe: { kind: "admission" };
+  db: D1Database;
+  env: CoreBindings;
+  messageChannelNowMs?: () => number;
+  messageChannelProviderRegistry?: MessageChannelProviderRegistry;
+  nowMs: number;
+  probe: RemoteAgentNativeDeliveryDeadlineProbeQueueMessage;
+}): Promise<{
+  reasonCode?: string;
+  status: "expired" | "skipped";
+}> {
+  const delivery = await readRemoteAgentNativeDeliveryByIdempotencyKey({
+    db: input.db,
+    idempotencyKey: input.probe.idempotencyKey,
+  });
+  if (!delivery) {
+    throw new Error("remote_agent.admission_watchdog_delivery_missing");
+  }
+  if (!remoteAgentDeadlineProbeTargetsDelivery(input.probe, delivery)) {
+    throw new Error("remote_agent.admission_watchdog_delivery_mismatch");
+  }
+  if (
+    input.nowMs >= input.probe.deadlineAtMs &&
+    !isRemoteAgentNativeDeliveryTerminal(delivery) &&
+    (await isTaskContinuationParentStopped({ ...input, delivery }))
+  ) {
+    return await reconcileTaskContinuationParentStop({ ...input, delivery });
+  }
+  const settled = await resolveAlreadySettledRemoteAgentAdmissionWatchdog({
+    db: input.db,
+    delivery,
+    env: input.env,
+    nowMs: input.nowMs,
+  });
+  if (settled) {
+    return settled;
+  }
+  if (delivery.admissionRetryDueAtMs === input.probe.deadlineAtMs) {
+    return await processRemoteAgentTaskContinuationAdmissionRetry({
+      ...input,
+      attempt: delivery.admissionAttemptCount + 1,
+      delivery,
+    });
+  }
+  const expectedWatchdogDeadlineAtMs =
+    delivery.submittedAtMs === null
+      ? null
+      : delivery.submittedAtMs +
+        REMOTE_AGENT_ADMISSION_WATCHDOG_DELAY_SECONDS * 1000;
+  if (expectedWatchdogDeadlineAtMs !== input.probe.deadlineAtMs) {
+    return {
+      reasonCode: "remote_agent.admission_watchdog_stale",
+      status: "skipped",
+    };
+  }
+  return await processRemoteAgentAdmissionWatchdog({
+    ...input,
+    admissionAttempt: delivery.admissionAttemptCount,
+    delivery,
+  });
+}
+
 async function resolveRemoteAgentDeadlineProbePublication(input: {
   db: D1Database;
   delivery: RemoteAgentNativeDeliveryRecord;
@@ -9699,6 +10060,13 @@ async function reconcileAcceptedRemoteAgentNativeDelivery(input: {
   reasonCode: string;
   status: "expired" | "skipped";
 }> {
+  // Stop is conveyed independently by the durable Space Stop outbox.
+  if (input.delivery.executionReconciliation?.retryState === "paused") {
+    return {
+      reasonCode: "remote_agent.execution_reconciliation_paused",
+      status: "skipped",
+    };
+  }
   const reconciliationDelayMs =
     resolveAcceptedDeliveryProbeDelaySeconds(input.delivery) * 1000;
   const processingLeaseDueAtMs =
@@ -9769,13 +10137,11 @@ async function reconcileAcceptedRemoteAgentNativeDelivery(input: {
         ...(conversationId ? { conversationId } : {}),
       })
     );
-    if (response === undefined) {
-      throw new Error(
-        "Remote Agent worker does not expose execution reconciliation."
-      );
-    }
-    reconciliation =
-      remoteAgentWorkerExecutionQueryResponseSchema.parse(response);
+    reconciliation = parseExactExecutionReconciliation(
+      response,
+      leasedDelivery,
+      input.probe.submissionId
+    );
   } catch (error) {
     console.warn(
       "[core.remote_agent.native_delivery.execution_reconciliation_failed]",
@@ -9789,6 +10155,32 @@ async function reconcileAcceptedRemoteAgentNativeDelivery(input: {
     );
     const reconciliationTimedOut =
       error instanceof RemoteAgentExecutionReconciliationTimeoutError;
+    const failureKind =
+      error instanceof RemoteAgentExecutionReconciliationProtocolError
+        ? error.failureKind
+        : "transport";
+    const observation = unavailableReconciliationObservation(
+      leasedDelivery,
+      input.nowMs,
+      failureKind
+    );
+    await recordRemoteAgentExecutionReconciliation({
+      db: input.db,
+      delivery: leasedDelivery,
+      processingLeaseDueAtMs,
+      observation,
+      nowMs: input.nowMs,
+    });
+    if (observation.retryState === "paused") {
+      return {
+        reasonCode: "remote_agent.execution_reconciliation_paused",
+        status: "skipped",
+      };
+    }
+    const retryDelayMs = reconciliationBackoffMs(
+      reconciliationDelayMs,
+      observation.consecutiveFailures
+    );
     await requeueRemoteAgentNativeDeliveryDeadlineProbe({
       acceptedProbeProcessingLeaseDueAtMs: processingLeaseDueAtMs,
       db: input.db,
@@ -9797,14 +10189,29 @@ async function reconcileAcceptedRemoteAgentNativeDelivery(input: {
       preserveProcessingLeaseOnEnqueueFailure: reconciliationTimedOut,
       probe: input.probe,
       runAtMs: reconciliationTimedOut
-        ? processingLeaseDueAtMs
-        : input.nowMs + reconciliationDelayMs,
+        ? Math.max(processingLeaseDueAtMs, input.nowMs + retryDelayMs)
+        : input.nowMs + retryDelayMs,
     });
     return {
       reasonCode: "remote_agent.execution_reconciliation_unavailable",
       status: "skipped",
     };
   }
+
+  await recordRemoteAgentExecutionReconciliation({
+    db: input.db,
+    delivery: leasedDelivery,
+    processingLeaseDueAtMs,
+    nowMs: input.nowMs,
+    observation:
+      reconciliation.status === "not_found"
+        ? unavailableReconciliationObservation(
+            leasedDelivery,
+            input.nowMs,
+            "not_found"
+          )
+        : null,
+  });
 
   const reconciledDelivery = await readRemoteAgentNativeDeliveryBySubmissionId({
     db: input.db,
@@ -9820,7 +10227,13 @@ async function reconcileAcceptedRemoteAgentNativeDelivery(input: {
     probe: input.probe,
     reconciledDelivery,
     reconciliation,
-    reconciliationDelayMs,
+    reconciliationDelayMs:
+      reconciliation.status === "not_found"
+        ? reconciliationBackoffMs(
+            reconciliationDelayMs,
+            reconciledDelivery?.executionReconciliation?.consecutiveFailures
+          )
+        : reconciliationDelayMs,
     processingLeaseDueAtMs,
   });
 }
@@ -10229,6 +10642,7 @@ function remoteAgentDeadlineProbeTargetsDelivery(
 }
 
 async function processRemoteAgentAdmissionWatchdog(input: {
+  admissionAttempt: number;
   db: D1Database;
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
@@ -10286,7 +10700,445 @@ async function processRemoteAgentAdmissionWatchdog(input: {
     return await reconcilePendingSpaceWakeStop(input);
   }
 
+  await requireTaskContinuationSummaryPolicy({
+    env: input.env,
+    requests: [
+      input.delivery.workerSubmitRequest,
+      input.delivery.executionRecoverySubmitRequest,
+    ],
+  });
+  const recoveredAdmission = await recoverTaskContinuationAdmission(input);
+  if (recoveredAdmission) {
+    return recoveredAdmission;
+  }
+
+  const continuationRetry =
+    await scheduleTaskContinuationAdmissionRetryAfterTimeout(input);
+  if (continuationRetry) {
+    return continuationRetry;
+  }
+
   return await finalizeRemoteAgentAdmissionTimeout(input);
+}
+
+async function recoverTaskContinuationAdmission(
+  input: Parameters<typeof processRemoteAgentAdmissionWatchdog>[0]
+): Promise<{ reasonCode: string; status: "skipped" } | null> {
+  const worker = input.env.OPENMELD_REMOTE_AGENT_WORKER;
+  const request = input.delivery.workerSubmitRequest;
+  if (
+    !(
+      isRetryableTaskContinuationAdmission(input.delivery) &&
+      worker?.readAdmission &&
+      request
+    )
+  ) {
+    return null;
+  }
+  let ack: RemoteAgentWorkerSubmitMessagesResult | null | undefined;
+  try {
+    ack = await withRemoteAgentExecutionReconciliationTimeout(
+      readRemoteAgentWorkerAdmission({
+        admissionDelivery: input.delivery,
+        request,
+        worker,
+      })
+    );
+  } catch (error) {
+    console.warn(
+      "[core.remote_agent.task_continuation.admission_receipt_read_failed]",
+      {
+        dispatchId: input.delivery.dispatchId,
+        error: toErrorMessage(error),
+        idempotencyKey: input.delivery.idempotencyKey,
+      }
+    );
+    return null;
+  }
+  if (!ack) {
+    return null;
+  }
+  // Once the owner has returned a validated receipt, persistence/probe or
+  // postprocessing failures must not masquerade as another admission timeout.
+  // Propagate them to the existing delivery retry/accepted-probe repair owners.
+  await markRemoteAgentNativeDeliveryAckWithProbe({
+    db: input.db,
+    env: input.env,
+    nowMs: input.nowMs,
+    accepted: ack.accepted,
+    idempotencyKey: input.delivery.idempotencyKey,
+    submissionId: ack.submissionId,
+    workerRequestId: ack.requestId ?? null,
+  });
+  // Preserve the recovered ACK in the existing ledger before any generation,
+  // Stop or pause await. A postprocessing stall cannot lose its identity.
+  await finishAcknowledgedAdmission({
+    admissionDelivery: input.delivery,
+    ack,
+    db: input.db,
+    env: input.env,
+    nowMs: input.nowMs,
+    organizationId: input.delivery.organizationId,
+    request,
+    worker,
+  });
+  // The existing accepted probe now reconciles the real native submission.
+  // Never reconcile the watchdog's synthetic admission_watchdog:* ID.
+  return {
+    reasonCode: "remote_agent.admission_ack_recovered",
+    status: "skipped",
+  };
+}
+
+async function scheduleTaskContinuationAdmissionRetryAfterTimeout(
+  input: Parameters<typeof processRemoteAgentAdmissionWatchdog>[0]
+): Promise<{
+  reasonCode: string;
+  status: "skipped";
+} | null> {
+  if (!isRetryableTaskContinuationAdmission(input.delivery)) {
+    return null;
+  }
+  if (input.delivery.admissionAttemptCount !== input.admissionAttempt) {
+    return {
+      reasonCode: "remote_agent.task_continuation.admission_watchdog_stale",
+      status: "skipped",
+    };
+  }
+  reportNativeDeliveryAdmissionEvidence({
+    delivery: input.delivery,
+    observedAtMs: input.nowMs,
+    phase: "timed_out",
+  });
+  if (
+    input.admissionAttempt >=
+    REMOTE_AGENT_TASK_CONTINUATION_ADMISSION_MAX_ATTEMPTS
+  ) {
+    return null;
+  }
+  const nextAttempt = input.admissionAttempt + 1;
+  const defaultDelaySeconds =
+    resolveRemoteAgentTaskContinuationAdmissionRetryDelaySeconds(nextAttempt);
+  const scheduled = await scheduleRemoteAgentTaskContinuationAdmissionRetry({
+    attempt: input.admissionAttempt,
+    db: input.db,
+    dueAtMs: input.nowMs + defaultDelaySeconds * 1000,
+    idempotencyKey: input.delivery.idempotencyKey,
+    nowMs: input.nowMs,
+  });
+  if (!scheduled?.admissionRetryDueAtMs) {
+    return {
+      reasonCode: "remote_agent.task_continuation.admission_retry_lost_race",
+      status: "skipped",
+    };
+  }
+  reportNativeDeliveryAdmissionEvidence({
+    delivery: scheduled,
+    observedAtMs: input.nowMs,
+    phase: "retry_scheduled",
+  });
+  const delaySeconds = Math.max(
+    0,
+    Math.ceil((scheduled.admissionRetryDueAtMs - input.nowMs) / 1000)
+  );
+  const enqueued = await enqueueRemoteAgentTaskContinuationAdmissionRetry({
+    attempt: nextAttempt,
+    delaySeconds,
+    env: input.env,
+    nowMs: input.nowMs,
+    target: {
+      dispatchId: scheduled.dispatchId,
+      idempotencyKey: scheduled.idempotencyKey,
+      organizationId: scheduled.organizationId,
+      profileId: scheduled.profileId,
+      spaceId: scheduled.spaceId,
+    },
+  });
+  if (!enqueued) {
+    throw new Error(
+      "remote_agent.task_continuation.admission_retry_queue_unavailable"
+    );
+  }
+  return {
+    reasonCode: "remote_agent.task_continuation.admission_retry_scheduled",
+    status: "skipped",
+  };
+}
+
+async function processRemoteAgentTaskContinuationAdmissionRetry(input: {
+  attempt: number;
+  db: D1Database;
+  delivery: RemoteAgentNativeDeliveryRecord;
+  env: CoreBindings;
+  nowMs: number;
+  probe: RemoteAgentNativeDeliveryDeadlineProbeQueueMessage;
+}): Promise<{
+  reasonCode: string;
+  status: "skipped";
+}> {
+  if (input.nowMs < input.probe.deadlineAtMs) {
+    return {
+      reasonCode: "remote_agent.task_continuation.admission_retry_not_due",
+      status: "skipped",
+    };
+  }
+  if (
+    !isRetryableTaskContinuationAdmission(input.delivery) ||
+    input.attempt < 2 ||
+    input.attempt > REMOTE_AGENT_TASK_CONTINUATION_ADMISSION_MAX_ATTEMPTS ||
+    input.delivery.admissionAttemptCount !== input.attempt - 1 ||
+    input.delivery.admissionRetryDueAtMs !== input.probe.deadlineAtMs
+  ) {
+    return {
+      reasonCode: "remote_agent.task_continuation.admission_retry_stale",
+      status: "skipped",
+    };
+  }
+  const watchdogEnqueued = await enqueueRemoteAgentAdmissionWatchdog({
+    ack: {
+      submissionId: buildRemoteAgentAdmissionWatchdogSubmissionId(
+        input.delivery.idempotencyKey
+      ),
+    },
+    env: input.env,
+    nowMs: input.nowMs,
+    target: {
+      dispatchId: input.delivery.dispatchId,
+      idempotencyKey: input.delivery.idempotencyKey,
+      organizationId: input.delivery.organizationId,
+      profileId: input.delivery.profileId,
+      spaceId: input.delivery.spaceId,
+    },
+  });
+  if (!watchdogEnqueued) {
+    throw new Error(
+      "remote_agent.task_continuation.admission_retry_watchdog_unavailable"
+    );
+  }
+  const claimed = await claimRemoteAgentTaskContinuationAdmissionRetry({
+    attempt: input.attempt,
+    db: input.db,
+    dueAtMs: input.probe.deadlineAtMs,
+    idempotencyKey: input.delivery.idempotencyKey,
+    nowMs: input.nowMs,
+  });
+  if (!claimed?.workerSubmitRequest) {
+    return {
+      reasonCode: "remote_agent.task_continuation.admission_retry_lost_race",
+      status: "skipped",
+    };
+  }
+  // Stop may have arrived while the retry was being claimed. Never turn that
+  // durable parent intent into a fresh submit or an admission-timeout failure.
+  if (await isTaskContinuationParentStopped({ ...input, delivery: claimed })) {
+    return await reconcileTaskContinuationParentStop({
+      ...input,
+      delivery: claimed,
+    });
+  }
+  reportNativeDeliveryAdmissionEvidence({
+    delivery: claimed,
+    observedAtMs: input.nowMs,
+    phase: "retry_claimed",
+  });
+  const worker = input.env.OPENMELD_REMOTE_AGENT_WORKER;
+  if (!worker) {
+    return {
+      reasonCode:
+        "remote_agent.task_continuation.admission_retry_receiver_unavailable",
+      status: "skipped",
+    };
+  }
+  const admission = await submitRemoteAgentWorkerAdmission({
+    db: input.db,
+    env: input.env,
+    nowMs: input.nowMs,
+    organizationId: claimed.organizationId,
+    request: claimed.workerSubmitRequest,
+    admissionDelivery: claimed,
+    worker,
+  });
+  if (admission.status === "acknowledged") {
+    await markRemoteAgentNativeDeliveryAckWithProbe({
+      accepted: admission.ack.accepted,
+      db: input.db,
+      env: input.env,
+      idempotencyKey: claimed.idempotencyKey,
+      nowMs: input.nowMs,
+      submissionId: admission.ack.submissionId,
+      workerRequestId: admission.ack.requestId ?? null,
+    });
+    if (
+      await isTaskContinuationParentStopped({ ...input, delivery: claimed })
+    ) {
+      return await reconcileTaskContinuationParentStop({
+        ...input,
+        delivery: claimed,
+      });
+    }
+    return {
+      reasonCode: "remote_agent.task_continuation.admission_retry_acknowledged",
+      status: "skipped",
+    };
+  }
+  if (await isTaskContinuationParentStopped({ ...input, delivery: claimed })) {
+    return await reconcileTaskContinuationParentStop({
+      ...input,
+      delivery: claimed,
+    });
+  }
+  if (admission.status === "rejected") {
+    await settleTaskContinuationPreExecutionFailure({
+      continuationDelivery: claimed,
+      db: input.db,
+      env: input.env,
+      failureCode: admission.response.reasonCode,
+      failureDetail: admission.response.message,
+      failureMessage: resolveRemoteAgentAdmissionPublicCopy({
+        conversationKind: claimed.conversationKind,
+        reasonCode: admission.response.reasonCode,
+      }),
+      nowMs: input.nowMs,
+      status: "failed",
+    });
+    return {
+      reasonCode: "remote_agent.task_continuation.admission_retry_rejected",
+      status: "skipped",
+    };
+  }
+  return {
+    reasonCode: `remote_agent.task_continuation.admission_retry_${admission.status}`,
+    status: "skipped",
+  };
+}
+
+function isRetryableTaskContinuationAdmission(delivery: {
+  conversationKind: RemoteAgentNativeDeliveryRecord["conversationKind"];
+  routineRunId?: string | null;
+  workerSubmitRequest?: RemoteAgentNativeDeliveryRecord["workerSubmitRequest"];
+}): boolean {
+  const trigger = delivery.workerSubmitRequest?.turnEnvelope.trigger;
+  return (
+    delivery.conversationKind === "space" &&
+    delivery.routineRunId === null &&
+    (trigger?.source === "task_continuation" ||
+      trigger?.source === "task_watch_continuation")
+  );
+}
+
+async function isTaskContinuationParentStopped(input: {
+  db: D1Database;
+  delivery: RemoteAgentNativeDeliveryRecord;
+  env: CoreBindings;
+}): Promise<boolean> {
+  // ACK clears the pending request. Work-loop rearming advances the current
+  // identity, while the owner retains the exact chain back to the subscription.
+  const request =
+    input.delivery.workerSubmitRequest ??
+    input.delivery.executionRecoverySubmitRequest;
+  const trigger = request?.turnEnvelope.trigger;
+  if (
+    trigger?.source !== "task_continuation" &&
+    trigger?.source !== "task_watch_continuation"
+  ) {
+    return false;
+  }
+  const db = agentTaskCoordinationDb(input.env);
+  if (!db) {
+    throw new Error("agent_task_continuation.owner_store_unavailable");
+  }
+  const subscription = await readAgentTaskCompletionSubscription({
+    db,
+    subscriptionId: trigger.subscriptionId,
+  });
+  if (!subscription) {
+    return false;
+  }
+  const origin =
+    subscription.continuationIdempotencyKey === input.delivery.idempotencyKey
+      ? request
+      : await readRemoteAgentWorkLoopOrigin({
+          db: input.db,
+          deliveryId: input.delivery.deliveryId,
+          idempotencyKey: input.delivery.idempotencyKey,
+        });
+  const originTrigger = origin?.turnEnvelope.trigger;
+  if (
+    !origin ||
+    origin.organizationId !== input.delivery.organizationId ||
+    origin.spaceId !== input.delivery.spaceId ||
+    origin.dispatchId !== input.delivery.dispatchId ||
+    origin.agentProfileId !== input.delivery.profileId ||
+    origin.bindingId !== input.delivery.bindingId ||
+    origin.idempotencyKey !== subscription.continuationIdempotencyKey ||
+    originTrigger?.source !== trigger.source ||
+    originTrigger.subscriptionId !== trigger.subscriptionId ||
+    subscription.organizationId !== input.delivery.organizationId ||
+    buildAgentTaskKey(originTrigger.watchedTask) !==
+      buildAgentTaskKey(subscription.watchedTask) ||
+    buildAgentTaskKey(subscription.watchedTask) !==
+      buildAgentTaskKey(trigger.watchedTask)
+  ) {
+    throw new Error("agent_task_continuation.stop_identity_mismatch");
+  }
+  const parent = await readAgentTaskTerminalOutcome({
+    db,
+    taskKey: buildAgentTaskKey(subscription.observerTask),
+  });
+  return parent?.outcome.status === "stopped";
+}
+
+async function reconcileTaskContinuationParentStop(input: {
+  db: D1Database;
+  delivery: RemoteAgentNativeDeliveryRecord;
+  env: CoreBindings;
+  nowMs: number;
+  probe: RemoteAgentNativeDeliveryDeadlineProbeQueueMessage;
+}): Promise<{ reasonCode: string; status: "skipped" }> {
+  try {
+    const outcome = await withRemoteAgentExecutionReconciliationTimeout(
+      requestRemoteAgentNativeDeliveryStop(input)
+    );
+    const delivery = await readRemoteAgentNativeDeliveryByIdempotencyKey({
+      db: input.db,
+      idempotencyKey: input.delivery.idempotencyKey,
+    });
+    if (delivery && isRemoteAgentNativeDeliveryTerminal(delivery)) {
+      await projectRemoteAgentNativeDeliveryTerminalEffects({
+        ...input,
+        delivery,
+      });
+      return {
+        status: "skipped",
+        reasonCode:
+          outcome === "stopped"
+            ? "remote_agent.execution_cancelled"
+            : "remote_agent.parent_stop_already_terminal",
+      };
+    }
+    throw new Error("remote_agent.parent_stop_cancellation_pending");
+  } catch (error) {
+    console.warn(
+      "[core.remote_agent.task_continuation.stop_reconciliation_deferred]",
+      {
+        dispatchId: input.delivery.dispatchId,
+        error: toErrorMessage(error),
+        idempotencyKey: input.delivery.idempotencyKey,
+      }
+    );
+    // Reuse the durable probe conveyor. A transport failure cannot authorize a
+    // retry, become a terminal failure, or lose the Stop forwarding request.
+    await requeueRemoteAgentNativeDeliveryDeadlineProbe({
+      ...input,
+      runAtMs:
+        input.nowMs +
+        resolveAcceptedDeliveryProbeDelaySeconds(input.delivery) * 1000,
+    });
+    return {
+      status: "skipped",
+      reasonCode: "remote_agent.cancellation_execution_unconfirmed",
+    };
+  }
 }
 
 async function finalizeRemoteAgentAdmissionTimeout(
@@ -10351,6 +11203,19 @@ async function finalizeRemoteAgentAdmissionTimeout(
     return messageChannelOutcome;
   }
 
+  const failureMessage = isRetryableTaskContinuationAdmission(claimed)
+    ? formatPublicAgentFailureFacts(
+        buildTaskContinuationAdmissionFailureFacts({
+          delivery: claimed,
+          maxAttempts: REMOTE_AGENT_TASK_CONTINUATION_ADMISSION_MAX_ATTEMPTS,
+          languageTag: await resolveNativeFailureLanguage({
+            coordinationDb: agentTaskCoordinationDb(input.env),
+            db: identityDb(input.env),
+            delivery: claimed,
+          }),
+        })
+      ).body
+    : REMOTE_AGENT_ADMISSION_TIMEOUT_FAILURE_TEXT;
   let publishedSignalId: string | null;
   try {
     const publishedSignal = await publishRemoteAgentCallbackFailureText({
@@ -10359,7 +11224,7 @@ async function finalizeRemoteAgentAdmissionTimeout(
         bindingId: claimed.bindingId,
         dispatchId: claimed.dispatchId,
         failureCode: REMOTE_AGENT_ADMISSION_TIMEOUT_FAILURE_CODE,
-        failureMessage: REMOTE_AGENT_ADMISSION_TIMEOUT_FAILURE_TEXT,
+        failureMessage,
         idempotencyKey: claimed.idempotencyKey,
         organizationId: claimed.organizationId,
         spaceId: claimed.spaceId,
@@ -10415,7 +11280,7 @@ async function finalizeRemoteAgentAdmissionTimeout(
       attemptStatus: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedTerminal,
       db: input.db,
       errorCode: REMOTE_AGENT_ADMISSION_TIMEOUT_FAILURE_CODE,
-      errorMessage: REMOTE_AGENT_ADMISSION_TIMEOUT_FAILURE_TEXT,
+      errorMessage: failureMessage,
       idempotencyKey: published.idempotencyKey,
       nowMs: input.nowMs,
       status: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
@@ -10496,13 +11361,14 @@ async function reconcilePendingSpaceWakeStop(input: {
   const target = resolvePendingRemoteAgentCancellationTarget(input.delivery);
   const worker = input.env.OPENMELD_REMOTE_AGENT_WORKER;
   try {
-    if (await settlePendingNativeStopFromSpaceOutcome(input)) {
-      return {
-        status: "skipped",
-        reasonCode: "remote_agent.execution_cancelled",
-      };
-    }
     if (!(target && worker?.cancelExecution)) {
+      // Keep the older-receiver projection policy, without claiming a native fence.
+      if (await settlePendingNativeStopFromSpaceOutcome(input)) {
+        return {
+          status: "skipped",
+          reasonCode: "remote_agent.execution_cancelled",
+        };
+      }
       throw new Error("remote_agent.cancellation_receiver_unavailable");
     }
     const response = remoteAgentWorkerCancellationResponseSchema.parse(
@@ -10514,10 +11380,30 @@ async function reconcilePendingSpaceWakeStop(input: {
         })
       )
     );
-    if (
-      response.status === "not_found" ||
-      response.status === "identity_mismatch"
-    ) {
+    if (response.status === "not_found") {
+      const request =
+        input.delivery.workerSubmitRequest ??
+        input.delivery.executionRecoverySubmitRequest;
+      if (!request) {
+        throw new Error("remote_agent.cancellation_execution_unconfirmed");
+      }
+      const fence = await withRemoteAgentExecutionReconciliationTimeout(
+        readRemoteAgentWorkerAdmissionStop({ request, worker })
+      );
+      if (fence?.status === "not_found") {
+        throw new Error("remote_agent.cancellation_fence_unconfirmed");
+      }
+      // A positive receipt fences late work, not an execution ACK. Older receivers
+      // retain the Space projection policy; no restart may rely on their null receipt.
+      if (await settlePendingNativeStopFromSpaceOutcome(input)) {
+        return {
+          status: "skipped",
+          reasonCode: "remote_agent.execution_cancelled",
+        };
+      }
+      throw new Error("remote_agent.cancellation_execution_unconfirmed");
+    }
+    if (response.status === "identity_mismatch") {
       throw new Error("remote_agent.cancellation_execution_unconfirmed");
     }
     // The execution owner has now confirmed this exact submission exists.
@@ -10873,6 +11759,14 @@ async function completeRemoteAgentFailedCallback(input: {
   env: CoreBindings;
   nowMs: number;
 }): Promise<RemoteAgentCoreCallbackResponse> {
+  const failureText = await resolveInterruptedCallbackFailureText(input);
+  const payload =
+    input.delivery.finalPublicationPayload ??
+    buildRemoteAgentFinalPublicationPayload({
+      body: input.body,
+      resumeStatus: input.delivery.status,
+      failureText,
+    });
   const claimId = crypto.randomUUID();
   const claim = await claimRemoteAgentFinalPublication({
     db: input.db,
@@ -10881,10 +11775,7 @@ async function completeRemoteAgentFailedCallback(input: {
     claimId,
     idempotencyKey: input.body.idempotencyKey,
     nowMs: input.nowMs,
-    payload: buildRemoteAgentFinalPublicationPayload({
-      body: input.body,
-      resumeStatus: input.delivery.status,
-    }),
+    payload,
     submissionId: input.body.submissionId,
     terminalFailureCode: input.body.failureCode,
     terminalFailureDetail: input.body.failureDetail,
@@ -10904,6 +11795,7 @@ async function completeRemoteAgentFailedCallback(input: {
       body: input.body,
       delivery: input.delivery,
       env: input.env,
+      failureText,
     });
     const normalizedPublishedSignalId = normalizeOptionalText(
       publishedSignal?.id
@@ -11122,10 +12014,12 @@ async function closeRemoteAgentFailedCallbackStream(input: {
     submissionId: input.body.submissionId,
     terminal: buildRemoteAgentFailureStreamTerminal({
       failureCode: input.body.failureCode,
-      noticeText: resolveCenterAgentCallbackFailureMessage({
-        ...input.body,
-        ...(profileName ? { agentLabel: profileName } : {}),
-      }),
+      noticeText:
+        input.delivery.finalPublicationPayload?.text ??
+        resolveCenterAgentCallbackFailureMessage({
+          ...input.body,
+          ...(profileName ? { agentLabel: profileName } : {}),
+        }),
     }),
   });
 }
@@ -11525,10 +12419,112 @@ function resolveSlackReplyPlacement(
   return "thread";
 }
 
+async function resolveInterruptedCallbackFailureText(input: {
+  body: RemoteAgentFailedCallbackBody;
+  delivery: NativeDeliveryPublishRecord;
+  env: CoreBindings;
+}): Promise<string | undefined> {
+  if (
+    input.delivery.conversationKind !== "space" ||
+    input.delivery.routineRunId ||
+    input.body.failureCode !== "remote_agent.turn_not_completed"
+  ) {
+    return undefined;
+  }
+  if (input.delivery.finalPublicationPayload) {
+    return input.delivery.finalPublicationPayload.text;
+  }
+  const { personalAgent, profileName } =
+    await resolveRemoteAgentCallbackFailureProfile(input);
+  const facts = buildRoutineExecutionFailureFacts({
+    ...input.body,
+    delivery: input.delivery,
+    languageTag: await resolveNativeFailureLanguage({
+      coordinationDb: agentTaskCoordinationDb(input.env),
+      db: identityDb(input.env),
+      delivery: input.delivery,
+    }),
+  });
+  const db = agentTaskCoordinationDb(input.env);
+  if (db) {
+    try {
+      const results = await withRemoteAgentExecutionReconciliationTimeout(
+        readInterruptedTaskResults({
+          db,
+          env: input.env,
+          delivery: {
+            ...input.delivery,
+            workerSubmitRequest: input.delivery.workerSubmitRequest ?? null,
+          },
+        })
+      );
+      facts.completedResults = (results ?? []).map((result) => ({
+        resultRef: result.signalId,
+        url: buildPublicSpaceEntryUrl({
+          origin: input.env.WEB_APP_URL ?? null,
+          target: result,
+        }),
+      }));
+    } catch {
+      // Evidence unavailable: still publish an honest failure, never a guessed
+      // result locator or a retry of the interrupted execution.
+      facts.completedResults = [];
+      console.warn(
+        "[core.remote_agent.interrupted_result_evidence_unavailable]",
+        {
+          dispatchId: input.delivery.dispatchId,
+          reasonCode: "task_summary_recovery.result_evidence_unavailable",
+        }
+      );
+    }
+    const trigger = (
+      input.delivery.workerSubmitRequest ??
+      input.delivery.executionRecoverySubmitRequest
+    )?.turnEnvelope.trigger;
+    if (
+      facts.completedResults?.length &&
+      !personalAgent &&
+      trigger?.source === "task_continuation" &&
+      input.delivery.onBehalfOfUserId
+    ) {
+      try {
+        const availability =
+          await withRemoteAgentExecutionReconciliationTimeout(
+            continueTaskSummary({
+              actorProfileId: input.delivery.profileId,
+              db,
+              env: input.env,
+              inspectOnly: true,
+              nowMs: Date.now(),
+              operatorUserId: input.delivery.onBehalfOfUserId,
+              organizationId: input.delivery.organizationId,
+              sourceSubscriptionId: trigger.subscriptionId,
+            })
+          );
+        if (availability?.status === "available") {
+          facts.recoveryActions = ["continue_task_continuation"];
+        }
+      } catch {
+        console.warn(
+          "[core.remote_agent.interrupted_summary_evidence_unavailable]",
+          {
+            dispatchId: input.delivery.dispatchId,
+            reasonCode: "task_summary_recovery.execution_unconfirmed",
+          }
+        );
+      }
+    }
+  }
+  return formatPublicInterruptedTaskFailureFacts(facts, {
+    agentLabel: profileName,
+  }).body;
+}
+
 async function publishRemoteAgentCallbackFailureText(input: {
   body: RemoteAgentFailedCallbackBody;
   delivery: NativeDeliveryPublishRecord;
   env: CoreBindings;
+  failureText?: string;
 }): Promise<{ id?: string | null } | null> {
   const recovery = input.delivery.executionRecoverySubmitRequest?.replyRecovery;
   if (recovery?.resultRef && input.delivery.conversationKind === "space") {
@@ -11579,18 +12575,26 @@ async function publishRemoteAgentCallbackFailureText(input: {
       env: input.env,
       errorCode: input.body.failureCode,
       purpose: REMOTE_AGENT_FAILURE_PURPOSE,
-      text: buildRoutineFailureText({
-        failureCode: input.body.failureCode,
-        failureReason: resolveCenterAgentCallbackFailureMessage({
-          ...input.body,
-          agentLabel: profileName,
+      text: formatPublicRoutineFailureFacts(
+        buildRoutineExecutionFailureFacts({
+          delivery: input.delivery,
+          failureCode: input.body.failureCode,
+          failureDetail: input.body.failureDetail,
+          languageTag: await resolveNativeFailureLanguage({
+            coordinationDb: agentTaskCoordinationDb(input.env),
+            db: identityDb(input.env),
+            delivery: input.delivery,
+          }),
         }),
-        routineName:
-          normalizeOptionalText(input.delivery.routineNameSnapshot) ??
-          "Scheduled Routine",
-        runId: input.delivery.routineRunId,
-        runUrl,
-      }),
+        {
+          agentLabel: profileName,
+          routineName:
+            normalizeOptionalText(input.delivery.routineNameSnapshot) ??
+            "Scheduled Routine",
+          runId: input.delivery.routineRunId,
+          runUrl,
+        }
+      ),
     });
   }
 
@@ -11608,10 +12612,17 @@ async function publishRemoteAgentCallbackFailureText(input: {
     agentControllerConversationId: input.body.submissionId,
   });
   // Name the Agent that failed, not the Center Agent, in user-facing copy.
-  const failureText = resolveCenterAgentCallbackFailureMessage({
-    ...input.body,
-    agentLabel: profileName,
-  });
+  const failureText =
+    input.failureText ??
+    (input.body.failureCode === REMOTE_AGENT_ADMISSION_TIMEOUT_FAILURE_CODE &&
+    input.delivery.admissionAttemptCount >=
+      REMOTE_AGENT_TASK_CONTINUATION_ADMISSION_MAX_ATTEMPTS &&
+    isRetryableTaskContinuationAdmission(input.delivery)
+      ? input.body.failureMessage
+      : resolveCenterAgentCallbackFailureMessage({
+          ...input.body,
+          agentLabel: profileName,
+        }));
   const context = buildRemoteAgentCallbackContext({
     delivery: input.delivery,
     profile,
@@ -12826,6 +13837,31 @@ async function projectRemoteAgentNativeDeliveryTerminalEffects(input: {
     env: input.env,
     outcome,
   });
+  if (
+    input.delivery.failureCode ===
+      REMOTE_AGENT_ADMISSION_TIMEOUT_FAILURE_CODE &&
+    input.delivery.admissionAttemptCount >=
+      REMOTE_AGENT_TASK_CONTINUATION_ADMISSION_MAX_ATTEMPTS &&
+    isRetryableTaskContinuationAdmission(input.delivery)
+  ) {
+    const ownerInboxDb = inboxDb(input.env);
+    if (!ownerInboxDb) {
+      throw new Error(
+        "remote_agent.task_continuation.admission_alert_store_unavailable"
+      );
+    }
+    await projectTaskContinuationAdmissionExhaustedInboxItem({
+      attempts: input.delivery.admissionAttemptCount,
+      db: ownerInboxDb,
+      delivery: input.delivery,
+      occurredAtMs: outcome.occurredAtMs,
+      languageTag: await resolveNativeFailureLanguage({
+        coordinationDb: agentTaskCoordinationDb(input.env),
+        db: identityDb(input.env),
+        delivery: input.delivery,
+      }),
+    });
+  }
 
   for (const task of watchedTasks) {
     await recordAndEnqueueAgentTaskTerminalOutcome({
@@ -12856,41 +13892,95 @@ async function publishConfirmedNativeStopIfNeeded(input: {
     delivery.status !== "failed" ||
     delivery.publishedSignalId ||
     delivery.failureCode !==
-      RUNTIME_COORDINATOR_PRE_AGENT_STOP_REQUESTED_REASON_CODE ||
-    !delivery.submissionId
+      RUNTIME_COORDINATOR_PRE_AGENT_STOP_REQUESTED_REASON_CODE
   ) {
     return;
   }
   const existingSignalId = await readRemoteAgentFinalReplyClaimSignalId(input);
   const published = existingSignalId
     ? { id: existingSignalId }
-    : await publishRemoteAgentCallbackFailureText({
-        env: input.env,
-        delivery,
-        body: {
-          status: "failed",
-          agentProfileId: delivery.profileId,
-          bindingId: delivery.bindingId,
-          dispatchId: delivery.dispatchId,
-          idempotencyKey: delivery.idempotencyKey,
-          organizationId: delivery.organizationId,
-          spaceId: delivery.spaceId,
-          submissionId: delivery.submissionId,
-          triggerMessageId: delivery.triggerMessageId,
-          failureCode: RUNTIME_COORDINATOR_PRE_AGENT_STOP_REQUESTED_REASON_CODE,
-          failureMessage: "This request was stopped.",
-        },
+    : await publishConfirmedNativeStopNotice({
+        ...input,
+        submissionId: delivery.submissionId,
       });
   if (!published?.id) {
     throw new Error("remote_agent.stopped_publication_unconfirmed");
   }
-  await markRemoteAgentNativeDeliveryFailurePublished({
+  const publication = {
     db: input.db,
     nowMs: input.nowMs,
-    submissionId: delivery.submissionId,
     failureCode: RUNTIME_COORDINATOR_PRE_AGENT_STOP_REQUESTED_REASON_CODE,
     publishedSignalId:
       (await readRemoteAgentFinalReplyClaimSignalId(input)) ?? published.id,
+  };
+  if (delivery.submissionId) {
+    await markRemoteAgentNativeDeliveryFailurePublished({
+      ...publication,
+      submissionId: delivery.submissionId,
+    });
+  } else {
+    await markRemoteAgentPreAdmissionFailurePublished({
+      ...publication,
+      idempotencyKey: delivery.idempotencyKey,
+    });
+  }
+}
+
+async function publishConfirmedNativeStopNotice(input: {
+  delivery: NativeDeliveryPublishRecord;
+  env: CoreBindings;
+  submissionId: string | null;
+}): Promise<SignalEnvelope | null> {
+  const { delivery } = input;
+  const request =
+    delivery.workerSubmitRequest ?? delivery.executionRecoverySubmitRequest;
+  const replyThreadContext =
+    await resolveNativeDeliveryReplyThreadContext(input);
+  const profileName = request?.turnEnvelope.centerAgent.profileName ?? "Agent";
+  // A confirmed admission fence is not an ACK. Preserve the absent controller
+  // conversation instead of fabricating a submission identity for publication.
+  const context: OpenMeldRequestContext = {
+    activeOrganizationId: delivery.organizationId,
+    actorContext: {
+      requestId: `native-stop:${delivery.deliveryId}`,
+      openMeldProfileId: delivery.profileId,
+      profileKind: "agent",
+      profileName,
+      ...(request?.agentProfileOwnerUserId
+        ? { ownerUserId: request.agentProfileOwnerUserId }
+        : {}),
+    },
+    ...(input.submissionId
+      ? { agentControllerConversationId: input.submissionId }
+      : {}),
+  };
+  return await emitSpaceSystemNoticeSignal({
+    env: input.env,
+    spaceId: delivery.spaceId,
+    profile: {
+      kind: "system",
+      profileId: DISPATCH_HINT_SYSTEM_PROFILE_ID,
+      profileName: DISPATCH_HINT_SYSTEM_PROFILE_NAME,
+    },
+    finalOutcomeAuthority: "remote_agent_native_delivery",
+    data: {
+      noticeType: "wake_stopped",
+      actorProfileId: delivery.profileId,
+      actorName: profileName,
+      dispatchId: delivery.dispatchId,
+      generatedBy: "openmeld",
+      reasonCode: REMOTE_AGENT_EXECUTION_CANCELLED_FAILURE_CODE,
+      text: "This request was stopped.",
+    },
+    spaceAccess: createDispatchContinuationSpaceAccessContext({
+      dispatchId: delivery.dispatchId,
+      requestContext: context,
+      sourceSignalId: delivery.triggerMessageId,
+      spaceId: delivery.spaceId,
+      targetProfileId: delivery.profileId,
+    }),
+    ...(replyThreadContext ? { threadContext: replyThreadContext } : {}),
+    context,
   });
 }
 

@@ -3,16 +3,9 @@ import { formatDirectMessageTime } from "./direct-message-preview";
 
 export function resolveConversationTimestamp(
 	messageTimestamp: number | undefined,
-	createdAt: string | null | undefined
+	_createdAt: string | null | undefined
 ) {
-	if (messageTimestamp !== undefined) {
-		return messageTimestamp;
-	}
-	if (!createdAt) {
-		return null;
-	}
-	const timestamp = Date.parse(createdAt);
-	return Number.isFinite(timestamp) ? timestamp : null;
+	return messageTimestamp ?? null;
 }
 
 export function SidebarConversationTime(input: {

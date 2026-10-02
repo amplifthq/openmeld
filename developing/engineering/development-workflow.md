@@ -473,6 +473,11 @@ development entry only.
 
 ### Local macOS CLI/Service sign-in
 
+The Device Authorization client defaults to `openmeld-cli-dev` in `dev-local`,
+including when Web Setup launches the packaged binary instead of the
+`openmeld-dev` entry. Explicit CLI and `OPENMELD_AUTH_CLIENT_ID` settings retain
+their existing precedence. Production and canary defaults remain `openmeld-cli`.
+
 New sign-ins automatically use the existing private-file token store when
 `dev-local` has an explicit isolated `OPENMELD_HOME` and both Auth and Gateway
 use loopback URLs. No extra setup flag is needed. Credentials are unencrypted,

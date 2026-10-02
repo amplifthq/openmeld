@@ -499,8 +499,12 @@ New profiles default to "<Organization name> Center Agent" so they remain
 recognizable across Organizations. A missing or blank Organization name falls
 back to "Center Agent", and an Organization name that already ends with
 "Center Agent" is not given a duplicate suffix. Existing profiles are not
-renamed by ensure. Future Center Agent settings may let an org customize the
-name, role description, avatar, or instructions, but that customization edits
+renamed by ensure. Center Agent settings let an authorized organization owner
+or admin choose a Bot avatar or the abstract fluid avatar on the managed
+profile. An unset avatar uses a stable Bot choice derived from that profile's
+identity, so every member sees the same default. The user previews choices in
+place and explicitly saves the selected avatar. Future customization of the
+role description or instructions also edits
 the same managed profile. It must not create a second Center Agent or turn an
 arbitrary ordinary Agent Profile into the Center Agent. The UI shows a
 badge/label derived from the designation to convey "this is our org's Center
@@ -965,6 +969,19 @@ turn and its new Native Delivery from the observer delivery's frozen locator;
 the subscription never copies or overrides that destination. This also permits
 one Space parent to watch work in another Space without making either Space the
 coordination owner.
+
+If a Space continuation receives no worker ACK during its admission window,
+Core retries that same Native Delivery at most twice after the initial attempt,
+with 15-second and 30-second backoff. Every attempt reuses the frozen worker
+request, delivery id, dispatch id, and idempotency key; it never creates a new
+continuation or consumes the subscription again. A real worker ACK, including
+an already-observed idempotent ACK, closes retry eligibility immediately.
+After three unacknowledged attempts, Core publishes one explicit failure in the
+original result thread and creates one urgent, action-required Inbox item for
+the represented member linked to that result. The member does not need to poll
+or remember to Wake the parent, and accepted or running work is never replayed
+by this admission recovery.
+
 Stopping the parent cancels pending continuations and planned fallbacks, and
 forwards the existing exact Wake Stop request to every active Space Wake child.
 Every cancellation target is attempted even when one fails. Hosted
@@ -1722,10 +1739,13 @@ repository outside the installation grant fails visibly with the matching
 remedy.
 
 The installation start is bound to one Organization, installer, Center Agent
-profile, and target connection by a single-use ten-minute opaque state. GitHub
-returns the installation id to OpenMeld's public setup callback. OpenMeld then
-uses a temporary verifier connection to prove that the same signed-in GitHub
-user can see that installation before OpenConnector stores the final
+profile, and target connection by a single-use ten-minute opaque state. For a
+new installation, GitHub returns the installation id to OpenMeld's public setup
+callback. For an App already installed, OpenMeld starts user authorization
+directly and accepts the installation only when that user can access exactly
+one organization installation of the configured App. If several installations
+are accessible, setup must stop instead of guessing an account. Both paths use
+a temporary verifier connection before OpenConnector stores the final
 installation credential. Core stores the installation id and connection
 ownership metadata, never an installation token, App private key, OAuth client
 secret, or user token.

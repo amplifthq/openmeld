@@ -30,9 +30,25 @@
 - reusable motion mechanics such as pointer-proximity magnification, with
   stable interaction hit areas and reduced-motion behavior
 
+`lib/utils` re-exports `cn` from shadcn's zero-dependency `cn` package. Keep
+client imports through `@openmeld/ui/lib/utils`; the shared package owns this
+dependency. It combines conditional class joining and Tailwind v4 conflict
+resolution without a local `clsx` / `tailwind-merge` wrapper. See the official
+[cn migration](https://ui.shadcn.com/docs/cli#migrate-cn). Do not add a second
+client-local implementation or a class-table build plugin without a measured
+need.
+
 This package owns UI mechanics and visual primitives only. It does not own
 product copy, business rules, readiness, Wake state, setup state, Space truth,
 or client routing.
+
+`components/evilcharts` owns the official registry-installed Apache ECharts
+area primitive and its theme, tooltip, legend, dot, and brush modules. Its
+README records source provenance and local adaptations. Consumers compose
+the compound API and lazy-load the rendering module; product scope, queries,
+and surrounding interactions remain outside the chart primitive. Use Fluid
+surfaces and controls around charts. Preserve null gaps, escaped tooltip text,
+and reduced-motion loading behavior when refreshing registry source.
 
 `VideoPlayer` composes Media Chrome's controls with shared design tokens and solid
 surfaces. It owns no file fetching, credentials, cache, or Space identity. Global
@@ -56,6 +72,58 @@ hover or keyboard focus, with open-menu and touch-device visibility preserved.
 Space Agent work and reasoning share `fluid/thinking-steps` as their disclosure;
 client code supplies the private reasoning, public progress, and admitted work
 content without a second shared disclosure component.
+
+### Fluid Hover reuse
+
+`hooks/use-fluid-hover` and `fluid/fluid-hover-highlight` are installed from the
+official Fluid Functionalism registry. The import retains the vendor's nearest
+enabled-item picking, coalesced measurement, pointer-session reset, optional
+gap activation, and reduced-motion fade without travel. Package imports,
+`interaction-hover`, and the existing shared spring tokens are the local
+adaptations. Installation source:
+
+```sh
+pnpm dlx shadcn@latest add https://www.fluidfunctionalism.com/r/use-fluid-hover.json --overwrite
+```
+
+Review registry imports in an isolated directory before transferring them into
+this package; do not overwrite existing shared tokens or adapted primitives.
+`FluidActionList` composes this hook and highlight for shared action menus.
+Gap activation is opt-in because generic menus can contain destructive actions;
+the Sidebar display menu enables it for its reversible alternatives.
+
+For context menus, use Base UI's ContextMenu root and trigger with
+`FluidDropdownMenuContent` and `FluidDropdownMenuItem` or
+`FluidDropdownMenuRadioItem`. The installed Base UI version shares its popup,
+positioner, and item primitives between Menu and ContextMenu. Reuse these slots
+instead of introducing a second Fluid context-menu visual or hover engine.
+Base UI retains roles, keyboard navigation, selection, positioning, dismissal,
+and focus restoration; Fluid Hover does not own those responsibilities.
+
+`fluid/context-menu` composes these same slots. `FluidContextMenuScope` renders
+the existing row/card through its trigger slot; an action owner supplies
+`FluidContextMenuContent` beside its ordinary dropdown and reuses the same
+items. `useFluidContextMenuOpen` exposes that root's controlled open state for
+eligibility reads. Nested scopes open only the nearest menu. Inputs, editable
+content, selected text, and disabled scopes retain native context menus.
+`FluidDropdownMenuGroup` splits measured hover lists at semantic dividers;
+`FluidDropdownMenuSubTrigger` keeps submenu triggers in their owning list.
+Menu separators leave one spacing unit (4px) on each side, matching the menu's
+content inset. Both shared menu families own this spacing. Sidebar hover pauses
+for open context-menu trigger slots as well as ordinary popup triggers; Base UI
+context-menu areas expose an open marker without `aria-haspopup`.
+
+Prefer this primitive for stable, closely spaced clickable alternatives in
+menus, navigation, tabs, and grids. Use one list per semantic group; split at
+dividers and register only real click targets. Skip proximity or gap activation
+when a wrong click would hurt, clickability is mixed, empty space is large, or
+rows move while scrolling. Disabled rows and intervening controls must retain
+their own semantics. Existing specialized sidebar and tab geometry remains
+owned by those components; clients must not recreate it. Verify travel across
+rows and gaps, gap activation, keyboard operation, reopening, disabled states,
+touch behavior, and reduced motion in the complete surface. Official reference:
+[Fluid Hover](https://www.fluidfunctionalism.com/docs/fluid-hover).
+
 
 ## Import Rule
 
@@ -342,10 +410,23 @@ frames. Static frames are cached by color with a 64-frame limit. Idle instances
 do not subscribe to animation frames. Context failure preserves a rendered
 frame or the supplied fallback without repeatedly allocating GPU contexts.
 
-Web's `RemoteAgentAvatar` supplies a normalized Profile name as the color seed,
-so creation previews and saved Profiles use the same restrained 36-color
-palette. Renaming changes the color; identical names share a color. Personal
-Remote Agents use rounded squares, Center Agents use circles, and Local Agents
+Web's `RemoteAgentAvatar` uses the stable Profile ID as the saved fluid avatar
+seed. Hosted Remote Agents default to the generic Agent mark and can keep an
+explicitly selected fluid avatar across model changes. Center Agents display
+their saved Bot or fluid style; authorized admins can select either. Missing
+style displays the automatic mark and must not hash the Profile ID to invent a
+saved Bot selection. The app shell provides one read of the existing Organization
+Profile Directory to every avatar entrance. Saved preferences are applied to
+loaded profile caches and invalidated after a successful save. Idle and read-only
+editors use the same saved Profile; only an unsaved user selection is a preview.
+Failed saves discard that preview and return to the current saved identity.
+Successful saves also send an account/Organization/Profile-scoped browser refresh
+hint. Other tabs re-read their own authorized directory; the hint carries no
+avatar data and does not add directories to browser persistence. Model vendors
+never select an Agent avatar. Bot avatars
+do not hop when idle, animate for real working state, and jump once on an
+explicit click. Reduced-motion preference suppresses their animation.
+Personal Remote Agents use rounded squares, Center Agents use circles, and Local Agents
 retain their harness logos. Web supplies authoritative working state; the
 primitive never infers work from presence or starts its own status queries.
 

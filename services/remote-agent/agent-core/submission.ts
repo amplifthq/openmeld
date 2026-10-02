@@ -1,5 +1,7 @@
 import {
   buildSpaceAttachmentObjectKey,
+  remoteAgentWorkerReadAdmissionResponseSchema,
+  remoteAgentWorkerReadAdmissionStopResponseSchema,
   remoteAgentWorkerSubmitMessagesResultSchema,
   remoteAgentWorkerSubmitTurnRequestSchema,
   spaceAttachmentMimeTypeSchema,
@@ -8,6 +10,7 @@ import type {
   RemoteAgentAdmissionStageOperation,
   RemoteAgentWorkerAdmissionRejectionCode,
   RemoteAgentWorkerInputAttachment,
+  RemoteAgentWorkerReadAdmissionResponse,
   RemoteAgentWorkerSubmitMessagesResult,
   RemoteAgentWorkerSubmitTurnRequest,
 } from "@openmeld/schemas/types";
@@ -20,8 +23,10 @@ import {
 } from "./callback-context";
 import { renderChannelContext } from "./channel-context";
 import {
+  assertRemoteAgentAdmissionNotStopped,
   buildRemoteAgentExecutionIdentity,
   initializeRemoteAgentExecutionState,
+  readRemoteAgentAdmissionStopIntent,
 } from "./execution-state";
 import { buildRemoteAgentTurnTimeContext } from "./prompt";
 import { renderPersonalRemoteAgentCollaborationContext } from "./prompt/space-collaboration";
@@ -101,6 +106,29 @@ export type RemoteAgentSubmitConversationTurnResult = {
   callbackContext: RemoteAgentCallbackContext;
   request: RemoteAgentWorkerSubmitTurnRequest;
 };
+
+/** Read the existing Stop owner; never create an ACK, lease or execution. */
+export async function readRemoteAgentAdmissionStop(input: {
+  request: RemoteAgentWorkerSubmitTurnRequest;
+  storage: Pick<RemoteAgentStorage, "get">;
+}) {
+  const stopIntent = await readRemoteAgentAdmissionStopIntent({
+    identity: buildRemoteAgentExecutionIdentity({
+      ...input.request,
+      submissionId: input.request.dispatchId,
+    }),
+    storage: input.storage,
+  });
+  return remoteAgentWorkerReadAdmissionStopResponseSchema.parse({
+    ...(stopIntent
+      ? { v: 1, status: "found", stopIntent }
+      : { v: 1, status: "not_found" }),
+    ...(input.request.turnEnvelope.trigger.source === "task_continuation" &&
+    input.request.turnEnvelope.trigger.summaryOnly
+      ? { summaryOnlySupported: true, summaryRecoveryFenceSupported: true }
+      : {}),
+  });
+}
 
 export type ExistingRemoteAgentSubmission =
   | { claimedAtMs: number; status: "claimed" }
@@ -577,6 +605,12 @@ export async function submitRemoteAgentConversationTurn(
     }
   }
   input.reportStage?.("submission_dedupe_completed");
+  if (input.storage) {
+    await assertRemoteAgentAdmissionNotStopped({
+      identity: buildRemoteAgentExecutionIdentity({ ...request, submissionId }),
+      storage: input.storage,
+    });
+  }
   const metadata = buildRemoteAgentSubmissionMetadata({
     request,
     submittedAtMs: originalSubmittedAtMs,
@@ -622,6 +656,12 @@ export async function submitRemoteAgentConversationTurn(
     });
   }
 
+  if (input.storage) {
+    await assertRemoteAgentAdmissionNotStopped({
+      identity: buildRemoteAgentExecutionIdentity(callbackContext),
+      storage: input.storage,
+    });
+  }
   const submitted = await input.host.admitConversationTurn({
     images: attachmentResolution.images,
     message: appendRemoteAgentTurnTimeContext(
@@ -695,6 +735,26 @@ export async function readExistingRemoteAgentSubmission(input: {
     receipt,
     request: input.request,
     requestDigest,
+  });
+}
+
+/** Read the original native receipt; never submit, claim, or initialize a turn. */
+export async function readRemoteAgentAdmission(input: {
+  request: RemoteAgentWorkerSubmitTurnRequest;
+  storage: Pick<RemoteAgentStorage, "get">;
+}): Promise<RemoteAgentWorkerReadAdmissionResponse> {
+  const existing = await readExistingRemoteAgentSubmission(input);
+  if (!existing) {
+    return { v: 1, status: "not_found" };
+  }
+  if (existing.status === "claimed") {
+    // A reserved deterministic ID is not proof of a framework submission.
+    return { v: 1, status: "unconfirmed" };
+  }
+  return remoteAgentWorkerReadAdmissionResponseSchema.parse({
+    v: 1,
+    status: "found",
+    ack: existing.result.ack,
   });
 }
 

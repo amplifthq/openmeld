@@ -10,6 +10,8 @@ import {
   conversationCompactionMarkerSchema,
   type ModelCatalogReadOptions,
   type OpenMeldNavigationTarget,
+  ORGANIZATION_SKILL_RELEASE_UNAVAILABLE_PUBLIC_COPY,
+  ORGANIZATION_SKILL_RELEASE_UNAVAILABLE_REASON_CODE,
   openMeldNavigationTargetSchema,
   openMeldRuntimeProfileIdSchema,
   REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES,
@@ -30,6 +32,8 @@ import {
 } from "@openmeld/schemas";
 import type {
   AgentActivityOverviewResponse,
+  AiUsageQueryResponse,
+  CenterAgentAiUsageRpcInput,
   CenterAgentAuthorizeAnonymousMemberToolResponse,
   CenterAgentAuthorizeAnonymousMemberToolRpcInput,
   CenterAgentCreateOrganizationInviteLinkResponse,
@@ -161,6 +165,8 @@ import type {
   RemoteAgentWorkerSubmitMessagesResult,
   RemoteAgentWorkerSubmitTurnRequest,
   RemoteAgentWorkLoopCheckpoint,
+  RemoteAiUsageWrite,
+  RemoteAiUsageWriteResponse,
   ResolveSpaceFileContentInput,
   ResolveSpaceFileContentResponse,
   ResumeCenterAgentRoutineResponse,
@@ -175,6 +181,7 @@ import type {
 } from "@openmeld/schemas/types";
 import { normalizeRemoteAgentCompletedAnswer } from "./completed-answer";
 import {
+  isOrganizationSkillReleaseUnavailable,
   isRemoteAgentContextWindowExceeded,
   isRemoteAgentToolResultTooLarge,
   normalizeRemoteAgentErrorMessage,
@@ -248,6 +255,7 @@ export type RemoteAgentCallbackContext = {
   outputAttachments?: SpaceMessageAttachment[];
   outputFiles?: SpaceMessageFileReference[];
   dispatchId: string;
+  taskId?: string;
   idempotencyKey: string;
   lastCoreResponse?: RemoteAgentCoreCallbackResponse;
   lastFailureFact?: RemoteAgentFailureFact;
@@ -328,6 +336,12 @@ export type RemoteAgentStorage = RemoteAgentReadableStorage &
   RemoteAgentWritableStorage;
 
 export type RemoteAgentCoreWorkerBinding = {
+  recordRemoteAiUsage?(
+    input: RemoteAiUsageWrite
+  ): Promise<RemoteAiUsageWriteResponse>;
+  centerAgentReadAiUsage?(
+    input: CenterAgentAiUsageRpcInput
+  ): Promise<AiUsageQueryResponse>;
   authorizeRemoteAgentExecutionAccess?(input: unknown): Promise<unknown>;
   getModelCatalog?(
     options?: ModelCatalogReadOptions
@@ -620,6 +634,7 @@ export type RemoteAgentCoreWorkerBinding = {
   personalRemoteAgentSpaceTool?(input: unknown): Promise<unknown>;
   centerAgentListAgentTasks?(input: unknown): Promise<unknown>;
   centerAgentWatchAgentTask?(input: unknown): Promise<unknown>;
+  centerAgentContinueTaskSummary?(input: unknown): Promise<unknown>;
   inspectExecutionRecovery?(input: unknown): Promise<unknown>;
   executeExecutionRecovery?(input: unknown): Promise<unknown>;
   recordSpaceAttachment?(input: {
@@ -769,6 +784,7 @@ export function createRemoteAgentCallbackContext(input: {
       ? { runtimeConversationId: input.request.runtimeConversation.id }
       : {}),
     dispatchId: input.request.dispatchId,
+    taskId: input.request.taskId,
     idempotencyKey: input.request.idempotencyKey,
     ...(input.request.v === 1 ? {} : { modelRoute: input.request.modelRoute }),
     organizationId: input.request.organizationId,
@@ -1921,6 +1937,9 @@ function resolveRemoteAgentResultFailureCode(
   if (isRemoteAgentToolResultTooLarge(result.error)) {
     return REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_REASON_CODE;
   }
+  if (isOrganizationSkillReleaseUnavailable(result.error)) {
+    return ORGANIZATION_SKILL_RELEASE_UNAVAILABLE_REASON_CODE;
+  }
   if (
     result.failureReasonCode &&
     result.failureReasonCode !==
@@ -1943,6 +1962,8 @@ function resolveRemoteAgentFailureMessage(code: string): string {
       return CENTER_AGENT_OUTPUT_LIMIT_EXCEEDED_PUBLIC_COPY;
     case REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_REASON_CODE:
       return REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_PUBLIC_COPY;
+    case ORGANIZATION_SKILL_RELEASE_UNAVAILABLE_REASON_CODE:
+      return ORGANIZATION_SKILL_RELEASE_UNAVAILABLE_PUBLIC_COPY;
     case REMOTE_AGENT_TOOL_SAFETY_LIMIT_REASON_CODE:
       return REMOTE_AGENT_TOOL_SAFETY_LIMIT_PUBLIC_COPY;
     case "remote_agent.turn_not_completed":

@@ -394,6 +394,7 @@ function ComputersPageBody(input: {
 		return (
 			<OrganizationComputerDetail
 				computer={input.selectedOrganizationComputer}
+				organizationId={input.organizationId}
 			/>
 		);
 	}

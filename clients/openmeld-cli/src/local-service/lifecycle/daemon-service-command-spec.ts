@@ -1,4 +1,5 @@
 import { userInfo } from "node:os";
+import { delimiter } from "node:path";
 import process from "node:process";
 import {
   normalizeCommandEnvironment,
@@ -43,6 +44,8 @@ import type {
 
 const DEFAULT_LAUNCHD_PATH = "/usr/bin:/bin:/usr/sbin:/sbin";
 const MACOS_SYSTEM_SHELL = "/bin/sh";
+const DISPATCH_SPACE_ACTION_PATH_PATTERN =
+  /[\\/]runtime[\\/]daemon[\\/]dispatch-space-actions[\\/][^\\/]+[\\/]bin$/u;
 const DAEMON_SERVICE_ENV_KEY_WHITELIST = new Set([
   "HOME",
   "PATH",
@@ -205,7 +208,10 @@ function buildSystemServiceEnvironment(): Record<string, string> {
     ) {
       continue;
     }
-    env[key] = sanitizeDaemonServiceEnvironmentValue(value);
+    env[key] =
+      key === "PATH"
+        ? stripDispatchSpaceActionCliShims(value)
+        : sanitizeDaemonServiceEnvironmentValue(value);
   }
   if (process.platform === "darwin") {
     env.PATH ??= DEFAULT_LAUNCHD_PATH;
@@ -219,6 +225,13 @@ function buildSystemServiceEnvironment(): Record<string, string> {
   env.USER ??= env.LOGNAME ?? runtimeUser;
   env.LOGNAME ??= env.USER;
   return env;
+}
+
+function stripDispatchSpaceActionCliShims(value: string): string {
+  return value
+    .split(delimiter)
+    .filter((entry) => !DISPATCH_SPACE_ACTION_PATH_PATTERN.test(entry))
+    .join(delimiter);
 }
 
 function isDaemonServiceEnvironmentKey(key: string): boolean {

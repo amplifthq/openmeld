@@ -5,7 +5,6 @@ export function isDesktopAppHref(href: string): boolean {
       url.origin === "https://desktop.invalid" &&
       (url.pathname === "/" ||
         url.pathname.startsWith("/o/") ||
-        url.pathname.startsWith("/spaces/") ||
         url.pathname === "/invitation-requests" ||
         url.pathname === "/file-preview")
     );

@@ -121,6 +121,25 @@ describe("OpenConnector runtime action contract", () => {
         ...envelope,
         outputSchema: { type: "object" },
       }).success
+    ).toBe(true);
+    expect(
+      openConnectorRuntimeActionSuccessEnvelopeSchema.safeParse({
+        ...envelope,
+        unexpectedPolicy: true,
+      }).success
     ).toBe(false);
+    for (const meta of [
+      { ...envelope.meta, actionId: "" },
+      { ...envelope.meta, executionId: "" },
+      { ...envelope.meta, auditPersisted: "true" },
+    ]) {
+      expect(
+        openConnectorRuntimeActionSuccessEnvelopeSchema.safeParse({
+          ...envelope,
+          meta,
+          outputSchema: { type: "object" },
+        }).success
+      ).toBe(false);
+    }
   });
 });

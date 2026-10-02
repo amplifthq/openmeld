@@ -103,6 +103,11 @@ import {
 	isLocalAgentControlStillRunningError,
 } from "./agents-page-formatters";
 import { resolveCurrentLocalRuntimeServiceActionLabel } from "./agents-page-service-action";
+import {
+	LocalAgentConsumptionDetails,
+	LocalAgentConsumptionPreview,
+	type LocalAgentConsumptionScope,
+} from "./local-agent-consumption";
 import { LocalAgentInstallEmptyState } from "./local-agent-install-empty-state";
 
 type AgentsPageController = ReturnType<typeof useLocalAgentRecoveryController>;
@@ -118,6 +123,7 @@ const LOCAL_AGENT_INSTALLATION_QUERY_STALE_TIME_MS = 30_000;
 const LOCAL_AGENT_CHECK_COMPLETE_MESSAGE = "Local agent check complete.";
 
 export type LocalAgentsCardOwnerProps = {
+	usageScope?: LocalAgentConsumptionScope;
 	controlTarget?: PeopleComputerTarget | null;
 	controlCapabilities?: LocalRuntimeExecutionTarget["localAgentControl"];
 	computer: LocalRuntimeComputer;
@@ -129,6 +135,7 @@ export type LocalAgentsCardOwnerProps = {
 };
 
 type TeamLocalAgent = {
+	controller?: string;
 	agentId: string;
 	details?: OrganizationComputerLocalAgentDetails | null;
 	displayName: string;
@@ -137,6 +144,7 @@ type TeamLocalAgent = {
 };
 
 type TeamLocalAgentsCardProps = {
+	usageScope?: LocalAgentConsumptionScope;
 	computer: {
 		deviceDisplayName: string;
 		localAgents: readonly TeamLocalAgent[];
@@ -148,19 +156,25 @@ export function LocalAgentsCard(
 	input: LocalAgentsCardOwnerProps | TeamLocalAgentsCardProps
 ) {
 	if (input.view === "team") {
-		return <TeamLocalAgentsCard computer={input.computer} />;
+		return (
+			<TeamLocalAgentsCard
+				computer={input.computer}
+				usageScope={input.usageScope}
+			/>
+		);
 	}
 	return <OwnedLocalAgentsCard {...input} />;
 }
 
 function TeamLocalAgentsCard(input: {
+	usageScope?: LocalAgentConsumptionScope;
 	computer: TeamLocalAgentsCardProps["computer"];
 }) {
 	const rows = [...input.computer.localAgents]
 		.sort((left, right) =>
 			compareAgentControllerRefsForDisplay(left.agentId, right.agentId)
 		)
-		.map(buildTeamLocalAgentRow);
+		.map((agent) => buildTeamLocalAgentRow(agent, input.usageScope));
 	return (
 		<LocalAgentsCardFrame description="See which local agents are available on this computer. Only the computer owner can change these settings.">
 			{rows.length > 0 ? (
@@ -174,7 +188,10 @@ function TeamLocalAgentsCard(input: {
 	);
 }
 
-function buildTeamLocalAgentRow(agent: TeamLocalAgent): SettingsLocalAgentRow {
+function buildTeamLocalAgentRow(
+	agent: TeamLocalAgent,
+	usageScope?: LocalAgentConsumptionScope
+): SettingsLocalAgentRow {
 	const description = resolveTeamLocalAgentDescription(agent);
 	const detailRows = agent.details
 		? placeLaunchCheckSecond(
@@ -206,11 +223,24 @@ function buildTeamLocalAgentRow(agent: TeamLocalAgent): SettingsLocalAgentRow {
 					fillColumns
 					limits={agent.details?.usageLimits}
 				/>
+				{usageScope && agent.controller ? (
+					<LocalAgentConsumptionDetails
+						{...usageScope}
+						controller={agent.controller}
+					/>
+				) : null}
 				<SettingsDetailList rows={detailRows} />
 			</div>
 		),
 		displayName: agent.displayName,
 		id: agent.agentId,
+		summarySupplement:
+			usageScope && agent.controller ? (
+				<LocalAgentConsumptionPreview
+					{...usageScope}
+					controller={agent.controller}
+				/>
+			) : null,
 		identityMuted: !agent.enabled || agent.details?.status === "unavailable",
 		logoAgentId: agent.agentId,
 		muted: !agent.enabled || agent.details?.status === "unavailable",
@@ -400,6 +430,7 @@ function OwnedLocalAgentsCard(input: LocalAgentsCardOwnerProps) {
 				storageScope={input.recovery.storageScope}
 				target={catalogState.target}
 				targetStatus={catalogState.targetStatus}
+				usageScope={input.usageScope}
 			/>
 		</LocalAgentsCardFrame>
 	);
@@ -958,6 +989,7 @@ function LocalAgentsCatalogNotice(input: {
 }
 
 function LocalAgentCatalogList(input: {
+	usageScope?: LocalAgentConsumptionScope;
 	storageScope: string;
 	connectionStatus: LocalAgentCatalogRowSummaryStatus | null;
 	capabilities: {
@@ -1116,6 +1148,7 @@ function LocalAgentCatalogList(input: {
 								entry,
 							});
 							return buildLocalAgentCatalogRow({
+								usageScope: input.usageScope,
 								connectionStatus: input.connectionStatus,
 								accountEmailRevealed: revealedAccountEmailAgentIds.has(
 									entry.agentId
@@ -1694,6 +1727,7 @@ function shouldShowLocalAgentInstallGuideLink(
 }
 
 type BuildLocalAgentCatalogRowInput = {
+	usageScope?: LocalAgentConsumptionScope;
 	storageScope: string;
 	connectionStatus: LocalAgentCatalogRowSummaryStatus | null;
 	accountEmailRevealed: boolean;
@@ -1811,6 +1845,7 @@ function buildLocalAgentCatalogRow(
 				agentControllerInterface?.auth.status === "unauthenticated" ||
 				agentControllerInterface?.status === "unavailable",
 			summaryAccessory: summaryAccessory.usage,
+			summarySupplement: renderLocalAgentConsumption(input, "preview"),
 			summaryMeta:
 				enabled && agentControllerInterface
 					? renderAgentControllerInterfaceSummary({
@@ -1936,13 +1971,34 @@ function LocalAgentUpdateBanner(input: { command: string; detail: string }) {
 	);
 }
 
+function renderLocalAgentConsumption(
+	input: BuildLocalAgentCatalogRowInput,
+	view: "preview" | "detail"
+) {
+	const controller = resolveAgentControllerRefForCatalogEntry(input.entry);
+	if (!(input.usageScope && controller)) {
+		return null;
+	}
+	return view === "preview" ? (
+		<LocalAgentConsumptionPreview
+			{...input.usageScope}
+			controller={controller}
+		/>
+	) : (
+		<LocalAgentConsumptionDetails
+			{...input.usageScope}
+			controller={controller}
+		/>
+	);
+}
+
 function renderLocalAgentCatalogRowDetail(input: {
 	canChangeInstallation: boolean;
 	rowInput: BuildLocalAgentCatalogRowInput;
 	snapshot: AgentControllerInterfaceSnapshot | null;
 }): ReactNode {
 	if (!input.snapshot) {
-		return null;
+		return renderLocalAgentConsumption(input.rowInput, "detail");
 	}
 	const versionAdvisory = getAgentControllerVersionAdvisoryPresentation(
 		input.snapshot
@@ -1972,6 +2028,7 @@ function renderLocalAgentCatalogRowDetail(input: {
 				fillColumns
 				limits={input.snapshot.usageLimits}
 			/>
+			{renderLocalAgentConsumption(input.rowInput, "detail")}
 			<SettingsDetailList
 				rows={createAgentControllerInterfaceDetailRows({
 					agentId: input.rowInput.entry.agentId,
@@ -1981,6 +2038,7 @@ function renderLocalAgentCatalogRowDetail(input: {
 					onCheckAgents: input.rowInput.onCheckAgents,
 					onRevealEmail: input.rowInput.onRevealAccountEmail,
 					snapshot: input.snapshot,
+					targetStatus: input.rowInput.target?.status ?? null,
 				})}
 			/>
 		</div>
@@ -2045,6 +2103,7 @@ function createAgentControllerInterfaceDetailRows(input: {
 	onCheckAgents: () => Promise<void>;
 	onRevealEmail: (agentId: string) => void;
 	snapshot: AgentControllerInterfaceSnapshot;
+	targetStatus: LocalRuntimeExecutionTarget["status"] | null;
 }): SettingsDetailListRow[] {
 	const email = resolveAgentControllerAccountEmailText(input.snapshot);
 	const hasIssueMessage = shouldRenderAgentControllerIssueRow(input.snapshot);
@@ -2098,6 +2157,14 @@ function createAgentControllerInterfaceDetailRows(input: {
 				/>
 			),
 		});
+	}
+	const launchCheck = rows.find((row) => row.label === "Launch check");
+	if (
+		launchCheck &&
+		input.targetStatus === "stale" &&
+		typeof launchCheck.value === "string"
+	) {
+		launchCheck.value = `Last check: ${launchCheck.value}`;
 	}
 	return placeLaunchCheckSecond(rows);
 }

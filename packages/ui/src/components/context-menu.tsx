@@ -59,7 +59,9 @@ function ContextMenuContent({
           data-slot="context-menu-content"
           {...props}
         >
-          <ScrollArea className="max-h-[inherit]">{children}</ScrollArea>
+          <ScrollArea className="max-h-[inherit]" contentClassName="p-1">
+            {children}
+          </ScrollArea>
         </ContextMenuPrimitive.Popup>
       </ContextMenuPrimitive.Positioner>
     </ContextMenuPrimitive.Portal>
@@ -233,7 +235,7 @@ function ContextMenuSeparator({
 }: ContextMenuPrimitive.Separator.Props) {
   return (
     <ContextMenuPrimitive.Separator
-      className={cn("-mx-1 h-px bg-border", className)}
+      className={cn("-mx-1 my-1 h-px shrink-0 bg-border", className)}
       data-slot="context-menu-separator"
       {...props}
     />

@@ -45,6 +45,138 @@ const CONNECTOR_OPERATION_ATTRIBUTION = {
   },
 } as const;
 describe("Remote Agent generic App tools", () => {
+  it.each([
+    "old_core",
+    "expired",
+  ] as const)("keeps a pending read safe to replay with a %s window", async (window) => {
+    const action = {
+      ...capturedExecutableOpenConnectorAction,
+      operationType: "read" as const,
+    };
+    const connectionName = "org_aaaaaaaaaaaaaaaaaa__shared__posthog";
+    const operationId = "read-pending-original";
+    let claimed = false;
+    let requests = 0;
+    const fetchMock = vi.fn<typeof fetch>((_url, init) => {
+      if (init?.method !== "POST") {
+        return Promise.resolve(
+          Response.json({
+            success: true,
+            message: "OK",
+            data: [action],
+            meta: {},
+          })
+        );
+      }
+      requests += 1;
+      return Promise.resolve(
+        requests === 1
+          ? Response.json(
+              {
+                success: false,
+                errorCode: "idempotency_request_in_progress",
+                message:
+                  "A request with this Idempotency-Key is still in progress.",
+                data: null,
+                meta: { actionId: action.id },
+              },
+              { status: 409 }
+            )
+          : Response.json({
+              success: true,
+              message: "OK",
+              data: [],
+              meta: {
+                actionId: action.id,
+                executionId: "read-execution",
+                auditPersisted: true,
+              },
+              outputSchema: action.outputSchema,
+            })
+      );
+    });
+    const executionConnection = {
+      connectionName,
+      ownerDisplayName: "Requester",
+      ownerUserId: "user_1",
+      scope: "shared" as const,
+      service: "posthog" as const,
+    };
+    const record = vi.fn((entry: { outcome: string; effect?: string }) => {
+      const replayed = claimed;
+      claimed = true;
+      return Promise.resolve({
+        attribution: CONNECTOR_OPERATION_ATTRIBUTION,
+        executionConnection,
+        operationId,
+        recorded: true,
+        replayed,
+        status: entry.outcome === "attempted" ? "pending" : "completed",
+        providerExecutionId:
+          entry.outcome === "attempted" ? null : "read-execution",
+        ...(window === "expired" ? { replayWindowRemainingMs: 0 } : {}),
+      });
+    });
+    const tools = getRemoteAgentConnectorToolDefinitions({
+      connectorExecution: {
+        baseUrl: "https://connectors.example.test",
+        fetch: fetchMock,
+        runtimeToken: "test-runtime-token",
+      },
+      coreWorker: {
+        centerAgentReadConnectorActionOperation: (() =>
+          Promise.resolve({
+            operation: claimed
+              ? {
+                  actionId: action.id,
+                  connectionName,
+                  executionConnection,
+                  operationId,
+                  service: "posthog",
+                  status: "pending",
+                }
+              : null,
+          })) as never,
+        centerAgentRecordConnectorActionOperation: record as never,
+        centerAgentResolveConnectorConnection: (() =>
+          Promise.resolve(
+            connectionSelection({
+              ownerDisplayName: "Requester",
+              userId: "user_1",
+              service: "posthog",
+              scope: "shared",
+            })
+          )) as never,
+      },
+      storage: await createStorage(createSubmitTurnRequest()),
+      submissionId: ACK.submissionId,
+    });
+    const input = {
+      actionId: action.id,
+      operationId,
+      service: "posthog",
+      input: {},
+    };
+    await expect(
+      executeTool(tools, "openmeld_execute_app_action", input)
+    ).rejects.toThrow("still processing");
+    await expect(
+      executeTool(tools, "openmeld_execute_app_action", input)
+    ).resolves.toMatchObject({ data: [], operationId, replayed: true });
+    expect(
+      record.mock.calls
+        .filter(([entry]) => entry.outcome === "attempted")
+        .map(([entry]) => entry.effect)
+    ).toEqual(["read", "read"]);
+    const writes = fetchMock.mock.calls.filter(
+      ([, init]) => init?.method === "POST"
+    );
+    expect(writes).toHaveLength(2);
+    expect(new Headers(writes[0]?.[1]?.headers).get("idempotency-key")).toBe(
+      new Headers(writes[1]?.[1]?.headers).get("idempotency-key")
+    );
+  });
+
   it("offers the shared connection entry for a missing non-GitHub selection without claiming a disconnected account", async () => {
     const base = createSubmitTurnRequest();
     const request = createSubmitTurnRequest({
@@ -403,7 +535,10 @@ describe("Remote Agent generic App tools", () => {
     });
   });
 
-  it("returns the action output contract with paginated provider data", async () => {
+  it.each([
+    false,
+    true,
+  ])("returns the action output contract with paginated provider data (execution schema=%s)", async (includeExecutionSchema) => {
     const request = createSubmitTurnRequest();
     const action = {
       ...capturedExecutableOpenConnectorAction,
@@ -432,6 +567,11 @@ describe("Remote Agent generic App tools", () => {
       })),
       resultSizeEstimate: 201,
     };
+    const executionOutputSchema = {
+      ...action.outputSchema,
+      description:
+        "Output from this exact execution, including the provider's result estimate.",
+    };
     const fetchMock = vi.fn<typeof fetch>((url) => {
       if (String(url).endsWith("/v1/actions?service=gmail")) {
         return Promise.resolve(
@@ -447,6 +587,9 @@ describe("Remote Agent generic App tools", () => {
         return Promise.resolve(
           Response.json({
             data: providerData,
+            ...(includeExecutionSchema
+              ? { outputSchema: executionOutputSchema }
+              : {}),
             message: "OK",
             meta: {
               actionId: action.id,
@@ -506,7 +649,9 @@ describe("Remote Agent generic App tools", () => {
     ).resolves.toMatchObject({
       actionId: action.id,
       data: providerData,
-      outputSchema: action.outputSchema,
+      outputSchema: includeExecutionSchema
+        ? executionOutputSchema
+        : action.outputSchema,
       replayed: false,
     });
   });
@@ -1007,15 +1152,26 @@ describe("Remote Agent generic App tools", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it("replays an existing Routine App operation without consulting the current action catalog", async () => {
+  it("replays an existing Routine App operation using the catalog's trusted effect", async () => {
     const request = createSubmitTurnRequest({
       turnEnvelope: createRoutineTurnEnvelope(),
     });
     const action = capturedExecutableOpenConnectorAction;
     const operationId = "routine-posthog-list-projects-replay";
+    const replayWindowRemainingMs = 24 * 60 * 60 * 1000;
     const providerExecutionId = "provider-execution-routine-replay";
     const connectionName = "org_aaaaaaaaaaaaaaaaaa__shared__posthog";
     const fetchMock = vi.fn<typeof fetch>((url) => {
+      if (String(url).endsWith("/v1/actions?service=posthog")) {
+        return Promise.resolve(
+          Response.json({
+            success: true,
+            message: "OK",
+            data: [action],
+            meta: {},
+          })
+        );
+      }
       if (String(url).endsWith(`/v1/actions/${action.id}`)) {
         return Promise.resolve(
           Response.json({
@@ -1034,6 +1190,7 @@ describe("Remote Agent generic App tools", () => {
     });
     const centerAgentReadConnectorActionOperation = vi.fn(async () => ({
       operation: {
+        replayWindowRemainingMs,
         actionId: action.id,
         connectionName,
         executionConnection: {
@@ -1050,6 +1207,7 @@ describe("Remote Agent generic App tools", () => {
     }));
     const centerAgentRecordConnectorActionOperation = vi.fn(
       async (entry: { outcome: string }) => ({
+        replayWindowRemainingMs,
         attribution: CONNECTOR_OPERATION_ATTRIBUTION,
         executionConnection: {
           connectionName,
@@ -1106,8 +1264,8 @@ describe("Remote Agent generic App tools", () => {
       providerExecutionId,
       replayed: true,
     });
-    expect(replay).toHaveProperty("outputSchema", undefined);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(replay).toHaveProperty("outputSchema", action.outputSchema);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(centerAgentReadConnectorActionOperation).toHaveBeenCalledTimes(1);
     expect(centerAgentResolveConnectorConnection).not.toHaveBeenCalled();
   });
@@ -1495,40 +1653,27 @@ describe("Remote Agent generic App tools", () => {
     };
     const operationId = "member-posthog-list-projects";
     const providerExecutionId = "provider-execution-1";
-    const fetchMock = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(
-        Response.json({
-          data: [action],
-          message: "OK",
-          meta: {},
-          success: true,
-        })
+    const fetchMock = vi.fn<typeof fetch>((_url, init) =>
+      Promise.resolve(
+        init?.method === "GET"
+          ? Response.json({
+              data: [action],
+              message: "OK",
+              meta: {},
+              success: true,
+            })
+          : Response.json({
+              data: [{ id: 1, name: "OpenMeld" }],
+              message: "OK",
+              meta: {
+                actionId: action.id,
+                auditPersisted: true,
+                executionId: providerExecutionId,
+              },
+              success: true,
+            })
       )
-      .mockResolvedValueOnce(
-        Response.json({
-          data: [{ id: 1, name: "OpenMeld" }],
-          message: "OK",
-          meta: {
-            actionId: action.id,
-            auditPersisted: true,
-            executionId: providerExecutionId,
-          },
-          success: true,
-        })
-      )
-      .mockResolvedValueOnce(
-        Response.json({
-          data: [{ id: 1, name: "OpenMeld" }],
-          message: "OK",
-          meta: {
-            actionId: action.id,
-            auditPersisted: true,
-            executionId: providerExecutionId,
-          },
-          success: true,
-        })
-      );
+    );
     const connectionName =
       "org_aaaaaaaaaaaaaaaaaa__user_bbbbbbbbbbbbbbbbbb__posthog";
     const centerAgentReadConnectorActionOperation = vi
@@ -1541,6 +1686,7 @@ describe("Remote Agent generic App tools", () => {
           operationId,
           service: "posthog",
           status: "pending",
+          replayWindowRemainingMs: 24 * 60 * 60 * 1000,
         },
       });
     const centerAgentRecordConnectorActionOperation = vi
@@ -1560,6 +1706,7 @@ describe("Remote Agent generic App tools", () => {
         providerExecutionId: null,
         recorded: true,
         replayed: true,
+        replayWindowRemainingMs: 24 * 60 * 60 * 1000,
         status: "pending",
       })
       .mockResolvedValueOnce({
@@ -1602,9 +1749,14 @@ describe("Remote Agent generic App tools", () => {
     };
     await expect(
       executeTool(tools, "openmeld_execute_app_action", toolInput)
-    ).rejects.toThrow(
-      `OpenConnector action ${action.id} completed at the provider, but OpenMeld could not finalize operation ${operationId}. Retry this exact action with the same operationId.`
-    );
+    ).rejects.toMatchObject({
+      result: {
+        message: expect.stringContaining(
+          `Original operationId: ${operationId}`
+        ),
+        executionConfirmation: "executed",
+      },
+    });
     await expect(
       executeTool(tools, "openmeld_execute_app_action", toolInput)
     ).resolves.toMatchObject({
@@ -1614,8 +1766,8 @@ describe("Remote Agent generic App tools", () => {
       replayed: true,
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(3);
-    for (const callNumber of [2, 3]) {
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    for (const callNumber of [2, 4]) {
       expect(fetchMock).toHaveBeenNthCalledWith(
         callNumber,
         "https://connectors.example.test/v1/actions/posthog.list_projects",
@@ -1652,7 +1804,7 @@ describe("Remote Agent generic App tools", () => {
     ]);
   });
 
-  it("keeps an idempotent provider request pending while OpenConnector is still running it", async () => {
+  it("lets a pending read retry without claiming that a write may have succeeded", async () => {
     const request = createSubmitTurnRequest();
     const action = {
       ...capturedExecutableOpenConnectorAction,
@@ -1721,9 +1873,10 @@ describe("Remote Agent generic App tools", () => {
         operationId,
         service: "posthog",
       })
-    ).rejects.toThrow(
-      `OpenConnector action ${action.id} is still running. Retry this exact action later with operationId ${operationId}.`
-    );
+    ).rejects.toMatchObject({
+      name: "OpenConnectorOperationPendingError",
+      message: expect.stringContaining("still processing the original request"),
+    });
     expect(centerAgentRecordConnectorActionOperation).toHaveBeenCalledTimes(1);
     expect(centerAgentRecordConnectorActionOperation).toHaveBeenCalledWith(
       expect.objectContaining({ outcome: "attempted" })

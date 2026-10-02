@@ -30,7 +30,10 @@ export function resolvePendingRemoteAgentCancellationTarget(
   if (
     !request ||
     request.dispatchId !== delivery.dispatchId ||
-    request.idempotencyKey !== delivery.idempotencyKey
+    request.idempotencyKey !== delivery.idempotencyKey ||
+    request.organizationId !== delivery.organizationId ||
+    request.spaceId !== delivery.spaceId ||
+    request.agentProfileId !== delivery.profileId
   ) {
     return null;
   }

@@ -13,6 +13,7 @@ import {
 
 const DEFAULT_SERVICE_STARTUP_WAIT_MS = 5000;
 const LAUNCHD_SERVICE_STARTUP_WAIT_MS = 90_000;
+const WINDOWS_SERVICE_STARTUP_WAIT_MS = 45_000;
 
 export class SystemServiceStartupTimeoutError extends Error {
   readonly code = "openmeld.service.startup_timeout";
@@ -42,9 +43,16 @@ export function resolveSystemServiceStartupWaitMs(
   // launchd may defer a newly loaded background item before it spawns the
   // managed process. Keep one controller-owned budget for both an explicit
   // start and replacement verification.
-  return controller === "launchd"
-    ? LAUNCHD_SERVICE_STARTUP_WAIT_MS
-    : DEFAULT_SERVICE_STARTUP_WAIT_MS;
+  if (controller === "launchd") {
+    return LAUNCHD_SERVICE_STARTUP_WAIT_MS;
+  }
+  // On a native Windows cold start, the task can be running before the Service
+  // finishes initializing its local control plane and publishes its first
+  // runtime lease. Keep this separate from the startup budget on other hosts.
+  if (controller === "windows-service") {
+    return WINDOWS_SERVICE_STARTUP_WAIT_MS;
+  }
+  return DEFAULT_SERVICE_STARTUP_WAIT_MS;
 }
 
 export function isDaemonInventoryRunningAndStartReady(

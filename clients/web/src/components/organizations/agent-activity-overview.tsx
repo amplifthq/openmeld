@@ -7,7 +7,6 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@openmeld/ui/components/card";
-import { Skeleton } from "@openmeld/ui/components/skeleton";
 import {
 	Tooltip,
 	TooltipContent,
@@ -104,7 +103,9 @@ function OverviewStats(input: {
 	const peak = input.view?.stats.peakConcurrency;
 	const cards = [
 		{
-			footer: `peak ${String(peak?.count ?? 0)} · ${formatPeakTime(peak?.atMs ?? null)}`,
+			footer: input.view
+				? `peak ${String(peak?.count ?? 0)} · ${formatPeakTime(peak?.atMs ?? null)}`
+				: null,
 			key: "working-now",
 			label: "Working now",
 			tooltip:
@@ -129,7 +130,6 @@ function OverviewStats(input: {
 				: "updated daily",
 			key: "earlier-agent-time",
 			label: "Earlier agent time",
-			loading: data.statsQuery.isPending,
 			tooltip: "Agent time from completed daily records. Updated once a day.",
 			value: data.statsQuery.data
 				? formatTotalAgentTime(data.statsQuery.data.totalActiveDurationMs)
@@ -151,6 +151,19 @@ function OverviewStats(input: {
 			aria-label="Agent Activity overview statistics"
 			className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4"
 		>
+			{data.statsQuery.isError ? (
+				<output className="flex items-center justify-between gap-3 rounded-md border border-border/70 px-4 py-2 text-sm sm:col-span-2 xl:col-span-4">
+					<span>Earlier agent time is unavailable.</span>
+					<Button
+						disabled={data.statsQuery.isFetching}
+						onClick={() => data.statsQuery.refetch()}
+						size="sm"
+						variant="outline"
+					>
+						Retry
+					</Button>
+				</output>
+			) : null}
 			{cards.map((card) => (
 				<Card className="rounded-md py-0" key={card.key}>
 					<CardHeader className="gap-2 pt-4 pb-3">
@@ -158,11 +171,7 @@ function OverviewStats(input: {
 							<StatLabel label={card.label} tooltip={card.tooltip} />
 						</CardDescription>
 						<CardTitle className="flex items-center gap-2 font-mono text-2xl tabular-nums">
-							{"loading" in card && card.loading ? (
-								<Skeleton className="h-7 w-20" />
-							) : (
-								card.value
-							)}
+							{card.value}
 							{card.working ? (
 								<span
 									aria-label="Currently active"
@@ -211,6 +220,9 @@ function RecentSessions(input: {
 	view: ActivityView | null;
 }) {
 	const data = useAgentActivityData();
+	if (!input.view) {
+		return null;
+	}
 	const sessions = (input.view?.sessions ?? [])
 		.slice()
 		.sort((left, right) => right.lastObservedAtMs - left.lastObservedAtMs)

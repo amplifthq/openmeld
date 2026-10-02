@@ -40,8 +40,8 @@ export function PersonalRemoteAgentConfiguration(input: {
 					role="img"
 				>
 					<RemoteAgentAvatar
-						animated
 						animateOnHover={false}
+						modelId={modelId}
 						profileName={input.name}
 						size={64}
 					/>

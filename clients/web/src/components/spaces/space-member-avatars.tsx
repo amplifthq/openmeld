@@ -33,6 +33,8 @@ export function resolveSpaceMemberAppearances(
 					profile.profileId,
 					{
 						avatarUrl: null,
+						avatarStyle: profile.avatarStyle ?? null,
+						avatarModelId: profile.avatarModelId ?? null,
 						agentControllerRef: profile.agentControllerRef,
 					},
 				] as const
@@ -42,6 +44,8 @@ export function resolveSpaceMemberAppearances(
 export type SpaceMemberAppearance = {
 	avatarUrl: string | null;
 	agentControllerRef: string | null;
+	avatarStyle?: OrganizationProfileDirectoryResponse["agentProfiles"][number]["avatarStyle"];
+	avatarModelId?: string | null;
 };
 
 export function SpaceMemberAvatars(input: {
@@ -112,6 +116,10 @@ export function SpaceMemberAvatars(input: {
 								input.appearances?.get(member.profileId)?.agentControllerRef ??
 								member.agentControllerRef
 							}
+							avatarStyle={
+								input.appearances?.get(member.profileId)?.avatarStyle
+							}
+							modelId={input.appearances?.get(member.profileId)?.avatarModelId}
 							profileId={member.profileId}
 							profileName={member.profileName}
 							size={size}

@@ -133,6 +133,8 @@ function FacetIcon({
 	return (
 		<AgentProfileControllerAvatar
 			agentControllerRef={item?.agentControllerRef ?? null}
+			avatarStyle={item?.profile.avatarStyle}
+			modelId={item?.modelId}
 			profileId={value}
 			profileName={value}
 			size={18}

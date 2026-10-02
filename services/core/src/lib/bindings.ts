@@ -100,6 +100,7 @@ type CoreAuthDispatchBindingRpc = {
     organizationId?: string | null;
     profileId?: string | null;
     profileName?: string | null;
+    avatarStyle?: string | null;
   }): Promise<AuthAgentProfileRpcResult>;
   updateAgentProfileDefaultProjectInOrganization?(input: {
     defaultProjectId: string | null;
@@ -123,6 +124,7 @@ type CoreAuthDispatchBindingRpc = {
   >;
   resolveProfileById?(input: {
     openMeldProfileId?: string | null;
+    includeAvatarStyle?: boolean;
   }): Promise<AuthRpcResolveProfileByIdResult>;
   resolveProfilesByIds?(
     input: AuthRpcResolveProfilesByIdsInput
@@ -162,6 +164,16 @@ export type RemoteAgentWorkerBindingRpc = {
     input: import("@openmeld/schemas/types").RemoteAgentWorkerExecutionQuery
   ): Promise<
     import("@openmeld/schemas/types").RemoteAgentWorkerExecutionQueryResponse
+  >;
+  readAdmission?(
+    input: RemoteAgentWorkerSubmitTurnRequest
+  ): Promise<
+    import("@openmeld/schemas/types").RemoteAgentWorkerReadAdmissionResponse
+  >;
+  readAdmissionStop?(
+    input: RemoteAgentWorkerSubmitTurnRequest
+  ): Promise<
+    import("@openmeld/schemas/types").RemoteAgentWorkerReadAdmissionStopResponse
   >;
   readRuntimeDiagnostics?(
     input: import("@openmeld/schemas/types").RemoteAgentWorkerRuntimeDiagnosticsRequest
@@ -213,7 +225,6 @@ export type CoreBindings = {
   OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED?: string;
   OPENMELD_REMOTE_AGENT_DESIGNATION_ENABLED?: string;
   OPENMELD_REMOTE_AGENT_BLOCKED_ORGANIZATION_IDS?: string;
-  OPENMELD_REMOTE_AGENT_DAILY_ADMISSION_LIMIT?: string;
   OPENMELD_SLACK_RICH_CONTEXT_REPRO_ENABLED?: string;
   OPENMELD_TASK_CONTINUATION_DESTINATION_NEUTRAL_ENABLED?: string;
   OPENMELD_LARK_CHANNEL_ENABLED?: string;

@@ -105,6 +105,8 @@ export function runExecutionHost(hostInstanceId: string): Promise<void> {
               resources: await createExecutionHostResources({
                 runtimePaths,
                 presenter,
+                observeOwnedProcess: (event) =>
+                  verifiedOwnership.observeOwnedProcess(event),
               }),
               hostInstanceId,
               identity,

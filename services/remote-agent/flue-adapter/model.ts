@@ -22,6 +22,7 @@ import {
 } from "../agent-core/model";
 import { REMOTE_AGENT_OPENROUTER_PROVIDER_ROUTING } from "../agent-core/openrouter-provider-routing";
 import { recordRemoteAgentTurnObservabilityBestEffort } from "../agent-core/turn-observability";
+import { createFlueMeteredFetch } from "./ai-usage";
 import { emitCenterAgentPerformanceMilestone } from "./center-agent-performance-observability";
 import { emitRemoteAgentExecutionStageEvidence } from "./cloudflare-runtime-evidence";
 import {
@@ -45,6 +46,24 @@ import { createRemoteAgentSqlStorage } from "./storage";
 
 const OPENROUTER_MODEL_METADATA_BASE_URL = "https://openrouter.ai/api/v1/model";
 const OPENAI_GPT_5_4_MINI_MODEL_ID = "openai/gpt-5.4-mini";
+// OpenRouter's documented Alibaba routes and current Model Studio cache support.
+// https://openrouter.ai/docs/guides/best-practices/prompt-caching
+// https://www.alibabacloud.com/help/en/model-studio/context-cache
+// Snapshot and open-weight Qwen endpoints do not inherit this capability.
+const OPENROUTER_MESSAGE_ONLY_PROMPT_CACHE_MODEL_IDS = new Set([
+  "deepseek/deepseek-v3.2",
+  "qwen/qwen-plus",
+  "qwen/qwen3-max",
+  "qwen/qwen3.6-plus",
+  "qwen/qwen3-coder-plus",
+  "qwen/qwen3-coder-flash",
+  "qwen/qwen3.6-flash",
+  "qwen/qwen3.7-max",
+  "qwen/qwen3.7-plus",
+  "qwen/qwen3.7-flash",
+  "qwen/qwen3.8-max-0902",
+  "qwen/qwen3.8-flash",
+]);
 export const REMOTE_AGENT_MODEL_METADATA_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 export const REMOTE_AGENT_COMPACTION_KEEP_RECENT_TOKENS = 8000;
 const MODEL_METADATA_FETCH_TIMEOUT_MS = 3000;
@@ -84,6 +103,7 @@ const openRouterModelMetadataResponseSchema = z.object({
 });
 
 type RemoteAgentModelEnv = {
+  OPENMELD_CORE_WORKER?: unknown;
   OPENMELD_CENTER_AGENT_PERFORMANCE?: AnalyticsEngineDataset;
   OPENMELD_OBSERVABILITY?: AnalyticsEngineDataset;
   OPENMELD_REMOTE_AGENT_AI_GATEWAY_ACCOUNT_ID?: string;
@@ -132,6 +152,7 @@ type FetchModelMetadata = (
 
 const modelRuntimeConfigCache = new Map<string, CachedModelRuntimeConfig>();
 type RegisteredRemoteAgentModelCapabilities = {
+  meterFetch: (fetch?: typeof globalThis.fetch) => typeof globalThis.fetch;
   reportCompletion: (
     completion: ReturnType<typeof projectProviderCompletion>
   ) => void;
@@ -170,6 +191,12 @@ export async function registerRemoteAgentCloudflareProvider(input: {
     (model) => model.id === modelId && model.api === "openai-completions"
   ) as Model<"openai-completions"> | undefined;
   registeredRemoteAgentModelCapabilities.set(providerId, {
+    meterFetch: (fetch) =>
+      createFlueMeteredFetch({
+        coreWorker: input.env.OPENMELD_CORE_WORKER,
+        model: modelId,
+        fetch,
+      }),
     reportCompletion: (completion) => {
       const succeeded = providerCompletionSucceeded(completion);
       if (succeeded) {
@@ -190,6 +217,15 @@ export async function registerRemoteAgentCloudflareProvider(input: {
       supportsDeveloperRole:
         modelId.startsWith("anthropic/") || modelId.startsWith("openai/"),
       ...openRouterModel?.compat,
+      // Scoped provider IDs bypass pi-ai's OpenRouter cache detection.
+      cacheControlFormat:
+        modelId.startsWith("anthropic/") ||
+        OPENROUTER_MESSAGE_ONLY_PROMPT_CACHE_MODEL_IDS.has(modelId)
+          ? "anthropic"
+          : openRouterModel?.compat?.cacheControlFormat,
+      ...(OPENROUTER_MESSAGE_ONLY_PROMPT_CACHE_MODEL_IDS.has(modelId)
+        ? { supportsLongCacheRetention: false }
+        : {}),
       thinkingFormat: "openrouter",
     },
     contextCapacity: resolveRemoteAgentProviderContextCapacity({
@@ -745,7 +781,10 @@ function createRemoteAgentModelCapabilitiesApi(): ReturnType<
             projectProviderCompletion({ ...completion, callId, submissionId })
           ),
         createAttempt: () =>
-          base.stream(resolvedModel, context, resolvedOptions),
+          base.stream(resolvedModel, context, {
+            ...resolvedOptions,
+            fetch: capabilities?.meterFetch(options?.fetch),
+          }),
         onRetry: () => logCompletedEmptyProviderRetry(resolvedModel.id),
         signal: resolvedOptions?.signal,
       });
@@ -769,7 +808,10 @@ function createRemoteAgentModelCapabilitiesApi(): ReturnType<
             projectProviderCompletion({ ...completion, callId, submissionId })
           ),
         createAttempt: () =>
-          base.streamSimple(resolvedModel, context, resolvedOptions),
+          base.streamSimple(resolvedModel, context, {
+            ...resolvedOptions,
+            fetch: capabilities?.meterFetch(options?.fetch),
+          }),
         onRetry: () => logCompletedEmptyProviderRetry(resolvedModel.id),
         signal: resolvedOptions?.signal,
       });
@@ -783,6 +825,33 @@ function logCompletedEmptyProviderRetry(modelId: string): void {
     modelId,
     submissionId: getRemoteAgentExecutionSubmissionId(),
   });
+}
+
+function normalizeRemoteAgentPromptCacheToolDefinitions(
+  payload: Record<string, unknown>,
+  modelId: string | undefined
+): Record<string, unknown> {
+  if (
+    !(
+      modelId &&
+      OPENROUTER_MESSAGE_ONLY_PROMPT_CACHE_MODEL_IDS.has(modelId) &&
+      Array.isArray(payload.tools)
+    )
+  ) {
+    return payload;
+  }
+  // Alibaba caches tool definitions through the message prefix; tool-level
+  // cache markers are a Claude contract, not an Alibaba cache breakpoint.
+  return {
+    ...payload,
+    tools: payload.tools.map((tool: unknown) =>
+      isRecord(tool)
+        ? Object.fromEntries(
+            Object.entries(tool).filter(([key]) => key !== "cache_control")
+          )
+        : tool
+    ),
+  };
 }
 
 export function withRemoteAgentProviderObservabilityAndSessionAffinity(
@@ -813,7 +882,10 @@ export function withRemoteAgentProviderObservabilityAndSessionAffinity(
           "Remote Agent OpenRouter request payload must be an object."
         );
       }
-      const preparedPayload = resolvedPayload;
+      const preparedPayload = normalizeRemoteAgentPromptCacheToolDefinitions(
+        resolvedPayload,
+        model?.id
+      );
       const durationMs = Date.now() - startedAtMs;
       const messageCount = Array.isArray(preparedPayload.messages)
         ? preparedPayload.messages.length

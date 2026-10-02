@@ -3,6 +3,7 @@ import { realpath } from "node:fs/promises";
 import { resolve } from "node:path";
 import { buildRepositoryFingerprint } from "@openmeld/projects";
 import type { LocalProjectControlGitStatus } from "@openmeld/schemas";
+import { createServiceGitEnvironment } from "./service-git-environment";
 
 const GIT_COMMAND_TIMEOUT_MS = 10_000;
 const DEFAULT_GIT_CONCURRENCY = 4;
@@ -338,11 +339,23 @@ const runGitCommand: RunGitCommand = async (input) =>
   await new Promise<GitCommandOutput>((resolveCommand, rejectCommand) => {
     execFile(
       input.command,
-      input.args,
+      input.command === "git"
+        ? [
+            "-c",
+            "core.fsmonitor=false",
+            "-c",
+            "core.hooksPath=/dev/null",
+            ...input.args,
+          ]
+        : input.args,
       {
         encoding: "utf8",
+        windowsHide: true,
         maxBuffer: 1024 * 1024,
         timeout: input.timeoutMs,
+        ...(input.command === "git"
+          ? { env: createServiceGitEnvironment() }
+          : {}),
       },
       (error, stdout, stderr) => {
         if (!error) {

@@ -23,23 +23,16 @@ export const createAgentProfileWorkRecoveryApi: CreateAgentProfileWorkRecoveryAp
             "Invalid Agent Profile work recovery request."
         );
       }
+      const { agentProfileId, requestContext, ...body } = parsed.data;
       return await client.requestJson({
-        body: JSON.stringify(
-          parsed.data.action === "skip_interrupted_work"
-            ? {
-                action: parsed.data.action,
-                expectedInterruptedTargetWakeLifecycleId:
-                  parsed.data.expectedInterruptedTargetWakeLifecycleId,
-              }
-            : { action: parsed.data.action }
-        ),
+        body: JSON.stringify(body),
         headers: { "content-type": "application/json" },
         invalidMessage: "Invalid Agent Profile work recovery response.",
         method: "POST",
         operation: "agent_profile_work_recovery.execute",
-        requestContext: parsed.data.requestContext,
+        requestContext,
         schema: executeAgentProfileWorkRecoveryResponseSchema,
-        url: buildAgentProfileWorkRecoveryRoute(parsed.data.agentProfileId),
+        url: buildAgentProfileWorkRecoveryRoute(agentProfileId),
       });
     },
   });

@@ -6,8 +6,13 @@ import {
   modelCatalogSchema,
   modelCatalogUpdateEvidenceSchema,
 } from "../../packages/schemas/src/schemas/config/model-catalog.ts";
-import { digest } from "./catalog-update.mjs";
-import { renderBatchReview } from "./review.mjs";
+import { readPreviousEvidence } from "./catalog-update.mjs";
+import { batchReviewFingerprint } from "./collect-update.mjs";
+import {
+  hasNewReviewFacts,
+  modelReviewFacts,
+  renderBatchReview,
+} from "./review.mjs";
 
 function command(binary, args) {
   return execFileSync(binary, args, {
@@ -191,7 +196,13 @@ async function createDraft(branch, evidence, output, config, current) {
   );
 }
 
-async function recoverPushedProposal(branch, evidence, output, config) {
+async function recoverPushedProposal(
+  branch,
+  evidence,
+  output,
+  config,
+  fingerprint
+) {
   const remote = command("git", [
     "ls-remote",
     "--heads",
@@ -224,21 +235,20 @@ async function recoverPushedProposal(branch, evidence, output, config) {
       JSON.parse(command("git", ["show", `${sha}:${path}`]))
     )
   );
-  if (
-    recorded.some(
-      (item, index) =>
-        item.fingerprint !== evidence[index].fingerprint ||
-        item.controller !== evidence[index].controller
-    )
-  ) {
-    throw new Error("Existing proposal evidence differs");
-  }
   const before = modelCatalogSchema.parse(
     JSON.parse(command("git", ["show", `${sha}^:release/vendor-models.json`]))
   );
   const after = modelCatalogSchema.parse(
     JSON.parse(command("git", ["show", `${sha}:release/vendor-models.json`]))
   );
+  if (
+    recorded.some(
+      (item, index) => item.controller !== evidence[index].controller
+    ) ||
+    batchReviewFingerprint(recorded, before, config) !== fingerprint
+  ) {
+    throw new Error("Existing proposal review facts differ");
+  }
   assertAdditionsOnly(before, after, recorded);
   await createDraft(branch, recorded, output, config, before);
   return true;
@@ -256,16 +266,31 @@ export async function publishUpdate(output) {
   const catalog = modelCatalogSchema.parse(
     JSON.parse(await readFile(resolve(output, "catalog.json"), "utf8"))
   );
-  const fingerprint = digest(
-    evidence.map(({ controller, fingerprint }) => ({ controller, fingerprint }))
-  );
   const config = JSON.parse(
     await readFile("scripts/model-catalog/sources.json", "utf8")
+  );
+  const current = modelCatalogSchema.parse(
+    JSON.parse(await readFile("release/vendor-models.json", "utf8"))
+  );
+  const fingerprint = batchReviewFingerprint(evidence, current, config);
+  const reviewChanges = await Promise.all(
+    evidence.map(async (item) => {
+      const previous = await readPreviousEvidence(
+        process.cwd(),
+        item.controller
+      );
+      const since = config[item.controller]?.discoverySince;
+      return hasNewReviewFacts(
+        modelReviewFacts(item, current, since),
+        previous ? modelReviewFacts(previous, current, since) : undefined
+      );
+    })
   );
   if (
     JSON.stringify(evidence.map((item) => item.controller)) !==
       JSON.stringify(Object.keys(config)) ||
-    result.fingerprint !== fingerprint
+    result.fingerprint !== fingerprint ||
+    result.changed !== reviewChanges.some(Boolean)
   ) {
     throw new Error("Update identity mismatch");
   }
@@ -322,13 +347,12 @@ export async function publishUpdate(output) {
   ) {
     throw new Error("Publisher must start at origin/main");
   }
-  const current = modelCatalogSchema.parse(
-    JSON.parse(await readFile("release/vendor-models.json", "utf8"))
-  );
   // Only the recorded additions may cross the write boundary. No defaults,
   // removals, existing parameters, or other controllers may change here.
   assertAdditionsOnly(current, catalog, evidence);
-  if (await recoverPushedProposal(branch, evidence, output, config)) {
+  if (
+    await recoverPushedProposal(branch, evidence, output, config, fingerprint)
+  ) {
     return;
   }
   command("git", ["checkout", "-b", branch]);

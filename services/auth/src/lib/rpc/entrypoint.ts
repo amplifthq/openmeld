@@ -26,6 +26,7 @@ import {
 import {
   accountAvatarCommitRpcInputSchema,
   accountAvatarPrepareRpcInputSchema,
+  agentAvatarStyleSchema,
   authProfileViewSchema,
   authRpcResolveOrganizationAccountIdentityInputSchema,
   authRpcResolveOrganizationAccountIdentityResultSchema,
@@ -165,6 +166,7 @@ type ListProfilesRpcResult =
 
 type ResolveProfileByIdRpcInput = {
   openMeldProfileId?: string | null;
+  includeAvatarStyle?: boolean;
 };
 
 type ResolveProfileByIdRpcResult = AuthRpcResolveProfileByIdResult;
@@ -241,6 +243,7 @@ type UpdateCenterAgentProfileInOrganizationRpcInput = {
   organizationId?: string | null;
   profileId?: string | null;
   profileName?: string | null;
+  avatarStyle?: string | null;
 };
 
 type EnsureManagedAgentProfileRpcResult =
@@ -512,6 +515,7 @@ type OrganizationDirectoryMemberIdentityRow = {
 };
 
 type OrganizationDirectoryAgentProfileIdentityRow = {
+  avatar_style: string | null;
   created_at: number;
   created_by_user_id: string | null;
   creator_profile_id: string | null;
@@ -1127,11 +1131,19 @@ export class AuthRpcEntrypoint extends WorkerEntrypoint<AuthBindings> {
       return authRpcResolveOrganizationDirectoryAgentProfilesResultSchema.parse(
         {
           additionalAgentProfiles: (additionalProfiles.results ?? []).map(
-            mapOrganizationDirectoryAgentProfileIdentityRow
+            (row) =>
+              mapOrganizationDirectoryAgentProfileIdentityRow(
+                row,
+                parsed.data.includeAvatarStyle
+              )
           ),
           ok: true,
           organizationAgentProfiles: (organizationProfiles.results ?? []).map(
-            mapOrganizationDirectoryAgentProfileIdentityRow
+            (row) =>
+              mapOrganizationDirectoryAgentProfileIdentityRow(
+                row,
+                parsed.data.includeAvatarStyle
+              )
           ),
           organizationId: parsed.data.organizationId,
         }
@@ -1247,7 +1259,7 @@ export class AuthRpcEntrypoint extends WorkerEntrypoint<AuthBindings> {
 
       return {
         ok: true,
-        profile: toAuthRpcProfileFact(profile),
+        profile: toAuthRpcProfileFact(profile, input.includeAvatarStyle),
       };
     } catch (error) {
       const profileError = toProfileRpcError(error);
@@ -1277,7 +1289,7 @@ export class AuthRpcEntrypoint extends WorkerEntrypoint<AuthBindings> {
       const byId = new Map(
         rows.map((profile) => [
           profile.profileId,
-          toAuthRpcProfileFact(profile),
+          toAuthRpcProfileFact(profile, parsed.data.includeAvatarStyle),
         ])
       );
       return authRpcResolveProfilesByIdsResultSchema.parse({
@@ -1582,7 +1594,7 @@ export class AuthRpcEntrypoint extends WorkerEntrypoint<AuthBindings> {
     const organizationId = normalizeOptionalText(input.organizationId);
     const profileId = normalizeOptionalText(input.profileId);
     const profileName = normalizeOptionalText(input.profileName);
-    if (!(organizationId && profileId && profileName)) {
+    if (!(organizationId && profileId && (profileName || input.avatarStyle))) {
       return {
         ok: false,
         code: "organization.context_required",
@@ -1596,12 +1608,15 @@ export class AuthRpcEntrypoint extends WorkerEntrypoint<AuthBindings> {
           managedRole: "center_agent",
           organizationId,
           profileId,
-          profileName,
+          ...(profileName ? { profileName } : {}),
+          ...(input.avatarStyle ? { avatarStyle: input.avatarStyle } : {}),
         });
 
       return {
         ok: true,
-        profile: toOpenMeldProfileRpcItem(profile),
+        profile: toOpenMeldProfileRpcItem(profile, {
+          includeAvatarStyle: input.avatarStyle !== undefined,
+        }),
       };
     } catch (error) {
       return toProfileRpcError(error);
@@ -2568,6 +2583,7 @@ function toOpenMeldProfileRpcItem(
     source: string;
     managedRole?: unknown;
     defaultProjectId?: string | null;
+    avatarStyle?: string | null;
     createdByUserId: string | null;
     creationActorProfileId: string | null;
     creatorProfileId: string | null;
@@ -2575,7 +2591,11 @@ function toOpenMeldProfileRpcItem(
     createdAt: Date | string | number;
     updatedAt: Date | string | number;
   },
-  options?: { ownerName?: string | null; avatarUrl?: string | null }
+  options?: {
+    ownerName?: string | null;
+    avatarUrl?: string | null;
+    includeAvatarStyle?: boolean;
+  }
 ): OpenMeldProfileRpcItem {
   const ownerName = normalizeOptionalText(options?.ownerName);
   const managedRole = normalizeProfileManagedRole(profile.managedRole);
@@ -2596,6 +2616,9 @@ function toOpenMeldProfileRpcItem(
     ...(avatarUrl ? { avatarUrl } : {}),
     source: profile.source,
     managedRole,
+    ...(profile.profileKind === "agent" && options?.includeAvatarStyle
+      ? { avatarStyle: profile.avatarStyle ?? null }
+      : {}),
     ...(profile.profileKind === "agent" && managedRole === null
       ? { defaultProjectId: normalizeOptionalText(profile.defaultProjectId) }
       : {}),
@@ -2737,8 +2760,16 @@ function isTrustedDeletedByCurrentProfileInput(input: {
 }
 
 function toAuthRpcProfileFact(
-  profile: AuthRpcProfileFact & { managedRole?: string | null }
+  profile: Omit<AuthRpcProfileFact, "avatarStyle"> & {
+    avatarStyle?: string | null;
+    managedRole?: string | null;
+  },
+  includeAvatarStyle = false
 ): AuthRpcProfileFact {
+  const avatarStyle =
+    profile.avatarStyle == null
+      ? null
+      : agentAvatarStyleSchema.parse(profile.avatarStyle);
   return {
     profileId: profile.profileId,
     profileName: profile.profileName,
@@ -2748,6 +2779,7 @@ function toAuthRpcProfileFact(
     ownerUserId: profile.ownerUserId,
     organizationId: normalizeOptionalText(profile.organizationId),
     managedRole: normalizeProfileManagedRole(profile.managedRole),
+    ...(includeAvatarStyle ? { avatarStyle } : {}),
     ...(profile.profileKind === "agent" &&
     normalizeProfileManagedRole(profile.managedRole) === null
       ? { defaultProjectId: normalizeOptionalText(profile.defaultProjectId) }
@@ -2811,6 +2843,7 @@ function buildOrganizationDirectoryAgentProfileIdentitySql(
       profiles.organization_id,
       profiles.profile_id,
       profiles.profile_name,
+      profiles.avatar_style,
       profiles.profile_handle,
       profiles.status,
       profiles.owner_user_id,
@@ -2891,7 +2924,8 @@ function mapOrganizationDirectoryMemberIdentityRow(
 }
 
 function mapOrganizationDirectoryAgentProfileIdentityRow(
-  row: OrganizationDirectoryAgentProfileIdentityRow
+  row: OrganizationDirectoryAgentProfileIdentityRow,
+  includeAvatarStyle = false
 ) {
   const ownerName = normalizeOptionalText(row.owner_name);
   return {
@@ -2908,6 +2942,7 @@ function mapOrganizationDirectoryAgentProfileIdentityRow(
     profileId: row.profile_id,
     profileKind: "agent" as const,
     profileName: row.profile_name,
+    ...(includeAvatarStyle ? { avatarStyle: row.avatar_style } : {}),
     source: row.source,
     status: row.status,
     updatedAt: toRequiredIsoString(row.updated_at, "Agent Profile updatedAt"),

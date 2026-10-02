@@ -143,6 +143,8 @@ import {
   spaceViewerMembershipResponseSchema,
   spaceWakeStopIntentQuerySchema,
   spaceWakeStopIntentResponseSchema,
+  taskSummaryRecoveryAccessRequestSchema,
+  type taskSummaryRecoveryAccessResponseSchema,
   toLegacySpaceAddressingWireValue,
   toLegacySpaceImageGeometryWireValue,
   toSpaceSignalReadWireValue,
@@ -278,6 +280,7 @@ import {
   recordRuntimeCoordinatorFailureTaskOutcome,
   recordRuntimeCoordinatorFinalizationTaskOutcome,
 } from "../../../agent-task-coordination/application/runtime-coordinator-task-outcome";
+import { readAgentTaskContinuationResultSignals } from "../../../agent-task-coordination/infrastructure/d1/agent-task-coordination-repo";
 import type { AuthProfileFacts } from "../../../auth/application/profile-facts-reader";
 import { readAgentProfileOrganizationContext } from "../../../center-agent/center-agent-organization-scope";
 import {
@@ -4037,6 +4040,7 @@ export class Space extends DurableObject<CoreBindings> {
     const dispatchMessage = buildAcceptedDispatchFinalizationQueueMessage({
       fact: command.dispatchFact,
       inboxRecord,
+      organizationId: this.readSpaceMetaRecord()?.organizationId,
       sourceSignal,
       sourceProfileNameSnapshot,
       spaceContract,
@@ -4535,6 +4539,7 @@ export class Space extends DurableObject<CoreBindings> {
       return {
         emittedSignal: existingSignal,
         finalReplySettled: true,
+        threadContext: this.resolveThreadContextForSignal(existingSignal.id),
       };
     }
 
@@ -4563,6 +4568,8 @@ export class Space extends DurableObject<CoreBindings> {
     const sourceDispatchChainContext =
       resolveSourceDispatchChainContext(requestContext);
     const spacePassword = getSpaceAccessPassword(spaceAccess);
+    const outputThreadContext =
+      await this.resolveAgentTransportOutputThreadContext(input);
     const signalContext = {
       ...(input.plan.kind === "message"
         ? {
@@ -4571,6 +4578,8 @@ export class Space extends DurableObject<CoreBindings> {
                 input.plan.observedThroughSignalId ??
                 input.dispatchMessage.sourceEventId,
               sourceSignalId: input.dispatchMessage.sourceEventId,
+              sourceThreadId:
+                input.dispatchMessage.threadContext?.threadId ?? null,
               targetProfileId: input.dispatchMessage.targetProfileId,
             },
           }
@@ -4589,9 +4598,9 @@ export class Space extends DurableObject<CoreBindings> {
         : {}),
       ...(sourceDispatchChainContext ? { sourceDispatchChainContext } : {}),
       ...(spacePassword === undefined ? {} : { spacePassword }),
-      ...(input.dispatchMessage.threadContext
+      ...(outputThreadContext
         ? {
-            threadContext: input.dispatchMessage.threadContext,
+            threadContext: outputThreadContext,
             threadPlacement: "thread" as const,
           }
         : {}),
@@ -4631,6 +4640,7 @@ export class Space extends DurableObject<CoreBindings> {
     return {
       emittedSignal: finalSignal,
       finalReplySettled: true,
+      threadContext: this.resolveThreadContextForSignal(finalSignal.id),
     };
   }
 
@@ -4642,6 +4652,24 @@ export class Space extends DurableObject<CoreBindings> {
       profileId: input.dispatchMessage.targetProfileId,
     });
     return signalId ? this.readSignalById(signalId) : null;
+  }
+
+  private async resolveAgentTransportOutputThreadContext(
+    input: AgentTransportSpaceActionDeliveryInput
+  ): Promise<SpaceThreadContext | null> {
+    if (input.plan.kind !== "message") {
+      return input.dispatchMessage.threadContext ?? null;
+    }
+    const placement = await this.rpcResolveNativeReplyPlacement({
+      spaceId: input.dispatchMessage.spaceId,
+      dispatchId: input.dispatchMessage.dispatchId,
+      sourceSignalId: input.dispatchMessage.sourceEventId,
+      profileId: input.dispatchMessage.targetProfileId,
+      defaultToThread: true,
+      lock: true,
+      ...(input.plan.placement ? { placement: input.plan.placement } : {}),
+    });
+    return placement.threadContext;
   }
 
   private async buildAgentTransportSpaceActionSignal(
@@ -7132,7 +7160,10 @@ export class Space extends DurableObject<CoreBindings> {
         continue;
       }
       const encoded = JSON.stringify(
-        this.redactSignalForViewer(signal, session)
+        spaceAddressingWireValueForSession(
+          this.redactSignalForViewer(signal, session),
+          session
+        )
       );
       webSocket.send(encoded);
     }
@@ -7177,7 +7208,14 @@ export class Space extends DurableObject<CoreBindings> {
         (await this.authorizeLiveSession(session)) &&
         this.transientStreamReplay.isCurrent(frame)
       ) {
-        webSocket.send(JSON.stringify(projected));
+        webSocket.send(
+          JSON.stringify(
+            toSpaceSignalReadWireValue(
+              projected,
+              session.supportsAgentWorkOutcomes === true
+            )
+          )
+        );
       }
     }
   }
@@ -9284,6 +9322,42 @@ export class Space extends DurableObject<CoreBindings> {
     );
     if (!access.ok && access.response.status >= 500) {
       throw new Error("Device waiting Wake access is unavailable.");
+    }
+    return { allowed: access.ok };
+  }
+
+  async rpcCheckTaskSummaryRecoveryAccess(
+    raw: ReturnType<typeof taskSummaryRecoveryAccessRequestSchema.parse>
+  ): Promise<ReturnType<typeof taskSummaryRecoveryAccessResponseSchema.parse>> {
+    const parsed = taskSummaryRecoveryAccessRequestSchema.safeParse(raw);
+    if (!parsed.success) {
+      return { allowed: false };
+    }
+    const input = parsed.data;
+    this.applySpaceRef(input.spaceId);
+    const member = readSpaceMemberRecord(this.ctx.storage.sql, input.profileId);
+    if (
+      member?.status !== "active" ||
+      member.profileKindSnapshot !== "human" ||
+      member.ownerUserIdSnapshot !== input.ownerUserId
+    ) {
+      return { allowed: false };
+    }
+    const access = await this.authorizeWritableSpaceAccess(
+      createAuthenticatedSpaceAccessContext({
+        spaceId: input.spaceId,
+        requestContext: {
+          actorContext: {
+            requestId: `summary-recovery-access:${input.profileId}`,
+            openMeldProfileId: input.profileId,
+            ownerUserId: input.ownerUserId,
+            profileKind: "human",
+          },
+        },
+      })
+    );
+    if (!access.ok && access.response.status >= 500) {
+      throw new Error("Task summary recovery access is unavailable.");
     }
     return { allowed: access.ok };
   }
@@ -18144,7 +18218,14 @@ export class Space extends DurableObject<CoreBindings> {
         message,
         session.supportsAgentReplyPlacement === true
       );
-      return projected ? JSON.stringify(projected) : null;
+      return projected
+        ? JSON.stringify(
+            toSpaceSignalReadWireValue(
+              projected,
+              session.supportsAgentWorkOutcomes === true
+            )
+          )
+        : null;
     }
     return JSON.stringify(
       spaceAddressingWireValueForSession(
@@ -18327,7 +18408,11 @@ export class Space extends DurableObject<CoreBindings> {
                   signalContext.agentReplyObservation.observedThroughSignalId,
                 sourceSignalId:
                   signalContext.agentReplyObservation.sourceSignalId,
-                threadId: signalContext.threadContext?.threadId ?? null,
+                threadId:
+                  signalContext.agentReplyObservation.sourceThreadId ===
+                  undefined
+                    ? (signalContext.threadContext?.threadId ?? null)
+                    : signalContext.agentReplyObservation.sourceThreadId,
               }
             : null,
           operation: () => {
@@ -18639,7 +18724,11 @@ export class Space extends DurableObject<CoreBindings> {
                   signalContext.agentReplyObservation.observedThroughSignalId,
                 sourceSignalId:
                   signalContext.agentReplyObservation.sourceSignalId,
-                threadId: signalContext.threadContext?.threadId ?? null,
+                threadId:
+                  signalContext.agentReplyObservation.sourceThreadId ===
+                  undefined
+                    ? (signalContext.threadContext?.threadId ?? null)
+                    : signalContext.agentReplyObservation.sourceThreadId,
               }
             : null,
           operation: () => {
@@ -20772,11 +20861,18 @@ export class Space extends DurableObject<CoreBindings> {
     const activeNativeDeliveries = await this.readActiveNativeDeliveryProgress({
       targetProfileId,
     });
+    const continuationResultSignals = await this.readContinuationResultSignals(
+      activeNativeDeliveries
+    );
     const activeNativeDeliveryByTarget = new Map(
       activeNativeDeliveries.map(
         (delivery) => [buildDispatchTargetKey(delivery), delivery] as const
       )
     );
+    const representedDispatchTargetKeys = new Set([
+      ...outboxRecords.map(buildDispatchTargetKey),
+      ...(lookup?.matches ?? []).map(buildDispatchTargetKey),
+    ]);
 
     const items: WakeProgressItem[] = [];
     for (const nextTargetProfileId of targetProfileIds) {
@@ -20873,6 +20969,21 @@ export class Space extends DurableObject<CoreBindings> {
       }
     }
 
+    items.push(
+      ...buildUnrepresentedNativeDeliveryProgressItems({
+        activeNativeDeliveries,
+        clientMessageId,
+        continuationResultSignals,
+        includeTiming: input.includeTiming === true,
+        includeWakeStopEligibility: input.includeWakeStopEligibility === true,
+        memberByProfileId,
+        outboxRecords,
+        representedDispatchTargetKeys,
+        sourceSignal,
+        sourceSignalId,
+      })
+    );
+
     const contextualItems =
       input.includeSourceContext === true
         ? this.attachWakeProgressSourceContexts(items)
@@ -20955,6 +21066,18 @@ export class Space extends DurableObject<CoreBindings> {
     );
   }
 
+  private async readContinuationResultSignals(
+    deliveries: readonly ActiveRemoteAgentNativeDeliveryWakeProgressEvidence[]
+  ): Promise<ReadonlyMap<string, string>> {
+    const db = wakeEvidenceDb(this.bindings);
+    return db
+      ? await readAgentTaskContinuationResultSignals({
+          db,
+          dispatchIds: deliveries.map((delivery) => delivery.dispatchId),
+        })
+      : new Map();
+  }
+
   private async readActiveWakeProgressOwnerEvidence(input: {
     db: D1Database;
     includeTiming?: boolean;
@@ -21029,6 +21152,13 @@ export class Space extends DurableObject<CoreBindings> {
         includePageInfo: input.includePageInfo === true,
         sourceProfileId,
         targetProfileId,
+      });
+    const continuationResultSignals =
+      await readAgentTaskContinuationResultSignals({
+        db: input.db,
+        dispatchIds: activeNativeDeliveries.map(
+          (delivery) => delivery.dispatchId
+        ),
       });
     const activeNativeDeliveryByTarget = new Map(
       activeNativeDeliveries.map(
@@ -21146,7 +21276,9 @@ export class Space extends DurableObject<CoreBindings> {
         return [];
       }
       const clientMessageId = normalizeOptionalText(delivery.clientMessageId);
-      const sourceSignalId = normalizeOptionalText(delivery.sourceSignalId);
+      const sourceSignalId =
+        continuationResultSignals.get(delivery.dispatchId) ??
+        normalizeOptionalText(delivery.sourceSignalId);
       if (!(clientMessageId || sourceSignalId)) {
         return [];
       }
@@ -21165,6 +21297,11 @@ export class Space extends DurableObject<CoreBindings> {
           clientMessageId,
           dispatchId: delivery.dispatchId,
           failureReasonCode: delivery.failureReasonCode,
+          message: buildWakeProgressMessage({
+            phase: delivery.phase,
+            targetLabel,
+            runtimeKind: "hosted",
+          }),
           phase: delivery.phase,
           sourceSignalId: sourceSignal?.id ?? sourceSignalId,
           ...(input.includeTiming === true && delivery.startedAtMs !== null
@@ -22796,7 +22933,8 @@ function spaceAddressingWireValueForSession(
   const readValue = toSpaceSignalReadWireValue(
     session.supportsSpaceImageGeometry
       ? value
-      : toLegacySpaceImageGeometryWireValue(value)
+      : toLegacySpaceImageGeometryWireValue(value),
+    session.supportsAgentWorkOutcomes === true
   );
   return session.supportsSpaceMessageAddressing
     ? readValue
@@ -23213,6 +23351,64 @@ function formatUnknownErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function buildUnrepresentedNativeDeliveryProgressItems(input: {
+  activeNativeDeliveries: readonly ActiveRemoteAgentNativeDeliveryWakeProgressEvidence[];
+  clientMessageId: string | null;
+  continuationResultSignals: ReadonlyMap<string, string>;
+  includeTiming: boolean;
+  includeWakeStopEligibility: boolean;
+  memberByProfileId: ReadonlyMap<string, SpaceMemberRecord>;
+  outboxRecords: readonly OpenMeldDaemonDispatchOutboxRecoveryCandidate[];
+  representedDispatchTargetKeys: ReadonlySet<string>;
+  sourceSignal: Extract<SignalEnvelope, { type: "signal.text" }> | null;
+  sourceSignalId: string | null;
+}): WakeProgressItem[] {
+  // A task continuation owns a new native dispatch with no Space outbox row.
+  // Its published child result is the exact visible cause of the new round.
+  return input.activeNativeDeliveries.flatMap((delivery) => {
+    const continuationResultSignalId =
+      input.continuationResultSignals.get(delivery.dispatchId) ?? null;
+    const matchesSource = input.sourceSignalId
+      ? delivery.sourceSignalId === input.sourceSignalId ||
+        continuationResultSignalId === input.sourceSignalId
+      : Boolean(
+          input.clientMessageId &&
+            delivery.clientMessageId === input.clientMessageId
+        );
+    if (
+      !matchesSource ||
+      input.representedDispatchTargetKeys.has(buildDispatchTargetKey(delivery))
+    ) {
+      return [];
+    }
+    const targetLabel = resolveWakeProgressTargetLabel({
+      memberByProfileId: input.memberByProfileId,
+      outboxRecords: input.outboxRecords,
+      sourceSignal: input.sourceSignal,
+      targetProfileId: delivery.targetProfileId,
+    });
+    return [
+      createWakeProgressItem({
+        clientMessageId: delivery.clientMessageId,
+        dispatchId: delivery.dispatchId,
+        failureReasonCode: delivery.failureReasonCode,
+        phase: delivery.phase,
+        runtimeKind: "hosted",
+        sourceSignalId: continuationResultSignalId ?? delivery.sourceSignalId,
+        targetLabel,
+        targetProfileId: delivery.targetProfileId,
+        updatedAtMs: delivery.updatedAtMs,
+        ...(input.includeTiming && delivery.startedAtMs !== null
+          ? { startedAtMs: delivery.startedAtMs }
+          : {}),
+        ...(input.includeWakeStopEligibility
+          ? { wakeStopEligibility: nativeDeliveryWakeStopEligibility(delivery) }
+          : {}),
+      }),
+    ];
+  });
+}
+
 function collectWakeProgressTargetProfileIds(input: {
   lookup: GetSpaceDispatchLookupResponse | null;
   outboxRecords: readonly OpenMeldDaemonDispatchOutboxRecoveryCandidate[];
@@ -23375,6 +23571,7 @@ function buildWakeProgressItemFromOutbox(input: {
     clientMessageId: input.clientMessageId,
     dispatchId: input.outboxRecord.dispatchId,
     failureReasonCode: input.nativeDeliveryEvidence?.failureReasonCode ?? null,
+    runtimeKind: resolveWakeProgressRuntimeKind(input.nativeDeliveryEvidence),
     message:
       phase === "stopped"
         ? buildWakeProgressMessage({
@@ -23412,6 +23609,12 @@ function nativeDeliveryWakeStopEligibility(
         status: "eligible",
       }
     : null;
+}
+
+function resolveWakeProgressRuntimeKind(
+  evidence: ActiveRemoteAgentNativeDeliveryWakeProgressEvidence | undefined
+): "hosted" | "workstation" {
+  return evidence ? "hosted" : "workstation";
 }
 
 function preAgentWakeStopEligible(): WakeProgressItem["wakeStopEligibility"] {
@@ -23528,14 +23731,11 @@ function buildWakeProgressItemFromDispatchEvidence(input: {
     headLifecycleProgress?.deviceWait
       ? { deviceWait: headLifecycleProgress.deviceWait }
       : {}),
-    failureReasonCode:
-      phase === "failed" ||
-      phase === "publication_unknown" ||
-      phase === "publishing"
-        ? errorCode
-        : null,
+    // The shared projection owns phase-specific reason filtering.
+    failureReasonCode: errorCode,
     phase,
     pendingInteraction: input.pendingInteraction,
+    runtimeKind: resolveWakeProgressRuntimeKind(input.nativeDeliveryEvidence),
     runtimeCoordinatorExecutionId: input.runtimeCoordinatorExecutionId,
     sourceSignalId:
       input.lookupMatch.sourceSignalId ??

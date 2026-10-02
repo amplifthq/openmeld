@@ -11,18 +11,20 @@ import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
 import {
 	ContextMenu,
-	ContextMenuContent,
-	ContextMenuItem,
-	ContextMenuSeparator,
 	ContextMenuTrigger,
 } from "@openmeld/ui/components/context-menu";
 import {
+	DropdownMenuSeparator as ContextMenuSeparator,
 	DropdownMenu,
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
+import { FluidContextMenu } from "@openmeld/ui/fluid/context-menu";
 import {
+	FluidDropdownMenuContent as ContextMenuContent,
+	FluidDropdownMenuItem as ContextMenuItem,
 	FluidDropdownMenuContent,
+	FluidDropdownMenuGroup,
 	FluidDropdownMenuItem,
 } from "@openmeld/ui/fluid/dropdown-menu";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
@@ -57,7 +59,10 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { ReadPausedState } from "#/components/app/read-paused-state";
 import type { FileSystemItem } from "#/components/extend/file-system";
+import { mayShowCachedReadData } from "#/lib/query-display";
+import { useDelayedPending } from "#/lib/use-delayed-pending";
 import { SpaceFileHtmlBadge } from "./space-file-html-badge";
 import {
 	formatFileSize,
@@ -74,6 +79,10 @@ const FileSystem = lazy(() =>
 	}))
 );
 
+function DelayedSpaceFilesSkeleton() {
+	return useDelayedPending(true) ? <SpaceFilesSkeleton /> : null;
+}
+
 export function SpaceFileBrowser(input: {
 	actionError: string | null;
 	api: Pick<SpaceApi, "downloadFileContent">;
@@ -84,6 +93,7 @@ export function SpaceFileBrowser(input: {
 	error: unknown;
 	fileInputRef: RefObject<HTMLInputElement | null>;
 	isPending: boolean;
+	isPaused: boolean;
 	loaded: boolean;
 	onDismissError: () => void;
 	onMove: (entry: SpaceFileEntry) => void;
@@ -105,6 +115,8 @@ export function SpaceFileBrowser(input: {
 	onViewChange: (view: "active" | "trash") => void;
 }) {
 	const [fileDragDepth, setFileDragDepth] = useState(0);
+	const showCachedReadError =
+		input.loaded && input.error && mayShowCachedReadData(input.error);
 	const acceptingDrop = input.canWrite && input.view === "active";
 	const fileDragActive = acceptingDrop && fileDragDepth > 0;
 	const enterFileDrag = (event: DragEvent<HTMLElement>) => {
@@ -237,7 +249,8 @@ export function SpaceFileBrowser(input: {
 			api={input.api}
 			canWrite={input.canWrite}
 			entries={input.entries}
-			error={input.error}
+			error={showCachedReadError ? null : input.error}
+			isPaused={input.isPaused}
 			isPending={input.isPending}
 			onCopy={input.onCopy}
 			onMove={input.onMove}
@@ -347,6 +360,14 @@ export function SpaceFileBrowser(input: {
 					</Button>
 				</div>
 			) : null}
+			{showCachedReadError ? (
+				<output className="flex flex-wrap items-center justify-between gap-3 border-border/70 border-b bg-card/35 px-5 py-3 text-sm">
+					<span>Couldn't refresh Files. Showing the last loaded list.</span>
+					<Button onClick={input.onRetry} size="sm" variant="outline">
+						Retry
+					</Button>
+				</output>
+			) : null}
 			{input.view === "active" ? (
 				<div className="min-h-0 flex-1 p-5">{browserContent}</div>
 			) : (
@@ -369,6 +390,7 @@ function SpaceFileBrowserContent(input: {
 	entries: readonly SpaceFileEntry[];
 	error: unknown;
 	isPending: boolean;
+	isPaused: boolean;
 	onOpen: (entry: SpaceFileEntry) => void;
 	onMove: (entry: SpaceFileEntry) => void;
 	onCopy?: (entry: SpaceFileDescriptor, destination: "team" | "my") => void;
@@ -389,8 +411,20 @@ function SpaceFileBrowserContent(input: {
 	const [mounted, setMounted] = useState(false);
 	useEffect(() => setMounted(true), []);
 	const selectedEntry = input.entries.find((entry) => entry.id === selectedId);
+	const showPending = useDelayedPending(input.isPending && !input.isPaused);
+	let pendingEmptyContent: ReactNode;
+	if (input.isPending) {
+		pendingEmptyContent = input.isPaused ? (
+			<ReadPausedState subject="Files" />
+		) : (
+			<div className="min-h-64" />
+		);
+	}
 	if (input.isPending && input.view === "trash") {
-		return <SpaceFilesSkeleton />;
+		if (input.isPaused) {
+			return <ReadPausedState subject="Files" />;
+		}
+		return showPending ? <SpaceFilesSkeleton /> : null;
 	}
 	if (input.error && input.view === "trash") {
 		return <SpaceFilesLoadError error={input.error} onRetry={input.onRetry} />;
@@ -462,10 +496,11 @@ function SpaceFileBrowserContent(input: {
 					}}
 				>
 					{mounted ? (
-						<Suspense fallback={<SpaceFilesSkeleton />}>
+						<Suspense fallback={<DelayedSpaceFilesSkeleton />}>
 							<FileSystem
 								className="h-[min(65vh,48rem)] min-h-96"
 								embedded
+								emptyContent={pendingEmptyContent}
 								errorContent={
 									input.error ? (
 										<SpaceFilesLoadError
@@ -479,7 +514,7 @@ function SpaceFileBrowserContent(input: {
 										/>
 									) : undefined
 								}
-								isLoading={input.isPending}
+								isLoading={input.isPending && !input.isPaused && showPending}
 								items={items}
 								onEntryContextMenu={(item) =>
 									setSelectedId(entriesByPath.get(item.path)?.id ?? null)
@@ -517,7 +552,7 @@ function SpaceFileBrowserContent(input: {
 							/>
 						</Suspense>
 					) : (
-						<SpaceFilesSkeleton />
+						<DelayedSpaceFilesSkeleton />
 					)}
 				</ContextMenuTrigger>
 				{selectedEntry || input.canWrite ? (
@@ -534,26 +569,33 @@ function SpaceFileBrowserContent(input: {
 							/>
 						) : (
 							<>
-								<ContextMenuItem onClick={input.onNewFolder}>
+								<ContextMenuItem index={0} onClick={input.onNewFolder}>
 									<FolderPlusIcon aria-hidden="true" />
 									New folder
 								</ContextMenuItem>
 								<ContextMenuItem
+									index={1}
 									onClick={() => input.onNewTextFile("markdown")}
 								>
 									<FileTextIcon aria-hidden="true" />
 									New Markdown file
 								</ContextMenuItem>
-								<ContextMenuItem onClick={() => input.onNewTextFile("text")}>
+								<ContextMenuItem
+									index={2}
+									onClick={() => input.onNewTextFile("text")}
+								>
 									<FileTextIcon aria-hidden="true" />
 									New text file
 								</ContextMenuItem>
-								<ContextMenuItem onClick={() => input.onNewTextFile("csv")}>
+								<ContextMenuItem
+									index={3}
+									onClick={() => input.onNewTextFile("csv")}
+								>
 									<FileTextIcon aria-hidden="true" />
 									New CSV file
 								</ContextMenuItem>
 								<ContextMenuSeparator />
-								<ContextMenuItem onClick={input.onUpload}>
+								<ContextMenuItem index={4} onClick={input.onUpload}>
 									<UploadSimpleIcon aria-hidden="true" />
 									Upload file…
 								</ContextMenuItem>
@@ -577,79 +619,99 @@ function SpaceFileBrowserContent(input: {
 			</div>
 			<ul className="divide-y divide-border/70">
 				{input.entries.map((entry) => (
-					<li
-						className="group/entry grid grid-cols-[minmax(0,1fr)_9rem_8rem_2rem] items-center gap-3 px-2 py-1.5 hover:bg-muted/35 max-sm:grid-cols-[minmax(0,1fr)_2rem]"
+					<FluidContextMenu
 						key={entry.id}
-					>
-						{input.view === "active" ? (
-							<button
-								className="flex min-w-0 items-center gap-3 rounded-sm px-2 py-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-								onClick={() => input.onOpen(entry)}
-								type="button"
-							>
-								<SpaceFileEntryVisual
-									api={input.api}
-									entry={entry}
-									previewImages={true}
-									spaceId={input.spaceId}
-								/>
-								<span className="min-w-0">
-									<span className="flex min-w-0 items-center gap-1.5">
-										<span className="block truncate font-medium text-sm">
-											{entry.name}
+						target={
+							<li className="group/entry grid grid-cols-[minmax(0,1fr)_9rem_8rem_2rem] items-center gap-3 px-2 py-1.5 hover:bg-muted/35 max-sm:grid-cols-[minmax(0,1fr)_2rem]">
+								{input.view === "active" ? (
+									<button
+										className="flex min-w-0 items-center gap-3 rounded-sm px-2 py-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+										onClick={() => input.onOpen(entry)}
+										type="button"
+									>
+										<SpaceFileEntryVisual
+											api={input.api}
+											entry={entry}
+											previewImages={true}
+											spaceId={input.spaceId}
+										/>
+										<span className="min-w-0">
+											<span className="flex min-w-0 items-center gap-1.5">
+												<span className="block truncate font-medium text-sm">
+													{entry.name}
+												</span>
+												{input.showChatUploads &&
+												entry.kind === "file" &&
+												entry.origin === "chat_upload" ? (
+													<Badge className="shrink-0" variant="outline">
+														Chat upload
+													</Badge>
+												) : null}
+											</span>
+											<span className="block truncate text-muted-foreground text-xs sm:hidden">
+												{entry.kind === "folder"
+													? "Folder"
+													: formatFileSize(entry.latestRevision.sizeBytes)}
+											</span>
 										</span>
-										{input.showChatUploads &&
-										entry.kind === "file" &&
-										entry.origin === "chat_upload" ? (
-											<Badge className="shrink-0" variant="outline">
-												Chat upload
-											</Badge>
-										) : null}
-									</span>
-									<span className="block truncate text-muted-foreground text-xs sm:hidden">
-										{entry.kind === "folder"
-											? "Folder"
-											: formatFileSize(entry.latestRevision.sizeBytes)}
-									</span>
+									</button>
+								) : (
+									<div className="flex min-w-0 items-center gap-3 px-2 py-1.5">
+										<SpaceFileEntryVisual
+											api={input.api}
+											entry={entry}
+											previewImages={false}
+											spaceId={input.spaceId}
+										/>
+										<span className="min-w-0">
+											<span className="block truncate font-medium text-sm">
+												{entry.name}
+											</span>
+											<span className="block truncate text-muted-foreground text-xs">
+												Deleted by{" "}
+												{entry.trashedBy?.displayName ?? "a Space member"}
+											</span>
+										</span>
+									</div>
+								)}
+								<span className="truncate text-muted-foreground text-xs max-sm:hidden">
+									{formatShortDate(entry.trashedAt ?? entry.updatedAt)}
 								</span>
-							</button>
-						) : (
-							<div className="flex min-w-0 items-center gap-3 px-2 py-1.5">
-								<SpaceFileEntryVisual
-									api={input.api}
+								<span className="text-muted-foreground text-xs max-sm:hidden">
+									{entry.kind === "folder"
+										? "—"
+										: formatFileSize(entry.latestRevision.sizeBytes)}
+								</span>
+								<EntryRowAction
+									canWrite={input.canWrite}
 									entry={entry}
-									previewImages={false}
-									spaceId={input.spaceId}
+									onCopy={input.onCopy}
+									onMove={() => input.onMove(entry)}
+									onOpen={() => input.onOpen(entry)}
+									onRename={() => input.onRename(entry)}
+									onRestore={() => input.onRestore(entry)}
+									onTrash={() => input.onTrash(entry)}
+									view={input.view}
 								/>
-								<span className="min-w-0">
-									<span className="block truncate font-medium text-sm">
-										{entry.name}
-									</span>
-									<span className="block truncate text-muted-foreground text-xs">
-										Deleted by{" "}
-										{entry.trashedBy?.displayName ?? "a Space member"}
-									</span>
-								</span>
-							</div>
+							</li>
+						}
+					>
+						{input.view === "trash" ? (
+							<ContextMenuItem index={0} onClick={() => input.onRestore(entry)}>
+								<ArrowCounterClockwiseIcon aria-hidden="true" /> Restore
+							</ContextMenuItem>
+						) : (
+							<SpaceFileContextActions
+								canWrite={input.canWrite}
+								entry={entry}
+								onCopy={input.onCopy}
+								onMove={() => input.onMove(entry)}
+								onOpen={() => input.onOpen(entry)}
+								onRename={() => input.onRename(entry)}
+								onTrash={() => input.onTrash(entry)}
+							/>
 						)}
-						<span className="truncate text-muted-foreground text-xs max-sm:hidden">
-							{formatShortDate(entry.trashedAt ?? entry.updatedAt)}
-						</span>
-						<span className="text-muted-foreground text-xs max-sm:hidden">
-							{entry.kind === "folder"
-								? "—"
-								: formatFileSize(entry.latestRevision.sizeBytes)}
-						</span>
-						<EntryRowAction
-							canWrite={input.canWrite}
-							entry={entry}
-							onMove={() => input.onMove(entry)}
-							onRename={() => input.onRename(entry)}
-							onRestore={() => input.onRestore(entry)}
-							onTrash={() => input.onTrash(entry)}
-							view={input.view}
-						/>
-					</li>
+					</FluidContextMenu>
 				))}
 			</ul>
 		</div>
@@ -738,6 +800,8 @@ function resolveEmptyStateDescription(input: {
 }
 
 function EntryRowAction(input: {
+	onOpen: () => void;
+	onCopy?: (entry: SpaceFileDescriptor, destination: "team" | "my") => void;
 	canWrite: boolean;
 	entry: SpaceFileEntry;
 	onMove: () => void;
@@ -765,7 +829,9 @@ function EntryRowAction(input: {
 	return (
 		<EntryActions
 			entry={input.entry}
+			onCopy={input.onCopy}
 			onMove={input.onMove}
+			onOpen={input.onOpen}
 			onRename={input.onRename}
 			onTrash={input.onTrash}
 		/>
@@ -791,42 +857,68 @@ function SpaceFileContextActions(input: {
 	const file = input.entry.kind === "file" ? input.entry : null;
 	return (
 		<>
-			<ContextMenuItem onClick={input.onOpen}>Open</ContextMenuItem>
+			<FluidDropdownMenuGroup>
+				<ContextMenuItem index={5} onClick={input.onOpen}>
+					Open
+				</ContextMenuItem>
+			</FluidDropdownMenuGroup>
 			{file && input.onCopy ? (
 				<>
 					<ContextMenuSeparator />
-					<ContextMenuItem onClick={() => input.onCopy?.(file, "team")}>
-						<CopyIcon aria-hidden="true" />
-						Copy to Team files…
-					</ContextMenuItem>
-					<ContextMenuItem onClick={() => input.onCopy?.(file, "my")}>
-						<CopyIcon aria-hidden="true" />
-						Copy to My files…
-					</ContextMenuItem>
+					<FluidDropdownMenuGroup>
+						<ContextMenuItem
+							index={6}
+							onClick={() => input.onCopy?.(file, "team")}
+						>
+							<CopyIcon aria-hidden="true" />
+							Copy to Team files…
+						</ContextMenuItem>
+						<ContextMenuItem
+							index={7}
+							onClick={() => input.onCopy?.(file, "my")}
+						>
+							<CopyIcon aria-hidden="true" />
+							Copy to My files…
+						</ContextMenuItem>
+					</FluidDropdownMenuGroup>
 				</>
 			) : null}
 			{input.canWrite ? (
 				<>
-					{pin ? (
-						<ContextMenuItem disabled={pin.disabled} onClick={pin.onSelect}>
-							<PushPinIcon aria-hidden="true" />
-							{pin.label}
+					<FluidDropdownMenuGroup>
+						{pin ? (
+							<ContextMenuItem
+								disabled={pin.disabled}
+								index={8}
+								onClick={pin.onSelect}
+							>
+								<PushPinIcon aria-hidden="true" />
+								{pin.label}
+							</ContextMenuItem>
+						) : null}
+					</FluidDropdownMenuGroup>
+					<ContextMenuSeparator />
+					<FluidDropdownMenuGroup>
+						<ContextMenuItem index={9} onClick={input.onRename}>
+							<PencilSimpleIcon aria-hidden="true" />
+							Rename
 						</ContextMenuItem>
-					) : null}
+						<ContextMenuItem index={10} onClick={input.onMove}>
+							<FolderOpenIcon aria-hidden="true" />
+							Move to folder…
+						</ContextMenuItem>
+					</FluidDropdownMenuGroup>
 					<ContextMenuSeparator />
-					<ContextMenuItem onClick={input.onRename}>
-						<PencilSimpleIcon aria-hidden="true" />
-						Rename
-					</ContextMenuItem>
-					<ContextMenuItem onClick={input.onMove}>
-						<FolderOpenIcon aria-hidden="true" />
-						Move to folder…
-					</ContextMenuItem>
-					<ContextMenuSeparator />
-					<ContextMenuItem onClick={input.onTrash} variant="destructive">
-						<TrashIcon aria-hidden="true" />
-						Move to Trash
-					</ContextMenuItem>
+					<FluidDropdownMenuGroup>
+						<ContextMenuItem
+							index={11}
+							onClick={input.onTrash}
+							variant="destructive"
+						>
+							<TrashIcon aria-hidden="true" />
+							Move to Trash
+						</ContextMenuItem>
+					</FluidDropdownMenuGroup>
 				</>
 			) : null}
 		</>
@@ -834,14 +926,13 @@ function SpaceFileContextActions(input: {
 }
 
 function EntryActions(input: {
+	onOpen: () => void;
+	onCopy?: (entry: SpaceFileDescriptor, destination: "team" | "my") => void;
 	entry: SpaceFileEntry;
 	onMove: () => void;
 	onRename: () => void;
 	onTrash: () => void;
 }) {
-	const pin = useSpaceFilePinAction(
-		input.entry.kind === "file" ? input.entry.id : undefined
-	);
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger
@@ -860,33 +951,7 @@ function EntryActions(input: {
 				align="end"
 				className="[&_[data-slot=dropdown-menu-item]]:w-full"
 			>
-				{pin ? (
-					<FluidDropdownMenuItem
-						disabled={pin.disabled}
-						index={0}
-						onClick={pin.onSelect}
-					>
-						<PushPinIcon aria-hidden="true" />
-						{pin.label}
-					</FluidDropdownMenuItem>
-				) : null}
-				<FluidDropdownMenuItem index={1} onClick={input.onRename}>
-					<PencilSimpleIcon aria-hidden="true" />
-					Rename
-				</FluidDropdownMenuItem>
-				<FluidDropdownMenuItem index={2} onClick={input.onMove}>
-					<FolderOpenIcon aria-hidden="true" />
-					Move to folder…
-				</FluidDropdownMenuItem>
-				<DropdownMenuSeparator />
-				<FluidDropdownMenuItem
-					className="text-destructive focus:text-destructive"
-					index={3}
-					onClick={input.onTrash}
-				>
-					<TrashIcon aria-hidden="true" />
-					Move to Trash
-				</FluidDropdownMenuItem>
+				<SpaceFileContextActions {...input} canWrite />
 			</FluidDropdownMenuContent>
 		</DropdownMenu>
 	);

@@ -2,6 +2,9 @@ import {
   CENTER_AGENT_TURN_DIAGNOSTIC_FAILURE_DETAIL_MAX_CHARS,
   centerAgentAnonymousMemberToolSpeakerSchema,
   messageChannelConversationLocatorSchema,
+  REMOTE_AGENT_EXECUTION_CONFIRMATION_PENDING_REASON_CODE,
+  REMOTE_AGENT_EXECUTION_CONFIRMATION_WAIT_MS,
+  remoteAgentExecutionReconciliationObservationSchema,
   remoteAgentWorkerSubmitTurnRequestSchema,
   spaceMessageAttachmentsSchema,
   spaceMessageFileReferencesSchema,
@@ -11,6 +14,7 @@ import type {
   CenterAgentAnonymousMemberToolSpeaker,
   CenterAgentTurnDiagnostic,
   MessageChannelConversationLocator,
+  RemoteAgentExecutionReconciliationObservation,
   RemoteAgentWorkerSubmitTurnRequest,
   RemoteAgentWorkLoopCheckpoint,
   SpaceMessageAttachment,
@@ -194,6 +198,7 @@ type RemoteAgentControllerNormalizationSnapshot = {
 };
 
 export type RemoteAgentNativeDeliveryRecord = {
+  executionReconciliation?: RemoteAgentExecutionReconciliationObservation | null;
   anonymousMemberSpeaker: CenterAgentAnonymousMemberToolSpeaker | null;
   deliveryId: string;
   organizationId: string;
@@ -260,6 +265,8 @@ export type RemoteAgentNativeDeliveryRecord = {
   createdAtMs: number;
   updatedAtMs: number;
   submittedAtMs: number | null;
+  admissionAttemptCount: number;
+  admissionRetryDueAtMs: number | null;
   acceptedAtMs: number | null;
   callbackReceivedAtMs: number | null;
   completedAtMs: number | null;
@@ -359,11 +366,14 @@ type RemoteAgentNativeDeliveryRow = {
   created_at_ms: number;
   updated_at_ms: number;
   submitted_at_ms: number | null;
+  admission_attempt_count: number;
+  admission_retry_due_at_ms: number | null;
   accepted_at_ms: number | null;
   callback_received_at_ms: number | null;
   completed_at_ms: number | null;
   deadline_probe_enqueued_at_ms: number | null;
   accepted_probe_next_due_at_ms: number | null;
+  execution_reconciliation_json?: string | null;
   retired_deadline_failure_code: string | null;
   retired_deadline_failure_published_signal_id: string | null;
   retired_deadline_failure_reconciled_at_ms: number | null;
@@ -440,11 +450,14 @@ const REMOTE_AGENT_NATIVE_DELIVERY_SELECT = `
     created_at_ms,
     updated_at_ms,
     submitted_at_ms,
+    admission_attempt_count,
+    admission_retry_due_at_ms,
     accepted_at_ms,
     callback_received_at_ms,
     completed_at_ms,
     deadline_probe_enqueued_at_ms,
     accepted_probe_next_due_at_ms,
+    execution_reconciliation_json,
     retired_deadline_failure_code,
     retired_deadline_failure_published_signal_id,
     retired_deadline_failure_reconciled_at_ms
@@ -452,6 +465,7 @@ const REMOTE_AGENT_NATIVE_DELIVERY_SELECT = `
 `;
 
 export async function listActiveRemoteAgentNativeDeliveryWakeProgressEvidenceBySpace(input: {
+  nowMs?: number;
   db: D1Database;
   limit?: number;
   sourceDispatchIds?: readonly string[];
@@ -486,6 +500,8 @@ export async function listActiveRemoteAgentNativeDeliveryWakeProgressEvidenceByS
     sourceBindings = [JSON.stringify(sourceDispatchIds)];
   }
   const bindings = [
+    (input.nowMs ?? Date.now()) - REMOTE_AGENT_EXECUTION_CONFIRMATION_WAIT_MS,
+    (input.nowMs ?? Date.now()) - REMOTE_AGENT_EXECUTION_CONFIRMATION_WAIT_MS,
     input.spaceId,
     ...(targetProfileId ? [targetProfileId] : []),
     ...sourceBindings,
@@ -508,6 +524,11 @@ export async function listActiveRemoteAgentNativeDeliveryWakeProgressEvidenceByS
           CASE
             WHEN deliveries.final_publication_state = 'outcome_unknown'
               THEN 'remote_agent.callback_publication_outcome_unknown'
+            WHEN deliveries.execution_reconciliation_json IS NOT NULL
+              AND (deliveries.execution_evidence_at_ms IS NULL OR deliveries.execution_evidence_at_ms <= ?)
+              AND (json_extract(deliveries.execution_reconciliation_json, '$.retryState') = 'paused'
+                OR json_extract(deliveries.execution_reconciliation_json, '$.firstUnavailableAtMs') <= ?)
+              THEN '${REMOTE_AGENT_EXECUTION_CONFIRMATION_PENDING_REASON_CODE}'
             ELSE NULL
           END AS failure_reason_code,
           deliveries.trigger_message_id,
@@ -1500,6 +1521,20 @@ export async function persistRemoteAgentWorkerSubmitRequest(input: {
       `Remote Agent native delivery ${input.idempotencyKey} has no valid durable worker request`
     );
   }
+  const expectedSummaryOnly =
+    workerSubmitRequest.turnEnvelope.trigger.source === "task_continuation" &&
+    workerSubmitRequest.turnEnvelope.trigger.summaryOnly === true;
+  for (const retained of [
+    record.workerSubmitRequest,
+    record.executionRecoverySubmitRequest,
+  ]) {
+    const trigger = retained.turnEnvelope.trigger;
+    const summaryOnly =
+      trigger.source === "task_continuation" && trigger.summaryOnly === true;
+    if (summaryOnly !== expectedSummaryOnly) {
+      throw new Error("remote_agent.task_continuation.summary_policy_mismatch");
+    }
+  }
   return record;
 }
 
@@ -1571,6 +1606,45 @@ export async function readRemoteAgentWorkLoopAttemptByCallbackIdentity(input: {
     submissionId: row.submission_id,
     workerSubmitRequest,
   };
+}
+
+/** Resolve the original request only through the owner's persisted attempt chain. */
+export async function readRemoteAgentWorkLoopOrigin(input: {
+  db: D1Database;
+  deliveryId: string;
+  idempotencyKey: string;
+}): Promise<RemoteAgentWorkerSubmitTurnRequest | null> {
+  const row = await input.db
+    .prepare(
+      `
+        WITH RECURSIVE history AS (
+          SELECT attempt, idempotency_key, worker_submit_request_json
+          FROM openMeldRemoteAgent_work_loop_attempts
+          WHERE delivery_id = ? AND next_idempotency_key = ?
+          UNION ALL
+          SELECT previous.attempt, previous.idempotency_key,
+            previous.worker_submit_request_json
+          FROM openMeldRemoteAgent_work_loop_attempts AS previous
+          JOIN history ON previous.next_idempotency_key = history.idempotency_key
+            AND previous.attempt = history.attempt - 1
+          WHERE previous.delivery_id = ?
+        )
+        SELECT idempotency_key, worker_submit_request_json
+        FROM history WHERE attempt = 1
+      `
+    )
+    .bind(input.deliveryId, input.idempotencyKey, input.deliveryId)
+    .first<{ idempotency_key: string; worker_submit_request_json: string }>();
+  if (!row) {
+    return null;
+  }
+  const request = parseWorkerSubmitRequest(
+    row.worker_submit_request_json
+  ).request;
+  if (!request || request.idempotencyKey !== row.idempotency_key) {
+    throw new Error("remote_agent.work_loop_origin_invalid");
+  }
+  return request;
 }
 
 export async function countRemoteAgentWorkLoopAttempts(input: {
@@ -1724,6 +1798,7 @@ export async function rearmRemoteAgentNativeDeliveryForWorkLoop(input: {
             completed_at_ms = NULL,
             deadline_probe_enqueued_at_ms = NULL,
             accepted_probe_next_due_at_ms = NULL,
+            execution_reconciliation_json = NULL,
             updated_at_ms = ?
           WHERE delivery_id = ?
             AND idempotency_key = ?
@@ -2493,6 +2568,7 @@ export async function markRemoteAgentNativeDeliveryAck(input: {
             ELSE NULL
           END,
           accepted_at_ms = COALESCE(accepted_at_ms, ?),
+          admission_retry_due_at_ms = NULL,
           execution_evidence_at_ms = COALESCE(execution_evidence_at_ms, ?),
           updated_at_ms = ?
         WHERE idempotency_key = ?
@@ -2636,6 +2712,60 @@ export async function markRemoteAgentAcceptedDeliveryProbeScheduled(input: {
   });
 }
 
+function parseExecutionReconciliation(
+  value: string | null | undefined
+): RemoteAgentExecutionReconciliationObservation | null {
+  if (value == null) {
+    return null;
+  }
+  let json: unknown;
+  try {
+    json = JSON.parse(value);
+  } catch {
+    throw new Error(
+      "remote_agent.execution_reconciliation_observation_invalid"
+    );
+  }
+  const parsed =
+    remoteAgentExecutionReconciliationObservationSchema.safeParse(json);
+  if (!parsed.success) {
+    throw new Error(
+      "remote_agent.execution_reconciliation_observation_invalid"
+    );
+  }
+  return parsed.data;
+}
+
+/** Writes a query observation under the existing exact probe lease. */
+export async function recordRemoteAgentExecutionReconciliation(input: {
+  db: D1Database;
+  delivery: RemoteAgentNativeDeliveryRecord;
+  processingLeaseDueAtMs: number;
+  observation: RemoteAgentExecutionReconciliationObservation | null;
+  nowMs: number;
+}): Promise<void> {
+  await input.db
+    .prepare(`UPDATE openMeldRemoteAgent_native_delivery_ledger
+    SET execution_reconciliation_json = ?, updated_at_ms = MAX(updated_at_ms, ?)
+    WHERE idempotency_key = ? AND submission_id = ?
+      AND status IN ('accepted', 'retry_observed') AND final_publication_state IS NULL
+      AND accepted_probe_next_due_at_ms = ?`)
+    .bind(
+      input.observation
+        ? JSON.stringify(
+            remoteAgentExecutionReconciliationObservationSchema.parse(
+              input.observation
+            )
+          )
+        : null,
+      input.nowMs,
+      input.delivery.idempotencyKey,
+      input.delivery.submissionId,
+      input.processingLeaseDueAtMs
+    )
+    .run();
+}
+
 export async function claimRemoteAgentAcceptedDeliveryProbeSchedule(input: {
   db: D1Database;
   idempotencyKey: string;
@@ -2657,6 +2787,7 @@ export async function claimRemoteAgentAcceptedDeliveryProbeSchedule(input: {
           AND submission_id = ?
           AND status IN ('accepted', 'retry_observed')
           AND final_publication_state IS NULL
+          AND COALESCE(json_extract(execution_reconciliation_json, '$.retryState'), '') != 'paused'
           AND (
             accepted_probe_next_due_at_ms IS NULL
             OR accepted_probe_next_due_at_ms <= ?
@@ -2724,6 +2855,7 @@ export async function listRemoteAgentNativeDeliveriesMissingAcceptedProbe(input:
         WHERE status IN ('accepted', 'retry_observed')
           AND submission_id IS NOT NULL
           AND final_publication_state IS NULL
+          AND COALESCE(json_extract(execution_reconciliation_json, '$.retryState'), '') <> 'paused'
           AND (
             accepted_probe_next_due_at_ms IS NULL
             OR accepted_probe_next_due_at_ms <= ?
@@ -3886,6 +4018,91 @@ export async function claimRemoteAgentNativeDeliveryAdmissionWatchdog(input: {
     idempotencyKey: input.idempotencyKey,
   });
   return record?.finalPublicationClaimId === input.claimId ? record : null;
+}
+
+export async function scheduleRemoteAgentTaskContinuationAdmissionRetry(input: {
+  attempt: number;
+  db: D1Database;
+  dueAtMs: number;
+  idempotencyKey: string;
+  nowMs: number;
+}): Promise<RemoteAgentNativeDeliveryRecord | null> {
+  const result = await input.db
+    .prepare(
+      `
+        UPDATE openMeldRemoteAgent_native_delivery_ledger
+        SET
+          admission_retry_due_at_ms = ?,
+          updated_at_ms = ?
+        WHERE idempotency_key = ?
+          AND submission_id IS NULL
+          AND accepted_at_ms IS NULL
+          AND status = 'submitted'
+          AND final_publication_state IS NULL
+          AND admission_attempt_count = ?
+          AND admission_retry_due_at_ms IS NULL
+          AND worker_submit_request_json IS NOT NULL
+      `
+    )
+    .bind(input.dueAtMs, input.nowMs, input.idempotencyKey, input.attempt)
+    .run();
+  const record = await readRemoteAgentNativeDeliveryByIdempotencyKey({
+    db: input.db,
+    idempotencyKey: input.idempotencyKey,
+  });
+  if (
+    record?.status === "submitted" &&
+    record.admissionAttemptCount === input.attempt &&
+    record.admissionRetryDueAtMs !== null
+  ) {
+    return record;
+  }
+  return didD1Write(result) ? record : null;
+}
+
+export async function claimRemoteAgentTaskContinuationAdmissionRetry(input: {
+  attempt: number;
+  db: D1Database;
+  dueAtMs: number;
+  idempotencyKey: string;
+  nowMs: number;
+}): Promise<RemoteAgentNativeDeliveryRecord | null> {
+  const result = await input.db
+    .prepare(
+      `
+        UPDATE openMeldRemoteAgent_native_delivery_ledger
+        SET
+          admission_attempt_count = ?,
+          admission_retry_due_at_ms = NULL,
+          submitted_at_ms = ?,
+          updated_at_ms = ?
+        WHERE idempotency_key = ?
+          AND submission_id IS NULL
+          AND accepted_at_ms IS NULL
+          AND status = 'submitted'
+          AND final_publication_state IS NULL
+          AND admission_attempt_count = ?
+          AND admission_retry_due_at_ms = ?
+          AND worker_submit_request_json IS NOT NULL
+      `
+    )
+    .bind(
+      input.attempt,
+      input.nowMs,
+      input.nowMs,
+      input.idempotencyKey,
+      input.attempt - 1,
+      input.dueAtMs
+    )
+    .run();
+  if (!didD1Write(result)) {
+    return null;
+  }
+  const record = await readRemoteAgentNativeDeliveryByIdempotencyKey({
+    db: input.db,
+    idempotencyKey: input.idempotencyKey,
+  });
+  return record?.admissionAttemptCount === input.attempt ? record : null;
 }
 
 export async function releaseRemoteAgentNativeDeliveryAdmissionWatchdog(input: {
@@ -5987,11 +6204,16 @@ function mapNativeDeliveryRow(
     createdAtMs: row.created_at_ms,
     updatedAtMs: row.updated_at_ms,
     submittedAtMs: row.submitted_at_ms,
+    admissionAttemptCount: row.admission_attempt_count,
+    admissionRetryDueAtMs: row.admission_retry_due_at_ms,
     acceptedAtMs: row.accepted_at_ms,
     callbackReceivedAtMs: row.callback_received_at_ms,
     completedAtMs: row.completed_at_ms,
     deadlineProbeEnqueuedAtMs: row.deadline_probe_enqueued_at_ms,
     acceptedProbeNextDueAtMs: row.accepted_probe_next_due_at_ms,
+    executionReconciliation: parseExecutionReconciliation(
+      row.execution_reconciliation_json
+    ),
     retiredDeadlineFailureCode: row.retired_deadline_failure_code,
     retiredDeadlineFailurePublishedSignalId:
       row.retired_deadline_failure_published_signal_id,

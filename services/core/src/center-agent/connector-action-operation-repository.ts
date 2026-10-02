@@ -7,6 +7,15 @@ import type {
 import { createCoreRpcHttpError } from "../rpc/errors";
 import { prepareCenterAgentAuditJournalEntryIfMissingStatement } from "./center-agent-repository";
 
+/** The pinned OpenConnector reserves an action before execution for 24 hours. */
+export function resolveConnectorActionReplayWindowRemainingMs(
+  createdAtMs: number,
+  nowMs: number
+): number {
+  const elapsedMs = nowMs - createdAtMs;
+  return elapsedMs < 0 ? 0 : Math.max(0, 24 * 60 * 60 * 1000 - elapsedMs);
+}
+
 export type CenterAgentConnectorActionOperationScope = {
   actorProfileId: string;
   operationId: string;

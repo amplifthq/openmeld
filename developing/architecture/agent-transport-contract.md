@@ -346,7 +346,10 @@ at most 50 waiting Wakes. Legacy work without a context drains exclusively.
 New work and forks may select a context explicitly. An ordinary Claude Code
 Wake in parallel mode implicitly selects a new isolated Space-only context when
 it has no retained context; a retained or explicitly Space-only context keeps
-its selected access. Every selection is scoped to the exact requester,
+its selected access. An ordinary Codex Wake with no retained context keeps the
+Profile's effective working folder through a current-folder workspace context;
+it never silently changes to a Space-only scratch directory merely because the
+Profile has already entered context mode. Every selection is scoped to the exact requester,
 Organization, Space, discussion, Profile, Binding, and Runtime.
 Admission freezes both the context assignment and a decision to retain legacy
 continuity. Linking an execution or redriving a Wake cannot assign it again.
@@ -521,14 +524,25 @@ Important execution rules:
   that baseline; fresh accepted progress from the same token run ends the old
   uncertainty. A reconnection after the last accepted progress also retains that
   window when the watchdog missed the offline interval; registration alone does
-  not prove that execution evidence has caught up. A continuously connected
+  not prove that execution evidence has caught up. Re-registering a route catalog
+  on the same socket preserves its original connection time and cannot manufacture
+  a communication-recovery window. A new socket still starts a new connection
+  interval; adopting a hibernated socket retains its stored interval. A continuously connected
   controller with stale progress keeps the ordinary
   five-minute policy. Stop, revocation, confirmed failure, and replacement-process
-  reconciliation take precedence. Window expiry retains `runtime.progress_stale`
-  and the existing owner-mediated late-result recovery, never automatic rerun.
-- The five-minute policy names the cause it actually found. An occupied native
-  conversation reports its occupancy once and then goes quiet, so it reaches the
-  same threshold looking like a lost computer. When the blocked work item still
+  reconciliation take precedence. At window expiry, a missing/stopped delivery
+  Service becomes `runtime.local_runtime_lost`; only a still-connected Service
+  with no more specific cause remains `runtime.progress_stale`. Both retain the
+  existing owner-mediated late-result recovery and never automatically rerun.
+- The five-minute policy names the cause it actually found. The first occupied
+  report advances the progress baseline. Repeated same-phase occupied reports,
+  recovery retries, and compatibility keepalives that omit occupancy prove only
+  liveness while the Coordinator's admission record still says occupied. They
+  cannot refresh progress or reset watchdog history, including after transport
+  hibernation or a permitted reconnect. An explicit availability transition or
+  advancement to `running` after provider turn acceptance ends that wait; normal
+  running keepalives continue to protect active execution. This is not a total
+  execution deadline. When the blocked work item still
   carries `waitReason = controller_conversation_occupied`, the terminal closes as
   `runtime.controller_conversation_occupied` instead, on the same deadline and
   with the same retained late-result recovery. Occupancy is read from the
@@ -559,6 +573,10 @@ Important execution rules:
   before unloading the operating-system service. The request is acknowledged
   only after the current socket session has completed its drain. A deliberate
   force path may bypass this handshake, but it must retain force-stop evidence.
+- If that route is still non-accepting with a recorded stop cause when the
+  watchdog expires, the terminal outcome is `runtime.local_runtime_lost` and
+  user copy says that OpenMeld Service stopped or disconnected during the Wake.
+  It must not fall through to generic stale-progress or connection advice.
 - A newly registered Service session on the same owner, device, and lane proves
   that process-local task ownership from a disconnected prior session cannot
   still be controlled by that prior Service. For a token-current execution with
@@ -607,6 +625,34 @@ Important execution rules:
   Core then rereads its native-delivery ledger. A still-active submission, a
   missing mixed-version RPC receiver, or a transport error requeues the same
   probe and cannot become an elapsed-time failure.
+- A task-continuation admission watchdog may first call native `readAdmission`
+  with the exact persisted submit request. The native owner compares its original
+  request digest and idempotency receipt without claiming or submitting work.
+  Only a finalized, validated ACK supplies a real submission ID. A missing or
+  merely claimed receipt remains unconfirmed; the watchdog's synthetic ID is
+  never used for execution reconciliation. Core saves a recovered ACK in its
+  existing ledger before generation/Stop/pause postprocessing and reuses the
+  accepted-delivery probe. This does not authorize a new execution, a new
+  idempotency identity, or controlled restart.
+- Native cancellation persists immutable Stop intent for the original
+  Organization/Space/idempotency identity, including before an execution row
+  exists. Initialization and model/tool guards consult that same native-owner
+  intent; a racing initializer cancels its newly created row rather than
+  admitting work. The intent has no expiry that can reopen a stopped identity.
+  It is not an admission ACK or terminal execution fact. The existing
+  `not_found` wire response still proves neither cleanup nor fence capability
+  in a mixed-version receiver. Native `readAdmissionStop` reads that same intent
+  in the original conversation owner without writing or admitting work. Core
+  validates the Organization/Space/idempotency identity; an absent method or
+  receipt supplies no fence proof. This proves only future admission is fenced,
+  not that earlier execution or external writes have settled. Controlled restart
+  remains unavailable until Core also confirms execution safety and current
+  authorization.
+  Waiting 240 seconds is an experience threshold only, never permission to
+  replay work. Do not roll back the native guard while an old stopped admission
+  can still arrive; an old receiver does not understand the new Stop intent.
+  The new optional read RPC leaves existing Stop/ACK response shapes unchanged;
+  deploy its receiver before any caller that requires a positive fence receipt.
 - Remote Agent initialization remains recoverable from Flue's durable
   submission only while the exact attempt still owns the row,
   `inputAppliedAt` is absent, and the submission has attempt budget remaining.
@@ -1334,6 +1380,12 @@ controlled Service update and an unexpected network disconnect keep the normal
 freshness window so update handoff and transient transport loss do not recreate
 connected/offline flicker.
 
+For owner-Service connectivity, select the current session by Runtime Transport
+freshness for each device and lane before applying the online predicate. An old
+maintenance session cannot replace a newer explicitly stopped session in that
+projection. The existing per-device durable record likewise retains the freshest
+session, including its admission and stop facts, across cold restoration.
+
 Socket presence is delivery evidence, not online evidence. Delivery (route
 lookup for an actual Wake dispatch) requires a live socket; the online verdict
 must not, because hibernation makes socket references transient by design.
@@ -1466,16 +1518,25 @@ Runtime results use the Space action contract:
   even when it looks like JSON, a tool call, or a former protocol marker. If no
   supported action entry point can record a valid action, the Wake fails with
   structured diagnostic evidence.
+- A supported local controller may publish a deliberate bounded progress
+  snapshot through its dispatch-scoped structured tool. The Service sends that
+  snapshot on the active RuntimeTransport execution token; Core validates the
+  same execution identity, lease, source Signal, target Profile, and stream
+  sequence used for privacy-bounded tool activity. Space stores it only as the
+  existing transient public-progress draft. Exact local retries are idempotent.
+  Progress never writes the final Space Action record, claims the final outcome
+  slot, dispatches a Wake, or releases an Agent Task continuation barrier.
 - A current local runtime attaches the newest relevant Space signal it observed
   to `post_message.observedThroughSignalId`. This is provider-neutral: Codex,
   Claude Code, Cursor, Grok Build, OpenCode, and future controllers use the same Space
   action boundary rather than provider-specific coordination prompts.
 
-Reply publication and observation use the source message's conversation scope.
-A main-timeline source remains in the main scope when a thread is opened beneath
-it; a `root` placement does not move that Wake into the thread. Only a source
-posted inside a thread defaults its outcome to that thread. Thread reads and
-the atomic reply guard both accept that thread's root as an observation cursor,
+Reply observation uses the source message's conversation scope. A main-timeline
+source remains in the main observation scope when a thread is opened beneath it;
+a `root` placement does not move that Wake into the thread. Final reply output
+in shared Spaces defaults to the thread under the source message, independently
+of that source scope. Thread reads and the atomic reply guard both accept that
+thread's root as an observation cursor,
 including when there are no replies yet. Other threads' cursors remain invalid,
 and newer messages in the observed scope still require review.
 
