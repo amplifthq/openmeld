@@ -2,11 +2,13 @@ import type { SpaceInboxUnreadTarget } from "@openmeld/schemas/types";
 import { useLayoutEffect, useRef } from "react";
 import { isInboxDocumentFocused } from "#/lib/inbox/desktop-notifications";
 
-// Both conversation surfaces use the same visibility and dwell policy. The
-// server's scoped read-through watermark remains the only durable read owner.
+// Acknowledges rendered updates, including out-of-order reading. A short batch
+// accumulates evidence during scrolling; leaving the viewport does not erase it.
 export function SpaceMessageReadObserver(input: {
 	unreadTargets: readonly SpaceInboxUnreadTarget[];
-	onViewedThroughTs?: (timestamp: number) => Promise<void> | void;
+	onViewedUpdates?: (
+		targets: readonly SpaceInboxUnreadTarget[]
+	) => Promise<void> | void;
 }) {
 	const markerRef = useRef<HTMLSpanElement>(null);
 	const current = useRef(input);
@@ -21,86 +23,101 @@ export function SpaceMessageReadObserver(input: {
 			return;
 		}
 		let active = true;
-		let persistedThrough = 0;
-		let candidate = 0;
 		let timer: ReturnType<typeof setTimeout> | undefined;
-		let retryAttempt = 0;
+		let frame: number | undefined;
 		let inFlight = false;
-		function visibleThrough() {
-			if (
-				!isInboxDocumentFocused() ||
-				viewport?.closest('[inert], [aria-hidden="true"]') ||
-				!current.current.onViewedThroughTs ||
-				!viewport
-			) {
-				return 0;
+		let retryAttempt = 0;
+		const pending = new Map<string, SpaceInboxUnreadTarget>();
+		const acknowledged = new Set<string>();
+		const key = (t: SpaceInboxUnreadTarget) =>
+			`${t.itemId ?? t.signalId}:${t.occurredAtMs}`;
+		const readable = () =>
+			isInboxDocumentFocused() &&
+			!viewport.closest('[inert], [aria-hidden="true"]') &&
+			!!current.current.onViewedUpdates;
+		async function flush() {
+			timer = undefined;
+			if (!(active && readable())) {
+				pending.clear();
+				return;
 			}
-			return resolveVisibleReadThrough(
-				viewport,
-				current.current,
-				persistedThrough
-			);
+			if (inFlight || pending.size === 0) {
+				return;
+			}
+			const batch = [...pending.values()];
+			pending.clear();
+			inFlight = true;
+			try {
+				await current.current.onViewedUpdates?.(batch);
+				for (const target of batch) {
+					acknowledged.add(key(target));
+				}
+				retryAttempt = 0;
+			} catch (error) {
+				// Re-measure on retry. Failed writes never become local read truth.
+				console.warn("Could not mark visible updates as read.", error);
+				retryAttempt += 1;
+			} finally {
+				inFlight = false;
+				if (active) {
+					measure();
+				}
+			}
 		}
 		function measure() {
-			if (!active) {
+			if (!(active && viewport)) {
 				return;
 			}
-			const next = visibleThrough();
-			if (next === candidate && (timer !== undefined || inFlight)) {
+			if (!readable()) {
+				pending.clear();
+				clearTimeout(timer);
+				timer = undefined;
 				return;
 			}
-			clearTimeout(timer);
-			timer = undefined;
-			candidate = next;
-			if (inFlight || next <= persistedThrough) {
-				return;
+			for (const target of visibleTargets(
+				viewport,
+				current.current.unreadTargets
+			)) {
+				if (!acknowledged.has(key(target))) {
+					pending.set(key(target), target);
+				}
 			}
-			timer = setTimeout(
-				async () => {
-					timer = undefined;
-					if (!active || visibleThrough() < next) {
-						measure();
-						return;
-					}
-					inFlight = true;
-					try {
-						await current.current.onViewedThroughTs?.(next);
-						persistedThrough = Math.max(persistedThrough, next);
-						retryAttempt = 0;
-					} catch (error) {
-						console.warn(
-							"Failed to persist the Space Inbox read position.",
-							error
-						);
-						retryAttempt += 1;
-					} finally {
-						inFlight = false;
-						measure();
-					}
-				},
-				150 + Math.min(retryAttempt, 4) * 200
-			);
+			if (!inFlight && pending.size && timer === undefined) {
+				timer = setTimeout(flush, 50 + Math.min(retryAttempt, 4) * 250);
+			}
 		}
-		measureRef.current = measure;
+		const requestMeasure = () => {
+			if (frame !== undefined) {
+				cancelAnimationFrame(frame);
+			}
+			frame = requestAnimationFrame(() => {
+				frame = undefined;
+				measure();
+			});
+		};
+		measureRef.current = requestMeasure;
 		viewport.addEventListener("scroll", measure, { passive: true });
 		document.addEventListener("visibilitychange", measure);
-		window.addEventListener("resize", measure);
-		window.addEventListener("focus", measure);
+		window.addEventListener("resize", requestMeasure);
+		window.addEventListener("focus", requestMeasure);
 		window.addEventListener("blur", measure);
-		const resize = new ResizeObserver(measure);
+		const resize = new ResizeObserver(requestMeasure);
 		resize.observe(viewport);
 		for (const child of viewport.children) {
 			resize.observe(child);
 		}
-		measure();
+		requestMeasure();
 		return () => {
 			active = false;
 			clearTimeout(timer);
+			if (frame !== undefined) {
+				cancelAnimationFrame(frame);
+			}
 			resize.disconnect();
 			viewport.removeEventListener("scroll", measure);
 			document.removeEventListener("visibilitychange", measure);
-			window.removeEventListener("resize", measure);
-			window.removeEventListener("focus", measure);
+			window.removeEventListener("resize", requestMeasure);
+			window.removeEventListener("focus", requestMeasure);
 			window.removeEventListener("blur", measure);
 			measureRef.current = () => undefined;
 		};
@@ -108,35 +125,21 @@ export function SpaceMessageReadObserver(input: {
 	return <span aria-hidden="true" className="hidden" ref={markerRef} />;
 }
 
-function resolveVisibleReadThrough(
+function visibleTargets(
 	viewport: HTMLElement,
-	input: {
-		unreadTargets: readonly SpaceInboxUnreadTarget[];
-	},
-	persistedThrough: number
-): number {
+	targets: readonly SpaceInboxUnreadTarget[]
+) {
 	const bounds = viewport.getBoundingClientRect();
 	const top = Math.max(bounds.top, 0);
 	const bottom = Math.min(bounds.bottom, window.innerHeight);
 	if (bounds.width <= 0 || bottom <= top) {
-		return 0;
+		return [];
 	}
-	const messages = new Map(
-		input.unreadTargets.map((target) => [target.signalId, target.occurredAtMs])
-	);
 	const viewed = new Set<string>();
-	const candidates: number[] = [];
 	for (const element of viewport.querySelectorAll<HTMLElement>(
 		"[data-message-row-id]"
 	)) {
-		const id = element.dataset.messageRowId ?? "";
-		const timestamp = messages.get(id);
-		if (timestamp === undefined) {
-			continue;
-		}
 		const rect = element.getBoundingClientRect();
-		// A header plus the beginning of the body must have entered the
-		// viewport. A jump past a message is not evidence that it was read.
 		if (
 			rect.width > 0 &&
 			rect.height > 0 &&
@@ -146,25 +149,10 @@ function resolveVisibleReadThrough(
 			rect.top + Math.min(80, rect.height) <= bottom &&
 			isMessageBeginningUncovered(element, rect)
 		) {
-			viewed.add(id);
-			candidates.push(timestamp);
+			viewed.add(element.dataset.messageRowId ?? "");
 		}
 	}
-	// A later reaction on a visible old message must not sweep away an
-	// unseen message farther down or outside the loaded history window.
-	let firstUnseen = Number.POSITIVE_INFINITY;
-	for (const target of input.unreadTargets) {
-		if (
-			target.occurredAtMs > persistedThrough &&
-			!viewed.has(target.signalId)
-		) {
-			firstUnseen = Math.min(firstUnseen, target.occurredAtMs);
-		}
-	}
-	return Math.max(
-		0,
-		...candidates.filter((timestamp) => timestamp < firstUnseen)
-	);
+	return targets.filter((target) => viewed.has(target.signalId));
 }
 
 function isMessageBeginningUncovered(

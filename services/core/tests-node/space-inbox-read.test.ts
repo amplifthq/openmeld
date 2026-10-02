@@ -115,4 +115,108 @@ describe("Space read selections", () => {
       f.close();
     }
   });
+  it("retains an updated item and rechecks current access when confirming", async () => {
+    const f = createInboxFeedFixture();
+    try {
+      const item = await f.item("changing");
+      const selection = await mutateSpaceInboxRead({
+        db: f.db,
+        ...f.identity,
+        nowMs: 10_000,
+        body: { spaceId: "space", operation: "prepare" },
+      });
+      if (selection.operation !== "prepare") {
+        throw new Error("Expected selection");
+      }
+      f.run({
+        sql: "UPDATE inbox_items SET occurred_at_ms=11000,updated_at_ms=11000 WHERE id=?",
+        params: [item.itemId],
+      });
+      const body = {
+        spaceId: "space",
+        operation: "clear" as const,
+        snapshotId: selection.snapshotId,
+      };
+      expect(
+        await mutateSpaceInboxRead({
+          db: f.db,
+          ...f.identity,
+          nowMs: 12_000,
+          body,
+        })
+      ).toMatchObject({ markedReadCount: 0 });
+      f.run({
+        sql: "UPDATE space_index_memberships SET status='removed' WHERE space_id='space'",
+      });
+      expect(
+        await mutateSpaceInboxRead({
+          db: f.db,
+          ...f.identity,
+          nowMs: 12_000,
+          body: {
+            spaceId: "space",
+            operation: "read",
+            items: [{ itemId: item.itemId, occurredAtMs: 11_000 }],
+          },
+        })
+      ).toMatchObject({ markedReadCount: 0 });
+    } finally {
+      f.close();
+    }
+  });
+  it("reports complete scope counts and clears beyond the navigation page without changing legacy responses", async () => {
+    const f = createInboxFeedFixture();
+    try {
+      for (let n = 0; n < 501; n++) {
+        await f.item(`reply-${n}`, {
+          sourceTarget: {
+            kind: "space",
+            spaceId: "space",
+            signalId: `reply-${n}`,
+            threadRootSignalId: "root",
+          },
+        });
+      }
+      const service = createInboxService({ db: f.db });
+      const legacy = await service.spaceUnreadTargets({
+        ...f.identity,
+        spaceId: "space",
+      });
+      expect(legacy).not.toHaveProperty("scopes");
+      expect(legacy.targets[0]).not.toHaveProperty("itemId");
+      const page = await service.spaceUnreadTargets({
+        ...f.identity,
+        spaceId: "space",
+        includeItemIds: true,
+      });
+      expect(page.targets).toHaveLength(500);
+      expect(page.hasMoreTargets).toBe(true);
+      expect(page.scopes).toEqual([
+        { threadRootSignalId: "root", unreadCount: 501 },
+      ]);
+      const selection = await mutateSpaceInboxRead({
+        db: f.db,
+        ...f.identity,
+        nowMs: 11_000,
+        body: { spaceId: "space", operation: "prepare" },
+      });
+      if (selection.operation !== "prepare") {
+        throw new Error("Expected selection");
+      }
+      expect(
+        await mutateSpaceInboxRead({
+          db: f.db,
+          ...f.identity,
+          nowMs: 12_000,
+          body: {
+            spaceId: "space",
+            operation: "clear",
+            snapshotId: selection.snapshotId,
+          },
+        })
+      ).toMatchObject({ markedReadCount: 501 });
+    } finally {
+      f.close();
+    }
+  });
 });

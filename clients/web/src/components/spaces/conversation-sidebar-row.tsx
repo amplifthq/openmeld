@@ -73,6 +73,7 @@ import {
 	SpaceMemberAvatars,
 } from "./space-member-avatars";
 import { SpaceProfileIcon } from "./space-profile-icon";
+import { SpaceUnreadButton } from "./space-unread-button";
 
 type ConversationSidebarRowProps = {
 	attentionTone: "danger" | "warning" | null;
@@ -280,16 +281,33 @@ function ConversationSidebarRowContent(
 				</SidebarMenuBadge>
 			) : (
 				(hasUnread || input.attentionTone) && (
-					<SidebarMenuBadge>
-						<span
-							aria-hidden="true"
-							className={`status-dot ${resolveInboxIndicatorClassName(input.attentionTone)}`}
-							data-conversation-unread-indicator="true"
-						/>
+					<SidebarMenuBadge className="pointer-events-auto p-0">
+						{hasUnread && !input.attentionTone ? (
+							<SpaceUnreadButton
+								count={input.unreadCount}
+								spaceId={input.conversation.spaceId}
+								url={input.url}
+							/>
+						) : (
+							<span
+								aria-hidden="true"
+								className={`status-dot ${resolveInboxIndicatorClassName(input.attentionTone)}`}
+								data-conversation-unread-indicator="true"
+							/>
+						)}
 					</SidebarMenuBadge>
 				)
 			)}
 
+			{presentation && hasUnread && (
+				<div className="absolute top-1 right-8">
+					<SpaceUnreadButton
+						count={input.unreadCount}
+						spaceId={input.conversation.spaceId}
+						url={input.url}
+					/>
+				</div>
+			)}
 			<ConversationRowActions {...input} />
 		</FluidNavMenuItem>
 	);

@@ -3,6 +3,7 @@ import type {
 	ModelCatalog,
 	SignalEnvelope,
 	SpaceInboxUnreadTarget,
+	SpaceInboxUnreadTargetsResponse,
 	SpaceMemberAgentSnapshot,
 	SpaceMembersSnapshot,
 	SpaceThread,
@@ -316,7 +317,9 @@ type SpaceThreadPanelProps = {
 	onSendText?: (text: string) => Promise<void>;
 	onWakeStopRequest?: SpaceWakeStopRequestHandler;
 	onSend: (options?: SpaceComposerSendOptions) => Promise<void>;
-	onViewedThroughTs?: (throughOccurredAtMs: number) => Promise<void> | void;
+	onViewedUpdates?: (
+		targets: readonly SpaceInboxUnreadTarget[]
+	) => Promise<void> | void;
 	onOpenSpaceFile: (fileId: string, revision: number) => void;
 	orgSlug?: string;
 	prepareSetupHref?: string;
@@ -335,6 +338,7 @@ type SpaceThreadPanelProps = {
 		SpaceWakeStopRequestStatus
 	>;
 	unreadTargets?: readonly SpaceInboxUnreadTarget[];
+	unreadScopes?: SpaceInboxUnreadTargetsResponse["scopes"];
 	unreadStateReady?: boolean;
 };
 
@@ -485,6 +489,7 @@ function SpaceThreadPanelContent(input: SpaceThreadPanelProps) {
 		].join(":"),
 		isReady: input.unreadStateReady === true,
 		targets: input.unreadTargets ?? [],
+		scopes: input.unreadScopes,
 		threadRootSignalId: activeThreadRootSignalId,
 	});
 	const firstUnreadSignalId = unreadState.firstSignalId;
@@ -624,7 +629,7 @@ function SpaceThreadPanelContent(input: SpaceThreadPanelProps) {
 					onRecoverExecution={
 						messageDetailsItem ? undefined : onRecoverExecution
 					}
-					onViewedThroughTs={input.onViewedThroughTs}
+					onViewedUpdates={input.onViewedUpdates}
 					onWakeStopRequest={
 						input.onWakeStopRequest ? onWakeStopRequest : undefined
 					}
@@ -1142,12 +1147,15 @@ function ThreadTimeline(input: {
 	items: readonly SpaceTimelineItem[];
 	isLoading: boolean;
 	unreadTargets: readonly SpaceInboxUnreadTarget[];
+	unreadScopes?: SpaceInboxUnreadTargetsResponse["scopes"];
 	readScopeKey: string;
 	actionableAgentInteractionPlacement: SpaceAgentInteractionPlacement;
 	onOpenMessageDetails: (item: SpaceTimelineItem) => void;
 	onOpenProfile?: (profileId: string) => void;
 	renderProfileTrigger: SpaceProfileTriggerRenderer;
-	onViewedThroughTs?: (throughOccurredAtMs: number) => Promise<void> | void;
+	onViewedUpdates?: (
+		targets: readonly SpaceInboxUnreadTarget[]
+	) => Promise<void> | void;
 	onOpenSpaceFile: (fileId: string, revision: number) => void;
 	onAgentInteractionResponse?: SpaceAgentInteractionResponseHandler;
 	onRecoverExecution?: SpaceExecutionRecoveryHandler;
@@ -1209,7 +1217,7 @@ function ThreadTimeline(input: {
 				<MessageScrollerViewport className="px-4 py-4" ref={setScrollElement}>
 					<SpaceMessageReadObserver
 						key={input.readScopeKey}
-						onViewedThroughTs={input.onViewedThroughTs}
+						onViewedUpdates={input.onViewedUpdates}
 						unreadTargets={input.unreadTargets}
 					/>
 					<MessageScrollerContent className="gap-0">

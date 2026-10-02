@@ -72,7 +72,8 @@ export async function mutateSpaceInboxRead(input: {
   }
   const selection =
     body.operation === "clear"
-      ? "id IN (SELECT item_id FROM inbox_feed_snapshot_members WHERE snapshot_id = ?)"
+      ? `id IN (SELECT item_id FROM inbox_feed_snapshot_members WHERE snapshot_id = ?)
+ AND updated_at_ms <= (SELECT created_at_ms FROM inbox_feed_snapshots WHERE id = ?)`
       : `EXISTS (SELECT 1 FROM json_each(?) AS selected
         WHERE json_extract(selected.value, '$.itemId') = inbox_items.id
           AND json_extract(selected.value, '$.occurredAtMs') = inbox_items.occurred_at_ms)`;
@@ -84,7 +85,9 @@ export async function mutateSpaceInboxRead(input: {
       now,
       now,
       ...scope,
-      body.operation === "clear" ? body.snapshotId : JSON.stringify(body.items)
+      ...(body.operation === "clear"
+        ? [body.snapshotId, body.snapshotId]
+        : [JSON.stringify(body.items)])
     )
     .run();
   return {

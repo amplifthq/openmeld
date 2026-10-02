@@ -401,6 +401,14 @@ export const spaceInboxUnreadTargetSchema = z.strictObject({
 });
 
 export const spaceInboxUnreadTargetsResponseSchema = z.strictObject({
+  scopes: z
+    .array(
+      z.strictObject({
+        threadRootSignalId: identifierSchema.nullable(),
+        unreadCount: z.number().int().nonnegative(),
+      })
+    )
+    .optional(),
   hasMoreTargets: z.boolean(),
   organizationId: identifierSchema,
   spaceId: identifierSchema,

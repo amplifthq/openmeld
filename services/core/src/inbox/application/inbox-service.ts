@@ -407,6 +407,21 @@ export function createInboxService(input: {
           occurred_at_ms: number;
           source_target_json: string;
         }>();
+      const scopeRows = targetInput.includeItemIds
+        ? await input.db
+            .prepare(
+              `SELECT json_extract(source_target_json, '$.threadRootSignalId') AS thread_root_signal_id, count(*) AS unread_count FROM inbox_items WHERE ${filters} GROUP BY json_extract(source_target_json, '$.threadRootSignalId')`
+            )
+            .bind(
+              targetInput.organizationId,
+              targetInput.recipientUserId,
+              targetInput.spaceId
+            )
+            .all<{
+              thread_root_signal_id: string | null;
+              unread_count: number;
+            }>()
+        : null;
       const totalUnreadCount = countValue(countRow?.unread_count);
       const rows = (targetResult.results ?? []) as Array<{
         id: string;
@@ -439,6 +454,14 @@ export function createInboxService(input: {
         })
         .filter((target) => target !== null);
       return {
+        ...(scopeRows
+          ? {
+              scopes: (scopeRows.results ?? []).map((row) => ({
+                threadRootSignalId: row.thread_root_signal_id,
+                unreadCount: countValue(row.unread_count),
+              })),
+            }
+          : {}),
         hasMoreTargets:
           rows.length > INBOX_SPACE_UNREAD_TARGETS_MAX_ITEMS ||
           targets.length < totalUnreadCount,

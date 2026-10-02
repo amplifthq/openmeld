@@ -1,348 +1,128 @@
-import { renderHook } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, renderHook } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { inboxQueryKeys } from "#/query/organizations/inbox";
 import { useSpaceInboxReadPosition } from "./use-space-inbox-read-position";
 
-const {
-	invalidateInboxFactsMock,
-	markCurrentSpaceInboxReadThroughMock,
-	optimisticallyMarkSpaceInboxReadThroughMock,
-	queryClient,
-	reportClientQueryErrorMock,
-	rollbackMock,
-} = vi.hoisted(() => ({
-	invalidateInboxFactsMock: vi.fn(),
-	markCurrentSpaceInboxReadThroughMock: vi.fn(),
-	optimisticallyMarkSpaceInboxReadThroughMock: vi.fn(),
-	queryClient: {
-		cancelQueries: vi.fn(),
-		fetchQuery: vi.fn(),
-		invalidateQueries: vi.fn(),
-	},
-	reportClientQueryErrorMock: vi.fn(),
-	rollbackMock: vi.fn(),
+const { mutate } = vi.hoisted(() => ({ mutate: vi.fn() }));
+vi.mock("#/lib/organizations/inbox", async (importOriginal) => ({
+	...(await importOriginal<typeof import("#/lib/organizations/inbox")>()),
+	mutateCurrentSpaceInboxRead: mutate,
 }));
-
-vi.mock("#/lib/observability/application-error-client", () => ({
-	reportClientQueryError: reportClientQueryErrorMock,
-}));
-
-vi.mock("@tanstack/react-query", async () => {
-	const actual = await vi.importActual<typeof import("@tanstack/react-query")>(
-		"@tanstack/react-query"
+const first = {
+	itemId: "first",
+	signalId: "first",
+	occurredAtMs: 10,
+	threadRootSignalId: null,
+};
+const later = {
+	itemId: "later",
+	signalId: "later",
+	occurredAtMs: 20,
+	threadRootSignalId: "root",
+};
+function setup() {
+	const client = new QueryClient({
+		defaultOptions: {
+			queries: { retry: false, staleTime: Number.POSITIVE_INFINITY },
+		},
+	});
+	const key = inboxQueryKeys.spaceUnreadTargets("org", "space");
+	client.setQueryData(key, {
+		organizationId: "org",
+		spaceId: "space",
+		targets: [first, later],
+		totalUnreadCount: 2,
+		hasMoreTargets: false,
+	});
+	// Keep the test at the mutation boundary: cached facts are refreshed by the real query invalidation.
+	const invalidate = vi.spyOn(client, "invalidateQueries").mockResolvedValue();
+	const hook = renderHook(
+		() =>
+			useSpaceInboxReadPosition({
+				organizationId: "org",
+				profileId: "profile",
+				spaceId: "space",
+				destination: "ordinary-space",
+			}),
+		{
+			wrapper: ({ children }: { children: ReactNode }) => (
+				<QueryClientProvider client={client}>{children}</QueryClientProvider>
+			),
+		}
 	);
-	return {
-		...actual,
-		useQuery: () => ({
-			data: {
-				targets: [],
-				totalUnreadCount: 0,
+	return { ...hook, client, key, invalidate };
+}
+beforeEach(() =>
+	mutate
+		.mockReset()
+		.mockResolvedValue({ operation: "read", markedReadCount: 1 })
+);
+describe("Space unread writes", () => {
+	it("acknowledges a viewed thread reply without clearing an earlier main update", async () => {
+		const { result, client, key } = setup();
+		await act(() => result.current.markViewed([later]));
+		expect(mutate).toHaveBeenCalledWith({
+			organizationId: "org",
+			body: {
+				operation: "read",
+				spaceId: "space",
+				items: [{ itemId: "later", occurredAtMs: 20 }],
 			},
-			isSuccess: true,
-		}),
-		useQueryClient: () => queryClient,
-	};
-});
-
-vi.mock("#/lib/organizations/inbox", () => ({
-	markCurrentSpaceInboxReadThrough: markCurrentSpaceInboxReadThroughMock,
-}));
-
-vi.mock("#/query/organizations/inbox", () => ({
-	inboxQueryKeys: {
-		organization: (organizationId: string) => ["inbox", organizationId],
-		spaceUnreadTargets: (organizationId: string, spaceId: string) => [
-			"inbox",
-			organizationId,
-			"space-unread-targets",
-			spaceId,
-		],
-	},
-	invalidateInboxFacts: invalidateInboxFactsMock,
-	spaceInboxSummaryQueryOptions: vi.fn(() => ({})),
-	spaceInboxUnreadTargetsQueryOptions: vi.fn(() => ({})),
-}));
-
-vi.mock("#/query/organizations/inbox-read-through-cache", () => ({
-	optimisticallyMarkSpaceInboxReadThrough:
-		optimisticallyMarkSpaceInboxReadThroughMock,
-}));
-
-describe("useSpaceInboxReadPosition", () => {
-	beforeEach(() => {
-		queryClient.cancelQueries.mockReset().mockResolvedValue(undefined);
-		queryClient.invalidateQueries.mockReset().mockResolvedValue(undefined);
-		queryClient.fetchQuery.mockReset().mockResolvedValue({
-			organizationId: "org-acme",
-			spaces: [
+		});
+		expect(client.getQueryData(key)).toMatchObject({
+			targets: [first],
+			totalUnreadCount: 1,
+		});
+	});
+	it("restores unread facts after a failed write and permits retry", async () => {
+		mutate.mockRejectedValueOnce(new Error("offline"));
+		const { result, client, key } = setup();
+		await act(async () => {
+			await expect(result.current.markViewed([later])).rejects.toThrow(
+				"offline"
+			);
+		});
+		expect(client.getQueryData(key)).toMatchObject({
+			targets: [first, later],
+			totalUnreadCount: 2,
+		});
+		await act(() => result.current.markViewed([later]));
+		expect(client.getQueryData(key)).toMatchObject({
+			targets: [first],
+			totalUnreadCount: 1,
+		});
+	});
+	it("does not clear anything until confirmed and retries the same frozen selection", async () => {
+		mutate.mockResolvedValueOnce({
+			operation: "prepare",
+			snapshotId: "frozen",
+			unreadCount: 2,
+		});
+		const { result } = setup();
+		const selection = await result.current.prepareMarkAllRead();
+		expect(mutate).toHaveBeenCalledTimes(1);
+		mutate.mockRejectedValueOnce(new Error("offline"));
+		await expect(selection.commit()).rejects.toThrow("offline");
+		await selection.commit();
+		expect(mutate.mock.calls.slice(1)).toEqual(
+			new Array(2).fill([
 				{
-					latestUnreadOccurredAtMs: 100,
-					spaceId: "space-project",
-					unreadCount: 3,
+					organizationId: "org",
+					body: { operation: "clear", spaceId: "space", snapshotId: "frozen" },
 				},
-			],
-		});
-		invalidateInboxFactsMock.mockReset().mockResolvedValue(undefined);
-		markCurrentSpaceInboxReadThroughMock
-			.mockReset()
-			.mockResolvedValue(undefined);
-		rollbackMock.mockReset();
-		reportClientQueryErrorMock.mockReset();
-		optimisticallyMarkSpaceInboxReadThroughMock
-			.mockReset()
-			.mockReturnValue({ rollback: rollbackMock });
-	});
-
-	it("persists the visible read position for any Space", async () => {
-		const { result } = renderHook(() =>
-			useSpaceInboxReadPosition({
-				destination: "ordinary-space",
-				organizationId: "org-acme",
-				profileId: "profile-felix",
-				spaceId: "space-project",
-			})
+			])
 		);
-
-		expect(result.current.isReady).toBe(true);
-		await result.current.markReadThrough(42);
-
-		expect(markCurrentSpaceInboxReadThroughMock).toHaveBeenCalledWith({
-			organizationId: "org-acme",
-			spaceId: "space-project",
-			throughOccurredAtMs: 42,
-		});
-		expect(optimisticallyMarkSpaceInboxReadThroughMock).toHaveBeenCalledWith({
-			destination: "ordinary-space",
-			organizationId: "org-acme",
-			queryClient,
-			spaceId: "space-project",
-			throughOccurredAtMs: 42,
-		});
-		expect(queryClient.cancelQueries).toHaveBeenCalledWith({
-			queryKey: ["inbox", "org-acme"],
-		});
-		expect(rollbackMock).not.toHaveBeenCalled();
-		expect(invalidateInboxFactsMock).toHaveBeenCalledWith({
-			organizationId: "org-acme",
-			queryClient,
-		});
 	});
-
-	it("treats a saved read position as success when the Inbox refresh fails", async () => {
-		const refreshError = new Error("refresh failed");
-		invalidateInboxFactsMock.mockRejectedValueOnce(refreshError);
+	it("does not turn a successful durable read into a failed write when refreshing fails", async () => {
+		const { result, invalidate } = setup();
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-		const { result } = renderHook(() =>
-			useSpaceInboxReadPosition({
-				destination: "ordinary-space",
-				organizationId: "org-acme",
-				profileId: "profile-felix",
-				spaceId: "space-project",
-			})
-		);
-
-		await expect(result.current.markReadThrough(42)).resolves.toBeUndefined();
-
-		expect(markCurrentSpaceInboxReadThroughMock).toHaveBeenCalledOnce();
-		expect(rollbackMock).not.toHaveBeenCalled();
-		expect(warn).toHaveBeenCalledOnce();
-		expect(reportClientQueryErrorMock).toHaveBeenCalledWith(
-			refreshError,
-			"inbox",
-			"refresh"
-		);
+		invalidate.mockRejectedValue(new Error("refresh offline"));
+		await act(async () => {
+			await expect(result.current.markViewed([later])).resolves.toBeUndefined();
+		});
+		expect(mutate).toHaveBeenCalledTimes(1);
 		warn.mockRestore();
-	});
-
-	it("refreshes stale unread targets instead of failing when the summary has no unread", async () => {
-		queryClient.fetchQuery.mockResolvedValueOnce({
-			organizationId: "org-acme",
-			spaces: [],
-		});
-		const { result } = renderHook(() =>
-			useSpaceInboxReadPosition({
-				destination: "ordinary-space",
-				organizationId: "org-acme",
-				profileId: "profile-felix",
-				spaceId: "space-project",
-			})
-		);
-
-		await expect(result.current.prepareCatchUpMain()).resolves.toBeNull();
-
-		expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
-			queryKey: ["inbox", "org-acme", "space-unread-targets", "space-project"],
-		});
-		expect(markCurrentSpaceInboxReadThroughMock).not.toHaveBeenCalled();
-	});
-
-	it("does not write without an Organization identity", async () => {
-		const { result } = renderHook(() =>
-			useSpaceInboxReadPosition({
-				destination: "ordinary-space",
-				organizationId: null,
-				profileId: "profile-felix",
-				spaceId: "space-project",
-			})
-		);
-
-		await result.current.markReadThrough(42);
-		expect(markCurrentSpaceInboxReadThroughMock).not.toHaveBeenCalled();
-		expect(invalidateInboxFactsMock).not.toHaveBeenCalled();
-	});
-
-	it("restores the optimistic projection when persistence fails", async () => {
-		markCurrentSpaceInboxReadThroughMock.mockRejectedValueOnce(
-			new Error("offline")
-		);
-		const { result } = renderHook(() =>
-			useSpaceInboxReadPosition({
-				destination: "center-agent",
-				organizationId: "org-acme",
-				profileId: "profile-felix",
-				spaceId: "space-project",
-			})
-		);
-
-		await expect(result.current.markReadThrough(42)).rejects.toThrow("offline");
-
-		expect(rollbackMock).toHaveBeenCalledOnce();
-		expect(invalidateInboxFactsMock).toHaveBeenCalledWith({
-			organizationId: "org-acme",
-			queryClient,
-		});
-	});
-
-	it("freezes the server cutoff before navigation and reuses it for retry", async () => {
-		markCurrentSpaceInboxReadThroughMock
-			.mockRejectedValueOnce(new Error("offline"))
-			.mockResolvedValueOnce(undefined);
-		const { result } = renderHook(() =>
-			useSpaceInboxReadPosition({
-				destination: "ordinary-space",
-				organizationId: "org-acme",
-				profileId: "profile-felix",
-				spaceId: "space-project",
-			})
-		);
-
-		const firstCommit = await result.current.prepareCatchUpMain();
-		queryClient.fetchQuery.mockResolvedValue({
-			organizationId: "org-acme",
-			spaces: [
-				{
-					latestUnreadOccurredAtMs: 200,
-					spaceId: "space-project",
-					unreadCount: 4,
-				},
-			],
-		});
-		await expect(firstCommit?.commit()).rejects.toThrow("offline");
-		const retryCommit = await result.current.prepareCatchUpMain();
-		await retryCommit?.commit();
-
-		expect(queryClient.fetchQuery).toHaveBeenCalledOnce();
-		expect(markCurrentSpaceInboxReadThroughMock).toHaveBeenCalledTimes(2);
-		expect(markCurrentSpaceInboxReadThroughMock).toHaveBeenNthCalledWith(1, {
-			organizationId: "org-acme",
-			spaceId: "space-project",
-			throughOccurredAtMs: 100,
-		});
-		expect(markCurrentSpaceInboxReadThroughMock).toHaveBeenNthCalledWith(2, {
-			organizationId: "org-acme",
-			spaceId: "space-project",
-			throughOccurredAtMs: 100,
-		});
-	});
-
-	it("discards an abandoned cutoff instead of reusing it as a retry", async () => {
-		const { result } = renderHook(() =>
-			useSpaceInboxReadPosition({
-				destination: "ordinary-space",
-				organizationId: "org-acme",
-				profileId: "profile-felix",
-				spaceId: "space-project",
-			})
-		);
-
-		const abandoned = await result.current.prepareCatchUpMain();
-		abandoned?.abandon();
-		await result.current.prepareCatchUpMain();
-
-		expect(queryClient.fetchQuery).toHaveBeenCalledTimes(2);
-		expect(markCurrentSpaceInboxReadThroughMock).not.toHaveBeenCalled();
-	});
-
-	it("does not start a prepared catch-up write after the Space scope changes", async () => {
-		const { result, rerender } = renderHook(
-			(input: { organizationId: string; profileId: string; spaceId: string }) =>
-				useSpaceInboxReadPosition({
-					destination: "ordinary-space",
-					organizationId: input.organizationId,
-					profileId: input.profileId,
-					spaceId: input.spaceId,
-				}),
-			{
-				initialProps: {
-					organizationId: "org-acme",
-					profileId: "profile-felix",
-					spaceId: "space-project",
-				},
-			}
-		);
-		const commit = await result.current.prepareCatchUpMain();
-
-		rerender({
-			organizationId: "org-acme",
-			profileId: "profile-other",
-			spaceId: "space-project",
-		});
-		await commit?.commit();
-
-		expect(markCurrentSpaceInboxReadThroughMock).not.toHaveBeenCalled();
-	});
-
-	it("abandons catch-up preparation when the Space changes during the summary read", async () => {
-		let resolveSummary: ((value: unknown) => void) | undefined;
-		queryClient.fetchQuery.mockReturnValue(
-			new Promise((resolve) => {
-				resolveSummary = resolve;
-			})
-		);
-		const { result, rerender } = renderHook(
-			(input: { organizationId: string; profileId: string; spaceId: string }) =>
-				useSpaceInboxReadPosition({
-					destination: "ordinary-space",
-					organizationId: input.organizationId,
-					profileId: input.profileId,
-					spaceId: input.spaceId,
-				}),
-			{
-				initialProps: {
-					organizationId: "org-acme",
-					profileId: "profile-felix",
-					spaceId: "space-project",
-				},
-			}
-		);
-		const preparation = result.current.prepareCatchUpMain();
-
-		rerender({
-			organizationId: "org-other",
-			profileId: "profile-other",
-			spaceId: "space-other",
-		});
-		resolveSummary?.({
-			organizationId: "org-acme",
-			spaces: [
-				{
-					latestUnreadOccurredAtMs: 100,
-					spaceId: "space-project",
-					unreadCount: 3,
-				},
-			],
-		});
-
-		await expect(preparation).resolves.toBeNull();
-		expect(markCurrentSpaceInboxReadThroughMock).not.toHaveBeenCalled();
 	});
 });
