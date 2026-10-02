@@ -208,6 +208,7 @@ describe("Remote Agent submission execution context", () => {
       ])
     );
     expect(toolNames).toEqual([
+      "openmeld_report_progress",
       ...CENTER_AGENT_ANONYMOUS_MEMBER_TOOL_NAMES.filter(
         (name) => name !== "openmeld_read_channel_file"
       ),
@@ -258,7 +259,12 @@ describe("Remote Agent submission execution context", () => {
       })
     ).map((tool) => tool.name);
 
-    expect(toolNames).toEqual(["codemode"]);
+    // Runtime progress/catalog helpers grant no member data or App authority.
+    expect(toolNames).toEqual([
+      "openmeld_report_progress",
+      ...REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES,
+      "codemode",
+    ]);
   });
 
   it("waits for the exact admitted submission instead of falling through to a newer turn", async () => {

@@ -4,6 +4,7 @@ import {
   type FlueExecutionOperation,
   type FlueInstrumentation,
   instrument,
+  type LlmTurnPurpose,
 } from "@flue/runtime";
 import {
   remoteAgentCoreAdmissionCallbackSchema,
@@ -77,6 +78,8 @@ type PreparedExecutionResources = {
 };
 let prepareExecution: (() => Promise<PreparedExecutionResources>) | undefined;
 const executionResources = new AsyncLocalStorage<PreparedExecutionResources>();
+const modelTurnPurposes = new AsyncLocalStorage<Map<string, LlmTurnPurpose>>();
+const modelPurposeStorage = new AsyncLocalStorage<LlmTurnPurpose>();
 
 export function registerRemoteAgentExecutionPreparation(
   prepare: () => Promise<PreparedExecutionResources>
@@ -102,7 +105,16 @@ export function requireRemoteAgentExecutionResources<T>(): T {
 
 export const REMOTE_AGENT_EXECUTION_INSTRUMENTATION: FlueInstrumentation = {
   key: REMOTE_AGENT_EXECUTION_INSTRUMENTATION_KEY,
-  observe: () => undefined,
+  observe: (event) => {
+    if (
+      event.type === "turn_request" &&
+      event.submissionId === getRemoteAgentExecutionSubmissionId()
+    ) {
+      // Join the public Flue request event to its exact interceptor. Keep only
+      // IDs and purpose, never prompts; consume before starting the request.
+      modelTurnPurposes.getStore()?.set(event.turnId, event.purpose);
+    }
+  },
   interceptor: async <T>(
     operation: FlueExecutionOperation,
     context: FlueExecutionContext,
@@ -113,6 +125,10 @@ export const REMOTE_AGENT_EXECUTION_INSTRUMENTATION: FlueInstrumentation = {
       // Throw through the existing runtime boundary; its lifecycle still owns
       // settlement and Computer cleanup, not the admission guard.
       await executionResources.getStore()?.beforeModel?.();
+      const purposes = modelTurnPurposes.getStore();
+      const purpose = purposes?.get(operation.turnId) ?? "agent";
+      purposes?.delete(operation.turnId);
+      return await modelPurposeStorage.run(purpose, next);
     }
     if (operation.type !== "agent" || !context.submissionId) {
       return await next();
@@ -126,11 +142,10 @@ export const REMOTE_AGENT_EXECUTION_INSTRUMENTATION: FlueInstrumentation = {
     return await runWithRemoteAgentSubmissionExecution(
       context.submissionId,
       async () => {
-        if (!prepareExecution) {
-          return await next();
-        }
-        const resources = await prepareExecution();
-        return await executionResources.run(resources, next);
+        const resources = prepareExecution ? await prepareExecution() : {};
+        return await modelTurnPurposes.run(new Map(), () =>
+          executionResources.run(resources, next)
+        );
       }
     );
   },
@@ -147,6 +162,10 @@ export function installRemoteAgentExecutionInstrumentation(): void {
 
 export function getRemoteAgentExecutionSubmissionId(): string | null {
   return executionSubmissionStorage.getStore() ?? null;
+}
+
+export function getRemoteAgentModelPurpose(): LlmTurnPurpose {
+  return modelPurposeStorage.getStore() ?? "agent";
 }
 
 export function getRemoteAgentDeferredToolCount(): number {
