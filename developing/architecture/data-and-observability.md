@@ -356,7 +356,7 @@ or an unavailable target retains blocked Queue work. Unknown Steer holds later
 claims as well.
 
 SQL schema 50 adds the preceding-dispatch dependency to the existing row. The
-normal publication owner prepares the usual current admission snapshot, then
+normal publication owner prepares the usual unresolved handoff seed, then
 atomically claims the queued input, inserts its original Signal and single
 dispatch outbox record, retires the input, and moves remaining inputs behind
 that dispatch. A failed transaction leaves all inputs pending. After a crash,
@@ -364,6 +364,9 @@ the existing durable dispatch outbox resumes the same identity; it does not
 claim or publish that queued input again. The dependency is input ordering,
 not a second execution state machine. Native execution and admission remain
 with Remote/Flue. Agent tools and Local Service callers remain unimplemented.
+The seed deliberately has no resolved controller yet: Core admission owns that
+selection. Queue validates its supported Center member and exact target rather
+than treating the seed's empty controller snapshot as unavailable execution.
 
 OpenMeld separates durable truth from query projections.
 

@@ -18,7 +18,6 @@ import {
   upsertSpaceCreatorMember,
 } from "../src/space/application/space-members-service";
 import type { SignalPublishContext } from "../src/space/application/types";
-import { createDispatchOutboxRecord } from "../src/space/infrastructure/outbox/dispatch-outbox-repo";
 import {
   listQueuedSpaceExecutionInputs,
   readNextSpaceExecutionInputAlarm,
@@ -49,11 +48,6 @@ type InputSpace = {
     spaceRole: "member";
     audience: "organization";
   }>;
-  prepareDispatchOutboxPlanForSignal(signal: SignalEnvelope): {
-    outboxRecords: ReturnType<typeof createDispatchOutboxRecord>[];
-    nonReadyDecisions: [];
-    plannerContext: null;
-  };
   recordOrganizationMemberHumanActivity(): Promise<void>;
   flushPendingSpaceInboxProjectionOutbox(): Promise<void>;
   syncSpaceBackgroundAlarm(): Promise<void>;
@@ -259,35 +253,6 @@ describe("Center Agent execution input in the Space owner", () => {
         spaceRole: "member",
         audience: "organization",
       });
-      vi.spyOn(
-        instance,
-        "prepareDispatchOutboxPlanForSignal"
-      ).mockImplementation((current) => ({
-        nonReadyDecisions: [],
-        plannerContext: null,
-        outboxRecords: [
-          createDispatchOutboxRecord({
-            bindingState: "bound",
-            bindingEnabled: true,
-            agentControllerRef: "hosted:center-agent",
-            dispatchPolicy: "mention_only",
-            ruleId: "queue-test",
-            ruleReason: "explicit target",
-            ruleSource: "system",
-            sourceSignalSnapshot: {
-              profileId: signal.profile.profileId,
-              profileKind: "human",
-              text:
-                current.type === "signal.text" ? current.data.text : "invalid",
-            },
-            senderProfileId: signal.profile.profileId,
-            spaceId: signal.spaceId,
-            sourceEventId: current.id,
-            targetProfileId: request.agentProfileId,
-            nowMs: Date.now(),
-          }),
-        ],
-      }));
       await instance.flushQueuedSpaceInputs();
       expect(listQueuedSpaceExecutionInputs(state.storage.sql)).toHaveLength(2);
       insertSignalRecord(state.storage.sql, {
@@ -510,7 +475,8 @@ describe("Center Agent execution input in the Space owner", () => {
   it.each([
     "author",
     "target",
-  ] as const)("rechecks %s membership before claiming a queued input", async (removed) => {
+    "controller",
+  ] as const)("rechecks %s eligibility before claiming a queued input", async (removed) => {
     await fixture(async ({ instance, state, signal, request }) => {
       await instance.publishExecutionInput(
         signal,
@@ -521,7 +487,9 @@ describe("Center Agent execution input in the Space owner", () => {
         throw new Error("Missing fixture input");
       }
       state.storage.sql.exec(
-        "UPDATE space_members SET status = 'removed' WHERE profile_id = ?",
+        removed === "controller"
+          ? "UPDATE space_members SET controller_ref_snapshot = 'local:codex' WHERE profile_id = ?"
+          : "UPDATE space_members SET status = 'removed' WHERE profile_id = ?",
         removed === "author" ? signal.profile.profileId : request.agentProfileId
       );
       const receive = vi.fn(() =>
@@ -534,11 +502,14 @@ describe("Center Agent execution input in the Space owner", () => {
           readExecutionInput: receive,
         },
       };
+      const expectedError = {
+        author: "Join this Space",
+        target: "no longer in the Space",
+        controller: "doesn't support queued messages",
+      }[removed];
       await expect(
         instance.steerQueuedExecutionInput(signal.data.meta.clientMessageId)
-      ).rejects.toThrow(
-        removed === "author" ? "Join this Space" : "no longer in the Space"
-      );
+      ).rejects.toThrow(expectedError);
       expect(receive).not.toHaveBeenCalled();
       expect(listQueuedSpaceExecutionInputs(state.storage.sql)[0]?.state).toBe(
         "queued"

@@ -7715,6 +7715,16 @@ export class Space extends DurableObject<CoreBindings> {
         message: "This Agent is no longer in the Space.",
       });
     }
+    // Space creates an unresolved handoff seed; Core selects the current
+    // controller during admission. Check the scoped member here, never treat
+    // that seed's empty controller snapshot as an unavailable execution.
+    if (target.controllerRefSnapshot !== HOSTED_CENTER_AGENT_CONTROLLER_REF) {
+      throw new SpaceSignalAuthoringError({
+        code: "space.execution_input.invalid",
+        status: 409,
+        message: "This Agent doesn't support queued messages.",
+      });
+    }
   }
 
   async rpcGetTask(input: GetSpaceTaskInput): Promise<SpaceTaskResponse> {
@@ -19064,8 +19074,6 @@ export class Space extends DurableObject<CoreBindings> {
       queuedHandoff &&
       (callerContext?.relationship !== "internal" ||
         preparedDispatchOutboxPlan.outboxRecords.length !== 1 ||
-        preparedDispatchOutboxPlan.outboxRecords[0]?.controllerSnapshot
-          .agentControllerRef !== "hosted:center-agent" ||
         preparedDispatchOutboxPlan.outboxRecords[0]?.targetProfileId !==
           (signal.type === "signal.text"
             ? signal.data.messageEnvelope?.activationTargets[0]
