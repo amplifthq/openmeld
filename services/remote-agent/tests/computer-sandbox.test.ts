@@ -10,7 +10,7 @@ import { createAgentComputerWorkspaceAccess } from "../flue-adapter/agent-comput
 import { buildAgentComputerName } from "../flue-adapter/computer-identity";
 import {
   AgentComputerSandboxApi,
-  createRemoteAgentComputerCapability,
+  createRemoteAgentComputerCapability as createComputerCapability,
   instrumentRemoteAgentComputerSandboxApi,
   isRemoteAgentComputerEnabled,
 } from "../flue-adapter/computer-sandbox";
@@ -25,6 +25,7 @@ import {
 } from "../flue-adapter/organization-document-computer-snapshot";
 import { ORGANIZATION_DOCUMENT_COMPUTER_TOOL_NAMES } from "../flue-adapter/organization-document-computer-tools";
 import { getRemoteAgentSandboxToolDefinitions } from "../flue-adapter/sandbox-tools";
+import { executionAccessFixture } from "./execution-access-fixture";
 import { createSubmitTurnRequest, TEST_NOW_MS } from "./fixtures";
 
 const cloudflareComputerMock = vi.hoisted(() => ({
@@ -196,6 +197,20 @@ function organizationDocumentsSnapshot(): CenterAgentOrganizationDocumentsComput
   };
 }
 
+function createRemoteAgentComputerCapability(
+  input: Parameters<typeof createComputerCapability>[0]
+) {
+  return createComputerCapability({
+    ...input,
+    coreWorker: {
+      authorizeRemoteAgentExecutionAccess: executionAccessFixture(
+        input.context
+      ),
+      ...input.coreWorker,
+    },
+  });
+}
+
 function createComputerContext() {
   const request = createSubmitTurnRequest();
   return createRemoteAgentCallbackContext({
@@ -226,7 +241,7 @@ function createOrganizationDocumentsComputerFixture() {
     coreWorker,
     env: {
       AGENT_COMPUTER: {
-        get: vi.fn(() => ({})),
+        get: vi.fn(() => ({ readDataSources: () => Promise.resolve([]) })),
         idFromName: vi.fn(() => ({})),
       },
     },
@@ -281,7 +296,7 @@ describe("Agent computer Workspace RPC lifecycle", () => {
       .mockResolvedValueOnce(continuationWorkspace.workspace);
     const durableComputerId = { name: "agent-computer:agt_test" };
     const namespace = {
-      get: vi.fn(() => ({})),
+      get: vi.fn(() => ({ readDataSources: () => Promise.resolve([]) })),
       idFromName: vi.fn(() => durableComputerId),
     };
     const access = createAgentComputerWorkspaceAccess({
@@ -326,7 +341,7 @@ describe("Agent computer Workspace RPC lifecycle", () => {
     const workspaceAccess = createAgentComputerWorkspaceAccess({
       computerId: durableComputerId as unknown as DurableObjectId,
       namespace: {
-        get: vi.fn(() => ({})),
+        get: vi.fn(() => ({ readDataSources: () => Promise.resolve([]) })),
         idFromName: vi.fn(() => durableComputerId),
       } as unknown as Parameters<
         typeof createAgentComputerWorkspaceAccess
@@ -385,9 +400,13 @@ describe("Agent computer layout", () => {
 });
 
 describe("Organization Documents computer scope", () => {
-  it("keeps parallel session checkouts independent on one Computer", async () => {
+  it("keeps parallel conversation checkouts independent", async () => {
     const { allowedInput, fixture } =
       createOrganizationDocumentsComputerFixture();
+    const envelope = allowedInput.context.turnEnvelope;
+    if (!envelope) {
+      throw new Error("Expected an admitted turn envelope");
+    }
     const [first, second] = await Promise.all([
       createRemoteAgentComputerCapability({
         ...allowedInput,
@@ -395,6 +414,13 @@ describe("Organization Documents computer scope", () => {
           ...allowedInput.context,
           conversationId: "space-one",
           spaceId: "space-one",
+          turnEnvelope: {
+            ...envelope,
+            space: {
+              ...envelope.space,
+              id: "space-one",
+            },
+          },
         },
       }),
       createRemoteAgentComputerCapability({
@@ -403,6 +429,13 @@ describe("Organization Documents computer scope", () => {
           ...allowedInput.context,
           conversationId: "space-two",
           spaceId: "space-two",
+          turnEnvelope: {
+            ...envelope,
+            space: {
+              ...envelope.space,
+              id: "space-two",
+            },
+          },
         },
       }),
     ]);
@@ -477,7 +510,7 @@ describe("Organization Documents computer scope", () => {
       .mockResolvedValueOnce(replacementWorkspace.workspace);
     const durableComputerId = { name: "agent-computer:agt_test" };
     const namespace = {
-      get: vi.fn(() => ({})),
+      get: vi.fn(() => ({ readDataSources: () => Promise.resolve([]) })),
       idFromName: vi.fn(() => durableComputerId),
     };
     const centerAgentOrganizationDocumentsComputerSnapshot = vi.fn(() =>
@@ -494,7 +527,7 @@ describe("Organization Documents computer scope", () => {
     });
 
     expect(namespace.idFromName).toHaveBeenCalledOnce();
-    expect(namespace.get).toHaveBeenCalledTimes(2);
+    expect(namespace.get).toHaveBeenCalledTimes(3);
     expect(namespace.get).toHaveBeenNthCalledWith(1, durableComputerId);
     expect(namespace.get).toHaveBeenNthCalledWith(2, durableComputerId);
     expect(cloudflareComputerMock.getWorkspace).toHaveBeenCalledTimes(2);
@@ -525,7 +558,7 @@ describe("Organization Documents computer scope", () => {
       .mockResolvedValueOnce(materializationWorkspace.workspace)
       .mockResolvedValueOnce(toolWorkspace.workspace);
     const namespace = {
-      get: vi.fn(() => ({})),
+      get: vi.fn(() => ({ readDataSources: () => Promise.resolve([]) })),
       idFromName: vi.fn(() => ({})),
     };
     const capability = await createRemoteAgentComputerCapability({
@@ -961,6 +994,8 @@ describe("computer observability", () => {
           "cloudflare_computer",
           "exec",
           "succeeded",
+          "space_123",
+          "submission_computer",
           expect.any(String),
         ],
       })

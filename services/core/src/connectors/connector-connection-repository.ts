@@ -3,11 +3,20 @@ import type {
   ConnectorConnectionPreference,
   ConnectorConnectionStatus,
   ConnectorService,
-} from "@openmeld/schemas";
+  PluginAccessPolicy,
+} from "@openmeld/schemas/types";
 
 const CONNECTION_HASH_LENGTH = 18;
 const CONNECTION_NAME_MAX_LENGTH = 64;
 const BASE64_PADDING_PATTERN = /=+$/u;
+
+// Only new registrations receive this policy. Historical null and explicitly
+// saved policies on the same registration retain their existing meaning.
+const NEW_CONNECTION_ACCESS_POLICY = JSON.stringify({
+  center_agent: "none",
+  local_agent: "none",
+  remote_agent: "none",
+} satisfies PluginAccessPolicy);
 
 export type ConnectorConnectionRecord = {
   connectionName: ConnectorConnectionName;
@@ -99,12 +108,14 @@ export async function upsertPendingConnectorConnection(input: {
           status,
           created_at_ms,
           updated_at_ms,
-          disconnected_at_ms
-        ) VALUES (?, ?, ?, 'member', ?, 'pending', ?, ?, NULL)
+          disconnected_at_ms,
+          access_policy
+        ) VALUES (?, ?, ?, 'member', ?, 'pending', ?, ?, NULL, ?)
         ON CONFLICT(organization_id, scope, user_id, service) DO UPDATE SET
           connection_name = excluded.connection_name,
           status = 'pending',
           updated_at_ms = excluded.updated_at_ms,
+          access_revision = connector_connections.access_revision + 1,
           disconnected_at_ms = NULL
       `
     )
@@ -114,7 +125,8 @@ export async function upsertPendingConnectorConnection(input: {
       input.userId,
       input.service,
       input.nowMs,
-      input.nowMs
+      input.nowMs,
+      NEW_CONNECTION_ACCESS_POLICY
     )
     .run();
   return await requireConnectorConnection({
@@ -145,13 +157,15 @@ export async function upsertPendingSharedConnectorConnection(input: {
           status,
           created_at_ms,
           updated_at_ms,
-          disconnected_at_ms
-        ) VALUES (?, ?, ?, 'shared', ?, 'pending', ?, ?, NULL)
+          disconnected_at_ms,
+          access_policy
+        ) VALUES (?, ?, ?, 'shared', ?, 'pending', ?, ?, NULL, ?)
         ON CONFLICT(organization_id, service) WHERE scope = 'shared' DO UPDATE SET
           connection_name = excluded.connection_name,
           user_id = excluded.user_id,
           status = 'pending',
           updated_at_ms = excluded.updated_at_ms,
+          access_revision = connector_connections.access_revision + 1,
           disconnected_at_ms = NULL
       `
     )
@@ -161,7 +175,8 @@ export async function upsertPendingSharedConnectorConnection(input: {
       input.userId,
       input.service,
       input.nowMs,
-      input.nowMs
+      input.nowMs,
+      NEW_CONNECTION_ACCESS_POLICY
     );
   if (input.auditStatement) {
     await input.db.batch([upsertStatement, input.auditStatement]);
@@ -247,7 +262,7 @@ export async function reconcileConnectorConnections(input: {
         SET status = 'active', updated_at_ms = ?, disconnected_at_ms = NULL
         WHERE organization_id = ?
           AND service = ?
-          AND status != 'disconnected'
+          AND status = 'pending'
           AND connection_name IN (${availablePlaceholders})
       `
     )

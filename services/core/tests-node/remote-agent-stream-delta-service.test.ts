@@ -70,6 +70,24 @@ describe("Remote Agent stream delta service", () => {
         replyThreadRootSignalId: "signal_trigger_1",
         v: 1,
       });
+      await expect(
+        submitRemoteAgentStreamDelta(
+          buildEnv(harness.db, rpcApplyAgentStreamDelta),
+          {
+            ...createThinkingDelta(),
+            kind: "progress",
+            delta: "Checking the current Space context.",
+            snapshot: "Checking the current Space context.",
+            source: "hosted.public_progress",
+          }
+        )
+      ).resolves.toEqual({ status: "accepted", lastSequence: 1 });
+      expect(rpcApplyAgentStreamDelta).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          kind: "progress",
+          progressSnapshot: "Checking the current Space context.",
+        })
+      );
     } finally {
       harness.close();
     }
@@ -803,7 +821,10 @@ function createDelta(
   };
 }
 
-function createThinkingDelta(): RemoteAgentStreamDeltaCallbackBody {
+function createThinkingDelta(): Extract<
+  RemoteAgentStreamDeltaCallbackBody,
+  { kind: "thinking" }
+> {
   return {
     v: 2,
     streamId: "stream:sub_1",

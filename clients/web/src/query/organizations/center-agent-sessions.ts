@@ -24,5 +24,7 @@ export function centerAgentSessionsQueryOptions(
 				createOrganizationScopedWebOpenMeldApiFoundation({ organizationId })
 			).listSessions({ limit: 100, cursor: pageParam, signal }),
 		staleTime: 30_000,
+		refetchInterval: 30_000,
+		refetchIntervalInBackground: false,
 	});
 }

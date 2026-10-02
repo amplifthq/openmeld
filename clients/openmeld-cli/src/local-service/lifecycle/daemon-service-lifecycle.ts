@@ -1,5 +1,8 @@
 import process from "node:process";
-import type { DaemonServiceContract } from "@openmeld/schemas/types";
+import type {
+  DaemonServiceContract,
+  RuntimeTransportStopCause,
+} from "@openmeld/schemas/types";
 import { sleep, toErrorMessage } from "@openmeld/utils";
 import {
   normalizeGatewayBaseUrlOrNull,
@@ -603,6 +606,13 @@ async function executeDaemonServiceLifecycle(input: {
       inventory: input.inventoryBefore,
       operation: input.operation,
       serviceManager: input.context.serviceManager,
+      stopCause:
+        input.inventoryBefore.serviceContract?.ownerUserId &&
+        input.context.commandOptions.ownerUserId &&
+        input.inventoryBefore.serviceContract.ownerUserId !==
+          input.context.commandOptions.ownerUserId
+          ? "user_stop"
+          : "controlled_service_update",
     });
 
     input.state.failureStage = "wait_stopped";
@@ -1140,6 +1150,7 @@ function isVerifiedRollbackRestorePointTrusted(input: {
 }
 
 async function stopLifecycleRuntime(input: {
+  stopCause: RuntimeTransportStopCause;
   drainWaitMs: number;
   forceKillAfterDrainTimeout: boolean;
   inventory: DaemonServiceInventory;
@@ -1156,7 +1167,7 @@ async function stopLifecycleRuntime(input: {
       strategy: "controlled_drain",
     },
     result: "selected",
-    stopCause: "controlled_service_update",
+    stopCause: input.stopCause,
     type: "stop.strategy.selected",
   });
   const usesSystemService =
@@ -1205,6 +1216,7 @@ async function stopLifecycleRuntime(input: {
 }
 
 async function stopLifecycleSystemServiceRuntime(input: {
+  stopCause: RuntimeTransportStopCause;
   drainWaitMs: number;
   forceKillAfterDrainTimeout: boolean;
   inventory: DaemonServiceInventory;
@@ -1227,6 +1239,7 @@ async function stopLifecycleSystemServiceRuntime(input: {
         inventory: input.inventory,
         lifecycleIntent: input.lifecycleIntent,
         operation: input.operation,
+        stopCause: input.stopCause,
       }));
   } catch (drainError) {
     if (restoreAutostartOnDrainFailure) {
@@ -1263,6 +1276,7 @@ function hasActiveLifecycleRuntimeEvidence(
 }
 
 async function requestControlledSystemServiceDrain(input: {
+  stopCause: RuntimeTransportStopCause;
   drainWaitMs: number;
   inventory: DaemonServiceInventory;
   lifecycleIntent: "startup_check" | "reinstall" | "upgrade_reconcile";
@@ -1289,7 +1303,7 @@ async function requestControlledSystemServiceDrain(input: {
         mode: shutdown.mode,
       },
       result: shutdown.accepted ? "completed" : "unsupported",
-      stopCause: "controlled_service_update",
+      stopCause: input.stopCause,
       type: "stop.controlled_drain",
     });
     return shutdown.accepted;
@@ -1347,7 +1361,7 @@ async function requestControlledSystemServiceDrain(input: {
         errorMessage: toErrorMessage(error),
       },
       result: isCompatibilityFallback ? "fallback" : "failed",
-      stopCause: "controlled_service_update",
+      stopCause: input.stopCause,
       type: "stop.controlled_drain",
     });
     if (isCompatibilityFallback) {

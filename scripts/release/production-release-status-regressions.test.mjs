@@ -114,6 +114,31 @@ test("retains scoped JSON when unrelated historical planning fails", async () =>
     "unknown"
   );
 });
+
+test("uses verified Database history when unrelated historical contracts cannot compose", async () => {
+  const { code, result } = await report({
+    readReleaseJobs: async () => [
+      job("Release Production Database", OLD, "2026-09-18T12:00:00Z"),
+    ],
+    buildPlan: ({ base }) => {
+      if (base === OLD) {
+        throw new Error("historical cross-service order conflict");
+      }
+      return { scopes: ["db"], changedPaths: [] };
+    },
+    buildDatabaseStatusPlan: () => ({
+      scopes: ["db"],
+      changedPaths: ["packages/db/drizzle/0182_grey_captain_marvel.sql"],
+    }),
+  });
+  assert.equal(code, 0);
+  const database = result.components.find(
+    (component) => component.scope === "db"
+  );
+  assert.equal(database.sha, OLD);
+  assert.equal(database.state, "pending");
+  assert.deepEqual(database.compatibilityDependencies, []);
+});
 test("does not silently hide a newer successful deployment with unreadable source", async () => {
   const { code, result } = await report({
     readReleaseJobs: async (id) => [

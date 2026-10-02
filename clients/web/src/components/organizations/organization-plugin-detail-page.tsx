@@ -5,10 +5,8 @@ import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { buildOrganizationPluginsPath } from "#/lib/organizations/organization-routes";
 import { AppLogo } from "./app-logo";
-import { CenterAgentGitHubConnectionCard } from "./center-agent-github-connection-card";
-import { PluginAgentAccess } from "./plugin-agent-access";
 import type { PluginDefinition } from "./plugin-catalog";
-import { PluginConnectionCard } from "./plugin-connection-card";
+import { PluginConnectionSurface } from "./plugin-connection-surface";
 import { PluginScopeTabs, usePluginScope } from "./plugin-scope-tabs";
 import { PluginStatusBadge } from "./plugins-catalog-panel";
 
@@ -82,8 +80,8 @@ export function OrganizationPluginDetailPage(input: {
 						</h2>
 						<p className="mt-1 max-w-2xl text-muted-foreground text-xs leading-5">
 							{scope === "member"
-								? "Connect your account for your own requests."
-								: `Shared with everyone in ${input.organizationName}.`}
+								? "Connect your account, then choose which Agents may use it."
+								: "Connect an organization account, then choose Agent access below."}
 						</p>
 						{scope === "shared" && !input.canManageSharedPlugins ? (
 							<p className="mt-1 text-muted-foreground text-xs">
@@ -91,31 +89,14 @@ export function OrganizationPluginDetailPage(input: {
 							</p>
 						) : null}
 					</div>
-					{input.plugin.service === "github" ? (
-						<CenterAgentGitHubConnectionCard
-							canManage={input.canManageSharedPlugins}
-							isPersonalWorkspace={input.isPersonalWorkspace}
-							key={`${input.organizationId}:github`}
-							mode={scope}
-							organizationId={input.organizationId}
-							organizationName={input.organizationName}
-						/>
-					) : (
-						<PluginConnectionCard
-							canManage={input.canManageSharedPlugins}
-							isPersonalWorkspace={input.isPersonalWorkspace}
-							key={`${input.organizationId}:${input.plugin.service}`}
-							mode={scope}
-							organizationId={input.organizationId}
-							organizationName={input.organizationName}
-							plugin={input.plugin}
-						/>
-					)}
-					<PluginAgentAccess
+					<PluginConnectionSurface
+						canManage={input.canManageSharedPlugins}
+						isPersonalWorkspace={input.isPersonalWorkspace}
+						key={`${input.organizationId}:${input.plugin.service}`}
+						mode={scope}
 						organizationId={input.organizationId}
 						organizationName={input.organizationName}
-						scope={scope}
-						service={input.plugin.service}
+						plugin={input.plugin}
 					/>
 				</section>
 			) : (

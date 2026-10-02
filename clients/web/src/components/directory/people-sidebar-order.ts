@@ -7,6 +7,21 @@ export const EMPTY_PEOPLE_SIDEBAR: PeopleSidebarPreferences = {
 	people: { sort: "priority", itemIds: [] },
 	groups: [],
 };
+
+export function toggleSidebarPersonStar(
+	preferences: PeopleSidebarPreferences,
+	id: string
+) {
+	const destination = preferences.starred.itemIds.includes(id)
+		? "people"
+		: "starred";
+	return moveSidebarPerson(
+		preferences,
+		destination,
+		id,
+		preferences[destination].itemIds
+	);
+}
 export type PeopleFilter =
 	| "all"
 	| "connected"

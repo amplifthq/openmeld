@@ -51,3 +51,8 @@ export const RUNTIME_COORDINATOR_PROGRESS_EVIDENCE_WATCHDOG_INTERVAL_MS = 30_000
 export const PREPARE_SESSION_TTL_MS = 30 * 60 * 1000;
 export const PREPARE_TOKEN_TTL_MS = 10 * 60 * 1000;
 export const SPACE_OUTBOX_ALARM_REDRIVE_INTERVAL_MS = 15_000;
+export const EXECUTION_TARGET_MUTATION_LEASE_MS = 5 * 60_000;
+// A Wake blocked by a target edit gets the full lease plus one outbox alarm
+// to retry before Core publishes a visible no-execution failure.
+export const EXECUTION_TARGET_MUTATION_WAKE_WAIT_MAX_MS =
+  EXECUTION_TARGET_MUTATION_LEASE_MS + SPACE_OUTBOX_ALARM_REDRIVE_INTERVAL_MS;

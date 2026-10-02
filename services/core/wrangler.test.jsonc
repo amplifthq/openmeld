@@ -10,6 +10,7 @@
   "vars": {
     "CORS_ORIGINS": "https://gateway.openmeld.invalid",
     "OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED": "false",
+    "OPENMELD_SKILL_FILE_BACKED_WRITES": "true",
     "OPENMELD_LARK_CHANNEL_ENABLED": "false",
     "OPENMELD_LARK_CHANNEL_ORGANIZATION_IDS": "",
     "OPENMELD_FEISHU_CHANNEL_ENABLED": "false",
@@ -30,6 +31,14 @@
       {
         "name": "OPENMELD_SPACES",
         "class_name": "Space"
+      },
+      {
+        "name": "OPENMELD_FILE_ROOTS",
+        "class_name": "OrganizationFileRoot"
+      },
+      {
+        "name": "OPENMELD_ACCOUNT_INVALIDATIONS",
+        "class_name": "AccountInvalidationHub"
       },
       {
         "name": "OPENMELD_RUNTIME_TRANSPORT",
@@ -91,6 +100,8 @@
         }
       ]
     },
-    { "tag": "v5", "new_sqlite_classes": ["LarkChannelConnector"] }
+    { "tag": "v5", "new_sqlite_classes": ["LarkChannelConnector"] },
+    { "tag": "v6", "new_sqlite_classes": ["AccountInvalidationHub"] },
+    { "tag": "v7", "new_sqlite_classes": ["OrganizationFileRoot"] }
   ]
 }

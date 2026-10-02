@@ -1,3 +1,7 @@
+import type {
+  PluginChannelSelection,
+  PluginChannelSourceProof,
+} from "@openmeld/schemas";
 import {
   buildMessageChannelConversationId,
   remoteAgentWorkerSubmitTurnRequestSchema,
@@ -22,6 +26,10 @@ import {
   readRemoteAgentNativeDeliveryByIdempotencyKey,
   upsertRemoteAgentNativeDeliveryRecord,
 } from "../infrastructure/d1/native-delivery-ledger-repo";
+import {
+  readPluginChannelMetadata,
+  recordPluginChannelAdmission,
+} from "../infrastructure/d1/plugin-channel-metadata-repo";
 import {
   discardFrozenContextScopeForNewTurn,
   parseCoreOwnedRemoteAgentTurnEnvelope,
@@ -53,6 +61,8 @@ type LarkPlatformConversationLocator = Extract<
 >;
 
 export type RemoteAgentMessageChannelNativeDeliveryInput = {
+  pluginSourceProof?: PluginChannelSourceProof;
+  pluginSelection?: PluginChannelSelection;
   attachments?: readonly RemoteAgentWorkerInputAttachment[];
   inputFailure?: {
     failureCode: string;
@@ -153,6 +163,11 @@ export async function submitRemoteAgentMessageChannelNativeDelivery(initialInput
       nowMs: input.nowMs,
       request: input.request,
     });
+  await recordPluginChannelAdmission(
+    input.db,
+    admittedDelivery.delivery.deliveryId,
+    input.request
+  );
   const existingResult = await resolveExistingMessageChannelDeliveryResult({
     delivery: admittedDelivery.delivery,
     identity,
@@ -465,6 +480,10 @@ export async function continueMessageChannelIdentityOnboardingRequest(input: {
       "Message Channel identity onboarding continuation requires the connected provider."
     );
   }
+  const pluginMetadata = await readPluginChannelMetadata(
+    input.db,
+    sourceDelivery.deliveryId
+  );
   const continuationTriggerMessageId =
     await buildMessageChannelIdentityContinuationTriggerId({
       attempt: input.continuationAttempt,
@@ -543,6 +562,7 @@ export async function continueMessageChannelIdentityOnboardingRequest(input: {
         },
       },
       triggerMessageId: continuationTriggerMessageId,
+      ...(pluginMetadata ? { pluginSourceProof: pluginMetadata.proof } : {}),
       turnEnvelope,
     },
   });

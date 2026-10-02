@@ -51,6 +51,23 @@ const GITHUB_PREVIEW = {
   },
   warnings: [],
 };
+const REPOSITORY_PREVIEW = {
+  catalogLimitBytes: 1024,
+  commitSha: "b".repeat(40),
+  repository: "https://github.com/acme/skills",
+  skills: [
+    {
+      blocker: null,
+      fileCount: 1,
+      path: "release-review",
+      totalBytes: 106,
+      url: `https://github.com/acme/skills/tree/${"b".repeat(40)}/release-review`,
+      warnings: [],
+    },
+  ],
+  totalDeclaredBytes: 106,
+  warnings: [],
+};
 
 const TEST_EXECUTION_CONTEXT = {
   exports: {},
@@ -60,6 +77,28 @@ const TEST_EXECUTION_CONTEXT = {
 } as unknown as ExecutionContext;
 
 describe("Organization Skill routes", () => {
+  it("forwards one release resource without turning its bytes into JSON", async () => {
+    const { coreRpc, env } = makeEnv();
+    const bytes = Uint8Array.of(0, 1, 2);
+    coreRpc.fetch.mockResolvedValueOnce(
+      new Response(bytes, {
+        headers: {
+          "content-length": "3",
+          "content-type": "application/octet-stream",
+        },
+      })
+    );
+    const route = `http://local/v1/organizations/current/skills/${SKILL_ID}/releases/${RELEASE_ID}/resources?path=assets%2Ftemplate.bin`;
+    const response = await app.fetch(
+      new Request(route),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(200);
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(bytes);
+    expect(coreRpc.fetch).toHaveBeenCalledOnce();
+    expect(coreRpc.fetch.mock.calls[0]?.[0].url).toBe(route);
+  });
   it("forwards the complete management surface to Core", async () => {
     const { coreRpc, env } = makeEnv();
     const route = `http://local/v1/organizations/current/skills/${SKILL_ID}`;
@@ -70,6 +109,7 @@ describe("Organization Skill routes", () => {
         TEST_EXECUTION_CONTEXT
       ),
       app.fetch(new Request(route), env, TEST_EXECUTION_CONTEXT),
+      app.fetch(new Request(`${route}/catalog`), env, TEST_EXECUTION_CONTEXT),
       app.fetch(
         jsonRequest("http://local/v1/organizations/current/skills", "POST", {
           description: BUNDLE.portable.description,
@@ -94,11 +134,65 @@ describe("Organization Skill routes", () => {
       ),
       app.fetch(
         jsonRequest(
+          "http://local/v1/organizations/current/skills/import-files",
+          "POST",
+          {
+            expectedOrganizationId: "org-1",
+            files: [
+              {
+                content:
+                  "---\nname: release-review\ndescription: Review a release before it ships.\n---\nReview the release evidence.",
+                encoding: "utf8",
+                mediaType: "text/markdown",
+                path: "SKILL.md",
+                size: 106,
+              },
+            ],
+          }
+        ),
+        env,
+        TEST_EXECUTION_CONTEXT
+      ),
+      app.fetch(
+        jsonRequest(
           "http://local/v1/organizations/current/skills/preview-github",
           "POST",
           {
             expectedOrganizationId: "org-1",
             url: "https://github.com/acme/skills/tree/main/release-review",
+          }
+        ),
+        env,
+        TEST_EXECUTION_CONTEXT
+      ),
+      app.fetch(
+        jsonRequest(
+          "http://local/v1/organizations/current/skills/preview-github-repository",
+          "POST",
+          {
+            expectedOrganizationId: "org-1",
+            url: "https://github.com/acme/skills",
+          }
+        ),
+        env,
+        TEST_EXECUTION_CONTEXT
+      ),
+      app.fetch(
+        jsonRequest(
+          "http://local/v1/organizations/current/skills/preview-files",
+          "POST",
+          {
+            expectedOrganizationId: "org-1",
+            files: [
+              {
+                content:
+                  "---\nname: release-review\ndescription: Review a release before it ships.\n---\nReview the release evidence.",
+                encoding: "utf8",
+                mediaType: "text/markdown",
+                path: "SKILL.md",
+                size: 106,
+              },
+            ],
           }
         ),
         env,
@@ -143,12 +237,15 @@ describe("Organization Skill routes", () => {
     ]);
 
     expect(responses.map((response) => response.status)).toEqual([
-      200, 200, 201, 201, 200, 200, 200, 200, 200,
+      200, 200, 200, 201, 201, 201, 200, 200, 200, 200, 200, 200, 200,
     ]);
     expect(coreRpc.listOrganizationSkills).toHaveBeenCalledWith({
       context: expect.objectContaining({ activeOrganizationId: "org-1" }),
     });
     expect(coreRpc.getOrganizationSkill).toHaveBeenCalledWith(
+      expect.objectContaining({ skillId: SKILL_ID })
+    );
+    expect(coreRpc.getOrganizationSkillCatalog).toHaveBeenCalledWith(
       expect.objectContaining({ skillId: SKILL_ID })
     );
     expect(coreRpc.createOrganizationSkill).toHaveBeenCalledWith(
@@ -163,10 +260,28 @@ describe("Organization Skill routes", () => {
         url: "https://github.com/acme/skills/tree/main/release-review",
       })
     );
+    expect(coreRpc.importOrganizationSkillFromFiles).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedOrganizationId: "org-1",
+        files: [expect.objectContaining({ path: "SKILL.md" })],
+      })
+    );
     expect(coreRpc.previewOrganizationSkillFromGitHub).toHaveBeenCalledWith(
       expect.objectContaining({
         expectedOrganizationId: "org-1",
         url: "https://github.com/acme/skills/tree/main/release-review",
+      })
+    );
+    expect(coreRpc.previewOrganizationSkillRepository).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedOrganizationId: "org-1",
+        url: "https://github.com/acme/skills",
+      })
+    );
+    expect(coreRpc.previewOrganizationSkillFromFiles).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedOrganizationId: "org-1",
+        files: [expect.objectContaining({ path: "SKILL.md" })],
       })
     );
     expect(coreRpc.updateOrganizationSkill).toHaveBeenCalledWith(
@@ -225,6 +340,9 @@ describe("Organization Skill routes", () => {
 
 function makeEnv() {
   const coreRpc = {
+    fetch: vi.fn(
+      async (_request: Request): Promise<Response> => new Response()
+    ),
     createOrganizationSkill: vi.fn(async () => ({ skill: SKILL })),
     deleteOrganizationSkill: vi.fn(async () => ({
       deleted: true,
@@ -232,7 +350,21 @@ function makeEnv() {
       skillId: SKILL_ID,
     })),
     getOrganizationSkill: vi.fn(async () => ({ skill: SKILL })),
+    getOrganizationSkillCatalog: vi.fn(async () => ({
+      organizationId: "org-1",
+      releases: [
+        {
+          digest: RELEASE.digest,
+          releaseId: RELEASE_ID,
+          skillId: SKILL_ID,
+          files: [],
+          instructions: BUNDLE.instructions,
+          portable: BUNDLE.portable,
+        },
+      ],
+    })),
     importOrganizationSkillFromGitHub: vi.fn(async () => ({ skill: SKILL })),
+    importOrganizationSkillFromFiles: vi.fn(async () => ({ skill: SKILL })),
     listOrganizationSkills: vi.fn(async () => ({
       canManage: true,
       organizationId: "org-1",
@@ -255,6 +387,19 @@ function makeEnv() {
     previewOrganizationSkillFromGitHub: vi.fn(async () => ({
       organizationId: "org-1",
       preview: GITHUB_PREVIEW,
+    })),
+    previewOrganizationSkillRepository: vi.fn(async () => ({
+      organizationId: "org-1",
+      preview: REPOSITORY_PREVIEW,
+    })),
+    previewOrganizationSkillFromFiles: vi.fn(async () => ({
+      organizationId: "org-1",
+      preview: {
+        files: [],
+        instructionsCharacters: BUNDLE.instructions.length,
+        portable: BUNDLE.portable,
+        warnings: [],
+      },
     })),
     setOrganizationSkillEnabled: vi.fn(async () => ({
       skill: { ...SKILL, enabled: false, version: 2 },

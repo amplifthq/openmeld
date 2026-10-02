@@ -133,6 +133,8 @@ function FacetIcon({
 	return (
 		<AgentProfileControllerAvatar
 			agentControllerRef={item?.agentControllerRef ?? null}
+			avatarStyle={item?.profile.avatarStyle}
+			modelId={item?.modelId}
 			profileId={value}
 			profileName={value}
 			size={18}
@@ -169,7 +171,7 @@ export function AgentListControls(input: {
 					<Button
 						aria-label={input.label ?? "Agent view settings"}
 						size="icon-sm"
-						variant="secondary"
+						variant="ghost"
 					/>
 				}
 			>
@@ -442,7 +444,6 @@ export function AgentList(input: {
 									setSearch(value);
 								}}
 								value={search}
-								variant="secondary"
 							/>
 							<AgentListControls
 								items={globallyFiltered}
@@ -464,15 +465,15 @@ export function AgentList(input: {
 							aria-label={`${collapsed ? "Expand" : "Collapse"} ${input.label}`}
 							className={
 								collapsed
-									? ""
-									: "opacity-0 group-focus-within/agent-section:opacity-100 group-hover/agent-section:opacity-100 [@media(hover:none)]:opacity-100"
+									? "aria-expanded:bg-transparent"
+									: "opacity-0 group-focus-within/agent-section:opacity-100 group-hover/agent-section:opacity-100 aria-expanded:bg-transparent aria-expanded:hover:bg-muted [@media(hover:none)]:opacity-100"
 							}
 							onClick={() => {
 								selection.cancel();
 								setCollapsed(!collapsed);
 							}}
 							size="icon-sm"
-							variant="secondary"
+							variant="ghost"
 						>
 							{collapsed ? <CaretRightIcon /> : <CaretDownIcon />}
 						</Button>

@@ -9,6 +9,7 @@ import {
   createRemoteAgentCallbackContext,
   putRemoteAgentCallbackContext as putRemoteAgentCallbackContextProjection,
   type RemoteAgentCallbackContext,
+  type RemoteAgentConditionalWrite,
   readRemoteAgentCallbackContext,
   recordRemoteAgentWorkLoopCheckpoint,
 } from "../agent-core/callback-context";
@@ -247,6 +248,17 @@ describe("Center Agent stream observation", () => {
 
   it.each([
     { result: {}, outcome: undefined },
+    {
+      result: {
+        status: "outcome_unknown",
+        actionId: "posthog.update_project",
+        operationId: "update-project-1",
+        executionConfirmation: "unknown",
+        providerExecutionId: null,
+        message: "The action may have succeeded. Reconcile update-project-1.",
+      },
+      outcome: "outcome_unknown",
+    },
     {
       result: {
         status: "destructive_confirmation_required",
@@ -936,6 +948,12 @@ describe("Center Agent stream observation", () => {
         text: "The durable owner answer won.",
       })
     );
+    expect(
+      await readRemoteAgentCallbackContext(
+        harness.resolveDependencies().storage,
+        SUBMISSION_ID
+      )
+    ).toMatchObject({ modelId: "winner/model" });
   });
 
   it("publishes the owner answer when a different success wins the CAS", async () => {
@@ -1477,6 +1495,58 @@ describe("Center Agent stream observation", () => {
     );
   });
 
+  it("reports a reasoning-only length completion as output exhaustion", async () => {
+    const storage = new InMemoryDurableObjectStorage();
+    await putRemoteAgentCallbackContext(
+      storage,
+      createRemoteAgentCallbackContext({
+        ack: {
+          accepted: true,
+          createdAt: TEST_NOW_MS,
+          idempotencyKey: "remote-agent:dispatch_123",
+          requestId: SUBMISSION_ID,
+          status: "pending",
+          submissionId: SUBMISSION_ID,
+        },
+        nowMs: TEST_NOW_MS,
+        request: createSubmitTurnRequest(),
+      })
+    );
+    const completeRemoteAgentSubmission = vi.fn(async () => ({
+      publishedSignalId: "signal_output_limit_failure",
+      status: "accepted" as const,
+    }));
+    const writeDataPoint = vi.fn();
+
+    await handleCenterAgentObservation({
+      event: {
+        ...completedPromptObservation(""),
+        agentOutput: { finishReason: "length", text: "", type: "text" },
+      },
+      resolveDependencies: () => ({
+        coreWorker: { completeRemoteAgentSubmission },
+        env: {
+          OPENMELD_OBSERVABILITY: { writeDataPoint },
+          OPENMELD_WORKER_ENVIRONMENT: "test",
+        } as unknown as CloudflareBindings,
+        storage,
+      }),
+      streamPublisher: createRemoteAgentStreamPublisher(),
+    });
+
+    expect(completeRemoteAgentSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({
+        failureCode: "remote_agent.turn.output_limit_exceeded",
+        failureMessage: expect.stringContaining("response limit"),
+        status: "failed",
+        submissionId: SUBMISSION_ID,
+      })
+    );
+    expect(readBlob(writeDataPoint.mock.calls[0]?.[0], "reasonCode")).toBe(
+      REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES.TURN_OUTPUT_LIMIT_EXCEEDED
+    );
+  });
+
   it("writes timeout evidence when the prompt operation is interrupted", async () => {
     const storage = new InMemoryDurableObjectStorage();
     await putRemoteAgentCallbackContext(
@@ -1552,6 +1622,23 @@ class TerminalCasRaceStorage extends InMemoryDurableObjectStorage {
 
   winNextExecutionCas(key: string, value: unknown): void {
     this.nextWinner = { key, value };
+  }
+
+  override async compareAndSetPair<A, B>(
+    first: RemoteAgentConditionalWrite<A>,
+    second: RemoteAgentConditionalWrite<B>
+  ): Promise<boolean> {
+    if (this.nextWinner?.key === first.key) {
+      const winner = this.nextWinner;
+      this.nextWinner = null;
+      await this.put(first.key, winner.value);
+      await this.put(second.key, {
+        ...second.expectedValue,
+        modelId: "winner/model",
+      });
+      return false;
+    }
+    return await super.compareAndSetPair(first, second);
   }
 
   override async compareAndSet<T>(

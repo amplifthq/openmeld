@@ -3,6 +3,25 @@ import { describe, expect, it } from "vitest";
 import { resolveAgentWorkPresentation } from "./agent-work-presentation";
 
 describe("Agent work presentation", () => {
+	it.each([
+		"output-available",
+		"output-error",
+	] as const)("keeps an uncertain write neutral even when the transport state is %s", (state) => {
+		expect(
+			resolveAgentWorkPresentation(
+				{
+					v: 1,
+					key: "github.issue.comment",
+					outcome: "outcome_unknown",
+				},
+				state,
+				false
+			)
+		).toEqual({
+			status: "complete",
+			text: "Action outcome awaiting confirmation",
+		});
+	});
 	it("does not report a confirmation proposal as an executed action", () => {
 		expect(
 			resolveAgentWorkPresentation(

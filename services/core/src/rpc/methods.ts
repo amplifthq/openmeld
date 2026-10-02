@@ -3,6 +3,7 @@ import {
   type AuthorityOpenMeldServiceRuntimeId,
   createAuthorityOpenMeldServiceRuntimeId,
   createRuntimeLookupInput,
+  getPersonalRemoteAgentDefaultModelId,
   parseAgentControllerRef,
   peopleComputerContainsDevice,
   projectPeopleComputersToLegacyLocalRuntimes,
@@ -53,6 +54,8 @@ import {
   centerAgentCheckAgentProfileReadinessResponseSchema,
   centerAgentConnectAgentProfileToLocalAgentBodySchema,
   centerAgentConnectAgentProfileToLocalAgentResponseSchema,
+  centerAgentContinueTaskSummaryBodySchema,
+  centerAgentContinueTaskSummaryResponseSchema,
   centerAgentCreateAgentProfileBodySchema,
   centerAgentCreateAgentProfileResponseSchema,
   centerAgentCreateSpaceBodySchema,
@@ -251,6 +254,7 @@ import {
   organizationSpaceDirectoryResponseSchema,
   organizationSpaceDirectoryWithMemberCountsResponseSchema,
   ownerComputerDiagnosticsSchema,
+  type PluginConnectionContinuationBinding,
   parseSlackThreadPublicationPermalink,
   patchSpaceContractBodySchema,
   patchSpaceMetaBodySchema,
@@ -265,6 +269,8 @@ import {
   prepareReadinessRouteParamsSchema,
   profileSpaceHistoryGatewayHostSchema,
   projectOwnerComputerLocalRuntimes,
+  type ReadPluginConnectionContinuationBindingRequest,
+  readPluginConnectionContinuationBindingResponseSchema,
   recordSpaceAttachmentPayloadSchema,
   refreshCurrentLocalAgentCatalogResponseSchema,
   requestCurrentOpenMeldToolsUpdateResponseSchema,
@@ -277,7 +283,7 @@ import {
   runtimeTransportAgentProfileWorkLocalAttemptWithdrawalResponseSchema,
   runtimeTransportAgentProfileWorkRecoveryReadResponseSchema,
   SPACE_COMPOSER_UPLOAD_TTL_MS,
-  SPACE_FILE_MAX_SIZE_BYTES,
+  SPACE_FILE_RAW_UPLOAD_MAX_BYTES,
   selectCurrentLocalAgentInstallationBodySchema,
   selectCurrentLocalAgentInstallationResponseSchema,
   setAgentProfileCreationDefaultsBodySchema,
@@ -732,7 +738,6 @@ import {
   createDispatchContinuationSpaceAccessContext,
   getSpaceAccessPassword,
   getSpaceAccessRequestContext,
-  getSpaceAccessRequestId,
   OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
   type SpaceAccessContext,
 } from "@openmeld/space";
@@ -863,6 +868,7 @@ import {
   type VerifiedCenterAgentRepresentedMember,
 } from "../center-agent/application/represented-member-request";
 import { shouldWriteDestinationNeutralTaskContinuations } from "../center-agent/application/task-continuation-rollout";
+import { continueTaskSummary } from "../center-agent/application/task-summary-recovery-service";
 import {
   resolveCenterAgentAuditAttribution,
   writeCenterAgentAuditEntry,
@@ -883,8 +889,10 @@ import {
 import {
   type CenterAgentDesignationRecord,
   insertCenterAgentAuditJournalEntry,
+  insertCenterAgentAuditJournalEntryIfMissing,
   listCenterAgentAuditJournalEntries,
   readCenterAgentDesignationRecord,
+  readCenterAgentWakeAuditAttribution,
   readResolvedOrganizationDirectorySpaceMember,
   readResolvedOrganizationOwnerHumanSpaceMember,
   readResolvedOrganizationSpaceMember,
@@ -900,6 +908,7 @@ import {
   readCenterAgentConnectorActionOperationForRecovery,
   readCenterAgentConnectorActionOperationForRequest,
   recordCenterAgentConnectorActionOperation,
+  resolveConnectorActionReplayWindowRemainingMs,
 } from "../center-agent/connector-action-operation-repository";
 import {
   type CurrentDesignatedCenterAgentAuthorization,
@@ -946,6 +955,7 @@ import {
   upsertPendingSharedConnectorConnection,
 } from "../connectors/connector-connection-repository";
 import {
+  beginExistingGitHubAppInstallationVerification,
   beginGitHubAppInstallationVerification,
   completeGitHubAppInstallation,
   createGitHubAppInstallationState,
@@ -955,6 +965,11 @@ import {
   requireRemotePluginConnection,
   selectPluginConnection,
 } from "../connectors/plugin-access";
+import {
+  assertBoundPluginConnection,
+  boundPluginConnectionPreference,
+  readPluginConnectionExecutionBinding,
+} from "../connectors/plugin-connection-execution-binding";
 import {
   type DispatchHistoryEntry,
   listRecentDispatchLedgerEntriesForSpace,
@@ -1053,6 +1068,7 @@ import {
 } from "../projects/project-rpc";
 import { attachCenterAgentTurnRuntimeEvidence } from "../remote-agent/application/center-agent-turn-diagnostics";
 import { reconcileChannelAuthorizationUpdates } from "../remote-agent/application/channel-authorization-update-service";
+import { resolveRemoteAgentConnectorRequester } from "../remote-agent/application/delegated-requester";
 import { listLarkPlatformProvidersEnabledForOrganization } from "../remote-agent/application/lark-platform-provider-policy";
 import {
   beginRemoteAgentLarkPlatformRegistration,
@@ -2353,6 +2369,8 @@ export type PostSignalInput = {
 
 export type PostSignalOnceByClientMessageIdInput = PostSignalInput & {
   clientMessageId: string;
+  /** Internal Core→Space only. Public message metadata is never authority. */
+  pluginContinuation?: PluginConnectionContinuationBinding;
 };
 
 // Transient signals must stay non-persistent; user Wake dispatch must use PostSignalInput with authoringPolicy.
@@ -2520,6 +2538,10 @@ export type ApplySpaceAgentStreamDeltaInput =
           kind: "thinking";
           thinkingSnapshot: string;
           reasoningState?: import("@openmeld/schemas/types").LocalAgentReasoningState;
+        }
+      | {
+          kind: "progress";
+          progressSnapshot: string;
         }
     );
 
@@ -3269,6 +3291,12 @@ export type ReadPendingGitHubAppInstallationInput = {
   expectedOrganizationId: string;
 };
 
+export type BeginExistingGitHubAppInstallationVerificationInput =
+  ReadPendingGitHubAppInstallationInput & {
+    installationId: string;
+    verificationConnectionName: ConnectorConnectionName;
+  };
+
 export type CompleteGitHubAppInstallationInput =
   ReadPendingGitHubAppInstallationInput & {
     installationId: string;
@@ -3701,6 +3729,12 @@ export type CenterAgentReadSpaceWakeProgressInput =
     sourceProfileId?: string;
     spaceId: string;
     targetProfileId?: string;
+  };
+
+export type CenterAgentStopSpaceWakeInput =
+  CenterAgentReadOrganizationSpaceDirectoryInput & {
+    body: PostSpaceWakeStopBody;
+    spaceId: string;
   };
 
 export type OpenCenterAgentDirectMessageSpaceInput = {
@@ -5603,7 +5637,9 @@ export async function rpcExecuteAgentProfileWorkRecovery(
     (recovery.action === parsedBody.data.action ||
       (recovery.action === "fork_interrupted_work" &&
         (parsedBody.data.action === "skip_interrupted_work" ||
-          parsedBody.data.action === "continue_interrupted_work")) ||
+          (parsedBody.data.action === "continue_interrupted_work" &&
+            Boolean(recovery.forkInterruptedConversation) &&
+            recovery.authorizedContinuationClientMessageId !== null))) ||
       (recovery.action === "continue_interrupted_work" &&
         Boolean(recovery.forkInterruptedConversation) &&
         parsedBody.data.action === "fork_interrupted_work"));
@@ -5616,8 +5652,31 @@ export async function rpcExecuteAgentProfileWorkRecovery(
     });
   }
 
+  // Read the caller's observed work identity, never fill it from this fresh
+  // read: an old tab may arrive while a later recovery offers the same action.
+  if (!recovery.interruptedTargetWakeLifecycleId) {
+    throw createCoreRpcHttpError({
+      code: "agent_profile_work_recovery.temporarily_unavailable",
+      reason: "OpenMeld is checking this Agent’s paused work. Try again.",
+      status: 503,
+    });
+  }
+  if (
+    parsedBody.data.expectedInterruptedTargetWakeLifecycleId !==
+    recovery.interruptedTargetWakeLifecycleId
+  ) {
+    throw createCoreRpcHttpError({
+      code: "agent_profile_work_recovery.not_pending",
+      reason:
+        "This Agent’s paused work has changed. Review its current work before trying again.",
+      status: 409,
+    });
+  }
+
   if (parsedBody.data.action === "approve_queued_work") {
     await executeAgentProfileWorkQueueApproval({
+      expectedInterruptedTargetWakeLifecycleId:
+        parsedBody.data.expectedInterruptedTargetWakeLifecycleId,
       ownerShard,
       ownerUserId: request.owner.id,
       targetProfileId: request.agentProfileId,
@@ -5733,11 +5792,14 @@ async function executeAgentProfileInterruptedWorkSkip(input: {
 }
 
 async function executeAgentProfileWorkQueueApproval(input: {
+  expectedInterruptedTargetWakeLifecycleId: string;
   ownerShard: ReturnType<typeof resolveRuntimeTransportOwnerShard>;
   ownerUserId: string;
   targetProfileId: string;
 }): Promise<void> {
   const approved = await input.ownerShard.rpcApproveAgentProfileWorkQueue({
+    expectedInterruptedTargetWakeLifecycleId:
+      input.expectedInterruptedTargetWakeLifecycleId,
     ownerUserId: input.ownerUserId,
     targetProfileId: input.targetProfileId,
   });
@@ -6610,6 +6672,13 @@ export async function rpcGetCurrentOrganizationProfileDirectory(
       agentControllerRef:
         configurationsByProfileId?.get(profile.profileId)?.agentControllerRef ??
         null,
+      avatarModelId:
+        configurationsByProfileId?.get(profile.profileId)?.modelSelection
+          ?.modelId ??
+        (configurationsByProfileId?.get(profile.profileId)
+          ?.agentControllerRef === "hosted:remote-agent"
+          ? getPersonalRemoteAgentDefaultModelId(readModelCatalog())
+          : null),
       ...(input.includeModelSelection === true &&
       configurationsByProfileId !== null
         ? {
@@ -7897,6 +7966,30 @@ export async function rpcReadPendingGitHubAppInstallation(
   return pendingGitHubAppInstallationSchema.parse(pending);
 }
 
+export async function rpcBeginExistingGitHubAppInstallationVerification(
+  env: CoreBindings,
+  input: BeginExistingGitHubAppInstallationVerificationInput
+): Promise<boolean> {
+  const context = requireRpcContext(input.context);
+  const activeOrganization = await requireActiveOrganizationMembershipOrThrow({
+    context,
+    env,
+  });
+  requireExpectedConnectorOrganization({
+    activeOrganizationId: activeOrganization.organizationId,
+    expectedOrganizationId: input.expectedOrganizationId,
+  });
+  assertSharedConnectorManagementPermission(activeOrganization);
+  return await beginExistingGitHubAppInstallationVerification({
+    db: requireConnectorConnectionDb(env),
+    installationId: input.installationId,
+    nowMs: Date.now(),
+    organizationId: activeOrganization.organizationId,
+    userId: activeOrganization.userId,
+    verificationConnectionName: input.verificationConnectionName,
+  });
+}
+
 export async function rpcCompleteGitHubAppInstallation(
   env: CoreBindings,
   input: CompleteGitHubAppInstallationInput
@@ -8232,18 +8325,26 @@ export async function rpcCenterAgentResolveConnectorConnection(
   const personalRequest = personal
     ? authorization.personalExecution.request
     : null;
-  const sender = personalRequest?.turnEnvelope.sender;
-  let representedUserId: string | null = null;
-  if (sender?.kind === "routine") {
-    representedUserId = sender.delegatedBy.ownerUserId;
-  } else if (sender?.kind === "member" && sender.verified) {
-    representedUserId = sender.ownerUserId ?? null;
-  }
+  const representedUserId = await resolveRemoteAgentConnectorRequester({
+    env,
+    authorization,
+    service,
+    includeDelegatedRequester: input.includeDelegatedRequester,
+    requesterUserId: input.requesterUserId,
+  });
   const personalOwnerRequest =
     personalRequest &&
     representedUserId === personalRequest.agentProfileOwnerUserId;
-  const connectionPreference =
-    personal && !personalOwnerRequest ? "shared" : requestedPreference;
+  const binding = await readPluginConnectionExecutionBinding(
+    env,
+    context,
+    service
+  );
+  const connectionPreference = boundPluginConnectionPreference(
+    binding,
+    service,
+    personal && !personalOwnerRequest ? "shared" : requestedPreference
+  );
   if (service === "github" && connectionPreference === "automatic") {
     throw createCoreRpcHttpError({
       code: "connector.github_identity_required",
@@ -8272,6 +8373,7 @@ export async function rpcCenterAgentResolveConnectorConnection(
     requesterUserId,
     service,
   });
+  assertBoundPluginConnection(binding, service, selected?.connection ?? null);
   const response = await presentPluginSelection(
     env,
     selected,
@@ -10125,6 +10227,7 @@ export async function rpcUpdateCenterAgentProfile(
   const context = requireRpcContext(input.context);
   const body = centerAgentUpdateProfileBodySchema.safeParse({
     profileName: input.profileName,
+    avatarStyle: input.avatarStyle,
   });
   if (!body.success) {
     throw createCoreRpcHttpError({
@@ -10170,7 +10273,12 @@ export async function rpcUpdateCenterAgentProfile(
       authWorker.updateCenterAgentProfileInOrganization({
         organizationId: activeOrganization.organizationId,
         profileId: managedProfile.profileId,
-        profileName: body.data.profileName,
+        ...(body.data.profileName
+          ? { profileName: body.data.profileName }
+          : {}),
+        ...(body.data.avatarStyle
+          ? { avatarStyle: body.data.avatarStyle }
+          : {}),
       }),
     unavailable: {
       code: "center_agent.profile_update_unavailable",
@@ -14443,8 +14551,7 @@ export async function rpcCenterAgentReadSpaceWakeProgress(
     env,
     spaceId: parsed.data.spaceId,
   });
-  const response = await rpcGetActiveSpaceWakeProgress(env, {
-    context: authorization.context,
+  const progressInput = {
     includeDeviceWait: true,
     includePageInfo: true,
     includeWakeStopEligibility: true,
@@ -14458,7 +14565,53 @@ export async function rpcCenterAgentReadSpaceWakeProgress(
     ...(parsed.data.targetProfileId
       ? { targetProfileId: parsed.data.targetProfileId }
       : {}),
+  } as const;
+  const response = await rpcGetActiveSpaceWakeProgress(env, {
+    ...progressInput,
+    context: authorization.context,
   });
+  const representedContext = prepared.representedContext;
+  let represented: GetActiveSpaceWakeProgressResponse | null = null;
+  if (representedContext) {
+    try {
+      represented = await rpcGetActiveSpaceWakeProgress(env, {
+        ...progressInput,
+        context: representedContext,
+      });
+    } catch (error) {
+      // A verified requester may not have access to every Space the Center
+      // Agent can read. Keep the Center Agent's authorized progress projection.
+      if (readCoreRpcHttpStatus(error) !== 403) {
+        throw error;
+      }
+    }
+  }
+  const representedEligibility = new Map(
+    represented?.items.map((item) => [
+      JSON.stringify([
+        item.dispatchId,
+        item.sourceSignalId,
+        item.clientMessageId,
+        item.targetProfileId,
+      ]),
+      item.wakeStopEligibility,
+    ]) ?? []
+  );
+  const viewerResponse = {
+    ...response,
+    items: response.items.map((item) => ({
+      ...item,
+      wakeStopEligibility:
+        representedEligibility.get(
+          JSON.stringify([
+            item.dispatchId,
+            item.sourceSignalId,
+            item.clientMessageId,
+            item.targetProfileId,
+          ])
+        ) ?? null,
+    })),
+  };
   await writeCenterAgentAuditEntry({
     action: "read_space_context",
     authorization,
@@ -14466,7 +14619,32 @@ export async function rpcCenterAgentReadSpaceWakeProgress(
     resource: { type: "space", id: parsed.data.spaceId },
     sourceNativeDeliveryId: prepared.sourceNativeDeliveryId,
   });
-  return response;
+  return viewerResponse;
+}
+
+export async function rpcCenterAgentStopSpaceWake(
+  env: CoreBindings,
+  input: CenterAgentStopSpaceWakeInput
+): Promise<PostSpaceWakeStopResponse> {
+  const prepared = await prepareCenterAgentOrganizationMemberRead(env, input);
+  await requireCenterAgentSpaceInActiveOrganization({
+    authorization: prepared.authorization,
+    env,
+    spaceId: input.spaceId,
+  });
+  if (!prepared.representedContext) {
+    throw createCoreRpcHttpError({
+      code: "center_agent.wake_stop_requester_required",
+      reason:
+        "You can't stop this Wake from this request. Ask its requester or the target Agent's owner to stop it in OpenMeld Web.",
+      status: 403,
+    });
+  }
+  return await rpcPostSpaceWakeStop(env, {
+    body: input.body,
+    context: prepared.representedContext,
+    spaceId: input.spaceId,
+  });
 }
 
 async function prepareCenterAgentOrganizationMemberRead(
@@ -14477,6 +14655,7 @@ async function prepareCenterAgentOrganizationMemberRead(
   }
 ): Promise<{
   authorization: CurrentDesignatedCenterAgentAuthorization;
+  representedContext: OpenMeldRequestContext | null;
   sourceNativeDeliveryId: string | null;
 }> {
   const context = requireRpcContext(input.context);
@@ -14498,6 +14677,24 @@ async function prepareCenterAgentOrganizationMemberRead(
     );
     return {
       authorization: prepared.authorization,
+      representedContext:
+        prepared.member.sourceNativeDeliveryId &&
+        prepared.member.userId &&
+        prepared.member.profileId
+          ? {
+              activeOrganizationId:
+                prepared.authorization.activeOrganization.organizationId,
+              actorContext: {
+                callerPrincipalId: prepared.member.userId,
+                ownerUserId: prepared.member.userId,
+                openMeldProfileId: prepared.member.profileId,
+                profileKind: "human",
+                profileName: prepared.member.displayName,
+                requestId:
+                  prepared.authorization.context.actorContext.requestId,
+              },
+            }
+          : null,
       sourceNativeDeliveryId: prepared.member.sourceNativeDeliveryId,
     };
   }
@@ -14506,6 +14703,7 @@ async function prepareCenterAgentOrganizationMemberRead(
       context,
       env,
     }),
+    representedContext: null,
     sourceNativeDeliveryId: null,
   };
 }
@@ -15705,6 +15903,7 @@ export async function rpcCenterAgentReadConnectorActionOperation(
   input: CenterAgentReadConnectorActionOperationInput
 ): Promise<CenterAgentReadConnectorActionOperationResponse> {
   const parsed = centerAgentReadConnectorActionOperationBodySchema.safeParse({
+    includeRecoveryWindow: input.includeRecoveryWindow,
     actionId: input.actionId,
     operationId: input.operationId,
     service: input.service,
@@ -15740,6 +15939,15 @@ export async function rpcCenterAgentReadConnectorActionOperation(
   return centerAgentReadConnectorActionOperationResponseSchema.parse({
     operation: existing
       ? {
+          ...(parsed.data.includeRecoveryWindow
+            ? {
+                replayWindowRemainingMs:
+                  resolveConnectorActionReplayWindowRemainingMs(
+                    existing.createdAtMs,
+                    Date.now()
+                  ),
+              }
+            : {}),
           actionId: existing.actionId,
           connectionName: existing.connectionName,
           executionConnection: existing.executionConnection,
@@ -15756,6 +15964,7 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
   input: CenterAgentRecordConnectorActionOperationInput
 ): Promise<CenterAgentRecordConnectorActionOperationResponse> {
   const parsed = centerAgentRecordConnectorActionOperationBodySchema.safeParse({
+    includeRecoveryWindow: input.includeRecoveryWindow,
     actionId: input.actionId,
     effect: input.effect,
     connectionName: input.connectionName,
@@ -15800,47 +16009,64 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
   let connectionName = existing?.operation.connectionName;
   let executionConnection =
     existing?.operation.executionConnection ?? undefined;
-  if (!existing && parsed.data.outcome === "attempted") {
-    const connection = await requireRemotePluginConnection({
-      connectionName: parsed.data.connectionName,
-      db: authorization.db,
-      organizationId: authorization.activeOrganization.organizationId,
-      service: parsed.data.service,
-      requesterUserId: member.userId,
-      remoteOwnerUserId:
-        "personalExecution" in authorization
-          ? (authorization.personalExecution.request.agentProfileOwnerUserId ??
-            null)
-          : undefined,
-      effect: parsed.data.effect ?? "unspecified",
-    });
-    attribution = {
-      actorProfileId: authorization.actorProfileId,
-      onBehalfOf:
-        member.profileId && member.userId
-          ? {
-              displayName: member.displayName,
-              profileId: member.profileId,
-              userId: member.userId,
-            }
-          : null,
-    };
-    connectionName = parsed.data.connectionName;
-    const ownerDisplayName =
-      connection.scope === "member"
-        ? member.displayName
-        : await resolveConnectorConnectionOwnerDisplayName({
-            connectionName: connection.connectionName,
-            env,
-            ownerUserId: connection.userId,
-          });
-    executionConnection = {
-      connectionName: connection.connectionName,
-      ownerDisplayName,
-      ownerUserId: connection.userId,
-      scope: connection.scope,
-      service: connection.service,
-    };
+  if (parsed.data.outcome === "attempted") {
+    // The operation freezes identity and attribution, never current permission.
+    const exactConnectionName = connectionName ?? parsed.data.connectionName;
+    const connection = await requireConnectorOperationConnection(
+      {
+        connectionName: exactConnectionName,
+        db: authorization.db,
+        organizationId: authorization.activeOrganization.organizationId,
+        service: parsed.data.service,
+        requesterUserId: member.userId,
+        remoteOwnerUserId:
+          "personalExecution" in authorization
+            ? (authorization.personalExecution.request
+                .agentProfileOwnerUserId ?? null)
+            : undefined,
+        effect: parsed.data.effect ?? "unspecified",
+      },
+      existing,
+      parsed.data.connectionName
+    );
+    assertBoundPluginConnection(
+      await readPluginConnectionExecutionBinding(
+        env,
+        requireRpcContext(input.context),
+        parsed.data.service
+      ),
+      parsed.data.service,
+      connection
+    );
+    if (!existing) {
+      attribution = {
+        actorProfileId: authorization.actorProfileId,
+        onBehalfOf:
+          member.profileId && member.userId
+            ? {
+                displayName: member.displayName,
+                profileId: member.profileId,
+                userId: member.userId,
+              }
+            : null,
+      };
+      connectionName = parsed.data.connectionName;
+      const ownerDisplayName =
+        connection.scope === "member"
+          ? member.displayName
+          : await resolveConnectorConnectionOwnerDisplayName({
+              connectionName: connection.connectionName,
+              env,
+              ownerUserId: connection.userId,
+            });
+      executionConnection = {
+        connectionName: connection.connectionName,
+        ownerDisplayName,
+        ownerUserId: connection.userId,
+        scope: connection.scope,
+        service: connection.service,
+      };
+    }
   }
   const result = await recordCenterAgentConnectorActionOperation({
     actionId: parsed.data.actionId,
@@ -15857,9 +16083,19 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
     requester,
     requestSignature: parsed.data.requestSignature,
     service: parsed.data.service,
+    sourceNativeDeliveryId: member.sourceNativeDeliveryId,
     sourceSpaceId: member.sourceSpaceId,
   });
   return centerAgentRecordConnectorActionOperationResponseSchema.parse({
+    ...(parsed.data.includeRecoveryWindow
+      ? {
+          replayWindowRemainingMs:
+            resolveConnectorActionReplayWindowRemainingMs(
+              result.operation.createdAtMs,
+              Date.now()
+            ),
+        }
+      : {}),
     attribution: result.attribution,
     executionConnection: result.operation.executionConnection,
     operationId: result.operation.operationId,
@@ -15868,6 +16104,35 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
     replayed: result.replayed,
     status: result.operation.status,
   });
+}
+
+async function requireConnectorOperationConnection(
+  access: Parameters<typeof requireRemotePluginConnection>[0],
+  existing: Awaited<
+    ReturnType<typeof readCenterAgentConnectorActionOperationForRequest>
+  >,
+  requestedConnectionName: string
+) {
+  const original = existing?.operation.executionConnection;
+  const invalid = () =>
+    createCoreRpcHttpError({
+      code: "center_agent.connector_action_connection_invalid",
+      reason: "The operation must use its original available account.",
+      status: 409,
+    });
+  if (requestedConnectionName !== access.connectionName) {
+    throw invalid();
+  }
+  const connection = await requireRemotePluginConnection(access);
+  if (
+    original &&
+    (connection.scope !== original.scope ||
+      connection.userId !== original.ownerUserId ||
+      connection.service !== original.service)
+  ) {
+    throw invalid();
+  }
+  return connection;
 }
 
 function resolveCenterAgentConnectorActionRequester(
@@ -16004,6 +16269,9 @@ function parseCenterAgentWakeAgentProfilesInSpaceInput(
     ...(input.completionMode === undefined
       ? {}
       : { completionMode: input.completionMode }),
+    ...(input.replyLanguageTag === undefined
+      ? {}
+      : { replyLanguageTag: input.replyLanguageTag }),
     ...(input.fallbackAgentProfileId === undefined
       ? {}
       : { fallbackAgentProfileId: input.fallbackAgentProfileId }),
@@ -16110,6 +16378,7 @@ export async function rpcCenterAgentWakeAgentProfilesInSpace(
       authorization,
       clientMessageId,
       completionMode: parsed.completionMode,
+      replyLanguageTag: parsed.replyLanguageTag,
       db: taskCoordinationDb,
       env,
       fallbackAgentProfileId: parsed.fallbackAgentProfileId ?? null,
@@ -16134,6 +16403,12 @@ export async function rpcCenterAgentWakeAgentProfilesInSpace(
             retryAfterSeconds: delegatedWake.retryAfterSeconds,
           };
   } else {
+    attribution = await recordCenterAgentDirectWakeAttribution({
+      authorization,
+      clientMessageId,
+      onBehalfOfProfileId: parsed.onBehalfOf?.profileId ?? null,
+      spaceId: parsed.spaceId,
+    });
     const postedSignal = await rpcPostSignalOnceByClientMessageId(env, {
       authoringPolicy: "user_authored",
       clientMessageId,
@@ -16160,12 +16435,6 @@ export async function rpcCenterAgentWakeAgentProfilesInSpace(
     publication = {
       signal: postedSignal,
     };
-    attribution = await writeCenterAgentAuditEntry({
-      action: "wake_agent_profiles_in_space",
-      authorization,
-      onBehalfOfProfileId: parsed.onBehalfOf?.profileId ?? null,
-      resource: { type: "space", id: parsed.spaceId },
-    });
   }
   const response = buildCenterAgentWakeAgentProfilesInSpaceResponse({
     agentProfileIds: targetProfileIds,
@@ -16185,6 +16454,47 @@ export async function rpcCenterAgentWakeAgentProfilesInSpace(
       signal: response.signal,
     }),
   };
+}
+
+async function recordCenterAgentDirectWakeAttribution(input: {
+  authorization: CurrentDesignatedCenterAgentAuthorization;
+  clientMessageId: string;
+  onBehalfOfProfileId: string | null;
+  spaceId: string;
+}): Promise<CenterAgentWakeAgentProfilesInSpaceResponse["attribution"]> {
+  // Write before the idempotent Space post, so a crash cannot leave an
+  // accepted Wake without requester provenance. Replays preserve the row.
+  const attribution = await resolveCenterAgentAuditAttribution({
+    authorization: input.authorization,
+    onBehalfOfProfileId: input.onBehalfOfProfileId,
+  });
+  await insertCenterAgentAuditJournalEntryIfMissing({
+    action: "wake_agent_profiles_in_space",
+    actorProfileId: input.authorization.actorProfileId,
+    attribution,
+    db: input.authorization.db,
+    id: `center-agent-wake:${input.clientMessageId}`,
+    nowMs: Date.now(),
+    organizationId: input.authorization.activeOrganization.organizationId,
+    resource: { type: "space", id: input.spaceId },
+  });
+  const recorded = await readCenterAgentWakeAuditAttribution({
+    clientMessageId: input.clientMessageId,
+    db: input.authorization.db,
+  });
+  if (
+    recorded?.organizationId !==
+      input.authorization.activeOrganization.organizationId ||
+    recorded.actorProfileId !== input.authorization.actorProfileId ||
+    recorded.resourceType !== "space" ||
+    recorded.resourceId !== input.spaceId ||
+    recorded.onBehalfOfProfileId !==
+      (attribution.onBehalfOf?.profileId ?? null) ||
+    recorded.onBehalfOfUserId !== (attribution.onBehalfOf?.userId ?? null)
+  ) {
+    throw new Error("Center Agent Wake requester provenance conflicted");
+  }
+  return attribution;
 }
 
 function buildCenterAgentWakeAgentProfilesInSpaceResponse(input: {
@@ -16249,6 +16559,9 @@ export async function rpcCenterAgentWatchAgentTask(
   const parsed = centerAgentWatchAgentTaskBodySchema.safeParse({
     completionCondition: input.completionCondition,
     instruction: input.instruction,
+    ...(input.replyLanguageTag === undefined
+      ? {}
+      : { replyLanguageTag: input.replyLanguageTag }),
     task: input.task,
   });
   if (!parsed.success) {
@@ -16379,6 +16692,7 @@ export async function rpcCenterAgentWatchAgentTask(
       env,
       instruction: parsed.data.instruction,
       nowMs: Date.now(),
+      replyLanguageTag: parsed.data.replyLanguageTag,
       organizationId: authorization.activeOrganization.organizationId,
       parentSubmissionId,
       task: parsed.data.task,
@@ -16415,6 +16729,48 @@ export async function rpcCenterAgentWatchAgentTask(
     organizationId: authorization.activeOrganization.organizationId,
     resource,
   });
+}
+
+export async function rpcCenterAgentContinueTaskSummary(
+  env: CoreBindings,
+  input: ReturnType<typeof centerAgentContinueTaskSummaryBodySchema.parse> & {
+    context?: CoreRpcContextInput;
+  }
+) {
+  const parsed = centerAgentContinueTaskSummaryBodySchema.safeParse({
+    sourceSubscriptionId: input.sourceSubscriptionId,
+    inspectOnly: input.inspectOnly,
+    includePublishedResult: input.includePublishedResult,
+    replyLanguageTag: input.replyLanguageTag,
+    speakerMember: input.speakerMember,
+  });
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      code: "invalid_payload",
+      reason: "Invalid task summary recovery request.",
+      status: 400,
+    });
+  }
+  const { authorization, representedHuman } =
+    await prepareCenterAgentRepresentedMemberRequest(
+      env,
+      requireRpcContext(input.context),
+      parsed.data.speakerMember
+    );
+  return centerAgentContinueTaskSummaryResponseSchema.parse(
+    await continueTaskSummary({
+      actorProfileId: authorization.actorProfileId,
+      db: requireAgentTaskCoordinationDb(env),
+      env,
+      inspectOnly: parsed.data.inspectOnly === true,
+      includePublishedResult: parsed.data.includePublishedResult,
+      nowMs: Date.now(),
+      operatorUserId: representedHuman.userId,
+      organizationId: authorization.activeOrganization.organizationId,
+      sourceSubscriptionId: parsed.data.sourceSubscriptionId,
+      replyLanguageTag: parsed.data.replyLanguageTag,
+    })
+  );
 }
 
 async function isCenterAgentSpaceWakeWatchTargetRegistered(input: {
@@ -16609,6 +16965,7 @@ async function executeCenterAgentDelegatedWake(input: {
   authorization: CurrentDesignatedCenterAgentAuthorization;
   clientMessageId: string;
   completionMode: CenterAgentWakePublicationCommand["completionMode"];
+  replyLanguageTag?: string;
   db: D1Database;
   env: CoreBindings;
   fallbackAgentProfileId: string | null;
@@ -16664,6 +17021,9 @@ async function executeCenterAgentDelegatedWake(input: {
       attribution,
       clientMessageId: input.clientMessageId,
       completionMode: input.completionMode,
+      ...(input.replyLanguageTag
+        ? { replyLanguageTag: input.replyLanguageTag }
+        : {}),
       context: input.authorization.context,
       delegationId: delegation.delegationId,
       fallbackAgentProfileId: input.fallbackAgentProfileId,
@@ -18747,7 +19107,7 @@ export async function rpcPostSignalOnceByClientMessageId(
     ...(input.spaceAccess ? { spaceAccess: input.spaceAccess } : {}),
   });
 
-  return await stub.rpcPostSignalOnceByClientMessageId({
+  const postInput = {
     ...(input.contextSelection
       ? { contextSelection: input.contextSelection }
       : {}),
@@ -18776,7 +19136,38 @@ export async function rpcPostSignalOnceByClientMessageId(
       : {}),
     context,
     ...(input.spaceAccess ? { spaceAccess: input.spaceAccess } : {}),
-  });
+  };
+  if (input.pluginContinuation) {
+    // An old receiver cannot silently ignore an optional constraint.
+    return await stub.rpcPostPluginConnectionContinuation({
+      ...postInput,
+      pluginContinuation: input.pluginContinuation,
+    });
+  }
+  return await stub.rpcPostSignalOnceByClientMessageId(postInput);
+}
+
+export async function rpcReadPluginConnectionLocalSource(
+  env: CoreBindings,
+  input: import("@openmeld/schemas").PluginConnectionLocalSourceRequest
+) {
+  const { stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  return (
+    await import("@openmeld/schemas")
+  ).pluginConnectionLocalSourceResponseSchema.parse(
+    await stub.rpcReadPluginConnectionLocalSource(input)
+  );
+}
+
+/** Internal admitted execution projection, not a public connection route. */
+export async function rpcReadPluginConnectionContinuationBinding(
+  env: CoreBindings,
+  input: ReadPluginConnectionContinuationBindingRequest
+) {
+  const { stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  return readPluginConnectionContinuationBindingResponseSchema.parse(
+    await stub.rpcReadPluginConnectionContinuationBinding(input)
+  ).binding;
 }
 
 export async function rpcPostStatusSignal(
@@ -20168,7 +20559,10 @@ export async function rpcStreamSpaceFileContent(
   const auditEvent = buildSpaceFileContentAuditEvent({
     entryId: resolved.file.id,
     operation: "content_read",
-    operationId: getSpaceAccessRequestId(spaceAccess),
+    // A read has no client mutation key, and one request may read many files
+    // (for example, one Remote Agent submission). Each read is its own audited
+    // access; the shared request ID stays on the event for correlation.
+    operationId: crypto.randomUUID(),
     organizationId: resolved.organizationId,
     revisionId: resolved.revision.id,
     spaceAccess,
@@ -20252,16 +20646,23 @@ export async function rpcWriteSpaceFileContent(
   input: WriteSpaceFileContentRpcInput
 ): Promise<SpaceFileDescriptor> {
   if (
-    input.write.sizeBytes > SPACE_FILE_MAX_SIZE_BYTES ||
+    input.write.sizeBytes > SPACE_FILE_RAW_UPLOAD_MAX_BYTES ||
     (input.bytes instanceof ArrayBuffer &&
       input.bytes.byteLength !== input.write.sizeBytes)
   ) {
     throw createCoreRpcHttpError({
       code: "space_file.too_large",
-      reason: "Files must be 250 MiB or smaller and match the declared size.",
+      reason: `Single-request writes must be ${SPACE_FILE_RAW_UPLOAD_MAX_BYTES / (1024 * 1024)} MiB or smaller and match the declared size. Use multipart upload for larger files.`,
       status: 413,
     });
   }
+  return await writePreparedSpaceFileContent(env, input);
+}
+
+async function writePreparedSpaceFileContent(
+  env: CoreBindings,
+  input: WriteSpaceFileContentRpcInput
+): Promise<SpaceFileDescriptor> {
   const spaceAccess = resolveRpcSpaceAccess(input);
   const { stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
   const prepared = await stub.rpcPrepareSpaceFileWrite({
@@ -20336,7 +20737,7 @@ export async function rpcStageSpaceComposerUpload(
   env: CoreBindings,
   input: StageSpaceComposerUploadRpcInput
 ): Promise<SpaceComposerUploadDescriptor> {
-  if (input.bytes.byteLength > SPACE_FILE_MAX_SIZE_BYTES) {
+  if (input.bytes.byteLength > SPACE_FILE_RAW_UPLOAD_MAX_BYTES) {
     throw createCoreRpcHttpError({
       code: "space_file.too_large",
       reason: "Files must be 10 MiB or smaller.",
@@ -20426,7 +20827,7 @@ export async function rpcPublishSpaceComposerUpload(
     }
     return committedFile;
   }
-  return await rpcWriteSpaceFileContent(env, {
+  return await writePreparedSpaceFileContent(env, {
     bytes: (
       await readSpaceComposerUploadStream({
         bucket: requireSpaceFileBucket(env),

@@ -1,6 +1,8 @@
 import { env } from "cloudflare:test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CoreBindings } from "../src/lib/bindings";
+import { recordAiUsage } from "../src/usage/ai-usage-repository";
+import { rpcReadOrganizationAiUsage } from "../src/usage/ai-usage-rpc";
 import { rpcReadOrganizationUsageOverview } from "../src/usage/organization-usage-overview-rpc";
 
 const FIXED_NOW_MS = Date.parse("2026-07-16T23:30:00.000Z");
@@ -29,6 +31,41 @@ afterEach(async () => {
 });
 
 describe("Organization Usage overview", () => {
+  it("allows an ordinary organization member to query usage but rejects a different organization", async () => {
+    const fixture = await seedMemberFixture();
+    const other = await seedMemberFixture();
+    const query = {
+      fromMs: FIXED_NOW_MS,
+      toMs: FIXED_NOW_MS + 1000,
+      groupBy: "task" as const,
+      includeIssues: true,
+    };
+    await expect(
+      rpcReadOrganizationAiUsage(env as CoreBindings, {
+        context: fixture.context,
+        query,
+      })
+    ).resolves.toMatchObject({
+      fromMs: query.fromMs,
+      toMs: query.toMs,
+      models: [],
+      coverage: { pendingRequests: 0, collectionFailedRequests: 0 },
+      breakdown: { groupBy: "task", groups: [], hasMore: false },
+      issues: { records: [], hasMore: false },
+    });
+    await expect(
+      rpcReadOrganizationAiUsage(env as CoreBindings, {
+        context: {
+          ...fixture.context,
+          activeOrganizationId: other.organizationId,
+        },
+        query,
+      })
+    ).rejects.toMatchObject({
+      code: "organization.membership_required",
+      status: 403,
+    });
+  });
   it("returns zero for a missing daily row and the next UTC midnight", async () => {
     vi.spyOn(Date, "now").mockReturnValue(FIXED_NOW_MS);
     const fixture = await seedMemberFixture();
@@ -38,10 +75,12 @@ describe("Organization Usage overview", () => {
         context: fixture.context,
       })
     ).resolves.toEqual({
-      centerAgentWakes: {
-        dailyLimit: 200,
+      aiSpend: {
+        dailyLimitNanoUsd: null,
         resetsAt: "2026-07-17T00:00:00.000Z",
-        usedToday: 0,
+        usedNanoUsd: 0,
+        missingCostRequests: 0,
+        exhausted: false,
       },
       routines: {
         count: 0,
@@ -50,26 +89,56 @@ describe("Organization Usage overview", () => {
     });
   });
 
-  it("returns the shared configured daily limit and current Routine counts to a member", async () => {
+  it("returns model spend and an optional shared allowance while ignoring historical wake counts", async () => {
     vi.spyOn(Date, "now").mockReturnValue(FIXED_NOW_MS);
     const fixture = await seedMemberFixture();
     await seedUsage(fixture, {
       admittedCount: 12,
       routineStatuses: ["enabled", "enabled", "paused"],
     });
+    await env.OPENMELD_DB.prepare(
+      "INSERT INTO organization_ai_usage_policies VALUES (?, ?, ?)"
+    )
+      .bind(fixture.organizationId, 1_000_000_000, FIXED_NOW_MS)
+      .run();
+    await recordAiUsage(env.OPENMELD_DB, {
+      organizationId: fixture.organizationId,
+      runtime: "remote",
+      eventId: "test-provider-request",
+      provider: "openrouter",
+      source: "openrouter_response",
+      model: "openai/test",
+      occurredAtMs: FIXED_NOW_MS,
+      purpose: "agent",
+      status: "reported",
+      providerRequestId: "provider-1",
+      tokens: {
+        input: 100,
+        output: 20,
+        total: 120,
+        cacheRead: null,
+        cacheWrite: null,
+        reasoning: null,
+      },
+      cost: { nanoUsd: 200_000_000, kind: "provider_reported" },
+      agentProfileId: null,
+      spaceId: null,
+      taskId: null,
+      attemptId: null,
+      computerId: null,
+      controller: null,
+    });
 
     await expect(
-      rpcReadOrganizationUsageOverview(
-        {
-          ...(env as CoreBindings),
-          OPENMELD_REMOTE_AGENT_DAILY_ADMISSION_LIMIT: "350",
-        },
-        { context: fixture.context }
-      )
+      rpcReadOrganizationUsageOverview(env as CoreBindings, {
+        context: fixture.context,
+      })
     ).resolves.toMatchObject({
-      centerAgentWakes: {
-        dailyLimit: 350,
-        usedToday: 12,
+      aiSpend: {
+        dailyLimitNanoUsd: 1_000_000_000,
+        usedNanoUsd: 200_000_000,
+        missingCostRequests: 0,
+        exhausted: false,
       },
       routines: {
         count: 3,

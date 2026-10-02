@@ -10,22 +10,59 @@ export function projectGrokBuildUsageLimits(input: {
   response: unknown;
 }): AdapterProviderUsageLimit[] {
   const config = toRecord(toRecord(input.response)?.config);
-  const usedPercent = readUsedPercent(config?.creditUsagePercent);
+  const currentPeriod = toRecord(config?.currentPeriod);
+  const resetsAt = readResetTime(currentPeriod?.end);
+  // Grok's proto3 float has implicit presence: a validated active unified
+  // billing period omits creditUsagePercent when its value is zero.
+  const usedPercent =
+    config &&
+    !("creditUsagePercent" in config) &&
+    config.isUnifiedBillingUser === true &&
+    isActiveBillingPeriod(currentPeriod, input.observedAt)
+      ? 0
+      : readUsedPercent(config?.creditUsagePercent);
   if (usedPercent === null) {
-    return createUnavailableProviderUsageLimits(input.observedAt);
+    return createUnavailableProviderUsageLimits(input.observedAt, undefined, {
+      reason: "not_reported",
+      resetsAt,
+    });
   }
 
-  const currentPeriod = toRecord(config?.currentPeriod);
   return [
     {
       key: GROK_BUILD_USAGE_LIMIT_KEY,
       label: resolvePeriodLabel(currentPeriod?.type),
       observedAt: input.observedAt,
-      resetsAt: readResetTime(currentPeriod?.end),
+      resetsAt,
       status: usedPercent === 100 ? "exhausted" : "available",
       usedPercent,
     },
   ];
+}
+
+function isActiveBillingPeriod(
+  period: Record<string, unknown> | null,
+  observedAt: string
+): boolean {
+  const start = readResetTime(period?.start);
+  const end = readResetTime(period?.end);
+  const type =
+    typeof period?.type === "string" ? period.type.toLowerCase() : "";
+  const knownType = [
+    "weekly",
+    "monthly",
+    "usage_period_type_weekly",
+    "usage_period_type_monthly",
+  ].includes(type);
+  const nowMs = Date.parse(observedAt);
+  return Boolean(
+    knownType &&
+      start &&
+      end &&
+      Number.isFinite(nowMs) &&
+      Date.parse(start) <= nowMs &&
+      nowMs < Date.parse(end)
+  );
 }
 
 function readUsedPercent(value: unknown): number | null {

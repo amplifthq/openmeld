@@ -150,7 +150,7 @@ export function OrganizationSwitcher(input: {
 					className={cn(
 						"flex min-w-0 items-center rounded-md bg-transparent text-left outline-none transition-colors hover:bg-sidebar-accent focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-70",
 						isAvatarOnly
-							? "size-10 justify-center overflow-hidden rounded-full p-0"
+							? "size-9 justify-center overflow-hidden p-0"
 							: "h-7 w-full gap-1 ps-1 pe-[7px]"
 					)}
 					disabled={isSwitching}
@@ -422,13 +422,18 @@ function OrganizationAvatar(input: {
 	const avatarSize = {
 		menu: { size: 28, className: "size-7", text: "text-xs" },
 		rail: { size: 20, className: "size-5", text: "text-[0.6875rem]" },
-		"rail-avatar": { size: 40, className: "size-10", text: "text-base" },
+		"rail-avatar": { size: 36, className: "size-9", text: "text-base" },
 	}[input.placement];
 	if (input.organization.isPersonal && input.humanProfileAvatar) {
 		return (
 			<DitherProfileAvatar
 				avatarImageUrl={input.humanProfileAvatar.avatarImageUrl}
-				className={cn("shrink-0", avatarSize.className)}
+				className={cn(
+					"shrink-0",
+					avatarSize.className,
+					input.placement === "rail-avatar" &&
+						"rounded-md after:rounded-md [&_[data-slot=avatar-fallback]]:rounded-md [&_[data-slot=avatar-image]]:rounded-md"
+				)}
 				data-testid={
 					input.placement === "menu"
 						? "personal-workspace-human-profile-avatar"
@@ -449,9 +454,13 @@ function OrganizationAvatar(input: {
 				"flex shrink-0 items-center justify-center overflow-hidden bg-background text-foreground",
 				avatarSize.className,
 				avatarSize.text,
-				input.organization.isPersonal || input.placement === "rail-avatar"
-					? "rounded-full"
-					: "rounded-sm"
+				input.organization.isPersonal &&
+					input.placement !== "rail-avatar" &&
+					"rounded-full",
+				input.placement === "rail-avatar" && "rounded-md",
+				!input.organization.isPersonal &&
+					input.placement !== "rail-avatar" &&
+					"rounded-sm"
 			)}
 			style={
 				input.organizationDisplay.image

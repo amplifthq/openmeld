@@ -25,7 +25,10 @@ const CENTER_AGENT_PROFILE_ID = "agt_00000000-0000-4000-8000-000000000001";
 const CHILD_PROFILE_ID = "agt_00000000-0000-4000-8000-000000000002";
 
 describe("Center Agent delegation preparation", () => {
-  it("persists the exact child subscription before returning dispatch work", async () => {
+  it.each([
+    undefined,
+    "zh-Hans",
+  ])("persists the child subscription and upstream language %s before returning dispatch work", async (replyLanguageTag) => {
     const harness = createHarness();
     try {
       await insertParentDelivery(harness.db);
@@ -35,6 +38,7 @@ describe("Center Agent delegation preparation", () => {
         childSpaceId: "space-child",
         clientMessageId: "ca-wake:one",
         completionMode: "resume_parent_when_all_terminal",
+        replyLanguageTag,
         db: harness.db,
         destinationNeutralContinuations: true,
         nowMs: 1000,
@@ -73,6 +77,7 @@ describe("Center Agent delegation preparation", () => {
         instruction:
           "Continue the original request after the delegated Agent task. Use the exact child outcome and published result; do not repeat work that already completed.",
         kind: "resume_agent",
+        ...(replyLanguageTag ? { replyLanguageTag } : {}),
       });
       await expect(
         readAgentDelegation({

@@ -3365,7 +3365,11 @@ describe("space-members-service", () => {
     expect(resolveProfileById).toHaveBeenCalledTimes(5);
   });
 
-  it("preloads route evidence for multiple agent members through one batch lookup", async () => {
+  it.each([
+    ["builtin:ops-bot", "owner-1"],
+    [HOSTED_CENTER_AGENT_CONTROLLER_REF, "owner-1"],
+    ["builtin:ops-bot", "stale-owner"],
+  ])("preloads current Local bindings despite stored controller %s / owner %s", async (storedController, storedOwner) => {
     const sql = new MutableSqlStorage();
     const runtimeTransportClient = await import(
       "../src/dispatch/infrastructure/runtime-transport/runtime-transport-client"
@@ -3475,17 +3479,17 @@ describe("space-members-service", () => {
           profileId: "agt_batch_available",
           profileName: "Batch Available",
           profileKind: "agent",
-          ownerUserId: "owner-1",
+          ownerUserId: storedOwner,
           ownerName: "Owner One",
-          agentControllerRef: "builtin:ops-bot",
+          agentControllerRef: storedController,
         },
         {
           profileId: "agt_batch_pending",
           profileName: "Batch Pending",
           profileKind: "agent",
-          ownerUserId: "owner-1",
+          ownerUserId: storedOwner,
           ownerName: "Owner One",
-          agentControllerRef: "builtin:ops-bot",
+          agentControllerRef: storedController,
         },
       ],
       actorProfileId: "hum-members-host-batch-routes",
@@ -4453,14 +4457,10 @@ describe("space-members-service", () => {
           facts: {
             route: {
               online: false,
-              source: "daemon_route",
+              source: "not_checked",
             },
           },
-          reasonCodes: expect.arrayContaining([
-            "agent_profile_binding.read_unavailable",
-            "agent_execution.route_unavailable",
-            "not_requested",
-          ]),
+          reasonCodes: ["agent_profile_binding.read_unavailable"],
         },
       },
     });
@@ -4599,7 +4599,22 @@ describe("space-members-service", () => {
     );
   });
 
-  it("projects hosted Center Agent member availability from the remote runtime", async () => {
+  it.each([
+    HOSTED_CENTER_AGENT_CONTROLLER_REF,
+    "builtin:claude",
+  ])("projects current Hosted availability independently of stored controller %s", async (storedController) => {
+    const runtimeTransportClient = await import(
+      "../src/dispatch/infrastructure/runtime-transport/runtime-transport-client"
+    );
+    const localRoute = vi
+      .spyOn(runtimeTransportClient, "lookupRuntimeTransportRoutesBatch")
+      .mockResolvedValue(null);
+    const localService = vi
+      .spyOn(runtimeTransportClient, "lookupRuntimeTransportOwnerService")
+      .mockResolvedValue({
+        online: false,
+        reasonCode: "daemon.session.not_found",
+      });
     const sql = new MutableSqlStorage();
     const spaceId = "space-members-hosted-center-agent-availability";
     const agentProfileId = "agt_members_hosted_center_agent";
@@ -4611,6 +4626,7 @@ describe("space-members-service", () => {
       profileOrganizationId: "org-1",
     });
     const env = {
+      OPENMELD_RUNTIME_TRANSPORT: {},
       OPENMELD_AUTH_WORKER: {
         resolveProfileById: vi.fn(async () => ({
           ok: true,
@@ -4643,7 +4659,7 @@ describe("space-members-service", () => {
           profileKind: "agent",
           ownerUserId: "owner-center-agent",
           ownerName: "OpenMeld",
-          agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+          agentControllerRef: storedController,
         },
       ],
       actorProfileId: "hum-members-hosted-center-agent-host",
@@ -4675,6 +4691,8 @@ describe("space-members-service", () => {
     expect(hostedCenterAgent?.agentControllerRef).toBe(
       HOSTED_CENTER_AGENT_CONTROLLER_REF
     );
+    expect(localRoute).not.toHaveBeenCalled();
+    expect(localService).not.toHaveBeenCalled();
     expect(hostedCenterAgent?.agentWakeAvailability).toMatchObject({
       badgeLabel: "Available",
       category: "available",

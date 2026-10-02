@@ -12,7 +12,7 @@ import {
 import { useDefaultHumanProfile } from "#/lib/profiles/use-default-human-profile";
 import { centerAgentSessionsQueryOptions } from "#/query/organizations/center-agent-sessions";
 import { spaceInboxSummaryQueryOptions } from "#/query/organizations/inbox";
-import { organizationProfileDirectoryQueryOptions } from "#/query/organizations/organization-directory";
+import { organizationProfileIdentityDirectoryQueryOptions } from "#/query/organizations/organization-directory";
 import { accountSpaceItemsQueryOptions } from "#/query/spaces/account-spaces";
 import {
 	resolveAccountSpaceViewerProfileId,
@@ -39,7 +39,7 @@ export function useChats(input: {
 	includes: (kind: string) => boolean;
 }) {
 	const { currentOrganization: org } = useAppOrganization();
-	const { defaultHumanProfile } = useDefaultHumanProfile();
+	const { defaultHumanProfile, profilesQuery } = useDefaultHumanProfile();
 	const profileId =
 		input.currentProfileId ?? defaultHumanProfile?.openMeldProfileId ?? "";
 	const store = useSidebarPreferences(org.id);
@@ -51,7 +51,7 @@ export function useChats(input: {
 		})
 	);
 	const directory = useQuery(
-		organizationProfileDirectoryQueryOptions({
+		organizationProfileIdentityDirectoryQueryOptions({
 			enabled: !!profileId,
 			organizationId: org.id,
 		})
@@ -100,6 +100,10 @@ export function useChats(input: {
 			...chatsById.get(session.spaceId),
 			...session,
 			session: true,
+			centerAgentProfileId: session.centerAgentProfileId,
+			centerAgentAvatarStyle: directory.data?.agentProfiles.find(
+				(profile) => profile.profileId === session.centerAgentProfileId
+			)?.avatarStyle,
 			centerAgentProfileName: directory.data?.agentProfiles.find(
 				(profile) => profile.profileId === session.centerAgentProfileId
 			)?.profileName,
@@ -121,7 +125,7 @@ export function useChats(input: {
 			spaceMessagePreviewQueryOptions({
 				spaceId: chat.spaceId,
 				viewerProfileId: chat.viewerProfileId ?? profileId,
-				enabled: !!profileId && spaces.isSuccess,
+				enabled: !!profileId,
 			})
 		),
 	});
@@ -139,8 +143,7 @@ export function useChats(input: {
 	const activity = new Map(
 		chats.map((chat, index) => [
 			chat.spaceId,
-			previews[index]?.data?.timestamp ??
-				(Date.parse(chat.createdAt ?? "") || 0),
+			previews[index]?.data?.timestamp ?? 0,
 		])
 	);
 	const chatPath = (chat: Chat) =>
@@ -314,6 +317,8 @@ export function useChats(input: {
 		pin,
 		org,
 		profileId,
+		profilesQuery,
+		needsDefaultHumanProfile: input.currentProfileId === undefined,
 		store,
 		spaces,
 		directory,

@@ -1,4 +1,5 @@
 import * as z from "zod/v4";
+import { localComponentsBinaryReleasePolicySchema } from "#local-components";
 import { windowsPublisherNameSchema } from "#windows-artifact";
 
 const SHA256_HEX_PATTERN = /^[a-f0-9]{64}$/u;
@@ -190,6 +191,7 @@ export const cliBinaryManifestSchema = z.object({
   channels: z.object({
     stable: z
       .object({
+        componentPolicy: localComponentsBinaryReleasePolicySchema.optional(),
         minRequiredCliVersion: z.string().trim().min(1).nullable().optional(),
         platforms: binaryPlatformsSchema,
         // Omitted by legacy channels whose CLI binary also supplies the Service.
@@ -199,6 +201,19 @@ export const cliBinaryManifestSchema = z.object({
         version: z.string().trim().min(1),
       })
       .superRefine((stable, context) => {
+        if (
+          stable.componentPolicy &&
+          (stable.componentPolicy.cli.packageVersion !== stable.version ||
+            stable.componentPolicy.service.bundleVersion !==
+              (stable.service?.version ?? stable.version))
+        ) {
+          context.addIssue({
+            code: "custom",
+            path: ["componentPolicy"],
+            message:
+              "component policies must match their selected CLI and Service artifacts",
+          });
+        }
         if (!stable.service) {
           return;
         }

@@ -21,14 +21,9 @@ export async function executeAgentProfileWorkRecovery(
 			})
 		).execute({
 			agentProfileId: input.agentProfileId,
-			...(input.action === "skip_interrupted_work" ||
-			input.action === "fork_interrupted_work"
-				? {
-						action: input.action,
-						expectedInterruptedTargetWakeLifecycleId:
-							input.expectedInterruptedTargetWakeLifecycleId,
-					}
-				: { action: input.action }),
+			action: input.action,
+			expectedInterruptedTargetWakeLifecycleId:
+				input.expectedInterruptedTargetWakeLifecycleId,
 		});
 	} catch (error) {
 		throw toStructuredApiClientFailure(error);

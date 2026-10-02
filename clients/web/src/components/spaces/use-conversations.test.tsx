@@ -83,7 +83,7 @@ it("uses authorized organization rows, the Human Space viewer, and exact session
 	expect(save).not.toHaveBeenCalled();
 	expect(setPinned).not.toHaveBeenCalled();
 });
-it("uses creation time for empty conversations and keeps real message activity authoritative", () => {
+it("does not invent message activity for empty conversations and uses real message time", () => {
 	directMessages.spaces.data.spaceItems[0] = {
 		...fixtureSpace("release", "Release"),
 		spaceCreatedAt: "2026-09-12T00:00:00.000Z",
@@ -93,8 +93,7 @@ it("uses creation time for empty conversations and keeps real message activity a
 	directMessages.previews = [];
 	const { result, rerender } = renderHook(() => useConversations({}));
 	expect(result.current.conversations.map(({ activity }) => activity)).toEqual([
-		Date.parse("2026-09-12T00:00:00.000Z"),
-		Date.parse("2026-09-10"),
+		0, 0,
 	]);
 	expect(
 		result.current

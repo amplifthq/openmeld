@@ -19,6 +19,7 @@ import {
 } from "../../packages/schemas/dist/index.js";
 import { inspectWindowsInternalPreview } from "../desktop/windows-artifact.mjs";
 import { buildCliBinary } from "./build-cli-binary.mjs";
+import { resolveWindowsPreviewComponentPolicy } from "./windows-preview-policy.mjs";
 import { verifyWindowsProcessArtifact } from "./windows-process-artifact.mjs";
 
 const root = resolve(fileURLToPath(new URL("../..", import.meta.url)));
@@ -27,6 +28,7 @@ const cliDist = join(root, "cli/dist");
 const downloadOrigin = "https://openmeld.ai";
 const manifestPath = join(evidenceDir, "manifest.json");
 const bundlePath = join(evidenceDir, "bundle.json");
+const cliBundlePath = join(evidenceDir, "bundle-cli.json");
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -97,6 +99,12 @@ function buildCli() {
   const version = JSON.parse(
     readFileSync(join(root, "clients/openmeld-cli/package.json"), "utf8")
   ).version;
+  const componentPolicy = resolveWindowsPreviewComponentPolicy({
+    version,
+    releaseManifest: JSON.parse(
+      readFileSync(join(root, "release/local-components.json"), "utf8")
+    ),
+  });
   mkdirSync(evidenceDir, { recursive: true });
   try {
     verifyWindowsProcessArtifact(cliDist, root);
@@ -137,6 +145,7 @@ function buildCli() {
     channels: {
       stable: {
         version,
+        componentPolicy,
         minRequiredCliVersion: packageJson.openmeld.minRequiredCliVersion,
         platforms: { "windows-x64": releaseArtifact(cli, helper) },
         service: serviceSelection,
@@ -235,14 +244,47 @@ async function finalize() {
   );
 }
 
+function finalizeCli() {
+  if (process.platform !== "win32" || process.arch !== "x64") {
+    throw new Error("Finalize the internal preview on native Windows x64.");
+  }
+  const built = JSON.parse(
+    readFileSync(join(evidenceDir, "built-cli.json"), "utf8")
+  );
+  if (built.sourceSha !== sourceSha()) {
+    throw new Error("Windows internal preview source changed between builds.");
+  }
+  const manifest = cliBinaryManifestSchema.parse(
+    JSON.parse(readFileSync(manifestPath, "utf8"))
+  );
+  const files = {
+    cli: built.cli,
+    service: built.service,
+    helper: built.helper,
+  };
+  for (const [name, file] of Object.entries(files)) {
+    const actual = fileMetadata(resolve(root, file.path));
+    if (actual.sha256 !== file.sha256 || actual.sizeBytes !== file.sizeBytes) {
+      throw new Error(`${name} changed after the Windows preview build.`);
+    }
+  }
+  writeFileSync(
+    cliBundlePath,
+    `${JSON.stringify({ sourceSha: built.sourceSha, manifest, files }, null, 2)}\n`
+  );
+  process.stdout.write(`Windows CLI preview bundle ready: ${cliBundlePath}\n`);
+}
+
 async function main() {
   const command = process.argv[2];
   if (command === "build-cli") {
     buildCli();
+  } else if (command === "finalize-cli") {
+    finalizeCli();
   } else if (command === "finalize") {
     await finalize();
   } else {
-    throw new Error("Use build-cli or finalize.");
+    throw new Error("Use build-cli, finalize-cli, or finalize.");
   }
 }
 

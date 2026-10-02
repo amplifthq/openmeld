@@ -40,10 +40,17 @@ const RUNTIME_TRANSPORT_SCHEMA_SOURCE_PATH =
 const CORE_LOCAL_COMPONENTS_UPDATE_PROJECTION_PATH =
   "services/core/src/local-components/update-projection.ts";
 const CLI_DIST_ROOT_PATH = "clients/openmeld-cli/dist";
-// CLI-only artifacts have their own signed release integrity. The Service's
-// dist/windows helper is included: every npm artifact must carry identical
-// prebuilt bytes, independent of the platform assembling the release.
+// CLI-only artifacts have their own signed release integrity. The full Service
+// hash includes the Windows helper bytes; the portable hash lets non-Windows
+// candidate checks validate every other Service file before the publisher
+// imports and verifies the native artifact.
 const SERVICE_BUNDLE_IGNORED_TOP_LEVEL_DIRS = new Set(["binary", "native"]);
+const PORTABLE_SERVICE_BUNDLE_IGNORED_TOP_LEVEL_DIRS = new Set([
+  ...SERVICE_BUNDLE_IGNORED_TOP_LEVEL_DIRS,
+  "windows",
+]);
+const PACKAGED_WINDOWS_PROCESS_HELPER =
+  "clients/openmeld-cli/dist/windows/openmeld-windows-process.exe";
 const SKILLS_ROOT_PATH = "clients/openmeld-cli/skills";
 
 const POLICY_VALUES = new Set(["ok", "available", "required"]);
@@ -140,6 +147,10 @@ export async function collectLocalComponentFacts(input = {}) {
   const serviceBundleHash = await computeServiceBundleHash({
     rootDir: join(repoRoot, CLI_DIST_ROOT_PATH),
   });
+  const portableServiceBundleHash = await computeServiceBundleHash({
+    rootDir: join(repoRoot, CLI_DIST_ROOT_PATH),
+    excludeWindows: true,
+  });
   if (input.requireServiceBundle && !serviceBundleHash) {
     throw new Error(
       `OpenMeld CLI dist is missing at ${CLI_DIST_ROOT_PATH}. Run \`pnpm --filter openmeld build\` before stamping or verifying local components.`
@@ -158,10 +169,14 @@ export async function collectLocalComponentFacts(input = {}) {
     cliReleaseLine: readPackageReleaseLine(packageJson),
     service: {
       bundleHash: serviceBundleHash,
+      portableBundleHash: portableServiceBundleHash,
       bundleVersion: packageVersion,
       runtimeContractEpoch,
       serviceContractVersion,
     },
+    hasWindowsProcessHelper: await pathExists(
+      join(repoRoot, PACKAGED_WINDOWS_PROCESS_HELPER)
+    ),
     serviceRequiredFloor: parseDeclaredStringConstant(
       coreLocalComponentsSource,
       "MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION"
@@ -273,11 +288,9 @@ export function resolveReleasePolicyVerificationErrors(input) {
       expected: selectedServiceFacts.bundleVersion,
       label: "service.bundleVersion",
     }),
-    ...compareCurrentFacts({
-      actual: manifest.components.service.bundleHash,
-      expected: selectedServiceFacts.bundleHash,
-      label: "service.bundleHash",
-    }),
+    ...compareCurrentFacts(
+      selectServiceHashComparison({ facts, manifest, selectedServiceFacts })
+    ),
     ...compareCurrentFacts({
       actual: manifest.components.service.runtimeContractEpoch,
       expected: selectedServiceFacts.runtimeContractEpoch,
@@ -391,9 +404,30 @@ export function resolveSelectedServiceReleaseFacts(input) {
   }
   return {
     bundleHash: baseService.bundleHash,
+    ...(baseService.portableBundleHash
+      ? { portableBundleHash: baseService.portableBundleHash }
+      : {}),
     bundleVersion: baseService.bundleVersion,
     runtimeContractEpoch: baseService.runtimeContractEpoch,
     serviceContractVersion: baseService.serviceContractVersion,
+  };
+}
+
+function selectServiceHashComparison(input) {
+  if (
+    !input.facts.hasWindowsProcessHelper &&
+    input.manifest.components.service.portableBundleHash
+  ) {
+    return {
+      actual: input.manifest.components.service.portableBundleHash,
+      expected: input.selectedServiceFacts.portableBundleHash,
+      label: "service.portableBundleHash",
+    };
+  }
+  return {
+    actual: input.manifest.components.service.bundleHash,
+    expected: input.selectedServiceFacts.bundleHash,
+    label: "service.bundleHash",
   };
 }
 
@@ -563,6 +597,7 @@ export async function runLocalComponentsReleaseTool(
             dependencies.buildPackagedOpenMeldCli ?? buildPackagedOpenMeldCli,
           repoRoot,
         });
+        await requirePackagedWindowsProcessHelper(repoRoot);
         const facts = await collectLocalComponentFacts({
           repoRoot,
           requireServiceBundle: !parsed.options.allowMissingServiceBundle,
@@ -1780,11 +1815,22 @@ async function computeSkillsBundleHash(input) {
 export async function computeServiceBundleHash(input) {
   return await computeDirectoryContentHash({
     ignoredNames: new Set(),
-    ignoredTopLevelDirs: SERVICE_BUNDLE_IGNORED_TOP_LEVEL_DIRS,
+    ignoredTopLevelDirs: input.excludeWindows
+      ? PORTABLE_SERVICE_BUNDLE_IGNORED_TOP_LEVEL_DIRS
+      : SERVICE_BUNDLE_IGNORED_TOP_LEVEL_DIRS,
     mode: "service",
     rootDir: input.rootDir,
     returnNullWhenMissing: true,
   });
+}
+
+async function requirePackagedWindowsProcessHelper(repoRoot) {
+  if (await pathExists(join(repoRoot, PACKAGED_WINDOWS_PROCESS_HELPER))) {
+    return;
+  }
+  throw new Error(
+    "The release stamp needs the source-matched Windows process helper. Build it on Windows, import its verified artifact, then stamp again."
+  );
 }
 
 async function computeDirectoryContentHash(input) {

@@ -30,6 +30,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { APP_INLINE_BACK_LINK_CLASS_NAME } from "#/components/app/app-inline-navigation";
+import { ReadPausedState } from "#/components/app/read-paused-state";
 import { UnsavedChangesGuard } from "#/components/forms/unsaved-changes-guard";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
@@ -39,16 +40,79 @@ import {
 	resolveOrganizationDocumentErrorMessage,
 	updateCurrentOrganizationDocument,
 } from "#/lib/organizations/organization-documents";
-import { buildOrganizationDocumentsPath } from "#/lib/organizations/organization-routes";
+import { buildOrganizationFilesPath } from "#/lib/organizations/organization-routes";
+import { mayShowCachedReadData } from "#/lib/query-display";
+import { useDelayedPending } from "#/lib/use-delayed-pending";
 import { invalidateInboxFacts } from "#/query/organizations/inbox";
 import {
 	organizationDocumentQueryKeys,
 	organizationDocumentQueryOptions,
 } from "#/query/organizations/organization-documents";
+import { organizationDocumentDisplayTitle } from "./organization-document-browser-model";
 import {
 	ORGANIZATION_DOCUMENT_CONTENT_MAX_CHARS,
 	OrganizationDocumentMarkdownEditor,
 } from "./organization-document-markdown-editor";
+
+function DocumentReadGate(input: {
+	isPaused: boolean;
+	isError: boolean;
+	isPending: boolean;
+	onRetry: () => void;
+	orgSlug: string;
+}) {
+	const showPending = useDelayedPending(input.isPending && !input.isPaused);
+	if (input.isPending) {
+		if (input.isPaused) {
+			return <ReadPausedState subject="this document" />;
+		}
+		if (!showPending) {
+			return null;
+		}
+		return (
+			<div className="grid gap-4">
+				<Skeleton className="h-7 w-52" />
+				<Skeleton className="h-96 w-full" />
+			</div>
+		);
+	}
+	if (input.isError) {
+		return (
+			<div className="grid justify-items-start gap-3 rounded-md border border-destructive/50 bg-destructive/5 p-6">
+				<h1 className="font-medium text-xl">Could not load document</h1>
+				<p className="text-muted-foreground text-sm">
+					Unable to load this knowledge file. Try again.
+				</p>
+				<Button onClick={input.onRetry} variant="outline">
+					<ArrowClockwiseIcon aria-hidden="true" /> Retry
+				</Button>
+			</div>
+		);
+	}
+	return (
+		<div className="grid justify-items-start gap-3 rounded-md border p-6">
+			<h1 className="font-medium text-xl">Document not found</h1>
+			<p className="text-muted-foreground text-sm">
+				This document may have been deleted or belongs to another Organization.
+			</p>
+			<Link
+				className={buttonVariants({ variant: "outline" })}
+				search={{ view: "knowledge" }}
+				to={buildOrganizationFilesPath(input.orgSlug)}
+			>
+				<ArrowLeftIcon aria-hidden="true" /> Back to Team Knowledge
+			</Link>
+		</div>
+	);
+}
+
+function hasUsableDocument(
+	document: OrganizationDocument | undefined,
+	isError: boolean,
+	error: unknown
+): document is OrganizationDocument {
+	return Boolean(document) && (!isError || mayShowCachedReadData(error));
+}
 
 export function OrganizationDocumentDetailPage(input: { documentId: string }) {
 	const { currentOrganization } = useAppOrganization();
@@ -156,8 +220,8 @@ export function OrganizationDocumentDetailPage(input: { documentId: string }) {
 				queryKey: organizationDocumentQueryKeys.list(currentOrganization.id),
 			});
 			await navigate({
-				search: documentFolderSearch,
-				to: buildOrganizationDocumentsPath(currentOrganization.slug),
+				search: { ...documentFolderSearch, view: "knowledge" },
+				to: buildOrganizationFilesPath(currentOrganization.slug),
 			});
 		},
 	});
@@ -178,53 +242,43 @@ export function OrganizationDocumentDetailPage(input: { documentId: string }) {
 		editorEpoch
 	);
 
-	if (documentQuery.isPending) {
+	if (
+		!hasUsableDocument(document, documentQuery.isError, documentQuery.error)
+	) {
 		return (
-			<div className="grid gap-4">
-				<Skeleton className="h-7 w-52" />
-				<Skeleton className="h-96 w-full" />
-			</div>
-		);
-	}
-	if (documentQuery.isError) {
-		return (
-			<div className="grid justify-items-start gap-3 rounded-md border border-destructive/50 bg-destructive/5 p-6">
-				<h1 className="font-medium text-xl">Could not load document</h1>
-				<p className="text-muted-foreground text-sm">
-					OpenMeld could not load this Organization document. Try again.
-				</p>
-				<Button onClick={() => documentQuery.refetch()} variant="outline">
-					<ArrowClockwiseIcon aria-hidden="true" /> Retry
-				</Button>
-			</div>
-		);
-	}
-	if (!document) {
-		return (
-			<div className="grid justify-items-start gap-3 rounded-md border p-6">
-				<h1 className="font-medium text-xl">Document not found</h1>
-				<p className="text-muted-foreground text-sm">
-					This document may have been deleted or belongs to another
-					Organization.
-				</p>
-				<Link
-					className={buttonVariants({ variant: "outline" })}
-					to={buildOrganizationDocumentsPath(currentOrganization.slug)}
-				>
-					<ArrowLeftIcon aria-hidden="true" /> All Documents
-				</Link>
-			</div>
+			<DocumentReadGate
+				isError={documentQuery.isError}
+				isPaused={documentQuery.fetchStatus === "paused"}
+				isPending={documentQuery.isPending}
+				onRetry={() => documentQuery.refetch()}
+				orgSlug={currentOrganization.slug}
+			/>
 		);
 	}
 
 	return (
 		<div className="grid gap-6">
+			{documentQuery.isRefetchError && document ? (
+				<output className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border/70 bg-card/35 px-4 py-3 text-sm">
+					<span>
+						Couldn't refresh this document. Your edits are still here.
+					</span>
+					<Button
+						disabled={documentQuery.isFetching}
+						onClick={() => documentQuery.refetch()}
+						size="sm"
+						variant="outline"
+					>
+						Retry
+					</Button>
+				</output>
+			) : null}
 			<Link
 				className={APP_INLINE_BACK_LINK_CLASS_NAME}
-				search={documentFolderSearch}
-				to={buildOrganizationDocumentsPath(currentOrganization.slug)}
+				search={{ ...documentFolderSearch, view: "knowledge" }}
+				to={buildOrganizationFilesPath(currentOrganization.slug)}
 			>
-				<ArrowLeftIcon aria-hidden="true" /> Back to Documents
+				<ArrowLeftIcon aria-hidden="true" /> Back to Team Knowledge
 			</Link>
 			<header className="flex flex-wrap items-start justify-between gap-3">
 				<div className="min-w-0">
@@ -238,7 +292,7 @@ export function OrganizationDocumentDetailPage(input: { documentId: string }) {
 						/>
 					</div>
 					<h1 className="mt-1 break-words font-medium text-2xl">
-						{document.title}
+						{organizationDocumentDisplayTitle(document)}
 					</h1>
 				</div>
 				{document.canManage ? (
@@ -603,7 +657,7 @@ function organizationDocumentKindLabel(
 ): string {
 	switch (kind) {
 		case "brief":
-			return "Organization Brief";
+			return "Team Brief";
 		case "member_profile":
 			return "Profile Report";
 		default:

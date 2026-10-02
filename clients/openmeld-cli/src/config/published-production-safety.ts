@@ -3,7 +3,6 @@ import { join, resolve } from "node:path";
 import type { OpenMeldPathResolutionInput } from "./paths";
 import {
   resolveDefaultOpenMeldHomeDirname,
-  resolveExplicitOpenMeldEnvPreset,
   resolveOpenMeldEnvPreset,
   resolveOpenMeldRootDir,
 } from "./paths";
@@ -37,8 +36,8 @@ export function assertNoPublishedProductionMutationDuringTests(
  * a process with an isolated root can still stop, boot out, or uninstall the
  * real published production service. Fail closed before any such mutation:
  * - test processes must never mutate the production registration, and
- * - a non-test process whose effective root left the published production
- *   lane must state its intent with an explicit OPENMELD_ENV_PRESET.
+ * - the production service identity may be mutated only from the published
+ *   production root. An explicit preset cannot make an isolated root safe.
  */
 export function assertSafePublishedProductionServiceRegistrationMutation(
   operation: string,
@@ -56,9 +55,6 @@ export function assertSafePublishedProductionServiceRegistrationMutation(
       ].join(" ")
     );
   }
-  if (resolveExplicitOpenMeldEnvPreset(pathInput) === "prod") {
-    return;
-  }
   if (isPublishedProductionOpenMeldRoot(pathInput)) {
     return;
   }
@@ -66,7 +62,7 @@ export function assertSafePublishedProductionServiceRegistrationMutation(
     [
       `Refusing to ${operation} the published production OpenMeld Service registration:`,
       "the effective OpenMeld root is outside the published production lane, but the service identity resolved to the production label.",
-      "Set OPENMELD_ENV_PRESET explicitly to state which service registration this command must mutate.",
+      "Use the published production root, or target an isolated lane with OPENMELD_ENV_PRESET=dev-local or OPENMELD_ENV_PRESET=canary.",
     ].join(" ")
   );
 }

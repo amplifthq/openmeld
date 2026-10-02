@@ -53,7 +53,7 @@ describe("first-use Agent Profile creation defaults", () => {
         modelCatalog: catalog,
       })
     ).toEqual(controller.creationDefaults);
-    expect(controller.defaultModelId).toBe("gpt-5.6-sol");
+    expect(controller.defaultModelId).toBe("gpt-6.1-sol");
   });
 
   it("supports an explicit model-default reasoning preference", () => {
@@ -73,15 +73,15 @@ describe("first-use Agent Profile creation defaults", () => {
       })
     ).toEqual({ modelId: "gpt-5.5", reasoningLevel: null });
   });
-  it("starts Codex on the catalog default model with High reasoning", () => {
+  it("starts Codex on GPT-6.1 Sol with Medium reasoning", () => {
     expect(
       resolveFirstUseAgentProfileCreationDefaults({
         agentControllerRef: "builtin:codex",
         modelCatalog: readModelCatalog(),
       })
     ).toEqual({
-      modelId: "gpt-5.6-sol",
-      reasoningLevel: "high",
+      modelId: "gpt-6.1-sol",
+      reasoningLevel: "medium",
     });
   });
 

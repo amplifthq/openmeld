@@ -3,32 +3,27 @@ import type { NavigationAction } from "@openmeld/schemas";
 import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import { surfaceClasses } from "@openmeld/ui/lib/surface-classes";
 import { cn } from "@openmeld/ui/lib/utils";
-import { FileIcon } from "@phosphor-icons/react";
-import { QueryClientContext } from "@tanstack/react-query";
 import { useReducedMotionConfig } from "framer-motion";
 import {
 	type ComponentProps,
+	lazy,
 	memo,
 	type ReactNode,
 	type Ref,
+	Suspense,
 	useCallback,
-	useContext,
 	useLayoutEffect,
 	useMemo,
 	useRef,
 	useState,
 } from "react";
-import { toast } from "sonner";
 import { MessageResponse } from "#/components/ai/message-response";
 import { DesktopAwareLink } from "#/desktop/desktop-aware-link";
-import { getDesktopPlatform } from "#/desktop/platform";
 import {
 	createOrganizationScopedWebSpaceApi,
 	createUnscopedWebSpaceApi,
 } from "#/lib/spaces/api";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
-import { buildWebSpaceAttachmentDownloadPath } from "#/lib/spaces/web-space-attachment-path";
-import { resolveSpaceFileMediaPresentationKey } from "#/query/spaces/space-files";
 import {
 	CenterAgentComputerSetupCard,
 	type CenterAgentComputerSetupContext,
@@ -36,10 +31,8 @@ import {
 } from "./center-agent-computer-setup-card";
 import { Marker, MarkerContent } from "./primitives/marker";
 import type { SpaceCollaborationProfilePresentation } from "./space-collaboration-profile";
-import { SpaceFileHtmlBadge } from "./space-file-html-badge";
-import { downloadUrlContent } from "./space-file-utils";
-import { SpaceImagePreview } from "./space-image-preview";
 import { SpaceInlineMessageEditor } from "./space-inline-message-editor";
+import { SpaceMessageAttachments } from "./space-message-attachments";
 import { collapseSpaceMessage } from "./space-message-collapse";
 import { useSpaceMessageEditing } from "./space-message-editing";
 import { SpaceMessageLinkPreviews } from "./space-message-link-previews";
@@ -63,10 +56,15 @@ import {
 	type SpaceMessageReferencesById,
 	SpaceMessageReferenceText,
 } from "./space-message-reference";
-import { SpaceVideoPreview } from "./space-video-preview";
-import { useImageFrameActivity } from "./use-image-frame-activity";
-import { useSpaceFileImageSource } from "./use-space-file-image-source";
+import { usePluginConnectionReply } from "./use-plugin-connection-reply";
 import { useSpaceStreamDisplayText } from "./use-space-stream-display-text";
+
+const PluginConnectionMessageCard = lazy(async () => {
+	const module = await import(
+		"#/components/organizations/plugin-connection-message-card"
+	);
+	return { default: module.PluginConnectionMessageCard };
+});
 
 export const SPACE_RESPONSE_TRUNCATED_MARKER =
 	"[Response truncated by OpenMeld]";
@@ -77,6 +75,8 @@ const HUMAN_MESSAGE_FENCE_END = /^ {0,3}(?:`{3,}|~{3,})[ \t]*$/;
 
 type SpaceMessageBodyProps = {
 	className?: string;
+	/** Transcript owners render the same attachment strip outside the text surface. */
+	includeAttachments?: boolean;
 	computerSetupContext?: CenterAgentComputerSetupContext;
 	computerSetupSourceSignalId?: string;
 	containerClassName?: string;
@@ -118,12 +118,19 @@ type SpaceMessageBodyProps = {
 
 function useSpaceMessageTextPresentation(input: SpaceMessageBodyProps) {
 	const [isExpanded, setIsExpanded] = useState(false);
+	const pluginReply = usePluginConnectionReply({
+		final:
+			input.item.isAgentFinalReply === true &&
+			input.item.agentStreamState?.status !== "streaming",
+		organizationSlug: input.orgSlug,
+		text: input.item.text,
+	});
 	const shouldReduceMotion = useReducedMotionConfig();
 	const isStreaming = input.item.agentStreamState?.status === "streaming";
 	const displayedText = useSpaceStreamDisplayText({
 		enabled: isStreaming && shouldReduceMotion !== true,
 		streamId: input.item.agentStreamState?.streamId ?? null,
-		text: input.item.text,
+		text: pluginReply?.text ?? input.item.text,
 	});
 	const textProjection = useMemo(
 		() => splitServerTruncationMarker(displayedText),
@@ -149,6 +156,7 @@ function useSpaceMessageTextPresentation(input: SpaceMessageBodyProps) {
 	return {
 		isExpanded,
 		isStreaming,
+		pluginAction: pluginReply?.action,
 		renderedText,
 		setIsExpanded,
 		shouldCollapse,
@@ -383,15 +391,20 @@ const SpaceMessageBodyDisplay = memo(function SpaceMessageBodyDisplay(
 		input.item.isAgentFinalReply === true;
 	const navigationAction =
 		input.item.isAgentFinalReply === true
-			? input.item.navigationAction
+			? (input.item.navigationAction ?? text.pluginAction)
 			: undefined;
 	const navigationActionContent = renderSpaceMessageNavigationAction({
 		action: navigationAction,
+		sourceSignalId: input.item.id,
+		spaceId: input.item.spaceId,
+		organizationSlug: input.orgSlug,
 		computerSetupContext: input.computerSetupContext,
 		computerSetupSourceSignalId: input.computerSetupSourceSignalId,
 	});
-	const attachments = input.item.attachments ?? [];
-	const files = input.item.files ?? [];
+	const attachments =
+		input.includeAttachments === false ? [] : (input.item.attachments ?? []);
+	const files =
+		input.includeAttachments === false ? [] : (input.item.files ?? []);
 	const spaceApi = useMemo(() => {
 		const createApi = () =>
 			input.orgSlug
@@ -465,12 +478,13 @@ const SpaceMessageBodyDisplay = memo(function SpaceMessageBodyDisplay(
 
 	return (
 		<SpaceMessageBodyContent
-			api={spaceApi}
 			attachments={attachments}
 			body={addressedBody}
 			bodyRef={input.bodyRef}
 			containerClassName={input.containerClassName}
-			edited={Boolean(input.item.editedAt)}
+			edited={
+				Boolean(input.item.editedAt) && input.includeAttachments !== false
+			}
 			files={files}
 			isExpanded={text.isExpanded}
 			linkPreviews={
@@ -493,6 +507,7 @@ const SpaceMessageBodyDisplay = memo(function SpaceMessageBodyDisplay(
 			navigationActionContent={navigationActionContent}
 			onOpenSpaceFile={input.onOpenSpaceFile}
 			onToggleExpanded={() => text.setIsExpanded((current) => !current)}
+			openMeldProfileId={input.openMeldProfileId}
 			organizationSlug={input.orgSlug}
 			serverTruncated={text.textProjection.serverTruncated}
 			shouldCollapse={text.shouldCollapse}
@@ -502,7 +517,6 @@ const SpaceMessageBodyDisplay = memo(function SpaceMessageBodyDisplay(
 });
 
 function SpaceMessageBodyContent(input: {
-	api: Pick<SpaceApi, "downloadFileContent">;
 	attachments: SpaceTimelineItem["attachments"];
 	body: ReactNode;
 	linkPreviews: ReactNode;
@@ -514,6 +528,7 @@ function SpaceMessageBodyContent(input: {
 	navigationActionContent: ReactNode;
 	onOpenSpaceFile?: (fileId: string, revision: number) => void;
 	onToggleExpanded: () => void;
+	openMeldProfileId?: string;
 	organizationSlug?: string;
 	serverTruncated: boolean;
 	shouldCollapse: boolean;
@@ -523,8 +538,7 @@ function SpaceMessageBodyContent(input: {
 		<div
 			className={cn(
 				"flex min-w-0 max-w-full flex-col gap-2",
-				input.files.some((file) => file.mimeType.startsWith("video/")) &&
-					"w-full",
+				(input.files.length > 0 || input.attachments.length > 0) && "w-full",
 				input.containerClassName
 			)}
 			data-slot="space-message-body"
@@ -540,15 +554,10 @@ function SpaceMessageBodyContent(input: {
 			/>
 			{input.navigationActionContent}
 
-			<SpaceMessageAttachmentGrid
-				attachments={input.attachments}
-				organizationSlug={input.organizationSlug}
-				spaceId={input.spaceId}
-			/>
-			<SpaceMessageFileList
-				api={input.api}
-				files={input.files}
+			<SpaceMessageAttachments
+				item={{ attachments: input.attachments, files: input.files }}
 				onOpenSpaceFile={input.onOpenSpaceFile}
+				openMeldProfileId={input.openMeldProfileId}
 				organizationSlug={input.organizationSlug}
 				spaceId={input.spaceId}
 			/>
@@ -646,11 +655,35 @@ function renderSpaceMessageTextContent(input: {
 
 function renderSpaceMessageNavigationAction(input: {
 	action: NavigationAction | null | undefined;
+	sourceSignalId: string | undefined;
+	spaceId: string | undefined;
+	organizationSlug: string | undefined;
 	computerSetupContext: CenterAgentComputerSetupContext | undefined;
 	computerSetupSourceSignalId: string | undefined;
 }): ReactNode {
 	if (!input.action) {
 		return null;
+	}
+	if (input.action.target.kind === "plugin_connection") {
+		return (
+			<Suspense
+				fallback={
+					<DesktopAwareLink href={input.action.url}>
+						{input.action.label}
+					</DesktopAwareLink>
+				}
+			>
+				<PluginConnectionMessageCard
+					action={{ ...input.action, target: input.action.target }}
+					continuation={
+						input.sourceSignalId && input.spaceId
+							? { sourceSignalId: input.sourceSignalId, spaceId: input.spaceId }
+							: undefined
+					}
+					organizationSlug={input.organizationSlug}
+				/>
+			</Suspense>
+		);
 	}
 	if (
 		input.computerSetupContext &&
@@ -682,265 +715,6 @@ function isComputerSetupNavigationAction(
 	action: NavigationAction
 ): action is NavigationAction & { target: ComputerSetupTarget } {
 	return action.target.kind === "computer_setup";
-}
-
-export function SpaceMessageAttachmentGrid(input: {
-	attachments: SpaceTimelineItem["attachments"];
-	organizationSlug?: string;
-	spaceId: string;
-}) {
-	if (input.attachments.length === 0) {
-		return null;
-	}
-
-	return (
-		<fieldset
-			aria-label={`${String(input.attachments.length)} attached ${
-				input.attachments.length === 1 ? "image" : "images"
-			}`}
-			className={cn(
-				"m-0 grid w-full max-w-2xl gap-1.5 border-0 p-0",
-				input.attachments.length === 1 ? "grid-cols-1" : "grid-cols-2"
-			)}
-		>
-			{input.attachments.map((attachment) => (
-				<SpaceMessageAttachmentImage
-					attachment={attachment}
-					isSingle={input.attachments.length === 1}
-					key={attachment.id}
-					organizationSlug={input.organizationSlug}
-					spaceId={input.spaceId}
-				/>
-			))}
-		</fieldset>
-	);
-}
-
-export function SpaceMessageFileList(input: {
-	api: Pick<SpaceApi, "downloadFileContent">;
-	files: NonNullable<SpaceTimelineItem["files"]>;
-	organizationSlug?: string;
-	onOpenSpaceFile?: (fileId: string, revision: number) => void;
-	spaceId: string;
-}) {
-	const queryClient = useContext(QueryClientContext);
-	if (input.files.length === 0) {
-		return null;
-	}
-	const imageFiles = input.files.filter((file) =>
-		file.mimeType.startsWith("image/")
-	);
-	const videoFiles = input.files.filter((file) =>
-		file.mimeType.startsWith("video/")
-	);
-	const ordinaryFiles = input.files.filter(
-		(file) =>
-			!(
-				file.mimeType.startsWith("image/") || file.mimeType.startsWith("video/")
-			)
-	);
-
-	return (
-		<>
-			{imageFiles.length > 0 ? (
-				<fieldset
-					aria-label={`${String(imageFiles.length)} shared ${
-						imageFiles.length === 1 ? "image" : "images"
-					}`}
-					className={cn(
-						"m-0 grid w-full max-w-2xl gap-1.5 border-0 p-0",
-						imageFiles.length === 1 ? "grid-cols-1" : "grid-cols-2"
-					)}
-				>
-					{imageFiles.map((file) => (
-						<SpaceMessageFileImage
-							api={input.api}
-							file={file}
-							isSingle={imageFiles.length === 1}
-							key={resolveSpaceFileMediaPresentationKey(
-								queryClient,
-								input.spaceId,
-								file
-							)}
-							onOpenSpaceFile={file.isLocal ? undefined : input.onOpenSpaceFile}
-							spaceId={input.spaceId}
-						/>
-					))}
-				</fieldset>
-			) : null}
-			{videoFiles.length > 0 && (
-				<fieldset
-					aria-label="Shared videos"
-					className="m-0 grid w-full min-w-0 max-w-2xl gap-3 border-0 p-0"
-				>
-					{videoFiles.map((file) => (
-						<SpaceVideoPreview
-							fileName={file.name}
-							isLocal={file.isLocal}
-							key={resolveSpaceFileMediaPresentationKey(
-								queryClient,
-								input.spaceId,
-								file
-							)}
-							localPreviewUrl={file.localPreviewUrl}
-							onOpenFile={
-								!file.isLocal && input.onOpenSpaceFile
-									? () => input.onOpenSpaceFile?.(file.fileId, file.revision)
-									: undefined
-							}
-							target={{
-								spaceId: input.spaceId,
-								fileId: file.fileId,
-								revision: file.revision,
-								organizationSlug: input.organizationSlug,
-							}}
-						/>
-					))}
-				</fieldset>
-			)}
-			{ordinaryFiles.length > 0 ? (
-				<fieldset
-					aria-label="Shared files"
-					className="m-0 grid w-full max-w-2xl gap-2 border-0 p-0"
-				>
-					{ordinaryFiles.map((file) => (
-						<button
-							className="group flex min-w-0 items-center gap-3 rounded-md border border-border bg-background p-2.5 text-left transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 motion-reduce:transition-none"
-							disabled={file.isLocal}
-							key={`${file.fileId}:${String(file.revision)}`}
-							onClick={() =>
-								input.onOpenSpaceFile?.(file.fileId, file.revision)
-							}
-							type="button"
-						>
-							<SpaceMessageFileIcon mimeType={file.mimeType} />
-							<div className="min-w-0 flex-1">
-								<p className="truncate font-medium text-sm">{file.name}</p>
-								<p className="mt-0.5 truncate text-muted-foreground text-xs">
-									{formatMessageFileSize(file.sizeBytes)}
-									{file.isLocal ? null : ` · Version ${file.revision}`}
-								</p>
-							</div>
-							<span className="shrink-0 text-muted-foreground text-xs group-hover:text-foreground">
-								{file.isLocal ? null : "Open in Files"}
-							</span>
-						</button>
-					))}
-				</fieldset>
-			) : null}
-		</>
-	);
-}
-
-function SpaceMessageFileIcon(input: { mimeType: string }) {
-	return (
-		<div className="flex size-11 shrink-0 items-center justify-center rounded-sm border border-border bg-muted text-muted-foreground">
-			{input.mimeType === "text/html" ? (
-				<SpaceFileHtmlBadge />
-			) : (
-				<FileIcon aria-hidden="true" className="size-5" />
-			)}
-		</div>
-	);
-}
-
-function SpaceMessageFileImage(input: {
-	api: Pick<SpaceApi, "downloadFileContent">;
-	file: NonNullable<SpaceTimelineItem["files"]>[number];
-	isSingle: boolean;
-	onOpenSpaceFile?: (fileId: string, revision: number) => void;
-	spaceId: string;
-}) {
-	const activity = useImageFrameActivity();
-	const imageSource = useSpaceFileImageSource({
-		api: input.api,
-		enabled: activity.active,
-		fileId: input.file.fileId,
-		isLocal: input.file.isLocal,
-		localPreviewUrl: input.file.localPreviewUrl,
-		mimeType: input.file.mimeType,
-		revision: input.file.revision,
-		spaceId: input.spaceId,
-	});
-
-	return (
-		<SpaceImagePreview
-			active={activity.active}
-			altText={input.file.name}
-			error={!imageSource.sourceUrl && Boolean(imageSource.error)}
-			focusedAction={
-				input.onOpenSpaceFile
-					? {
-							label: "Open in Files",
-							onSelect: () =>
-								input.onOpenSpaceFile?.(input.file.fileId, input.file.revision),
-						}
-					: undefined
-			}
-			frameRef={activity.frame}
-			height={input.file.imageDimensions?.height}
-			imageSource={imageSource.sourceUrl}
-			isSingle={input.isSingle}
-			onRetry={imageSource.retry}
-			width={input.file.imageDimensions?.width}
-		/>
-	);
-}
-
-function formatMessageFileSize(sizeBytes: number): string {
-	if (sizeBytes < 1024) {
-		return `${String(sizeBytes)} B`;
-	}
-	if (sizeBytes < 1024 * 1024) {
-		return `${(sizeBytes / 1024).toFixed(1)} KB`;
-	}
-	return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function SpaceMessageAttachmentImage(input: {
-	attachment: SpaceTimelineItem["attachments"][number];
-	isSingle: boolean;
-	organizationSlug?: string;
-	spaceId: string;
-}) {
-	const activity = useImageFrameActivity();
-	const downloadPath = buildWebSpaceAttachmentDownloadPath({
-		attachmentId: input.attachment.id,
-		organizationSlug: input.organizationSlug,
-		spaceId: input.spaceId,
-	});
-	const altText = input.attachment.fileName ?? "Attached image";
-	const imageSource = input.attachment.localPreviewUrl ?? downloadPath;
-
-	return (
-		<SpaceImagePreview
-			active={activity.active}
-			altText={altText}
-			cold={!input.attachment.localPreviewUrl}
-			focusedAction={
-				getDesktopPlatform()
-					? {
-							label: "Download original",
-							onSelect: () => {
-								downloadUrlContent(altText, downloadPath).catch(
-									(error: unknown) =>
-										toast.error(
-											error instanceof Error
-												? error.message
-												: "Could not download this image. Try again."
-										)
-								);
-							},
-						}
-					: { href: downloadPath, label: "Open original" }
-			}
-			frameRef={activity.frame}
-			height={input.attachment.height}
-			imageSource={imageSource}
-			isSingle={input.isSingle}
-			width={input.attachment.width}
-		/>
-	);
 }
 
 function splitServerTruncationMarker(text: string): {

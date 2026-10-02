@@ -170,9 +170,18 @@ export function useConversationSidebarFixture() {
 		addGroup: () => undefined,
 		disabled: false,
 		directMessages: {
-			inbox: { data: undefined },
+			inbox: { data: undefined, isPending: false, isError: false },
 			org: { id: "org", slug: "test" },
 			profileId: "human",
+			needsDefaultHumanProfile: false,
+			profilesQuery: {
+				isPending: false,
+				isError: false,
+				isSuccess: true,
+				isFetching: false,
+				fetchStatus: "idle",
+				refetch: () => undefined,
+			},
 			preferences: chatPreferences,
 			save: (chats: NonNullable<AccountSidebarPreferences["chats"]>) =>
 				save({ ...preferences, chats }),
@@ -194,6 +203,7 @@ export function useConversationSidebarFixture() {
 			},
 			directory: { isPending: false, isError: false, refetch: () => undefined },
 			indicators: {
+				activityUnavailable: false,
 				unreadBySpaceId: new Map(),
 				activeWakeSummaryBySpaceId: new Map(
 					layoutScenario

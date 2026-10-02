@@ -18,6 +18,8 @@
       "!**/src/styles.css",
       "!**/src/styles/typeset.css",
       "!**/src/components/ui/**/*",
+      "!**/src/components/extend/**/*",
+      "!**/src/lib/pdf-thumbnail-utils.ts",
       "!**/src/lib/utils.ts"
     ]
   },

@@ -1,6 +1,7 @@
 import { centerAgentConnectorConnectionSelectionSchema } from "@openmeld/schemas";
 import type {
   CenterAgentConnectorActionExecutionConnection,
+  ConnectorConnection,
   OpenConnectorRuntimeAction,
   RemoteAgentTurnEnvelope,
 } from "@openmeld/schemas/types";
@@ -27,8 +28,10 @@ import {
   union,
   unknown as unknownSchema,
 } from "valibot";
+import { withholdGitHubDownloadCredentials } from "../connectors/github-result-credentials";
 import {
   type ConnectorExecutionConfig,
+  OpenConnectorActionError,
   requireOpenConnectorAction,
 } from "../connectors/open-connector-runtime";
 import type {
@@ -40,12 +43,14 @@ import {
   recordRemoteAgentNavigationTarget,
 } from "./callback-context";
 import {
+  CONNECTOR_WRITE_RECOVERY_GUIDANCE,
   listConnectorActionCatalog,
   readConnectorActionOperation,
   recordConnectorActionOperation,
   requireMemberResearchReadOnlyConnectorAction,
   requiresHighRiskConnectorActionPolicy,
   resolveConnectedMessageChannelActionPolicy,
+  resolveConnectorActionOutputSchema,
   runAndFinalizeConnectorAction,
 } from "./connector-tools";
 import { callCoreRpc, requireCoreRpc } from "./core-rpc";
@@ -55,9 +60,15 @@ import {
   resolveRemoteAgentRoutineExternalWriteBlock,
 } from "./destructive-authorization";
 import {
+  isDelegatedGitHubTurn,
+  readRemoteAgentExecutionAccess,
+  requireRemoteAgentExecutionAccess,
+} from "./execution-access";
+import {
   assertRemoteAgentExecutionCanContinue,
   buildRemoteAgentExecutionIdentity,
 } from "./execution-state";
+import { tagRemoteAgentResultSources } from "./result-access";
 import {
   appendOpenMeldTaskReferenceToIssueBody,
   applyGitHubIssueSpaceTaskBinding,
@@ -91,12 +102,13 @@ const GITHUB_FILE_SEGMENT_DEFAULT_UTF16_CODE_UNITS = 24_000;
 const GITHUB_FILE_SEGMENT_MAX_UTF16_CODE_UNITS = 50_000;
 const GITHUB_SEARCH_DEFAULT_PER_PAGE = 10;
 const GITHUB_SEARCH_TEXT_FIELD_MAX_LENGTH = 500;
+const GITHUB_LIST_MAX_PER_PAGE = 30;
+const GITHUB_LIST_MAX_LABELS = 10;
 const GITHUB_SEARCH_TEXT_TRUNCATION_SUFFIX = "...";
 const GITHUB_ACTORS = ["organization", "requester"] as const;
 const GITHUB_ACTOR_GUIDANCE =
   "Choose githubActor for this task: organization uses the OpenMeld GitHub App through Organization access; requester uses the verified requesting member's connected GitHub. Use requester only when the task explicitly needs that person's GitHub identity or personal repositories. Routines and other unattended work must use organization. OpenMeld never falls back to the other identity.";
-const GITHUB_WRITE_OPERATION_GUIDANCE =
-  "Choose a unique operationId for this write, and reuse the same operationId only when retrying this exact write with the same githubActor and input.";
+const GITHUB_WRITE_OPERATION_GUIDANCE = `Choose a unique operationId for this write. ${CONNECTOR_WRITE_RECOVERY_GUIDANCE}`;
 
 export const REMOTE_AGENT_GITHUB_READ_TOOL_NAMES = [
   "github_list_actions",
@@ -190,6 +202,12 @@ const nonNegativeIntegerSchema = pipe(number(), integer(), minValue(0));
 const optionalPaginationFields = {
   page: optional(positiveIntegerSchema),
   perPage: optional(positiveIntegerSchema),
+};
+const boundedListPaginationFields = {
+  page: optional(positiveIntegerSchema),
+  perPage: optional(
+    pipe(number(), integer(), minValue(1), maxValue(GITHUB_LIST_MAX_PER_PAGE))
+  ),
 };
 const repositoryFields = {
   owner: nonEmptyStringSchema,
@@ -459,13 +477,13 @@ export function getRemoteAgentGitHubToolDefinitions(input: {
     githubToolDefinition({
       actionId: "github.list_commits",
       description:
-        "List repository commits, optionally filtered by branch or SHA, path, author, committer, or date range.",
+        "List up to 30 concise repository commit summaries per page. Use github_get_commit for full details. Optionally filter by branch or SHA, path, author, committer, or date range.",
       input: object({
         author: optional(string()),
         committer: optional(string()),
         path: optional(string()),
         ...repositoryFields,
-        ...optionalPaginationFields,
+        ...boundedListPaginationFields,
         sha: optional(string()),
         since: optional(string()),
         until: optional(string()),
@@ -512,12 +530,12 @@ export function getRemoteAgentGitHubToolDefinitions(input: {
     githubToolDefinition({
       actionId: "github.list_repository_issues",
       description:
-        "List issues in a GitHub repository; pull requests are excluded by OpenConnector.",
+        "List up to 30 concise issue summaries per page; pull requests are excluded by OpenConnector. Use github_get_issue for full details.",
       input: object({
         direction: optional(picklist(["asc", "desc"])),
         labels: optional(array(string())),
         ...repositoryFields,
-        ...optionalPaginationFields,
+        ...boundedListPaginationFields,
         since: optional(string()),
         sort: optional(picklist(["created", "updated", "comments"])),
         state: optional(picklist(["open", "closed", "all"])),
@@ -562,13 +580,14 @@ export function getRemoteAgentGitHubToolDefinitions(input: {
     }),
     githubToolDefinition({
       actionId: "github.list_pull_requests",
-      description: "List pull requests in a GitHub repository.",
+      description:
+        "List up to 30 concise pull request summaries per page, including fork repository names. Use github_get_pull_request for full details.",
       input: object({
         base: optional(string()),
         direction: optional(picklist(["asc", "desc"])),
         head: optional(string()),
         ...repositoryFields,
-        ...optionalPaginationFields,
+        ...boundedListPaginationFields,
         sort: optional(
           picklist(["created", "updated", "popularity", "long-running"])
         ),
@@ -1644,7 +1663,7 @@ function githubCatalogToolDefinitions(
   return [
     {
       name: "github_execute_action",
-      description: `${GITHUB_ACTOR_GUIDANCE} Execute an exact GitHub action from github_list_actions using its upstream input schema. Returns provider data and its execution-owned outputSchema, plus the existing operation receipt. Reuse operationId only to recover the same execution with unchanged input; use a new ID for a fresh read. Ordinary writes require the verified request; destructive or unspecified effects use the existing exact-action confirmation, and are unavailable to Routines. No missing action is emulated. Existing named GitHub tools remain available, including segmented file reads. A completed action is not proof that a workflow or user task finished.`,
+      description: `${GITHUB_ACTOR_GUIDANCE} Execute an exact GitHub action from github_list_actions using its upstream input schema. Returns provider data and the action catalog's outputSchema, plus the existing operation receipt. ${GITHUB_WRITE_OPERATION_GUIDANCE} Use a new ID for a fresh read. Ordinary writes require the verified request; destructive or unspecified effects use the existing exact-action confirmation, and are unavailable to Routines. No missing action is emulated. Existing named GitHub tools remain available, including segmented file reads. A completed action is not proof that a workflow or user task finished.`,
       input: executeInput,
       execute: async (payload) => {
         const request = parse(executeInput, payload);
@@ -1749,7 +1768,7 @@ function githubToolDefinition(input: {
   };
 }
 
-async function resolveGitHubActionContext(input: {
+export async function resolveGitHubActionContext(input: {
   coreWorker: RemoteAgentCoreWorkerBinding;
   githubActor: GitHubActor;
   includeAccessPolicy?: true;
@@ -1757,19 +1776,65 @@ async function resolveGitHubActionContext(input: {
   submissionId: string;
   toolContext: Awaited<ReturnType<typeof buildRemoteAgentToolContext>>;
 }) {
-  const { requesterKind, requesterUserId } = resolveGitHubTurnRequester(
-    input.toolContext.turnEnvelope
-  );
+  const { callback, delegated, requesterKind, requesterUserId } =
+    await resolveGitHubActionRequester(input);
   if (requesterUserId === null && input.githubActor === "requester") {
     throw new Error(
       "Your GitHub requires a linked OpenMeld identity. Use githubActor = organization for this Organization's shared GitHub access."
     );
   }
-  if (requesterKind !== "interactive" && input.githubActor === "requester") {
+  if (
+    requesterKind !== "interactive" &&
+    requesterKind !== "continuation" &&
+    input.githubActor === "requester"
+  ) {
     throw new Error(
-      "Routines and other unattended GitHub work must use the OpenMeld GitHub App through Organization access."
+      "Routines and member research must use the OpenMeld GitHub App through Organization access."
     );
   }
+  return await resolveGitHubActionConnection(input, {
+    callback,
+    delegated,
+    requesterUserId,
+  });
+}
+
+async function resolveGitHubActionRequester(
+  input: Parameters<typeof resolveGitHubActionContext>[0]
+) {
+  const callback = await readRemoteAgentCallbackContext(
+    input.storage,
+    input.submissionId
+  );
+  if (!callback) {
+    throw new Error("remote_agent.execution_context_unavailable");
+  }
+  const delegated = isDelegatedGitHubTurn(callback)
+    ? (
+        await readRemoteAgentExecutionAccess({
+          context: callback,
+          coreWorker: input.coreWorker,
+          includeDelegatedRequester: true,
+        })
+      ).delegatedRequester
+    : undefined;
+  const requester = delegated
+    ? {
+        requesterKind: "interactive" as const,
+        requesterUserId: delegated.userId,
+      }
+    : resolveGitHubTurnRequester(input.toolContext.turnEnvelope);
+  return { callback, delegated, ...requester };
+}
+
+async function resolveGitHubActionConnection(
+  input: Parameters<typeof resolveGitHubActionContext>[0],
+  requester: Omit<
+    Awaited<ReturnType<typeof resolveGitHubActionRequester>>,
+    "requesterKind"
+  >
+) {
+  const { callback, delegated, requesterUserId } = requester;
   const connectionPreference =
     input.githubActor === "organization" ? "shared" : "requester";
   const resolveConnection = requireCoreRpc(
@@ -1779,6 +1844,7 @@ async function resolveGitHubActionContext(input: {
   const resolved = centerAgentConnectorConnectionSelectionSchema.parse(
     await resolveConnection({
       connectionPreference,
+      ...(delegated ? { includeDelegatedRequester: true } : {}),
       ...(input.includeAccessPolicy ? { includeAccessPolicy: true } : {}),
       context: input.toolContext.context,
       requesterUserId,
@@ -1793,7 +1859,11 @@ async function resolveGitHubActionContext(input: {
       await recordRemoteAgentNavigationTarget({
         storage: input.storage,
         submissionId: input.submissionId,
-        target: { kind: "organization_app", service: "github" },
+        target: {
+          kind: "plugin_connection",
+          service: "github",
+          scope: input.githubActor === "organization" ? "shared" : "member",
+        },
       });
     }
     throw new Error(
@@ -1818,6 +1888,19 @@ async function resolveGitHubActionContext(input: {
   }
   const connection = resolved.connection;
   const selection = resolved.selection;
+  const reauthorize = delegated
+    ? () =>
+        reauthorizeDelegatedGitHubRead({
+          context: callback,
+          coreWorker: input.coreWorker,
+          connection,
+          selection,
+          requesterUserId: delegated.userId,
+        })
+    : undefined;
+  if (delegated) {
+    await reauthorize?.();
+  }
   return {
     attribution: {
       connectionOwner: {
@@ -1832,9 +1915,43 @@ async function resolveGitHubActionContext(input: {
           : `${connection.ownerDisplayName}'s GitHub`,
     },
     requesterUserId,
-    permission: resolved.permission,
+    permission: delegated ? ("read" as const) : resolved.permission,
+    reauthorize,
     selection: { connection, selection },
   };
+}
+
+async function reauthorizeDelegatedGitHubRead(input: {
+  context: NonNullable<
+    Awaited<ReturnType<typeof readRemoteAgentCallbackContext>>
+  >;
+  coreWorker: RemoteAgentCoreWorkerBinding;
+  connection: ConnectorConnection;
+  selection: "requester" | "shared";
+  requesterUserId: string;
+}) {
+  const { connection, selection } = input;
+  if (
+    connection.status !== "active" ||
+    (selection === "requester" &&
+      (connection.scope !== "member" ||
+        connection.userId !== input.requesterUserId)) ||
+    (selection === "shared" && connection.scope !== "shared")
+  ) {
+    throw new Error("remote_agent.delegated_connection_mismatch");
+  }
+  return await requireRemoteAgentExecutionAccess({
+    context: input.context,
+    coreWorker: input.coreWorker,
+    sources: [
+      {
+        kind: "plugin_connection",
+        service: "github",
+        connectionName: connection.connectionName,
+        connectionUpdatedAtMs: connection.updatedAtMs,
+      },
+    ],
+  });
 }
 
 function buildGitHubActionAttributionFromExecutionConnection(
@@ -1912,7 +2029,7 @@ async function executeGitHubAction(input: {
     });
   }
 
-  const { attribution, requesterUserId, selection } =
+  const { attribution, requesterUserId, selection, reauthorize } =
     await resolveGitHubActionContext({
       coreWorker: input.coreWorker,
       githubActor,
@@ -1930,6 +2047,7 @@ async function executeGitHubAction(input: {
       input: actionInput,
       runtimeToken: input.connectorExecution?.runtimeToken ?? "",
     });
+    await reauthorize?.();
     data = fileSegment
       ? segmentGitHubFileContents(connectorData, fileSegment, attribution)
       : projectGitHubActionResult({
@@ -1963,36 +2081,31 @@ async function executeGitHubAction(input: {
     selection: selection.selection,
     service: "github",
   });
-  return {
-    attribution,
-    data,
-    status: "completed",
-  };
+  return tagRemoteAgentResultSources(
+    {
+      attribution,
+      data,
+      status: "completed",
+    },
+    [
+      {
+        kind: "plugin_connection",
+        service: "github",
+        connectionName: selection.connection.connectionName,
+        connectionUpdatedAtMs: selection.connection.updatedAtMs,
+      },
+    ]
+  );
 }
 
 async function resolveGitHubCatalogActionPolicy(input: {
   actionId: string;
   connectorExecution?: ConnectorExecutionConfig;
-  replayed: boolean;
   toolContext: Awaited<ReturnType<typeof buildRemoteAgentToolContext>>;
 }): Promise<{
   action?: OpenConnectorRuntimeAction;
   blockedResult?: Record<string, unknown>;
 }> {
-  const speaker = resolveOrganizationMemberTurnEnvelopeSpeaker(
-    input.toolContext.turnEnvelope
-  );
-  const source = input.toolContext.turnEnvelope?.trigger.source;
-  // An ordinary verified replay uses the original operation's frozen contract,
-  // even if the provider's catalog or selected connection has since changed.
-  if (
-    input.replayed &&
-    source !== "routine" &&
-    source !== "member_research" &&
-    !(speaker && "kind" in speaker)
-  ) {
-    return {};
-  }
   let action = await requireOpenConnectorAction({
     actionId: input.actionId,
     connectorExecution: input.connectorExecution,
@@ -2068,9 +2181,13 @@ async function executeIdempotentGitHubAction(input: {
   const { requesterKind, requesterUserId } = resolveGitHubTurnRequester(
     input.toolContext.turnEnvelope
   );
-  if (requesterKind !== "interactive" && input.githubActor === "requester") {
+  if (
+    requesterKind !== "interactive" &&
+    requesterKind !== "continuation" &&
+    input.githubActor === "requester"
+  ) {
     throw new Error(
-      "Routines and other unattended GitHub work must use the OpenMeld GitHub App through Organization access."
+      "Routines and member research must use the OpenMeld GitHub App through Organization access."
     );
   }
   const existingOperation = await readConnectorActionOperation({
@@ -2083,7 +2200,6 @@ async function executeIdempotentGitHubAction(input: {
   const action = input.useRuntimeCatalog
     ? await resolveGitHubCatalogActionPolicy({
         ...input,
-        replayed: Boolean(existingOperation),
       })
     : undefined;
   if (action?.blockedResult) {
@@ -2162,6 +2278,9 @@ async function executeIdempotentGitHubAction(input: {
   try {
     run = await runAndFinalizeConnectorAction({
       connectionName,
+      operationReplayExpiresAtMs: claim.operationReplayExpiresAtMs,
+      operationReplayed: claim.replayed,
+      effect: action?.action?.effect,
       dependencies: {
         connectorExecution: input.connectorExecution,
         coreWorker: input.coreWorker,
@@ -2188,6 +2307,7 @@ async function executeIdempotentGitHubAction(input: {
       organizationId: input.toolContext.context.activeOrganizationId,
       requestId: input.toolContext.context.actorContext.requestId,
       requesterUserId,
+      turnSource: input.toolContext.turnEnvelope?.trigger.source,
       selection,
       service: "github",
     });
@@ -2203,35 +2323,48 @@ async function executeIdempotentGitHubAction(input: {
     organizationId: input.toolContext.context.activeOrganizationId,
     requestId: input.toolContext.context.actorContext.requestId,
     requesterUserId,
+    turnSource: input.toolContext.turnEnvelope?.trigger.source,
     selection,
     service: "github",
   });
   const result = {
     attribution,
     data: run.data,
-    ...(input.useRuntimeCatalog ? { outputSchema: run.outputSchema } : {}),
+    outputSchema: resolveConnectorActionOutputSchema(
+      run.outputSchema,
+      action?.action?.outputSchema
+    ),
     operationId: input.operationId,
     providerExecutionId: run.providerExecutionId,
     replayed: claim.replayed,
     status: "completed" as const,
   };
+  const source = {
+    kind: "plugin_connection" as const,
+    service: "github" as const,
+    connectionName,
+    connectionUpdatedAtMs: actionContext?.selection.connection.updatedAtMs,
+  };
   if (input.skipSpaceTaskBinding) {
-    return result;
+    return tagRemoteAgentResultSources(result, [source]);
   }
-  return await withGitHubIssueSpaceTaskBinding({
-    actionId: input.actionId,
-    actionInput: input.actionInput,
-    connectorExecution: input.connectorExecution,
-    coreWorker: input.coreWorker,
-    githubActor: input.githubActor,
-    operationId: input.operationId,
-    result,
-    storage: input.storage,
-    submissionId: input.submissionId,
-    toolContext: input.toolContext,
-    writeConfirmationToken: input.writeConfirmationToken,
-    writeDisclosure: input.writeDisclosure,
-  });
+  return tagRemoteAgentResultSources(
+    await withGitHubIssueSpaceTaskBinding({
+      actionId: input.actionId,
+      actionInput: input.actionInput,
+      connectorExecution: input.connectorExecution,
+      coreWorker: input.coreWorker,
+      githubActor: input.githubActor,
+      operationId: input.operationId,
+      result,
+      storage: input.storage,
+      submissionId: input.submissionId,
+      toolContext: input.toolContext,
+      writeConfirmationToken: input.writeConfirmationToken,
+      writeDisclosure: input.writeDisclosure,
+    }),
+    [source]
+  );
 }
 
 async function withGitHubIssueSpaceTaskBinding(input: {
@@ -2553,6 +2686,30 @@ function projectGitHubActionResult(input: {
   attribution: Record<string, unknown>;
   data: unknown;
 }): unknown {
+  if (input.actionId === "github.list_pull_requests") {
+    return projectGitHubList(
+      input.data,
+      "pull_requests",
+      projectPullRequestListItem
+    );
+  }
+  if (input.actionId === "github.list_repository_issues") {
+    const fetched = readNumber(
+      asRecord(asRecord(input.data)?.pageInfo)?.fetched
+    );
+    if (fetched === null) {
+      throw new Error(
+        "OpenConnector returned an invalid GitHub issues pageInfo."
+      );
+    }
+    return {
+      ...projectGitHubList(input.data, "issues", projectIssueListItem),
+      pageInfo: { fetched },
+    };
+  }
+  if (input.actionId === "github.list_commits") {
+    return projectGitHubList(input.data, "commits", projectCommitListItem);
+  }
   if (input.actionId === "github.search_commits") {
     return projectGitHubCommitSearchResult({
       actionInput: input.actionInput,
@@ -2568,6 +2725,113 @@ function projectGitHubActionResult(input: {
     });
   }
   return input.data;
+}
+
+function projectGitHubList<Key extends "pull_requests" | "issues" | "commits">(
+  data: unknown,
+  key: Key,
+  project: (item: Record<string, unknown>) => Record<string, unknown>
+): Record<Key, Record<string, unknown>[]> {
+  const items = asRecord(data)?.[key];
+  if (!Array.isArray(items) || items.some((item) => !asRecord(item))) {
+    throw new Error(`OpenConnector returned an invalid GitHub ${key} list.`);
+  }
+  return {
+    [key]: items.map((item) => project(item as Record<string, unknown>)),
+  } as Record<Key, Record<string, unknown>[]>;
+}
+
+function projectPullRequestListItem(
+  item: Record<string, unknown>
+): Record<string, unknown> {
+  return {
+    number: item.number,
+    title: truncateGitHubSearchText(readString(item.title) ?? ""),
+    state: item.state,
+    draft: item.draft,
+    html_url: item.html_url,
+    user: projectGitHubListUser(item.user),
+    body: truncateGitHubSearchText(readString(item.body) ?? ""),
+    labels: projectGitHubListLabels(item.labels),
+    labels_truncated:
+      Array.isArray(item.labels) && item.labels.length > GITHUB_LIST_MAX_LABELS,
+    created_at: item.created_at,
+    updated_at: item.updated_at,
+    closed_at: item.closed_at,
+    merged_at: item.merged_at,
+    merge_commit_sha: item.merge_commit_sha,
+    head: projectGitHubListBranch(item.head),
+    base: projectGitHubListBranch(item.base),
+  };
+}
+
+function projectIssueListItem(
+  item: Record<string, unknown>
+): Record<string, unknown> {
+  return {
+    number: item.number,
+    title: truncateGitHubSearchText(readString(item.title) ?? ""),
+    state: item.state,
+    html_url: item.html_url,
+    user: projectGitHubListUser(item.user),
+    body: truncateGitHubSearchText(readString(item.body) ?? ""),
+    labels: projectGitHubListLabels(item.labels),
+    labels_truncated:
+      Array.isArray(item.labels) && item.labels.length > GITHUB_LIST_MAX_LABELS,
+    created_at: item.created_at,
+    updated_at: item.updated_at,
+    closed_at: item.closed_at,
+    comments: item.comments,
+  };
+}
+
+function projectCommitListItem(
+  item: Record<string, unknown>
+): Record<string, unknown> {
+  const commit = asRecord(item.commit);
+  return {
+    sha: item.sha,
+    html_url: item.html_url,
+    message: truncateGitHubSearchText(readString(commit?.message) ?? ""),
+    author: buildGitHubCommitPersonSummary({
+      commitPerson: asRecord(commit?.author),
+      profile: asRecord(item.author),
+    }),
+    committer: buildGitHubCommitPersonSummary({
+      commitPerson: asRecord(commit?.committer),
+      profile: asRecord(item.committer),
+    }),
+    parents: Array.isArray(item.parents)
+      ? item.parents.slice(0, 16).flatMap((parent) => {
+          const sha = readString(asRecord(parent)?.sha);
+          return sha ? [{ sha }] : [];
+        })
+      : [],
+  };
+}
+
+function projectGitHubListUser(value: unknown): { login: string } {
+  return { login: readString(asRecord(value)?.login) ?? "" };
+}
+
+function projectGitHubListLabels(value: unknown): { name: string }[] {
+  return Array.isArray(value)
+    ? value.slice(0, GITHUB_LIST_MAX_LABELS).flatMap((label) => {
+        const name =
+          typeof label === "string" ? label : readString(asRecord(label)?.name);
+        return name ? [{ name: truncateGitHubSearchText(name) }] : [];
+      })
+    : [];
+}
+
+function projectGitHubListBranch(value: unknown): Record<string, unknown> {
+  const branch = asRecord(value);
+  const repo = asRecord(branch?.repo);
+  return {
+    ref: branch?.ref,
+    sha: branch?.sha,
+    repo: repo ? { full_name: repo.full_name } : null,
+  };
 }
 
 function projectGitHubCommitSearchResult(input: {
@@ -3249,7 +3513,7 @@ function resolveUnavailableGitHubConnectionMessage(input: {
       ? "Organization access"
       : "Your GitHub";
   const action = input.hasNavigationAction
-    ? "Use the Open GitHub access action below"
+    ? "Use the Plugin connection action below"
     : "Open Plugins → GitHub for this workspace";
   return `${accessName} is not ready. It may be disconnected or authorization may still be pending. ${action}, check ${accessName}, and try again. OpenMeld did not use a different GitHub identity.`;
 }
@@ -3279,7 +3543,11 @@ function requireGitHubWriteOperationId(value: unknown): string {
 function resolveGitHubTurnRequester(
   turnEnvelope: RemoteAgentTurnEnvelope | undefined
 ): {
-  requesterKind: "interactive" | "routine" | "shared_unattended";
+  requesterKind:
+    | "interactive"
+    | "continuation"
+    | "routine"
+    | "shared_unattended";
   requesterUserId: string | null;
 } {
   if (turnEnvelope?.trigger.source === "member_research") {
@@ -3290,13 +3558,13 @@ function resolveGitHubTurnRequester(
     turnEnvelope?.trigger.source === "task_continuation" ||
     turnEnvelope?.trigger.source === "task_watch_continuation"
   ) {
-    if (!speaker) {
+    if (turnEnvelope.sender.kind !== "member" || !speaker) {
       throw new Error(
         "Unattended GitHub work requires a verified Organization member context."
       );
     }
     return {
-      requesterKind: "shared_unattended",
+      requesterKind: "continuation",
       requesterUserId: speaker.userId,
     };
   }
@@ -3320,20 +3588,6 @@ function resolveGitHubTurnRequester(
     return { requesterKind: "interactive", requesterUserId: null };
   }
   throw new Error("GitHub tools require a verified Organization member turn.");
-}
-
-class OpenConnectorActionError extends Error {
-  readonly outcome: "failed" | "outcome_unknown";
-
-  constructor(input: {
-    cause?: unknown;
-    message: string;
-    outcome: "failed" | "outcome_unknown";
-  }) {
-    super(input.message, { cause: input.cause });
-    this.name = "OpenConnectorActionError";
-    this.outcome = input.outcome;
-  }
 }
 
 async function runOpenConnectorAction(input: {
@@ -3396,7 +3650,7 @@ async function runOpenConnectorAction(input: {
       outcome: response.status >= 500 ? "outcome_unknown" : "failed",
     });
   }
-  return payload.data;
+  return withholdGitHubDownloadCredentials(payload.data);
 }
 
 function resolveOpenConnectorGitHubActionError(input: {

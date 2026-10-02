@@ -1,6 +1,15 @@
 import * as z from "zod/v4";
 
 const reference = z.string().trim().min(1).max(2048);
+// Local workspace owner facts, not client-selected paths or Computer policy.
+export const executionContextGitMetadataSchema = z.strictObject({
+  commonDirectoryPointerPath: reference,
+  configPath: reference,
+  gitDirectoryPointerPath: reference,
+  hooksPath: reference,
+  worktreeConfigPath: reference,
+  worktreeGitPointerPath: reference,
+});
 export const executionContextAccessSchema = z.enum([
   "space_context",
   "read_only",

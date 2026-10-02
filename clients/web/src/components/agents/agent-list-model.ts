@@ -36,6 +36,7 @@ export type AgentListItem = {
 	controller: string;
 	model: string;
 	modelBrand: string | null;
+	modelId?: string | null;
 	agentControllerRef: string | null;
 	searchText: string;
 };
@@ -110,6 +111,7 @@ export function buildAgentListItem(input: {
 		controller: controller ? controllerName : "Unknown Controller",
 		model: model.catalogModel?.displayName ?? model.modelId ?? "Unknown model",
 		modelBrand: modelBrandName(model.modelId, model.catalogModel?.displayName),
+		modelId: model.modelId,
 		agentControllerRef: ref,
 	};
 	return {

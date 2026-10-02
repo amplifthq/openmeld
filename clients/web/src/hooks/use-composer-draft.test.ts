@@ -41,6 +41,34 @@ describe("useComposerDraft", () => {
 		window.localStorage.clear();
 	});
 
+	it("does not rewrite an unchanged draft after an editor notification", () => {
+		const scope = {
+			kind: "space" as const,
+			ownerAccountId: "account-1",
+			profileId: "profile-1",
+			spaceId: "space-1",
+		};
+		const composer = renderHook(() => useComposerDraft({ scope }));
+		act(() => {
+			composer.result.current.setContent({
+				...EMPTY_COMPOSER_DRAFT_CONTENT,
+				text: "Keep this draft",
+			});
+		});
+		const record = composer.result.current.record;
+		const write = vi.spyOn(Storage.prototype, "setItem");
+
+		act(() => {
+			composer.result.current.setContent((current) => current);
+			composer.result.current.setContent((current) => ({ ...current }));
+		});
+
+		expect(composer.result.current.record).toBe(record);
+		expect(readComposerDraft(scope)?.updatedAtMs).toBe(record.updatedAtMs);
+		expect(write).not.toHaveBeenCalled();
+		write.mockRestore();
+	});
+
 	it("keeps drafts separate while switching Center Agent sessions", () => {
 		const first = {
 			kind: "center_agent_pending" as const,
@@ -152,6 +180,60 @@ describe("useComposerDraft", () => {
 		);
 
 		expect(readComposerDraft(spaceScope)?.text).toBe("Newest pending content");
+		expect(readComposerDraft(pendingScope)).toBeNull();
+	});
+
+	it("preserves mention audience when a pending draft replaces canonical content", () => {
+		const pendingScope = {
+			kind: "center_agent_pending" as const,
+			organizationId: "organization-acme",
+			ownerAccountId: "account-1",
+		};
+		const spaceScope = {
+			kind: "space" as const,
+			ownerAccountId: "account-1",
+			profileId: "human-1",
+			spaceId: "space-center-agent",
+		};
+		const mention = {
+			audience: "agents" as const,
+			end: 6,
+			profileId: "agent-1",
+			relation: "mention" as const,
+			start: 0,
+			text: "@Agent",
+		};
+		const pendingDraft = createComposerDraftRecord(
+			{
+				...EMPTY_COMPOSER_DRAFT_CONTENT,
+				authoredMentions: [mention],
+				text: "@Agent",
+			},
+			100
+		);
+		writeComposerDraft(pendingScope, pendingDraft);
+		writeComposerDraft(
+			spaceScope,
+			createComposerDraftRecord(
+				{
+					...pendingDraft,
+					authoredMentions: [{ ...mention, audience: "people" }],
+				},
+				100
+			)
+		);
+
+		renderHook(() =>
+			useComposerDraft({
+				initialDraft: pendingDraft,
+				migrateFromScopes: [pendingScope],
+				scope: spaceScope,
+			})
+		);
+
+		expect(readComposerDraft(spaceScope)?.authoredMentions[0]?.audience).toBe(
+			"agents"
+		);
 		expect(readComposerDraft(pendingScope)).toBeNull();
 	});
 

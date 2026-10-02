@@ -73,6 +73,12 @@ export const agentProfileCreationRequests = sqliteTable(
     status: text("status").notNull(),
     statusReason: text("status_reason").notNull(),
     createdAgentProfileId: text("created_agent_profile_id"),
+    workspaceConfiguredAt: integer("workspace_configured_at", {
+      mode: "timestamp_ms",
+    }),
+    defaultProjectConfiguredAt: integer("default_project_configured_at", {
+      mode: "timestamp_ms",
+    }),
     failureMessage: text("failure_message"),
     decidedAt: integer("decided_at", { mode: "timestamp_ms" }),
     completedAt: integer("completed_at", { mode: "timestamp_ms" }),

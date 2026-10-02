@@ -1,5 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useSyncExternalStore } from "react";
+import { recordReactUpdate } from "#/lib/observability/react-update-trace";
 import {
 	activateCenterAgentPendingMessageScope,
 	type CenterAgentPendingMessageScope,
@@ -14,6 +15,7 @@ export function useCenterAgentPendingMessage(
 	const client = useQueryClient();
 	const { organizationId, organizationSlug, sessionId } = scope;
 	useEffect(() => {
+		recordReactUpdate("center_agent_pending_scope_write");
 		activateCenterAgentPendingMessageScope(client, {
 			organizationId,
 			organizationSlug,

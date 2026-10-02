@@ -82,6 +82,7 @@ Use these owner documents:
 | Projects: Organization-scoped identity, permissions, local connections, discovery, repository fingerprints, Default Project resolution, and Project-aware Wake failures | `developing/product/projects.md` |
 | Agent Activity, local session observation, metadata privacy, presence, digests, retention, snapshots, canonical Project references, and Center Agent awareness | `developing/product/agent-activity.md` |
 | Center Agent Routines: Routine/Run semantics, authority, scheduling, target Space, native delivery, tool policy, and client surfaces | `developing/product/center-agent-routines.md` |
+| Files: Team, member-private, and Space roots; audience, authorization, revisions, copies, and managed content boundaries | `developing/product/files.md` |
 | Organization Skills: portable Agent Skills bundles, permissions, immutable releases, GitHub import, Center Agent/Flue use, Web management, CLI loading, and local-agent delegation | `developing/product/organization-skills.md` |
 | Feedback Inbox, Feedback Issue, submission privacy, delivery modes, handling boundaries | `developing/product/feedback-loop.md` |
 | Opportunities: Center Agent recommendation review, member decisions, Inbox projection, and recommendation-versus-execution boundary | `developing/product/opportunities.md` |
@@ -241,6 +242,15 @@ change must leave those signals cleaner and less ambiguous.
   check is mandatory acceptance criteria, not optional review flavor. If a rule
   must change, change the owner document in the same PR with the reasoning.
 - Load only files directly relevant to the task.
+- For UI primitives and interaction changes, inspect the installed Fluid
+  Functionalism components first and read `developing/clients/shared-ui.md`.
+  Prefer shared `@openmeld/ui` Fluid composition; install or adapt missing
+  official primitives there instead of rebuilding menus, hover geometry,
+  motion, or state in product components. Stable, closely spaced clickable
+  alternatives should reuse Fluid Hover, with semantic group boundaries,
+  disabled-item exclusion, native keyboard/focus ownership, and reduced motion.
+  Avoid proximity or gap activation for destructive choices, mixed clickability,
+  large empty spaces, or rows that move during scrolling.
 - Do not execute stale roadmap items directly. Plan from current production
   behavior and current owner docs.
 - When a task specializes an existing object (a special Space kind, member

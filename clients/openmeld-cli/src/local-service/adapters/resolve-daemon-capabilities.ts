@@ -1,23 +1,9 @@
-import type { LocalDaemonAdapterContainer } from "@openmeld/local-service";
 import type {
   DaemonRuntimeAdapterCapabilitySnapshot,
   LocalComponentsStatus,
   RuntimeTransportBaseCapabilities,
 } from "@openmeld/schemas/types";
 import { resolveRegistryRuntimeAdapterCapabilitySnapshot } from "../../agents/registry-source";
-
-export function resolveDaemonCapabilities(input: {
-  localAdapterContainer: LocalDaemonAdapterContainer;
-  localComponentsStatus?: LocalComponentsStatus | null;
-  profileConfigurationRevision?: boolean;
-}): RuntimeTransportBaseCapabilities {
-  return resolveDaemonCapabilitiesFromAdapterIds({
-    ...input,
-    adapterIds: input.localAdapterContainer
-      .listAdapters()
-      .map((entry) => entry.adapterId),
-  });
-}
 
 export function resolveDaemonCapabilitiesFromAdapterIds(input: {
   adapterIds: readonly string[];

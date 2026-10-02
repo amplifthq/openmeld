@@ -56,6 +56,8 @@ type MenuAppearance = {
   activeIndicatorClassName?: string;
   hoverIndicatorClassName?: string;
   focusIndicatorClassName?: string;
+  /** Keep the full row interactive while drawing its indicators around a child. */
+  indicatorTargetSelector?: string;
 };
 
 type MenuScopeValue = {
@@ -197,6 +199,7 @@ function useMenuScope(
     activeIndicatorClassName,
     hoverIndicatorClassName,
     focusIndicatorClassName,
+    indicatorTargetSelector,
   }: MenuAppearance = {}
 ): MenuScope {
   const reduceMotion = useReducedMotion();
@@ -332,12 +335,28 @@ function useMenuScope(
       if (!rect) {
         return null;
       }
+      if (indicatorTargetSelector) {
+        const button = rowButton(row);
+        const target = button?.querySelector<HTMLElement>(
+          indicatorTargetSelector
+        );
+        if (button && target) {
+          const buttonBounds = button.getBoundingClientRect();
+          const targetBounds = target.getBoundingClientRect();
+          return {
+            left: rect.left + targetBounds.left - buttonBounds.left,
+            top: rect.top + targetBounds.top - buttonBounds.top,
+            width: targetBounds.width,
+            height: targetBounds.height,
+          };
+        }
+      }
       const height = row.hasAttribute("data-fluid-nav-value")
         ? rect.height
         : Math.min(rect.height, rowButton(row)?.offsetHeight ?? 48);
       return { ...rect, height };
     },
-    [itemRects, rowButton]
+    [indicatorTargetSelector, itemRects, rowButton]
   );
 
   // While a popup anchored in the sidebar is open (a row action's or the
@@ -346,7 +365,8 @@ function useMenuScope(
   // highlighting. Popup triggers are detected by the primitives' open
   // attributes (Radix data-state, Base UI data-popup-open). Require a popup
   // trigger: tooltips also publish data-popup-open, but must not freeze the
-  // traveling background. Collapsible rows have no aria-haspopup either.
+  // traveling background. Context-menu areas have no aria-haspopup, so use
+  // their shared trigger slot with Base UI's open marker explicitly.
   const popupOpen = useCallback(() => {
     const container = containerRef.current;
     if (!container) {
@@ -354,7 +374,7 @@ function useMenuScope(
     }
     const root = container.closest('[data-sidebar="panel"]') ?? container;
     return !!root.querySelector(
-      '[aria-haspopup]:not([aria-haspopup="false"]):is([data-popup-open], [data-state="open"], [aria-expanded="true"])'
+      '[aria-haspopup]:not([aria-haspopup="false"]):is([data-popup-open], [data-state="open"], [aria-expanded="true"]), [data-slot="context-menu-trigger"][data-popup-open]'
     );
   }, [containerRef]);
 
@@ -702,6 +722,7 @@ const SidebarMenu = forwardRef<HTMLUListElement, SidebarMenuProps>(
       activeIndicatorClassName,
       hoverIndicatorClassName,
       focusIndicatorClassName,
+      indicatorTargetSelector,
       ...props
     },
     ref
@@ -714,6 +735,7 @@ const SidebarMenu = forwardRef<HTMLUListElement, SidebarMenuProps>(
         activeIndicatorClassName,
         hoverIndicatorClassName,
         focusIndicatorClassName,
+        indicatorTargetSelector,
       }
     );
 

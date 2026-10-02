@@ -5,11 +5,13 @@ import { Button } from "@openmeld/ui/components/button";
 import { Input } from "@openmeld/ui/components/input";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
 import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
+import { FluidContextMenu } from "@openmeld/ui/fluid/context-menu";
 import { resolveStatusToneProminentBadgeClassName } from "@openmeld/ui/lib/status-tone";
 import { CaretRightIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
+import { ObjectMenuItems } from "#/components/app/object-menu-items";
 import { buildOrganizationPluginPath } from "#/lib/organizations/organization-routes";
 import { organizationPluginConnectionCatalogQueryOptions } from "#/query/organizations/plugin-connections";
 import { AppLogo } from "./app-logo";
@@ -183,7 +185,8 @@ function PluginCatalogCard(input: {
 	organizationSlug: string;
 	scope: "personal" | "organization";
 }) {
-	return (
+	const href = `${buildOrganizationPluginPath({ orgSlug: input.organizationSlug, service: input.plugin.service })}?scope=${input.scope}`;
+	const card = (
 		<div className="h-full overflow-hidden rounded-md">
 			<Link
 				className="group flex h-full min-h-20 min-w-0 items-center gap-3 px-2 py-3 outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset"
@@ -219,6 +222,11 @@ function PluginCatalogCard(input: {
 				/>
 			</Link>
 		</div>
+	);
+	return (
+		<FluidContextMenu target={card}>
+			<ObjectMenuItems href={href} />
+		</FluidContextMenu>
 	);
 }
 

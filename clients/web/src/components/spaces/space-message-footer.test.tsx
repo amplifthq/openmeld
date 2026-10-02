@@ -4,6 +4,7 @@ import {
 	fireEvent,
 	render as renderComponent,
 	screen,
+	waitFor,
 	within,
 } from "@testing-library/react";
 import type { ReactNode } from "react";
@@ -21,6 +22,7 @@ vi.mock("@phosphor-icons/react", async (importOriginal) => ({
 	ArrowBendUpLeftIcon: () => <span />,
 	CaretRightIcon: () => <span />,
 	ChatCircleIcon: () => <span />,
+	CheckIcon: () => <span />,
 	CopyIcon: () => <span />,
 	DotsThreeIcon: () => <span />,
 	InfoIcon: () => <span data-testid="details-info" />,
@@ -64,6 +66,7 @@ function rect(left: number, top: number, width: number, height: number) {
 describe("floating message actions position", () => {
 	afterEach(() => {
 		cleanup();
+		delete document.documentElement.dataset.spaceSelfMessageAlignment;
 	});
 
 	it("follows a long message's lower visible edge after its top scrolls away", () => {
@@ -92,6 +95,26 @@ describe("floating message actions position", () => {
 		});
 		expect(fullWidthPosition.placement).toBe("overlay");
 		expect(fullWidthPosition.top + container.top).toBe(564);
+
+		const visibleEndContainer = rect(0, -300, 600, 720);
+		const visibleEndPosition = resolveToolbarPosition({
+			bubble: rect(100, -300, 300, 720),
+			container: visibleEndContainer,
+			preferredSide: "after",
+			toolbar,
+			viewport,
+		});
+		expect(visibleEndPosition.top + visibleEndContainer.top).toBe(392);
+
+		const visibleFullWidthEnd = resolveToolbarPosition({
+			bubble: rect(0, -300, 600, 720),
+			container: visibleEndContainer,
+			preferredSide: "after",
+			toolbar,
+			viewport,
+		});
+		expect(visibleFullWidthEnd.placement).toBe("overlay");
+		expect(visibleFullWidthEnd.top + visibleEndContainer.top).toBe(410);
 	});
 
 	it("repositions the active toolbar when its message viewport scrolls", () => {
@@ -131,6 +154,63 @@ describe("floating message actions position", () => {
 		fireEvent.scroll(viewport);
 		expect(toolbar.style.insetBlockStart).toBe("864px");
 	});
+
+	it.each([
+		{ alignment: "left", previewLeft: 40, toolbarLeft: 150 },
+		{ alignment: "right", previewLeft: 450, toolbarLeft: 284 },
+	])("keeps attachment-only actions beside the visible preview on the $alignment", ({
+		alignment,
+		previewLeft,
+		toolbarLeft,
+	}) => {
+		document.documentElement.dataset.spaceSelfMessageAlignment = alignment;
+		const view = render(
+			<div data-slot="message-scroller-viewport">
+				<div
+					data-message-row-id="attachment-message"
+					data-space-self-message="true"
+				>
+					<div data-slot="bubble-content">
+						<fieldset data-slot="space-attachment-strip">
+							<div data-slot="scroll-area-viewport">
+								<div className="space-attachment-strip-items">
+									<div data-testid="attachment-preview" />
+								</div>
+							</div>
+						</fieldset>
+					</div>
+					<SpaceMessageFooter addressingTargets={[]} />
+				</div>
+			</div>
+		);
+		const row = view.container.querySelector<HTMLElement>(
+			'[data-message-row-id="attachment-message"]'
+		);
+		const bubble = row?.querySelector<HTMLElement>(
+			'[data-slot="bubble-content"]'
+		);
+		const viewport = row?.querySelector<HTMLElement>(
+			'[data-slot="scroll-area-viewport"]'
+		);
+		const preview = row?.querySelector<HTMLElement>(
+			'[data-testid="attachment-preview"]'
+		);
+		const toolbar = row?.querySelector<HTMLElement>(
+			'[data-slot="message-footer"]'
+		);
+		expect(row && bubble && viewport && preview && toolbar).toBeTruthy();
+		if (!(row && bubble && viewport && preview && toolbar)) {
+			return;
+		}
+		row.getBoundingClientRect = () => rect(0, 100, 600, 200);
+		bubble.getBoundingClientRect = () => rect(0, 100, 560, 104);
+		viewport.getBoundingClientRect = () => rect(0, 100, 560, 104);
+		preview.getBoundingClientRect = () => rect(previewLeft, 100, 104, 104);
+		toolbar.getBoundingClientRect = () => rect(0, 0, 160, 28);
+
+		fireEvent.pointerEnter(row);
+		expect(toolbar.style.insetInlineStart).toBe(`${toolbarLeft}px`);
+	});
 });
 
 describe("SpaceMessageFooter", () => {
@@ -160,15 +240,19 @@ describe("SpaceMessageFooter", () => {
 			within(primary as HTMLElement)
 				.getAllByRole("button")
 				.map((button) => button.getAttribute("aria-label"))
-		).toEqual([
-			"Copy message",
-			"Reply",
-			"Reply in thread",
-			"Message addressing",
-			"Message details",
-			"More actions",
-		]);
-		expect(screen.getByRole("button", { name: "More actions" })).toBeTruthy();
+		).toEqual(["Copy message", "Reply", "Reply in thread", "More actions"]);
+		fireEvent.click(screen.getByRole("button", { name: "More actions" }));
+		expect(
+			screen.getByRole("menuitem", { name: "Message details" })
+		).toBeTruthy();
+		expect(
+			screen.getByRole("menuitem", { name: "Message addressing" })
+		).toBeTruthy();
+		expect(screen.queryByRole("menuitem", { name: "Copy message" })).toBeNull();
+		expect(screen.queryByRole("menuitem", { name: "Reply" })).toBeNull();
+		expect(
+			screen.queryByRole("menuitem", { name: "Reply in thread" })
+		).toBeNull();
 	});
 
 	it("keeps a failed footer compact and moves every secondary action into More", () => {
@@ -219,6 +303,9 @@ describe("SpaceMessageFooter", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: "More actions" }));
 		expect(screen.getByRole("menuitem", { name: "Copy message" })).toBeTruthy();
+		expect(
+			screen.queryByRole("menuitem", { name: "Message details" })
+		).toBeNull();
 		expect(screen.getByRole("menuitem", { name: "Reply" })).toBeTruthy();
 		expect(
 			screen.getByRole("menuitem", { name: "Reply in thread" })
@@ -248,6 +335,24 @@ describe("SpaceMessageFooter", () => {
 		).toBeNull();
 	});
 
+	it("promotes Message details only when it reports a problem", () => {
+		render(
+			<SpaceMessageFooter
+				addressingTargets={[]}
+				details={{ hasProblem: true, onSelect: vi.fn() }}
+				onCopy={vi.fn()}
+			/>
+		);
+		expect(screen.getByTestId("details-warning")).toBeTruthy();
+		expect(
+			screen.getByRole("button", { name: "Message details" })
+		).toBeTruthy();
+		fireEvent.click(screen.getByRole("button", { name: "More actions" }));
+		expect(
+			screen.queryByRole("menuitem", { name: "Message details" })
+		).toBeNull();
+	});
+
 	it("opens structured Wake addressing from the footer", () => {
 		render(
 			<SpaceMessageFooter
@@ -257,14 +362,29 @@ describe("SpaceMessageFooter", () => {
 			/>
 		);
 
-		fireEvent.click(screen.getByRole("button", { name: "Message addressing" }));
-
-		const addressingPopover = screen
-			.getByText("Message addressing")
-			.closest('[data-slot="popover-content"]');
-		expect(addressingPopover?.className).toContain("rounded-md");
-		expect(screen.getByTestId("addressing-target")).toBeTruthy();
+		fireEvent.click(screen.getByRole("button", { name: "More actions" }));
+		fireEvent.click(
+			screen.getByRole("menuitem", { name: "Message addressing" })
+		);
 		expect(screen.getByText("Woke")).toBeTruthy();
 		expect(screen.getByText("Review Codex")).toBeTruthy();
+	});
+
+	it("shows a check only after copying succeeds", async () => {
+		const onCopy = vi
+			.fn<() => Promise<boolean>>()
+			.mockResolvedValueOnce(false)
+			.mockResolvedValueOnce(true);
+		render(<SpaceMessageFooter addressingTargets={[]} onCopy={onCopy} />);
+		const copyButton = screen.getByRole("button", { name: "Copy message" });
+
+		fireEvent.click(copyButton);
+		await waitFor(() => expect(onCopy).toHaveBeenCalledOnce());
+		expect(copyButton.getAttribute("aria-label")).toBe("Copy message");
+
+		fireEvent.click(copyButton);
+		await waitFor(() =>
+			expect(copyButton.getAttribute("aria-label")).toBe("Copied")
+		);
 	});
 });

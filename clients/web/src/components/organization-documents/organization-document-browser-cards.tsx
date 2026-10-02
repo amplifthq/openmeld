@@ -7,25 +7,19 @@ import type {
 import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
 import {
-	ContextMenu,
-	ContextMenuContent,
-	ContextMenuItem,
-	ContextMenuSeparator,
-	ContextMenuSub,
-	ContextMenuSubContent,
-	ContextMenuSubTrigger,
-	ContextMenuTrigger,
-} from "@openmeld/ui/components/context-menu";
-import {
 	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuItem,
 	DropdownMenuSeparator,
 	DropdownMenuSub,
-	DropdownMenuSubContent,
-	DropdownMenuSubTrigger,
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
+import { FluidContextMenu } from "@openmeld/ui/fluid/context-menu";
+import {
+	FluidDropdownMenuContent as DropdownMenuContent,
+	FluidDropdownMenuItem as DropdownMenuItem,
+	FluidDropdownMenuSubContent as DropdownMenuSubContent,
+	FluidDropdownMenuSubTrigger as DropdownMenuSubTrigger,
+	FluidDropdownMenuGroup,
+} from "@openmeld/ui/fluid/dropdown-menu";
 import { cardPickerCardClassName } from "@openmeld/ui/lib/card-picker-contract";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
@@ -40,9 +34,10 @@ import {
 } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
+import { ObjectMenuItems } from "#/components/app/object-menu-items";
 import {
 	buildOrganizationDocumentPath,
-	buildOrganizationDocumentsPath,
+	buildOrganizationFilesPath,
 } from "#/lib/organizations/organization-routes";
 import {
 	browserItemDropProps,
@@ -50,6 +45,7 @@ import {
 	documentKindLabel,
 	FOLDER_DRAG_TYPE,
 	type FolderMoveTarget,
+	organizationDocumentDisplayTitle,
 } from "./organization-document-browser-model";
 import { setBrowserItemDragPreview } from "./organization-document-drag-preview";
 
@@ -88,8 +84,8 @@ export function OrganizationDocumentFolderCard(input: {
 					event.dataTransfer.effectAllowed = "move";
 					setBrowserItemDragPreview(event);
 				}}
-				search={{ folder: input.folder.id }}
-				to={buildOrganizationDocumentsPath(input.orgSlug)}
+				search={{ folder: input.folder.id, view: "knowledge" }}
+				to={buildOrganizationFilesPath(input.orgSlug)}
 			>
 				<span className="grid size-12 place-items-center rounded-md border border-border/70 bg-background/70 text-foreground/75">
 					{dropActive ? (
@@ -127,22 +123,20 @@ export function OrganizationDocumentFolderCard(input: {
 		</article>
 	);
 
-	if (!canManageFolder) {
-		return card;
-	}
 	return (
-		<ContextMenu>
-			<ContextMenuTrigger render={card} />
-			<ContextMenuContent>
+		<FluidContextMenu target={card}>
+			<ObjectMenuItems
+				href={`${buildOrganizationFilesPath(input.orgSlug)}?view=knowledge&folder=${encodeURIComponent(input.folder.id)}`}
+			/>
+			{canManageFolder ? (
 				<FolderMenuItems
 					moveTargets={input.moveTargets}
 					onDelete={input.onDelete}
 					onMove={input.onMove}
 					onRename={input.onRename}
-					variant="context"
 				/>
-			</ContextMenuContent>
-		</ContextMenu>
+			) : null}
+		</FluidContextMenu>
 	);
 }
 
@@ -184,7 +178,9 @@ export function OrganizationDocumentFileCard(input: {
 				</span>
 				<div className="mt-auto min-w-0 pt-5">
 					<div className="flex min-w-0 flex-wrap items-center gap-2">
-						<h2 className="truncate font-medium text-base">{document.title}</h2>
+						<h2 className="truncate font-medium text-base">
+							{organizationDocumentDisplayTitle(document)}
+						</h2>
 						{document.kind === "brief" ? (
 							<Badge variant="outline">Brief</Badge>
 						) : null}
@@ -200,7 +196,7 @@ export function OrganizationDocumentFileCard(input: {
 			</Link>
 			{input.canManage ? (
 				<DocumentActions
-					documentTitle={document.title}
+					documentTitle={organizationDocumentDisplayTitle(document)}
 					moveTargets={input.canMove ? input.moveTargets : []}
 					onDelete={input.onDelete}
 					onMove={input.onMove}
@@ -209,21 +205,22 @@ export function OrganizationDocumentFileCard(input: {
 		</article>
 	);
 
-	if (!input.canManage) {
-		return card;
-	}
 	return (
-		<ContextMenu>
-			<ContextMenuTrigger render={card} />
-			<ContextMenuContent>
+		<FluidContextMenu target={card}>
+			<ObjectMenuItems
+				href={buildOrganizationDocumentPath({
+					documentId: document.id,
+					orgSlug: input.orgSlug,
+				})}
+			/>
+			{input.canManage ? (
 				<DocumentMenuItems
 					moveTargets={input.canMove ? input.moveTargets : []}
 					onDelete={input.onDelete}
 					onMove={input.onMove}
-					variant="context"
 				/>
-			</ContextMenuContent>
-		</ContextMenu>
+			) : null}
+		</FluidContextMenu>
 	);
 }
 
@@ -250,7 +247,7 @@ function FolderActions(input: {
 					<DotsThreeIcon aria-hidden="true" weight="bold" />
 				</DropdownMenuTrigger>
 				<DropdownMenuContent align="end">
-					<FolderMenuItems {...input} variant="dropdown" />
+					<FolderMenuItems {...input} />
 				</DropdownMenuContent>
 			</DropdownMenu>
 		</div>
@@ -279,7 +276,7 @@ function DocumentActions(input: {
 					<DotsThreeIcon aria-hidden="true" weight="bold" />
 				</DropdownMenuTrigger>
 				<DropdownMenuContent align="end">
-					<DocumentMenuItems {...input} variant="dropdown" />
+					<DocumentMenuItems {...input} />
 				</DropdownMenuContent>
 			</DropdownMenu>
 		</div>
@@ -291,62 +288,41 @@ function FolderMenuItems(input: {
 	onDelete: () => void;
 	onMove: (folderId: string | null) => void;
 	onRename: () => void;
-	variant: "context" | "dropdown";
 }) {
-	if (input.variant === "context") {
-		return (
-			<>
-				<ContextMenuItem onClick={input.onRename}>
+	return (
+		<>
+			<FluidDropdownMenuGroup>
+				<DropdownMenuItem index={0} onClick={input.onRename}>
 					<PencilSimpleIcon aria-hidden="true" /> Rename…
-				</ContextMenuItem>
+				</DropdownMenuItem>
 				{input.moveTargets.length > 0 ? (
-					<ContextMenuSub>
-						<ContextMenuSubTrigger>
+					<DropdownMenuSub>
+						<DropdownMenuSubTrigger index={1}>
 							<FolderIcon aria-hidden="true" /> Move to
-						</ContextMenuSubTrigger>
-						<ContextMenuSubContent>
-							{input.moveTargets.map((target) => (
-								<ContextMoveTarget
+						</DropdownMenuSubTrigger>
+						<DropdownMenuSubContent>
+							{input.moveTargets.map((target, index) => (
+								<DropdownMoveTarget
+									index={index}
 									key={target.id ?? "root"}
 									onMove={input.onMove}
 									target={target}
 								/>
 							))}
-						</ContextMenuSubContent>
-					</ContextMenuSub>
+						</DropdownMenuSubContent>
+					</DropdownMenuSub>
 				) : null}
-				<ContextMenuSeparator />
-				<ContextMenuItem onClick={input.onDelete} variant="destructive">
-					<TrashIcon aria-hidden="true" /> Delete…
-				</ContextMenuItem>
-			</>
-		);
-	}
-	return (
-		<>
-			<DropdownMenuItem onClick={input.onRename}>
-				<PencilSimpleIcon aria-hidden="true" /> Rename…
-			</DropdownMenuItem>
-			{input.moveTargets.length > 0 ? (
-				<DropdownMenuSub>
-					<DropdownMenuSubTrigger>
-						<FolderIcon aria-hidden="true" /> Move to
-					</DropdownMenuSubTrigger>
-					<DropdownMenuSubContent>
-						{input.moveTargets.map((target) => (
-							<DropdownMoveTarget
-								key={target.id ?? "root"}
-								onMove={input.onMove}
-								target={target}
-							/>
-						))}
-					</DropdownMenuSubContent>
-				</DropdownMenuSub>
-			) : null}
+			</FluidDropdownMenuGroup>
 			<DropdownMenuSeparator />
-			<DropdownMenuItem onClick={input.onDelete} variant="destructive">
-				<TrashIcon aria-hidden="true" /> Delete…
-			</DropdownMenuItem>
+			<FluidDropdownMenuGroup>
+				<DropdownMenuItem
+					index={2}
+					onClick={input.onDelete}
+					variant="destructive"
+				>
+					<TrashIcon aria-hidden="true" /> Delete…
+				</DropdownMenuItem>
+			</FluidDropdownMenuGroup>
 		</>
 	);
 }
@@ -355,82 +331,52 @@ function DocumentMenuItems(input: {
 	moveTargets: FolderMoveTarget[];
 	onDelete: () => void;
 	onMove: (folderId: string | null) => void;
-	variant: "context" | "dropdown";
 }) {
-	if (input.variant === "context") {
-		return (
-			<>
+	return (
+		<>
+			<FluidDropdownMenuGroup>
 				{input.moveTargets.length > 0 ? (
-					<ContextMenuSub>
-						<ContextMenuSubTrigger>
+					<DropdownMenuSub>
+						<DropdownMenuSubTrigger index={1}>
 							<FolderIcon aria-hidden="true" /> Move to
-						</ContextMenuSubTrigger>
-						<ContextMenuSubContent>
-							{input.moveTargets.map((target) => (
-								<ContextMoveTarget
+						</DropdownMenuSubTrigger>
+						<DropdownMenuSubContent>
+							{input.moveTargets.map((target, index) => (
+								<DropdownMoveTarget
+									index={index}
 									key={target.id ?? "root"}
 									onMove={input.onMove}
 									target={target}
 								/>
 							))}
-						</ContextMenuSubContent>
-					</ContextMenuSub>
+						</DropdownMenuSubContent>
+					</DropdownMenuSub>
 				) : null}
-				<ContextMenuSeparator />
-				<ContextMenuItem onClick={input.onDelete} variant="destructive">
-					<TrashIcon aria-hidden="true" /> Delete…
-				</ContextMenuItem>
-			</>
-		);
-	}
-	return (
-		<>
-			{input.moveTargets.length > 0 ? (
-				<DropdownMenuSub>
-					<DropdownMenuSubTrigger>
-						<FolderIcon aria-hidden="true" /> Move to
-					</DropdownMenuSubTrigger>
-					<DropdownMenuSubContent>
-						{input.moveTargets.map((target) => (
-							<DropdownMoveTarget
-								key={target.id ?? "root"}
-								onMove={input.onMove}
-								target={target}
-							/>
-						))}
-					</DropdownMenuSubContent>
-				</DropdownMenuSub>
-			) : null}
+			</FluidDropdownMenuGroup>
 			<DropdownMenuSeparator />
-			<DropdownMenuItem onClick={input.onDelete} variant="destructive">
-				<TrashIcon aria-hidden="true" /> Delete…
-			</DropdownMenuItem>
+			<FluidDropdownMenuGroup>
+				<DropdownMenuItem
+					index={2}
+					onClick={input.onDelete}
+					variant="destructive"
+				>
+					<TrashIcon aria-hidden="true" /> Delete…
+				</DropdownMenuItem>
+			</FluidDropdownMenuGroup>
 		</>
 	);
 }
 
-function ContextMoveTarget(input: {
-	onMove: (folderId: string | null) => void;
-	target: FolderMoveTarget;
-}) {
-	return (
-		<ContextMenuItem onClick={() => input.onMove(input.target.id)}>
-			{input.target.id === null ? (
-				<HouseLineIcon aria-hidden="true" />
-			) : (
-				<FolderIcon aria-hidden="true" />
-			)}
-			{input.target.label}
-		</ContextMenuItem>
-	);
-}
-
 function DropdownMoveTarget(input: {
+	index: number;
 	onMove: (folderId: string | null) => void;
 	target: FolderMoveTarget;
 }) {
 	return (
-		<DropdownMenuItem onClick={() => input.onMove(input.target.id)}>
+		<DropdownMenuItem
+			index={input.index}
+			onClick={() => input.onMove(input.target.id)}
+		>
 			{input.target.id === null ? (
 				<HouseLineIcon aria-hidden="true" />
 			) : (

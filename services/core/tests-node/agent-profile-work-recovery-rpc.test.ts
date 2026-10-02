@@ -78,7 +78,11 @@ describe("Agent Profile work recovery Core RPC", () => {
           createEnv({ db: harness.db, runtimeTransportStub }),
           {
             agentProfileId: AGENT_PROFILE_ID,
-            body: { action: "approve_queued_work" },
+            body: {
+              action: "approve_queued_work",
+              expectedInterruptedTargetWakeLifecycleId:
+                TARGET_WAKE_LIFECYCLE_ID,
+            },
             context: {
               ...CONTEXT,
               activeOrganizationId: "org-2",
@@ -108,7 +112,11 @@ describe("Agent Profile work recovery Core RPC", () => {
           createEnv({ db: harness.db, runtimeTransportStub }),
           {
             agentProfileId: AGENT_PROFILE_ID,
-            body: { action: "approve_queued_work" },
+            body: {
+              action: "approve_queued_work",
+              expectedInterruptedTargetWakeLifecycleId:
+                TARGET_WAKE_LIFECYCLE_ID,
+            },
             context: {
               ...CONTEXT,
               actorContext: {
@@ -155,7 +163,11 @@ describe("Agent Profile work recovery Core RPC", () => {
           }),
           {
             agentProfileId: AGENT_PROFILE_ID,
-            body: { action: "approve_queued_work" },
+            body: {
+              action: "approve_queued_work",
+              expectedInterruptedTargetWakeLifecycleId:
+                TARGET_WAKE_LIFECYCLE_ID,
+            },
             context: CONTEXT,
           }
         )
@@ -184,6 +196,26 @@ describe("Agent Profile work recovery Core RPC", () => {
       recovery: buildAvailableRecovery({ action: "approve_queued_work" }),
       scenario: "mismatched action",
     },
+    {
+      bodyAction: "continue_interrupted_work" as const,
+      recovery: buildAvailableRecovery({ action: "fork_interrupted_work" }),
+      scenario: "Continue without a saved Fork choice",
+    },
+    ...(
+      [
+        "approve_queued_work",
+        "continue_interrupted_work",
+        "skip_interrupted_work",
+        "fork_interrupted_work",
+      ] as const
+    ).map((action) => ({
+      bodyAction: action,
+      recovery: {
+        ...buildAvailableRecovery({ action }),
+        interruptedTargetWakeLifecycleId: "twl_newer_recovery",
+      },
+      scenario: `old ${action} against newer interrupted work`,
+    })),
   ])("returns 409 for a $scenario", async ({ bodyAction, recovery }) => {
     const harness = createRecoveryHarness();
     const runtimeTransportStub = createRuntimeTransportStub({ recovery });
@@ -193,7 +225,11 @@ describe("Agent Profile work recovery Core RPC", () => {
           createEnv({ db: harness.db, runtimeTransportStub }),
           {
             agentProfileId: AGENT_PROFILE_ID,
-            body: { action: bodyAction },
+            body: {
+              action: bodyAction,
+              expectedInterruptedTargetWakeLifecycleId:
+                TARGET_WAKE_LIFECYCLE_ID,
+            },
             context: CONTEXT,
           }
         )
@@ -208,6 +244,12 @@ describe("Agent Profile work recovery Core RPC", () => {
       ).not.toHaveBeenCalled();
       expect(
         runtimeTransportStub.rpcAuthorizeAgentProfileWorkContinuation
+      ).not.toHaveBeenCalled();
+      expect(
+        runtimeTransportStub.rpcSkipAgentProfileInterruptedWork
+      ).not.toHaveBeenCalled();
+      expect(
+        runtimeTransportStub.rpcRequestAgentProfileWorkLocalAttemptWithdrawal
       ).not.toHaveBeenCalled();
     } finally {
       harness.close();
@@ -231,7 +273,11 @@ describe("Agent Profile work recovery Core RPC", () => {
           createEnv({ db: harness.db, runtimeTransportStub }),
           {
             agentProfileId: AGENT_PROFILE_ID,
-            body: { action: "approve_queued_work" },
+            body: {
+              action: "approve_queued_work",
+              expectedInterruptedTargetWakeLifecycleId:
+                TARGET_WAKE_LIFECYCLE_ID,
+            },
             context: CONTEXT,
           }
         )
@@ -251,6 +297,7 @@ describe("Agent Profile work recovery Core RPC", () => {
       expect(
         runtimeTransportStub.rpcApproveAgentProfileWorkQueue
       ).toHaveBeenCalledWith({
+        expectedInterruptedTargetWakeLifecycleId: TARGET_WAKE_LIFECYCLE_ID,
         ownerUserId: "owner-1",
         targetProfileId: AGENT_PROFILE_ID,
       });
@@ -297,10 +344,15 @@ describe("Agent Profile work recovery Core RPC", () => {
     }
   });
 
-  it("rejects an unfenced Skip before reading or mutating owner state", async () => {
+  it.each([
+    "approve_queued_work",
+    "continue_interrupted_work",
+    "skip_interrupted_work",
+    "fork_interrupted_work",
+  ] as const)("rejects unfenced %s before reading or mutating owner state", async (action) => {
     const harness = createRecoveryHarness();
     const runtimeTransportStub = createRuntimeTransportStub({
-      recovery: buildAvailableRecovery({ action: "skip_interrupted_work" }),
+      recovery: buildAvailableRecovery({ action }),
     });
     try {
       await expect(
@@ -308,7 +360,7 @@ describe("Agent Profile work recovery Core RPC", () => {
           createEnv({ db: harness.db, runtimeTransportStub }),
           {
             agentProfileId: AGENT_PROFILE_ID,
-            body: { action: "skip_interrupted_work" } as never,
+            body: { action } as never,
             context: CONTEXT,
           }
         )
@@ -366,7 +418,10 @@ describe("Agent Profile work recovery Core RPC", () => {
     const env = createEnv({ db: harness.db, runtimeTransportStub, spaceStub });
     const input = {
       agentProfileId: AGENT_PROFILE_ID,
-      body: { action: "continue_interrupted_work" as const },
+      body: {
+        action: "continue_interrupted_work" as const,
+        expectedInterruptedTargetWakeLifecycleId: TARGET_WAKE_LIFECYCLE_ID,
+      },
       context: CONTEXT,
     };
     try {
@@ -457,7 +512,10 @@ describe("Agent Profile work recovery Core RPC", () => {
       await expect(
         rpcExecuteAgentProfileWorkRecovery(env, {
           agentProfileId: AGENT_PROFILE_ID,
-          body: { action: "continue_interrupted_work" },
+          body: {
+            action: "continue_interrupted_work",
+            expectedInterruptedTargetWakeLifecycleId: TARGET_WAKE_LIFECYCLE_ID,
+          },
           context: CONTEXT,
         })
       ).rejects.toMatchObject({
@@ -627,7 +685,10 @@ describe("Agent Profile work recovery Core RPC", () => {
       await expect(
         rpcExecuteAgentProfileWorkRecovery(env, {
           agentProfileId: AGENT_PROFILE_ID,
-          body: { action: "continue_interrupted_work" },
+          body: {
+            action: "continue_interrupted_work",
+            expectedInterruptedTargetWakeLifecycleId: TARGET_WAKE_LIFECYCLE_ID,
+          },
           context: CONTEXT,
         })
       ).resolves.toEqual({

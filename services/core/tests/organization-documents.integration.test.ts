@@ -2253,9 +2253,7 @@ describe("Organization documents", () => {
     });
     await expect(
       service.createFolder(fixture.admin, { name: "runbooks" })
-    ).rejects.toMatchObject({
-      cause: { code: "organization_document.folder_exists", status: 409 },
-    });
+    ).resolves.toMatchObject({ name: "runbooks (2)" });
 
     const doc = await service.create(fixture.owner, {
       content: "Inside a folder",
@@ -2276,7 +2274,10 @@ describe("Organization documents", () => {
     ).rejects.toMatchObject({ cause: { status: 403 } });
 
     const folders = await service.listFolders(fixture.member);
-    expect(folders).toHaveLength(2);
+    expect(folders).toHaveLength(3);
+    expect(folders).toContainEqual(
+      expect.objectContaining({ name: "runbooks (2)" })
+    );
     expect(folders).toContainEqual(
       expect.objectContaining({
         name: "Production",
@@ -2302,6 +2303,7 @@ describe("Organization documents", () => {
         name: "Production",
         parentFolderId: null,
       }),
+      expect.objectContaining({ name: "runbooks (2)", parentFolderId: null }),
     ]);
   });
 
@@ -2321,9 +2323,7 @@ describe("Organization documents", () => {
         name: "runbooks",
         parentFolderId: product.id,
       })
-    ).rejects.toMatchObject({
-      cause: { code: "organization_document.folder_exists", status: 409 },
-    });
+    ).resolves.toMatchObject({ name: "runbooks (2)" });
     await expect(
       service.createFolder(fixture.owner, { name: "Runbooks" })
     ).resolves.toMatchObject({ parentFolderId: null });

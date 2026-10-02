@@ -1,4 +1,7 @@
-import { resolveCommandAgentWorkActivity } from "@openmeld/schemas";
+import {
+  connectorActionOutcomeUnknownSchema,
+  resolveCommandAgentWorkActivity,
+} from "@openmeld/schemas";
 import type { AgentWorkActivity } from "@openmeld/schemas/types";
 import { resolveConnectedAppDisplayName } from "../agent-core/connector-service-presentation";
 import { isRemoteAgentDestructiveConfirmationResult } from "../agent-core/destructive-authorization";
@@ -75,6 +78,7 @@ const TOOL_WORK_BY_NAME = new Map<string, AgentWorkActivityKey>([
   ["openmeld_post_space_message", "space.message.post"],
   ["openmeld_prepare_remove_project", "project.remove.prepare"],
   ["openmeld_read_agent_activity", "agent.activity.read"],
+  ["openmeld_read_ai_usage", "agent.activity.read"],
   [
     "openmeld_read_agent_profile_creation_defaults",
     "agent_profile.settings.read",
@@ -131,6 +135,9 @@ const TOOL_WORK_BY_NAME = new Map<string, AgentWorkActivityKey>([
   ["openmeld_read_slack_workspace_directory", "slack.members.read"],
   ["openmeld_send_slack_file", "slack.file.send"],
   ["openmeld_read_space_context", "space.context.read"],
+  ["openmeld_list_team_files", "team.files.read"],
+  ["openmeld_read_team_file", "team.files.read"],
+  ["openmeld_save_team_file", "team.files.update"],
   ["openmeld_list_space_files", "space.files.read"],
   ["openmeld_read_space_file", "space.files.read"],
   ["openmeld_save_space_file", "space.files.update"],
@@ -284,15 +291,24 @@ export function resolveRemoteAgentToolWorkActivity(
       key,
       v: 1,
       ...(subject ? { subject } : {}),
-      ...(isRemoteAgentDestructiveConfirmationResult(toolResult)
-        ? { outcome: "confirmation_required" as const }
-        : {}),
+      ...resolveRemoteAgentToolWorkOutcome(toolResult),
     };
   }
   if (toolName !== "bash") {
     return null;
   }
   return resolveCommandAgentWorkActivity(readCommand(toolInput));
+}
+
+export function resolveRemoteAgentToolWorkOutcome(
+  toolResult: unknown
+): Pick<AgentWorkActivity, "outcome"> {
+  if (isRemoteAgentDestructiveConfirmationResult(toolResult)) {
+    return { outcome: "confirmation_required" };
+  }
+  return connectorActionOutcomeUnknownSchema.safeParse(toolResult).success
+    ? { outcome: "outcome_unknown" }
+    : {};
 }
 
 function resolveSafeToolSubject(

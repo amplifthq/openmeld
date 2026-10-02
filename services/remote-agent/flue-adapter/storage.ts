@@ -1,4 +1,5 @@
 import type {
+  RemoteAgentConditionalWrite,
   RemoteAgentReadableStorage,
   RemoteAgentStorage,
   RemoteAgentWritableStorage,
@@ -23,6 +24,39 @@ export class RemoteAgentSqlStorage
   constructor(sql: SqlStorage) {
     this.sql = sql;
     this.ensureTable();
+  }
+
+  compareAndSetPair<A, B>(
+    first: RemoteAgentConditionalWrite<A>,
+    second: RemoteAgentConditionalWrite<B>
+  ): Promise<boolean> {
+    if (first.key === second.key) {
+      throw new Error("An atomic record pair requires two distinct keys.");
+    }
+    // Materialize the precondition before either row changes. A single SQL
+    // statement provides all-or-none ownership and metadata persistence in
+    // both workerd and SQLite without changing either record's wire shape.
+    const updated = this.sql.exec(
+      `WITH matching AS MATERIALIZED (
+        SELECT COUNT(*) AS count FROM ${TABLE_NAME}
+        WHERE (key = ? AND value_json = ?) OR (key = ? AND value_json = ?)
+      )
+      UPDATE ${TABLE_NAME}
+      SET value_json = CASE key WHEN ? THEN ? ELSE ? END,
+          updated_at_ms = ?, expires_at_ms = NULL
+      WHERE key IN (?, ?) AND (SELECT count FROM matching) = 2`,
+      first.key,
+      JSON.stringify(first.expectedValue),
+      second.key,
+      JSON.stringify(second.expectedValue),
+      first.key,
+      JSON.stringify(first.nextValue),
+      JSON.stringify(second.nextValue),
+      Date.now(),
+      first.key,
+      second.key
+    );
+    return Promise.resolve((updated.rowsWritten ?? 0) === 2);
   }
 
   compareAndSet<T>(

@@ -11,6 +11,19 @@
 @source "../../../packages/ui/src";
 @source "../node_modules/streamdown/dist";
 
+/* Both display choices keep the same Fluid rows and indicator targets. */
+html[data-sidebar-display="icons-only"] [data-slot="app-outer-rail"][data-presentation="inline"] {
+	width: var(--app-rail-icon-width);
+
+	[data-slot="app-rail-label"] {
+		display: none;
+	}
+	[data-app-rail-item],
+	[data-app-rail-link] {
+		height: 2.5rem;
+	}
+}
+
 @media (prefers-reduced-motion: reduce) {
   [data-sd-animate] {
     animation: none;
@@ -178,7 +191,7 @@ html[data-space-self-message-alignment="left"]
   align-self: flex-start;
 }
 
-[data-slot="message-content"]:not([data-direct-message]) [data-slot="bubble"] {
+[data-thread-message] [data-slot="message-content"]:not([data-direct-message]) [data-slot="bubble"] {
   max-inline-size: min(100%, 52rem);
 }
 
@@ -186,7 +199,6 @@ html[data-space-self-message-alignment="right"]
   [data-space-self-message="true"]:not([data-thread-message])
   [data-slot="bubble"] {
   inline-size: fit-content;
-  max-inline-size: min(68%, calc(100% - 11rem), 52rem);
 }
 
 html[data-space-self-message-alignment="right"]
@@ -321,59 +333,41 @@ html[data-space-self-message-alignment="right"]
   content-visibility: visible;
 }
 
-/* Main conversation messages reserve a side for floating actions. Thread actions
-   sit below the bubble, so Thread messages can use the panel's full width. */
-:root [data-message-row-id]:not([data-thread-message]) [data-slot="bubble"] {
-  max-inline-size: min(calc(100% - 11rem), 52rem);
+/* Attachment rails use the available message width, including after an inline
+   edit adds the first file. */
+html:root [data-slot="message"] [data-slot="bubble"]:has([data-slot="space-attachment-strip"]) {
+  inline-size: 100%;
+}
+
+/* Match the attachment-to-caption gap to the spacing between grouped messages.
+   The attachment rail already contributes its own 4px inset. */
+html:root [data-slot="message"] [data-slot="bubble-content"]:has(> [data-slot="space-attachment-strip"]) {
+  row-gap: 1px;
+}
+
+/* The same Appearance preference aligns text and attachments, not only their
+   outer message. A short caption must not stay on the opposite side. */
+html[data-space-self-message-alignment="left"]
+  [data-space-self-message="true"] :is([data-slot="space-message-text-surface"], [data-slot="space-message-edited"]) {
+  align-self: flex-start;
+}
+
+html[data-space-self-message-alignment="left"]
+  [data-space-self-message="true"] [data-slot="space-attachment-strip"] {
+  margin-inline-start: 0;
+  margin-inline-end: auto;
+}
+
+html[data-space-self-message-alignment="left"]
+  [data-space-self-message="true"] .space-attachment-strip-items {
+  justify-content: flex-start;
 }
 
 @container space-message-row (max-width: 32rem) {
-  :root [data-message-row-id]:not([data-thread-message]) [data-slot="bubble"] {
-    max-inline-size: calc(100% - 4rem);
-  }
-
-  html[data-space-self-message-alignment="right"]
-    [data-space-self-message="true"]:not([data-thread-message])
-    [data-slot="bubble"] {
-    max-inline-size: calc(100% - 4rem);
-  }
-
   [data-message-row-id]:not([data-thread-message])
     [data-slot="message-footer-standard-actions"] {
     display: none;
   }
-}
-
-/* Direct messages keep their existing content width. Their time lives in the
-   shared hover toolbar, which can float above a bubble when the side is full. */
-:root [data-direct-message] [data-slot="bubble"] {
-  max-inline-size: 100%;
-}
-
-html[data-space-self-message-alignment="right"]
-  [data-space-self-message="true"]:not([data-thread-message])
-  [data-direct-message]
-  [data-slot="bubble"] {
-  max-inline-size: min(68%, 52rem);
-}
-
-@container space-message-row (max-width: 32rem) {
-  html[data-space-self-message-alignment="right"]
-    [data-space-self-message="true"]:not([data-thread-message])
-    [data-direct-message]
-    [data-slot="bubble"] {
-    max-inline-size: min(88%, 52rem);
-  }
-}
-
-/* A video needs a stable frame width; ordinary text bubbles still shrink to fit. */
-:root [data-message-row-id] [data-slot="bubble"][data-video-message="true"],
-html[data-space-self-message-alignment="right"]
-  [data-space-self-message="true"]
-  [data-message-row-id]
-  [data-slot="bubble"][data-video-message="true"] {
-  inline-size: min(100%, 26rem);
-  max-inline-size: min(100%, 26rem);
 }
 
 @media (min-width: 1280px) {
@@ -736,16 +730,18 @@ html[data-space-conversation-layout] [data-desk-space-window]
     }
   }
 }
-/* Reserve navigation space in the shared message/composer frame, including
-   Full Width. Centered keeps its existing center while sufficient margin exists. */
-html [data-space-history-rail="true"] [data-space-conversation-content-width] {
-  width: calc(100% - 3.25rem);
-  margin-inline-start: 3.25rem;
-}
-html[data-space-conversation-layout="centered"] [data-space-history-rail="true"] [data-space-conversation-content-width] {
-  margin-inline: auto;
-  position: relative;
-  inset-inline-start: min(1.625rem, max(0px, calc((var(--space-conversation-centered-max-width) + 3.25rem - 100%) / 2)));
+/* Reserve the rail lane before its directory loads. Appearance is restored
+   before hydration, so an off preference does not briefly move messages. */
+@media (min-width: 640px) {
+  html:not([data-space-history-slider="off"]) [data-space-history-rail="true"] [data-space-conversation-content-width] {
+    width: calc(100% - 2.75rem);
+    margin-inline-start: 2.75rem;
+  }
+  html[data-space-conversation-layout="centered"]:not([data-space-history-slider="off"]) [data-space-history-rail="true"] [data-space-conversation-content-width] {
+    margin-inline: auto;
+    position: relative;
+    inset-inline-start: min(1.375rem, max(0px, calc((var(--space-conversation-centered-max-width) + 2.75rem - 100%) / 2)));
+  }
 }
 .space-history-navigation {
   position: absolute;
@@ -753,7 +749,7 @@ html[data-space-conversation-layout="centered"] [data-space-history-rail="true"]
   inset-inline-start: .5rem;
   top: 50%;
   translate: 0 -50%;
-  width: 2.75rem;
+  width: 2.25rem;
   max-height: 60%;
 }
 .space-history-ticks { display: flex; flex-direction: column; height: 100%; }
@@ -762,7 +758,7 @@ html[data-space-conversation-layout="centered"] [data-space-history-rail="true"]
   padding: 0 .25rem; cursor: pointer; outline-offset: 2px;
 }
 .space-history-dash {
-  display: block; width: 2.25rem; height: 2px;
+  display: block; width: 1.75rem; height: 2px;
   background: var(--muted-foreground); opacity: .45; transform-origin: left; transform: scaleX(.25);
 }
 .space-history-tick[data-hovered] .space-history-dash { background: var(--foreground); opacity: 1; }

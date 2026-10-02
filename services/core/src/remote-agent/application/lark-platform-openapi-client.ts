@@ -10,6 +10,7 @@ import type {
   ChannelContextMessage,
   NormalizedMessageChannelEvent,
 } from "@openmeld/schemas/types";
+import { readLarkPlatformMessageSnapshot } from "./lark-platform-event-normalizer";
 import { readLarkPlatformPostContent } from "./lark-platform-post-content";
 import type {
   LarkPlatformMessageChannelProvider,
@@ -18,6 +19,7 @@ import type {
   MessageChannelPublicationResult,
   MessageChannelResourceDownloadResult,
 } from "./message-channel-adapters";
+import { buildPluginChannelSourceProof } from "./plugin-channel-source-proof";
 
 const LARK_PLATFORM_API_HOSTS: Record<
   LarkPlatformMessageChannelProvider,
@@ -164,6 +166,62 @@ export async function readLarkPlatformChannelContext(input: {
       status: truncated ? "truncated" : "complete",
     },
   });
+}
+
+export async function readLarkPlatformPluginSourceProof(input: {
+  appId: string;
+  appSecret: string;
+  botOpenId: string | null;
+  provider: LarkPlatformMessageChannelProvider;
+  messageId: string;
+  chatId: string;
+  rootMessageId: string;
+  fetchImpl?: typeof fetch;
+}) {
+  const fetchImpl = input.fetchImpl ?? fetch;
+  const apiHost = getLarkPlatformApiHost(input.provider);
+  const token = await requestLarkPlatformTenantAccessToken({
+    ...input,
+    apiHost,
+    fetchImpl,
+  });
+  if (token.status !== "ready") {
+    throw new Error("plugin.channel.provider_access_unavailable");
+  }
+  const response = await fetchImpl(
+    `${apiHost}/open-apis/im/v1/messages/${encodeURIComponent(input.messageId)}?user_id_type=open_id`,
+    {
+      method: "GET",
+      headers: { Authorization: `Bearer ${token.tenantAccessToken}` },
+      signal: AbortSignal.timeout(15_000),
+    }
+  );
+  const body = await readJsonObject(response);
+  if (!response.ok || readProviderCode(body) !== 0) {
+    throw new Error("plugin.channel.source_read_failed");
+  }
+  const items = readArray(readObject(body, "data"), "items");
+  const item = items.find(
+    (value) =>
+      isJsonObject(value) && readString(value, "message_id") === input.messageId
+  );
+  if (
+    !isJsonObject(item) ||
+    readString(item, "chat_id") !== input.chatId ||
+    (readString(item, "root_id") ?? input.messageId) !== input.rootMessageId
+  ) {
+    return null;
+  }
+  const snapshot = readLarkPlatformMessageSnapshot({
+    item,
+    botOpenId: input.botOpenId,
+  });
+  return snapshot
+    ? await buildPluginChannelSourceProof({
+        ...snapshot,
+        provider: input.provider,
+      })
+    : null;
 }
 
 export async function publishLarkPlatformReply(input: {

@@ -27,6 +27,8 @@ function directMessageAvatar(
 		<SpaceProfileIcon
 			agentControllerRef={peer.agentControllerRef}
 			avatarImageUrl={peer.avatarUrl}
+			avatarModelId={peer.avatarModelId}
+			avatarStyle={peer.avatarStyle}
 			profileId={peer.profileId}
 			profileKind={peer.profileKind}
 			profileName={peer.profileName}
@@ -95,7 +97,11 @@ export function InboxAvatarProvider({ children }: { children: ReactNode }) {
 			if (profile) {
 				result.set(
 					session.spaceId,
-					<CenterAgentChatAvatar profileName={profile.profileName} />
+					<CenterAgentChatAvatar
+						avatarStyle={profile.avatarStyle}
+						profileId={profile.profileId}
+						profileName={profile.profileName}
+					/>
 				);
 			}
 		}

@@ -97,6 +97,19 @@ separately from this product contract.
 
 ## Product Promise And Vocabulary
 
+Routine execution failures and expired admission-receipt recovery use the
+shared owner-supplied Agent failure facts. An expired receipt recovery does
+not prove that the Run never executed; its notice retains uncertainty and asks
+the member to check existing results before repeating work. Failure redrive
+retains that meaning even when the native delivery record is unavailable: the
+Run's unconfirmed-admission failure remains authoritative, and its Run locator
+is retained without inventing an execution receipt. These paths use
+the upstream Agent's semantic reply-language decision when the Run is a
+delegated or watched continuation carrying that fact. They use the Organization
+working-language preference as an explicit fallback when the task fact is absent,
+then English. Initial Run failures do not yet receive a task language fact;
+other pre-admission failure notices still use the legacy English presentation.
+
 A **Routine** is an organization-owned instruction that asks the designated
 Center Agent to do work once or on an explicit recurring schedule. A **Run** is one
 durable scheduling or execution record. It normally represents one occurrence;
@@ -580,7 +593,12 @@ overdue range or quarantine -> skipped
 - `completed` means one final result was published to the frozen destination.
 - `failed` means execution or delivery reached an explicit terminal failure;
   the frozen destination must receive the failure unless publication remains visibly
-  pending or outcome-unknown under its fence.
+  pending or outcome-unknown under its fence. A published failure includes its
+  exact Run ID. For Center Agent Runs in an OpenMeld Space, the failure also
+  links to that Run in Web history when the Organization Web route is available.
+  An empty Agent reply remains a failed Run after the provider's bounded
+  empty-stream retry; the message tells the member to request the work again
+  if needed, without automatically replaying the Routine or its tools.
 - `skipped` means no model turn was started. It may record one claimed
   occurrence or summarize a bounded overdue range. It stays visible in
   management history and does not publish a destination message.

@@ -75,6 +75,7 @@ for (const args of [
   }
   const code = await runOwnedCommand("pnpm", args, {
     cwd: root,
+    windowsJob: Boolean(plan.windows),
     env: {
       ...process.env,
       ...(plan.generateMacIcons ||
