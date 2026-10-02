@@ -1961,6 +1961,12 @@ continuation JSON. Readers retain bounded compatibility for historical rows
 that contain the former Space destination fields, but those fields do not
 override the observer ledger.
 
+Space Wake progress preserves that native delivery's parent source signal in
+both summary and Stop-enabled reads. A child's published result is causal
+evidence, not a replacement source: it may belong to another Space or thread.
+Source context is resolved within the parent Space, while the existing reply
+stream owns the selected reply placement.
+
 The Center Agent's manual summary tool can create one fresh continuation for
 the original requester after a delegated summary has confirmed native failure
 or cancellation. It checks current requester membership and Space write access,
