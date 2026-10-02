@@ -49,7 +49,7 @@ const INBOX_SPACE_TARGET_FILTER = `
   )
   AND json_extract(source_target_json, '$.spaceId') IS NOT NULL
 `;
-const INBOX_SPACE_MESSAGE_FILTER = `
+export const INBOX_SPACE_MESSAGE_FILTER = `
   source_kind = 'space_signal'
   AND attention = 'update'
   AND ${INBOX_SPACE_TARGET_FILTER}
@@ -359,6 +359,7 @@ export function createInboxService(input: {
     },
 
     async spaceUnreadTargets(targetInput: {
+      includeItemIds?: boolean;
       organizationId: string;
       recipientUserId: string;
       spaceId: string;
@@ -388,7 +389,7 @@ export function createInboxService(input: {
       const targetResult = await input.db
         .prepare(
           `
-            SELECT occurred_at_ms, source_target_json
+            SELECT id, occurred_at_ms, source_target_json
             FROM inbox_items
             WHERE ${filters}
               AND json_extract(source_target_json, '$.signalId') IS NOT NULL
@@ -408,6 +409,7 @@ export function createInboxService(input: {
         }>();
       const totalUnreadCount = countValue(countRow?.unread_count);
       const rows = (targetResult.results ?? []) as Array<{
+        id: string;
         occurred_at_ms: number;
         source_target_json: string;
       }>;
@@ -426,6 +428,7 @@ export function createInboxService(input: {
             return null;
           }
           return {
+            ...(targetInput.includeItemIds ? { itemId: row.id } : {}),
             occurredAtMs: nonnegativeIntegerValue(row.occurred_at_ms),
             signalId: parsed.data.signalId,
             threadRootSignalId:
