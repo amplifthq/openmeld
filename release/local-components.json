@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-01T19:01:13.847Z",
+  "updatedAt": "2026-10-02T01:15:06.107Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
       "packageVersion": "0.3.234",
       "updatePolicy": "available",
-      "reason": "Existing CLI setup and commands remain compatible; cloud receivers deploy before the new optional usage telemetry, preserving the current CLI floor."
+      "reason": "Existing setup, commands and Space actions remain compatible across the cloud-first rollout; optional usage reporting does not change the CLI wire contract or existing floor."
     },
     "service": {
-      "bundleHash": "3a708016f4c2a631f5226798a2248ec6a652a6f328cab6f97812d736d50e7541",
-      "portableBundleHash": "8db836d7dd02c8df7384e92dbe5a12c76cc43e0a510e9f5d90d1f1e7ba17770f",
+      "bundleHash": "fd6eb176ed2eeea44256a787329fe67d2cfda53c0f4a2a98c5fe6d222a771cad",
+      "portableBundleHash": "11aec3e0dfdcaa8aa73695425874ac01285cdba1f7c0250c0c2f5a9fd6ff6721",
       "bundleVersion": "0.3.234",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
       "serviceContractVersion": "openmeld-service-contract-2026-09-local-install-recovery-v1",
       "updatePolicy": "available",
-      "reason": "Old Services omit optional AI usage telemetry and retain accepted execution and account lifecycle contracts; new Services ship only after Core receivers, preserving the current Service floor."
+      "reason": "Cloud receivers precede optional usage reporting; accepted Wake, runtime transport and self-rescue remain compatible. P0 Git isolation is local enforcement and adds no capability requirement. Keep the existing Service floor."
     },
     "skills": {
       "bundleHash": "2d2bc74e8aa66f6f78f469f6d4441467ebab07d5e6ccceb89c7b22a24b38746f",
