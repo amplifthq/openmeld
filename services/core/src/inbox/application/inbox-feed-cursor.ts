@@ -8,6 +8,7 @@ export type InboxFeedCursor = {
   occurredAtMs: number;
   key: string;
   expandedGroup: string | null;
+  grouping?: "space";
 };
 
 export function encodeInboxFeedKey(value: string): string {
@@ -45,7 +46,8 @@ export function decodeInboxFeedCursor(value?: string): InboxFeedCursor | null {
     const row: unknown = JSON.parse(decodeInboxFeedKey(value));
     if (
       !Array.isArray(row) ||
-      row.length !== 5 ||
+      (row.length !== 5 && row.length !== 6) ||
+      (row.length === 6 && row[5] !== "space") ||
       typeof row[0] !== "string" ||
       row[0].length > 256 ||
       !Number.isInteger(row[1]) ||
@@ -65,6 +67,7 @@ export function decodeInboxFeedCursor(value?: string): InboxFeedCursor | null {
       occurredAtMs: row[2],
       key: row[3],
       expandedGroup: row[4],
+      ...(row[5] === "space" ? { grouping: "space" as const } : {}),
     };
   } catch {
     throw invalidInboxFeedCursor();
@@ -79,6 +82,7 @@ export function encodeInboxFeedCursor(cursor: InboxFeedCursor): string {
       cursor.occurredAtMs,
       cursor.key,
       cursor.expandedGroup,
+      ...(cursor.grouping ? [cursor.grouping] : []),
     ])
   );
 }

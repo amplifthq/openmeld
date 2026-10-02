@@ -6,11 +6,13 @@ import { RemoteAgentAvatar } from "./remote-agent-avatar";
 export function AgentProfileControllerAvatar(input: {
 	agentControllerRef: string | null;
 	avatarStyle?: AgentAvatarStyle | null;
+	avatarImageUrl?: string | null;
 	modelId?: string | null;
 	className?: string;
 	profileId: string;
 	profileName: string;
 	working?: boolean;
+	variant?: "default" | "plain";
 	size: number;
 }) {
 	return (

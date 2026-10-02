@@ -68,6 +68,11 @@ export function CenterAgentItem(input: { presentation?: "card" | "sidebar" }) {
 		);
 	}
 	if (input.presentation === "card") {
+		const hasBotAvatar = Boolean(
+			profile.avatarStyle &&
+				profile.avatarStyle !== "automatic" &&
+				profile.avatarStyle !== "fluid"
+		);
 		return (
 			<FluidCardGroup>
 				<AgentCard
@@ -84,11 +89,14 @@ export function CenterAgentItem(input: { presentation?: "card" | "sidebar" }) {
 						</Badge>
 					}
 					description={`Owned by ${currentOrganization.name}`}
+					interactiveAvatar={hasBotAvatar}
 					name={profile.profileName}
 					profileId={profile.profileId}
 					renderAvatar={(size) => (
 						<RemoteAgentAvatar
 							avatarStyle={profile.avatarStyle}
+							clickable={hasBotAvatar}
+							followPointer
 							profileId={profile.profileId}
 							profileName={profile.profileName}
 							shape="circle"

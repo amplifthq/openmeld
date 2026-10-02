@@ -79,6 +79,7 @@ import {
 } from "../../flue-adapter/conversation-footprint";
 import { cancelFlueRemoteAgentExecution } from "../../flue-adapter/execution-cancellation";
 import {
+  acknowledgeRemoteAgentExecutionPreparation,
   installRemoteAgentExecutionInstrumentation,
   registerRemoteAgentExecutionPreparation,
   requireRemoteAgentExecutionResources,
@@ -217,6 +218,11 @@ async function prepareCenterAgentRender() {
       if (!executionContext) {
         return;
       }
+      await acknowledgeRemoteAgentExecutionPreparation({
+        context: executionContext,
+        coreWorker,
+        storage,
+      });
       await markRemoteAgentExecutionProgress({
         identity: buildRemoteAgentExecutionIdentity(executionContext),
         nowMs: Date.now(),

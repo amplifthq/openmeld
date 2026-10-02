@@ -10,6 +10,7 @@ import Qwen from "@lobehub/icons/es/Qwen/components/Color.js";
 import XAI from "@lobehub/icons/es/XAI/components/Mono.js";
 import Xiaomi from "@lobehub/icons/es/XiaomiMiMo/components/Mono.js";
 import Zhipu from "@lobehub/icons/es/Zhipu/components/Color.js";
+import { cn } from "@openmeld/ui/lib/utils";
 import { CpuIcon } from "@phosphor-icons/react";
 
 const ICONS = {
@@ -27,15 +28,29 @@ const ICONS = {
 	Mistral,
 };
 
-export function ModelBrandIcon({ brand }: { brand: string | null }) {
-	const Icon =
-		brand && brand in ICONS ? ICONS[brand as keyof typeof ICONS] : CpuIcon;
+export function hasModelBrandIcon(brand: string | null): boolean {
+	return brand !== null && Object.hasOwn(ICONS, brand);
+}
+
+export function ModelBrandIcon({
+	brand,
+	className,
+}: {
+	brand: string | null;
+	className?: string;
+}) {
+	const recognized = hasModelBrandIcon(brand);
+	const Icon = recognized ? ICONS[brand as keyof typeof ICONS] : CpuIcon;
 	return (
 		<span
 			aria-hidden="true"
-			className="flex size-4 shrink-0 items-center justify-center"
+			className={cn(
+				"flex size-4 shrink-0 items-center justify-center",
+				className
+			)}
+			data-model-brand={recognized ? brand : undefined}
 		>
-			<Icon className="size-4" />
+			<Icon className="size-full" />
 		</span>
 	);
 }

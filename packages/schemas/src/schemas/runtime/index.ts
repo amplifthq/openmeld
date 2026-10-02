@@ -178,6 +178,7 @@ export {
   remoteAgentConversationContinuityContextSchema,
   remoteAgentConversationContinuityEntrySchema,
   remoteAgentConversationContinuityEntrySourceSchema,
+  remoteAgentCoreAdmissionCallbackSchema,
   remoteAgentCoreCallbackBodySchema,
   remoteAgentCoreCallbackEventSchema,
   remoteAgentCoreCallbackResponseSchema,

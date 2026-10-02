@@ -3,7 +3,10 @@ import {
 	authProfileViewSchema,
 	organizationProfileDirectoryResponseSchema,
 } from "@openmeld/schemas";
-import type { AuthProfileView } from "@openmeld/schemas/types";
+import type {
+	AuthProfileView,
+	OrganizationProfileDirectoryResponse,
+} from "@openmeld/schemas/types";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	act,
@@ -32,15 +35,18 @@ vi.mock("#/lib/organizations/organization-directory", async (original) => ({
 	readCurrentOrganizationProfileDirectory: readDirectory,
 }));
 
-vi.mock("bot-avatars", () => ({
+vi.mock("@openmeld/ui/components/bot-avatar", () => ({
 	BotAvatar: ({ type }: { type: string }) => <canvas data-bot-avatar={type} />,
 }));
 
 afterEach(() => {
 	cleanup();
+	vi.restoreAllMocks();
 	vi.unstubAllGlobals();
 });
 const PROFILE_ID = "agt_11111111-1111-4111-8111-111111111111";
+type AvatarProfile =
+	OrganizationProfileDirectoryResponse["agentProfiles"][number];
 
 function renderEntrances(
 	client: QueryClient,
@@ -97,9 +103,10 @@ function renderEntrances(
 function seed(
 	client: QueryClient,
 	avatarStyle?: AuthProfileView["avatarStyle"],
-	controller = "hosted:center-agent"
+	controller = "hosted:center-agent",
+	appearance: Partial<AvatarProfile> = {}
 ) {
-	const directory = buildDirectory(avatarStyle, controller);
+	const directory = buildDirectory(avatarStyle, controller, appearance);
 	readDirectory.mockResolvedValue(directory);
 	client.setQueryData(
 		organizationQueryKeys.profileDirectory("org-1"),
@@ -109,7 +116,8 @@ function seed(
 
 function buildDirectory(
 	avatarStyle?: AuthProfileView["avatarStyle"],
-	controller = "hosted:center-agent"
+	controller = "hosted:center-agent",
+	appearance: Partial<AvatarProfile> = {}
 ) {
 	return organizationProfileDirectoryResponseSchema.parse({
 		organizationId: "org-1",
@@ -136,6 +144,7 @@ function buildDirectory(
 				avatarStyle,
 				agentControllerRef: controller,
 				isCenterAgent: controller === "hosted:center-agent",
+				...appearance,
 			},
 		],
 	});
@@ -352,19 +361,57 @@ describe("Agent avatar identity across entrances", () => {
 		).toHaveLength(6);
 	});
 
-	it("uses the Remote agent mark regardless of its model vendor", () => {
+	it.each([
+		["openai/gpt-6-sol", "OpenAI"],
+		["anthropic/claude-opus-5-5", "Anthropic"],
+		["google/gemini-3.1-pro-preview", "Google"],
+		["deepseek/deepseek-v4", "DeepSeek"],
+		["x-ai/grok-4", "xAI"],
+		["z-ai/glm-5", "Z.ai"],
+	])("uses the model provider's logo at every Remote entrance (%s)", (modelId, brand) => {
 		const client = new QueryClient();
-		seed(client, "automatic", "hosted:remote-agent");
+		seed(client, "automatic", "hosted:remote-agent", {
+			avatarModelId: modelId,
+		});
+		const view = renderEntrances(client);
+		expect(
+			view.container.querySelectorAll(`[data-model-brand="${brand}"]`)
+		).toHaveLength(6);
+		expect(
+			view.container.querySelector('[data-testid^="local-agent-logo-"]')
+		).toBeNull();
+	});
+
+	it.each([
+		null,
+		"openrouter/auto",
+		"unknown/claude-gpt-gemini",
+		"nvidia/nemotron-nano-9b-v2",
+		"openai",
+		"constructor/gpt",
+	])("keeps the neutral default for an unknown or missing Remote provider (%s)", (modelId) => {
+		const client = new QueryClient();
+		seed(client, "automatic", "hosted:remote-agent", {
+			avatarModelId: modelId,
+		});
+		const view = renderEntrances(client);
+		expect(
+			view.container.querySelectorAll('[data-avatar-icon="agent"]')
+		).toHaveLength(6);
+		expect(view.container.querySelector("[data-model-brand]")).toBeNull();
+	});
+
+	it("keeps saved Remote identity authoritative over stale local controller and model props", () => {
+		const client = new QueryClient();
+		seed(client, "automatic", "hosted:remote-agent", {
+			avatarModelId: "anthropic/claude-opus-5-5",
+		});
 		const view = render(
 			<QueryClientProvider client={client}>
 				<AgentAvatarProfilesProvider organizationId="org-1">
 					<RemoteAgentAvatar
+						agentControllerRef="builtin:codex"
 						modelId="openai/gpt-6-sol"
-						profileId={PROFILE_ID}
-						profileName="Remote"
-					/>
-					<RemoteAgentAvatar
-						modelId="anthropic/claude-opus-5-5"
 						profileId={PROFILE_ID}
 						profileName="Remote"
 					/>
@@ -372,17 +419,99 @@ describe("Agent avatar identity across entrances", () => {
 			</QueryClientProvider>
 		);
 		expect(
-			view.container.querySelectorAll('[data-avatar-icon="agent"]')
-		).toHaveLength(2);
+			view.container.querySelector('[data-model-brand="Anthropic"]')
+		).toBeTruthy();
+		expect(
+			view.container.querySelector('[data-model-brand="OpenAI"]')
+		).toBeNull();
+		expect(
+			view.container.querySelector('[data-testid="local-agent-logo-codex"]')
+		).toBeNull();
 	});
 
-	it("uses the bound Codex mark and shared rounded square at every entrance", () => {
+	it("updates every mounted Remote default after the selected model changes", async () => {
 		const client = new QueryClient();
-		seed(client, "automatic", "builtin:codex");
+		seed(client, "automatic", "hosted:remote-agent", {
+			avatarModelId: "openai/gpt-6-sol",
+		});
 		const view = renderEntrances(client);
 		expect(
-			view.container.querySelectorAll('[data-testid="local-agent-logo-codex"]')
+			view.container.querySelectorAll('[data-model-brand="OpenAI"]')
 		).toHaveLength(6);
+		act(() => {
+			seed(client, "automatic", "hosted:remote-agent", {
+				avatarModelId: "anthropic/claude-opus-5-5",
+			});
+		});
+		await waitFor(() =>
+			expect(
+				view.container.querySelectorAll('[data-model-brand="Anthropic"]')
+			).toHaveLength(6)
+		);
+		expect(
+			view.container.querySelector('[data-model-brand="OpenAI"]')
+		).toBeNull();
+	});
+
+	it("preserves an explicitly selected Remote avatar across model changes", async () => {
+		vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+		const client = new QueryClient();
+		seed(client, "fluid", "hosted:remote-agent", {
+			avatarModelId: "openai/gpt-6-sol",
+		});
+		const view = renderEntrances(client);
+		act(() => {
+			seed(client, "fluid", "hosted:remote-agent", {
+				avatarModelId: "anthropic/claude-opus-5-5",
+			});
+		});
+		await waitFor(() =>
+			expect(
+				view.container.querySelectorAll('[data-avatar-style="fluid"]')
+			).toHaveLength(6)
+		);
+		expect(view.container.querySelector("[data-model-brand]")).toBeNull();
+	});
+
+	it("keeps a saved Remote image ahead of provider logos and generated styles", () => {
+		// JSDOM does not decode images; exercise the browser's cached-image path.
+		vi.spyOn(HTMLImageElement.prototype, "complete", "get").mockReturnValue(
+			true
+		);
+		vi.spyOn(HTMLImageElement.prototype, "naturalWidth", "get").mockReturnValue(
+			32
+		);
+		const client = new QueryClient();
+		const avatarUrl = "https://example.com/remote-avatar.png";
+		seed(client, "fluid", "hosted:remote-agent", {
+			avatarModelId: "openai/gpt-6-sol",
+			avatarUrl,
+		});
+		const view = renderEntrances(client);
+		expect(
+			Array.from(view.container.querySelectorAll("img")).map((image) =>
+				image.getAttribute("src")
+			)
+		).toEqual(new Array(6).fill(avatarUrl));
+		expect(view.container.querySelector("[data-model-brand]")).toBeNull();
+		expect(view.container.querySelector("canvas[data-bot-avatar]")).toBeNull();
+	});
+
+	it.each([
+		"codex",
+		"claude-code",
+	])("keeps the Local %s harness mark at every entrance regardless of model provider", (controllerId) => {
+		const client = new QueryClient();
+		seed(client, "automatic", `builtin:${controllerId}`, {
+			avatarModelId: "anthropic/claude-opus-5-5",
+		});
+		const view = renderEntrances(client);
+		expect(
+			view.container.querySelectorAll(
+				`[data-testid="local-agent-logo-${controllerId}"]`
+			)
+		).toHaveLength(6);
+		expect(view.container.querySelector("[data-model-brand]")).toBeNull();
 		for (const avatar of view.container.querySelectorAll(
 			"[data-avatar-style]"
 		)) {
