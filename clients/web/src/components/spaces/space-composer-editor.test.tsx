@@ -944,8 +944,8 @@ describe("SpaceComposerEditor", () => {
 		const avatar = within(runnerOption).getByTestId(
 			`space-profile-icon-${AGENT_PROFILE_ID}`
 		);
-		expect(avatar.getAttribute("data-slot")).toBe("fluid-avatar");
-		expect(avatar.getAttribute("data-shape")).toBe("circle");
+		expect(avatar.getAttribute("data-avatar-icon")).toBe("agent");
+		expect(avatar.getAttribute("data-avatar-shape")).toBe("circle");
 		expect(
 			within(runnerOption).queryByTestId("local-agent-logo-codex")
 		).toBeNull();
