@@ -21,6 +21,7 @@ export type InboxFeedFilters = {
 	agentsOnly: boolean;
 	peopleOnly?: boolean;
 	conversationType?: InboxFeedQuery["conversationType"];
+	grouping?: InboxFeedQuery["grouping"];
 };
 
 export function organizationInboxFeedQueryOptions(
@@ -34,6 +35,7 @@ export function organizationInboxFeedQueryOptions(
 ) {
 	const query: InboxFeedQuery = {
 		category: input.category,
+		grouping: input.grouping,
 		includeSelectionUnreadCount: "true",
 		unreadOnly: input.unreadOnly ? "true" : "false",
 		agentsOnly: input.agentsOnly ? "true" : "false",

@@ -88,10 +88,7 @@ export function InboxItemsList(input: {
 	onOpenItem: (item: InboxItem) => void;
 	onSetRead: (item: InboxItem, read: boolean) => void;
 	organizationSlug: string;
-	registerItemElement?: (
-		itemId: string,
-		element: HTMLAnchorElement | null
-	) => void;
+	registerItemElement?: (itemId: string, element: HTMLElement | null) => void;
 	showItemActions?: boolean;
 }) {
 	return (
@@ -119,7 +116,10 @@ export function InboxItemsList(input: {
 	);
 }
 
-export function InboxItemRow(input: {
+type InboxItemRowProps = {
+	titleOverride?: string;
+	previewOverride?: string;
+	trailingActions?: ReactNode;
 	contextActions?: ReactNode;
 	feedRow?: InboxFeedRow;
 	children?: ReactNode;
@@ -130,27 +130,25 @@ export function InboxItemRow(input: {
 	onOpenItem: (item: InboxItem) => void;
 	onSetRead: (item: InboxItem, read: boolean) => void;
 	organizationSlug: string;
-	registerItemElement?: (
-		itemId: string,
-		element: HTMLAnchorElement | null
-	) => void;
+	registerItemElement?: (itemId: string, element: HTMLElement | null) => void;
 	showItemActions: boolean;
-}) {
-	const item = presentInboxItem(input.item, useConversationNames());
-	const inlineInvitation =
-		input.density === "default" &&
-		item.sourceTarget.kind === "organization_join_request" &&
-		item.resolutionStatus === "open";
-	const unread = input.feedRow
-		? input.feedRow.unreadCount > 0
-		: item.readAt === null;
+};
+
+function useInboxRowNavigation(input: InboxItemRowProps) {
 	const sourceNavigation = buildInboxItemSourceNavigation({
-		item,
+		item: input.item,
 		orgSlug: input.organizationSlug,
 	});
 	const navigate = useNavigate();
+	const informational =
+		input.item.sourceTarget.kind === "desktop_update" &&
+		(input.item.sourceTarget.state === "installed" ||
+			input.item.sourceTarget.state === "superseded");
 	const onOpen = () => {
-		input.onOpenItem(item);
+		input.onOpenItem(input.item);
+		if (informational) {
+			return;
+		}
 		if (sourceNavigation.openInNewTab) {
 			window.open(sourceNavigation.href, "_blank", "noopener,noreferrer");
 			return;
@@ -162,9 +160,27 @@ export function InboxItemRow(input: {
 			console.warn("[openmeld.web.inbox_navigation_failed]", { error })
 		);
 	};
+	return { sourceNavigation, informational, onOpen };
+}
+
+export function InboxItemRow(input: InboxItemRowProps) {
+	const item = presentInboxItem(input.item, useConversationNames());
+	const inlineInvitation =
+		input.density === "default" &&
+		item.sourceTarget.kind === "organization_join_request" &&
+		item.resolutionStatus === "open";
+	const unread = input.feedRow
+		? input.feedRow.unreadCount > 0
+		: item.readAt === null;
+	const { sourceNavigation, informational, onOpen } = useInboxRowNavigation({
+		...input,
+		item,
+	});
 	const menu = (
 		<>
-			<ObjectMenuItems href={sourceNavigation.href} onOpen={onOpen} />
+			{informational ? null : (
+				<ObjectMenuItems href={sourceNavigation.href} onOpen={onOpen} />
+			)}
 			{input.contextActions ?? (
 				<InboxItemMenuItems
 					item={item}
@@ -202,11 +218,12 @@ export function InboxItemRow(input: {
 							className={cn(
 								"flex min-w-0 items-start gap-3 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
 								input.density === "compact"
-									? "min-h-16 px-3 py-3"
+									? "min-h-16 px-3 py-3 pe-14"
 									: "min-h-20 px-4 py-4 pe-16 sm:gap-4",
 								inlineInvitation && "min-h-0 gap-4 pb-1"
 							)}
 							href={sourceNavigation.href}
+							informational={informational}
 							onAuxClick={handleAuxClick}
 							onClick={handleOpen}
 							openInNewTab={sourceNavigation.openInNewTab}
@@ -230,11 +247,11 @@ export function InboxItemRow(input: {
 								<span className="flex min-w-0 flex-wrap items-center gap-2">
 									<span
 										className={cn(
-											"relative min-w-0 break-words text-foreground text-sm leading-5",
+											"relative line-clamp-2 min-w-0 break-words text-foreground text-sm leading-5",
 											unread ? "font-semibold" : "font-medium"
 										)}
 									>
-										{item.title}
+										{input.titleOverride ?? item.title}
 									</span>
 									{unread ? <span className="sr-only">Unread.</span> : null}
 									<InboxItemBadges item={item} />
@@ -246,11 +263,11 @@ export function InboxItemRow(input: {
 								</span>
 								<span
 									className={cn(
-										"mt-1 block break-words text-muted-foreground text-sm leading-5",
+										"mt-1 line-clamp-2 break-words text-muted-foreground text-sm leading-5",
 										inlineInvitation && "hidden"
 									)}
 								>
-									{item.preview}
+									{input.previewOverride ?? item.preview}
 								</span>
 								<span
 									className={cn(
@@ -264,14 +281,14 @@ export function InboxItemRow(input: {
 							</span>
 						</InboxItemSourceLink>
 
-						{inlineInvitation &&
-						item.sourceTarget.kind === "organization_join_request" ? (
-							<div className="ps-[4.125rem] pe-4 pb-4">
-								<InvitationReview
-									inline
-									onInteract={handleOpen}
-									requestId={item.sourceTarget.requestId}
-								/>
+						<InboxInlineInvitation
+							enabled={inlineInvitation}
+							item={item}
+							onInteract={handleOpen}
+						/>
+						{input.trailingActions ? (
+							<div className="ps-[3.25rem] pe-3 pb-2">
+								{input.trailingActions}
 							</div>
 						) : null}
 						{input.children}
@@ -284,6 +301,29 @@ export function InboxItemRow(input: {
 				{menu}
 			</FluidContextMenu>
 		</li>
+	);
+}
+
+function InboxInlineInvitation({
+	enabled,
+	item,
+	onInteract,
+}: {
+	enabled: boolean;
+	item: InboxItem;
+	onInteract: () => void;
+}) {
+	if (!enabled || item.sourceTarget.kind !== "organization_join_request") {
+		return null;
+	}
+	return (
+		<div className="ps-[4.125rem] pe-4 pb-4">
+			<InvitationReview
+				inline
+				onInteract={onInteract}
+				requestId={item.sourceTarget.requestId}
+			/>
+		</div>
 	);
 }
 
@@ -326,15 +366,28 @@ function InboxItemStatusDot({
 }
 
 function InboxItemSourceLink(input: {
+	informational?: boolean;
 	children: ReactNode;
 	className: string;
 	href: string;
 	onAuxClick: (event: MouseEvent<HTMLAnchorElement>) => void;
 	onClick: () => void;
 	openInNewTab: boolean;
-	ref: (element: HTMLAnchorElement | null) => void;
+	ref: (element: HTMLElement | null) => void;
 }) {
 	const navigate = useNavigate();
+	if (input.informational) {
+		return (
+			<button
+				className={cn(input.className, "w-full text-left")}
+				onClick={input.onClick}
+				ref={input.ref}
+				type="button"
+			>
+				{input.children}
+			</button>
+		);
+	}
 	const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
 		input.onClick();
 		if (
@@ -498,7 +551,7 @@ function InboxRowMetadata({
 	);
 }
 
-function InboxTimestamp(input: { occurredAt: string }) {
+export function InboxTimestamp(input: { occurredAt: string }) {
 	const date = new Date(input.occurredAt);
 	return (
 		<TooltipHint content={INBOX_TIMESTAMP_TITLE_FORMATTER.format(date)}>

@@ -154,14 +154,22 @@ including delayed outbox arrivals and retired urgent awareness. Genuine Human
 mentions, explicit replies to the recipient and non-observer DMs retain their
 normal notification policy.
 
-Conversation grouping shares the canonical message items and read state. It
-never joins different Organizations, main timelines, Threads or target scopes,
-and never absorbs an open request or critical execution outcome. The oldest
-priority signal can remain a group's visible anchor while newer chat arrives.
-Expanding a group performs no read mutation.
+The four categories remain All, Mentions, Needs action and Needs review. In the
+full Inbox, ordinary message updates are collected by Space and target scope,
+then by main timeline or Thread when expanded. A Thread has one latest-reply
+preview and a quick mark-as-read action. Open requests, urgent outcomes and
+first-contact attention remain separate rows above ordinary updates; they cannot
+be absorbed by a Space or Thread bulk action. Ordinary desktop, connection and
+system notices share a System updates collection. Completed desktop installation
+notices mark read in place instead of navigating to a selected-update panel.
 
-Expanded updates use a bounded, keyboard-scrollable area with the shared edge
-fades. Expand/collapse all and individual group overrides are browser preferences,
+Grouping shares canonical items and read state. Category and other filters run
+before grouping, so marking a collection in Mentions reads only its matching
+mentions. Different Organizations and target scopes never merge. Expanding a
+collection performs no read mutation. Children load in bounded pages with an
+explicit Show more action in the page's normal scroll flow.
+
+Expand/collapse all and individual group overrides are browser preferences,
 scoped to the account and Organization. They persist only presentation state
 (at most 100 individual overrides), never message contents, access, or read state.
 Unavailable browser storage does not prevent using the controls for that visit.
@@ -188,6 +196,12 @@ and rechecks current authorization. Later messages, delayed outbox deliveries,
 and formerly hidden muted history cannot be accidentally cleared. These bulk
 operations do not advance a conversation viewport watermark or close a request.
 Counts describe canonical items rather than the number of grouped rows.
+
+The additive `grouping=space` feed query opts into this presentation; callers
+without it retain conversation-level grouping. Opaque cursors bind the grouping
+mode. Deploy updated Core/Gateway contracts before the Web opts in; older servers
+reject the new query. This changes no stored message, source access policy,
+runtime authority, Service/CLI payload or protocol epoch, and needs no migration.
 
 ## Product promise
 
