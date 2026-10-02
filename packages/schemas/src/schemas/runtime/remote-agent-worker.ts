@@ -364,6 +364,11 @@ export const remoteAgentWorkerSubmitMessagesResultSchema = z.strictObject({
   accepted: z.boolean(),
 });
 
+export const remoteAgentWorkerSubmitCapabilitiesSchema = z.strictObject({
+  v: z.literal(1),
+  taskId: z.literal(true),
+});
+
 /** A missing or unfinished receipt never proves that execution did not occur. */
 export const remoteAgentWorkerReadAdmissionResponseSchema =
   z.discriminatedUnion("status", [

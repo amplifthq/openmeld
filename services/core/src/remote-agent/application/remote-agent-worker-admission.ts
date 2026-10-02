@@ -4,6 +4,7 @@ import {
   remoteAgentWorkerCancellationResponseSchema,
   remoteAgentWorkerReadAdmissionResponseSchema,
   remoteAgentWorkerReadAdmissionStopResponseSchema,
+  remoteAgentWorkerSubmitCapabilitiesSchema,
   remoteAgentWorkerSubmitTurnResponseSchema,
   resolveMappedPublicAgentFailureReason,
 } from "@openmeld/schemas";
@@ -96,6 +97,32 @@ const ROUTINE_RUN_HISTORY_LIMIT_RESPONSE = {
     "This Routine Run could not continue after its execution history reached the safety limit.",
   reasonCode: REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_REASON_CODE,
 } as const;
+
+/** Select optional fields only before the owning ledger freezes a new request. */
+export async function resolveRemoteAgentWorkerTaskAttribution(
+  worker: NonNullable<CoreBindings["OPENMELD_REMOTE_AGENT_WORKER"]>,
+  taskId: string | undefined
+): Promise<{ taskId?: string }> {
+  if (!(taskId && worker.readSubmitTurnCapabilities)) {
+    return {};
+  }
+  let value: unknown;
+  try {
+    value = await worker.readSubmitTurnCapabilities();
+  } catch (error) {
+    if (
+      isRpcReceiverMethodNotImplementedErrorForMethod(
+        error,
+        "readSubmitTurnCapabilities"
+      )
+    ) {
+      return {};
+    }
+    throw error;
+  }
+  remoteAgentWorkerSubmitCapabilitiesSchema.parse(value);
+  return { taskId };
+}
 
 /** null means an older receiver; not_found means a current owner has no fence. */
 export async function readRemoteAgentWorkerAdmissionStop(input: {

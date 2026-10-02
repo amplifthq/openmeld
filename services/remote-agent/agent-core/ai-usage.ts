@@ -6,7 +6,7 @@ import type {
   RemoteAgentCoreWorkerBinding,
   RemoteAgentStorage,
 } from "./callback-context";
-import { callCoreRpc } from "./core-rpc";
+import { callCoreRpc, isCoreRpcReceiverMethodMissing } from "./core-rpc";
 
 const count = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 // OpenRouter usage is part of the existing JSON response or final SSE chunk.
@@ -31,6 +31,7 @@ const responseUsage = z.object({
   }),
 });
 const OUTBOX_PREFIX = "openmeld:ai-usage:pending:";
+const DEFERRED_ADMISSION_PREFIX = "openmeld:ai-usage:deferred:";
 const SSE_LINE_PARTS = /(?<=\n)/u;
 
 export type RemoteAiUsageScope = Pick<
@@ -103,7 +104,37 @@ export function createMeteredRemoteFetch(input: {
       tokens: null,
       cost: null,
     };
-    const admission = await writeUsage(input.coreWorker, "begin", record);
+    let admission:
+      | Awaited<ReturnType<typeof writeUsage>>
+      | { status: "deferred" };
+    try {
+      admission = await writeUsage(input.coreWorker, "begin", record);
+    } catch (error) {
+      // Only a positively absent old-Core receiver permits the rollout bridge.
+      // A network error, missing binding or failed durable write still stops
+      // before inference. This receipt is admission evidence, not fake usage.
+      if (
+        !(
+          input.storage &&
+          isCoreRpcReceiverMethodMissing(error, "recordRemoteAiUsage")
+        )
+      ) {
+        throw error;
+      }
+      await input.storage.put(`${DEFERRED_ADMISSION_PREFIX}${record.eventId}`, {
+        v: 1,
+        reason: "core_receiver_missing",
+        record,
+      });
+      await input.scheduleRetry?.();
+      console.warn("[remote_agent.ai_usage.admission_deferred]", {
+        eventId: record.eventId,
+        organizationId: record.organizationId,
+        reason: "core_receiver_missing",
+      });
+      // No current Core allowance was checked. Do not call this accepted.
+      admission = { status: "deferred" as const };
+    }
     if (admission.status === "limit_reached") {
       throw new Error(
         "ai_usage.daily_limit_reached: This Organization has used its daily AI allowance. It resets at 00:00 UTC."

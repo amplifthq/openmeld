@@ -10,7 +10,10 @@ import {
 } from "../../agent-core/ai-usage";
 import { createRemoteAgentSqlStorage } from "../../flue-adapter/storage";
 
-it("replays a persisted auxiliary usage receipt from workerd SQLite without repeating inference", async () => {
+it.each([
+  "outage",
+  "legacy_receiver",
+])("replays a persisted auxiliary usage receipt after %s from workerd SQLite without repeating inference", async (failure) => {
   const namespace = (env as { COMPUTER_PROBE: DurableObjectNamespace })
     .COMPUTER_PROBE;
   const stub = namespace.get(namespace.newUniqueId());
@@ -21,6 +24,11 @@ it("replays a persisted auxiliary usage receipt from workerd SQLite without repe
       scheduleRetry: () => state.storage.setAlarm(Date.now() + 60_000),
       coreWorker: {
         recordRemoteAiUsage: (input: RemoteAiUsageWrite) => {
+          if (failure === "legacy_receiver") {
+            throw new Error(
+              'The RPC receiver does not implement the method "recordRemoteAiUsage".'
+            );
+          }
           if (input.phase === "settle") {
             throw new Error("Simulated Core outage");
           }
@@ -52,6 +60,12 @@ it("replays a persisted auxiliary usage receipt from workerd SQLite without repe
         ),
     })("https://provider.example/chat/completions");
     await response.text();
+    if (failure === "legacy_receiver") {
+      const audit = await storage.list({
+        prefix: "openmeld:ai-usage:deferred:",
+      });
+      expect(audit.size).toBe(1);
+    }
     expect(await state.storage.getAlarm()).not.toBeNull();
   });
   const records = await runInDurableObject(stub, async (_instance, state) => {

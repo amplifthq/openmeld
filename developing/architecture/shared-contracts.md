@@ -7101,6 +7101,18 @@ or provenance to force a retry. Baseline strict Core subscription readers reject
 the affected row and therefore its queried list batch, even if the new summary
 subscription was not created yet.
 
+Core negotiates optional top-level `taskId` through the Remote service binding's
+strict `readSubmitTurnCapabilities` response (`{ v: 1, taskId: true }`) before
+freezing a new Space admission. A positively missing method means the published
+legacy request shape: omit the field. Transport failures and malformed responses
+are not legacy capability evidence. Existing frozen requests retain their
+persisted payload unchanged, even if the receiver upgrades between attempts;
+do not enrich them with a newly available task ID. A missing usage attribution
+stays missing rather than being inferred from another task. This probe does not
+grant summary recovery support; its existing Stop-fence probes still own that
+capability. Once a frozen request contains `taskId`, retain a supporting Remote
+receiver until that request can no longer be replayed.
+
 Before a continuation is submitted or replayed, Core compares its frozen
 pending and recovery envelopes with the task owner's `summaryRecovery` intent.
 An unmarked legacy summary fails with

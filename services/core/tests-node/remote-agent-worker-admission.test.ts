@@ -4,6 +4,7 @@ import type { CoreBindings } from "../src/lib/bindings";
 import {
   readRemoteAgentWorkerAdmission,
   readRemoteAgentWorkerAdmissionStop,
+  resolveRemoteAgentWorkerTaskAttribution,
   submitRemoteAgentWorkerAdmission,
 } from "../src/remote-agent/application/remote-agent-worker-admission";
 import type { RemoteAgentNativeDeliveryRecord } from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
@@ -13,6 +14,27 @@ import {
 } from "./helpers/sqlite-d1-harness.test-support";
 
 describe("Remote Agent worker admission", () => {
+  it.each([
+    "transport",
+    "malformed",
+  ])("does not downgrade task attribution on %s", async (failure) => {
+    const worker = {
+      readSubmitTurnCapabilities: () => {
+        if (failure === "transport") {
+          throw new Error("network unavailable");
+        }
+        return Promise.resolve({ v: 2, taskId: true });
+      },
+    };
+    await expect(
+      resolveRemoteAgentWorkerTaskAttribution(
+        worker as unknown as NonNullable<
+          CoreBindings["OPENMELD_REMOTE_AGENT_WORKER"]
+        >,
+        "task-1"
+      )
+    ).rejects.toThrow();
+  });
   it("does not infer a Stop fence from an absent or legacy receiver", async () => {
     const request = createRolloverRequest();
     await expect(

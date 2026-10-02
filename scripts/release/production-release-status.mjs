@@ -469,6 +469,7 @@ function describeReleaseComponent(input) {
     ...releaseSource,
     changedPaths: entry.plan.changedPaths,
     compatibilityDependencies: entry.plan.compatibilityDependencies ?? [],
+    compatibilityBridges: entry.plan.compatibilityBridges ?? [],
     compatibilityReceiverWitnesses: (
       entry.plan.compatibilityReceiverWitnesses ?? []
     ).map((witness) => ({
