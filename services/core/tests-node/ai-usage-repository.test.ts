@@ -48,6 +48,50 @@ const record: AiUsageRecord = {
 const query = { fromMs: nowMs - 1, toMs: nowMs + 1 };
 
 describe("Organization AI consumption", () => {
+  it("retains compaction attribution without changing the public agent-purpose aggregate", async () => {
+    const harness = createHarness();
+    try {
+      for (const purpose of [
+        "agent",
+        "compaction",
+        "compaction_prefix",
+      ] as const) {
+        await recordAiUsage(harness.db, {
+          ...record,
+          eventId: `purpose-${purpose}`,
+          purpose,
+          status: "pending",
+        });
+      }
+      const result = await queryAiUsage({
+        db: harness.db,
+        organizationId: "org-1",
+        query: { ...query, groupBy: "agent", includeIssues: true },
+      });
+      expect(result.breakdown?.groups[0]).toMatchObject({
+        purposes: ["agent"],
+        requests: 3,
+        reportedCostNanoUsd: 1_500_000_000,
+      });
+      const rows = await harness.db
+        .prepare(
+          "SELECT DISTINCT purpose FROM ai_usage_records ORDER BY purpose"
+        )
+        .all();
+      expect(rows.results).toEqual([
+        { purpose: "agent" },
+        { purpose: "compaction" },
+        { purpose: "compaction_prefix" },
+      ]);
+      expect(result.issues?.records.map((issue) => issue.purpose)).toEqual([
+        "agent",
+        "agent",
+        "agent",
+      ]);
+    } finally {
+      harness.close();
+    }
+  });
   it.each([
     "missing_database",
     "database_failed",
