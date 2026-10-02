@@ -14,6 +14,16 @@
 - Source of truth: This file owns the Inbox product model. Source owner documents
   remain authoritative for the work or event represented by an Inbox item.
 
+## Conversation names
+
+Web and the Desktop renderer resolve conversation labels from the same authorized
+Space/session indexes and account sidebar titles as the conversation sidebar.
+Personal chat titles take precedence for Direct Messages; ordinary Spaces use
+their current shared names. Inbox list, expanded activities, compact previews,
+and message search share this display rule. Stored Inbox copy remains historical;
+display resolution does not mutate source targets, read state, or delivery facts.
+Browser/native notifications and email still use the stored server copy.
+
 ## Search
 
 Inbox search covers the current recipient's uncleared message items and other
