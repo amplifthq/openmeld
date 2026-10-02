@@ -24,7 +24,7 @@ import {
   recordRemoteAgentToolResultProgress,
 } from "../agent-core/tool-progress";
 import {
-  isRemoteAgentToolResultWithinLimit,
+  isRemoteAgentToolResultWithinBudget,
   REMOTE_AGENT_TOOL_RESULT_MAX_BYTES,
 } from "../agent-core/tool-result-boundary";
 import {
@@ -255,11 +255,12 @@ export function toFlueJsonValue(value: unknown): JsonValue | undefined {
 export function toBoundedRemoteAgentToolResult(input: {
   toolName: string;
   value: unknown;
+  maxBytes?: number;
 }): JsonValue | undefined {
   const jsonValue = toFlueJsonValue(input.value);
   if (
     jsonValue === undefined ||
-    isRemoteAgentToolResultWithinLimit(jsonValue)
+    isRemoteAgentToolResultWithinBudget(jsonValue, input.maxBytes)
   ) {
     return jsonValue;
   }
@@ -277,7 +278,7 @@ export function toBoundedRemoteAgentToolResult(input: {
       kind: "partial",
       reasonCode: REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_REASON_CODE,
       originalJsonBytes: new TextEncoder().encode(serialized).byteLength,
-      limitBytes: REMOTE_AGENT_TOOL_RESULT_MAX_BYTES,
+      limitBytes: input.maxBytes ?? REMOTE_AGENT_TOOL_RESULT_MAX_BYTES,
       continuation: null,
       message:
         "The tool returned; this is not an execution failure or proof of business success. Only complete small top-level fields and excerpts of the returned JSON are shown. OpenMeld did not retain the omitted content for continuation. The provider may itself have returned partial data; its completeness fields still apply. Use existing bounded read tools for additional evidence when available. Do not repeat a write to recover its display.",
