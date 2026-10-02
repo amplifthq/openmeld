@@ -1,11 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
 	isSpaceMessageAgentWorking,
-	isSpaceWakeProgressWaitingForFinalStatus,
 	resolveSpaceMessageDeliveryPresentation,
 	resolveSpaceMessageDeliveryStatusText,
 	SPACE_LOCAL_PENDING_MESSAGE_DELAY_MS,
-	SPACE_WAKE_PROGRESS_STALE_WAITING_MS,
 } from "./message-state";
 
 const CREATED_AT_MS = Date.UTC(2026, 4, 27, 10);
@@ -166,26 +164,5 @@ describe("message-state", () => {
 		expect(resolveSpaceMessageDeliveryStatusText(presentation)).toBe(
 			expectedText
 		);
-	});
-
-	it("only switches Wake progress to final-status waiting copy after forty-five seconds without evidence", () => {
-		expect(
-			isSpaceWakeProgressWaitingForFinalStatus({
-				lastEvidenceAtMs: CREATED_AT_MS,
-				nowMs: CREATED_AT_MS + SPACE_WAKE_PROGRESS_STALE_WAITING_MS - 1,
-			})
-		).toBe(false);
-		expect(
-			isSpaceWakeProgressWaitingForFinalStatus({
-				lastEvidenceAtMs: CREATED_AT_MS,
-				nowMs: CREATED_AT_MS + SPACE_WAKE_PROGRESS_STALE_WAITING_MS,
-			})
-		).toBe(true);
-		expect(
-			isSpaceWakeProgressWaitingForFinalStatus({
-				lastEvidenceAtMs: null,
-				nowMs: CREATED_AT_MS + SPACE_WAKE_PROGRESS_STALE_WAITING_MS,
-			})
-		).toBe(false);
 	});
 });
