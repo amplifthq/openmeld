@@ -1,3 +1,4 @@
+import { toStructuredApiClientFailure } from "@openmeld/api-client";
 import type { SignalEnvelope } from "@openmeld/schemas/types";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -166,12 +167,55 @@ export function useSpaceHistoryNavigation(input: {
 		visibleSignals,
 		visibleLiveEnvelopes,
 	]);
+	const showLatestForMissingAnchor = async (
+		signal: AbortSignal,
+		isCurrentRequest: () => boolean,
+		direction?: "before" | "after"
+	) => {
+		if (direction) {
+			setError(
+				"This message is no longer available. Open the latest messages to continue."
+			);
+			setErrorDirection(direction);
+			return;
+		}
+		// Reauthorize the same conversation. Never search other Spaces for
+		// a historical notification's misplaced or removed message id.
+		const latest = await api().listSignalEnvelopes({
+			spaceId: input.spaceId,
+			signal,
+			query: { limit: 60, kinds: SPACE_HISTORY_SIGNAL_KINDS },
+		});
+		if (!isCurrentRequest()) {
+			return;
+		}
+		writeSpaceHistoryEnvelopesToCache({
+			envelopes: latest.envelopes,
+			queryClient,
+			spaceId: input.spaceId,
+			openMeldProfileId: input.profileId,
+		});
+		setWindow({
+			identity,
+			envelopes: latest.envelopes,
+			confirmedAtLiveTail: true,
+			hasBefore: latest.envelopes.length >= 60,
+			hasAfter: false,
+		});
+		setError(
+			"This message is no longer available in this conversation. Showing the latest messages."
+		);
+	};
 	const readWindow = async (
 		signalId: string,
 		direction?: "before" | "after",
 		signal?: AbortSignal
 	) => {
-		if (signal?.aborted || (direction && flight.current)) {
+		if (
+			input.accessRejected ||
+			signal?.aborted ||
+			(direction && flight.current)
+		) {
 			return false;
 		}
 		flight.current?.abort();
@@ -186,21 +230,34 @@ export function useSpaceHistoryNavigation(input: {
 		setError(null);
 		setErrorDirection(undefined);
 		try {
-			const result = await api().listSignalEnvelopes({
-				spaceId: input.spaceId,
-				signal: controller.signal,
-				query: {
-					aroundSignalId: signalId,
-					beforeCount: direction === "after" ? 0 : 30,
-					afterCount: direction === "before" ? 0 : 30,
-					kinds: SPACE_HISTORY_SIGNAL_KINDS,
-				},
-			});
+			const result = await api()
+				.listSignalEnvelopes({
+					spaceId: input.spaceId,
+					signal: controller.signal,
+					query: {
+						aroundSignalId: signalId,
+						beforeCount: direction === "after" ? 0 : 30,
+						afterCount: direction === "before" ? 0 : 30,
+						kinds: SPACE_HISTORY_SIGNAL_KINDS,
+					},
+				})
+				.catch((failure: unknown) => {
+					const structured = toStructuredApiClientFailure(failure);
+					if (structured.upstreamCode !== "space.signals.anchor_not_found") {
+						throw failure;
+					}
+					return { envelopes: [] };
+				});
 			if (!isCurrentRequest()) {
 				return false;
 			}
 			if (!result.envelopes.some((item) => item.id === signalId)) {
-				throw new Error("This message is no longer available.");
+				await showLatestForMissingAnchor(
+					controller.signal,
+					isCurrentRequest,
+					direction
+				);
+				return false;
 			}
 			writeSpaceHistoryEnvelopesToCache({
 				envelopes: result.envelopes,
@@ -395,7 +452,9 @@ function initialHistoryWindow(input: {
 }
 
 function navigationErrorMessage(failure: unknown) {
-	return failure instanceof Error
-		? failure.message
-		: "Couldn’t load this part of the conversation. Try again.";
+	const { status } = toStructuredApiClientFailure(failure);
+	if (status === 401 || status === 403) {
+		return "You don’t have access to this conversation. Return to Inbox to view your other updates.";
+	}
+	return "Couldn’t load this part of the conversation. Try again.";
 }

@@ -1,3 +1,4 @@
+import { OpenMeldApiClientHttpError } from "@openmeld/api-client";
 import type { SignalEnvelope } from "@openmeld/schemas/types";
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -38,6 +39,76 @@ describe("returning to the live Space history", () => {
 		queryClient.setQueryData.mockClear();
 		historyQuery.data = undefined;
 		historyApi.listSignalEnvelopes.mockReset();
+	});
+
+	it("opens the authorized latest messages when an old notification anchor is missing", async () => {
+		historyApi.listSignalEnvelopes
+			.mockResolvedValueOnce({ envelopes: [message("old")] })
+			.mockRejectedValueOnce(
+				new OpenMeldApiClientHttpError({
+					code: "upstream_error",
+					status: 404,
+					rawBody: "",
+					upstreamCode: "space.signals.anchor_not_found",
+					message: "space history anchor not found: child-secret-id",
+				})
+			)
+			.mockResolvedValueOnce({ envelopes: [message("latest")] });
+		const { result } = renderHook(() =>
+			useSpaceHistoryNavigation({
+				accessRejected: false,
+				enabled: true,
+				liveEnvelopes: [],
+				profileId: "viewer",
+				spaceId: "parent-space",
+			})
+		);
+		await act(async () => {
+			await result.current.open("old");
+		});
+		await act(async () => {
+			expect(await result.current.open("child-secret-id")).toBe(false);
+		});
+		expect(
+			result.current.activeWindow?.envelopes.map((item) => item.id)
+		).toEqual(["latest"]);
+		expect(result.current.error).toBe(
+			"This message is no longer available in this conversation. Showing the latest messages."
+		);
+		expect(
+			historyApi.listSignalEnvelopes.mock.calls.map(([input]) => input.spaceId)
+		).toEqual(["parent-space", "parent-space", "parent-space"]);
+		expect(
+			historyApi.listSignalEnvelopes.mock.calls.at(-1)?.[0].query
+		).not.toHaveProperty("aroundSignalId");
+	});
+
+	it.each([
+		403, 500,
+	])("does not turn an HTTP %s failure into a missing-message fallback", async (status) => {
+		historyApi.listSignalEnvelopes.mockRejectedValueOnce(
+			new OpenMeldApiClientHttpError({
+				code: "upstream_error",
+				status,
+				rawBody: "",
+				message: "internal details that must not be shown",
+			})
+		);
+		const { result } = renderHook(() =>
+			useSpaceHistoryNavigation({
+				accessRejected: false,
+				enabled: true,
+				liveEnvelopes: [],
+				profileId: "viewer",
+				spaceId: "parent-space",
+			})
+		);
+		await act(async () => {
+			expect(await result.current.open("missing")).toBe(false);
+		});
+		expect(historyApi.listSignalEnvelopes).toHaveBeenCalledTimes(1);
+		expect(result.current.error).not.toContain("internal details");
+		expect(result.current.error).not.toContain("Showing the latest");
 	});
 
 	it.each([

@@ -363,6 +363,15 @@ Organization and account deletion still follow their canonical cascade. A
 future payload-retention pass must first preserve a content-free source receipt
 or tombstone.
 
+Historical native-delivery `admission_retry_exhausted` action notices may contain
+a child message id paired with the parent Space. The authorized Inbox reader
+omits that untrustworthy message anchor and presents the parent conversation
+with guidance to review the outcome or remove the reminder. It does not promise
+a retry control. This presentation correction preserves the stored evidence,
+read state and pending count; recipient Dismiss clears the reminder and all of
+its counts without resolving or restarting the failed task. New source replays
+continue to use the native-delivery producer's existing repair contract.
+
 ## Phase 1 source coverage
 
 The first release creates items for these explicit user-visible events:
