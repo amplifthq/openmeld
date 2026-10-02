@@ -123,7 +123,11 @@ function InboxGroupActions(
 	return (
 		<div className="flex shrink-0 items-center gap-1">
 			<Button
-				aria-label={`Mark ${input.label} as read`}
+				aria-label={
+					row.unreadCount
+						? `Mark ${input.label} as read`
+						: `${input.label}: Read`
+				}
 				className="gap-1.5 px-2 text-muted-foreground"
 				disabled={input.isMutating || row.unreadCount === 0}
 				onClick={() =>
@@ -137,7 +141,7 @@ function InboxGroupActions(
 				variant="ghost"
 			>
 				<CheckIcon aria-hidden="true" />
-				<span>{row.unreadCount ? "Mark as read" : "All read"}</span>
+				<span>{row.unreadCount ? "Mark as read" : "Read"}</span>
 			</Button>
 			<DropdownMenu>
 				<DropdownMenuTrigger
@@ -262,7 +266,7 @@ function InboxCollectionContents(
 		moreLabel = "Loading…";
 	}
 	return (
-		<div className="border-border/50 border-t ps-4 sm:ps-10" id={input.panelId}>
+		<div className="border-border/50 border-t" id={input.panelId}>
 			{members.isPending ? <InboxListSkeleton /> : null}
 			{members.isError ? (
 				<InboxRefreshWarning onRetry={() => members.refetch()} />

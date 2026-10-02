@@ -214,87 +214,95 @@ export function InboxItemRow(input: InboxItemRowProps) {
 						data-inbox-read-state={unread ? "unread" : "read"}
 						itemId={item.id}
 					>
-						<InboxItemSourceLink
-							className={cn(
-								"flex min-w-0 items-start gap-3 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
-								input.density === "compact"
-									? "min-h-16 px-3 py-3 pe-14"
-									: "min-h-20 px-4 py-4 pe-16 sm:gap-4",
-								inlineInvitation && "min-h-0 gap-4 pb-1"
-							)}
-							href={sourceNavigation.href}
-							informational={informational}
-							onAuxClick={handleAuxClick}
-							onClick={handleOpen}
-							openInNewTab={sourceNavigation.openInNewTab}
-							ref={(element) => {
-								input.registerItemElement?.(item.id, element);
-							}}
+						<div
+							className={cn({
+								"grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center":
+									input.trailingActions,
+							})}
 						>
-							<span
-								aria-hidden="true"
-								className="mt-2 flex w-2 shrink-0 justify-center"
+							<InboxItemSourceLink
+								className={cn(
+									"flex min-w-0 items-start gap-3 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+									input.density === "compact"
+										? "min-h-16 px-3 py-3 pe-14"
+										: "min-h-20 px-4 py-4 pe-16 sm:gap-4",
+									inlineInvitation && "min-h-0 gap-4 pb-1",
+									{ "pe-3": input.trailingActions }
+								)}
+								href={sourceNavigation.href}
+								informational={informational}
+								onAuxClick={handleAuxClick}
+								onClick={handleOpen}
+								openInNewTab={sourceNavigation.openInNewTab}
+								ref={(element) => {
+									input.registerItemElement?.(item.id, element);
+								}}
 							>
-								<InboxItemStatusDot dot={input.feedRow?.dot} item={item} />
-							</span>
-							<InboxLeadingAvatar
-								compact={input.density === "compact"}
-								inlineInvitation={inlineInvitation}
-								item={item}
-							/>
+								<span
+									aria-hidden="true"
+									className="mt-2 flex w-2 shrink-0 justify-center"
+								>
+									<InboxItemStatusDot dot={input.feedRow?.dot} item={item} />
+								</span>
+								<InboxLeadingAvatar
+									compact={input.density === "compact"}
+									inlineInvitation={inlineInvitation}
+									item={item}
+								/>
 
-							<span className="min-w-0 flex-1">
-								<span className="flex min-w-0 flex-wrap items-center gap-2">
+								<span className="min-w-0 flex-1">
+									<span className="flex min-w-0 flex-wrap items-center gap-2">
+										<span
+											className={cn(
+												"relative line-clamp-2 min-w-0 break-words text-foreground text-sm leading-5",
+												unread ? "font-semibold" : "font-medium"
+											)}
+										>
+											{input.titleOverride ?? item.title}
+										</span>
+										{unread ? <span className="sr-only">Unread.</span> : null}
+										<InboxItemBadges item={item} />
+										{inlineInvitation ? (
+											<span className="text-muted-foreground text-xs">
+												<InboxTimestamp occurredAt={item.occurredAt} />
+											</span>
+										) : null}
+									</span>
 									<span
 										className={cn(
-											"relative line-clamp-2 min-w-0 break-words text-foreground text-sm leading-5",
-											unread ? "font-semibold" : "font-medium"
+											"mt-1 line-clamp-2 break-words text-muted-foreground text-sm leading-5",
+											inlineInvitation && "hidden"
 										)}
 									>
-										{input.titleOverride ?? item.title}
+										{input.previewOverride ?? item.preview}
 									</span>
-									{unread ? <span className="sr-only">Unread.</span> : null}
-									<InboxItemBadges item={item} />
-									{inlineInvitation ? (
-										<span className="text-muted-foreground text-xs">
-											<InboxTimestamp occurredAt={item.occurredAt} />
-										</span>
-									) : null}
+									<span
+										className={cn(
+											"flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground text-xs",
+											input.density === "compact" ? "mt-1" : "mt-2",
+											inlineInvitation && "hidden"
+										)}
+									>
+										<InboxRowMetadata feedRow={input.feedRow} item={item} />
+									</span>
 								</span>
-								<span
-									className={cn(
-										"mt-1 line-clamp-2 break-words text-muted-foreground text-sm leading-5",
-										inlineInvitation && "hidden"
-									)}
-								>
-									{input.previewOverride ?? item.preview}
-								</span>
-								<span
-									className={cn(
-										"flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground text-xs",
-										input.density === "compact" ? "mt-1" : "mt-2",
-										inlineInvitation && "hidden"
-									)}
-								>
-									<InboxRowMetadata feedRow={input.feedRow} item={item} />
-								</span>
-							</span>
-						</InboxItemSourceLink>
+							</InboxItemSourceLink>
 
-						<InboxInlineInvitation
-							enabled={inlineInvitation}
-							item={item}
-							onInteract={handleOpen}
-						/>
-						{input.trailingActions ? (
-							<div className="ps-[3.25rem] pe-3 pb-2">
-								{input.trailingActions}
-							</div>
-						) : null}
-						{input.children}
-						{input.showItemActions ? (
-							<InboxItemActions menu={menu} title={item.title} />
-						) : null}
+							<InboxInlineInvitation
+								enabled={inlineInvitation}
+								item={item}
+								onInteract={handleOpen}
+							/>
+							{input.trailingActions ? (
+								<div className="flex justify-end pe-4 pb-2 sm:pb-0">
+									{input.trailingActions}
+								</div>
+							) : null}
+							{input.children}
+							{input.showItemActions ? (
+								<InboxItemActions menu={menu} title={item.title} />
+							) : null}
+						</div>
 					</SharedLayoutItem>
 				}
 			>
