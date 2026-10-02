@@ -17,6 +17,8 @@ import {
   remoteAgentWorkerExecutionQuerySchema,
   remoteAgentWorkerReadUsageDiagnosticsRequestSchema,
   remoteAgentWorkerRuntimeDiagnosticsRequestSchema,
+  remoteAgentWorkerSubmitCapabilitiesRequestSchema,
+  remoteAgentWorkerSubmitCapabilitiesSchema,
   remoteAgentWorkerSubmitTurnRequestSchema,
 } from "@openmeld/schemas";
 import {
@@ -41,6 +43,19 @@ import {
 const env = workerEnv as unknown as CloudflareBindings;
 
 export default {
+  readSubmitTurnCapabilities(input: unknown) {
+    const request =
+      remoteAgentWorkerSubmitCapabilitiesRequestSchema.safeParse(input);
+    if (!request.success) {
+      throw request.error;
+    }
+    return Promise.resolve(
+      remoteAgentWorkerSubmitCapabilitiesSchema.parse({
+        v: 1,
+        taskId: true,
+      })
+    );
+  },
   async generateCenterAgentSessionTitle(input: unknown) {
     return await runDurableAuxiliaryInference({
       namespace: env.FLUE_CENTER_AGENT_V2_AGENT as CenterAgentNamespace,

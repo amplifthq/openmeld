@@ -18,6 +18,7 @@ import {
   isSkillsReleasePath,
 } from "./release-ready-paths.mjs";
 import { readCurrentWorkerVersionIds } from "./release-stage-probes.mjs";
+import { resolveRemoteAgentRequestCompatibilityBridge } from "./remote-agent-request-compatibility.mjs";
 import { requireMainlineReleaseSha } from "./require-mainline-release-sha.mjs";
 
 const DEFAULT_BASE_REF = "origin/main";
@@ -240,6 +241,10 @@ export function resolveProductionCompatibilityDependencies(
   const invitation = isSpaceInvitationReceiverFirstDiff(changedPaths);
   const dependencyGroups = [
     {
+      enabled: isRemoteAiUsageDiff(changedPaths),
+      edges: [["core", "remote-agent"]],
+    },
+    {
       enabled: isWorkingFolderRecoveryDiff(changedPaths),
       edges: [["core", "cli"]],
     },
@@ -404,8 +409,14 @@ export function resolveProductionCompatibilityDependencies(
     },
     {
       enabled:
-        isRemoteAgentWorkerRequestReceiverFirstDiff(changedPaths) ||
-        changedPaths.some(isRemoteAgentReceiverFirstContractPath),
+        (isRemoteAgentWorkerRequestReceiverFirstDiff(changedPaths) ||
+          changedPaths.some(isRemoteAgentReceiverFirstContractPath)) &&
+        !resolveRemoteAgentRequestCompatibilityBridge({
+          ...context,
+          readGitFile:
+            context.readGitFile ??
+            ((ref, path) => runGit(["show", `${ref}:${path}`])),
+        }),
       edges: [["remote-agent", "core"]],
     },
     {
@@ -587,6 +598,15 @@ const REMOTE_AGENT_RECEIVER_FIRST_CONTRACT_PATHS = new Set([
   "services/remote-agent/flue-adapter/cloudflare-entrypoint.ts",
   "services/remote-agent/flue-adapter/execution-reconciliation.ts",
 ]);
+function isRemoteAiUsageDiff(changedPaths) {
+  return changedPaths.some((path) =>
+    [
+      "packages/schemas/src/schemas/ai-usage.ts",
+      "services/core/src/usage/ai-usage-rpc.ts",
+      "services/remote-agent/agent-core/ai-usage.ts",
+    ].includes(path)
+  );
+}
 const REMOTE_AGENT_WORKER_RESPONSE_SCHEMA_PATH =
   "packages/schemas/src/schemas/runtime/remote-agent-worker.ts";
 const REMOTE_AGENT_WORKER_REQUEST_SCHEMA_PATHS = new Set([
@@ -1081,7 +1101,8 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
   const orderedScopes = resolveProductionDeployScopeOrder(
     scopes,
     compatibilityChangedPaths,
-    input.taskInboxRetired
+    input.taskInboxRetired,
+    input.compatibilityContext
   );
   assertWakeProgressOptInDeployOrder(orderedScopes, changedPaths);
   assertSpaceHistoryQueryDeployOrder(orderedScopes, changedPaths);
@@ -1289,7 +1310,8 @@ function appendProductionDeployScopeSteps(input) {
 function resolveProductionDeployScopeOrder(
   scopes,
   changedPaths,
-  taskInboxRetired = false
+  taskInboxRetired = false,
+  context = {}
 ) {
   const profile = resolveProductionDeployOrderProfile(
     changedPaths,
@@ -1311,6 +1333,7 @@ function resolveProductionDeployScopeOrder(
     !(
       isWorkingFolderRecoveryDiff(changedPaths) ||
       isNpmSetupArtifactDiff(changedPaths) ||
+      isRemoteAiUsageDiff(changedPaths) ||
       isInboxNotificationObservationDiff(changedPaths)
     )
   ) {
@@ -1321,7 +1344,8 @@ function resolveProductionDeployScopeOrder(
   // silently override an opposite profile (for example Caller Context).
   const dependencies = resolveProductionCompatibilityDependencies(
     changedPaths,
-    taskInboxRetired
+    taskInboxRetired,
+    context
   ).filter(
     ([receiver, producer]) => selected.has(receiver) && selected.has(producer)
   );
@@ -2127,6 +2151,17 @@ function isReviewedProviderConnectionMissingResponseAddition(input) {
 export function buildProductionReleasePlan(input) {
   const changedPaths = input.changedPaths ?? resolveChangedPaths(input.base);
   const sourceSha = input.sourceSha ?? readHeadSha();
+  const compatibilityContext = {
+    base: input.base,
+    sourceSha,
+    readGitFile:
+      input.readGitFile ?? ((ref, path) => runGit(["show", `${ref}:${path}`])),
+  };
+  const requestBridge =
+    isRemoteAgentWorkerRequestReceiverFirstDiff(changedPaths) ||
+    changedPaths.some(isRemoteAgentReceiverFirstContractPath)
+      ? resolveRemoteAgentRequestCompatibilityBridge(compatibilityContext)
+      : null;
   const compatibilityChangedPaths = isReviewedHostedProgressCompatibilityBridge(
     {
       base: input.base,
@@ -2188,17 +2223,19 @@ export function buildProductionReleasePlan(input) {
   const deployScopeOrder = resolveProductionDeployScopeOrder(
     scopes,
     compatibilityChangedPaths,
-    taskInboxRetired
+    taskInboxRetired,
+    compatibilityContext
   );
   return {
     affectedPackages,
     base: input.base,
     changedPaths,
     coreProjectionFromCli: scopes.includes("cli"),
+    compatibilityBridges: requestBridge ? [requestBridge] : [],
     compatibilityDependencies: resolveProductionCompatibilityDependencies(
       compatibilityChangedPaths,
       taskInboxRetired,
-      { base: input.base, sourceSha }
+      compatibilityContext
     ),
     compatibilityReceiverWitnesses:
       resolveProductionCompatibilityReceiverWitnesses(
@@ -2207,6 +2244,7 @@ export function buildProductionReleasePlan(input) {
     deployOrderProfile,
     deployScopeOrder,
     deploySteps: buildProductionDeployStepSpecs(scopes, {
+      compatibilityContext,
       changedPaths,
       compatibilityChangedPaths,
       taskInboxRetired,
@@ -2619,8 +2657,13 @@ function printPlan(plan, json) {
     `Source: ${plan.sourceSha}`,
     `Base: ${plan.base}`,
     `Scopes: ${plan.scopes.length > 0 ? plan.scopes.join(", ") : "none"}`,
-    `Deploy order: ${plan.deployOrderProfile}`,
+    `Deploy order: ${plan.deployScopeOrder.join(", ")}`,
   ];
+  for (const bridge of plan.compatibilityBridges ?? []) {
+    lines.push(
+      `Compatibility bridge: ${bridge.kind} from ${bridge.baselineSha} (${bridge.evidence}).`
+    );
+  }
   if (plan.coreProjectionFromCli) {
     lines.push("CLI note: the CLI release owns its required Core projection.");
   }

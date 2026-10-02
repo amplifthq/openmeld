@@ -3089,6 +3089,8 @@ export {
   remoteAgentWorkerRuntimeDiagnosticsRequestSchema,
   remoteAgentWorkerRuntimeDiagnosticsResponseSchema,
   remoteAgentWorkerSubmissionStatusSchema,
+  remoteAgentWorkerSubmitCapabilitiesRequestSchema,
+  remoteAgentWorkerSubmitCapabilitiesSchema,
   remoteAgentWorkerSubmitMessagesResultSchema,
   remoteAgentWorkerSubmitTurnRequestSchema,
   remoteAgentWorkerSubmitTurnRequestV1Schema,

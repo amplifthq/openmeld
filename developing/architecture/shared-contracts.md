@@ -7101,6 +7101,35 @@ or provenance to force a retry. Baseline strict Core subscription readers reject
 the affected row and therefore its queried list batch, even if the new summary
 subscription was not created yet.
 
+Core negotiates optional top-level `taskId` through the Remote service binding's
+strict `readSubmitTurnCapabilities` request (`{ v: 1 }`) and response
+(`{ v: 1, taskId: true }`) before
+freezing a new Space admission. A positively missing method means the published
+legacy request shape: omit the field. Transport failures and malformed responses
+are not legacy capability evidence. Existing frozen requests retain their
+persisted payload unchanged, even if the receiver upgrades between attempts;
+do not enrich them with a newly available task ID. A missing usage attribution
+stays missing rather than being inferred from another task. This probe does not
+grant summary recovery support; its existing Stop-fence probes still own that
+capability. Once a frozen request contains `taskId`, retain a supporting Remote
+receiver until that request can no longer be replayed.
+
+The ordinary-object Remote Worker entrypoint requires exactly one RPC argument.
+The capability request is versioned and strict even though it carries no task
+data. `pnpm --filter @openmeld/remote-agent test:rpc` runs the actual Core
+resolver against the built Remote Worker over a workerd service binding;
+ordinary JavaScript mocks cannot establish this calling convention.
+
+This negotiated request permits the supported Core-first rolling window:
+new Core continues to accept the old Remote's in-flight completion callbacks,
+and omits unsupported attribution on new requests. Deploy and verify Core's
+`recordRemoteAiUsage` receiver before deploying Remote. New Remote never starts
+a provider call when that receiver is absent; `core.rpc.unavailable` remains a
+visible failure with the missing method name. This also applies to new owners
+and a receiver disappearing after allowance enforcement. Existing settlement
+outbox retries and historical admission audits are retained; neither authorizes
+new inference. The data owner defines their retention and deduplication.
+
 Before a continuation is submitted or replayed, Core compares its frozen
 pending and recovery envelopes with the task owner's `summaryRecovery` intent.
 An unmarked legacy summary fails with
