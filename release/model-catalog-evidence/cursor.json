@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "controller": "cursor",
-  "observedAt": "2026-09-30T01:12:59.054Z",
-  "fingerprint": "ca5df831accaddb2f2119596b1a359d32af96d6497138f38afbcb7c5661e6e61",
+  "observedAt": "2026-10-02T01:10:44.931Z",
+  "fingerprint": "d4b1f835d238d8c08c5b682b1e615b2fa7231cf7d3dc320e86b7a94975488ffd",
   "sources": [
     {
       "url": "https://cursor.com/docs/cli/reference/parameters.md",
@@ -24,7 +24,12 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["minimal", "low", "medium", "high"]
+                "values": [
+                  "minimal",
+                  "low",
+                  "medium",
+                  "high"
+                ]
               }
             ],
             "tool_call": true,
@@ -34,14 +39,47 @@
             "release_date": "2025-08-07",
             "last_updated": "2025-08-07",
             "modalities": {
-              "input": ["text", "image"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
               "context": 400000,
               "input": 272000,
               "output": 128000
+            },
+            "experimental": {
+              "modes": {
+                "fast": {
+                  "cost": {
+                    "input": 0.45,
+                    "output": 3.6,
+                    "cache_read": 0.045
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "priority"
+                    }
+                  }
+                },
+                "flex": {
+                  "cost": {
+                    "input": 0.125,
+                    "output": 1,
+                    "cache_read": 0.0125
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "flex"
+                    }
+                  }
+                }
+              }
             },
             "cost": {
               "input": 0.25,
@@ -59,7 +97,12 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["none", "low", "medium", "high"]
+                "values": [
+                  "none",
+                  "low",
+                  "medium",
+                  "high"
+                ]
               }
             ],
             "tool_call": true,
@@ -69,14 +112,47 @@
             "release_date": "2025-11-13",
             "last_updated": "2025-11-13",
             "modalities": {
-              "input": ["text", "image"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
               "context": 400000,
               "input": 272000,
               "output": 128000
+            },
+            "experimental": {
+              "modes": {
+                "fast": {
+                  "cost": {
+                    "input": 2.5,
+                    "output": 20,
+                    "cache_read": 0.25
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "priority"
+                    }
+                  }
+                },
+                "flex": {
+                  "cost": {
+                    "input": 0.625,
+                    "output": 5,
+                    "cache_read": 0.0625
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "flex"
+                    }
+                  }
+                }
+              }
             },
             "cost": {
               "input": 1.25,
@@ -94,7 +170,13 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["none", "low", "medium", "high", "xhigh"]
+                "values": [
+                  "none",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh"
+                ]
               }
             ],
             "tool_call": true,
@@ -104,14 +186,47 @@
             "release_date": "2025-12-11",
             "last_updated": "2025-12-11",
             "modalities": {
-              "input": ["text", "image"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
               "context": 400000,
               "input": 272000,
               "output": 128000
+            },
+            "experimental": {
+              "modes": {
+                "fast": {
+                  "cost": {
+                    "input": 3.5,
+                    "output": 28,
+                    "cache_read": 0.35
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "priority"
+                    }
+                  }
+                },
+                "flex": {
+                  "cost": {
+                    "input": 0.875,
+                    "output": 7,
+                    "cache_read": 0.0875
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "flex"
+                    }
+                  }
+                }
+              }
             },
             "cost": {
               "input": 1.75,
@@ -129,7 +244,13 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["none", "low", "medium", "high", "xhigh"]
+                "values": [
+                  "none",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh"
+                ]
               }
             ],
             "tool_call": true,
@@ -139,14 +260,36 @@
             "release_date": "2026-02-05",
             "last_updated": "2026-02-05",
             "modalities": {
-              "input": ["text", "image", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
               "context": 400000,
               "input": 272000,
               "output": 128000
+            },
+            "experimental": {
+              "modes": {
+                "fast": {
+                  "cost": {
+                    "input": 3.5,
+                    "output": 28,
+                    "cache_read": 0.35
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "priority"
+                    }
+                  }
+                }
+              }
             },
             "cost": {
               "input": 1.75,
@@ -164,7 +307,13 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["none", "low", "medium", "high", "xhigh"]
+                "values": [
+                  "none",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh"
+                ]
               }
             ],
             "tool_call": true,
@@ -174,8 +323,14 @@
             "release_date": "2026-03-05",
             "last_updated": "2026-03-05",
             "modalities": {
-              "input": ["text", "image", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
@@ -231,7 +386,13 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["none", "low", "medium", "high", "xhigh"]
+                "values": [
+                  "none",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh"
+                ]
               }
             ],
             "tool_call": true,
@@ -241,8 +402,13 @@
             "release_date": "2026-03-17",
             "last_updated": "2026-03-17",
             "modalities": {
-              "input": ["text", "image"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
@@ -261,6 +427,18 @@
                   "provider": {
                     "body": {
                       "service_tier": "priority"
+                    }
+                  }
+                },
+                "flex": {
+                  "cost": {
+                    "input": 0.375,
+                    "output": 2.25,
+                    "cache_read": 0.0375
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "flex"
                     }
                   }
                 }
@@ -282,7 +460,13 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["none", "low", "medium", "high", "xhigh"]
+                "values": [
+                  "none",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh"
+                ]
               }
             ],
             "tool_call": true,
@@ -292,14 +476,35 @@
             "release_date": "2026-03-17",
             "last_updated": "2026-03-17",
             "modalities": {
-              "input": ["text", "image"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
               "context": 400000,
               "input": 272000,
               "output": 128000
+            },
+            "experimental": {
+              "modes": {
+                "flex": {
+                  "cost": {
+                    "input": 0.1,
+                    "output": 0.625,
+                    "cache_read": 0.01
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "flex"
+                    }
+                  }
+                }
+              }
             },
             "cost": {
               "input": 0.2,
@@ -317,7 +522,13 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["none", "low", "medium", "high", "xhigh"]
+                "values": [
+                  "none",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh"
+                ]
               }
             ],
             "tool_call": true,
@@ -327,8 +538,14 @@
             "release_date": "2026-04-23",
             "last_updated": "2026-04-23",
             "modalities": {
-              "input": ["text", "image", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
@@ -384,7 +601,14 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["none", "low", "medium", "high", "xhigh", "max"]
+                "values": [
+                  "none",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
               }
             ],
             "tool_call": true,
@@ -394,8 +618,14 @@
             "release_date": "2026-07-09",
             "last_updated": "2026-07-09",
             "modalities": {
-              "input": ["text", "image", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
@@ -465,7 +695,14 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["none", "low", "medium", "high", "xhigh", "max"]
+                "values": [
+                  "none",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
               }
             ],
             "tool_call": true,
@@ -475,8 +712,14 @@
             "release_date": "2026-07-09",
             "last_updated": "2026-07-09",
             "modalities": {
-              "input": ["text", "image", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
@@ -546,7 +789,14 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["none", "low", "medium", "high", "xhigh", "max"]
+                "values": [
+                  "none",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
               }
             ],
             "tool_call": true,
@@ -556,8 +806,14 @@
             "release_date": "2026-07-09",
             "last_updated": "2026-07-09",
             "modalities": {
-              "input": ["text", "image", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
@@ -627,7 +883,13 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["low", "medium", "high", "xhigh", "max"]
+                "values": [
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
               }
             ],
             "tool_call": true,
@@ -637,8 +899,14 @@
             "release_date": "2026-09-04",
             "last_updated": "2026-09-04",
             "modalities": {
-              "input": ["text", "image", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
@@ -667,6 +935,19 @@
                       "reasoning": {
                         "mode": "pro"
                       }
+                    }
+                  }
+                },
+                "ultrafast": {
+                  "cost": {
+                    "input": 60,
+                    "output": 300,
+                    "cache_read": 6,
+                    "cache_write": 75
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "ultrafast"
                     }
                   }
                 }
@@ -708,7 +989,14 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["none", "low", "medium", "high", "xhigh", "max"]
+                "values": [
+                  "none",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
               }
             ],
             "tool_call": true,
@@ -718,8 +1006,14 @@
             "release_date": "2026-09-22",
             "last_updated": "2026-09-22",
             "modalities": {
-              "input": ["text", "image", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
@@ -789,7 +1083,14 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["none", "low", "medium", "high", "xhigh", "max"]
+                "values": [
+                  "none",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
               }
             ],
             "tool_call": true,
@@ -799,8 +1100,14 @@
             "release_date": "2026-09-22",
             "last_updated": "2026-09-22",
             "modalities": {
-              "input": ["text", "image", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
@@ -870,7 +1177,13 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["low", "medium", "high", "xhigh", "max"]
+                "values": [
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
               }
             ],
             "tool_call": true,
@@ -880,8 +1193,14 @@
             "release_date": "2026-09-29",
             "last_updated": "2026-09-29",
             "modalities": {
-              "input": ["text", "image", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
@@ -953,7 +1272,13 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["low", "medium", "high", "xhigh", "max"]
+                "values": [
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
               }
             ],
             "tool_call": true,
@@ -962,8 +1287,14 @@
             "release_date": "2026-06-07",
             "last_updated": "2026-06-09",
             "modalities": {
-              "input": ["text", "image", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
@@ -987,7 +1318,13 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["low", "medium", "high", "xhigh", "max"]
+                "values": [
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
               }
             ],
             "tool_call": true,
@@ -997,8 +1334,14 @@
             "release_date": "2026-09-01",
             "last_updated": "2026-09-01",
             "modalities": {
-              "input": ["text", "image", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
@@ -1033,8 +1376,14 @@
             "release_date": "2025-10-15",
             "last_updated": "2025-10-15",
             "modalities": {
-              "input": ["text", "image", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
@@ -1059,7 +1408,11 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["low", "medium", "high"]
+                "values": [
+                  "low",
+                  "medium",
+                  "high"
+                ]
               },
               {
                 "type": "budget_tokens",
@@ -1073,8 +1426,14 @@
             "release_date": "2025-11-24",
             "last_updated": "2025-11-24",
             "modalities": {
-              "input": ["text", "image", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
@@ -1099,7 +1458,12 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["low", "medium", "high", "max"]
+                "values": [
+                  "low",
+                  "medium",
+                  "high",
+                  "max"
+                ]
               },
               {
                 "type": "budget_tokens",
@@ -1113,8 +1477,14 @@
             "release_date": "2026-02-04",
             "last_updated": "2026-03-13",
             "modalities": {
-              "input": ["text", "image", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
@@ -1138,7 +1508,13 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["low", "medium", "high", "xhigh", "max"]
+                "values": [
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
               }
             ],
             "tool_call": true,
@@ -1148,8 +1524,14 @@
             "release_date": "2026-04-14",
             "last_updated": "2026-04-16",
             "modalities": {
-              "input": ["text", "image", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
@@ -1173,7 +1555,13 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["low", "medium", "high", "xhigh", "max"]
+                "values": [
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
               }
             ],
             "tool_call": true,
@@ -1183,8 +1571,14 @@
             "release_date": "2026-05-28",
             "last_updated": "2026-05-28",
             "modalities": {
-              "input": ["text", "image", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
@@ -1228,7 +1622,13 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["low", "medium", "high", "xhigh", "max"]
+                "values": [
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
               }
             ],
             "tool_call": true,
@@ -1238,8 +1638,14 @@
             "release_date": "2026-07-24",
             "last_updated": "2026-07-24",
             "modalities": {
-              "input": ["text", "image", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
@@ -1284,7 +1690,13 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["low", "medium", "high", "xhigh", "max"]
+                "values": [
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
               }
             ],
             "tool_call": true,
@@ -1294,8 +1706,14 @@
             "release_date": "2026-09-22",
             "last_updated": "2026-09-22",
             "modalities": {
-              "input": ["text", "image", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
@@ -1350,8 +1768,14 @@
             "release_date": "2025-09-29",
             "last_updated": "2025-09-29",
             "modalities": {
-              "input": ["text", "image", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
@@ -1376,7 +1800,12 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["low", "medium", "high", "max"]
+                "values": [
+                  "low",
+                  "medium",
+                  "high",
+                  "max"
+                ]
               },
               {
                 "type": "budget_tokens",
@@ -1390,8 +1819,14 @@
             "release_date": "2026-02-17",
             "last_updated": "2026-03-13",
             "modalities": {
-              "input": ["text", "image", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
@@ -1418,7 +1853,13 @@
               },
               {
                 "type": "effort",
-                "values": ["low", "medium", "high", "xhigh", "max"]
+                "values": [
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
               }
             ],
             "tool_call": true,
@@ -1428,8 +1869,14 @@
             "release_date": "2026-06-29",
             "last_updated": "2026-06-30",
             "modalities": {
-              "input": ["text", "image", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
@@ -1453,7 +1900,13 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["low", "medium", "high", "xhigh", "max"]
+                "values": [
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
               }
             ],
             "tool_call": true,
@@ -1463,8 +1916,14 @@
             "release_date": "2026-09-28",
             "last_updated": "2026-09-28",
             "modalities": {
-              "input": ["text", "image", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
@@ -1505,8 +1964,16 @@
             "release_date": "2025-06-17",
             "last_updated": "2025-06-17",
             "modalities": {
-              "input": ["text", "image", "audio", "video", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "audio",
+                "video",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
@@ -1531,7 +1998,12 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["minimal", "low", "medium", "high"]
+                "values": [
+                  "minimal",
+                  "low",
+                  "medium",
+                  "high"
+                ]
               }
             ],
             "tool_call": true,
@@ -1541,8 +2013,16 @@
             "release_date": "2026-05-19",
             "last_updated": "2026-05-19",
             "modalities": {
-              "input": ["text", "image", "video", "audio", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "video",
+                "audio",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
@@ -1566,7 +2046,11 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["low", "medium", "high"]
+                "values": [
+                  "low",
+                  "medium",
+                  "high"
+                ]
               }
             ],
             "tool_call": true,
@@ -1575,8 +2059,16 @@
             "release_date": "2026-09-02",
             "last_updated": "2026-09-02",
             "modalities": {
-              "input": ["text", "image", "video", "audio", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "video",
+                "audio",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
@@ -1603,7 +2095,11 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["low", "medium", "high"]
+                "values": [
+                  "low",
+                  "medium",
+                  "high"
+                ]
               }
             ],
             "tool_call": true,
@@ -1612,8 +2108,14 @@
             "release_date": "2026-07-08",
             "last_updated": "2026-07-08",
             "modalities": {
-              "input": ["text", "image", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
@@ -1653,7 +2155,12 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["low", "medium", "high", "xhigh"]
+                "values": [
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh"
+                ]
               }
             ],
             "tool_call": true,
@@ -1663,8 +2170,14 @@
             "release_date": "2026-08-12",
             "last_updated": "2026-08-12",
             "modalities": {
-              "input": ["text", "image", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
@@ -1704,7 +2217,12 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["low", "medium", "high", "xhigh"]
+                "values": [
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh"
+                ]
               }
             ],
             "tool_call": true,
@@ -1714,8 +2232,14 @@
             "release_date": "2026-09-21",
             "last_updated": "2026-09-21",
             "modalities": {
-              "input": ["text", "image", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
