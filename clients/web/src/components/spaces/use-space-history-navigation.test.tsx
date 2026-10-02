@@ -302,10 +302,14 @@ describe("returning to the live Space history", () => {
 		expect(result.current.error).toBeNull();
 		expect(result.current.pending).toBe(false);
 	});
-	it("restores an older cached reading position without mounting the whole transcript", () => {
+	it.each([
+		false,
+		true,
+	])("restores the saved reading mode without mounting the whole transcript (at bottom: %s)", (atBottom) => {
 		writeSpaceConversationPosition("viewer:space-conversation:space-saved", {
 			anchorSignalId: "100",
 			offsetFromVisibleTop: 10,
+			...(atBottom ? { atBottom: true as const } : {}),
 		});
 		const history = Array.from({ length: 480 }, (_, index) => ({
 			...message(String(index)),
@@ -320,8 +324,13 @@ describe("returning to the live Space history", () => {
 				accessRejected: false,
 			})
 		);
-		expect(result.current.activeWindow?.envelopes).toHaveLength(61);
-		expect(result.current.activeWindow?.envelopes[30]?.id).toBe("100");
+		if (atBottom) {
+			expect(result.current.activeWindow).toBeNull();
+			expect(result.current.visibleLiveEnvelopes.at(-1)?.id).toBe("479");
+		} else {
+			expect(result.current.activeWindow?.envelopes).toHaveLength(61);
+			expect(result.current.activeWindow?.envelopes[30]?.id).toBe("100");
+		}
 		clearSpaceConversationPositions();
 	});
 	it("joins live messages only after the server confirms the historical window reached the tail", async () => {
