@@ -1,5 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import capturedSourceImpact from "./fixtures/component-status-e050-98446.json" with {
+  type: "json",
+};
+import {
+  buildProductionReleaseImpact,
+  buildProductionReleasePlan,
+} from "./production-release.mjs";
 import {
   resolveLatestSuccessfulReleaseSources,
   runProductionReleaseStatus,
@@ -68,6 +75,7 @@ async function report(overrides = {}) {
           }
         : { parents: [], tree: { sha: treeSha } },
     buildPlan: () => ({ scopes: ["web"], changedPaths: [] }),
+    buildImpact: (input) => adapters.buildPlan(input),
     ...overrides,
   };
   const code = await runProductionReleaseStatus({
@@ -79,6 +87,40 @@ async function report(overrides = {}) {
   });
   return { code, result: JSON.parse(output) };
 }
+
+const HISTORICAL_ORDER_CONFLICT = /Incompatible release dependencies/u;
+test("classifies verified component receipts without ordering an unrelated historical release train", async () => {
+  // Captured from the actual production/merge sources. No historical Git
+  // objects or network fetch are required in a shallow test checkout.
+  const input = { ...capturedSourceImpact, scope: "auto" };
+  assert.throws(
+    () => buildProductionReleasePlan(input),
+    HISTORICAL_ORDER_CONFLICT
+  );
+  const { result } = await report({
+    readReleaseRuns: async () => [first],
+    readReleaseJobs: async () =>
+      ["Deploy Web", "Deploy Gateway Worker", "Deploy Auth Worker"].map(
+        (name) => job(name, input.base, "2026-10-02T01:30:00Z")
+      ),
+    buildPlan: ({ base }) =>
+      base === input.base
+        ? buildProductionReleasePlan(input)
+        : { scopes: [], changedPaths: [] },
+    buildImpact: () => buildProductionReleaseImpact(input),
+  });
+  for (const scope of ["web", "gateway", "auth"]) {
+    const component = result.components.find((entry) => entry.scope === scope);
+    assert.equal(component.state, "pending", `${scope}: ${component.reason}`);
+    assert.equal(component.sha, input.base);
+    assert.ok(
+      component.compatibilityDependencies.some(
+        ([receiver, producer]) =>
+          receiver === "core" && producer === "remote-agent"
+      )
+    );
+  }
+});
 test("selects actual completion rather than workflow creation order", () => {
   const jobsByRunId = new Map([
     [2, [job("Deploy Web", WEB, "2026-09-18T11:00:00Z")]],
@@ -126,7 +168,7 @@ test("uses verified Database history when unrelated historical contracts cannot 
       }
       return { scopes: ["db"], changedPaths: [] };
     },
-    buildDatabaseStatusPlan: () => ({
+    buildImpact: () => ({
       scopes: ["db"],
       changedPaths: ["packages/db/drizzle/0182_grey_captain_marvel.sql"],
     }),

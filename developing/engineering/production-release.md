@@ -289,17 +289,20 @@ actual job completion times, never workflow creation order. A missing source,
 invalid completion time, ambiguous tie, API failure, or safety-bound truncation
 in the inspected range remains explicit uncertainty; it cannot silently make
 the affected component current. The report does not claim to audit jobs older
-than every scope's selected deployment. Historical planner failures are
-contained in per-component `unknown` results; a genuine current-change planning
+than every scope's selected deployment. Each component's source impact is
+computed independently of whole-train ordering. Unreadable source impact remains
+an explicit per-component `unknown`; a genuine current-change planning
 conflict still blocks. JSON and human output retain both scoped and global
 blockers. This is a projection of available recorded deployments, not an
 independent live-production acceptance check.
 
-For a verified Database release, status can classify later Database schema and
-migration changes independently when unrelated historical Worker contracts no
-longer compose into one plan. The database stage still checks the live pending
-migration list and committed schema before applying anything. Other components
-remain unknown when their historical compatibility plan cannot be established.
+Verified component receipts remain valid when historical Worker contracts no
+longer compose into one deployment plan. Status retains each receipt and its
+source impact, compatibility dependencies, and receiver witnesses; it does not
+grant deployment permission. Plan and stage admission still enforce safe order,
+including a verified compatible Core receiver before Remote. The database stage
+still checks live pending migrations and the committed schema before applying
+anything. Missing, conflicting, or unverified receipts remain unknown.
 
 The baseline is component-specific. Each scope starts from its latest verified
 deployment receipt or legacy hosted deployment evidence, so Database, CLI,
