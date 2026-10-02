@@ -415,6 +415,47 @@ Core callers and keeps a selected CLI unpublished until every cloud receiver is
 ready. Shared schemas and Core's native-delivery service are intentionally not
 directional path signals because they carry contracts in both directions.
 
+Remote AI usage adds the opposite dependency: Core's `recordRemoteAiUsage`
+receiver precedes its Remote producer. The planner composes this edge with the
+request dependencies and rejects an unresolved cycle, including a single-stage
+guard that tries to skip a pending receiver. It must not report a safe train by
+choosing only one side of that cycle.
+Selecting Core and Remote together does not satisfy this prerequisite: Remote's
+stage requires a verified Core deployment receipt whose source satisfies the
+receiver contract. Failed/applied, unknown, or merely planned Core is not ready.
+Complete the guarded Core stage first and rerun stage admission before Remote.
+
+The P0 bridge from the actually published `e4454cf165b96c7f918e420f28205c2b2ed3c575`
+receiver is a bounded exception to the request-receiver-first edge. Core probes
+optional task attribution before freezing new requests; existing summary
+capability gates and frozen-request replay remain unchanged. The planner checks
+that exact baseline and the reviewed source digest of all listed request owners
+in `scripts/release/remote-agent-request-compatibility.mjs`. Unknown baselines,
+unreadable source, or any changed owner preserve the dependency and block a
+cycle. Never update the digest merely to pass a gate: repeat the published-schema
+and mixed-version audit. `compatibilityBridges` in plan/status records the exact
+source witness; Core metering and Web/Gateway result-reader edges remain intact.
+
+For this bridge, retain the completed compatible Web readers and additive DB
+migrations, deploy Core and verify its readers/usage receiver, record that exact
+Core deployment as the forward-fix anchor, install the pinned Connector overlay,
+then deploy Remote. Confirm Wake, Stop, final Space publication, and usage outbox
+delivery before continuing the remaining release components. Reverse order is
+unsupported: a missing metering receiver fails before any new model call, with
+the method name and `core.rpc.unavailable` diagnostic. Existing audit receipts
+and real settlements remain available for idempotent backfill. New admissions
+cannot bypass allowance checks, including after a downgrade or for a new owner.
+No production smoke is implied by local bridge tests.
+
+Before Remote upgrades, Core can return to the previous release only if no
+summary recovery intent has been persisted and no other new durable contract
+requires its reader. Once Remote accepts frozen task-attributed requests, retain
+its compatible receiver while those requests can replay; use a forward fix for
+an incompatible runtime failure. Once `summaryRecoveryIntent` exists, never
+return to the old Core or erase/rewrite the intent. Preserve the compatible Core
+anchor and forward-fix. Pending usage settlements and deferred audits survive
+either component's forward repair; never rerun inference to reconstruct them.
+
 When a diff changes the worker schema, native-delivery service, and Center
 Agent receiver together without a recognized directional request owner, the
 planner rejects a combined Core/CLI and Remote Agent release. Review the actual

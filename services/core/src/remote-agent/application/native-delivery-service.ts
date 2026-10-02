@@ -326,6 +326,7 @@ import {
   readRemoteAgentWorkerAdmission,
   readRemoteAgentWorkerAdmissionStop,
   resolveRemoteAgentAdmissionPublicCopy,
+  resolveRemoteAgentWorkerTaskAttribution,
   submitRemoteAgentWorkerAdmission,
 } from "./remote-agent-worker-admission";
 import { resolveSlackBotToken } from "./slack-bot-token";
@@ -1151,7 +1152,10 @@ export async function submitRemoteAgentNativeDelivery(
       bindingId: input.binding.bindingId,
       triggerMessageId: input.message.sourceEventId,
       dispatchId: input.message.dispatchId,
-      taskId: input.message.taskId,
+      ...(await resolveRemoteAgentWorkerTaskAttribution(
+        worker,
+        input.message.taskId
+      )),
       sourceClientMessageId: input.message.sourceClientMessageId ?? null,
       idempotencyKey: input.message.idempotencyKey,
       messages: [
