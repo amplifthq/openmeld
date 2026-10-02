@@ -343,6 +343,7 @@ export type RemoteAgentCoreWorkerBinding = {
     input: CenterAgentAiUsageRpcInput
   ): Promise<AiUsageQueryResponse>;
   authorizeRemoteAgentExecutionAccess?(input: unknown): Promise<unknown>;
+  acknowledgeRemoteAgentAdmission?(input: unknown): Promise<unknown>;
   getModelCatalog?(
     options?: ModelCatalogReadOptions
   ): Promise<ModelCatalog> | ModelCatalog;

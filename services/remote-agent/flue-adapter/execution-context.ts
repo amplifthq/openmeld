@@ -6,11 +6,64 @@ import {
   instrument,
 } from "@flue/runtime";
 import {
+  remoteAgentCoreAdmissionCallbackSchema,
+  remoteAgentCoreCallbackResponseSchema,
+} from "@openmeld/schemas";
+import {
   REMOTE_AGENT_CALLBACK_CONTEXT_WAIT_MS,
   type RemoteAgentCallbackContext,
+  type RemoteAgentCoreWorkerBinding,
   type RemoteAgentReadableStorage,
   waitForRemoteAgentCallbackContext,
 } from "../agent-core/callback-context";
+import {
+  assertRemoteAgentExecutionCanContinue,
+  buildRemoteAgentExecutionIdentity,
+  RemoteAgentExecutionCancelledError,
+} from "../agent-core/execution-state";
+
+export async function acknowledgeRemoteAgentExecutionPreparation(input: {
+  context: RemoteAgentCallbackContext;
+  coreWorker: RemoteAgentCoreWorkerBinding;
+  storage: RemoteAgentReadableStorage;
+}): Promise<void> {
+  const identity = buildRemoteAgentExecutionIdentity(input.context);
+  await assertRemoteAgentExecutionCanContinue({
+    identity,
+    storage: input.storage,
+  });
+  if (!input.coreWorker.acknowledgeRemoteAgentAdmission) {
+    throw new Error("remote_agent.admission_acknowledgement_unavailable");
+  }
+  const context = input.context;
+  const result = remoteAgentCoreCallbackResponseSchema.parse(
+    await input.coreWorker.acknowledgeRemoteAgentAdmission(
+      remoteAgentCoreAdmissionCallbackSchema.parse({
+        agentProfileId: context.agentProfileId,
+        bindingId: context.bindingId,
+        dispatchId: context.dispatchId,
+        idempotencyKey: context.idempotencyKey,
+        organizationId: context.organizationId,
+        spaceId: context.spaceId,
+        submissionId: context.submissionId,
+        triggerMessageId: context.triggerMessageId,
+      })
+    )
+  );
+  if (result.status !== "accepted") {
+    if (result.reasonCode === "remote_agent.execution_cancelled") {
+      throw new RemoteAgentExecutionCancelledError();
+    }
+    throw new Error(
+      result.reasonCode ?? "remote_agent.admission_acknowledgement_rejected"
+    );
+  }
+  // Stop may have arrived while Core was persisting the same admission.
+  await assertRemoteAgentExecutionCanContinue({
+    identity,
+    storage: input.storage,
+  });
+}
 
 const REMOTE_AGENT_EXECUTION_INSTRUMENTATION_KEY = Symbol.for(
   "openmeld.remote-agent.submission-execution-context"
