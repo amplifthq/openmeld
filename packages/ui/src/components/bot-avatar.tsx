@@ -195,6 +195,8 @@ const InteractiveBotAvatar = forwardRef<
       previous = 0;
       observer?.disconnect();
       observer = undefined;
+      // A disconnected observer's last result cannot veto a later user click.
+      visible = true;
       document.removeEventListener("visibilitychange", visibilityChanged);
     };
     const rest = () => {

@@ -97,7 +97,9 @@ beforeEach(() => {
             this as unknown as IntersectionObserver
           );
       }
-      disconnect = vi.fn();
+      disconnect = () => {
+        intersect = undefined;
+      };
     }
   );
 });
@@ -109,7 +111,11 @@ afterEach(() => {
 });
 
 describe("Bot avatar interaction", () => {
-  it("plays one bounded hop, keeps the parent's click, and returns to rest without an idle loop", () => {
+  it.each([
+    "natural finish",
+    "offscreen",
+    "hidden document",
+  ])("plays bounded hops, keeps the parent's click, and accepts a new click after %s", (reason) => {
     const open = vi.fn();
     const view = render(
       <button onClick={open} type="button">
@@ -128,6 +134,24 @@ describe("Bot avatar interaction", () => {
     expect(canvas.dataset.pose).not.toBe(resting);
     // Repeated clicks cannot restart or queue more motion.
     fireEvent.click(canvas);
+    if (reason === "offscreen") {
+      act(() => intersect?.(false));
+    } else if (reason === "hidden document") {
+      vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+      fireEvent(document, new Event("visibilitychange"));
+    }
+    advance(380);
+    expect(canvas.dataset.pose).toBe(resting);
+    expect(frames.size).toBe(0);
+    if (reason === "hidden document") {
+      vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+    }
+    // Idle avatars no longer observe visibility. A deliberate fresh click must
+    // work when the user returns, without a callback from a disconnected observer.
+    fireEvent.click(canvas);
+    expect(open).toHaveBeenCalledTimes(3);
+    advance(120);
+    expect(canvas.dataset.pose).not.toBe(resting);
     advance(380);
     expect(canvas.dataset.pose).toBe(resting);
     expect(frames.size).toBe(0);
