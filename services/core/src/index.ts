@@ -484,6 +484,7 @@ import {
   rpcMarkInboxItemRead,
   rpcMarkSpaceInboxReadThrough,
   rpcMutateInboxFeed,
+  rpcMutateSpaceInboxRead,
   rpcObserveInboxNotifications,
   rpcUpdateInboxMessageNotificationPreferences,
   rpcUpdateInboxNotificationPreferences,
@@ -575,6 +576,7 @@ import {
 } from "./projects/project-center-agent-rpc";
 import { verifyLarkPlatformWebhook } from "./remote-agent/application/lark-platform-webhook-service";
 import { createConfiguredMessageChannelProviderRegistry } from "./remote-agent/application/message-channel-provider-runtime";
+import { acknowledgeRemoteAgentAdmission } from "./remote-agent/application/native-delivery-admission-acknowledgement";
 import { completeRemoteAgentNativeDelivery } from "./remote-agent/application/native-delivery-service";
 import { runPersonalRemoteAgentSpaceTool } from "./remote-agent/application/personal-remote-agent-space-tools";
 import { authorizeRemoteAgentExecutionAccess } from "./remote-agent/application/remote-agent-execution-access";
@@ -1570,6 +1572,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: MutateInboxFeedRpcInput
   ): Promise<MutateInboxFeedResponse> {
     return rpcMutateInboxFeed(this.env, input);
+  }
+
+  mutateSpaceInboxRead(
+    input: import("@openmeld/schemas/types").MutateSpaceInboxReadRpcInput
+  ) {
+    return rpcMutateSpaceInboxRead(this.env, input);
   }
 
   listInboxItems(
@@ -3068,6 +3076,10 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return authorizeRemoteAgentExecutionAccess(this.env, input);
   }
 
+  acknowledgeRemoteAgentAdmission(input: unknown) {
+    return acknowledgeRemoteAgentAdmission(this.env, input);
+  }
+
   getCenterAgentDesignation(
     input: GetCenterAgentDesignationInput
   ): Promise<GetCenterAgentDesignationResponse> {
@@ -4281,6 +4293,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: GetSpaceInboxUnreadTargetsRpcInput
   ): Promise<SpaceInboxUnreadTargetsResponse> {
     return super.getSpaceInboxUnreadTargets(input);
+  }
+
+  mutateSpaceInboxRead(
+    input: import("@openmeld/schemas/types").MutateSpaceInboxReadRpcInput
+  ) {
+    return super.mutateSpaceInboxRead(input);
   }
 
   markCenterAgentInboxReadThrough(

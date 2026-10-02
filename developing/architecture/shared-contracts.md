@@ -549,6 +549,22 @@ changes still follow the base-aware local-component stamp and publication rules
 in [Production Release](../engineering/production-release.md); an unchanged
 wire contract does not exempt changed bundle inputs from release readiness.
 
+## Hosted preparation admission acknowledgement
+
+`remoteAgentCoreAdmissionCallbackSchema` in `packages/schemas` owns the exact
+Remote-to-Core admission callback identity. The native execution sends it before
+resource preparation. Core validates the frozen delivery identity and persists
+the same admission through its existing conditional ACK writer. The existing
+callback response schema reports acceptance or rejection; no new public response
+fields, execution states, or authorization grants are introduced.
+
+Deploy the Core RPC receiver before its Remote caller; remove the Remote caller
+before rolling back the receiver. New Core accepts old Remote submission ACKs.
+New Remote fails preparation explicitly against old Core. Core-to-Remote submit
+payloads and all Web, Gateway, CLI, Service, Skills, setup, Wake transport,
+Space Action, and diagnostic contracts are unchanged. No local component epoch
+or database migration is required.
+
 ## Hosted reply recovery rollout
 
 The optional `replyRecovery` field on Remote Agent submit requests is owned by
@@ -7267,6 +7283,7 @@ decisions that must stay consistent across CLI, Web, Core, daemon, and adapters.
 It is the shared source for:
 
 - Agent Controller refs
+- Agent Controller semantic version comparison and capability-range admission
 - OpenMeld Service Runtime identity and registry contract helpers
 - Prepare readiness summaries
 - Agent Profile Binding projections and command eligibility
@@ -7275,6 +7292,23 @@ It is the shared source for:
 
 Agent Controller refs must use the shared helpers. Do not hand-build or
 hand-parse refs such as `builtin:<id>` or `custom:<id>` in clients or services.
+
+Local Agent adapters, model compatibility, and controller update advice use
+`compareAgentControllerVersions` and `supportsAgentControllerVersion` for
+SemVer evidence. They retain prerelease ordering and ignore build metadata for
+precedence; malformed or missing versions are unknown/unsupported. Each adapter
+owns its verified capability range and any upper bound. A newer prerelease may
+exceed an older stable floor, but a prerelease of the floor itself does not.
+Non-SemVer provider formats such as Cursor's dated builds retain an explicit
+provider-specific interpretation rather than being coerced into SemVer.
+
+Version admission never replaces native capability, effective configuration,
+managed-policy, or permission evidence. A version rejection, unavailable native
+capability, and an incompatible tool policy must remain distinguishable. This
+local admission correction changes no setup, Wake, Space action, diagnostic
+payload, cloud execution epoch, or minimum CLI/Service contract. Old/new cloud
+and local components still interoperate; publication metadata remains deferred
+to the authorized local-component release.
 
 OpenMeld Service Runtime IDs used for Binding or claim eligibility must be opaque
 authoritative Runtime Registry IDs. Do not derive claimable runtime identity

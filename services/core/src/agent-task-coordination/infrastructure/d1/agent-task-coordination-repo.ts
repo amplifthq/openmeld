@@ -1948,45 +1948,6 @@ async function readAgentTaskCompletionSubscriptionByIdempotencyKey(input: {
   return row ? parseSubscriptionRow(row) : null;
 }
 
-/** Read-only cause for a native continuation, keyed by its new dispatch. */
-export async function readAgentTaskContinuationResultSignals(input: {
-  db: D1Database;
-  dispatchIds: readonly string[];
-}): Promise<ReadonlyMap<string, string>> {
-  if (input.dispatchIds.length === 0) {
-    return new Map();
-  }
-  const rows = await input.db
-    .prepare(
-      `SELECT continuation_idempotency_key, outcome_json
-       FROM agent_task_completion_subscriptions
-       WHERE continuation_json IS NOT NULL
-         AND continuation_idempotency_key IN (SELECT value FROM json_each(?))`
-    )
-    .bind(JSON.stringify(input.dispatchIds))
-    .all<{
-      continuation_idempotency_key: string;
-      outcome_json: string | null;
-    }>();
-  const resultSignals = new Map<string, string>();
-  for (const row of rows.results ?? []) {
-    const outcome = row.outcome_json
-      ? agentTaskCompletionObservationSchema.parse(parseJson(row.outcome_json))
-      : null;
-    if (
-      outcome &&
-      "publishedSignalId" in outcome &&
-      outcome.publishedSignalId
-    ) {
-      resultSignals.set(
-        row.continuation_idempotency_key,
-        outcome.publishedSignalId
-      );
-    }
-  }
-  return resultSignals;
-}
-
 async function requireAgentTaskCompletionSubscription(input: {
   db: D1Database;
   subscriptionId: string;

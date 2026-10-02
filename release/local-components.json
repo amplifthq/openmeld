@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-02T09:02:07.431Z",
+  "updatedAt": "2026-10-02T17:46:20.763Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
-      "packageVersion": "0.3.235",
+      "packageVersion": "0.3.237",
       "updatePolicy": "available",
-      "reason": "Existing setup, commands, dispatch-owned Space actions and diagnostics remain compatible; cloud receivers deploy first and both CLI floors are preserved."
+      "reason": "Controller version checks and inventory advice change locally without changing command, setup, Space action, or cloud payload contracts; old and new cloud both accept the CLI."
     },
     "service": {
-      "bundleHash": "1e68f0fd81340c9e456f1b7e3f86ac3dd46d273d834a62b612790946fb0614eb",
-      "portableBundleHash": "d8515f1c674d8155a8c037b6c9666672ae8a49e3639d3ad19865c43de1adcbed",
-      "bundleVersion": "0.3.235",
+      "bundleHash": "d30a5591d3d9f1cd286b6d2db6f6fce457572a411abeaed7d8ddf19f78f3ad03",
+      "portableBundleHash": "a1de283ab28743808f41a9a27a518785cb69be00699820c08d944f9f67957714",
+      "bundleVersion": "0.3.237",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
       "serviceContractVersion": "openmeld-service-contract-2026-09-local-install-recovery-v1",
       "updatePolicy": "available",
-      "reason": "Only the shared reconciliation schema Zod import form changed. Its fields, validation behavior, transport contracts, Wake lifecycle and update floors remain unchanged; old cloud with new Service and new cloud with old Service remain compatible."
+      "reason": "Codex preview capability handling fixes a safe rejection; runtime transport payloads, permission checks, active dispatches, and rescue commands remain compatible in both rollout directions."
     },
     "skills": {
       "bundleHash": "2d2bc74e8aa66f6f78f469f6d4441467ebab07d5e6ccceb89c7b22a24b38746f",

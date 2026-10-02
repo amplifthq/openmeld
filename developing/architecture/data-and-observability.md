@@ -1961,6 +1961,12 @@ continuation JSON. Readers retain bounded compatibility for historical rows
 that contain the former Space destination fields, but those fields do not
 override the observer ledger.
 
+Space Wake progress preserves that native delivery's parent source signal in
+both summary and Stop-enabled reads. A child's published result is causal
+evidence, not a replacement source: it may belong to another Space or thread.
+Source context is resolved within the parent Space, while the existing reply
+stream owns the selected reply placement.
+
 The Center Agent's manual summary tool can create one fresh continuation for
 the original requester after a delegated summary has confirmed native failure
 or cancellation. It checks current requester membership and Space write access,
@@ -2184,6 +2190,16 @@ generation writes, Stop forwarding or pause cancellation. Postprocessing has
 separate start/end evidence, elapsed time and outcome; its failure cannot erase
 the received ACK. Overall admission completion is not Worker response time.
 Timeout and retry due times come from the existing owner.
+Native resource preparation can begin before that submit response returns.
+Its exact-identity admission callback therefore uses the same conditional ACK
+writer and accepted-execution probe before Computer or other execution-scoped
+resources query Core. Both response orders converge on the existing ledger row;
+terminal transitions win, and neither callback creates another execution state
+or relaxes the accepted-execution authorization predicate.
+The durable ACK is the preparation barrier. A later probe scheduling failure
+retains diagnostic evidence and the existing missing/expired-probe recovery;
+it does not reject an already accepted execution. ACK persistence/read failures
+still fail preparation, and a terminal transition during failed scheduling wins.
 Correlated continuation stage events include the existing subscription creation
 and Queue enqueue timestamps at receipt, successful claim, and start/end timings
 for authorization/replay preflight, turn context, memory, Skills, watchdog enqueue
@@ -2998,6 +3014,12 @@ when available. Native event identity deduplicates transport retries. Records
 contain numeric usage and correlation identifiers, never prompts, completions,
 reasoning content, credentials, or local paths. Missing provider evidence is
 null and appears in missing-evidence counts; it is never fabricated as zero.
+
+The ledger distinguishes model `agent`, `compaction`, and `compaction_prefix`
+requests. Existing public Usage groups and issue receipts classify all three
+as `agent`; this preserves supported strict older clients while operator ledger
+queries retain exact purpose. Core accepts new record purposes before Remote
+Agent emits them. No local-component contract floor changes.
 
 Input includes cached input and output includes reasoning, so detail counters
 must not be added to the total again. Costs use integer nano-USD and distinguish

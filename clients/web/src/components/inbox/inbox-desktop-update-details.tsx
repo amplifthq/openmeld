@@ -14,12 +14,7 @@ export function InboxDesktopUpdateDetails({
 		native?.installationId === target.installationId &&
 		native.lane === target.lane;
 	if (target.state === "installed") {
-		return (
-			<p className="px-4 py-3 text-muted-foreground text-sm">
-				Desktop on {target.deviceName} confirmed installation. No action is
-				needed for this update.
-			</p>
-		);
+		return null;
 	}
 	if (target.state === "superseded") {
 		return (

@@ -156,12 +156,20 @@ export function isRemoteAgentStreamEligible(
   context: RemoteAgentCallbackContext
 ): boolean {
   const source = context.turnEnvelope?.trigger.source;
+  const environment = context.turnEnvelope?.interactionEnvironment;
+  // Continuations also target external conversations. Only admit the explicit
+  // Space audience here; Core still validates the persisted delivery identity.
+  const isSpaceContinuation =
+    (source === "task_continuation" || source === "task_watch_continuation") &&
+    (environment === "organization_shared" ||
+      environment === "requester_private");
   return (
     context.callbackStatus === "pending" &&
     !context.replyRecovery &&
     (source === "space_wake" ||
       source === "web_dm" ||
-      source === "message_channel")
+      source === "message_channel" ||
+      isSpaceContinuation)
   );
 }
 

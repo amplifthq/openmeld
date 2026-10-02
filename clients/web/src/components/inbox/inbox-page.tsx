@@ -94,7 +94,9 @@ function InboxExpansionAction({
 	rows: readonly InboxFeedRow[];
 	expansion: ReturnType<typeof useInboxExpansion>;
 }) {
-	const groups = rows.filter((row) => row.itemCount > 1);
+	const groups = rows.filter(
+		(row) => row.group?.kind === "space" || row.group?.kind === "system"
+	);
 	const allExpanded = groups.every((row) => expansion.isExpanded(row.groupKey));
 	if (!groups.length) {
 		return null;
@@ -105,7 +107,7 @@ function InboxExpansionAction({
 			size="sm"
 			variant="secondary"
 		>
-			{allExpanded ? "Collapse all activities" : "Expand all activities"}
+			{allExpanded ? "Collapse groups" : "Expand groups"}
 		</Button>
 	);
 }
@@ -130,6 +132,7 @@ export function InboxPage(input: {
 	const { currentOrganization, currentUserId } = useAppOrganization();
 	const expansion = useInboxExpansion(currentUserId, currentOrganization.id);
 	const filters = {
+		grouping: "space" as const,
 		category: input.view,
 		unreadOnly: input.unreadOnly ?? false,
 		agentsOnly: input.agentsOnly ?? false,
@@ -191,10 +194,10 @@ export function InboxPage(input: {
 		onSelection: mutateSelection,
 	});
 	const sourceItem = deepLink.data?.item;
-	const itemElement = useRef<HTMLAnchorElement | null>(null);
+	const itemElement = useRef<HTMLElement | null>(null);
 	const appliedItem = useRef<string | null>(null);
 	const registerItem = useCallback(
-		(_id: string, element: HTMLAnchorElement | null) => {
+		(_id: string, element: HTMLElement | null) => {
 			itemElement.current = element;
 		},
 		[]
@@ -299,7 +302,6 @@ export function InboxPage(input: {
 							htmlFor="inbox-unread-only"
 						>
 							<Switch
-								aria-label="Unread only"
 								checked={filters.unreadOnly}
 								id="inbox-unread-only"
 								onCheckedChange={(value) => input.onUnreadOnlyChange?.(value)}

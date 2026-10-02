@@ -33,7 +33,10 @@ import {
   INBOX_UNREAD_PRIORITY_UPDATE,
   inboxMentionSql,
 } from "./inbox-attention-predicates";
-import { currentInboxSourceFactsSql } from "./inbox-current-source-facts";
+import {
+  currentInboxAgentFactExistsSql,
+  currentInboxSourceFactsSql,
+} from "./inbox-current-source-facts";
 import { buildCurrentInboxSourceAccessSql } from "./inbox-source-access";
 
 const INBOX_ITEM_NOT_FOUND_CODE = "inbox.item_not_found";
@@ -49,7 +52,7 @@ const INBOX_SPACE_TARGET_FILTER = `
   )
   AND json_extract(source_target_json, '$.spaceId') IS NOT NULL
 `;
-const INBOX_SPACE_MESSAGE_FILTER = `
+export const INBOX_SPACE_MESSAGE_FILTER = `
   source_kind = 'space_signal'
   AND attention = 'update'
   AND ${INBOX_SPACE_TARGET_FILTER}
@@ -59,8 +62,8 @@ export const INBOX_ATTENTION_PRESENTATION_FILTER = `
     attention = 'update'
     AND importance = 'normal'
     AND kind NOT IN ('space_mention', 'space_reference')
-    AND coalesce(json_array_length(${currentInboxSourceFactsSql("inbox_items")}, '$.firstContactAgentProfileIds'), 0) = 0
-    AND coalesce(json_array_length(${currentInboxSourceFactsSql("inbox_items")}, '$.mentionedAgentProfileIds'), 0) = 0
+    AND NOT ${currentInboxAgentFactExistsSql("inbox_items", "firstContactAgentProfileIds")}
+    AND NOT ${currentInboxAgentFactExistsSql("inbox_items", "mentionedAgentProfileIds")}
     AND ${INBOX_SPACE_TARGET_FILTER}
     AND EXISTS (
       SELECT 1
@@ -178,6 +181,8 @@ export type InboxItemRow = {
   read_at_ms: number | null;
   recipient_user_id: string;
   resolution_status: InboxItem["resolutionStatus"];
+  source_kind: string;
+  source_key: string;
   source_target_json: string;
   source_facts_json: string | null;
   title: string;
@@ -359,6 +364,7 @@ export function createInboxService(input: {
     },
 
     async spaceUnreadTargets(targetInput: {
+      includeItemIds?: boolean;
       organizationId: string;
       recipientUserId: string;
       spaceId: string;
@@ -388,7 +394,7 @@ export function createInboxService(input: {
       const targetResult = await input.db
         .prepare(
           `
-            SELECT occurred_at_ms, source_target_json
+            SELECT id, occurred_at_ms, source_target_json
             FROM inbox_items
             WHERE ${filters}
               AND json_extract(source_target_json, '$.signalId') IS NOT NULL
@@ -406,8 +412,24 @@ export function createInboxService(input: {
           occurred_at_ms: number;
           source_target_json: string;
         }>();
+      const scopeRows = targetInput.includeItemIds
+        ? await input.db
+            .prepare(
+              `SELECT json_extract(source_target_json, '$.threadRootSignalId') AS thread_root_signal_id, count(*) AS unread_count FROM inbox_items WHERE ${filters} GROUP BY json_extract(source_target_json, '$.threadRootSignalId')`
+            )
+            .bind(
+              targetInput.organizationId,
+              targetInput.recipientUserId,
+              targetInput.spaceId
+            )
+            .all<{
+              thread_root_signal_id: string | null;
+              unread_count: number;
+            }>()
+        : null;
       const totalUnreadCount = countValue(countRow?.unread_count);
       const rows = (targetResult.results ?? []) as Array<{
+        id: string;
         occurred_at_ms: number;
         source_target_json: string;
       }>;
@@ -426,6 +448,7 @@ export function createInboxService(input: {
             return null;
           }
           return {
+            ...(targetInput.includeItemIds ? { itemId: row.id } : {}),
             occurredAtMs: nonnegativeIntegerValue(row.occurred_at_ms),
             signalId: parsed.data.signalId,
             threadRootSignalId:
@@ -436,6 +459,14 @@ export function createInboxService(input: {
         })
         .filter((target) => target !== null);
       return {
+        ...(scopeRows
+          ? {
+              scopes: (scopeRows.results ?? []).map((row) => ({
+                threadRootSignalId: row.thread_root_signal_id,
+                unreadCount: countValue(row.unread_count),
+              })),
+            }
+          : {}),
         hasMoreTargets:
           rows.length > INBOX_SPACE_UNREAD_TARGETS_MAX_ITEMS ||
           targets.length < totalUnreadCount,
@@ -635,6 +666,8 @@ export function createInboxService(input: {
               title,
               preview,
               context_label,
+              source_kind,
+              source_key,
               source_target_json,
               ${currentInboxSourceFactsSql("inbox_items")} AS source_facts_json,
               resolution_status,
@@ -1184,6 +1217,8 @@ async function readInboxItem(input: {
           title,
           preview,
           context_label,
+          source_kind,
+          source_key,
           source_target_json,
           ${currentInboxSourceFactsSql("inbox_items")} AS source_facts_json,
           resolution_status,
@@ -1230,6 +1265,21 @@ export function mapInboxItemRow(row: InboxItemRow): InboxItem {
     ? JSON.parse(row.source_facts_json)
     : undefined;
   let target = sourceTarget.data;
+  // The retired continuation producer put a child result id in its parent's
+  // Space. Old rows may never be replayed by that producer. Correct only their
+  // reader presentation, after source authorization; preserve stored evidence,
+  // recipient choices and action counts until explicit Dismiss/source repair.
+  const legacyContinuation =
+    row.source_kind === "remote_agent_native_delivery" &&
+    row.source_key.endsWith(":admission_retry_exhausted") &&
+    row.kind === "system_issue" &&
+    row.attention === "action_required" &&
+    row.importance === "urgent" &&
+    target.kind === "space";
+  if (legacyContinuation && target.kind === "space") {
+    const { signalId: _misplacedSignalId, ...conversationTarget } = target;
+    target = conversationTarget;
+  }
   if (
     sourceFacts &&
     target.kind === "space" &&
@@ -1247,7 +1297,9 @@ export function mapInboxItemRow(row: InboxItemRow): InboxItem {
     kind: row.kind,
     occurredAt: toIsoTimestamp(row.occurred_at_ms, "occurred_at_ms"),
     organizationId: row.organization_id,
-    preview: row.preview,
+    preview: legacyContinuation
+      ? "An earlier attempt to continue this task ended without a confirmed reply. Open the conversation to review the outcome, or remove this reminder from Inbox."
+      : row.preview,
     readAt:
       row.read_at_ms === null
         ? null

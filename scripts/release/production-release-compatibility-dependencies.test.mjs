@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import test from "node:test";
 
 import {
@@ -33,13 +33,31 @@ const REMOTE_AI_USAGE = [
   "services/remote-agent/agent-core/ai-usage.ts",
 ];
 
+// The bridge witnesses this exact historical source, not the moving checkout.
+// Final Candidate already requires complete Git history. Keep the production
+// digest and drift fence intact instead of re-blessing later protocol changes.
+const REVIEWED_SOURCE_SHA = "b660a196af4f24c6a4f4cf3a38cf4ef83b90431b";
+const reviewedSources = new Map();
+function readReviewedSource(path) {
+  if (!reviewedSources.has(path)) {
+    reviewedSources.set(
+      path,
+      execFileSync("git", ["show", `${REVIEWED_SOURCE_SHA}:${path}`], {
+        cwd: new URL("../../", import.meta.url),
+        encoding: "utf8",
+      })
+    );
+  }
+  return reviewedSources.get(path);
+}
+
 test("admits the reviewed Core request bridge while retaining the metering receiver dependency", () => {
   const base = "e4454cf165b96c7f918e420f28205c2b2ed3c575";
-  const sourceSha = "a".repeat(40);
+  const sourceSha = REVIEWED_SOURCE_SHA;
   const readGitFile = (ref, path) =>
     ref === base
       ? "// Core before the metering receiver was introduced."
-      : readFileSync(new URL(`../../${path}`, import.meta.url), "utf8");
+      : readReviewedSource(path);
   const paths = [
     ...REMOTE_AI_USAGE,
     "services/remote-agent/.flue/cloudflare.ts",
@@ -100,10 +118,7 @@ for (const fault of ["source_drift", "missing_history", "unknown_baseline"]) {
             if (fault === "missing_history") {
               throw new Error("missing source");
             }
-            const source = readFileSync(
-              new URL(`../../${path}`, import.meta.url),
-              "utf8"
-            );
+            const source = readReviewedSource(path);
             return fault === "source_drift" &&
               path.endsWith("remote-agent-worker.ts")
               ? `${source}\n// different contract`

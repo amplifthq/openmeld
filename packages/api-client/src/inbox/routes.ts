@@ -33,6 +33,7 @@ export function buildInboxFeedPath(query: InboxFeedQuery = {}): string {
     "limit",
     "snapshotId",
     "groupKey",
+    "grouping",
   ] as const) {
     if (query[key] !== undefined) {
       search.set(key, String(query[key]));
