@@ -4,6 +4,7 @@ import {
   resolveLatestSuccessfulReleaseSources,
   runProductionReleaseStatus,
 } from "./production-release-status.mjs";
+import { assertProductionStageAdmission } from "./production-stage-admission.mjs";
 
 const TARGET = "a".repeat(40),
   OLD = "b".repeat(40),
@@ -24,7 +25,7 @@ const job = (name, releaseSha, completedAt) => ({
 });
 const first = run(2),
   second = run(1);
-async function report(overrides = {}) {
+async function report(overrides = {}, realPlans = false) {
   let output = "";
   const headSha = "1".repeat(40);
   const baseSha = "2".repeat(40);
@@ -67,7 +68,12 @@ async function report(overrides = {}) {
             tree: { sha: treeSha },
           }
         : { parents: [], tree: { sha: treeSha } },
-    buildPlan: () => ({ scopes: ["web"], changedPaths: [] }),
+    ...(realPlans
+      ? {}
+      : {
+          buildPlan: () => ({ scopes: ["web"], changedPaths: [] }),
+          buildImpact: (input) => adapters.buildPlan(input),
+        }),
     ...overrides,
   };
   const code = await runProductionReleaseStatus({
@@ -78,6 +84,77 @@ async function report(overrides = {}) {
     },
   });
   return { code, result: JSON.parse(output) };
+}
+
+for (const [stage, admissionError] of [
+  ["before-core", /pending prerequisite core, gateway, web/u],
+  ["after-core", /pending prerequisite gateway, web/u],
+  ["after-receivers", null],
+]) {
+  test(`classifies verified component receipts without ordering an unrelated historical release train: ${stage}`, async () => {
+    const target = "98446ed175a0f4769827f6be7d6aed6884521095";
+    const deployedCloud = "e050cded8d7017b9438b7171fb5b225725baa907";
+    const deployedRuntime = "e4454cf165b96c7f918e420f28205c2b2ed3c575";
+    const cloud = stage === "after-receivers" ? target : deployedCloud;
+    const core = stage === "before-core" ? deployedRuntime : target;
+    const { result } = await report(
+      {
+        resolveRef: () => target,
+        readReleaseRuns: async () => [first],
+        readReleaseJobs: async () => [
+          ...["Deploy Web", "Deploy Gateway Worker", "Deploy Auth Worker"].map(
+            (name) => job(name, cloud, "2026-10-02T01:30:00Z")
+          ),
+          job("Deploy Core Worker", core, "2026-10-02T05:50:00Z"),
+          job(
+            "Deploy Remote Agent Worker",
+            deployedRuntime,
+            "2026-10-01T01:30:00Z"
+          ),
+        ],
+        readPushChecks: async () => [
+          {
+            workflowName: "Push Guard",
+            status: "completed",
+            conclusion: "success",
+          },
+        ],
+      },
+      true
+    );
+    for (const scope of ["web", "gateway", "auth", "core", "remote-agent"]) {
+      const component = result.components.find(
+        (entry) => entry.scope === scope
+      );
+      const baseline =
+        { core, "remote-agent": deployedRuntime }[scope] ?? cloud;
+      assert.equal(
+        component.state,
+        baseline === target ? "current" : "pending",
+        `${stage} ${scope}: ${component.reason}`
+      );
+      assert.equal(component.sha, baseline);
+    }
+    assert.ok(
+      result.components
+        .find((entry) => entry.scope === "remote-agent")
+        .compatibilityDependencies.some(
+          ([receiver, producer]) =>
+            receiver === "core" && producer === "remote-agent"
+        )
+    );
+    const admitRemote = () =>
+      assertProductionStageAdmission({
+        components: result.components,
+        selectedScopes: ["remote-agent"],
+        sourceSha: target,
+      });
+    if (admissionError) {
+      assert.throws(admitRemote, admissionError);
+    } else {
+      assert.doesNotThrow(admitRemote);
+    }
+  });
 }
 test("selects actual completion rather than workflow creation order", () => {
   const jobsByRunId = new Map([
@@ -126,7 +203,7 @@ test("uses verified Database history when unrelated historical contracts cannot 
       }
       return { scopes: ["db"], changedPaths: [] };
     },
-    buildDatabaseStatusPlan: () => ({
+    buildImpact: () => ({
       scopes: ["db"],
       changedPaths: ["packages/db/drizzle/0182_grey_captain_marvel.sql"],
     }),
