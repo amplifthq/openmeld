@@ -24,10 +24,12 @@
     "fix": "biome check --write --no-errors-on-unmatched ./"
   },
   "dependencies": {
-    "@openmeld/schemas": "workspace:*"
+    "@openmeld/schemas": "workspace:*",
+    "semver": "7.7.4"
   },
   "devDependencies": {
     "@types/node": "^24.3.0",
+    "@types/semver": "7.7.1",
     "oxc-resolver": "^11.0.0",
     "tsdown": "^0.20.3",
     "typescript": "^5.9.3",
