@@ -87,6 +87,7 @@ export function useSpaceHistoryNavigation(input: {
 		"before" | "after" | undefined
 	>();
 	const [error, setError] = useState<string | null>(null);
+	const [notice, setNotice] = useState<string | null>(null);
 	const [errorDirection, setErrorDirection] = useState<
 		"before" | "after" | undefined
 	>();
@@ -98,6 +99,7 @@ export function useSpaceHistoryNavigation(input: {
 		setPending(false);
 		setPendingDirection(undefined);
 		setError(null);
+		setNotice(null);
 		setErrorDirection(undefined);
 		return () => flight.current?.abort();
 	}, [identity]);
@@ -177,17 +179,17 @@ export function useSpaceHistoryNavigation(input: {
 				"This message is no longer available. Open the latest messages to continue."
 			);
 			setErrorDirection(direction);
-			return;
+			return false;
 		}
 		// Reauthorize the same conversation. Never search other Spaces for
 		// a historical notification's misplaced or removed message id.
 		const latest = await api().listSignalEnvelopes({
 			spaceId: input.spaceId,
 			signal,
-			query: { limit: 60, kinds: SPACE_HISTORY_SIGNAL_KINDS },
+			query: { recent: true, limit: 60, kinds: SPACE_HISTORY_SIGNAL_KINDS },
 		});
 		if (!isCurrentRequest()) {
-			return;
+			return false;
 		}
 		writeSpaceHistoryEnvelopesToCache({
 			envelopes: latest.envelopes,
@@ -202,9 +204,10 @@ export function useSpaceHistoryNavigation(input: {
 			hasBefore: latest.envelopes.length >= 60,
 			hasAfter: false,
 		});
-		setError(
+		setNotice(
 			"This message is no longer available in this conversation. Showing the latest messages."
 		);
+		return "latest" as const;
 	};
 	const readWindow = async (
 		signalId: string,
@@ -228,6 +231,7 @@ export function useSpaceHistoryNavigation(input: {
 		setPending(true);
 		setPendingDirection(direction);
 		setError(null);
+		setNotice(null);
 		setErrorDirection(undefined);
 		try {
 			const result = await api()
@@ -252,12 +256,11 @@ export function useSpaceHistoryNavigation(input: {
 				return false;
 			}
 			if (!result.envelopes.some((item) => item.id === signalId)) {
-				await showLatestForMissingAnchor(
+				return await showLatestForMissingAnchor(
 					controller.signal,
 					isCurrentRequest,
 					direction
 				);
-				return false;
 			}
 			writeSpaceHistoryEnvelopesToCache({
 				envelopes: result.envelopes,
@@ -341,6 +344,7 @@ export function useSpaceHistoryNavigation(input: {
 		pending,
 		pendingDirection,
 		error,
+		notice,
 		errorDirection,
 		open: (signalId: string, signal?: AbortSignal) =>
 			readWindow(signalId, undefined, signal),

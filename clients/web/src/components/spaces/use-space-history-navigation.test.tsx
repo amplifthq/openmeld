@@ -67,12 +67,13 @@ describe("returning to the live Space history", () => {
 			await result.current.open("old");
 		});
 		await act(async () => {
-			expect(await result.current.open("child-secret-id")).toBe(false);
+			expect(await result.current.open("child-secret-id")).toBe("latest");
 		});
 		expect(
 			result.current.activeWindow?.envelopes.map((item) => item.id)
 		).toEqual(["latest"]);
-		expect(result.current.error).toBe(
+		expect(result.current.error).toBeNull();
+		expect(result.current.notice).toBe(
 			"This message is no longer available in this conversation. Showing the latest messages."
 		);
 		expect(
@@ -81,11 +82,23 @@ describe("returning to the live Space history", () => {
 		expect(
 			historyApi.listSignalEnvelopes.mock.calls.at(-1)?.[0].query
 		).not.toHaveProperty("aroundSignalId");
+		expect(
+			historyApi.listSignalEnvelopes.mock.calls.at(-1)?.[0].query
+		).toMatchObject({ recent: true, limit: 60 });
 	});
 
 	it.each([
-		403, 500,
-	])("does not turn an HTTP %s failure into a missing-message fallback", async (status) => {
+		{ status: 403, latest: false },
+		{ status: 500, latest: false },
+		{ status: 403, latest: true },
+		{ status: 500, latest: true },
+	])("keeps HTTP $status as failure (latest read: $latest)", async ({
+		status,
+		latest,
+	}) => {
+		if (latest) {
+			historyApi.listSignalEnvelopes.mockResolvedValueOnce({ envelopes: [] });
+		}
 		historyApi.listSignalEnvelopes.mockRejectedValueOnce(
 			new OpenMeldApiClientHttpError({
 				code: "upstream_error",
@@ -106,7 +119,10 @@ describe("returning to the live Space history", () => {
 		await act(async () => {
 			expect(await result.current.open("missing")).toBe(false);
 		});
-		expect(historyApi.listSignalEnvelopes).toHaveBeenCalledTimes(1);
+		expect(historyApi.listSignalEnvelopes).toHaveBeenCalledTimes(
+			latest ? 2 : 1
+		);
+		expect(result.current.notice).toBeNull();
 		expect(result.current.error).not.toContain("internal details");
 		expect(result.current.error).not.toContain("Showing the latest");
 	});
@@ -267,7 +283,7 @@ describe("returning to the live Space history", () => {
 			})
 		);
 		const request = new AbortController();
-		let opening!: Promise<boolean>;
+		let opening!: ReturnType<typeof result.current.open>;
 		act(() => {
 			opening = result.current.open("old", request.signal);
 		});
