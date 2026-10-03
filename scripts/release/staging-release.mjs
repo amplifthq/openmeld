@@ -88,7 +88,8 @@ function parseOrdinaryStagingArgs(argv) {
   }
   if (
     skipContainers &&
-    (command === "verify" || args.includes("web") || args.includes("website"))
+    (command === "verify" ||
+      (args.includes("--scope") && !args.includes("remote-agent")))
   ) {
     throw new Error(
       "Container rollout applies only to a Remote Agent deployment."

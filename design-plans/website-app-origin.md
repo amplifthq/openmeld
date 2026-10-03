@@ -1,8 +1,8 @@
 # Independent website and App origin
 
-Status: implementation in progress. No production routing has changed.
+Status: implementation candidate prepared for independent review. No production routing has changed.
 Remove after the migration ships and its acceptance is recorded in the owner docs.
-Base: `42c456e34fedb9376bd1fe6a2bacc4905e75b9ea`.
+Current integrated base: `4dfe744b7133768ae0bf36c0d3bd5ed9d43f99cb`.
 Implementation owner: `codex/website-app-origin`.
 Review owner: the **评估 App 子域名迁移成本** chat.
 
@@ -133,6 +133,10 @@ accepts old local transport, and new CLI still accepts old cloud responses.
 This is an additive URL capability; local components use advisory `available`
 policy rather than raising execution contract epochs. A bundled Service hash
 change from shared packaging does not by itself establish a wire incompatibility.
+This review candidate leaves the published component versions and manifest
+unchanged. Final Candidate uses the documented deferred release-readiness check;
+the eventual release must choose and stamp its exact channel version and advisory
+policies after the migration source is approved.
 New installed Desktop targets App but accepts existing root targets; its strict
 Auth/API/installer requests retain nonredirecting forwarding. Native credential
 storage is origin-keyed and can require sign-in after upgrading. Native installed
@@ -165,6 +169,8 @@ returned 409/100116 for takeover, so production recovery uses the public Wrangle
 command. These discrete observations do not prove atomic zero-downtime switching.
 No real production/staging cutover, native artifact publication, or provider
 registration change has been performed by this task.
+Both disposable domains and Workers were removed after the trial, with ownership
+and deletion read back before cleanup was declared complete.
 
 ## Worktree and concurrency
 
