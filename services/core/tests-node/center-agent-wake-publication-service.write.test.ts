@@ -39,7 +39,7 @@ describe("Center Agent Wake publication recovery", () => {
     try {
       await insertAuditIdentity(harness.db);
       await insertParentDelivery(harness.db);
-      const ids = ["ca-wake:batch-alpha", "ca-wake:batch-beta"];
+      const ids = ["ca-wake:batch-alpha", "ca-wake:batch-beta"] as const;
       const plans = ids.map((clientMessageId, index) =>
         planCenterAgentWakeDelegation({
           childSpaceId: index === 0 ? "space-alpha" : "space-beta",
@@ -47,14 +47,20 @@ describe("Center Agent Wake publication recovery", () => {
           targetProfileIds: [CHILD_PROFILE_ID],
         })
       );
+      const [alpha, beta] = plans;
+      const alphaTask = alpha?.childTasks[0]?.task;
+      const betaTask = beta?.childTasks[0]?.task;
+      if (!(alpha && beta && alphaTask && betaTask)) {
+        throw new Error("Missing batch fixture");
+      }
       const commands = plans.map((plan, index) => ({
         ...buildCommand({
-          clientMessageId: ids[index],
-          delegationId: plans[0].delegationId,
+          clientMessageId: index === 0 ? ids[0] : ids[1],
+          delegationId: alpha.delegationId,
           subscriptionIds: plan.subscriptionIds,
         }),
         batchRootPublicationId: ids[0],
-        ...(index === 0 ? { batchPublicationIds: ids } : {}),
+        ...(index === 0 ? { batchPublicationIds: [...ids] } : {}),
         spaceId: index === 0 ? "space-alpha" : "space-beta",
       }));
       await prepareCenterAgentWakePublicationRecords({
@@ -93,7 +99,7 @@ describe("Center Agent Wake publication recovery", () => {
       const firstResult = await recordAgentTaskTerminalOutcome({
         db: harness.db,
         nowMs: 1020,
-        task: plans[0].childTasks[0].task,
+        task: alphaTask,
         outcome: {
           status: "succeeded",
           errorCode: null,
@@ -105,7 +111,7 @@ describe("Center Agent Wake publication recovery", () => {
       expect(firstResult.readySubscriptionIds).toEqual([]);
       const partial = await readAgentDelegation({
         db: harness.db,
-        delegationId: plans[0].delegationId,
+        delegationId: alpha.delegationId,
       });
       expect(partial?.children.map((child) => child.state)).toEqual([
         "terminal",
@@ -132,7 +138,7 @@ describe("Center Agent Wake publication recovery", () => {
         await recordAgentTaskTerminalOutcome({
           db: harness.db,
           nowMs: 2010,
-          task: plans[1].childTasks[0].task,
+          task: betaTask,
           outcome: {
             status: "succeeded",
             errorCode: null,
@@ -144,7 +150,7 @@ describe("Center Agent Wake publication recovery", () => {
       }
       const complete = await readAgentDelegation({
         db: harness.db,
-        delegationId: plans[0].delegationId,
+        delegationId: alpha.delegationId,
       });
       expect(
         complete?.children.map((child) => child.terminalOutcome?.status)
@@ -156,7 +162,7 @@ describe("Center Agent Wake publication recovery", () => {
         plans.map((plan) =>
           readAgentTaskCompletionSubscription({
             db: harness.db,
-            subscriptionId: plan.subscriptionIds[0],
+            subscriptionId: plan.subscriptionIds[0] ?? "",
           })
         )
       );

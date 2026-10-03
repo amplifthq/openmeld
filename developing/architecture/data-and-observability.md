@@ -2053,6 +2053,20 @@ Space posting, delegation preparation, child activation, and audit writes are
 individually idempotent, so an interruption at any boundary converges without
 duplicating the Wake or spending another Agent turn. The outbox records
 coordination progress; it is not Space message truth or execution authority.
+
+Multi-Space delegation saves every destination command atomically before the
+first publication. The root publication retains the complete ordered manifest;
+each destination references that root and shares one Agent Task Coordination
+delegation and completion barrier. Recovery reads this frozen plan, including
+after the originating model turn finishes. It does not reconstruct the batch
+from whichever child publications happened to succeed. Each publication activates
+or rejects only its own children. A definite rejection retains accepted siblings
+and their results; parent synthesis waits for every planned child to settle.
+Routine continuation ownership is claimed only after the durable intent exists.
+The original semantic reply-language fact is also included in each delegated
+brief, so Local and Remote children preserve it when the brief is in another
+language. This adds no language detector or parallel execution authority.
+
 Once Space accepts the publication, the outbox retains the validated returned
 signal envelope. Completed command replays therefore return the original Space
 acceptance evidence without another network read or post. Every external post

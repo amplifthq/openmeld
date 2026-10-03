@@ -96,6 +96,9 @@ export async function executeCenterAgentWakePublication(input: {
       publication
     );
     const root = destinations[0];
+    if (!root) {
+      throw new Error("Wake delegation has no publication destinations");
+    }
     await prepareCenterAgentWakeDelegation({
       actorProfileId: root.attribution.actorProfileId,
       childSpaceId: root.spaceId,

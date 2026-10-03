@@ -2503,6 +2503,74 @@ const classifyPublicationClosureDiagnostics = (
     }
   ).classifyRuntimeCoordinatorPublicationClosureDiagnostics(input);
 
+it("reserves queued input during startup without applying it to an unstarted turn", async () => {
+  const f = createHarness();
+  const token = await issueDeliveryToken(f);
+  const command = findRuntimeCoordinatorRunCommandState(f.storageRecords);
+  const session = f.state.sessionsById.get("daemon-session-1");
+  if (!(command && session)) {
+    throw new Error("Expected admitted execution and registered session.");
+  }
+  session.capabilities.localExecutionInput = true;
+  const selector = {
+    ownerUserId: "owner-1",
+    runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+    dispatchId: "dispatch-1",
+    targetProfileId: TARGET_AGENT_PROFILE_ID,
+    spaceId: HEX_SPACE_ID,
+    authorProfileId: "human-1",
+  };
+  f.sentFrames.length = 0;
+  for (const phase of [
+    "starting",
+    "accepted_local",
+    "completed_local",
+    "result_received",
+  ] as const) {
+    f.storageRecords.set(
+      buildRuntimeCoordinatorRunCommandStateStorageKey(
+        RUNTIME_COORDINATOR_EXECUTION_ID
+      ),
+      { ...command, localProgress: { ...command.localProgress, phase } }
+    );
+    const response = await fetchRuntimeTransportJson(
+      f.hub,
+      "/runtime-coordinator/execution-input/resolve",
+      selector
+    );
+    const binding = await response.json();
+    if (phase === "completed_local" || phase === "result_received") {
+      expect(binding).toBeNull();
+      continue;
+    }
+    expect(binding).toMatchObject({
+      attemptId: "attempt-1",
+      runtimeCoordinatorRunId: token.runId,
+    });
+    const applied = await fetchRuntimeTransportJson(
+      f.hub,
+      "/runtime-coordinator/execution-input",
+      {
+        operation: "apply",
+        request: {
+          ...(binding as Record<string, unknown>),
+          inputId: "startup-input",
+          text: "Next task",
+          source: {
+            spaceId: HEX_SPACE_ID,
+            authorProfileId: "human-1",
+            requesterUserId: "requester-1",
+            signalId: "queued-signal",
+            effect: "steer",
+          },
+        },
+      }
+    );
+    expect(await applied.json()).toBeNull();
+  }
+  expect(f.sentFrames).toEqual([]);
+});
+
 it("fences Local input to the admitted source, account, attempt and run without sending on denial", async () => {
   const f = createHarness();
   const token = await issueDeliveryToken(f);

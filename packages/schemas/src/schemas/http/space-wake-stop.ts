@@ -26,11 +26,13 @@ export const spaceWakeStopSelectorSchema = z.discriminatedUnion("by", [
     by: z.literal("source_signal"),
     sourceSignalId: boundedSelectorIdSchema,
     targetProfileId: boundedSelectorIdSchema,
+    dispatchId: boundedSelectorIdSchema.optional(),
   }),
   z.strictObject({
     by: z.literal("client_message"),
     clientMessageId: clientMessageIdSchema,
     targetProfileId: boundedSelectorIdSchema,
+    dispatchId: boundedSelectorIdSchema.optional(),
   }),
 ]);
 

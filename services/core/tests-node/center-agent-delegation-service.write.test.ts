@@ -13,6 +13,7 @@ import {
   type CenterAgentDelegationPreparationError,
   cancelPreparedCenterAgentWakeDelegation,
   prepareCenterAgentWakeDelegation,
+  requireCenterAgentContinuationParent,
 } from "../src/center-agent/application/center-agent-delegation-service";
 import { prepareCenterAgentTaskWatch } from "../src/center-agent/application/center-agent-task-watch-service";
 import type { CoreBindings } from "../src/lib/bindings";
@@ -461,6 +462,26 @@ describe("Center Agent delegation preparation", () => {
         runId: "routine-run-1",
       });
       await insertParentDelivery(harness.db, "slack", "routine-run-1");
+
+      await requireCenterAgentContinuationParent({
+        actorProfileId: CENTER_AGENT_PROFILE_ID,
+        claimRoutineContinuation: false,
+        continuationDelegationId: "dlg:ca-wake:unpersisted-batch",
+        destinationNeutralContinuations: false,
+        db: harness.db,
+        organizationId: "org-1",
+        parentSubmissionId: "submission-parent",
+        resumesParent: true,
+        routineDelegationCompletionMode: "resume_parent_when_all_terminal",
+      });
+      await expect(
+        harness.db
+          .prepare(
+            "SELECT continuation_delegation_id FROM routine_runs WHERE id = ?"
+          )
+          .bind("routine-run-1")
+          .first()
+      ).resolves.toMatchObject({ continuation_delegation_id: null });
 
       await expect(
         prepareCenterAgentWakeDelegation({

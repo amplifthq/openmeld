@@ -16514,7 +16514,7 @@ export async function rpcCenterAgentWakeAgentProfilesInSpaces(
   const destinations = request.destinations
     .map((destination) => ({
       spaceId: destination.spaceId,
-      text: destination.text,
+      text: buildDelegatedTaskText(destination.text, request.replyLanguageTag),
       agentProfileIds: [...new Set(destination.agentProfileIds)].sort(),
       mentionProfileIds: [
         ...new Set(destination.mentionProfileIds ?? []),
@@ -16563,22 +16563,27 @@ export async function rpcCenterAgentWakeAgentProfilesInSpaces(
       replyLanguageTag: request.replyLanguageTag ?? null,
     })
   );
-  const publicationIds = destinations.map(
-    (_, index) => `ca-wake-batch:${batchKey}:${index}`
-  );
-  const rootId = publicationIds[0];
+  const publicationIdAt = (index: number) =>
+    `ca-wake:batch:${batchKey}:${index}`;
+  const publicationIds = destinations.map((_, index) => publicationIdAt(index));
+  const rootId = publicationIdAt(0);
+  const firstDestination = destinations[0];
+  if (!firstDestination) {
+    throw new Error("Wake batch has no destinations");
+  }
   const delegation = planCenterAgentWakeDelegation({
-    childSpaceId: destinations[0].spaceId,
+    childSpaceId: firstDestination.spaceId,
     clientMessageId: rootId,
-    targetProfileIds: destinations[0].agentProfileIds,
+    targetProfileIds: firstDestination.agentProfileIds,
     additionalDestinations: destinations.slice(1).map((destination, index) => ({
       childSpaceId: destination.spaceId,
-      clientMessageId: publicationIds[index + 1],
+      clientMessageId: publicationIdAt(index + 1),
       targetProfileIds: destination.agentProfileIds,
     })),
   });
   await requireCenterAgentContinuationParent({
     actorProfileId: authorization.actorProfileId,
+    claimRoutineContinuation: false,
     continuationDelegationId: delegation.delegationId,
     destinationNeutralContinuations:
       shouldWriteDestinationNeutralTaskContinuations(env),
@@ -16606,7 +16611,7 @@ export async function rpcCenterAgentWakeAgentProfilesInSpaces(
       attribution,
       batchRootPublicationId: rootId,
       ...(index === 0 ? { batchPublicationIds: publicationIds } : {}),
-      clientMessageId: publicationIds[index],
+      clientMessageId: publicationIdAt(index),
       completionMode: "resume_parent_when_all_terminal",
       replyLanguageTag: request.replyLanguageTag,
       context: authorization.context,
@@ -17404,7 +17409,7 @@ async function executeCenterAgentDelegatedWake(input: {
       spaceAddressingVersion: input.spaceAddressingVersion,
       spaceId: input.spaceId,
       subscriptionIds: delegation.subscriptionIds,
-      text: input.text,
+      text: buildDelegatedTaskText(input.text, input.replyLanguageTag),
       v: 1,
     },
     db: input.db,
@@ -17472,6 +17477,21 @@ export async function rpcPostCenterAgentWakePublicationSignal(
     spaceId: command.spaceId,
     text: command.text,
   });
+}
+
+function buildDelegatedTaskText(
+  text: string,
+  replyLanguageTag?: string
+): string {
+  if (!replyLanguageTag) {
+    return text;
+  }
+  const language =
+    new Intl.DisplayNames(["en"], { type: "language" }).of(replyLanguageTag) ??
+    replyLanguageTag;
+  // Keep this decision in the durable, visible task brief. Both Local and
+  // Remote Agents already receive it, including older supported carriers.
+  return `${text}\n\nThe original requester’s reply language is ${language}. Keep that language even if this delegated brief uses another language, unless the requester explicitly changes it.`;
 }
 
 export async function rpcResolveCenterAgentWakePublicationSignal(

@@ -61,6 +61,9 @@ export async function prepareCenterAgentWakePublicationRecord(input: {
     db: input.db,
     nowMs: input.nowMs,
   });
+  if (!record) {
+    throw new Error("Center Agent Wake publication write lost its row");
+  }
   return record;
 }
 
@@ -71,15 +74,15 @@ export async function prepareCenterAgentWakePublicationRecords(input: {
   db: D1Database;
   nowMs: number;
 }): Promise<CenterAgentWakePublicationRecord[]> {
-  if (input.commands.length === 0) {
-    throw new Error(
-      "A Wake publication batch requires at least one destination"
-    );
-  }
   const commands = input.commands.map((command) =>
     centerAgentWakePublicationCommandSchema.parse(command)
   );
   const first = commands[0];
+  if (!first) {
+    throw new Error(
+      "A Wake publication batch requires at least one destination"
+    );
+  }
   const isBatch = commands.length > 1;
   if (
     new Set(commands.map((command) => command.clientMessageId)).size !==

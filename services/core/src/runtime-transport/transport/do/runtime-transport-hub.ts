@@ -14061,12 +14061,17 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         (operation.success && operation.data.operation === "apply")
       ) {
         const run = authority?.runsById[command.activeRunId];
+        // Resolving reserves the next input in Space; apply delivers to the
+        // current controller turn. Startup must not reject a queue.
+        const inputPhases = resolveOnly
+          ? ["starting", "accepted_local", "running"]
+          : ["running"];
         if (
           !authority ||
           authority.terminalOutcome ||
           authority.currentRunId !== command.activeRunId ||
           run?.tokenStatus !== "active" ||
-          command.localProgress.phase !== "running" ||
+          !inputPhases.includes(command.localProgress.phase) ||
           command.localAttemptWithdrawal ||
           command.lastCommandReasonCode?.includes("wake_stop")
         ) {

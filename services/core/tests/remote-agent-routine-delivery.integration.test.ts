@@ -1274,8 +1274,19 @@ describe("Remote Agent Routine native delivery", () => {
     });
   });
 
-  it("fails immediately when Remote Agent deterministically rejects Routine admission", async () => {
+  it.each([
+    "en",
+    "zh-Hans",
+  ])("fails immediately in %s when Remote Agent deterministically rejects Routine admission", async (languageTag) => {
     const fixture = await seedRoutineDeliveryFixture();
+    await setOrganizationWorkingLanguagePreference({
+      db: env.OPENMELD_DB,
+      organizationId: fixture.organizationId,
+      mode: "selected",
+      languageTag,
+      nowMs: fixture.nowMs,
+      updatedByUserId: fixture.routine.createdByUserId,
+    });
     const workerSubmit = vi.fn(async () => ({
       idempotencyKey: fixture.runId,
       message:
@@ -1302,7 +1313,9 @@ describe("Remote Agent Routine native delivery", () => {
     ).toHaveBeenCalledWith(
       expect.objectContaining({
         text: expect.stringContaining(
-          "Routine “Daily feedback review” could not run because the Agent could not accept the request. Try running the Routine again or open diagnostics."
+          languageTag === "en"
+            ? "Routine “Daily feedback review” could not run because the Agent could not accept the request. Try running the Routine again or open diagnostics."
+            : "Routine “Daily feedback review”未能运行，Agent 无法接纳本次请求。"
         ),
       })
     );

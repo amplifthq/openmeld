@@ -197,6 +197,7 @@ export async function prepareCenterAgentWakeDelegation(input: {
 
 export async function requireCenterAgentContinuationParent(input: {
   allowCompletedParent?: boolean;
+  claimRoutineContinuation?: boolean;
   actorProfileId: string;
   continuationDelegationId?: string;
   destinationNeutralContinuations: boolean;
@@ -237,17 +238,6 @@ export async function requireCenterAgentContinuationParent(input: {
       "Parent continuation currently requires an OpenMeld Space conversation."
     );
   }
-  if (input.resumesParent && parentDelivery.routineRunId) {
-    await assertRoutineDelegationContinuationAllowed({
-      completionMode: input.routineDelegationCompletionMode,
-      delegationId: input.continuationDelegationId,
-      db: input.db,
-      parentDelivery: {
-        ...parentDelivery,
-        routineRunId: parentDelivery.routineRunId,
-      },
-    });
-  }
   if (
     input.resumesParent &&
     !(parentDelivery.onBehalfOfProfileId && parentDelivery.onBehalfOfUserId)
@@ -257,10 +247,23 @@ export async function requireCenterAgentContinuationParent(input: {
       "Parent continuation requires a verified human requester."
     );
   }
+  if (input.resumesParent && parentDelivery.routineRunId) {
+    await assertRoutineDelegationContinuationAllowed({
+      claim: input.claimRoutineContinuation !== false,
+      completionMode: input.routineDelegationCompletionMode,
+      delegationId: input.continuationDelegationId,
+      db: input.db,
+      parentDelivery: {
+        ...parentDelivery,
+        routineRunId: parentDelivery.routineRunId,
+      },
+    });
+  }
   return parentDelivery;
 }
 
 async function assertRoutineDelegationContinuationAllowed(input: {
+  claim: boolean;
   completionMode: CenterAgentDelegationCompletionMode | undefined;
   delegationId: string | undefined;
   db: D1Database;
@@ -303,6 +306,20 @@ async function assertRoutineDelegationContinuationAllowed(input: {
       "center_agent.routine_delegation_parent_unavailable",
       "This Routine Run cannot identify its continuation delegation."
     );
+  }
+  if (
+    run.continuationDelegationId &&
+    run.continuationDelegationId !== input.delegationId
+  ) {
+    throw new CenterAgentDelegationPreparationError(
+      "center_agent.routine_delegation_limit_reached",
+      "A Routine Run can resume its Center Agent once after delegated work. Finish this Run with the available results."
+    );
+  }
+  // Admission checks must not claim a continuation before its durable intent
+  // exists. Publication preparation acquires the existing atomic claim.
+  if (!input.claim) {
+    return;
   }
   const claim = await claimRoutineRunContinuationDelegation({
     db: input.db,
