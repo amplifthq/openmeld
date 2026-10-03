@@ -21,6 +21,7 @@ import { createContext, type ReactNode, useContext, useEffect } from "react";
 import { resolveCurrentExecutionTarget } from "#/components/agents/agents-page-computer";
 import { useLocalRuntimeQueries } from "#/components/agents/use-local-runtime-queries";
 import { useStartFlowState } from "#/components/app/start-flow-state";
+import { getDesktopPlatform } from "#/desktop/platform";
 import {
 	type ComputerSummaryStatus,
 	resolveCurrentLocalRuntimeComputerSummaryStatus,
@@ -146,7 +147,7 @@ function useCurrentComputerPresentation(
 		);
 	}
 
-	const destination = deviceId
+	let destination = deviceId
 		? buildOrganizationComputerPath({
 				deviceId,
 				orgSlug,
@@ -155,6 +156,9 @@ function useCurrentComputerPresentation(
 				orgSlug,
 				session: "fresh",
 			});
+	if (getDesktopPlatform()) {
+		destination = buildConnectComputerPath({ orgSlug });
+	}
 	const deviceLabel = computer?.deviceDisplayName ?? "Computer";
 	const statusLabel =
 		status?.label ?? (deviceId ? "Connection status delayed" : "Not connected");
