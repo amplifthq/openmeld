@@ -88,7 +88,8 @@ export function inboxFeedCte(
         WHEN priority_rank = 2 AND json_extract(raw_group_key, '$[0]') = 'conversation'
           THEN json_array('space', organization_id, recipient_user_id,
             json_extract(source_target_json, '$.kind'), json_extract(source_target_json, '$.spaceId'))
-        WHEN priority_rank = 2 AND importance = 'normal'
+        WHEN priority_rank = 2
+          AND (importance = 'normal' OR (attention = 'action_required' AND resolution_status = 'resolved'))
           AND kind IN ('desktop_update', 'computer_connection', 'system_issue')
           THEN json_array('system', recipient_user_id)
         ELSE raw_group_key END AS collection_key

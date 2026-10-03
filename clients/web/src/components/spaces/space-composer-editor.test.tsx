@@ -457,8 +457,8 @@ describe("SpaceComposerEditor", () => {
 			element.getAttribute("data-slot")
 		);
 		expect(visibleParts.slice(0, 3)).toEqual([
-			"space-composer-profile-token-at",
-			"space-composer-profile-token-icon",
+			"space-profile-mention-token-at",
+			"space-profile-mention-token-icon",
 			"space-composer-profile-token-name",
 		]);
 		expect(within(token).getByText("Runner").className).not.toContain(
