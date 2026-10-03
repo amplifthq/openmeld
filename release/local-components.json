@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-03T14:53:04.231Z",
+  "updatedAt": "2026-10-03T15:00:28.963Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
@@ -9,8 +9,8 @@
       "reason": "Integrates exact evidence tools with current main task knowledge and typed private Plugin requests."
     },
     "service": {
-      "bundleHash": "07734fec1f6ef92bac8c056544424e59afbac7d1674bb16dfec3a8371afc47fa",
-      "portableBundleHash": "00285ca5341359e537f6bc4b39acf3b149fe0848aca09278d25147cc472d0406",
+      "bundleHash": "31df45f2440c1a7348e78c0f69d24dba78c7b4e416a0d4f5cc23796ee9f7720b",
+      "portableBundleHash": "c0b220c6a8eda952eab7bb3a13421339c8dad5b864ced53b738f281bd7e79e8f",
       "bundleVersion": "0.3.240",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
       "serviceContractVersion": "openmeld-service-contract-2026-09-local-install-recovery-v1",
