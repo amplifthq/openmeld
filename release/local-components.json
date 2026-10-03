@@ -1,28 +1,28 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-03T11:52:35.912Z",
+  "updatedAt": "2026-10-03T14:53:04.231Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
-      "packageVersion": "0.3.239",
+      "packageVersion": "0.3.240",
       "updatePolicy": "available",
-      "reason": "Typed Plugin approval responses are opt-in; older CLI writes fail closed with Inbox guidance and preserve the same operation identity."
+      "reason": "Integrates exact evidence tools with current main task knowledge and typed private Plugin requests."
     },
     "service": {
-      "bundleHash": "e5be977ba25007ece704ae5cd9c1b02a1d8c2194c67853d74575e246a584e467",
-      "portableBundleHash": "c067de5c4e54da81c5cb9a0f15c776f2482d65a924cd2879314e3dc5c174f6da",
-      "bundleVersion": "0.3.239",
+      "bundleHash": "07734fec1f6ef92bac8c056544424e59afbac7d1674bb16dfec3a8371afc47fa",
+      "portableBundleHash": "00285ca5341359e537f6bc4b39acf3b149fe0848aca09278d25147cc472d0406",
+      "bundleVersion": "0.3.240",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
       "serviceContractVersion": "openmeld-service-contract-2026-09-local-install-recovery-v1",
       "updatePolicy": "available",
-      "reason": "Request approval is owned by Core and Auth; existing Service transport and execution token contracts remain compatible."
+      "reason": "Preserves current main dispatch knowledge and exact evidence context together."
     },
     "skills": {
-      "bundleHash": "bc35ca58399ae996362b3e2cfaddb56b40c1bdccf62f843f58d0e8bec0c7c94d",
+      "bundleHash": "3969dce0d427bd0801a57f0094526322712f3d5f87dcf0d6d0c410eb4b3d3e78",
       "skillContractVersion": "openmeld-skills-contract-2026-09-explicit-space-recipients-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Existing recovery remains receipt-guided; private request approval adds no caller-minted execution authority."
+      "reason": "Retains current main managed guidance and receipt-guided recovery; no automatic update."
     }
   }
 }
