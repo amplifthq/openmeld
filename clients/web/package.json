@@ -71,6 +71,7 @@
     "@openmeld/auth": "workspace:*",
     "@openmeld/gateway-contract": "workspace:*",
     "@openmeld/local-service": "workspace:*",
+    "@openmeld/product-catalog": "workspace:*",
     "@openmeld/projects": "workspace:*",
     "@openmeld/protocol": "workspace:*",
     "@openmeld/routine-schedule": "workspace:*",

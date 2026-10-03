@@ -26,6 +26,7 @@ used to invent a second merge or evidence contract.
 Release only what changed.
 
 - A Web fix releases Web.
+- A public website fix releases Website, without rebuilding or deploying Web.
 - A Gateway fix releases Gateway.
 - A database migration plus Core change releases Database, then Core.
 - A CLI patch publishes CLI and updates its required Core projection. When the
@@ -359,6 +360,92 @@ merge must deploy. Missing deployment history blocks the current delivery only
 when it belongs to a current-change scope; the same missing fact remains visible
 under the global backlog without changing the scoped command's exit result.
 
+## Website/App origin migration
+
+Normal Website-only releases use `--scope website`, an independent artifact
+receipt and snapshot, the `openmeld-website-prod` Worker, and public-page SSR
+health. Web health checks `app.openmeld.ai`, including anonymous root entry.
+The hosted Website job restores only its immutable same-run Website snapshot;
+it never restores Web bytes into the Website directory. First publication is
+pending only when the last successful Web source predates `clients/website`.
+Missing Website history after that boundary remains unknown and blocks release.
+
+The initial root-domain transfer is an explicit local guarded sequence, not a
+`cloud` or `full` rollout. Use a clean, reviewed main source and the ordinary
+local production credentials. Keep one evidence file for that source/account:
+
+```sh
+pnpm release:deploy:local -- --scope auth,web,website --domain-phase prepare --domain-evidence /absolute/path/domain-evidence.json
+pnpm release:deploy:local -- --scope auth --domain-evidence /absolute/path/domain-evidence.json
+# Complete the real browser checks below and record their exact version IDs.
+pnpm release:deploy:local -- --scope website --domain-evidence /absolute/path/domain-evidence.json
+# Only after root cutover succeeds: publish the reviewed Web/Core/Gateway scopes.
+```
+
+Preparation records the root owner, zone, Cloudflare environment and current
+Web/Auth/Website deployment IDs before mutation. It attaches `app.openmeld.ai`
+to the currently deployed Web Worker without replacing that version, and creates
+only a missing route-free Website placeholder through the existing bootstrap
+owner. A rerun reads current state and never overwrites an existing Worker.
+Auth then admits both exact origins while preserving parent cookie and Passkey
+RP identities. No sibling-origin wildcard is permitted.
+
+Before Website may take the root, the **currently deployed** Web and Auth versions
+must pass real HTTPS App login, existing-session reuse, Space read/write, and
+sign-out. Resolve unsent drafts and old tabs. Record their version IDs, the true
+check results and the evidence location in `appSmoke` using
+`websiteDomainMigrationSchema`. An alias or HTTP 200 is not browser acceptance.
+If the existing Web version fails at the new host, stop and ship a separately
+reviewed compatible receiver; never redirect the root first. Provider dashboard
+registrations, actual consent, existing Passkeys and installed native clients
+have their own acceptance rows and must not be inferred from localhost smoke.
+
+The guarded domain phase and evidence-bearing stages acquire the existing
+Auth/Web/Website cross-machine leases. Unexpected owners stop. Normal first Web,
+Core or Gateway publication is rejected while Web still owns the root. Website
+cutover reads bindings and endpoint responses back; it retains the actual
+observed deployment even after a later health failure. Component release
+receipts remain the deployment authority. Domain evidence describes ownership
+and rollback context, not a parallel component publication ledger.
+
+For rollback, keep the same source and evidence file:
+
+```sh
+pnpm release:deploy:local -- --scope auth,web,website --domain-phase rollback --domain-evidence /absolute/path/domain-evidence.json
+```
+
+The guard refuses an intervening unrecorded Web version, restores the recorded
+previous Web version first, then restores root ownership while retaining the
+App alias. Both exact Auth origins stay admitted until App traffic is retired;
+Auth contraction is a later explicit change. Rollback checks source/environment
+contracts but does not require rebuilding a broken candidate renderer. It
+verifies ownership and endpoint responses after restoration.
+
+Cloudflare Domains PUT can attach an unbound host but returns 409 for an existing
+Worker owner. Takeover uses Wrangler's public deploy/`triggers deploy` behavior,
+not copied private Cloudflare endpoints. The triggers command changes routing
+without uploading Worker code. Isolated HTTPS transfer and reverse-transfer
+checks prove the observed states, not an atomic zero-interruption guarantee.
+Keep `307`/`no-store` redirects and the bounded legacy browser forwarding window
+from [Website](../clients/website.md) until acceptance completes.
+
+Before preparation, record a direct `200 application/json` read of
+`https://openmeld.ai/.well-known/posthog-client.json` and its unchanged client ID
+and Connector redirect. The recorded previous Web version still contains this
+public file. The new Web source removes it only after Website has taken the root;
+the guard above forbids publishing that new Web while Web still owns the root.
+Rollback restores the exact recorded previous Web version before transferring
+the root back. Cutover and rollback endpoint checks reject a redirect, HTML, or
+changed PostHog client identity/callback. Never restore the new App-only Web
+version at the root or assume a successful homepage proves this OAuth dependency.
+
+Before replacing old Web assets, save unsent text and attachment drafts, finish
+or restart in-flight authorization, and close old tabs. Verify the old installed
+standalone app shows the migration entry; install the new App from its browser
+origin. Check browser notifications again there. Host-only protected-Space cookies
+may require entering the Space password again. Neither cache forwarding nor a
+parent Auth cookie migrates browser storage, PWA identity, or notification grants.
+
 ## Release Scopes
 
 The local release tool accepts these direct scopes:
@@ -366,6 +453,7 @@ The local release tool accepts these direct scopes:
 ```text
 db
 web
+website
 gateway
 auth
 core
@@ -375,7 +463,7 @@ cli
 
 It also accepts comma-separated scopes, `cloud`, and `full`.
 
-- `cloud` means Auth, Web, Gateway, Core, then Remote Agent.
+- `cloud` means Auth, Web, Gateway, Core, Remote Agent, then Website.
 - `full` means Database followed by `cloud`.
 - `full` never publishes CLI. CLI is immutable publication and must always be
   selected explicitly.

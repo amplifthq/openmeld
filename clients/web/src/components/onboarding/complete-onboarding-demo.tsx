@@ -1,5 +1,11 @@
 "use client";
 
+import {
+	LARK_CHANNEL_IDENTITY,
+	PLUGINS,
+	SLACK_CHANNEL_IDENTITY,
+} from "@openmeld/product-catalog/plugins";
+import { AppLogo } from "@openmeld/ui/components/app-logo";
 import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
 import {
 	ChatCircleDotsIcon,
@@ -11,12 +17,6 @@ import {
 	UsersThreeIcon,
 } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
-import { AppLogo } from "#/components/organizations/app-logo";
-import {
-	LARK_CHANNEL_IDENTITY,
-	PLUGINS,
-	SLACK_CHANNEL_IDENTITY,
-} from "#/components/organizations/plugin-catalog";
 import type { CompleteOnboardingState } from "./complete-onboarding-state";
 import { OnboardingDemoLayout, OpenMeldMark } from "./onboarding-demo-layout";
 

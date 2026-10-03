@@ -21,7 +21,8 @@
     "./hooks/*": "./src/hooks/*.ts",
     "./lib/shape-context": "./src/lib/shape-context.tsx",
     "./lib/surface-context": "./src/lib/surface-context.tsx",
-    "./lib/*": "./src/lib/*.ts"
+    "./lib/*": "./src/lib/*.ts",
+    "./fonts.css": "./src/styles/fonts.css"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",

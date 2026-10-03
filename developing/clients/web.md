@@ -23,6 +23,16 @@
 - Source of truth: This file owns the durable product boundary for the OpenMeld Web
   client as a browser client.
 
+## App and public website boundary
+
+`clients/web` is the App at `app.openmeld.ai` (Staging:
+`app.staging.openmeld.ai`). Its root enters the authenticated Organization
+resolver or sends anonymous visitors to `/login`. Public marketing, legal,
+Changelog, and local-agent guides belong to `clients/website`; Web keeps only
+redirects for those pages. See [Public Website](website.md) for presentation and
+root-domain forwarding. Web remains the sole owner of Auth proxies, application
+APIs, installers, downloads, and native authorization entry points.
+
 ## Conversational Plugin setup
 
 A Plugin setup intent opens the current Organization's existing connection

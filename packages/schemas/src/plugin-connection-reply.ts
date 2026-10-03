@@ -7,6 +7,12 @@ import {
 import { MAX_TEXT_LENGTH } from "./schemas/protocol/constants";
 
 const LINK_MARKER = "openmeld-plugin-connection";
+// Persisted message links outlive the domain cutover and may be read after a
+// rollback. This is content compatibility, not Auth-origin admission.
+const APP_ORIGIN_PAIRS = [
+  ["https://openmeld.ai", "https://app.openmeld.ai"],
+  ["https://staging.openmeld.ai", "https://app.staging.openmeld.ai"],
+] as const;
 const REPLY_SUFFIX =
   /(?:^|\n\n)\[Open Plugin connection\]\((https?:\/\/[^\s<>()[\]]{1,2400})\)$/u;
 
@@ -60,7 +66,12 @@ export function readPluginConnectionReplyLink(input: {
     return null;
   }
   if (
-    url.origin !== origin.origin ||
+    (url.origin !== origin.origin &&
+      !APP_ORIGIN_PAIRS.some(
+        (pair) =>
+          pair.some((value) => value === url.origin) &&
+          pair.some((value) => value === origin.origin)
+      )) ||
     url.username ||
     url.password ||
     url.hash !== `#${LINK_MARKER}`
@@ -89,6 +100,8 @@ export function readPluginConnectionReplyLink(input: {
     return null;
   }
   url.hash = "";
+  url.protocol = origin.protocol;
+  url.host = origin.host;
   return {
     action: {
       label: "Open Plugin connection",
