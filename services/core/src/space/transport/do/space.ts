@@ -37,6 +37,7 @@ import {
   CORE_READINESS_FACTS_CHANGED_MARKER_KIND,
   clearSpaceReasoningReplaySchema,
   commitSpaceFileWriteInputSchema,
+  copyOwnMessageExcerptBodySchema,
   createSpaceDiagnosticReportBodySchema,
   createSpaceDiagnosticReportResponseSchema,
   createSpaceFolderBodySchema,
@@ -3408,6 +3409,7 @@ export class Space extends DurableObject<CoreBindings> {
     const write = commitSpaceFileWriteInputSchema.parse(input.write);
     this.applySpaceRef(write.spaceId);
     await this.requireSpaceFileWriteActor(input.spaceAccess);
+    this.requireExactSpaceFileAudience(write.expectedAudienceProfileIds);
     const committedFile = this.runSpaceFileRepositoryOperation(() =>
       this.spaceFileRepository.prepareWrite(write)
     );
@@ -3452,6 +3454,61 @@ export class Space extends DurableObject<CoreBindings> {
         parentId: input.parentId,
       }),
     });
+  }
+
+  async rpcReserveSpaceExcerptCopy(input: {
+    spaceAccess: SpaceAccessContext;
+    spaceId: string;
+    copy: unknown;
+  }): Promise<void> {
+    const copy = copyOwnMessageExcerptBodySchema.parse(input.copy);
+    this.applySpaceRef(input.spaceId);
+    const actor = await this.requireSpaceFileWriteActor(input.spaceAccess);
+    if (
+      actor.profileKind !== "human" ||
+      actor.profileId !== copy.source.authorProfileId
+    ) {
+      throw createCoreRpcHttpError({
+        status: 403,
+        code: "file_root.excerpt_author_required",
+        reason: "Only the author can share a selected excerpt of this message.",
+      });
+    }
+    this.requireExactSpaceFileAudience(copy.audienceProfileIds);
+    reserveFileCopyRequest({
+      sql: this.ctx.storage.sql,
+      clientMutationId: copy.clientMutationId,
+      requestJson: JSON.stringify({
+        kind: "own_message_excerpt",
+        ...copy,
+        audienceProfileIds: [...copy.audienceProfileIds].sort(),
+      }),
+    });
+  }
+
+  private requireExactSpaceFileAudience(expected: string[] | undefined): void {
+    if (!expected) {
+      return;
+    }
+    const meta = this.requireSpaceFileMetaRecord();
+    const members = listSpaceMemberRecords(this.ctx.storage.sql, {
+      status: "active",
+    })
+      .map((member) => member.profileId)
+      .sort();
+    if (
+      meta.accessMode !== "members_only" ||
+      meta.visibility !== "private" ||
+      resolveSpaceMetaLinkJoinPolicy(meta) !== "invite_only" ||
+      JSON.stringify(members) !== JSON.stringify([...new Set(expected)].sort())
+    ) {
+      throw createCoreRpcHttpError({
+        status: 409,
+        code: "file_root.excerpt_audience_changed",
+        reason:
+          "Choose a private, members-only Space whose members exactly match the selected audience.",
+      });
+    }
   }
 
   async rpcResolveCommittedSpaceFileWrite(input: {
@@ -3516,6 +3573,8 @@ export class Space extends DurableObject<CoreBindings> {
     if (existingAlarm === null || existingAlarm > alarmAt) {
       await this.ctx.storage.setAlarm(alarmAt);
     }
+    // No await between the current audience check and the Files transaction.
+    this.requireExactSpaceFileAudience(write.expectedAudienceProfileIds);
     const file = this.runAuditedSpaceFileMutation(auditEvent, () =>
       this.spaceFileRepository.commitWrite({
         actor,
