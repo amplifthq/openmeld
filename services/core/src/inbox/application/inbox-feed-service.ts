@@ -175,7 +175,11 @@ export function createInboxFeedService(input: {
         ? await readSnapshot(identity, snapshotId)
         : await createSnapshot(identity, query);
       assertMatchingSnapshot(snapshot, query, cursor);
-      const cte = inboxFeedCte(snapshot, input.canManageOrganization === true);
+      const cte = inboxFeedCte(
+        snapshot,
+        input.canManageOrganization === true,
+        true
+      );
       const limit = query.limit ?? 40;
       const expandedKey = query.groupKey
         ? decodeInboxFeedKey(query.groupKey)

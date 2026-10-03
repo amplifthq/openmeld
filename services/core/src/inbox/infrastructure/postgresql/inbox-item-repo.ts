@@ -1,6 +1,7 @@
 import type { PostgresDatabase, QueryConfig } from "@openmeld/db/postgresql";
 import {
   inboxSourceCandidateSchema,
+  inboxSourceFactsSchema,
   inboxSourceTargetSchema,
 } from "@openmeld/schemas";
 import type {
@@ -366,6 +367,30 @@ export async function readInboxItemBySource(input: {
     .then((result) => result.rows[0] ?? null);
   return row ? mapInboxItemRow(row) : null;
 }
+/** Read a bounded batch of reminders from the retired continuation producer. */
+export async function listLegacyTaskContinuationInboxItems(input: {
+  db: PostgresDatabase;
+  organizationId: string;
+  recipientUserId: string;
+}): Promise<{ sourceKey: string; occurredAtMs: number }[]> {
+  const rows = await input.db.query<{
+    sourceKey: string;
+    occurredAtMs: number;
+  }>({
+    text: `SELECT source_key AS "sourceKey", occurred_at_ms AS "occurredAtMs"
+    FROM "openmeld"."inbox_items"
+    WHERE organization_id = $1 AND recipient_user_id = $2
+      AND source_kind = 'remote_agent_native_delivery'
+      AND source_key LIKE '%:admission_retry_exhausted'
+      AND kind = 'system_issue' AND attention = 'action_required'
+      AND importance = 'urgent' AND resolution_status = 'open'
+      AND resolved_at_ms IS NULL
+    ORDER BY id LIMIT 80`,
+    values: [input.organizationId, input.recipientUserId],
+  });
+  return rows.rows;
+}
+
 /** Correct only the retired continuation producer's exact projection on replay. */
 export async function repairLegacyTaskContinuationInboxItem(input: {
   candidate: InboxSourceCandidate;
@@ -405,11 +430,14 @@ export async function repairLegacyTaskContinuationInboxItem(input: {
     candidate.recipientUserId,
     candidate.sourceKey,
     JSON.stringify(legacyTarget),
-    JSON.stringify({
-      recipientReasons: ["requester"],
-      requestCategory: "action",
-      version: 1,
-    }),
+    // Match the schema-serialized facts written by the original producer.
+    JSON.stringify(
+      inboxSourceFactsSchema.parse({
+        recipientReasons: ["requester"],
+        requestCategory: "action",
+        version: 1,
+      })
+    ),
     candidate.occurredAtMs,
   ];
   // Preserve identity, read, removal and the failed task's source truth. This
@@ -429,11 +457,13 @@ export async function repairLegacyTaskContinuationInboxItem(input: {
         await client.query({
           text: `UPDATE "openmeld"."inbox_items" SET attention = 'update', importance = 'normal',
       resolution_status = 'not_applicable',
-      source_target_json = $1, source_facts_json = $2, updated_at_ms = GREATEST(updated_at_ms, $3)
-      WHERE ${guard(3)}`,
+      source_target_json = $1, source_facts_json = $2, title = $3, preview = $4, updated_at_ms = GREATEST(updated_at_ms, $5)
+      WHERE ${guard(5)}`,
           values: [
             JSON.stringify(candidate.sourceTarget),
             JSON.stringify(candidate.sourceFacts),
+            candidate.title,
+            candidate.preview ?? null,
             input.nowMs,
             ...bindings,
           ],

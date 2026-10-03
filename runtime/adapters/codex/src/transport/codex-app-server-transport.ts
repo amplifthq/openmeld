@@ -1681,36 +1681,18 @@ class CodexAppServerSession {
         return;
       }
     }
-    let supported = supportsCodexSpaceDynamicTools(
-      parseCodexAppServerVersion(input.initialized)
-    );
+    const version = parseCodexAppServerVersion(input.initialized);
+    let supported = supportsCodexSpaceDynamicTools(version);
+    if (nativeThread && !supported) {
+      throw new CodexAppServerTransportError({
+        code: "context.space_tool_version_unsupported",
+        errorType: "config",
+        message: `Codex ${version ?? "(unknown version)"} does not meet the native Space tool version requirement (0.150.1 or newer). Select a supported Codex installation and retry. No turn was started.`,
+      });
+    }
     if (supported) {
       try {
-        const configuration = await this.requestControl(
-          "config/read",
-          {
-            cwd: this.#codexWorkdir,
-            includeLayers: false,
-          },
-          { code: "runtime.control_timeout", operation: "config/read" }
-        );
-        supported = canUseCodexSpaceDynamicTools({
-          configuration,
-          permissionMode: this.#permissionMode,
-        });
-        if (supported) {
-          const requirements = await this.requestControl(
-            "configRequirements/read",
-            {},
-            {
-              code: "runtime.control_timeout",
-              operation: "configRequirements/read",
-            }
-          );
-          // Keep managed requirements on their native authorizer until this
-          // carrier has equivalent policy evidence. Missing data is not allow.
-          supported = toRecord(requirements)?.requirements === null;
-        }
+        supported = await this.supportsSpaceToolPolicy();
       } catch (error) {
         if (
           !(error instanceof CodexAppServerTransportError) ||
@@ -1719,6 +1701,14 @@ class CodexAppServerSession {
           throw error;
         }
         supported = false;
+        if (nativeThread) {
+          throw new CodexAppServerTransportError({
+            code: "context.space_tool_capability_unavailable",
+            errorType: "config",
+            message:
+              "Codex could not provide the policy checks required to continue this conversation. Select a supported Codex installation and retry. No turn was started.",
+          });
+        }
       }
     }
     if (nativeThread && !supported) {
@@ -1730,6 +1720,30 @@ class CodexAppServerSession {
       });
     }
     this.spaceToolInvocation.enabled = supported;
+  }
+
+  async supportsSpaceToolPolicy(): Promise<boolean> {
+    const configuration = await this.requestControl(
+      "config/read",
+      { cwd: this.#codexWorkdir, includeLayers: false },
+      { code: "runtime.control_timeout", operation: "config/read" }
+    );
+    if (
+      !canUseCodexSpaceDynamicTools({
+        configuration,
+        permissionMode: this.#permissionMode,
+      })
+    ) {
+      return false;
+    }
+    const requirements = await this.requestControl(
+      "configRequirements/read",
+      {},
+      { code: "runtime.control_timeout", operation: "configRequirements/read" }
+    );
+    // Keep managed requirements on their native authorizer until this
+    // carrier has equivalent policy evidence. Missing data is not allow.
+    return toRecord(requirements)?.requirements === null;
   }
 
   async prepareDeliveryOnlyScope(initialized: unknown): Promise<void> {
@@ -3487,6 +3501,17 @@ function toJsonRpcTransportError(
   const message =
     normalizeOptionalText(error.message) ?? "codex app-server error";
   const originalError = createProviderOriginalError(message) ?? undefined;
+  // JSON-RPC method absence is capability evidence, not a missing conversation.
+  // Preserve the protocol code before human-message classification sees "not found".
+  if (error.code === -32_601) {
+    return new CodexAppServerTransportError({
+      code: "runtime.method_unsupported",
+      errorType: "adapter",
+      message,
+      originalError,
+      rpcErrorCode: error.code,
+    });
+  }
   const mcpInitializationFailure =
     classifyCodexRequiredMcpInitializationFailure({
       message,

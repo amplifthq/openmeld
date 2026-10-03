@@ -74,6 +74,7 @@ import {
   stopRemoteAgentNativeDelivery,
 } from "../src/remote-agent/application/native-delivery-cancellation-service";
 import { projectTaskContinuationAdmissionExhaustedInboxItem } from "../src/remote-agent/application/native-delivery-inbox-producer";
+import { reconcileTaskContinuationInbox } from "../src/remote-agent/application/native-delivery-inbox-reconciliation";
 import {
   completeRemoteAgentNativeDelivery,
   processRemoteAgentNativeDeliveryDeadlineProbe,
@@ -4195,6 +4196,108 @@ describe("Remote Agent native delivery callback service", () => {
       await harness.close();
     }
   });
+
+  it("delivers the watched terminal outcome even when its Inbox projection fails", async () => {
+    const harness = await createPostgresHarness();
+    const probes: RemoteAgentNativeDeliveryDeadlineProbeQueueMessage[] = [];
+    const env = buildEnv(harness.db, {
+      deadlineProbeQueueSend: vi.fn((probe) => {
+        probes.push(probe);
+        return Promise.resolve(probe);
+      }),
+      remoteAgentWorker: {
+        submitConversationTurn: vi.fn(() =>
+          Promise.reject(new Error("admission response was lost"))
+        ),
+      },
+    });
+    try {
+      const delivery = await stageAmbiguousTaskContinuationAdmission({
+        db: harness.db,
+        env,
+        idempotencyKey: "agent-task-continuation:inbox-failure",
+      });
+      const watchedTask = {
+        kind: "native_delivery" as const,
+        v: 1 as const,
+        deliveryId: delivery.deliveryId,
+      };
+      await registerAgentTaskCompletionSubscription({
+        db: harness.db,
+        organizationId: "org_1",
+        completionCondition: "terminal",
+        continuation: null,
+        nowMs: 1300,
+        subscriptionId: "watch-inbox-failure",
+        idempotencyKey: "watch-inbox-failure",
+        observerTask: {
+          kind: "controller_task",
+          v: 1,
+          agentControllerRef: "builtin:codex",
+          hostId: "host-1",
+          taskId: "observer",
+        },
+        watchedTask,
+      });
+      for (let attempt = 1; attempt < 3; attempt += 1) {
+        const watchdog = requireAdmissionProbe(probes, "watchdog", attempt);
+        await processRemoteAgentNativeDeliveryDeadlineProbe({
+          db: harness.db,
+          env,
+          nowMs: watchdog.deadlineAtMs,
+          probe: watchdog,
+        });
+        const retry = requireAdmissionProbe(probes, "retry", attempt + 1);
+        await processRemoteAgentNativeDeliveryDeadlineProbe({
+          db: harness.db,
+          env,
+          nowMs: retry.deadlineAtMs,
+          probe: retry,
+        });
+      }
+      const removeFailure = await installPostgresWriteFailure({
+        harness,
+        table: "inbox_items",
+        operation: "INSERT",
+        message: "inbox unavailable",
+      });
+      const watchdog = requireAdmissionProbe(probes, "watchdog", 3);
+      await expect(
+        processRemoteAgentNativeDeliveryDeadlineProbe({
+          db: harness.db,
+          env,
+          nowMs: watchdog.deadlineAtMs,
+          probe: watchdog,
+        })
+      ).rejects.toThrow();
+      await expect(
+        readAgentTaskTerminalOutcome({
+          db: harness.db,
+          taskKey: buildAgentTaskKey(watchedTask),
+        })
+      ).resolves.toMatchObject({ outcome: { status: "failed" } });
+      expect(
+        await harness.queryAll({
+          text: `SELECT id FROM "openmeld"."inbox_items"`,
+        })
+      ).toEqual([]);
+      await removeFailure();
+      await processRemoteAgentNativeDeliveryDeadlineProbe({
+        db: harness.db,
+        env,
+        nowMs: watchdog.deadlineAtMs + 1,
+        probe: watchdog,
+      });
+      expect(
+        await harness.queryAll({
+          text: `SELECT attention FROM "openmeld"."inbox_items"`,
+        })
+      ).toEqual([{ attention: "update" }]);
+    } finally {
+      await harness.close();
+    }
+  });
+
   it.each([
     ["pending", "en", undefined],
     ["sent", "en", undefined],
@@ -4426,9 +4529,9 @@ describe("Remote Agent native delivery callback service", () => {
             threadRootSignalId: THREAD_CONTEXT.rootSignalId,
           }),
           JSON.stringify({
+            version: 1,
             recipientReasons: ["requester"],
             requestCategory: "action",
-            version: 1,
           }),
           oldItem.id,
         ],
@@ -4488,14 +4591,49 @@ describe("Remote Agent native delivery callback service", () => {
         text: 'UPDATE "openmeld"."inbox_items" SET occurred_at_ms = $1 WHERE id = $2',
         values: [occurrence.occurred_at_ms, oldItem.id],
       });
+      const reconcileInput = {
+        inboxDb: harness.db,
+        sourceDb: harness.db,
+        identityDb: harness.db,
+        coordinationDb: harness.db,
+        organizationId: "org_1",
+        recipientUserId: "user_1",
+      };
+      // A changed source is not the retired producer. Read-time repair must
+      // preserve it without making unrelated Inbox reads fail.
+      await harness.query({
+        text: `UPDATE "openmeld"."inbox_items" SET source_facts_json = $1 WHERE id = $2`,
+        values: [
+          JSON.stringify({
+            version: 1,
+            recipientReasons: ["requester"],
+            requestCategory: "review",
+          }),
+          oldItem.id,
+        ],
+      });
+      await expect(
+        reconcileTaskContinuationInbox(reconcileInput)
+      ).resolves.toBeUndefined();
+      expect(
+        await harness.queryFirst({
+          text: `SELECT attention FROM "openmeld"."inbox_items" WHERE id = $1`,
+          values: [oldItem.id],
+        })
+      ).toEqual({ attention: "action_required" });
+      await harness.query({
+        text: `UPDATE "openmeld"."inbox_items" SET source_facts_json = $1 WHERE id = $2`,
+        values: [
+          JSON.stringify({
+            version: 1,
+            recipientReasons: ["requester"],
+            requestCategory: "action",
+          }),
+          oldItem.id,
+        ],
+      });
       for (let replay = 0; replay < 2; replay += 1) {
-        await projectTaskContinuationAdmissionExhaustedInboxItem({
-          attempts: 3,
-          db: harness.db,
-          delivery: terminal,
-          occurredAtMs: occurrence.occurred_at_ms,
-          languageTag,
-        });
+        await reconcileTaskContinuationInbox(reconcileInput);
       }
       expect(
         await harness.queryAll({

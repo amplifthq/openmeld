@@ -3,158 +3,91 @@ import {
   type PostgresDatabase,
 } from "@openmeld/db/postgresql";
 import type { CoreBindings } from "../../../lib/bindings";
-import {
-  isTerminalDispatchState,
-  OPENMELD_DAEMON_DISPATCH_STATE,
-} from "../../rules/dispatch-lifecycle-contract";
 
 export const WAKE_EVIDENCE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 const RETENTION_BATCH_SIZE = 1000;
-const MAX_BATCHES_PER_TABLE = 10_000;
+const MAX_BATCHES_PER_TABLE = 5;
 
-// This retention policy only permits deleting old, settled evidence. It never
-// decides an execution outcome or expires an unfinished RuntimeCoordinator head.
-const RETENTION_SETTLED_STATUSES = [
-  "reply_published",
-  "cancelled",
-  "failed_terminal",
-];
-const RETENTION_TERMINAL_DISPATCH_STATES = Object.values(
-  OPENMELD_DAEMON_DISPATCH_STATE
-).filter(isTerminalDispatchState);
-const TABLES = [
-  {
-    table: "openMeldDaemon_dispatch_ledger",
-    key: "id",
-    time: "first_seen_at_ms",
-    relation: "dispatch",
-  },
-  {
-    table: "openMeldDaemon_dispatch_attempts",
-    key: "attempt_id",
-    time: "created_at_ms",
-    relation: "dispatch",
-  },
-  {
-    table: "openMeldDaemon_dlq",
-    key: "id",
-    time: "failed_at_ms",
-    relation: "dispatch",
-  },
-  {
-    table: "openMeldDaemon_dispatch_result_inbox",
-    key: "result_key",
-    time: "accepted_at_ms",
-    relation: "dispatch",
-  },
-  {
-    table: "openMeldDaemon_dispatch_results",
-    key: "result_ref",
-    time: "created_at_ms",
-    relation: "dispatch",
-  },
-  {
-    table: "openMeldDaemon_runtime_coordinator_execution_events",
-    key: "event_id",
-    time: "observed_at_ms",
-    relation: "execution",
-  },
-  {
-    table: "openMeldDaemon_runtime_coordinator_creation_diagnostics",
-    key: "diagnostic_id",
-    time: "observed_at_ms",
-    relation: "dispatch",
-  },
-  {
-    table: "openMeldDaemon_ops_decisions",
-    key: "id",
-    time: "decided_at_ms",
-    relation: "correlation",
-  },
-  {
-    table: "openMeldDaemon_runtime_coordinator_executions",
-    key: "runtime_coordinator_execution_id",
-    time: "created_at_ms",
-    relation: "head",
-  },
-] as const;
+// Only historical descriptions of successfully published executions expire.
+// Cancellation requests remain a late-finalization fence. Unknown/new types,
+// token evidence, failed executions and recovery records are not eligible.
+const COMPLETED_EXECUTION_EVIDENCE = `
+  event_type IN ('execution_created', 'delivery_accepted',
+    'lifecycle_accepted_local', 'lifecycle_running', 'lifecycle_completed_local',
+    'result_received', 'result_accepted', 'result_duplicate', 'reply_published')
+  AND EXISTS (
+    SELECT 1 FROM "openmeld"."openMeldDaemon_runtime_coordinator_executions" AS execution
+    WHERE execution.runtime_coordinator_execution_id = events.runtime_coordinator_execution_id
+      AND execution.status = 'reply_published' AND execution.updated_at_ms < $1
+      AND EXISTS (
+        SELECT 1 FROM "openmeld"."openMeldDaemon_dispatch_result_inbox" AS result
+        WHERE result.runtime_coordinator_execution_id = execution.runtime_coordinator_execution_id
+          AND result.publish_state = 'reply_published' AND result.updated_at_ms < $1
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM "openmeld"."openMeldDaemon_dispatch_result_inbox" AS result
+        WHERE result.runtime_coordinator_execution_id = execution.runtime_coordinator_execution_id
+          AND (result.publish_state != 'reply_published' OR result.updated_at_ms >= $1)
+      )
+  )`;
 
-export type WakeEvidenceRetentionResult = { table: string; deleted: number };
-
-const DISPATCH_CORRELATIONS = [
-  "active.dispatch_id = evidence.dispatch_id",
-  "pending.dispatch_id = evidence.dispatch_id",
-] as const;
-const RETENTION_CORRELATIONS = {
-  dispatch: DISPATCH_CORRELATIONS,
-  head: DISPATCH_CORRELATIONS,
-  execution: [
-    "active.runtime_coordinator_execution_id = evidence.runtime_coordinator_execution_id",
-    `pending.dispatch_id IN (SELECT head.dispatch_id FROM "openmeld"."openMeldDaemon_runtime_coordinator_executions" AS head WHERE head.runtime_coordinator_execution_id = evidence.runtime_coordinator_execution_id)`,
-  ],
-  correlation: [
-    "(active.dispatch_id = evidence.correlation_id OR active.runtime_coordinator_execution_id = evidence.correlation_id)",
-    `(pending.dispatch_id = evidence.correlation_id OR pending.dispatch_id IN (SELECT head.dispatch_id FROM "openmeld"."openMeldDaemon_runtime_coordinator_executions" AS head WHERE head.runtime_coordinator_execution_id = evidence.correlation_id))`,
-  ],
-} as const;
+export type WakeEvidenceRetentionResult = {
+  table: string;
+  deleted: number;
+  budgetExhausted: boolean;
+};
 
 export async function sweepWakeEvidenceRetention(input: {
   db: PostgresDatabase;
   nowMs: number;
-  retentionMs?: number;
   batchSize?: number;
   maxBatchesPerTable?: number;
 }): Promise<WakeEvidenceRetentionResult[]> {
-  const cutoffMs =
-    input.nowMs - (input.retentionMs ?? WAKE_EVIDENCE_RETENTION_MS);
-  const batchSize = input.batchSize ?? RETENTION_BATCH_SIZE;
-  const maxBatches = input.maxBatchesPerTable ?? MAX_BATCHES_PER_TABLE;
-  if (
-    !(Number.isSafeInteger(cutoffMs) && Number.isSafeInteger(batchSize)) ||
-    batchSize < 1 ||
-    !Number.isSafeInteger(maxBatches) ||
-    maxBatches < 1
-  ) {
-    throw new Error("Wake evidence retention requires safe integer bounds");
-  }
-  const results: WakeEvidenceRetentionResult[] = [];
-  for (const { table, key, time, relation } of TABLES) {
-    const [correlation, ledgerCorrelation] = RETENTION_CORRELATIONS[relation];
-    const settledHead =
-      relation === "head"
-        ? "evidence.status = ANY($3::text[]) AND evidence.updated_at_ms < $1"
-        : `NOT EXISTS (
-          SELECT 1 FROM "openmeld"."openMeldDaemon_runtime_coordinator_executions" AS active
-          WHERE (active.status <> ALL($3::text[]) OR active.updated_at_ms >= $1)
-            AND ${correlation}
-        )`;
-    const protection = `${settledHead} AND NOT EXISTS (
-      SELECT 1 FROM "openmeld"."openMeldDaemon_dispatch_ledger" AS pending
-      WHERE (pending.status <> ALL($4::text[]) OR pending.last_attempt_at_ms >= $1)
-        AND ${ledgerCorrelation}
-    )`;
-    let deleted = 0;
-    for (let batch = 0; batch < maxBatches; batch += 1) {
-      const result = await input.db.query({
-        text: `DELETE FROM "openmeld"."${table}" WHERE "${key}" IN (
-          SELECT evidence."${key}" FROM "openmeld"."${table}" AS evidence
-          WHERE evidence."${time}" < $1 AND ${protection}
-          ORDER BY evidence."${time}", evidence."${key}" LIMIT $2
+  const batchSize = boundedLimit(input.batchSize, RETENTION_BATCH_SIZE);
+  const maxBatches = boundedLimit(
+    input.maxBatchesPerTable,
+    MAX_BATCHES_PER_TABLE
+  );
+  const cutoff = input.nowMs - WAKE_EVIDENCE_RETENTION_MS;
+  const policies = [
+    {
+      table: "openMeldDaemon_runtime_coordinator_execution_events",
+      sql: `DELETE FROM "openmeld"."openMeldDaemon_runtime_coordinator_execution_events"
+        WHERE event_id IN (
+          SELECT events.event_id FROM "openmeld"."openMeldDaemon_runtime_coordinator_execution_events" AS events
+          WHERE observed_at_ms < $1 AND ${COMPLETED_EXECUTION_EVIDENCE}
+          ORDER BY observed_at_ms, events.event_id LIMIT $2
         )`,
-        values: [
-          cutoffMs,
-          batchSize,
-          RETENTION_SETTLED_STATUSES,
-          RETENTION_TERMINAL_DISPATCH_STATES,
-        ],
+      bindings: [cutoff, batchSize],
+    },
+    {
+      table: "openMeldDaemon_runtime_coordinator_creation_diagnostics",
+      sql: `DELETE FROM "openmeld"."openMeldDaemon_runtime_coordinator_creation_diagnostics"
+        WHERE diagnostic_id IN (
+          SELECT diagnostic_id FROM "openmeld"."openMeldDaemon_runtime_coordinator_creation_diagnostics"
+          WHERE observed_at_ms < $1 ORDER BY observed_at_ms, diagnostic_id LIMIT $2
+        )`,
+      bindings: [cutoff, batchSize],
+    },
+  ];
+  const results: WakeEvidenceRetentionResult[] = [];
+  for (const policy of policies) {
+    let deleted = 0;
+    let budgetExhausted = false;
+    for (let batch = 0; batch < maxBatches; batch++) {
+      // Eligibility and deletion share one statement, never a stale ID list.
+      const result = await input.db.query({
+        text: policy.sql,
+        values: policy.bindings,
       });
-      const count = result.rowCount ?? 0;
-      deleted += count;
-      if (count < batchSize) {
+      const changes = Number(result.rowCount);
+      deleted += changes;
+      budgetExhausted = changes === batchSize;
+      if (!budgetExhausted) {
         break;
       }
     }
-    results.push({ table, deleted });
+    results.push({ table: policy.table, deleted, budgetExhausted });
   }
   return results;
 }
@@ -164,13 +97,21 @@ export async function runWakeEvidenceRetention(input: {
   cron: string | null;
   nowMs: number;
 }): Promise<{ ran: boolean; results: WakeEvidenceRetentionResult[] }> {
-  const results = await sweepWakeEvidenceRetention({
-    db: getPostgresDatabase(input.env),
-    nowMs: input.nowMs,
-  });
+  const db = getPostgresDatabase(input.env);
+  const results = await sweepWakeEvidenceRetention({ db, nowMs: input.nowMs });
   console.info("[core.wake_evidence_retention.swept]", {
     cron: input.cron,
     results,
   });
   return { ran: true, results };
+}
+
+function boundedLimit(value: number | undefined, maximum: number): number {
+  if (value === undefined) {
+    return maximum;
+  }
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error("Retention budget must be a positive integer.");
+  }
+  return Math.min(value, maximum);
 }

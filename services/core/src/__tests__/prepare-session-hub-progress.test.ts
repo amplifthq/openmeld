@@ -44,7 +44,7 @@ type HubHarness = {
 function createHub(sockets: FakeSocket[]) {
   const hub = Object.create(PrepareSessionHub.prototype) as HubHarness;
   Object.assign(hub, {
-    env: { OPENMELD_POSTGRESQL: createProjectionPostgresBinding() },
+    env: { OPENMELD_POSTGRESQL: createProjectionPostgresBinding(() => []) },
     ctx: { getWebSockets: () => sockets },
     activeTerminalBindings: new Map([
       [SESSION_ID, { connectionEpoch: 2, lastProgressSequence: null }],

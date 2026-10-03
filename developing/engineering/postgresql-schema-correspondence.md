@@ -27,8 +27,8 @@ metadata. It separately applied every native PostgreSQL migration and read
 | Nullability | No non-primary nullability change or primary-key tightening |
 | Foreign keys | 188; referenced columns, delete actions and update actions match |
 | Named CHECK constraints | 557; all names resolve to their PostgreSQL counterpart |
-| Named indexes | 369; uniqueness, key columns and direction match |
-| Partial indexes | 28; predicates reviewed with their owner conditions |
+| Named indexes | 372; uniqueness, key columns and direction match, including the explicit Inbox ordering key below |
+| Partial indexes | 29; predicates reviewed with their owner conditions |
 | Expression indexes | None in the final historical schema |
 | Unique constraints | No missing historical unique constraint |
 | Views | None in the final historical schema |
@@ -53,6 +53,10 @@ and JSON text remain in their owning contracts. Five historical generated
 integer keys use PostgreSQL identity columns. Inbox's explicit sequence replaces
 its shared SQLite sequence mechanism. Nine Auth key defaults use native UUID
 generation without rewriting supplied IDs.
+
+The Inbox observation index contains recipient, Organization and `sequence`.
+SQLite implicitly appends rowid to the historical two-key index; PostgreSQL
+needs the insertion-order key explicitly for the same scoped watermark lookup.
 
 Timestamp defaults use `floor(extract(epoch from clock_timestamp()) * 1000)`
 before converting to bigint. A direct cast would round and could introduce a
@@ -94,16 +98,15 @@ execution authority.
 
 ## Wake evidence retention
 
-Core's native retention owner keeps the established 30-day, bounded deletion
-policy across nine Wake evidence tables. It deletes settled old evidence in
-batches and removes execution heads last. Running executions, recent accepted
-progress and recent or nonterminal dispatch ledger evidence protect related
-rows. Missing execution heads do not authorize deletion of active ledger
-evidence. Operational pre-head failure publication commands remain outside
-time-decaying evidence until their visible Space outcome is durable.
+Core's native retention owner implements the current two-table policy in
+`developing/architecture/physical-db-split.md`: 30-day creation diagnostics and
+allowlisted historical events from fully published executions. Each table gets
+at most five batches of 1,000 deletions. Eligibility and deletion share one
+statement; retained execution projections and result receipts supply the evidence.
 
-Retention never finalizes or expires a running Wake. RuntimeCoordinator retains
-execution authority; the PostgreSQL ledger remains a durable read projection.
+Cancellation fences, token evidence, failed or running executions, operational
+ledgers, results and recovery records never expire through this sweep. Physical
+consolidation does not grant new execution, finalization or replay authority.
 
 ## Validated correction to the welcome retry contract
 

@@ -34,7 +34,10 @@ import {
   INBOX_UNREAD_PRIORITY_UPDATE,
   inboxMentionSql,
 } from "./inbox-attention-predicates";
-import { currentInboxSourceFactsSql } from "./inbox-current-source-facts";
+import {
+  currentInboxAgentFactExistsSql,
+  currentInboxSourceFactsSql,
+} from "./inbox-current-source-facts";
 import { buildCurrentInboxSourceAccessSql } from "./inbox-source-access";
 
 const INBOX_ITEM_NOT_FOUND_CODE = "inbox.item_not_found";
@@ -60,8 +63,8 @@ export const INBOX_ATTENTION_PRESENTATION_FILTER = `
     attention = 'update'
     AND importance = 'normal'
     AND kind NOT IN ('space_mention', 'space_reference')
-    AND coalesce(jsonb_array_length((${currentInboxSourceFactsSql("inbox_items")})::jsonb #> '{firstContactAgentProfileIds}'), 0) = 0
-    AND coalesce(jsonb_array_length((${currentInboxSourceFactsSql("inbox_items")})::jsonb #> '{mentionedAgentProfileIds}'), 0) = 0
+    AND NOT ${currentInboxAgentFactExistsSql("inbox_items", "firstContactAgentProfileIds")}
+    AND NOT ${currentInboxAgentFactExistsSql("inbox_items", "mentionedAgentProfileIds")}
     AND ${INBOX_SPACE_TARGET_FILTER}
     AND EXISTS (
       SELECT 1

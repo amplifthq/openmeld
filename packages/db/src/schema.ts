@@ -2,6 +2,10 @@ import { schema as authSchema } from "./auth/schema.ts";
 import { coreSchema } from "./core/dispatch.schema.ts";
 import { diagnosticsSchema } from "./diagnostics/schema.ts";
 
+// Drizzle must discover the schema owner as well as its tables.
+// biome-ignore lint/performance/noBarrelFile: The canonical Drizzle entrypoint must export its schema owner.
+export { applicationSchema } from "./postgresql/schema.ts";
+
 export const schema = {
   ...authSchema,
   ...coreSchema,

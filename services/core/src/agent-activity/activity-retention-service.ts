@@ -93,14 +93,15 @@ export async function runAgentActivityDailyAggregation(input: {
               member_user_id,
               to_char(to_timestamp(observed_at_ms / 1000) AT TIME ZONE 'UTC', 'YYYY-MM-DD'),
               id, $2,
-              (CAST(observed_at_ms / 86400000 AS BIGINT) + $3) * 86400000
+              GREATEST($3, (CAST(observed_at_ms / 86400000 AS BIGINT) + $4) * 86400000)
             FROM ranked
             WHERE session_rank = 1
-              AND (SELECT count(*) FROM candidate) = $4
+              AND (SELECT count(*) FROM candidate) = $5
             ON CONFLICT(daily_session_key) DO NOTHING
           `,
               values: [
                 acceptedSequencesJson,
+                input.nowMs,
                 input.nowMs,
                 DAILY_SESSION_KEY_RETENTION_DAYS,
                 expectedCandidateCount,
@@ -227,6 +228,49 @@ export async function runAgentActivityDailyAggregation(input: {
 }
 export async function runAgentActivityRetention(input: {
   batchLimit?: number;
+  maxBatches?: number;
+  db: PostgresDatabase;
+  nowMs: number;
+}) {
+  const maxBatches = input.maxBatches ?? DAILY_AGGREGATION_MAX_BATCHES;
+  if (
+    !Number.isSafeInteger(maxBatches) ||
+    maxBatches < 1 ||
+    maxBatches > DAILY_AGGREGATION_MAX_BATCHES
+  ) {
+    throw new Error(
+      "Agent Activity retention batch budget must be between 1 and 10."
+    );
+  }
+  const totals = {
+    aggregates: 0,
+    dailySessionKeys: 0,
+    digests: 0,
+    events: 0,
+    executionLinks: 0,
+    sessions: 0,
+  };
+  let budgetExhausted = false;
+  for (let batch = 0; batch < maxBatches; batch++) {
+    const result = await runAgentActivityRetentionBatch(input);
+    for (const key of Object.keys(totals) as (keyof typeof totals)[]) {
+      totals[key] += result[key];
+    }
+    budgetExhausted =
+      result.events === resolveBatchLimit(input.batchLimit) ||
+      result.dailySessionKeys === RETENTION_DELETE_LIMIT ||
+      result.digests === RETENTION_DELETE_LIMIT ||
+      result.executionLinks === RETENTION_DELETE_LIMIT ||
+      result.sessions === RETENTION_DELETE_LIMIT;
+    if (!budgetExhausted) {
+      break;
+    }
+  }
+  return { ...totals, budgetExhausted };
+}
+
+async function runAgentActivityRetentionBatch(input: {
+  batchLimit?: number;
   db: PostgresDatabase;
   nowMs: number;
 }) {
@@ -273,7 +317,11 @@ export async function runAgentActivityRetention(input: {
           await client.query({
             text: `DELETE FROM "openmeld"."agent_activity_daily_session_keys" WHERE daily_session_key IN (
           SELECT daily_session_key FROM "openmeld"."agent_activity_daily_session_keys"
-          WHERE expires_at_ms < $1 ORDER BY expires_at_ms ASC NULLS FIRST LIMIT $2
+          WHERE expires_at_ms < $1 AND NOT EXISTS (
+            SELECT 1 FROM "openmeld"."agent_activity_events" AS pending
+            WHERE pending.daily_session_key = agent_activity_daily_session_keys.daily_session_key
+              AND pending.daily_aggregated_at_ms IS NULL
+          ) ORDER BY expires_at_ms ASC NULLS FIRST LIMIT $2
         )`,
             values: [input.nowMs, RETENTION_DELETE_LIMIT],
           }),

@@ -6,6 +6,7 @@ on:
       - "tooling/postgresql/**"
       - "packages/db/postgresql/**"
       - ".github/workflows/postgresql-foundation.yml"
+      - ".github/actions/setup-postgresql/**"
       - "pnpm-lock.yaml"
   workflow_dispatch:
 

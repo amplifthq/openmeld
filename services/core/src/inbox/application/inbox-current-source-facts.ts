@@ -34,6 +34,17 @@ export function currentInboxSourceFactsSql(
       'firstContactAgentProfileIds', ${ids("firstContactAgentProfileIds")}))::text END`;
 }
 
+/** Counts and classification need existence, not three rebuilt JSON arrays.
+ * Preserve the source-facts contract for items without personal-Agent facts. */
+export function currentInboxAgentFactExistsSql(
+  alias: "inbox_items" | "items",
+  field: "mentionedAgentProfileIds" | "firstContactAgentProfileIds"
+): string {
+  return `(CASE WHEN coalesce(jsonb_array_length(${alias}.source_facts_json::jsonb -> 'personalAgentProfileIds'), 0) = 0
+    THEN coalesce(jsonb_array_length(${alias}.source_facts_json::jsonb -> '${field}'), 0) > 0
+    ELSE EXISTS (${currentPersonalAgentFactIdsSql(alias, field)}) END)`;
+}
+
 /** Independent Human reasons survive a personal-Agent transfer; owner-only rows do not. */
 export function currentInboxRecipientRelationshipSql(
   alias: "inbox_items" | "items"

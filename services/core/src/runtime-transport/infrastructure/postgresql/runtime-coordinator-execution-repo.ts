@@ -166,7 +166,7 @@ const ACTIVE_WAKE_PROGRESS_STATUSES: readonly RuntimeCoordinatorExecutionStatus[
 export const writeRuntimeCoordinatorExecutionProjection = async (input: {
   db: PostgresDatabase;
   record: RuntimeCoordinatorExecutionRecord;
-}): Promise<"created" | "skipped_stale" | "updated"> => {
+}): Promise<"skipped_stale" | "written"> => {
   const parsed = runtimeCoordinatorExecutionRecordSchema.safeParse(
     input.record
   );
@@ -187,7 +187,7 @@ export const writeRuntimeCoordinatorExecutionProjection = async (input: {
   const sameRankStatuses = allowedStatuses.filter(
     (status) => STATUS_RANK[status] === nextRank
   );
-  const result = await input.db.query<{ created: boolean }>({
+  const result = await input.db.query({
     text: `
           INSERT INTO "openmeld"."openMeldDaemon_runtime_coordinator_executions" AS current_projection (
             runtime_coordinator_execution_id,
@@ -234,8 +234,7 @@ export const writeRuntimeCoordinatorExecutionProjection = async (input: {
               NOT (current_projection.status = ANY($21::text[]))
               OR current_projection.updated_at_ms <= excluded.updated_at_ms
             )
-          RETURNING WITH (OLD AS previous)
-            previous.runtime_coordinator_execution_id IS NULL AS created
+
         `,
     values: [
       record.runtimeCoordinatorExecutionId,
@@ -261,11 +260,7 @@ export const writeRuntimeCoordinatorExecutionProjection = async (input: {
       sameRankStatuses,
     ],
   });
-  const written = result.rows[0];
-  if (!written) {
-    return "skipped_stale";
-  }
-  return written.created ? "created" : "updated";
+  return result.rowCount === 0 ? "skipped_stale" : "written";
 };
 export const writeRuntimeCoordinatorTerminalExecutionProjectionWithoutRead =
   async (input: {

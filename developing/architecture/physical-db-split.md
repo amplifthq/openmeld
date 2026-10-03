@@ -52,3 +52,30 @@ The former four-way D1 split and observability-only split are historical,
 superseded plans. Their detailed runbooks remain in Git history. Existing
 unused resources are not permission to delete anything. Inventory and authorize
 cleanup separately from PostgreSQL preparation.
+
+## Current evidence retention
+
+Retention is independent of physical database placement. The daily Core task
+uses the native `getPostgresDatabase` owner; no split-active flag is required. Each allowed table gets
+at most five batches of 1,000 deletions per invocation. Logs report deleted rows
+and budget exhaustion; another invocation continues remaining eligible work.
+These bounds cap deletions and statements, not rows examined: protected old
+events can still be scanned while looking for eligible evidence. Monitor PostgreSQL
+query plans and scheduled-task duration before widening this policy.
+
+Creation diagnostics expire after 30 days. Execution-event cleanup is narrower:
+only the explicit historical lifecycle/publication event allowlist is eligible,
+and only when the retained execution projection and a retained result receipt
+both establish `reply_published` more than 30 days ago. Any unpublished or recent
+result receipt excludes that execution. Eligibility is checked in the deletion
+statement, not from an earlier candidate list. Missing evidence preserves rows.
+
+Cancellation requests remain a late-finalization fence. Token, unknown event
+types, failed/in-flight executions, execution projections, dispatch ledgers,
+attempts, DLQ, results, result inboxes, ops decisions and recovery outboxes are
+not subject to this sweep. Their retained identity and recovery records prevent
+diagnostic expiry from becoming execution or replay authority. Do not restore
+the superseded nine-table age-only sweep. Diagnostic rows may reappear on an
+old diagnostic replay; retained execution and result receipts still own outcome
+and deduplication. A future physical split must preserve these joins or redesign
+the retention eligibility contract before moving those tables.

@@ -489,6 +489,7 @@ describe("Core scheduled task dispatcher", () => {
       results: [],
     }));
     const runAgentActivityRetention = vi.fn(async () => ({
+      budgetExhausted: false,
       aggregates: 0,
       dailySessionKeys: 0,
       digests: 0,
@@ -612,6 +613,7 @@ describe("Core scheduled task dispatcher", () => {
       Promise.reject(activityError)
     );
     const runAgentActivityRetention = vi.fn(async () => ({
+      budgetExhausted: false,
       aggregates: 0,
       dailySessionKeys: 0,
       digests: 0,

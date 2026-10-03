@@ -3,7 +3,10 @@ import type {
   InboxFeedQuery,
 } from "@openmeld/schemas/types";
 import { inboxMentionSql } from "./inbox-attention-predicates";
-import { currentInboxSourceFactsSql } from "./inbox-current-source-facts";
+import {
+  currentInboxAgentFactExistsSql,
+  currentInboxSourceFactsSql,
+} from "./inbox-current-source-facts";
 import { INBOX_ATTENTION_PRESENTATION_FILTER } from "./inbox-service";
 import { buildCurrentInboxSourceAccessSql } from "./inbox-source-access";
 
@@ -22,7 +25,10 @@ export type InboxFeedScope = {
 /** All relevance, permissions and ordering predicates precede LIMIT. */
 export function inboxFeedCte(
   scope: InboxFeedScope,
-  canManageOrganization: boolean
+  canManageOrganization: boolean,
+  // Reads reuse classification for counts, grouping and window functions.
+  // Snapshot membership and mutations should not compute unused columns.
+  materializeClassification = false
 ): { sql: string; bindings: (string | number)[] } {
   return {
     bindings: [
@@ -32,25 +38,25 @@ export function inboxFeedCte(
       ...(scope.snapshotId ? [scope.snapshotId] : []),
     ],
     sql: `WITH source_rows AS (
-      SELECT inbox_items.*, ${currentInboxSourceFactsSql("inbox_items")} AS current_source_facts
+      SELECT inbox_items.*
       FROM "openmeld"."inbox_items"
       WHERE (organization_id = $1 OR organization_id IS NULL) AND recipient_user_id = $2 AND cleared_at_ms IS NULL AND sequence <= $3
         ${scope.snapshotId ? 'AND EXISTS (SELECT 1 FROM "openmeld"."inbox_feed_snapshot_members" WHERE snapshot_id = $4 AND item_id = inbox_items.id)' : ""}
         AND ${buildCurrentInboxSourceAccessSql("inbox_items", canManageOrganization)}
         AND ${INBOX_ATTENTION_PRESENTATION_FILTER}
-    ), classified AS (
+    ), classified AS ${materializeClassification ? "MATERIALIZED" : "NOT MATERIALIZED"} (
       SELECT *,
-        ${inboxMentionSql("current_source_facts")} AS is_mention,
-        (coalesce(jsonb_array_length((current_source_facts)::jsonb #> '{agentProfileIds}'), 0) > 0
+        ${inboxMentionSql()} AS is_mention,
+        (coalesce(jsonb_array_length((source_facts_json)::jsonb #> '{agentProfileIds}'), 0) > 0
           OR kind IN ('agent_reply', 'agent_interaction', 'center_agent_update', 'center_agent_task', 'wake_outcome')
           OR ((source_target_json)::jsonb #>> '{kind}') IN ('agent_profile', 'agent_interaction', 'center_agent', 'center_agent_task')) AS is_agent,
         CASE WHEN attention = 'action_required' AND resolution_status = 'open' THEN
-          CASE WHEN ((current_source_facts)::jsonb #>> '{requestCategory}') = 'review'
-            OR (((current_source_facts)::jsonb #>> '{requestCategory}') IS NULL AND kind IN ('document_review', 'organization_request'))
+          CASE WHEN ((source_facts_json)::jsonb #>> '{requestCategory}') = 'review'
+            OR (((source_facts_json)::jsonb #>> '{requestCategory}') IS NULL AND kind IN ('document_review', 'organization_request'))
           THEN 'review' ELSE 'action' END ELSE NULL END AS request_category,
         CASE WHEN attention = 'action_required' AND resolution_status = 'open' AND importance = 'urgent' THEN 0
           WHEN attention = 'update' AND read_at_ms IS NULL AND (importance = 'urgent'
-            OR coalesce(jsonb_array_length((current_source_facts)::jsonb #> '{firstContactAgentProfileIds}'), 0) > 0) THEN 0
+            OR ${currentInboxAgentFactExistsSql("inbox_items", "firstContactAgentProfileIds")}) THEN 0
           WHEN attention = 'action_required' AND resolution_status = 'open' THEN 1 ELSE 2 END AS priority_rank,
         CASE WHEN source_kind = 'space_signal' AND attention = 'update'
           AND kind IN ('space_message', 'space_mention', 'space_reference', 'agent_reply')
@@ -58,7 +64,7 @@ export function inboxFeedCte(
           AND ((source_target_json)::jsonb #>> '{spaceId}') IS NOT NULL
         THEN json_build_array('conversation', organization_id, recipient_user_id, ((source_target_json)::jsonb #>> '{kind}'), ((source_target_json)::jsonb #>> '{spaceId}'), ((source_target_json)::jsonb #>> '{threadRootSignalId}'))::text
         ELSE json_build_array('item', id)::text END AS raw_group_key
-      FROM source_rows
+      FROM source_rows AS inbox_items
     ), conversations AS (
       SELECT classified.*, (
         SELECT CASE WHEN conversation.direct_message_pair_key IS NOT NULL
@@ -79,7 +85,7 @@ export function inboxFeedCte(
         WHEN priority_rank != 2 THEN json_build_array('item', id)::text
         WHEN priority_rank = 2 AND ((raw_group_key)::jsonb ->> 0) = 'conversation'
           THEN json_build_array('space', organization_id, recipient_user_id, ((source_target_json)::jsonb #>> '{kind}'), ((source_target_json)::jsonb #>> '{spaceId}'))::text
-        WHEN priority_rank = 2 AND importance = 'normal'
+        WHEN priority_rank = 2 AND (importance = 'normal' OR (attention = 'action_required' AND resolution_status = 'resolved'))
           AND kind IN ('desktop_update', 'computer_connection', 'system_issue')
           THEN json_build_array('system', recipient_user_id)::text
         ELSE raw_group_key END AS collection_key
@@ -158,7 +164,8 @@ export function inboxFeedRowsSql(
       row_number() OVER (PARTITION BY ${partition} ORDER BY priority_rank, occurred_at_ms DESC, id) AS anchor_index,
       ${key} AS sort_key
     FROM selected JOIN collection_counts USING (collection_key) ${expanded ? `WHERE ${membership} = $${groupParameter}` : ""}
-  ) SELECT * FROM grouped WHERE anchor_index = 1
+  ) SELECT items.*, ${currentInboxSourceFactsSql("items")} AS current_source_facts
+    FROM grouped AS items WHERE anchor_index = 1
     AND ($${cursorParameter}::integer IS NULL OR section_rank > $${cursorParameter + 1} OR (section_rank = $${cursorParameter + 2} AND latest_occurred_at_ms < $${cursorParameter + 3})
       OR (section_rank = $${cursorParameter + 4} AND latest_occurred_at_ms = $${cursorParameter + 5} AND sort_key > $${cursorParameter + 6}))
     ORDER BY section_rank, latest_occurred_at_ms DESC, sort_key LIMIT $${cursorParameter + 7}`;

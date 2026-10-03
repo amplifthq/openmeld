@@ -160,7 +160,12 @@ then by main timeline or Thread when expanded. A Thread has one latest-reply
 preview and a quick mark-as-read action. Open requests, urgent outcomes and
 first-contact attention remain separate rows above ordinary updates; they cannot
 be absorbed by a Space or Thread bulk action. Ordinary desktop, connection and
-system notices share a System updates collection. Completed desktop installation
+system notices share a System updates collection. Resolved system requests,
+including restored or stopped Computer connection incidents, join that collection
+even when their original importance was urgent. Reading an urgent informational
+outcome alone does not make it eligible, and open requests remain separate.
+This is read-time grouping of existing items; it does not rewrite source facts,
+read state or resolution. Completed desktop installation
 notices mark read in place instead of navigating to a selected-update panel.
 
 Grouping shares canonical items and read state. Category and other filters run
@@ -798,7 +803,15 @@ urgent/action projection, including its mismatched child Signal target. It keeps
 the same source identity, occurrence, read and removal state, and suppresses
 pending urgent email. Its Inbox resolution becomes `not_applicable`, not a
 claim that the underlying task succeeded. General source conflicts still fail
-closed; this is not an unbounded read-time migration.
+closed. Authorized Inbox RPC preparation also asks the native-delivery owner
+to reconcile up to 80 legacy items for that recipient before reading the feed
+or its counts. This reaches already-settled records without a new task event or
+a user Read/Dismiss action. Each successful repair leaves the legacy selection;
+subsequent refreshes drain additional batches. Missing or mismatched source
+evidence is preserved rather than guessed. This is a bounded historical repair,
+not a second execution writer.
+
+The source inventory and extension contract are in [Inbox actions](inbox-actions.md).
 
 ## Delivery channels and preferences
 

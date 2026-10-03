@@ -1901,6 +1901,14 @@ Space destination, and target Agent Profile match the traced Wake. CLI consumes
 that shared projection; it must not require workstation-only identity fields or
 relax hosted identity drift checks locally.
 
+Exact-dispatch trace also reads native continuations that have no workstation
+Dispatch Ledger row. The negotiated v6 `nativeDeliveryTrace` projection reports
+the recorded native execution status, publication state, and verified final
+visible outcome separately. A completed turn without a visible Space message
+does not become `delivered` or `not_found`. `--details` preserves durable facts
+when frozen runtime evidence is unavailable. Source-signal and client-message
+lookup do not infer continuation identity without an owning durable mapping.
+
 `openmeld doctor` also reads the local Runtime Reporting Health record for both
 Runtime Agent Controller reporting and provider conversation proof reporting.
 It may show healthy, starting, or degraded diagnostics and preserve per-channel

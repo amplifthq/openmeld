@@ -78,6 +78,7 @@ import type {
 import type { CoreBindings } from "../../../lib/bindings";
 import { reconcileInvitationInbox } from "../../../organizations/invitation-inbox-projection";
 import { resolveActiveOrganizationMembership } from "../../../organizations/organization-context";
+import { reconcileTaskContinuationInbox } from "../../../remote-agent/application/native-delivery-inbox-reconciliation";
 import { createCoreRpcHttpError } from "../../../rpc/errors";
 import { createInboxFeedService } from "../../application/inbox-feed-service";
 import { createInboxMessageNotificationPreferencesService } from "../../application/inbox-message-notification-preferences";
@@ -571,6 +572,14 @@ async function prepareRequest(
       status: 503,
     });
   }
+  await reconcileTaskContinuationInbox({
+    inboxDb: db,
+    sourceDb: db,
+    identityDb: db,
+    coordinationDb: db,
+    organizationId: membership.organizationId,
+    recipientUserId: membership.userId,
+  });
   return {
     db,
     organizationId: membership.organizationId,

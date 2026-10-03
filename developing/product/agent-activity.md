@@ -369,6 +369,12 @@ Human activity instead of borrowing a timestamp from this product.
 ## Retention And Digests
 
 - Level-zero events are retained for 14 days.
+- Daily cleanup processes at most ten batches of 5,000 rows per table, after
+  aggregation. Unaggregated events remain intact. Session-count fences remain
+  while any unaggregated event references them, even after their normal expiry.
+  A backlog older than the fence window can still be aggregated: a newly
+  created fence never has an expiry earlier than its creation. Batch exhaustion
+  is reported; later scheduled invocations continue without double-counting.
 - Expired current sessions and execution links are cleaned with the same
   retention discipline.
 - Daily aggregate evidence is retained after raw events expire. It records

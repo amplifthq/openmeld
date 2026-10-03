@@ -44,10 +44,11 @@ export async function observeInboxNotifications(
   let throughRowId = previous?.throughRowId ?? 0;
   if (!previous || previous.afterRowId === previous.throughRowId) {
     const row = await input.db
-      .query<{
-        last_row_id: number;
-      }>({
-        text: `SELECT coalesce(max(sequence), 0) AS last_row_id FROM "openmeld"."inbox_items" WHERE ${scope}`,
+      .query<{ last_row_id: number }>({
+        text: `SELECT GREATEST(
+          coalesce((SELECT max(sequence) FROM "openmeld"."inbox_items" WHERE organization_id = $1 AND recipient_user_id = $2), 0),
+          coalesce((SELECT max(sequence) FROM "openmeld"."inbox_items" WHERE organization_id IS NULL AND recipient_user_id = $2), 0)
+        ) AS last_row_id`,
         values: [identity.organizationId, identity.recipientUserId],
       })
       .then((result) => result.rows[0] ?? null);

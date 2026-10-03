@@ -1,5 +1,5 @@
 {
-  "sourceCommit": "8d04a50aaa375cfce82c5f629cfebef43da9d408",
+  "sourceCommit": "6981ec654fa9c2454bdad6d370eabde738a648e7",
   "purpose": "Frozen pre-port D1 physical contract; never derive it from current PostgreSQL tables.",
   "core": {
     "schemaObjects": [
@@ -57,6 +57,10 @@
       },
       {
         "name": "agent_activity_events_org_project_observed_idx",
+        "type": "index"
+      },
+      {
+        "name": "agent_activity_events_pending_session_idx",
         "type": "index"
       },
       {
@@ -892,6 +896,10 @@
         "type": "index"
       },
       {
+        "name": "idx_openMeldDaemon_rce_diag_observed",
+        "type": "index"
+      },
+      {
         "name": "idx_openMeldDaemon_rce_diag_reason_observed",
         "type": "index"
       },
@@ -1192,6 +1200,10 @@
         "type": "index"
       },
       {
+        "name": "inbox_items_observation_idx",
+        "type": "index"
+      },
+      {
         "name": "inbox_items_recipient_action_idx",
         "type": "index"
       },
@@ -1226,10 +1238,6 @@
       {
         "name": "inbox_space_thread_read_watermarks_scope_unique",
         "type": "index"
-      },
-      {
-        "name": "openmeld_service_connection_incidents",
-        "type": "table"
       },
       {
         "name": "openMeldDaemon_agent_execution_readiness_impacts",
@@ -1498,6 +1506,10 @@
       {
         "name": "openMeldRemoteAgent_work_loop_attempts_submission_id_unique",
         "type": "index"
+      },
+      {
+        "name": "openmeld_service_connection_incidents",
+        "type": "table"
       },
       {
         "name": "organization_ai_usage_policies",

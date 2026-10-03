@@ -411,6 +411,7 @@ import {
   recordExecutionContextCompletionInTransaction,
   resolveExecutionContextTask,
 } from "../../application/execution-context-authority";
+import { interactionResponseFingerprint } from "../../application/interaction-response-fingerprint";
 import {
   buildFailedLocalAgentStreamTerminal,
   buildLocalAgentStreamId,
@@ -6868,7 +6869,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       },
       updatedAtMs: input.nowMs,
     };
-    let projectionWrite: "created" | "skipped_stale" | "updated";
+    let projectionWrite: "skipped_stale" | "written";
     try {
       projectionWrite = await writeRuntimeCoordinatorExecutionProjection({
         db: input.db,
@@ -9301,6 +9302,19 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       return;
     }
     const existing = authority.commandState.pendingInteraction ?? null;
+    if (
+      isCompletedInteractionReplay(
+        authority.commandState,
+        parsed.data.interaction.interactionId
+      )
+    ) {
+      this.sendErrorFrame(webSocket, {
+        code: "schema.invalid",
+        message:
+          "This interaction was already handled. A new request needs a new interaction ID.",
+      });
+      return;
+    }
     if (existing) {
       const incomingWithAuthoritativeTimestamps = {
         ...parsed.data.interaction,
@@ -9466,27 +9480,69 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       return;
     }
     const deliveredAtMs = Date.now();
-    const nextCommandState: RuntimeCoordinatorRunCommandState = {
-      ...authority.commandState,
-      lastCommandReasonCode: "runtime_coordinator.interaction_delivered",
-      lastDeliveryProvenance: {
-        ...authority.commandState.lastDeliveryProvenance,
-        connectionGeneration: parsed.data.connectionGeneration,
-        daemonSessionId: parsed.data.daemonSessionId,
-        leaseEpoch: parsed.data.leaseEpoch,
-      },
-      lastWatchdogCheckAtMs: null,
-      localProgress: {
-        ...authority.commandState.localProgress,
-        lastLifecycleAtMs: Math.max(
-          authority.commandState.localProgress.lastLifecycleAtMs ?? 0,
-          deliveredAtMs
-        ),
-      },
-      pendingInteraction: null,
-      updatedAtMs: deliveredAtMs,
-    };
-    await this.writeRuntimeCoordinatorRunCommandState(nextCommandState);
+    const responseFingerprint = await interactionResponseFingerprint(
+      pendingInteraction.response
+    );
+    const nextCommandState = await this.ctx.storage.transaction(
+      async (transaction) => {
+        const current = await readRuntimeCoordinatorRunCommandStateFromStorage(
+          transaction,
+          parsed.data.runtimeCoordinatorExecutionId
+        );
+        if (
+          !current ||
+          current.activeRunId !== authority.commandState.activeRunId ||
+          current.pendingInteraction?.request.interactionId !==
+            pendingInteraction.request.interactionId ||
+          !hasSameSerializedValue(
+            current.pendingInteraction.response,
+            pendingInteraction.response
+          )
+        ) {
+          return null;
+        }
+        const next: RuntimeCoordinatorRunCommandState = {
+          ...current,
+          lastCommandReasonCode: "runtime_coordinator.interaction_delivered",
+          interactionResponseReceipts: {
+            ...current.interactionResponseReceipts,
+            [pendingInteraction.request.interactionId]: {
+              responseFingerprint,
+              respondedAtMs: pendingInteraction.respondedAtMs ?? deliveredAtMs,
+            },
+          },
+          lastDeliveryProvenance: {
+            ...current.lastDeliveryProvenance,
+            connectionGeneration: parsed.data.connectionGeneration,
+            daemonSessionId: parsed.data.daemonSessionId,
+            leaseEpoch: parsed.data.leaseEpoch,
+          },
+          lastWatchdogCheckAtMs: null,
+          localProgress: {
+            ...current.localProgress,
+            lastLifecycleAtMs: Math.max(
+              current.localProgress.lastLifecycleAtMs ?? 0,
+              deliveredAtMs
+            ),
+          },
+          pendingInteraction: null,
+          updatedAtMs: deliveredAtMs,
+        };
+        await writeRuntimeCoordinatorRunCommandStateInTransaction(
+          transaction,
+          next
+        );
+        return next;
+      }
+    );
+    if (!nextCommandState) {
+      return;
+    }
+    this.publishWakeProgressChanged({
+      agentProfileId: nextCommandState.targetProfileId,
+      clientMessageId: nextCommandState.sourceClientMessageId,
+      spaceId: nextCommandState.sanitizedDeliveryRequest.payload.spaceId,
+    });
     await this.tryResolveRuntimeCoordinatorInteractionInboxItem({
       commandState: nextCommandState,
       interaction: pendingInteraction.request,
@@ -13726,7 +13782,47 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   private async respondToRuntimeCoordinatorInteraction(
     input: RuntimeTransportRuntimeCoordinatorRespondInteractionRequest
   ): Promise<RuntimeTransportRuntimeCoordinatorRespondInteractionResponse> {
-    const commandState = await this.readRuntimeCoordinatorRunCommandState(
+    const fingerprint = await interactionResponseFingerprint(input.response);
+    const response = await this.ctx.storage.transaction((transaction) =>
+      this.persistRuntimeCoordinatorInteractionResponse(
+        input,
+        transaction,
+        fingerprint
+      )
+    );
+    if (response.ok) {
+      const commandState = await this.readRuntimeCoordinatorRunCommandState(
+        input.runtimeCoordinatorExecutionId
+      );
+      const pending = commandState?.pendingInteraction;
+      if (
+        commandState &&
+        pending?.request.interactionId === input.interactionId
+      ) {
+        this.publishWakeProgressChanged({
+          agentProfileId: commandState.targetProfileId,
+          clientMessageId: commandState.sourceClientMessageId,
+          spaceId: commandState.sanitizedDeliveryRequest.payload.spaceId,
+        });
+        await this.tryResolveRuntimeCoordinatorInteractionInboxItem({
+          commandState,
+          interaction: pending.request,
+          resolvedAtMs: response.respondedAtMs,
+        });
+        this.tryDeliverRuntimeCoordinatorInteractionResponse(commandState);
+      }
+      this.queueHousekeepingAlarmSync();
+    }
+    return response;
+  }
+
+  private async persistRuntimeCoordinatorInteractionResponse(
+    input: RuntimeTransportRuntimeCoordinatorRespondInteractionRequest,
+    transaction: DurableObjectTransaction,
+    fingerprint: string
+  ): Promise<RuntimeTransportRuntimeCoordinatorRespondInteractionResponse> {
+    const commandState = await readRuntimeCoordinatorRunCommandStateFromStorage(
+      transaction,
       input.runtimeCoordinatorExecutionId
     );
     if (!commandState) {
@@ -13743,6 +13839,24 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         status: "owner_mismatch",
       };
     }
+    const receipts = commandState.interactionResponseReceipts ?? {};
+    const receipt = Object.hasOwn(receipts, input.interactionId)
+      ? receipts[input.interactionId]
+      : undefined;
+    if (receipt) {
+      return receipt.responseFingerprint === fingerprint
+        ? {
+            ok: true,
+            respondedAtMs: receipt.respondedAtMs,
+            status: "already_resolved",
+          }
+        : {
+            ok: false,
+            status: "response_invalid",
+            message:
+              "A different response was already recorded. Refresh to see the current status.",
+          };
+    }
     const pending = commandState.pendingInteraction ?? null;
     if (!pending || pending.request.interactionId !== input.interactionId) {
       return {
@@ -13751,18 +13865,26 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         status: "interaction_mismatch",
       };
     }
+    if (pending.response && pending.respondedAtMs !== null) {
+      if (JSON.stringify(pending.response) !== JSON.stringify(input.response)) {
+        return {
+          message:
+            "A different response was already recorded. Refresh to see the current status.",
+          ok: false,
+          status: "response_invalid",
+        };
+      }
+      return {
+        ok: true,
+        respondedAtMs: pending.respondedAtMs,
+        status: "already_resolved",
+      };
+    }
     if (pending.request.expiresAtMs <= Date.now()) {
       return {
         message: "This request expired. Send the task again when you’re ready.",
         ok: false,
         status: "expired",
-      };
-    }
-    if (pending.response && pending.respondedAtMs !== null) {
-      return {
-        ok: true,
-        respondedAtMs: pending.respondedAtMs,
-        status: "already_resolved",
       };
     }
     const resolution = agentInteractionResolutionSchema.safeParse({
@@ -13785,17 +13907,20 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     const nextCommandState: RuntimeCoordinatorRunCommandState = {
       ...commandState,
       lastCommandReasonCode: "runtime_coordinator.interaction_responded",
+      interactionResponseReceipts: {
+        ...commandState.interactionResponseReceipts,
+        [input.interactionId]: {
+          responseFingerprint: fingerprint,
+          respondedAtMs,
+        },
+      },
       pendingInteraction: nextPending,
       updatedAtMs: respondedAtMs,
     };
-    await this.writeRuntimeCoordinatorRunCommandState(nextCommandState);
-    await this.tryResolveRuntimeCoordinatorInteractionInboxItem({
-      commandState: nextCommandState,
-      interaction: pending.request,
-      resolvedAtMs: respondedAtMs,
-    });
-    this.tryDeliverRuntimeCoordinatorInteractionResponse(nextCommandState);
-    this.queueHousekeepingAlarmSync();
+    await writeRuntimeCoordinatorRunCommandStateInTransaction(
+      transaction,
+      nextCommandState
+    );
     return {
       ok: true,
       respondedAtMs,
@@ -21785,6 +21910,14 @@ const readJsonBody = async (request: Request): Promise<unknown> => {
 };
 const hasSameSerializedValue = (left: unknown, right: unknown): boolean =>
   JSON.stringify(left) === JSON.stringify(right);
+
+const isCompletedInteractionReplay = (
+  state: RuntimeCoordinatorRunCommandState,
+  interactionId: string
+): boolean =>
+  !state.pendingInteraction &&
+  Object.hasOwn(state.interactionResponseReceipts ?? {}, interactionId);
+
 const parseDaemonStreamFrame = (
   rawMessage: string | ArrayBuffer
 ): DaemonStreamFrame | null => {

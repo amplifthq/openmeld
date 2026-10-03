@@ -114,6 +114,12 @@ export const inboxItems = applicationTable(
   },
   (table) => [
     uniqueIndex("inbox_items_sequence_unique").on(table.sequence),
+    // PostgreSQL requires the insertion-order key explicitly in this index.
+    index("inbox_items_observation_idx").on(
+      table.recipientUserId,
+      table.organizationId,
+      table.sequence
+    ),
     uniqueIndex("inbox_items_account_source_unique")
       .on(table.recipientUserId, table.sourceKind, table.sourceKey)
       .where(sql`"organization_id" is null`),

@@ -11,6 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { requireProductionDatabaseCurrent } from "../release/require-production-db-current.mjs";
 import { validateCoreVersionReleaseConfig } from "./core-version-deployment.mjs";
 
 const SCRIPT_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
@@ -131,6 +132,22 @@ export function runCoreStartupAdmission(input) {
       "Core startup admission requires an exact release SHA before uploading a version"
     );
   }
+  const runCommand =
+    input.runCommand ??
+    ((commandInput) =>
+      spawnSync(commandInput.command, commandInput.args, {
+        cwd: commandInput.cwd ?? input.cwd ?? REPOSITORY_ROOT,
+        encoding: "utf8",
+        env: commandInput.env,
+        maxBuffer: 1024 * 1024 * 20,
+      }));
+  // This owner can activate Core atomically for a Durable Object migration.
+  // Check here, after an ordered database stage, rather than at train preflight.
+  requireProductionDatabaseCurrent({
+    cwd: input.cwd ?? REPOSITORY_ROOT,
+    runCommand: (commandInput) =>
+      runCommand({ ...commandInput, env: input.env ?? process.env }),
+  });
   const temporaryDirectory = mkdtempSync(
     path.join(tmpdir(), "openmeld-core-startup-admission-")
   );
@@ -143,15 +160,6 @@ export function runCoreStartupAdmission(input) {
       defines: input.defines ?? [],
       tag: input.tag,
     });
-    const runCommand =
-      input.runCommand ??
-      ((commandInput) =>
-        spawnSync(commandInput.command, commandInput.args, {
-          cwd: input.cwd ?? REPOSITORY_ROOT,
-          encoding: "utf8",
-          env: commandInput.env,
-          maxBuffer: 1024 * 1024 * 20,
-        }));
     const commandInput = {
       ...step,
       env: {

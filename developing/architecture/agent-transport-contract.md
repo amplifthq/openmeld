@@ -830,6 +830,14 @@ idempotently. A conflicting repeat is rejected. Local Service owns one
 process-lifetime pending registry across socket reconnects and serializes
 provider requests so only one is visible per execution at a time.
 
+Response acceptance is a RuntimeCoordinator storage transaction. The same
+execution record retains a response fingerprint and acceptance time per
+interaction, including after delivery acknowledgement clears the private pending
+content. Exact HTTP retries still return the acceptance receipt; conflicting
+answers fail, and an already-handled interaction ID cannot create a new pending
+request. Receipts share the execution record's lifetime and contain no answer
+text. New request content requires a new interaction ID.
+
 An unresolved request pauses the ordinary stale-progress watchdog until its
 bounded expiry, at most eight hours. After a response is stored, delivery must
 complete within the bounded response-delivery watchdog; a disconnected Service

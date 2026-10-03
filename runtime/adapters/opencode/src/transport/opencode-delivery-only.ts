@@ -6,9 +6,9 @@ import {
   buildDispatchSpaceActionMcpToolIds,
   OPENMELD_SPACE_ACTION_MCP_SERVER_ID,
 } from "@openmeld/adapter-core";
+import { supportsAgentControllerVersion } from "@openmeld/agent-runtime";
 
 const SAFE_TOOL_ID = /^[A-Za-z0-9_.:-]+$/u;
-const VERSION = /^(\d+)\.(\d+)\.(\d+)$/u;
 
 /** Narrow only the disposable correction session; never grant a final tool. */
 export async function prepareOpenCodeDeliveryOnlyTurn(input: {
@@ -104,14 +104,12 @@ export async function prepareOpenCodeDeliveryOnlyTurn(input: {
 
 function requireOpenCodeDeliveryOnlyVersion(health: unknown): void {
   const version = record(health)?.version;
-  const match = typeof version === "string" ? VERSION.exec(version) : null;
   // --pure and session permission readback were jointly verified on 1.18.31.
   if (
-    match &&
-    (Number(match[1]) > 1 ||
-      (Number(match[1]) === 1 &&
-        (Number(match[2]) > 18 ||
-          (Number(match[2]) === 18 && Number(match[3]) >= 31))))
+    supportsAgentControllerVersion(
+      typeof version === "string" ? version : null,
+      ">=1.18.31"
+    )
   ) {
     return;
   }

@@ -1274,11 +1274,18 @@ full
 - CLI publishing is not available in this workflow.
 
 The separate CLI Release workflow also deploys the Core projection required by
-the published CLI channel. Before any CLI or Core mutation, it proves that the
-Production D1 pending migration list is empty. If migrations remain, release
-the exact SHA with the `database` scope first, then rerun CLI Release. This gate
-prevents a new Core writer from reaching an older database constraint or
-schema.
+the published CLI channel. It proves that the Production D1 pending migration
+list for the exact release source is empty before publishing CLI artifacts.
+Every Core deployment also repeats that read-only check in the shared Core
+startup-admission owner, before uploading a version or entering its atomic
+Durable Object migration path. This covers standard, receiver-first, current
+stable CLI projection, and CLI projection deployment in both release lanes.
+The check is at the Core mutation boundary, not whole-train preflight: an
+ordered `database-core` or `full` release completes Database before checking
+and deploying Core. If migrations remain, release the exact SHA with the
+`database` scope first, then resume the guarded Core/CLI release. Non-Core
+scopes and migrations outside that release source are not gated by this check.
+This prevents a new Core writer from reaching an older database constraint or schema.
 
 For a Center Agent bridge release that includes Context Scope Plan, first run
 the `remote-agent` scope from the approved commit and verify it succeeds. Then

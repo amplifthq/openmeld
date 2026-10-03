@@ -444,7 +444,7 @@ function createSpace(input: {
   };
   Object.defineProperties(space, {
     bindings: {
-      value: { OPENMELD_POSTGRESQL: createProjectionPostgresBinding() },
+      value: { OPENMELD_POSTGRESQL: createProjectionPostgresBinding(() => []) },
     },
     applySpaceRef: { value: vi.fn() },
     ctx: { value: { storage: input.storage } },

@@ -789,32 +789,94 @@ describe("Core Agent Activity event ingestion", () => {
     await expect(
       runAgentActivityRetention({
         batchLimit: 7,
+        maxBatches: 1,
         db: getPostgresDatabase(env),
         nowMs: retentionNowMs,
       })
-    ).resolves.toMatchObject({ events: 7 });
+    ).resolves.toMatchObject({ events: 7, budgetExhausted: true });
     await expect(
       runAgentActivityRetention({
         batchLimit: 7,
         db: getPostgresDatabase(env),
         nowMs: retentionNowMs,
       })
-    ).resolves.toMatchObject({ events: 7 });
+    ).resolves.toMatchObject({ events: 13, budgetExhausted: false });
     await expect(
       runAgentActivityRetention({
         batchLimit: 7,
-        db: getPostgresDatabase(env),
-        nowMs: retentionNowMs,
-      })
-    ).resolves.toMatchObject({ events: 6 });
-    await expect(
-      runAgentActivityRetention({
-        batchLimit: 7,
+        maxBatches: 1,
         db: getPostgresDatabase(env),
         nowMs: retentionNowMs,
       })
     ).resolves.toMatchObject({ events: 0 });
   });
+
+  it("keeps expired session-count fences until delayed aggregation has consumed their events", async () => {
+    const fixture = await seedFixture();
+    const observedAtMs = Date.now();
+    const event = buildEvent(fixture, {
+      eventId: `event_${fixture.suffix}_first`,
+      observedAtMs,
+    });
+    await rpcSubmitAgentActivityEvents(
+      env as CoreBindings,
+      submission(fixture, [event])
+    );
+    const cleanupTime = observedAtMs + 40 * 24 * 60 * 60_000;
+    await runAgentActivityDailyAggregation({
+      db: getPostgresDatabase(env),
+      nowMs: cleanupTime,
+    });
+    await rpcSubmitAgentActivityEvents(
+      env as CoreBindings,
+      submission(fixture, [
+        { ...event, eventId: `event_${fixture.suffix}_second` },
+      ])
+    );
+    await runAgentActivityRetention({
+      db: getPostgresDatabase(env),
+      nowMs: cleanupTime + 1,
+    });
+    const pending = await getPostgresDatabase(env)
+      .query({
+        text: `SELECT count(*) AS count FROM "openmeld"."agent_activity_events" WHERE organization_id = $1`,
+        values: [fixture.organizationId],
+      })
+      .then((result) => result.rows[0] ?? null);
+    expect(pending).toEqual({ count: 1 });
+    const keys = await getPostgresDatabase(env)
+      .query({
+        text: `SELECT count(*) AS count FROM "openmeld"."agent_activity_daily_session_keys" WHERE organization_id = $1`,
+        values: [fixture.organizationId],
+      })
+      .then((result) => result.rows[0] ?? null);
+    expect(keys).toEqual({ count: 1 });
+    await runAgentActivityDailyAggregation({
+      db: getPostgresDatabase(env),
+      nowMs: cleanupTime,
+    });
+    expect(
+      await getPostgresDatabase(env)
+        .query({
+          text: `SELECT sum(event_count)::bigint AS events, sum(session_count)::bigint AS sessions FROM "openmeld"."agent_activity_daily_aggregates" WHERE organization_id = $1`,
+          values: [fixture.organizationId],
+        })
+        .then((result) => result.rows[0] ?? null)
+    ).toEqual({ events: 2, sessions: 1 });
+    await runAgentActivityRetention({
+      db: getPostgresDatabase(env),
+      nowMs: cleanupTime + 1,
+    });
+    expect(
+      await getPostgresDatabase(env)
+        .query({
+          text: `SELECT count(*) AS count FROM "openmeld"."agent_activity_daily_session_keys" WHERE organization_id = $1`,
+          values: [fixture.organizationId],
+        })
+        .then((result) => result.rows[0] ?? null)
+    ).toEqual({ count: 0 });
+  });
+
   it("turns abandoned digest claims into explicit failures instead of blocking a Project forever", async () => {
     const fixture = await seedFixture();
     const nowMs = Date.now();

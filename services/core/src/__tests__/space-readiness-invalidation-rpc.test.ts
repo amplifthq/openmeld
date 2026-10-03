@@ -98,7 +98,7 @@ function buildSpaceTestDouble(rows: readonly SpaceMemberSqlRow[]) {
   };
   Object.defineProperties(space, {
     bindings: {
-      value: { OPENMELD_POSTGRESQL: createProjectionPostgresBinding() },
+      value: { OPENMELD_POSTGRESQL: createProjectionPostgresBinding(() => []) },
     },
     broadcast: { value: broadcast },
     ctx: {
