@@ -77,8 +77,18 @@ export function manageWorktreeDevService(
     }
   );
   if (result.error || result.status !== 0) {
+    const detail = [
+      result.error?.message,
+      result.stderr?.trim(),
+      result.stdout?.trim(),
+    ]
+      .filter(Boolean)
+      .join("\n");
+    const termination = result.signal
+      ? `signal ${result.signal}`
+      : `exit code ${result.status}`;
     throw new Error(
-      `Development Service ${clean ? "uninstall" : "stop"} failed: ${result.error?.message ?? result.stderr ?? result.stdout}`
+      `Development Service ${clean ? "uninstall" : "stop"} failed (${termination}): ${detail || "No error output."}`
     );
   }
   const output = JSON.parse(result.stdout);

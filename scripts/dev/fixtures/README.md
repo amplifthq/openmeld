@@ -12,7 +12,7 @@ account credentials. Python 3 uses only its standard library.
 | Spaces and Inbox | `spaces.py` | 29 Spaces, long names, public/private, pins, mixed membership, repeatable ordinary/muted/Thread unread records; Product planning has 480 main messages spanning 120 days plus three unread Threads and historical main updates, Design feedback has 90, Website refresh has 31 to exercise the navigation threshold, and Shared HTML readability has exactly 240 numbered messages for server-rendered public-read checks |
 | Messages | `messages.py` | Six DMs, mixed peers, recent/older/long/multiline and outgoing-only previews |
 | Personal grouping | `sidebar.py` | Starter stars and custom People/Agents groups, existing arrangements preserved |
-| Inbox browsing | `inbox.py` | Opt-in `--only inbox`: 27 Threads, 426 replies, 12 installed updates and two setup requests; grouped reading, pagination and bulk actions |
+| Inbox browsing | `inbox.py` | Opt-in `--only inbox`: 27 Threads, 426 replies, 12 installed updates, eight restored/stopped connection incidents, one resolved system request and two setup requests; grouped reading, pagination and bulk actions |
 
 ## Add or change a scenario
 

@@ -1,30 +1,20 @@
 import { describe, expect, it } from "vitest";
-import {
-  REMOTE_AGENT_EVENT_AUTHORIZED_TOOL_NAMES,
-  REMOTE_AGENT_OPENMELD_TOOL_NAMES,
-} from "../agent-core/tools";
 import { REMOTE_AGENT_CODE_MODE_TOOL_NAME } from "../flue-adapter/code-mode";
 import { REMOTE_AGENT_SANDBOX_TOOL_NAMES } from "../flue-adapter/sandbox-tools";
 import { resolveRemoteAgentToolWorkActivity } from "../flue-adapter/tool-work-activity";
 
 describe("Remote Agent user-visible work semantics", () => {
-  it("covers direct OpenMeld, connected app, web, and GitHub work beyond reply preparation", () => {
-    for (const toolName of [
-      ...REMOTE_AGENT_OPENMELD_TOOL_NAMES,
-      ...REMOTE_AGENT_EVENT_AUTHORIZED_TOOL_NAMES,
-    ]) {
-      if (
-        toolName === "openmeld_set_reply_placement" ||
-        toolName === "openmeld_set_final_reply_mentions"
-      ) {
-        // Selecting placement or recipients prepares the answer without sending it.
-        continue;
-      }
-      expect(
-        resolveRemoteAgentToolWorkActivity(toolName, inputForTool(toolName)),
-        toolName
-      ).not.toBeNull();
-    }
+  it.each([
+    ["openmeld_create_space", "space.create"],
+    ["openmeld_post_space_message", "space.message.post"],
+    ["openmeld_list_connected_apps", "connected_apps.read"],
+    ["web_search", "web.search"],
+    ["github_get_repository", "github.repository.read"],
+  ])("describes %s using its admitted work meaning", (toolName, key) => {
+    expect(resolveRemoteAgentToolWorkActivity(toolName, {})).toEqual({
+      v: 1,
+      key,
+    });
   });
 
   it("covers concrete Sandbox work and hides commands it cannot describe", () => {
@@ -53,6 +43,11 @@ describe("Remote Agent user-visible work semantics", () => {
   });
 
   it("keeps reply preparation, the Code Mode wrapper, and unknown internal tools hidden", () => {
+    // Stop has no admitted work key. A transient step must not imply that
+    // cancellation completed; the durable stopped notice owns that outcome.
+    expect(
+      resolveRemoteAgentToolWorkActivity("openmeld_stop_space_wake", {})
+    ).toBeNull();
     expect(
       resolveRemoteAgentToolWorkActivity("openmeld_set_final_reply_mentions", {
         mentionProfileIds: ["human_1"],
@@ -408,19 +403,3 @@ describe("Remote Agent user-visible work semantics", () => {
     ).toBeNull();
   });
 });
-
-function inputForTool(toolName: string): Record<string, unknown> {
-  if (toolName === "github_execute_action") {
-    return { actionId: "github.get_workflow_job_logs" };
-  }
-  if (toolName === "openmeld_list_app_actions") {
-    return { service: "posthog" };
-  }
-  if (toolName === "openmeld_execute_app_action") {
-    return {
-      actionId: "posthog.list_projects",
-      service: "posthog",
-    };
-  }
-  return {};
-}
