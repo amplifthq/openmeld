@@ -1,4 +1,6 @@
 import {
+  localExecutionInputFrameSchema,
+  localExecutionInputResponseSchema,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
   type ServiceExecutionHostOutput,
   serviceExecutionHostMethods,
@@ -245,6 +247,45 @@ export function createExecutionHostSocketLink(input: {
       await configuration;
     },
     forward(frame: ParsedDaemonFrame): boolean {
+      if (frame.code === "daemon.execution_input.request") {
+        const parsed = localExecutionInputFrameSchema.safeParse(frame.payload);
+        if (!parsed.success) {
+          return false;
+        }
+        const payload = parsed.data;
+        if (
+          closed ||
+          generation !== payload.connectionGeneration ||
+          queuedFrames >= 60
+        ) {
+          return true;
+        }
+        queuedFrames += 1;
+        configuration
+          .then(async () => {
+            if (closed || generation !== payload.connectionGeneration) {
+              return;
+            }
+            const { requestId, ...request } = payload;
+            const result = localExecutionInputResponseSchema.parse(
+              await input.host.call("executionInput", request)
+            );
+            if (!closed && generation === payload.connectionGeneration) {
+              input.socket.send(
+                JSON.stringify({
+                  v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+                  code: "daemon.execution_input.result",
+                  payload: { requestId, result },
+                })
+              );
+            }
+          })
+          .catch(input.onError)
+          .finally(() => {
+            queuedFrames -= 1;
+          });
+        return true;
+      }
       const request = serviceExecutionHostMethods.handleFrame.input.safeParse({
         connectionGeneration: generation ?? 1,
         frame: { v: RUNTIME_TRANSPORT_SCHEMA_VERSION, ...frame },

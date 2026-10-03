@@ -108,6 +108,7 @@ export type SpaceComposerProps = {
 	};
 	slots?: {
 		pendingActionSurface?: ReactNode;
+		queuedMessages?: ReactNode;
 		beforeInput?: ReactNode;
 		beforePrimaryAction?: ReactNode;
 		error?: ReactNode;
@@ -334,6 +335,7 @@ export function SpaceComposer(input: SpaceComposerProps) {
 			data-slot={input.presentation?.dataSlot}
 		>
 			{input.slots?.pendingActionSurface}
+			{input.slots?.queuedMessages}
 			<div className="relative">
 				<SpaceComposerFileDropOverlay visible={isDraggingFiles} />
 				<PromptInput

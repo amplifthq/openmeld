@@ -21,6 +21,7 @@ import {
 	type SpaceAgentPermissionModeUpdateHandler,
 } from "./space-agent-interaction-card";
 import { SpaceAgentOrb } from "./space-agent-orb";
+import { SpaceComposerTray } from "./space-composer-tray";
 import {
 	listActionablePendingAgentInteractions,
 	resolveSpacePendingAgentActionIdentity,
@@ -151,9 +152,8 @@ export function SpacePendingAgentActions(input: {
 	};
 
 	return (
-		<section
+		<SpaceComposerTray
 			aria-label="Pending Agent actions"
-			className="relative mx-3 -mb-4 min-w-0 shrink-0 rounded-2xl border border-border bg-card pb-4 sm:mx-4"
 			data-slot="space-pending-agent-actions"
 			ref={setSurfaceElement}
 		>
@@ -243,6 +243,6 @@ export function SpacePendingAgentActions(input: {
 					)}
 				</fieldset>
 			) : null}
-		</section>
+		</SpaceComposerTray>
 	);
 }

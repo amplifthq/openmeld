@@ -25,6 +25,11 @@ import { wakeDeviceWaitSchema } from "./wake-device-wait";
 // biome-ignore lint/performance/noBarrelFile: This shared protocol constant must remain re-exported from the canonical signal module.
 export { MAX_SIGNAL_REPLY_TO_PREVIEW_LENGTH } from "./signal-reply-to";
 
+export const centerAgentExecutionInputTargetSchema = z.strictObject({
+  dispatchId: z.string().min(1).max(200),
+  targetProfileId: openMeldRuntimeProfileIdSchema,
+});
+
 const MULTI_SPACE_PATTERN = /\s+/g;
 const DELETE_CODE_POINT = 127;
 const COMPLETE_FENCED_BLOCK_PATTERN = /```[\s\S]*?```/gu;
@@ -120,12 +125,7 @@ const signalTextMetaSchema = z.object({
   agentWorkSummary: spaceAgentActivitySchema.optional(),
   agentPublicProgress: z.string().min(1).max(8192).optional(),
   clientMessageId: clientMessageIdSchema.optional(),
-  centerAgentExecutionInput: z
-    .strictObject({
-      dispatchId: z.string().min(1).max(200),
-      targetProfileId: openMeldRuntimeProfileIdSchema,
-    })
-    .optional(),
+  centerAgentExecutionInput: centerAgentExecutionInputTargetSchema.optional(),
   // Confirms only this authored message, never a conversation read position.
   authorHasRead: z.literal(true).optional(),
   centerAgentInteractionSource: centerAgentInteractionSourceSchema.optional(),

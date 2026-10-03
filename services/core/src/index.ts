@@ -371,6 +371,7 @@ import type {
   SpaceIdentityDirectory,
   SpaceInboxSummaryResponse,
   SpaceInboxUnreadTargetsResponse,
+  SpaceInputQueueResponse,
   SpaceMemberDirectory,
   SpaceMembersSnapshot,
   SpaceMessagePinsResponse,
@@ -664,6 +665,7 @@ import {
   type CenterAgentSearchSlackMessagesInput,
   type CenterAgentSelectLocalAgentInstallationInput,
   type CenterAgentSetOpenMeldToolsMaintenanceInput,
+  type CenterAgentSpaceInputQueueInput,
   type CenterAgentStopSpaceWakeInput,
   type CenterAgentUpdateAgentProfileRuntimeSettingsInput,
   type CenterAgentUpdateSpaceSettingsInput,
@@ -889,6 +891,7 @@ import {
   rpcCenterAgentSearchSlackMessages,
   rpcCenterAgentSelectLocalAgentInstallation,
   rpcCenterAgentSetOpenMeldToolsMaintenance,
+  rpcCenterAgentSpaceInputQueue,
   rpcCenterAgentStartSelfMemberResearch,
   rpcCenterAgentStopSpaceWake,
   rpcCenterAgentUpdateAgentProfileRuntimeSettings,
@@ -1084,6 +1087,7 @@ import {
   rpcSpaceFilePins,
   rpcSpaceFileUpdateSettings,
   rpcSpaceFileUpload,
+  rpcSpaceInputQueue,
   rpcSpaceMessagePins,
   rpcStageSpaceComposerUpload,
   rpcStreamSpaceFileContent,
@@ -1130,6 +1134,7 @@ import {
   type SpaceAccessModeStateResult,
   type SpaceFilePinsInput,
   type SpaceFileWriteInput,
+  type SpaceInputQueueInput,
   type SpaceMessagePinsInput,
   type SpacePasswordStateResult,
   type StageSpaceComposerUploadRpcInput,
@@ -2491,6 +2496,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return rpcSpaceMessagePins(this.env, input);
   }
 
+  spaceInputQueue(
+    input: SpaceInputQueueInput
+  ): Promise<SpaceInputQueueResponse> {
+    return rpcSpaceInputQueue(this.env, input);
+  }
+
   listSpaceTasks(input: ListSpaceTasksInput): Promise<ListSpaceTasksResponse> {
     return rpcListSpaceTasks(this.env, input);
   }
@@ -3652,6 +3663,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: CenterAgentStopSpaceWakeInput
   ): Promise<PostSpaceWakeStopResponse> {
     return rpcCenterAgentStopSpaceWake(this.env, input);
+  }
+
+  centerAgentSpaceInputQueue(
+    input: CenterAgentSpaceInputQueueInput
+  ): Promise<SpaceInputQueueResponse> {
+    return rpcCenterAgentSpaceInputQueue(this.env, input);
   }
 
   centerAgentReadSpaceContext(
@@ -4919,6 +4936,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.spaceMessagePins(input);
   }
 
+  spaceInputQueue(
+    input: SpaceInputQueueInput
+  ): Promise<SpaceInputQueueResponse> {
+    return super.spaceInputQueue(input);
+  }
+
   listSpaceTasks(input: ListSpaceTasksInput): Promise<ListSpaceTasksResponse> {
     return super.listSpaceTasks(input);
   }
@@ -6157,6 +6180,12 @@ export class CenterAgentRpcEntrypoint extends CoreRpcEntrypoint {
 
   centerAgentReadChangelog(input: CenterAgentReadChangelogInput) {
     return rpcCenterAgentReadChangelog(this.env, input);
+  }
+
+  centerAgentSpaceInputQueue(
+    input: CenterAgentSpaceInputQueueInput
+  ): Promise<SpaceInputQueueResponse> {
+    return rpcCenterAgentSpaceInputQueue(this.env, input);
   }
 
   centerAgentSearchMemory(input: CenterAgentSearchMemoryRpcInput) {
