@@ -29,6 +29,7 @@ import {
 import {
   AGENT_REPLY_FINAL_PURPOSE,
   agentStreamForReplyPlacementReader,
+  agentWorkloadSnapshotSchema,
   buildSpaceComposerUploadObjectKey,
   buildSpaceFileEntryIdForMutation,
   buildSpaceFileObjectKey,
@@ -127,6 +128,7 @@ import {
   spaceAgentStreamPartFrameSchema,
   spaceAgentStreamSnapshotSchema,
   spaceAgentStreamTerminalFrameSchema,
+  spaceAgentWorkloadInputSchema,
   spaceBoardRoomProjectionSchema,
   spaceDispatchOutboxRedriveReasonSchema,
   spaceDispatchTraceResponseContractVersionHeaderSchema,
@@ -160,6 +162,7 @@ import {
   wakeDeviceWaitAccessRequestSchema,
 } from "@openmeld/schemas";
 import type {
+  AgentWorkloadSnapshot,
   ClearSpaceReasoningReplay,
   ConvertDirectMessageToSpaceResponse,
   CreateSpaceDiagnosticReportResponse,
@@ -222,6 +225,7 @@ import type {
   SpaceAgentStreamPresence,
   SpaceAgentStreamSnapshot,
   SpaceAgentStreamTerminalFrame,
+  SpaceAgentWorkloadInput,
   SpaceBoardRoomProjection,
   SpaceBootstrapResponse,
   SpaceContract,
@@ -283,6 +287,7 @@ import {
 } from "@openmeld/space";
 import { buildSystemNoticeText } from "@openmeld/space-mesh";
 import { publishAccountInvalidation } from "../../../account-invalidation/publish-account-invalidation";
+import { projectSpaceAgentWorkload } from "../../../agent-profile/application/agent-workload";
 import { readPrimaryAgentProfileBindingRecord } from "../../../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
 import {
   recordRuntimeCoordinatorFailureTaskOutcome,
@@ -697,6 +702,7 @@ import {
 import { readSpaceDispatchRule } from "../../infrastructure/sql/space-dispatch-rule-repo";
 import {
   blockQueuedSpaceInput,
+  blockQueuedSpaceInputsAfterDispatch,
   claimQueuedSpaceExecutionInput,
   completeQueuedSpaceInputHandoff,
   deleteQueuedSpaceExecutionInput,
@@ -7435,6 +7441,64 @@ export class Space extends DurableObject<CoreBindings> {
     return readSpaceRpcJsonOrThrow(response);
   }
 
+  async rpcAgentWorkload(
+    raw: SpaceAgentWorkloadInput
+  ): Promise<AgentWorkloadSnapshot> {
+    const input = spaceAgentWorkloadInputSchema.parse(raw);
+    this.applySpaceRef(input.spaceId);
+    const meta = this.readSpaceMetaRecord();
+    if (
+      !meta ||
+      meta.organizationId !== input.organizationId ||
+      input.context.activeOrganizationId !== input.organizationId
+    ) {
+      throw new Error(
+        "Agent workload requires its current Organization scope."
+      );
+    }
+    const access = await this.authorizeSpaceAccess(
+      createAuthenticatedSpaceAccessContext({
+        spaceId: this.spaceId,
+        requestContext: input.context,
+      })
+    );
+    const db = wakeEvidenceDb(this.bindings);
+    if (!db) {
+      return { status: "unavailable" };
+    }
+    const wakes = await this.readActiveSpaceWakeProgress({
+      db,
+      targetProfileId: input.targetProfileId,
+      includePageInfo: true,
+      includePreviewText: access.ok,
+      includeSourceContext: access.ok,
+    });
+    const queuedMessages = listQueuedSpaceExecutionInputs(this.ctx.storage.sql)
+      .filter(
+        (item) =>
+          item.signal.data.meta?.centerAgentExecutionInput?.targetProfileId ===
+          input.targetProfileId
+      )
+      .map((item) => ({
+        inputId: item.inputId,
+        text: item.request.text,
+        state: item.state,
+        blocked: item.blocked,
+      }));
+    return agentWorkloadSnapshotSchema.parse(
+      projectSpaceAgentWorkload({
+        canReadSource: access.ok,
+        hasMore: wakes.pageInfo?.hasMore === true,
+        location: {
+          spaceId: this.spaceId,
+          spaceName: meta.name?.trim() || "Untitled space",
+        },
+        queuedMessages,
+        wakes: wakes.items,
+      })
+    );
+  }
+
   private async assertLocalQueuedInputAuthority(
     request: LocalSpaceExecutionInput,
     requireActiveTarget = true
@@ -7507,7 +7571,8 @@ export class Space extends DurableObject<CoreBindings> {
         (targetMember?.status !== "active" ||
           targetMember.profileKindSnapshot !== "agent" ||
           targetMember.ownerUserIdSnapshot !== request.target.ownerUserId ||
-          targetMember.controllerRefSnapshot !== "builtin:codex"))
+          (targetMember.controllerRefSnapshot !== null &&
+            targetMember.controllerRefSnapshot !== "builtin:codex")))
     ) {
       throw deny();
     }
@@ -7567,20 +7632,9 @@ export class Space extends DurableObject<CoreBindings> {
       await this.assertLocalQueuedInputAuthority(existing.request);
       return;
     }
-    const outbox = readDispatchOutboxRecordByDispatchId(
-      this.ctx.storage.sql,
-      target.dispatchId
-    );
-    const source = outbox ? this.readSignalById(outbox.sourceEventId) : null;
-    if (
-      !outbox ||
-      outbox.targetProfileId !== target.targetProfileId ||
-      !source ||
-      source.profile.profileId !== signal.profile.profileId ||
-      source.profile.kind !== "human"
-    ) {
-      throw invalid();
-    }
+    // The delivery outbox retires after handoff. The Coordinator's admitted
+    // command below owns the exact execution and original source author; a
+    // live response must not depend on the conveyor row still existing.
     const db = wakeEvidenceDb(this.bindings);
     const execution = db
       ? await readRuntimeCoordinatorExecutionProjectionByDispatch({
@@ -7814,14 +7868,18 @@ export class Space extends DurableObject<CoreBindings> {
             },
           }
         );
-        const targetMember = readSpaceMemberRecord(
-          this.ctx.storage.sql,
-          mutation.target.targetProfileId
-        );
-        if (
-          targetMember?.controllerRefSnapshot ===
-          HOSTED_CENTER_AGENT_CONTROLLER_REF
-        ) {
+        // Route by the admitted execution, not a lazily populated member
+        // display snapshot (fresh conversations legitimately lack one).
+        const db = localStateDb(this.bindings);
+        const nativeDelivery = db
+          ? await readRemoteAgentNativeDeliveryByExecution({
+              db,
+              dispatchId: mutation.target.dispatchId,
+              profileId: mutation.target.targetProfileId,
+              spaceId: this.spaceId,
+            })
+          : null;
+        if (nativeDelivery) {
           await this.publishExecutionInput(
             signal,
             { authoringPolicy: "user_authored" },
@@ -7888,10 +7946,20 @@ export class Space extends DurableObject<CoreBindings> {
     >,
     authorProfileId: string
   ): Promise<Response | null> {
-    const item = listQueuedSpaceExecutionInputs(this.ctx.storage.sql).find(
-      (candidate) => candidate.inputId === mutation.inputId
+    const item = readSpaceExecutionInput(
+      this.ctx.storage.sql,
+      mutation.inputId
     );
-    if (!item || item.request.authorProfileId !== authorProfileId) {
+    if (
+      !item?.queued ||
+      item.request.authorProfileId !== authorProfileId ||
+      !(
+        item.state === "queued" ||
+        item.state === "claimed" ||
+        item.state === "unconfirmed" ||
+        (mutation.action === "delete" && item.state === "deleted")
+      )
+    ) {
       return Response.json(
         { message: "Queued message not found." },
         { status: 404 }
@@ -7904,6 +7972,11 @@ export class Space extends DurableObject<CoreBindings> {
       );
     }
     if (mutation.action === "delete") {
+      // A lost response can be retried before moving the saved text into the
+      // composer. A consumed/claimed row must never be treated as deleted.
+      if (item.state === "deleted") {
+        return null;
+      }
       if (
         !deleteQueuedSpaceExecutionInput(
           this.ctx.storage.sql,
@@ -7927,7 +8000,7 @@ export class Space extends DurableObject<CoreBindings> {
           { status: 409 }
         );
       }
-      await this.steerQueuedExecutionInput(item.inputId);
+      await this.steerQueuedExecutionInput(mutation.inputId);
     }
     return null;
   }
@@ -8093,6 +8166,7 @@ export class Space extends DurableObject<CoreBindings> {
     // controller during admission. Check the scoped member here, never treat
     // that seed's empty controller snapshot as an unavailable execution.
     if (
+      target.controllerRefSnapshot !== null &&
       target.controllerRefSnapshot !== HOSTED_CENTER_AGENT_CONTROLLER_REF &&
       target.controllerRefSnapshot !== "builtin:codex"
     ) {
@@ -23304,7 +23378,14 @@ export class Space extends DurableObject<CoreBindings> {
           (final.type === "signal.system_notice" &&
             final.data.noticeType === "stay_silent"));
       if (!succeeded) {
-        blockQueuedSpaceInput(this.ctx.storage.sql, inputId);
+        // The prerequisite response ended unsuccessfully for the entire
+        // chain, not just its head. Keep every dependent draft editable but
+        // stop offering Steer against that ended response.
+        blockQueuedSpaceInputsAfterDispatch(
+          this.ctx.storage.sql,
+          item.afterDispatchId,
+          target.targetProfileId
+        );
         await this.broadcastSpaceMetaChanged({
           reason: "space.input_queue.updated",
         });

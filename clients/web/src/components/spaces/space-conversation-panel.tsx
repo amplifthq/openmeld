@@ -2045,12 +2045,6 @@ function SpaceComposerSection(input: {
 				className="flex w-full flex-col gap-3 py-4"
 				data-space-conversation-content-width=""
 			>
-				{!panel.readOnly && panel.spaceId ? (
-					<SpaceInputQueue
-						profileId={panel.selfProfileId}
-						spaceId={panel.spaceId}
-					/>
-				) : null}
 				<SpaceComposer
 					actions={{
 						onAddFiles: panel.onAddComposerFiles,
@@ -2103,6 +2097,27 @@ function SpaceComposerSection(input: {
 					}}
 					slots={{
 						pendingActionSurface: panel.pendingActionSurface,
+						queuedMessages:
+							!panel.readOnly && panel.spaceId ? (
+								<SpaceInputQueue
+									key={`${panel.spaceId}:${panel.selfProfileId}`}
+									onEdit={(queuedText) => {
+										const text = panel.composerText
+											? `${panel.composerText}\n\n${queuedText}`
+											: queuedText;
+										panel.onComposerEditorChange({
+											authoredMentions: [
+												...(panel.composerAuthoredMentions ?? []),
+											],
+											selection: { start: text.length, end: text.length },
+											text,
+										});
+										panel.textareaRef.current?.focus();
+									}}
+									profileId={panel.selfProfileId}
+									spaceId={panel.spaceId}
+								/>
+							) : null,
 						beforePrimaryAction: (
 							<SpaceComposerActiveWakes placement="conversation" />
 						),

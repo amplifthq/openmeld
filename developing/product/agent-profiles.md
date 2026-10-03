@@ -1067,10 +1067,11 @@ the local Service verifies their resource isolation. Legacy work without a
 context drains exclusively. Waiting order is the owner-shard transaction
 acceptance order; a blocked context does not prevent eligible independent work
 from using a free reservation. There is no priority system in this version.
-A source message is visible in its conversation immediately; its Wake
-may show that it is queued, but Web does not hide or stack the message above the
-Composer until execution starts. Different Agent Profiles remain independently
-admissible and may work in parallel.
+A published source message stays visible in its conversation; its admitted Wake
+may show that it is queued. Pending plain-text follow-ups in the Composer Queue
+have not been published or admitted as Wakes yet. They remain editable pending
+Space input until ordinary publication or an explicit Steer consumes them.
+Different Agent Profiles remain independently admissible and may work in parallel.
 
 For migrated Profiles this replaces the former one-slot FIFO and Profile-wide
 native conversation model. The primary Binding still owns the connection and
@@ -1263,12 +1264,19 @@ projection first. Non-owners see the neutral workload state without this action
 or the interrupted request details.
 
 Owners and other Organization members see the same compact workload summary,
-such as `Working · 3 queued`. Profile Details may show the owner where the
-current Wake is running and which tasks are queued. Other members see only
-neutral workload state and count; they do not receive Space names, task text,
-controller conversation identifiers, local paths, or other owner diagnostics.
-This projection belongs in the existing Profile Details surface, not a separate
-status product.
+such as `1 active · 3 queued`, in existing Profile Details. The read-only workload
+combines existing Space Wake progress and pending Space inputs across the Agent's
+Organization conversations; it does not create another execution queue. A queued
+input and the Wake that consumes it are successive states, not two tasks.
+
+Conversation access controls each row's message preview, Space name and link for
+owners and other members alike. Inaccessible conversations contribute only neutral
+counts. Owning the Agent alone does not reveal private conversations. An unavailable
+or incomplete source makes the workload unavailable rather than claiming an exact
+zero or partial total. This default Organization visibility does not grant Queue,
+Steer, recovery, stop, or settings mutation authority. Controller conversations,
+local paths, Computer details and owner diagnostics keep their existing boundaries.
+Privacy settings are separate future scope, not per-surface switches added here.
 
 Organization-member Agent details may also include one explicit public display
 configuration: the friendly Agent Controller, model, reasoning level,

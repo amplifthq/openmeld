@@ -31,6 +31,7 @@ import { insertSignalRecord } from "../src/space/infrastructure/sql/space-signal
 import type { Space } from "../src/space/transport/do/space";
 
 type InputSpace = {
+  rpcAgentWorkload: Space["rpcAgentWorkload"];
   bindings: CoreBindings;
   spaceId: string;
   publishExecutionInput(
@@ -233,6 +234,77 @@ async function fixture(
 }
 
 describe("Center Agent execution input in the Space owner", () => {
+  it("shares workload counts but only reveals source details to current conversation members", async () => {
+    await fixture(async ({ instance, signal, request, context }) => {
+      await instance.publishExecutionInput(
+        signal,
+        { authoringPolicy: "user_authored" },
+        true
+      );
+      await env.OPENMELD_DB.batch([
+        env.OPENMELD_DB.prepare(
+          "INSERT OR IGNORE INTO users (id, name, email, email_verified, created_at, updated_at) VALUES ('owner', 'Morgan', 'queue@example.test', 1, 1, 1)"
+        ),
+        env.OPENMELD_DB.prepare(
+          "INSERT INTO organizations (id, name, slug, created_at) VALUES (?, 'Queue test', ?, 1)"
+        ).bind(request.organizationId, request.organizationId),
+        env.OPENMELD_DB.prepare(
+          "INSERT INTO members (id, organization_id, user_id, role, created_at) VALUES (?, ?, 'owner', 'owner', 1)"
+        ).bind(crypto.randomUUID(), request.organizationId),
+      ]);
+      const input = {
+        spaceId: signal.spaceId,
+        organizationId: request.organizationId,
+        targetProfileId: request.agentProfileId,
+        context,
+      };
+      const member = await instance.rpcAgentWorkload(input);
+      expect(member).toMatchObject({
+        status: "ready",
+        queuedMessageCount: 1,
+        items: expect.arrayContaining([
+          expect.objectContaining({
+            kind: "queued_message",
+            text: "Only analyze North America.",
+          }),
+        ]),
+      });
+      const otherMember = await instance.rpcAgentWorkload({
+        ...input,
+        context: {
+          ...context,
+          actorContext: {
+            ...context.actorContext,
+            openMeldProfileId: crypto.randomUUID(),
+            ownerUserId: "other-member",
+            callerPrincipalId: "other-member",
+          },
+        },
+      });
+      expect(otherMember).toMatchObject({
+        status: "ready",
+        queuedMessageCount: 1,
+        items: [],
+      });
+      expect(JSON.stringify(otherMember)).not.toContain(signal.spaceId);
+      await env.OPENMELD_DB.prepare(
+        "DELETE FROM members WHERE organization_id = ?"
+      )
+        .bind(request.organizationId)
+        .run();
+      expect(await instance.rpcAgentWorkload(input)).toMatchObject({
+        status: "ready",
+        queuedMessageCount: 1,
+        items: [],
+      });
+      await expect(
+        instance.rpcAgentWorkload({
+          ...input,
+          organizationId: crypto.randomUUID(),
+        })
+      ).rejects.toThrow("current Organization scope");
+    });
+  });
   it("authorizes Center queue tools as the current verified requester and rejects substitution or revocation", async () => {
     await fixture(async ({ instance, state, signal, request }) => {
       await instance.publishExecutionInput(
@@ -440,6 +512,16 @@ describe("Center Agent execution input in the Space owner", () => {
           ).status
         ).toBe(200);
         expect(listQueuedSpaceExecutionInputs(state.storage.sql)).toEqual([]);
+        // Editing may retry removal after an acknowledged write loses its
+        // response; it must confirm the tombstone without stopping any run.
+        expect(
+          (
+            await instance.handleInputQueue(
+              { action: "delete", inputId },
+              context
+            )
+          ).status
+        ).toBe(200);
         expect(transport).not.toHaveBeenCalled();
         return;
       }
@@ -476,6 +558,13 @@ describe("Center Agent execution input in the Space owner", () => {
         if (!dispatch) {
           throw new Error("Missing ordinary dispatch handoff");
         }
+        // Delivery retires the conveyor while the admitted execution is still
+        // running. Fresh chats also have no controller display snapshot yet.
+        state.storage.sql.exec("DELETE FROM openMeldDaemon_outbox");
+        state.storage.sql.exec(
+          "UPDATE space_members SET controller_ref_snapshot = NULL WHERE profile_id = ?",
+          request.agentProfileId
+        );
         const projection = await import(
           "../src/runtime-transport/infrastructure/d1/runtime-coordinator-execution-repo"
         );
@@ -787,6 +876,20 @@ describe("Center Agent execution input in the Space owner", () => {
         { authoringPolicy: "user_authored" },
         true
       );
+      const second = structuredClone(signal);
+      if (second.type !== "signal.text") {
+        throw new Error("Expected text");
+      }
+      second.id = crypto.randomUUID();
+      second.data.meta = {
+        ...second.data.meta,
+        clientMessageId: crypto.randomUUID(),
+      };
+      await instance.publishExecutionInput(
+        second,
+        { authoringPolicy: "user_authored" },
+        true
+      );
       insertSignalRecord(state.storage.sql, {
         v: 1,
         id: crypto.randomUUID(),
@@ -808,6 +911,7 @@ describe("Center Agent execution input in the Space owner", () => {
       });
       await instance.flushQueuedSpaceInputs();
       expect(listQueuedSpaceExecutionInputs(state.storage.sql)).toMatchObject([
+        { state: "queued", blocked: true },
         { state: "queued", blocked: true },
       ]);
       expect(
@@ -1026,6 +1130,11 @@ describe("Center Agent execution input in the Space owner", () => {
         text: signal.data.text,
         target,
       };
+      // The queue works on the first turn without opening Members first.
+      state.storage.sql.exec(
+        "UPDATE space_members SET controller_ref_snapshot = NULL WHERE profile_id = ?",
+        target.targetProfileId
+      );
       expect(
         (
           await instance.handleInputQueue(

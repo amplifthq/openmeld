@@ -61,6 +61,7 @@ export function readSpaceExecutionInput(sql: SqlStorage, inputId: string) {
   }
   return {
     queued: row.queue_state !== null,
+    state: row.queue_state,
     request: spaceExecutionInputRequestSchema.parse(
       JSON.parse(row.request_json)
     ),
@@ -183,6 +184,21 @@ export function blockQueuedSpaceInput(sql: SqlStorage, inputId: string): void {
   sql.exec(
     "UPDATE space_execution_input_outbox SET queue_blocked = 1 WHERE input_id = ? AND queue_state = 'queued'",
     inputId
+  );
+}
+
+/** A failed prerequisite pauses every pending input that depends on it. */
+export function blockQueuedSpaceInputsAfterDispatch(
+  sql: SqlStorage,
+  dispatchId: string,
+  targetProfileId: string
+): void {
+  sql.exec(
+    `UPDATE space_execution_input_outbox SET queue_blocked = 1
+    WHERE queue_state = 'queued' AND queue_after_dispatch_id = ?
+    AND json_extract(signal_json, '$.data.meta.centerAgentExecutionInput.targetProfileId') = ?`,
+    dispatchId,
+    targetProfileId
   );
 }
 

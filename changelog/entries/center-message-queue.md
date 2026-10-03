@@ -6,10 +6,15 @@ areas: ["spaces", "center-agent"]
 audiences: ["users"]
 ---
 
-Plain-text messages wait in a visible queue while Center or a supported Local
-Codex Agent responds. Reorder or remove your pending messages, or choose Steer
+Plain-text messages wait in a compact tray attached to the message box while
+Center or a supported Local Codex Agent responds. Move a draft back into the
+message box to edit and send it, reorder or remove pending messages, or choose Steer
 to apply one to the exact response it was queued for. Center can also manage
 the current requester's queue when asked.
 
 Messages wait when delivery is uncertain or the previous request stops or
 fails. Removing a queued message does not stop the current response.
+
+Agent details bring active work and queued messages together across conversations.
+Organization members can see workload counts; message previews and links follow
+each conversation's existing access rules.
