@@ -1198,6 +1198,7 @@ export {
   centerAgentWakePublicationCommandSchema,
   centerAgentWatchAgentTaskBodySchema,
   centerAgentWatchAgentTaskResponseSchema,
+  connectorActionTerminalReceiptSchema,
   connectorActionVerificationEvidenceSchema,
   connectorActionVerificationReferenceSchema,
   designateCenterAgentBodySchema,

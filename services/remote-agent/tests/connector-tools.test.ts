@@ -15,6 +15,7 @@ import {
   listOpenConnectorActions,
   searchOpenConnectorActions,
 } from "../connectors/open-connector-runtime";
+import { executeRemoteAgentToolDefinition } from "../flue-adapter/tool-execution";
 import {
   createRoutineTurnEnvelope,
   createSubmitTurnRequest,
@@ -45,6 +46,96 @@ const CONNECTOR_OPERATION_ATTRIBUTION = {
   },
 } as const;
 describe("Remote Agent generic App tools", () => {
+  it.each([
+    ["completed", "direct"],
+    ["failed", "direct"],
+    ["completed", "code_mode"],
+    ["failed", "code_mode"],
+  ] as const)("preserves a durable %s duplicate receipt through %s", async (status, source) => {
+    const action = {
+      ...capturedExecutableOpenConnectorAction,
+      effect: "write",
+      operationType: "write",
+    };
+    const provider = vi.fn<typeof fetch>(async () =>
+      Response.json({
+        success: true,
+        message: "OK",
+        data: [action],
+        meta: {},
+      })
+    );
+    const executionConnection = {
+      connectionName: "original-account",
+      service: "posthog" as const,
+      scope: "member" as const,
+      ownerUserId: "user_1",
+      ownerDisplayName: "Felix",
+    };
+    const storage = await createStorage(createSubmitTurnRequest());
+    const tools = getRemoteAgentConnectorToolDefinitions({
+      connectorExecution: {
+        baseUrl: "https://connectors.example.test",
+        fetch: provider,
+        runtimeToken: "fixture",
+      },
+      coreWorker: {
+        centerAgentReadConnectorActionOperation: vi.fn(async () => ({
+          operation: null,
+        })),
+        centerAgentResolveConnectorConnection: vi.fn(async () =>
+          connectionSelection({
+            ownerDisplayName: "Felix",
+            service: "posthog",
+            userId: "user_1",
+          })
+        ),
+        centerAgentRecordConnectorActionOperation: vi.fn(async () => ({
+          attribution: CONNECTOR_OPERATION_ATTRIBUTION,
+          executionConnection,
+          operationId: "original-write",
+          providerExecutionId: "provider-execution",
+          recorded: true,
+          replayed: true,
+          status,
+          executionAllowed: false,
+          replay: { allowed: false, reason: "operation_terminal" },
+        })) as never,
+      },
+      storage,
+      submissionId: ACK.submissionId,
+    });
+    const definition = tools.find(
+      (tool) => tool.name === "openmeld_execute_app_action"
+    );
+    if (!definition) {
+      throw new Error("Missing action tool");
+    }
+    const receipt = await executeRemoteAgentToolDefinition({
+      definition,
+      storage,
+      submissionId: ACK.submissionId,
+      source,
+      toolInput: {
+        service: "posthog",
+        actionId: action.id,
+        operationId: "replacement-id",
+        input: {},
+      },
+    });
+    expect(
+      provider.mock.calls.filter(([, init]) => init?.method === "POST")
+    ).toHaveLength(0);
+    expect(receipt).toMatchObject({
+      status,
+      operationId: "original-write",
+      executionConnection,
+      attribution: CONNECTOR_OPERATION_ATTRIBUTION,
+    });
+    expect(receipt).not.toHaveProperty("data");
+    expect(receipt).not.toHaveProperty("executionConfirmation", "executed");
+  });
+
   it.each([
     true,
     false,

@@ -5,6 +5,7 @@ import {
   centerAgentReadConnectorActionOperationResponseSchema,
   centerAgentRecordConnectorActionOperationResponseSchema,
   connectorActionOutcomeUnknownSchema,
+  connectorActionTerminalReceiptSchema,
 } from "@openmeld/schemas";
 import type {
   ConnectorService,
@@ -616,6 +617,24 @@ async function prepareConnectorActionOperation(input: {
   };
 }
 
+export class ConnectorActionTerminalReceipt extends Error {
+  readonly result;
+
+  constructor(
+    input: ReturnType<
+      typeof centerAgentRecordConnectorActionOperationResponseSchema.parse
+    > & { actionId: string }
+  ) {
+    const message = `Operation ${input.operationId} is already ${input.status}. No new provider request was sent. Its result data is not retained here; use a read tool to check the original target if needed.`;
+    super(message);
+    this.name = "ConnectorActionTerminalReceipt";
+    this.result = connectorActionTerminalReceiptSchema.parse({
+      ...input,
+      message,
+    });
+  }
+}
+
 export class ConnectorActionOutcomeUnknownError extends OpenConnectorActionError {
   readonly result;
 
@@ -1168,6 +1187,12 @@ export async function recordConnectorActionOperation(input: {
     input.effect !== "read" &&
     response.executionAllowed !== true
   ) {
+    if (response.status === "completed" || response.status === "failed") {
+      throw new ConnectorActionTerminalReceipt({
+        ...response,
+        actionId: input.actionId,
+      });
+    }
     throw new ConnectorActionOutcomeUnknownError({
       ...result,
       actionId: input.actionId,

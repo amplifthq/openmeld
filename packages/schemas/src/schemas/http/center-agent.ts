@@ -371,6 +371,15 @@ export const centerAgentRecordConnectorActionOperationResponseSchema =
     status: centerAgentConnectorActionOperationStatusSchema,
   });
 
+// A duplicate claim can return durable status without retained provider data.
+export const connectorActionTerminalReceiptSchema =
+  centerAgentRecordConnectorActionOperationResponseSchema.extend({
+    actionId: trimmedNonEmptyStringSchema,
+    status: z.enum(["completed", "failed"]),
+    executionAllowed: z.literal(false),
+    message: trimmedNonEmptyStringSchema,
+  });
+
 export const centerAgentDesignationSchema = z.strictObject({
   organizationId: trimmedNonEmptyStringSchema,
   agentProfileId: agentProfileIdSchema,
