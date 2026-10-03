@@ -274,11 +274,8 @@ test("Production and Deep Confidence share an explicit heap within available run
         memoryBytes,
         "linux"
       );
-      assert.equal(
-        env.NODE_OPTIONS,
-        `--max-old-space-size=${trainAdmission ? 5120 : 4096}`
-      );
-      assert.equal(env.OPENMELD_LOCAL_HEAVY_GIB, trainAdmission ? "6" : "5");
+      assert.equal(env.NODE_OPTIONS, "--max-old-space-size=5120");
+      assert.equal(env.OPENMELD_LOCAL_HEAVY_GIB, "6");
       assert.equal(
         env.OPENMELD_DESKTOP_TARGET,
         scope === "desktop" ? "production" : undefined
@@ -305,7 +302,15 @@ test("Production and Deep Confidence share an explicit heap within available run
       { env: { ...process.env, ...env }, encoding: "utf8" }
     )
   );
-  assert.ok(heapLimit >= 4096 * 1024 ** 2 && heapLimit < 5 * 1024 ** 3);
+  assert.ok(heapLimit >= 5120 * 1024 ** 2 && heapLimit < 6 * 1024 ** 3);
+  const website = productionBuildEnvironment(
+    "website",
+    {},
+    memoryBytes,
+    "linux"
+  );
+  assert.equal(website.NODE_OPTIONS, "--max-old-space-size=2048");
+  assert.equal(website.OPENMELD_LOCAL_HEAVY_GIB, "3");
 });
 
 test("handoff acceptance uses separate clean jobs and the production artifact transport with no mutation credentials", () => {

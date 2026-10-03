@@ -30,16 +30,11 @@ const BUILD_ENV =
   /^(VITE_|CLOUDFLARE_ENV$|OPENMELD_DESKTOP_(TARGET|PILOT)$|OPENMELD_RENDERER_NODE_HEAP_MB$|OPENMELD_DEV_ISOLATED$|OPENMELD_GATEWAY_URL$|NODE_OPTIONS$|NODE_ENV$|BETTER_AUTH_URL$|WEB_APP_URL$)/u;
 
 export function productionBuildEnvironment(scope, env, memoryBytes, platform) {
-  const desktopMacBuild =
-    scope === "desktop" && (platform ?? process.platform) === "darwin";
-  const defaultHeap = scope === "website" ? 2048 : 4096;
+  // Match the coordinated release budget for the same App renderer. A smaller
+  // standalone limit can fail before Workerd ever validates the artifact.
+  const defaultHeap = scope === "website" ? 2048 : 5120;
   return {
-    ...rendererBuildEnvironment(
-      env,
-      memoryBytes,
-      platform,
-      desktopMacBuild ? 5120 : defaultHeap
-    ),
+    ...rendererBuildEnvironment(env, memoryBytes, platform, defaultHeap),
     CLOUDFLARE_ENV: "prod",
     OPENMELD_RELEASE_ARTIFACT_CHECK: "1",
     OPENMELD_DESKTOP_PILOT: undefined,
