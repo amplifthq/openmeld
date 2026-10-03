@@ -23,11 +23,8 @@ const STREAM_FLUSH_INTERVAL_MS = 100;
 // CardKit is an external publication path, unlike the Web live projection.
 // Coalesce full snapshots below its per-card limit and avoid per-token D1 writes.
 const MESSAGE_CHANNEL_STREAM_FLUSH_INTERVAL_MS = 350;
-const STREAM_SENTENCE_BOUNDARY_MIN_MS = 60;
-const STREAM_CHUNK_TARGET_CHARS = 200;
 const STREAM_CALLBACK_MAX_ATTEMPTS = 2;
 const STREAM_CALLBACK_RETRY_DELAY_MS = 40;
-const SENTENCE_BOUNDARY_PATTERN = /(?:[.!?]\s|\n)$/u;
 
 type RemoteAgentStreamState = {
   disabled: boolean;
@@ -467,19 +464,15 @@ export function createRemoteAgentStreamPublisher(
             streamId: state.streamId,
           };
         }
-        const pendingDelta = readPendingRemoteAgentStreamDelta({
-          kind: nextKind,
-          state,
-          transientState,
-        });
         if (
-          !shouldPublishRemoteAgentStreamPush({
-            context: input.context,
-            observedAtMs: input.observedAtMs,
-            pendingDelta,
-            replacingFailedText,
-            state,
-          })
+          !(
+            replacingFailedText ||
+            shouldFlushRemoteAgentStream(
+              state,
+              input.observedAtMs,
+              input.context
+            )
+          )
         ) {
           return {
             status: "buffered",
@@ -700,46 +693,18 @@ function createRemoteAgentStreamState(
 function shouldFlushRemoteAgentStream(
   state: RemoteAgentStreamState,
   observedAtMs: number,
-  pendingDelta: string,
   context: RemoteAgentCallbackContext
 ): boolean {
-  if (context.turnEnvelope?.trigger.source === "message_channel") {
-    // Publish the first words immediately; later snapshots coalesce. The
-    // terminal flush still sends the tail before Core finalizes the same card.
-    return (
-      state.lastFlushedAtMs === null ||
-      observedAtMs - state.lastFlushedAtMs >=
-        MESSAGE_CHANNEL_STREAM_FLUSH_INTERVAL_MS
-    );
+  // A short answer may arrive in one delta. Send the first words immediately;
+  // coalesce later snapshots and flush the tail at the model-message boundary.
+  if (state.lastFlushedAtMs === null) {
+    return true;
   }
-  const elapsedMs = observedAtMs - (state.lastFlushedAtMs ?? state.startedAtMs);
-  if (state.lastFlushedAtMs !== null && elapsedMs < STREAM_FLUSH_INTERVAL_MS) {
-    return false;
-  }
-  return (
-    elapsedMs >= STREAM_FLUSH_INTERVAL_MS ||
-    pendingDelta.length >= STREAM_CHUNK_TARGET_CHARS ||
-    (elapsedMs >= STREAM_SENTENCE_BOUNDARY_MIN_MS &&
-      SENTENCE_BOUNDARY_PATTERN.test(pendingDelta))
-  );
-}
-
-function shouldPublishRemoteAgentStreamPush(input: {
-  context: RemoteAgentCallbackContext;
-  observedAtMs: number;
-  pendingDelta: string;
-  replacingFailedText: boolean;
-  state: RemoteAgentStreamState;
-}): boolean {
-  return (
-    input.replacingFailedText ||
-    shouldFlushRemoteAgentStream(
-      input.state,
-      input.observedAtMs,
-      input.pendingDelta,
-      input.context
-    )
-  );
+  const intervalMs =
+    context.turnEnvelope?.trigger.source === "message_channel"
+      ? MESSAGE_CHANNEL_STREAM_FLUSH_INTERVAL_MS
+      : STREAM_FLUSH_INTERVAL_MS;
+  return observedAtMs - state.lastFlushedAtMs >= intervalMs;
 }
 
 async function deliverRemoteAgentStreamDelta(input: {
