@@ -201,7 +201,7 @@ export function registerConnectorConnectionRoutes(
     if (!organization.ok) {
       return organization.response;
     }
-    // JSON and a non-simple request header prevent form-based cross-site
+    // Requiring the non-simple JSON content type prevents form-based cross-site
     // submissions. The request-specific email proof remains the authority.
     const command =
       c.req.header("content-type")?.split(";")[0] === "application/json"

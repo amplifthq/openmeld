@@ -13,6 +13,7 @@ account credentials. Python 3 uses only its standard library.
 | Messages | `messages.py` | Six DMs, mixed peers, recent/older/long/multiline and outgoing-only previews |
 | Personal grouping | `sidebar.py` | Starter stars and custom People/Agents groups, existing arrangements preserved |
 | Inbox browsing | `inbox.py` | Opt-in `--only inbox`: 27 Threads, 426 replies, 12 installed updates, eight restored/stopped connection incidents, one resolved system request and two setup requests; grouped reading, pagination and bulk actions |
+| Private Plugin confirmation | `inbox.py` | Opt-in `--only plugin-requests`: three synthetic private pending/expired requests, no provider credentials or executions; decisions and expiration survive reruns |
 
 ## Add or change a scenario
 

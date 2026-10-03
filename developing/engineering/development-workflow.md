@@ -1162,27 +1162,23 @@ Service dispatch context, and the managed Plugin playbook.
   receipt, original operation and account attribution through both direct tools
   and Code Mode; they do not reconstruct provider result data. The terminal
   receipt is a shared schema, not a new operation state or writer.
-- Cutover is still blocked at the non-Wake Local entry: `plugins --profile`
-  calls can omit both `dispatchId` and execution proof. Core authenticates the
-  account and Agent, but has no original human-request fact for that call.
-  An old continuation that omits those fields and an independent manual request
-  are indistinguishable. A version on the child context cannot fence this path.
-  The selected product boundary preserves manual writes without requiring a
-  Space or Wake. It requires a human-authorized original request, not a new
-  operation ID or an Agent's claim that the request is fresh. This PR does not
-  yet enforce that boundary. Existing context records retain resume/fork
-  associations and must inherit the original request once its authority is
-  established; old records must not be upgraded by inference. New dispatch
-  IDs, restart, a fork, or a delegated child do not certify a fresh request.
+- Local writes without a trusted exact request now retain a private pending
+  Plugin request before provider execution. The same operation, actor, account,
+  input and permission revision reuse that request. Auth sends a request-bound
+  code to the current verified account email; only a successful code check can
+  approve its stable root. An account bearer token, Human Profile selection,
+  caller-issued confirmation token, new dispatch ID, restart or fork does not
+  supply this proof. A changed executor cannot borrow another executor's root.
+  An independently approved request may intentionally have identical content.
 - Excerpt copies use the existing Files reservation, R2 object, revision commit,
   and audience owner. The new optional expected audience is checked synchronously
   at the destination commit. Completed copies have independent Files lifecycles.
 
-#### Manual request authority: unresolved implementation boundary
+#### Manual request authority and private Inbox confirmation
 
-The remaining gap precedes request-root storage. The current credential proves
-account access, but not that the human just initiated this particular request.
-These two histories produce the same admitted request:
+The previous credential proved account access, but not that the human initiated
+this particular request. These two histories previously produced the same
+admitted request:
 
 1. A human asks a Local Agent to perform an independent manual write. The CLI
    sends the current account credential, its owned Agent Profile, selected
@@ -1193,7 +1189,7 @@ These two histories produce the same admitted request:
    and changes the operation ID. The same admission succeeds. Persisting a
    server-generated root in response to this request would bless both histories.
 
-The relevant owners do not currently supply the missing distinction:
+The existing credentials alone do not supply that distinction:
 
 | Existing owner | Verified fact | Missing fact |
 | --- | --- | --- |
@@ -1213,18 +1209,38 @@ fixtures; this is not an authenticated CLI or real-provider smoke. Both
 zero-duplicate assertions failed. The existing exact-input/access-revision
 confirmation test passed; that narrower contract does not prove human intent.
 
-Closing this gap needs a request-bound human authorization event that the
-controller cannot manufacture with its existing account credential. A proposed
-manual flow is: retain the exact pending request in the operation/authorization
-owner, show its account and effect to the user through an authenticated approval
-surface, bind independent user verification to that request, and issue one stable
-request credential. Resume, fork, child, and cold-start paths then retain that
-root instead of issuing another. A plain browser session, Profile header,
-`fresh=true`, or a CLI yes/no prompt is not the independent verification step.
-The current passkey integration authenticates login; connecting verification to
-an exact pending request still requires Auth-owned work and a supported human
-flow, including the path for users without a passkey. No such flow, production
-cutover, or new authority is implemented by this audit.
+The Plugin request owner now retains the exact account version, access revision,
+actor, original requester, action, effect and input in `plugin_action_requests`
+(additive migration 0192). Inbox holds only a private recipient projection and
+an opaque request ID. It never receives action input or a verification code.
+The single inline Web detail uses the existing Inbox destination and shared UI.
+Auth's service-binding RPC derives a request-specific code, delivers it only to
+the current verified account email, and verifies the same immutable request.
+This works with the existing password, OAuth and passkey login paths; a verified
+email is required. Possession of an independent mailbox remains the verification
+boundary. A separately authorized Agent that can read that mailbox is not
+distinguished from its owner by email verification alone.
+
+Approval and Inbox resolution use one conditional D1 batch. Repeated decisions
+return the retained state, conflicting decisions fail, and execution claims
+recheck the approved request, membership and frozen connection/access revisions.
+Requests expire after one hour. Replay additionally requires the existing
+operation's single durable allowance and original 24-hour maximum window;
+approval never resolves an older unknown. A separately approved new request is
+a new operation, not evidence that an earlier operation did not execute.
+New Local commands opt into the typed `authorization_required` result. Older
+commands receive an actionable failure and can retry the same operation after
+the owner approves in Web. Reads and receipt reconciliation stay available.
+
+Rollout must update Gateway/shared schema readers and Auth before enabling the
+Core writer, apply migration 0192 before that Core version, then deliver Web and
+CLI consumers. Inbox source-target capability 10 adds Plugin request details;
+older consumers receive a safe instruction to use current Web, with no approval
+control. This is a future deployment order, not permission to deploy or apply a
+production migration. The candidate needs fresh local-component stamping and
+release-readiness verification after its final CLI/schema changes. Storage tests,
+browser evidence, real model execution and real provider writes are separate
+acceptance claims.
 
 ### Active-Wake Agent Settings Contract Impact Audit
 

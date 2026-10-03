@@ -23,3 +23,9 @@ window does not permit another write.
 Replay admission also refuses older records without a verified original account
 version. Duplicate claims preserve known completion or failure, the original
 operation, and account attribution without inventing missing result data.
+
+Local Plugin writes that need fresh authorization appear privately in your
+Inbox. Review the account and action, then use the code sent to your verified
+email to approve or decline the request. You can continue a manual CLI request
+without creating a Space. Retrying the same approved request keeps its original
+identity; approving a new request does not resolve an older uncertain result.

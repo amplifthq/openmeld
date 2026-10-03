@@ -2,6 +2,7 @@
 
 This prepares fictional data only; it never starts Agent work or fakes runtime state.
 """
+import hashlib
 import json
 import sqlite3
 
@@ -133,6 +134,52 @@ def _signal(db, speaker, sid, mid, ts, text, root=None):
     envelope = {"v": 1, "id": mid, "spaceId": sid, "ts": ts, "profile": profile, "type": "signal.text", "data": data}
     db.execute("INSERT OR REPLACE INTO space_signals (id,ts,type,profile_id,profile_kind,client_message_id,payload_json) VALUES (?,?,?,?,?,?,?)",
                (mid, ts, envelope["type"], profile["profileId"], profile["kind"], mid, json.dumps(envelope)))
+
+
+def seed_plugin_requests(context):
+    """Private confirmation UI data only: no provider credentials or executions.
+
+    Pending rows model the operation owner's retained request. Subsequent Inbox
+    reads and email decisions use the real authenticated product routes. Reruns
+    preserve decisions and expiry; they never mint or approve a request.
+    """
+    org, user, now = context.org["id"], context.viewer["id"], context.now
+    connection = "org_" + context.ident("plugin-org").replace("-", "")[:18] + "__user_" + context.ident("plugin-user").replace("-", "")[:18] + "__github"
+    context.insert("connector_connections", connection_name=connection,
+                   organization_id=org, user_id=user, scope="member", service="github",
+                   status="active", access_policy=json.dumps({"center_agent": "none", "local_agent": "write", "remote_agent": "none"}),
+                   access_revision=1, created_at_ms=now, updated_at_ms=now)
+    version = context.db.execute("SELECT updated_at_ms FROM connector_connections WHERE connection_name=?", (connection,)).fetchone()[0]
+    for scenario in ["approve", "decline", "expired"]:
+        request = context.ident("plugin-request:" + scenario)
+        intent = {
+            "organizationId": org, "userId": user,
+            "actorProfileId": "agt_" + context.ident("agent:0"),
+            "operationId": "local-ui-fixture-" + scenario, "sourceRequestKey": None,
+            "connection": {"connectionName": connection, "ownerDisplayName": context.viewer["name"],
+                           "ownerUserId": user, "scope": "member", "service": "github"},
+            "connectionUpdatedAtMs": version, "accessRevision": 1,
+            "service": "github", "actionId": "issues-create", "effect": "write",
+            "input": {"repository": "northstar-example/" + scenario, "title": "Synthetic private fixture"},
+        }
+        bound = {key: value for key, value in intent.items() if key != "sourceRequestKey"}
+        digest = hashlib.sha256(json.dumps(bound, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        context.insert("plugin_action_requests", id=request, organization_id=org, user_id=user,
+                       actor_profile_id=intent["actorProfileId"], operation_id=intent["operationId"],
+                       source_request_key=None, request_digest=digest, request_json=json.dumps(intent),
+                       state="pending", created_at_ms=now, expires_at_ms=now + (-60000 if scenario == "expired" else 3600000))
+        source = "plugin-action-request:" + request
+        item = "inbox_item_" + hashlib.sha256(json.dumps([org, user, "system_attention_event", source], separators=(",", ":")).encode()).hexdigest()
+        context.insert("inbox_items", id=item, organization_id=org, recipient_user_id=user,
+                       source_kind="system_attention_event", source_key=source,
+                       source_target_json=json.dumps({"kind": "plugin_action_request", "requestId": request}),
+                       source_facts_json=json.dumps({"version": 1, "recipientReasons": ["requester"], "requestCategory": "action"}),
+                       kind="system_issue", importance="normal", attention="action_required", resolution_status="open",
+                       title="Confirm a Plugin action", preview="Open the request to review it.", context_label="Plugin request",
+                       occurred_at_ms=now, created_at_ms=now, updated_at_ms=now)
+    context.db.commit()
+    count = context.db.execute("SELECT count(*) FROM plugin_action_requests WHERE organization_id=? AND operation_id LIKE 'local-ui-fixture-%'", (org,)).fetchone()[0]
+    print(f"Plugin confirmation fixtures: {count}; provider credentials and executions: 0")
 
 
 def _item(context, key, values):

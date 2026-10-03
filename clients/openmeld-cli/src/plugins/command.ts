@@ -86,12 +86,24 @@ export async function runPluginCommand(input: {
   }
 }
 
-function renderPluginResponse(response: PluginActionResponse) {
-  if (response.kind === "authorization_required") {
-    outLine(`Plugin request: ${response.request.state}`);
+function renderRequestAuthorization(
+  response: Extract<PluginActionResponse, { kind: "authorization_required" }>
+) {
+  outLine(`Plugin request: ${response.request.state}`);
+  if (response.request.state === "pending") {
     outLine(
       "Open your Inbox in OpenMeld and review “Confirm a Plugin action.” After approval, repeat this command with the same operation ID. No new operation has run."
     );
+  } else {
+    outLine(
+      "This request cannot authorize an operation. Open your Inbox to see its status. Only start a new request if the owner asks you to proceed."
+    );
+  }
+}
+
+function renderPluginResponse(response: PluginActionResponse) {
+  if (response.kind === "authorization_required") {
+    renderRequestAuthorization(response);
     return;
   }
   if (response.kind === "connection_guidance") {
