@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-03T08:47:49.075Z",
+  "updatedAt": "2026-10-03T09:10:28.163Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
-      "packageVersion": "0.3.238",
+      "packageVersion": "0.3.239",
       "updatePolicy": "available",
-      "reason": "Task knowledge and direct-message tools match the strict controller catalog"
+      "reason": "Task knowledge and direct-message tools match the strict controller catalog; retain current-main rollout prerequisites"
     },
     "service": {
-      "bundleHash": "332ed860f8532bd856f791621eaf3215cb873e6a6e210e5956abc7323db226a0",
-      "portableBundleHash": "a55c03866a4ac178f1c7290824e3f8146154e408629253a31d20899b88d6fdce",
-      "bundleVersion": "0.3.238",
+      "bundleHash": "2cc1c247ed989fa214309dcfdca75a126b0a62869423f3b109c3dca53decbe7b",
+      "portableBundleHash": "931fe8e83ae505bcde49ce6287570d81bb1123810f0710578ce2ce3d1aea45e7",
+      "bundleVersion": "0.3.239",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
       "serviceContractVersion": "openmeld-service-contract-2026-09-local-install-recovery-v1",
       "updatePolicy": "available",
@@ -22,7 +22,7 @@
       "skillContractVersion": "openmeld-skills-contract-2026-09-explicit-space-recipients-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Add task-scoped approved document reads and pinned Skill discovery without changing existing Wake or action contracts."
+      "reason": "The revised guide and DM commands require CLI 0.3.238, while existing Skills remain usable. Publish the matching CLI before distributing the new Skill to local users."
     }
   }
 }

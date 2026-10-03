@@ -928,3 +928,28 @@ Changelog build/check, exact-base `git diff --check`, commit hooks, and manifest
 verification after the integration commit passed. The previous independent
 approval was reported by Center for source `e5cdc6be`; it does not approve this
 new integration automatically.
+
+### Release-Only Main Advance During Closeout
+
+At the final remote-ref check, main had advanced to
+`f75bb375a68dcb3a35b475b6fa89e07141b1396d` through release PR #1478. Its diff from
+the first integration base contains only the Desktop package version, CLI
+package version/date, and local-component manifest. No product source changed.
+The branch also merges this fixed base, retains Desktop 0.1.18 and main's
+managed-Skill rollout prerequisite, and rebuilds/stamps CLI/Service **0.3.239**
+as available candidates. The earlier 0.3.238 candidate is superseded, not
+published by this task. Required floors remain unchanged.
+
+`pnpm release:local-components stamp --version 0.3.239 --base
+f75bb375a68dcb3a35b475b6fa89e07141b1396d --cli available ... --service available ...`
+rebuilt all 22 package tasks and verified the manifest. Against that exact base,
+`pnpm check:affected -- --concurrency=2` passed 53/53 tasks (51 cached), and
+`pnpm verify:release-ready` passed all 65 contracts and manifest verification.
+Logs are `dev-tmp/knowledge-release-main-stamp.log`,
+`knowledge-release-main-affected.log`, and `knowledge-release-main-ready.log`.
+This metadata-only integration does not require repeating the unchanged product
+behavior or historical model smoke. A source comparison also confirms main did
+not alter the memory, document or Skill Core owners between the historical base
+and this new base. Strict docs and exact-base diff checks passed again. No dev
+process was started; ports 30240–30244 had no listener at the closeout check.
+The independent review and external dev admission requirements above remain.
