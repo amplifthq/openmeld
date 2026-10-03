@@ -1,5 +1,9 @@
 import * as z from "zod/v4";
 import {
+  localExecutionInputRequestSchema as executionInputRequest,
+  localExecutionInputResponseSchema as executionInputResponse,
+} from "./local-execution-input";
+import {
   openMeldDaemonCancelPayloadSchema,
   openMeldDaemonCancelRequestPayloadSchema,
   openMeldDaemonConversationExecutionStatusPayloadSchema,
@@ -262,6 +266,15 @@ export const serviceExecutionHostMethods = {
   interrupt: {
     input: openMeldDaemonInterruptRequestPayloadSchema,
     output: openMeldDaemonInterruptPayloadSchema,
+  },
+  executionInput: {
+    input: z.strictObject({
+      operation: z.enum(["apply", "read"]),
+      connectionGeneration: z.number().int().positive(),
+      leaseEpoch: z.number().int().positive(),
+      request: executionInputRequest,
+    }),
+    output: executionInputResponse,
   },
   conversationStatus: {
     input: openMeldDaemonConversationExecutionStatusRequestPayloadSchema,

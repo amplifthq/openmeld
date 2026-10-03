@@ -76,6 +76,10 @@ export type {
   SpaceFileUpdateSettingsCommand,
 } from "../schemas/http/space-file-update-settings";
 export type {
+  SpaceInputQueueMutation,
+  SpaceInputQueueResponse,
+} from "../schemas/http/space-input-queue";
+export type {
   CenterAgentSetReplyPlacementInput,
   NativeReplyPlacement,
   ResolveNativeReplyPlacementInput,

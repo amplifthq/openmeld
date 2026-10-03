@@ -379,6 +379,7 @@ export {
   uploadSpaceAttachment,
   uploadSpaceFile,
 } from "./space";
+export { readOrUpdateSpaceInputQueue } from "./space/input-queue";
 export {
   readOrUpdateSpaceFilePins,
   readOrUpdateSpaceMessagePins,

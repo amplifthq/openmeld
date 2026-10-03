@@ -24,6 +24,7 @@ import { registerDispatchTraceRoutes } from "./rpc-http.dispatch-trace";
 import { registerExecutionRecoveryRoutes } from "./rpc-http.execution-recovery";
 import { registerFileRootRoutes } from "./rpc-http.file-roots";
 import { registerInboxRoutes } from "./rpc-http.inbox";
+import { registerSpaceInputQueueRoutes } from "./rpc-http.input-queue";
 import { registerLocalRuntimeExpectedRoutesRoutes } from "./rpc-http.local-runtime-expected-routes";
 import { registerMessageChannelRoutes } from "./rpc-http.message-channels";
 import { registerMessageDetailsRoutes } from "./rpc-http.message-details";
@@ -100,6 +101,7 @@ export function registerRpcHttpRoutes(app: Hono<HonoBindings>): void {
   registerDispatchTraceRoutes(app);
   registerMetaRoutes(app);
   registerMessagePinRoutes(app);
+  registerSpaceInputQueueRoutes(app);
   registerContractRoutes(app);
   registerUpdatesRoutes(app);
   registerMessageDetailsRoutes(app);

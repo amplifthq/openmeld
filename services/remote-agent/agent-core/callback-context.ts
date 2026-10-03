@@ -608,6 +608,7 @@ export type RemoteAgentCoreWorkerBinding = {
   centerAgentReadSpaceContext?(input: unknown): Promise<unknown>;
   centerAgentReadSpaceWakeProgress?(input: unknown): Promise<unknown>;
   centerAgentStopSpaceWake?(input: unknown): Promise<unknown>;
+  centerAgentSpaceInputQueue?(input: unknown): Promise<unknown>;
   centerAgentRecordConnectorActionAudit?(
     input: CenterAgentRecordConnectorActionAuditBody & {
       context: OpenMeldRequestContext;
