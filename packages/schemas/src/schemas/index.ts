@@ -12,7 +12,6 @@ export {
   remoteAiUsageWriteResponseSchema,
   remoteAiUsageWriteSchema,
 } from "./ai-usage";
-
 export {
   SERVICE_CONNECTION_ID_QUERY_PARAMETER,
   serviceConnectionDiagnosticIdSchema,
@@ -28,6 +27,10 @@ export {
   serviceConnectionIncidentsResponseSchema,
 } from "./daemon/service-connection-evidence";
 export { agentActivityOverviewResponseSchema } from "./http/agent-activity-overview";
+export {
+  agentWorkloadSnapshotSchema,
+  spaceAgentWorkloadInputSchema,
+} from "./http/agent-workload";
 export {
   centerAgentEvidenceSourceSpaceSchema,
   centerAgentReadAuditJournalResponseSchema,
@@ -2394,6 +2397,10 @@ export {
   uploadSpaceFileResponseSchema,
 } from "./http/space-files";
 export {
+  spaceInputQueueMutationSchema,
+  spaceInputQueueResponseSchema,
+} from "./http/space-input-queue";
+export {
   addCenterAgentToSpaceBodySchema,
   addOrganizationDirectoryProfilesToSpaceBodySchema,
   leaveSpaceResponseSchema,
@@ -2932,6 +2939,10 @@ export {
   agentControllerUsageLimitStatusSchema,
   agentControllerUsageLimitsSchema,
 } from "./runtime/agent-controller-interface";
+export {
+  agentExecutionSteerRequestSchema,
+  agentExecutionSteerResponseSchema,
+} from "./runtime/agent-execution-steer";
 export {
   AGENT_TASK_COORDINATION_SCHEMA_VERSION,
   agentDelegationBarrierSchema,

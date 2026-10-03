@@ -196,6 +196,8 @@ import {
   SPACE_TASK_TITLE_MAX_CHARS,
   setAgentProfileCreationApprovalPreferenceResponseSchema,
   setOrganizationWorkingLanguagePreferenceBodySchema,
+  spaceInputQueueMutationSchema,
+  spaceInputQueueResponseSchema,
   spaceTaskMutationReceiptSchema,
   startCenterAgentMemberResearchResponseSchema,
   submitFeedbackIssueRequestSchema,
@@ -1330,6 +1332,37 @@ const readSpaceWakeProgressToolInputSchema = strictObject({
   spaceId: trimmedNonEmptyStringSchema,
   targetProfileId: optional(trimmedNonEmptyStringSchema),
 });
+const inputQueueTarget = strictObject({
+  dispatchId: trimmedNonEmptyStringSchema,
+  targetProfileId: trimmedNonEmptyStringSchema,
+});
+const spaceInputQueueToolInputSchema = strictObject({
+  spaceId: trimmedNonEmptyStringSchema,
+  mutation: optional(
+    union([
+      strictObject({
+        action: literal("enqueue"),
+        inputId: trimmedNonEmptyStringSchema,
+        target: inputQueueTarget,
+        text: pipe(string(), trim(), minLength(1), maxLength(MAX_TEXT_LENGTH)),
+      }),
+      strictObject({
+        action: literal("steer"),
+        inputId: trimmedNonEmptyStringSchema,
+        target: inputQueueTarget,
+      }),
+      strictObject({
+        action: literal("delete"),
+        inputId: trimmedNonEmptyStringSchema,
+      }),
+      strictObject({
+        action: literal("reorder"),
+        expectedIds: pipe(array(trimmedNonEmptyStringSchema), maxLength(50)),
+        orderedIds: pipe(array(trimmedNonEmptyStringSchema), maxLength(50)),
+      }),
+    ])
+  ),
+});
 const stopSpaceWakeToolInputSchema = strictObject({
   spaceId: trimmedNonEmptyStringSchema,
   target: union([
@@ -1457,6 +1490,7 @@ export const REMOTE_AGENT_OPENMELD_TOOL_NAMES = [
   "openmeld_list_active_space_wakes",
   "openmeld_read_space_wake_progress",
   "openmeld_stop_space_wake",
+  "openmeld_space_input_queue",
   "openmeld_list_projects",
   "openmeld_create_project",
   "openmeld_update_project",
@@ -3229,6 +3263,37 @@ export function getRemoteAgentOpenMeldToolDefinitions(
               ? { speakerMember: toolContext.speakerMember }
               : {}),
             spaceId: request.spaceId,
+          })
+        );
+      },
+    }),
+    toolDefinition({
+      name: "openmeld_space_input_queue",
+      description:
+        "Read or manage the verified current requester's own queued messages in a Space. Omit mutation to read. Enqueue plain text with a stable inputId and the exact dispatchId/targetProfileId from Wake progress. Steer only explicitly when requested; it updates that existing execution, never starts a new Wake. Delete only removes a pending message; reorder uses the last observed pending IDs. Unknown or unconfirmed delivery stays held: never resend with a new ID. Supported targets are Center DM and Codex Local executions; no owner or Organization-role fallback is allowed.",
+      input: spaceInputQueueToolInputSchema,
+      execute: async (payload) => {
+        const request = parseValibot(spaceInputQueueToolInputSchema, payload);
+        const toolContext = await buildOrganizationMemberToolContext({
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_space_input_queue",
+        });
+        const rpc = requireCoreRpc(
+          input.coreWorker.centerAgentSpaceInputQueue,
+          "centerAgentSpaceInputQueue"
+        );
+        return spaceInputQueueResponseSchema.parse(
+          await rpc({
+            ...toolContext,
+            spaceId: request.spaceId,
+            ...(request.mutation
+              ? {
+                  mutation: spaceInputQueueMutationSchema.parse(
+                    request.mutation
+                  ),
+                }
+              : {}),
           })
         );
       },

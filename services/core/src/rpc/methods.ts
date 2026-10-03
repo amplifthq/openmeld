@@ -362,6 +362,7 @@ import type {
   AgentProfileExecutionModeResponse,
   AgentStreamToolPart,
   AgentTaskCompletionCondition,
+  AgentWorkloadSnapshot,
   ArchiveProjectRpcInput,
   CenterAgentAction,
   CenterAgentAddAgentProfilesToSpaceBody,
@@ -672,6 +673,7 @@ import type {
   SpaceAccessMode,
   SpaceAccessModeState,
   SpaceAgentStreamTerminal,
+  SpaceAgentWorkloadInput,
   SpaceAttachmentDescriptor,
   SpaceBoardResponse,
   SpaceBoardRoomProjection,
@@ -689,6 +691,8 @@ import type {
   SpaceHistoryNavigation,
   SpaceHistoryNavigationQuery,
   SpaceIdentityDirectory,
+  SpaceInputQueueMutation,
+  SpaceInputQueueResponse,
   SpaceLinkJoinPolicy,
   SpaceMemberDirectory,
   SpaceMembersSnapshot,
@@ -765,6 +769,7 @@ import { readAgentProfileUsage } from "../agent-execution/application/agent-prof
 import { acceptProviderConversationProofRecord } from "../agent-execution/infrastructure/d1/provider-conversation-proof-repo";
 import { projectOrganizationDirectoryAgentProfileOperationalContext } from "../agent-profile/application/agent-profile-operational-context";
 import { resolveAgentProfileWorkRecoveryAuthScope } from "../agent-profile/application/agent-profile-work-recovery-auth-scope";
+import { combineAgentWorkloads } from "../agent-profile/application/agent-workload";
 import {
   type AgentProfileBindingCommandResult,
   AgentProfileBindingModelSelectionValidationError,
@@ -1267,6 +1272,7 @@ import {
   countDirectMessageSpacesForPair,
   listAccountSpaceIdsFromSpaceIndex,
   listAccountSpacesFromSpaceIndex,
+  listAgentWorkloadSpaceIds,
   listOrganizationSpacesFromSpaceIndex,
   listSpaceIndexTargetProfileNameSnapshots,
   readCenterAgentDirectMessageProjectionCandidateByPairKey,
@@ -1973,6 +1979,10 @@ type SpaceRpcStub = DurableObjectStub<Space> & {
   rpcMessagePins(
     input: SpaceMessagePinsInput
   ): Promise<SpaceMessagePinsResponse>;
+  rpcInputQueue(input: SpaceInputQueueInput): Promise<SpaceInputQueueResponse>;
+  rpcAgentWorkload(
+    input: SpaceAgentWorkloadInput
+  ): Promise<AgentWorkloadSnapshot>;
   rpcListTasks(input: ListSpaceTasksInput): Promise<ListSpaceTasksResponse>;
   rpcGetTask(input: GetSpaceTaskInput): Promise<SpaceTaskResponse>;
   rpcCreateTask(input: CreateSpaceTaskInput): Promise<SpaceTaskMutationReceipt>;
@@ -3218,6 +3228,7 @@ export type GetCurrentOrganizationProfileDirectoryInput =
   };
 
 export type GetCurrentOrganizationAgentRuntimeOverviewInput = {
+  workloadProfileId?: string;
   includeUsageLimits?: boolean;
   agentProfileWorkRecoveryVersion?: 2;
   includeTaskActivity?: boolean;
@@ -3735,6 +3746,12 @@ export type CenterAgentStopSpaceWakeInput =
   CenterAgentReadOrganizationSpaceDirectoryInput & {
     body: PostSpaceWakeStopBody;
     spaceId: string;
+  };
+
+export type CenterAgentSpaceInputQueueInput =
+  CenterAgentReadOrganizationSpaceDirectoryInput & {
+    spaceId: string;
+    mutation?: SpaceInputQueueMutation;
   };
 
 export type OpenCenterAgentDirectMessageSpaceInput = {
@@ -6734,11 +6751,24 @@ export async function rpcGetCurrentOrganizationAgentRuntimeOverview(
   });
   const generatedAt = new Date().toISOString();
   const organizationId = activeOrganization.organizationId;
-  const eligibleAgentProfiles = await resolveEligibleOrganizationAgentProfiles({
-    env,
-    organizationId,
-    requestId: context.actorContext.requestId,
-  });
+  const allEligibleAgentProfiles =
+    await resolveEligibleOrganizationAgentProfiles({
+      env,
+      organizationId,
+      requestId: context.actorContext.requestId,
+    });
+  const eligibleAgentProfiles = input.workloadProfileId
+    ? allEligibleAgentProfiles.filter(
+        (profile) => profile.profileId === input.workloadProfileId
+      )
+    : allEligibleAgentProfiles;
+  if (input.workloadProfileId && eligibleAgentProfiles.length === 0) {
+    throw createCoreRpcHttpError({
+      status: 404,
+      code: "profile.not_found",
+      reason: "Agent not found in this Organization.",
+    });
+  }
   const response = await resolveOrganizationAgentRuntimeOverview({
     includeUsageLimits: input.includeUsageLimits,
     agentProfileWorkRecoveryVersion: input.agentProfileWorkRecoveryVersion,
@@ -6749,6 +6779,44 @@ export async function rpcGetCurrentOrganizationAgentRuntimeOverview(
     viewerUserId: activeOrganization.userId,
   });
   let result = response;
+  if (input.workloadProfileId) {
+    let workload: AgentWorkloadSnapshot;
+    try {
+      const spaceIds = await listAgentWorkloadSpaceIds({
+        db: requireSpaceIndexDb(env),
+        organizationId,
+        profileId: input.workloadProfileId,
+      });
+      const snapshots = await mapWithConcurrency(
+        spaceIds,
+        ORGANIZATION_AGENT_RUNTIME_PROFILE_CONCURRENCY,
+        async (spaceId) => {
+          const { stub } = resolveRpcSpaceStubOrThrow(env, spaceId);
+          return await stub.rpcAgentWorkload({
+            spaceId,
+            organizationId,
+            targetProfileId: input.workloadProfileId as string,
+            context: { ...context, activeOrganizationId: organizationId },
+          });
+        }
+      );
+      workload = combineAgentWorkloads(snapshots);
+    } catch (error) {
+      console.warn("[core.agent_workload.unavailable]", {
+        organizationId,
+        profileId: input.workloadProfileId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      workload = { status: "unavailable" };
+    }
+    result = {
+      ...result,
+      agentProfiles: result.agentProfiles.map((profile) => ({
+        ...profile,
+        workload,
+      })),
+    };
+  }
   if (input.includeTaskActivity === true) {
     const db = wakeEvidenceDb(env);
     if (!db) {
@@ -6756,7 +6824,7 @@ export async function rpcGetCurrentOrganizationAgentRuntimeOverview(
     }
     result = await withOrganizationAgentTaskActivity({
       db,
-      overview: response,
+      overview: result,
     });
   }
   console.info("[core.organization_agent_runtime_overview.read]", {
@@ -14644,6 +14712,65 @@ export async function rpcCenterAgentStopSpaceWake(
     body: input.body,
     context: prepared.representedContext,
     spaceId: input.spaceId,
+  });
+}
+
+export async function rpcCenterAgentSpaceInputQueue(
+  env: CoreBindings,
+  input: CenterAgentSpaceInputQueueInput
+): Promise<SpaceInputQueueResponse> {
+  // Resolve the verified originating member on EVERY invocation. The Agent's
+  // Organization role or owner account is never substituted for this member.
+  const prepared = await prepareCenterAgentOrganizationMemberRead(env, input);
+  await requireCenterAgentSpaceInActiveOrganization({
+    authorization: prepared.authorization,
+    env,
+    spaceId: input.spaceId,
+  });
+  if (!(prepared.representedContext && prepared.sourceNativeDeliveryId)) {
+    throw createCoreRpcHttpError({
+      status: 403,
+      code: "center_agent.input_requester_required",
+      reason: "Queued messages require a verified current requester.",
+    });
+  }
+  const delivery = await readRemoteAgentNativeDeliveryBySubmissionId({
+    db: wakeEvidenceDb(env) ?? requireCenterAgentDb(env),
+    submissionId:
+      requireRpcContext(input.context).agentControllerConversationId ?? "",
+  });
+  const sender = delivery?.executionRecoverySubmitRequest?.turnEnvelope.sender;
+  if (
+    sender?.kind !== "member" ||
+    !sender.verified ||
+    sender.profileId !==
+      prepared.representedContext.actorContext.openMeldProfileId ||
+    sender.ownerUserId !== prepared.representedContext.actorContext.ownerUserId
+  ) {
+    throw createCoreRpcHttpError({
+      status: 403,
+      code: "center_agent.input_requester_required",
+      reason: "Queued messages require a verified interactive requester.",
+    });
+  }
+  await writeCenterAgentAuditEntry({
+    action: "manage_space_input_queue",
+    authorization: prepared.authorization,
+    onBehalfOfProfileId:
+      prepared.representedContext.actorContext.openMeldProfileId,
+    sourceNativeDeliveryId: prepared.sourceNativeDeliveryId,
+    sourceSpaceId: input.spaceId,
+    resource: {
+      type: "space_input_queue",
+      id: `${input.spaceId}:${input.mutation?.action ?? "read"}:${input.mutation && "inputId" in input.mutation ? input.mutation.inputId : ""}`,
+    },
+  });
+  // Space applies its ordinary writable membership and original-message-author
+  // checks. This identity resolution is not a Stop or Organization-wide grant.
+  return rpcSpaceInputQueue(env, {
+    spaceId: input.spaceId,
+    mutation: input.mutation,
+    context: prepared.representedContext,
   });
 }
 
@@ -25811,6 +25938,19 @@ export type SpaceMessagePinsInput = GetSpaceMetaInput & {
 export type SpaceFilePinsInput = GetSpaceMetaInput & {
   mutation?: SpaceFilePinMutation;
 };
+
+export type SpaceInputQueueInput = GetSpaceMetaInput & {
+  mutation?: SpaceInputQueueMutation;
+};
+
+export async function rpcSpaceInputQueue(
+  env: CoreBindings,
+  input: SpaceInputQueueInput
+): Promise<SpaceInputQueueResponse> {
+  const context = requireRpcContext(input.context);
+  const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  return await stub.rpcInputQueue({ ...input, spaceId, context });
+}
 
 export type ListSpaceTasksInput = GetSpaceMetaInput & {
   phase?: SpaceTaskPhase;

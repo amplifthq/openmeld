@@ -2996,13 +2996,15 @@ open the exact same Agent.
 The selected Agent’s right-hand detail uses the same Profile Details section
 model, permissions, queries, mutations, execution-target locks, and diagnostic
 facts as the existing About and edit surfaces. Read-only detail is the default.
-Its Agent Profile Operational Context includes one **Activity** section. Owners
-and other members see the same compact workload copy, for example
-**Active task · 3 queued**. A Work Coordinator slot is not proof that the
-provider is generating. Selecting a disclosed work location opens its Space:
-the owner may see the current Space and queued task references, while another
-member sees only neutral working and queue-count facts. Neither view infers work
-from Agent Activity, browser timers, or message age.
+Its existing **Current activity** section combines Space-owned Wake progress and
+pending input across that Agent's Organization conversations. Owners and other
+members see the same compact counts, for example **1 active · 3 queued**.
+Each viewer sees source text and navigation only for conversations they can
+access; other conversations contribute neutral counts. Owning an Agent alone
+does not reveal its private conversations. A Work Coordinator slot is not proof
+that the provider is generating. This read-only presentation does not add a
+second execution queue or grant mutation access. Neither view infers work from
+Agent Activity, browser timers, or message age.
 If interrupted work needs attention, only the owner sees **Skip interrupted
 work** in this Activity section. The action resolves the exact current recovery
 gate and lets the oldest queued Wake continue; repeating it is harmless. Web

@@ -169,6 +169,7 @@ import {
 	type SpaceHistoryNavigationController,
 	useSpaceHistoryNavigation,
 } from "./use-space-history-navigation";
+import { useSpaceInputQueue } from "./use-space-input-queue";
 import {
 	addSetValue,
 	areWakeProgressItemsEqual,
@@ -420,8 +421,9 @@ function buildComposerFileSubmission(input: {
 	};
 }
 
-function resolveCenterAgentExecutionInput(input: {
+function resolveQueuedExecutionInput(input: {
 	centerAgentProfileId?: string | null;
+	members: SpaceMembersSnapshot | null;
 	activationTargets: readonly string[];
 	hasFiles: boolean;
 	items: readonly Pick<
@@ -429,13 +431,26 @@ function resolveCenterAgentExecutionInput(input: {
 		"terminal" | "dispatchId" | "targetProfileId"
 	>[];
 }) {
-	if (!input.centerAgentProfileId || input.hasFiles) {
+	const localProfileIds =
+		input.members?.agents
+			.filter((agent) => agent.agentControllerRef === "builtin:codex")
+			.map((agent) => agent.profileId) ?? [];
+	if (input.hasFiles) {
 		return undefined;
 	}
+	let targetProfileId: string | null | undefined;
+	if (input.activationTargets.length === 1) {
+		targetProfileId = input.activationTargets[0];
+	} else if (input.activationTargets.length === 0) {
+		targetProfileId = input.centerAgentProfileId;
+		if (!targetProfileId && localProfileIds.length === 1) {
+			targetProfileId = localProfileIds[0];
+		}
+	}
 	if (
-		input.activationTargets.some(
-			(profileId) => profileId !== input.centerAgentProfileId
-		)
+		!targetProfileId ||
+		(targetProfileId !== input.centerAgentProfileId &&
+			!localProfileIds.includes(targetProfileId))
 	) {
 		return undefined;
 	}
@@ -443,7 +458,7 @@ function resolveCenterAgentExecutionInput(input: {
 		(item) =>
 			!item.terminal &&
 			item.dispatchId &&
-			item.targetProfileId === input.centerAgentProfileId
+			item.targetProfileId === targetProfileId
 	);
 	const response = responses.length === 1 ? responses[0] : undefined;
 	return response?.dispatchId
@@ -458,9 +473,6 @@ function buildNormalMessagePostInput(input: {
 	contextSelection?: SpaceComposerSendOptions["contextSelection"];
 	deviceWait?: SpaceComposerSendOptions["deviceWait"];
 	restoredFromSignalId?: string;
-	centerAgentExecutionInput?: NonNullable<
-		TextSignalEnvelope["data"]["meta"]
-	>["centerAgentExecutionInput"];
 	files: readonly SpaceMessageFileReference[];
 	clientMessageId: string;
 	messageEnvelope: TextSignalEnvelope["data"]["messageEnvelope"] | null;
@@ -475,9 +487,6 @@ function buildNormalMessagePostInput(input: {
 		meta: {
 			...(input.restoredFromSignalId
 				? { restoredFromSignalId: input.restoredFromSignalId }
-				: {}),
-			...(input.centerAgentExecutionInput
-				? { centerAgentExecutionInput: input.centerAgentExecutionInput }
 				: {}),
 			clientMessageId: input.clientMessageId,
 			authorHasRead: true as const,
@@ -1623,6 +1632,11 @@ export function useSpaceLandingController(input: {
 	>(null);
 	const navigate = useNavigate();
 	const queryClient = useQueryClient();
+	const inputQueue = useSpaceInputQueue({
+		spaceId: input.spaceId,
+		profileId: input.profileId,
+		enabled: input.spaceId.length > 0,
+	});
 	const wakeProgressPresentationQuery = useQuery(
 		spaceWakeProgressPresentationQueryOptions({
 			spaceId: input.spaceId,
@@ -2968,6 +2982,44 @@ export function useSpaceLandingController(input: {
 					),
 				};
 			pendingSubmission = preparedSubmission;
+			const queueTarget = resolveQueuedExecutionInput({
+				centerAgentProfileId: input.centerAgentProfileId,
+				members: membersSnapshot,
+				activationTargets:
+					preparedSubmission.messageEnvelope?.activationTargets ?? [],
+				hasFiles:
+					(options?.retryFiles ?? pendingFiles ?? composerFilesController.files)
+						.length > 0,
+				items: presentedWakeProgressItems,
+			});
+			if (
+				queueTarget &&
+				!preparedSubmission.messageEnvelope?.replyToSignalId &&
+				!preparedSubmission.contextSelection &&
+				!preparedSubmission.deviceWait
+			) {
+				try {
+					await ensureEntryConfirmed();
+					await inputQueue.enqueue({
+						action: "enqueue",
+						inputId: messageSeed.clientMessageId,
+						target: queueTarget,
+						text: preparedSubmission.text,
+					});
+					postedMessage = true;
+					mentionAuthoring.recordPendingSubmission(messageSeed.createdAtMs);
+					mentionAuthoring.recordSuccessfulSubmission(preparedSubmission);
+					options?.onMessageStaged?.(messageSeed.clientMessageId);
+					setComposerErrorMessage(null);
+				} catch (error) {
+					setComposerErrorMessage(
+						error instanceof Error
+							? error.message
+							: "Couldn't queue this message. Your draft is still here."
+					);
+				}
+				return;
+			}
 			submittedFiles =
 				options?.retryFiles ??
 				composerSession.recordPendingSubmission({
@@ -3172,38 +3224,21 @@ export function useSpaceLandingController(input: {
 		preparedSubmission: PreparedSpaceMessageSubmission;
 		status: GetSpaceStatusResponse | null;
 	}) {
-		const centerAgentExecutionInput = resolveCenterAgentExecutionInput({
-			centerAgentProfileId: input.centerAgentProfileId,
-			activationTargets:
-				sendInput.preparedSubmission.messageEnvelope?.activationTargets ?? [],
-			hasFiles:
-				(sendInput.files?.length ?? sendInput.composerFiles?.length ?? 0) > 0,
-			items: presentedWakeProgressItems,
-		});
 		const explicitActivationTargets =
 			sendInput.preparedSubmission.messageEnvelope?.activationTargets ?? [];
-		const wakeProgressTargetProfileIds = centerAgentExecutionInput
-			? []
-			: resolveComposerWakeProgressTargetProfileIds({
-					explicitActivationTargets,
-					explicitReferenceTargets:
-						sendInput.preparedSubmission.messageEnvelope?.referenceTargets,
-					membersSnapshot,
-					senderProfileId: input.profileId,
-					status: sendInput.status,
-				});
+		const wakeProgressTargetProfileIds =
+			resolveComposerWakeProgressTargetProfileIds({
+				explicitActivationTargets,
+				explicitReferenceTargets:
+					sendInput.preparedSubmission.messageEnvelope?.referenceTargets,
+				membersSnapshot,
+				senderProfileId: input.profileId,
+				status: sendInput.status,
+			});
 		// An implicit Direct Message Wake drives progress, but is not an authored
 		// @Agent target and must not appear in the optimistic message body.
-		const pendingMessageEnvelope = centerAgentExecutionInput
-			? {
-					...sendInput.preparedSubmission.messageEnvelope,
-					activationTargets: [],
-					referenceTargets:
-						sendInput.preparedSubmission.messageEnvelope?.referenceTargets ??
-						[],
-					text: sendInput.preparedSubmission.text,
-				}
-			: (sendInput.preparedSubmission.messageEnvelope ?? null);
+		const pendingMessageEnvelope =
+			sendInput.preparedSubmission.messageEnvelope ?? null;
 		const pendingOutgoingSignal = createPendingOutgoingSignal({
 			composerFiles: sendInput.composerFiles,
 			files: sendInput.files,
@@ -3237,7 +3272,6 @@ export function useSpaceLandingController(input: {
 		);
 
 		return {
-			centerAgentExecutionInput,
 			pendingMessageEnvelope,
 			wakeProgressTargetProfileIds,
 		};
@@ -3253,11 +3287,8 @@ export function useSpaceLandingController(input: {
 	}): Promise<void> {
 		let postedMessage = false;
 		try {
-			const {
-				centerAgentExecutionInput,
-				pendingMessageEnvelope,
-				wakeProgressTargetProfileIds,
-			} = stagePreparedSpaceMessage(sendInput);
+			const { wakeProgressTargetProfileIds } =
+				stagePreparedSpaceMessage(sendInput);
 			const spaceApi = createUnscopedWebSpaceApi({
 				openMeldProfileId: input.profileId,
 			});
@@ -3265,12 +3296,9 @@ export function useSpaceLandingController(input: {
 				contextSelection: sendInput.preparedSubmission.contextSelection,
 				deviceWait: sendInput.preparedSubmission.deviceWait,
 				restoredFromSignalId: sendInput.preparedSubmission.restoredFromSignalId,
-				centerAgentExecutionInput,
 				files: sendInput.files,
 				clientMessageId: sendInput.clientMessageId,
-				messageEnvelope: centerAgentExecutionInput
-					? pendingMessageEnvelope
-					: sendInput.preparedSubmission.messageEnvelope,
+				messageEnvelope: sendInput.preparedSubmission.messageEnvelope,
 				spaceId: input.spaceId,
 				text: sendInput.preparedSubmission.text,
 			});

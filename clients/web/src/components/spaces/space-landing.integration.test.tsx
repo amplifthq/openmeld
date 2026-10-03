@@ -4,6 +4,7 @@ import {
 	createOpenMeldApiClient,
 	createSpaceApi,
 	OpenMeldApiClientHttpError,
+	readOrUpdateSpaceInputQueue,
 } from "@openmeld/api-client";
 import { SPACE_STREAM_KEEPALIVE_PING } from "@openmeld/protocol";
 import {
@@ -316,6 +317,7 @@ vi.mock("@openmeld/api-client", async () => {
 		...actual,
 		createDirectMessageApi: (...args: unknown[]) =>
 			createDirectMessageApiMock(...args),
+		readOrUpdateSpaceInputQueue: vi.fn(async () => ({ items: [] })),
 	};
 });
 
@@ -332,6 +334,7 @@ vi.mock("@tanstack/react-query", async () => {
 	// mocked download API, including the optimistic local-preview phase.
 	const usesRealQuery = (queryKey: unknown) =>
 		isWakeProgressPresentationQuery(queryKey) ||
+		(Array.isArray(queryKey) && queryKey[0] === "space-input-queue") ||
 		(Array.isArray(queryKey) && queryKey[0] === "space-link-previews") ||
 		(Array.isArray(queryKey) &&
 			queryKey[0] === "spaces" &&
@@ -3854,7 +3857,10 @@ describe("SpaceLanding", () => {
 		});
 	});
 
-	it("sends a Center Agent correction to a running response confirmed by Core", async () => {
+	it.each([
+		"Center",
+		"Local",
+	] as const)("queues text during a confirmed %s response without publishing or steering it", async (controller) => {
 		vi.stubGlobal(
 			"IntersectionObserver",
 			class {
@@ -3899,7 +3905,8 @@ describe("SpaceLanding", () => {
 			getUpdates: vi.fn().mockResolvedValue({ signals: [] }),
 		});
 		mockSpaceQueries({
-			centerAgentProfileId: DEFAULT_AGENT_PROFILE_ID,
+			centerAgentProfileId:
+				controller === "Center" ? DEFAULT_AGENT_PROFILE_ID : null,
 			activeWakeProgressSummary: createQueryResult({
 				isSuccess: true,
 				isFetchedAfterMount: true,
@@ -3914,7 +3921,10 @@ describe("SpaceLanding", () => {
 			status: createQueryResult({ isSuccess: true, data: createSpaceStatus() }),
 			members: createQueryResult({
 				isSuccess: true,
-				data: createMembersSnapshot(),
+				data: createMembersSnapshot({
+					defaultAgentControllerRef:
+						controller === "Center" ? "hosted:center-agent" : "builtin:codex",
+				}),
 			}),
 			history: createQueryResult({
 				isSuccess: true,
@@ -3930,23 +3940,32 @@ describe("SpaceLanding", () => {
 				},
 			}),
 		});
-		renderSpaceLanding({ queryClient, isCenterAgentDirectMessage: true });
-		await setComposerValue(
-			screen.getByRole("textbox", { name: "Message Center Agent" }),
-			"Only North America."
-		);
+		renderSpaceLanding({
+			queryClient,
+			isCenterAgentDirectMessage: controller === "Center",
+		});
+		await setComposerValue(screen.getByRole("textbox"), "Only North America.");
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 		await waitFor(() =>
-			expect(postNormalMessage).toHaveBeenCalledWith(
+			expect(readOrUpdateSpaceInputQueue).toHaveBeenCalledWith(
+				expect.anything(),
 				expect.objectContaining({
-					meta: expect.objectContaining({
-						centerAgentExecutionInput: {
+					spaceId: "space-123",
+					mutation: expect.objectContaining({
+						action: "enqueue",
+						text: "Only North America.",
+						target: {
 							dispatchId: "original-dispatch",
 							targetProfileId: DEFAULT_AGENT_PROFILE_ID,
 						},
 					}),
-					messageEnvelope: expect.objectContaining({ activationTargets: [] }),
 				})
+			)
+		);
+		expect(postNormalMessage).not.toHaveBeenCalled();
+		await waitFor(() =>
+			expect(screen.getByRole("textbox").textContent).not.toContain(
+				"Only North America."
 			)
 		);
 	});
