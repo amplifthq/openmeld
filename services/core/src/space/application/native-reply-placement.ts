@@ -1,13 +1,25 @@
+import { nativeReplyPlacementSchema } from "@openmeld/schemas";
 import type {
   NativeReplyPlacement,
   ResolveNativeReplyPlacementInput,
   SpaceThreadContext,
 } from "@openmeld/schemas/types";
+import { z } from "zod/v4";
+
+// Storage-only revision; the selection RPC retains its existing wire shape.
+export const nativeReplyPlacementRecordSchema =
+  nativeReplyPlacementSchema.extend({
+    revision: z.number().int().nonnegative().optional(),
+  });
+export type NativeReplyPlacementRecord = z.infer<
+  typeof nativeReplyPlacementRecordSchema
+>;
 
 export function chooseNativeReplyPlacement(input: {
   request: ResolveNativeReplyPlacementInput;
   current: NativeReplyPlacement | null;
   directMessage: boolean;
+  oneHumanAgent?: boolean;
   sourceThread: SpaceThreadContext | null;
 }):
   | { current: NativeReplyPlacement }
@@ -28,7 +40,8 @@ export function chooseNativeReplyPlacement(input: {
     return { current };
   }
   let useThread = Boolean(
-    sourceThread || (request.defaultToThread && !input.directMessage)
+    sourceThread ||
+      (request.defaultToThread && !input.directMessage && !input.oneHumanAgent)
   );
   if (current) {
     useThread = Boolean(current.threadContext);

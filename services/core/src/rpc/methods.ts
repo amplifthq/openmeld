@@ -2743,6 +2743,7 @@ export type GetSpaceWakeProgressInput = {
   clientMessageId: string;
   includePreviewText?: boolean;
   includeTiming?: boolean;
+  includeReplyPlacement?: boolean;
   includeSourceContext?: boolean;
   includeWaitReason?: boolean;
   includeWakeStopEligibility?: boolean;
@@ -2758,6 +2759,7 @@ export type GetActiveSpaceWakeProgressInput = {
   includePageInfo?: boolean;
   includePreviewText?: boolean;
   includeTiming?: boolean;
+  includeReplyPlacement?: boolean;
   includeSourceContext?: boolean;
   includeWaitReason?: boolean;
   includeWakeStopEligibility?: boolean;
@@ -21893,6 +21895,9 @@ export async function rpcGetSpaceWakeProgress(
     ...(input.includePreviewText === undefined
       ? {}
       : { includePreviewText: input.includePreviewText }),
+    ...(input.includeReplyPlacement === undefined
+      ? {}
+      : { includeReplyPlacement: input.includeReplyPlacement }),
     ...(input.includeSourceContext === undefined
       ? {}
       : { includeSourceContext: input.includeSourceContext }),
@@ -21931,6 +21936,9 @@ export async function rpcGetSpaceWakeProgress(
     ...(parsed.data.includePreviewText === undefined
       ? {}
       : { includePreviewText: parsed.data.includePreviewText }),
+    ...(parsed.data.includeReplyPlacement === undefined
+      ? {}
+      : { includeReplyPlacement: parsed.data.includeReplyPlacement }),
     ...(parsed.data.includeSourceContext === undefined
       ? {}
       : { includeSourceContext: parsed.data.includeSourceContext }),
@@ -21963,6 +21971,9 @@ export async function rpcGetActiveSpaceWakeProgress(
     ...(input.includePreviewText === undefined
       ? {}
       : { includePreviewText: input.includePreviewText }),
+    ...(input.includeReplyPlacement === undefined
+      ? {}
+      : { includeReplyPlacement: input.includeReplyPlacement }),
     ...(input.includeSourceContext === undefined
       ? {}
       : { includeSourceContext: input.includeSourceContext }),
@@ -22006,6 +22017,9 @@ export async function rpcGetActiveSpaceWakeProgress(
     ...(parsed.data.includePreviewText === undefined
       ? {}
       : { includePreviewText: parsed.data.includePreviewText }),
+    ...(parsed.data.includeReplyPlacement === undefined
+      ? {}
+      : { includeReplyPlacement: parsed.data.includeReplyPlacement }),
     ...(parsed.data.includeSourceContext === undefined
       ? {}
       : { includeSourceContext: parsed.data.includeSourceContext }),
@@ -26397,7 +26411,7 @@ export async function rpcCenterAgentSetReplyPlacement(
   const placement = await resolveNativeDeliveryReplyPlacement({
     env,
     delivery,
-    lock: true,
+    lock: false,
     placement: parsed.placement,
   });
   if (!placement) {

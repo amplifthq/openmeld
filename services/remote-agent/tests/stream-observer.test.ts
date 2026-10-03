@@ -1,3 +1,4 @@
+import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import type { FlueObservation } from "@flue/runtime";
 import {
   OBSERVABILITY_CLOUDFLARE_ANALYTICS_BLOBS,
@@ -236,6 +237,36 @@ describe("Center Agent stream observation", () => {
         sequence: 2,
         triggerMessageId: request.triggerMessageId,
         spaceId: request.spaceId,
+      })
+    );
+    await handleCenterAgentObservation({
+      event: {
+        ...textDeltaObservation(" Done."),
+        timestamp: new Date(TEST_NOW_MS + 1010).toISOString(),
+      },
+      resolveDependencies,
+      streamPublisher: publisher,
+    });
+    // A completed assistant message precedes prompt completion and any
+    // post-response compaction. Its buffered tail must already be visible.
+    await handleCenterAgentObservation({
+      event: {
+        agentName: "center-agent-v2",
+        eventIndex: 4,
+        submissionId: SUBMISSION_ID,
+        timestamp: new Date(TEST_NOW_MS + 1020).toISOString(),
+        type: "message_end",
+        turnId: "turn-1",
+        message: fauxAssistantMessage("The plan is ready. Done."),
+        v: 3,
+      },
+      resolveDependencies,
+      streamPublisher: publisher,
+    });
+    expect(submitRemoteAgentStreamDelta).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        snapshot: "The plan is ready. Done.",
+        sequence: 3,
       })
     );
     await expect(
