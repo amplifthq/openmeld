@@ -42,6 +42,8 @@ try {
         await snapshotCommands[command]({
           snapshot: extra[0],
           connectionString: process.env.POSTGRESQL_OPENMELD_MIGRATION_URL,
+          migrationsDirectory:
+            process.env.OPENMELD_PG_LOCAL_MIGRATIONS_DIRECTORY || undefined,
         })
       )
     );

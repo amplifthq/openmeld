@@ -137,8 +137,18 @@ and database OID. The runtime role cannot read or modify it. Its shared schema
 belongs to `packages/schemas`; it is not a runtime or cloud admission contract.
 
 `pnpm pg read-d1-import local <snapshot>` validates and reads this committed
-record without comparing current business rows. Normal startup uses this same
-owner. The external `d1-import.json` is only a checked projection, written by an
+record without comparing current business rows. Its recorded journal must be an
+unchanged, complete ordered prefix of the current canonical journal, including
+the migration that introduced completion evidence. The actual applied journal
+must match the current canonical source. Later trusted migrations may add or
+change application tables and identities; the original table/identity evidence
+remains an immutable historical fact. Import and explicit snapshot reconciliation
+still require the exact reviewed historical mapping.
+
+Normal startup uses this same owner after the canonical migrator upgrades the
+database. The local helper can pass an explicit isolated migration directory to
+both owners for upgrade tests; production targets remain unavailable and the
+default is the repository journal. The external `d1-import.json` is only a checked projection, written by an
 atomic rename; it is never independent proof of a successful commit.
 
 Use the existing development lifecycle and the following recovery boundaries:
@@ -150,8 +160,8 @@ Use the existing development lifecycle and the following recovery boundaries:
    identity restarts and completion record. Inspect the empty target before retrying the same verified
    snapshot. The real COPY interruption case exercises this boundary.
 3. If import committed but its external receipt was never written, normal
-   startup verifies the database completion record against the exact source,
-   target and native journal, then reconstructs only the external projection.
+   startup verifies the database completion record against the exact source and
+   target plus its unchanged native-journal prefix, then reconstructs only the external projection.
    The rehearsal kills the real import child before stdout; no earlier external
    receipt exists. A malformed or mismatched record or external projection keeps
    startup closed and preserves the target. A missing database record never
@@ -168,6 +178,11 @@ Use the existing development lifecycle and the following recovery boundaries:
    database retains new writes and can reconstruct a missing external projection
    from the unchanged completion record. This proves the past import committed,
    not that the current database still equals the old D1 snapshot.
+5. Normal development upgrades use the official migrator. The rehearsal appends
+   a migration in an isolated source copy, adding a table, identity and index;
+   restart with and without external JSON preserves later business writes and
+   the original completion record. Changed historical migration content or an
+   applied migration absent from the trusted source still rejects startup.
 
 The repeatable `test:d1-migration` entrypoint includes these real storage and
 development-lifecycle checks. It does not start product traffic, restore DO/R2,

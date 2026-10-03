@@ -80,8 +80,10 @@ pnpm dev:postgresql --d1-snapshot=/absolute/private/path/snapshot.sqlite
 The launcher imports into a separate `postgresql-d1-rehearsal/openmeld-pg-<sha256>`
 cluster beneath the existing lane state. It preserves the original PostgreSQL
 cluster and the lane's DO/R2 state. A transactionally stored import completion
-record must match the source, native journal and actual target before Workers
-start. Restart with the same argument to retain later product writes without
+record must match the source and actual target, with its native journal verified
+as an unchanged prefix of the current canonical migration history before Workers
+start. Normal trusted upgrades preserve the original completion evidence.
+Restart with the same argument to retain later product writes without
 reimporting. Startup can regenerate a missing external JSON projection from that
 record; missing database evidence or mismatches keep startup closed without an
 automatic reset or adoption of populated data. Import remains restricted to

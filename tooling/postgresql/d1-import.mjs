@@ -101,13 +101,13 @@ async function reconcileTable(client, database, table, columns) {
   }
 }
 
-async function verifyNativeTarget(client, catalog) {
+async function verifyNativeTarget(client, migrationsDirectory) {
   const directory = (await client.query("SHOW data_directory")).rows[0]
     .data_directory;
   if (!path.basename(path.dirname(directory)).startsWith("openmeld-pg-")) {
     throw new Error("Target must belong to a fresh pg:local cluster");
   }
-  const migrations = await readMigrations();
+  const migrations = await readMigrations(migrationsDirectory);
   const applied = (
     await client.query(
       "SELECT hash,created_at::text FROM drizzle.__drizzle_migrations ORDER BY created_at,id"
@@ -121,6 +121,10 @@ async function verifyNativeTarget(client, catalog) {
     })),
     "Target native journal mismatch"
   );
+  return { migrations, directory };
+}
+
+async function readNativeImportLayout(client, catalog) {
   const columns = (
     await client.query(
       "SELECT table_name,column_name,data_type,is_generated FROM information_schema.columns WHERE table_schema='openmeld' ORDER BY table_name,ordinal_position"
@@ -136,7 +140,7 @@ async function verifyNativeTarget(client, catalog) {
       "SELECT c.relname AS table_name,a.attname AS column_name,pg_get_serial_sequence(format('%I.%I',n.nspname,c.relname),a.attname) AS sequence FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='openmeld' AND a.attidentity<>'' ORDER BY c.relname,a.attname"
     )
   ).rows;
-  return { migrations, columns, directory, identities };
+  return { columns, identities };
 }
 
 async function importTargetIdentity(client, directory) {
@@ -148,7 +152,7 @@ async function importTargetIdentity(client, directory) {
   return { ...identity, dataDirectory: directory };
 }
 
-async function readCompletion(client, expected) {
+async function readCompletion(client, expected, migrations) {
   const { rows } = await client.query(
     "SELECT record FROM openmeld_migration.d1_import_completion"
   );
@@ -159,11 +163,33 @@ async function readCompletion(client, expected) {
   if (rows.length !== 1 || !parsed.success) {
     throw new Error("Invalid D1 import completion record; preserve the target");
   }
-  const { importId: _importId, ...binding } = parsed.data;
+  const {
+    importId: _importId,
+    identities: _identities,
+    nativeJournal,
+    ...binding
+  } = parsed.data;
   requireEqual(
     binding,
     expected,
     "D1 import completion binding mismatch; preserve the target"
+  );
+  // Completion describes the import at that time. Canonical later migrations
+  // may change application tables/identities; they must not rewrite this proof.
+  // The prefix must include the migration that introduced completion evidence.
+  if (
+    !nativeJournal.some(({ name }) => name === "0013_d1_import_completion.sql")
+  ) {
+    throw new Error(
+      "D1 import completion journal is incomplete; preserve the target"
+    );
+  }
+  requireEqual(
+    nativeJournal,
+    migrations
+      .slice(0, nativeJournal.length)
+      .map(({ name, checksum }) => ({ name, checksum })),
+    "D1 import completion journal mismatch; preserve the target"
   );
   return parsed.data;
 }
@@ -379,7 +405,10 @@ async function reconcileTables({
   return tables;
 }
 
-async function processD1Snapshot({ snapshot, connectionString }, mode) {
+async function processD1Snapshot(
+  { snapshot, connectionString, migrationsDirectory },
+  mode
+) {
   const importData = mode === "import";
   if (process.env.OPENMELD_PG_ISOLATED !== "1") {
     throw new Error("Only isolated local D1 import is enabled");
@@ -421,7 +450,7 @@ async function processD1Snapshot({ snapshot, connectionString }, mode) {
       importData ? "BEGIN" : "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY"
     );
     transaction = true;
-    const target = await verifyNativeTarget(client, catalog);
+    const target = await verifyNativeTarget(client, migrationsDirectory);
     if (importData) {
       await lockEmptyTarget(client, catalog);
     } else {
@@ -435,37 +464,38 @@ async function processD1Snapshot({ snapshot, connectionString }, mode) {
       sourceSchemaSha256: manifest.sourceSchemaSha256,
       historySha256: manifest.historySha256,
       target: await importTargetIdentity(client, target.directory),
-      nativeJournal: target.migrations.map(({ name, checksum }) => ({
-        name,
-        checksum,
-      })),
       tables: orderD1Tables(catalog).map(({ name }) => ({
         table: name,
         rows: Number(manifest.tables.find((entry) => entry.name === name).rows),
       })),
-      identities: target.identities.map(({ table_name, column_name }) => ({
-        table: table_name,
-        column: column_name,
-      })),
     };
     if (mode === "completion") {
-      const record = await readCompletion(client, binding);
+      const record = await readCompletion(client, binding, target.migrations);
       await client.query("COMMIT");
       transaction = false;
       return record;
     }
+    const layout = await readNativeImportLayout(client, catalog);
     const imported = await reconcileTables({
       client,
       database,
       catalog,
-      target,
+      target: layout,
       manifest,
       importData,
     });
-    await reconcileIdentities(client, manifest, importData, target.identities);
+    await reconcileIdentities(client, manifest, importData, layout.identities);
     const receipt = {
       ...binding,
       tables: imported,
+      nativeJournal: target.migrations.map(({ name, checksum }) => ({
+        name,
+        checksum,
+      })),
+      identities: layout.identities.map(({ table_name, column_name }) => ({
+        table: table_name,
+        column: column_name,
+      })),
       ...(importData
         ? { importId: randomUUID() }
         : {

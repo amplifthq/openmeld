@@ -509,7 +509,7 @@ test("historical D1 capture to native PG18 preserves business data and rolls bac
         evidence.cases.push(...evidence.recovery.cases);
       }
     );
-    if (evidence.cases.length !== 24) {
+    if (evidence.cases.length !== 27) {
       throw new Error(
         "Migration cases failed; no successful rehearsal receipt written"
       );

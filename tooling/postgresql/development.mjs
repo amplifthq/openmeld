@@ -162,7 +162,7 @@ export async function startDevelopmentPostgres(stateDirectory, options = {}) {
     }
     const client = await connect(owner, true);
     try {
-      await migrate(client);
+      await migrate(client, options.migrationsDirectory);
       await grantRuntime(client, "openmeld_pg_runtime");
     } finally {
       await client.end();
@@ -172,6 +172,7 @@ export async function startDevelopmentPostgres(stateDirectory, options = {}) {
         root,
         owner,
         snapshot: options.snapshot,
+        migrationsDirectory: options.migrationsDirectory,
       });
     }
     console.log(
@@ -196,9 +197,19 @@ export async function startDevelopmentPostgres(stateDirectory, options = {}) {
   }
 }
 
-async function importDevelopmentSnapshot({ root, owner, snapshot }) {
+async function importDevelopmentSnapshot({
+  root,
+  owner,
+  snapshot,
+  migrationsDirectory,
+}) {
   const receiptPath = path.join(root, "d1-import.json");
-  let receipt = runSnapshotCommand("read-d1-import", owner, snapshot);
+  let receipt = runSnapshotCommand(
+    "read-d1-import",
+    owner,
+    snapshot,
+    migrationsDirectory
+  );
   if (existsSync(receiptPath)) {
     requireEqual(
       JSON.parse(await readFile(receiptPath, "utf8")),
@@ -213,8 +224,18 @@ async function importDevelopmentSnapshot({ root, owner, snapshot }) {
     return;
   }
   if (!receipt) {
-    const imported = runSnapshotCommand("import-d1", owner, snapshot);
-    receipt = runSnapshotCommand("read-d1-import", owner, snapshot);
+    const imported = runSnapshotCommand(
+      "import-d1",
+      owner,
+      snapshot,
+      migrationsDirectory
+    );
+    receipt = runSnapshotCommand(
+      "read-d1-import",
+      owner,
+      snapshot,
+      migrationsDirectory
+    );
     requireEqual(
       imported,
       receipt,
@@ -234,7 +255,7 @@ async function importDevelopmentSnapshot({ root, owner, snapshot }) {
   }
 }
 
-function runSnapshotCommand(command, owner, snapshot) {
+function runSnapshotCommand(command, owner, snapshot, migrationsDirectory) {
   // Reuse the local-only migration owner in a child with an explicit isolated
   // environment. Credentials are never command arguments or receipt contents.
   const result = spawnSync(
@@ -252,6 +273,9 @@ function runSnapshotCommand(command, owner, snapshot) {
         ...process.env,
         OPENMELD_PG_ISOLATED: "1",
         POSTGRESQL_OPENMELD_MIGRATION_URL: owner,
+        // Same explicit canonical source as migrate(); scoped to this local
+        // child, allowing isolated upgrade fixtures without editing repo history.
+        OPENMELD_PG_LOCAL_MIGRATIONS_DIRECTORY: migrationsDirectory ?? "",
       },
     }
   );
