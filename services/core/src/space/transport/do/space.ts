@@ -282,6 +282,7 @@ import {
   getSpaceAccessPassword,
   getSpaceAccessRequestContext,
   isDirectMessageSpace,
+  isOneHumanAgentConversation,
   resolveThreadAutomaticWakeTarget,
   resolveThreadWakeContinuation,
   type SpaceAccessContext,
@@ -849,9 +850,9 @@ import {
 import { authorizeSpaceDeletion } from "../../rules/access/space-deletion-policy";
 import { authorizeSpaceMemberRemoval } from "../../rules/access/space-member-management-policy";
 import {
-  applyDirectMessageDispatchPromptContext,
-  buildDirectMessageDispatchReadyDecisions,
-} from "../../rules/dispatch/direct-message-dispatch";
+  applyAutomaticWakeDispatchPromptContext,
+  buildAutomaticWakeDispatchReadyDecisions,
+} from "../../rules/dispatch/automatic-wake-dispatch";
 import { resolveDispatchContinuitySnapshotForDecision } from "../../rules/dispatch/dispatch-continuity";
 import { isFinalOutcomeTextPurpose } from "../../rules/dispatch/space-final-outcome";
 import {
@@ -1278,11 +1279,11 @@ function createPreparedDispatchOutboxRecordForDecision(input: {
   sourceProfileNameSnapshot: string | null;
   nowMs: number;
 }): ReturnType<typeof createDispatchOutboxRecord> {
-  const directMessageSourceText = applyDirectMessageDispatchPromptContext({
+  const addressedSourceText = applyAutomaticWakeDispatchPromptContext({
     decision: input.decision,
     sourceText: input.sourceText,
   });
-  const normalizedSourceText = directMessageSourceText.trim();
+  const normalizedSourceText = addressedSourceText.trim();
   const continuitySnapshot = resolveDispatchOutboxContinuitySnapshotForTarget({
     targetProfileId: input.decision.targetProfileId,
     continuitySnapshotByTargetProfileId:
@@ -1329,7 +1330,7 @@ function createPreparedDispatchOutboxRecordForDecision(input: {
       contextMessages: input.contextMessages,
       pinnedFiles: input.pinnedFiles,
       signal: input.signal,
-      sourceText: directMessageSourceText,
+      sourceText: addressedSourceText,
       normalizedSourceText,
       senderProfileId: input.senderProfileId,
       effectiveMentionLabelByProfileId: input.effectiveMentionLabelByProfileId,
@@ -2165,6 +2166,8 @@ const readDispatchPlannerContextForSignal = (input: {
 };
 
 const evaluateDispatchPlannerDecisionsForSignal = (input: {
+  isThreadMessage?: boolean;
+  directMessageConvertedAt?: string | null;
   senderProfileId: string;
   sessions: Iterable<Session> | null;
   shouldLog?: boolean;
@@ -2183,13 +2186,14 @@ const evaluateDispatchPlannerDecisionsForSignal = (input: {
   const activeMemberRecords = listSpaceMemberRecords(input.sql, {
     status: "active",
   });
-  const agentDirectConversationDecisions =
-    buildDirectMessageDispatchReadyDecisions({
-      activeMemberRecords,
-      senderProfileId: input.senderProfileId,
-      signal: input.signal,
-      spacePurpose: input.spacePurpose,
-    });
+  const automaticWakeDecisions = buildAutomaticWakeDispatchReadyDecisions({
+    activeMemberRecords,
+    senderProfileId: input.senderProfileId,
+    signal: input.signal,
+    spacePurpose: input.spacePurpose,
+    isThreadMessage: input.isThreadMessage,
+    directMessageConvertedAt: input.directMessageConvertedAt,
+  });
   const listenAllDecisions =
     input.spaceContract.dispatchPolicy.mode === "listen_all"
       ? buildListenAllDispatchReadyDecisions({
@@ -2198,36 +2202,31 @@ const evaluateDispatchPlannerDecisionsForSignal = (input: {
           signal: input.signal,
         })
       : [];
-  const readyAndAgentDirectConversationDecisions =
-    agentDirectConversationDecisions.length > 0
-      ? mergeDispatchReadyDecisions(
-          readyDecisions,
-          agentDirectConversationDecisions
-        )
+  const readyAndAutomaticWakeDecisions =
+    automaticWakeDecisions.length > 0
+      ? mergeDispatchReadyDecisions(readyDecisions, automaticWakeDecisions)
       : readyDecisions;
   const mergedReadyDecisions =
     listenAllDecisions.length > 0
       ? mergeDispatchReadyDecisions(
-          readyAndAgentDirectConversationDecisions,
+          readyAndAutomaticWakeDecisions,
           listenAllDecisions
         )
-      : readyAndAgentDirectConversationDecisions;
+      : readyAndAutomaticWakeDecisions;
   const plannerSummary = readDispatchPlannerSignalEnvelopeSummary(input.signal);
 
   if (input.shouldLog !== false) {
     console.info("[core.openmeld.space.dispatch_planner_evaluated]", {
       plannerSource: resolveDispatchPlannerSource({
         activationTargetCount: plannerSummary.activationTargetCount,
-        agentDirectConversationApplied:
-          agentDirectConversationDecisions.length > 0,
+        automaticWakeApplied: automaticWakeDecisions.length > 0,
         listenAllApplied: listenAllDecisions.length > 0,
       }),
       messageEnvelopePresent: plannerSummary.messageEnvelopePresent,
       activationTargetCount: plannerSummary.activationTargetCount,
       referenceTargetCount: plannerSummary.referenceTargetCount,
       queuedTargetCount: mergedReadyDecisions.length,
-      agentDirectConversationTargetCount:
-        agentDirectConversationDecisions.length,
+      automaticWakeTargetCount: automaticWakeDecisions.length,
       queuedTargetProfileIdSample:
         readDispatchPlannerTargetProfileIdSample(mergedReadyDecisions),
       sourceEventId: String(input.signal.id ?? "").trim(),
@@ -7163,26 +7162,32 @@ export class Space extends DurableObject<CoreBindings> {
     });
   }
 
-  private readActiveAgentStreamSnapshots(): Promise<
+  private async readActiveAgentStreamSnapshots(): Promise<
     SpaceAgentStreamSnapshot[]
   > {
-    return listActiveAgentStreamSnapshots({
+    const streams = await listActiveAgentStreamSnapshots({
       storage: this.agentStreamProjectionStorage,
       nowMs: Date.now(),
       onInvalidRecord: (record) =>
         this.logQuarantinedAgentStreamProjection(record),
     });
+    return await Promise.all(
+      streams.map((stream) => this.projectAgentStreamReplyPlacement(stream))
+    );
   }
 
-  private readActiveAgentStreamPresences(): Promise<
+  private async readActiveAgentStreamPresences(): Promise<
     SpaceAgentStreamPresence[]
   > {
-    return listActiveAgentStreamPresences({
+    const streams = await listActiveAgentStreamPresences({
       storage: this.agentStreamProjectionStorage,
       nowMs: Date.now(),
       onInvalidRecord: (record) =>
         this.logQuarantinedAgentStreamProjection(record),
     });
+    return await Promise.all(
+      streams.map((stream) => this.projectAgentStreamReplyPlacement(stream))
+    );
   }
 
   private async syncDispatchOutboxAlarm(): Promise<void> {
@@ -7313,7 +7318,7 @@ export class Space extends DurableObject<CoreBindings> {
         continue;
       }
       const projected = agentStreamForReplyPlacementReader(
-        frame,
+        { ...frame, replyThreadRootSignalId: presence.replyThreadRootSignalId },
         session.supportsAgentReplyPlacement === true
       );
       if (!projected) {
@@ -9407,8 +9412,14 @@ export class Space extends DurableObject<CoreBindings> {
     input: ResolveNativeReplyPlacementInput
   ): Promise<NativeReplyPlacement> {
     const key = `native-reply-placement:${input.dispatchId}`;
-    const stored = await this.ctx.storage.get<NativeReplyPlacement>(key);
-    const current = stored ? nativeReplyPlacementSchema.parse(stored) : null;
+    const stored = await this.ctx.storage.get<NativeReplyPlacementRecord>(key);
+    const record = stored
+      ? nativeReplyPlacementRecordSchema.parse(stored)
+      : null;
+    const { revision: previousRevision = 0, ...currentFields } = record ?? {};
+    const current = record
+      ? nativeReplyPlacementSchema.parse(currentFields)
+      : null;
     const meta = this.readSpaceMetaRecord();
     if (!meta) {
       throw new Error("space.reply_placement.space_unavailable");
@@ -9423,10 +9434,22 @@ export class Space extends DurableObject<CoreBindings> {
     const directMessage = Boolean(
       meta.directMessage && !meta.directMessage.convertedAt
     );
+    const activeMembers = listSpaceMemberRecords(this.ctx.storage.sql, {
+      status: "active",
+    });
     const choice = chooseNativeReplyPlacement({
       request: input,
       current,
       directMessage,
+      oneHumanAgent: isOneHumanAgentConversation({
+        activeMemberCount: activeMembers.length,
+        humanMemberCount: activeMembers.filter(
+          (member) => member.profileKindSnapshot === "human"
+        ).length,
+        agentMemberCount: activeMembers.filter(
+          (member) => member.profileKindSnapshot === "agent"
+        ).length,
+      }),
       sourceThread,
     });
     if ("current" in choice) {
@@ -9467,8 +9490,90 @@ export class Space extends DurableObject<CoreBindings> {
       threadContext,
       locked: input.lock,
     });
-    await this.ctx.storage.put(key, result);
+    const changed =
+      !current ||
+      current.threadContext?.rootSignalId !==
+        result.threadContext?.rootSignalId;
+    await this.ctx.storage.put(key, {
+      ...result,
+      revision: previousRevision + (changed ? 1 : 0),
+    });
+    if (changed) {
+      await this.rpcBroadcastWakeProgressChanged({
+        spaceId: input.spaceId,
+        agentProfileIds: [input.profileId],
+        clientMessageIds: [],
+        reason: "space.reply_placement.changed",
+      });
+    }
     return result;
+  }
+
+  private async readAgentReplyPlacement(input: {
+    dispatchId: string;
+    sourceSignalId: string;
+    profileId: string;
+  }): Promise<NativeReplyPlacementRecord | null> {
+    const stored = await this.ctx.storage.get<NativeReplyPlacementRecord>(
+      `native-reply-placement:${input.dispatchId}`
+    );
+    if (!stored) {
+      return null;
+    }
+    const placement = nativeReplyPlacementRecordSchema.parse(stored);
+    if (
+      placement.sourceSignalId !== input.sourceSignalId ||
+      placement.profileId !== input.profileId
+    ) {
+      throw new Error("space.reply_placement.identity_mismatch");
+    }
+    return placement;
+  }
+
+  private async projectAgentStreamReplyPlacement<
+    T extends {
+      dispatchId: string;
+      triggerMessageId: string;
+      profileId: string;
+    },
+  >(stream: T): Promise<T & { replyThreadRootSignalId?: string | null }> {
+    const placement = await this.readAgentReplyPlacement({
+      dispatchId: stream.dispatchId,
+      sourceSignalId: stream.triggerMessageId,
+      profileId: stream.profileId,
+    });
+    return placement
+      ? {
+          ...stream,
+          replyThreadRootSignalId:
+            placement.threadContext?.rootSignalId ?? null,
+        }
+      : stream;
+  }
+
+  private async attachWakeProgressReplyPlacements(
+    items: WakeProgressItem[]
+  ): Promise<WakeProgressItem[]> {
+    return await Promise.all(
+      items.map(async (item) => {
+        if (!(item.dispatchId && item.sourceSignalId)) {
+          return item;
+        }
+        const placement = await this.readAgentReplyPlacement({
+          dispatchId: item.dispatchId,
+          sourceSignalId: item.sourceSignalId,
+          profileId: item.targetProfileId,
+        });
+        return placement
+          ? {
+              ...item,
+              replyPlacementRevision: placement.revision ?? 0,
+              replyThreadRootSignalId:
+                placement.threadContext?.rootSignalId ?? null,
+            }
+          : item;
+      })
+    );
   }
 
   rpcClearReasoningReplay(input: ClearSpaceReasoningReplay): void {
@@ -9478,13 +9583,14 @@ export class Space extends DurableObject<CoreBindings> {
   }
 
   async rpcApplyAgentStreamDelta(
-    input: ApplySpaceAgentStreamDeltaInput
+    raw: ApplySpaceAgentStreamDeltaInput
   ): Promise<
     | { status: "accepted"; lastSequence: number; gapDetected?: boolean }
     | { status: "duplicate_accepted"; lastSequence: number }
     | { status: "rejected"; lastSequence: number; reasonCode: string }
   > {
-    this.applySpaceRef(input.spaceId);
+    this.applySpaceRef(raw.spaceId);
+    const input = await this.projectAgentStreamReplyPlacement(raw);
     if (input.kind === "thinking" || input.kind === "progress") {
       const nowMs = Date.now();
       const replayRevision = this.transientStreamReplay.revision;
@@ -9527,13 +9633,14 @@ export class Space extends DurableObject<CoreBindings> {
   }
 
   async rpcApplyAgentStreamPart(
-    input: ApplySpaceAgentStreamPartInput
+    raw: ApplySpaceAgentStreamPartInput
   ): Promise<
     | { status: "accepted"; lastSequence: number; gapDetected?: boolean }
     | { status: "duplicate_accepted"; lastSequence: number }
     | { status: "rejected"; lastSequence: number; reasonCode: string }
   > {
-    this.applySpaceRef(input.spaceId);
+    this.applySpaceRef(raw.spaceId);
+    const input = await this.projectAgentStreamReplyPlacement(raw);
     const result = await applyAgentStreamPart({
       storage: this.agentStreamProjectionStorage,
       part: input,
@@ -9548,6 +9655,7 @@ export class Space extends DurableObject<CoreBindings> {
         sequence: input.sequence,
         profileId: input.profileId,
         triggerMessageId: input.triggerMessageId,
+        replyThreadRootSignalId: input.replyThreadRootSignalId,
         dispatchId: input.dispatchId,
         part: result.part,
         updatedAtMs: Date.now(),
@@ -9588,7 +9696,9 @@ export class Space extends DurableObject<CoreBindings> {
       sequence: result.stream.sequence,
       profileId: result.stream.profileId,
       triggerMessageId: result.stream.triggerMessageId,
-      replyThreadRootSignalId: result.stream.replyThreadRootSignalId,
+      replyThreadRootSignalId: (
+        await this.projectAgentStreamReplyPlacement(result.stream)
+      ).replyThreadRootSignalId,
       dispatchId: result.stream.dispatchId,
       terminal: result.terminal,
       updatedAtMs: nowMs,
@@ -10379,6 +10489,9 @@ export class Space extends DurableObject<CoreBindings> {
     if (input.includePreviewText === true) {
       url.searchParams.set("includePreviewText", "true");
     }
+    if (input.includeReplyPlacement === true) {
+      url.searchParams.set("includeReplyPlacement", "true");
+    }
     if (input.includeSourceContext === true) {
       url.searchParams.set("includeSourceContext", "true");
     }
@@ -10423,6 +10536,9 @@ export class Space extends DurableObject<CoreBindings> {
     }
     if (input.includePreviewText === true) {
       url.searchParams.set("includePreviewText", "true");
+    }
+    if (input.includeReplyPlacement === true) {
+      url.searchParams.set("includeReplyPlacement", "true");
     }
     if (input.includeSourceContext === true) {
       url.searchParams.set("includeSourceContext", "true");
@@ -13733,6 +13849,7 @@ export class Space extends DurableObject<CoreBindings> {
           includePageInfo: url.searchParams.get("includePageInfo"),
           includePreviewText: url.searchParams.get("includePreviewText"),
           includeTiming: url.searchParams.get("includeTiming"),
+          includeReplyPlacement: url.searchParams.get("includeReplyPlacement"),
           includeSourceContext: url.searchParams.get("includeSourceContext"),
           includeWaitReason: url.searchParams.get("includeWaitReason"),
           includeDeviceWait: url.searchParams.get("includeDeviceWait"),
@@ -13768,6 +13885,8 @@ export class Space extends DurableObject<CoreBindings> {
                 includePageInfo: parsed.data.includePageInfo === true,
                 includeTiming: parsed.data.includeTiming === true,
                 includePreviewText: parsed.data.includePreviewText === true,
+                includeReplyPlacement:
+                  parsed.data.includeReplyPlacement === true,
                 includeSourceContext: parsed.data.includeSourceContext === true,
                 includeWaitReason: parsed.data.includeWaitReason === true,
                 includeDeviceWait: parsed.data.includeDeviceWait === true,
@@ -15035,6 +15154,7 @@ export class Space extends DurableObject<CoreBindings> {
           clientMessageId: url.searchParams.get("clientMessageId"),
           includeTiming: url.searchParams.get("includeTiming"),
           includePreviewText: url.searchParams.get("includePreviewText"),
+          includeReplyPlacement: url.searchParams.get("includeReplyPlacement"),
           includeSourceContext: url.searchParams.get("includeSourceContext"),
           includeWaitReason: url.searchParams.get("includeWaitReason"),
           includeDeviceWait: url.searchParams.get("includeDeviceWait"),
@@ -15060,6 +15180,7 @@ export class Space extends DurableObject<CoreBindings> {
               clientMessageId: parsed.data.clientMessageId,
               includeTiming: parsed.data.includeTiming === true,
               includePreviewText: parsed.data.includePreviewText === true,
+              includeReplyPlacement: parsed.data.includeReplyPlacement === true,
               includeSourceContext: parsed.data.includeSourceContext === true,
               includeWaitReason: parsed.data.includeWaitReason === true,
               includeDeviceWait: parsed.data.includeDeviceWait === true,
@@ -20248,6 +20369,8 @@ export class Space extends DurableObject<CoreBindings> {
     const { senderProfileId, sourceEventId, spaceContract } = plannerContext;
     const { mergedReadyDecisions, nonReadyDecisions } =
       evaluateDispatchPlannerDecisionsForSignal({
+        isThreadMessage: Boolean(signalContext?.threadContext),
+        directMessageConvertedAt: spaceMeta?.directMessage?.convertedAt,
         senderProfileId,
         sessions: this.sessions?.values?.() ?? null,
         signal,
@@ -22110,6 +22233,7 @@ export class Space extends DurableObject<CoreBindings> {
     clientMessageId?: string | null;
     includeTiming?: boolean;
     includePreviewText?: boolean;
+    includeReplyPlacement?: boolean;
     includeSourceContext?: boolean;
     includeWaitReason?: boolean;
     includeDeviceWait?: boolean;
@@ -22230,6 +22354,7 @@ export class Space extends DurableObject<CoreBindings> {
         items.push(
           await this.buildWakeProgressItemFromOutboxEvidence({
             clientMessageId,
+            includeTiming: input.includeTiming === true,
             includeWakeStopEligibility:
               input.includeWakeStopEligibility === true,
             nativeDeliveryEvidence: activeNativeDeliveryByTarget.get(
@@ -22273,10 +22398,14 @@ export class Space extends DurableObject<CoreBindings> {
       })
     );
 
+    const placedItems =
+      input.includeReplyPlacement === true
+        ? await this.attachWakeProgressReplyPlacements(items)
+        : items;
     const contextualItems =
       input.includeSourceContext === true
-        ? this.attachWakeProgressSourceContexts(items)
-        : items;
+        ? this.attachWakeProgressSourceContexts(placedItems)
+        : placedItems;
     const responseItems = projectWakeProgressItemsForClient({
       includeDeviceWait: input.includeDeviceWait === true,
       includePreviewText: input.includePreviewText === true,
@@ -22411,6 +22540,7 @@ export class Space extends DurableObject<CoreBindings> {
     includeTiming?: boolean;
     includePreviewText?: boolean;
     includePageInfo?: boolean;
+    includeReplyPlacement?: boolean;
     includeSourceContext?: boolean;
     includeWaitReason?: boolean;
     includeDeviceWait?: boolean;
@@ -22528,6 +22658,7 @@ export class Space extends DurableObject<CoreBindings> {
       return [
         buildWakeProgressItemFromOutbox({
           clientMessageId,
+          includeTiming: input.includeTiming === true,
           nativeDeliveryEvidence: activeNativeDeliveryByTarget.get(
             buildDispatchTargetKey(outboxRecord)
           ),
@@ -22590,6 +22721,10 @@ export class Space extends DurableObject<CoreBindings> {
       items: activeSummaryItems,
     });
     if (useFastSummary) {
+      const placedPageItems =
+        input.includeReplyPlacement === true
+          ? await this.attachWakeProgressReplyPlacements(page.items)
+          : page.items;
       return {
         query: {
           spaceId: this.spaceId,
@@ -22602,8 +22737,8 @@ export class Space extends DurableObject<CoreBindings> {
           includePreviewText: input.includePreviewText === true,
           items:
             input.includeSourceContext === true
-              ? this.attachWakeProgressSourceContexts(page.items)
-              : page.items,
+              ? this.attachWakeProgressSourceContexts(placedPageItems)
+              : placedPageItems,
         }),
       };
     }
@@ -22654,6 +22789,7 @@ export class Space extends DurableObject<CoreBindings> {
           includeTiming: input.includeTiming === true,
           includePreviewText: input.includePreviewText === true,
           includeSourceContext: false,
+          includeReplyPlacement: input.includeReplyPlacement === true,
           includeWaitReason: input.includeWaitReason === true,
           includeDeviceWait: input.includeDeviceWait === true,
           includeWakeStopEligibility: input.includeWakeStopEligibility === true,
@@ -22753,14 +22889,18 @@ export class Space extends DurableObject<CoreBindings> {
     const runtimeCoordinatorExecution =
       trace?.runtimeCoordinatorExecution ?? null;
     const timingDb = input.includeTiming ? wakeEvidenceDb(this.env) : null;
-    const runningAtMs =
-      timingDb && runtimeCoordinatorExecution
-        ? await readRuntimeCoordinatorExecutionRunningAtMs({
-            db: timingDb,
-            runtimeCoordinatorExecutionId:
-              runtimeCoordinatorExecution.runtimeCoordinatorExecutionId,
-          })
-        : null;
+    let runningAtMs = input.nativeDeliveryEvidence?.startedAtMs ?? null;
+    if (
+      !input.nativeDeliveryEvidence &&
+      timingDb &&
+      runtimeCoordinatorExecution
+    ) {
+      runningAtMs = await readRuntimeCoordinatorExecutionRunningAtMs({
+        db: timingDb,
+        runtimeCoordinatorExecutionId:
+          runtimeCoordinatorExecution.runtimeCoordinatorExecutionId,
+      });
+    }
     const pendingInteraction = runtimeCoordinatorExecution
       ? await this.readWakeProgressPendingAgentInteraction({
           actorOwnerUserId: input.actorOwnerUserId,
@@ -23048,6 +23188,7 @@ export class Space extends DurableObject<CoreBindings> {
 
   private async buildWakeProgressItemFromOutboxEvidence(input: {
     clientMessageId: string | null;
+    includeTiming: boolean;
     includeWakeStopEligibility?: boolean;
     nativeDeliveryEvidence?: ActiveRemoteAgentNativeDeliveryWakeProgressEvidence;
     outboxRecord: OpenMeldDaemonDispatchOutboxRecoveryCandidate;
@@ -23116,6 +23257,7 @@ export class Space extends DurableObject<CoreBindings> {
     }
     return buildWakeProgressItemFromOutbox({
       clientMessageId: input.clientMessageId,
+      includeTiming: input.includeTiming,
       nativeDeliveryEvidence: input.nativeDeliveryEvidence,
       outboxRecord: input.outboxRecord,
       sourceSignal: input.sourceSignal,
@@ -25013,6 +25155,7 @@ function resolveWakeProgressTargetLabel(input: {
 
 function buildWakeProgressItemFromOutbox(input: {
   clientMessageId: string | null;
+  includeTiming: boolean;
   nativeDeliveryEvidence?: ActiveRemoteAgentNativeDeliveryWakeProgressEvidence;
   outboxRecord: OpenMeldDaemonDispatchOutboxRecoveryCandidate;
   sourceSignal: Extract<SignalEnvelope, { type: "signal.text" }> | null;
@@ -25034,6 +25177,9 @@ function buildWakeProgressItemFromOutbox(input: {
         : undefined,
     phase,
     sourceSignalId: input.sourceSignal?.id ?? input.outboxRecord.sourceEventId,
+    ...(input.includeTiming && input.nativeDeliveryEvidence?.startedAtMs != null
+      ? { startedAtMs: input.nativeDeliveryEvidence.startedAtMs }
+      : {}),
     targetLabel: input.targetLabel,
     targetProfileId: input.outboxRecord.targetProfileId,
     terminal: phase === "stopped" ? true : undefined,
@@ -26221,14 +26367,14 @@ function readDispatchPlannerSignalEnvelopeSummary(signal: SignalEnvelope): {
 
 function resolveDispatchPlannerSource(input: {
   activationTargetCount: number;
-  agentDirectConversationApplied: boolean;
+  automaticWakeApplied: boolean;
   listenAllApplied: boolean;
-}): "agent_direct_conversation" | "listen_all" | "message_envelope" | "none" {
+}): "automatic_wake" | "listen_all" | "message_envelope" | "none" {
   if (input.activationTargetCount > 0) {
     return "message_envelope";
   }
-  if (input.agentDirectConversationApplied) {
-    return "agent_direct_conversation";
+  if (input.automaticWakeApplied) {
+    return "automatic_wake";
   }
   if (input.listenAllApplied) {
     return "listen_all";
@@ -28222,4 +28368,8 @@ import type {
   NativeReplyPlacement,
   ResolveNativeReplyPlacementInput,
 } from "@openmeld/schemas/types";
-import { chooseNativeReplyPlacement } from "../../application/native-reply-placement";
+import {
+  chooseNativeReplyPlacement,
+  type NativeReplyPlacementRecord,
+  nativeReplyPlacementRecordSchema,
+} from "../../application/native-reply-placement";

@@ -1,14 +1,14 @@
 import { MENTION_DISPATCH_ERROR_CODES } from "@openmeld/schemas";
 import type { OpenMeldDaemonMentionDispatchResultPayload } from "@openmeld/schemas/types";
+import { OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE } from "@openmeld/space";
 import { describe, expect, it, vi } from "vitest";
 import type { SpaceMemberRecord } from "../space/infrastructure/sql/space-member-repo";
 import { authorizeSpaceDeletion } from "../space/rules/access/space-deletion-policy";
 import { authorizeSpaceMemberRemoval } from "../space/rules/access/space-member-management-policy";
 import {
-  applyDirectMessageDispatchPromptContext,
-  buildDirectMessageDispatchReadyDecisions,
-  OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
-} from "../space/rules/dispatch/direct-message-dispatch";
+  applyAutomaticWakeDispatchPromptContext,
+  buildAutomaticWakeDispatchReadyDecisions,
+} from "../space/rules/dispatch/automatic-wake-dispatch";
 import {
   buildMentionFailureHintText,
   isSpaceHistoryEligibleMentionFailureDecision,
@@ -196,7 +196,7 @@ const createDmSignal = (input: {
   },
 });
 
-describe("Direct Message dispatch rules", () => {
+describe("Automatic human-to-agent dispatch rules", () => {
   const humanMember = createDispatchRulesSpaceMemberRecord({
     profileId: "human-felix",
     profileKind: "human",
@@ -219,7 +219,7 @@ describe("Direct Message dispatch rules", () => {
     });
     signal.data.messageEnvelope.referenceTargets = [agentMember.profileId];
     expect(
-      buildDirectMessageDispatchReadyDecisions({
+      buildAutomaticWakeDispatchReadyDecisions({
         activeMemberRecords: [
           humanMember,
           { ...agentMember, controllerRefSnapshot },
@@ -232,7 +232,7 @@ describe("Direct Message dispatch rules", () => {
   });
 
   it("auto-dispatches a human-authored 1:1 human-agent Direct Message with prompt context", () => {
-    const decisions = buildDirectMessageDispatchReadyDecisions({
+    const decisions = buildAutomaticWakeDispatchReadyDecisions({
       activeMemberRecords: [humanMember, agentMember],
       senderProfileId: "human-felix",
       signal: createDmSignal({
@@ -249,20 +249,23 @@ describe("Direct Message dispatch rules", () => {
       throw new Error("Expected one Direct Message dispatch decision.");
     }
     expect(decision).toMatchObject({
-      ruleId: "space_direct_message.auto_agent.v1",
+      ruleId: "space_one_human_agent.auto_agent.v1",
       targetProfileId: "agt-center",
     });
     expect(
-      applyDirectMessageDispatchPromptContext({
+      applyAutomaticWakeDispatchPromptContext({
         decision,
         sourceText: "Can you help me plan this?",
       })
-    ).toContain("This is a direct message with Felix");
+    ).toContain("This Space has one human, Felix, and one Agent, you");
   });
 
-  it("does not auto-dispatch agent-authored messages in a Direct Message", () => {
-    const decisions = buildDirectMessageDispatchReadyDecisions({
-      activeMemberRecords: [humanMember, agentMember],
+  it.each([
+    humanMember,
+    { ...agentMember, profileId: "agt-peer" },
+  ])("never auto-dispatches agent-authored messages with peer $profileId", (peer) => {
+    const decisions = buildAutomaticWakeDispatchReadyDecisions({
+      activeMemberRecords: [peer, agentMember],
       senderProfileId: "agt-center",
       signal: createDmSignal({
         profileId: "agt-center",
@@ -276,7 +279,7 @@ describe("Direct Message dispatch rules", () => {
   });
 
   it("does not auto-dispatch human-human Direct Messages", () => {
-    const decisions = buildDirectMessageDispatchReadyDecisions({
+    const decisions = buildAutomaticWakeDispatchReadyDecisions({
       activeMemberRecords: [
         humanMember,
         createDispatchRulesSpaceMemberRecord({
@@ -296,10 +299,13 @@ describe("Direct Message dispatch rules", () => {
     expect(decisions).toEqual([]);
   });
 
-  it("stops when a third member joins and resumes when the Space returns to 1:1", () => {
+  it.each([
+    "human",
+    "agent",
+  ] as const)("stops when a third %s joins and resumes after they leave", (profileKind) => {
     const thirdMember = createDispatchRulesSpaceMemberRecord({
       profileId: "human-third",
-      profileKind: "human",
+      profileKind,
       profileName: "Third",
     });
     const signal = createDmSignal({
@@ -308,7 +314,7 @@ describe("Direct Message dispatch rules", () => {
     });
 
     expect(
-      buildDirectMessageDispatchReadyDecisions({
+      buildAutomaticWakeDispatchReadyDecisions({
         activeMemberRecords: [humanMember, agentMember, thirdMember],
         senderProfileId: "human-felix",
         signal,
@@ -317,7 +323,7 @@ describe("Direct Message dispatch rules", () => {
     ).toEqual([]);
 
     expect(
-      buildDirectMessageDispatchReadyDecisions({
+      buildAutomaticWakeDispatchReadyDecisions({
         activeMemberRecords: [humanMember, agentMember],
         senderProfileId: "human-felix",
         signal,
@@ -326,9 +332,16 @@ describe("Direct Message dispatch rules", () => {
     ).toHaveLength(1);
   });
 
-  it("never auto-dispatches ordinary two-member Spaces without Direct Message origin", () => {
-    const decisions = buildDirectMessageDispatchReadyDecisions({
-      activeMemberRecords: [humanMember, agentMember],
+  it.each([
+    "builtin:codex",
+    "hosted:remote-agent",
+    "hosted:center-agent",
+  ])("auto-dispatches an ordinary one-human one-agent Space for %s", (controllerRefSnapshot) => {
+    const decisions = buildAutomaticWakeDispatchReadyDecisions({
+      activeMemberRecords: [
+        humanMember,
+        { ...agentMember, controllerRefSnapshot },
+      ],
       senderProfileId: "human-felix",
       signal: createDmSignal({
         profileId: "human-felix",
@@ -337,11 +350,11 @@ describe("Direct Message dispatch rules", () => {
       spacePurpose: "ordinary_private_space",
     });
 
-    expect(decisions).toEqual([]);
+    expect(decisions).toHaveLength(1);
   });
 
   it("does not auto-dispatch a legacy Welcoming Space", () => {
-    const decisions = buildDirectMessageDispatchReadyDecisions({
+    const decisions = buildAutomaticWakeDispatchReadyDecisions({
       activeMemberRecords: [humanMember, agentMember],
       senderProfileId: "human-felix",
       signal: createDmSignal({
