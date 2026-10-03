@@ -1,5 +1,8 @@
 ---
 id: safer-cleanup-and-release-validation
+publishedAt: 2026-10-03
+release: v0.3.238
+evidence: ["pr:1462","workflow:37111095247","workflow:37111856220"]
 title: Safer workspace cleanup and release validation
 kind: fixed
 areas: ["development", "releases"]
