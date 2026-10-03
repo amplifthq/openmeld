@@ -6488,6 +6488,20 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
     },
     {
       expectedPayload: {
+        spaceId: SPACE_ID,
+        mutation: { action: "delete", inputId: "queued-input" },
+        speakerMember: { memberId: "member_123", userId: "user_1" },
+      },
+      input: {
+        spaceId: SPACE_ID,
+        mutation: { action: "delete", inputId: "queued-input" },
+      },
+      response: { items: [] },
+      rpcName: "centerAgentSpaceInputQueue",
+      toolName: "openmeld_space_input_queue",
+    },
+    {
+      expectedPayload: {
         body: {
           target: {
             by: "source_signal",

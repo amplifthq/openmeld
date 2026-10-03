@@ -265,6 +265,7 @@ export function organizationProfileIdentityDirectoryQueryOptions(input: {
 export function organizationAgentRuntimeOverviewQueryOptions(input: {
 	enabled: boolean;
 	organizationId: string;
+	workloadProfileId?: string;
 }) {
 	return queryOptions<
 		OrganizationAgentRuntimeOverviewResponse,
@@ -275,9 +276,17 @@ export function organizationAgentRuntimeOverviewQueryOptions(input: {
 		queryFn: async ({ signal }) =>
 			await readCurrentOrganizationAgentRuntimeOverview({
 				organizationId: input.organizationId,
+				...(input.workloadProfileId
+					? { workloadProfileId: input.workloadProfileId }
+					: {}),
 				signal,
 			}),
-		queryKey: organizationQueryKeys.agentRuntimeOverview(input.organizationId),
+		queryKey: input.workloadProfileId
+			? [
+					...organizationQueryKeys.agentRuntimeOverview(input.organizationId),
+					input.workloadProfileId,
+				]
+			: organizationQueryKeys.agentRuntimeOverview(input.organizationId),
 		refetchInterval: 30_000,
 		refetchIntervalInBackground: false,
 		refetchOnWindowFocus: true,

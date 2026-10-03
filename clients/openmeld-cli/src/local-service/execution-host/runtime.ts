@@ -62,6 +62,7 @@ import {
   isExecutionHostControlFrame,
 } from "./controls";
 import { createExecutionAdmissionConfirmation } from "./execution-admission";
+import { createServiceExecutionInputReceiver } from "./execution-input";
 import { handleExecutionHostFrame } from "./frame-router";
 
 type HostEvent = Exclude<ServiceExecutionHostMessage, { type: "reply" }>;
@@ -196,6 +197,11 @@ export function createExecutionHostRuntime(input: {
   > | null = null;
   let reportPolicy: "background" | "fresh" | null = null;
   const activeControls = new Set<Promise<unknown>>();
+  const executionInput = createServiceExecutionInputReceiver({
+    ownerUserId: identity.ownerUserId,
+    registry: inflightTaskControlRegistry,
+    adapters: localAdapterContainer,
+  });
   const envelope = {
     protocol: SERVICE_EXECUTION_HOST_PROTOCOL,
     hostInstanceId: input.hostInstanceId,
@@ -674,6 +680,23 @@ export function createExecutionHostRuntime(input: {
         presenter: input.presenter,
         registry: inflightTaskControlRegistry,
       }),
+    executionInput: (payload) => {
+      const receive = () => {
+        assertConnection(payload.connectionGeneration);
+        if (
+          leasesByProfileId.get(payload.request.targetProfileId) !==
+            payload.leaseEpoch ||
+          (payload.operation === "apply" && (draining || startupReplayPending))
+        ) {
+          throw new ExecutionHostError(
+            "host.execution_input_unavailable",
+            "The current execution route cannot accept this input."
+          );
+        }
+        return executionInput(payload);
+      };
+      return payload.operation === "read" ? receive() : trackControl(receive);
+    },
     conversationStatus: resolveLocalConversationExecutionStatus,
     setEnabled: (payload) => trackControl(() => controls.setEnabled(payload)),
     reportControllers: async ({ probePolicy }) => {

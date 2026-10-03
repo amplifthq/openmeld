@@ -9,7 +9,8 @@ export type CodexAppServerControlOperation =
   | "thread/read"
   | "thread/resume"
   | "thread/start"
-  | "turn/start";
+  | "turn/start"
+  | "turn/steer";
 
 const FAST_METADATA_ADMISSION_TIMEOUT_MS = 15_000;
 // Cold Codex controller admission has reached roughly one minute in production
@@ -34,6 +35,7 @@ const CONTROL_REQUEST_TIMEOUT_MS_BY_OPERATION: Record<
   "thread/resume": COLD_CONTROLLER_ADMISSION_TIMEOUT_MS,
   "thread/start": COLD_CONTROLLER_ADMISSION_TIMEOUT_MS,
   "turn/start": COLD_CONTROLLER_ADMISSION_TIMEOUT_MS,
+  "turn/steer": FAST_METADATA_ADMISSION_TIMEOUT_MS,
 };
 
 export function resolveCodexAppServerControlRequestTimeoutMs(input: {
