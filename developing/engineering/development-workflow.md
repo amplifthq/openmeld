@@ -1156,6 +1156,24 @@ Service dispatch context, and the managed Plugin playbook.
   legacy active requests with unresolved writes need an explicit reconciliation
   boundary; do not claim cross-version new-ID deduplication for those rows or
   block unrelated later requests by guessing their task identity.
+- Replay projection and the atomic journal claim both require a frozen original
+  account version. A denied legacy replay cannot consume a claim through the
+  execution RPC. Remote duplicate claims return the existing completed/failed
+  receipt, original operation and account attribution through both direct tools
+  and Code Mode; they do not reconstruct provider result data. The terminal
+  receipt is a shared schema, not a new operation state or writer.
+- Cutover is still blocked at the non-Wake Local entry: `plugins --profile`
+  calls can omit both `dispatchId` and execution proof. Core authenticates the
+  account and Agent, but has no original human-request fact for that call.
+  An old continuation that omits those fields and an independent manual request
+  are indistinguishable. A version on the child context cannot fence this path.
+  A safe change must either restrict such writes to a human-started fresh Wake
+  with an owner-retained request root, or provide a human-authorized request
+  boundary for manual writes. Selecting that supported-entry change is pending;
+  this PR does not yet enforce either policy. Existing context records retain
+  resume/fork associations and can carry the root after this decision, but old
+  records must not be upgraded by inference. New dispatch IDs, restart, a fork,
+  or a delegated child do not certify a fresh original request.
 - Excerpt copies use the existing Files reservation, R2 object, revision commit,
   and audience owner. The new optional expected audience is checked synchronously
   at the destination commit. Completed copies have independent Files lifecycles.

@@ -20,3 +20,6 @@ only that selection and has its own access and lifecycle.
 App and GitHub tools use consistent recovery guidance for uncertain writes.
 Receipts explicitly say whether one replay is permitted; a missing or expired
 window does not permit another write.
+Replay admission also refuses older records without a verified original account
+version. Duplicate claims preserve known completion or failure, the original
+operation, and account attribution without inventing missing result data.
