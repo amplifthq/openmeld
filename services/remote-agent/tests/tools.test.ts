@@ -2,12 +2,14 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  buildPersonalRemoteAgentConversationId,
   CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
   centerAgentCheckAgentProfileReadinessResponseSchema,
   centerAgentOrganizationDirectoryPageSchema,
   DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
   FEEDBACK_ISSUE_INVALID_TRANSITION_ERROR_CODE,
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
+  HOSTED_REMOTE_AGENT_CONTROLLER_REF,
   organizationDirectoryResponseSchema,
 } from "@openmeld/schemas";
 import type { RemoteAgentWorkerSubmitTurnRequest } from "@openmeld/schemas/types";
@@ -28,7 +30,10 @@ import {
   type RemoteAgentCoreWorkerBinding,
   readRemoteAgentCallbackContext,
 } from "../agent-core/callback-context";
-import { buildRemoteAgentCoreContext } from "../agent-core/tool-context";
+import {
+  buildOrganizationDocumentReadContext,
+  buildRemoteAgentCoreContext,
+} from "../agent-core/tool-context";
 import { isRemoteAgentToolResultWithinLimit } from "../agent-core/tool-result-boundary";
 import {
   getRemoteAgentOpenMeldToolDefinitions as buildRemoteAgentOpenMeldToolDefinitions,
@@ -38,6 +43,7 @@ import {
 import {
   createRoutineTurnEnvelope,
   createSubmitTurnRequest,
+  createSubmitTurnRequestV2,
   TEST_CENTER_AGENT_MODEL_ROUTE,
   TEST_NOW_MS,
   TEST_REMOTE_AGENT_AI_GATEWAY_ENV,
@@ -114,6 +120,109 @@ type ToolPayloadScenario = {
 };
 
 describe("remote agent OpenMeld tool catalog", () => {
+  it("reads delegated documents as the receiving personal Agent for both directory and body", async () => {
+    const base = createSubmitTurnRequestV2();
+    const conversationId = buildPersonalRemoteAgentConversationId(base);
+    const request: RemoteAgentWorkerSubmitTurnRequest = {
+      ...base,
+      v: 4,
+      conversationId,
+      runtimeConversation: { generation: 0, id: conversationId },
+      conversationIdentity: {
+        kind: "personal_agent",
+        agentProfileId: base.agentProfileId,
+      },
+      spaceDispatchContext: {
+        dispatchChainId: "chain",
+        autoRelayDepth: 0,
+        visitedProfileIds: [],
+        visitedProfileIdsHash: "hash",
+      },
+      author: {
+        profileId: AGENT_PROFILE_ID,
+        profileKind: "agent",
+        displayName: "Delegator",
+      },
+      turnEnvelope: {
+        ...base.turnEnvelope,
+        sender: {
+          kind: "agent_profile",
+          id: AGENT_PROFILE_ID,
+          displayName: "Delegator",
+          ownerUserId: "other_owner",
+          verified: true,
+        },
+        space: {
+          ...base.turnEnvelope.space,
+          kind: "space",
+          isCenterAgentDm: false,
+        },
+        trigger: { source: "space_wake" },
+        interactionEnvironment: "organization_shared",
+      },
+    };
+    const storage = await createStorageWithPendingContext(request);
+    const callback = await readRemoteAgentCallbackContext(
+      storage,
+      ACK.submissionId
+    );
+    if (!callback) {
+      throw new Error("Expected the admitted callback fixture.");
+    }
+    const directoryContext = buildOrganizationDocumentReadContext({
+      context: buildRemoteAgentCoreContext(callback, "directory"),
+      turnEnvelope: callback.turnEnvelope,
+    });
+    expect(directoryContext).not.toHaveProperty("speakerMember");
+    expect(directoryContext.context.actorContext).toMatchObject({
+      agentControllerRef: HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+      openMeldProfileId: base.agentProfileId,
+      callerPrincipalId: "user_1",
+      ownerUserId: "user_1",
+    });
+    const body = {
+      action: "get" as const,
+      organizationId: "org_123",
+      document: {
+        id: "document-1",
+        folderId: null,
+        kind: "knowledge" as const,
+        subjectUserId: null,
+        title: "Review policy",
+        content: "Use release B.",
+        updatedAt: ISO_NOW,
+      },
+    };
+    const readDocuments: NonNullable<
+      RemoteAgentCoreWorkerBinding["centerAgentReadOrganizationDocuments"]
+    > = vi.fn(async (input) =>
+      input.action === "list" ? organizationDocumentsListResponse() : body
+    );
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      storage,
+      coreWorker: { centerAgentReadOrganizationDocuments: readDocuments },
+    });
+    await expect(
+      executeTool(tools, "openmeld_read_org_documents", { action: "list" })
+    ).resolves.toMatchObject({ documents: [{ id: "document-1" }] });
+    await expect(
+      executeTool(tools, "openmeld_read_org_documents", {
+        action: "get",
+        documentId: "document-1",
+      })
+    ).resolves.toEqual(body);
+    expect(readDocuments).toHaveBeenLastCalledWith({
+      action: "get",
+      documentId: "document-1",
+      context: {
+        ...directoryContext.context,
+        actorContext: {
+          ...directoryContext.context.actorContext,
+          requestId: `remote-agent-tool:openmeld_read_org_documents:${ACK.submissionId}`,
+        },
+      },
+    });
+  });
   it("pages a large authorized directory without losing member or Agent fields", async () => {
     // Captured Core team-safe contract: null is redacted/unknown, while the
     // binding source remains not_checked. Pagination must retain that evidence.

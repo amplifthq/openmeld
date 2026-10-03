@@ -663,8 +663,13 @@ instruction channel.
 For a supported controller, the Service may inject an ephemeral first-party
 Space Action tool configuration into the controller process for the active
 dispatch. That configuration is not written into user settings. It exposes only
-the allowed `reply`, `status`, and `stay_silent` operations, plus the read-only
-`read_file` context operation. File reads accept only a file ID and optional
+the exact shared adapter catalog of final actions, context readers, Task
+operations, progress, and ordinary Direct Message collaboration. The CLI server
+and `OPENMELD_SPACE_ACTION_MCP_TOOL_NAMES` must agree; controllers still reject
+missing or unexpected tools. Delivery-only recovery exposes exactly `reply`,
+`stay_silent`, and `read_receipt`. Direct Messages retain the admitted Agent and
+source organization checks; tool discovery does not authorize a different lane
+or identity. File reads accept only a file ID and optional
 revision; the active dispatch supplies the Space and acting Agent identity.
 The trusted tool process invokes the dispatch-owned CLI's existing public file
 read command outside the controller sandbox, preserving normal authentication,

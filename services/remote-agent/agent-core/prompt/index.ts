@@ -1,6 +1,7 @@
 import {
   renderInformationProtectionPrompt,
   renderWorkingLanguagePrompt,
+  TASK_KNOWLEDGE_GUIDANCE,
 } from "@openmeld/agent-runtime";
 import type { RemoteAgentTurnEnvelope } from "@openmeld/schemas/types";
 import { SPACE_COLLABORATION_CONTEXT_RULE } from "@openmeld/space-mesh";
@@ -23,6 +24,7 @@ const nameWhitespacePattern = /\s+/;
 const isoInstantOffsetPattern = /(?:Z|[+-]\d{2}:\d{2})$/;
 
 export type RemoteAgentSystemPromptInput = {
+  taskKnowledgeIndex?: string | null;
   personalAgent?: boolean;
   organizationBrief?: string | null;
   organizationDocumentTitles?: readonly string[] | null;
@@ -43,6 +45,8 @@ export function buildRemoteAgentSystemPrompt(
         ? "This is an unattended Routine Run authorized by its verified delegated owner. Follow the saved instructions with the available tools and publish the result here. Nobody is present to answer a follow-up; report missing access or required information honestly. Destructive actions remain unsupported during a Routine."
         : null,
       SPACE_COLLABORATION_CONTEXT_RULE,
+      TASK_KNOWLEDGE_GUIDANCE,
+      input.taskKnowledgeIndex ?? null,
       input.turnEnvelope?.trigger.source === "space_wake" ||
       input.turnEnvelope?.trigger.source === "web_dm"
         ? "In shared Spaces, answer in the thread under the triggering message by default, and continue existing threads. Direct messages stay direct. Use openmeld_set_reply_placement with placement=conversation before answering only when the user asks for the main conversation or the whole Space needs a conclusion, decision, or blocker."
@@ -89,7 +93,11 @@ export function buildRemoteAgentSystemPrompt(
     renderOrganizationBrief(input.organizationBrief),
     REMOTE_AGENT_TASK_COORDINATION_PROMPT,
     REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT,
-    renderRemoteAgentKnowledgePrompt(input.organizationDocumentTitles),
+    input.taskKnowledgeIndex
+      ? null
+      : renderRemoteAgentKnowledgePrompt(input.organizationDocumentTitles),
+    TASK_KNOWLEDGE_GUIDANCE,
+    input.taskKnowledgeIndex ?? null,
     REMOTE_AGENT_PLAYBOOKS_PROMPT,
   ]
     .filter((section): section is string => section !== null)
