@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-03T08:41:30.623Z",
+  "updatedAt": "2026-10-03T16:42:05.810Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
-      "packageVersion": "0.3.238",
+      "packageVersion": "0.3.240",
       "updatePolicy": "available",
-      "reason": "Existing setup, Wake, Space actions and recovery remain compatible. New DM publication and trace v6 ship only after their Core and Gateway receivers."
+      "reason": "Existing CLI commands remain compatible with both cloud versions; the version accompanies the updated shared Service package."
     },
     "service": {
-      "bundleHash": "04fda710e167a73dc9860a17c15fd507742fccc1a788490e5e37d17d6eb02ff7",
-      "portableBundleHash": "a8fea58e703b3f6a9b768826c162ffaf0dd203026f86cdd3e31f808af717d16b",
-      "bundleVersion": "0.3.238",
+      "bundleHash": "bd0171df578786cfdadb0424193c5d8d3f829aafe0f32387ade813b8c099896b",
+      "portableBundleHash": "f04eb0e1ef1f25d1ac2d47016b2650f33be159e5d9b9bcc2fc2737b0ff923f66",
+      "bundleVersion": "0.3.240",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
       "serviceContractVersion": "openmeld-service-contract-2026-09-local-install-recovery-v1",
       "updatePolicy": "available",
-      "reason": "Execution input is optional and negotiated per Service connection. Old Services continue ordinary work; new Services retain existing registration, Wake and recovery contracts."
+      "reason": "The added reply placement fields are opt-in and optional; existing Services remain compatible with old and new cloud receivers."
     },
     "skills": {
       "bundleHash": "74569de82e8b0aa6803bd418ae8eab60063a4bda19e0173a66628b4d93d9fa98",

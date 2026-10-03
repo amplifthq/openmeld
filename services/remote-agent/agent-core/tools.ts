@@ -296,12 +296,14 @@ import {
   understandRemoteAgentImages,
 } from "./image-understanding";
 import { pageOrganizationDirectory } from "./organization-directory-page";
+import { REPLY_PLACEMENT_TOOL_DESCRIPTION } from "./reply-placement-guidance";
 import { REMOTE_AGENT_SLACK_MEMBER_RESEARCH_STATE_PREFIX } from "./slack-member-research-state";
 import {
   extractSlackSearchThreadPublicationTargetKeys,
   parseSlackThreadPublicationTargetKey,
 } from "./slack-thread-publication-evidence";
 import {
+  buildOrganizationDocumentReadContext,
   buildRemoteAgentToolContext,
   resolveOrganizationMemberTurnEnvelopeSpeaker,
   resolveVerifiedTurnEnvelopeProfileId,
@@ -2886,13 +2888,13 @@ export function getRemoteAgentOpenMeldToolDefinitions(
         if (request.action === "list" && request.documentId) {
           throw new TypeError("Listing documents cannot include documentId.");
         }
-        const toolContext = await buildOrganizationMemberToolContext({
-          missingSpeakerMessage:
-            "Organization document reads require a current Organization member.",
-          storage: input.storage,
-          submissionId: input.submissionId,
-          toolName: "openmeld_read_org_documents",
-        });
+        const toolContext = buildOrganizationDocumentReadContext(
+          await buildOpenMeldToolContext({
+            storage: input.storage,
+            submissionId: input.submissionId,
+            toolName: "openmeld_read_org_documents",
+          })
+        );
         const rpcInput =
           request.action === "list"
             ? { action: "list" as const, ...toolContext }
@@ -3856,8 +3858,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     }),
     toolDefinition({
       name: "openmeld_set_reply_placement",
-      description:
-        "Choose where this turn's reply will appear before writing the answer. In a shared Space, the default is the thread under the triggering message; existing thread conversations continue there. Direct messages default to a direct reply. When the user explicitly asks for the main conversation, choose conversation. The choice applies to this turn's streamed answer and final outcome. Once the answer starts, its placement is fixed.",
+      description: REPLY_PLACEMENT_TOOL_DESCRIPTION,
       input: object({
         placement: picklist(["conversation", "thread"] as const),
       }),

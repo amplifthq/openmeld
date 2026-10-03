@@ -332,16 +332,18 @@ export const discardOrganizationDocumentDraftRpcInputSchema =
     documentId: identifierSchema,
   });
 
+// Personal Remote reads use their admitted receiving identity. Center callers
+// still require a verified speaker; Core enforces this distinction.
 const centerAgentReadOrganizationDocumentsListInputSchema = z.strictObject({
   action: z.literal("list"),
   context: openMeldRequestContextSchema,
-  speakerMember: centerAgentToolSpeakerSchema,
+  speakerMember: centerAgentToolSpeakerSchema.optional(),
 });
 const centerAgentReadOrganizationDocumentInputSchema = z.strictObject({
   action: z.literal("get"),
   context: openMeldRequestContextSchema,
   documentId: identifierSchema,
-  speakerMember: centerAgentToolSpeakerSchema,
+  speakerMember: centerAgentToolSpeakerSchema.optional(),
 });
 export const centerAgentReadOrganizationDocumentsRpcInputSchema =
   z.discriminatedUnion("action", [

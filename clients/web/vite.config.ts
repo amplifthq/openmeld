@@ -10,10 +10,14 @@ import tsconfigPaths from "vite-tsconfig-paths";
 import { readInstalledDesktopTarget } from "../../scripts/desktop/installed-target";
 // @ts-expect-error Build-only JavaScript helper.
 import { desktopWebBuildIdentity } from "../../scripts/desktop/web-build-identity.mjs";
+// @ts-expect-error Shared build-only JavaScript helper.
+import { prepareSharedPublicAssets } from "../../scripts/vite/shared-public-assets.mjs";
 import { resolveCliBuildEnvironment } from "./scripts/cli-target-config";
 import { desktopPilotBuildPrerequisites } from "./scripts/desktop-pilot-build";
 import { resolveIsolatedWebDevSettings } from "./scripts/isolated-dev-config.ts";
 import { optionalMediaModules } from "./scripts/optional-media-modules";
+
+prepareSharedPublicAssets(import.meta.dirname);
 
 const nodeModulesPathPattern = /\/node_modules\//;
 const extendComponentsPathPattern = /\/src\/components\/extend\//;
@@ -21,6 +25,10 @@ const lucideIconsPackagePattern = /^lucide-react$/;
 const phosphorIconsPackagePattern = /^@phosphor-icons\/react$/;
 const streamdownMermaidChunkPattern = /^\.\/mermaid-[\w-]+\.js$/;
 const isolatedDev = resolveIsolatedWebDevSettings(process.env);
+const websiteOrigins: Record<string, string> = {
+	prod: "https://openmeld.ai",
+	stg: "https://staging.openmeld.ai",
+};
 
 const config = defineConfig(({ command, mode }) => {
 	const installedTarget = readInstalledDesktopTarget(process.env);
@@ -64,6 +72,13 @@ const config = defineConfig(({ command, mode }) => {
 	}
 	return {
 		define: {
+			"import.meta.env.VITE_WEBSITE_URL": JSON.stringify(
+				websiteOrigins[
+					process.env.CLOUDFLARE_ENV ?? (installedTarget ? "prod" : "")
+				] ??
+					process.env.VITE_WEBSITE_URL ??
+					"http://localhost:3500"
+			),
 			...Object.fromEntries(
 				Object.entries(cliBuildEnvironment).map(([key, value]) => [
 					`import.meta.env.${key}`,

@@ -2,6 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { OPENMELD_SPACE_ACTION_MCP_TOOL_NAMES } from "@openmeld/adapter-core";
 import { dispatchSpaceActionToolResultSchema } from "@openmeld/schemas";
 import type { SpaceMemberDirectorySendTargetEntry } from "@openmeld/space";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -645,6 +646,9 @@ describe("OpenMeld Space Action MCP server", () => {
         client.connect(clientTransport),
       ]);
       const catalog = await client.listTools();
+      expect(catalog.tools.map((tool) => tool.name).sort()).toEqual(
+        [...OPENMELD_SPACE_ACTION_MCP_TOOL_NAMES].sort()
+      );
       expect(
         catalog.tools.some((tool) => tool.name === "report_progress")
       ).toBe(true);

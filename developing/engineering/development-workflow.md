@@ -450,7 +450,12 @@ printed by the launcher so a newcomer does not mistake first compilation for a
 failed start.
 
 For real CLI/Service Setup smoke, run `pnpm cli:binary:serve:worktree` in the same
-worktree and use the Web-generated lane command. On macOS, when testing real
+worktree and use the Web-generated lane command. The CLI resolves its default
+OAuth client from the active lane:
+`dev-local` uses `openmeld-cli-dev`, matching the Web-issued grant; production
+and canary use `openmeld-cli`. Explicit CLI/client environment overrides retain
+precedence. The packaged binary and source entry use the same resolver.
+On macOS, when testing real
 Keychain access across CLI and Service copies, an already provisioned signing
 identity can be selected with `OPENMELD_CLI_BINARY_DEV_SIGNING_IDENTITY`.
 The binary server signs with the normal release entitlements, verifies the

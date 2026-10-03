@@ -8,6 +8,7 @@ import {
 } from "../configs/constants";
 import { normalizeAuthBaseUrl } from "./auth-url";
 import { normalizeCookieDomain } from "./cookie-domain";
+import { parseLegacyAppOrigin } from "./trusted-origins";
 
 export type AuthWorkerNodeEnv = "development" | "production";
 const CLIENT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{1,63}$/;
@@ -23,6 +24,7 @@ export type AuthConfigInput = {
   AUTH_FROM_EMAIL?: string;
   AUTH_BRAND_NAME?: string;
   WEB_APP_URL?: string;
+  AUTH_LEGACY_APP_ORIGIN?: string;
   AUTH_COOKIE_DOMAIN?: string;
   AUTH_COOKIE_PREFIX?: string;
   PASSKEY_RP_ID?: string;
@@ -42,6 +44,7 @@ export type ValidatedAuthConfig = {
   AUTH_FROM_EMAIL: string;
   AUTH_BRAND_NAME: string;
   WEB_APP_URL: string;
+  AUTH_LEGACY_APP_ORIGIN?: string;
   AUTH_COOKIE_DOMAIN?: string;
   AUTH_COOKIE_PREFIX?: string;
   PASSKEY_RP_ID?: string;
@@ -128,6 +131,10 @@ export function validateAuthConfig(
     AUTH_FROM_EMAIL: fromEmail,
     AUTH_BRAND_NAME: brandName,
     WEB_APP_URL: appUrl,
+    AUTH_LEGACY_APP_ORIGIN: parseLegacyAppOrigin(
+      input.AUTH_LEGACY_APP_ORIGIN,
+      env
+    ),
     AUTH_COOKIE_DOMAIN: cookieDomain,
     AUTH_COOKIE_PREFIX: cookiePrefix,
     PASSKEY_RP_ID: passkeyRpId,

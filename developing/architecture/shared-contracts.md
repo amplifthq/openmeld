@@ -549,11 +549,37 @@ Agent can explicitly select it through `centerAgentSetReplyPlacement`; personal
 Remote Agents use `personalRemoteAgentSpaceTool` with a `reply_placement`
 operation. Both require an authenticated active submission. Local Agents may select it with the
 optional `placement` field on a final `post_message` Space Action; old clients
-omit that field, and Core still defaults their shared-Space replies to a
-Thread. A choice is locked before final publication and reused for recovery.
-Direct messages stay direct; Routines and external channels retain their
+omit that field, and Core applies the shared default: existing Thread first,
+then main for a Direct Message or exactly one human and one Agent, otherwise
+the triggering message's Thread. A choice is locked before final publication
+and reused for recovery. Routines and external channels retain their
 contracts. Source `threadContext` continues to govern authorization and
 continuity independently of output placement.
+
+Thinking and transient progress callbacks do not resolve or allocate output
+placement. They retain execution/source identity without creating a Thread.
+Explicit placement selection and the first answer text resolve an editable
+Space-owned destination. Center and personal Remote Agent tools may reselect
+until final publication begins. Final publication alone locks it. Existing
+locked records from older workers remain fixed through completion and recovery.
+Source authorization and private-context boundaries do not change.
+
+Wake progress readers opt in with `includeReplyPlacement=true` to receive the
+optional `replyThreadRootSignalId` and `replyPlacementRevision` on each dispatch.
+The revision belongs to the same Space-owned placement record and increases
+only when the destination changes. Progress merges preserve the greatest
+placement revision independently of lifecycle timing, so late polling cannot
+move live work back. Older readers omit the flag
+and keep the previous response shape. A selection change emits the existing
+`wake.progress.changed` invalidation; readers fetch this canonical projection.
+Web applies it to status and existing live drafts before building either
+conversation, so a placement change does not wait for the next text delta.
+Space also projects its current selection onto stream callbacks, bootstrap,
+replay, and terminal frames. Invalidation never becomes routing authority.
+The internal placement record accepts legacy records without a revision. The
+selection RPC keeps its previous response shape for existing Remote Agent
+workers. A Core rollback must retain this additive record reader or drain the
+affected turns before rollback; older Core readers reject the stored revision.
 
 Agent stream identities add optional `replyThreadRootSignalId`: a root means
 Thread output, `null` means main output, and absence preserves legacy source
@@ -628,6 +654,15 @@ an old Core cannot read requests with this new strict field. No database migrati
 or local component release is required.
 
 ## Shared Agent Plugins
+
+`plugin-connection-reply` reads persisted connection links through one shared
+parser used by Web presentation and Core continuation validation. Production
+root/App origins and staging root/App origins are explicit, separate compatibility
+pairs so pre-migration replies remain actionable, including after rollback.
+The returned navigation URL uses the current configured Web origin. This does
+not admit an Auth origin or grant connection permission: organization, service,
+scope, original requester, message provenance, and continuation authorization
+remain with their existing owners. No wire fields or stored replies are rewritten.
 
 `packages/schemas` owns `plugin-access`, `plugin-actions`, and `plugin-runtime`.
 The Gateway exposes connection access reads/updates and the Local Agent plugin
@@ -2576,6 +2611,16 @@ additions do not change CLI, OpenMeld Service, daemon, Prepare, Wake dispatch,
 Space action, or diagnostic semantics.
 
 ### Direct Message Conversion Contract
+
+The Center Agent private-chat open and session-creation contracts resolve an
+authorized conversation and initialize its metadata and membership when needed.
+They do not publish introductory messages. Setup, Organization entry, Routine
+destination preparation, and member research reuse that same message-free open
+contract. Existing HTTP and RPC response shapes remain unchanged; old Web,
+Gateway, CLI, and Service consumers can use the new Core behavior. No database
+migration, local-component contract bump, or client deployment order is required.
+Historical welcome signals remain readable through the ordinary Space history
+contract. New-chat guidance belongs to the shared client introduction surface.
 
 Personal Remote Agent `wake_progress` and `wake_stop` operations accept an
 optional `spaceId` in `personalRemoteAgentSpaceToolRequestSchema`. Omission
@@ -4697,9 +4742,11 @@ Automatic completed-turn writes also consume the frozen Core-owned
 `interactionEnvironment` from the stored native-delivery request. Before
 writing, Core verifies that the stored Organization, conversation, and sender
 still align with the delivery and the owning current-membership projection.
-`requester_private` writes the verified member subject,
-`organization_shared` may write the enabled Organization subject, and
-`externally_shared` writes neither automatically. Source values such as
+`requester_private` writes the verified member subject. Both
+`organization_shared` and `externally_shared` write neither scope automatically;
+shared turns never fall back to personal capture. Explicit authorized team saves
+remain a separate path controlled by the existing Organization memory setting.
+Source values such as
 `slack_conversation` and `message_channel_conversation` remain provenance and
 must not choose the memory subject. Missing or conflicting frozen scope fails
 closed.
@@ -4763,9 +4810,9 @@ Runtime Transport epoch because unsupported peers lose only the optional
 Organization hints, not Wake execution.
 
 Remote Agent fetches the current policy for every model turn. Organization
-Brief and title projections may use their existing bounded cache as an
-availability fallback, but a failed current read must never reuse a cached
-policy. Workstation policy reads are also optional to delivery: a read failure
+Brief, title, and policy reads do not reuse cached content after a current read
+fails. Unavailable context is omitted and reported honestly. Workstation policy
+reads are also optional to delivery: a read failure
 or missing Space Organization projection is observable and omits the custom
 hints while preserving built-in guidance.
 
@@ -4928,6 +4975,13 @@ human HTTP/Core RPC CRUD and draft-review payloads, the Center Agent catalog,
 read, draft, and management payloads, and the bounded prompt-context projection.
 Gateway, Core, API client, Web, and Remote Agent must derive their types from
 these schemas and must not maintain parallel document shapes.
+
+The existing read RPC permits an omitted `speakerMember` for personal Remote
+Agents only. Core verifies the receiving Agent against its active native
+delivery and ordinary owned-Profile/member read contract, plus the stored task
+audience. Center callers still require the verified speaker. This read-only
+path returns approved content without draft, protected-prompt, or management
+authority. Roll out Core before Remote callers that omit the speaker.
 
 The Center Agent draft input is strict and contains `draftContent`, never
 `content`. It targets either an existing document id or a new document identity

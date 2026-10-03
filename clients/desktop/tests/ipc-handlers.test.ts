@@ -592,7 +592,7 @@ describe("createDesktopHandlers", () => {
 
     await handlers.openWeb();
 
-    expect(openExternal).toHaveBeenCalledWith("https://openmeld.ai");
+    expect(openExternal).toHaveBeenCalledWith("https://app.openmeld.ai");
   });
 
   it("opens the local agent install guide through the injected external opener", async () => {
@@ -605,7 +605,7 @@ describe("createDesktopHandlers", () => {
     await handlers.openWeb(LOCAL_AGENTS_GUIDE_PATH);
 
     expect(openExternal).toHaveBeenCalledWith(
-      "https://openmeld.ai/guides/local-agents"
+      "https://app.openmeld.ai/guides/local-agents"
     );
   });
 

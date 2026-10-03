@@ -167,9 +167,15 @@ describe("Plugin continuation keeps existing identity and Wake owners", () => {
     owner.post.mockResolvedValue({ id: "continued-1" });
   });
 
-  it("continues as the original human in the authoritative Thread with completed receipts, not a callback-driven rerun", async () => {
+  it.each([
+    "https://openmeld.ai",
+    "https://app.openmeld.ai",
+  ])("continues the original human's persisted task at %s with its Thread and completed receipts", async (webAppUrl) => {
     expect(owner.post).not.toHaveBeenCalled();
-    const result = await continuePluginConnection(env, input);
+    const result = await continuePluginConnection(
+      { ...env, WEB_APP_URL: webAppUrl },
+      input
+    );
     expect(result).toEqual({
       status: "requested",
       sourceSignalId: "reply-1",

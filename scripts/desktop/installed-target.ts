@@ -8,7 +8,7 @@ export function readInstalledDesktopTarget(env: NodeJS.ProcessEnv) {
   if (env.OPENMELD_DESKTOP_TARGET === "production") {
     return desktopInstalledTargetSchema.parse({
       kind: "production",
-      webOrigin: "https://openmeld.ai",
+      webOrigin: "https://app.openmeld.ai",
       authScheme: "sh.openmeld.desktop",
       clientId: "openmeld-desktop",
       appId: "sh.openmeld.desktop",

@@ -1,5 +1,8 @@
 ---
 id: skills-bulk-removal
+publishedAt: 2026-10-03
+release: v0.3.238
+evidence: ["pr:1472","workflow:37112710810","workflow:37111442861"]
 title: Remove multiple skills from Team
 kind: improved
 areas: ["skills", "web"]

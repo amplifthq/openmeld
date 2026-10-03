@@ -23,6 +23,16 @@
 - Source of truth: This file owns the durable product boundary for the OpenMeld Web
   client as a browser client.
 
+## App and public website boundary
+
+`clients/web` is the App at `app.openmeld.ai` (Staging:
+`app.staging.openmeld.ai`). Its root enters the authenticated Organization
+resolver or sends anonymous visitors to `/login`. Public marketing, legal,
+Changelog, and local-agent guides belong to `clients/website`; Web keeps only
+redirects for those pages. See [Public Website](website.md) for presentation and
+root-domain forwarding. Web remains the sole owner of Auth proxies, application
+APIs, installers, downloads, and native authorization entry points.
+
 ## Conversational Plugin setup
 
 A Plugin setup intent opens the current Organization's existing connection
@@ -1675,6 +1685,9 @@ an optional supported reasoning effort. Center Agent settings use the same
 reasoning selector. New personal Remote Agents initially select GPT-6 Sol with
 `medium` effort; Center Agent OpenMeld default is Claude Opus 5.5 with `medium`.
 Default reasoning follows the selected model's catalog effort.
+An explicit effort under **OpenMeld default** saves the current default as a
+concrete model selection. Before Save, Web explains that this model will remain
+selected when OpenMeld defaults change; Core owns materializing the model ID.
 Changing to another provider clears an incompatible draft and requires a new
 model choice before Create or Save; an empty draft must not silently select
 the system default. Local Agent model controls keep their controller-owned
@@ -4752,9 +4765,9 @@ state; a success and failure are always separate, exact rows. Web retains at
 most the latest 50 admitted live calls. New work follows the bottom while the
 user remains there; scrolling up pauses following and shows one
 `new step · Jump to latest` control instead of pulling the user away.
-Reduced-motion preferences disable smooth following. The summary does not
-create an empty message bubble before text arrives in ordinary Spaces or
-threads.
+Reduced-motion preferences disable smooth following. Known active execution
+occupies an unfinished Agent reply before text arrives, in both ordinary Spaces
+and threads. Public work fills that same reply without waiting for answer text.
 
 Space messages and Thread messages do not render a separate `woke Agent Name`
 receipt. Instead, the inline Agent token shows its exact Wake or Reference
@@ -5515,9 +5528,14 @@ input-waiting Orbs are paused.
 
 Unfinished Agent replies follow the latest message in their owning conversation.
 The server-selected `replyThreadRootSignalId` takes precedence over the trigger
-message's location once reply placement is known. Before selection, progress
-keeps its source context, except a shared-Space Center Agent Wake waits for its
-selected destination instead of showing a provisional main-conversation status.
+message's location once reply placement is known. Before selection, execution
+progress keeps its source context, including shared-Space Center Agent Wakes.
+The unfinished reply immediately shows the same authoritative progress as the
+sidebar and admits public work even before its final destination is selected.
+Native execution timing survives both outbox and dispatch-ledger projections,
+so the reply's elapsed time comes from its runtime's accepted execution evidence.
+Transient thinking and progress never allocate a reply Thread. Existing
+Thread work can use its source Thread context before an answer stream arrives.
 For a Thread-bound reply, the main message's **Open thread** entrance shows the
 compact current phase and authorized Stop control in place. The Thread shows the
 complete progress and its Stop control. The main message does not show a second

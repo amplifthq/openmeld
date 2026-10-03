@@ -1,3 +1,4 @@
+import { APP_PAGE_FRAME_PADDING_CLASS_NAME } from "@openmeld/ui/lib/page-frame";
 import { useQueryClient } from "@tanstack/react-query";
 import { Outlet, useMatches } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
@@ -26,7 +27,6 @@ import {
 import { CrossPageHeader } from "./cross-page-header";
 import { CurrentComputerProvider } from "./current-computer";
 import {
-	APP_PAGE_FRAME_PADDING_CLASS_NAME,
 	type AppShellSection,
 	resolveAppShellFrameClassName,
 	resolveAppShellSectionFromMatches,

@@ -12,12 +12,14 @@ import { isDeepStrictEqual } from "node:util";
 import {
   executionContextAssignmentSchema,
   openMeldSpaceEgressActionSchema,
+  organizationSkillRuntimeReleaseSelectionSchema,
   spaceMemberDirectoryEntrySchema,
 } from "@openmeld/schemas";
 import type {
   DispatchSpaceActionClosedReasonCode,
   DispatchSpaceActionReceipt,
   OpenMeldSpaceEgressAction,
+  OrganizationSkillRuntimeReleaseSelection,
   SpaceContract,
   SpaceMemberDirectoryEntry,
 } from "@openmeld/schemas/types";
@@ -83,6 +85,7 @@ export type DispatchSpaceActionSendTargetReference =
     };
 
 export type DispatchSpaceActionContext = {
+  organizationSkillReleases?: OrganizationSkillRuntimeReleaseSelection[];
   projectShell?: {
     boundaryRoot: string;
     executionContextId: string;
@@ -137,6 +140,7 @@ export type DispatchSpaceActionRecordReadResult =
     };
 
 export function createDispatchSpaceActionContext(input: {
+  organizationSkillReleases?: OrganizationSkillRuntimeReleaseSelection[];
   projectShell?: DispatchSpaceActionContext["projectShell"];
   workingCopyId?: string;
   attemptId: string;
@@ -171,6 +175,9 @@ export function createDispatchSpaceActionContext(input: {
   const contextPath = join(contextDir, "context.json");
   const actionRecordPath = join(contextDir, "action.json");
   const context: DispatchSpaceActionContext = {
+    ...(input.organizationSkillReleases
+      ? { organizationSkillReleases: input.organizationSkillReleases }
+      : {}),
     ...(input.projectShell ? { projectShell: input.projectShell } : {}),
     ...(input.workingCopyId ? { workingCopyId: input.workingCopyId } : {}),
     version: DISPATCH_SPACE_ACTION_CONTEXT_VERSION,
@@ -366,6 +373,14 @@ function parseDispatchSpaceActionContext(
       ? { projectShell: parseProjectShell(record.projectShell) }
       : {}),
     version,
+    ...(record.organizationSkillReleases
+      ? {
+          organizationSkillReleases:
+            organizationSkillRuntimeReleaseSelectionSchema
+              .array()
+              .parse(record.organizationSkillReleases),
+        }
+      : {}),
     actionRecordPath: requiredString(
       record.actionRecordPath,
       "actionRecordPath"

@@ -1115,6 +1115,11 @@ the connected provider API.
    are not sent to CardKit or counted as visible progress. Slack retains its
    own publication path. The same durable card is finalized after the result;
    streaming is not a second response or an execution-completion signal.
+   The same publisher sends the first Web/Space text immediately and coalesces
+   subsequent text at 100 ms. An assistant `message_end` flushes its buffered
+   tail before any post-response compaction; prompt completion still owns final
+   execution settlement. Short answers must not wait for a later token or for
+   compaction to become visible.
    Lark-platform event ingestion is bounded to four Queue attempts. Exhaustion
    records one durable failed ingress and stops; it never resets the attempt
    count by creating a fresh copy of the same event. Replayed provider images
@@ -3704,13 +3709,13 @@ tooling, not a user surface and not availability truth.
   cannot override OpenMeld system or tool safety rules. Draft content is never
   projected into the prompt. The knowledge section may list available approved
   document titles, but it does not inject their bodies.
-- The Remote Agent keeps the validated Organization Brief and approved document
-  titles in a 60-second, organization-keyed memory cache. Flue's materialization
-  factory has no execution context, so it never starts or awaits the Core RPC
-  during admission. The fiber-side factory returns a fresh cache hit immediately
-  or awaits one organization-keyed, deduplicated refresh before model execution.
-  A refresh failure fails explicitly instead of running with missing or stale
-  organization context.
+- Each turn reads Organization prompt context through its current Core
+  authorization. There is no organization-keyed Brief/title cache or old-body
+  fallback after a denial or refresh failure. Unavailable context is marked
+  unavailable; ordinary conversation can continue, but work requiring unread
+  rules must report the gap. Personal Remote Agents keep the Center-only prompt
+  and Computer projection disabled and discover ordinary approved documents
+  through their own admitted read identity.
 - `openmeld_read_org_documents` lists folders plus the approved document catalog
   or reads one approved body. `openmeld_draft_org_document` creates or replaces
   reviewable draft content. `openmeld_manage_org_documents` creates and renames
@@ -3718,9 +3723,11 @@ tooling, not a user surface and not availability truth.
   an owner/admin request or durable Routine instruction authorizes publication.
   The management tool has no delete action, rejects direct saves over pending
   drafts, and requires a stable operation id so exact retries do not duplicate
-  content. These tools call Core under represented-member authorization, write
-  the Center Agent audit journal, and remain available in the shared interactive
-  and Routine catalog.
+  content. Center reads and document writes use represented-member authorization.
+  Personal Remote reads use the receiving Agent's active delivery, owner/member,
+  Profile, and frozen audience checks, including Agent-source Wakes; no sender
+  human impersonation or writing authority is inherited. The tools write the
+  existing audit journal and remain in their authorized interactive/Routine catalogs.
 
 ### Center Agent memory (shipped 2026-07-10)
 

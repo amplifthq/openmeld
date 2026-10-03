@@ -21,6 +21,11 @@ const useStartFlowStateMock = vi.hoisted(() => vi.fn());
 const statusMock = vi.hoisted(() => vi.fn());
 const displaySnapshotQueryMock = vi.hoisted(() => vi.fn());
 const queryClientMock = vi.hoisted(() => ({ setQueryData: vi.fn() }));
+const desktopPlatformMock = vi.hoisted(() => vi.fn().mockReturnValue(null));
+
+vi.mock("#/desktop/platform", () => ({
+	getDesktopPlatform: desktopPlatformMock,
+}));
 
 vi.mock("@tanstack/react-query", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@tanstack/react-query")>()),
@@ -94,6 +99,7 @@ describe("CurrentComputerToolbarLauncher", () => {
 		statusMock.mockReset().mockReturnValue(null);
 		displaySnapshotQueryMock.mockReset().mockReturnValue({ data: undefined });
 		queryClientMock.setQueryData.mockReset();
+		desktopPlatformMock.mockReset().mockReturnValue(null);
 		useLocalRuntimeQueriesMock.mockReset().mockReturnValue(
 			buildRuntimeQueries({
 				currentDeviceId: "device-current",
@@ -148,6 +154,20 @@ describe("CurrentComputerToolbarLauncher", () => {
 			name: "Connect this Computer",
 		});
 		expect(launcher.getAttribute("href")).toBe("/o/acme/connect?session=fresh");
+	});
+
+	it.each([
+		"device-current",
+		undefined,
+	])("opens the native connection check from Desktop regardless of browser selection: %s", (currentDeviceId) => {
+		desktopPlatformMock.mockReturnValue({});
+		useLocalRuntimeQueriesMock.mockReturnValue(
+			buildRuntimeQueries({ currentDeviceId })
+		);
+		render(<CurrentComputerToolbarLauncher />);
+		expect(screen.getByRole("link").getAttribute("href")).toBe(
+			"/o/acme/connect"
+		);
 	});
 
 	it("does not offer setup before Computer inventory finishes loading", () => {
