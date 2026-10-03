@@ -40,6 +40,11 @@ export type CenterAgentParentDelivery = NonNullable<
 >;
 
 export function planCenterAgentWakeDelegation(input: {
+  additionalDestinations?: Array<{
+    childSpaceId: string;
+    clientMessageId: string;
+    targetProfileIds: string[];
+  }>;
   childSpaceId: string;
   clientMessageId: string;
   fallbackAgentProfileId?: string;
@@ -52,17 +57,23 @@ export function planCenterAgentWakeDelegation(input: {
     );
   }
   const delegationId = buildDelegationId(input.clientMessageId);
-  const childTasks = input.targetProfileIds.map((targetProfileId) => ({
-    completionCondition: "terminal" as const,
-    subscriptionId: buildSubscriptionId(input.clientMessageId, targetProfileId),
-    task: {
-      kind: "space_wake" as const,
-      sourceClientMessageId: input.clientMessageId,
-      spaceId: input.childSpaceId,
-      targetProfileId,
-      v: 1 as const,
-    },
-  }));
+  const childTasks = [input, ...(input.additionalDestinations ?? [])].flatMap(
+    (destination) =>
+      destination.targetProfileIds.map((targetProfileId) => ({
+        completionCondition: "terminal" as const,
+        subscriptionId: buildSubscriptionId(
+          destination.clientMessageId,
+          targetProfileId
+        ),
+        task: {
+          kind: "space_wake" as const,
+          sourceClientMessageId: destination.clientMessageId,
+          spaceId: destination.childSpaceId,
+          targetProfileId,
+          v: 1 as const,
+        },
+      }))
+  );
   const fallbackTask = buildPreparedFallbackTask(input);
   return {
     childTasks,
@@ -78,6 +89,9 @@ export function planCenterAgentWakeDelegation(input: {
 }
 
 export async function prepareCenterAgentWakeDelegation(input: {
+  additionalDestinations?: Parameters<
+    typeof planCenterAgentWakeDelegation
+  >[0]["additionalDestinations"];
   actorProfileId: string;
   childSpaceId: string;
   clientMessageId: string;
@@ -102,6 +116,7 @@ export async function prepareCenterAgentWakeDelegation(input: {
     organizationId: input.organizationId,
     parentSubmissionId: input.parentSubmissionId,
     resumesParent,
+    allowCompletedParent: (input.additionalDestinations?.length ?? 0) > 0,
     ...(resumesParent
       ? { continuationDelegationId: prepared.delegationId }
       : {}),
@@ -164,19 +179,24 @@ export async function prepareCenterAgentWakeDelegation(input: {
       resumesParent,
     });
   } catch (error) {
-    await cancelPreparedCenterAgentWakeDelegation({
-      db: input.db,
-      delegationId,
-      nowMs: input.nowMs,
-      parentDelivery,
-      subscriptionIds,
-    });
+    // A batch is already durable before preparation. A transient subscription
+    // write must not cancel siblings that may have been accepted by a Space.
+    if (!input.additionalDestinations?.length) {
+      await cancelPreparedCenterAgentWakeDelegation({
+        db: input.db,
+        delegationId,
+        nowMs: input.nowMs,
+        parentDelivery,
+        subscriptionIds,
+      });
+    }
     throw error;
   }
   return prepared;
 }
 
 export async function requireCenterAgentContinuationParent(input: {
+  allowCompletedParent?: boolean;
   actorProfileId: string;
   continuationDelegationId?: string;
   destinationNeutralContinuations: boolean;
@@ -192,7 +212,9 @@ export async function requireCenterAgentContinuationParent(input: {
   });
   const isActiveParent =
     parentDelivery?.status === "accepted" ||
-    parentDelivery?.status === "retry_observed";
+    parentDelivery?.status === "retry_observed" ||
+    (input.allowCompletedParent === true &&
+      parentDelivery?.status === "completed");
   if (
     !parentDelivery ||
     parentDelivery.organizationId !== input.organizationId ||
@@ -364,7 +386,7 @@ async function registerPreparedDelegationSubscriptions(input: {
         : null,
       db: input.db,
       idempotencyKey: buildSubscriptionIdempotencyKey(
-        input.input.clientMessageId,
+        child.task.sourceClientMessageId,
         child.task.targetProfileId
       ),
       nowMs: input.input.nowMs,

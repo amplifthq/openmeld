@@ -990,6 +990,14 @@ export const centerAgentWakePublicationCommandSchema = z
     replyLanguageTag: workingLanguageTagSchema.optional(),
     context: openMeldRequestContextSchema,
     delegationId: trimmedNonEmptyStringSchema,
+    // The root publication owns the immutable destination set. Other rows
+    // reference it so recovery never mistakes a partial fan-out for the batch.
+    batchRootPublicationId: trimmedNonEmptyStringSchema.optional(),
+    batchPublicationIds: z
+      .array(trimmedNonEmptyStringSchema)
+      .min(2)
+      .max(10)
+      .optional(),
     fallbackAgentProfileId: agentProfileIdSchema.nullable(),
     organizationId: trimmedNonEmptyStringSchema,
     parentSubmissionId: trimmedNonEmptyStringSchema,
@@ -1021,6 +1029,72 @@ export const centerAgentWakePublicationCommandSchema = z
         path: ["referenceTargets", overlappingReferenceIndex],
       });
     }
+  });
+
+export const centerAgentWakeAgentProfilesInSpacesBodySchema = z
+  .strictObject({
+    destinations: z
+      .array(centerAgentWakeAgentProfilesInSpaceBodySchema)
+      .min(2)
+      .max(10),
+    replyLanguageTag: workingLanguageTagSchema.optional(),
+    onBehalfOf: centerAgentOnBehalfOfInputSchema.optional(),
+  })
+  .superRefine((value, context) => {
+    if (
+      new Set(value.destinations.map((destination) => destination.spaceId))
+        .size !== value.destinations.length
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["destinations"],
+        message: "Include each Space once, with all of its Agent targets.",
+      });
+    }
+    if (
+      value.destinations.reduce(
+        (count, destination) => count + destination.agentProfileIds.length,
+        0
+      ) > 25
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["destinations"],
+        message: "A Wake batch supports at most 25 Agent tasks.",
+      });
+    }
+    value.destinations.forEach((destination, index) => {
+      if (
+        destination.fallbackAgentProfileId ||
+        destination.onBehalfOf ||
+        destination.replyLanguageTag ||
+        (destination.completionMode &&
+          destination.completionMode !== "resume_parent_when_all_terminal")
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: ["destinations", index],
+          message:
+            "A multi-Space Wake has one requester, reply language, and all-terminal completion barrier; per-destination fallbacks are not supported.",
+        });
+      }
+    });
+  });
+
+export const centerAgentWakeAgentProfilesInSpacesResponseSchema =
+  z.strictObject({
+    delegationId: trimmedNonEmptyStringSchema,
+    status: z.literal("queued"),
+    childTasks: z
+      .array(
+        z.strictObject({
+          completionCondition: z.literal("terminal"),
+          subscriptionId: trimmedNonEmptyStringSchema,
+          task: spaceWakeAgentTaskHandleSchema,
+        })
+      )
+      .min(2)
+      .max(25),
   });
 
 export const centerAgentWatchAgentTaskBodySchema = z.strictObject({

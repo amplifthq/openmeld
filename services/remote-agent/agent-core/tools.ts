@@ -123,6 +123,7 @@ import {
   centerAgentUpdateProjectToolResponseSchema,
   centerAgentUpdateSpaceSettingsResponseSchema,
   centerAgentWakeAgentProfilesInSpaceResponseSchema,
+  centerAgentWakeAgentProfilesInSpacesResponseSchema,
   centerAgentWatchAgentTaskResponseSchema,
   changelogQueryResponseSchema,
   createAgentProfileCreationRequestResponseSchema,
@@ -671,6 +672,26 @@ const wakeAgentProfilesInSpaceToolInputSchema = object({
   fallbackAgentProfileId: optional(nonEmptyStringSchema),
   spaceId: nonEmptyStringSchema,
   text: pipe(string(), minLength(1), maxLength(MAX_TEXT_LENGTH)),
+});
+const wakeAgentProfilesInSpacesToolInputSchema = strictObject({
+  destinations: pipe(
+    array(
+      strictObject({
+        spaceId: nonEmptyStringSchema,
+        agentProfileIds: pipe(
+          array(nonEmptyStringSchema),
+          minLength(1),
+          maxLength(25)
+        ),
+        mentionProfileIds: mentionProfileIdsInputSchema,
+        referenceProfileIds: referenceProfileIdsInputSchema,
+        text: pipe(string(), minLength(1), maxLength(MAX_TEXT_LENGTH)),
+      })
+    ),
+    minLength(2),
+    maxLength(10)
+  ),
+  replyLanguageTag: taskReplyLanguageInputSchema,
 });
 const agentTaskHandleInputSchema = union([
   strictObject({
@@ -1541,6 +1562,7 @@ export const REMOTE_AGENT_OPENMELD_TOOL_NAMES = [
   "openmeld_send_slack_file",
   "openmeld_post_space_message",
   "openmeld_set_final_reply_mentions",
+  "openmeld_wake_agent_profiles_in_spaces",
   "openmeld_wake_agent_profiles_in_space",
   "openmeld_list_agent_tasks",
   "openmeld_watch_agent_task",
@@ -5118,6 +5140,51 @@ export function getRemoteAgentOpenMeldToolDefinitions(
           status: "prepared",
           mentionProfileIds: request.mentionProfileIds,
         };
+      },
+    }),
+    toolDefinition({
+      name: "openmeld_wake_agent_profiles_in_spaces",
+      description:
+        "Arrange one complete delegation across 2–10 Spaces, with at most 25 Agent tasks, and resume this original request once every child has a terminal result. Use this for a request that needs work in several Spaces: include every destination in this one call before any work starts. Each destination needs a self-contained brief with the goal, verified evidence, constraints, and completion criteria, plus explicit Human Mention and Agent Reference arrays. The same Agent can work in different Spaces. Core saves the whole batch first, retries unsubmitted destinations, and preserves successful work when another destination fails. queued acknowledges the durable plan, not delivery or completion. Do not repeat the batch, poll for completion, or ask children to Wake you; their results and failures return to this request automatically. This ends the scheduling turn. Per-destination fallbacks are not supported.",
+      input: wakeAgentProfilesInSpacesToolInputSchema,
+      endsTurnAfter: (result) =>
+        centerAgentWakeAgentProfilesInSpacesResponseSchema.safeParse(result)
+          .success,
+      execute: async (payload) => {
+        const request = parseValibot(
+          wakeAgentProfilesInSpacesToolInputSchema,
+          payload
+        );
+        const toolContext = await buildRepresentedMemberAttributionToolContext({
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_wake_agent_profiles_in_spaces",
+        });
+        const rpc = requireCoreRpc(
+          input.coreWorker.centerAgentWakeAgentProfilesInSpaces,
+          "centerAgentWakeAgentProfilesInSpaces"
+        );
+        await verifySpaceAuthoringContract(toolContext.context);
+        const response =
+          centerAgentWakeAgentProfilesInSpacesResponseSchema.parse(
+            await rpc({ ...request, ...toolContext })
+          );
+        const expected = request.destinations
+          .flatMap((destination) =>
+            [...new Set(destination.agentProfileIds)].map(
+              (profileId) => `${destination.spaceId}:${profileId}`
+            )
+          )
+          .sort();
+        const actual = response.childTasks
+          .map((child) => `${child.task.spaceId}:${child.task.targetProfileId}`)
+          .sort();
+        if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+          throw new Error(
+            "Core did not acknowledge the complete Wake batch. Do not repeat the request; inspect the returned delegation."
+          );
+        }
+        return response;
       },
     }),
     toolDefinition({

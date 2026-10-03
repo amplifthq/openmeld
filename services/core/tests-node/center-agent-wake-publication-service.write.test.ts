@@ -4,7 +4,10 @@ import type {
 } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 import { readAgentDelegation } from "../src/agent-task-coordination/infrastructure/d1/agent-delegation-repo";
-import { readAgentTaskCompletionSubscription } from "../src/agent-task-coordination/infrastructure/d1/agent-task-coordination-repo";
+import {
+  readAgentTaskCompletionSubscription,
+  recordAgentTaskTerminalOutcome,
+} from "../src/agent-task-coordination/infrastructure/d1/agent-task-coordination-repo";
 import { planCenterAgentWakeDelegation } from "../src/center-agent/application/center-agent-delegation-service";
 import {
   executeCenterAgentWakePublication,
@@ -14,6 +17,7 @@ import {
 import {
   claimCenterAgentWakePublication,
   markCenterAgentWakePublicationAccepted,
+  prepareCenterAgentWakePublicationRecords,
   readCenterAgentWakePublication,
 } from "../src/center-agent/infrastructure/d1/center-agent-wake-publication-repo";
 import {
@@ -27,6 +31,150 @@ const HUMAN_PROFILE_ID = "00000000-0000-4000-8000-000000000003";
 const CLIENT_MESSAGE_ID = "ca-wake:durable-publication";
 
 describe("Center Agent Wake publication recovery", () => {
+  it.each([
+    "accepted",
+    "rejected",
+  ])("recovers an unattempted second Space (%s) without repeating the first or losing its result", async (secondOutcome) => {
+    const harness = createHarness();
+    try {
+      await insertAuditIdentity(harness.db);
+      await insertParentDelivery(harness.db);
+      const ids = ["ca-wake:batch-alpha", "ca-wake:batch-beta"];
+      const plans = ids.map((clientMessageId, index) =>
+        planCenterAgentWakeDelegation({
+          childSpaceId: index === 0 ? "space-alpha" : "space-beta",
+          clientMessageId,
+          targetProfileIds: [CHILD_PROFILE_ID],
+        })
+      );
+      const commands = plans.map((plan, index) => ({
+        ...buildCommand({
+          clientMessageId: ids[index],
+          delegationId: plans[0].delegationId,
+          subscriptionIds: plan.subscriptionIds,
+        }),
+        batchRootPublicationId: ids[0],
+        ...(index === 0 ? { batchPublicationIds: ids } : {}),
+        spaceId: index === 0 ? "space-alpha" : "space-beta",
+      }));
+      await prepareCenterAgentWakePublicationRecords({
+        commands,
+        db: harness.db,
+        nowMs: 1000,
+      });
+      const publishSignal = vi.fn(
+        (command: CenterAgentWakePublicationCommand) => {
+          if (
+            command.spaceId === "space-beta" &&
+            secondOutcome === "rejected"
+          ) {
+            return Promise.reject(
+              new Error(
+                'HTTP 403: {"error":{"message":"Space access revoked"}}'
+              )
+            );
+          }
+          return Promise.resolve({
+            ...buildSignal({
+              clientMessageId: command.clientMessageId,
+              signalId: `signal:${command.spaceId}`,
+            }),
+            spaceId: command.spaceId,
+          });
+        }
+      );
+      await executeCenterAgentWakePublication({
+        db: harness.db,
+        nowMs: 1010,
+        publicationId: ids[0],
+        publishSignal,
+        resolveSignal: async () => null,
+      });
+      const firstResult = await recordAgentTaskTerminalOutcome({
+        db: harness.db,
+        nowMs: 1020,
+        task: plans[0].childTasks[0].task,
+        outcome: {
+          status: "succeeded",
+          errorCode: null,
+          eventId: "result-alpha",
+          occurredAtMs: 1020,
+          publishedSignalId: "result-alpha",
+        },
+      });
+      expect(firstResult.readySubscriptionIds).toEqual([]);
+      const partial = await readAgentDelegation({
+        db: harness.db,
+        delegationId: plans[0].delegationId,
+      });
+      expect(partial?.children.map((child) => child.state)).toEqual([
+        "terminal",
+        "planned",
+      ]);
+
+      // The original scheduling turn is over. Only durable records survive;
+      // the second destination has never been called by the original owner.
+      await harness.db
+        .prepare(
+          "UPDATE openMeldRemoteAgent_native_delivery_ledger SET status = 'completed' WHERE delivery_id = 'delivery-parent'"
+        )
+        .run();
+      await retryPendingCenterAgentWakePublications({
+        db: harness.db,
+        nowMs: 2000,
+        publishSignal,
+        resolveSignal: async () => null,
+      });
+      expect(
+        publishSignal.mock.calls.map(([command]) => command.spaceId)
+      ).toEqual(["space-alpha", "space-beta"]);
+      if (secondOutcome === "accepted") {
+        await recordAgentTaskTerminalOutcome({
+          db: harness.db,
+          nowMs: 2010,
+          task: plans[1].childTasks[0].task,
+          outcome: {
+            status: "succeeded",
+            errorCode: null,
+            eventId: "result-beta",
+            occurredAtMs: 2010,
+            publishedSignalId: "result-beta",
+          },
+        });
+      }
+      const complete = await readAgentDelegation({
+        db: harness.db,
+        delegationId: plans[0].delegationId,
+      });
+      expect(
+        complete?.children.map((child) => child.terminalOutcome?.status)
+      ).toEqual([
+        "succeeded",
+        secondOutcome === "accepted" ? "succeeded" : "publication_failed",
+      ]);
+      const subscriptions = await Promise.all(
+        plans.map((plan) =>
+          readAgentTaskCompletionSubscription({
+            db: harness.db,
+            subscriptionId: plan.subscriptionIds[0],
+          })
+        )
+      );
+      expect(
+        subscriptions.filter((subscription) => subscription?.state === "ready")
+      ).toHaveLength(1);
+      await retryPendingCenterAgentWakePublications({
+        db: harness.db,
+        nowMs: 3000,
+        publishSignal,
+        resolveSignal: async () => null,
+      });
+      expect(publishSignal).toHaveBeenCalledTimes(2);
+    } finally {
+      harness.close();
+    }
+  });
+
   it("redrives an outcome-unknown Space publication and completes coordination once", async () => {
     const harness = createHarness();
     const publishSignal = vi
