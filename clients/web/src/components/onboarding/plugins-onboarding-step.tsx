@@ -1,5 +1,9 @@
 "use client";
 
+import {
+	findPluginDefinition,
+	PLUGINS,
+} from "@openmeld/product-catalog/plugins";
 import { buildConnectorAppRequestProviderKey } from "@openmeld/schemas";
 import type {
 	ConnectorAppCatalogProvider,
@@ -24,10 +28,6 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDeferredValue, useMemo, useState } from "react";
 import { OnboardingStepLayout } from "#/components/onboarding/onboarding-step-layout";
-import {
-	findPluginDefinition,
-	PLUGINS,
-} from "#/components/organizations/plugin-catalog";
 import { PluginConnectionSurface } from "#/components/organizations/plugin-connection-surface";
 import { createCurrentOrganizationConnectorAppRequest } from "#/lib/organizations/connector-connections";
 import { useAppOrganization } from "#/lib/organizations/organization-context";

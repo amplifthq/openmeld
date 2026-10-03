@@ -12,7 +12,8 @@ export type WebCliTargetInput = {
 	gatewayUrl?: string;
 };
 
-const PRODUCTION_WEB = "https://openmeld.ai";
+const PRODUCTION_WEB = "https://app.openmeld.ai";
+const LEGACY_APP_ORIGIN = "https://openmeld.ai";
 const PRODUCTION_AUTH = "https://auth.openmeld.ai";
 const PRODUCTION_GATEWAY = "https://gateway.openmeld.ai";
 const COMMANDS = {
@@ -176,6 +177,9 @@ function sameOrigin(value: string, origin: string): boolean {
 }
 function isProductionAuth(value: string): boolean {
 	return (
-		sameOrigin(value, PRODUCTION_AUTH) || sameOrigin(value, PRODUCTION_WEB)
+		sameOrigin(value, PRODUCTION_AUTH) ||
+		sameOrigin(value, PRODUCTION_WEB) ||
+		// The migration keeps the old root Auth proxy available to existing clients.
+		sameOrigin(value, LEGACY_APP_ORIGIN)
 	);
 }

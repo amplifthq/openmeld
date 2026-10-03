@@ -107,7 +107,7 @@ describe("OrganizationSkillDetailPage", () => {
 		).toBe("true");
 		expect(screen.queryByLabelText("License")).toBeNull();
 		expect(screen.queryByText("Metadata")).toBeNull();
-		expect(screen.queryByRole("tab", { name: "Files (0)" })).toBeNull();
+		expect(screen.getByRole("tab", { name: "Files (0)" })).toBeDefined();
 		const save = screen.getByRole("button", { name: "Save" });
 		const actions = save.closest('[data-slot="skill-document-actions"]');
 		expect(

@@ -1,9 +1,9 @@
 "use client";
 
 import { projectPeopleComputersToLegacyLocalRuntimes } from "@openmeld/agent-runtime";
+import { findPluginDefinition } from "@openmeld/product-catalog/plugins";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { readCompletedPrepareSessionPointer } from "#/components/connect/prepare-session-pointer";
-import { findPluginDefinition } from "#/components/organizations/plugin-catalog";
 import { resolveCurrentLocalRuntime } from "#/lib/connect/current-local-runtime";
 import { selectPeopleComputerTarget } from "#/lib/connect/people-computer-selection";
 import { listOrganizationInvitations } from "#/lib/organizations/auth-organizations";

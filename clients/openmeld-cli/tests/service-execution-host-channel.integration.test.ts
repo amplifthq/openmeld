@@ -1,8 +1,10 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
+import { mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createExecutionHostClient } from "../src/local-service/execution-host/channel";
@@ -67,6 +69,62 @@ afterEach(async () => {
 });
 
 describe("execution host inherited IPC", () => {
+  it("carries one exact input and immutable source through inherited IPC without another native send", async () => {
+    const stateRoot = await mkdtemp(join(tmpdir(), "openmeld-input-ipc-"));
+    vi.stubEnv("OPENMELD_HOME", stateRoot);
+    cleanup.push(() => rm(stateRoot, { recursive: true, force: true }));
+    const { client } = startFixture();
+    const request = {
+      inputId: "input-1",
+      ownerUserId: "owner-1",
+      dispatchId: "dispatch-1",
+      runtimeCoordinatorExecutionId: "execution-1",
+      attemptId: "attempt-1",
+      runtimeCoordinatorRunId: "run-1",
+      targetProfileId: "agent-1",
+      source: {
+        spaceId: "space-1",
+        signalId: "signal-1",
+        authorProfileId: "author-1",
+        requesterUserId: "requester-1",
+        effect: "steer" as const,
+      },
+      text: "Use the revised requirement.",
+    };
+    const payload = {
+      operation: "apply" as const,
+      connectionGeneration: 1,
+      leaseEpoch: 1,
+      request,
+    };
+    const receipt = await client.call("executionInput", payload);
+    expect(receipt).toMatchObject({
+      status: "applied",
+      inputId: "input-1",
+      taskId: "task-1",
+      turnId: "turn-1",
+    });
+    expect(await client.call("executionInput", payload)).toEqual(receipt);
+    expect(
+      await client.call("executionInput", { ...payload, operation: "read" })
+    ).toEqual(receipt);
+    expect(
+      await client.call("executionInput", {
+        ...payload,
+        request: {
+          ...request,
+          source: { ...request.source, requesterUserId: "another-requester" },
+        },
+      })
+    ).toEqual({ inputId: "input-1", status: "conflict" });
+    expect(
+      await client.call("executionInput", {
+        ...payload,
+        request: { ...request, inputId: "input-2" },
+      })
+    ).toMatchObject({ turnId: "turn-2" });
+  });
+
   it("keeps local control responsive during a real Host event-loop stall", async () => {
     const { child, client, started } = startFixture("stall");
     const health = await client.call("health", {});

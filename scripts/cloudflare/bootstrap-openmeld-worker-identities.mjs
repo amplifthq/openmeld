@@ -12,6 +12,7 @@ export const OPENMELD_BOOTSTRAP_WORKERS = [
   "openmeld-remote-agent-prod",
   "openmeld-gateway-prod",
   "openmeld-web-prod",
+  "openmeld-website-prod",
 ];
 export const OPENMELD_STAGING_BOOTSTRAP_WORKERS = [
   "openmeld-core-stg",
@@ -19,6 +20,7 @@ export const OPENMELD_STAGING_BOOTSTRAP_WORKERS = [
   "openmeld-remote-agent-stg",
   "openmeld-gateway-stg",
   "openmeld-web-stg",
+  "openmeld-website-stg",
 ];
 
 export const OPENMELD_BOOTSTRAP_SOURCE = `export default {
@@ -40,10 +42,14 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 
 export async function bootstrapOpenMeldWorkerIdentities(input) {
   const client = input.client ?? createCloudflareClient(input);
-  const workerNames =
+  const environmentWorkers =
     input.environment === "staging"
       ? OPENMELD_STAGING_BOOTSTRAP_WORKERS
       : OPENMELD_BOOTSTRAP_WORKERS;
+  const workerNames = input.workerNames ?? environmentWorkers;
+  if (workerNames.some((name) => !environmentWorkers.includes(name))) {
+    throw new Error("Bootstrap names must belong to the selected environment.");
+  }
   const before = new Set(await client.listWorkerNames());
   const resources = [];
 

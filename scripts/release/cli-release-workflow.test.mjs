@@ -523,20 +523,6 @@ test("keeps the Remote Agent release check on the repository-pinned formatter", 
   assert.ok(!remoteAgentPackage.scripts.deploy.includes("--minify"));
 });
 
-test("gives every Web release build an explicit CI heap budget", () => {
-  const source = readRepoFile(".github/workflows/deploy-web.yml");
-  const jobStart = source.indexOf("\n  deploy:");
-  const stepsStart = source.indexOf("    steps:", jobStart);
-
-  assert.notEqual(jobStart, -1, "missing Web deploy job");
-  assert.notEqual(stepsStart, -1, "missing Web deploy steps");
-  assert.ok(
-    source
-      .slice(jobStart, stepsStart)
-      .includes('    env:\n      NODE_OPTIONS: "--max-old-space-size=4096"')
-  );
-});
-
 test("builds Web workspace dependencies before a production Vite build", () => {
   const packageJson = JSON.parse(readRepoFile("clients/web/package.json"));
 

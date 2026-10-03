@@ -18,6 +18,86 @@ import { createCenterAgentMemoryService } from "../src/center-agent-memory/memor
 
 describe("Center Agent memory service", () => {
   it.each([
+    40, 1200,
+  ])("keeps both scopes in the final envelope with %i-character candidates", async (size) => {
+    const adapter = createAdapter({
+      search: vi.fn(async ({ ref }) =>
+        Array.from({ length: 6 }, (_, rank) => ({
+          captureMethod: "automatic_turn" as const,
+          occurredAtMs: 900,
+          source: "space_conversation" as const,
+          sourceConversationId: "space_1",
+          sourceMessageId: `message_${rank}`,
+          subject: ref.subject.kind,
+          text: `${ref.subject.kind === "member" ? "I plan to investigate" : "Approved team rule"} ${rank}: ${"x".repeat(size)}`,
+        }))
+      ),
+    });
+    const repository = createRepository({ organizationMemoryOptIn: true });
+    const service = createCenterAgentMemoryService({ adapter, repository });
+    const memory = await service.recallForTurn(createRecallInput());
+    expect(
+      memory.items.filter((item) => item.subject === "organization").length
+    ).toBeGreaterThanOrEqual(2);
+    expect(memory.items.some((item) => item.subject === "member")).toBe(true);
+    expect(
+      memory.items.reduce((total, item) => total + item.text.length, 0)
+    ).toBeLessThanOrEqual(1600);
+    expect(memory.items.length).toBeLessThanOrEqual(6);
+    expect(repository.upsertMemberSubject).not.toHaveBeenCalled();
+    expect(repository.upsertOrganizationSubject).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "deleted",
+    "opted_out",
+  ])("withholds an organization read revoked while the provider is pending: %s", async () => {
+    let release: (() => void) | undefined;
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const repository = createRepository({ organizationMemoryOptIn: true });
+    const adapter = createAdapter({
+      search: vi.fn(async ({ ref }) => {
+        await pending;
+        return [
+          {
+            captureMethod: "explicit_save" as const,
+            occurredAtMs: 900,
+            source: "space_conversation" as const,
+            sourceConversationId: "space_1",
+            sourceMessageId: "message_1",
+            subject: ref.subject.kind,
+            text: "Team rule",
+          },
+        ];
+      }),
+    });
+    const service = createCenterAgentMemoryService({ adapter, repository });
+    const recall = service.recallForOrganization({
+      organizationId: "org_1",
+      query: "Team rule",
+    });
+    await vi.waitFor(() => expect(adapter.search).toHaveBeenCalled());
+    vi.mocked(repository.readActiveSubjects).mockResolvedValue([]);
+    release?.();
+    expect(await recall).toEqual({ items: [], truncated: false });
+  });
+
+  it("does not provision a deleted or absent subject during recall", async () => {
+    const repository = createRepository({ organizationMemoryOptIn: true });
+    vi.mocked(repository.readActiveSubjects).mockResolvedValue([]);
+    const adapter = createAdapter();
+    const service = createCenterAgentMemoryService({ adapter, repository });
+    expect(await service.recallForTurn(createRecallInput())).toEqual({
+      items: [],
+      truncated: false,
+    });
+    expect(adapter.search).not.toHaveBeenCalled();
+    expect(repository.upsertMemberSubject).not.toHaveBeenCalled();
+    expect(repository.upsertOrganizationSubject).not.toHaveBeenCalled();
+  });
+  it.each([
     ["Web DM", "ca_dm", undefined],
     ["Slack DM", "slack_conversation", undefined],
     ["Lark DM", "message_channel_conversation", "lark"],
@@ -107,7 +187,7 @@ describe("Center Agent memory service", () => {
       expect.objectContaining({ subject: "organization" }),
     ]);
     expect(repository.upsertMemberSubject).not.toHaveBeenCalled();
-    expect(repository.upsertOrganizationSubject).toHaveBeenCalledTimes(1);
+    expect(repository.upsertOrganizationSubject).not.toHaveBeenCalled();
     expect(adapter.search).toHaveBeenCalledTimes(1);
   });
 
@@ -135,7 +215,7 @@ describe("Center Agent memory service", () => {
     ["organization Slack channel", "slack_conversation", undefined],
     ["organization Lark channel", "message_channel_conversation", "lark"],
     ["organization Feishu channel", "message_channel_conversation", "feishu"],
-  ] as const)("writes a completed %s turn only to enabled Organization memory", async (_surface, source, messageChannelProvider) => {
+  ] as const)("does not automatically write a completed %s turn to either scope", async (_surface, source, messageChannelProvider) => {
     const adapter = createAdapter();
     const service = createCenterAgentMemoryService({
       adapter,
@@ -152,22 +232,8 @@ describe("Center Agent memory service", () => {
     );
 
     expect(adapter.ensureMemberUser).not.toHaveBeenCalled();
-    expect(adapter.ensureOrganizationGraph).toHaveBeenCalledWith(
-      expect.objectContaining({
-        zepGraphId: "org:org_1:center-agent",
-      })
-    );
-    expect(adapter.addEpisode).toHaveBeenCalledWith(
-      expect.objectContaining({
-        episode: expect.objectContaining({
-          ...(messageChannelProvider ? { messageChannelProvider } : {}),
-          source,
-        }),
-        ref: expect.objectContaining({
-          subject: expect.objectContaining({ kind: "organization" }),
-        }),
-      })
-    );
+    expect(adapter.ensureOrganizationGraph).not.toHaveBeenCalled();
+    expect(adapter.addEpisode).not.toHaveBeenCalled();
   });
 
   it("does not write a shared turn when Organization memory is off", async () => {
@@ -299,11 +365,10 @@ describe("Center Agent memory service", () => {
       })
     );
 
-    expect(repository.upsertMemberSubject).toHaveBeenCalledTimes(1);
-    expect(repository.upsertMemberSubject).toHaveBeenCalledWith(
+    expect(repository.upsertMemberSubject).not.toHaveBeenCalled();
+    expect(repository.readActiveSubjects).toHaveBeenCalledWith(
       expect.objectContaining({
-        memberId: "member_current",
-        userId: "user_current",
+        speakerMember: { memberId: "member_current", userId: "user_current" },
       })
     );
     expect(adapter.search).toHaveBeenCalledWith(
@@ -627,6 +692,27 @@ function createRepository(input: {
   organizationMemoryOptIn: boolean;
 }): CenterAgentMemoryRepository {
   return {
+    readActiveSubjects: vi.fn(async (readInput) => [
+      ...(readInput.speakerMember
+        ? [
+            {
+              ...buildCenterAgentMemberMemoryRef({
+                organizationId: readInput.organizationId,
+                ...readInput.speakerMember,
+              }),
+              updatedAtMs: 1,
+            },
+          ]
+        : []),
+      ...(input.organizationMemoryOptIn
+        ? [
+            {
+              ...buildCenterAgentOrganizationMemoryRef(readInput),
+              updatedAtMs: 1,
+            },
+          ]
+        : []),
+    ]),
     markMemberDeleted: vi.fn(async () => true),
     markMemberDeleteFailed: vi.fn(async () => undefined),
     markOrganizationDeleted: vi.fn(async () => true),

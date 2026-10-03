@@ -5,12 +5,16 @@ import { ScrollArea as Primitive } from "@base-ui/react/scroll-area";
 import type { ComponentProps, Ref } from "react";
 import { cn } from "#lib/utils";
 
-type ScrollAreaProps = ComponentProps<"div"> & {
+type ScrollAreaProps = Omit<
+  ComponentProps<typeof Primitive.Root>,
+  "className"
+> & {
+  className?: string;
   orientation?: "vertical" | "horizontal" | "both";
   viewportClassName?: string;
   contentClassName?: string;
   viewportRef?: Ref<HTMLDivElement>;
-  viewportProps?: ComponentProps<typeof Primitive.Viewport>;
+  viewportProps?: ComponentProps<typeof ScrollAreaViewport>;
   scrollFade?: boolean;
 };
 
@@ -36,7 +40,7 @@ function ScrollArea({
     >
       <ScrollAreaViewport
         {...viewportProps}
-        className={viewportClassName}
+        className={cn(viewportProps?.className, viewportClassName)}
         data-fade={scrollFade || undefined}
         data-orientation={orientation}
         data-slot="scroll-area-viewport"
@@ -74,7 +78,7 @@ function ScrollAreaViewport({
       data-fade="true"
       {...props}
       className={cn(
-        "fluid-scroll-viewport size-full min-h-0 min-w-0 flex-1 rounded-[inherit] outline-none focus-visible:outline-2 focus-visible:outline-ring",
+        "fluid-scroll-viewport relative size-full min-h-0 min-w-0 flex-1 rounded-[inherit] outline-none focus-visible:outline-2 focus-visible:outline-ring",
         className
       )}
     />

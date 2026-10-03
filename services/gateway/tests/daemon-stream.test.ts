@@ -1,6 +1,7 @@
 import { OPENMELD_HEADER_AGENT_CONTROLLER_REF } from "@openmeld/gateway-contract";
 import {
   COMPUTER_FILE_ACCESS_RUNTIME_CAPABILITY,
+  LOCAL_EXECUTION_INPUT_CAPABILITY_HEADER,
   LOCAL_FOLDER_PICKER_RUNTIME_CAPABILITY,
   OPENMELD_LOCAL_FOLDER_PICKER_CAPABILITY_HEADER,
   OPENMELD_RUNTIME_CAPABILITIES_HEADER,
@@ -196,6 +197,7 @@ describe("gateway daemon stream", () => {
       new Request("http://local/v1/daemon/stream", {
         headers: {
           Upgrade: "websocket",
+          [LOCAL_EXECUTION_INPUT_CAPABILITY_HEADER]: "1",
           [OPENMELD_LOCAL_FOLDER_PICKER_CAPABILITY_HEADER]:
             LOCAL_FOLDER_PICKER_RUNTIME_CAPABILITY,
           [OPENMELD_RUNTIME_CAPABILITIES_HEADER]:
@@ -215,6 +217,9 @@ describe("gateway daemon stream", () => {
         OPENMELD_LOCAL_FOLDER_PICKER_CAPABILITY_HEADER
       )
     ).toBe(LOCAL_FOLDER_PICKER_RUNTIME_CAPABILITY);
+    expect(
+      upstreamRequest.headers.get(LOCAL_EXECUTION_INPUT_CAPABILITY_HEADER)
+    ).toBe("1");
     expect(
       upstreamRequest.headers.get(OPENMELD_RUNTIME_CAPABILITIES_HEADER)
     ).toBe(COMPUTER_FILE_ACCESS_RUNTIME_CAPABILITY);

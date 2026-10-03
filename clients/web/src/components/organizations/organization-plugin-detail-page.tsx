@@ -1,11 +1,11 @@
+import type { PluginDefinition } from "@openmeld/product-catalog/plugins";
+import { AppLogo } from "@openmeld/ui/components/app-logo";
 import { buttonVariants } from "@openmeld/ui/components/button";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ArrowLeftIcon, ArrowSquareOutIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { buildOrganizationPluginsPath } from "#/lib/organizations/organization-routes";
-import { AppLogo } from "./app-logo";
-import type { PluginDefinition } from "./plugin-catalog";
 import { PluginConnectionSurface } from "./plugin-connection-surface";
 import { PluginScopeTabs, usePluginScope } from "./plugin-scope-tabs";
 import { PluginStatusBadge } from "./plugins-catalog-panel";

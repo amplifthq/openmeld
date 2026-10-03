@@ -5,6 +5,7 @@ import type {
 } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
 import { createInboxFeedService } from "../src/inbox/application/inbox-feed-service";
+import { resolveInboxItemsBySource } from "../src/inbox/application/inbox-item-service";
 import { createInboxService } from "../src/inbox/application/inbox-service";
 import { createInboxFeedFixture } from "./helpers/inbox-feed.test-support";
 
@@ -173,7 +174,7 @@ describe("canonical Inbox attention feed", () => {
     }
   });
 
-  it("groups ordinary system updates without absorbing an open request or an urgent outcome", async () => {
+  it("groups resolved system requests without absorbing open requests or urgent outcomes, including after bulk actions", async () => {
     const f = createInboxFeedFixture();
     try {
       const system = {
@@ -185,9 +186,31 @@ describe("canonical Inbox attention feed", () => {
       await f.item("installed-b", system);
       await f.item("repair", { ...system, attention: "action_required" });
       await f.item("failure", { ...system, importance: "urgent" });
+      const ended = await f.item("ended", {
+        ...system,
+        attention: "action_required",
+        importance: "urgent",
+      });
+      await resolveInboxItemsBySource({
+        db: f.db,
+        organizationId: f.identity.organizationId,
+        sourceKind: system.sourceKind,
+        sourceKey: "ended",
+        resolvedAtMs: 10_500,
+      });
+      // Reading an important outcome must not make it ordinary system history.
+      const readFailure = await f.item("read-failure", {
+        ...system,
+        importance: "urgent",
+      });
+      await createInboxService({ db: f.db }).markRead({
+        ...f.identity,
+        itemId: readFailure.itemId,
+        read: true,
+      });
       const feed = createInboxFeedService({ db: f.db, nowMs: () => 11_000 });
       const result = await feed.list(f.identity, { grouping: "space" });
-      expect(result.rows).toHaveLength(3);
+      expect(result.rows).toHaveLength(4);
       const systemGroup = result.rows.find(
         (row) => row.group?.kind === "system"
       );
@@ -195,10 +218,19 @@ describe("canonical Inbox attention feed", () => {
         throw new Error("Expected system updates");
       }
       expect(systemGroup).toMatchObject({
-        itemCount: 2,
-        unreadCount: 2,
+        itemCount: 3,
+        unreadCount: 3,
         section: "activity",
       });
+      const children = await feed.list(f.identity, {
+        grouping: "space",
+        snapshotId: result.snapshotId,
+        groupKey: systemGroup.groupKey,
+      });
+      expect(children.rows.map((row) => row.item.id)).toContain(ended.itemId);
+      expect(children.rows).toHaveLength(3);
+      expect(children.rows.every((row) => row.item.readAt === null)).toBe(true);
+      const later = await f.item("later", system);
       await feed.mutate(f.identity, {
         snapshotId: result.snapshotId,
         groupKey: systemGroup.groupKey,
@@ -206,7 +238,27 @@ describe("canonical Inbox attention feed", () => {
       });
       expect(
         (await feed.list(f.identity, { unreadOnly: "true" })).counts.unread
-      ).toBe(2);
+      ).toBe(3);
+      expect(
+        await feed.mutate(f.identity, {
+          snapshotId: result.snapshotId,
+          groupKey: systemGroup.groupKey,
+          operation: "dismiss",
+        })
+      ).toEqual({ changedCount: 3 });
+      const remaining = await feed.list(f.identity, { grouping: "space" });
+      expect(remaining.counts).toMatchObject({
+        all: 4,
+        unread: 3,
+        needsAction: 1,
+        priority: 1,
+      });
+      expect(
+        remaining.rows.find((row) => row.group?.kind === "system")
+      ).toMatchObject({
+        item: { id: later.itemId, readAt: null },
+        itemCount: 1,
+      });
     } finally {
       f.close();
     }

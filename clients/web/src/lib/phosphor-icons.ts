@@ -5,6 +5,7 @@
 
 export { ArchiveIcon } from "@phosphor-icons/react/Archive";
 export { ArrowBendUpLeftIcon } from "@phosphor-icons/react/ArrowBendUpLeft";
+export { ArrowBendUpRightIcon } from "@phosphor-icons/react/ArrowBendUpRight";
 export { ArrowClockwiseIcon } from "@phosphor-icons/react/ArrowClockwise";
 export { ArrowCounterClockwiseIcon } from "@phosphor-icons/react/ArrowCounterClockwise";
 export { ArrowDownIcon } from "@phosphor-icons/react/ArrowDown";
@@ -58,6 +59,7 @@ export { DesktopIcon } from "@phosphor-icons/react/Desktop";
 export { DesktopTowerIcon } from "@phosphor-icons/react/DesktopTower";
 export { DeviceMobileIcon } from "@phosphor-icons/react/DeviceMobile";
 export { DevicesIcon } from "@phosphor-icons/react/Devices";
+export { DotsSixVerticalIcon } from "@phosphor-icons/react/DotsSixVertical";
 export { DotsThreeIcon } from "@phosphor-icons/react/DotsThree";
 export { DownloadSimpleIcon } from "@phosphor-icons/react/DownloadSimple";
 export { EnvelopeIcon } from "@phosphor-icons/react/Envelope";

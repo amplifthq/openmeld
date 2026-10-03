@@ -1,9 +1,9 @@
 "use client";
 
+import { LOCAL_AGENTS_GUIDE_PATH } from "@openmeld/product-catalog/local-agent-install-guides";
 import { Button } from "@openmeld/ui/components/button";
 import { DesktopTowerIcon } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
-import { LOCAL_AGENTS_GUIDE_PATH } from "#/lib/local-agent-install-guides";
 
 export type AgentCreationComputerRecovery = {
 	state: "checking" | "check_failed" | "connect" | "reconnect" | "local_agents";

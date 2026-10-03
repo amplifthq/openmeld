@@ -17,15 +17,20 @@ describe("Desktop browser destinations", () => {
     expect(isDesktopAppHref("//evil.example/o/team")).toBe(false);
   });
 
-  it("preserves path, query, hash, and existing encoding", () => {
+  it.each([
+    [{}, "https://app.openmeld.ai"],
+    [{ WEB_APP_URL: "https://openmeld.ai" }, "https://openmeld.ai"],
+    [
+      { WEB_APP_URL: "http://lane.localhost:31952" },
+      "http://lane.localhost:31952",
+    ],
+  ])("preserves App browser destinations for %j", (env, origin) => {
     expect(
       resolveDesktopWebUrl({
-        env: { WEB_APP_URL: "http://lane.localhost:31952" },
+        env,
         path: "/o/test/agents?profileId=agent-%E4%B8%AD#activity",
       })
-    ).toBe(
-      "http://lane.localhost:31952/o/test/agents?profileId=agent-%E4%B8%AD#activity"
-    );
+    ).toBe(`${origin}/o/test/agents?profileId=agent-%E4%B8%AD#activity`);
   });
 
   it.each([

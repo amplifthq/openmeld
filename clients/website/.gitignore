@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.wrangler/
+.tanstack/
+.output/
+public/fonts/
+public/brand/
+public/app-logos/
+public/favicon*
+public/apple-touch-icon.png
+public/icon-*.png

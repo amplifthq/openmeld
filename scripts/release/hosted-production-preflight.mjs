@@ -12,6 +12,7 @@ import {
   buildProductionPreflightStepSpecs,
   expandRequestedReleaseScopes,
 } from "./production-release.mjs";
+import { admitWebsiteDomainRelease } from "./website-domain-migration.mjs";
 
 const EXACT_SHA_PATTERN = /^[0-9a-f]{40}$/u;
 const HOSTED_WORKER_SCOPES = new Set([
@@ -20,6 +21,7 @@ const HOSTED_WORKER_SCOPES = new Set([
   "gateway",
   "remote-agent",
   "web",
+  "website",
 ]);
 
 export async function runHostedProductionPreflight(input) {
@@ -79,6 +81,9 @@ export async function runHostedProductionPreflight(input) {
     }
     await runControlStep(step, { controlRoot, releaseSource });
   }
+  await (
+    input.adapters?.admitWebsiteDomainRelease ?? admitWebsiteDomainRelease
+  )({ scopes, sourceSha: releaseSha });
 }
 
 function readReleaseSourceHead(releaseSource) {

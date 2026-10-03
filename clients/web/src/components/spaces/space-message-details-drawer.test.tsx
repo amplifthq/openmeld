@@ -1631,14 +1631,13 @@ describe("SpaceMessageDetailsDrawer", () => {
 
 		expect(screen.queryByRole("heading", { name: "Wake controls" })).toBeNull();
 		const wakeStopButton = screen.getByRole("button", {
-			name: "Stop Wake for @runner",
+			name: "Stop @runner",
 		});
 		expect(wakeStopButton.textContent).toContain("Stop");
 		fireEvent.click(wakeStopButton);
-		const dialog = within(
-			screen.getByRole("dialog", { name: "Stop this Wake?" })
-		);
-		fireEvent.click(dialog.getByRole("button", { name: "Stop Wake" }));
+		expect(
+			screen.queryByRole("dialog", { name: "Stop this Wake?" })
+		).toBeNull();
 
 		await waitFor(() => {
 			expect(onWakeStopRequest).toHaveBeenCalledWith(createWakeStopTarget());
@@ -1668,7 +1667,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 		expect(within(activity).queryByText("Waiting")).toBeNull();
 		expect(within(activity).queryByText("Waiting for a reply.")).toBeNull();
 		expect(
-			within(activity).queryByRole("button", { name: "Stop Wake for @runner" })
+			within(activity).queryByRole("button", { name: "Stop @runner" })
 		).toBeNull();
 	});
 

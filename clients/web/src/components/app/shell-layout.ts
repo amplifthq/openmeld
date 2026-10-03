@@ -39,8 +39,8 @@ declare module "@tanstack/react-router" {
 	}
 }
 
-export const APP_PAGE_FRAME_CLASS_NAME = "max-w-7xl";
-export const APP_PAGE_FRAME_PADDING_CLASS_NAME = "px-4 sm:px-6 lg:px-8";
+import { APP_PAGE_FRAME_CLASS_NAME } from "@openmeld/ui/lib/page-frame";
+
 export const APP_SPACE_FRAME_CLASS_NAME = "max-w-[96rem]";
 
 export const appShellStaticData = {

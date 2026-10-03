@@ -37,6 +37,53 @@ const UNSUPPORTED_WAKE_STOP_ELIGIBILITY = {
 } satisfies NonNullable<WakeProgressItem["wakeStopEligibility"]>;
 
 describe("resolveSpaceMessageWakeStopTarget", () => {
+	it.each([
+		"pending",
+	] as const)("offers the sender Stop before the first progress snapshot (%s)", (deliveryState) => {
+		const item = createTimelineItem({ deliveryState });
+		const input = {
+			item,
+			wakeProgressItems: [],
+			viewerProfileId: item.actorProfileId,
+		};
+		const target = resolveSpaceMessageWakeStopTarget(input);
+		expect(target).toMatchObject({
+			canStop: true,
+			status: "active",
+			selector: {
+				by: "client_message",
+				clientMessageId: "client-message-1",
+				targetProfileId: TARGET_PROFILE_ID,
+			},
+		});
+		expect(
+			resolveSpaceMessageWakeStopTarget({
+				...input,
+				viewerProfileId: "another-sender",
+			}).canStop
+		).toBe(false);
+		const stopped = resolveSpaceMessageWakeStopTarget({
+			...input,
+			stopRequestStatusBySelectorKey: new Map([
+				[`client_message:client-message-1:${TARGET_PROFILE_ID}`, "cancelled"],
+			]),
+		});
+		expect(stopped).toMatchObject({ canStop: false, status: "stopped" });
+	});
+	it("lets a completed result win over a late Stop acknowledgement", () => {
+		const item = createTimelineItem();
+		const target = resolveSpaceMessageWakeStopTarget({
+			item,
+			wakeProgressItems: [createWakeProgressItem({ phase: "replied" })],
+			stopRequestStatusBySelectorKey: new Map([
+				[
+					`client_message:client-message-1:${TARGET_PROFILE_ID}`,
+					"cancellation_requested",
+				],
+			]),
+		});
+		expect(target).toMatchObject({ canStop: false, status: "not_stoppable" });
+	});
 	it("retains only B's Core-authorized Stop after A replies on the same source", () => {
 		const source = createTimelineItem();
 		const a = {
@@ -66,8 +113,8 @@ describe("resolveSpaceMessageWakeStopTarget", () => {
 		});
 		expect(resolved.canStop).toBe(true);
 		expect(resolved.selector).toMatchObject({
-			by: "source_signal",
-			sourceSignalId: source.id,
+			by: "client_message",
+			clientMessageId: "client-message-1",
 			targetProfileId: TARGET_PROFILE_ID,
 		});
 		expect(
@@ -149,8 +196,8 @@ describe("resolveSpaceMessageWakeStopTarget", () => {
 		expect(target).toMatchObject({
 			canStop: true,
 			selector: {
-				by: "source_signal",
-				sourceSignalId: "sig-source",
+				by: "client_message",
+				clientMessageId: "client-message-1",
 				targetProfileId: TARGET_PROFILE_ID,
 			},
 			status: "active",
@@ -159,14 +206,16 @@ describe("resolveSpaceMessageWakeStopTarget", () => {
 		});
 	});
 
-	it("uses the source message id only inside the shared resolver fallback", () => {
+	it("uses the source signal when no client handle exists", () => {
 		const target = resolveSpaceMessageWakeStopTarget({
 			item: createTimelineItem({
 				wakeSourceSignalId: null,
+				wakeClientMessageId: null,
 			}),
 			wakeProgressItems: [
 				createWakeProgressItem({
 					phase: "running",
+					clientMessageId: null,
 					sourceSignalId: "sig-source",
 				}),
 			],
@@ -179,7 +228,7 @@ describe("resolveSpaceMessageWakeStopTarget", () => {
 		});
 	});
 
-	it("prefers the source message id fallback over client-message selection", () => {
+	it("keeps the client handle stable when a server source ID arrives", () => {
 		const target = resolveSpaceMessageWakeStopTarget({
 			item: createTimelineItem({
 				wakeSourceSignalId: null,
@@ -193,16 +242,16 @@ describe("resolveSpaceMessageWakeStopTarget", () => {
 		});
 
 		expect(target.selector).toEqual({
-			by: "source_signal",
-			sourceSignalId: "sig-source",
+			by: "client_message",
+			clientMessageId: "client-message-1",
 			targetProfileId: TARGET_PROFILE_ID,
 		});
 	});
 
 	it("shows cancellation_requested responses as stopping, not stopped", () => {
 		const selector = {
-			by: "source_signal" as const,
-			sourceSignalId: "sig-source",
+			by: "client_message" as const,
+			clientMessageId: "client-message-1",
 			targetProfileId: TARGET_PROFILE_ID,
 		};
 		const target = resolveSpaceMessageWakeStopTarget({
@@ -235,8 +284,8 @@ describe("resolveSpaceMessageWakeStopTarget", () => {
 		expect(target.canStop).toBe(false);
 		expect(target.status).toBe("unsupported");
 		expect(target.selector).toEqual({
-			by: "source_signal",
-			sourceSignalId: "sig-source",
+			by: "client_message",
+			clientMessageId: "client-message-1",
 			targetProfileId: TARGET_PROFILE_ID,
 		});
 	});
@@ -275,8 +324,8 @@ describe("resolveSpaceMessageWakeStopTarget", () => {
 		expect(target).toMatchObject({
 			canStop: true,
 			selector: {
-				by: "source_signal",
-				sourceSignalId: "sig-source",
+				by: "client_message",
+				clientMessageId: "client-message-1",
 				targetProfileId: TARGET_PROFILE_ID,
 			},
 			status: "active",
@@ -301,8 +350,8 @@ describe("resolveSpaceMessageWakeStopTarget", () => {
 
 	it("does not let a previous retry bypass missing authorization", () => {
 		const selector = {
-			by: "source_signal" as const,
-			sourceSignalId: "sig-source",
+			by: "client_message" as const,
+			clientMessageId: "client-message-1",
 			targetProfileId: TARGET_PROFILE_ID,
 		};
 		const target = resolveSpaceMessageWakeStopTarget({
@@ -324,8 +373,8 @@ describe("resolveSpaceMessageWakeStopTarget", () => {
 
 	it("keeps retry_later retryable only for control-backed Wake Stop eligibility", () => {
 		const selector = {
-			by: "source_signal" as const,
-			sourceSignalId: "sig-source",
+			by: "client_message" as const,
+			clientMessageId: "client-message-1",
 			targetProfileId: TARGET_PROFILE_ID,
 		};
 		const target = resolveSpaceMessageWakeStopTarget({
@@ -376,8 +425,8 @@ describe("resolveSpaceMessageWakeStopTarget", () => {
 		expect(target).toMatchObject({
 			canStop: true,
 			selector: {
-				by: "source_signal",
-				sourceSignalId: "sig-source",
+				by: "client_message",
+				clientMessageId: "client-message-1",
 				targetProfileId: TARGET_PROFILE_ID,
 			},
 			status: "active",
@@ -568,8 +617,8 @@ describe("resolveSpaceMessageWakeStopTarget", () => {
 		expect(targets[0]).toMatchObject({
 			canStop: true,
 			selector: {
-				by: "source_signal",
-				sourceSignalId: "sig-source",
+				by: "client_message",
+				clientMessageId: "client-message-1",
 				targetProfileId: SECOND_TARGET_PROFILE_ID,
 			},
 			targetProfileId: SECOND_TARGET_PROFILE_ID,
@@ -644,8 +693,8 @@ describe("resolveSpaceMessageWakeStopTarget", () => {
 		expect(targets[0]).toMatchObject({
 			canStop: true,
 			selector: {
-				by: "source_signal",
-				sourceSignalId: "sig-source",
+				by: "client_message",
+				clientMessageId: "client-message-1",
 				targetProfileId: SECOND_TARGET_PROFILE_ID,
 			},
 			status: "active",
@@ -683,8 +732,8 @@ describe("resolveSpaceMessageWakeStopTarget", () => {
 
 	it("keeps unsupported Stop attempts visible without enabling another Stop", () => {
 		const selector = {
-			by: "source_signal" as const,
-			sourceSignalId: "sig-source",
+			by: "client_message" as const,
+			clientMessageId: "client-message-1",
 			targetProfileId: TARGET_PROFILE_ID,
 		};
 		const target = resolveSpaceMessageWakeStopTarget({
@@ -744,13 +793,17 @@ function createTimelineItem(
 
 function createWakeProgressItem(input: {
 	omitWakeStopEligibility?: boolean;
+	clientMessageId?: string | null;
 	phase: WakeProgressItem["phase"];
 	sourceSignalId?: string | null;
 	targetProfileId?: string;
 	wakeStopEligibility?: WakeProgressItem["wakeStopEligibility"];
 }): WakeProgressItem {
 	const item: WakeProgressItem = {
-		clientMessageId: "client-message-1",
+		clientMessageId:
+			input.clientMessageId === undefined
+				? "client-message-1"
+				: input.clientMessageId,
 		dispatchId: "dispatch-1",
 		failureReasonCode: null,
 		message: "@runner is working on this computer...",

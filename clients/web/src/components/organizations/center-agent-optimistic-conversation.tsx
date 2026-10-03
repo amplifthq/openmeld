@@ -1,8 +1,9 @@
 import { resolveSpaceFileMimeType } from "@openmeld/schemas";
 import { Button } from "@openmeld/ui/components/button";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { cn } from "@openmeld/ui/lib/utils";
-import { ArrowUpIcon } from "@phosphor-icons/react";
+import { ArrowUpIcon, StopIcon } from "@phosphor-icons/react";
 import { type CSSProperties, type ReactNode, useEffect, useState } from "react";
 import {
 	PromptInput,
@@ -94,10 +95,13 @@ export function CenterAgentOptimisticConversation(input: {
 	composerErrorMessage?: string | null;
 	onComposerChange: (value: string) => void;
 	onSend: () => void;
+	onStop?: () => void;
+	stopStatus?: "stopping" | "stopped" | "unconfirmed";
 	pendingMessage: PendingCenterAgentMessage | null;
 	presentation?: "compact" | "full";
 }) {
-	const isSending = input.pendingMessage !== null;
+	const isSending =
+		input.pendingMessage !== null && input.stopStatus !== "stopped";
 	const organization = useOptionalAppOrganization()?.currentOrganization;
 	const organizationSlug = input.organizationSlug ?? organization?.slug;
 	const fileInput = useSpaceComposerFileInput({
@@ -137,9 +141,9 @@ export function CenterAgentOptimisticConversation(input: {
 				/>
 			)}
 			<div className="flex min-h-0 w-full flex-1 flex-col overflow-hidden">
-				<div
+				<ScrollArea
 					aria-label="Center Agent conversation"
-					className="min-h-0 flex-1 overflow-y-auto"
+					className="min-h-0 flex-1"
 					data-space-optimistic-conversation=""
 					role="log"
 				>
@@ -198,13 +202,16 @@ export function CenterAgentOptimisticConversation(input: {
 										<div aria-hidden="true" className="mt-0.5 min-h-7" />
 									</MessageContent>
 								</Message>
-								<CenterAgentOptimisticReplyShell />
+								<CenterAgentOptimisticReplyShell
+									onStop={input.onStop}
+									stopStatus={input.stopStatus}
+								/>
 							</>
 						) : (
 							!input.empty && <SpaceConversationSkeleton />
 						)}
 					</div>
-				</div>
+				</ScrollArea>
 				<footer className="shrink-0 bg-background">
 					<div className="w-full py-4" data-space-conversation-content-width="">
 						{input.composerErrorMessage ? (
@@ -348,7 +355,10 @@ function PendingAttachment({ file }: { file: File }) {
 	);
 }
 
-function CenterAgentOptimisticReplyShell() {
+function CenterAgentOptimisticReplyShell(input: {
+	onStop?: () => void;
+	stopStatus?: "stopping" | "stopped" | "unconfirmed";
+}) {
 	return (
 		<div
 			className="flex w-full min-w-0 flex-col gap-2 px-3 py-2"
@@ -363,7 +373,37 @@ function CenterAgentOptimisticReplyShell() {
 					Center Agent
 				</span>
 			</div>
-			<SpaceMessageDeliveryStatus presentation="agent_sending" />
+			<div className="flex items-center gap-2">
+				{input.stopStatus ? (
+					<output className="text-muted-foreground text-sm">
+						{
+							{
+								stopped: "Stopped",
+								stopping: "Stopping…",
+								unconfirmed: "Stop not confirmed",
+							}[input.stopStatus]
+						}
+					</output>
+				) : (
+					<SpaceMessageDeliveryStatus presentation="agent_sending" />
+				)}
+				{input.onStop && input.stopStatus !== "stopped" ? (
+					<Button
+						aria-label={
+							input.stopStatus === "unconfirmed"
+								? "Retry stop"
+								: "Stop Center Agent"
+						}
+						disabled={input.stopStatus === "stopping"}
+						onClick={input.onStop}
+						size="xs"
+						variant="ghost"
+					>
+						<StopIcon aria-hidden="true" weight="fill" />
+						{input.stopStatus === "unconfirmed" ? "Retry stop" : "Stop"}
+					</Button>
+				) : null}
+			</div>
 		</div>
 	);
 }

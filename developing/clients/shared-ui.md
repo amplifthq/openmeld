@@ -16,6 +16,16 @@
 - Source of truth: This file owns the shared UI package boundary. Individual
   product surfaces remain owned by their client/product documents.
 
+## Shared brand presentation
+
+Web, packaged Desktop, and Website share `AppLogo`, `OpenMeldWordmark`,
+`AppBrandStatusLabel`, `TextShimmer`, `PublicPageHeader`, and page-frame spacing.
+Callers supply navigation destinations and slots; primitives read no sessions
+or Organization state. `packages/ui/public` owns fonts, logos, icons, and favicon
+outputs. `scripts/vite/shared-public-assets.mjs` materializes ignored client
+copies when Vite loads. Edit shared sources, not generated copies. Shared font
+declarations live in `packages/ui/src/styles/fonts.css`.
+
 ## Boundary
 
 `packages/ui` is the shared home for reusable client UI primitives:
@@ -190,6 +200,14 @@ account/workspace lists, and code previews. `ScrollAreaRoot`,
 `ScrollAreaViewport`, and `ScrollAreaContent` support render composition with
 existing scroll owners. The MessageScroller uses these parts while retaining
 its own prepend, anchor, and automatic-follow behavior.
+
+Work summaries, live work details, file viewers, command lists, selects, and
+horizontal tables also compose this owner with fades enabled. Keep refs and
+scroll handlers on the viewport, and content layout and padding on the content
+slot. The viewport is positioned so measured hover geometry stays relative to
+the scrolling element. Do not maintain viewer-local copies of ScrollArea or
+disable their fades. Long dialogs keep their close control outside the scrolling
+body and reuse ScrollArea for that body.
 
 Native browser document scrolling, editable fields, editor-owned selection
 containers, and geometry-sensitive overlays keep their owning DOM and use the

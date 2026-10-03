@@ -38,6 +38,7 @@ export function resolveAuthWorkerTrustedOrigins(
       baseAuthUrl: c.env.BETTER_AUTH_URL ?? "",
       developmentTarget: c.env.AUTH_DESKTOP_DEVELOPMENT_TARGET,
       appUrl: c.env.WEB_APP_URL ?? c.env.BETTER_AUTH_URL ?? "",
+      legacyAppOrigin: c.env.AUTH_LEGACY_APP_ORIGIN,
       env:
         c.env.AUTH_WORKER_NODE_ENV === "production"
           ? "production"
