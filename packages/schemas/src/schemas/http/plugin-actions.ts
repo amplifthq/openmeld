@@ -5,6 +5,8 @@ import { openConnectorRuntimeActionListSchema } from "../runtime/openconnector-r
 import {
   centerAgentConnectorActionExecutionConnectionSchema,
   centerAgentConnectorActionOperationStatusSchema,
+  connectorActionVerificationEvidenceSchema,
+  connectorActionVerificationReferenceSchema,
 } from "./center-agent";
 import { connectorActionReplayPermissionSchema } from "./connector-action-replay";
 import { connectorServiceSchema } from "./connector-connections";
@@ -37,6 +39,7 @@ export const pluginActionRequestSchema = z.strictObject({
       operationId: z.string().trim().min(1).max(256),
       confirmationToken: z.string().uuid().optional(),
       replay: z.boolean().optional(),
+      verificationOf: connectorActionVerificationReferenceSchema.optional(),
     }),
   ]),
 });
@@ -77,6 +80,7 @@ export const pluginActionResponseSchema = z.discriminatedUnion("kind", [
   }),
   z.strictObject({
     kind: z.literal("execution"),
+    verificationOf: connectorActionVerificationEvidenceSchema.optional(),
     connection: centerAgentConnectorActionExecutionConnectionSchema,
     actionId: z.string(),
     operationId: z.string(),

@@ -956,6 +956,7 @@ import {
   upsertPendingConnectorConnection,
   upsertPendingSharedConnectorConnection,
 } from "../connectors/connector-connection-repository";
+import { requireConnectorVerificationRead } from "../connectors/connector-verification-read";
 import {
   beginExistingGitHubAppInstallationVerification,
   beginGitHubAppInstallationVerification,
@@ -15986,6 +15987,7 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
   input: CenterAgentRecordConnectorActionOperationInput
 ): Promise<CenterAgentRecordConnectorActionOperationResponse> {
   const parsed = centerAgentRecordConnectorActionOperationBodySchema.safeParse({
+    verificationOf: input.verificationOf,
     includeExecutionPermit: input.includeExecutionPermit,
     includeRecoveryWindow: input.includeRecoveryWindow,
     actionId: input.actionId,
@@ -16100,6 +16102,14 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
       connectionUpdatedAtMs = connection.updatedAtMs;
     }
   }
+  const verificationOf = await requireConnectorVerificationRead({
+    db: authorization.db,
+    scope,
+    reference: parsed.data.verificationOf,
+    effect: parsed.data.effect,
+    connection: executionConnection,
+    connectionUpdatedAtMs,
+  });
   const result = await recordCenterAgentConnectorActionOperation({
     actionId: parsed.data.actionId,
     actorProfileId: authorization.actorProfileId,
@@ -16127,10 +16137,12 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
     result,
     db: authorization.db,
     request: parsed.data,
+    verificationOf,
   });
 }
 
 async function presentConnectorOperationResult(input: {
+  verificationOf?: Awaited<ReturnType<typeof requireConnectorVerificationRead>>;
   db: D1Database;
   request: ReturnType<
     typeof centerAgentRecordConnectorActionOperationBodySchema.parse
@@ -16150,6 +16162,7 @@ async function presentConnectorOperationResult(input: {
     });
   }
   return centerAgentRecordConnectorActionOperationResponseSchema.parse({
+    ...(input.verificationOf ? { verificationOf: input.verificationOf } : {}),
     ...(request.includeExecutionPermit
       ? {
           executionAllowed: result.executionAllowed,

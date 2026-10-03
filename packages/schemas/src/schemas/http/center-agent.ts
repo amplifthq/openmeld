@@ -263,6 +263,20 @@ export const centerAgentConnectorActionExecutionConnectionSchema =
     service: connectorServiceSchema,
   });
 
+export const connectorActionVerificationReferenceSchema = z.strictObject({
+  operationId: trimmedNonEmptyStringSchema.max(256),
+  actionId: trimmedNonEmptyStringSchema.max(160),
+});
+
+export const connectorActionVerificationEvidenceSchema = z.strictObject({
+  operationId: trimmedNonEmptyStringSchema.max(256),
+  actionId: trimmedNonEmptyStringSchema.max(160),
+  requestSignature: z.string().regex(/^[a-f0-9]{64}$/u),
+  status: centerAgentConnectorActionOperationStatusSchema,
+  connection: centerAgentConnectorActionExecutionConnectionSchema,
+  interpretation: z.literal("read_evidence_only"),
+});
+
 export const centerAgentReadConnectorActionOperationBodySchema = z.strictObject(
   {
     includeExecutionPermit: z.literal(true).optional(),
@@ -309,6 +323,7 @@ export const centerAgentReadConnectorActionOperationResponseSchema =
 
 export const centerAgentRecordConnectorActionOperationBodySchema = z
   .strictObject({
+    verificationOf: connectorActionVerificationReferenceSchema.optional(),
     includeExecutionPermit: z.literal(true).optional(),
     includeRecoveryWindow: z.boolean().optional(),
     actionId: trimmedNonEmptyStringSchema.max(160),
@@ -334,6 +349,7 @@ export const centerAgentRecordConnectorActionOperationBodySchema = z
 
 export const centerAgentRecordConnectorActionOperationResponseSchema =
   z.strictObject({
+    verificationOf: connectorActionVerificationEvidenceSchema.optional(),
     executionAllowed: z.boolean().optional(),
     replay: connectorActionReplayPermissionSchema.optional(),
     replayWindowRemainingMs: z.int().nonnegative().optional(),

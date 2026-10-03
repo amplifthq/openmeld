@@ -3828,6 +3828,51 @@ const completeLatestAutomaticUpdateRequest = async (input: {
 };
 
 describe("runtime transport runtime coordinator transport contract", () => {
+  it("authorizes Plugin reads only for the exact current execution proof without mutating it", async () => {
+    const harness = createHarness();
+    const token = await issueDeliveryToken(harness);
+    const access = harness.hub as unknown as Pick<
+      RuntimeTransportHub,
+      "rpcAuthorizeExecutionAccess"
+    >;
+    const request = {
+      executionTokenEcho: buildExecutionTokenEcho(token),
+      expectedExecutionScope: token.executionScope,
+      expectedAuthorityScope: token.authorityScope,
+    };
+    const before = structuredClone([...harness.storageRecords.entries()]);
+    expect(await access.rpcAuthorizeExecutionAccess(request)).toEqual({
+      allowed: true,
+    });
+    expect(
+      await access.rpcAuthorizeExecutionAccess({
+        ...request,
+        executionTokenEcho: {
+          ...request.executionTokenEcho,
+          executionToken: `rcet_v1_${"b".repeat(64)}`,
+        },
+      })
+    ).toMatchObject({ allowed: false });
+    expect(
+      await access.rpcAuthorizeExecutionAccess({
+        ...request,
+        expectedExecutionScope: {
+          ...request.expectedExecutionScope,
+          spaceId: "another-space",
+        },
+      })
+    ).toMatchObject({ allowed: false });
+    expect(
+      await access.rpcAuthorizeExecutionAccess({
+        ...request,
+        expectedAuthorityScope: {
+          ...request.expectedAuthorityScope,
+          bindingId: "another-binding",
+        },
+      })
+    ).toMatchObject({ allowed: false });
+    expect([...harness.storageRecords.entries()]).toEqual(before);
+  });
   it("assigns ordinary Claude Wakes independent Space contexts in parallel mode", async () => {
     const { hub } = createContextHarness({
       bindingControllerRef: "builtin:claude-code",

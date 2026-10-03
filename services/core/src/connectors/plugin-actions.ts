@@ -25,6 +25,7 @@ import {
   listConnectorConnections,
   requireConnectorConnectionForExecution,
 } from "./connector-connection-repository";
+import { requireConnectorVerificationRead } from "./connector-verification-read";
 import {
   pluginPermissionAllows,
   readPluginAccess,
@@ -354,6 +355,7 @@ async function requestSignature(
     account: action.account,
     input: action.input,
     connectionName,
+    ...(action.verificationOf ? { verificationOf: action.verificationOf } : {}),
   });
 }
 
@@ -471,6 +473,14 @@ async function executeAction(
     effect,
   });
   const { permission: _permission, ...executionConnection } = connection;
+  const verificationOf = await requireConnectorVerificationRead({
+    db: caller.db,
+    scope: operationScope(caller, action),
+    reference: action.verificationOf,
+    effect,
+    connection: executionConnection,
+    connectionUpdatedAtMs: current.updatedAtMs,
+  });
   const operation = {
     db: caller.db,
     organizationId: caller.organizationId,
@@ -604,6 +614,7 @@ async function executeAction(
     actionId: action.actionId,
     operationId: action.operationId,
     connection: executionConnection,
+    ...(verificationOf ? { verificationOf } : {}),
     replayed: claim.replayed,
     status: result.status,
     providerExecutionId: result.providerExecutionId,

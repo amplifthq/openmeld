@@ -1198,6 +1198,8 @@ export {
   centerAgentWakePublicationCommandSchema,
   centerAgentWatchAgentTaskBodySchema,
   centerAgentWatchAgentTaskResponseSchema,
+  connectorActionVerificationEvidenceSchema,
+  connectorActionVerificationReferenceSchema,
   designateCenterAgentBodySchema,
   designateCenterAgentResponseSchema,
   ensureMessageChannelMemberOrganizationMembershipRpcInputSchema,

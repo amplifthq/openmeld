@@ -125,6 +125,7 @@ async function buildConnectorToolContext(
   };
 }
 type ConnectorActionOperationRequest = {
+  verificationOf?: { operationId: string; actionId: string };
   actionId: string;
   connectionPreference?: "requester" | "shared";
   input: Record<string, unknown>;
@@ -147,6 +148,12 @@ const listAppActionsInputSchema = object({
   service: connectorServiceInputSchema,
 });
 const executeAppActionInputSchema = object({
+  verificationOf: optional(
+    object({
+      operationId: pipe(string(), trim(), minLength(1), maxLength(256)),
+      actionId: pipe(string(), trim(), minLength(1), maxLength(160)),
+    })
+  ),
   actionId: pipe(string(), trim(), minLength(1), maxLength(160)),
   connectionPreference: optional(picklist(["requester", "shared"])),
   destructiveConfirmationToken: optional(
@@ -446,6 +453,9 @@ async function executeAppAction(input: {
       ),
       providerExecutionId: run.providerExecutionId,
       replayed: operation.coreOperationReplayed,
+      ...(operation.verificationOf
+        ? { verificationOf: operation.verificationOf }
+        : {}),
     },
     [
       {
@@ -574,6 +584,7 @@ async function prepareConnectorActionOperation(input: {
     service: input.request.service,
   });
   const claim = await recordConnectorActionOperation({
+    verificationOf: input.request.verificationOf,
     actionId: input.request.actionId,
     effect: input.effect,
     connectionName,
@@ -585,11 +596,17 @@ async function prepareConnectorActionOperation(input: {
     service: input.request.service,
     toolContext: input.toolContext,
   });
+  if (input.request.verificationOf && !claim.verificationOf) {
+    throw new Error(
+      "plugin.verification_unavailable: Core did not bind this read to the original operation."
+    );
+  }
   return {
     connectionName,
     operationReplayed: Boolean(input.existingOperation) || claim.replayed,
     operationReplayExpiresAtMs: claim.operationReplayExpiresAtMs,
     coreOperationReplayed: claim.replayed,
+    verificationOf: claim.verificationOf,
     executionConnection:
       input.existingOperation?.executionConnection ??
       claim.executionConnection ??
@@ -1099,6 +1116,7 @@ export async function readConnectorActionOperation(input: {
 }
 
 export async function recordConnectorActionOperation(input: {
+  verificationOf?: { operationId: string; actionId: string };
   actionId: string;
   effect?: "read" | "write" | "destructive" | "unspecified";
   connectionName: string;
@@ -1119,6 +1137,7 @@ export async function recordConnectorActionOperation(input: {
         "centerAgentRecordConnectorActionOperation",
         {
           actionId: input.actionId,
+          verificationOf: input.verificationOf,
           includeRecoveryWindow: true,
           includeExecutionPermit: true as const,
           effect: input.effect,

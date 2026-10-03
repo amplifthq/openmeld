@@ -134,6 +134,11 @@ function renderPluginExecution(
   if (response.error) {
     outLine(response.error);
   }
+  if (response.verificationOf) {
+    outLine(
+      `Read evidence for ${response.verificationOf.operationId}; its recorded outcome remains ${response.verificationOf.status}. Compare the exact target and original input. Missing results, timeouts, or one page without a match do not prove failure.`
+    );
+  }
   if (response.data !== undefined) {
     outLine(JSON.stringify(response.data, null, 2));
   }

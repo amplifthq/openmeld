@@ -18,6 +18,7 @@ import { organizationFileRootName } from "../src/files/file-root-identity";
 import type { OrganizationFileRoot } from "../src/files/organization-file-root";
 import type { CoreBindings } from "../src/lib/bindings";
 import {
+  rpcAddSpaceMembers,
   rpcListSignals,
   rpcMutateSpaceMessage,
   rpcPostSignal,
@@ -125,6 +126,21 @@ describe("Team and member Files roots", () => {
     const sourceSpace = await create();
     const targetSpace = await create();
     const profileId = context.actorContext.openMeldProfileId;
+    const recipient = contexts[1].actorContext;
+    await rpcAddSpaceMembers(env as CoreBindings, {
+      context,
+      spaceId: targetSpace,
+      members: [
+        {
+          profileId: recipient.openMeldProfileId,
+          profileKind: "human",
+          profileName: "Blair",
+          ownerName: "Blair",
+          ownerUserId: recipient.ownerUserId ?? null,
+          agentControllerRef: null,
+        },
+      ],
+    });
     const signal = await rpcPostSignal(env as CoreBindings, {
       context,
       spaceId: sourceSpace,
@@ -161,7 +177,7 @@ describe("Team and member Files roots", () => {
         start: 15,
         end: 29,
       },
-      audienceProfileIds: [profileId],
+      audienceProfileIds: [profileId, recipient.openMeldProfileId],
       name: "selected.txt",
       parentId: null,
       clientMutationId: crypto.randomUUID(),
@@ -202,10 +218,7 @@ describe("Team and member Files roots", () => {
       (
         await copy({
           ...body,
-          audienceProfileIds: [
-            profileId,
-            contexts[1].actorContext.openMeldProfileId,
-          ],
+          audienceProfileIds: [profileId],
         })
       ).status
     ).toBe(409);
@@ -246,11 +259,21 @@ describe("Team and member Files roots", () => {
     expect(new TextDecoder().decode((await content()).bytes)).toBe(
       "Shared 🌱 text."
     );
+    const recipientRead = await rpcReadSpaceFileContent(env as CoreBindings, {
+      context: contexts[1],
+      spaceId: targetSpace,
+      content: { spaceId: targetSpace, fileId: file.id, revision: 1 },
+    });
+    expect(new TextDecoder().decode(recipientRead.bytes)).toBe(
+      "Shared 🌱 text."
+    );
     await expect(
-      rpcReadSpaceFileContent(env as CoreBindings, {
+      rpcListSignals(env as CoreBindings, {
         context: contexts[1],
-        spaceId: targetSpace,
-        content: { spaceId: targetSpace, fileId: file.id, revision: 1 },
+        spaceId: sourceSpace,
+        aroundSignalId: signal.id,
+        beforeCount: 0,
+        afterCount: 0,
       })
     ).rejects.toThrow();
   });

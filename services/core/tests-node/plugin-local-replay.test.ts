@@ -34,9 +34,14 @@ const profileId = "agt_00000000-0000-4000-8000-000000000001";
 const humanId = "22222222-2222-4222-8222-222222222222";
 const connectionName = "synthetic-posthog-personal";
 const action = openConnectorRuntimeActionSchema.parse({
-  ...capturedActions.data[0],
+  ...capturedActions.data[1],
   effect: "write",
   operationType: "write",
+});
+const readAction = openConnectorRuntimeActionSchema.parse({
+  ...capturedActions.data[0],
+  effect: "read",
+  operationType: "read",
 });
 let harness: ReturnType<typeof createSqliteD1Harness>;
 let providerCalls: PluginRuntimeRequest[];
@@ -132,10 +137,18 @@ beforeEach(() => {
         if (input.operation === "list") {
           return Promise.resolve({
             status: "catalog",
-            actions: [action],
+            actions: [action, readAction],
           });
         }
         providerCalls.push(input);
+        if (input.actionId === readAction.id) {
+          return Promise.resolve({
+            status: "completed",
+            providerExecutionId: "synthetic-read-execution",
+            data: [],
+            outputSchema: { type: "array" },
+          });
+        }
         effects.add(input.idempotencyKey);
         return Promise.resolve(
           providerResult === "completed"
@@ -271,6 +284,45 @@ describe("Local plugin replay through real operation and connection storage", ()
       rpcPluginAction(env, request("original-operation", true))
     ).rejects.toThrow("plugin.operation_identity_changed");
     expect(providerCalls).toHaveLength(1);
+  });
+
+  it("binds a target read to the original account and keeps a page without a match unknown", async () => {
+    await rpcPluginAction(env, request());
+    const check = request("verification-read");
+    if (check.request.action.operation !== "execute") {
+      throw new Error("Expected execute fixture");
+    }
+    check.request.action.actionId = readAction.id;
+    check.request.action.verificationOf = {
+      operationId: "original-operation",
+      actionId: action.id,
+    };
+    const result = await rpcPluginAction(env, check);
+    expect(result).toMatchObject({
+      status: "completed",
+      data: [],
+      verificationOf: {
+        operationId: "original-operation",
+        actionId: action.id,
+        status: "outcome_unknown",
+        interpretation: "read_evidence_only",
+        connection: { connectionName, ownerUserId: "user-1" },
+      },
+    });
+    expect(providerCalls).toHaveLength(2);
+    expect(effects.size).toBe(1);
+    expect(await rpcPluginAction(env, request())).toMatchObject({
+      status: "outcome_unknown",
+    });
+    const wrong = request("invalid-verification-write");
+    if (wrong.request.action.operation !== "execute") {
+      throw new Error("Expected execute fixture");
+    }
+    wrong.request.action.verificationOf = check.request.action.verificationOf;
+    await expect(rpcPluginAction(env, wrong)).rejects.toThrow(
+      "plugin.verification_scope_mismatch"
+    );
+    expect(providerCalls).toHaveLength(2);
   });
 
   it("keeps a legacy unknown receipt readable without granting replay", async () => {

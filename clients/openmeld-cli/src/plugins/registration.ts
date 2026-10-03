@@ -102,6 +102,14 @@ export function registerPluginCommands(
     .option("--input <json>", "Action input as a JSON object.", "{}")
     .option("--confirm <token>", "Confirmation returned for this exact action.")
     .option(
+      "--verify-operation <id>",
+      "Link this read to an original operation without changing its outcome."
+    )
+    .option(
+      "--verify-action <id>",
+      "Original action ID for --verify-operation."
+    )
+    .option(
       "--replay",
       "Use the original operation's explicitly permitted, single replay."
     )
@@ -116,6 +124,8 @@ export function registerPluginCommands(
           input: string;
           confirm?: string;
           replay?: boolean;
+          verifyOperation?: string;
+          verifyAction?: string;
         }
       ) => {
         const request = pluginActionRequestSchema.parse({
@@ -128,6 +138,14 @@ export function registerPluginCommands(
             input: JSON.parse(flags.input),
             confirmationToken: flags.confirm,
             replay: flags.replay,
+            ...(flags.verifyOperation || flags.verifyAction
+              ? {
+                  verificationOf: {
+                    operationId: flags.verifyOperation,
+                    actionId: flags.verifyAction,
+                  },
+                }
+              : {}),
           },
         });
         await options.run(["plugins", "call"], () =>

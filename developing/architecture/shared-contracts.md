@@ -7110,6 +7110,17 @@ The common App/GitHub guidance and Code Mode consume the same rule;
 `not_found`, a timeout, or one page without a matching target proves no outcome.
 GitHub retains its own authorization and operation owner.
 
+Ordinary Plugin target reads may carry `verificationOf: { operationId,
+actionId }`. Core accepts the association only for a declared read through the
+original operation's still-current account and returns that operation's stored
+request signature, identity, and outcome. This is read evidence, not automatic
+confirmation of the original effect. The caller compares authoritative target
+data with the exact original input and reports the matching target. Empty pages,
+`not_found`, timeouts, and insufficient evidence leave the original outcome
+unchanged. Local CLI exposes `--verify-operation` and `--verify-action`; Remote
+direct tools and Code Mode use the same input. New Core must precede these
+consumers; a missing association receipt refuses the verification read.
+
 Native `readAdmission` is an additive Core-to-Remote RPC. It reuses the exact
 persisted submit-request schema so the receipt owner can verify the original
 digest. Its shared response is `found` with the original replay ACK, `unconfirmed`
