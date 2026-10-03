@@ -7035,6 +7035,14 @@ Neither authorizes another write. Direct tools and Code Mode retain the caller's
 exact `operationId` and explain that a write may have succeeded, a new operation
 ID must not be used, and recovery must use the same action and input. The durable
 Core operation and provider idempotency key remain the existing owners.
+The optional `replay` projection makes recovery permission explicit: `allowed`
+with one attempt and a positive remaining window, or a denial reason for an
+unverified/expired window or a replay already attempted. Older receipts without
+this field grant no replay permission. This is a model-facing projection in the
+Remote runtime, not a new Core admission or durable replay counter. The common
+App/GitHub tool guidance and Code Mode consume the same rule; `not_found` does
+not prove non-execution. No CLI, Service, setup, Wake, or callback envelope
+changes; the optional shared schema field remains readable with old producers.
 
 Native `readAdmission` is an additive Core-to-Remote RPC. It reuses the exact
 persisted submit-request schema so the receipt owner can verify the original

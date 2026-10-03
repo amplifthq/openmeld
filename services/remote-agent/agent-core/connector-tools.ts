@@ -47,6 +47,7 @@ import {
   type CenterAgentAppConnectorService,
   getConnectedAppDisplayName,
 } from "./connector-service-presentation";
+import { CONNECTOR_WRITE_RECOVERY_GUIDANCE } from "./connector-write-recovery";
 import { callCoreRpc, requireCoreRpc } from "./core-rpc";
 import {
   resolveRemoteAgentDestructiveAuthorization,
@@ -63,8 +64,6 @@ import type { RemoteAgentToolDefinition } from "./tool-definition";
 
 const GITHUB_DEDICATED_ACTION_INSTRUCTION =
   "This Plugins list never reports GitHub access. For a GitHub request, call the matching github_* tool; it will verify the requested Organization or member GitHub connection.";
-export const CONNECTOR_WRITE_RECOVERY_GUIDANCE =
-  "For a pending or unknown write, retry exactly once only if its receipt explicitly allows replay within the original 24-hour window. Keep the original operationId, account, and unchanged input; never use a new ID to repeat the write. Then use a read tool to check the target. Only if neither step confirms the result, explain this one uncertain result in the final reply and link its target.";
 export const REMOTE_AGENT_CONNECTOR_TOOL_NAMES = [
   "openmeld_list_connected_apps",
   "openmeld_list_app_actions",
@@ -567,11 +566,35 @@ export class ConnectorActionOutcomeUnknownError extends OpenConnectorActionError
       ? "The provider confirmed this action, but OpenMeld could not save its completion."
       : "This action's outcome is not confirmed. The write may already have succeeded.";
     const target = connectorActionVerificationTarget(input);
-    let replay =
-      input.operationReplayExpiresAtMs !== undefined &&
-      performance.now() < input.operationReplayExpiresAtMs
-        ? "You may retry exactly once with the original operationId, account, and unchanged input inside the verified original provider window; the provider reserved this request before executing it."
-        : "Do not retry this write: its original deduplication window could not be verified or has expired.";
+    const remainingMs =
+      input.operationReplayExpiresAtMs === undefined
+        ? null
+        : Math.max(
+            0,
+            Math.floor(input.operationReplayExpiresAtMs - performance.now())
+          );
+    const replayPermission = (() => {
+      if (input.operationReplayed) {
+        return { allowed: false as const, reason: "already_replayed" as const };
+      }
+      if (remainingMs === null) {
+        return {
+          allowed: false as const,
+          reason: "window_unverified" as const,
+        };
+      }
+      if (remainingMs === 0) {
+        return { allowed: false as const, reason: "window_expired" as const };
+      }
+      return {
+        allowed: true as const,
+        remainingWindowMs: remainingMs,
+        maxAttempts: 1 as const,
+      };
+    })();
+    let replay = replayPermission.allowed
+      ? "You may retry exactly once with the original operationId, account, and unchanged input inside the verified original provider window; the provider reserved this request before executing it."
+      : "Do not retry this write: its original deduplication window could not be verified or has expired.";
     if (input.operationReplayed) {
       replay =
         "Do not retry this write again: the exact replay has already been attempted.";
@@ -590,6 +613,7 @@ export class ConnectorActionOutcomeUnknownError extends OpenConnectorActionError
       operationId: input.operationId,
       executionConfirmation: input.providerExecutionId ? "executed" : "unknown",
       providerExecutionId: input.providerExecutionId ?? null,
+      replay: replayPermission,
       message,
     });
   }

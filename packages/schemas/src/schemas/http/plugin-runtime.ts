@@ -19,6 +19,24 @@ export const connectorActionOutcomeUnknownSchema = z.strictObject({
   operationId: z.string().trim().min(1),
   executionConfirmation: agentExecutionConfirmationSchema,
   providerExecutionId: z.string().nullable(),
+  // Absent on older receipts: absence never permits replay.
+  replay: z
+    .discriminatedUnion("allowed", [
+      z.strictObject({
+        allowed: z.literal(true),
+        remainingWindowMs: z.int().positive(),
+        maxAttempts: z.literal(1),
+      }),
+      z.strictObject({
+        allowed: z.literal(false),
+        reason: z.enum([
+          "window_unverified",
+          "window_expired",
+          "already_replayed",
+        ]),
+      }),
+    ])
+    .optional(),
   message: z.string().min(1),
 });
 export const pluginRuntimeRequestSchema = z.discriminatedUnion("operation", [
