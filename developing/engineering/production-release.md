@@ -25,6 +25,28 @@ used to invent a second merge or evidence contract.
 
 Release only what changed.
 
+The PostgreSQL candidate keeps production and shared-staging promotion closed.
+For a read-only maintenance preparation plan through this same release owner:
+
+```bash
+pnpm release:plan -- --database-cutover --base <fixed-reviewed-baseline> --json
+```
+
+This reads local source impact, the registered PostgreSQL 18 target and native
+migration hashes. It reports the ordinary rolling-release ordering or its blocker,
+the complete coordinated scope to review, freeze/drain requirements, retained
+DO/R2 obligations and the before/after-first-write recovery boundary. It does not
+read production data, inspect live cloud resources, collect acceptance evidence,
+acquire a release lease or execute a step. `evidenceStatus: not_evaluated` and
+`promotionAllowed: false` are explicit; a successful plan is not a cutover pass.
+The option is accepted only by `plan`, with automatic impact discovery. It does
+not waive incompatible receiver-first dependencies or enable any deploy command.
+Its compatibility baseline is a source comparison only; deployed component
+receipts remain `not_inspected`. The actual release must establish each live
+component's source and receipt before deciding mixed-version compatibility.
+See [PostgreSQL cutover preparation](postgresql-cutover.md) for current evidence
+and remaining maintenance acceptance.
+
 - A Web fix releases Web.
 - A Gateway fix releases Gateway.
 - A database migration plus Core change releases Database, then Core.
@@ -419,7 +441,16 @@ ready. Shared schemas and Core's native-delivery service are intentionally not
 directional path signals because they carry contracts in both directions.
 
 Remote AI usage adds the opposite dependency: Core's `recordRemoteAiUsage`
-receiver precedes its Remote producer. The planner composes this edge with the
+receiver precedes its Remote producer when the shared AI usage schema or Remote
+producer changes. A Core receiver-only edit does not establish that a new Remote
+producer contract exists. Likewise, Center Agent context-manifest ordering uses
+the explicit Core context projection owner, not a filename substring matching its
+private persistence repository. `compatibilityPathSignals` explains these two
+classifications, including matched paths and relevant non-trigger paths. These
+source signals do not certify a deployed receiver or authorize a breaking
+receiver-only change.
+
+The planner composes the metering edge with the
 request dependencies and rejects an unresolved cycle, including a single-stage
 guard that tries to skip a pending receiver. It must not report a safe train by
 choosing only one side of that cycle.

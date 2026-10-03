@@ -130,34 +130,53 @@ for (const fault of ["source_drift", "missing_history", "unknown_baseline"]) {
   });
 }
 
-test("does not hide the Core metering receiver behind Remote request receiver order", () => {
-  const paths = [
-    ...REMOTE_AI_USAGE,
-    "services/remote-agent/.flue/cloudflare.ts",
-  ];
-  const edges = resolveProductionCompatibilityDependencies(paths);
-  assert.ok(
-    edges.some(
-      ([receiver, producer]) =>
-        receiver === "core" && producer === "remote-agent"
-    )
-  );
-  assert.ok(
-    edges.some(
-      ([receiver, producer]) =>
-        receiver === "remote-agent" && producer === "core"
-    )
-  );
-  assert.throws(
-    () =>
-      buildProductionReleasePlan({
-        changedPaths: paths,
-        sourceSha: "a".repeat(40),
-        scope: "core,remote-agent",
-      }),
-    CONTRACT_CYCLE
-  );
+test("does not invent a protocol cycle from Core receiver and persistence edits", () => {
+  const plan = buildProductionReleasePlan({
+    changedPaths: [
+      "services/core/src/usage/ai-usage-rpc.ts",
+      "services/core/src/center-agent/center-agent-context-manifest-repository.ts",
+    ],
+    sourceSha: "a".repeat(40),
+    scope: "core,remote-agent",
+  });
+  assert.deepEqual(plan.compatibilityDependencies, []);
+  assert.equal(plan.deployScopeOrder.length, 2);
+  for (const signal of plan.compatibilityPathSignals) {
+    assert.deepEqual(signal.matchedPaths, []);
+    assert.equal(signal.nonTriggerPaths.length, 1);
+  }
 });
+
+for (const receiverPath of [
+  "services/remote-agent/.flue/cloudflare.ts",
+  "services/core/src/center-agent/application/center-agent-context-manifest-service.ts",
+]) {
+  test(`does not hide the Core metering receiver behind ${receiverPath}`, () => {
+    const paths = [...REMOTE_AI_USAGE, receiverPath];
+    const edges = resolveProductionCompatibilityDependencies(paths);
+    assert.ok(
+      edges.some(
+        ([receiver, producer]) =>
+          receiver === "core" && producer === "remote-agent"
+      )
+    );
+    assert.ok(
+      edges.some(
+        ([receiver, producer]) =>
+          receiver === "remote-agent" && producer === "core"
+      )
+    );
+    assert.throws(
+      () =>
+        buildProductionReleasePlan({
+          changedPaths: paths,
+          sourceSha: "a".repeat(40),
+          scope: "core,remote-agent",
+        }),
+      CONTRACT_CYCLE
+    );
+  });
+}
 const INBOX_OBSERVATIONS = [
   "packages/schemas/src/schemas/http/inbox.ts",
   "services/core/src/inbox/application/inbox-notification-observations.ts",

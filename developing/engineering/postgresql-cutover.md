@@ -94,7 +94,9 @@ endpoint allowed channel connection for the owner and denied it for the member.
 The migrated Codex Wake attempt was rejected before execution with
 `usage_exhausted`, while Binding, Runtime and Service evidence was ready and the
 route was online. An independent current account-limit read confirmed 100% use
-of the ordinary Codex window. The lane had no other existing workstation Agent
+of the ordinary Codex weekly window and `creditsAvailable: true`. OpenMeld's
+current usage admission rejects this Codex Wake; this does not establish that
+paid capacity is unavailable. The lane had no other existing workstation Agent
 Profile. The quota was not bypassed; previous native-PG Wake successes do not
 stand in for migrated Wake or authoritative in-flight drain evidence. Keep those
 acceptance gates open until an actual admitted execution can be observed.
@@ -206,10 +208,42 @@ also cover queued/outbox work and recovery after an interrupted maintenance.
 
 ## Remaining release and maintenance acceptance
 
-Extend the existing guarded release owner with a PG target plan/dry-run; keep
-actual promotion closed until source identity, complete writer freeze/drain,
+The existing `release:plan -- --database-cutover --base <fixed-baseline> --json`
+entrypoint now produces a read-only PG preparation plan. It reuses the existing
+source-impact and rolling-order owners and the native migration journal reader.
+The plan contains registered target identity and hashes, not live cloud evidence.
+All executable step arrays are empty, promotion is false, and evidence remains
+`not_evaluated`. Deploy, preflight and verify do not accept this option. The
+ordinary source plan excludes receiver-only AI usage edits and the private
+context-manifest persistence repository from directional protocol triggers.
+Those paths previously produced a false Core/Remote cycle for this migration.
+Actual changed metering contracts and context producers still compose their
+opposite dependencies and reject a cycle. The plan exposes the matched and
+non-trigger paths; this classification is not live compatibility evidence.
+Final release planning must use each actually deployed component's source and
+verified receipt. The fixed development baseline is not assumed to be deployed.
+
+The writer inventory above is preparation only. There is no implemented or
+accepted complete freeze/drain executor yet. Once a real workstation execution
+can be admitted, rehearse closure at the owning admission entries while the task
+is active. Fresh accepted/running evidence must keep it alive; use its normal
+stop path only if needed. Reconcile the RuntimeCoordinator in-flight index and
+execution identity with its final receipt, visible Space outcome and remaining
+outboxes. Separately prove producer/schedule closure, queue/workflow/alarm/socket
+settlement and remaining relational writer quiescence. A quiet screen, rejected
+new Wake, historical final ledger row or missing head alone does not prove drain.
+
+For an interrupted maintenance, retain the exact phase, source identity, frozen
+source/capture receipt, import receipt, authoritative executions/outboxes and
+DO/R2 effects. Resume only from matching evidence; an unknown phase stays closed.
+In a disposable rehearsal, interrupt before capture, during import and after the
+first normal PG write, then verify safe recovery at each owner. Existing COPY
+process-kill tests prove database rollback only, not this cross-owner recovery.
+No time estimate or automatic reopening is justified before that rehearsal.
+
+Actual promotion stays closed until source identity, complete writer freeze/drain,
 final export/import/reconciliation, permissions, cloud product acceptance and
-recovery evidence all exist. Do not add a parallel deploy command.
+recovery evidence all exist. There is no parallel deploy command.
 
 Before PostgreSQL accepts new product writes, coordinated rollback may restore
 all source/bindings to the unchanged frozen D1 authority. After new PG writes,

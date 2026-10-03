@@ -6,7 +6,10 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { assertProductDatabaseReleaseSupported } from "./database-backend-admission.mjs";
+import {
+  assertProductDatabaseReleaseSupported,
+  readPostgresqlCutoverPreparation,
+} from "./database-backend-admission.mjs";
 import { executeRecordedProductionDeploySteps } from "./production-release-receipts.mjs";
 import {
   acquireProductionScopeLease,
@@ -599,14 +602,55 @@ const REMOTE_AGENT_RECEIVER_FIRST_CONTRACT_PATHS = new Set([
   "services/remote-agent/flue-adapter/cloudflare-entrypoint.ts",
   "services/remote-agent/flue-adapter/execution-reconciliation.ts",
 ]);
+const REMOTE_AI_USAGE_PRODUCER_CONTRACT_PATHS = new Set([
+  "packages/schemas/src/schemas/ai-usage.ts",
+  "services/remote-agent/agent-core/ai-usage.ts",
+]);
+const CENTER_AGENT_CONTEXT_MANIFEST_CONTRACT_PATHS = new Set([
+  "packages/schemas/src/schemas/http/center-agent-context-manifest.ts",
+  "packages/schemas/src/types/http/center-agent-context-manifest.ts",
+  "services/core/src/center-agent/application/center-agent-context-manifest-service.ts",
+]);
 function isRemoteAiUsageDiff(changedPaths) {
+  // A receiver-only edit does not introduce a new Remote producer contract.
   return changedPaths.some((path) =>
-    [
-      "packages/schemas/src/schemas/ai-usage.ts",
-      "services/core/src/usage/ai-usage-rpc.ts",
-      "services/remote-agent/agent-core/ai-usage.ts",
-    ].includes(path)
+    REMOTE_AI_USAGE_PRODUCER_CONTRACT_PATHS.has(path)
   );
+}
+
+// Explain these directional signals at the same owner that classifies them.
+// These are source-path observations, not deployed receiver compatibility proof.
+function describeCompatibilityPathSignals(changedPaths) {
+  return [
+    {
+      contract: "remote-ai-usage",
+      dependency: ["core", "remote-agent"],
+      matchedPaths: changedPaths.filter((path) =>
+        REMOTE_AI_USAGE_PRODUCER_CONTRACT_PATHS.has(path)
+      ),
+      nonTriggerPaths: changedPaths.filter(
+        (path) => path === "services/core/src/usage/ai-usage-rpc.ts"
+      ),
+      reason:
+        "The changed shared contract or Remote producer requires Core first. A Core receiver-only edit does not establish a changed Remote producer contract.",
+    },
+    {
+      contract: "center-agent-context-manifest",
+      dependency: ["remote-agent", "core"],
+      matchedPaths: changedPaths.filter(
+        (path) =>
+          path.startsWith("services/core/") &&
+          isCenterAgentContextManifestContractPath(path)
+      ),
+      nonTriggerPaths: changedPaths.filter(
+        (path) =>
+          path ===
+          "services/core/src/center-agent/center-agent-context-manifest-repository.ts"
+      ),
+      reason:
+        "The Core context projection produces Remote context entries. Its persistence repository does not define that wire contract.",
+    },
+  ];
 }
 const REMOTE_AGENT_WORKER_RESPONSE_SCHEMA_PATH =
   "packages/schemas/src/schemas/runtime/remote-agent-worker.ts";
@@ -702,6 +746,10 @@ export function parseProductionReleaseArgs(argv) {
   for (let index = 1; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--") {
+      continue;
+    }
+    if (arg === "--database-cutover" && command === "plan") {
+      options.databaseCutover = true;
       continue;
     }
     if (arg === "--base") {
@@ -2211,6 +2259,9 @@ function describeProductionReleaseImpact(context) {
       context.taskInboxRetired,
       context.compatibilityContext
     ),
+    compatibilityPathSignals: describeCompatibilityPathSignals(
+      context.compatibilityChangedPaths
+    ),
     compatibilityReceiverWitnesses:
       resolveProductionCompatibilityReceiverWitnesses(
         context.compatibilityChangedPaths
@@ -2686,18 +2737,52 @@ function runReadOnlyCommand(input) {
   };
 }
 
+function formatCompatibilityPathSignals(signals = []) {
+  return signals
+    .filter(
+      (signal) => signal.matchedPaths.length || signal.nonTriggerPaths.length
+    )
+    .map(
+      (signal) =>
+        `Compatibility path signal (${signal.contract}): ${signal.matchedPaths.join(", ") || "no changed producer/contract"}. Non-trigger paths: ${signal.nonTriggerPaths.join(", ") || "none"}. ${signal.reason}`
+    );
+}
+
 function printPlan(plan, json) {
   if (json) {
     process.stdout.write(`${JSON.stringify(plan, null, 2)}\n`);
     return;
   }
   const lines = [
-    "Production release plan",
-    `Source: ${plan.sourceSha}`,
+    plan.databaseCutover
+      ? "PostgreSQL cutover preparation — promotion blocked"
+      : "Production release plan",
+    `Source: ${plan.sourceSha}${plan.worktreeDirty ? " (includes uncommitted changes)" : ""}`,
     `Base: ${plan.base}`,
     `Scopes: ${plan.scopes.length > 0 ? plan.scopes.join(", ") : "none"}`,
-    `Deploy order: ${plan.deployScopeOrder.join(", ")}`,
+    `Deploy order: ${plan.deployScopeOrder.join(", ") || "none"}`,
   ];
+  if (plan.databaseCutover) {
+    const cutover = plan.databaseCutover;
+    lines.push(
+      `Target inventory: ${cutover.target.organization}/${cutover.target.database}, PostgreSQL ${cutover.target.majorVersion}`,
+      `Evidence: ${cutover.evidenceStatus}; executor: ${cutover.executor}`,
+      `Rolling release ordering: ${plan.rollingRelease.status}${plan.rollingRelease.reason ? ` (${plan.rollingRelease.reason})` : ""}`,
+      "Compatibility baseline: source comparison only; deployed component receipts not inspected.",
+      "",
+      "Required before promotion:",
+      ...cutover.requiredBeforePromotion.map(
+        (requirement) => `- ${requirement}`
+      ),
+      "",
+      "Maintenance sequence (not executable):",
+      ...cutover.maintenanceSequence.map((stage) => `- ${stage}`),
+      "",
+      `Before the first PostgreSQL write: ${cutover.recovery.beforeFirstPostgresqlWrite}`,
+      `After the first PostgreSQL write: ${cutover.recovery.afterFirstPostgresqlWrite}`
+    );
+  }
+  lines.push(...formatCompatibilityPathSignals(plan.compatibilityPathSignals));
   for (const bridge of plan.compatibilityBridges ?? []) {
     lines.push(
       `Compatibility bridge: ${bridge.kind} from ${bridge.baselineSha} (${bridge.evidence}).`
@@ -2734,11 +2819,59 @@ function printPlan(plan, json) {
 }
 
 async function main(argv) {
-  const command = parseProductionReleaseArgs(argv).command;
-  if (command === "deploy") {
+  const options = parseProductionReleaseArgs(argv);
+  if (options.command === "deploy") {
     assertProductDatabaseReleaseSupported();
   }
-  const options = parseProductionReleaseArgs(argv);
+  if (options.databaseCutover) {
+    if (options.scope !== "auto") {
+      throw new Error(
+        "Cutover preparation reviews the complete source impact; keep --scope auto."
+      );
+    }
+    const databaseCutover = await readPostgresqlCutoverPreparation();
+    const impact = buildProductionReleaseImpact(options);
+    let rollingRelease;
+    try {
+      const ordinary = buildProductionReleasePlan({
+        ...options,
+        changedPaths: impact.changedPaths,
+        affectedPackages: impact.affectedPackages,
+      });
+      rollingRelease = {
+        status: "ordering_resolved_only",
+        deployScopeOrder: ordinary.deployScopeOrder,
+      };
+    } catch (error) {
+      rollingRelease = {
+        status: "blocked",
+        reason: error instanceof Error ? error.message : String(error),
+      };
+    }
+    printPlan(
+      {
+        ...impact,
+        databaseCutover,
+        rollingRelease,
+        compatibilityEvidence: {
+          basis: "source_comparison_only",
+          deployedComponentReceipts: "not_inspected",
+        },
+        worktreeDirty: runGit(["status", "--porcelain=v1"]).trim().length > 0,
+        coordinatedScopeReview: sortScopes([
+          "db",
+          ...CLOUD_SCOPES,
+          ...impact.scopes,
+        ]),
+        deployScopeOrder: [],
+        deploySteps: [],
+        preflightSteps: [],
+        verifySteps: [],
+      },
+      options.json
+    );
+    return;
+  }
   const plan = buildProductionReleasePlan(options);
   printPlan(plan, options.json);
   if (options.command === "plan") {
@@ -2906,10 +3039,7 @@ function isCenterAgentCliReceiverFirstContractPath(path) {
 }
 
 function isCenterAgentContextManifestContractPath(path) {
-  return (
-    path.includes("center-agent-context-manifest") ||
-    path.includes("center_agent_context_manifest")
-  );
+  return CENTER_AGENT_CONTEXT_MANIFEST_CONTRACT_PATHS.has(path);
 }
 
 function isWorkspaceRuntimePath(relativePath) {
