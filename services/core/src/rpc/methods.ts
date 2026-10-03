@@ -16039,6 +16039,7 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
   let connectionName = existing?.operation.connectionName;
   let executionConnection =
     existing?.operation.executionConnection ?? undefined;
+  let connectionUpdatedAtMs = existing?.operation.connectionUpdatedAtMs;
   if (parsed.data.outcome === "attempted") {
     // The operation freezes identity and attribution, never current permission.
     const exactConnectionName = connectionName ?? parsed.data.connectionName;
@@ -16096,6 +16097,7 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
         scope: connection.scope,
         service: connection.service,
       };
+      connectionUpdatedAtMs = connection.updatedAtMs;
     }
   }
   const result = await recordCenterAgentConnectorActionOperation({
@@ -16105,6 +16107,7 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
     connectionName: connectionName ?? parsed.data.connectionName,
     db: authorization.db,
     executionConnection,
+    connectionUpdatedAtMs,
     nowMs: Date.now(),
     operationId: parsed.data.operationId,
     organizationId: authorization.activeOrganization.organizationId,
@@ -16197,6 +16200,8 @@ async function requireConnectorOperationConnection(
   if (
     original &&
     (connection.scope !== original.scope ||
+      (existing?.operation.connectionUpdatedAtMs !== null &&
+        connection.updatedAtMs !== existing?.operation.connectionUpdatedAtMs) ||
       connection.userId !== original.ownerUserId ||
       connection.service !== original.service)
   ) {

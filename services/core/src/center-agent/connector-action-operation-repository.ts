@@ -50,6 +50,7 @@ export type CenterAgentConnectorActionOperationRecord =
     connectionName: string;
     createdAtMs: number;
     executionConnection: CenterAgentConnectorActionExecutionConnection | null;
+    connectionUpdatedAtMs: number | null;
     id: string;
     providerExecutionId: string | null;
     requestSignature: string;
@@ -65,6 +66,7 @@ type CenterAgentConnectorActionOperationRow = {
   connection_owner_display_name: string | null;
   connection_owner_user_id: string | null;
   connection_scope: string | null;
+  connection_updated_at_ms: number | null;
   created_at_ms: number;
   id: string;
   operation_id: string;
@@ -212,6 +214,7 @@ export async function readCenterAgentConnectorActionOperationForRequest(input: {
 }
 
 export async function recordCenterAgentConnectorActionOperation(input: {
+  connectionUpdatedAtMs?: number | null;
   actionId: string;
   actorProfileId: string;
   attribution?: CenterAgentAttribution;
@@ -251,6 +254,7 @@ export async function recordCenterAgentConnectorActionOperation(input: {
 
   if (existing) {
     assertSameRequest(existing, input);
+    assertOperationConnectionVersion(existing, input);
   }
   const existingProvenance = existing
     ? await requireOperationProvenance({ db: input.db, operation: existing })
@@ -455,6 +459,9 @@ export async function readConnectorActionReplayPermission(input: {
   ) {
     return { allowed: false, reason: "operation_terminal" };
   }
+  if (input.operation.connectionUpdatedAtMs === null) {
+    return { allowed: false, reason: "original_account_unverified" };
+  }
   const replay = await input.db
     .prepare("SELECT id FROM center_agent_audit_journal WHERE id = ?")
     .bind(`${input.operation.id}:replay_attempted`)
@@ -589,6 +596,7 @@ function prepareFinalizeAuditStatement(input: {
 }
 
 function prepareInsertOperationStatement(input: {
+  connectionUpdatedAtMs?: number | null;
   actionId: string;
   connectionName: string;
   db: D1Database;
@@ -624,11 +632,12 @@ function prepareInsertOperationStatement(input: {
           connection_owner_display_name,
           connection_owner_user_id,
           connection_scope,
+          connection_updated_at_ms,
           status,
           provider_execution_id,
           created_at_ms,
           updated_at_ms
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `
     )
     .bind(
@@ -646,6 +655,7 @@ function prepareInsertOperationStatement(input: {
       input.executionConnection.ownerDisplayName,
       input.executionConnection.ownerUserId,
       input.executionConnection.scope,
+      input.connectionUpdatedAtMs ?? null,
       input.status,
       input.providerExecutionId,
       input.nowMs,
@@ -821,6 +831,7 @@ function mapOperation(
     connectionName: row.connection_name,
     createdAtMs: Number(row.created_at_ms),
     executionConnection: mapExecutionConnection(row),
+    connectionUpdatedAtMs: row.connection_updated_at_ms,
     id: row.id,
     operationId: row.operation_id,
     organizationId: row.organization_id,
@@ -972,4 +983,18 @@ function operationConflict(reason: string): Error {
     reason,
     status: 409,
   });
+}
+
+function assertOperationConnectionVersion(
+  operation: CenterAgentConnectorActionOperationRecord,
+  request: { outcome: string; connectionUpdatedAtMs?: number | null }
+): void {
+  if (
+    request.outcome === "attempted" &&
+    request.connectionUpdatedAtMs !== operation.connectionUpdatedAtMs
+  ) {
+    throw operationConflict(
+      "The original connector account changed before execution."
+    );
+  }
 }

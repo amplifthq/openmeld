@@ -408,6 +408,8 @@ async function recoverOperation(
   if (
     current.status !== "active" ||
     current.userId !== existing.executionConnection.ownerUserId ||
+    (existing.connectionUpdatedAtMs !== null &&
+      current.updatedAtMs !== existing.connectionUpdatedAtMs) ||
     current.scope !== existing.executionConnection.scope ||
     current.service !== action.service
   ) {
@@ -491,6 +493,7 @@ async function executeAction(
     service: action.service,
     connectionName: connection.connectionName,
     executionConnection,
+    connectionUpdatedAtMs: current.updatedAtMs,
     requestSignature: signature,
     effect,
     sourceRequestKey: caller.sourceRequestKey,

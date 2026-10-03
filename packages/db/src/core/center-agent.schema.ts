@@ -366,6 +366,7 @@ export const centerAgentConnectorActionOperations = sqliteTable(
     connectionOwnerDisplayName: text("connection_owner_display_name"),
     connectionOwnerUserId: text("connection_owner_user_id"),
     connectionScope: text("connection_scope"),
+    connectionUpdatedAtMs: integer("connection_updated_at_ms"),
     status: text("status").notNull(),
     providerExecutionId: text("provider_execution_id"),
     createdAtMs: integer("created_at_ms").notNull(),

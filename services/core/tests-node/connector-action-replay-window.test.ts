@@ -39,6 +39,7 @@ describe("durable connector execution admission", () => {
     requestSignature: "b".repeat(64),
     service: "linear",
     connectionName: "linear-personal",
+    connectionUpdatedAtMs: 1000,
     executionConnection: {
       service: "linear" as const,
       connectionName: "linear-personal",

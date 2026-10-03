@@ -261,4 +261,31 @@ describe("Local plugin replay through real operation and connection storage", ()
     ).rejects.toThrow("plugin.action_forbidden");
     expect(providerCalls).toHaveLength(1);
   });
+
+  it("does not replay after the same connection name is replaced", async () => {
+    await rpcPluginAction(env, request());
+    harness.run({
+      sql: "UPDATE connector_connections SET updated_at_ms = 2000",
+    });
+    await expect(
+      rpcPluginAction(env, request("original-operation", true))
+    ).rejects.toThrow("plugin.operation_identity_changed");
+    expect(providerCalls).toHaveLength(1);
+  });
+
+  it("keeps a legacy unknown receipt readable without granting replay", async () => {
+    await rpcPluginAction(env, request());
+    harness.run({
+      sql: "UPDATE center_agent_connector_action_operations SET connection_updated_at_ms = NULL",
+    });
+    const receipt = await rpcPluginAction(
+      env,
+      request("original-operation", true)
+    );
+    expect(receipt).toMatchObject({
+      status: "outcome_unknown",
+      replay: { allowed: false, reason: "original_account_unverified" },
+    });
+    expect(providerCalls).toHaveLength(1);
+  });
 });

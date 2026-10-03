@@ -7098,11 +7098,17 @@ Core operation and provider idempotency key remain the existing owners.
 The optional `replay` projection makes recovery permission explicit: `allowed`
 with one attempt and a positive remaining window, or a denial reason for an
 unverified/expired window or a replay already attempted. Older receipts without
-this field grant no replay permission. This is a model-facing projection in the
-Remote runtime, not a new Core admission or durable replay counter. The common
-App/GitHub tool guidance and Code Mode consume the same rule; `not_found` does
-not prove non-execution. No CLI, Service, setup, Wake, or callback envelope
-changes; the optional shared schema field remains readable with old producers.
+this field grant no replay permission. Core claims the single replay through a
+unique entry in the existing operation audit journal. Both Local and Remote
+ordinary Plugin writes require this durable permit. The original connection
+version is frozen in the operation ledger; replacing a same-name connection
+refuses replay. Migration `0191_yielding_lionheart.sql` adds that nullable
+version before new Core code is deployed. Legacy rows remain readable but do
+not receive a replay permit without a frozen account version. Old consumers
+keep their prior response shape unless they opt into recovery receipts.
+The common App/GitHub guidance and Code Mode consume the same rule;
+`not_found`, a timeout, or one page without a matching target proves no outcome.
+GitHub retains its own authorization and operation owner.
 
 Native `readAdmission` is an additive Core-to-Remote RPC. It reuses the exact
 persisted submit-request schema so the receipt owner can verify the original
