@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-03T07:12:02.087Z",
+  "updatedAt": "2026-10-03T07:45:02.301Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
@@ -9,8 +9,8 @@
       "reason": "Existing setup and Wake envelopes remain compatible; exact evidence, excerpt sharing and verification are additive and unsupported receivers fail closed."
     },
     "service": {
-      "bundleHash": "f6d130a2384387060c09d6cc91bb3c47f5e1d10314dde14486d2521cec2dd7e5",
-      "portableBundleHash": "107ed9b0af6a317b18ad271bff12e322fe239f64a2b2df6cbf34c61b8dc5f406",
+      "bundleHash": "72d7b4513451ca97a53e77abcc8cd6c849a5aa9a18bab722c25d740dbcfa169c",
+      "portableBundleHash": "f53dd3478211f98b6d9df8279cd0bfba08fb44b7e759420f6a584281ee878d9d",
       "bundleVersion": "0.3.238",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
       "serviceContractVersion": "openmeld-service-contract-2026-09-local-install-recovery-v1",
