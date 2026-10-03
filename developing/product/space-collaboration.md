@@ -1515,10 +1515,11 @@ For interactive Center Agent turns, follow an explicit user preference for the
 main conversation, including a continuing preference while it remains relevant.
 The Center Agent selects that destination with `openmeld_set_reply_placement`
 before composing its answer.
-While the destination is unresolved, Web does not present a shared-Space Center
-Agent reply bubble in the main conversation. Its known execution progress is
-shown immediately at the source message using the same progress projection as
-the sidebar and conversation controls. Thinking and transient progress must not
+While the destination is unresolved, Web presents the unfinished Agent reply in
+the source conversation, using the same progress projection as the sidebar and
+conversation controls. Public work and answer deltas appear in that reply as
+they arrive. This provisional presentation does not choose durable placement.
+Thinking and transient progress must not
 select a reply destination or create a Thread. Once Space selects a Thread, the
 triggering message's **Open thread** entrance shows the compact current status
 and an authorized Stop control; the complete progress and final answer appear

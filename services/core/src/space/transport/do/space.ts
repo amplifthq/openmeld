@@ -22230,6 +22230,7 @@ export class Space extends DurableObject<CoreBindings> {
         items.push(
           await this.buildWakeProgressItemFromOutboxEvidence({
             clientMessageId,
+            includeTiming: input.includeTiming === true,
             includeWakeStopEligibility:
               input.includeWakeStopEligibility === true,
             nativeDeliveryEvidence: activeNativeDeliveryByTarget.get(
@@ -22528,6 +22529,7 @@ export class Space extends DurableObject<CoreBindings> {
       return [
         buildWakeProgressItemFromOutbox({
           clientMessageId,
+          includeTiming: input.includeTiming === true,
           nativeDeliveryEvidence: activeNativeDeliveryByTarget.get(
             buildDispatchTargetKey(outboxRecord)
           ),
@@ -22753,14 +22755,18 @@ export class Space extends DurableObject<CoreBindings> {
     const runtimeCoordinatorExecution =
       trace?.runtimeCoordinatorExecution ?? null;
     const timingDb = input.includeTiming ? wakeEvidenceDb(this.env) : null;
-    const runningAtMs =
-      timingDb && runtimeCoordinatorExecution
-        ? await readRuntimeCoordinatorExecutionRunningAtMs({
-            db: timingDb,
-            runtimeCoordinatorExecutionId:
-              runtimeCoordinatorExecution.runtimeCoordinatorExecutionId,
-          })
-        : null;
+    let runningAtMs = input.nativeDeliveryEvidence?.startedAtMs ?? null;
+    if (
+      !input.nativeDeliveryEvidence &&
+      timingDb &&
+      runtimeCoordinatorExecution
+    ) {
+      runningAtMs = await readRuntimeCoordinatorExecutionRunningAtMs({
+        db: timingDb,
+        runtimeCoordinatorExecutionId:
+          runtimeCoordinatorExecution.runtimeCoordinatorExecutionId,
+      });
+    }
     const pendingInteraction = runtimeCoordinatorExecution
       ? await this.readWakeProgressPendingAgentInteraction({
           actorOwnerUserId: input.actorOwnerUserId,
@@ -23048,6 +23054,7 @@ export class Space extends DurableObject<CoreBindings> {
 
   private async buildWakeProgressItemFromOutboxEvidence(input: {
     clientMessageId: string | null;
+    includeTiming: boolean;
     includeWakeStopEligibility?: boolean;
     nativeDeliveryEvidence?: ActiveRemoteAgentNativeDeliveryWakeProgressEvidence;
     outboxRecord: OpenMeldDaemonDispatchOutboxRecoveryCandidate;
@@ -23116,6 +23123,7 @@ export class Space extends DurableObject<CoreBindings> {
     }
     return buildWakeProgressItemFromOutbox({
       clientMessageId: input.clientMessageId,
+      includeTiming: input.includeTiming,
       nativeDeliveryEvidence: input.nativeDeliveryEvidence,
       outboxRecord: input.outboxRecord,
       sourceSignal: input.sourceSignal,
@@ -25013,6 +25021,7 @@ function resolveWakeProgressTargetLabel(input: {
 
 function buildWakeProgressItemFromOutbox(input: {
   clientMessageId: string | null;
+  includeTiming: boolean;
   nativeDeliveryEvidence?: ActiveRemoteAgentNativeDeliveryWakeProgressEvidence;
   outboxRecord: OpenMeldDaemonDispatchOutboxRecoveryCandidate;
   sourceSignal: Extract<SignalEnvelope, { type: "signal.text" }> | null;
@@ -25034,6 +25043,9 @@ function buildWakeProgressItemFromOutbox(input: {
         : undefined,
     phase,
     sourceSignalId: input.sourceSignal?.id ?? input.outboxRecord.sourceEventId,
+    ...(input.includeTiming && input.nativeDeliveryEvidence?.startedAtMs != null
+      ? { startedAtMs: input.nativeDeliveryEvidence.startedAtMs }
+      : {}),
     targetLabel: input.targetLabel,
     targetProfileId: input.outboxRecord.targetProfileId,
     terminal: phase === "stopped" ? true : undefined,

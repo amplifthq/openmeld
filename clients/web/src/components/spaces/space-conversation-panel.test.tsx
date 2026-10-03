@@ -3869,7 +3869,7 @@ describe("SpaceConversationPanel", () => {
 		).toBeNull();
 		expect(
 			document.querySelector('[data-message-id^="active-wake:"]')
-		).toBeNull();
+		).not.toBeNull();
 
 		view.rerender(
 			<SpaceConversationPanel
@@ -3987,7 +3987,7 @@ describe("SpaceConversationPanel", () => {
 		).toBeNull();
 	});
 
-	it("shows source progress while the Center Agent reply destination is undecided", () => {
+	it("shows the live reply at its source while the Center Agent destination is undecided", () => {
 		const progress = createWakeProgressItem();
 		const streamId = "stream-undecided";
 		renderSpaceConversationPanel({
@@ -4022,6 +4022,15 @@ describe("SpaceConversationPanel", () => {
 						sequence: 1,
 						status: "streaming",
 						streamId,
+						toolParts: [
+							{
+								type: "tool",
+								toolCallId: "tool-undecided",
+								toolName: "agent_read_files",
+								state: "input-available",
+								work: { key: "source.read", v: 1 },
+							},
+						],
 					},
 					actorProfileId: TARGET_PROFILE_ID,
 					actorProfileKind: "agent",
@@ -4035,11 +4044,13 @@ describe("SpaceConversationPanel", () => {
 
 		expect(screen.getByText("Please investigate")).toBeTruthy();
 		expect(
-			document.querySelector('[data-slot="space-wake-thinking-row"]')
-		).not.toBeNull();
+			screen.getByRole("button", {
+				name: "Thinking…. Work summary: Reviewing source files…",
+			})
+		).toBeTruthy();
 		expect(
 			document.querySelector(`[data-message-id="${streamId}"]`)
-		).toBeNull();
+		).not.toBeNull();
 		expect(
 			document.querySelector('[data-message-id^="active-wake:"]')
 		).toBeNull();

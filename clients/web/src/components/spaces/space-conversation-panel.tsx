@@ -1160,31 +1160,9 @@ function useSpaceConversationPresentationController(
 		() => buildThreadSignalIds(input.threadPreviews),
 		[input.threadPreviews]
 	);
-	const undecidedCenterStreamIds = useMemo(
-		() =>
-			new Set(
-				(input.agentStreams ?? [])
-					.filter(
-						(stream) =>
-							!input.isDirectMessage &&
-							stream.profileId === input.centerAgentProfileId &&
-							stream.status === "streaming" &&
-							stream.replyThreadRootSignalId === undefined
-					)
-					.map((stream) => stream.streamId)
-			),
-		[input.agentStreams, input.centerAgentProfileId, input.isDirectMessage]
-	);
 	const baseMainTimelineItems = useMemo(
-		() =>
-			input.timelineItems.filter(
-				(item) =>
-					!(
-						threadSignalIds.has(item.id) ||
-						undecidedCenterStreamIds.has(item.agentStreamState?.streamId ?? "")
-					)
-			),
-		[input.timelineItems, threadSignalIds, undecidedCenterStreamIds]
+		() => input.timelineItems.filter((item) => !threadSignalIds.has(item.id)),
+		[input.timelineItems, threadSignalIds]
 	);
 	const belongsInMainConversation = useCallback(
 		(progress: SpaceEphemeralActivityItem) => {
@@ -1213,29 +1191,8 @@ function useSpaceConversationPresentationController(
 		[input.ephemeralActivityItems, belongsInMainConversation]
 	);
 	const presentedMainWakeProgressItems = useMemo(
-		() =>
-			input.presentedWakeProgressItems.filter((progress) => {
-				// Execution progress belongs at its source immediately. Only the reply
-				// bubble waits for the Center Agent's authoritative destination.
-				if (
-					!input.isDirectMessage &&
-					progress.targetProfileId === input.centerAgentProfileId &&
-					resolveWakeReplyThreadRoot({
-						progress,
-						agentStreams: input.agentStreams,
-					}) === undefined
-				) {
-					return false;
-				}
-				return belongsInMainConversation(progress);
-			}),
-		[
-			input.presentedWakeProgressItems,
-			belongsInMainConversation,
-			input.isDirectMessage,
-			input.centerAgentProfileId,
-			input.agentStreams,
-		]
+		() => input.presentedWakeProgressItems.filter(belongsInMainConversation),
+		[input.presentedWakeProgressItems, belongsInMainConversation]
 	);
 	const profileEntriesById = useMemo(
 		() => buildSpaceMemberDirectoryEntryByProfileId(input.membersSnapshot),

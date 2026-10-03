@@ -13,3 +13,6 @@ one-Agent Threads keep their independent automatic addressing.
 Working status stays visible while a Center Agent chooses where to reply.
 Thinking updates no longer create an empty Thread before an answer appears in
 the main conversation.
+
+Replies show live work and elapsed time in the conversation. Short answers
+appear as soon as they arrive, without waiting for conversation compaction.
