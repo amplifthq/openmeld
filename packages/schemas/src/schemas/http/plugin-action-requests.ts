@@ -52,6 +52,7 @@ export const pluginActionRequestCommandSchema = z.discriminatedUnion(
     z.strictObject({
       operation: z.literal("reject"),
       requestId: z.string().uuid(),
+      code: z.string().trim().min(1).max(128),
     }),
     z.strictObject({
       operation: z.literal("approve"),

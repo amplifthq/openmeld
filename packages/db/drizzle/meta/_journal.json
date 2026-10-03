@@ -1345,6 +1345,13 @@
       "when": 1791007476065,
       "tag": "0191_yielding_lionheart",
       "breakpoints": true
+    },
+    {
+      "idx": 192,
+      "version": "6",
+      "when": 1791023518439,
+      "tag": "0192_nosy_changeling",
+      "breakpoints": true
     }
   ]
 }
