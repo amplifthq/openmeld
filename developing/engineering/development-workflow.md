@@ -1167,16 +1167,64 @@ Service dispatch context, and the managed Plugin playbook.
   account and Agent, but has no original human-request fact for that call.
   An old continuation that omits those fields and an independent manual request
   are indistinguishable. A version on the child context cannot fence this path.
-  A safe change must either restrict such writes to a human-started fresh Wake
-  with an owner-retained request root, or provide a human-authorized request
-  boundary for manual writes. Selecting that supported-entry change is pending;
-  this PR does not yet enforce either policy. Existing context records retain
-  resume/fork associations and can carry the root after this decision, but old
-  records must not be upgraded by inference. New dispatch IDs, restart, a fork,
-  or a delegated child do not certify a fresh original request.
+  The selected product boundary preserves manual writes without requiring a
+  Space or Wake. It requires a human-authorized original request, not a new
+  operation ID or an Agent's claim that the request is fresh. This PR does not
+  yet enforce that boundary. Existing context records retain resume/fork
+  associations and must inherit the original request once its authority is
+  established; old records must not be upgraded by inference. New dispatch
+  IDs, restart, a fork, or a delegated child do not certify a fresh request.
 - Excerpt copies use the existing Files reservation, R2 object, revision commit,
   and audience owner. The new optional expected audience is checked synchronously
   at the destination commit. Completed copies have independent Files lifecycles.
+
+#### Manual request authority: unresolved implementation boundary
+
+The remaining gap precedes request-root storage. The current credential proves
+account access, but not that the human just initiated this particular request.
+These two histories produce the same admitted request:
+
+1. A human asks a Local Agent to perform an independent manual write. The CLI
+   sends the current account credential, its owned Agent Profile, selected
+   account, action, input, and a new operation ID, without a dispatch. Core
+   resolves membership, Binding, and Plugin permission, then admits the write.
+2. An old Local execution has an unknown write. Without another human request,
+   the caller sends the same account credential and fields, omits the dispatch,
+   and changes the operation ID. The same admission succeeds. Persisting a
+   server-generated root in response to this request would bless both histories.
+
+The relevant owners do not currently supply the missing distinction:
+
+| Existing owner | Verified fact | Missing fact |
+| --- | --- | --- |
+| Auth `resolveProfileForOwner` and Gateway request context | The authenticated account owns the selected active Profile; omitting the Profile selects its default Human Profile. | Selecting a Human Profile is not a fresh human action. |
+| `plugin-action-confirmation.ts` | A short-lived token binds the action signature, actor, Organization, and access revision. The same caller receives and submits it. | No separate human acceptance is recorded. Promoting this token to a request root permits self-authorization. |
+| CLI interactive terminal | A terminal is available for prompts. | A terminal answer is not a Core-verifiable human-request credential. |
+| Auth device authorization | Approval authorizes a CLI login session. | The approval does not bind a Plugin account, action, target, effect, or input. |
+| RuntimeCoordinator interaction response | The owner answers a pending interaction for one retained execution. | There is no standalone manual execution to attach to, and this is not a generic approval or request-root issuer. |
+
+A bounded Core/workerd diagnostic at `8944033bc` exercised real Local admission,
+connection policy, D1 migrations, confirmation storage, and operation storage.
+With a legacy unknown row and no dispatch, changing the operation ID reached the
+synthetic provider twice. This happened for both an ordinary write and a
+destructive action whose token was obtained and submitted by the same caller,
+with zero human responses. The provider and Auth service boundary used synthetic
+fixtures; this is not an authenticated CLI or real-provider smoke. Both
+zero-duplicate assertions failed. The existing exact-input/access-revision
+confirmation test passed; that narrower contract does not prove human intent.
+
+Closing this gap needs a request-bound human authorization event that the
+controller cannot manufacture with its existing account credential. A proposed
+manual flow is: retain the exact pending request in the operation/authorization
+owner, show its account and effect to the user through an authenticated approval
+surface, bind independent user verification to that request, and issue one stable
+request credential. Resume, fork, child, and cold-start paths then retain that
+root instead of issuing another. A plain browser session, Profile header,
+`fresh=true`, or a CLI yes/no prompt is not the independent verification step.
+The current passkey integration authenticates login; connecting verification to
+an exact pending request still requires Auth-owned work and a supported human
+flow, including the path for users without a passkey. No such flow, production
+cutover, or new authority is implemented by this audit.
 
 ### Active-Wake Agent Settings Contract Impact Audit
 
