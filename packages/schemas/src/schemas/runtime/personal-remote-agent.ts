@@ -2,7 +2,10 @@ import * as z from "zod/v4";
 import { spaceThreadEvidenceRequestSchema } from "../../space-evidence";
 import { centerAgentContextManifestEntrySchema } from "../http/center-agent-context-manifest";
 import { spaceBoardResponseSchema } from "../http/space-board";
-import { spaceThreadEvidenceResponseSchema } from "../http/space-evidence";
+import {
+  spaceMessageEvidenceResponseSchema,
+  spaceThreadEvidenceResponseSchema,
+} from "../http/space-evidence";
 import {
   agentReplyPlacementSchema,
   nativeReplyPlacementSchema,
@@ -67,11 +70,8 @@ export const personalRemoteAgentSpaceToolResponseSchema = z.discriminatedUnion(
       nextOffset: z.int().positive().nullable(),
       text: z.string().max(8000),
     }),
-    z.strictObject({
+    spaceMessageEvidenceResponseSchema.extend({
       kind: z.literal("evidence"),
-      message: centerAgentContextManifestEntrySchema,
-      offset: z.int().nonnegative(),
-      nextOffset: z.int().positive().nullable(),
     }),
     z.strictObject({
       kind: z.literal("thread"),

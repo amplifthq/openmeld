@@ -7,6 +7,7 @@ audiences: ["members"]
 ---
 
 Wake requests can include exact message, thread, and file revision references.
+Center Agents can pin message and thread versions before handing them off.
 Local and personal Remote Agents can read the referenced evidence in bounded
 pages, with access checked again on each page. Unavailable versions return an
 explicit error. Recorded one-hop delegation can grant an ordinary Plugin read

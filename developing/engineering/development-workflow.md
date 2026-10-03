@@ -1139,7 +1139,12 @@ Service dispatch context, and the managed Plugin playbook.
   CLI, Service, and Skills updates are advisory (`available`). No token or
   permission floor is weakened and no automatic update is initiated.
 - New Remote callers opt into Core delegation/permit projections and use new
-  evidence read variants. Missing projections refuse the new path. Deploy the
+  evidence read variants. Center's existing Space-context RPC adds opt-in
+  `source_evidence` and `thread_evidence` scopes with a fixed version and offset;
+  existing scope responses are unchanged. Older Core rejects these new scopes,
+  so a caller cannot turn an unavailable exact read into a latest-version read.
+  Personal Remote and Center share the same message-page response contract and
+  Protocol version builders. Missing projections refuse the new path. Deploy the
   additive D1 migration before Core, Core receivers before Remote callers, and
   publish new Local artifacts only after Core is ready. Keep the mixed window
   short; old callers cannot use the new evidence or verification features.

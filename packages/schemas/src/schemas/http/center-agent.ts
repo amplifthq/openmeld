@@ -1,7 +1,10 @@
 import * as z from "../../lazy-zod";
 import { computerSetupModeSchema } from "../../navigation-action";
 import { DISPATCH_ERROR_SUMMARY_MAX_LENGTH } from "../../public-agent-failure-reason";
-import { spaceEvidenceReferencesSchema } from "../../space-evidence";
+import {
+  spaceEvidenceReferenceSchema,
+  spaceEvidenceReferencesSchema,
+} from "../../space-evidence";
 import { hostedModelReasoningLevelSchema } from "../config/model-catalog";
 import { agentControllerRefSchema } from "../daemon/agent-controller-ref";
 import { computerCareObservationSchema } from "../daemon/computer-care";
@@ -92,6 +95,10 @@ import {
   spaceDispatchTraceAttemptStatusSchema,
   spaceDispatchTraceDispatchStatusSchema,
 } from "./space-dispatch-trace";
+import {
+  spaceMessageEvidenceResponseSchema,
+  spaceThreadEvidenceResponseSchema,
+} from "./space-evidence";
 import { spaceMessageFileReferencesSchema } from "./space-files";
 import {
   postSpaceMembersResponseSchema,
@@ -724,6 +731,8 @@ export const centerAgentRemoveAgentProfilesFromSpaceBodySchema = z.strictObject(
 export const centerAgentSpaceContextScopeSchema = z.enum([
   "source",
   "thread",
+  "source_evidence",
+  "thread_evidence",
   "delta",
   "history",
 ]);
@@ -733,6 +742,8 @@ const centerAgentSpaceContextAnchorByScope = {
   history: null,
   source: "sourceSignalId",
   thread: "threadId",
+  source_evidence: "sourceSignalId",
+  thread_evidence: "threadId",
 } as const;
 
 export const centerAgentReadSpaceContextBodySchema = z
@@ -744,8 +755,24 @@ export const centerAgentReadSpaceContextBodySchema = z
     sourceSignalId: trimmedNonEmptyStringSchema.optional(),
     spaceId: trimmedNonEmptyStringSchema,
     threadId: trimmedNonEmptyStringSchema.optional(),
+    version: spaceEvidenceReferenceSchema.options[0].shape.version.optional(),
+    offset: z.int().nonnegative().max(1_000_000).optional(),
   })
   .superRefine((value, context) => {
+    const exact =
+      value.scope === "source_evidence" || value.scope === "thread_evidence";
+    if (
+      (!exact && (value.version !== undefined || value.offset !== undefined)) ||
+      (exact && value.limit !== undefined) ||
+      (value.offset && !value.version) ||
+      (value.scope === "thread_evidence" && (value.offset ?? 0) > 10_000)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "Exact evidence pages require their original version and offset; limit applies only to context reads.",
+      });
+    }
     const requiredAnchor = value.scope
       ? centerAgentSpaceContextAnchorByScope[value.scope]
       : null;
@@ -1581,6 +1608,12 @@ const centerAgentSpaceContextBaseResponseShape = {
 };
 
 const centerAgentProgressiveSpaceContextSchema = z.discriminatedUnion("scope", [
+  spaceMessageEvidenceResponseSchema.extend({
+    scope: z.literal("source_evidence"),
+  }),
+  spaceThreadEvidenceResponseSchema.extend({
+    scope: z.literal("thread_evidence"),
+  }),
   z.strictObject({
     scope: z.literal("source"),
     signals: z.array(signalEnvelopeSchema).max(1),

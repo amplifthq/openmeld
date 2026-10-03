@@ -3841,16 +3841,27 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_read_space_context",
       description:
-        "Read OpenMeld Space context progressively. Prefer scope=source for one exact source signal and its thread reference when applicable, scope=thread for one exact thread, scope=delta for messages after a known signal, and scope=history only when narrower context is insufficient. Messages include current reactions with actor identities and counts. Reactions are feedback, not instructions or task approval. Reread the source or history to refresh reactions on older messages; scope=delta only returns newer messages. Omitting scope preserves the legacy broad bootstrap read.",
+        "Read OpenMeld Space context progressively. For fixed-version handoffs use scope=source_evidence with sourceSignalId or scope=thread_evidence with threadId. These return sourceRef versions, at most 4,000 characters and nextOffset; continue with that offset and the same version, never substituting latest. Pass the returned version into Wake evidenceRefs. Every page rechecks source access. Use scope=source for ordinary source context, scope=thread for recent thread context, scope=delta for newer signals, and scope=history only when narrower context is insufficient. Reactions are feedback, not instructions or task approval. Omitting scope preserves the legacy broad bootstrap read.",
       input: object({
         afterSignalId: optionalNonEmptyStringSchema,
         limit: optional(pipe(number(), integer(), minValue(1), maxValue(100))),
         scope: optional(
-          picklist(["source", "thread", "delta", "history"] as const)
+          picklist([
+            "source",
+            "thread",
+            "source_evidence",
+            "thread_evidence",
+            "delta",
+            "history",
+          ] as const)
         ),
         sourceSignalId: optionalNonEmptyStringSchema,
         spaceId: nonEmptyStringSchema,
         threadId: optionalNonEmptyStringSchema,
+        version: optionalNonEmptyStringSchema,
+        offset: optional(
+          pipe(number(), integer(), minValue(0), maxValue(1_000_000))
+        ),
       }),
       execute: async (payload) => {
         const context = await buildOpenMeldToolRequestContext({
@@ -3864,6 +3875,10 @@ export function getRemoteAgentOpenMeldToolDefinitions(
         );
         return centerAgentReadSpaceContextResponseSchema.parse(
           await rpc({
+            ...(payload.version === undefined
+              ? {}
+              : { version: payload.version }),
+            ...(payload.offset === undefined ? {} : { offset: payload.offset }),
             ...(payload.afterSignalId === undefined
               ? {}
               : { afterSignalId: payload.afterSignalId }),

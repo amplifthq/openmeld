@@ -124,6 +124,7 @@ const OTHER_ORG_PUBLIC_SPACE_ID =
   "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
 const TEST_NOW_MS = Date.parse("2026-07-08T00:00:00.000Z");
 const CENTER_AGENT_WAKE_CLIENT_MESSAGE_ID_PATTERN = /^ca-wake:/;
+const EVIDENCE_VERSION_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 
 function createCenterAgentRpcEntrypoint(
   env: CoreBindings
@@ -7736,7 +7737,7 @@ describe("organization Core RPC", () => {
     });
     const latestReply = createTextSignal({
       id: "signal-reply-2",
-      text: "Latest reply",
+      text: `${"x".repeat(4000)}selected remainder`,
       ts: TEST_NOW_MS + 2,
     });
     const createdAt = new Date(TEST_NOW_MS).toISOString();
@@ -7794,6 +7795,66 @@ describe("organization Core RPC", () => {
       profileId: AGENT_PROFILE_ID,
       profileKind: "agent",
       userId: "user-a",
+    });
+
+    const exactRequest = {
+      context,
+      scope: "source_evidence" as const,
+      sourceSignalId: latestReply.id,
+      spaceId: JOINED_PRIVATE_SPACE_ID,
+    };
+    const exact = await rpcCenterAgentReadSpaceContext(env, exactRequest);
+    if (!("context" in exact) || exact.context.scope !== "source_evidence") {
+      throw new Error("Expected an exact message page");
+    }
+    expect(exact.context.message.content.text).toBe("x".repeat(4000));
+    expect(exact.context.nextOffset).toBe(4000);
+    const version = exact.context.message.sourceRef.version;
+    expect(version).toMatch(EVIDENCE_VERSION_PATTERN);
+    await expect(
+      rpcCenterAgentReadSpaceContext(env, {
+        ...exactRequest,
+        version,
+        offset: 4000,
+      })
+    ).resolves.toMatchObject({
+      context: {
+        message: {
+          content: { text: "selected remainder" },
+          sourceRef: { version },
+        },
+        nextOffset: null,
+      },
+    });
+    await expect(
+      rpcCenterAgentReadSpaceContext(env, {
+        ...exactRequest,
+        version: `sha256:${"0".repeat(64)}`,
+      })
+    ).rejects.toThrow("space.evidence_version_unavailable");
+    await expect(
+      rpcCenterAgentReadSpaceContext(env, {
+        ...exactRequest,
+        offset: 4000,
+      })
+    ).rejects.toMatchObject({ code: "invalid_payload" });
+    await expect(
+      rpcCenterAgentReadSpaceContext(env, {
+        context,
+        scope: "thread_evidence",
+        threadId,
+        spaceId: JOINED_PRIVATE_SPACE_ID,
+      })
+    ).resolves.toMatchObject({
+      context: {
+        scope: "thread_evidence",
+        sourceRef: {
+          kind: "thread",
+          threadId,
+          version: expect.stringMatching(EVIDENCE_VERSION_PATTERN),
+        },
+        truncated: true,
+      },
     });
 
     await expect(

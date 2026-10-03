@@ -29,6 +29,8 @@ import type {
 import {
   buildCenterAgentContextMessageProjection,
   buildProfileDisplay,
+  buildSpaceMessageEvidence,
+  buildSpaceThreadEvidence,
   type CenterAgentContextMessageProjection,
   CenterAgentContextTokenBudgetTooSmallError,
   decodeCenterAgentContextCursor,
@@ -14748,6 +14750,8 @@ export async function rpcCenterAgentReadSpaceContext(
     env,
   });
   const parsed = centerAgentReadSpaceContextBodySchema.safeParse({
+    ...(input.version === undefined ? {} : { version: input.version }),
+    ...(input.offset === undefined ? {} : { offset: input.offset }),
     ...(input.afterSignalId === undefined
       ? {}
       : { afterSignalId: input.afterSignalId }),
@@ -15106,6 +15110,52 @@ async function readCenterAgentProgressiveSpaceContext(input: {
   };
 }): Promise<ProgressiveSpaceContext> {
   const limit = input.input.limit ?? 20;
+
+  if (input.input.scope === "source_evidence") {
+    const sourceSignalId = requireCenterAgentContextAnchor(
+      input.input.sourceSignalId,
+      "sourceSignalId"
+    );
+    const page = await rpcListSignals(input.env, {
+      context: input.context,
+      spaceId: input.input.spaceId,
+      aroundSignalId: sourceSignalId,
+      beforeCount: 0,
+      afterCount: 0,
+      signalTypes: ["signal.text"],
+    });
+    const signal = page.signals.find((entry) => entry.id === sourceSignalId);
+    if (!signal || signal.type !== "signal.text") {
+      throw new Error(
+        "space.evidence_unavailable: The requested message is unavailable."
+      );
+    }
+    return {
+      scope: "source_evidence",
+      ...(await buildSpaceMessageEvidence({ ...input.input, signal })),
+    };
+  }
+
+  if (input.input.scope === "thread_evidence") {
+    const selection = {
+      context: input.context,
+      spaceId: input.input.spaceId,
+      threadId: requireCenterAgentContextAnchor(
+        input.input.threadId,
+        "threadId"
+      ),
+    };
+    const thread = await rpcGetSpaceThread(input.env, selection);
+    const page = await rpcListSpaceThreadSignals(input.env, selection);
+    return {
+      scope: "thread_evidence",
+      ...(await buildSpaceThreadEvidence({
+        ...input.input,
+        thread: thread.thread,
+        signals: page.signals,
+      })),
+    };
+  }
 
   if (input.input.scope === "source") {
     const sourceSignalId = requireCenterAgentContextAnchor(
