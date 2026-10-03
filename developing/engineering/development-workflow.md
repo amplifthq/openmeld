@@ -282,6 +282,10 @@ hot reload and two-lane isolation still require a real development smoke.
   environment: uninstall its Service and maintenance worker, stop its dev stack,
   then remove only its isolated OpenMeld home and Wrangler data. Do not remove
   directories while a supervisor or owned execution can still use them.
+  Before stopping or deleting anything, cleanup refuses registered worktrees
+  within a disposable lane directory. Parent worktree removal also refuses any
+  registered descendant, including ignored directories. Resolve each child's
+  ownership separately; cleanup never removes or archives it on the parent's behalf.
 - After merge and completion of acceptance/release dependencies, remove a
   task-created temporary worktree from a retained checkout with
   `pnpm dev:clean -- --worktree /absolute/worktree/path --remove-worktree`.

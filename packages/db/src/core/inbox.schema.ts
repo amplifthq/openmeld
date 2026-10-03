@@ -111,6 +111,12 @@ export const inboxItems = sqliteTable(
     updatedAtMs: integer("updated_at_ms").notNull(),
   },
   (table) => [
+    // SQLite indexes include rowid after these equality keys, allowing scoped
+    // insertion-order observation without scanning all retained Inbox history.
+    index("inbox_items_observation_idx").on(
+      table.recipientUserId,
+      table.organizationId
+    ),
     uniqueIndex("inbox_items_account_source_unique")
       .on(table.recipientUserId, table.sourceKind, table.sourceKey)
       .where(sql`"organization_id" is null`),

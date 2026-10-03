@@ -160,6 +160,14 @@ commands run sequentially, Node test files run serially,
 and selected Vitest tests use at most two workers without file parallelism.
 Every run uses a disposable `OPENMELD_HOME`.
 
+Focused Vitest execution discovers the selected files through the changed
+workspace's existing `vitest*.config` contracts, including unit and integration
+configs. It preserves the unit script's CLI environment override and runs only
+the selected specifications. A selected file excluded by every config, or
+missing from the completed results, fails feedback even when a config allows
+no tests. Explicit test/platform skips and intentional multi-project ownership
+retain their package-defined meaning; they are not omitted-file failures.
+
 Workers pools need their own runtime limits. Gateway tests share one runtime
 and module cache, clear global/environment stubs, and retain per-test storage
 isolation; Vitest's worker count alone does not bound that pool.

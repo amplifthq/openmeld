@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
+import { execFileSync, spawnSync } from "node:child_process";
 import {
   chmodSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -10,13 +13,19 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { assertWorktreeRemovable } from "./dev-clean.mjs";
+import { fileURLToPath } from "node:url";
+import {
+  assertNoNestedWorktrees,
+  assertWorktreeRemovable,
+} from "./dev-clean.mjs";
 import {
   listWorktreeDevData,
   manageWorktreeDevService,
   resolveWorktreeDevHome,
   resolveWorktreeDevServiceCommand,
 } from "./dev-service.mjs";
+
+const NESTED_WORKTREE_ERROR = /registered nested worktrees/u;
 
 test("failed lane Service control preserves output and exit status", () => {
   const root = mkdtempSync(join(tmpdir(), "dev-service-error-"));
@@ -115,8 +124,80 @@ test("worktree retirement rejects unmerged, dirty, locked, primary and in-use wo
     {
       worktrees: [input.worktrees[0], { ...input.worktrees[1], locked: true }],
     },
+    {
+      worktrees: [
+        ...input.worktrees,
+        { path: "/repo/a/dev-tmp/nested", locked: true },
+      ],
+    },
   ]) {
     assert.throws(() => assertWorktreeRemovable({ ...input, ...patch }));
+  }
+});
+
+test("clean and removal preserve nested registered checkouts before touching lane data", () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "dev-clean-nested-")));
+  const primary = join(root, "primary");
+  const parent = join(root, "parent");
+  const git = (cwd, ...args) =>
+    execFileSync("git", args, { cwd, encoding: "utf8", stdio: "pipe" });
+  try {
+    mkdirSync(primary);
+    git(primary, "init", "-b", "main");
+    git(primary, "config", "user.name", "Cleanup fixture");
+    git(primary, "config", "user.email", "fixture@example.invalid");
+    writeFileSync(
+      join(primary, ".gitignore"),
+      "dev-tmp/\n.turbo/\nlocal-only.txt\n"
+    );
+    git(primary, "add", ".gitignore");
+    git(primary, "commit", "-m", "chore: create disposable fixture");
+    git(primary, "worktree", "add", "-b", "codex/parent", parent);
+    const roots = [
+      join(parent, "dev-tmp", "nested"),
+      join(listWorktreeDevData(parent)[0], "nested"),
+    ];
+    for (const [index, nested] of roots.entries()) {
+      git(primary, "worktree", "add", "-b", `codex/child-${index}`, nested);
+      writeFileSync(join(nested, "local-only.txt"), `retained ${index}`);
+    }
+    assert.equal(
+      git(parent, "status", "--porcelain", "--untracked-files=all").trim(),
+      ""
+    );
+    for (const args of [[], ["--remove-worktree"]]) {
+      const result = spawnSync(
+        process.execPath,
+        [
+          fileURLToPath(new URL("./dev-clean.mjs", import.meta.url)),
+          "--worktree",
+          parent,
+          ...args,
+        ],
+        { encoding: "utf8" }
+      );
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, NESTED_WORKTREE_ERROR);
+      for (const [index, nested] of roots.entries()) {
+        assert.equal(
+          readFileSync(join(nested, "local-only.txt"), "utf8"),
+          `retained ${index}`
+        );
+      }
+    }
+    assert.doesNotThrow(() =>
+      assertNoNestedWorktrees({
+        target: parent,
+        paths: listWorktreeDevData(parent),
+        worktrees: [
+          { path: parent },
+          { path: roots[0] },
+          { path: `${parent}-sibling` },
+        ],
+      })
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });
 

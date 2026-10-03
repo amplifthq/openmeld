@@ -1618,6 +1618,7 @@ export const openMeldDaemonRuntimeCoordinatorCreationDiagnostics = sqliteTable(
     legacyAttemptId: text("legacy_attempt_id"),
   },
   (table) => [
+    index("idx_openMeldDaemon_rce_diag_observed").on(table.observedAtMs),
     index("idx_openMeldDaemon_rce_diag_space_dispatch_target").on(
       table.spaceId,
       table.dispatchId,

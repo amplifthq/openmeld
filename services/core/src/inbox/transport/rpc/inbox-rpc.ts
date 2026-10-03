@@ -74,9 +74,16 @@ import type {
   UpdateInboxMessageNotificationPreferencesRpcInput,
   UpdateInboxNotificationPreferencesRpcInput,
 } from "@openmeld/schemas/types";
-import { type CoreBindings, inboxDb } from "../../../lib/bindings";
+import {
+  agentTaskCoordinationDb,
+  type CoreBindings,
+  identityDb,
+  inboxDb,
+  wakeEvidenceDb,
+} from "../../../lib/bindings";
 import { reconcileInvitationInbox } from "../../../organizations/invitation-inbox-projection";
 import { resolveActiveOrganizationMembership } from "../../../organizations/organization-context";
+import { reconcileTaskContinuationInbox } from "../../../remote-agent/application/native-delivery-inbox-reconciliation";
 import { createCoreRpcHttpError } from "../../../rpc/errors";
 import { createInboxFeedService } from "../../application/inbox-feed-service";
 import { createInboxMessageNotificationPreferencesService } from "../../application/inbox-message-notification-preferences";
@@ -568,6 +575,19 @@ async function prepareRequest(
       code: "inbox.store_unavailable",
       reason: "Inbox is temporarily unavailable.",
       status: 503,
+    });
+  }
+  const sourceDb = wakeEvidenceDb(env);
+  const identityOwnerDb = identityDb(env);
+  const coordinationDb = agentTaskCoordinationDb(env);
+  if (sourceDb && identityOwnerDb && coordinationDb) {
+    await reconcileTaskContinuationInbox({
+      inboxDb: db,
+      sourceDb,
+      identityDb: identityOwnerDb,
+      coordinationDb,
+      organizationId: membership.organizationId,
+      recipientUserId: membership.userId,
     });
   }
   return {
