@@ -1190,6 +1190,7 @@ export async function recordConnectorActionOperation(input: {
     if (response.status === "completed" || response.status === "failed") {
       throw new ConnectorActionTerminalReceipt({
         ...response,
+        executionAllowed: false,
         actionId: input.actionId,
       });
     }
