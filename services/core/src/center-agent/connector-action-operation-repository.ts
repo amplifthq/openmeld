@@ -571,6 +571,7 @@ function prepareFinalizeAuditStatement(input: {
           WHERE id = ?
             AND status IN ('pending', 'outcome_unknown')
             AND (? = 0 OR (status = 'outcome_unknown'
+              AND connection_updated_at_ms IS NOT NULL
               AND created_at_ms <= ? AND created_at_ms > ?))
         )
       `

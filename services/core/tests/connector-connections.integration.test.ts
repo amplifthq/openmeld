@@ -67,6 +67,87 @@ const CONNECTOR_CONNECTION_NAME_PATTERN =
   /^org_[A-Za-z0-9_-]{18}__user_[A-Za-z0-9_-]{18}__github$/u;
 
 describe("Local Agent plugin admission", () => {
+  it.each([
+    false,
+    true,
+  ])("refuses execution after a denied legacy receipt (reconnected: %s)", async (reconnected) => {
+    const fixture = await seedConnectorFixture();
+    const center = await seedDesignatedCenterAgent(fixture);
+    const connectionName = await seedSharedConnectorConnection(
+      fixture,
+      "posthog"
+    );
+    const member = await env.OPENMELD_DB.prepare(
+      "SELECT id FROM members WHERE organization_id = ? AND user_id = ?"
+    )
+      .bind(fixture.organizationA, fixture.ownerA)
+      .first<{ id: string }>();
+    if (!member) {
+      throw new Error("Missing requester member");
+    }
+    const body = {
+      actionId: "posthog.create_project",
+      connectionName,
+      context: center.context,
+      effect: "write" as const,
+      operationId: `legacy-${crypto.randomUUID()}`,
+      includeExecutionPermit: true as const,
+      includeRecoveryWindow: true as const,
+      outcome: "attempted" as const,
+      providerExecutionId: null,
+      requestSignature: "a".repeat(64),
+      service: "posthog" as const,
+      speakerMember: { memberId: member.id, userId: fixture.ownerA },
+    };
+    const core = connectorCoreEnv();
+    await rpcCenterAgentRecordConnectorActionOperation(core, body);
+    await rpcCenterAgentRecordConnectorActionOperation(core, {
+      ...body,
+      outcome: "outcome_unknown",
+    });
+    await env.OPENMELD_DB.prepare(
+      "UPDATE center_agent_connector_action_operations SET connection_updated_at_ms = NULL WHERE operation_id = ?"
+    )
+      .bind(body.operationId)
+      .run();
+    if (reconnected) {
+      await env.OPENMELD_DB.prepare(
+        "UPDATE connector_connections SET updated_at_ms = updated_at_ms + 1 WHERE connection_name = ?"
+      )
+        .bind(connectionName)
+        .run();
+    }
+    const receipt = await rpcCenterAgentReadConnectorActionOperation(
+      core,
+      body
+    );
+    expect(receipt.operation?.replay).toEqual({
+      allowed: false,
+      reason: "original_account_unverified",
+    });
+    for (const claim of await Promise.all([
+      rpcCenterAgentRecordConnectorActionOperation(core, body),
+      rpcCenterAgentRecordConnectorActionOperation(core, body),
+    ])) {
+      expect(claim).toMatchObject({
+        executionAllowed: false,
+        status: "outcome_unknown",
+        operationId: body.operationId,
+      });
+    }
+    expect(
+      (await rpcCenterAgentReadConnectorActionOperation(core, body)).operation
+        ?.replay
+    ).toEqual({ allowed: false, reason: "original_account_unverified" });
+    expect(
+      await env.OPENMELD_DB.prepare(
+        "SELECT audit.id FROM center_agent_audit_journal audit JOIN center_agent_connector_action_operations operation ON audit.id = operation.id || ':replay_attempted' WHERE operation.operation_id = ?"
+      )
+        .bind(body.operationId)
+        .first()
+    ).toBeNull();
+  });
+
   it("executes a recorded one-hop write and its verification through current Local admission", async () => {
     const fixture = await seedLocalPluginFixture("write", "write");
     const delegated = await seedLocalRecordedDelegation(fixture);

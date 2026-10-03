@@ -158,6 +158,7 @@ describe("durable connector execution admission", () => {
 
   it.each([
     "missing_permission",
+    "missing_account_version",
     "at_24h",
     "after_24h",
   ] as const)("does not consume provider work for %s", async (scenario) => {
@@ -168,21 +169,44 @@ describe("durable connector execution admission", () => {
         ...operation,
         outcome: "attempted",
       });
-      await recordCenterAgentConnectorActionOperation({
+      const unknown = await recordCenterAgentConnectorActionOperation({
         ...operation,
         outcome: "outcome_unknown",
       });
+      if (scenario === "missing_account_version") {
+        harness.run({
+          sql: "UPDATE center_agent_connector_action_operations SET connection_updated_at_ms = NULL",
+        });
+        expect(
+          await readConnectorActionReplayPermission({
+            db: harness.db,
+            operation: { ...unknown.operation, connectionUpdatedAtMs: null },
+            nowMs: operation.nowMs + 1,
+          })
+        ).toEqual({ allowed: false, reason: "original_account_unverified" });
+      }
       const result = await recordCenterAgentConnectorActionOperation({
         ...operation,
+        connectionUpdatedAtMs:
+          scenario === "missing_account_version"
+            ? null
+            : operation.connectionUpdatedAtMs,
         outcome: "attempted",
         allowReplay: scenario !== "missing_permission",
         nowMs:
           operation.nowMs +
-          (scenario === "missing_permission"
+          (scenario === "missing_permission" ||
+          scenario === "missing_account_version"
             ? 1
             : 86_400_000 + (scenario === "after_24h" ? 1 : 0)),
       });
       expect(result.executionAllowed).toBe(false);
+      expect(
+        await harness.db
+          .prepare("SELECT id FROM center_agent_audit_journal WHERE id = ?")
+          .bind(`${result.operation.id}:replay_attempted`)
+          .first()
+      ).toBeNull();
     } finally {
       harness.close();
     }
