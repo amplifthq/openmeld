@@ -2586,6 +2586,16 @@ Space action, or diagnostic semantics.
 
 ### Direct Message Conversion Contract
 
+The Center Agent private-chat open and session-creation contracts resolve an
+authorized conversation and initialize its metadata and membership when needed.
+They do not publish introductory messages. Setup, Organization entry, Routine
+destination preparation, and member research reuse that same message-free open
+contract. Existing HTTP and RPC response shapes remain unchanged; old Web,
+Gateway, CLI, and Service consumers can use the new Core behavior. No database
+migration, local-component contract bump, or client deployment order is required.
+Historical welcome signals remain readable through the ordinary Space history
+contract. New-chat guidance belongs to the shared client introduction surface.
+
 Personal Remote Agent `wake_progress` and `wake_stop` operations accept an
 optional `spaceId` in `personalRemoteAgentSpaceToolRequestSchema`. Omission
 preserves the admitted conversation; an explicit target is checked against
