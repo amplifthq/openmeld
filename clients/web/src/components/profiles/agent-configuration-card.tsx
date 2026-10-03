@@ -11,6 +11,7 @@ import {
 } from "@openmeld/ui/components/morphing-dialog";
 import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { surfaceClasses } from "@openmeld/ui/lib/surface-classes";
 import { SurfaceProvider, useSurface } from "@openmeld/ui/lib/surface-context";
 import { cn } from "@openmeld/ui/lib/utils";
@@ -226,9 +227,9 @@ export function AgentConfigurationCard(input: {
 								) : null}
 							</div>
 						</div>
-						<div className="max-h-[calc(100dvh-10rem)] overflow-y-auto">
+						<ScrollArea className="max-h-[calc(100dvh-10rem)]">
 							{input.children}
-						</div>
+						</ScrollArea>
 						<MorphingDialogClose />
 					</SurfaceProvider>
 				</MorphingDialogContent>
@@ -241,6 +242,7 @@ export function AgentConfigurationCard(input: {
 export function AgentConfigurationReadoutCard(input: {
 	itemId: string;
 	label: string;
+	headerAccessory?: ReactNode;
 	children: ReactNode;
 }) {
 	return (
@@ -249,9 +251,12 @@ export function AgentConfigurationReadoutCard(input: {
 				aria-label={input.label}
 				className="h-full min-h-28 min-w-0 rounded-md p-4"
 			>
-				<h3 className="font-medium text-muted-foreground text-xs">
-					{input.label}
-				</h3>
+				<div className="flex items-center justify-between gap-2">
+					<h3 className="font-medium text-muted-foreground text-xs">
+						{input.label}
+					</h3>
+					{input.headerAccessory}
+				</div>
 				<div className="mt-3 min-w-0">{input.children}</div>
 			</section>
 		</AgentConfigurationSurface>

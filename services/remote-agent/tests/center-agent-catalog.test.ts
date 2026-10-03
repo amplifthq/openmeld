@@ -13,6 +13,14 @@ import {
 } from "@openmeld/agent-runtime";
 import { modelCatalogSchema } from "@openmeld/schemas/schemas";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("../flue-adapter/ai-usage", () => ({
+  createFlueMeteredFetch:
+    (input: { fetch?: typeof fetch }) =>
+    (...args: Parameters<typeof fetch>) =>
+      (input.fetch ?? fetch)(...args),
+}));
+
 import catalogJson from "../../../release/vendor-models.json";
 import {
   registerRemoteAgentCloudflareProvider,

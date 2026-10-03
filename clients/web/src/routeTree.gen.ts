@@ -155,6 +155,7 @@ import { Route as OOrgSlugSettingsPrivacyRouteImport } from './routes/o/$orgSlug
 import { Route as OOrgSlugSettingsSecurityRouteImport } from './routes/o/$orgSlug/settings/security'
 import { Route as OOrgSlugSettingsServiceRouteImport } from './routes/o/$orgSlug/settings/service'
 import { Route as OOrgSlugSettingsUpdatesRouteImport } from './routes/o/$orgSlug/settings/updates'
+import { Route as OOrgSlugSettingsUsageRouteImport } from './routes/o/$orgSlug/settings/usage'
 import { Route as OOrgSlugSkillsIndexRouteImport } from './routes/o/$orgSlug/skills.index'
 import { Route as OOrgSlugSkillsSkillIdRouteImport } from './routes/o/$orgSlug/skills.$skillId'
 import { Route as OOrgSlugSpacesIndexRouteImport } from './routes/o/$orgSlug/spaces/index'
@@ -955,6 +956,11 @@ const OOrgSlugSettingsUpdatesRoute = OOrgSlugSettingsUpdatesRouteImport.update({
   path: '/updates',
   getParentRoute: () => OOrgSlugSettingsRoute,
 } as any)
+const OOrgSlugSettingsUsageRoute = OOrgSlugSettingsUsageRouteImport.update({
+  id: '/usage',
+  path: '/usage',
+  getParentRoute: () => OOrgSlugSettingsRoute,
+} as any)
 const OOrgSlugSkillsIndexRoute = OOrgSlugSkillsIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -1231,6 +1237,7 @@ export interface FileRoutesByFullPath {
   '/o/$orgSlug/settings/security': typeof OOrgSlugSettingsSecurityRoute
   '/o/$orgSlug/settings/service': typeof OOrgSlugSettingsServiceRoute
   '/o/$orgSlug/settings/updates': typeof OOrgSlugSettingsUpdatesRoute
+  '/o/$orgSlug/settings/usage': typeof OOrgSlugSettingsUsageRoute
   '/o/$orgSlug/skills/$skillId': typeof OOrgSlugSkillsSkillIdRoute
   '/o/$orgSlug/spaces/$spaceId': typeof OOrgSlugSpacesSpaceIdRoute
   '/v1/profiles/agents/$profileId': typeof V1ProfilesAgentsProfileIdRouteWithChildren
@@ -1392,6 +1399,7 @@ export interface FileRoutesByTo {
   '/o/$orgSlug/settings/security': typeof OOrgSlugSettingsSecurityRoute
   '/o/$orgSlug/settings/service': typeof OOrgSlugSettingsServiceRoute
   '/o/$orgSlug/settings/updates': typeof OOrgSlugSettingsUpdatesRoute
+  '/o/$orgSlug/settings/usage': typeof OOrgSlugSettingsUsageRoute
   '/o/$orgSlug/skills/$skillId': typeof OOrgSlugSkillsSkillIdRoute
   '/o/$orgSlug/spaces/$spaceId': typeof OOrgSlugSpacesSpaceIdRoute
   '/v1/profiles/agents/$profileId': typeof V1ProfilesAgentsProfileIdRouteWithChildren
@@ -1564,6 +1572,7 @@ export interface FileRoutesById {
   '/o/$orgSlug/settings/security': typeof OOrgSlugSettingsSecurityRoute
   '/o/$orgSlug/settings/service': typeof OOrgSlugSettingsServiceRoute
   '/o/$orgSlug/settings/updates': typeof OOrgSlugSettingsUpdatesRoute
+  '/o/$orgSlug/settings/usage': typeof OOrgSlugSettingsUsageRoute
   '/o/$orgSlug/skills/$skillId': typeof OOrgSlugSkillsSkillIdRoute
   '/o/$orgSlug/spaces/$spaceId': typeof OOrgSlugSpacesSpaceIdRoute
   '/v1/profiles/agents/$profileId': typeof V1ProfilesAgentsProfileIdRouteWithChildren
@@ -1737,6 +1746,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/settings/security'
     | '/o/$orgSlug/settings/service'
     | '/o/$orgSlug/settings/updates'
+    | '/o/$orgSlug/settings/usage'
     | '/o/$orgSlug/skills/$skillId'
     | '/o/$orgSlug/spaces/$spaceId'
     | '/v1/profiles/agents/$profileId'
@@ -1898,6 +1908,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/settings/security'
     | '/o/$orgSlug/settings/service'
     | '/o/$orgSlug/settings/updates'
+    | '/o/$orgSlug/settings/usage'
     | '/o/$orgSlug/skills/$skillId'
     | '/o/$orgSlug/spaces/$spaceId'
     | '/v1/profiles/agents/$profileId'
@@ -2069,6 +2080,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/settings/security'
     | '/o/$orgSlug/settings/service'
     | '/o/$orgSlug/settings/updates'
+    | '/o/$orgSlug/settings/usage'
     | '/o/$orgSlug/skills/$skillId'
     | '/o/$orgSlug/spaces/$spaceId'
     | '/v1/profiles/agents/$profileId'
@@ -3191,6 +3203,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OOrgSlugSettingsUpdatesRouteImport
       parentRoute: typeof OOrgSlugSettingsRoute
     }
+    '/o/$orgSlug/settings/usage': {
+      id: '/o/$orgSlug/settings/usage'
+      path: '/usage'
+      fullPath: '/o/$orgSlug/settings/usage'
+      preLoaderRoute: typeof OOrgSlugSettingsUsageRouteImport
+      parentRoute: typeof OOrgSlugSettingsRoute
+    }
     '/o/$orgSlug/skills/': {
       id: '/o/$orgSlug/skills/'
       path: '/'
@@ -3639,6 +3658,7 @@ interface OOrgSlugSettingsRouteChildren {
   OOrgSlugSettingsSecurityRoute: typeof OOrgSlugSettingsSecurityRoute
   OOrgSlugSettingsServiceRoute: typeof OOrgSlugSettingsServiceRoute
   OOrgSlugSettingsUpdatesRoute: typeof OOrgSlugSettingsUpdatesRoute
+  OOrgSlugSettingsUsageRoute: typeof OOrgSlugSettingsUsageRoute
   OOrgSlugSettingsIndexRoute: typeof OOrgSlugSettingsIndexRoute
 }
 
@@ -3656,6 +3676,7 @@ const OOrgSlugSettingsRouteChildren: OOrgSlugSettingsRouteChildren = {
   OOrgSlugSettingsSecurityRoute: OOrgSlugSettingsSecurityRoute,
   OOrgSlugSettingsServiceRoute: OOrgSlugSettingsServiceRoute,
   OOrgSlugSettingsUpdatesRoute: OOrgSlugSettingsUpdatesRoute,
+  OOrgSlugSettingsUsageRoute: OOrgSlugSettingsUsageRoute,
   OOrgSlugSettingsIndexRoute: OOrgSlugSettingsIndexRoute,
 }
 

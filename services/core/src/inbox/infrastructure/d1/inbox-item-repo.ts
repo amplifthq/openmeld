@@ -1,5 +1,6 @@
 import {
   inboxSourceCandidateSchema,
+  inboxSourceFactsSchema,
   inboxSourceTargetSchema,
 } from "@openmeld/schemas";
 import type {
@@ -381,6 +382,101 @@ export async function readInboxItemBySource(input: {
     )
     .first<InboxItemRow>();
   return row ? mapInboxItemRow(row) : null;
+}
+
+/** Read a bounded batch of reminders from the retired continuation producer. */
+export async function listLegacyTaskContinuationInboxItems(input: {
+  db: D1Database;
+  organizationId: string;
+  recipientUserId: string;
+}): Promise<{ sourceKey: string; occurredAtMs: number }[]> {
+  const rows = await input.db
+    .prepare(`SELECT source_key AS sourceKey,
+    occurred_at_ms AS occurredAtMs FROM inbox_items
+    WHERE organization_id = ? AND recipient_user_id = ?
+      AND source_kind = 'remote_agent_native_delivery'
+      AND source_key LIKE '%:admission_retry_exhausted'
+      AND kind = 'system_issue' AND attention = 'action_required'
+      AND importance = 'urgent' AND resolution_status = 'open'
+      AND resolved_at_ms IS NULL
+    ORDER BY id LIMIT 80`)
+    .bind(input.organizationId, input.recipientUserId)
+    .all<{ sourceKey: string; occurredAtMs: number }>();
+  return rows.results;
+}
+
+export async function repairLegacyTaskContinuationInboxItem(input: {
+  candidate: InboxSourceCandidate;
+  db: D1Database;
+  legacySourceTarget: InboxSourceTarget;
+  nowMs: number;
+}): Promise<void> {
+  const candidate = inboxSourceCandidateSchema.parse(input.candidate);
+  if (
+    candidate.sourceKind !== "remote_agent_native_delivery" ||
+    !candidate.sourceKey.endsWith(":admission_retry_exhausted") ||
+    candidate.kind !== "system_issue" ||
+    candidate.attention !== "update" ||
+    candidate.importance !== "normal" ||
+    candidate.sourceTarget.kind !== "space"
+  ) {
+    throw new TypeError("Invalid task continuation Inbox repair");
+  }
+  const legacyTarget = inboxSourceTargetSchema.parse(input.legacySourceTarget);
+  if (
+    legacyTarget.kind !== "space" ||
+    legacyTarget.spaceId !== candidate.sourceTarget.spaceId ||
+    legacyTarget.threadRootSignalId !==
+      candidate.sourceTarget.threadRootSignalId
+  ) {
+    throw new TypeError("Task continuation Inbox repair changed its audience");
+  }
+  const guard = `organization_id = ? AND recipient_user_id = ?
+    AND source_kind = 'remote_agent_native_delivery' AND source_key = ?
+    AND kind = 'system_issue' AND attention = 'action_required' AND importance = 'urgent'
+    AND resolution_status = 'open' AND resolved_at_ms IS NULL
+    AND source_target_json = ? AND source_facts_json = ? AND occurred_at_ms = ?`;
+  const bindings = [
+    candidate.organizationId,
+    candidate.recipientUserId,
+    candidate.sourceKey,
+    JSON.stringify(legacyTarget),
+    // Match the schema-serialized facts written by the original producer.
+    JSON.stringify(
+      inboxSourceFactsSchema.parse({
+        recipientReasons: ["requester"],
+        requestCategory: "action",
+        version: 1,
+      })
+    ),
+    candidate.occurredAtMs,
+  ];
+  // Preserve identity, read, removal and the failed task's source truth. This
+  // retired action request becomes informational, never a resolved task.
+  // Suppress unsent
+  // urgent email in the same transaction before downgrading the projection.
+  await input.db.batch([
+    input.db
+      .prepare(`UPDATE inbox_email_deliveries SET state = 'suppressed',
+      suppressed_reason = 'item_not_urgent', suppressed_at_ms = ?,
+      updated_at_ms = max(updated_at_ms, ?), claim_id = NULL, claim_expires_at_ms = NULL
+      WHERE state = 'pending' AND inbox_item_id IN (SELECT id FROM inbox_items WHERE ${guard})`)
+      .bind(input.nowMs, input.nowMs, ...bindings),
+    input.db
+      .prepare(`UPDATE inbox_items SET attention = 'update', importance = 'normal',
+      resolution_status = 'not_applicable',
+      source_target_json = ?, source_facts_json = ?, title = ?, preview = ?,
+      updated_at_ms = max(updated_at_ms, ?)
+      WHERE ${guard}`)
+      .bind(
+        JSON.stringify(candidate.sourceTarget),
+        JSON.stringify(candidate.sourceFacts),
+        candidate.title,
+        candidate.preview ?? null,
+        input.nowMs,
+        ...bindings
+      ),
+  ]);
 }
 
 export async function replaceInboxSourceTargetsIfCurrent(input: {

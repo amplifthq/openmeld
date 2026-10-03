@@ -32,6 +32,8 @@ import {
   markSpaceInboxReadThroughResponseSchema,
   mutateInboxFeedBodySchema,
   mutateInboxFeedResponseSchema,
+  mutateSpaceInboxReadBodySchema,
+  mutateSpaceInboxReadResponseSchema,
   spaceInboxSummaryResponseSchema,
   spaceInboxUnreadTargetsResponseSchema,
   spaceInboxUnreadTargetsRouteParamsSchema,
@@ -62,6 +64,23 @@ import type { CreateInboxApi, InboxRequestInput } from "./types";
 export const createInboxApi: CreateInboxApi = (
   client: OpenMeldApiClientFoundation
 ) => ({
+  mutateSpaceRead: async (input) =>
+    client.requestJson({
+      ...requestOptions(input),
+      method: "POST",
+      operation: "inbox.space.read",
+      body: JSON.stringify(
+        requireValidInput(
+          mutateSpaceInboxReadBodySchema,
+          input.body,
+          "Space read request is invalid."
+        )
+      ),
+      headers: { "content-type": "application/json" },
+      schema: mutateSpaceInboxReadResponseSchema,
+      invalidMessage: "Invalid Space read response",
+      url: "/v1/inbox/spaces/read",
+    }),
   observeNotifications: async (input = {}) => {
     const query = requireValidInput(
       inboxNotificationObservationsQuerySchema,
@@ -329,7 +348,9 @@ export const createInboxApi: CreateInboxApi = (
       method: "GET",
       operation: "inbox.space.unread_targets",
       schema: spaceInboxUnreadTargetsResponseSchema,
-      url: buildSpaceInboxUnreadTargetsPath(params.spaceId),
+      url:
+        buildSpaceInboxUnreadTargetsPath(params.spaceId) +
+        (input.includeItemIds ? "?includeItemIds=true" : ""),
     });
   },
   markSpaceReadThrough: async (input) => {

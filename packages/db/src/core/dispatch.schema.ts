@@ -38,6 +38,10 @@ import {
   centerAgentWakePublications,
 } from "./agent-task-coordination.schema.ts";
 import {
+  aiUsageRecords,
+  organizationAiUsagePolicies,
+} from "./ai-usage.schema.ts";
+import {
   centerAgentAttentionRequests,
   centerAgentAuditJournal,
   centerAgentConnectorActionOperations,
@@ -488,6 +492,7 @@ export const openMeldRemoteAgentNativeDeliveryLedger = sqliteTable(
     completedAtMs: integer("completed_at_ms"),
     deadlineProbeEnqueuedAtMs: integer("deadline_probe_enqueued_at_ms"),
     acceptedProbeNextDueAtMs: integer("accepted_probe_next_due_at_ms"),
+    executionReconciliationJson: text("execution_reconciliation_json"),
     retiredDeadlineFailureCode: text("retired_deadline_failure_code"),
     retiredDeadlineFailurePublishedSignalId: text(
       "retired_deadline_failure_published_signal_id"
@@ -1613,6 +1618,7 @@ export const openMeldDaemonRuntimeCoordinatorCreationDiagnostics = sqliteTable(
     legacyAttemptId: text("legacy_attempt_id"),
   },
   (table) => [
+    index("idx_openMeldDaemon_rce_diag_observed").on(table.observedAtMs),
     index("idx_openMeldDaemon_rce_diag_space_dispatch_target").on(
       table.spaceId,
       table.dispatchId,
@@ -1673,6 +1679,8 @@ export const agentActivityExecutionLinks = sqliteTable(
 );
 
 export const coreSchema = {
+  aiUsageRecords,
+  organizationAiUsagePolicies,
   spaceInvitations,
   organizationJoinRequests,
   inboxCenterAgentReadWatermarks,

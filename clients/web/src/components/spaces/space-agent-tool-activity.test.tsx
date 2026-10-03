@@ -52,7 +52,6 @@ describe("SpaceAgentToolActivity", () => {
 				.closest('[data-slot="thinking-steps-content"]')
 				?.classList.contains("px-1")
 		).toBe(false);
-		expect(viewport.className).toContain("max-h-[min(12rem,30dvh)]");
 		expect(within(viewport).getByText("Checked available Spaces")).toBeTruthy();
 		expect(within(viewport).getByText("Searching GitHub issues…")).toBeTruthy();
 		expect(screen.queryByText("OpenMeld task complete")).toBeNull();
@@ -226,7 +225,12 @@ describe("SpaceAgentToolActivity", () => {
 				}}
 			/>
 		);
-		const viewport = screen.getByRole("list", { name: "Work steps" });
+		const viewport = screen
+			.getByRole("list", { name: "Work steps" })
+			.closest<HTMLDivElement>('[data-slot="scroll-area-viewport"]');
+		if (!viewport) {
+			throw new Error("Work steps must have a scroll viewport");
+		}
 		Object.defineProperty(viewport, "clientHeight", {
 			configurable: true,
 			value: 100,

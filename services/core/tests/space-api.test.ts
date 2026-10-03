@@ -34,10 +34,15 @@ import {
   createDispatchContinuationSpaceAccessContext,
 } from "@openmeld/space";
 import { describe, expect, it, vi } from "vitest";
+import {
+  recordAgentTaskTerminalOutcome,
+  registerAgentTaskCompletionSubscription,
+} from "../src/agent-task-coordination/infrastructure/d1/agent-task-coordination-repo";
 import { writeDispatchResult } from "../src/dispatch/application/dispatch-result-service";
 import type { CoreBindings } from "../src/lib/bindings";
 import {
   markRemoteAgentNativeDeliveryAck,
+  markRemoteAgentNativeDeliveryCompleted,
   markRemoteAgentPreAdmissionFailurePublished,
   readRemoteAgentNativeDeliveryBySubmissionId,
   upsertRemoteAgentNativeDeliveryRecord,
@@ -51,9 +56,12 @@ import {
   rpcGetSpaceBoard,
   rpcGetSpaceEntryResolution,
   rpcGetSpaceStatus,
+  rpcGetSpaceWakeProgress,
   rpcListCenterAgentSessions,
   rpcOpenCenterAgentDirectMessageSpace,
+  rpcOpenDirectMessageSpace,
   rpcPostSignal,
+  rpcPostSpaceWakeStop,
   rpcPostStatusSignal,
   rpcPostSystemNoticeSignal,
 } from "../src/rpc/methods";
@@ -1110,6 +1118,34 @@ async function openPendingSpaceSocket(
 }
 
 describe("OpenMeld Core", () => {
+  it("authorizes manual summary recovery only for a current matching human member", async () => {
+    const spaceId = await createSpace({
+      name: "summary-recovery-access",
+      accessMode: "members_only",
+    });
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const stub = namespace.get(namespace.idFromString(spaceId));
+    const input = {
+      spaceId,
+      profileId: DEFAULT_HUMAN_PROFILE_ID,
+      ownerUserId: DEFAULT_TEST_AUTH_PROFILE.ownerUserId as string,
+    };
+    await expect(
+      stub.rpcCheckTaskSummaryRecoveryAccess(input)
+    ).resolves.toEqual({ allowed: true });
+    await expect(
+      stub.rpcCheckTaskSummaryRecoveryAccess({
+        ...input,
+        ownerUserId: "another-owner",
+      })
+    ).resolves.toEqual({ allowed: false });
+    await expect(
+      stub.rpcCheckTaskSummaryRecoveryAccess({
+        ...input,
+        profileId: SECOND_HUMAN_PROFILE_ID,
+      })
+    ).resolves.toEqual({ allowed: false });
+  });
   it("creates a new space", async () => {
     const spaceId = await createSpace({ accessMode: undefined });
 
@@ -1534,10 +1570,14 @@ describe("OpenMeld Core", () => {
     const dispatchId = `dispatch-stop-confirmed-${randomUUID()}`;
     const attemptId = `attempt-stop-confirmed-${randomUUID()}`;
     const submissionId = `submission-stop-confirmed-${randomUUID()}`;
-    const nativeDeliverySpaceId = "b".repeat(64);
+    const nativeDeliverySpaceId = await createSpace({
+      name: `confirmed-stop-${Date.now()}`,
+    });
+    const source = await postTextSignal(
+      nativeDeliverySpaceId,
+      "Check existing results."
+    );
     const targetProfileId = "agt_11111111-1111-4111-8111-111111111111";
-    const outboxSqlExec = vi.fn(() => ({ toArray: () => [] }));
-    const closeAgentStream = vi.fn(async () => null);
     const cancelExecution = vi.fn(async () => ({
       execution: {
         acceptedAtMs: 1100,
@@ -1554,14 +1594,6 @@ describe("OpenMeld Core", () => {
       },
       status: "already_cancelled" as const,
     }));
-    const bindings = {
-      OPENMELD_DB: env.OPENMELD_DB,
-      OPENMELD_REMOTE_AGENT_WORKER: { cancelExecution },
-      OPENMELD_SPACES: {
-        get: () => ({ rpcCloseAgentStream: closeAgentStream }),
-        idFromString: (spaceId: string) => spaceId,
-      },
-    } as unknown as CoreBindings;
     await env.OPENMELD_DB.prepare(
       `
         INSERT INTO openMeldDaemon_dispatch_ledger (
@@ -1584,7 +1616,7 @@ describe("OpenMeld Core", () => {
         idempotencyKey,
         dispatchId,
         nativeDeliverySpaceId,
-        "signal-stop-confirmed",
+        source.id,
         "client-stop-confirmed",
         targetProfileId,
         "dispatching",
@@ -1633,7 +1665,7 @@ describe("OpenMeld Core", () => {
       profileId: targetProfileId,
       spaceId: nativeDeliverySpaceId,
       status: "submitted",
-      triggerMessageId: `signal-stop-confirmed-${randomUUID()}`,
+      triggerMessageId: source.id,
     });
     await markRemoteAgentNativeDeliveryAck({
       accepted: true,
@@ -1643,55 +1675,81 @@ describe("OpenMeld Core", () => {
       submissionId,
       workerRequestId: `request-stop-confirmed-${randomUUID()}`,
     });
-    const space = Object.create(Space.prototype) as unknown as {
-      bindings: CoreBindings;
-      ctx: {
-        storage: {
-          sql: {
-            exec: typeof outboxSqlExec;
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const stub = namespace.get(namespace.idFromString(nativeDeliverySpaceId));
+    await runInDurableObject(stub, async (instance, state) => {
+      const space = instance as unknown as {
+        bindings: CoreBindings;
+        requestRemoteAgentNativeDeliveryStop(input: {
+          body: {
+            reason: string;
+            target: {
+              by: "source_signal";
+              sourceSignalId: string;
+              targetProfileId: string;
+            };
           };
-        };
+          lookupMatch: { dispatchId: string; targetProfileId: string };
+        }): Promise<unknown>;
       };
-      requestRemoteAgentNativeDeliveryStop(input: {
-        body: {
-          reason?: string;
-          target: {
-            by: "source_signal";
-            sourceSignalId: string;
-            targetProfileId: string;
-          };
-        };
-        lookupMatch: {
-          dispatchId: string;
-          targetProfileId: string;
-        };
-      }): Promise<unknown>;
-      spaceId: string;
-    };
-    space.bindings = bindings;
-    space.ctx = { storage: { sql: { exec: outboxSqlExec } } };
-    space.spaceId = nativeDeliverySpaceId;
-
-    await expect(
-      space.requestRemoteAgentNativeDeliveryStop({
-        body: {
-          reason: "User stopped this Wake.",
-          target: {
-            by: "source_signal",
-            sourceSignalId: "signal-stop-confirmed",
-            targetProfileId,
+      const originalBindings = space.bindings;
+      space.bindings = {
+        ...originalBindings,
+        OPENMELD_REMOTE_AGENT_WORKER: { cancelExecution },
+      } as CoreBindings;
+      try {
+        await expect(
+          space.requestRemoteAgentNativeDeliveryStop({
+            body: {
+              reason: "User stopped this Wake.",
+              target: {
+                by: "source_signal",
+                sourceSignalId: source.id,
+                targetProfileId,
+              },
+            },
+            lookupMatch: { dispatchId, targetProfileId },
+          })
+        ).resolves.toMatchObject({
+          cancellationState: {
+            reasonCode: "remote_agent.execution_cancelled",
+            status: "cancelled",
           },
-        },
-        lookupMatch: { dispatchId, targetProfileId },
-      })
-    ).resolves.toMatchObject({
-      cancellationState: {
-        reasonCode: "remote_agent.already_cancelled",
-        status: "cancelled",
-      },
-      ok: true,
-      status: "already_cancelled",
-      stopMode: "remote_agent_native_delivery",
+          ok: true,
+          status: "cancelled",
+          stopMode: "remote_agent_native_delivery",
+        });
+        expect(
+          state.storage.sql
+            .exec<{ status: string }>(
+              "SELECT status FROM openMeldDaemon_outbox WHERE dispatch_id = ?",
+              dispatchId
+            )
+            .toArray()
+        ).toEqual([{ status: "cancelled" }]);
+        await expect(
+          space.requestRemoteAgentNativeDeliveryStop({
+            body: {
+              reason: "User stopped this Wake.",
+              target: {
+                by: "source_signal",
+                sourceSignalId: source.id,
+                targetProfileId,
+              },
+            },
+            lookupMatch: { dispatchId, targetProfileId },
+          })
+        ).resolves.toMatchObject({
+          cancellationState: {
+            reasonCode: "remote_agent.already_cancelled",
+            status: "cancelled",
+          },
+          status: "already_cancelled",
+        });
+        expect(cancelExecution).toHaveBeenCalledOnce();
+      } finally {
+        space.bindings = originalBindings;
+      }
     });
 
     await expect(
@@ -1702,15 +1760,6 @@ describe("OpenMeld Core", () => {
     ).resolves.toMatchObject({
       failureCode: "runtime_coordinator.pre_agent_stop_requested",
       status: "failed",
-    });
-    expect(closeAgentStream).toHaveBeenCalledWith({
-      spaceId: nativeDeliverySpaceId,
-      streamId: `stream:${submissionId}`,
-      terminal: {
-        kind: "stopped",
-        noticeText: "The Agent stopped this reply.",
-        reasonCode: "runtime_coordinator.pre_agent_stop_requested",
-      },
     });
     await expect(
       env.OPENMELD_DB.prepare(
@@ -1732,13 +1781,6 @@ describe("OpenMeld Core", () => {
       attempt_status: "superseded",
       status: "cancelled",
     });
-    expect(outboxSqlExec).toHaveBeenCalledWith(
-      expect.stringContaining("UPDATE openMeldDaemon_outbox"),
-      "cancelled",
-      dispatchId,
-      "pending",
-      "queued"
-    );
   });
 
   it("returns websocket error frames with clientMessageId when text payload validation fails", async () => {
@@ -2522,6 +2564,198 @@ describe("OpenMeld Core", () => {
     const status = await stub.rpcGetStatus({ context, spaceId });
     expect(status).toMatchObject({ members: { totalCount: 1 } });
     expect(status.directMessageConvertedAt).toBeUndefined();
+  });
+
+  it("keeps two-Agent DMs private, retries one message, and admits both owners through explicit conversion", async () => {
+    const organizationId = "org-two-agent-dm";
+    const firstAgent = "agt_59595959-5959-4595-8595-595959595959";
+    const secondAgent = "agt_60606060-6060-4060-8060-606060606060";
+    const pairKey = [firstAgent, secondAgent].sort().join(":");
+    const agents = [
+      {
+        profileId: firstAgent,
+        profileKind: "agent" as const,
+        profileName: "Writer",
+        ownerUserId: "dm-writer-owner",
+        ownerName: "Writer Owner",
+        agentControllerRef: "builtin:codex",
+      },
+      {
+        profileId: secondAgent,
+        profileKind: "agent" as const,
+        profileName: "Reviewer",
+        ownerUserId: "dm-reviewer-owner",
+        ownerName: "Reviewer Owner",
+        agentControllerRef: "builtin:codex",
+      },
+    ];
+    for (const agent of agents) {
+      await ensureTestOrganizationMembership({
+        organizationId,
+        userId: agent.ownerUserId,
+      });
+      await insertTestOrganizationAgentProfile({
+        organizationId,
+        agentProfileId: agent.profileId,
+        ownerUserId: agent.ownerUserId,
+      });
+    }
+    const context = createRpcContext({
+      activeOrganizationId: organizationId,
+      ownerUserId: "dm-writer-owner",
+      profileId: firstAgent,
+      profileKind: "agent",
+      profileName: "Writer",
+      requestId: "dm-writer",
+    });
+    const ownerContext = createRpcContext({
+      activeOrganizationId: organizationId,
+      ownerUserId: "dm-reviewer-owner",
+      profileId: THIRD_HUMAN_PROFILE_ID,
+      profileKind: "human",
+      profileName: "Reviewer Owner",
+      requestId: "dm-reader",
+    });
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const opened = await rpcOpenDirectMessageSpace(env as CoreBindings, {
+      context,
+      targetProfileId: secondAgent,
+      message: {
+        clientMessageId: "00000000-0000-4000-8000-000000000077",
+        text: "The review is ready.",
+        wake: false,
+      },
+    });
+    const spaceId = opened.spaceId;
+    const stub = namespace.get(namespace.idFromString(spaceId));
+    const message = {
+      spaceId,
+      organizationId,
+      pairKey,
+      context,
+      authoringPolicy: "user_authored" as const,
+      profile: {
+        kind: "agent" as const,
+        profileId: firstAgent,
+        profileName: "Writer",
+      },
+      clientMessageId: "00000000-0000-4000-8000-000000000077",
+      meta: { clientMessageId: "00000000-0000-4000-8000-000000000077" },
+      text: "The review is ready.",
+      messageEnvelope: {
+        text: "The review is ready.",
+        activationTargets: [],
+        referenceTargets: [secondAgent],
+      },
+    };
+    expect(opened.signal?.profile.profileId).toBe(firstAgent);
+    expect((await stub.rpcPostDirectMessageSignal(message)).id).toBe(
+      opened.signal?.id
+    );
+    const conflict = await stub
+      .rpcPostDirectMessageSignal({ ...message, text: "Different work" })
+      .then(
+        () => null,
+        (error: Error) => error.message
+      );
+    expect(conflict).toContain("direct_message.message_conflict");
+    await expect(
+      stub.rpcGetStatus({ context: ownerContext, spaceId })
+    ).resolves.toMatchObject({ members: { totalCount: 2 } });
+    const readOnlyError = await stub
+      .rpcPostSignal({
+        ...message,
+        context: ownerContext,
+        profile: {
+          kind: "human",
+          profileId: THIRD_HUMAN_PROFILE_ID,
+          profileName: "Reviewer Owner",
+        },
+      })
+      .then(
+        () => null,
+        (error: Error) => error.message
+      );
+    expect(readOnlyError).toContain("space.access.read_only");
+    const clientMessageId = "00000000-0000-4000-8000-000000000078";
+    await expect(
+      rpcPostSpaceWakeStop(env as CoreBindings, {
+        context,
+        spaceId,
+        body: {
+          target: {
+            by: "client_message",
+            clientMessageId,
+            targetProfileId: secondAgent,
+          },
+        },
+      })
+    ).resolves.toMatchObject({ status: "cancelled" });
+    const pinnedRequest = {
+      context,
+      spaceId,
+      targetProfileId: secondAgent,
+      message: { clientMessageId, text: "Please review this.", wake: true },
+    };
+    const stoppedSend = await rpcOpenDirectMessageSpace(
+      env as CoreBindings,
+      pinnedRequest
+    );
+    expect(stoppedSend.spaceId).toBe(spaceId);
+    expect(stoppedSend.signal?.profile.profileId).toBe(firstAgent);
+    await expect(
+      rpcGetSpaceWakeProgress(env as CoreBindings, {
+        context,
+        spaceId,
+        clientMessageId,
+      })
+    ).resolves.toMatchObject({
+      items: [{ targetProfileId: secondAgent, phase: "stopped" }],
+    });
+    const wrongOrganization = await stub
+      .rpcPostDirectMessageSignal({
+        ...message,
+        organizationId: "another-org",
+      })
+      .then(
+        () => null,
+        (error: Error) => error.message
+      );
+    expect(wrongOrganization).toContain("direct_message.conversation_changed");
+    const converted = await stub.rpcConvertDirectMessageToSpace({
+      context: ownerContext,
+      spaceId,
+      name: "Review team",
+      members: [
+        {
+          profileId: SECOND_HUMAN_PROFILE_ID,
+          profileKind: "human",
+          profileName: "Writer Owner",
+          ownerUserId: "dm-writer-owner",
+          ownerName: "Writer Owner",
+          agentControllerRef: null,
+        },
+        {
+          profileId: THIRD_HUMAN_PROFILE_ID,
+          profileKind: "human",
+          profileName: "Reviewer Owner",
+          ownerUserId: "dm-reviewer-owner",
+          ownerName: "Reviewer Owner",
+          agentControllerRef: null,
+        },
+      ],
+    });
+    expect(converted.addedMemberIds.sort()).toEqual(
+      [SECOND_HUMAN_PROFILE_ID, THIRD_HUMAN_PROFILE_ID].sort()
+    );
+    const convertedError = await stub.rpcPostDirectMessageSignal(message).then(
+      () => null,
+      (error: Error) => error.message
+    );
+    expect(convertedError).toContain("direct_message.conversion_required");
+    await expect(
+      rpcOpenDirectMessageSpace(env as CoreBindings, pinnedRequest)
+    ).rejects.toThrow("direct_message.conversion_required");
   });
 
   it("keeps an Agent owner read-only until they explicitly join and convert the Direct Message", async () => {
@@ -7229,6 +7463,68 @@ describe("OpenMeld Core", () => {
     viewer.close(1000, "done");
   });
 
+  it("emits one stopped terminal when Stop forwarding races with ACK cleanup", async () => {
+    const spaceId = await createSpace({ name: `stop-cleanup-${Date.now()}` });
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const stub = namespace.get(
+      namespace.idFromString(spaceId)
+    ) as unknown as Pick<
+      Space,
+      "rpcApplyAgentStreamDelta" | "rpcCloseAgentStream"
+    >;
+    const streamId = "stream:stop-cleanup";
+    const delta = {
+      v: 1 as const,
+      spaceId,
+      streamId,
+      sequence: 1,
+      profileId: "agt_55555555-5555-4555-8555-555555555555",
+      triggerMessageId: "signal-stop-cleanup",
+      dispatchId: "dispatch-stop-cleanup",
+      textSnapshot: "Checking existing results.",
+    };
+    await expect(stub.rpcApplyAgentStreamDelta(delta)).resolves.toMatchObject({
+      status: "accepted",
+    });
+    const stop = {
+      spaceId,
+      streamId,
+      terminal: {
+        kind: "stopped" as const,
+        reasonCode: "remote_agent.execution_cancelled",
+        noticeText: "Stopped.",
+      },
+    };
+    const results = await Promise.all([
+      stub.rpcCloseAgentStream(stop),
+      stub.rpcCloseAgentStream(stop),
+    ]);
+    expect(results.filter((frame) => frame !== null)).toEqual([
+      expect.objectContaining({
+        type: "space.agent_stream_terminal",
+        streamId,
+        sequence: 1,
+        terminal: {
+          kind: "stopped",
+          reasonCode: "remote_agent.execution_cancelled",
+          noticeText: "Stopped.",
+        },
+      }),
+    ]);
+    expect(results.filter((frame) => frame === null)).toHaveLength(1);
+    await expect(stub.rpcCloseAgentStream(stop)).resolves.toBeNull();
+    await expect(
+      stub.rpcApplyAgentStreamDelta({
+        ...delta,
+        sequence: 2,
+        textSnapshot: "Late progress must not reopen stopped work.",
+      })
+    ).resolves.toMatchObject({
+      status: "rejected",
+      reasonCode: "agent_stream.terminal",
+    });
+  });
+
   it("broadcasts Agent stream snapshots and restores them through bootstrap and WebSocket replay", async () => {
     const spaceId = await createSpace({ name: `agent-stream-${Date.now()}` });
     const viewer = await openSpaceSocket(spaceId, {
@@ -9933,20 +10229,21 @@ describe("OpenMeld Core", () => {
       }),
       spaceId,
     });
-    const failedFolderRequestId = "rpc-space-file-audit-folder-failed";
+    const failedRenameRequestId = "rpc-space-file-audit-rename-failed";
     await runInDurableObject(stub, async (instance) => {
       await expect(
-        instance.rpcCreateSpaceFolder({
+        instance.rpcUpdateSpaceFileEntry({
           body: {
             clientMutationId: randomUUID(),
             name: "Private Audit Folder",
           },
+          entryId: fileId,
           spaceAccess: createAuthenticatedSpaceAccessContext({
             requestContext: {
               ...context,
               actorContext: {
                 ...context.actorContext,
-                requestId: failedFolderRequestId,
+                requestId: failedRenameRequestId,
               },
             },
             spaceId,
@@ -10060,8 +10357,8 @@ describe("OpenMeld Core", () => {
         }),
         expect.objectContaining({
           error_code: "space_file.name_conflict",
-          operation: "folder_create",
-          request_id: failedFolderRequestId,
+          operation: "entry_update",
+          request_id: failedRenameRequestId,
           result: "failed",
         }),
         expect.objectContaining({
@@ -12560,6 +12857,171 @@ describe("OpenMeld Core", () => {
       await env.OPENMELD_DB.prepare(
         "ALTER TABLE openMeldDaemon_dispatch_results_offline RENAME TO openMeldDaemon_dispatch_results"
       ).run();
+    }
+  });
+
+  it.each([
+    "same Space",
+    "another Space",
+    "another Space with parent thread",
+  ])("keeps continuation progress on the parent request when its child finishes in %s", async (childLocation) => {
+    const parentSpaceId = await createSpace({ name: "synthetic-parent" });
+    const childSpaceId =
+      childLocation === "same Space"
+        ? parentSpaceId
+        : await createSpace({ name: "synthetic-child" });
+    let parentRequest = await postTextSignal(
+      parentSpaceId,
+      "Summarize the child task"
+    );
+    let threadId: string | null = null;
+    if (childLocation === "another Space with parent thread") {
+      const threadResponse = await fetchWithOpenMeldAuth(
+        `${BASE_URL}/v1/spaces/${parentSpaceId}/threads`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            clientMutationId: randomUUID(),
+            rootSignalId: parentRequest.id,
+          }),
+        }
+      );
+      expect(threadResponse.status).toBe(200);
+      const thread = (await threadResponse.json()) as {
+        thread: { threadId: string };
+      };
+      threadId = thread.thread.threadId;
+      const requestResponse = await fetchWithOpenMeldAuth(
+        `${BASE_URL}/v1/spaces/${parentSpaceId}/threads/${threadId}/signals`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            clientMessageId: randomUUID(),
+            text: "Summarize the child task in this thread",
+          }),
+        }
+      );
+      expect(requestResponse.status).toBe(200);
+      const payload = (await requestResponse.json()) as {
+        signal: SignalEnvelope;
+      };
+      if (!isTextSignalEnvelope(payload.signal)) {
+        throw new Error("Expected a thread request");
+      }
+      parentRequest = payload.signal;
+    }
+    const childResult = await postTextSignal(
+      childSpaceId,
+      "Child task complete"
+    );
+    const childAnchor = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${parentSpaceId}/signals?aroundSignalId=${childResult.id}&beforeCount=0&afterCount=0`
+    );
+    expect(childAnchor.status).toBe(childLocation === "same Space" ? 200 : 404);
+    const targetProfileId = "agt_00000000-0000-4000-8000-000000000001";
+    const nowMs = Date.now();
+    const watchedTask = {
+      v: 1 as const,
+      kind: "space_wake" as const,
+      spaceId: childSpaceId,
+      sourceClientMessageId: `child-${childResult.id}`,
+      targetProfileId,
+    };
+    const subscription = await registerAgentTaskCompletionSubscription({
+      db: env.OPENMELD_DB,
+      nowMs,
+      completionCondition: "terminal",
+      continuation: {
+        kind: "resume_agent",
+        delegationId: `delegation-${parentRequest.id}`,
+        instruction: "Summarize the child result",
+      },
+      observerTask: {
+        v: 1,
+        kind: "native_delivery",
+        deliveryId: `observer-${parentRequest.id}`,
+      },
+      watchedTask,
+      organizationId: DEFAULT_TEST_ORGANIZATION_ID,
+      idempotencyKey: `subscription-${parentRequest.id}`,
+      subscriptionId: `subscription-${parentRequest.id}`,
+    });
+    await recordAgentTaskTerminalOutcome({
+      db: env.OPENMELD_DB,
+      nowMs,
+      task: watchedTask,
+      outcome: {
+        status: "succeeded",
+        errorCode: null,
+        eventId: `done-${childResult.id}`,
+        occurredAtMs: nowMs,
+        publishedSignalId: childResult.id,
+      },
+    });
+    const dispatchId = subscription.continuationIdempotencyKey;
+    if (!dispatchId) {
+      throw new Error("Expected a continuation dispatch identity");
+    }
+    await upsertRemoteAgentNativeDeliveryRecord({
+      db: env.OPENMELD_DB,
+      nowMs,
+      organizationId: DEFAULT_TEST_ORGANIZATION_ID,
+      conversationKind: "space",
+      spaceId: parentSpaceId,
+      profileId: targetProfileId,
+      bindingId: "synthetic-binding",
+      triggerMessageId: parentRequest.id,
+      sourceClientMessageId: null,
+      dispatchId,
+      attemptId: null,
+      idempotencyKey: dispatchId,
+      status: "submitted",
+      onBehalfOfProfileId: DEFAULT_HUMAN_PROFILE_ID,
+    });
+    await markRemoteAgentNativeDeliveryAck({
+      db: env.OPENMELD_DB,
+      nowMs,
+      idempotencyKey: dispatchId,
+      submissionId: `submission-${parentRequest.id}`,
+      accepted: true,
+    });
+    for (const includeWakeStopEligibility of [false, true]) {
+      const response = await fetchWithOpenMeldAuth(
+        `${BASE_URL}/v1/spaces/${parentSpaceId}/active-wake-progress?includeSourceContext=true&includeTiming=true&includeWakeStopEligibility=${includeWakeStopEligibility}`
+      );
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as {
+        items: Array<{
+          dispatchId: string;
+          sourceSignalId: string;
+          sourceContext: unknown;
+        }>;
+      };
+      const item = body.items.find((item) => item.dispatchId === dispatchId);
+      expect.soft(item?.sourceSignalId).toBe(parentRequest.id);
+      expect
+        .soft(item?.sourceContext)
+        .toMatchObject({ threadId, profileId: DEFAULT_HUMAN_PROFILE_ID });
+    }
+    await markRemoteAgentNativeDeliveryCompleted({
+      db: env.OPENMELD_DB,
+      nowMs: nowMs + 1,
+      submissionId: `submission-${parentRequest.id}`,
+      publishedSignalId: null,
+    });
+    for (const includeWakeStopEligibility of [false, true]) {
+      const response = await fetchWithOpenMeldAuth(
+        `${BASE_URL}/v1/spaces/${parentSpaceId}/active-wake-progress?includeWakeStopEligibility=${includeWakeStopEligibility}`
+      );
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as {
+        items: Array<{ dispatchId: string }>;
+      };
+      expect(body.items.some((item) => item.dispatchId === dispatchId)).toBe(
+        false
+      );
     }
   });
 

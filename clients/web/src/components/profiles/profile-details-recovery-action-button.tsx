@@ -15,12 +15,25 @@ import {
 import { Button } from "@openmeld/ui/components/button";
 import { useState } from "react";
 
-export function ProfileDetailsRecoveryActionButton(input: {
+type ProfileDetailsRecoveryActionButtonProps = {
 	compact?: boolean;
 	isPending: boolean;
 	onRecoveryAction: (recoveryAction: ProfileDetailsRecoveryAction) => void;
 	recoveryAction: ProfileDetailsRecoveryAction;
-}) {
+};
+
+export function ProfileDetailsRecoveryActionButton(
+	input: ProfileDetailsRecoveryActionButtonProps
+) {
+	return (
+		<RecoveryActionButton
+			{...input}
+			key={`${input.recoveryAction.kind}:${input.recoveryAction.expectedInterruptedTargetWakeLifecycleId ?? "unknown"}`}
+		/>
+	);
+}
+
+function RecoveryActionButton(input: ProfileDetailsRecoveryActionButtonProps) {
 	const [isSkipConfirmationOpen, setIsSkipConfirmationOpen] = useState(false);
 	const [isForkConfirmationOpen, setIsForkConfirmationOpen] = useState(false);
 	const buttonLabel = input.isPending

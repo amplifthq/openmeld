@@ -7,6 +7,10 @@ import type {
   SummarizeAgentActivityDigestRpcResponse,
 } from "@openmeld/schemas/types";
 import {
+  createMeteredRemoteFetch,
+  type RemoteAiUsageDurability,
+} from "./ai-usage";
+import {
   buildRemoteAgentAiGatewayHeaders,
   buildRemoteAgentGatewayMetadata,
   resolveRemoteAgentAiGatewayOpenRouterBaseUrl,
@@ -18,6 +22,7 @@ type DigestEnv = Parameters<
 >[0] &
   Parameters<typeof buildRemoteAgentAiGatewayHeaders>[0]["env"] & {
     OPENMELD_AGENT_ACTIVITY_DIGEST_MODEL_ID?: string;
+    OPENMELD_CORE_WORKER?: unknown;
   };
 
 const DIGEST_MODEL_RESPONSE_MAX_BYTES = 64 * 1024;
@@ -25,6 +30,7 @@ const DIGEST_MODEL_RESPONSE_MAX_BYTES = 64 * 1024;
 export async function summarizeAgentActivityDigest(input: {
   env: DigestEnv;
   fetch?: typeof globalThis.fetch;
+  usageDurability?: RemoteAiUsageDurability;
   request: SummarizeAgentActivityDigestRpcInput;
 }): Promise<SummarizeAgentActivityDigestRpcResponse> {
   const request = summarizeAgentActivityDigestRpcInputSchema.parse(
@@ -38,7 +44,20 @@ export async function summarizeAgentActivityDigest(input: {
       organizationId: request.organizationId,
     }),
   });
-  const response = await (input.fetch ?? globalThis.fetch)(
+  const response = await createMeteredRemoteFetch({
+    ...input.usageDurability,
+    coreWorker: input.env.OPENMELD_CORE_WORKER,
+    fetch: input.fetch,
+    model,
+    scope: {
+      organizationId: request.organizationId,
+      purpose: "activity_digest",
+      agentProfileId: null,
+      spaceId: null,
+      taskId: null,
+      attemptId: null,
+    },
+  })(
     `${resolveRemoteAgentAiGatewayOpenRouterBaseUrl(input.env)}/chat/completions`,
     {
       body: JSON.stringify({

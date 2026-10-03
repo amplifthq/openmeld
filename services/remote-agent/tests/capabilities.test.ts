@@ -108,6 +108,60 @@ async function runFlueTool(
 }
 
 describe("remote agent Flue capability inventory", () => {
+  it("enforces summary-only in both the direct and Code Mode catalogs", async () => {
+    const turnEnvelope: ReturnType<
+      typeof createSubmitTurnRequest
+    >["turnEnvelope"] = createOrganizationSharedTurnEnvelope();
+    turnEnvelope.trigger = {
+      source: "task_continuation",
+      summaryOnly: true,
+      subscriptionId: "summary-1",
+      delegationId: "delegation-1",
+      watchedTask: { v: 1, kind: "native_delivery", deliveryId: "parent-1" },
+      outcome: {
+        status: "succeeded",
+        errorCode: null,
+        eventId: "child-1",
+        occurredAtMs: TEST_NOW_MS,
+        publishedSignalId: "result-1",
+      },
+    };
+    const write = vi.fn();
+    const input = {
+      coreWorker: {},
+      storage: await createCapabilityInventoryStorage(turnEnvelope),
+      turnEnvelope,
+      sandboxDefinitions: [
+        {
+          name: "computer_exec",
+          description: "Run a command",
+          input: {} as never,
+          execute: write,
+        },
+      ],
+    };
+    const tools = await getCapabilityCatalogForTest(input);
+    expect(tools.map((tool) => tool.name)).toEqual([
+      "openmeld_report_progress",
+      "openmeld_read_tool_result",
+      "openmeld_read_space_context",
+      "openmeld_read_space_file",
+      ...REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES,
+      "codemode",
+    ]);
+    const codeMode = tools.find((tool) => tool.name === "codemode");
+    if (!codeMode) {
+      throw new Error("Missing Code Mode");
+    }
+    await expect(
+      runFlueTool(codeMode, {
+        input: {
+          code: "async () => codemode.computer_exec({command: 'touch unwanted'})",
+        },
+      })
+    ).rejects.toThrow("codemode.computer_exec is not a function");
+    expect(write).not.toHaveBeenCalled();
+  });
   it("exposes the complete first-phase explicit tool surface in an organization-shared turn", async () => {
     const turnEnvelope = createOrganizationSharedTurnEnvelope();
     const tools = await getCapabilityCatalogForTest({

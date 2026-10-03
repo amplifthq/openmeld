@@ -14,6 +14,7 @@ import { useInfiniteQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useState } from "react";
 import { useSidebarPreferences } from "#/components/app/use-sidebar-preferences";
+import { resolveConversationTitle } from "#/lib/conversations/presentation";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationCenterAgentChatPath } from "#/lib/organizations/organization-routes";
 import { useDefaultHumanProfile } from "#/lib/profiles/use-default-human-profile";
@@ -62,10 +63,11 @@ export function CenterAgentChatHistory({
 		sessions.data?.pages.flatMap((page) => page.sessions) ?? []
 	).map((session) => ({
 		...session,
-		title:
-			preferences.preferences?.chats?.titles[session.spaceId] ??
-			session.name ??
-			"New chat",
+		title: resolveConversationTitle(
+			session.spaceId,
+			session.name,
+			preferences.preferences?.chats?.titles
+		),
 	}));
 	const matches = chats.filter((chat) =>
 		chat.title.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())
@@ -81,7 +83,7 @@ export function CenterAgentChatHistory({
 		<h1
 			className={cn(
 				buttonVariants({ variant: "ghost" }),
-				"group/chat-title relative h-auto min-w-0 max-w-[28rem] shrink gap-0 rounded-full p-0 text-lg transition-none hover:shadow-sm",
+				"group/chat-title relative ml-[var(--space-title-control-inline-offset,0px)] h-auto min-w-0 max-w-[28rem] shrink gap-0 rounded-full border-0 p-0 text-lg transition-none hover:shadow-sm",
 				open && "bg-muted shadow-sm"
 			)}
 		>

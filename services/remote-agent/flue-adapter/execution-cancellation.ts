@@ -12,6 +12,7 @@ export async function cancelFlueRemoteAgentExecution(input: {
   identity: RemoteAgentWorkerExecutionQuery;
   nowMs: number;
   reason?: string;
+  summaryRecoveryId?: string;
   storage: RemoteAgentStorage;
 }): Promise<{
   abortedFlueSubmission: boolean | null;
@@ -21,6 +22,7 @@ export async function cancelFlueRemoteAgentExecution(input: {
     identity: input.identity,
     nowMs: input.nowMs,
     reason: input.reason,
+    summaryRecoveryId: input.summaryRecoveryId,
     storage: input.storage,
   });
   // Arm recovery after durable intent, before external abort/cleanup can throw

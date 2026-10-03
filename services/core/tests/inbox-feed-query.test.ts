@@ -5,7 +5,10 @@ import { createInboxFeedService } from "../src/inbox/application/inbox-feed-serv
 import { ensureInboxItem } from "../src/inbox/application/inbox-item-service";
 
 describe("Inbox attention feed on D1", () => {
-  it("executes ranked CTE batches and frozen mutations without clearing subsequently projected events", async () => {
+  it.each([
+    undefined,
+    "space",
+  ] as const)("executes ranked CTE batches and frozen mutations without clearing subsequently projected events (grouping=%s)", async (grouping) => {
     const db = env.OPENMELD_DB;
     const suffix = crypto.randomUUID();
     const identity = {
@@ -57,7 +60,7 @@ describe("Inbox attention feed on D1", () => {
       },
     });
     const service = createInboxFeedService({ db, nowMs: () => 3000 });
-    const first = await service.list(identity, { limit: 1 });
+    const first = await service.list(identity, { limit: 1, grouping });
     expect(first.rows[0]).toMatchObject({
       item: { id: priority.itemId },
       dot: "yellow",
@@ -67,9 +70,13 @@ describe("Inbox attention feed on D1", () => {
     expect(first.nextCursor).not.toBeNull();
     const second = await service.list(identity, {
       limit: 1,
+      grouping,
       cursor: first.nextCursor ?? undefined,
     });
     expect(second.rows[0]?.item.id).toBe(ordinary.itemId);
+    if (grouping) {
+      expect(second.rows[0]?.group?.kind).toBe("system");
+    }
     const later = await ensureInboxItem({
       db,
       nowMs: 2000,
@@ -99,5 +106,15 @@ describe("Inbox attention feed on D1", () => {
     expect(
       (await service.list(identity, { category: "needs_action" })).rows
     ).toEqual([]);
+    if (grouping) {
+      const history = await service.list(identity, { grouping });
+      expect(history.rows).toHaveLength(1);
+      expect(history.rows[0]).toMatchObject({
+        group: { kind: "system" },
+        itemCount: 3,
+        unreadCount: 1,
+        section: "activity",
+      });
+    }
   });
 });

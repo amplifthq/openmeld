@@ -18,6 +18,7 @@ export const OPENMELD_SPACE_ACTION_MCP_TOOL_NAMES = [
   "read_documents",
   "read_skills",
   "read_result",
+  "open_direct_message",
   "list_tasks",
   "create_task",
   "start_task",

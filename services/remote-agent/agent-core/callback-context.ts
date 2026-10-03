@@ -32,6 +32,8 @@ import {
 } from "@openmeld/schemas";
 import type {
   AgentActivityOverviewResponse,
+  AiUsageQueryResponse,
+  CenterAgentAiUsageRpcInput,
   CenterAgentAuthorizeAnonymousMemberToolResponse,
   CenterAgentAuthorizeAnonymousMemberToolRpcInput,
   CenterAgentCreateOrganizationInviteLinkResponse,
@@ -163,6 +165,8 @@ import type {
   RemoteAgentWorkerSubmitMessagesResult,
   RemoteAgentWorkerSubmitTurnRequest,
   RemoteAgentWorkLoopCheckpoint,
+  RemoteAiUsageWrite,
+  RemoteAiUsageWriteResponse,
   ResolveSpaceFileContentInput,
   ResolveSpaceFileContentResponse,
   ResumeCenterAgentRoutineResponse,
@@ -251,6 +255,7 @@ export type RemoteAgentCallbackContext = {
   outputAttachments?: SpaceMessageAttachment[];
   outputFiles?: SpaceMessageFileReference[];
   dispatchId: string;
+  taskId?: string;
   idempotencyKey: string;
   lastCoreResponse?: RemoteAgentCoreCallbackResponse;
   lastFailureFact?: RemoteAgentFailureFact;
@@ -331,7 +336,14 @@ export type RemoteAgentStorage = RemoteAgentReadableStorage &
   RemoteAgentWritableStorage;
 
 export type RemoteAgentCoreWorkerBinding = {
+  recordRemoteAiUsage?(
+    input: RemoteAiUsageWrite
+  ): Promise<RemoteAiUsageWriteResponse>;
+  centerAgentReadAiUsage?(
+    input: CenterAgentAiUsageRpcInput
+  ): Promise<AiUsageQueryResponse>;
   authorizeRemoteAgentExecutionAccess?(input: unknown): Promise<unknown>;
+  acknowledgeRemoteAgentAdmission?(input: unknown): Promise<unknown>;
   getModelCatalog?(
     options?: ModelCatalogReadOptions
   ): Promise<ModelCatalog> | ModelCatalog;
@@ -475,6 +487,8 @@ export type RemoteAgentCoreWorkerBinding = {
   centerAgentConnectAgentProfileToLocalAgent?(input: unknown): Promise<unknown>;
   centerAgentRemoveAgentProfilesFromSpace?(input: unknown): Promise<unknown>;
   centerAgentCreateSpace?(input: unknown): Promise<unknown>;
+  remoteAgentOpenDirectMessageSpace?(input: unknown): Promise<unknown>;
+  remoteAgentGetOrganizationDirectory?(input: unknown): Promise<unknown>;
   centerAgentResolveConnectorConnection?(input: unknown): Promise<unknown>;
   centerAgentEnableAgentProfile?(input: unknown): Promise<unknown>;
   centerAgentGetOrganizationDirectory?(input: unknown): Promise<unknown>;
@@ -596,6 +610,7 @@ export type RemoteAgentCoreWorkerBinding = {
   centerAgentReadSpaceContext?(input: unknown): Promise<unknown>;
   centerAgentReadSpaceWakeProgress?(input: unknown): Promise<unknown>;
   centerAgentStopSpaceWake?(input: unknown): Promise<unknown>;
+  centerAgentSpaceInputQueue?(input: unknown): Promise<unknown>;
   centerAgentRecordConnectorActionAudit?(
     input: CenterAgentRecordConnectorActionAuditBody & {
       context: OpenMeldRequestContext;
@@ -623,6 +638,7 @@ export type RemoteAgentCoreWorkerBinding = {
   personalRemoteAgentSpaceTool?(input: unknown): Promise<unknown>;
   centerAgentListAgentTasks?(input: unknown): Promise<unknown>;
   centerAgentWatchAgentTask?(input: unknown): Promise<unknown>;
+  centerAgentContinueTaskSummary?(input: unknown): Promise<unknown>;
   inspectExecutionRecovery?(input: unknown): Promise<unknown>;
   executeExecutionRecovery?(input: unknown): Promise<unknown>;
   recordSpaceAttachment?(input: {
@@ -772,6 +788,7 @@ export function createRemoteAgentCallbackContext(input: {
       ? { runtimeConversationId: input.request.runtimeConversation.id }
       : {}),
     dispatchId: input.request.dispatchId,
+    taskId: input.request.taskId,
     idempotencyKey: input.request.idempotencyKey,
     ...(input.request.v === 1 ? {} : { modelRoute: input.request.modelRoute }),
     organizationId: input.request.organizationId,

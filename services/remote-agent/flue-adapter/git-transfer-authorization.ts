@@ -23,6 +23,12 @@ export async function authorizeGitTransfer(
       context: grant.authorization.context,
       submissionId: grant.authorization.submissionId,
       effect: "read",
+      ...(grant.authorization.includeDelegatedRequester
+        ? {
+            includeDelegatedRequester: true,
+            sources: grant.authorization.sources,
+          }
+        : {}),
     })
   );
   if (
@@ -32,6 +38,13 @@ export async function authorizeGitTransfer(
   ) {
     throw new Error("github.checkout.transfer_audience_mismatch");
   }
+  if (
+    grant.authorization.includeDelegatedRequester &&
+    (!response.delegatedRequesterSupported ||
+      response.delegatedRequester?.userId !== grant.requesterUserId)
+  ) {
+    throw new Error("github.checkout.delegated_requester_unavailable");
+  }
   const selected = centerAgentConnectorConnectionSelectionSchema.parse(
     await resolveConnection({
       context: grant.authorization.context,
@@ -39,6 +52,9 @@ export async function authorizeGitTransfer(
       connectionPreference: "requester",
       service: "github",
       includeAccessPolicy: true,
+      ...(grant.authorization.includeDelegatedRequester
+        ? { includeDelegatedRequester: true }
+        : {}),
     })
   );
   const source = grant.authorization.sources?.[0];

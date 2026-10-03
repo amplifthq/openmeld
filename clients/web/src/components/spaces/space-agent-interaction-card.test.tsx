@@ -286,6 +286,47 @@ describe("SpaceAgentInteractionCard", () => {
 		});
 	});
 
+	it("requires a fresh decision when a new plan replaces an answered request", async () => {
+		const onRespond = vi.fn().mockResolvedValue(undefined);
+		const plan = (interactionId: string, title: string) =>
+			createWakeProgressItem({
+				canRespond: true,
+				request: {
+					v: 1,
+					kind: "plan_review",
+					interactionId,
+					title,
+					requestedAtMs: Date.now(),
+					expiresAtMs: Date.now() + 60_000,
+					plan: title,
+					allowFeedback: false,
+				},
+			});
+		const { rerender } = render(
+			<SpaceAgentInteractionCard
+				item={plan("first-plan", "Review the first plan")}
+				onRespond={onRespond}
+			/>
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Approve plan" }));
+		await screen.findByText("Response sent");
+		rerender(
+			<SpaceAgentInteractionCard
+				item={plan("revised-plan", "Review the revised plan")}
+				onRespond={onRespond}
+			/>
+		);
+		expect(screen.queryByText("Response sent")).toBeNull();
+		expect(onRespond).toHaveBeenCalledTimes(1);
+		expect(
+			(
+				screen.getByRole("button", {
+					name: "Approve plan",
+				}) as HTMLButtonElement
+			).disabled
+		).toBe(false);
+	});
+
 	it("keeps request details private from people who do not own the local agent", () => {
 		render(
 			<SpaceAgentInteractionCard

@@ -3171,6 +3171,143 @@ describe("remote agent OpenMeld tool catalog", () => {
     ).resolves.not.toHaveProperty("navigationTarget");
   });
 
+  it("opens a DM as the native Agent and attaches its trusted navigation target", async () => {
+    const baseRequest = createSubmitTurnRequest();
+    const request = createSubmitTurnRequest({
+      turnEnvelope: {
+        ...baseRequest.turnEnvelope,
+        organization: {
+          ...baseRequest.turnEnvelope.organization,
+          webUrl: "https://openmeld.ai/o/amplift",
+        },
+      },
+    });
+    const storage = await createStorageWithPendingContext(request);
+    const remoteAgentOpenDirectMessageSpace = vi.fn(async () => ({
+      organizationId: request.organizationId,
+      memberProfileId: request.agentProfileId,
+      targetProfileId: HUMAN_PROFILE_ID,
+      spaceId: SPACE_ID,
+      created: true,
+    }));
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { remoteAgentOpenDirectMessageSpace },
+      storage,
+      turnEnvelope: request.turnEnvelope,
+    });
+    const creationId = "00000000-0000-4000-8000-000000000080";
+    const response = await executeTool(tools, "openmeld_open_direct_message", {
+      targetProfileId: HUMAN_PROFILE_ID,
+      creationId,
+    });
+    expect(remoteAgentOpenDirectMessageSpace).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetProfileId: HUMAN_PROFILE_ID,
+        creationId,
+        context: expect.objectContaining({
+          actorContext: expect.objectContaining({
+            openMeldProfileId: request.agentProfileId,
+            profileKind: "agent",
+          }),
+        }),
+      })
+    );
+    expect(response).toMatchObject({ spaceId: SPACE_ID, created: true });
+    const message = {
+      clientMessageId: "00000000-0000-4000-8000-000000000081",
+      text: "Here is the plan.",
+      wake: false,
+    };
+    await executeTool(tools, "openmeld_open_direct_message", {
+      targetProfileId: HUMAN_PROFILE_ID,
+      spaceId: SPACE_ID,
+      message,
+    });
+    expect(remoteAgentOpenDirectMessageSpace).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        targetProfileId: HUMAN_PROFILE_ID,
+        spaceId: SPACE_ID,
+        message,
+      })
+    );
+    await expect(
+      readRemoteAgentCallbackContext(storage, ACK.submissionId)
+    ).resolves.toMatchObject({
+      navigationTarget: { kind: "space", spaceId: SPACE_ID },
+    });
+  });
+
+  it("lets an Agent-origin Center turn control its own DM work without a Human speaker", async () => {
+    const base = createSubmitTurnRequest();
+    const request = createSubmitTurnRequest({
+      turnEnvelope: {
+        ...base.turnEnvelope,
+        sender: {
+          kind: "agent_profile",
+          id: "peer-agent",
+          displayName: "Peer Agent",
+          profileId: "peer-agent",
+          verified: true,
+        },
+      },
+    });
+    const progress = {
+      query: { spaceId: SPACE_ID, targetProfileId: null },
+      items: [],
+    };
+    const stopped = {
+      ok: true,
+      runtimeCoordinatorExecutionId: null,
+      status: "cancelled",
+      stopMode: "openmeld_owned_pre_agent",
+      targetProfileId: AGENT_PROFILE_ID,
+      cancellationState: {
+        observedAtMs: TEST_NOW_MS,
+        reasonCode: "space.wake_stopped_before_send",
+        status: "cancelled",
+      },
+    };
+    const read = vi.fn(async (_request: unknown) => progress);
+    const stop = vi.fn(async (_request: unknown) => stopped);
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: {
+        centerAgentReadSpaceWakeProgress: read,
+        centerAgentStopSpaceWake: stop,
+      },
+      storage: await createStorageWithPendingContext(request),
+      turnEnvelope: request.turnEnvelope,
+    });
+    await expect(
+      executeTool(tools, "openmeld_read_space_wake_progress", {
+        spaceId: SPACE_ID,
+      })
+    ).resolves.toEqual(progress);
+    await expect(
+      executeTool(tools, "openmeld_stop_space_wake", {
+        spaceId: SPACE_ID,
+        target: {
+          by: "client_message",
+          clientMessageId: "00000000-0000-4000-8000-000000000093",
+          targetProfileId: AGENT_PROFILE_ID,
+        },
+      })
+    ).resolves.toEqual(stopped);
+    for (const call of [read, stop]) {
+      expect(call).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({
+          spaceId: SPACE_ID,
+          context: expect.objectContaining({
+            actorContext: expect.objectContaining({
+              openMeldProfileId: request.agentProfileId,
+              agentControllerRef: "hosted:center-agent",
+            }),
+          }),
+        })
+      );
+      expect(call.mock.calls[0]?.[0]).not.toHaveProperty("speakerMember");
+    }
+  });
+
   it("creates a private Space with members-only access when access settings are omitted", async () => {
     const centerAgentCreateSpace = vi.fn(async () => createSpaceResponse());
     const tools = getRemoteAgentOpenMeldToolDefinitions({
@@ -3641,6 +3778,7 @@ describe("remote agent OpenMeld tool catalog", () => {
       agentProfileIds: [AGENT_PROFILE_ID],
       completionMode: "child_reports_directly",
       computerFilePaths: ["launch/checklist.md"],
+      replyLanguageTag: "zh-Hans",
       mentionProfileIds: [],
       referenceProfileIds: [],
       spaceId: SPACE_ID,
@@ -3650,6 +3788,7 @@ describe("remote agent OpenMeld tool catalog", () => {
     expect(readTextFiles).toHaveBeenCalledWith(["launch/checklist.md"]);
     expect(centerAgentWakeAgentProfilesInSpace).toHaveBeenCalledWith(
       expect.objectContaining({
+        replyLanguageTag: "zh-Hans",
         text: [
           "Finish the approved launch checklist on the workstation.",
           "",
@@ -3942,6 +4081,87 @@ describe("remote agent OpenMeld tool catalog", () => {
     });
   });
 
+  it("offers an owned manual summary and ends the turn only after queue acknowledgement", async () => {
+    const request = createSubmitTurnRequest();
+    const centerAgentContinueTaskSummary = vi.fn(
+      async (input: { inspectOnly?: boolean }) => ({
+        status: input.inspectOnly ? "available" : "queued",
+        sourceSubscriptionId: "original-subscription",
+        subscriptionId: input.inspectOnly
+          ? null
+          : "summary:original-subscription",
+        reasonCode: null,
+      })
+    );
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentContinueTaskSummary },
+      storage: await createStorageWithPendingContext(request),
+    });
+    const definition = tools.find(
+      (tool) => tool.name === "openmeld_continue_task_summary"
+    );
+    const available = await executeTool(
+      tools,
+      "openmeld_continue_task_summary",
+      { sourceSubscriptionId: "original-subscription", inspectOnly: true }
+    );
+    expect(definition?.endsTurnAfter?.(available)).toBe(false);
+    const queued = await executeTool(tools, "openmeld_continue_task_summary", {
+      sourceSubscriptionId: "original-subscription",
+      inspectOnly: false,
+      replyLanguageTag: "zh-Hans",
+    });
+    expect(definition?.endsTurnAfter?.(queued)).toBe(true);
+    expect(centerAgentContinueTaskSummary).toHaveBeenCalledWith(
+      expect.objectContaining({
+        speakerMember: { memberId: "member_123", userId: "user_1" },
+        sourceSubscriptionId: "original-subscription",
+        replyLanguageTag: "zh-Hans",
+      })
+    );
+  });
+
+  it.each([
+    "cancelled",
+    "failed",
+    "completed",
+  ] as const)("does not end the turn to wait for a %s summary recovery", async (state) => {
+    const receipt = {
+      status: "unavailable",
+      sourceSubscriptionId: "original-subscription",
+      subscriptionId: "summary:original-subscription",
+      reasonCode: `task_summary_recovery.${state}`,
+      ...(state === "completed"
+        ? {
+            publishedResult: {
+              spaceId: "space-parent",
+              signalId: "summary-result",
+            },
+          }
+        : {}),
+    };
+    const rpc = vi.fn(() => Promise.resolve(receipt));
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentContinueTaskSummary: rpc },
+      storage: await createStorageWithPendingContext(createSubmitTurnRequest()),
+    });
+    const definition = tools.find(
+      (tool) => tool.name === "openmeld_continue_task_summary"
+    );
+    const result = await executeTool(tools, "openmeld_continue_task_summary", {
+      sourceSubscriptionId: "original-subscription",
+      inspectOnly: false,
+    });
+    expect(result).toEqual(receipt);
+    expect(definition?.endsTurnAfter?.(result)).toBe(false);
+    expect(rpc).toHaveBeenCalledWith(
+      expect.objectContaining({ includePublishedResult: true })
+    );
+    expect(definition?.description).toContain(
+      "An unavailable recovery is not pending work"
+    );
+  });
+
   it("registers an exact task watch without polling or reducing it to an Agent Profile", async () => {
     const request = createSubmitTurnRequest();
     const centerAgentWatchAgentTask = vi.fn(async () => ({
@@ -3976,6 +4196,7 @@ describe("remote agent OpenMeld tool catalog", () => {
     const watchResult = await executeTool(tools, "openmeld_watch_agent_task", {
       completionCondition: "terminal",
       instruction: "Continue the release after this exact task completes.",
+      replyLanguageTag: "zh-Hans",
       task: {
         deliveryId: "delivery-parallel-1",
         kind: "native_delivery",
@@ -3989,6 +4210,9 @@ describe("remote agent OpenMeld tool catalog", () => {
         kind: "native_delivery",
       },
     });
+    expect(centerAgentWatchAgentTask).toHaveBeenCalledWith(
+      expect.objectContaining({ replyLanguageTag: "zh-Hans" })
+    );
     expect(watchTool?.endsTurnAfter?.(watchResult)).toBe(true);
     expect(
       watchTool?.endsTurnAfter?.({
@@ -6507,6 +6731,20 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
       },
       rpcName: "centerAgentStopSpaceWake",
       toolName: "openmeld_stop_space_wake",
+    },
+    {
+      expectedPayload: {
+        spaceId: SPACE_ID,
+        mutation: { action: "delete", inputId: "queued-input" },
+        speakerMember: { memberId: "member_123", userId: "user_1" },
+      },
+      input: {
+        spaceId: SPACE_ID,
+        mutation: { action: "delete", inputId: "queued-input" },
+      },
+      response: { items: [] },
+      rpcName: "centerAgentSpaceInputQueue",
+      toolName: "openmeld_space_input_queue",
     },
     {
       expectedPayload: {

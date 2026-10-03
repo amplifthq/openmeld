@@ -12,6 +12,7 @@ import {
   agentProfileCreationRequestMutationResponseSchema,
   agentReplyPlacementSchema,
   agentTaskHandleSchema,
+  aiUsageQueryResponseSchema,
   buildOpenMeldNavigationAction,
   CENTER_AGENT_ANONYMOUS_MEMBER_TOOL_NAMES,
   CENTER_AGENT_DELEGATION_COMPLETION_MODES,
@@ -37,10 +38,12 @@ import {
   CONNECTOR_SERVICES,
   centerAgentAddAgentProfilesToSpaceResponseSchema,
   centerAgentAddMembersToSpaceResponseSchema,
+  centerAgentAiUsageRpcInputSchema,
   centerAgentAuthorizeAnonymousMemberToolResponseSchema,
   centerAgentAuthorizeAnonymousMemberToolRpcInputSchema,
   centerAgentCheckAgentProfileReadinessResponseSchema,
   centerAgentConnectAgentProfileToLocalAgentResponseSchema,
+  centerAgentContinueTaskSummaryResponseSchema,
   centerAgentCreateAgentProfileResponseSchema,
   centerAgentCreateOrganizationInviteLinkResponseSchema,
   centerAgentCreateProjectToolResponseSchema,
@@ -167,6 +170,8 @@ import {
   ORGANIZATION_SKILL_INSTRUCTIONS_MAX_CHARS,
   ORGANIZATION_SKILL_NAME_MAX_CHARS,
   ORGANIZATION_SKILL_OPERATION_ID_MAX_CHARS,
+  openDirectMessageSpaceBodySchema,
+  openDirectMessageSpaceResponseSchema,
   openMeldNavigationTargetSchema,
   organizationDirectoryResponseSchema,
   organizationSpaceDirectoryResponseSchema,
@@ -193,6 +198,8 @@ import {
   SPACE_TASK_TITLE_MAX_CHARS,
   setAgentProfileCreationApprovalPreferenceResponseSchema,
   setOrganizationWorkingLanguagePreferenceBodySchema,
+  spaceInputQueueMutationSchema,
+  spaceInputQueueResponseSchema,
   spaceTaskMutationReceiptSchema,
   startCenterAgentMemberResearchResponseSchema,
   submitFeedbackIssueRequestSchema,
@@ -630,6 +637,17 @@ const manageSpaceFilesToolInputSchema = strictObject({
   revision: optional(pipe(number(), integer(), minValue(1))),
   spaceId: nonEmptyStringSchema,
 });
+const taskReplyLanguageInputSchema = optional(
+  pipe(
+    string(),
+    trim(),
+    minLength(2),
+    maxLength(64),
+    description(
+      "Your semantic reply-language decision for this request as a BCP 47 tag (for example en or zh-Hans). Preserve the requester's explicit language choice and the established conversation language. This is a task fact, not an Organization preference."
+    )
+  )
+);
 const wakeAgentProfilesInSpaceToolInputSchema = object({
   agentProfileIds: pipe(
     array(nonEmptyStringSchema),
@@ -639,6 +657,7 @@ const wakeAgentProfilesInSpaceToolInputSchema = object({
   mentionProfileIds: mentionProfileIdsInputSchema,
   referenceProfileIds: referenceProfileIdsInputSchema,
   completionMode: picklist(CENTER_AGENT_DELEGATION_COMPLETION_MODES),
+  replyLanguageTag: taskReplyLanguageInputSchema,
   computerFilePaths: optional(
     pipe(
       array(pipe(string(), trim(), minLength(1), maxLength(2048))),
@@ -1316,6 +1335,37 @@ const readSpaceWakeProgressToolInputSchema = strictObject({
   spaceId: trimmedNonEmptyStringSchema,
   targetProfileId: optional(trimmedNonEmptyStringSchema),
 });
+const inputQueueTarget = strictObject({
+  dispatchId: trimmedNonEmptyStringSchema,
+  targetProfileId: trimmedNonEmptyStringSchema,
+});
+const spaceInputQueueToolInputSchema = strictObject({
+  spaceId: trimmedNonEmptyStringSchema,
+  mutation: optional(
+    union([
+      strictObject({
+        action: literal("enqueue"),
+        inputId: trimmedNonEmptyStringSchema,
+        target: inputQueueTarget,
+        text: pipe(string(), trim(), minLength(1), maxLength(MAX_TEXT_LENGTH)),
+      }),
+      strictObject({
+        action: literal("steer"),
+        inputId: trimmedNonEmptyStringSchema,
+        target: inputQueueTarget,
+      }),
+      strictObject({
+        action: literal("delete"),
+        inputId: trimmedNonEmptyStringSchema,
+      }),
+      strictObject({
+        action: literal("reorder"),
+        expectedIds: pipe(array(trimmedNonEmptyStringSchema), maxLength(50)),
+        orderedIds: pipe(array(trimmedNonEmptyStringSchema), maxLength(50)),
+      }),
+    ])
+  ),
+});
 const stopSpaceWakeToolInputSchema = strictObject({
   spaceId: trimmedNonEmptyStringSchema,
   target: union([
@@ -1419,6 +1469,7 @@ async function executeMessageChannelIdentityNavigationAction(input: {
 
 export const REMOTE_AGENT_OPENMELD_TOOL_NAMES = [
   ...REMOTE_AGENT_EXTERNAL_TOOL_NAMES,
+  "openmeld_open_direct_message",
   "openmeld_require_identity_for_action",
   "openmeld_get_navigation_action",
   "openmeld_read_organization_directory",
@@ -1443,12 +1494,14 @@ export const REMOTE_AGENT_OPENMELD_TOOL_NAMES = [
   "openmeld_list_active_space_wakes",
   "openmeld_read_space_wake_progress",
   "openmeld_stop_space_wake",
+  "openmeld_space_input_queue",
   "openmeld_list_projects",
   "openmeld_create_project",
   "openmeld_update_project",
   "openmeld_set_agent_profile_default_project",
   "openmeld_prepare_remove_project",
   "openmeld_remove_project",
+  "openmeld_read_ai_usage",
   "openmeld_read_agent_activity",
   "openmeld_list_agent_activity_sessions",
   "openmeld_read_changelog",
@@ -1491,6 +1544,7 @@ export const REMOTE_AGENT_OPENMELD_TOOL_NAMES = [
   "openmeld_wake_agent_profiles_in_space",
   "openmeld_list_agent_tasks",
   "openmeld_watch_agent_task",
+  "openmeld_continue_task_summary",
   "openmeld_inspect_execution_recovery",
   "openmeld_recover_execution_result",
   "openmeld_resume_controller_conversation",
@@ -1557,6 +1611,7 @@ export const REMOTE_AGENT_OBSERVATION_TOOL_NAMES = [
   "openmeld_list_projects",
   "openmeld_read_agent_profile_creation_defaults",
   "openmeld_list_hosted_models",
+  "openmeld_read_ai_usage",
   "openmeld_read_agent_activity",
   "openmeld_list_agent_activity_sessions",
   "openmeld_read_changelog",
@@ -1601,6 +1656,7 @@ export const REMOTE_AGENT_ROUTINE_HIDDEN_TOOL_NAMES = [
   "openmeld_list_agent_tasks",
   "openmeld_manage_space_tasks",
   "openmeld_watch_agent_task",
+  "openmeld_continue_task_summary",
   "openmeld_inspect_execution_recovery",
   "openmeld_recover_execution_result",
   "openmeld_resume_controller_conversation",
@@ -2133,6 +2189,57 @@ export function getRemoteAgentOpenMeldToolDefinitions(
       submissionId: input.submissionId,
     }),
     toolDefinition({
+      name: "openmeld_open_direct_message",
+      description:
+        "Open or reuse your Direct Message with an active Human or Agent Profile in this organization. Use an exact profile ID from the organization directory. To assign work, first open without message, then send message with wake=true, the returned spaceId, and a fresh UUID clientMessageId. Keep that spaceId and UUID on retries and use them with openmeld_stop_space_wake even before sending finishes. Never reopen a converted conversation to retry work. Set wake=true only to assign concrete work to an Agent; it replies in that conversation. Sending is not proof of completion. Ordinary messages use wake=false and never start Agent work. Agent owners can read the conversation and join, which turns it into a Space. To create a separate chat between yourself as Center Agent and a Human, pass a fresh UUID creationId only when opening; keep it on opening retries. Omit creationId for all other pairs and when sending with spaceId. Return the conversation link so the user can open it. Do not forward unrelated private context or wake another Agent just to acknowledge its reply.",
+      input: strictObject({
+        targetProfileId: string(),
+        creationId: optional(string()),
+        spaceId: optional(string()),
+        message: optional(
+          strictObject({
+            clientMessageId: string(),
+            text: string(),
+            wake: boolean(),
+          })
+        ),
+      }),
+      execute: async (payload) => {
+        const request = openDirectMessageSpaceBodySchema.parse(payload);
+        const toolContext = await buildRemoteAgentToolContext({
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_open_direct_message",
+        });
+        const rpc = requireCoreRpc(
+          input.coreWorker.remoteAgentOpenDirectMessageSpace,
+          "remoteAgentOpenDirectMessageSpace"
+        );
+        const response = openDirectMessageSpaceResponseSchema.parse(
+          await rpc({
+            ...request,
+            context: toolContext.context,
+          })
+        );
+        const organizationWebUrl =
+          toolContext.turnEnvelope?.organization.webUrl;
+        const navigation = organizationWebUrl
+          ? buildOpenMeldNavigationAction({
+              organizationWebUrl,
+              target: { kind: "space", spaceId: response.spaceId },
+            })
+          : undefined;
+        if (navigation) {
+          await recordRemoteAgentNavigationTarget({
+            storage: input.storage,
+            submissionId: input.submissionId,
+            target: navigation.target,
+          });
+        }
+        return { ...response, ...(navigation ? { navigation } : {}) };
+      },
+    }),
+    toolDefinition({
       name: "openmeld_require_identity_for_action",
       description:
         "Record that one explicit action requested by the current connected Message Channel member cannot proceed without their personal OpenMeld access. Use this only for a personal or member-owned capability, a role-restricted action, a destructive or human-attributed action, or an action whose owner reports that a verified OpenMeld member is required. Never use it for public research, Organization information, shared-App reads, or ordinary safe shared-App writes. Complete every independent part first. This does not execute the blocked action. OpenMeld immediately records one private Connect my account and continue action for the current request. You may then compare the current provider account with openmeld_read_organization_directory and refine the action through openmeld_get_navigation_action when exactly one member is clearly the same person; otherwise the generic private action is already ready. Never expose tools, catalogs, sessions, routing, or permission infrastructure to the user.",
@@ -2260,15 +2367,20 @@ export function getRemoteAgentOpenMeldToolDefinitions(
           organizationReadPageToolInputSchema,
           payload
         );
-        const toolContext =
-          await buildAnonymousCompatibleOrganizationReadToolContext({
-            storage: input.storage,
-            submissionId: input.submissionId,
-            toolName: "openmeld_read_organization_directory",
-          });
+        const toolContext = await (input.personalAgent
+          ? buildRemoteAgentToolContext
+          : buildAnonymousCompatibleOrganizationReadToolContext)({
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_read_organization_directory",
+        });
         const rpc = requireCoreRpc(
-          input.coreWorker.centerAgentGetOrganizationDirectory,
-          "centerAgentGetOrganizationDirectory"
+          input.personalAgent
+            ? input.coreWorker.remoteAgentGetOrganizationDirectory
+            : input.coreWorker.centerAgentGetOrganizationDirectory,
+          input.personalAgent
+            ? "remoteAgentGetOrganizationDirectory"
+            : "centerAgentGetOrganizationDirectory"
         );
         const response = pageOrganizationDirectory(
           organizationDirectoryResponseSchema.parse(
@@ -3173,7 +3285,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
           readSpaceWakeProgressToolInputSchema,
           payload
         );
-        const toolContext = await buildOrganizationMemberToolContext({
+        const toolContext = await buildWakeControlToolContext({
           storage: input.storage,
           submissionId: input.submissionId,
           toolName: "openmeld_read_space_wake_progress",
@@ -3190,11 +3302,11 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_stop_space_wake",
       description:
-        "Request Stop for one exact Wake in a Space. Use the sourceSignalId or clientMessageId and targetProfileId from Wake progress. OpenMeld checks whether this Center Agent sent the Wake or the verified current requester could stop it in Web. The result distinguishes a Stop request from a confirmed stopped outcome; do not describe cancellation_requested as stopped.",
+        "Stop one exact request in a Space, including while it is being sent or waiting to start. Use its spaceId, clientMessageId, and targetProfileId; sourceSignalId also works after publication. A progress read is not required. You can stop your own Agent Direct Message requests. Other requests require the verified current requester's permission. cancellation_requested means stopping, not confirmed stopped. Completed actions are not undone.",
       input: stopSpaceWakeToolInputSchema,
       execute: async (payload) => {
         const request = parseValibot(stopSpaceWakeToolInputSchema, payload);
-        const toolContext = await buildOrganizationMemberToolContext({
+        const toolContext = await buildWakeControlToolContext({
           storage: input.storage,
           submissionId: input.submissionId,
           toolName: "openmeld_stop_space_wake",
@@ -3211,6 +3323,37 @@ export function getRemoteAgentOpenMeldToolDefinitions(
               ? { speakerMember: toolContext.speakerMember }
               : {}),
             spaceId: request.spaceId,
+          })
+        );
+      },
+    }),
+    toolDefinition({
+      name: "openmeld_space_input_queue",
+      description:
+        "Read or manage the verified current requester's own queued messages in a Space. Omit mutation to read. Enqueue plain text with a stable inputId and the exact dispatchId/targetProfileId from Wake progress. Steer only explicitly when requested; it updates that existing execution, never starts a new Wake. Delete only removes a pending message; reorder uses the last observed pending IDs. Unknown or unconfirmed delivery stays held: never resend with a new ID. Supported targets are Center DM and Codex Local executions; no owner or Organization-role fallback is allowed.",
+      input: spaceInputQueueToolInputSchema,
+      execute: async (payload) => {
+        const request = parseValibot(spaceInputQueueToolInputSchema, payload);
+        const toolContext = await buildOrganizationMemberToolContext({
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_space_input_queue",
+        });
+        const rpc = requireCoreRpc(
+          input.coreWorker.centerAgentSpaceInputQueue,
+          "centerAgentSpaceInputQueue"
+        );
+        return spaceInputQueueResponseSchema.parse(
+          await rpc({
+            ...toolContext,
+            spaceId: request.spaceId,
+            ...(request.mutation
+              ? {
+                  mutation: spaceInputQueueMutationSchema.parse(
+                    request.mutation
+                  ),
+                }
+              : {}),
           })
         );
       },
@@ -3419,6 +3562,63 @@ export function getRemoteAgentOpenMeldToolDefinitions(
           "Project removal response"
         );
         return parsedResponse;
+      },
+    }),
+    toolDefinition({
+      name: "openmeld_read_ai_usage",
+      description:
+        "Read Organization AI consumption. Use groupBy=task to rank expensive tasks or groupBy=agent to compare Agents; sortBy=cost ranks known provider charges, sortBy=tokens ranks native tokens (prefer tokens for Local Agents). Defaults to today UTC; times are Unix milliseconds, up to 31 days, limit up to 50. Filter by Space, task, Computer, Agent Profile, model, or runtime. Models always contain full-window totals; breakdown is a bounded ranking and hasMore indicates omitted groups. Money is integer nano-USD: divide by 1,000,000,000 for dollars. Never mix provider charges with estimates or treat missing cost as free. Local usage does not spend the Organization allowance. Coverage distinguishes pending, stale pending (over one hour), provider-unavailable, and collection failures; it covers observed requests only, not all possible work. Task execution status/outcome comes from existing owners, may be unavailable or truncated, and is separate from usage completeness. observedExecutionRetries counts extra distinct execution attempts, not provider retries; model calls include tool iterations, never infer retries from call count. Results cover only the selected time window. Tasks without a task ID may be identified by dispatch ID; no task content is returned.",
+      input: object({
+        fromMs: optional(pipe(number(), integer(), minValue(0))),
+        toMs: optional(pipe(number(), integer(), minValue(0))),
+        runtime: optional(picklist(["local", "remote"])),
+        model: optionalNonEmptyStringSchema,
+        agentProfileId: optionalNonEmptyStringSchema,
+        agentProfileIds: optional(
+          pipe(array(nonEmptyStringSchema), maxLength(1000))
+        ),
+        spaceId: optionalNonEmptyStringSchema,
+        taskId: optionalNonEmptyStringSchema,
+        dispatchId: optionalNonEmptyStringSchema,
+        computerId: optionalNonEmptyStringSchema,
+        controller: optionalNonEmptyStringSchema,
+        groupBy: optional(picklist(["model", "task", "agent"])),
+        sortBy: optional(picklist(["cost", "tokens"])),
+        limit: optional(pipe(number(), integer(), minValue(1), maxValue(50))),
+        includeIssues: optional(boolean()),
+        bucketBoundariesMs: optional(
+          pipe(
+            array(pipe(number(), integer(), minValue(0))),
+            minLength(2),
+            maxLength(32)
+          )
+        ),
+        groupTimeSeriesBy: optional(picklist(["controller", "model"])),
+      }),
+      execute: async (payload) => {
+        const context = await buildOrganizationMemberToolContext({
+          missingSpeakerMessage:
+            "AI usage requires a current Organization member.",
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_read_ai_usage",
+        });
+        const today = Math.floor(Date.now() / 86_400_000) * 86_400_000;
+        return aiUsageQueryResponseSchema.parse(
+          await callCoreRpc(
+            input.coreWorker,
+            "centerAgentReadAiUsage",
+            centerAgentAiUsageRpcInputSchema.parse({
+              ...context,
+              query: {
+                ...payload,
+                fromMs: payload.fromMs ?? today,
+                toMs: payload.toMs ?? today + 86_400_000,
+              },
+            }),
+            (binding, request) => binding.centerAgentReadAiUsage?.(request)
+          )
+        );
       },
     }),
     toolDefinition({
@@ -3954,6 +4154,11 @@ export function getRemoteAgentOpenMeldToolDefinitions(
           metadata.revision.sizeBytes
         );
         const imageDescription = await understandRemoteAgentImages({
+          usageDurability: { storage: input.storage },
+          usageScope: await readImageUsageScope(
+            input.storage,
+            input.submissionId
+          ),
           env: input.env,
           fetch: input.fetch,
           images: [
@@ -5034,6 +5239,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
           "needs_attention",
         ]),
         instruction: pipe(string(), trim(), minLength(1), maxLength(4000)),
+        replyLanguageTag: taskReplyLanguageInputSchema,
         task: agentTaskHandleInputSchema,
       }),
       endsTurnAfter: (result) => {
@@ -5056,7 +5262,47 @@ export function getRemoteAgentOpenMeldToolDefinitions(
             completionCondition: payload.completionCondition,
             ...toolContext,
             instruction: payload.instruction,
+            ...(payload.replyLanguageTag
+              ? { replyLanguageTag: payload.replyLanguageTag }
+              : {}),
             task: agentTaskHandleSchema.parse(payload.task),
+          })
+        );
+      },
+    }),
+    toolDefinition({
+      name: "openmeld_continue_task_summary",
+      description:
+        "When the original requester asks to continue a failed summary, inspect the exact subscriptionId previously returned by OpenMeld. Set inspectOnly=true first. If available and requested, set false to queue one fresh summary of existing verified child results. Decide replyLanguageTag from the user's current language request, which overrides the retained reply language. This does not repeat child work or the original writes. Only the original requester is supported; unknown or still-running original execution is unavailable. After queued or already_requested, end this turn and wait for the owned continuation. An unavailable recovery is not pending work: report its reason. For completed recovery, read the exact publishedResult when present and point to it; never queue another summary. Do not poll.",
+      input: strictObject({
+        sourceSubscriptionId: nonEmptyStringSchema,
+        inspectOnly: optional(boolean()),
+        replyLanguageTag: taskReplyLanguageInputSchema,
+      }),
+      endsTurnAfter: (result) => {
+        const parsed =
+          centerAgentContinueTaskSummaryResponseSchema.safeParse(result);
+        return (
+          parsed.success &&
+          (parsed.data.status === "queued" ||
+            parsed.data.status === "already_requested")
+        );
+      },
+      execute: async (payload) => {
+        const toolContext = await buildVerifiedMemberToolContext({
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_continue_task_summary",
+        });
+        const rpc = requireCoreRpc(
+          input.coreWorker.centerAgentContinueTaskSummary,
+          "centerAgentContinueTaskSummary"
+        );
+        return centerAgentContinueTaskSummaryResponseSchema.parse(
+          await rpc({
+            ...toolContext,
+            ...payload,
+            includePublishedResult: true,
           })
         );
       },
@@ -6354,6 +6600,24 @@ async function buildRepresentedMemberAttributionToolContext(input: {
   };
 }
 
+async function buildWakeControlToolContext(input: {
+  storage: RemoteAgentReadableStorage;
+  submissionId: string;
+  toolName: RemoteAgentOpenMeldToolName;
+}): Promise<{
+  context: OpenMeldRequestContext;
+  speakerMember?: CenterAgentToolSpeaker;
+}> {
+  const toolContext = await buildOpenMeldToolContext(input);
+  const speakerMember = resolveOrganizationMemberTurnEnvelopeSpeaker(
+    toolContext.turnEnvelope
+  );
+  return {
+    context: toolContext.context,
+    ...(speakerMember ? { speakerMember } : {}),
+  };
+}
+
 async function buildOrganizationMemberToolContext(input: {
   missingSpeakerMessage?: string;
   storage: RemoteAgentReadableStorage;
@@ -6929,6 +7193,11 @@ async function describeSlackImage(input: {
     );
   }
   return await understandRemoteAgentImages({
+    usageDurability: { storage: input.definitionInput.storage },
+    usageScope: await readImageUsageScope(
+      input.definitionInput.storage,
+      input.definitionInput.submissionId
+    ),
     env: input.definitionInput.env,
     fetch: input.definitionInput.fetch,
     images: [
@@ -6943,6 +7212,23 @@ async function describeSlackImage(input: {
     organizationId: input.response.organizationId,
     prepareImage: input.definitionInput.prepareImage,
   });
+}
+
+async function readImageUsageScope(
+  storage: RemoteAgentStorage,
+  submissionId: string
+) {
+  const context = await readRemoteAgentCallbackContext(storage, submissionId);
+  if (!context) {
+    throw new Error("Image usage requires durable execution attribution.");
+  }
+  return {
+    agentProfileId: context.agentProfileId,
+    spaceId: context.spaceId,
+    taskId: context.taskId ?? null,
+    dispatchId: context.dispatchId,
+    attemptId: context.submissionId,
+  };
 }
 
 async function readBoundedSpaceImage(

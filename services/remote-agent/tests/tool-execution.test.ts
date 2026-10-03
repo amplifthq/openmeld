@@ -5,6 +5,7 @@ import {
   putRemoteAgentCallbackContext,
   readRemoteAgentCallbackContext,
 } from "../agent-core/callback-context";
+import { ConnectorActionOutcomeUnknownError } from "../agent-core/connector-tools";
 import {
   buildRemoteAgentExecutionIdentity,
   completeRemoteAgentExecutionState,
@@ -37,6 +38,42 @@ import { InMemoryDurableObjectStorage } from "./storage";
 const SUBMISSION_ID = "submission-turn-end";
 
 describe("Remote Agent tool execution", () => {
+  it.each([
+    "direct",
+    "code_mode",
+  ] as const)("returns an uncertain write receipt to %s without exposing provider details", async (source) => {
+    const { storage } = await createToolExecutionTestContext();
+    const result = await executeRemoteAgentToolDefinition({
+      source,
+      storage,
+      submissionId: SUBMISSION_ID,
+      toolInput: {},
+      definition: {
+        description: "Attempt an authorized comment.",
+        name: "github_create_issue_comment",
+        input: object({}),
+        execute: () =>
+          Promise.reject(
+            new ConnectorActionOutcomeUnknownError({
+              actionId: "github.create_issue_comment",
+              operationId: "comment-1",
+              cause: new Error("synthetic-private-provider-detail"),
+            })
+          ),
+      },
+    });
+    expect(result).toMatchObject({
+      status: "outcome_unknown",
+      operationId: "comment-1",
+      executionConfirmation: "unknown",
+    });
+    const text = JSON.stringify(result);
+    expect(text).toContain("write may already have succeeded");
+    expect(text).toContain("Do not retry this write");
+    expect(text).toContain("Never repeat the write with a new operationId");
+    expect(text).toContain("Original operationId: comment-1");
+    expect(text).not.toContain("synthetic-private-provider-detail");
+  });
   it.each([
     "A",
     "中文",

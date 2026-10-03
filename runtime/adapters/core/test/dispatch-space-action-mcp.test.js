@@ -49,6 +49,7 @@ test("dispatch Space Action MCP config forwards only its bounded authority", asy
       "read_documents",
       "read_skills",
       "read_result",
+      "open_direct_message",
       "list_tasks",
       "create_task",
       "start_task",

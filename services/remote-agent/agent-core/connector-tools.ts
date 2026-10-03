@@ -4,6 +4,7 @@ import {
   centerAgentConnectorConnectionSelectionSchema,
   centerAgentReadConnectorActionOperationResponseSchema,
   centerAgentRecordConnectorActionOperationResponseSchema,
+  connectorActionOutcomeUnknownSchema,
 } from "@openmeld/schemas";
 import type {
   ConnectorService,
@@ -62,6 +63,8 @@ import type { RemoteAgentToolDefinition } from "./tool-definition";
 
 const GITHUB_DEDICATED_ACTION_INSTRUCTION =
   "This Plugins list never reports GitHub access. For a GitHub request, call the matching github_* tool; it will verify the requested Organization or member GitHub connection.";
+export const CONNECTOR_WRITE_RECOVERY_GUIDANCE =
+  "For a pending or unknown write, retry exactly once only if its receipt explicitly allows replay within the original 24-hour window. Keep the original operationId, account, and unchanged input; never use a new ID to repeat the write. Then use a read tool to check the target. Only if neither step confirms the result, explain this one uncertain result in the final reply and link its target.";
 export const REMOTE_AGENT_CONNECTOR_TOOL_NAMES = [
   "openmeld_list_connected_apps",
   "openmeld_list_app_actions",
@@ -194,8 +197,7 @@ export function getRemoteAgentConnectorToolDefinitions(
     },
     {
       name: "openmeld_execute_app_action",
-      description:
-        "Execute one exact action previously discovered with openmeld_list_app_actions. This can read or change provider data, so use the action description, effect, and input schema literally. The discovered action's effect declares whether this call is a read, ordinary external write, or destructive external write. A successful execution returns provider data and the action catalog's outputSchema; interpret the data through that schema, and use a declared aggregate or estimate field instead of counting one returned page. An interactive destructive action requires linked OpenMeld identity and returns an exact action preview and token. If the verified user already authorized that action and target, use the token with unchanged input now; otherwise ask first. Routines do not currently support destructive actions and receive routine_destructive_action_unsupported with zero side effects. Choose a stable operationId and reuse it when retrying this exact action. Set connectionPreference to requester or shared when the user explicitly chooses their own or the Organization account; do not substitute another account. A connection continuation may pin the exact account on the server. OpenMeld attributes and durably records every execution. GitHub uses its dedicated github_* tools instead.",
+      description: `Execute one exact action previously discovered with openmeld_list_app_actions. This can read or change provider data, so use the action description, effect, and input schema literally. The discovered action's effect declares whether this call is a read, ordinary external write, or destructive external write. A successful execution returns provider data and its outputSchema; interpret the data through that schema, and use a declared aggregate or estimate field instead of counting one returned page. An interactive destructive action requires linked OpenMeld identity and returns an exact action preview and token. If the verified user already authorized that action and target, use the token with unchanged input now; otherwise ask first. Routines do not currently support destructive actions and receive routine_destructive_action_unsupported with zero side effects. Choose a stable operationId. ${CONNECTOR_WRITE_RECOVERY_GUIDANCE} Set connectionPreference to requester or shared when the user explicitly chooses their own or the Organization account; do not substitute another account. A connection continuation may pin the exact account on the server. OpenMeld attributes and durably records every execution. GitHub uses its dedicated github_* tools instead.`,
       input: executeAppActionInputSchema,
       execute: (payload) =>
         executeAppAction({
@@ -272,7 +274,14 @@ async function executeAppAction(input: {
           service: input.request.service,
         })))
       : undefined;
-  let executionAction = routineAction ?? policyAction;
+  const executionAction =
+    routineAction ??
+    policyAction ??
+    (await requireOpenConnectorAction({
+      actionId: input.request.actionId,
+      connectorExecution: input.dependencies.connectorExecution,
+      service: input.request.service,
+    }));
   if (routineAction && requiresHighRiskConnectorActionPolicy(routineAction)) {
     const block = resolveRemoteAgentRoutineDestructiveActionBlock(toolContext);
     if (!block) {
@@ -288,53 +297,47 @@ async function executeAppAction(input: {
   let confirmedSelection:
     | Awaited<ReturnType<typeof requireAvailableConnectorConnection>>
     | undefined;
-  if (!existingOperation) {
-    executionAction =
-      routineAction ??
-      (await requireOpenConnectorAction({
-        actionId: input.request.actionId,
-        connectorExecution: input.dependencies.connectorExecution,
+  if (
+    !existingOperation &&
+    requiresHighRiskConnectorActionPolicy(executionAction)
+  ) {
+    const requester = resolveConnectorTurnRequester(
+      toolContext.turnEnvelope,
+      input.request.connectionPreference
+    );
+    confirmedSelection = await requireAvailableConnectorConnection({
+      storage: input.dependencies.storage,
+      submissionId: input.dependencies.submissionId,
+      connectionPreference: requester.connectionPreference,
+      coreWorker: input.dependencies.coreWorker,
+      requesterUserId: requester.requesterUserId,
+      service: input.request.service,
+      toolContext,
+    });
+    const authorization = await resolveRemoteAgentDestructiveAuthorization({
+      actionDescription: `${executionAction.name}: ${executionAction.description}, using ${executionAction.id} with input ${JSON.stringify(
+        input.request.input
+      )}`,
+      actionId: executionAction.id,
+      actionInput: {
+        input: input.request.input,
         service: input.request.service,
-      }));
-    if (requiresHighRiskConnectorActionPolicy(executionAction)) {
-      const requester = resolveConnectorTurnRequester(
-        toolContext.turnEnvelope,
-        input.request.connectionPreference
-      );
-      confirmedSelection = await requireAvailableConnectorConnection({
-        storage: input.dependencies.storage,
-        submissionId: input.dependencies.submissionId,
-        connectionPreference: requester.connectionPreference,
-        coreWorker: input.dependencies.coreWorker,
-        requesterUserId: requester.requesterUserId,
-        service: input.request.service,
-        toolContext,
-      });
-      const authorization = await resolveRemoteAgentDestructiveAuthorization({
-        actionDescription: `${executionAction.name}: ${executionAction.description}, using ${executionAction.id} with input ${JSON.stringify(
-          input.request.input
-        )}`,
+      },
+      executionIdentity: {
+        connectionName: confirmedSelection.connection.connectionName,
+        ownerUserId: confirmedSelection.connection.userId,
+      },
+      storage: input.dependencies.storage,
+      submissionId: input.dependencies.submissionId,
+      token: input.request.destructiveConfirmationToken,
+      tokenFieldName: "destructiveConfirmationToken",
+      toolContext,
+    });
+    if (!authorization.authorized) {
+      return {
         actionId: executionAction.id,
-        actionInput: {
-          input: input.request.input,
-          service: input.request.service,
-        },
-        executionIdentity: {
-          connectionName: confirmedSelection.connection.connectionName,
-          ownerUserId: confirmedSelection.connection.userId,
-        },
-        storage: input.dependencies.storage,
-        submissionId: input.dependencies.submissionId,
-        token: input.request.destructiveConfirmationToken,
-        tokenFieldName: "destructiveConfirmationToken",
-        toolContext,
-      });
-      if (!authorization.authorized) {
-        return {
-          actionId: executionAction.id,
-          ...authorization.result,
-        };
-      }
+        ...authorization.result,
+      };
     }
   }
   const operation = await prepareConnectorActionOperation({
@@ -347,6 +350,7 @@ async function executeAppAction(input: {
   const run = await runAndFinalizeConnectorAction({
     ...input,
     ...operation,
+    effect: resolveActionEffect(executionAction),
     toolContext,
   });
   const attribution = (() => {
@@ -388,7 +392,10 @@ async function executeAppAction(input: {
       attribution,
       data: run.data,
       operationId: input.request.operationId,
-      outputSchema: executionAction?.outputSchema,
+      outputSchema: resolveConnectorActionOutputSchema(
+        run.outputSchema,
+        executionAction?.outputSchema
+      ),
       providerExecutionId: run.providerExecutionId,
       replayed: operation.coreOperationReplayed,
     },
@@ -532,6 +539,8 @@ async function prepareConnectorActionOperation(input: {
   });
   return {
     connectionName,
+    operationReplayed: Boolean(input.existingOperation) || claim.replayed,
+    operationReplayExpiresAtMs: claim.operationReplayExpiresAtMs,
     coreOperationReplayed: claim.replayed,
     executionConnection:
       input.existingOperation?.executionConnection ??
@@ -542,13 +551,115 @@ async function prepareConnectorActionOperation(input: {
   };
 }
 
+export class ConnectorActionOutcomeUnknownError extends OpenConnectorActionError {
+  readonly result;
+
+  constructor(input: {
+    actionId: string;
+    cause: unknown;
+    input?: Record<string, unknown>;
+    operationId: string;
+    operationReplayExpiresAtMs?: number;
+    operationReplayed?: boolean;
+    providerExecutionId?: string;
+  }) {
+    const outcome = input.providerExecutionId
+      ? "The provider confirmed this action, but OpenMeld could not save its completion."
+      : "This action's outcome is not confirmed. The write may already have succeeded.";
+    const target = connectorActionVerificationTarget(input);
+    let replay =
+      input.operationReplayExpiresAtMs !== undefined &&
+      performance.now() < input.operationReplayExpiresAtMs
+        ? "You may retry exactly once with the original operationId, account, and unchanged input inside the verified original provider window; the provider reserved this request before executing it."
+        : "Do not retry this write: its original deduplication window could not be verified or has expired.";
+    if (input.operationReplayed) {
+      replay =
+        "Do not retry this write again: the exact replay has already been attempted.";
+    }
+    const message = `${outcome} ${replay} Never repeat the write with a new operationId. Next use a read tool to verify it ${target ? `at ${target}` : "at the action's target in the connected App"}. Only if it remains uncertain, explain this result in the final reply and include its target. Original operationId: ${input.operationId}.`;
+    super({
+      cause: input.cause,
+      message,
+      outcome: "outcome_unknown",
+      providerExecutionId: input.providerExecutionId,
+    });
+    this.name = "ConnectorActionOutcomeUnknownError";
+    this.result = connectorActionOutcomeUnknownSchema.parse({
+      status: "outcome_unknown",
+      actionId: input.actionId,
+      operationId: input.operationId,
+      executionConfirmation: input.providerExecutionId ? "executed" : "unknown",
+      providerExecutionId: input.providerExecutionId ?? null,
+      message,
+    });
+  }
+}
+
+const GITHUB_VERIFICATION_REPOSITORY_PART = /^[a-z\d][a-z\d_.-]*$/iu;
+
+function connectorActionVerificationTarget(input: {
+  actionId: string;
+  input?: Record<string, unknown>;
+}): string | null {
+  const { owner, repo, issueNumber, pullNumber } = input.input ?? {};
+  if (
+    !input.actionId.startsWith("github.") ||
+    typeof owner !== "string" ||
+    typeof repo !== "string" ||
+    !GITHUB_VERIFICATION_REPOSITORY_PART.test(owner) ||
+    !GITHUB_VERIFICATION_REPOSITORY_PART.test(repo)
+  ) {
+    return null;
+  }
+  const repository = `https://github.com/${owner}/${repo}`;
+  if (
+    typeof issueNumber === "number" &&
+    Number.isSafeInteger(issueNumber) &&
+    issueNumber > 0
+  ) {
+    return `${repository}/issues/${issueNumber}`;
+  }
+  if (
+    typeof pullNumber === "number" &&
+    Number.isSafeInteger(pullNumber) &&
+    pullNumber > 0
+  ) {
+    return `${repository}/pull/${pullNumber}`;
+  }
+  return repository;
+}
+
+export function resolveConnectorActionOutputSchema(
+  executionOutputSchema: Record<string, unknown> | undefined,
+  catalogOutputSchema: Record<string, unknown> | undefined
+): Record<string, unknown> | undefined {
+  return executionOutputSchema ?? catalogOutputSchema;
+}
+
 export async function runAndFinalizeConnectorAction(input: {
   connectionName: string;
   dependencies: ConnectorToolDependencies;
+  effect?: OpenConnectorRuntimeAction["effect"] | "unspecified";
+  operationReplayExpiresAtMs?: number;
+  operationReplayed?: boolean;
   request: ConnectorActionOperationRequest;
   requestSignature: string;
   toolContext: Awaited<ReturnType<typeof buildRemoteAgentToolContext>>;
 }): Promise<OpenConnectorActionRun> {
+  if (
+    input.effect !== "read" &&
+    input.operationReplayed &&
+    (input.operationReplayExpiresAtMs === undefined ||
+      performance.now() >= input.operationReplayExpiresAtMs)
+  ) {
+    throw new ConnectorActionOutcomeUnknownError({
+      ...input.request,
+      operationReplayExpiresAtMs: input.operationReplayExpiresAtMs,
+      cause: new Error(
+        "The original provider deduplication window has expired."
+      ),
+    });
+  }
   let run: OpenConnectorActionRun;
   try {
     run = await runOpenConnectorAction({
@@ -560,7 +671,40 @@ export async function runAndFinalizeConnectorAction(input: {
       input: input.request.input,
     });
   } catch (error) {
-    await finalizeFailedConnectorAction({ ...input, error });
+    if (error instanceof OpenConnectorOperationPendingError) {
+      if (input.effect === "read") {
+        throw error;
+      }
+      // Keep the Core operation pending. Provider keys are transport identity;
+      // only the caller's operationId belongs in a model-visible receipt.
+      throw new ConnectorActionOutcomeUnknownError({
+        ...input.request,
+        operationReplayExpiresAtMs: input.operationReplayExpiresAtMs,
+        operationReplayed: input.operationReplayed,
+        cause: error,
+      });
+    }
+    try {
+      await finalizeFailedConnectorAction({ ...input, error });
+    } catch (finalizationError) {
+      throw new ConnectorActionOutcomeUnknownError({
+        ...input.request,
+        operationReplayExpiresAtMs: input.operationReplayExpiresAtMs,
+        operationReplayed: input.operationReplayed,
+        cause: finalizationError,
+      });
+    }
+    if (
+      !(error instanceof OpenConnectorActionError) ||
+      error.outcome === "outcome_unknown"
+    ) {
+      throw new ConnectorActionOutcomeUnknownError({
+        ...input.request,
+        operationReplayExpiresAtMs: input.operationReplayExpiresAtMs,
+        operationReplayed: input.operationReplayed,
+        cause: error,
+      });
+    }
     throw error;
   }
   try {
@@ -576,10 +720,13 @@ export async function runAndFinalizeConnectorAction(input: {
       toolContext: input.toolContext,
     });
   } catch (finalizationError) {
-    throw new Error(
-      `OpenConnector action ${input.request.actionId} completed at the provider, but OpenMeld could not finalize operation ${input.request.operationId}. Retry this exact action with the same operationId.`,
-      { cause: finalizationError }
-    );
+    throw new ConnectorActionOutcomeUnknownError({
+      ...input.request,
+      operationReplayExpiresAtMs: input.operationReplayExpiresAtMs,
+      operationReplayed: input.operationReplayed,
+      cause: finalizationError,
+      providerExecutionId: run.providerExecutionId,
+    });
   }
   return run;
 }
@@ -592,9 +739,6 @@ async function finalizeFailedConnectorAction(input: {
   requestSignature: string;
   toolContext: Awaited<ReturnType<typeof buildRemoteAgentToolContext>>;
 }): Promise<void> {
-  if (input.error instanceof OpenConnectorOperationPendingError) {
-    throw input.error;
-  }
   try {
     await recordConnectorActionOperation({
       actionId: input.request.actionId,
@@ -615,7 +759,7 @@ async function finalizeFailedConnectorAction(input: {
     });
   } catch (finalizationError) {
     throw new Error(
-      `OpenConnector action ${input.request.actionId} did not complete cleanly, and OpenMeld could not finalize operation ${input.request.operationId}. Retry this exact action with the same operationId.`,
+      `OpenConnector action ${input.request.actionId} did not complete cleanly, and OpenMeld could not finalize operation ${input.request.operationId}. Its result is not confirmed.`,
       {
         cause: new AggregateError(
           [input.error, finalizationError],
@@ -804,12 +948,14 @@ export async function readConnectorActionOperation(input: {
   toolContext: Awaited<ReturnType<typeof buildRemoteAgentToolContext>>;
 }) {
   const speakerMember = requireConnectorActionSpeaker(input.toolContext);
-  return centerAgentReadConnectorActionOperationResponseSchema.parse(
+  const startedAtMs = performance.now();
+  const response = centerAgentReadConnectorActionOperationResponseSchema.parse(
     await callCoreRpc(
       input.coreWorker,
       "centerAgentReadConnectorActionOperation",
       {
         actionId: input.actionId,
+        includeRecoveryWindow: true,
         context: input.toolContext.context,
         operationId: input.operationId,
         service: input.service,
@@ -818,7 +964,16 @@ export async function readConnectorActionOperation(input: {
       (binding, payload) =>
         binding.centerAgentReadConnectorActionOperation?.(payload)
     )
-  ).operation;
+  );
+  return response.operation
+    ? {
+        ...response.operation,
+        operationReplayExpiresAtMs:
+          response.operation.replayWindowRemainingMs === undefined
+            ? undefined
+            : startedAtMs + response.operation.replayWindowRemainingMs,
+      }
+    : null;
 }
 
 export async function recordConnectorActionOperation(input: {
@@ -834,26 +989,38 @@ export async function recordConnectorActionOperation(input: {
   toolContext: Awaited<ReturnType<typeof buildRemoteAgentToolContext>>;
 }) {
   const speakerMember = requireConnectorActionSpeaker(input.toolContext);
-  return centerAgentRecordConnectorActionOperationResponseSchema.parse(
-    await callCoreRpc(
-      input.coreWorker,
-      "centerAgentRecordConnectorActionOperation",
-      {
-        actionId: input.actionId,
-        effect: input.effect,
-        connectionName: input.connectionName,
-        context: input.toolContext.context,
-        operationId: input.operationId,
-        outcome: input.outcome,
-        providerExecutionId: input.providerExecutionId,
-        requestSignature: input.requestSignature,
-        service: input.service,
-        speakerMember,
-      },
-      (binding, payload) =>
-        binding.centerAgentRecordConnectorActionOperation?.(payload)
-    )
-  );
+  const startedAtMs = performance.now();
+  const response =
+    centerAgentRecordConnectorActionOperationResponseSchema.parse(
+      await callCoreRpc(
+        input.coreWorker,
+        "centerAgentRecordConnectorActionOperation",
+        {
+          actionId: input.actionId,
+          includeRecoveryWindow: true,
+          effect: input.effect,
+          connectionName: input.connectionName,
+          context: input.toolContext.context,
+          operationId: input.operationId,
+          outcome: input.outcome,
+          providerExecutionId: input.providerExecutionId,
+          requestSignature: input.requestSignature,
+          service: input.service,
+          speakerMember,
+        },
+        (binding, payload) =>
+          binding.centerAgentRecordConnectorActionOperation?.(payload)
+      )
+    );
+  return {
+    ...response,
+    // Anchor at request start, so time spent obtaining the receipt consumes
+    // the window. Use a monotonic local clock, not cross-service timestamps.
+    operationReplayExpiresAtMs:
+      response.replayWindowRemainingMs === undefined
+        ? undefined
+        : startedAtMs + response.replayWindowRemainingMs,
+  };
 }
 
 function requireConnectorActionSpeaker(

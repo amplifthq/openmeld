@@ -42,6 +42,23 @@ This package owns UI mechanics and visual primitives only. It does not own
 product copy, business rules, readiness, Wake state, setup state, Space truth,
 or client routing.
 
+`components/evilcharts` owns the official registry-installed Apache ECharts
+area primitive and its theme, tooltip, legend, dot, and brush modules. Its
+README records source provenance and local adaptations. Consumers compose
+the compound API and lazy-load the rendering module; product scope, queries,
+and surrounding interactions remain outside the chart primitive. Use Fluid
+surfaces and controls around charts. Preserve null gaps, escaped tooltip text,
+and reduced-motion loading behavior when refreshing registry source.
+
+`components/folder-component` adapts Rare UI's folder artwork and demo content.
+It exposes controlled open state, a content slot, numeric scaling, and decorative
+composition for an external accessible trigger. Repeated instances use unique
+SVG filter IDs; reduced motion removes travel. Agent grouping and shared avatar
+transitions stay in the Web-owned composition. The upstream license and credit
+are retained beside the source and in the repository README. The Web-owned
+`AgentFolders` composition is retained as an unused alternative; the directory
+uses `AgentGroupCards`, composing Fluid Card and Fluid Nav Menu instead.
+
 `VideoPlayer` composes Media Chrome's controls with shared design tokens and solid
 surfaces. It owns no file fetching, credentials, cache, or Space identity. Global
 media hotkeys are disabled so the chat composer retains its keys.
@@ -61,6 +78,9 @@ including dropdowns, selects, and action menus. Do not reconstruct menus from
 generic Popover and Button components; reuse Fluid interaction behavior and the
 shared radius tokens. Sidebar section actions reveal on their own section's
 hover or keyboard focus, with open-menu and touch-device visibility preserved.
+Dropdown and context-menu popups default to content width, bounded by the
+available viewport width. Short action labels stay on one line without inheriting
+the trigger's width; constrained or explicitly sized menus may still wrap.
 Space Agent work and reasoning share `fluid/thinking-steps` as their disclosure;
 client code supplies the private reasoning, public progress, and admitted work
 content without a second shared disclosure component.
@@ -100,6 +120,10 @@ eligibility reads. Nested scopes open only the nearest menu. Inputs, editable
 content, selected text, and disabled scopes retain native context menus.
 `FluidDropdownMenuGroup` splits measured hover lists at semantic dividers;
 `FluidDropdownMenuSubTrigger` keeps submenu triggers in their owning list.
+Menu separators leave one spacing unit (4px) on each side, matching the menu's
+content inset. Both shared menu families own this spacing. Sidebar hover pauses
+for open context-menu trigger slots as well as ordinary popup triggers; Base UI
+context-menu areas expose an open marker without `aria-haspopup`.
 
 Prefer this primitive for stable, closely spaced clickable alternatives in
 menus, navigation, tabs, and grids. Use one list per semantic group; split at
@@ -166,6 +190,14 @@ account/workspace lists, and code previews. `ScrollAreaRoot`,
 `ScrollAreaViewport`, and `ScrollAreaContent` support render composition with
 existing scroll owners. The MessageScroller uses these parts while retaining
 its own prepend, anchor, and automatic-follow behavior.
+
+Work summaries, live work details, file viewers, command lists, selects, and
+horizontal tables also compose this owner with fades enabled. Keep refs and
+scroll handlers on the viewport, and content layout and padding on the content
+slot. The viewport is positioned so measured hover geometry stays relative to
+the scrolling element. Do not maintain viewer-local copies of ScrollArea or
+disable their fades. Long dialogs keep their close control outside the scrolling
+body and reuse ScrollArea for that body.
 
 Native browser document scrolling, editable fields, editor-owned selection
 containers, and geometry-sensitive overlays keep their owning DOM and use the
@@ -388,10 +420,10 @@ priority, or any product identity rule; those remain client composition.
 
 `FluidAvatar` owns the decorative fluid avatar primitive, adapted from Rare UI's
 Fluid Orb. It is distinct from Web's `SpaceAgentOrb` working-status indicator.
-Its `animated` and `animateOnHover` props are independently opt-in. Reduced
-motion, offscreen visibility, and hidden documents suspend animation. Each
-avatar preserves its last frame and playback position when paused, and resumes
-from that position. The single-avatar creation preview opts into autoplay;
+Its `animated` and `animateOnHover` props are independently opt-in. Each avatar
+returns to its initial frame when animation ends or reduced motion is enabled.
+Offscreen and hidden documents suspend playback until visible again.
+The single-avatar creation preview opts into autoplay;
 other surfaces opt in through working state or hover. One
 128-pixel WebGL renderer serves the page; avatar instances retain small 2D
 frames. Static frames are cached by color with a 64-frame limit. Idle instances
@@ -399,12 +431,38 @@ do not subscribe to animation frames. Context failure preserves a rendered
 frame or the supplied fallback without repeatedly allocating GPU contexts.
 
 Web's `RemoteAgentAvatar` uses the stable Profile ID as the saved fluid avatar
-seed. Hosted Remote Agents default to the current model vendor's mark and can
-keep an explicitly selected fluid avatar across model changes. Center Agents
-default to one of the 18 Bot avatars, selected from the managed Profile ID;
-authorized admins can explicitly select another Bot or the fluid avatar. Bot avatars
-do not hop when idle, animate for real working state, and jump once on an
-explicit click. Reduced-motion preference suppresses their animation.
+seed. Hosted Remote Agents default to the selected model provider's existing
+`ModelBrandIcon`, using the exact provider namespace of the directory's current
+`avatarModelId`, never the model display name or the OpenRouter calling channel.
+Unknown providers or missing logo assets use the generic Agent mark. Saved images
+and explicitly selected fluid avatars take precedence across model changes.
+Center Agents display their saved Bot or fluid style; authorized admins can
+select either. Missing
+style displays the automatic mark and must not hash the Profile ID to invent a
+saved Bot selection. The app shell provides one read of the existing Organization
+Profile Directory to every avatar entrance. Saved preferences are applied to
+loaded profile caches and invalidated after a successful save. Idle and read-only
+editors use the same saved Profile; only an unsaved user selection is a preview.
+Failed saves discard that preview and return to the current saved identity.
+Successful saves also send an account/Organization/Profile-scoped browser refresh
+hint. Other tabs re-read their own authorized directory; the hint carries no
+avatar data and does not add directories to browser persistence. Model saves
+refresh the same directory projection and update automatic Remote logos.
+Shared `BotAvatar` composes the public `bot-avatars` simulation and renderer so
+click feedback and pointer following are independent. Space/sidebar avatars
+and profile popovers play one small hop on an explicit click without following
+the pointer; popover opening and navigation still belong to their existing
+controls. The Team Center Agent card has a separate avatar button that also
+follows a fine pointer while hovered; its remaining area opens the conversation.
+The avatar editor retains the library's original preview interaction.
+Bot avatars do not hop when idle and animate for real working state. Clicks do
+not queue or restart a hop. Static instances do not subscribe to animation
+frames or visibility observation; active rendering pauses offscreen and in hidden
+documents. A cache of at most 64 independently rendered still frames avoids
+freezing the library's lighting blend when animation stops.
+Finished or interrupted motion returns to the resting pose, and
+reduced motion suppresses animation. Wrappers leave overflow visible so moving
+Bot geometry is not clipped.
 Personal Remote Agents use rounded squares, Center Agents use circles, and Local Agents
 retain their harness logos. Web supplies authoritative working state; the
 primitive never infers work from presence or starts its own status queries.

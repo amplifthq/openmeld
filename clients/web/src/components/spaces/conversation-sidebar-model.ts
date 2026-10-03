@@ -34,7 +34,7 @@ export function conversationCategory(item: Conversation) {
 	}
 	return item.chat.session
 		? "agent"
-		: (item.chat.peer?.profileKind ?? "unknown");
+		: (item.chat.profileKind ?? item.chat.peer?.profileKind ?? "unknown");
 }
 
 export function conversationSections(

@@ -18,11 +18,14 @@ import type {
   RemoteAgentWorkerSubmitTurnRequest,
 } from "@openmeld/schemas/types";
 import type { Agent } from "agents";
+import { summarizeAgentActivityDigest } from "../../agent-core/agent-activity-digest";
+import { flushRemoteAiUsage } from "../../agent-core/ai-usage";
 import {
   listRemoteAgentUsageRecords,
   type RemoteAgentCoreWorkerBinding,
   waitForRemoteAgentCallbackContext,
 } from "../../agent-core/callback-context";
+import { generateCenterAgentSessionTitle } from "../../agent-core/center-agent-session-title";
 import { callCoreRpc } from "../../agent-core/core-rpc";
 import {
   assertRemoteAgentExecutionCanContinue,
@@ -41,7 +44,10 @@ import {
   buildRemoteAgentName,
   cleanupExpiredRemoteAgentSubmissionReceipts,
   cleanupFinalizedRemoteAgentSubmissionAttachments,
+  parseRemoteAgentSubmitTurnRequest,
   readExistingRemoteAgentSubmission,
+  readRemoteAgentAdmission,
+  readRemoteAgentAdmissionStop,
   resolveRemoteAgentTurnEnvelopeForExecution,
   submitRemoteAgentConversationTurn,
 } from "../../agent-core/submission";
@@ -78,6 +84,7 @@ import {
 } from "../../flue-adapter/conversation-footprint";
 import { cancelFlueRemoteAgentExecution } from "../../flue-adapter/execution-cancellation";
 import {
+  acknowledgeRemoteAgentExecutionPreparation,
   installRemoteAgentExecutionInstrumentation,
   registerRemoteAgentExecutionPreparation,
   requireRemoteAgentExecutionResources,
@@ -143,6 +150,9 @@ async function prepareCenterAgentRender() {
   const personalAgent =
     executionContext?.conversationIdentity?.kind === "personal_agent";
   const includeTaskDocuments = runtimeContextPlan.includeOrganizationDocuments;
+  const summaryOnly =
+    turnEnvelope?.trigger.source === "task_continuation" &&
+    turnEnvelope.trigger.summaryOnly;
   if (personalAgent) {
     runtimeContextPlan.includeOrganizationDocuments = false;
   }
@@ -195,6 +205,7 @@ async function prepareCenterAgentRender() {
     createSandbox: async () =>
       executionContext &&
       !executionContext.replyRecovery &&
+      !summaryOnly &&
       executionContext.computerIsolationVersion === 2 &&
       isRemoteAgentComputerEnabled(env)
         ? await createRemoteAgentComputerCapability({
@@ -251,6 +262,11 @@ async function prepareCenterAgentRender() {
       if (!executionContext) {
         return;
       }
+      await acknowledgeRemoteAgentExecutionPreparation({
+        context: executionContext,
+        coreWorker,
+        storage,
+      });
       await markRemoteAgentExecutionProgress({
         identity: buildRemoteAgentExecutionIdentity(executionContext),
         nowMs: Date.now(),
@@ -261,6 +277,7 @@ async function prepareCenterAgentRender() {
     materializeSkills: async () =>
       executionContext &&
       !executionContext.replyRecovery &&
+      !summaryOnly &&
       runtimeContextPlan.materializeOrganizationSkills &&
       organizationSkillSelections.length > 0
         ? materializeOrganizationSkillFlueSkillsFromCatalog({
@@ -437,6 +454,43 @@ CenterAgentV2.steeringSource = (_submissionId: string) => {
 export const cloudflare = extend<Agent<CloudflareBindings>>({
   base: (Base) =>
     class extends Base {
+      async readAdmission(input: unknown) {
+        return await readRemoteAgentAdmission({
+          request: parseRemoteAgentSubmitTurnRequest(input),
+          storage: createRemoteAgentSqlStorage(this.ctx.storage.sql),
+        });
+      }
+
+      async readAdmissionStop(input: unknown) {
+        return await readRemoteAgentAdmissionStop({
+          request: parseRemoteAgentSubmitTurnRequest(input),
+          storage: createRemoteAgentSqlStorage(this.ctx.storage.sql),
+        });
+      }
+      async generateCenterAgentSessionTitle(request: unknown) {
+        return await generateCenterAgentSessionTitle({
+          env: this.env as CloudflareBindings,
+          request,
+          usageDurability: {
+            storage: createRemoteAgentSqlStorage(this.ctx.storage.sql),
+            scheduleRetry: () => this.armRemoteAgentCallbackRetry(),
+          },
+        });
+      }
+
+      async summarizeAgentActivityDigest(
+        request: Parameters<typeof summarizeAgentActivityDigest>[0]["request"]
+      ) {
+        return await summarizeAgentActivityDigest({
+          env: this.env as CloudflareBindings,
+          request,
+          usageDurability: {
+            storage: createRemoteAgentSqlStorage(this.ctx.storage.sql),
+            scheduleRetry: () => this.armRemoteAgentCallbackRetry(),
+          },
+        });
+      }
+
       async receiveExecutionInput(input: unknown) {
         const request =
           remoteAgentWorkerExecutionInputRequestSchema.parse(input);
@@ -606,6 +660,17 @@ export const cloudflare = extend<Agent<CloudflareBindings>>({
                 ...imageInput,
                 env: this.env as CloudflareBindings,
                 prepareImage: prepareImageForContext,
+                usageDurability: {
+                  storage,
+                  scheduleRetry: () => this.armRemoteAgentCallbackRetry(),
+                },
+                usageScope: {
+                  agentProfileId: request.agentProfileId,
+                  spaceId: request.spaceId,
+                  taskId: request.taskId ?? null,
+                  dispatchId: request.dispatchId,
+                  attemptId: request.idempotencyKey,
+                },
               }),
           });
           let ack: RemoteAgentWorkerSubmitMessagesResult;
@@ -668,6 +733,19 @@ export const cloudflare = extend<Agent<CloudflareBindings>>({
 
       async retryRemoteAgentCallbacks(): Promise<void> {
         const storage = createRemoteAgentSqlStorage(this.ctx.storage.sql);
+        try {
+          const morePending = await flushRemoteAiUsage({
+            storage,
+            coreWorker: this.env
+              .OPENMELD_CORE_WORKER as unknown as RemoteAgentCoreWorkerBinding,
+          });
+          if (morePending) {
+            await this.armRemoteAgentCallbackRetry();
+          }
+        } catch (error) {
+          console.error("[remote_agent.ai_usage.retry_failed]", error);
+          await this.armRemoteAgentCallbackRetry();
+        }
         const readSubmission = requireFlueSubmissionReader(this);
         await reconcileAndRedeliverRemoteAgentCallbacks({
           env: this.env,
@@ -733,6 +811,7 @@ export const cloudflare = extend<Agent<CloudflareBindings>>({
           identity: request,
           nowMs: Date.now(),
           reason: request.reason,
+          summaryRecoveryId: request.summaryRecoveryId,
           storage,
         });
         if (cancellation.abortedFlueSubmission !== null) {

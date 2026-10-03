@@ -136,6 +136,17 @@ browser Web has no updater controls.
 
 ### Shared Profile and Organization actions
 
+The Team Agent directory and person Agent directory default to Fluid group cards by local
+Controller and remote model provider. Group disclosure is local presentation
+state; it does not mutate the page or section filters. Filtering precedes grouping,
+and the current sort determines the Agents and first three avatar previews within
+each card. A borderless two-by-two preview shows up to three avatars and the
+remaining count. The section's Expand all control hides group holders and restores
+the original flat Agent cards without changing filters or sorting; Show groups
+restores grouping. Existing view settings also offer Controller, Provider, Model, and
+ungrouped presentation. Bulk selection shows all filtered cards so its visible
+selection scope remains explicit. Center Agent presentation stays separate.
+
 Web and the packaged Desktop renderer use the same fixed `/v1/` business routes.
 `lib/auth-business.server.ts` validates public inputs and safe response projections
 while retaining Auth's original HTTP handlers, permissions, middleware, cookies,
@@ -476,6 +487,14 @@ incoming messages do not refocus the Composer, and deferred editor focus is
 canceled when another surface takes focus. Existing mention clearing and
 message-history navigation rules remain unchanged.
 
+The shared Plate editor must preserve a valid native selection across an
+unchanged React render while Slate's deferred selection handler catches up.
+Selection synchronization belongs to Slate, not a second Composer listener or
+draft writer. The pinned dependency repair and its removal criteria live in
+[`patches/slate-react-selection.md`](../../patches/slate-react-selection.md).
+Run `pnpm --filter openmeld-web test:editor:browser` for the native selection,
+draft, mention, composition, and document-decoration regression matrix.
+
 OpenMeld Web is the primary browser surface for the user-visible collaboration loop:
 
 ```text
@@ -550,6 +569,11 @@ Existing Composer draft persistence remains the draft owner. Unsaved-change
 guards and pending Space sends register recovery blockers using their existing
 facts; recovery leaves those surfaces and native navigation warnings mounted
 rather than discarding unsaved work to make a deployment look seamless.
+Space creation also blocks automatic recovery while its name, visibility, or
+submission is unfinished. A failed lazy Settings section stays within the
+Settings content boundary, leaving the dialog dismissal, workspace, editable
+owners, and pending sends mounted when recovery is deferred. The error remains
+reportable; the boundary does not retry writes or replace recovery policy.
 
 Recovery accepts only module-fetch and CSS-preload failures, not arbitrary
 exceptions from executing a module. Automatic attempts retain a 30-second
@@ -1256,6 +1280,11 @@ owner for earlier/newer context and return-to-latest behavior, rather than
 searching a fixed number of pages from the live tail. A newer navigation cancels
 the previous lookup. Main-message links take precedence over a previously open
 Thread; explicit Thread links still open the Thread shell before replies load.
+If an explicit main-message anchor is unavailable, the same history owner reads
+the latest messages from that Space through the authorized API and explains the
+fallback in plain language. It never searches another Space for the message.
+Access and transport failures do not become successful fallback navigation, and
+server diagnostic text is not rendered as the navigation error.
 Inside a Thread, the root message's details offer **Show message in Messages**.
 This in-page action closes the details drawer and focuses the root in the main
 conversation while retaining the open Thread. It reuses the same bounded
@@ -1408,12 +1437,13 @@ The Settings secondary sidebar always shows these two groups:
   Privacy & Safety (or after Center Agent in a Personal Workspace). It opens
   the existing feedback dialog rather than creating a route or a second
   submission contract.
-- **Current Organization name** — **General**, **Center Agent**, **Members**,
+- **Current Organization name** — **General**, **Center Agent**, **Usage**, **Members**,
   **Invitations**, and **Security**. General owns identity and lifecycle, Center
-  Agent owns coordinator identity, connection, model, usage, and audit history,
+  Agent owns coordinator identity, connection, model, and audit history,
   Members owns roles, Invitations owns requests and invitation delivery, and
   Security owns information protection. Security is visible only to owners and
-  admins. A personal workspace shows General only: organization membership
+  admins. Usage owns organization consumption and the signed-in member's Remote
+  Agent view. A personal workspace shows General and Usage: organization membership
   and invitation management do not apply there, and its coordinator belongs to
   Personal. The visible group label is the selected
   Organization's stored name, including for the personal Organization; it is
@@ -1512,6 +1542,12 @@ speaker's avatar beside the name and bubble, with the name aligned to the avatar
 top and the bubble below it. Names use regular-weight, muted, extra-small text;
 the name line compensates for the font's ascent inset to align its visible ink
 slightly above the avatar top.
+Speaker avatars use the transcript viewport's available width: 24px below 640px,
+28px from 640px, and 32px from 1024px. Their column keeps an 8px gap before the
+message content, including grouped messages and either self-message placement.
+Narrow Threads keep the compact size even on a wide desktop. Human, Agent,
+system, and pending first-message avatars share this presentation; inline
+mentions, reaction lists, profile popovers, and sidebar sizes are independent.
 Direct Messages, including Center
 Agent chats, use content-sized bubbles up to the available conversation width
 with a dedicated avatar column. The first
@@ -1579,7 +1615,7 @@ unavailable.
 global App Settings destination (grouped under the current Organization's name,
 or under **Personal** in a Personal Workspace) at `/o/{orgSlug}/settings/center-agent`.
 The historical `/o/{orgSlug}/center-agent/settings` path redirects here.
-It contains Model, Usage, the Audit Log, and the reversible
+It contains Model, the Audit Log, and the reversible
 Organization-wide operating control in **Danger Zone**. Only the immutable
 Organization creator may pause or resume the Center Agent; owner/admin roles do
 not grant this authority. The active state presents **Pause Center Agent** and
@@ -1696,6 +1732,33 @@ resolution waits for the initial Organization projection refresh before using
 cached identity evidence. Stale local-agent checks display **Status out of date**:
 current availability is unknown until the Computer reports a new check. This
 does not mean that the Agent version is outdated or that repair is required.
+
+Local Agent cards show quiet tokens-today text after the account usage ring only when the current
+workspace has recorded positive token consumption for that controller on that
+enrolled Computer. The existing Details dialog includes an OpenMeld usage
+section with Today/Last 7 days, input/output totals, models, and an optional
+top-task disclosure. Periods use the viewer's local calendar days. When only
+the last seven days contain usage, Details starts there; periods without
+recorded tokens are unavailable. No usage records or unsupported collection
+produce no consumption copy, badge, placeholder, or reserved space. These
+statistics remain separate from provider account Usage Limits and do not
+present Local usage as free or as spending the organization allowance.
+Owner and teammate views read the same organization-scoped consumption query.
+
+Computer details place a compact Local Agent token usage card directly below Computer
+Connection. It combines recorded Local Agent tokens on that enrolled Computer
+in the current Organization. The default seven-day area chart uses calendar
+days in the viewer's time zone, including today so far. Details contains the
+7/30-day selector, refresh, and an accessible daily input/output/total table.
+Each controller has an unstacked series, a labelled legend, and its existing
+Local Agent icon in tooltips and table rows. Colors reuse the shared controller
+brand accents; monochrome Cursor and OpenCode logos use fixed amber and teal
+chart accents. Unknown attribution remains explicitly labelled. Daily controller
+rows and curves use the same scoped time-series query.
+Initial loading uses the shared Evil Charts skeleton; no recorded tokens hides
+the card. Explicit missing-token receipts produce gaps instead of known-zero
+points, and partial totals are disclosed in Details. No provider polling or
+inference is performed to load the chart.
 
 Each Local Agent renders its `usageLimits` list inside the existing expandable
 row. Usage Limit evidence does not create a separate page or make the row expand
@@ -1832,15 +1895,23 @@ File access card. Other owned Computers remain visible with guidance to open
 OpenMeld on that Computer; Web does not imply that their local policy can be
 managed remotely. This page never reads, stores, or edits a policy itself.
 
-The **Usage** section on **Center Agent → Center Agent settings** is a read-only
-Organization overview available to every
-active member. It shows today's Organization-wide Center Agent wake admissions,
-the next UTC reset in both local and UTC time, and one current Routine count
-against the shared 50-definition limit. It does not present separate enabled and
-total quotas because every definition may be enabled. It reads the Core-owned
-projections through the shared Web → Gateway → Core contract and does not introduce usage
-history, export, per-user attribution, administrator controls, token counts, or
-billing concepts.
+**Settings → Usage** is a read-only destination available to every active member.
+Its text-only navigation matches the other Settings items. Fluid **Organization /
+My agents** tabs share the current Organization scope. Organization shows recorded
+Center Agent and Remote Agent costs by model, separately recorded Local Agent
+tokens, and the existing 50-definition Routine limit. My agents selects the
+signed-in member's non-Center Agent Profiles from the organization directory and
+shows their Remote runtime consumption; it is a subset of organization usage,
+not another allowance. Empty ownership selects no receipts.
+
+Both cost views reuse the shared chart, model brand icons, and Fluid controls.
+They start at seven local calendar days, with a 30-day selector, refresh, model
+totals, and personal Agent totals in Details. Costs carry a green **Free** badge;
+provider estimates and missing costs are not presented as invoiced charges.
+Local token charts reuse the Computer chart without a Computer filter and remain
+separate from costs. A daily allowance appears only when explicitly configured,
+with the existing UTC reset. No billing controls, export, or task drilldown is
+introduced. These views read the existing Web → Gateway → Core projections.
 
 For a non-personal Organization, **Settings → General** shows the current
 Organization logo as a separate autonomous section before Organization
@@ -2925,13 +2996,15 @@ open the exact same Agent.
 The selected Agent’s right-hand detail uses the same Profile Details section
 model, permissions, queries, mutations, execution-target locks, and diagnostic
 facts as the existing About and edit surfaces. Read-only detail is the default.
-Its Agent Profile Operational Context includes one **Activity** section. Owners
-and other members see the same compact workload copy, for example
-**Active task · 3 queued**. A Work Coordinator slot is not proof that the
-provider is generating. Selecting a disclosed work location opens its Space:
-the owner may see the current Space and queued task references, while another
-member sees only neutral working and queue-count facts. Neither view infers work
-from Agent Activity, browser timers, or message age.
+Its existing **Current activity** section combines Space-owned Wake progress and
+pending input across that Agent's Organization conversations. Owners and other
+members see the same compact counts, for example **1 active · 3 queued**.
+Each viewer sees source text and navigation only for conversations they can
+access; other conversations contribute neutral counts. Owning an Agent alone
+does not reveal its private conversations. A Work Coordinator slot is not proof
+that the provider is generating. This read-only presentation does not add a
+second execution queue or grant mutation access. Neither view infers work from
+Agent Activity, browser timers, or message age.
 If interrupted work needs attention, only the owner sees **Skip interrupted
 work** in this Activity section. The action resolves the exact current recovery
 gate and lets the oldest queued Wake continue; repeating it is harmless. Web
@@ -3461,11 +3534,15 @@ prerendered or placed in a shared server cache; intent prefetch, request-scoped
 SSR data, the account-scoped browser cache, and live invalidation are the
 allowed acceleration layers.
 
-TanStack Router owns the browser's coarse scroll-coordinate fallback. Its
-restoration key is the route pathname rather than the individual
-browser-history entry, and the Space message viewport has a stable id derived
-from the Space id. The conversation records a persisted signal and its viewport
-offset during scrolling and on departure. Reading-position restore and the
+TanStack Router restores ordinary pages by route pathname rather than the
+individual browser-history entry. Space, Chat, public Space, and Desk routes
+opt out through its public `scrollRestoration` option, including server-rendered
+restoration. Their conversation/canvas owners restore their own positions;
+the module sidebar retains its independent scoped scroll memory. The router
+must not replay old pixel coordinates over a restored message or explicit jump.
+The conversation records a persisted signal, its viewport offset, and whether
+the reader is at the live bottom during scrolling and on departure.
+Reading-position restore and the
 history rail's Back action share this anchor selection. Optimistic sends, live
 reply projections, and transient activity rows retain their display identities
 but cannot become history anchors. Prefer the first visible recorded signal;
@@ -3481,13 +3558,18 @@ mounts, before painting the default start position, loading earlier pages if
 needed. Subsequent resize corrections run directly in ResizeObserver's
 before-paint delivery; an extra animation-frame delay would expose the wrong
 position as deferred message layout resolves. The callback adjusts scrolling,
-not observed element sizes. A remembered position disables the MessageScroller's initial
-end jump and automatic following. Resize observation preserves the same message
+not observed element sizes. A remembered historical position disables the
+MessageScroller's initial end jump and automatic following. A saved live-bottom
+position opens the live tail and follows it using the MessageScroller, even when
+new messages have arrived since the previous visit. Older saved records without
+the bottom flag keep their existing message-anchor meaning.
+Resize observation preserves the same message
 as images and deferred layout settle, until deliberate user scrolling takes
 ownership. Reaching the bottom resumes normal following. Different Spaces
 remain independent; explicit message-focus navigation takes priority over the
 remembered position.
-The coarse fallback uses session storage. The semantic anchor keeps each tab's
+The conversation no longer reads a separate coarse-coordinate fallback.
+Its semantic position keeps each tab's
 session position and also saves a seven-day local-storage copy for a new tab or
 browser restart. An existing tab's position wins over another tab's last saved
 position. Auth cleanup removes both copies. This view-local presentation state does not
@@ -4103,6 +4185,11 @@ without discarding older cached history. An older saved reading anchor opens a
 bounded cached neighborhood; missing anchors use the existing server history
 navigation. Explicit older-history loads expand the visible window, while new
 live messages do not move its start. Space, DM, and Desk readers share this rule.
+If an explicit message anchor is missing, a successful authorized latest-window
+read is a latest-navigation result, not a loading error. The conversation scroll
+owner positions that window after rendering and shows one explanatory notice.
+Permission and network failures retain their failure semantics; no cross-Space
+anchor search is allowed.
 Direct-message previews reuse the Account Space Index projection when provided,
 including its explicit empty value. Only conversations without that projection
 retain the per-conversation preview read.
@@ -4407,8 +4494,10 @@ minimum and maximum widths, and reduced-motion behavior. Thread can grow to
 60rem, constrained by the available conversation area after other inline panels,
 with 512px reserved for the main conversation. When the available area cannot
 fit that width alongside Thread's minimum reading width, Thread covers the
-conversation area until closed instead of crushing either column. Covered
-content is hidden from interaction and the accessibility tree. A smaller viewport
+main conversation area until closed instead of crushing either column. Its
+overlay width excludes other inline panels, so opening Members keeps Members
+visible and interactive beside Thread. Only the covered main conversation is
+hidden from interaction and the accessibility tree. A smaller viewport
 constrains the displayed width without overwriting the saved wider preference.
 Members and Thread widths are persisted as separate browser presentation preferences. The
 Members open/closed state and width are scoped to the current Space id, so
@@ -4638,6 +4727,15 @@ the call is invisible instead of falling back to `connected app action`.
 
 The live work disclosure shares the existing progress row instead of adding a
 second row and keeps Stop immediately after the expandable work summary.
+Work disclosures and link previews must fit the containing message, including
+when a desktop Thread is resized without changing the browser viewport. The
+working label may wrap and increase the header height; the supporting summary
+truncates, and Stop remains within the bubble. Long work-step names wrap instead
+of widening their scroll viewport. Code, tables, and attachment strips retain
+their own horizontal scrolling without widening the message.
+Unchanged work steps retain their rendered motion trees during streaming text
+updates. The shared step uses React's default prop comparison so status, label,
+icon, and content changes still render immediately.
 While the authoritative stream is
 active, that row keeps `Agent is working` as its stable primary state and shows
 the concrete current work as supporting context. Work activity must never
@@ -5400,6 +5498,12 @@ indicator instead of its animated Working orb. Both surfaces return to ordinary
 Wake progress as soon as Core projects the conversation as available.
 
 Web uses the shared Wake presentation resolver for status text and Orb variants.
+When current Core projects `remote_agent.execution_confirmation_pending` on an
+active native Wake, the shared resolver shows **Result awaiting confirmation**
+with a neutral pending appearance. It suppresses stale tool-work previews and
+elapsed-working presentation, explains that later work may be waiting, and
+retains the existing viewer-authorized Stop control. It never infers a failed,
+completed, or not-executed outcome, and it does not offer automatic resend.
 Sidebar priority is input needed from the current user, then working/replying,
 then sending/connecting, then queued or waiting. Equal priorities retain Wake
 start order. Other active Spaces in the selected Organization reuse the same

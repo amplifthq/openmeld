@@ -98,6 +98,16 @@ export type MarkCenterAgentInboxReadThroughBody = z.infer<
 export type MarkCenterAgentInboxReadThroughResponse = z.infer<
   InboxSchemas["markCenterAgentInboxReadThroughResponseSchema"]
 >;
+export type MutateSpaceInboxReadBody = z.infer<
+  InboxSchemas["mutateSpaceInboxReadBodySchema"]
+>;
+export type MutateSpaceInboxReadRpcInput = z.infer<
+  InboxSchemas["mutateSpaceInboxReadRpcInputSchema"]
+>;
+export type MutateSpaceInboxReadResponse = z.infer<
+  InboxSchemas["mutateSpaceInboxReadResponseSchema"]
+>;
+
 export type MarkSpaceInboxReadThroughBody = z.infer<
   InboxSchemas["markSpaceInboxReadThroughBodySchema"]
 >;

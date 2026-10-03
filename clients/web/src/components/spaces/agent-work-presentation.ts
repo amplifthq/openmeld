@@ -702,6 +702,14 @@ export function resolveAgentWorkPresentation(
 	isLive: boolean
 ): AgentWorkPresentation {
 	const copy = resolveAgentWorkCopy(work);
+	if (state !== "input-available" && work.outcome === "outcome_unknown") {
+		return {
+			status: "complete",
+			text: work.subject?.label
+				? `Awaiting confirmation: ${work.subject.label}`
+				: "Action outcome awaiting confirmation",
+		};
+	}
 	if (state === "output-error") {
 		return { status: "failed", text: copy.failed };
 	}

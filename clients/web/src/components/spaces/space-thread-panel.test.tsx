@@ -181,14 +181,12 @@ describe("SpaceThreadPanel", () => {
 			signals: [createTextSignal()],
 		});
 		expect(
-			screen.getByRole("button", { name: "Stop Wake for Thread Agent" })
+			screen.getByRole("button", { name: "Stop Thread Agent" })
 		).toBeTruthy();
 		expect(
-			screen.queryByRole("button", { name: "Stop Wake for Main Agent" })
+			screen.queryByRole("button", { name: "Stop Main Agent" })
 		).toBeNull();
-		expect(
-			screen.queryByRole("button", { name: "Stop Wake for 2 agents" })
-		).toBeNull();
+		expect(screen.queryByRole("button", { name: "Stop 2 agents" })).toBeNull();
 	});
 
 	it("places the current Space pending actions above the visible thread composer", () => {
@@ -226,11 +224,11 @@ describe("SpaceThreadPanel", () => {
 					? new DOMRect(0, 150, 500, 1600)
 					: new DOMRect(0, 100, 500, 400);
 			});
-		const onViewedThroughTs = vi.fn().mockResolvedValue(undefined);
+		const onViewedUpdates = vi.fn().mockResolvedValue(undefined);
 		const latestTs = Date.UTC(2026, 4, 27, 10, 0, 9);
 		try {
 			renderThreadPanel({
-				onViewedThroughTs,
+				onViewedUpdates,
 				signals: [createTextSignal({ ts: latestTs })],
 				unreadTargets: [
 					{
@@ -245,10 +243,16 @@ describe("SpaceThreadPanel", () => {
 					},
 				],
 			});
-			await act(async () => vi.advanceTimersByTimeAsync(149));
-			expect(onViewedThroughTs).not.toHaveBeenCalled();
-			await act(async () => vi.advanceTimersByTimeAsync(1));
-			expect(onViewedThroughTs).toHaveBeenCalledExactlyOnceWith(latestTs);
+			await act(async () => vi.advanceTimersByTimeAsync(49));
+			expect(onViewedUpdates).not.toHaveBeenCalled();
+			await act(async () => vi.advanceTimersByTimeAsync(51));
+			expect(onViewedUpdates).toHaveBeenCalledExactlyOnceWith([
+				{
+					signalId: "sig-thread-1",
+					occurredAtMs: latestTs,
+					threadRootSignalId: "sig-root",
+				},
+			]);
 		} finally {
 			focus.mockRestore();
 			geometry.mockRestore();
@@ -378,7 +382,7 @@ describe("SpaceThreadPanel", () => {
 			],
 		});
 		const activityTrigger = screen.getByRole("button", {
-			name: "Agent is working. Work summary: Reviewing source files…",
+			name: "Thinking…. Work summary: Reviewing source files…",
 		});
 		expect(activityTrigger.getAttribute("aria-expanded")).toBe("true");
 		const progressRow = activityTrigger.closest(
@@ -636,10 +640,21 @@ describe("SpaceThreadPanel", () => {
 		expect(marker?.getAttribute("aria-busy")).toBeNull();
 	});
 
-	it("uses Bot avatars for Center Agent replies in an ordinary Space thread", () => {
+	it("uses the saved Bot avatar for Center Agent replies in an ordinary Space thread", () => {
 		const centerAgentProfileId = "agt_cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 		renderThreadPanel({
 			centerAgentProfileId,
+			membersSnapshot: createSpaceMembersSnapshot({
+				agents: [
+					{
+						...createSpaceMemberAgentSnapshot({
+							profileId: centerAgentProfileId,
+							profileName: "Center Agent",
+						}),
+						avatarStyle: "star",
+					},
+				],
+			}),
 			signals: [
 				createTextSignal({
 					profileId: centerAgentProfileId,
@@ -702,10 +717,10 @@ describe("SpaceThreadPanel", () => {
 
 		const firstMessage = screen
 			.getByText("First consecutive thread message")
-			.closest("[data-slot='message']");
+			.closest("[data-message-row-id='sig-thread-first']");
 		const secondMessage = screen
 			.getByText("Second consecutive thread message")
-			.closest("[data-slot='message']");
+			.closest("[data-message-row-id='sig-thread-second']");
 		expect(firstMessage?.querySelector("time")?.textContent).toMatch(
 			COMPACT_TIME_PATTERN
 		);
@@ -1036,11 +1051,7 @@ describe("SpaceThreadPanel", () => {
 		let sourceMessage = screen
 			.getByText("@Runner(wake) please investigate")
 			.closest("[data-message-row-id='sig-thread-wake']");
-		expect(
-			sourceMessage
-				?.closest('[data-slot="message"]')
-				?.getAttribute("data-align")
-		).toBe("end");
+		expect(sourceMessage?.getAttribute("data-align")).toBe("end");
 
 		rerenderThreadPanel({
 			selfProfileId: "human-profile-1",
@@ -1062,11 +1073,7 @@ describe("SpaceThreadPanel", () => {
 		sourceMessage = screen
 			.getByText("@Runner(wake) please investigate")
 			.closest("[data-message-row-id='sig-thread-wake']");
-		expect(
-			sourceMessage
-				?.closest('[data-slot="message"]')
-				?.getAttribute("data-align")
-		).toBe("start");
+		expect(sourceMessage?.getAttribute("data-align")).toBe("start");
 	});
 
 	it("gives a stopped Wake a muted outcome row in the thread instead of a destructive one", () => {
@@ -1217,9 +1224,7 @@ describe("SpaceThreadPanel", () => {
 			}),
 		});
 
-		expect(
-			screen.getByRole("button", { name: "Stop Wake for @runner" })
-		).toBeTruthy();
+		expect(screen.getByRole("button", { name: "Stop @runner" })).toBeTruthy();
 	});
 
 	it("confirms and requests Stop for an active Wake in the thread timeline", async () => {
@@ -1232,20 +1237,17 @@ describe("SpaceThreadPanel", () => {
 			signals: [createWakeTextSignal()],
 		});
 
-		fireEvent.click(
-			screen.getByRole("button", { name: "Stop Wake for @runner" })
-		);
-		const dialog = within(
-			screen.getByRole("dialog", { name: "Stop this Wake?" })
-		);
-		fireEvent.click(dialog.getByRole("button", { name: "Stop Wake" }));
+		fireEvent.click(screen.getByRole("button", { name: "Stop @runner" }));
+		expect(
+			screen.queryByRole("dialog", { name: "Stop this Wake?" })
+		).toBeNull();
 
 		await waitFor(() => {
 			expect(onWakeStopRequest).toHaveBeenCalledWith(
 				expect.objectContaining({
 					selector: {
-						by: "source_signal",
-						sourceSignalId: "sig-thread-wake",
+						by: "client_message",
+						clientMessageId: "client-message-1",
 						targetProfileId: TARGET_PROFILE_ID,
 					},
 					status: "active",
@@ -1739,7 +1741,7 @@ function createWakeProgressItem(input?: {
 		clientMessageId: "client-message-1",
 		dispatchId: "dispatch-1",
 		failureReasonCode: null,
-		message: "@runner is working on this computer...",
+		message: "@runner · Thinking… on this computer...",
 		phase: "running",
 		sourceSignalId: "sig-thread-wake",
 		targetLabel: "@runner",

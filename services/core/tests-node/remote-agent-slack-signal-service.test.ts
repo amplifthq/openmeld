@@ -7309,6 +7309,8 @@ function applySlackMigrations(
 ) {
   applyMigrationForTable(input, "openMeldRemoteAgent_native_delivery_ledger");
   applyMigrationForTable(input, "openMeldRemoteAgent_daily_admissions");
+  applyMigrationForTable(input, "ai_usage_records");
+  applyMigrationForTable(input, "organization_ai_usage_policies");
   applyMigrationForTable(input, "openMeldRemoteAgent_conversation_generations");
   applyMigrationForTable(input, "openMeldRemoteAgent_slack_event_ingress");
   applyMigrationForTable(

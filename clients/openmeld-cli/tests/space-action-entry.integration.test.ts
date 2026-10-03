@@ -72,6 +72,7 @@ it.each([
         "cancel_task",
         "create_task",
         "list_tasks",
+        "open_direct_message",
         "read_documents",
         "read_file",
         "read_history",

@@ -9,6 +9,7 @@ import {
   remoteAgentExecutionScopeKey,
   remoteAgentGitCheckoutInputSchema,
   remoteAgentGitPublishInputSchema,
+  remoteAgentGitShaSchema,
   remoteAgentGitTransferGrantSchema,
   remoteAgentGitTreeSchema,
 } from "@openmeld/schemas";
@@ -24,7 +25,10 @@ import {
   recordConnectorActionOperation,
 } from "../agent-core/connector-tools";
 import { resolveRemoteAgentRoutineExternalWriteBlock } from "../agent-core/destructive-authorization";
-import { requireRemoteAgentExecutionAccess } from "../agent-core/execution-access";
+import {
+  isDelegatedGitHubTurn,
+  requireRemoteAgentExecutionAccess,
+} from "../agent-core/execution-access";
 import { resolveGitHubActionContext } from "../agent-core/github-tools";
 import {
   buildRemoteAgentCoreContext,
@@ -526,6 +530,14 @@ async function createCheckout(
   const remote = provider(input, preliminary, signal, onTiming, deadlineAtMs);
   const repository = await remote.repository();
   const commit = await remote.commit(intent.ref);
+  const exactCommit = remoteAgentGitShaSchema.safeParse(
+    intent.ref.toLowerCase()
+  );
+  if (exactCommit.success && commit.sha !== exactCommit.data) {
+    throw new Error(
+      "github.checkout.source_commit_mismatch: GitHub returned a different commit than the requested version."
+    );
+  }
   // Resolve the default branch independently of model-selected ref/HEAD.
   // It is not safe to make a candidate its own trusted verification baseline.
   const baselineRef = await remote.branch(repository.default_branch);
@@ -891,6 +903,9 @@ async function registerRequesterCheckoutGrant(input: {
           `git-transfer:${identity.id}`
         ),
         submissionId: dependencies.context.submissionId,
+        ...(isDelegatedGitHubTurn(dependencies.context)
+          ? { includeDelegatedRequester: true }
+          : {}),
         effect: "read",
         sources: [
           {

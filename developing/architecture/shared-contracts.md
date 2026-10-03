@@ -25,6 +25,53 @@
 - Source of truth: This file owns the durable boundary for shared OpenMeld contracts
   and reusable policy.
 
+## Direct Message opening and publication
+
+The shared `openDirectMessageSpaceBodySchema` accepts an optional idempotent
+Human–Center session `creationId`, an exact DM `spaceId`, and an optional message
+(`clientMessageId`, `text`, explicit `wake`). The response retains
+`memberProfileId` as the initiating Profile, echoes a requested `creationId`,
+and includes a published text signal when requested. These response additions
+are optional and omitted from legacy requests. The API client requires the
+matching creation/message receipt before reporting a requested effect, because
+older Core RPC receivers can ignore newly added arguments during rollout.
+
+Wake publication requires the `spaceId` returned by an earlier open-only call.
+Opening a session and publishing work are separate requests so the caller has
+the Space, author, target and client message ID before work can start. A pinned
+send cannot include `creationId`; the Space transaction verifies its Organization,
+participant pair and unconverted DM status before publication. The CLI exposes
+`space.send.request` before submitting work and retries with `--space` and the
+same message ID. Native tools open first, then send using that receipt. There
+is no second cancellation store: the existing Space Stop fence owns late sends.
+
+Center Agent self-authored DM Stop uses its canonical identity and
+current designation; represented-member fallback for UUID messages requires an
+existing source signal. It never creates a pre-send fence under a different
+author. Personal Remote Agent routing follows the
+[Direct Message Conversion Contract](#direct-message-conversion-contract).
+
+Core resolves both participants canonically; Gateway, native Agent tools, CLI
+and dispatch tools share this contract. The Space owner serializes DM
+membership verification with ordinary idempotent message publication, so
+conversion cannot widen a pending private send's audience. Native tool calls
+verify the current execution/Center identity; Local dispatch tools freeze the
+calling Profile and resolve the source Organization through the public Space
+entry contract. They do not record a terminal Space Action. No runtime or
+Service contract epoch changes: existing Wake, setup and recovery continue to
+work. Deploy Core receivers before Remote Agent callers and publish the new
+CLI/Skill after the cloud accepts their optional fields.
+
+Contract Impact Audit: old CLI, Service and Web callers omit the new fields and
+keep their existing response shape. New callers require the optional receipt,
+so an older Core that ignores an argument cannot report the requested send or
+new session as successful. Deploy Core, Gateway and shared Web readers before
+Remote Agent and CLI/Service/Skill callers; roll back those callers first.
+The managed Skill requires the next CLI release (at least 0.3.238). Existing
+setup, Prepare, Wake, final Space Actions and diagnostic contracts are unchanged;
+all three local component updates can remain advisory (`available`). This
+feature PR defers version and manifest stamping to the authorized release.
+
 ## Desktop platform contract
 
 `computer-connection.ts` owns the account-bound native Connect/Disconnect
@@ -548,6 +595,22 @@ migration, contract epoch, or new binding is required. Packaged shared-input
 changes still follow the base-aware local-component stamp and publication rules
 in [Production Release](../engineering/production-release.md); an unchanged
 wire contract does not exempt changed bundle inputs from release readiness.
+
+## Hosted preparation admission acknowledgement
+
+`remoteAgentCoreAdmissionCallbackSchema` in `packages/schemas` owns the exact
+Remote-to-Core admission callback identity. The native execution sends it before
+resource preparation. Core validates the frozen delivery identity and persists
+the same admission through its existing conditional ACK writer. The existing
+callback response schema reports acceptance or rejection; no new public response
+fields, execution states, or authorization grants are introduced.
+
+Deploy the Core RPC receiver before its Remote caller; remove the Remote caller
+before rolling back the receiver. New Core accepts old Remote submission ACKs.
+New Remote fails preparation explicitly against old Core. Core-to-Remote submit
+payloads and all Web, Gateway, CLI, Service, Skills, setup, Wake transport,
+Space Action, and diagnostic contracts are unchanged. No local component epoch
+or database migration is required.
 
 ## Hosted reply recovery rollout
 
@@ -1931,6 +1994,17 @@ contracts omit no-execution details they cannot represent. These read projection
 never schedule a retry. Public recovery classifies expired/revoked requests as
 `request_ended`, not automatic system retry.
 
+Trace response v6 adds optional `nativeDeliveryTrace` for an exact Space dispatch
+that has only a native-delivery ledger record. It is mutually exclusive with a
+workstation `trace`; identity, final visible messages, and correlation are
+validated by the shared schema. Responses negotiated as v2–5 retain their
+existing shape and never include the new field. Deploy Gateway and Core v6
+receivers before publishing a CLI that requests v6; an older Gateway rejects
+the unknown version header. No retry fallback, migration, execution contract
+epoch, or required Service/Skills update is introduced. Existing setup, Wake,
+Space actions, status, and recovery remain compatible. Rollback the new CLI
+caller before removing v6 receivers.
+
 Deploy Core receivers and owner storage logic before Gateway and Web enable
 device-wait producers; this feature overrides the usual generic cloud order.
 Rollback removes the producers first. Already accepted waits must continue to
@@ -2502,6 +2576,18 @@ additions do not change CLI, OpenMeld Service, daemon, Prepare, Wake dispatch,
 Space action, or diagnostic semantics.
 
 ### Direct Message Conversion Contract
+
+Personal Remote Agent `wake_progress` and `wake_stop` operations accept an
+optional `spaceId` in `personalRemoteAgentSpaceToolRequestSchema`. Omission
+preserves the admitted conversation; an explicit target is checked against
+the admitted Organization and then authorized by the ordinary Space owner.
+Responses, source identity, reply placement, and other conversation tools do
+not change. Contract impact: deploy Core before Remote Agent so the receiver
+accepts the new optional selector. An old Core rejects that selector explicitly;
+it must not silently route the request to the original conversation. Roll back
+the Remote Agent caller before Core. No CLI, Service, Gateway, Web, Prepare,
+RuntimeCoordinator, database, or execution-contract change is required by this
+selector.
 
 `packages/schemas/src/schemas/http/space-direct-message.ts` owns both Direct
 Message open and explicit conversion contracts. Conversion uses
@@ -3552,6 +3638,19 @@ conditions, frozen continuations, subscriptions, and delegation topology.
 completion-mode request, the paired delegation/child-task response, and the
 exact-task watch request and response. It also owns the bounded controller-task
 discovery request and response used to obtain an exact handle before a watch.
+Delegated Wake and watch requests can carry an optional canonical BCP 47
+`replyLanguageTag`: the upstream Agent's semantic decision for this task,
+including an explicit requester override. Core freezes it in the existing
+continuation JSON and Wake publication command. It does not update Organization
+preferences or alter the Wake's idempotency identity. Native continuation
+instructions and their failure publishers read that same fact; failure readers
+verify the subscription's Organization and exact continuation identity before
+using it. Routine continuations use their existing subscription reference.
+Initial Routine failures and workstation child-failure publishers do not yet
+receive this fact. Deploy Core request/storage readers before Remote tool
+producers. Old producers can omit the field. Before rolling Core back, remove
+new producers and drain or retain current readers for persisted commands and
+continuations containing the field; older strict readers can reject them.
 `packages/schemas/src/schemas/http/runtime-reporting.ts` owns the strict,
 bounded Agent Controller task lifecycle batch and per-event result. It carries
 only exact task identity, controller identity, Organization identity, lifecycle
@@ -5525,8 +5624,10 @@ are provider documentation, not executable Center Agent capability. The same
 module validates OpenConnector action-operation metadata so Remote Agent does
 not hand-interpret provider execution IDs, idempotency keys, or replay flags.
 It also validates the successful action envelope's JSON data and execution
-metadata. The execution endpoint does not return `outputSchema`; Remote Agent
-uses the verified action catalog schema for a new operation. A replay can
+metadata and the optional execution-owned `outputSchema` returned by the pinned
+OpenConnector serializer. Remote Agent retains that schema; only legacy
+envelopes without it use the verified action catalog schema. Unknown fields and
+invalid action or execution identities still fail closed. A replay can
 recover the provider result without consulting a catalog that may have changed
 or become unavailable, so its result may omit `outputSchema`.
 Remote Agent recognizes destructive legacy action IDs or names as well as
@@ -6973,6 +7074,195 @@ current user can manage the failed local service target, but they must not
 change the shared meaning of the reason code or turn internal reason codes into
 primary user copy.
 
+`agentFailureFactsSchema` is the shared owner-supplied failure read projection:
+stage, execution confirmation (`not_executed`, `executed`, `unknown`), result
+availability, retry state, recovery state and available actions, plus
+bounded diagnostic references. A verified retained or published result requires
+a result reference; a recovered result must match that same reference. Missing
+admission confirmation means an unknown outcome, never proof of no execution.
+The projection does not schedule work, authorize recovery or supersede the
+execution owner. The public formatter uses these facts for neutral retry/recovery,
+warnings requiring review, and final failures. Native continuation exhaustion
+feeds Space and Inbox from the same projection; Routine execution callbacks use
+the same formatter and preserve their Run link.
+Known stop causes and outcome certainty are independent. The callback reason
+mapping keeps cause-only English/Chinese copy alongside legacy recovery copy;
+an unknown outcome must retain an allowlisted stop cause without restoring an
+unconditional retry instruction or publishing raw failure details.
+
+An optional `languageTag` is the owner's resolved display language. Native
+continuation notices and Routine continuation failures first read the trusted
+per-task semantic decision from the Task Coordination owner. When that decision
+is absent, they explicitly use the current Organization preference as a fallback,
+then English. Initial Routine failures still use that fallback.
+This fallback does not establish the conversation's actual language and never
+uses a text-classifier guess. English and Chinese rendering are supported.
+Propagation into initial Routine execution and workstation child-failure
+publishers remains incomplete. The shared failure projection is not added to
+other strict HTTP/RPC/stream envelopes; adding it requires a receiver-first audit.
+
+Exhausted continuation copy distinguishes confirmed execution, confirmed no
+execution and uncertainty. It directs users to summarize existing results rather
+than resend the original request, and warns about repetition only when execution
+is possible. The notice does not invent retained child-result locations; exact
+authorized retained-result references remain an incomplete recovery integration.
+
+`connectorActionOutcomeUnknownSchema` is a model-visible receipt for an attempted
+connector operation. A validated provider completion followed by failed Core
+finalization carries `executed`; an unverified response carries `unknown`.
+Neither authorizes another write. Direct tools and Code Mode retain the caller's
+exact `operationId` and explain that a write may have succeeded, a new operation
+ID must not be used, and recovery must use the same action and input. The durable
+Core operation and provider idempotency key remain the existing owners.
+
+Native `readAdmission` is an additive Core-to-Remote RPC. It reuses the exact
+persisted submit-request schema so the receipt owner can verify the original
+digest. Its shared response is `found` with the original replay ACK, `unconfirmed`
+for a claimed receipt, or `not_found`; the last two contain no submission ID and
+prove no execution outcome. The replay ACK has `accepted: false` and a required
+matching idempotency key. Core adopts only a validated ACK and reuses the existing
+accepted-execution reconciliation path. An old receiver or failed read preserves
+the existing exact-idempotency admission policy; it does not manufacture a fresh
+execution. Deploy the Remote RPC receiver before relying on receipt recovery.
+After a validated receipt is found, persistence or probe-scheduling failure
+belongs to existing delivery retry/accepted-probe repair, not admission timeout.
+No new persisted state or recovery state machine is introduced.
+
+The native admission Stop intent is an identity fence owned by existing
+native cancellation, validated by `remoteAgentWorkerAdmissionStopIntentSchema`.
+Its Organization/Space/idempotency identity and first Stop time remain immutable.
+It carries a reason and optional structured recovery provenance, with no
+execution phase, submission ACK, or new recovery state machine. Ordinary Stop
+can only remove that provenance, never remove the fence. Execution initialization
+and guards enforce it. Cancellation keeps its existing envelope with the optional
+recovery extension below; `not_found` cannot certify receiver capability to Core.
+The native producer and guard ship together; rolling back that guard while
+stopped admissions can arrive is unsafe. The intent is retained like existing
+execution tombstones and cannot expire to reopen the original request.
+
+The optional native `readAdmissionStop` RPC reads that same fact using the exact
+persisted submit request and original conversation route. Its shared response
+is `found` with an identity-bound Stop intent or `not_found`. Core validates the
+Organization/Space/idempotency identity before using a positive fence receipt.
+An old receiver, missing receipt or lookup failure never proves non-execution
+or supplies restart authority. This read adds no state, lease or admission.
+Pending Space Stop reconciliation forwards native cancellation before consuming
+an already-visible stopped Space outcome. A current receiver returning
+`not_found` for cancellation must supply a positive original-identity fence
+receipt before Core retires that pending delivery; an absent fence or a lookup
+failure keeps reconciliation pending. This does not create a submission ACK.
+Older receivers retain the pre-existing Space terminal projection policy, but
+their unsupported lookup remains distinct from a current owner's missing fence
+and cannot enable restart. When cancellation returns an existing execution,
+the normal execution/cleanup reconciliation remains authoritative.
+Deploy the native receiver before enabling a recovery caller that requires this
+proof; a positive receipt does not replace execution reconciliation, current
+permission checks or the existing atomic task-continuation owner. Existing
+ACK payloads and workstation CLI/Service/Skills contracts are unchanged. Recovery
+extensions to cancellation and fence receipts require the compatible readers below.
+
+Manual summary recovery adds optional `summaryOnly: true` to the native
+`task_continuation` trigger. Only the task owner derives it from the persisted
+`summaryRecovery` subscription; no model tool input sets it. A read-only
+`readAdmissionStop` probe opts in with this marker using the original identity.
+A supporting receiver includes optional `summaryOnlySupported: true` in its
+found/not-found receipt. The marker certifies the restricted runtime tool
+catalog, not execution, admission or a Stop fence. Ordinary receipt reads keep
+their original strict response shape, including calls from an old Core.
+
+Deploy the Core reader/probe first, then Remote's receiver and restricted
+runtime together. Core must not submit a summary-only producer request until
+the opt-in probe succeeds. Missing support, old strict receivers and transport
+errors make summary recovery unavailable; they never authorize unrestricted
+execution. Rollback removes summary producers before the receiver/guard and
+retains a compatible Core reader for persisted submit envelopes containing the
+marker. This does not change CLI, Service, Skills, setup or workstation Wake
+wire contracts and requires no local contract floor bump. Old local clients
+still receive ordinary text Signals and Diagnostics.
+
+The task owner persists `summaryRecoveryIntent` on the original subscription
+before cancelling the old identity. Cancellation and the native Stop receipt
+carry its exact `summaryRecoveryId`; free-text reasons are never identity proof.
+The opt-in probe also requires `summaryRecoveryFenceSupported`. A recovery can
+resume after a failed receipt read only when the persisted intent matches that
+fence. Any ordinary Stop atomically removes recovery provenance and it cannot
+be restored; the identity fence itself never expires or reopens. Parent Stop
+continues to block the task owner's atomic summary registration.
+
+These fields require Core readers before Remote and explicit receiver support
+before recovery writes. Older receivers remain unavailable. Once an intent is
+persisted, retain a compatible reader and forward-fix; do not remove the intent
+or provenance to force a retry. Baseline strict Core subscription readers reject
+the affected row and therefore its queried list batch, even if the new summary
+subscription was not created yet.
+
+Core negotiates optional top-level `taskId` through the Remote service binding's
+strict `readSubmitTurnCapabilities` request (`{ v: 1 }`) and response
+(`{ v: 1, taskId: true }`) before
+freezing a new Space admission. A positively missing method means the published
+legacy request shape: omit the field. Transport failures and malformed responses
+are not legacy capability evidence. Existing frozen requests retain their
+persisted payload unchanged, even if the receiver upgrades between attempts;
+do not enrich them with a newly available task ID. A missing usage attribution
+stays missing rather than being inferred from another task. This probe does not
+grant summary recovery support; its existing Stop-fence probes still own that
+capability. Once a frozen request contains `taskId`, retain a supporting Remote
+receiver until that request can no longer be replayed.
+
+The ordinary-object Remote Worker entrypoint requires exactly one RPC argument.
+The capability request is versioned and strict even though it carries no task
+data. `pnpm --filter @openmeld/remote-agent test:rpc` runs the actual Core
+resolver against the built Remote Worker over a workerd service binding;
+ordinary JavaScript mocks cannot establish this calling convention.
+
+This negotiated request permits the supported Core-first rolling window:
+new Core continues to accept the old Remote's in-flight completion callbacks,
+and omits unsupported attribution on new requests. Deploy and verify Core's
+`recordRemoteAiUsage` receiver before deploying Remote. New Remote never starts
+a provider call when that receiver is absent; `core.rpc.unavailable` remains a
+visible failure with the missing method name. This also applies to new owners
+and a receiver disappearing after allowance enforcement. Existing settlement
+outbox retries and historical admission audits are retained; neither authorizes
+new inference. The data owner defines their retention and deduplication.
+
+Before a continuation is submitted or replayed, Core compares its frozen
+pending and recovery envelopes with the task owner's `summaryRecovery` intent.
+An unmarked legacy summary fails with
+`remote_agent.task_continuation.summary_policy_mismatch` before Worker admission
+or receipt recovery. The same validation applies to watchdog recovery and every
+native resubmission through the shared admission boundary. A summary marker
+without a matching owner also fails closed. Ordinary continuations remain
+ordinary. Never overwrite the frozen request, strip owner intent, or allocate a
+new operation identity to bypass this rejection.
+
+Before rollout, inventory existing summary subscriptions with retained unmarked
+`task_continuation` envelopes, including those with no child result locator.
+Keep them blocked and visible for operator diagnosis; use the existing task Stop
+path to cancel an affected request if it must be retired. Do not rewrite its
+envelope or replay it under the old unrestricted producer. For rollback, first
+disable producers and retain this compatible reader/admission guard together
+with Remote's restricted runtime. An older Core lacking the guard is not a safe
+rollback target for these records; forward-fix instead.
+
+`agentFailureFactsSchema.completedResults` optionally contains up to ten
+owner-verified child result references and navigation URLs, distinct from the
+failed turn's own `result`. This is a formatter read projection, not a new
+callback/Inbox wire envelope or persisted execution state. Native failure copy
+can retain same-Space child links while independently omitting an unavailable
+recovery action. A failed evidence read never fabricates a result or drops the
+visible failure; bounded diagnostic correlation records the missing evidence.
+
+Agent Work's optional `outcome_unknown` presentation is neutral and must not be
+shown as failed or business-completed. The current reader maps unfamiliar future
+outcome vocabulary to uncertainty. This is an actual stream-enum change: Web and
+Core readers must precede the Remote Agent producer. Web opts into rich outcomes
+with the existing hello-capability mechanism (`agentWorkOutcomes`). Legacy live
+readers receive an ordinary progress delta with the same sequence; HTTP/history
+readers receive the existing `agentPublicProgress` field rather than unfamiliar
+work metadata. The projection never changes stored receipts or activity.
+HTTP history currently uses this generic presentation even for new readers.
+No CLI or Service execution, cancellation, admission, or retry authority changes.
+
 `signal.system_notice.data.reasonCode` (schema in
 `packages/schemas/src/schemas/space-mesh/signal-system-notice.ts`) carries a
 code from this same shared public failure mapping family when a publisher has
@@ -7072,6 +7362,7 @@ decisions that must stay consistent across CLI, Web, Core, daemon, and adapters.
 It is the shared source for:
 
 - Agent Controller refs
+- Agent Controller semantic version comparison and capability-range admission
 - OpenMeld Service Runtime identity and registry contract helpers
 - Prepare readiness summaries
 - Agent Profile Binding projections and command eligibility
@@ -7080,6 +7371,23 @@ It is the shared source for:
 
 Agent Controller refs must use the shared helpers. Do not hand-build or
 hand-parse refs such as `builtin:<id>` or `custom:<id>` in clients or services.
+
+Local Agent adapters, model compatibility, and controller update advice use
+`compareAgentControllerVersions` and `supportsAgentControllerVersion` for
+SemVer evidence. They retain prerelease ordering and ignore build metadata for
+precedence; malformed or missing versions are unknown/unsupported. Each adapter
+owns its verified capability range and any upper bound. A newer prerelease may
+exceed an older stable floor, but a prerelease of the floor itself does not.
+Non-SemVer provider formats such as Cursor's dated builds retain an explicit
+provider-specific interpretation rather than being coerced into SemVer.
+
+Version admission never replaces native capability, effective configuration,
+managed-policy, or permission evidence. A version rejection, unavailable native
+capability, and an incompatible tool policy must remain distinguishable. This
+local admission correction changes no setup, Wake, Space action, diagnostic
+payload, cloud execution epoch, or minimum CLI/Service contract. Old/new cloud
+and local components still interoperate; publication metadata remains deferred
+to the authorized local-component release.
 
 OpenMeld Service Runtime IDs used for Binding or claim eligibility must be opaque
 authoritative Runtime Registry IDs. Do not derive claimable runtime identity
@@ -7353,7 +7661,31 @@ provider query. Intermediate keepalives omit the additive field for older-Core
 compatibility.
 
 The Agent Profile work-recovery contract exposes only idempotent owner actions
-that change current coordinator state. `skip_interrupted_work` resolves an exact
+that change current coordinator state. Every public recovery action carries the
+`expectedInterruptedTargetWakeLifecycleId` from the owner's displayed recovery
+projection. Approval compares this identity and the approval phase in the same
+owner-shard transaction that advances the queue; continuation and Skip retain
+their exact-source transactional fences. Queue growth, cancellation, and other
+admission revisions do not invalidate a choice about the same interrupted work.
+Missing identities are rejected, never filled from a fresh server read. A
+confirmation for one task closes when its action or task identity changes.
+Repeated queue approval cannot advance another recovery; no historical approval
+receipt is implied by a no-longer-pending response. Continue can retry a saved
+Fork choice for the same task, but cannot make the first Fork choice implicitly.
+
+The public request and internal queue-approval RPC remain strict. During rollout,
+new Web requests may be rejected by old Gateway/Core or old owner shards, and
+old requests without an identity are rejected by new receivers. Recovery writes
+must wait for compatible receivers; ordinary Wake traffic and automatic Usage
+continuation keep their existing contracts. Update Web, Gateway, and Core in the
+normal coordinated cloud order and verify the exact-source request through the
+owner shard before declaring recovery available. Do not fall back to the old
+unfenced body on a mixed-version error. This cloud-only request change does not
+require a CLI or Service contract epoch increase or restart. Existing optional
+projection identity fields stay optional for old readers; new Web refuses an
+action when an older projection cannot supply its identity.
+
+`skip_interrupted_work` resolves an exact
 `continuation_needs_attention` gate and promotes the oldest queued Wake; it does
 not replay the interrupted request. Its strict request carries the current
 interrupted target-Wake lifecycle id, and the owner shard compares that identity
@@ -8065,3 +8397,111 @@ Automatic updates require installable CLI and Service targets and use the
 projected source-specific CLI target. Skills-only drift cannot bootstrap an
 unavailable binary upgrade. Validate schema/report acceptance, source provenance,
 channel/platform/retained-Service matrices, safety floors and automatic dispatch.
+## Pending Space Input Receiver
+
+`spaceInputQueueMutationSchema` and `spaceInputQueueResponseSchema` define the
+additive Core-to-Space `spaceInputQueue` / `rpcInputQueue` contract. The receiver
+uses the existing Center input target and client message ID schemas. The caller
+never supplies an author or a native submission identity: authenticated context
+and the Space's admitted delivery supply them. The receiver requires an active
+Human membership owned by the authenticated caller, and the original verified
+Human sender of a private Center DM or a supported Local Codex Wake. Read and
+mutation results expose only that author's inputs. Steer also compares the
+requested dispatch and Profile with the stored target. It never retargets an
+existing row to a newer execution.
+
+`GET/PATCH /v1/spaces/:spaceId/input-queue` and the shared API client expose this
+receiver to the Human composer for Center and Local Codex targets. Gateway derives the actor from
+authenticated context and rejects injected author fields. Existing Space access
+and active Human ownership checks still apply. The Web default for supported
+plain text during a confirmed response is Queue; only the explicit Steer action
+calls native execution input. Queue mutations use the existing
+`space.meta.changed` invalidation envelope, without message text or author data.
+The client rereads its authorized queue, including after reconnect.
+
+The Web Queue is one compact, inset tray behind the Composer, shared with the
+existing pending-action tray geometry. Rows expose Steer, delete, and an accessible
+Fluid menu for Edit, Move up and Move down, plus pointer/keyboard reordering.
+Edit confirms the existing delete mutation before restoring the full text to the
+Composer, preserving any newer draft. A lost response retains a retryable edit;
+delete is idempotent for that same author's deleted row. A claimed or consumed row
+cannot be taken back for editing. Removing input never stops its original Wake.
+
+Local rows use the same outbox and freeze the original requester account,
+author, Profile, dispatch, Coordinator execution, attempt and run. D1 locates
+the Coordinator; it cannot authorize or select an active run. The Coordinator
+resolves the admitted source and current attempt/run, then checks the exact
+Service session, generation, Profile lease and supported controller. Space
+rechecks current Auth ownership, writable membership and target membership
+before enqueue, Steer, receipt reads and ordinary queue handoff. Queue-only
+deletion/reorder still checks the original requester's authority, but does not
+require a live target: an author can discard pending work after its Agent leaves.
+Reordering changes only the caller's pending slots, preserving other authors'
+positions. Ordinary consumption retains the existing atomic message/outbox
+handoff and never replays an uncertain Steer as a new Wake.
+
+Execution routing uses the persisted native delivery or the exact Coordinator
+admission, not a lazily refreshed member Controller snapshot. An absent snapshot
+does not reject a supported freshly created chat. Local enqueue does not require
+a dispatch-conveyor row that may already have been retired; the Coordinator still
+checks the original author, execution, attempt, run, session and lease.
+
+`agentWorkloadSnapshotSchema` is an additive read projection on the existing
+Organization Agent runtime overview. `workloadProfileId` requests one eligible
+Profile after current Organization membership admission. The Space index supplies
+candidate conversations within that Organization, including departed Agent
+memberships with pending input. Core reads existing Space-owned progress and input
+through `rpcAgentWorkload` with bounded concurrency. Space rechecks its Organization
+scope and ordinary source access. Only accessible sources serialize locations,
+message previews or identifiers; inaccessible sources contribute counts alone.
+There is no new durable workload store, migration, writer, admission or scheduling
+path. Partial owner reads or failed sources produce `unavailable`. Profile Details
+uses its existing refresh lifecycle; directory list reads do not fan out to Spaces.
+
+The workload contract is optional and additive: old Web ignores it, and new Web
+retains its existing activity presentation when old Core omits it. Deploy the
+Core read receiver before Gateway/Web callers. It changes no Service, CLI, Skills,
+Remote execution or Wake protocol. Queue edit reuses the existing delete contract;
+its lost-response retry guarantee requires the updated Core tombstone handling.
+
+`local-execution-input.ts` owns the shared private apply/read wire. The optional
+`x-openmeld-local-execution-input: 1` WebSocket handshake header follows the
+existing negotiated capability path through Gateway and Core. It is not added
+to the Service's strict registration JSON. Core sends
+`daemon.execution_input.request` only to a negotiated session and accepts its
+matching `daemon.execution_input.result` on that same socket. The connector
+calls the existing private Host receiver; reads cannot resend. Applied receipts
+publish and retire in one Space transaction. Only an explicit non-application
+reply to the original apply may leave a blocked pending row; missing, mismatched,
+lost or replaced-Host receipts remain held. One subsequent read can reconcile an
+unknown application; another unknown stops scheduling without releasing it.
+
+The Remote Center tool `openmeld_space_input_queue` calls
+`centerAgentSpaceInputQueue` for the same owner. Core resolves the current
+verified interactive requester from its native delivery on every call, checks
+Organization scope, and audits the actual Center actor and represented Human.
+Space then checks the represented Human's ordinary write and original-author
+permissions. Source metadata, an Agent owner, Organization role, Routine or
+unverified speaker cannot grant this effect. General Local Agent tools,
+attachments/context and non-Codex Local executors remain separate incomplete
+scope; this tool is not a general delegation grant.
+
+Contract Impact Audit: the public HTTP contract, optional Service handshake and
+private Runtime Transport/IPC schemas, Space stored request union, Center RPC
+and audit action change. Deploy Core receivers/migration and audit readers
+before Gateway/Web and the Remote tool caller; Core precedes Remote. Publish a
+new CLI/Service bundle only after receivers are available. Roll back callers
+before receivers and Remote before Core. An old Gateway/Core ignores or drops
+the new header, retaining ordinary registration, setup, Wake, Space actions and
+diagnostics. A new Core never sends input to an old Service without the header;
+unsupported Local intake leaves the draft intact, and an existing uncertain
+row remains held. Neither direction silently substitutes a new Wake for Steer.
+The optional negotiated feature does not require an execution/Service/CLI/Skills
+epoch bump: old components can safely continue their existing work. No CLI
+command, Prepare payload or managed Skill changed. Shared schema, adapter and
+carrier sources change packaged artifacts; deferred feature checks do not
+authorize publishing an old bundle. A future release must rebuild, stamp
+available local components and verify the actual release base. Retain additive
+SQL migration 49 on rollback; reverting Core while Local rows remain requires
+draining/retaining the candidate Space reader, because old request parsers cannot
+read Local rows. Do not erase held rows to make rollback appear safe.

@@ -136,6 +136,33 @@ html[data-sidebar-display="icons-only"] [data-slot="app-outer-rail"][data-presen
   --sidebar-border: var(--border);
 }
 
+/* A hidden sidebar toggle must not leave its grid gap before the title or tabs. */
+[data-slot="space-window-header"]:not([data-compact="true"]):not(:has(> [data-slot="space-window-header-leading"]:not(:empty)))
+  > [data-slot="space-window-header-title"] {
+  /* Align the label while keeping the title button's hover padding. */
+  --space-title-control-inline-offset: -0.5rem;
+  grid-column: 1 / 3;
+}
+
+[data-slot="space-window-header"][data-compact="true"]:not(:has(> [data-slot="space-window-header-leading"]:not(:empty)))
+  [data-slot="space-window-header-navigation"] {
+  grid-column: 1 / 3;
+}
+
+/* The sidebar toggle is desktop-only; real leading controls still keep their column. */
+@media (width < 64rem) {
+  [data-slot="space-window-header"][data-has-leading-control="false"]:not([data-compact="true"])
+    > [data-slot="space-window-header-title"] {
+    --space-title-control-inline-offset: -0.5rem;
+    grid-column: 1 / 3;
+  }
+
+  [data-slot="space-window-header"][data-has-leading-control="false"][data-compact="true"]
+    [data-slot="space-window-header-navigation"] {
+    grid-column: 1 / 3;
+  }
+}
+
 html[data-space-conversation-layout="centered"]
   [data-space-conversation-content-width] {
   width: 100%;
@@ -157,10 +184,9 @@ html[data-space-conversation-layout="centered"]
   padding-inline: var(--space-conversation-inline-padding);
 }
 
-/* Keep the underlying columns laid out, but out of the focus and reading order,
-   while a narrow container presents Thread as a full-width reading panel. */
+/* Thread covers only the main conversation. Other side panels stay available. */
 [data-space-inline-panels]:has(> [data-space-panel-overlay="true"])
-  > :not([data-space-panel-overlay="true"]) {
+  > :not([data-slot="sidebar-wrapper"]) {
   visibility: hidden;
 }
 
@@ -266,9 +292,31 @@ html[data-space-self-message-alignment="left"]
 
 /* Messages keep an avatar column beside the first header or bubble in a run.
    Reserve it on every row so grouped messages and actions stay aligned. */
+[data-slot="message-scroller-viewport"],
+[data-space-optimistic-conversation] {
+  container-name: space-message-viewport;
+  container-type: inline-size;
+}
+
 [data-slot="message-content"] {
+  --space-message-avatar-size: 24px;
+  --space-message-avatar-scale: 0.75;
   position: relative;
-  padding-inline-start: 2rem;
+  padding-inline-start: calc(var(--space-message-avatar-size) + 8px);
+}
+
+@container space-message-viewport (min-width: 640px) {
+  [data-slot="message-content"] {
+    --space-message-avatar-size: 28px;
+    --space-message-avatar-scale: 0.875;
+  }
+}
+
+@container space-message-viewport (min-width: 1024px) {
+  [data-slot="message-content"] {
+    --space-message-avatar-size: 32px;
+    --space-message-avatar-scale: 1;
+  }
 }
 
 [data-slot="message-content"]:not([data-direct-message]) [data-slot="message-speaker-avatar"] {
@@ -279,6 +327,18 @@ html[data-space-self-message-alignment="left"]
 
 [data-slot="message-speaker-avatar"] {
   display: flex;
+  inline-size: var(--space-message-avatar-size, 24px);
+  block-size: var(--space-message-avatar-size, 24px);
+  flex-shrink: 0;
+}
+
+[data-slot="message-speaker-avatar-content"] {
+  display: flex;
+  inline-size: 32px;
+  block-size: 32px;
+  flex-shrink: 0;
+  transform: scale(var(--space-message-avatar-scale, 0.75));
+  transform-origin: top left;
 }
 
 /* Offset the name line's font ascent inset so its visible text sits just above the avatar
@@ -305,7 +365,7 @@ html[data-space-self-message-alignment="left"]
 html[data-space-self-message-alignment="right"]
   [data-space-self-message="true"] > [data-slot="message-content"] {
   padding-inline-start: 0;
-  padding-inline-end: 2rem;
+  padding-inline-end: calc(var(--space-message-avatar-size) + 8px);
 }
 
 html[data-space-self-message-alignment="right"]

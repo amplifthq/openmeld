@@ -19,25 +19,44 @@ describe("computer authorization handoff", () => {
   });
 
   it.each([
-    { preset: "prod", clientId: undefined, expectedClientId: "openmeld-cli" },
     {
-      preset: "dev-local",
+      lane: "prod",
       clientId: undefined,
+      envClientId: undefined,
+      expectedClientId: "openmeld-cli",
+    },
+    {
+      lane: "canary",
+      clientId: undefined,
+      envClientId: undefined,
+      expectedClientId: "openmeld-cli",
+    },
+    {
+      lane: "dev-local",
+      clientId: undefined,
+      envClientId: undefined,
       expectedClientId: "openmeld-cli-dev",
     },
-    { preset: "canary", clientId: undefined, expectedClientId: "openmeld-cli" },
     {
-      preset: "dev-local",
-      clientId: "custom-client",
-      expectedClientId: "custom-client",
+      lane: "dev-local",
+      clientId: undefined,
+      envClientId: "custom-env",
+      expectedClientId: "custom-env",
     },
-  ])("exchanges the $preset computer grant with $expectedClientId without replacing the current local account", async ({
-    preset,
+    {
+      lane: "dev-local",
+      clientId: "custom-cli",
+      envClientId: "custom-env",
+      expectedClientId: "custom-cli",
+    },
+  ])("validates an independent computer session with $expectedClientId in $lane without replacing the current account", async ({
+    lane,
     clientId,
+    envClientId,
     expectedClientId,
   }) => {
-    vi.stubEnv("OPENMELD_ENV_PRESET", preset);
-    vi.stubEnv("OPENMELD_AUTH_CLIENT_ID", undefined);
+    vi.stubEnv("OPENMELD_ENV_PRESET", lane);
+    vi.stubEnv("OPENMELD_AUTH_CLIENT_ID", envClientId);
     const fetchMock = vi.fn<typeof fetch>((input, init) => {
       const request = `${init?.method ?? "GET"} ${String(input)}`;
       switch (request) {

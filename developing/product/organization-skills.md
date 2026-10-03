@@ -317,6 +317,17 @@ Skill and Organization. Phase 1 removes it from active Organization use and
 retains immutable release/audit evidence according to retention policy. A
 removed Skill cannot appear in runtime or CLI snapshots.
 
+Owners and admins can select multiple Skills in the Team catalog and remove
+them with one confirmation listing every selected name and the Organization.
+Select all covers the current search and status filter only. Changing either
+filter, leaving selection mode, or switching Organizations clears selection;
+selection is never persisted. Confirmation pins the reviewed Skill versions.
+Each removal uses Core's existing permission and version checks. Partial
+success removes confirmed successes from the list and retains failed selections
+with per-Skill errors for explicit review and retry. A retry requires another
+confirmation; it never silently retries a newer version. Leaving the catalog
+stops starting further removals, while already submitted requests may finish.
+
 ## Web Product
 
 Skills management belongs to **Team**, whose tabs are **People / Agents /
@@ -404,9 +415,10 @@ Name and description appear once, above Instructions, as document-style labeled
 inputs for editors and ordinary text for readers. There is no Overview landing
 page, View/Edit switch, raw Markdown preview mode, or second navigation sidebar.
 A sticky action row keeps **All Skills**, the exact save state, **Save**, and
-**More actions** reachable. Only Skills with supporting files show the local
-**Instructions / Files (n)** tabs; switching them neither saves nor leaves the
-Skill. The outer document owns one draft for every surface.
+**More actions** reachable. Editors always see the local **Instructions / Files
+(n)** tabs, including **Files (0)** so they can add the first supporting file.
+Readers see the tabs only when supporting files exist. Switching tabs neither
+saves nor leaves the Skill. The outer document owns one draft for every surface.
 
 **More actions** exposes **Copy link**, **How agents use this skill**,
 **Properties**, and **Version history**. Managers additionally see maintainers,
@@ -430,8 +442,9 @@ mount Plate. Once opened, a reference editor is retained hidden when collapsed,
 so queued input and Undo history are not lost during file switches. File paths
 own presentation identity; accepted content generations still control safe
 external reloads. Other text is read-only, binary assets are downloadable, and
-scripts remain explicitly non-executable. This UI does not add upload or removal
-of bundle files.
+scripts remain explicitly non-executable. Editors can add or remove supporting
+files in the same draft; the next Save publishes those changes as a new Skill
+version. Readers cannot add or remove files.
 
 Instructions and references reuse the shared Plate/CommonMark + GFM editor. Its
 opt-in page presentation supplies a quiet, accessible toolbar and document

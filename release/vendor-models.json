@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-01T05:05:17.000Z",
+  "updatedAt": "2026-10-02T02:22:15.764Z",
   "agentControllers": {
     "antigravity": {
       "defaultModelId": "gemini-3.8-flash-high",
@@ -669,6 +669,14 @@
       "defaultModelId": "opencode/mimo-v2.6-flash-free",
       "models": [
         {
+          "id": "opencode/fledge-alpha-free",
+          "displayName": "OpenCode Fledge Alpha Free",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "high", "max"],
+          "minCliVersion": "1.18.34"
+        },
+        {
           "id": "opencode-go/gpt-6-luna",
           "displayName": "GPT-6 Luna",
           "unavailable": false,
@@ -1288,7 +1296,7 @@
           "id": "opencode-go/qwen3.8-max",
           "displayName": "Qwen3.8 Max",
           "unavailable": false,
-          "supportedReasoningLevels": [],
+          "supportedReasoningLevels": ["low", "medium", "xhigh"],
           "minCliVersion": null
         }
       ]

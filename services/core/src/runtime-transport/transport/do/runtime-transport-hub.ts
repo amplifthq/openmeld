@@ -22,8 +22,14 @@ import {
   computerFileAccessDaemonFrameSchema,
   computerFileAccessPolicyResultSchema,
   daemonStreamFrameSchema,
+  LOCAL_EXECUTION_INPUT_CAPABILITY_HEADER,
   LOCAL_FOLDER_PICKER_RUNTIME_CAPABILITY,
   localAgentReasoningPreferencesSchema,
+  localExecutionInputBindingSchema,
+  localExecutionInputOperationSchema,
+  localExecutionInputResolveSchema,
+  localExecutionInputResponseSchema,
+  localExecutionInputResultFrameSchema,
   localFolderPickerDaemonFrameSchema,
   localFolderPickerResultSchema,
   localProjectControlConnectResultSchema,
@@ -413,6 +419,7 @@ import {
   recordExecutionContextCompletionInTransaction,
   resolveExecutionContextTask,
 } from "../../application/execution-context-authority";
+import { interactionResponseFingerprint } from "../../application/interaction-response-fingerprint";
 import {
   buildFailedLocalAgentStreamTerminal,
   buildLocalAgentStreamId,
@@ -541,6 +548,7 @@ import {
   resolveNextRuntimeCoordinatorHeadFailurePublicationRetryAlarmAtMsFromRecords,
   resolveNextRuntimeCoordinatorHeadWaitingAlarmAtMsFromRecords,
   resolveNextRuntimeCoordinatorPreExecutionHandoffAlarmAtMsFromRecords,
+  resolveNextRuntimeCoordinatorRunProgressPhase,
   resolveRuntimeCoordinatorDecisionRun,
   resolveRuntimeCoordinatorDecisionScopeMismatchReason,
   resolveRuntimeCoordinatorExecutionAdmissionValidityMs,
@@ -2180,6 +2188,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       return { status: "unavailable" };
     }
     const response = await approveRuntimeCoordinatorAgentProfileWorkQueue({
+      expectedInterruptedTargetWakeLifecycleId:
+        parsed.data.expectedInterruptedTargetWakeLifecycleId,
       nowMs: Date.now(),
       ownerUserId: parsed.data.ownerUserId,
       storage: this.ctx.storage,
@@ -3568,6 +3578,32 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       }
       case "daemon.local_agent_control.result": {
         this.handleLocalAgentControlResultFrame(webSocket, frame.payload);
+        return;
+      }
+      case "daemon.execution_input.result": {
+        const parsed = localExecutionInputResultFrameSchema.safeParse(
+          frame.payload
+        );
+        if (!parsed.success) {
+          return;
+        }
+        const waiter = this.currentDeviceOperationWaiters.get(
+          parsed.data.requestId
+        );
+        if (
+          !waiter ||
+          waiter.socket !== webSocket ||
+          waiter.expectedResponseCode !== "daemon.execution_input.result"
+        ) {
+          return;
+        }
+        clearTimeout(waiter.timeoutId);
+        this.currentDeviceOperationWaiters.delete(parsed.data.requestId);
+        if (waiter.isExpectedPayload(parsed.data.result)) {
+          waiter.resolve(parsed.data.result);
+        } else {
+          waiter.reject(new Error("Execution input receipt target mismatch."));
+        }
         return;
       }
       case "daemon.openmeld_tools_control.result": {
@@ -6908,7 +6944,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       },
       updatedAtMs: input.nowMs,
     };
-    let projectionWrite: "created" | "skipped_stale" | "updated";
+    let projectionWrite: "skipped_stale" | "written";
     try {
       projectionWrite = await writeRuntimeCoordinatorExecutionProjection({
         db: input.db,
@@ -8767,18 +8803,24 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
       return;
     }
-    await this.syncAgentProfileWorkControllerConversationOccupancy({
-      request: parsed.data,
-      tokenValidationContext,
-    });
+    // Same-run keepalives still pass connection validation and acknowledgement,
+    // but cannot move the occupied wait's progress or watchdog baseline.
+    const { isOccupiedKeepalive } =
+      await this.syncAgentProfileWorkControllerConversationOccupancy({
+        currentPhase: pending?.phase ?? commandState?.localProgress.phase,
+        request: parsed.data,
+        tokenValidationContext,
+      });
     if (!pending && commandState) {
-      await this.writeRuntimeCoordinatorRunCommandState(
-        buildRuntimeCoordinatorRunCommandStateFromLifecycle({
-          commandState,
-          lifecycle: parsed.data,
-          nowMs: Date.now(),
-        })
-      );
+      if (!isOccupiedKeepalive) {
+        await this.writeRuntimeCoordinatorRunCommandState(
+          buildRuntimeCoordinatorRunCommandStateFromLifecycle({
+            commandState,
+            lifecycle: parsed.data,
+            nowMs: Date.now(),
+          })
+        );
+      }
       this.recordRuntimeCoordinatorLifecycleProjectionFromCommandState({
         commandState,
         request: parsed.data,
@@ -8792,7 +8834,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       await acknowledge(true, null);
       return;
     }
-    const response = handleDispatchLifecycle(this.state, parsed.data);
+    const response = handleDispatchLifecycle(this.state, parsed.data, {
+      recordProgress: !isOccupiedKeepalive,
+    });
     if (!response.ok) {
       await acknowledge(
         false,
@@ -8814,7 +8858,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     const updatedPending = this.state.pendingDispatches.get(
       buildDispatchAttemptKey(parsed.data.dispatchId, parsed.data.attemptId)
     );
-    if (updatedPending) {
+    if (updatedPending && !isOccupiedKeepalive) {
       await this.updateRuntimeCoordinatorRunCommandStateFromPending({
         pending: updatedPending,
       });
@@ -8880,20 +8924,42 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   }
 
   private async syncAgentProfileWorkControllerConversationOccupancy(input: {
+    currentPhase: RuntimeCoordinatorRunLocalProgressState["phase"] | undefined;
     request: RuntimeTransportDispatchLifecycleRequest;
     tokenValidationContext: RuntimeCoordinatorTokenValidationContext;
-  }): Promise<void> {
+  }): Promise<{ isOccupiedKeepalive: boolean }> {
+    const advancesPhase =
+      input.currentPhase !== undefined &&
+      resolveNextRuntimeCoordinatorRunProgressPhase({
+        currentPhase: input.currentPhase,
+        requestedPhase: input.request.phase,
+      }) !== input.currentPhase;
+    const wasOccupied =
+      await readRuntimeCoordinatorAgentProfileWorkControllerConversationOccupied(
+        {
+          dispatchId: input.request.dispatchId,
+          storage: this.ctx.storage,
+          targetProfileId:
+            input.tokenValidationContext.executionScope.targetProfileId,
+        }
+      );
     const occupancy =
       input.request.agentControllerConversationOccupancy ?? null;
-    if (!occupancy) {
-      return;
+    const isOccupiedKeepalive =
+      wasOccupied && !advancesPhase && occupancy?.state !== "available";
+    const providerTurnStarted =
+      wasOccupied && advancesPhase && input.request.phase === "running";
+    const state =
+      occupancy?.state ?? (providerTurnStarted ? "available" : null);
+    if (!state) {
+      return { isOccupiedKeepalive };
     }
     try {
       await markRuntimeCoordinatorAgentProfileWorkControllerConversationOccupancy(
         {
           dispatchId: input.request.dispatchId,
           nowMs: Date.now(),
-          state: occupancy.state,
+          state,
           storage: this.ctx.storage,
           targetProfileId:
             input.tokenValidationContext.executionScope.targetProfileId,
@@ -8907,12 +8973,13 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           errorMessage: error instanceof Error ? error.message : String(error),
           runtimeCoordinatorExecutionId:
             input.tokenValidationContext.runtimeCoordinatorExecutionId,
-          state: occupancy.state,
+          state,
           targetProfileId:
             input.tokenValidationContext.executionScope.targetProfileId,
         }
       );
     }
+    return { isOccupiedKeepalive };
   }
 
   private async readRuntimeCoordinatorRunCommandStateForProgress(input: {
@@ -9359,6 +9426,19 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
 
     const existing = authority.commandState.pendingInteraction ?? null;
+    if (
+      isCompletedInteractionReplay(
+        authority.commandState,
+        parsed.data.interaction.interactionId
+      )
+    ) {
+      this.sendErrorFrame(webSocket, {
+        code: "schema.invalid",
+        message:
+          "This interaction was already handled. A new request needs a new interaction ID.",
+      });
+      return;
+    }
     if (existing) {
       const incomingWithAuthoritativeTimestamps = {
         ...parsed.data.interaction,
@@ -9526,27 +9606,69 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       return;
     }
     const deliveredAtMs = Date.now();
-    const nextCommandState: RuntimeCoordinatorRunCommandState = {
-      ...authority.commandState,
-      lastCommandReasonCode: "runtime_coordinator.interaction_delivered",
-      lastDeliveryProvenance: {
-        ...authority.commandState.lastDeliveryProvenance,
-        connectionGeneration: parsed.data.connectionGeneration,
-        daemonSessionId: parsed.data.daemonSessionId,
-        leaseEpoch: parsed.data.leaseEpoch,
-      },
-      lastWatchdogCheckAtMs: null,
-      localProgress: {
-        ...authority.commandState.localProgress,
-        lastLifecycleAtMs: Math.max(
-          authority.commandState.localProgress.lastLifecycleAtMs ?? 0,
-          deliveredAtMs
-        ),
-      },
-      pendingInteraction: null,
-      updatedAtMs: deliveredAtMs,
-    };
-    await this.writeRuntimeCoordinatorRunCommandState(nextCommandState);
+    const responseFingerprint = await interactionResponseFingerprint(
+      pendingInteraction.response
+    );
+    const nextCommandState = await this.ctx.storage.transaction(
+      async (transaction) => {
+        const current = await readRuntimeCoordinatorRunCommandStateFromStorage(
+          transaction,
+          parsed.data.runtimeCoordinatorExecutionId
+        );
+        if (
+          !current ||
+          current.activeRunId !== authority.commandState.activeRunId ||
+          current.pendingInteraction?.request.interactionId !==
+            pendingInteraction.request.interactionId ||
+          !hasSameSerializedValue(
+            current.pendingInteraction.response,
+            pendingInteraction.response
+          )
+        ) {
+          return null;
+        }
+        const next: RuntimeCoordinatorRunCommandState = {
+          ...current,
+          lastCommandReasonCode: "runtime_coordinator.interaction_delivered",
+          interactionResponseReceipts: {
+            ...current.interactionResponseReceipts,
+            [pendingInteraction.request.interactionId]: {
+              responseFingerprint,
+              respondedAtMs: pendingInteraction.respondedAtMs ?? deliveredAtMs,
+            },
+          },
+          lastDeliveryProvenance: {
+            ...current.lastDeliveryProvenance,
+            connectionGeneration: parsed.data.connectionGeneration,
+            daemonSessionId: parsed.data.daemonSessionId,
+            leaseEpoch: parsed.data.leaseEpoch,
+          },
+          lastWatchdogCheckAtMs: null,
+          localProgress: {
+            ...current.localProgress,
+            lastLifecycleAtMs: Math.max(
+              current.localProgress.lastLifecycleAtMs ?? 0,
+              deliveredAtMs
+            ),
+          },
+          pendingInteraction: null,
+          updatedAtMs: deliveredAtMs,
+        };
+        await writeRuntimeCoordinatorRunCommandStateInTransaction(
+          transaction,
+          next
+        );
+        return next;
+      }
+    );
+    if (!nextCommandState) {
+      return;
+    }
+    this.publishWakeProgressChanged({
+      agentProfileId: nextCommandState.targetProfileId,
+      clientMessageId: nextCommandState.sourceClientMessageId,
+      spaceId: nextCommandState.sanitizedDeliveryRequest.payload.spaceId,
+    });
     await this.tryResolveRuntimeCoordinatorInteractionInboxItem({
       commandState: nextCommandState,
       interaction: pendingInteraction.request,
@@ -10650,6 +10772,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       | undefined = {
       "/runtime-coordinator/interaction/read": (input: Request) =>
         this.handleRuntimeCoordinatorReadInteractionRequest(input),
+      "/runtime-coordinator/execution-input/resolve": (input: Request) =>
+        this.handleExecutionInput(input, true),
+      "/runtime-coordinator/execution-input": (input: Request) =>
+        this.handleExecutionInput(input, false),
       "/runtime-coordinator/interaction/respond": (input: Request) =>
         this.handleRuntimeCoordinatorRespondInteractionRequest(input),
       "/runtime-coordinator/wake-stop/publication-eligibility": (
@@ -10703,6 +10829,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       computerCare: request.headers.get(OPENMELD_COMPUTER_CARE_HEADER) === "1",
       spaceWorkHandoff:
         request.headers.get(SPACE_WORK_HANDOFF_CAPABILITY_HEADER) === "1",
+      localExecutionInput:
+        request.headers.get(LOCAL_EXECUTION_INPUT_CAPABILITY_HEADER) === "1",
       connectionDiagnosticId: serviceConnectionDiagnosticIdSchema.safeParse(
         new URL(request.url).searchParams.get(
           SERVICE_CONNECTION_ID_QUERY_PARAMETER
@@ -13872,6 +14000,158 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     };
   }
 
+  private async handleExecutionInput(
+    request: Request,
+    resolveOnly: boolean
+  ): Promise<Response> {
+    const body = await readJsonBody(request);
+    const operation = localExecutionInputOperationSchema.safeParse(body);
+    let selectorBody = body;
+    if (!resolveOnly) {
+      selectorBody = operation.success
+        ? {
+            ownerUserId: operation.data.request.ownerUserId,
+            runtimeCoordinatorExecutionId:
+              operation.data.request.runtimeCoordinatorExecutionId,
+            dispatchId: operation.data.request.dispatchId,
+            targetProfileId: operation.data.request.targetProfileId,
+            spaceId: operation.data.request.source.spaceId,
+            authorProfileId: operation.data.request.source.authorProfileId,
+          }
+        : null;
+    }
+    const selector = localExecutionInputResolveSchema.safeParse(selectorBody);
+    if (!(selector.success && (resolveOnly || operation.success))) {
+      return Response.json(null, { status: 400 });
+    }
+    const scope = selector.data;
+    const state = await this.ctx.storage.transaction(async (transaction) => {
+      const [command, authority] = await Promise.all([
+        readRuntimeCoordinatorRunCommandStateFromStorage(
+          transaction,
+          scope.runtimeCoordinatorExecutionId
+        ),
+        readRuntimeCoordinatorTokenAuthorityFromStorage(
+          transaction,
+          scope.runtimeCoordinatorExecutionId
+        ),
+      ]);
+      const delivery = command?.sanitizedDeliveryRequest.payload;
+      if (
+        !(command && delivery) ||
+        command.ownerUserId !== scope.ownerUserId ||
+        command.dispatchId !== scope.dispatchId ||
+        command.targetProfileId !== scope.targetProfileId ||
+        delivery.spaceId !== scope.spaceId ||
+        delivery.sourceSignal.profileId !== scope.authorProfileId ||
+        delivery.executionIdentity.core.agentControllerRef !== "builtin:codex"
+      ) {
+        return null;
+      }
+      if (
+        operation.success &&
+        (command.attemptId !== operation.data.request.attemptId ||
+          command.activeRunId !==
+            operation.data.request.runtimeCoordinatorRunId)
+      ) {
+        return null;
+      }
+      if (
+        resolveOnly ||
+        (operation.success && operation.data.operation === "apply")
+      ) {
+        const run = authority?.runsById[command.activeRunId];
+        if (
+          !authority ||
+          authority.terminalOutcome ||
+          authority.currentRunId !== command.activeRunId ||
+          run?.tokenStatus !== "active" ||
+          command.localProgress.phase !== "running" ||
+          command.localAttemptWithdrawal ||
+          command.lastCommandReasonCode?.includes("wake_stop")
+        ) {
+          return null;
+        }
+      }
+      return command;
+    });
+    if (!state) {
+      // Even a known terminal state says nothing about an earlier application's receipt.
+      return Response.json(null);
+    }
+    const provenance = state.lastDeliveryProvenance;
+    const session = this.state.sessionsById.get(provenance.daemonSessionId);
+    const lease = this.state.profileLeasesByProfileId.get(
+      scope.targetProfileId
+    );
+    if (
+      !session?.socket ||
+      session.ownerUserId !== scope.ownerUserId ||
+      session.connectionGeneration !== provenance.connectionGeneration ||
+      !session.profileIds.has(scope.targetProfileId) ||
+      session.capabilities.localExecutionInput !== true ||
+      !isDaemonExecutionCompatible(session.executionCompatibility) ||
+      !lease ||
+      lease.daemonSessionId !== session.daemonSessionId ||
+      lease.deviceId !== session.deviceId ||
+      lease.lane !== session.lane ||
+      lease.leaseEpoch !== provenance.leaseEpoch
+    ) {
+      return Response.json(null);
+    }
+    if (resolveOnly) {
+      return Response.json(
+        localExecutionInputBindingSchema.parse({
+          ownerUserId: state.ownerUserId,
+          runtimeCoordinatorExecutionId: state.runtimeCoordinatorExecutionId,
+          dispatchId: state.dispatchId,
+          targetProfileId: state.targetProfileId,
+          attemptId: state.attemptId,
+          runtimeCoordinatorRunId: state.activeRunId,
+        })
+      );
+    }
+    if (!operation.success) {
+      return Response.json(null);
+    }
+    const requestId = crypto.randomUUID();
+    try {
+      const result = await this.sendCurrentDeviceOperationAndWait({
+        code: "daemon.execution_input.request",
+        expectedResponseCode: "daemon.execution_input.result",
+        requestId,
+        session: session as RuntimeTransportSessionState & {
+          socket: WebSocket;
+        },
+        payload: {
+          ...operation.data,
+          requestId,
+          connectionGeneration: session.connectionGeneration,
+          leaseEpoch: lease.leaseEpoch,
+        },
+        isExpectedPayload: (value) => {
+          const parsed = localExecutionInputResponseSchema.safeParse(value);
+          return (
+            parsed.success &&
+            parsed.data.inputId === operation.data.request.inputId
+          );
+        },
+        timeoutMs: 10_000,
+      });
+      return Response.json(result);
+    } catch (error) {
+      // Space owns the durable claim. Neither a lost response nor a transport
+      // error authorizes a second apply; only a read may reconcile it.
+      console.warn("[core.runtime_transport.execution_input_unconfirmed]", {
+        inputId: operation.data.request.inputId,
+        runtimeCoordinatorExecutionId: scope.runtimeCoordinatorExecutionId,
+        operation: operation.data.operation,
+        errorName: error instanceof Error ? error.name : "unknown",
+      });
+      return Response.json(null);
+    }
+  }
+
   private async handleRuntimeCoordinatorReadInteractionRequest(
     request: Request
   ): Promise<Response> {
@@ -13948,7 +14228,47 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   private async respondToRuntimeCoordinatorInteraction(
     input: RuntimeTransportRuntimeCoordinatorRespondInteractionRequest
   ): Promise<RuntimeTransportRuntimeCoordinatorRespondInteractionResponse> {
-    const commandState = await this.readRuntimeCoordinatorRunCommandState(
+    const fingerprint = await interactionResponseFingerprint(input.response);
+    const response = await this.ctx.storage.transaction((transaction) =>
+      this.persistRuntimeCoordinatorInteractionResponse(
+        input,
+        transaction,
+        fingerprint
+      )
+    );
+    if (response.ok) {
+      const commandState = await this.readRuntimeCoordinatorRunCommandState(
+        input.runtimeCoordinatorExecutionId
+      );
+      const pending = commandState?.pendingInteraction;
+      if (
+        commandState &&
+        pending?.request.interactionId === input.interactionId
+      ) {
+        this.publishWakeProgressChanged({
+          agentProfileId: commandState.targetProfileId,
+          clientMessageId: commandState.sourceClientMessageId,
+          spaceId: commandState.sanitizedDeliveryRequest.payload.spaceId,
+        });
+        await this.tryResolveRuntimeCoordinatorInteractionInboxItem({
+          commandState,
+          interaction: pending.request,
+          resolvedAtMs: response.respondedAtMs,
+        });
+        this.tryDeliverRuntimeCoordinatorInteractionResponse(commandState);
+      }
+      this.queueHousekeepingAlarmSync();
+    }
+    return response;
+  }
+
+  private async persistRuntimeCoordinatorInteractionResponse(
+    input: RuntimeTransportRuntimeCoordinatorRespondInteractionRequest,
+    transaction: DurableObjectTransaction,
+    fingerprint: string
+  ): Promise<RuntimeTransportRuntimeCoordinatorRespondInteractionResponse> {
+    const commandState = await readRuntimeCoordinatorRunCommandStateFromStorage(
+      transaction,
       input.runtimeCoordinatorExecutionId
     );
     if (!commandState) {
@@ -13965,6 +14285,24 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         status: "owner_mismatch",
       };
     }
+    const receipts = commandState.interactionResponseReceipts ?? {};
+    const receipt = Object.hasOwn(receipts, input.interactionId)
+      ? receipts[input.interactionId]
+      : undefined;
+    if (receipt) {
+      return receipt.responseFingerprint === fingerprint
+        ? {
+            ok: true,
+            respondedAtMs: receipt.respondedAtMs,
+            status: "already_resolved",
+          }
+        : {
+            ok: false,
+            status: "response_invalid",
+            message:
+              "A different response was already recorded. Refresh to see the current status.",
+          };
+    }
     const pending = commandState.pendingInteraction ?? null;
     if (!pending || pending.request.interactionId !== input.interactionId) {
       return {
@@ -13973,18 +14311,26 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         status: "interaction_mismatch",
       };
     }
+    if (pending.response && pending.respondedAtMs !== null) {
+      if (JSON.stringify(pending.response) !== JSON.stringify(input.response)) {
+        return {
+          message:
+            "A different response was already recorded. Refresh to see the current status.",
+          ok: false,
+          status: "response_invalid",
+        };
+      }
+      return {
+        ok: true,
+        respondedAtMs: pending.respondedAtMs,
+        status: "already_resolved",
+      };
+    }
     if (pending.request.expiresAtMs <= Date.now()) {
       return {
         message: "This request expired. Send the task again when you’re ready.",
         ok: false,
         status: "expired",
-      };
-    }
-    if (pending.response && pending.respondedAtMs !== null) {
-      return {
-        ok: true,
-        respondedAtMs: pending.respondedAtMs,
-        status: "already_resolved",
       };
     }
     const resolution = agentInteractionResolutionSchema.safeParse({
@@ -14007,17 +14353,20 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     const nextCommandState: RuntimeCoordinatorRunCommandState = {
       ...commandState,
       lastCommandReasonCode: "runtime_coordinator.interaction_responded",
+      interactionResponseReceipts: {
+        ...commandState.interactionResponseReceipts,
+        [input.interactionId]: {
+          responseFingerprint: fingerprint,
+          respondedAtMs,
+        },
+      },
       pendingInteraction: nextPending,
       updatedAtMs: respondedAtMs,
     };
-    await this.writeRuntimeCoordinatorRunCommandState(nextCommandState);
-    await this.tryResolveRuntimeCoordinatorInteractionInboxItem({
-      commandState: nextCommandState,
-      interaction: pending.request,
-      resolvedAtMs: respondedAtMs,
-    });
-    this.tryDeliverRuntimeCoordinatorInteractionResponse(nextCommandState);
-    this.queueHousekeepingAlarmSync();
+    await writeRuntimeCoordinatorRunCommandStateInTransaction(
+      transaction,
+      nextCommandState
+    );
     return {
       ok: true,
       respondedAtMs,
@@ -16598,9 +16947,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   /**
    * Names the cause behind a stale-progress terminal.
    *
-   * Same watchdog, different cause: an occupied native conversation produces
-   * exactly one lifecycle event and then nothing, so it reaches the stale
-   * threshold looking like a lost computer. Core still holds the occupancy flag
+   * Same watchdog, different cause: repeated occupied lifecycle keepalives
+   * prove liveness without advancing work, so the wait reaches the stale
+   * threshold. Core still holds the occupancy flag
    * the Adapter reported, and naming it here is what lets the Wake fail with
    * its real reason and settle into an owner decision instead of a "reconnect
    * the computer" dead end.
@@ -22228,6 +22577,13 @@ const readJsonBody = async (request: Request): Promise<unknown> => {
 
 const hasSameSerializedValue = (left: unknown, right: unknown): boolean =>
   JSON.stringify(left) === JSON.stringify(right);
+
+const isCompletedInteractionReplay = (
+  state: RuntimeCoordinatorRunCommandState,
+  interactionId: string
+): boolean =>
+  !state.pendingInteraction &&
+  Object.hasOwn(state.interactionResponseReceipts ?? {}, interactionId);
 
 const parseDaemonStreamFrame = (
   rawMessage: string | ArrayBuffer

@@ -52,7 +52,7 @@ export function requireProductionDatabaseCurrent(input = {}) {
     throw new Error(
       [
         "CLI/Core release refused: could not prove that the Production database is current.",
-        "Fix the migration-list access or credentials, then rerun the CLI release.",
+        "Fix the migration-list access or credentials, then rerun the guarded release.",
         evidence,
       ]
         .filter(Boolean)
@@ -63,8 +63,8 @@ export function requireProductionDatabaseCurrent(input = {}) {
   throw new Error(
     [
       "Production database is behind the release source.",
-      "CLI Release also deploys Core, so publishing now could run new Core code against an older database schema.",
-      "Run Scoped Production Release for the exact release SHA with scope `database`, wait for it to succeed, then rerun CLI Release.",
+      "Deploying Core now could run new code against an older database schema.",
+      "Run Scoped Production Release for the exact release SHA with scope `database`, wait for it to succeed, then rerun the guarded release.",
       evidence,
     ]
       .filter(Boolean)

@@ -53,6 +53,7 @@ type FeedItemRow = InboxItemRow & {
   unread_count: number;
   latest_occurred_at_ms: number;
   request_category: "action" | "review" | null;
+  conversation_count: number;
 };
 type CountRow = {
   selection_unread_count: number;
@@ -165,48 +166,44 @@ export function createInboxFeedService(input: {
         ? await readSnapshot(identity, snapshotId)
         : await createSnapshot(identity, query);
       assertMatchingSnapshot(snapshot, query, cursor);
-      const cte = inboxFeedCte(snapshot, input.canManageOrganization === true);
+      const cte = inboxFeedCte(
+        snapshot,
+        input.canManageOrganization === true,
+        true
+      );
       const limit = query.limit ?? 40;
+      const expandedKey = query.groupKey
+        ? decodeInboxFeedKey(query.groupKey)
+        : undefined;
+      const collectionKind = expandedKey
+        ? readGroupKind(expandedKey)
+        : undefined;
       const results = await input.db.batch([
         input.db
           .prepare(`${cte.sql} ${INBOX_FEED_COUNTS_SQL}`)
           .bind(...cte.bindings),
         input.db
-          .prepare(`${cte.sql} ${inboxFeedRowsSql(Boolean(query.groupKey))}`)
+          .prepare(
+            `${cte.sql} ${inboxFeedRowsSql(Boolean(query.groupKey), query.grouping, collectionKind)}`
+          )
           .bind(
             ...cte.bindings,
-            ...(query.groupKey ? [decodeInboxFeedKey(query.groupKey)] : []),
-            cursor?.rank ?? null,
-            cursor?.rank ?? null,
-            cursor?.rank ?? null,
-            cursor?.occurredAtMs ?? null,
-            cursor?.rank ?? null,
-            cursor?.occurredAtMs ?? null,
-            cursor?.key ?? null,
+            ...(expandedKey ? [expandedKey] : []),
+            ...cursorBindings(cursor),
             limit + 1
           ),
       ]);
       const { counts, candidates, selectionUnreadCount } =
         readQueryResults(results);
       const page = candidates.slice(0, limit);
-      const last = page.at(-1);
       return inboxFeedResponseSchema.parse({
         organizationId: identity.organizationId,
         snapshotId: snapshot.id,
         snapshotExpiresAt: new Date(snapshot.expiresAtMs).toISOString(),
         counts,
         ...selectionCountProjection(query, selectionUnreadCount),
-        rows: page.map(mapFeedRow),
-        nextCursor:
-          candidates.length > limit && last
-            ? encodeInboxFeedCursor({
-                snapshotId: snapshot.id,
-                rank: last.section_rank,
-                occurredAtMs: last.latest_occurred_at_ms,
-                key: last.sort_key,
-                expandedGroup: query.groupKey ?? null,
-              })
-            : null,
+        rows: page.map((row) => mapFeedRow(row, query.grouping)),
+        nextCursor: nextPageCursor(candidates, limit, snapshot.id, query),
       });
     },
 
@@ -222,12 +219,18 @@ export function createInboxFeedService(input: {
       const result = await input.db
         .prepare(`${cte.sql}
         UPDATE inbox_items SET ${column} = max(?, created_at_ms), updated_at_ms = max(?, updated_at_ms)
-        WHERE ${column} IS NULL AND id IN (SELECT id FROM selected ${body.groupKey ? "WHERE raw_group_key = ?" : ""})`)
+        WHERE ${column} IS NULL AND id IN (SELECT id FROM selected ${body.groupKey ? "WHERE raw_group_key = ? OR collection_key = ? OR json_array('conversation_group', raw_group_key, collection_key) = ?" : ""})`)
         .bind(
           ...cte.bindings,
           timestamp,
           timestamp,
-          ...(body.groupKey ? [decodeInboxFeedKey(body.groupKey)] : [])
+          ...(body.groupKey
+            ? [
+                decodeInboxFeedKey(body.groupKey),
+                decodeInboxFeedKey(body.groupKey),
+                decodeInboxFeedKey(body.groupKey),
+              ]
+            : [])
         )
         .run();
       return { changedCount: Math.max(0, Number(result.meta.changes ?? 0)) };
@@ -261,6 +264,7 @@ function assertMatchingSnapshot(
   if (
     cursor &&
     (cursor.snapshotId !== snapshot.id ||
+      cursor.grouping !== query.grouping ||
       cursor.expandedGroup !== (query.groupKey ?? null))
   ) {
     throw invalidInboxFeedCursor();
@@ -293,6 +297,32 @@ function readQueryResults(results: D1Result[]): {
   };
 }
 
+function cursorBindings(cursor: InboxFeedCursor | null) {
+  const rank = cursor?.rank ?? null;
+  const occurredAt = cursor?.occurredAtMs ?? null;
+  return [rank, rank, rank, occurredAt, rank, occurredAt, cursor?.key ?? null];
+}
+
+function nextPageCursor(
+  rows: FeedItemRow[],
+  limit: number,
+  snapshotId: string,
+  query: InboxFeedQuery
+) {
+  const last = rows[limit - 1];
+  if (rows.length <= limit || !last) {
+    return null;
+  }
+  return encodeInboxFeedCursor({
+    snapshotId,
+    rank: last.section_rank,
+    occurredAtMs: last.latest_occurred_at_ms,
+    key: last.sort_key,
+    expandedGroup: query.groupKey ?? null,
+    ...(query.grouping ? { grouping: query.grouping } : {}),
+  });
+}
+
 function feedSection(rank: number): InboxFeedRow["section"] {
   if (rank === 0) {
     return "priority";
@@ -318,13 +348,13 @@ function mapCounts(row?: CountRow): InboxFeedCounts {
   };
 }
 
-function mapFeedRow(row: FeedItemRow): InboxFeedRow {
+function mapFeedRow(row: FeedItemRow, grouping?: "space"): InboxFeedRow {
   const item = mapInboxItemRow({
     ...row,
     source_facts_json: row.current_source_facts,
   });
   return {
-    groupKey: encodeInboxFeedKey(row.raw_group_key),
+    groupKey: encodeInboxFeedKey(grouping ? row.sort_key : row.raw_group_key),
     item,
     itemCount: row.item_count,
     unreadCount: row.unread_count,
@@ -332,5 +362,35 @@ function mapFeedRow(row: FeedItemRow): InboxFeedRow {
     section: feedSection(row.section_rank),
     requestCategory: row.request_category,
     dot: feedDot(row.section_rank, row.unread_count),
+    ...groupProjection(row, grouping),
   };
+}
+
+function groupProjection(
+  row: FeedItemRow,
+  grouping?: "space"
+): Pick<InboxFeedRow, "group"> {
+  if (!grouping) {
+    return {};
+  }
+  const kind = readGroupKind(row.sort_key);
+  if (kind === "space" || kind === "system") {
+    return { group: { kind, conversationCount: row.conversation_count } };
+  }
+  if (kind === "conversation_group") {
+    return { group: { kind: "conversation", conversationCount: 1 } };
+  }
+  return {};
+}
+
+function readGroupKind(key: string): string {
+  try {
+    const parts: unknown = JSON.parse(key);
+    if (Array.isArray(parts) && typeof parts[0] === "string") {
+      return parts[0];
+    }
+  } catch {
+    // Opaque client keys must not escape as JSON parse failures.
+  }
+  throw invalidInboxFeedCursor();
 }

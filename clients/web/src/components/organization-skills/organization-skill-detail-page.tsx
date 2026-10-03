@@ -357,7 +357,7 @@ function OrganizationSkillEditor(input: {
 				skillId: input.skill.id,
 			}),
 		onError: (error) =>
-			setErrorMessage(resolveOrganizationSkillErrorMessage(error)),
+			setErrorMessage(resolveOrganizationSkillErrorMessage(error, "remove")),
 		onSuccess: async () => {
 			setRemoved(true);
 			setDeleteOpen(false);

@@ -12,6 +12,7 @@ const owners = vi.hoisted(() => ({
   directory: vi.fn(),
   agent: vi.fn(),
   connection: vi.fn(),
+  delegated: vi.fn(),
 }));
 vi.mock("../src/lib/bindings", () => ({ wakeEvidenceDb: () => ({}) }));
 vi.mock(
@@ -37,6 +38,9 @@ vi.mock(
 );
 vi.mock("../src/connectors/plugin-access", () => ({
   requireRemotePluginConnection: owners.connection,
+}));
+vi.mock("../src/remote-agent/application/delegated-requester", () => ({
+  readRemoteAgentDelegatedRequester: owners.delegated,
 }));
 
 const request = createSubmitTurnRequest();
@@ -84,6 +88,7 @@ describe("current execution access is an owner projection, not a cached grant", 
     owners.membership.mockResolvedValue({ ok: true });
     owners.directory.mockResolvedValue(directory);
     owners.connection.mockResolvedValue({ updatedAtMs: 42 });
+    owners.delegated.mockResolvedValue(null);
   });
 
   it.each([
@@ -158,6 +163,87 @@ describe("current execution access is an owner projection, not a cached grant", 
     await expect(
       authorizeRemoteAgentExecutionAccess({} as CoreBindings, input)
     ).rejects.toThrow("space_membership_revoked");
+  });
+
+  it("keeps the actual Agent audience while exposing opted-in delegated identity and authorizing only source reads", async () => {
+    const delegatedRequester = {
+      delegationId: "delegation-1",
+      parentDeliveryId: "parent-1",
+      memberId: "member_123",
+      userId: "user_1",
+      profileId: "human-1",
+    };
+    const delegatedRequest = {
+      ...request,
+      turnEnvelope: {
+        ...request.turnEnvelope,
+        sender: {
+          kind: "agent_profile",
+          id: request.author.profileId,
+          profileId: request.author.profileId,
+          verified: true,
+          displayName: "Center",
+        },
+      },
+    };
+    owners.delivery.mockResolvedValue({
+      ...record,
+      workerSubmitRequest: delegatedRequest,
+    });
+    owners.caller.mockResolvedValue({
+      db: {},
+      personalExecution: { directory },
+    });
+    owners.agent.mockResolvedValue(true);
+    owners.delegated.mockResolvedValue(delegatedRequester);
+    const source = {
+      kind: "plugin_connection",
+      service: "github",
+      connectionName: "exact-account",
+      connectionUpdatedAtMs: 42,
+    };
+    const response = await authorizeRemoteAgentExecutionAccess(
+      {} as CoreBindings,
+      { ...input, includeDelegatedRequester: true, sources: [source] }
+    );
+    expect(response.delegatedRequester).toEqual(delegatedRequester);
+    expect(response.delegatedRequesterSupported).toBe(true);
+    expect(response.scope.principal).toEqual({
+      kind: "agent",
+      profileId: request.author.profileId,
+    });
+    expect(owners.connection).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        requesterUserId: "user_1",
+        connectionName: "exact-account",
+        effect: "read",
+      })
+    );
+    const legacy = await authorizeRemoteAgentExecutionAccess(
+      {} as CoreBindings,
+      input
+    );
+    expect(legacy).not.toHaveProperty("delegatedRequester");
+    expect(legacy).not.toHaveProperty("delegatedRequesterSupported");
+    owners.connection.mockClear();
+    await expect(
+      authorizeRemoteAgentExecutionAccess({} as CoreBindings, {
+        ...input,
+        includeDelegatedRequester: true,
+        effect: "write",
+        sources: [source],
+      })
+    ).rejects.toThrow("delegated_read_only");
+    expect(owners.connection).not.toHaveBeenCalled();
+    owners.delegated.mockResolvedValue(null);
+    await expect(
+      authorizeRemoteAgentExecutionAccess({} as CoreBindings, {
+        ...input,
+        includeDelegatedRequester: true,
+        sources: [source],
+      })
+    ).rejects.toThrow("delegated_requester_unavailable");
+    expect(owners.connection).not.toHaveBeenCalled();
   });
 
   it("uses the personal execution owner's authorized directory rather than issuing an unscoped second read", async () => {

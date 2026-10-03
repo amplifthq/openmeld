@@ -81,6 +81,7 @@ export async function readCurrentOrganizationProfileDirectory(input: {
 
 export async function readCurrentOrganizationAgentRuntimeOverview(input: {
 	organizationId: string;
+	workloadProfileId?: string;
 	signal?: AbortSignal;
 }): Promise<OrganizationAgentRuntimeOverviewResponse> {
 	const query = new URLSearchParams({
@@ -89,6 +90,9 @@ export async function readCurrentOrganizationAgentRuntimeOverview(input: {
 			"2",
 		[ORGANIZATION_DIRECTORY_INCLUDE_TASK_ACTIVITY_QUERY_PARAMETER]: "true",
 	});
+	if (input.workloadProfileId) {
+		query.set("workloadProfileId", input.workloadProfileId);
+	}
 	try {
 		return await createOrganizationScopedWebOpenMeldApiFoundation({
 			organizationId: input.organizationId,

@@ -327,6 +327,47 @@ it only after the input is recorded there. Core retries pending forwarding
 through the existing Space alarm and retains terminal receipts for replay.
 Deleting the Space removes its input outbox with the rest of Space data.
 
+The pending-input receiver retains editable inputs in that same outbox, not a
+second browser queue. A queued row has no forwarding deadline. Its Space-owned
+position is also the ordinary-consumption claim order. Synchronous conditional
+claims fence delete, reorder, ordinary consumption, and explicit Steer; claimed
+or uncertain input cannot be claimed again. Reordering compares the complete
+pending order before changing it in one storage transaction. Deleted and consumed
+rows remain as idempotency records and cannot be resurrected by enqueue replay.
+These are input-delivery states, never execution states.
+
+The current `spaceInputQueue` receiver supports only the original Human
+Profile of one native Center DM execution. It does not grant another Space member
+or Agent the original execution's frozen authority. Queue Steer sends once, then
+uses the existing Remote receipt reader. A missing or rejected receipt query is
+not proof that an earlier send was rejected. Unknown application retains and
+holds the input; an explicit intake rejection retains it as blocked Queue work.
+Only exact-target application removes it and publishes its original Signal,
+atomically, without creating a Wake. Queue receipt deadlines use a separate
+column so an older Core's forwarding query cannot resend uncertain Queue input.
+Old outbox rows retain their existing forwarding behavior.
+
+The Human/Center Web path uses the Gateway receiver and the same queue read
+projection. Ordinary consumption is driven by the existing persisted final reply
+claim for the preceding dispatch, not by client progress or elapsed time. The
+Space alarm promotes only the first eligible item after a successful reply or
+explicit silent outcome. Stop, failure, missing outcome content, revoked author,
+or an unavailable target retains blocked Queue work. Unknown Steer holds later
+claims as well.
+
+SQL schema 50 adds the preceding-dispatch dependency to the existing row. The
+normal publication owner prepares the usual unresolved handoff seed, then
+atomically claims the queued input, inserts its original Signal and single
+dispatch outbox record, retires the input, and moves remaining inputs behind
+that dispatch. A failed transaction leaves all inputs pending. After a crash,
+the existing durable dispatch outbox resumes the same identity; it does not
+claim or publish that queued input again. The dependency is input ordering,
+not a second execution state machine. Native execution and admission remain
+with Remote/Flue. Agent tools and Local Service callers remain unimplemented.
+The seed deliberately has no resolved controller yet: Core admission owns that
+selection. Queue validates its supported Center member and exact target rather
+than treating the seed's empty controller snapshot as unavailable execution.
+
 OpenMeld separates durable truth from query projections.
 
 Agent Profile Work Coordinator state lives in the existing owner-sharded
@@ -1136,6 +1177,12 @@ Examples:
   projection must reproduce the Space-owned marker rather than deriving it from
   member count.
 - Dispatch Ledger is a ledger/query projection for Wake execution.
+- RuntimeCoordinator execution projection writes atomically compare accepted
+  evidence with the stored lifecycle rank and, within the same rank, observation
+  time. Concurrent creation and progress writes must converge without discarding
+  newer evidence. Locked terminal outcomes cannot be replaced by another outcome
+  or reopened by progress. These writes record RuntimeCoordinator decisions;
+  they never grant execution authority.
 - Wake trace read models compose existing facts for diagnosis.
 - Wake progress composes each execution owner's current lifecycle with
   Space-owned public source context at read time. Space remains the only owner
@@ -1925,6 +1972,13 @@ An Agent Profile id by itself is never a Task Handle. Availability, process
 presence, Agent Activity, and a generic Agent status cannot settle a
 subscription.
 
+For a continuation that enters an automatic work-loop round, its original
+subscription identity stays immutable while the native delivery identity
+advances. Parent Stop checks resolve that relationship through the exact
+persisted delivery/attempt chain, including the original structured trigger,
+Organization, Space, Profile and Binding. String prefixes are not identity
+evidence. Stop targets the current round, not the subscription's original key.
+
 `agent_task_completion_subscriptions` records the exact watched task, exact
 observer task, explicit completion condition, frozen continuation, idempotency
 key, and continuation claim. `agent_task_terminal_outcomes` is a coordination
@@ -1953,6 +2007,33 @@ not copy `spaceId`, source signal, thread context, or provider locator into the
 continuation JSON. Readers retain bounded compatibility for historical rows
 that contain the former Space destination fields, but those fields do not
 override the observer ledger.
+
+Space Wake progress preserves that native delivery's parent source signal in
+both summary and Stop-enabled reads. A child's published result is causal
+evidence, not a replacement source: it may belong to another Space or thread.
+Source context is resolved within the parent Space, while the existing reply
+stream owns the selected reply placement.
+
+The Center Agent's manual summary tool can create one fresh continuation for
+the original requester after a delegated summary has confirmed native failure
+or cancellation. It checks current requester membership and Space write access,
+exact native execution identity and a positive Stop fence. Each retained Space
+child result must be readable by that requester and match the native Space
+dispatch's successful final-reply claim. One verified child result is required;
+unavailable children are named without guessing their contents or locations.
+
+The task owner atomically inserts a new subscription, retaining the old
+subscription and its immutable identity. Its `summaryRecovery` metadata records
+the operator and source subscription. Current authorization is checked again
+at continuation execution; saved metadata is not a grant. This first path is
+original-requester-only and starts a tool-enabled summary of existing results,
+not a replay of child work or the tools-disabled reply-recovery mechanism.
+The upstream Agent supplies a whitelisted reply language for the current
+request; it overrides the retained language. Without a new decision, the
+original continuation's language is retained.
+Unknown, running and completed native executions do not enter this path. Web
+action controls, Inbox re-promotion and restarting the original work are not
+implemented by this tool.
 
 An exact Center-authored Wake uses one `center_agent_audit_journal` row with ID
 `center-agent-wake:<clientMessageId>`. Core records validated `onBehalfOf`
@@ -1988,10 +2069,12 @@ redrive also wraps each whole publication execution in the remaining
 slow reconciliation cannot consume the scheduler's full minute or starve later
 scheduled work.
 
-The same subscription table serves two creation paths. Delegation creates
-subscriptions together with explicit parent-child topology. General Task Watch
-creates a subscription for an independent exact task without a delegation row.
-Both paths use the same claim, idempotency, redrive, and continuation ledger
+The same subscription table serves delegation, general Task Watch and manual
+summary recovery. Delegation creates subscriptions with explicit parent-child
+topology. General Task Watch creates a subscription for an independent exact
+task without a delegation row. Manual recovery references an existing settled
+subscription without resetting it. These paths share claim, idempotency,
+redrive, and continuation ledger
 semantics. Stopping a general-watch observer cancels its continuation
 subscription but does not transfer cancellation authority over the watched
 task.
@@ -2142,6 +2225,42 @@ An ACK clears the due time and makes every pending retry wake stale. Exhaustion
 uses the existing terminal publication and Agent Task Coordination projections,
 plus an idempotent Inbox item keyed by delivery id, so replay cannot execute the
 continuation or alert the requester twice.
+
+Continuation admission emits bounded, schema-validated diagnostic events for
+preparation, send, admission response, timeout, retry scheduling and retry claim.
+Each carries the unchanged delivery/dispatch/idempotency identity, the current
+attempt number, delivery creation time and current attempt submission time.
+Creation time is not labelled first submission; overwritten submission time is
+not treated as an earlier attempt's evidence. ACK elapsed time measures the
+Worker round trip. A validated ACK and its real submission ID are recorded before
+generation writes, Stop forwarding or pause cancellation. Postprocessing has
+separate start/end evidence, elapsed time and outcome; its failure cannot erase
+the received ACK. Overall admission completion is not Worker response time.
+Timeout and retry due times come from the existing owner.
+Native resource preparation can begin before that submit response returns.
+Its exact-identity admission callback therefore uses the same conditional ACK
+writer and accepted-execution probe before Computer or other execution-scoped
+resources query Core. Both response orders converge on the existing ledger row;
+terminal transitions win, and neither callback creates another execution state
+or relaxes the accepted-execution authorization predicate.
+The durable ACK is the preparation barrier. A later probe scheduling failure
+retains diagnostic evidence and the existing missing/expired-probe recovery;
+it does not reject an already accepted execution. ACK persistence/read failures
+still fail preparation, and a terminal transition during failed scheduling wins.
+Correlated continuation stage events include the existing subscription creation
+and Queue enqueue timestamps at receipt, successful claim, and start/end timings
+for authorization/replay preflight, turn context, memory, Skills, watchdog enqueue
+and source-dispatch lookup. The observer selects correlation fields explicitly
+even when a caller passes a complete task input object; task data cannot spill
+into the strict diagnostic envelope or suppress its timing events.
+The Remote receiver records its receipt timestamp and validated ACK return with
+the same dispatch and idempotency identities; it does not invent an attempt
+number that was absent from the request. Log correlation is not yet a persisted
+run-diagnostics timeline and cannot reconstruct events before deployment.
+These logs contain no task text, result payload, credential or raw error, and
+never decide admission, retry, Stop, or execution truth. They are prospective
+diagnostics, not a backfill of missing historical evidence or a new durable
+attempt ledger.
 
 For legacy Slack result surfaces, the ledger also records an optional shared
 Working-status turn identity used only to derive provider presentation. One
@@ -2454,8 +2573,8 @@ delivery and submission, then rereads the native-delivery ledger. Remote Agent
 alone maps Flue's durable submission projection into OpenMeld worker
 execution state and durable callback context; Core alone accepts that callback,
 updates the ledger, and publishes the visible result. Missing receiver or
-transport evidence is a retryable capability gap, not success and not terminal
-failure. An exact execution-identity mismatch cannot self-heal. Core moves its
+transport evidence is a capability gap, not success and not terminal failure.
+An exact execution-identity mismatch reported by the native owner cannot self-heal. Core moves its
 failure through the existing durable final-publication claim and retained
 payload. A known transient publication failure releases the claim back to the
 original accepted state without losing that payload, and the renewable probe
@@ -2474,9 +2593,40 @@ concurrently. A send failure releases only that exact lease when Core knows the
 preceding operation stopped. If a reconciliation RPC timed out, send failure
 keeps the processing lease until expiry because the underlying RPC may still be
 running. A process failure is likewise recovered after lease expiry.
-Cloudflare Queue's finite retry budget therefore cannot permanently strand an
-accepted delivery. This due time and lease remain reconciliation projections;
-neither owns execution or authorizes a terminal outcome.
+Cloudflare Queue's finite retry budget therefore cannot permanently lose a
+retryable accepted-delivery query. This due time and lease remain reconciliation
+projections; neither owns execution or authorizes a terminal outcome.
+
+Core stores its unavailable-query observation in the shared-schema
+`execution_reconciliation_json` column, under the exact accepted-probe lease.
+Transport failures and native `not_found` back off from the existing probe
+interval, doubling up to 900 seconds. Missing RPC capability, malformed replies,
+and replies with mismatched identity pause automatic queries. The observation
+preserves the original submission; neither `not_found` nor elapsed time proves
+non-execution. A valid exact response clears the observation. Newer Core-accepted
+native execution progress takes precedence over an unavailable-query display
+while it is fresh within the same 240-second presentation window. One historical
+progress event cannot suppress awaiting confirmation forever; this window never
+changes native execution or terminal truth.
+
+After 240 seconds of unavailable query evidence, or immediately when queries
+pause, the active Space projection carries
+`remote_agent.execution_confirmation_pending` on the existing `running` phase.
+This is a presentation reason, not a native failure code or terminal outcome.
+The matching Web reader shows **Result awaiting confirmation**, explains that
+later same-conversation work may be waiting, and keeps viewer-authorized Stop.
+The durable Space Stop outbox and its retry alarm operate independently of the
+paused query. Only the native owner's confirmed settlement releases the Flue
+conversation head. No query timeout admits another turn or automatically reruns
+the original request. This initial exit covers accepted exact submissions;
+no-ACK admission recovery and automatic external-write confirmation remain
+separate work.
+
+Apply the additive D1 migration before the new Core reader. Old Core ignores the
+new column; old Web accepts the existing phase and optional string reason but
+may show generic active progress. Deploy the specialized Web reader before the
+Core projection. This additive observation does not remove the continuation
+JSON rollback restrictions documented for reply language and summary recovery.
 
 Core also owns `openMeldRemoteAgent_daily_admissions`, with one row per
 `organizationId + dayUtc`, and the native-delivery ledger's
@@ -2894,15 +3044,159 @@ schema and historical migrations because old rows are durable evidence. Active
 Core code no longer reads or writes those fields, does not refresh AI Gateway
 REST Logs, and does not add usage columns to the native delivery ledger. Runtime
 containment is the global Remote Agent kill switch plus the optional
-per-organization blocklist in Worker configuration. The active daily admission
-counter is separate storage and must never read from or write to the retired
-guardrail table.
+per-organization blocklist in Worker configuration. Historical daily admission
+counters are also inactive; neither table is the AI consumption ledger.
 
 Usage evidence for the Flue Remote Agent lives in the Remote Agent worker:
 per-turn usage records are normalized from model usage, stored in the worker's
 OpenMeld-owned records, emitted to Analytics Engine, and exposed to operators
 through `readUsageDiagnostics`. Analytics and usage diagnostics are read models;
 they do not decide route ownership, retry, timeout, or final execution state.
+
+Organization AI consumption has a separate Core-owned durable ledger,
+`ai_usage_records`. Its shared contract is `aiUsageRecordSchema` in
+`packages/schemas`. Each record identifies one provider request and its
+Organization, runtime, model, Agent Profile, Space, task, attempt, and Computer
+when available. Native event identity deduplicates transport retries. Records
+contain numeric usage and correlation identifiers, never prompts, completions,
+reasoning content, credentials, or local paths. Missing provider evidence is
+null and appears in missing-evidence counts; it is never fabricated as zero.
+
+The ledger distinguishes model `agent`, `compaction`, and `compaction_prefix`
+requests. Existing public Usage groups and issue receipts classify all three
+as `agent`; this preserves supported strict older clients while operator ledger
+queries retain exact purpose. Core accepts new record purposes before Remote
+Agent emits them. No local-component contract floor changes.
+
+Input includes cached input and output includes reasoning, so detail counters
+must not be added to the total again. Costs use integer nano-USD and distinguish
+provider-reported charges from provider estimates. Local consumption is
+informational and never contributes to OpenMeld's shared allowance. Queries
+always bind the authorized Organization and accept bounded time and execution
+filters; the same read model serves people, Center Agent, and later Computer
+and evaluation views.
+
+The query can rank observed tasks or Agent Profiles by known provider charges
+or native tokens, with a bounded limit and explicit `hasMore`. Model totals
+still cover the full selected window. Tasks without a task ID may be grouped
+by their dispatch identity; unattributed auxiliary costs remain in totals.
+Observed execution attempts count distinct attempt IDs, not model requests or
+provider retries. Missing attempt attribution stays visible. Agent rankings do
+not infer a retry count across unrelated tasks. All values describe the query
+window, not necessarily a task's lifetime.
+
+Coverage describes observed requests only. It separates reported, pending,
+provider-unavailable, and collection-failed records, with missing-token/cost
+counts. Pending receipts older than one hour are flagged for investigation;
+this read-time age classification never changes execution state or stops work.
+`includeIssues` returns a bounded list of the original safe usage receipts for
+diagnosis, without prompts, output, or credentials. No records is not proof of
+no usage by an unreported controller or interrupted local process.
+
+Task rankings enrich at most twenty dispatches per query through the existing
+RuntimeCoordinator projection or native delivery and task-terminal repositories.
+Outcome evidence is nullable and truncation is explicit. Usage does not infer
+success from a nonzero count, copy task text into the ledger, or become an
+execution authority. Organization membership grants usage visibility, not new
+access to private conversation content.
+
+`organization_ai_usage_policies` owns the optional daily allowance independently
+of consumption. No policy row or a null limit means unlimited; production does
+not receive an implicit cap. Better Auth continues to own Organization identity,
+membership, and roles. Usage records do not introduce another identity system,
+payment processor, execution authority, or historical backfill.
+
+Remote requests create a pending receipt before contacting OpenRouter and
+settle from its existing JSON response or final SSE usage chunk. Provider
+request IDs are retained. A pending receipt can become reported or unavailable;
+settlement cannot rewrite execution attribution. Terminal replay is idempotent.
+Model, research, and image calls persist settlement in the existing worker
+storage and reuse callback reconciliation for delivery retries. Session titles
+and activity digests run through the same existing Durable Object class so
+their settlement uses that durable outbox too; a dedicated organization digest
+instance carries delivery only, never a second consumption ledger. Inference
+is never replayed merely to recover usage. Missing final provider usage is
+`unavailable`; request/stream/response collection failures are
+`collection_failed` with a bounded reason code. Cancellation preserves already
+observed native usage. Requests interrupted before reporting usage remain
+explicitly incomplete; no extra provider polling is introduced to invent or
+recover unknown charges.
+No supplier polling or extra inference request is added.
+
+Every new Remote provider call requires an accepted `recordRemoteAiUsage`
+begin response from Core. A missing receiver fails visibly with
+`core.rpc.unavailable`; missing configuration, transport errors, malformed
+responses, exhausted allowances, and failed admission writes never authorize
+inference. There is no legacy admission exception, including for new owners or
+after an earlier successful admission. Deploy and verify Core before Remote.
+
+Preserve any historical `openmeld:ai-usage:deferred:<eventId>` audit receipts
+unchanged. They record unchecked historical admissions, not current permission,
+public usage totals, or a second consumption ledger. The ordinary settlement
+outbox and callback retry owner continue delivering real provider receipts.
+Core accepts a settlement without an earlier begin and deduplicates its exact
+event identity, including a committed write whose ACK was lost. Settlement
+failures after an admitted, paid call must not trigger another inference.
+An audit without final usage stays explicitly incomplete; never invent charges.
+
+Codex uses changed current-turn token events and native request counters,
+ignoring resume history and rate-limit-only repeats. Claude uses unique native
+assistant message IDs; OpenCode uses completed assistant messages from the
+accepted session tree. Core derives local attribution from the accepted result
+inbox and execution registry, including the connected Computer identity rather
+than its device ID. Only newly reported OpenMeld executions are included.
+The Service waits for the native turn to settle before submitting a CLI reply
+proposal, then includes its receipts in the existing durable result outbox.
+Receipts from repair and reconsideration turns are accumulated by native event
+ID. Space supplies Organization attribution when rebuilding finalization facts.
+Controllers without native usage reporting remain unreported. SDK estimates
+remain distinct from invoiced provider charges.
+
+The public `POST /v1/organizations/current/usage/query` and
+`openmeld_read_ai_usage` Center Agent tool share the same Core query owner.
+Every Organization member may read Organization-wide usage. Cross-Organization
+access is still rejected. Settings Usage exposes organization costs and Local
+tokens, plus the signed-in member's Remote Agent subset. Routines retains its
+independent 50-item limit; the daily allowance is optional.
+
+Optional `agentProfileIds` intersects the existing organization and query scope.
+An explicitly empty list matches no receipts. Settings derives owned non-Center
+Profiles from the organization directory; this display filter is not a new
+authorization boundary. Every member retains organization-wide visibility.
+
+Computer Local Agent consumption reads use the same query with `runtime=local`,
+the enrolled `connectedComputerId`, and the exact `controller` reference. The
+organization Computer projection carries that enrollment identity separately
+from its existing device route ID; a missing enrollment identity never falls
+back to a device ID or an unfiltered organization query. The same controller
+filter is available to Center Agent. No new consumption ledger is introduced.
+
+Optional `bucketBoundariesMs` requests at most 31 time buckets from that same
+query. Boundaries must strictly increase and exactly cover `[fromMs, toMs)`;
+explicit boundaries preserve local calendar days across daylight-saving changes.
+Core returns dense `timeSeries` rows with token totals, request counts, and
+missing-token counts in the same D1 batch snapshot as the model totals. Empty
+buckets mean no recorded receipts, not proof of no activity. Only callers that
+request buckets receive the new response field; the Center Agent tool accepts
+the same boundaries. Optional `groupTimeSeriesBy: "controller"` requires bucket
+boundaries and adds per-controller totals to each bucket using the same scoped
+SQL aggregation. Bucket totals equal the sum of those controller rows; null
+attribution remains a separate group. Queries without this option retain the
+ungrouped response. `groupTimeSeriesBy: "model"` instead groups by provider and
+model. Only these new model-grouped queries add provider-reported cost, estimated
+cost, and missing-cost counts to buckets and model rows. Existing ungrouped and
+controller-grouped token responses retain their shape; new bucket cost fields
+are optional for readers. Core/Gateway receivers must accept the new model
+grouping before Web or Center Agent callers request it. This read projection
+introduces no migration, writer, or execution authority.
+
+Operators can inspect or preview changes with
+`node scripts/ops/ai-usage-policy.mjs --org <id> --env local --daily-usd 1`.
+Add `--apply` to save; use `unlimited` to remove the cap. Local mode targets
+only the current running worktree lane; staging and production require an
+explicit environment and authorized Wrangler access. No deploy is needed to
+adjust this policy. Enforcement uses confirmed UTC-day costs and may overshoot
+for in-flight requests; it is not a concurrent reservation system.
 
 Successful Flue conversation compaction is operational evidence, not a second
 conversation or memory store. During compaction, the worker may retain one
@@ -3302,6 +3596,17 @@ Detailed CLI trace is the supported handoff to local agents and operators. A
 caller supplies the normal Space and dispatch selectors; Core resolves the
 frozen runtime conversation identity and returns the bounded runtime diagnostic
 projection. Callers must not query D1 or supply a runtime generation identity.
+
+Native continuations can have a native-delivery ledger record without a
+workstation Dispatch Ledger row. Negotiated trace response v6 reads the unique
+native record for the exact dispatch and Space and exposes `nativeDeliveryTrace`
+with `trace: null`. It never synthesizes a workstation dispatch or parses
+identity from a dispatch string. Non-Space conversations and ambiguous matches
+fail closed. Final visible messages still come from Space publication facts;
+native execution completion alone does not prove delivery. Detailed runtime
+evidence uses the frozen request identity, and an unavailable runtime read must
+preserve the durable delivery and publication facts. Default compact reads omit
+runtime evidence fields when that source has not been queried.
 
 When a controller exposes official context telemetry, task-result and local
 runtime observation may retain only bounded numeric token counters, the reported

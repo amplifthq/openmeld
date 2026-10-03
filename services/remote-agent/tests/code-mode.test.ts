@@ -13,6 +13,7 @@ import {
   putRemoteAgentCallbackContext,
   readRemoteAgentCallbackContext,
 } from "../agent-core/callback-context";
+import { ConnectorActionOutcomeUnknownError } from "../agent-core/connector-tools";
 import {
   buildRemoteAgentExecutionIdentity,
   initializeRemoteAgentExecutionState,
@@ -65,6 +66,103 @@ async function runCodeModeTool(
 }
 
 describe("Remote Agent Code Mode", () => {
+  it("marks only the uncertain write in a multi-write script as awaiting confirmation", async () => {
+    const storage = await createStorage(createSubmitTurnRequest());
+    const definition = {
+      name: "github_create_issue_comment",
+      description: "Post an authorized comment.",
+      input: strictObject({ operationId: string() }),
+      execute: ({ operationId }) => {
+        if (operationId === "comment-2") {
+          return Promise.reject(
+            new ConnectorActionOutcomeUnknownError({
+              actionId: "github.create_issue_comment",
+              operationId,
+              cause: new Error("private provider transport detail"),
+              input: {
+                owner: "amplifthq",
+                repo: "openmeld",
+                issueNumber: 1397,
+              },
+            })
+          );
+        }
+        return Promise.resolve({ status: "completed", operationId });
+      },
+    } satisfies RemoteAgentToolDefinition;
+    const submitRemoteAgentStreamPart = vi.fn(
+      async (body: { sequence: number }) => ({
+        status: "accepted" as const,
+        lastSequence: body.sequence,
+      })
+    );
+    const runtime = createRuntime({
+      executorOptions: [],
+      execute: async (tools) => {
+        const results: unknown[] = [];
+        for (const operationId of ["comment-1", "comment-2", "comment-3"]) {
+          results.push(
+            await tools.github_create_issue_comment?.execute?.(
+              { operationId },
+              { ...TOOL_OPTIONS, toolCallId: operationId }
+            )
+          );
+        }
+        return { result: results };
+      },
+    });
+    const tool = await createRemoteAgentCodeModeFlueTool({
+      definitions: [definition],
+      coreWorker: { submitRemoteAgentStreamPart },
+      env: {},
+      loader: {} as WorkerLoader,
+      runtime,
+      storage,
+      streamPublisher: createRemoteAgentStreamPublisher(),
+      submissionId: SUBMISSION_ID,
+    });
+    const output = await runCodeModeTool(tool, {
+      input: { code: "async () => null" },
+    });
+    expect(output).toMatchObject({
+      result: [
+        { status: "completed", operationId: "comment-1" },
+        {
+          status: "outcome_unknown",
+          operationId: "comment-2",
+          message: expect.stringContaining("Do not retry this write"),
+        },
+        { status: "completed", operationId: "comment-3" },
+      ],
+    });
+    const parts = submitRemoteAgentStreamPart.mock.calls.map(
+      ([body]) =>
+        body as unknown as {
+          part: {
+            state: string;
+            toolCallId: string;
+            work: { outcome?: string };
+          };
+        }
+    );
+    expect(parts.filter(({ part }) => part.state === "output-error")).toEqual(
+      []
+    );
+    expect(
+      parts
+        .filter(({ part }) => part.work.outcome === "outcome_unknown")
+        .map(({ part }) => part.toolCallId)
+    ).toEqual(["comment-2"]);
+    expect(
+      parts
+        .filter(({ part }) => part.state === "output-available")
+        .map(({ part }) => part.toolCallId)
+    ).toEqual(["comment-1", "comment-2", "comment-3"]);
+    expect(JSON.stringify(output)).not.toContain(
+      "private provider transport detail"
+    );
+  });
+
   it.each([
     "bash",
     "console",
@@ -139,7 +237,9 @@ describe("Remote Agent Code Mode", () => {
     }
   });
 
-  it("reads the middle of a large inner result without running the original write again", async () => {
+  it.each([
+    3000, 30_000,
+  ])("reads a %i-line inner result without repeating the write", async (lines) => {
     const storage = await createStorage(createSubmitTurnRequest());
     const context = await readRemoteAgentCallbackContext(
       storage,
@@ -154,7 +254,7 @@ describe("Remote Agent Code Mode", () => {
     const write = vi.fn(async () => ({
       status: "completed",
       operationId: "write-once",
-      log: `${"before\n".repeat(30_000)}UNIQUE_CODEMODE_MIDDLE_FAILURE${"after\n".repeat(30_000)}`,
+      log: `${"before\n".repeat(lines)}UNIQUE_CODEMODE_MIDDLE_FAILURE${"after\n".repeat(lines)}`,
     }));
     const runtime = createRuntime({
       executorOptions: [],
@@ -162,7 +262,21 @@ describe("Remote Agent Code Mode", () => {
         const displayed = (await tools.example_write?.execute?.(
           {},
           TOOL_OPTIONS
-        )) as { presentation: { continuation: { resultId: string } } };
+        )) as {
+          log?: string;
+          presentation: { continuation: { resultId: string } };
+        };
+        if (lines === 3000) {
+          // Internal computation selects the evidence before model display.
+          expect(displayed.log).toContain("UNIQUE_CODEMODE_MIDDLE_FAILURE");
+          return {
+            result: displayed.log?.slice(
+              displayed.log.indexOf("UNIQUE_CODEMODE_MIDDLE_FAILURE"),
+              displayed.log.indexOf("UNIQUE_CODEMODE_MIDDLE_FAILURE") +
+                "UNIQUE_CODEMODE_MIDDLE_FAILURE".length
+            ),
+          };
+        }
         const resultId = displayed.presentation.continuation.resultId;
         return {
           result: await tools.openmeld_read_tool_result?.execute?.(

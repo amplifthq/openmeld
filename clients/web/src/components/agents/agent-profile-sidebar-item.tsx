@@ -46,6 +46,7 @@ import { resolveAgentProfileControllerModelDetail } from "#/lib/profiles/agent-p
 import type { useSortableSidebarItem } from "../app/sidebar-drag";
 import { SidebarRowAction } from "../app/sidebar-row-action";
 import { AgentCard } from "./agent-card";
+import { AgentGroupItem } from "./agent-group-context";
 
 export const AgentProfileSidebarItem = memo(AgentProfileSidebarItemComponent);
 
@@ -164,7 +165,7 @@ export function AgentProfileSidebarItemComponent(input: {
 		return (
 			<FluidContextMenu
 				target={
-					<FluidNavMenuItem
+					<AgentGroupItem
 						index={input.index}
 						value={input.profile.openMeldProfileId}
 					>
@@ -192,7 +193,7 @@ export function AgentProfileSidebarItemComponent(input: {
 							)}
 							selection={input.selection}
 						/>
-					</FluidNavMenuItem>
+					</AgentGroupItem>
 				}
 			>
 				{menu}

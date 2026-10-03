@@ -832,7 +832,8 @@ function releaseStatusAdapters({ pushChecks }) {
   const headSha = "1".repeat(40);
   const baseSha = "2".repeat(40);
   const treeSha = "3".repeat(40);
-  return {
+  const adapters = {
+    buildImpact: (input) => adapters.buildPlan(input),
     buildPlan: () => ({
       scopes: ["db", "web", "gateway", "auth", "cli", "core", "remote-agent"],
     }),
@@ -872,6 +873,7 @@ function releaseStatusAdapters({ pushChecks }) {
     resolveRepo: () => "amplifthq/openmeld",
     sourceIsAncestor: () => true,
   };
+  return adapters;
 }
 
 function releaseRun(input) {

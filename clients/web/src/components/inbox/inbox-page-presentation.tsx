@@ -64,10 +64,7 @@ export function InboxViewContent(input: {
 	onRetry: () => Promise<unknown>;
 	onSetRead: (item: InboxItem, read: boolean) => void;
 	organizationSlug: string;
-	registerItemElement: (
-		itemId: string,
-		element: HTMLAnchorElement | null
-	) => void;
+	registerItemElement: (itemId: string, element: HTMLElement | null) => void;
 	view: InboxView;
 	unreadOnly?: boolean;
 }) {

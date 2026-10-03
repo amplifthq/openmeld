@@ -328,7 +328,9 @@ export const runtimeTransportAgentProfileWorkHandoffResponseSchema =
   });
 
 export const runtimeTransportAgentProfileWorkQueueApproveRequestSchema =
-  runtimeTransportAgentProfileWorkRecoveryTargetSchema;
+  runtimeTransportAgentProfileWorkRecoveryTargetSchema.extend({
+    expectedInterruptedTargetWakeLifecycleId: z.string().trim().min(1).max(512),
+  });
 
 export const runtimeTransportAgentProfileWorkQueueApproveResponseSchema =
   z.strictObject({
@@ -481,6 +483,7 @@ export const runtimeTransportBaseCapabilitiesSchema = z.strictObject({
 
 export const runtimeTransportCapabilitiesSchema =
   runtimeTransportBaseCapabilitiesSchema.extend({
+    localExecutionInput: z.literal(true).optional(),
     spaceWorkHandoff: z.literal(true).optional(),
     computerFileAccess: z
       .strictObject({
@@ -2359,6 +2362,8 @@ export const daemonStreamCodeSchema = z.enum([
   "daemon.route_catalog.changed",
   "daemon.local_agent_control.cancel",
   "daemon.local_agent_control.interrupt",
+  "daemon.execution_input.request",
+  "daemon.execution_input.result",
   "daemon.local_agent_control.fork_session",
   "daemon.local_agent_control.manage_installation",
   "daemon.local_agent_control.refresh_catalog",

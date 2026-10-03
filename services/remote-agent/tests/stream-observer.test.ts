@@ -113,8 +113,35 @@ describe("Center Agent stream observation", () => {
     expect(submitRemoteAgentStreamPart).not.toHaveBeenCalled();
   });
 
-  it("publishes real Flue tool lifecycle events without their arguments", async () => {
+  it.each([
+    "space_wake",
+    "task_continuation",
+    "task_watch_continuation",
+  ] as const)("publishes %s tool progress and answer text without private reasoning or arguments", async (source) => {
     const storage = new InMemoryDurableObjectStorage();
+    const request = createSubmitTurnRequest();
+    if (source !== "space_wake") {
+      request.turnEnvelope.interactionEnvironment = "organization_shared";
+      const continuation = {
+        subscriptionId: "subscription-1",
+        watchedTask: {
+          v: 1 as const,
+          kind: "native_delivery" as const,
+          deliveryId: "parent-1",
+        },
+        outcome: {
+          status: "completed" as const,
+          errorCode: null,
+          eventId: "completed-1",
+          occurredAtMs: TEST_NOW_MS,
+          publishedSignalId: "reply-1",
+        },
+      };
+      request.turnEnvelope.trigger =
+        source === "task_continuation"
+          ? { ...continuation, source, delegationId: "delegation-1" }
+          : { ...continuation, source, watchId: "watch-1" };
+    }
     await putRemoteAgentCallbackContext(
       storage,
       createRemoteAgentCallbackContext({
@@ -127,7 +154,7 @@ describe("Center Agent stream observation", () => {
           submissionId: SUBMISSION_ID,
         },
         nowMs: TEST_NOW_MS,
-        request: createSubmitTurnRequest(),
+        request,
       })
     );
     const submitRemoteAgentStreamPart = vi.fn(
@@ -137,10 +164,17 @@ describe("Center Agent stream observation", () => {
       })
     );
     const resolveDependencies = () => ({
-      coreWorker: { submitRemoteAgentStreamPart },
+      coreWorker: { submitRemoteAgentStreamPart, submitRemoteAgentStreamDelta },
       env: {} as CloudflareBindings,
       storage,
     });
+    const submitRemoteAgentStreamDelta = vi.fn(
+      async (body: { sequence: number }) => ({
+        status: "accepted" as const,
+        lastSequence: body.sequence,
+      })
+    );
+    const publisher = createRemoteAgentStreamPublisher();
     const { submissionId: _omittedSubmissionId, ...productionShapedToolStart } =
       toolStartObservation();
 
@@ -148,7 +182,7 @@ describe("Center Agent stream observation", () => {
       handleCenterAgentObservation({
         event: productionShapedToolStart as FlueObservation,
         resolveDependencies,
-        streamPublisher: createRemoteAgentStreamPublisher(),
+        streamPublisher: publisher,
       })
     );
 
@@ -182,6 +216,31 @@ describe("Center Agent stream observation", () => {
     ).resolves.toMatchObject({
       firstVisibleContentAtMs: expect.any(Number),
     });
+    await handleCenterAgentObservation({
+      event: thinkingDeltaObservation("Private reasoning"),
+      resolveDependencies,
+      streamPublisher: publisher,
+    });
+    expect(submitRemoteAgentStreamDelta).not.toHaveBeenCalled();
+    await handleCenterAgentObservation({
+      event: {
+        ...textDeltaObservation("The plan is ready."),
+        timestamp: new Date(TEST_NOW_MS + 1000).toISOString(),
+      } as FlueObservation,
+      resolveDependencies,
+      streamPublisher: publisher,
+    });
+    expect(submitRemoteAgentStreamDelta).toHaveBeenCalledWith(
+      expect.objectContaining({
+        snapshot: "The plan is ready.",
+        sequence: 2,
+        triggerMessageId: request.triggerMessageId,
+        spaceId: request.spaceId,
+      })
+    );
+    await expect(
+      readRemoteAgentCallbackContext(storage, SUBMISSION_ID)
+    ).resolves.toMatchObject({ callbackStatus: "pending" });
   });
 
   it("keeps the GitHub repository label when the tool completion omits arguments", async () => {
@@ -248,6 +307,17 @@ describe("Center Agent stream observation", () => {
 
   it.each([
     { result: {}, outcome: undefined },
+    {
+      result: {
+        status: "outcome_unknown",
+        actionId: "posthog.update_project",
+        operationId: "update-project-1",
+        executionConfirmation: "unknown",
+        providerExecutionId: null,
+        message: "The action may have succeeded. Reconcile update-project-1.",
+      },
+      outcome: "outcome_unknown",
+    },
     {
       result: {
         status: "destructive_confirmation_required",

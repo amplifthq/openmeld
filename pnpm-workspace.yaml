@@ -32,7 +32,7 @@ allowBuilds:
 
 catalog:
   '@cloudflare/workers-types': 5.20260908.1
-  wrangler: 4.130.0
+  wrangler: 4.145.0
   zod: 4.6.5
 
 minimumReleaseAgeExclude:
@@ -77,4 +77,5 @@ patchedDependencies:
   '@tanstack/start-plugin-core@1.171.39': patches/@tanstack__start-plugin-core.patch
   better-sqlite3@13.0.3: patches/better-sqlite3@13.0.3.patch
   img-fx@0.5.1: patches/img-fx@0.5.1.patch
+  slate-react@0.126.4: patches/slate-react@0.126.4.patch
   thinking-orbs@0.3.1: patches/thinking-orbs@0.3.1.patch

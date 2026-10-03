@@ -663,8 +663,13 @@ instruction channel.
 For a supported controller, the Service may inject an ephemeral first-party
 Space Action tool configuration into the controller process for the active
 dispatch. That configuration is not written into user settings. It exposes only
-the allowed `reply`, `status`, and `stay_silent` operations, plus the read-only
-`read_file` context operation. File reads accept only a file ID and optional
+the exact shared adapter catalog of final actions, context readers, Task
+operations, progress, and ordinary Direct Message collaboration. The CLI server
+and `OPENMELD_SPACE_ACTION_MCP_TOOL_NAMES` must agree; controllers still reject
+missing or unexpected tools. Delivery-only recovery exposes exactly `reply`,
+`stay_silent`, and `read_receipt`. Direct Messages retain the admitted Agent and
+source organization checks; tool discovery does not authorize a different lane
+or identity. File reads accept only a file ID and optional
 revision; the active dispatch supplies the Space and acting Agent identity.
 The trusted tool process invokes the dispatch-owned CLI's existing public file
 read command outside the controller sandbox, preserving normal authentication,
@@ -783,6 +788,51 @@ selection is user intent and remains authoritative on resume and turn start.
 The Service must not inspect private Codex rollout files or global config to
 infer a substitute selection.
 
+The Codex adapter exposes optional, text-only exact-task steering through the
+active App Server session's native `turn/steer` method. It uses that session's
+accepted `threadId` and `expectedTurnId`; it must not resume a different thread,
+start a new turn, retarget a newer turn, or change execution policy. Stop and
+settled tasks reject further input. The caller's stable `inputId` is forwarded
+as `clientUserMessageId` for correlation, not as an idempotency guarantee.
+A matching native receipt means the input was admitted to that turn, not that
+the model finished acting on it. Native
+method/precondition rejection proves non-application; an internal error,
+missing acknowledgement, or mismatched receipt does not. A steering receipt
+timeout leaves the original execution running and never retries the input.
+Unconfirmed receipts retain a bounded diagnostic code and the native numeric
+error code when present, without forwarding provider error text as product copy.
+The native contract is documented in the
+[Codex App Server reference](https://learn.chatgpt.com/docs/app-server#steer-an-active-turn).
+
+The Execution Host's private inherited IPC `executionInput` method accepts an
+exact owner account, Profile, dispatch, attempt and RuntimeCoordinator execution
+and run. The registry receives these identifiers from the existing admitted
+delivery, never from a new input; a replacement attempt cannot inherit old input.
+The current connector generation and Profile lease must match; draining admission
+rejects new application. Only the existing inflight registry resolves a local
+task. The frozen source retains Space, Signal, author, original requester and
+the `steer` effect; it is correlation, not a grant from the Agent's owner.
+The Host joins concurrent identical inputs and retains bounded receipts across
+socket replacement, including uncertain native outcomes. It never starts a
+turn or cancels the task. A receipt query cannot resend. A missing receipt after
+Host replacement or retired-execution receipt eviction is unknown, not proof
+of non-application; Space must keep that input held.
+
+The Service advertises this receiver through the optional
+`x-openmeld-local-execution-input: 1` handshake header, never a new field in old
+strict registration payloads. Core authorizes the original requester and effect
+in the Space queue owner, resolves the exact active attempt/run in the existing
+Coordinator, and sends apply/read over that execution's current socket and
+Profile lease. The connector forwards to this private receiver; it does not
+select an execution or grant authority. A read after Host replacement can only
+return missing evidence, never permission to apply again. RuntimeCoordinator
+execution and Stop ownership are unchanged; the adapter and receipt cache do
+not own a second execution or pending-message state machine. The private IPC
+extension ships with its matching connector/Host bundle. Installed-candidate
+and real Local model acceptance are separate from protocol fixtures; no old
+published bundle is certified by deferred feature checks. There is no new public
+Service command or general Local Agent tool in this slice.
+
 After an occupancy transition, the Service includes the current occupancy value
 on the first keepalive in its current lifecycle phase, the first keepalive after
 a connection-generation change, and a low-frequency recovery keepalive. Until
@@ -792,6 +842,15 @@ RuntimeCoordinator to `running`. Ordinary keepalives between those frames omit
 the additive field so an older Core can still observe fresh local ownership.
 Current Core may recover a lost transition after a WebSocket reconnect or
 Service restart without polling Codex or delaying normal Wake admission.
+Once Core knows the conversation is occupied, repeated same-phase keepalives
+only confirm liveness and do not extend the progress deadline. Availability or
+provider-accepted advancement to `running` restores normal progress tracking;
+the Coordinator's admission record remains the occupancy authority.
+Every registration on one socket reports its original `socketConnectedAtMs`.
+Core also preserves the first connection time on same-socket re-registration,
+so older Services that report the registration time cannot manufacture a
+reconnect. A genuinely new socket retains the existing communication-recovery
+semantics, including after Core restores persisted state.
 
 If Codex explicitly reports that an existing controller conversation is
 missing, the adapter starts one fresh thread and delivers the complete current
@@ -1194,6 +1253,30 @@ not register a linked worktree in the user's source repository. Git hooks,
 ambient Git configuration, filters, lazy fetching, and non-file protocols are
 disabled during preparation. No dirty or ignored source files are copied.
 The resulting task boundary includes only that context's worktree and Git data.
+The workspace owner publishes the actual private Git config, hooks, worktree
+config, `.git` pointer, `commondir`, and `gitdir` paths as shared
+`ExecutionContextGitMetadata` facts. The native Codex boundary makes hooks and
+routing pointers read-only, including replacement and creation, even under
+`repository.git`, which native `.git` protection does not cover. Common and
+worktree config remain writable so normal branch, remote, user and submodule
+operations work. Service-owned Git inspection/preparation disables hooks,
+fsmonitor, credential commands and non-file transports independently of task
+Git; user task Git retains its normal credentials. Before native use, the
+workspace owner saves executable config settings in its protected lane. After
+native-process quiescence it restores new/changed executable settings, retaining
+ordinary settings. Hook-path changes are preserved and reported through public
+task progress: committed repository installers are identified where possible;
+unverified installers require user review. No command values are published.
+The audit is at dispatch completion, not between provider turns in a still-active
+process, and it is not proof that task-authored code or an unverified hook is safe.
+Objects, refs, logs, index and ordinary worktree data remain writable.
+An out-of-boundary metadata path fails closed
+instead of granting extra read access. Retained private repositories reject
+symlinks and multiply linked metadata files before use; direct native protection
+must not be generalized to arbitrary pre-existing aliases in current-folder
+tasks. Other controller boundaries are not certified by Codex sandbox evidence.
+`objects/info/alternates` remains a known native-boundary limitation: preparation
+and reuse reject it, but this protection does not certify task-time object routing.
 Its protected preparation record is outside the task's writable root and binds
 the context identity, source path, starting commit, owned paths, and completion.
 Retry verifies and reuses completed preparation. Incomplete or mismatched records
@@ -1268,6 +1351,11 @@ materializes committed project content as described above; it does not copy the
 parent's dirty working files or implicitly synchronize parent and child. A
 completion without a verified native checkpoint may
 preserve conversation identity but cannot authorize a fork.
+Codex fork preparation reads the target's effective MCP configuration before
+suppressing a native-tool source's alternate Space carrier. It disables an
+existing reserved server without replacing its transport; when absent, it must
+not create a disabled-only server table. Preparation receives no dispatch action
+credentials. Malformed or unreadable effective configuration rejects the fork.
 The Service observes completed turns across the initial invocation, reply repair,
 and reconsideration. Each invocation clears the previous completion evidence;
 each submitted proposal carries its own final verified turn. A missing final
@@ -1515,6 +1603,11 @@ that decision.
   candidate. OpenMeld Service uses the committed Computer session when it starts
   at login. The handoff must not be used to add an
   agent-selection step to Web.
+  Replacing a known Service owner with a different known owner ends the old
+  owner's service using the existing `user_stop` cause, including the legacy
+  system-service stop path. Same-owner maintenance retains
+  `controlled_service_update`. The lifecycle chooses that cause once and keeps
+  it through the local stop journal consumed by the carrier.
   Desktop uses `computer connection-review --json` and
   `setup --connection-intent <json>` for that same boundary. The intent contains
   the expected new account and a non-secret hash of the reviewed old session;
@@ -3111,6 +3204,13 @@ also bounds the control request so a new CLI cannot wait forever on an older
 Service. That timeout is a compatibility fallback only during an actual version
 upgrade; the existing OpenMeld-owned-process and long-stalled-heartbeat checks
 remain mandatory before any automatic force kill.
+
+The final stopping heartbeat must receive a successful Core acknowledgement.
+A rejected or timed-out heartbeat cannot be reported as a completed controlled
+shutdown. Already accepted work still drains before that failure is returned;
+network failure does not authorize interrupting it or assert that Core observed
+the stop. Core's existing freshness window remains the bound when no stop
+heartbeat reaches it.
 
 Repeated process-discovery failures are aggregated within a bounded local log
 window, retaining the first occurrence, count, duration, affected controller,

@@ -19,6 +19,10 @@ export {
   agentProfileCreationRequests,
 } from "./agent-profile-creation-request.schema.ts";
 export {
+  aiUsageRecords,
+  organizationAiUsagePolicies,
+} from "./ai-usage.schema.ts";
+export {
   centerAgentAttentionRequests,
   centerAgentAuditJournal,
   centerAgentConnectorActionOperations,

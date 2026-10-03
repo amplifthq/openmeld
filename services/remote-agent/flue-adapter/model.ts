@@ -22,12 +22,14 @@ import {
 } from "../agent-core/model";
 import { REMOTE_AGENT_OPENROUTER_PROVIDER_ROUTING } from "../agent-core/openrouter-provider-routing";
 import { recordRemoteAgentTurnObservabilityBestEffort } from "../agent-core/turn-observability";
+import { createFlueMeteredFetch } from "./ai-usage";
 import { emitCenterAgentPerformanceMilestone } from "./center-agent-performance-observability";
 import { emitRemoteAgentExecutionStageEvidence } from "./cloudflare-runtime-evidence";
 import {
   getRemoteAgentDeferredToolCount,
   getRemoteAgentExecutionSubmissionId,
 } from "./execution-context";
+import { resolveReviewedPromptPriceTierBoundary } from "./model-context-policy";
 import {
   projectProviderCompletion,
   providerCompletionOperation,
@@ -102,6 +104,7 @@ const openRouterModelMetadataResponseSchema = z.object({
 });
 
 type RemoteAgentModelEnv = {
+  OPENMELD_CORE_WORKER?: unknown;
   OPENMELD_CENTER_AGENT_PERFORMANCE?: AnalyticsEngineDataset;
   OPENMELD_OBSERVABILITY?: AnalyticsEngineDataset;
   OPENMELD_REMOTE_AGENT_AI_GATEWAY_ACCOUNT_ID?: string;
@@ -150,6 +153,7 @@ type FetchModelMetadata = (
 
 const modelRuntimeConfigCache = new Map<string, CachedModelRuntimeConfig>();
 type RegisteredRemoteAgentModelCapabilities = {
+  meterFetch: (fetch?: typeof globalThis.fetch) => typeof globalThis.fetch;
   reportCompletion: (
     completion: ReturnType<typeof projectProviderCompletion>
   ) => void;
@@ -188,6 +192,12 @@ export async function registerRemoteAgentCloudflareProvider(input: {
     (model) => model.id === modelId && model.api === "openai-completions"
   ) as Model<"openai-completions"> | undefined;
   registeredRemoteAgentModelCapabilities.set(providerId, {
+    meterFetch: (fetch) =>
+      createFlueMeteredFetch({
+        coreWorker: input.env.OPENMELD_CORE_WORKER,
+        model: modelId,
+        fetch,
+      }),
     reportCompletion: (completion) => {
       const succeeded = providerCompletionSucceeded(completion);
       if (succeeded) {
@@ -221,7 +231,10 @@ export async function registerRemoteAgentCloudflareProvider(input: {
     },
     contextCapacity: resolveRemoteAgentProviderContextCapacity({
       contextWindow,
-      reserveTokens: runtimeConfig.compaction.reserveTokens,
+      // Economic compaction is a soft trigger. The summarizer must still be
+      // able to read the history that crossed it; provider admission enforces
+      // the physical window, not the cheaper prompt-price band.
+      reserveTokens: resolveRemoteAgentCompactionReserveTokens(contextWindow),
     }),
     cost: openRouterModel?.cost,
     inputModalities: input.modelRoute?.inputModalities ?? ["text", "image"],
@@ -413,13 +426,13 @@ export function resolveRemoteAgentOpenRouterModelMetadataUrl(
 
 function resolveCompactionThreshold(input: {
   contextWindow: number;
-  pricingOverrides?: readonly OpenRouterPricingOverride[] | null;
+  priceTierBoundary: number | null;
 }): number {
   const baseReserve = resolveRemoteAgentCompactionReserveTokens(
     input.contextWindow
   );
   const baseThreshold = input.contextWindow - baseReserve;
-  const priceTierBoundary = resolvePriceTierBoundary(input.pricingOverrides);
+  const priceTierBoundary = input.priceTierBoundary;
   if (priceTierBoundary === null) {
     return baseThreshold;
   }
@@ -458,9 +471,14 @@ export async function resolveRemoteAgentModelRuntimeConfigForRegistration(input:
     return {
       compaction: {
         keepRecentTokens: REMOTE_AGENT_COMPACTION_KEEP_RECENT_TOKENS,
-        reserveTokens: resolveRemoteAgentCompactionReserveTokens(
-          input.modelRoute.contextWindow
-        ),
+        reserveTokens:
+          input.modelRoute.contextWindow -
+          resolveCompactionThreshold({
+            contextWindow: input.modelRoute.contextWindow,
+            priceTierBoundary: resolveReviewedPromptPriceTierBoundary(
+              input.modelRoute.modelId
+            ),
+          }),
       },
       contextWindow: input.modelRoute.contextWindow,
       maxTokens: input.modelRoute.maxOutputTokens,
@@ -531,7 +549,13 @@ function resolveStaticRemoteAgentModelRuntimeConfig(input: {
       contextLength: 500_000,
       env: input.env,
       modelId: input.modelId,
-      pricingOverrides: [{ min_prompt_tokens: 200_000 }],
+      pricingOverrides: [
+        {
+          min_prompt_tokens: resolveReviewedPromptPriceTierBoundary(
+            input.modelId
+          ),
+        },
+      ],
       providerContextLength: 500_000,
       providerMaxCompletionTokens: null,
     });
@@ -600,7 +624,7 @@ function buildRemoteAgentModelRuntimeConfig(input: {
         contextWindow -
         resolveCompactionThreshold({
           contextWindow,
-          pricingOverrides: input.pricingOverrides,
+          priceTierBoundary: resolvePriceTierBoundary(input.pricingOverrides),
         }),
     },
     contextWindow,
@@ -772,7 +796,10 @@ function createRemoteAgentModelCapabilitiesApi(): ReturnType<
             projectProviderCompletion({ ...completion, callId, submissionId })
           ),
         createAttempt: () =>
-          base.stream(resolvedModel, context, resolvedOptions),
+          base.stream(resolvedModel, context, {
+            ...resolvedOptions,
+            fetch: capabilities?.meterFetch(options?.fetch),
+          }),
         onRetry: () => logCompletedEmptyProviderRetry(resolvedModel.id),
         signal: resolvedOptions?.signal,
       });
@@ -796,7 +823,10 @@ function createRemoteAgentModelCapabilitiesApi(): ReturnType<
             projectProviderCompletion({ ...completion, callId, submissionId })
           ),
         createAttempt: () =>
-          base.streamSimple(resolvedModel, context, resolvedOptions),
+          base.streamSimple(resolvedModel, context, {
+            ...resolvedOptions,
+            fetch: capabilities?.meterFetch(options?.fetch),
+          }),
         onRetry: () => logCompletedEmptyProviderRetry(resolvedModel.id),
         signal: resolvedOptions?.signal,
       });

@@ -14,15 +14,17 @@ import {
 } from "./wake-progress-status";
 import {
 	buildSpaceWakeOutcomeIndex,
+	buildSpaceWakeStopSelectorKey,
 	matchesSpaceMessageWakeProgressItem,
+	resolveRequestedStopUiStatus,
 	resolveSpaceMessageWakeTargetProfileIds,
 	type SpaceWakeOutcomeIndex,
+	type SpaceWakeStopRequestStatus,
 	type SpaceWakeStopTargetResolution,
 } from "./wake-stop-target";
 
 export type SpaceMessageWakeThinkingEntry = {
 	elapsedStartedAtMs: number | null;
-	lastEvidenceAtMs: number | null;
 	key: string;
 	kind: "preview" | "progress" | "status";
 	phase: WakeProgressItem["phase"] | null;
@@ -172,7 +174,6 @@ export function resolveSpaceMessageWakeProgressFallbackEntries(input: {
 		return [
 			{
 				elapsedStartedAtMs: null,
-				lastEvidenceAtMs: null,
 				key: `wake-stop-fallback:${target.selectorKey ?? target.targetProfileId}`,
 				kind: "progress" as const,
 				phase: null,
@@ -195,23 +196,117 @@ function resolveWakeStopFallbackStep(
 ): WakeProgressStatusPresentation | null {
 	switch (target.status) {
 		case "active":
-		case "retry_later":
 			return {
-				description: "OpenMeld has accepted the Wake.",
+				description: "The Agent is processing your request.",
 				kind: "starting",
-				label: "Starting Wake",
+				label: "Thinking…",
 				status: "active",
 			};
 		case "stopping":
 			return {
-				description: "OpenMeld is requesting Stop for this Wake.",
+				description: "Waiting for the Agent to confirm it has stopped.",
 				kind: "retrying",
-				label: "Stopping Wake",
+				label: "Stopping…",
 				status: "active",
+			};
+		case "retry_later":
+			return {
+				description: "Check your connection and try stopping again.",
+				kind: "retrying",
+				label: "Stop not confirmed",
+				status: "pending",
+			};
+		case "stopped":
+			return {
+				description: "The request was stopped.",
+				kind: "working",
+				label: "Stopped",
+				status: "complete",
 			};
 		default:
 			return null;
 	}
+}
+
+/** A Stop command changes feedback immediately without inventing a final runtime outcome. */
+export function resolveSpaceMessageStopFeedback(
+	item: Partial<
+		Pick<
+			SpaceTimelineItem,
+			| "activeWakeProgress"
+			| "agentStreamState"
+			| "wakeClientMessageId"
+			| "clientMessageId"
+			| "wakeSourceSignalId"
+			| "id"
+			| "wakeTargetProfileIds"
+		>
+	>,
+	statuses: ReadonlyMap<string, SpaceWakeStopRequestStatus>
+): readonly SpaceMessageWakeThinkingEntry[] {
+	if (
+		item.activeWakeProgress?.terminal ||
+		(item.agentStreamState && item.agentStreamState.status !== "streaming")
+	) {
+		return [];
+	}
+	const progress = item.activeWakeProgress;
+	const clientMessageId =
+		progress?.clientMessageId ??
+		item.wakeClientMessageId ??
+		item.clientMessageId;
+	const sourceSignalId =
+		progress?.sourceSignalId ?? item.wakeSourceSignalId ?? item.id;
+	if (!(clientMessageId || sourceSignalId)) {
+		return [];
+	}
+	const targets = progress
+		? [progress.targetProfileId]
+		: (item.wakeTargetProfileIds ?? []);
+	return targets.flatMap((targetProfileId) => {
+		const selector = clientMessageId
+			? { by: "client_message" as const, clientMessageId, targetProfileId }
+			: {
+					by: "source_signal" as const,
+					sourceSignalId: sourceSignalId as string,
+					targetProfileId,
+				};
+		const key = buildSpaceWakeStopSelectorKey(selector);
+		const request = statuses.get(key);
+		const status = resolveRequestedStopUiStatus(request);
+		if (
+			!(
+				status === "stopping" ||
+				status === "stopped" ||
+				status === "retry_later"
+			)
+		) {
+			return [];
+		}
+		const step = resolveWakeStopFallbackStep({
+			canStop: false,
+			clientMessageId: clientMessageId ?? null,
+			selector,
+			selectorKey: key,
+			sourceSignalId: sourceSignalId ?? null,
+			status,
+			targetLabel: progress?.targetLabel ?? null,
+			targetProfileId,
+		});
+		return step
+			? [
+					{
+						elapsedStartedAtMs: null,
+						key,
+						kind: "status" as const,
+						phase: null,
+						step,
+						targetProfileId,
+						text: step.label,
+					},
+				]
+			: [];
+	});
 }
 
 export function resolveWakeProgressThinkingEntry(input: {
@@ -227,22 +322,25 @@ export function resolveWakeProgressThinkingEntry(input: {
 	if (!step) {
 		return [];
 	}
+	const awaitingConfirmation = step.kind === "confirmation_pending";
 
 	return [
 		{
 			elapsedStartedAtMs:
 				input.showElapsedTime &&
 				item.phase === "running" &&
+				!awaitingConfirmation &&
 				!item.pendingInteraction
 					? (item.startedAtMs ?? null)
 					: null,
-			lastEvidenceAtMs: item.updatedAtMs,
 			key: resolveWakeProgressKey(item),
-			kind: item.previewText ? "preview" : "progress",
+			kind: item.previewText && !awaitingConfirmation ? "preview" : "progress",
 			phase: item.phase,
 			step,
 			targetProfileId: item.targetProfileId,
-			text: item.previewText ?? step.label,
+			text: awaitingConfirmation
+				? step.label
+				: (item.previewText ?? step.label),
 		},
 	];
 }

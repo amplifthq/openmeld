@@ -1,88 +1,132 @@
 "use client";
 
-import AnthropicMono from "@lobehub/icons/es/Anthropic/components/Mono.js";
-import GeminiColor from "@lobehub/icons/es/Gemini/components/Color.js";
-import GrokMono from "@lobehub/icons/es/Grok/components/Mono.js";
-import OpenAIMono from "@lobehub/icons/es/OpenAI/components/Mono.js";
-import { CENTER_AGENT_BOT_AVATAR_TYPES } from "@openmeld/schemas";
+import {
+	CENTER_AGENT_BOT_AVATAR_TYPES,
+	HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+} from "@openmeld/schemas";
+import type { AuthProfileView } from "@openmeld/schemas/types";
+import {
+	Avatar,
+	AvatarFallback,
+	AvatarImage,
+} from "@openmeld/ui/components/avatar";
+import {
+	BotAvatar,
+	type BotAvatarType,
+} from "@openmeld/ui/components/bot-avatar";
 import {
 	FluidAvatar,
 	type FluidAvatarProps,
 } from "@openmeld/ui/components/fluid-avatar";
+import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
 import { cn } from "@openmeld/ui/lib/utils";
 import { RobotIcon } from "@phosphor-icons/react";
-import { BotAvatar, type BotAvatarType } from "bot-avatars";
-import { useReducedMotion } from "motion/react";
-import { type ComponentType, useRef } from "react";
+import { useRef } from "react";
+import { ModelBrandIcon } from "#/components/models/model-brand-icon";
+import { useAgentAvatarProfile } from "#/query/profiles/agent-avatar-context";
+import { resolveAgentAvatarIdentity } from "./agent-avatar-identity";
 
 export const CENTER_AGENT_BOT_TYPES =
 	CENTER_AGENT_BOT_AVATAR_TYPES satisfies readonly BotAvatarType[];
 
-export type AgentAvatarStyle =
-	| "automatic"
-	| "fluid"
-	| (typeof CENTER_AGENT_BOT_TYPES)[number];
+export type AgentAvatarStyle = NonNullable<AuthProfileView["avatarStyle"]>;
 
-export function defaultCenterAgentAvatar(
-	profileId: string
-): (typeof CENTER_AGENT_BOT_TYPES)[number] {
-	let hash = 0;
-	for (const character of profileId) {
-		hash = (hash * 31 + character.charCodeAt(0)) % 2_147_483_647;
-	}
-	return CENTER_AGENT_BOT_TYPES[hash % CENTER_AGENT_BOT_TYPES.length];
-}
-
-const MODEL_VENDOR_ICONS: Record<
-	string,
-	ComponentType<{ className?: string }>
-> = {
-	anthropic: AnthropicMono,
-	google: GeminiColor,
-	openai: OpenAIMono,
-	"x-ai": GrokMono,
+type AgentAvatarProps = Omit<FluidAvatarProps, "seed" | "fallback" | "size"> & {
+	size?: number;
+	profileName: string;
+	profileId?: string;
+	avatarStyle?: AgentAvatarStyle | null;
+	avatarImageUrl?: string | null;
+	modelId?: string | null;
+	agentControllerRef?: string | null;
+	working?: boolean;
+	clickable?: boolean;
+	followPointer?: boolean;
+	preview?: boolean;
+	fallbackTestId?: string;
+	variant?: "default" | "plain";
 };
 
-export function resolveHostedModelVendor(
-	modelId: string | null | undefined
-): string | null {
-	const vendor = modelId?.split("/", 1)[0] ?? null;
-	return vendor && Object.hasOwn(MODEL_VENDOR_ICONS, vendor) ? vendor : null;
+export function RemoteAgentAvatar(input: AgentAvatarProps) {
+	const savedProfile = useAgentAvatarProfile(input.profileId);
+	const profile = input.preview ? undefined : savedProfile;
+	const controllerRef = profile
+		? profile.agentControllerRef
+		: input.agentControllerRef;
+	const avatarImageUrl =
+		controllerRef === HOSTED_REMOTE_AGENT_CONTROLLER_REF
+			? (profile?.avatarUrl ?? input.avatarImageUrl)
+			: undefined;
+	return (
+		<AgentAvatarPresentation
+			{...input}
+			avatarImageUrl={avatarImageUrl}
+			{...(profile
+				? {
+						avatarStyle: profile.avatarStyle,
+						modelId:
+							profile.avatarModelId === undefined
+								? input.modelId
+								: profile.avatarModelId,
+						agentControllerRef: profile.agentControllerRef,
+						shape: resolveAgentAvatarIdentity(profile).shape,
+					}
+				: {})}
+		/>
+	);
 }
 
-export function RemoteAgentAvatar({
+function AgentAvatarPresentation({
 	profileName,
 	profileId,
 	avatarStyle,
+	avatarImageUrl,
 	modelId,
+	agentControllerRef,
+	preview: _preview,
+	fallbackTestId,
+	variant = "default",
 	working = false,
 	clickable = false,
+	followPointer,
 	animated = working,
 	shape = "rounded-square",
 	animateOnHover = false,
 	className,
 	size = 64,
 	...props
-}: Omit<FluidAvatarProps, "seed" | "fallback"> & {
-	profileName: string;
-	profileId?: string;
-	avatarStyle?: AgentAvatarStyle | null;
-	modelId?: string | null;
-	working?: boolean;
-	clickable?: boolean;
-}) {
+}: AgentAvatarProps) {
 	const botCanvas = useRef<HTMLCanvasElement>(null);
-	const reducedMotion = useReducedMotion() === true;
-	const isCenterAgent = shape === "circle";
-	const selectedStyle =
-		avatarStyle ??
-		(isCenterAgent
-			? defaultCenterAgentAvatar(profileId ?? profileName)
-			: "automatic");
+	const identity = resolveAgentAvatarIdentity({
+		agentControllerRef,
+		avatarStyle,
+		modelId,
+		isCenterAgent: shape === "circle",
+	});
+	const selectedStyle = identity.style;
+	shape = identity.shape;
+	const identityAttributes = {
+		"data-avatar-style": selectedStyle,
+		"data-avatar-shape": shape,
+		"data-avatar-icon": identity.icon,
+	};
+	if (avatarImageUrl) {
+		return (
+			<AgentAvatarImage
+				{...props}
+				{...identityAttributes}
+				avatarImageUrl={avatarImageUrl}
+				className={className}
+				shape={shape}
+				size={size}
+			/>
+		);
+	}
 	if (selectedStyle === "fluid") {
 		return (
 			<FluidAvatar
 				{...props}
+				{...identityAttributes}
 				animated={animated}
 				animateOnHover={animateOnHover}
 				aria-hidden="true"
@@ -98,27 +142,31 @@ export function RemoteAgentAvatar({
 		const bot = (
 			<BotAvatar
 				aria-hidden="true"
-				interactive={clickable && !reducedMotion}
-				jumpEvery={working ? 8 : 0}
-				paused={reducedMotion || !(working || clickable)}
+				followPointer={followPointer}
+				preview={clickable && followPointer === undefined}
 				ref={botCanvas}
 				size={size}
-				state={working ? "working" : "default"}
+				tabIndex={-1}
 				type={selectedStyle}
+				working={working}
 			/>
 		);
 		return clickable ? (
 			<button
 				{...props}
 				aria-label={`Animate ${profileName}'s avatar`}
+				{...identityAttributes}
 				className={cn(
-					"inline-flex shrink-0 items-center justify-center",
+					"inline-flex shrink-0 items-center justify-center overflow-visible focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+					shape === "circle" ? "rounded-full" : "rounded-[22%]",
 					className
 				)}
 				onClick={(event) => {
 					if (event.target === event.currentTarget) {
 						botCanvas.current?.click();
+						return;
 					}
+					props.onClick?.(event);
 				}}
 				style={{ width: size, height: size }}
 				type="button"
@@ -129,8 +177,10 @@ export function RemoteAgentAvatar({
 			<span
 				{...props}
 				aria-hidden="true"
+				{...identityAttributes}
 				className={cn(
-					"inline-flex shrink-0 items-center justify-center",
+					"inline-flex shrink-0 items-center justify-center overflow-visible",
+					shape === "circle" ? "rounded-full" : "rounded-[22%]",
 					className
 				)}
 				style={{ width: size, height: size }}
@@ -139,20 +189,91 @@ export function RemoteAgentAvatar({
 			</span>
 		);
 	}
-	const Icon =
-		MODEL_VENDOR_ICONS[resolveHostedModelVendor(modelId) ?? ""] ?? RobotIcon;
 	return (
 		<span
 			{...props}
 			aria-hidden="true"
+			{...identityAttributes}
 			className={cn(
-				"inline-flex shrink-0 items-center justify-center bg-surface-2 text-foreground",
-				isCenterAgent ? "rounded-full" : "rounded-[22%]",
+				"inline-flex shrink-0 items-center justify-center overflow-hidden text-foreground",
+				variant !== "plain" && "bg-surface-2",
+				shape === "circle" ? "rounded-full" : "rounded-[22%]",
 				className
 			)}
 			style={{ width: size, height: size }}
 		>
-			<Icon className="h-3/5 w-3/5" />
+			<AgentAvatarDefaultIcon
+				fallbackTestId={fallbackTestId}
+				identity={identity}
+				variant={variant}
+			/>
 		</span>
+	);
+}
+
+function AgentAvatarDefaultIcon({
+	identity,
+	fallbackTestId,
+	variant,
+}: {
+	identity: ReturnType<typeof resolveAgentAvatarIdentity>;
+	fallbackTestId?: string;
+	variant: "default" | "plain";
+}) {
+	if (identity.providerBrand) {
+		return (
+			<ModelBrandIcon
+				brand={identity.providerBrand}
+				className={variant === "plain" ? "h-full w-full" : "h-3/5 w-3/5"}
+			/>
+		);
+	}
+	if (identity.icon === "agent") {
+		return (
+			<RobotIcon
+				className={variant === "plain" ? "h-full w-full" : "h-3/5 w-3/5"}
+				data-testid={fallbackTestId}
+			/>
+		);
+	}
+	return (
+		<LocalAgentLogo
+			agentId={identity.icon}
+			className="h-full w-full"
+			size="md"
+			variant={variant}
+		/>
+	);
+}
+
+function AgentAvatarImage({
+	avatarImageUrl,
+	className,
+	shape,
+	size,
+	...props
+}: Omit<FluidAvatarProps, "seed" | "fallback"> & { avatarImageUrl: string }) {
+	return (
+		<Avatar
+			{...props}
+			aria-hidden="true"
+			className={cn(
+				"overflow-hidden after:border-0",
+				shape === "circle" ? "rounded-full" : "rounded-[22%]",
+				className
+			)}
+			data-avatar-icon="image"
+			style={{ width: size, height: size }}
+		>
+			<AvatarImage
+				alt=""
+				className="rounded-[inherit]"
+				referrerPolicy="no-referrer"
+				src={avatarImageUrl}
+			/>
+			<AvatarFallback className="rounded-[inherit]">
+				<RobotIcon className="h-3/5 w-3/5" />
+			</AvatarFallback>
+		</Avatar>
 	);
 }

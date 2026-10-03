@@ -1,16 +1,20 @@
 "use client";
 
+import {
+	HOSTED_CENTER_AGENT_CONTROLLER_REF,
+	HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+} from "@openmeld/agent-runtime";
 import { AvatarAction } from "@openmeld/ui/components/avatar";
 import {
 	CaretLeftIcon,
 	CaretRightIcon,
 	CheckIcon,
 } from "@phosphor-icons/react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useAgentAvatarProfile } from "#/query/profiles/agent-avatar-context";
 import {
 	type AgentAvatarStyle,
 	CENTER_AGENT_BOT_TYPES,
-	defaultCenterAgentAvatar,
 	RemoteAgentAvatar,
 } from "./remote-agent-avatar";
 
@@ -25,23 +29,19 @@ export function AgentAvatarEditor(input: {
 	saving: boolean;
 	onSave: (style: AgentAvatarStyle) => Promise<void>;
 }) {
+	const savedProfile = useAgentAvatarProfile(input.profileId);
 	const current =
-		input.avatarStyle ??
-		(input.centerAgent
-			? defaultCenterAgentAvatar(input.profileId)
-			: "automatic");
+		(savedProfile ? savedProfile.avatarStyle : input.avatarStyle) ??
+		"automatic";
 	const choices: readonly AgentAvatarStyle[] = input.centerAgent
 		? [...CENTER_AGENT_BOT_TYPES, "fluid"]
 		: ["automatic", "fluid"];
-	const [candidate, setCandidate] = useState<AgentAvatarStyle>(current);
+	const [candidate, setCandidate] = useState<AgentAvatarStyle | null>(null);
 	const [open, setOpen] = useState(false);
 	const size = input.size ?? 64;
-	useEffect(() => {
-		setCandidate(current);
-	}, [current]);
-	const changed = candidate !== current;
+	const changed = input.canEdit && candidate !== null && candidate !== current;
 	const rotate = (step: number) => {
-		const index = choices.indexOf(candidate);
+		const index = choices.indexOf(candidate ?? current);
 		setCandidate(choices[(index + step + choices.length) % choices.length]);
 		setOpen(true);
 	};
@@ -51,9 +51,15 @@ export function AgentAvatarEditor(input: {
 			style={{ width: size, height: size }}
 		>
 			<RemoteAgentAvatar
-				avatarStyle={candidate}
+				agentControllerRef={
+					input.centerAgent
+						? HOSTED_CENTER_AGENT_CONTROLLER_REF
+						: HOSTED_REMOTE_AGENT_CONTROLLER_REF
+				}
+				avatarStyle={changed ? candidate : current}
 				clickable
 				modelId={input.modelId}
+				preview={changed}
 				profileId={input.profileId}
 				profileName={input.profileName}
 				shape={input.centerAgent ? "circle" : "rounded-square"}
@@ -100,10 +106,13 @@ export function AgentAvatarEditor(input: {
 							onClick={async (event) => {
 								event.stopPropagation();
 								try {
-									await input.onSave(candidate);
+									await input.onSave(candidate ?? current);
+									setCandidate(null);
 									setOpen(false);
 								} catch {
-									// The caller reports the save error; retain the candidate for retry.
+									// The caller reports the save error; restore the saved identity.
+									setCandidate(null);
+									setOpen(false);
 								}
 							}}
 						>

@@ -1376,10 +1376,15 @@ describe("runtime transport schema", () => {
     });
     expect(
       runtimeTransportAgentProfileWorkQueueApproveRequestSchema.parse({
+        expectedInterruptedTargetWakeLifecycleId: "wake-lifecycle-interrupted",
         ownerUserId: "owner-1",
         targetProfileId: firstProfileId,
       })
-    ).toEqual({ ownerUserId: "owner-1", targetProfileId: firstProfileId });
+    ).toEqual({
+      expectedInterruptedTargetWakeLifecycleId: "wake-lifecycle-interrupted",
+      ownerUserId: "owner-1",
+      targetProfileId: firstProfileId,
+    });
     expect(
       runtimeTransportAgentProfileWorkQueueApproveResponseSchema.parse({
         status: "approved",

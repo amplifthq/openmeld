@@ -4,6 +4,7 @@ import {
   formatAgentRecoveryActionLabel,
 } from "./agent-recovery-action";
 import { RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE } from "./runtime-coordinator-reason-code";
+import type { AgentFailureFacts } from "./schemas/runtime/agent-failure";
 
 export const PROJECT_LOCAL_CONNECTION_FAILURE_REASON_CODES = [
   "project.local_connection.missing",
@@ -44,6 +45,386 @@ export const CENTER_AGENT_REPLY_PUBLICATION_FAILED_PUBLIC_COPY =
   "Center Agent finished your request, but OpenMeld could not show the reply here. Try again. If it keeps happening, open diagnostics in OpenMeld.";
 export const CENTER_AGENT_TURN_TIMEOUT_PUBLIC_COPY =
   "Center Agent took too long to finish this request. Try again. If it keeps happening, open diagnostics in OpenMeld.";
+
+/** An absent admission ACK is not proof that native execution never started. */
+export function buildTaskContinuationAdmissionExhaustedPublicCopy(input: {
+  agentLabel?: string;
+  attempts: number;
+  executionConfirmation?: AgentFailureFacts["executionConfirmation"];
+  languageTag?: string;
+}): string {
+  const agentLabel = input.agentLabel?.trim() || "Center Agent";
+  const notExecuted = input.executionConfirmation === "not_executed";
+  const confirmation = {
+    not_executed: [
+      `${agentLabel} did not execute this continuation.`,
+      `${agentLabel} 没有执行这次续跑。`,
+    ],
+    executed: [
+      `${agentLabel} executed this continuation, but its final outcome is not confirmed.`,
+      `${agentLabel} 已执行这次续跑，但最终结果尚未确认。`,
+    ],
+    unknown: [
+      `OpenMeld could not confirm whether ${agentLabel} started this continuation. Earlier requests may have executed.`,
+      `OpenMeld 仍无法确认 ${agentLabel} 是否已开始这次续跑。之前的请求可能已经执行。`,
+    ],
+  }[input.executionConfirmation ?? "unknown"];
+  if (isChineseFailureLanguage(input.languageTag)) {
+    return `自动启动重试已停止（共 ${input.attempts} 次）；不会再自动恢复。${confirmation[1]}汇总可能尚未完成；这条通知无法确认哪些子结果仍然可用。请让 Center Agent 基于已有结果重新汇总，不要重发原请求。${notExecuted ? "" : "重发原请求可能重复执行之前的操作。"}`;
+  }
+  return `Automatic startup retries have stopped after ${input.attempts} attempts. There will be no automatic recovery. ${confirmation[0]} The summary may be incomplete; this notice does not confirm which child results are still available. Ask Center Agent to summarize the existing results instead of resending the original request.${notExecuted ? "" : " Resending the original request may repeat earlier actions."}`;
+}
+
+export type PublicAgentFailurePresentation = {
+  severity: "neutral" | "warning" | "error";
+  title: string;
+  body: string;
+};
+
+/** Render owner facts; never infer retry, recovery or execution from text. */
+export function formatPublicAgentFailureFacts(
+  facts: AgentFailureFacts,
+  context: { agentLabel?: string } = {}
+): PublicAgentFailurePresentation {
+  if (
+    facts.reasonCode === "remote_agent.execution_cancelled" ||
+    facts.reasonCode === "runtime_coordinator.pre_agent_stop_requested"
+  ) {
+    return renderFailureFactsCopy(
+      facts.languageTag,
+      "neutral",
+      [
+        "Task stopped",
+        "This task was stopped. Completed actions were not undone.",
+      ],
+      ["任务已停止", "这次任务已停止。已执行的操作没有撤销。"]
+    );
+  }
+  if (facts.reasonCode === "remote_agent.requester_membership_revoked") {
+    const agentLabel = context.agentLabel?.trim() || "Center Agent";
+    return renderFailureFactsCopy(
+      facts.languageTag,
+      "warning",
+      [
+        "Task access could not be confirmed",
+        `${resolveMappedPublicAgentFailureReason(facts.reasonCode, agentLabel)} Earlier actions may have taken effect. Check the results before repeating the work.`,
+      ],
+      [
+        "任务访问权限未得到确认",
+        `OpenMeld 无法确认发起人目前是否有权访问这个 Space，因此 ${agentLabel} 已停止。请检查发起人的 Space 成员资格，并确认之前的操作是否已经生效，再重新发起。`,
+      ]
+    );
+  }
+  if (facts.recovery.status === "recovered") {
+    return renderFailureFactsCopy(
+      facts.languageTag,
+      "neutral",
+      [
+        "Result recovered",
+        "The confirmed result of this task has been recovered.",
+      ],
+      ["结果已恢复", "这次任务的已确认结果已恢复。"]
+    );
+  }
+  if (
+    facts.retry.status === "scheduled" ||
+    facts.retry.status === "in_progress" ||
+    facts.recovery.status === "in_progress"
+  ) {
+    return renderFailureFactsCopy(
+      facts.languageTag,
+      "neutral",
+      [
+        "Recovery in progress",
+        "OpenMeld is handling recovery for this task. You do not need to send another request now.",
+      ],
+      ["正在恢复", "OpenMeld 正在处理这次任务的恢复。现在无需重新发起。"]
+    );
+  }
+  if (
+    facts.reasonCode === "remote_agent.admission_timeout" &&
+    facts.retry.status === "exhausted" &&
+    facts.retry.attempt !== undefined
+  ) {
+    const body = buildTaskContinuationAdmissionExhaustedPublicCopy({
+      agentLabel: context.agentLabel,
+      attempts: facts.retry.attempt,
+      executionConfirmation: facts.executionConfirmation,
+      languageTag: facts.languageTag,
+    });
+    return renderFailureFactsCopy(
+      facts.languageTag,
+      "warning",
+      ["Task continuation not confirmed", body],
+      ["续跑未得到确认", body]
+    );
+  }
+  if (facts.recoveryActions.includes("review_agent_permissions")) {
+    return formatPermissionFailureFacts(facts);
+  }
+  if (
+    facts.executionConfirmation === "not_executed" ||
+    facts.result.status === "not_started"
+  ) {
+    return renderFailureFactsCopy(
+      facts.languageTag,
+      "warning",
+      [
+        "Task did not start",
+        "This task did not start and will not automatically recover. Send a new request if you still need this work.",
+      ],
+      [
+        "任务尚未开始",
+        "这次任务没有开始，也不会自动恢复。如果仍需要这项工作，请重新发起。",
+      ]
+    );
+  }
+  if (facts.result.status === "unknown") {
+    return formatUnconfirmedFailureFacts(facts, context.agentLabel);
+  }
+  return formatFinalFailureFacts(facts);
+}
+
+function formatUnconfirmedFailureFacts(
+  facts: AgentFailureFacts,
+  agentLabel = "Center Agent"
+): PublicAgentFailurePresentation {
+  const cause = resolveFailureCauseOnly(
+    facts.reasonCode,
+    agentLabel.trim() || "Center Agent"
+  );
+  const recoveryStopped = facts.retry.status === "exhausted";
+  const uncertainty = `${recoveryStopped ? "Automatic startup recovery has stopped. " : ""}${facts.executionConfirmation === "executed" ? "This task ran, but OpenMeld could not confirm its final outcome." : "OpenMeld could not confirm this task's outcome."} Earlier actions may have taken effect. Check the results before sending a new request.`;
+  return renderFailureFactsCopy(
+    facts.languageTag,
+    "warning",
+    [
+      "Outcome not confirmed",
+      cause ? `${cause[0]} ${uncertainty}` : uncertainty,
+    ],
+    [
+      "结果尚未确认",
+      `${cause ? `${cause[1]} ` : ""}${recoveryStopped ? "自动启动恢复已停止。" : ""}${facts.executionConfirmation === "executed" ? "这次任务已经执行，但最终结果尚未确认。" : "OpenMeld 无法确认这次任务的结果。"}之前的操作可能已经生效；请先检查结果，再重新发起。`,
+    ]
+  );
+}
+
+/** A terminal processing failure never authorizes replay of earlier work. */
+export function formatPublicInterruptedTaskFailureFacts(
+  facts: AgentFailureFacts,
+  context: { agentLabel?: string } = {}
+): PublicAgentFailurePresentation {
+  if (
+    facts.reasonCode === "remote_agent.execution_cancelled" ||
+    facts.reasonCode === "remote_agent.requester_membership_revoked"
+  ) {
+    return formatPublicAgentFailureFacts(facts, context);
+  }
+  const chinese = isChineseFailureLanguage(facts.languageTag);
+  const agentLabel = context.agentLabel?.trim() || "Center Agent";
+  const cause = resolveFailureCauseOnly(facts.reasonCode, agentLabel);
+  const results = facts.completedResults ?? [];
+  const canSummarize = facts.recoveryActions.includes(
+    "continue_task_continuation"
+  );
+  const body = chinese
+    ? [
+        `${agentLabel} 的本次处理中断。${cause ? ` ${cause[1]}` : ""}`,
+        "之前的操作可能已经生效；剩余工作和汇总是否完成，尚未得到确认。不要重发原请求或用新编号重复写入。",
+        results.length
+          ? "以下已发布的子成果仍可读取："
+          : "本通知没有确认可读取的子成果。请先核对已有成果和之前的操作。",
+        ...results.map(
+          (result, index) => `[查看子成果 ${index + 1}](${result.url})`
+        ),
+        ...(canSummarize
+          ? [
+              "你可以请 Center Agent 继续汇总已有成果。这只生成汇总，不会继续剩余工作。",
+            ]
+          : []),
+        "可打开 Diagnostics 查看中断详情。",
+      ].join("\n")
+    : [
+        `${agentLabel} couldn't finish processing this request.${cause ? ` ${cause[0]}` : ""}`,
+        "Earlier actions may have taken effect. The remaining work and final summary are not confirmed. Do not resend the original request or repeat writes with a new operation ID.",
+        results.length
+          ? "These published child results are still available:"
+          : "This notice has no verified, readable child results. Check existing results and earlier actions first.",
+        ...results.map(
+          (result, index) => `[View child result ${index + 1}](${result.url})`
+        ),
+        ...(canSummarize
+          ? [
+              "You can ask Center Agent to summarize the existing results. This only produces a summary; it does not continue the remaining work.",
+            ]
+          : []),
+        "Open Diagnostics for interruption details.",
+      ].join("\n");
+  return {
+    severity: "warning",
+    title: chinese ? "处理中断" : "Processing interrupted",
+    body,
+  };
+}
+
+function formatPermissionFailureFacts(
+  facts: AgentFailureFacts
+): PublicAgentFailurePresentation {
+  if (facts.result.status === "not_started") {
+    return renderFailureFactsCopy(
+      facts.languageTag,
+      "warning",
+      [
+        "Review task permissions",
+        "OpenMeld could not start this task with the current permission settings. The task has not started. Review the Agent Profile's permission settings.",
+      ],
+      [
+        "需要检查任务权限",
+        "OpenMeld 无法在当前权限设置下启动这次任务。任务尚未开始；请检查 Agent Profile 的权限设置。",
+      ]
+    );
+  }
+  return renderFailureFactsCopy(
+    facts.languageTag,
+    "warning",
+    [
+      "Review task permissions",
+      "A permission limit blocked this task. Review the Agent Profile's permission settings and check whether earlier actions ran.",
+    ],
+    [
+      "需要检查任务权限",
+      "这次任务受到权限限制。请检查 Agent Profile 的权限设置，并先确认之前的操作是否已执行。",
+    ]
+  );
+}
+
+function formatFinalFailureFacts(
+  facts: AgentFailureFacts
+): PublicAgentFailurePresentation {
+  if (facts.result.status === "published") {
+    return renderFailureFactsCopy(
+      facts.languageTag,
+      "warning",
+      [
+        "Result already published",
+        "This task's confirmed result was already published. Review it before repeating the work.",
+      ],
+      [
+        "结果已发布",
+        "这次任务的已确认结果已经发布。请先查看结果，不要重复执行。",
+      ]
+    );
+  }
+  if (
+    facts.result.status === "unavailable" &&
+    facts.reasonCode === "remote_agent.empty_assistant_response"
+  ) {
+    return renderFailureFactsCopy(
+      facts.languageTag,
+      "error",
+      [
+        "Task result unavailable",
+        "The Agent produced no reply. Earlier actions may have taken effect. Check the results before asking the Agent to do this work again.",
+      ],
+      [
+        "任务结果不可用",
+        "Agent 没有生成回复。之前的操作可能已经生效；请先检查结果，再要求 Agent 重新执行。",
+      ]
+    );
+  }
+  if (
+    facts.result.status === "unavailable" &&
+    facts.reasonCode === "remote_agent.turn.output_limit_exceeded"
+  ) {
+    return renderFailureFactsCopy(
+      facts.languageTag,
+      "error",
+      [
+        "Task result unavailable",
+        "The Agent reached the model's response limit before it could reply. Completed actions were not undone. Check the results before asking the Agent to continue.",
+      ],
+      [
+        "任务结果不可用",
+        "Agent 在回复前达到模型的输出上限。已执行的操作没有撤销；请先检查结果，再要求 Agent 继续。",
+      ]
+    );
+  }
+  if (facts.stage === "publication" && facts.result.status === "retained") {
+    return renderFailureFactsCopy(
+      facts.languageTag,
+      "error",
+      [
+        "Task result not published",
+        facts.recoveryActions.includes("recover_result")
+          ? "The task result was retained, but OpenMeld could not publish it. Recover the result instead of repeating completed work."
+          : "The task result was retained, but OpenMeld could not publish it. Do not repeat completed work.",
+      ],
+      [
+        "任务结果未能发布",
+        facts.recoveryActions.includes("recover_result")
+          ? "任务结果已保存，但 OpenMeld 未能发布结果。请恢复结果，不要重复执行已完成的工作。"
+          : "任务结果已保存，但 OpenMeld 未能发布结果。不要重复执行已完成的工作。",
+      ]
+    );
+  }
+  if (facts.diagnosticReference) {
+    return renderFailureFactsCopy(
+      facts.languageTag,
+      "error",
+      [
+        "Task did not finish",
+        "This task did not deliver a completed result. Open Diagnostics for details.",
+      ],
+      [
+        "任务未完成",
+        "这次任务没有交付完成结果。请打开 Diagnostics 查看具体情况。",
+      ]
+    );
+  }
+  return renderFailureFactsCopy(
+    facts.languageTag,
+    "error",
+    [
+      "Task did not finish",
+      "This task did not deliver a completed result. Check the task's results before sending a new request.",
+    ],
+    ["任务未完成", "这次任务没有交付完成结果。请先检查任务结果，再重新发起。"]
+  );
+}
+
+/** A Routine failure uses the same owner facts, with its existing Run locator. */
+export function formatPublicRoutineFailureFacts(
+  facts: AgentFailureFacts,
+  context: {
+    agentLabel?: string;
+    routineName: string;
+    runId: string;
+    runUrl?: string;
+  }
+): string {
+  const presentation = formatPublicAgentFailureFacts(facts, context);
+  const chinese = isChineseFailureLanguage(facts.languageTag);
+  const reference = context.runUrl
+    ? `\n[${chinese ? "查看 Run 详情" : "View Run details"}](${context.runUrl})`
+    : "";
+  return `Routine “${context.routineName}”: ${presentation.body}\nRun ID: ${context.runId}${reference}`;
+}
+
+function renderFailureFactsCopy(
+  languageTag: string | undefined,
+  severity: PublicAgentFailurePresentation["severity"],
+  english: readonly [string, string],
+  chinese: readonly [string, string]
+): PublicAgentFailurePresentation {
+  const [title, body] = isChineseFailureLanguage(languageTag)
+    ? chinese
+    : english;
+  return { severity, title, body };
+}
+
+function isChineseFailureLanguage(languageTag: string | undefined): boolean {
+  return languageTag?.split("-")[0]?.toLowerCase() === "zh";
+}
 export const REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_REASON_CODE =
   "remote_agent.tool_result_too_large";
 export const REMOTE_AGENT_TOOL_SAFETY_LIMIT_REASON_CODE =
@@ -89,23 +470,55 @@ export const DISPATCH_ERROR_SUMMARY_MAX_LENGTH = 512;
 const PUBLIC_FAILURE_DETAIL_CODE_RE = /^[a-z0-9._-]+$/u;
 const HOSTED_CALLBACK_MAPPED_CODE_RE =
   /^(?:remote_agent\.requester_membership_revoked$|remote_agent\.provider\.(?:authentication_failed|connection_missing|rate_limited|unavailable)|auth\.|credential\.|login\.|permission\.|provider\.(?:rate_limited|rate_limit|unavailable|authentication_failed)|connection\.)/u;
-const CENTER_AGENT_CALLBACK_COPY_BY_CODE: Readonly<Record<string, string>> = {
-  "remote_agent.empty_assistant_response": CENTER_AGENT_EMPTY_REPLY_PUBLIC_COPY,
-  "remote_agent.turn.output_limit_exceeded":
-    CENTER_AGENT_OUTPUT_LIMIT_EXCEEDED_PUBLIC_COPY,
-  "remote_agent.turn.context_window_exceeded":
-    CENTER_AGENT_CONTEXT_WINDOW_EXCEEDED_PUBLIC_COPY,
-  "remote_agent.execution_identity_mismatch":
-    CENTER_AGENT_EXECUTION_IDENTITY_MISMATCH_PUBLIC_COPY,
-  "remote_agent.callback_publish_failed":
-    CENTER_AGENT_REPLY_PUBLICATION_FAILED_PUBLIC_COPY,
-  "remote_agent.turn.timeout": CENTER_AGENT_TURN_TIMEOUT_PUBLIC_COPY,
-  [REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_REASON_CODE]:
-    REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_PUBLIC_COPY,
-  [REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_REASON_CODE]:
-    REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_PUBLIC_COPY,
-  [REMOTE_AGENT_WORK_LOOP_CONTINUATION_LIMIT_REASON_CODE]:
-    REMOTE_AGENT_WORK_LOOP_CONTINUATION_LIMIT_PUBLIC_COPY,
+const CENTER_AGENT_CALLBACK_COPY_BY_CODE: Readonly<
+  Record<
+    string,
+    {
+      message: string;
+      /** Cause only: result certainty and safe next steps are rendered separately. */
+      cause?: readonly [string, string];
+    }
+  >
+> = {
+  "remote_agent.empty_assistant_response": {
+    message: CENTER_AGENT_EMPTY_REPLY_PUBLIC_COPY,
+  },
+  "remote_agent.turn.output_limit_exceeded": {
+    message: CENTER_AGENT_OUTPUT_LIMIT_EXCEEDED_PUBLIC_COPY,
+  },
+  "remote_agent.turn.context_window_exceeded": {
+    message: CENTER_AGENT_CONTEXT_WINDOW_EXCEEDED_PUBLIC_COPY,
+    cause: [
+      "The conversation has grown too long for this model.",
+      "对话内容超过了模型一次能处理的范围。",
+    ],
+  },
+  "remote_agent.execution_identity_mismatch": {
+    message: CENTER_AGENT_EXECUTION_IDENTITY_MISMATCH_PUBLIC_COPY,
+    cause: [
+      "OpenMeld could not confirm the reply's Agent identity.",
+      "OpenMeld 无法确认回复的 Agent 身份。",
+    ],
+  },
+  "remote_agent.callback_publish_failed": {
+    message: CENTER_AGENT_REPLY_PUBLICATION_FAILED_PUBLIC_COPY,
+  },
+  "remote_agent.turn.timeout": {
+    message: CENTER_AGENT_TURN_TIMEOUT_PUBLIC_COPY,
+  },
+  [REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_REASON_CODE]: {
+    message: REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_PUBLIC_COPY,
+  },
+  [REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_REASON_CODE]: {
+    message: REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_PUBLIC_COPY,
+  },
+  [REMOTE_AGENT_WORK_LOOP_CONTINUATION_LIMIT_REASON_CODE]: {
+    message: REMOTE_AGENT_WORK_LOOP_CONTINUATION_LIMIT_PUBLIC_COPY,
+    cause: [
+      "The Agent reached the safe execution limit before finishing.",
+      "Agent 在完成任务前达到了安全执行上限。",
+    ],
+  },
 };
 
 /** Generic hosted-Agent failure copy that names the Agent that actually failed. */
@@ -132,7 +545,7 @@ export function resolveCenterAgentCallbackFailureMessage(input: {
       ? CENTER_AGENT_CALLBACK_COPY_BY_CODE[input.failureCode]
       : null;
   if (centerCopy) {
-    return centerCopy;
+    return centerCopy.message;
   }
   switch (input.failureCode) {
     case "remote_agent.empty_assistant_response":
@@ -144,7 +557,7 @@ export function resolveCenterAgentCallbackFailureMessage(input: {
     case ORGANIZATION_SKILL_RELEASE_UNAVAILABLE_REASON_CODE:
       return ORGANIZATION_SKILL_RELEASE_UNAVAILABLE_PUBLIC_COPY;
     case "remote_agent.admission_timeout":
-      return `${agentLabel} couldn't start this request because OpenMeld did not confirm it in time. Try again. If it keeps happening, open Diagnostics in OpenMeld.`;
+      return `OpenMeld could not confirm whether ${agentLabel} started this request. Open Diagnostics to check its status before starting more work.`;
     case "remote_agent.turn.context_window_exceeded":
       return `This conversation has grown too long for ${agentLabel} to continue in one request. Try again; OpenMeld will shorten older messages before continuing.`;
     case "remote_agent.execution_identity_mismatch":
@@ -170,21 +583,32 @@ function resolveHostedCallbackMappedFailure(
   input: { failureCode: string; failureDetail?: string | null },
   agentLabel: string
 ): string | null {
-  // Older workers report a broad callback code and keep the actual reason in
-  // failureDetail. Only resolve a known code; never publish raw worker detail.
-  const detailCode = input.failureDetail?.trim();
-  const mappedDetail =
-    input.failureCode === "remote_agent.turn_not_completed" &&
-    detailCode &&
-    PUBLIC_FAILURE_DETAIL_CODE_RE.test(detailCode)
-      ? resolveMappedPublicAgentFailureReason(detailCode, agentLabel)
-      : null;
-  if (mappedDetail) {
-    return mappedDetail;
+  const reasonCode = resolveHostedAgentCallbackFailureReasonCode(input);
+  if (reasonCode !== input.failureCode) {
+    return resolveMappedPublicAgentFailureReason(reasonCode, agentLabel);
   }
   return HOSTED_CALLBACK_MAPPED_CODE_RE.test(input.failureCode)
     ? resolveMappedPublicAgentFailureReason(input.failureCode, agentLabel)
     : null;
+}
+
+/** Preserve the existing allowlisted legacy reason without exposing raw detail. */
+export function resolveHostedAgentCallbackFailureReasonCode(input: {
+  failureCode: string;
+  failureDetail?: string | null;
+}): string {
+  // Older workers report a broad callback code and keep the actual reason in
+  // failureDetail. Only resolve a known code; never publish raw worker detail.
+  const detailCode = input.failureDetail?.trim();
+  if (
+    input.failureCode === "remote_agent.turn_not_completed" &&
+    detailCode &&
+    PUBLIC_FAILURE_DETAIL_CODE_RE.test(detailCode) &&
+    resolveMappedPublicAgentFailureReason(detailCode)
+  ) {
+    return detailCode;
+  }
+  return input.failureCode;
 }
 
 const DISPATCH_ERROR_REDACTION_REPLACEMENTS: readonly [RegExp, string][] = [
@@ -376,6 +800,11 @@ type PublicAgentFailureRecoveryMappingBase = {
   availabilitySummary?: PublicAgentAvailabilityCopyValue;
   availabilityTooltip?: PublicAgentAvailabilityCopyValue;
   body: string | ((targetName: string) => string);
+  /** Known cause only; never reuse retry guidance for an uncertain outcome. */
+  cause?: readonly [
+    string | ((targetName: string) => string),
+    string | ((targetName: string) => string),
+  ];
   controllerInterfaceDescription?: PublicAgentAvailabilityCopyValue;
   controllerInterfaceDescriptionFallback?: PublicAgentAvailabilityCopyValue;
   manualOnlyAgentDetail?: PublicAgentAvailabilityCopyValue;
@@ -587,6 +1016,10 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
     {
       body: (targetName) =>
         `${targetName} couldn't connect to its model provider. Ask your OpenMeld admin to check the provider connection, then wake the agent again.`,
+      cause: [
+        (targetName) => `${targetName} couldn't connect to its model provider.`,
+        (targetName) => `${targetName} 无法连接到模型提供方。`,
+      ],
       kind: "account_access",
       patterns: ["=remote_agent.provider.connection_missing"],
       primaryActionId: "review_agent_settings",
@@ -673,6 +1106,10 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       kind: "local_service",
       mappedReasonBody:
         "The model provider rejected this request because the local provider login expired. Re-authenticate the local agent on its computer, then wake the agent again.",
+      cause: [
+        "The model provider rejected the local agent's sign-in.",
+        "模型提供方拒绝了本地 Agent 的登录凭据。",
+      ],
       patterns: [
         "=controller.auth.unauthenticated",
         "auth.",
@@ -696,6 +1133,10 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       body: RUNTIME_PERMISSION_DENIAL_PUBLIC_COPY,
       kind: "account_access",
       mappedReasonBody: RUNTIME_PERMISSION_DENIAL_PUBLIC_COPY,
+      cause: [
+        "The Agent Profile's permission settings blocked an action.",
+        "Agent Profile 的权限设置阻止了一项操作。",
+      ],
       patterns: ["permission.denied.runtime"],
       primaryActionId: "review_agent_permissions",
       recoveryTarget: "agents",
@@ -750,6 +1191,10 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       kind: "system_retry",
       mappedReasonBody:
         "The model provider rate-limited this request. Wait a moment, then wake the agent again.",
+      cause: [
+        "The model provider rate-limited this request.",
+        "模型提供方限制了这次请求的频率。",
+      ],
       patterns: [
         "provider.rate_limited",
         "provider.rate_limit",
@@ -801,6 +1246,10 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
         `${targetName}'s selected model is not responding right now. Switch this agent to another model or try again later.`,
       kind: "account_access",
       mappedReasonBody: PROVIDER_UNAVAILABLE_PUBLIC_COPY,
+      cause: [
+        "The selected model is not responding right now.",
+        "所选模型目前没有响应。",
+      ],
       patterns: [
         "provider.unavailable",
         "provider.bad_gateway",
@@ -1444,7 +1893,7 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       recoveryTarget: "computer",
     },
     {
-      body: "This task did not start because Custom (config.toml) cannot be combined with OpenMeld's task file boundary. Choose another permission mode in this Agent's settings, then wake the Agent again.",
+      body: "OpenMeld could not verify this task's file-access boundary with Custom (config.toml), so the task did not start. Choose a supported permission mode in this Agent's settings, then try again.",
       kind: "local_agent_prepare",
       patterns: ["=execution_context.custom_config_file_access_unverified"],
       primaryActionId: "manage_local_agent",
@@ -1730,12 +2179,7 @@ export function resolveMappedPublicAgentFailureReason(
     return null;
   }
 
-  const mapping =
-    PUBLIC_FAILURE_RECOVERY_BY_CODE.find((candidate) =>
-      candidate.patterns.some((pattern) =>
-        matchesPublicFailureReasonPattern(normalizedErrorCode, pattern)
-      )
-    ) ?? null;
+  const mapping = findMappedFailureRecovery(normalizedErrorCode);
   if (!mapping) {
     return null;
   }
@@ -1744,6 +2188,31 @@ export function resolveMappedPublicAgentFailureReason(
     mapping.mappedReasonBody ?? mapping.body,
     normalizeOptionalText(targetLabel) ?? "This agent"
   );
+}
+
+function findMappedFailureRecovery(errorCode: string) {
+  return PUBLIC_FAILURE_RECOVERY_BY_CODE.find((candidate) =>
+    candidate.patterns.some((pattern) =>
+      matchesPublicFailureReasonPattern(errorCode, pattern)
+    )
+  );
+}
+
+function resolveFailureCauseOnly(
+  reasonCode: string,
+  agentLabel: string
+): readonly [string, string] | null {
+  const callbackCause = CENTER_AGENT_CALLBACK_COPY_BY_CODE[reasonCode]?.cause;
+  if (callbackCause) {
+    return callbackCause;
+  }
+  const cause = findMappedFailureRecovery(reasonCode.toLowerCase())?.cause;
+  return cause
+    ? [
+        resolvePublicAgentFailureBody(cause[0], agentLabel),
+        resolvePublicAgentFailureBody(cause[1], agentLabel),
+      ]
+    : null;
 }
 
 export function shouldPreferMappedPublicAgentFailureReason(

@@ -68,6 +68,14 @@ function fixture() {
   const authorizeRemoteAgentExecutionAccess = vi.fn(async () => ({
     scope,
     submissionId: context.submissionId,
+    delegatedRequesterSupported: true as const,
+    delegatedRequester: {
+      delegationId: "delegation-1",
+      parentDeliveryId: "parent-1",
+      memberId: "member_123",
+      userId: "user_1",
+      profileId: "human-1",
+    },
   }));
   const centerAgentResolveConnectorConnection = vi.fn(async () => ({
     connection,
@@ -83,6 +91,82 @@ function fixture() {
 }
 
 describe("Git transfer authorization", () => {
+  it("rechecks the recorded requester and exact source on each host transfer", async () => {
+    const f = fixture();
+    const grant = {
+      ...f.grant,
+      authorization: {
+        ...f.grant.authorization,
+        includeDelegatedRequester: true as const,
+      },
+    };
+    await authorizeGitTransfer(f, grant);
+    expect(f.authorizeRemoteAgentExecutionAccess).toHaveBeenCalledWith(
+      expect.objectContaining({
+        includeDelegatedRequester: true,
+        sources: grant.authorization.sources,
+      })
+    );
+    expect(f.centerAgentResolveConnectorConnection).toHaveBeenCalledWith(
+      expect.objectContaining({
+        includeDelegatedRequester: true,
+        requesterUserId: "user_1",
+      })
+    );
+    f.authorizeRemoteAgentExecutionAccess.mockRejectedValue(
+      new Error("member revoked")
+    );
+    await expect(authorizeGitTransfer(f, grant)).rejects.toThrow(
+      "member revoked"
+    );
+    expect(f.centerAgentResolveConnectorConnection).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    "old_core",
+    "changed_requester",
+    "changed_connection",
+    "changed_version",
+  ])("rejects delegated transfer after %s", async (denial) => {
+    const f = fixture();
+    const grant = {
+      ...f.grant,
+      authorization: {
+        ...f.grant.authorization,
+        includeDelegatedRequester: true as const,
+      },
+    };
+    if (denial === "old_core" || denial === "changed_requester") {
+      const original = await f.authorizeRemoteAgentExecutionAccess();
+      f.authorizeRemoteAgentExecutionAccess.mockResolvedValue({
+        ...original,
+        ...(denial === "old_core"
+          ? {
+              delegatedRequesterSupported: undefined,
+              delegatedRequester: undefined,
+            }
+          : {
+              delegatedRequester: {
+                ...original.delegatedRequester,
+                userId: "another-user",
+              },
+            }),
+      } as typeof original);
+    } else {
+      f.centerAgentResolveConnectorConnection.mockResolvedValue({
+        connection: {
+          ...f.connection,
+          ...(denial === "changed_connection"
+            ? { connectionName: "replacement" }
+            : { updatedAtMs: TEST_NOW_MS + 1 }),
+        },
+        selection: "requester",
+        permission: "read",
+      });
+    }
+    await expect(authorizeGitTransfer(f, grant)).rejects.toThrow();
+  });
+
   it("accepts the original requester on an active Center Agent execution", async () => {
     const f = fixture();
     await authorizeGitTransfer(f, f.grant);

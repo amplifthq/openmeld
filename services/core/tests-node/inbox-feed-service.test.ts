@@ -5,10 +5,265 @@ import type {
 } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
 import { createInboxFeedService } from "../src/inbox/application/inbox-feed-service";
+import { resolveInboxItemsBySource } from "../src/inbox/application/inbox-item-service";
 import { createInboxService } from "../src/inbox/application/inbox-service";
 import { createInboxFeedFixture } from "./helpers/inbox-feed.test-support";
 
 describe("canonical Inbox attention feed", () => {
+  it("limits Thread reads to ordinary updates in the selected category, including when urgent replies share the Thread", async () => {
+    const f = createInboxFeedFixture();
+    try {
+      const feed = createInboxFeedService({ db: f.db, nowMs: () => 11_000 });
+      const sourceTarget = {
+        kind: "space",
+        spaceId: "space",
+        signalId: "reply",
+        threadRootSignalId: "root",
+      } as const;
+      await f.item("reply", { sourceTarget });
+      await f.item("mention", {
+        sourceTarget,
+        kind: "space_mention",
+        sourceFacts: { version: 1, recipientReasons: ["human_mention"] },
+      });
+      const urgent = await f.item("urgent", {
+        sourceTarget,
+        importance: "urgent",
+      });
+      const page = await feed.list(f.identity, {
+        grouping: "space",
+        category: "mentions",
+      });
+      const group = page.rows[0];
+      if (!group) {
+        throw new Error("Expected mentioned Space");
+      }
+      const threads = await feed.list(f.identity, {
+        grouping: "space",
+        category: "mentions",
+        snapshotId: page.snapshotId,
+        groupKey: group.groupKey,
+      });
+      const thread = threads.rows[0];
+      if (!thread) {
+        throw new Error("Expected mentioned Thread");
+      }
+      expect(thread.itemCount).toBe(1);
+      expect(
+        await feed.mutate(f.identity, {
+          snapshotId: page.snapshotId,
+          groupKey: thread.groupKey,
+          operation: "read",
+        })
+      ).toEqual({ changedCount: 1 });
+      const all = await feed.list(f.identity, { grouping: "space" });
+      const ordinary = all.rows.find((row) => row.group?.kind === "space");
+      if (!ordinary) {
+        throw new Error("Expected ordinary Space");
+      }
+      const children = await feed.list(f.identity, {
+        grouping: "space",
+        snapshotId: all.snapshotId,
+        groupKey: ordinary.groupKey,
+      });
+      const child = children.rows[0];
+      if (!child) {
+        throw new Error("Expected ordinary Thread");
+      }
+      expect(child.itemCount).toBe(2);
+      expect(
+        await feed.mutate(f.identity, {
+          snapshotId: all.snapshotId,
+          groupKey: child.groupKey,
+          operation: "read",
+        })
+      ).toEqual({ changedCount: 1 });
+      const remaining = await feed.list(f.identity, {
+        grouping: "space",
+        unreadOnly: "true",
+      });
+      expect(remaining.rows.map((row) => row.item.id)).toEqual([urgent.itemId]);
+    } finally {
+      f.close();
+    }
+  });
+  it("groups a Space across pages, keeps Threads distinct, and reads only the frozen group", async () => {
+    const f = createInboxFeedFixture();
+    try {
+      const feed = createInboxFeedService({ db: f.db, nowMs: () => 11_000 });
+      for (let index = 0; index < 45; index += 1) {
+        await f.item(`reply-${index}`, {
+          occurredAtMs: 1000 + index,
+          sourceTarget: {
+            kind: "space",
+            spaceId: "space",
+            signalId: `reply-${index}`,
+            threadRootSignalId: `thread-${index % 3}`,
+          },
+        });
+      }
+      const request = await f.item("question", {
+        attention: "action_required",
+        kind: "agent_interaction",
+        sourceKind: "runtime_coordinator_interaction",
+      });
+      const result = await feed.list(f.identity, {
+        grouping: "space",
+        limit: 1,
+      });
+      expect(result.rows[0]?.item.id).toBe(request.itemId);
+      if (!result.nextCursor) {
+        throw new Error("Expected another page");
+      }
+      const next = await feed.list(f.identity, {
+        grouping: "space",
+        limit: 1,
+        cursor: result.nextCursor,
+      });
+      const group = next.rows[0];
+      if (!group) {
+        throw new Error("Expected the Space group");
+      }
+      expect(group).toMatchObject({
+        itemCount: 45,
+        unreadCount: 45,
+        group: { kind: "space", conversationCount: 3 },
+      });
+      expect(next.nextCursor).toBeNull();
+      const threads = await feed.list(f.identity, {
+        grouping: "space",
+        snapshotId: result.snapshotId,
+        groupKey: group.groupKey,
+      });
+      expect(threads.rows).toHaveLength(3);
+      expect(
+        threads.rows.every(
+          (row) => row.itemCount === 15 && row.group?.kind === "conversation"
+        )
+      ).toBe(true);
+      const later = await f.item("later", {
+        sourceTarget: {
+          kind: "space",
+          spaceId: "space",
+          signalId: "later",
+          threadRootSignalId: "thread-0",
+        },
+      });
+      expect(
+        await feed.mutate(f.identity, {
+          snapshotId: result.snapshotId,
+          groupKey: group.groupKey,
+          operation: "read",
+        })
+      ).toEqual({ changedCount: 45 });
+      const unread = await feed.list(f.identity, {
+        grouping: "space",
+        unreadOnly: "true",
+      });
+      expect(unread.counts.unread).toBe(2);
+      expect(unread.rows.map((row) => row.item.id)).toEqual([
+        request.itemId,
+        later.itemId,
+      ]);
+      expect(
+        (await feed.list(f.identity, { category: "needs_action" })).rows[0]
+          ?.item.resolutionStatus
+      ).toBe("open");
+    } finally {
+      f.close();
+    }
+  });
+
+  it("groups resolved system requests without absorbing open requests or urgent outcomes, including after bulk actions", async () => {
+    const f = createInboxFeedFixture();
+    try {
+      const system = {
+        kind: "system_issue",
+        sourceKind: "system_attention_event",
+        sourceTarget: { kind: "settings", section: "computers" },
+      } as const;
+      await f.item("installed-a", system);
+      await f.item("installed-b", system);
+      await f.item("repair", { ...system, attention: "action_required" });
+      await f.item("failure", { ...system, importance: "urgent" });
+      const ended = await f.item("ended", {
+        ...system,
+        attention: "action_required",
+        importance: "urgent",
+      });
+      await resolveInboxItemsBySource({
+        db: f.db,
+        organizationId: f.identity.organizationId,
+        sourceKind: system.sourceKind,
+        sourceKey: "ended",
+        resolvedAtMs: 10_500,
+      });
+      // Reading an important outcome must not make it ordinary system history.
+      const readFailure = await f.item("read-failure", {
+        ...system,
+        importance: "urgent",
+      });
+      await createInboxService({ db: f.db }).markRead({
+        ...f.identity,
+        itemId: readFailure.itemId,
+        read: true,
+      });
+      const feed = createInboxFeedService({ db: f.db, nowMs: () => 11_000 });
+      const result = await feed.list(f.identity, { grouping: "space" });
+      expect(result.rows).toHaveLength(4);
+      const systemGroup = result.rows.find(
+        (row) => row.group?.kind === "system"
+      );
+      if (!systemGroup) {
+        throw new Error("Expected system updates");
+      }
+      expect(systemGroup).toMatchObject({
+        itemCount: 3,
+        unreadCount: 3,
+        section: "activity",
+      });
+      const children = await feed.list(f.identity, {
+        grouping: "space",
+        snapshotId: result.snapshotId,
+        groupKey: systemGroup.groupKey,
+      });
+      expect(children.rows.map((row) => row.item.id)).toContain(ended.itemId);
+      expect(children.rows).toHaveLength(3);
+      expect(children.rows.every((row) => row.item.readAt === null)).toBe(true);
+      const later = await f.item("later", system);
+      await feed.mutate(f.identity, {
+        snapshotId: result.snapshotId,
+        groupKey: systemGroup.groupKey,
+        operation: "read",
+      });
+      expect(
+        (await feed.list(f.identity, { unreadOnly: "true" })).counts.unread
+      ).toBe(3);
+      expect(
+        await feed.mutate(f.identity, {
+          snapshotId: result.snapshotId,
+          groupKey: systemGroup.groupKey,
+          operation: "dismiss",
+        })
+      ).toEqual({ changedCount: 3 });
+      const remaining = await feed.list(f.identity, { grouping: "space" });
+      expect(remaining.counts).toMatchObject({
+        all: 4,
+        unread: 3,
+        needsAction: 1,
+        priority: 1,
+      });
+      expect(
+        remaining.rows.find((row) => row.group?.kind === "system")
+      ).toMatchObject({
+        item: { id: later.itemId, readAt: null },
+        itemCount: 1,
+      });
+    } finally {
+      f.close();
+    }
+  });
+
   it("shares priority and request categories with the unpaged summary while respecting read, first contact and mute facts", async () => {
     const f = createInboxFeedFixture();
     try {

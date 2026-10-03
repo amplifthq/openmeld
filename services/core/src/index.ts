@@ -31,6 +31,7 @@ import type {
   BeginOrganizationSkillImportBatchRpcInput,
   CenterAgentAddAgentProfilesToSpaceResponse,
   CenterAgentAddMembersToSpaceResponse,
+  CenterAgentAiUsageRpcInput,
   CenterAgentAttribution,
   CenterAgentAuthorizeAnonymousMemberToolResponse,
   CenterAgentAuthorizeAnonymousMemberToolRpcInput,
@@ -279,6 +280,7 @@ import type {
   OpenCenterAgentDirectMessageSpaceResponse,
   OpenDirectMessageSpaceResponse,
   OrganizationAgentRuntimeOverviewResponse,
+  OrganizationAiUsageRpcInput,
   OrganizationComputersResponse,
   OrganizationDirectoryResponse,
   OrganizationDocumentPromptContextResponse,
@@ -330,6 +332,7 @@ import type {
   RemoteAgentStreamDeltaCallbackBody,
   RemoteAgentStreamDeltaCallbackResponse,
   RemoteAgentStreamPartCallbackBody,
+  RemoteAiUsageWrite,
   RemoveSpaceMembersResponse,
   RequestCurrentOpenMeldToolsUpdateResponse,
   ResolveSpaceFileContentResponse,
@@ -368,6 +371,7 @@ import type {
   SpaceIdentityDirectory,
   SpaceInboxSummaryResponse,
   SpaceInboxUnreadTargetsResponse,
+  SpaceInputQueueResponse,
   SpaceMemberDirectory,
   SpaceMembersSnapshot,
   SpaceMessagePinsResponse,
@@ -481,6 +485,7 @@ import {
   rpcMarkInboxItemRead,
   rpcMarkSpaceInboxReadThrough,
   rpcMutateInboxFeed,
+  rpcMutateSpaceInboxRead,
   rpcObserveInboxNotifications,
   rpcUpdateInboxMessageNotificationPreferences,
   rpcUpdateInboxNotificationPreferences,
@@ -572,6 +577,7 @@ import {
 } from "./projects/project-center-agent-rpc";
 import { verifyLarkPlatformWebhook } from "./remote-agent/application/lark-platform-webhook-service";
 import { createConfiguredMessageChannelProviderRegistry } from "./remote-agent/application/message-channel-provider-runtime";
+import { acknowledgeRemoteAgentAdmission } from "./remote-agent/application/native-delivery-admission-acknowledgement";
 import { completeRemoteAgentNativeDelivery } from "./remote-agent/application/native-delivery-service";
 import { runPersonalRemoteAgentSpaceTool } from "./remote-agent/application/personal-remote-agent-space-tools";
 import { authorizeRemoteAgentExecutionAccess } from "./remote-agent/application/remote-agent-execution-access";
@@ -659,6 +665,7 @@ import {
   type CenterAgentSearchSlackMessagesInput,
   type CenterAgentSelectLocalAgentInstallationInput,
   type CenterAgentSetOpenMeldToolsMaintenanceInput,
+  type CenterAgentSpaceInputQueueInput,
   type CenterAgentStopSpaceWakeInput,
   type CenterAgentUpdateAgentProfileRuntimeSettingsInput,
   type CenterAgentUpdateSpaceSettingsInput,
@@ -833,6 +840,7 @@ import {
   rpcCenterAgentAddMembersToSpace,
   rpcCenterAgentCheckAgentProfileReadiness,
   rpcCenterAgentConnectAgentProfileToLocalAgent,
+  rpcCenterAgentContinueTaskSummary,
   rpcCenterAgentCreateAgentProfile,
   rpcCenterAgentCreateSpace,
   rpcCenterAgentEnableAgentProfile,
@@ -883,6 +891,7 @@ import {
   rpcCenterAgentSearchSlackMessages,
   rpcCenterAgentSelectLocalAgentInstallation,
   rpcCenterAgentSetOpenMeldToolsMaintenance,
+  rpcCenterAgentSpaceInputQueue,
   rpcCenterAgentStartSelfMemberResearch,
   rpcCenterAgentStopSpaceWake,
   rpcCenterAgentUpdateAgentProfileRuntimeSettings,
@@ -1044,6 +1053,8 @@ import {
   rpcRecordSpaceAttachment,
   rpcRefreshCurrentLocalAgentCatalog,
   rpcRefreshPeopleComputerLocalAgentCatalog,
+  rpcRemoteAgentGetOrganizationDirectory,
+  rpcRemoteAgentOpenDirectMessageSpace,
   rpcRemoveConnection,
   rpcRemoveMissingConnections,
   rpcRemoveSpaceMembers,
@@ -1078,6 +1089,7 @@ import {
   rpcSpaceFilePins,
   rpcSpaceFileUpdateSettings,
   rpcSpaceFileUpload,
+  rpcSpaceInputQueue,
   rpcSpaceMessagePins,
   rpcStageSpaceComposerUpload,
   rpcStreamSpaceFileContent,
@@ -1124,6 +1136,7 @@ import {
   type SpaceAccessModeStateResult,
   type SpaceFilePinsInput,
   type SpaceFileWriteInput,
+  type SpaceInputQueueInput,
   type SpaceMessagePinsInput,
   type SpacePasswordStateResult,
   type StageSpaceComposerUploadRpcInput,
@@ -1171,6 +1184,11 @@ import {
   rpcProjectSpaceIndexMembershipOverlay,
 } from "./space-index/space-index-overlay-rpc";
 import { listMembershipSpaceIdsForProfilesFromSpaceIndex } from "./space-index/space-index-repository";
+import {
+  rpcCenterAgentReadAiUsage,
+  rpcReadOrganizationAiUsage,
+  rpcRecordRemoteAiUsage,
+} from "./usage/ai-usage-rpc";
 
 // Narrow first-party entrypoint for the auth worker's profile lifecycle
 // fan-out. Kept separate from GatewayRpcEntrypoint so auth only gets the
@@ -1507,6 +1525,10 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return rpcReadOrganizationUsageOverview(this.env, input);
   }
 
+  readOrganizationAiUsage(input: OrganizationAiUsageRpcInput) {
+    return rpcReadOrganizationAiUsage(this.env, input);
+  }
+
   listRoutines(input: ListRoutinesInput) {
     return rpcListRoutines(this.env, input);
   }
@@ -1557,6 +1579,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: MutateInboxFeedRpcInput
   ): Promise<MutateInboxFeedResponse> {
     return rpcMutateInboxFeed(this.env, input);
+  }
+
+  mutateSpaceInboxRead(
+    input: import("@openmeld/schemas/types").MutateSpaceInboxReadRpcInput
+  ) {
+    return rpcMutateSpaceInboxRead(this.env, input);
   }
 
   listInboxItems(
@@ -2470,6 +2498,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return rpcSpaceMessagePins(this.env, input);
   }
 
+  spaceInputQueue(
+    input: SpaceInputQueueInput
+  ): Promise<SpaceInputQueueResponse> {
+    return rpcSpaceInputQueue(this.env, input);
+  }
+
   listSpaceTasks(input: ListSpaceTasksInput): Promise<ListSpaceTasksResponse> {
     return rpcListSpaceTasks(this.env, input);
   }
@@ -3055,6 +3089,10 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return authorizeRemoteAgentExecutionAccess(this.env, input);
   }
 
+  acknowledgeRemoteAgentAdmission(input: unknown) {
+    return acknowledgeRemoteAgentAdmission(this.env, input);
+  }
+
   getCenterAgentDesignation(
     input: GetCenterAgentDesignationInput
   ): Promise<GetCenterAgentDesignationResponse> {
@@ -3629,6 +3667,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return rpcCenterAgentStopSpaceWake(this.env, input);
   }
 
+  centerAgentSpaceInputQueue(
+    input: CenterAgentSpaceInputQueueInput
+  ): Promise<SpaceInputQueueResponse> {
+    return rpcCenterAgentSpaceInputQueue(this.env, input);
+  }
+
   centerAgentReadSpaceContext(
     input: CenterAgentReadSpaceContextInput
   ): Promise<CenterAgentReadSpaceContextResponse> {
@@ -3788,6 +3832,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: CenterAgentWatchAgentTaskInput
   ): Promise<CenterAgentWatchAgentTaskResponse> {
     return rpcCenterAgentWatchAgentTask(this.env, input);
+  }
+
+  centerAgentContinueTaskSummary(
+    input: Parameters<typeof rpcCenterAgentContinueTaskSummary>[1]
+  ) {
+    return rpcCenterAgentContinueTaskSummary(this.env, input);
   }
 
   centerAgentUpdateSpaceSettings(
@@ -4159,6 +4209,10 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.readOrganizationUsageOverview(input);
   }
 
+  readOrganizationAiUsage(input: OrganizationAiUsageRpcInput) {
+    return super.readOrganizationAiUsage(input);
+  }
+
   listRoutines(input: ListRoutinesInput) {
     return super.listRoutines(input);
   }
@@ -4258,6 +4312,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: GetSpaceInboxUnreadTargetsRpcInput
   ): Promise<SpaceInboxUnreadTargetsResponse> {
     return super.getSpaceInboxUnreadTargets(input);
+  }
+
+  mutateSpaceInboxRead(
+    input: import("@openmeld/schemas/types").MutateSpaceInboxReadRpcInput
+  ) {
+    return super.mutateSpaceInboxRead(input);
   }
 
   markCenterAgentInboxReadThrough(
@@ -4876,6 +4936,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: SpaceMessagePinsInput
   ): Promise<SpaceMessagePinsResponse> {
     return super.spaceMessagePins(input);
+  }
+
+  spaceInputQueue(
+    input: SpaceInputQueueInput
+  ): Promise<SpaceInputQueueResponse> {
+    return super.spaceInputQueue(input);
   }
 
   listSpaceTasks(input: ListSpaceTasksInput): Promise<ListSpaceTasksResponse> {
@@ -5854,6 +5920,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.centerAgentWatchAgentTask(input);
   }
 
+  centerAgentContinueTaskSummary(
+    input: Parameters<typeof rpcCenterAgentContinueTaskSummary>[1]
+  ) {
+    return super.centerAgentContinueTaskSummary(input);
+  }
+
   centerAgentUpdateSpaceSettings(
     input: CenterAgentUpdateSpaceSettingsInput
   ): Promise<CenterAgentUpdateSpaceSettingsResponse> {
@@ -5934,6 +6006,16 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
 }
 
 export class CenterAgentRpcEntrypoint extends CoreRpcEntrypoint {
+  remoteAgentOpenDirectMessageSpace(input: OpenDirectMessageSpaceInput) {
+    return rpcRemoteAgentOpenDirectMessageSpace(this.env, input);
+  }
+
+  remoteAgentGetOrganizationDirectory(input: {
+    context?: CoreRpcContextInput;
+  }) {
+    return rpcRemoteAgentGetOrganizationDirectory(this.env, input);
+  }
+
   writeSpaceFileContent(
     input: WriteSpaceFileContentRpcInput,
     spaceFilesOriginVersion?: string,
@@ -6072,6 +6154,14 @@ export class CenterAgentRpcEntrypoint extends CoreRpcEntrypoint {
     return rpcCenterAgentReadAgentActivityOverview(this.env, input);
   }
 
+  centerAgentReadAiUsage(input: CenterAgentAiUsageRpcInput) {
+    return rpcCenterAgentReadAiUsage(this.env, input);
+  }
+
+  recordRemoteAiUsage(input: RemoteAiUsageWrite) {
+    return rpcRecordRemoteAiUsage(this.env, input);
+  }
+
   centerAgentReadAgentActivity(input: CenterAgentReadAgentActivityInput) {
     return rpcCenterAgentReadAgentActivity(this.env, input);
   }
@@ -6102,6 +6192,12 @@ export class CenterAgentRpcEntrypoint extends CoreRpcEntrypoint {
 
   centerAgentReadChangelog(input: CenterAgentReadChangelogInput) {
     return rpcCenterAgentReadChangelog(this.env, input);
+  }
+
+  centerAgentSpaceInputQueue(
+    input: CenterAgentSpaceInputQueueInput
+  ): Promise<SpaceInputQueueResponse> {
+    return rpcCenterAgentSpaceInputQueue(this.env, input);
   }
 
   centerAgentSearchMemory(input: CenterAgentSearchMemoryRpcInput) {

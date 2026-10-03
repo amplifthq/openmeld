@@ -10,6 +10,7 @@ export const remoteAgentExecutionAccessRequestSchema = z.strictObject({
   submissionId: identity,
   sources: remoteAgentResultSourcesSchema.optional(),
   effect: z.enum(["read", "write"]).optional(),
+  includeDelegatedRequester: z.boolean().optional(),
 });
 
 export const remoteAgentExecutionScopeSchema = z.strictObject({
@@ -33,6 +34,16 @@ export const remoteAgentExecutionScopeSchema = z.strictObject({
 export const remoteAgentExecutionAccessResponseSchema = z.strictObject({
   scope: remoteAgentExecutionScopeSchema,
   submissionId: identity,
+  delegatedRequesterSupported: z.literal(true).optional(),
+  delegatedRequester: z
+    .strictObject({
+      delegationId: identity,
+      parentDeliveryId: identity,
+      memberId: identity,
+      userId: identity,
+      profileId: identity,
+    })
+    .optional(),
 });
 
 export type RemoteAgentExecutionScope = zod.infer<

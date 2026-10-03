@@ -32,6 +32,10 @@ const overlays = [
     "github-working-copy-policy.mjs",
     ".openmeld-github-working-copy-policy.mjs",
   ],
+  [
+    "github-proxy-runtime-context.mjs",
+    ".openmeld-github-proxy-runtime-context.mjs",
+  ],
 ];
 const createdOverlays = [];
 
