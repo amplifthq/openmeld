@@ -168,7 +168,7 @@ const ACTIVE_WAKE_PROGRESS_STATUSES: readonly RuntimeCoordinatorExecutionStatus[
 export const writeRuntimeCoordinatorExecutionProjection = async (input: {
   db: D1Database;
   record: RuntimeCoordinatorExecutionRecord;
-}): Promise<"created" | "skipped_stale" | "updated"> => {
+}): Promise<"skipped_stale" | "written"> => {
   const parsed = runtimeCoordinatorExecutionRecordSchema.safeParse(
     input.record
   );
@@ -176,82 +176,20 @@ export const writeRuntimeCoordinatorExecutionProjection = async (input: {
     throw new Error("invalid runtime coordinator execution projection");
   }
   const record = parsed.data;
-  const existing = await readRuntimeCoordinatorExecutionRow({
-    db: input.db,
-    runtimeCoordinatorExecutionId: record.runtimeCoordinatorExecutionId,
-  });
-
-  if (existing) {
-    const existingRank = STATUS_RANK[existing.status];
-    const nextRank = STATUS_RANK[record.status];
-    if (
-      LOCKED_TERMINAL_STATUSES.has(existing.status) &&
-      (!LOCKED_TERMINAL_STATUSES.has(record.status) ||
-        existing.status !== record.status)
-    ) {
-      return "skipped_stale";
-    }
-    if (
-      nextRank < existingRank ||
-      (nextRank === existingRank && record.updatedAtMs < existing.updated_at_ms)
-    ) {
-      return "skipped_stale";
-    }
-
-    const updateResult = await input.db
-      .prepare(
-        `
-          UPDATE openMeldDaemon_runtime_coordinator_executions
-          SET
-            model_version = ?,
-            space_id = ?,
-            dispatch_id = ?,
-            target_profile_id = ?,
-            source_client_message_id = ?,
-            openmeld_service_runtime_id_source = ?,
-            openmeld_service_runtime_id = ?,
-            binding_id = ?,
-            agent_controller_ref = ?,
-            status = ?,
-            terminal_outcome_json = ?,
-            attempt_id = ?,
-            claim_lease_id = ?,
-            daemon_session_id = ?,
-            connection_generation = ?,
-            lease_epoch = ?,
-            updated_at_ms = ?
-          WHERE runtime_coordinator_execution_id = ?
-            AND status = ?
-            AND updated_at_ms = ?
-        `
-      )
-      .bind(
-        record.modelVersion,
-        record.spaceId,
-        record.dispatchId,
-        record.targetProfileId,
-        record.sourceClientMessageId,
-        record.openMeldServiceRuntimeId.source,
-        record.openMeldServiceRuntimeId.value,
-        record.bindingId,
-        record.agentControllerRef,
-        record.status,
-        stringifyNullableJson(record.terminalOutcome),
-        record.legacyPointers.attemptId,
-        record.legacyPointers.claimLeaseId,
-        record.legacyPointers.daemonSessionId,
-        record.legacyPointers.connectionGeneration,
-        record.legacyPointers.leaseEpoch,
-        record.updatedAtMs,
-        record.runtimeCoordinatorExecutionId,
-        existing.status,
-        existing.updated_at_ms
-      )
-      .run();
-    return updateResult.meta.changes === 0 ? "skipped_stale" : "updated";
-  }
-
-  await input.db
+  // Evaluate against the row at write time. A competing accepted update must
+  // not turn newer evidence into a stale optimistic-read conflict.
+  const nextRank = STATUS_RANK[record.status];
+  const allowedStatuses = (
+    Object.keys(STATUS_RANK) as RuntimeCoordinatorExecutionStatus[]
+  ).filter(
+    (status) =>
+      STATUS_RANK[status] <= nextRank &&
+      (!LOCKED_TERMINAL_STATUSES.has(status) || status === record.status)
+  );
+  const sameRankStatuses = allowedStatuses.filter(
+    (status) => STATUS_RANK[status] === nextRank
+  );
+  const result = await input.db
     .prepare(
       `
         INSERT INTO openMeldDaemon_runtime_coordinator_executions (
@@ -276,6 +214,29 @@ export const writeRuntimeCoordinatorExecutionProjection = async (input: {
           updated_at_ms
         )
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(runtime_coordinator_execution_id) DO UPDATE SET
+          model_version = excluded.model_version,
+          space_id = excluded.space_id,
+          dispatch_id = excluded.dispatch_id,
+          target_profile_id = excluded.target_profile_id,
+          source_client_message_id = excluded.source_client_message_id,
+          openmeld_service_runtime_id_source = excluded.openmeld_service_runtime_id_source,
+          openmeld_service_runtime_id = excluded.openmeld_service_runtime_id,
+          binding_id = excluded.binding_id,
+          agent_controller_ref = excluded.agent_controller_ref,
+          status = excluded.status,
+          terminal_outcome_json = excluded.terminal_outcome_json,
+          attempt_id = excluded.attempt_id,
+          claim_lease_id = excluded.claim_lease_id,
+          daemon_session_id = excluded.daemon_session_id,
+          connection_generation = excluded.connection_generation,
+          lease_epoch = excluded.lease_epoch,
+          updated_at_ms = excluded.updated_at_ms
+        WHERE openMeldDaemon_runtime_coordinator_executions.status IN (${allowedStatuses.map(() => "?").join(", ")})
+          AND (
+            openMeldDaemon_runtime_coordinator_executions.status NOT IN (${sameRankStatuses.map(() => "?").join(", ")})
+            OR openMeldDaemon_runtime_coordinator_executions.updated_at_ms <= excluded.updated_at_ms
+          )
       `
     )
     .bind(
@@ -297,10 +258,12 @@ export const writeRuntimeCoordinatorExecutionProjection = async (input: {
       record.legacyPointers.connectionGeneration,
       record.legacyPointers.leaseEpoch,
       record.createdAtMs,
-      record.updatedAtMs
+      record.updatedAtMs,
+      ...allowedStatuses,
+      ...sameRankStatuses
     )
     .run();
-  return "created";
+  return result.meta.changes === 0 ? "skipped_stale" : "written";
 };
 
 export const writeRuntimeCoordinatorTerminalExecutionProjectionWithoutRead =
