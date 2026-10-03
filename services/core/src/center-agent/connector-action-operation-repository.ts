@@ -324,37 +324,39 @@ export async function recordCenterAgentConnectorActionOperation(input: {
     );
   }
   const outcome = input.outcome;
-  const [, updateResult] = await input.db.transaction(
-    async (client) =>
-      [
-        await client.query(
-          prepareFinalizeAuditStatement({
-            action: resolveAuditAction(input.outcome),
-            attribution: requireExistingAttribution(existingAttribution),
-            db: input.db,
-            id: `${recordId}:${input.outcome}`,
-            nowMs: input.nowMs,
-            operationRecordId: existing.id,
-            organizationId: input.organizationId,
-            resource: operationAuditResource(input),
-            sourceNativeDeliveryId: auditSourceNativeDeliveryId(
-              existingProvenance?.sourceNativeDeliveryId,
-              existing.sourceNativeDeliveryId
-            ),
-            sourceSpaceId: existingProvenance?.sourceSpaceId ?? null,
-          })
-        ),
-        await client.query(
-          prepareFinalizeOperationStatement({
-            db: input.db,
-            id: existing.id,
-            nowMs: input.nowMs,
-            outcome,
-            providerExecutionId: input.providerExecutionId,
-          })
-        ),
-      ] as const
-  );
+  const updateResult = await input.db.transaction(async (client) => {
+    const result = await client.query(
+      prepareFinalizeOperationStatement({
+        db: input.db,
+        id: existing.id,
+        nowMs: input.nowMs,
+        outcome,
+        providerExecutionId: input.providerExecutionId,
+      })
+    );
+    // The guarded update locks the operation and selects its terminal writer.
+    // Only that writer may add the receipt, in the same rollback boundary.
+    if (result.rowCount === 1) {
+      await client.query(
+        prepareCenterAgentAuditJournalEntryIfMissingStatement({
+          actorProfileId: input.actorProfileId,
+          action: resolveAuditAction(input.outcome),
+          attribution: requireExistingAttribution(existingAttribution),
+          db: input.db,
+          id: `${recordId}:${input.outcome}`,
+          nowMs: input.nowMs,
+          organizationId: input.organizationId,
+          resource: operationAuditResource(input),
+          sourceNativeDeliveryId: auditSourceNativeDeliveryId(
+            existingProvenance?.sourceNativeDeliveryId,
+            existing.sourceNativeDeliveryId
+          ),
+          sourceSpaceId: existingProvenance?.sourceSpaceId ?? null,
+        })
+      );
+    }
+    return result;
+  });
   const operation = await requireOperation({ db: input.db, scope });
   assertSameRequest(operation, input);
   if (
@@ -418,62 +420,6 @@ function requireExistingAttribution(
     );
   }
   return attribution;
-}
-function prepareFinalizeAuditStatement(input: {
-  action: CenterAgentAction;
-  attribution: CenterAgentAttribution;
-  db: PostgresDatabase;
-  id: string;
-  nowMs: number;
-  operationRecordId: string;
-  organizationId: string;
-  resource: {
-    id: string;
-    type: string;
-  };
-  sourceNativeDeliveryId: string | null;
-  sourceSpaceId: string | null;
-}): QueryConfig {
-  const onBehalfOf = input.attribution.onBehalfOf;
-  return {
-    text: `
-        INSERT INTO "openmeld"."center_agent_audit_journal" (
-          id,
-          organization_id,
-          actor_profile_id,
-          action,
-          on_behalf_of_profile_id,
-          on_behalf_of_user_id,
-          on_behalf_of_display_name,
-          resource_type,
-          resource_id,
-          source_native_delivery_id,
-          source_space_id,
-          created_at
-        )
-        SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
-        WHERE EXISTS (
-          SELECT 1
-          FROM "openmeld"."center_agent_connector_action_operations"
-          WHERE id = $13
-            AND status IN ('pending', 'outcome_unknown')
-        ) ON CONFLICT DO NOTHING`,
-    values: [
-      input.id,
-      input.organizationId,
-      input.attribution.actorProfileId,
-      input.action,
-      onBehalfOf?.profileId ?? null,
-      onBehalfOf?.userId ?? null,
-      onBehalfOf?.displayName ?? null,
-      input.resource.type,
-      input.resource.id,
-      input.sourceNativeDeliveryId,
-      input.sourceSpaceId,
-      input.nowMs,
-      input.operationRecordId,
-    ],
-  };
 }
 function prepareInsertOperationStatement(input: {
   actionId: string;

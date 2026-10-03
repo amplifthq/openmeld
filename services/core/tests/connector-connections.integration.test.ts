@@ -51,6 +51,7 @@ import {
 import { upsertSpaceMetaRecord } from "../src/space/infrastructure/sql/space-meta-repo";
 import { insertSignalRecord } from "../src/space/infrastructure/sql/space-signal-repo";
 import type { Space } from "../src/space/transport/do/space";
+import { observePostgresDatabase } from "../test-support/postgresql-query.test-support";
 
 const CONNECTOR_CONNECTION_NAME_PATTERN =
   /^org_[A-Za-z0-9_-]{18}__user_[A-Za-z0-9_-]{18}__github$/u;
@@ -708,26 +709,13 @@ describe("Core connector connection ownership", () => {
       ...request,
       availableConnectionNames: [created.connectionName],
     });
-    const db = new Proxy(getPostgresDatabase(env), {
-      get(target, property) {
-        if (property === "batch") {
-          return async (statements: QueryConfig[]) => {
-            await rpcBeginCurrentMemberConnectorAuthorization(core, request);
-            return await target.transaction(async (client) =>
-              (async () => {
-                const results: QueryResult[] = [];
-                for (const query of statements) {
-                  results.push(await client.query(query));
-                }
-                return results;
-              })()
-            );
-          };
-        }
-        const value = Reflect.get(target, property);
-        return typeof value === "function" ? value.bind(target) : value;
-      },
-    });
+    const db = observePostgresDatabase(
+      getPostgresDatabase(env),
+      () => undefined,
+      async () => {
+        await rpcBeginCurrentMemberConnectorAuthorization(core, request);
+      }
+    );
     await expect(
       updatePluginAccess({
         db,

@@ -2,6 +2,7 @@ import type {
   OpenMeldRequestContext,
   SpaceMeta,
 } from "@openmeld/schemas/types";
+import { beforeAll, onTestFinished } from "vitest";
 import type { CoreBindings } from "../../core/src/lib/bindings";
 import {
   markRemoteAgentNativeDeliveryAck,
@@ -9,9 +10,9 @@ import {
   upsertRemoteAgentNativeDeliveryRecord,
 } from "../../core/src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import {
-  applyDrizzleMigrationsForTables,
-  createSqliteD1Harness,
-} from "../../core/tests-node/helpers/sqlite-d1-harness.test-support";
+  createPostgresHarness,
+  preparePostgresTestTemplate,
+} from "../../core/tests-node/helpers/postgresql-harness.test-support";
 import {
   createRemoteAgentCallbackContext,
   putRemoteAgentCallbackContext,
@@ -27,6 +28,8 @@ import { InMemoryDurableObjectStorage } from "./storage";
 export const EVIDENCE_SPACE_ID = "a".repeat(64);
 export const EVIDENCE_OTHER_SPACE_ID = "b".repeat(64);
 export const EVIDENCE_SUBMISSION_ID = "evidence-submission";
+
+beforeAll(preparePostgresTestTemplate);
 
 /** Real Core repositories/authorization, with a controlled Space service boundary. */
 export async function createEvidenceFixture(
@@ -55,62 +58,43 @@ export async function createEvidenceFixture(
     ownerUserId: candidate.ownerUserId,
     profileId: candidate.profileId,
   };
-  const harness = createSqliteD1Harness();
-  for (const sql of [
-    "CREATE TABLE users (id TEXT PRIMARY KEY, name TEXT)",
-    "CREATE TABLE organizations (id TEXT PRIMARY KEY, name TEXT, slug TEXT)",
-    "CREATE TABLE members (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, user_id TEXT NOT NULL, role TEXT NOT NULL, created_at INTEGER)",
-    `CREATE TABLE openmeld_profiles (
-      profile_id TEXT PRIMARY KEY, profile_name TEXT NOT NULL,
-      profile_kind TEXT NOT NULL, is_default INTEGER NOT NULL DEFAULT 0,
-      status TEXT NOT NULL, organization_id TEXT, owner_user_id TEXT,
-      managed_role TEXT
-    )`,
-  ]) {
-    harness.run({ sql });
-  }
-  applyDrizzleMigrationsForTables(harness, [
-    "center_agent_designations",
-    "center_agent_audit_journal",
-    "center_agent_context_manifests",
-    "center_agent_context_load_receipts",
-    "openMeldRemoteAgent_native_delivery_ledger",
-  ]);
-  harness.run({
-    sql: "INSERT INTO users (id, name) VALUES (?, 'Member')",
-    params: [speaker.ownerUserId],
+  const harness = await createPostgresHarness();
+  onTestFinished(() => harness.close());
+  await harness.query({
+    text: "INSERT INTO openmeld.users (id, name, email) VALUES ($1, 'Member', 'member-evidence@example.invalid')",
+    values: [speaker.ownerUserId],
   });
-  harness.run({
-    sql: "INSERT INTO organizations (id, name, slug) VALUES (?, 'Evidence Organization', 'evidence')",
-    params: [request.organizationId],
+  await harness.query({
+    text: "INSERT INTO openmeld.organizations (id, name, slug, created_at) VALUES ($1, 'Evidence Organization', 'evidence', $2)",
+    values: [request.organizationId, TEST_NOW_MS],
   });
-  harness.run({
-    sql: "INSERT INTO members (id, organization_id, user_id, role, created_at) VALUES (?, ?, ?, 'member', ?)",
-    params: [
+  await harness.query({
+    text: "INSERT INTO openmeld.members (id, organization_id, user_id, role, created_at) VALUES ($1, $2, $3, 'member', $4)",
+    values: [
       speaker.id,
       request.organizationId,
       speaker.ownerUserId,
       TEST_NOW_MS,
     ],
   });
-  harness.run({
-    sql: `INSERT INTO openmeld_profiles (
-      profile_id, profile_name, profile_kind, is_default, status,
-      organization_id, owner_user_id, managed_role
-    ) VALUES (?, 'Member', 'human', 1, 'active', NULL, ?, NULL),
-      (?, 'Center Agent', 'agent', 0, 'active', ?, NULL, 'center_agent')`,
-    params: [
+  await harness.query({
+    text: `INSERT INTO openmeld.openmeld_profiles (
+      profile_id, profile_name, profile_handle, profile_kind, is_default, status,
+      organization_id, owner_user_id, managed_role, source
+    ) VALUES ($1, 'Member', 'evidence-member', 'human', 1, 'active', NULL, $2, NULL, 'auth_bootstrap'),
+      ($3, 'Center Agent', 'evidence-center-agent', 'agent', 0, 'active', $4, NULL, 'center_agent', 'center_agent_create')`,
+    values: [
       speaker.profileId,
       speaker.ownerUserId,
       request.agentProfileId,
       request.organizationId,
     ],
   });
-  harness.run({
-    sql: `INSERT INTO center_agent_designations
+  await harness.query({
+    text: `INSERT INTO openmeld.center_agent_designations
       (organization_id, agent_profile_id, duty, designated_by, created_at)
-      VALUES (?, ?, NULL, ?, ?)`,
-    params: [
+      VALUES ($1, $2, NULL, $3, $4)`,
+    values: [
       request.organizationId,
       request.agentProfileId,
       speaker.ownerUserId,
@@ -177,7 +161,7 @@ export async function createEvidenceFixture(
     memberContext: OpenMeldRequestContext;
   }[] = [];
   const env = {
-    OPENMELD_DB: harness.db,
+    OPENMELD_POSTGRESQL: harness.binding,
     OPENMELD_SPACES: {
       idFromString: (spaceId: string) => spaceId,
       get: (spaceId: string) => ({

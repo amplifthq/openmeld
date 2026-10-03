@@ -18,8 +18,6 @@ import {
 } from "../src/rpc/methods";
 import { observePostgresDatabase } from "../test-support/postgresql-query.test-support";
 
-const MUTATION_QUERY_PATTERN = /^\s*(?:INSERT|UPDATE|DELETE)/u;
-
 const owned = new Set<string>();
 afterEach(async () => {
   for (const suffix of owned) {
@@ -209,7 +207,7 @@ describe("Core Agent Activity event ingestion", () => {
       }>({
         ...{
           text: `
-        SELECT group_concat(provider_metadata_json || coalesce(title, '')) AS value
+        SELECT string_agg(provider_metadata_json || coalesce(title, ''), '') AS value
         FROM "openmeld"."agent_activity_events"
         WHERE organization_id = $1
       `,
@@ -778,7 +776,7 @@ describe("Core Agent Activity event ingestion", () => {
         sessions: number;
       }>({
         ...{
-          text: 'SELECT sum(event_count) AS count, sum(session_count) AS sessions FROM "openmeld"."agent_activity_daily_aggregates" WHERE organization_id = $1',
+          text: 'SELECT sum(event_count)::bigint AS count, sum(session_count)::bigint AS sessions FROM "openmeld"."agent_activity_daily_aggregates" WHERE organization_id = $1',
           values: [],
         },
         values: [fixture.organizationId],
@@ -1045,8 +1043,11 @@ describe("Core Agent Activity event ingestion", () => {
     let interleaved = false;
     const interleavedDb = observePostgresDatabase(
       getPostgresDatabase(env),
-      async ({ text }) => {
-        if (!interleaved && MUTATION_QUERY_PATTERN.test(text)) {
+      () => undefined,
+      async () => {
+        // The competing request commits after the candidate read and before
+        // this request opens its own transaction.
+        if (!interleaved) {
           interleaved = true;
           await runAgentActivityDailyAggregation({
             batchLimit: 1,
@@ -1099,7 +1100,7 @@ describe("Core Agent Activity event ingestion", () => {
         )
         SELECT
           'activity_stats_' || $1 || '_' || value,
-          $2, $3, $4, date('2025-01-01', '+' || value || ' days'),
+          $2, $3, $4, (DATE '2025-01-01' + value)::text,
           value + 1, 2, 2, value, value, '{}', 1
         FROM sequence
       `,
@@ -1418,7 +1419,7 @@ describe("Core Agent Activity event ingestion", () => {
           count: number;
         }>({
           ...{
-            text: `SELECT count(*) AS count FROM ${table} WHERE organization_id = $1`,
+            text: `SELECT count(*) AS count FROM "openmeld"."${table}" WHERE organization_id = $1`,
             values: [],
           },
           values: [fixture.organizationId],

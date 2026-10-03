@@ -29,6 +29,12 @@ if (
 }
 const fixture = await createPostgresHarness();
 const identity = { organizationId: "org", recipientUserId: "owner" };
+const agentProfileId = "agt_11111111-1111-4111-8111-111111111111";
+const humanProfileId = "22222222-2222-4222-8222-222222222222";
+const spaceId =
+  "1111111111111111111111111111111111111111111111111111111111111111";
+const otherSpaceId =
+  "2222222222222222222222222222222222222222222222222222222222222222";
 const samples: {
   operation: string;
   elapsedMs: number;
@@ -96,14 +102,14 @@ try {
     VALUES ('owner','Owner','owner@example.test'),('other','Other','other@example.test');
     INSERT INTO "openmeld"."openmeld_profiles"
     (profile_id,profile_name,profile_handle,source,profile_kind,organization_id,owner_user_id)
-    VALUES ('agent','Agent','agent','web_create','agent','org','owner');
+    VALUES ('${agentProfileId}','Agent','agent','web_create','agent','org','owner');
     INSERT INTO "openmeld"."space_index_spaces"
     (space_id,organization_id,organization_visibility,status,source_updated_at_ms,projected_at_ms,projection_event_id)
-    VALUES ('space','org','private','active',0,0,'space'),('other-space','other-org','private','active',0,0,'other-space');
+    VALUES ('${spaceId}','org','private','active',0,0,'space'),('${otherSpaceId}','other-org','private','active',0,0,'other-space');
     INSERT INTO "openmeld"."space_index_memberships"
     (space_id,profile_id,profile_kind_snapshot,profile_name_snapshot,owner_user_id_snapshot,status,member_source,added_at_ms,source_updated_at_ms,projected_at_ms,projection_event_id)
-    VALUES ('space','owner-space','human','Owner','owner','active','joined_directly',0,0,0,'owner'),
-      ('space','agent','agent','Agent','owner','active','joined_directly',0,0,0,'agent');`);
+    VALUES ('${spaceId}','${humanProfileId}','human','Owner','owner','active','joined_directly',0,0,0,'owner'),
+      ('${spaceId}','${agentProfileId}','agent','Agent','owner','active','joined_directly',0,0,0,'agent');`);
   await ensureInboxItem({
     db: fixture.db,
     nowMs: 10_000,
@@ -118,14 +124,14 @@ try {
       occurredAtMs: 1000,
       sourceKind: "space_signal",
       sourceKey: "seed",
-      sourceTarget: { kind: "space", spaceId: "space", signalId: "seed" },
+      sourceTarget: { kind: "space", spaceId, signalId: "seed" },
       sourceFacts: {
         version: 1,
         recipientReasons: ["agent_owner"],
-        agentProfileIds: ["agent"],
-        personalAgentProfileIds: ["agent"],
-        mentionedAgentProfileIds: ["agent"],
-        firstContactAgentProfileIds: ["agent"],
+        agentProfileIds: [agentProfileId],
+        personalAgentProfileIds: [agentProfileId],
+        mentionedAgentProfileIds: [agentProfileId],
+        firstContactAgentProfileIds: [agentProfileId],
       },
     },
   });
@@ -156,7 +162,7 @@ try {
         return "NULL";
       }
       if (unrelated && column === "source_target_json") {
-        return `jsonb_build_object('kind','space','spaceId','other-space','signalId','noise-' || i)::text`;
+        return `jsonb_build_object('kind','space','spaceId','${otherSpaceId}','signalId','noise-' || i)::text`;
       }
       return `seed."${column}"`;
     });

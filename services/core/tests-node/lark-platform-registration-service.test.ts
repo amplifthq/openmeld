@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import capturedBegin from "../../../scripts/lark-platform/fixtures/registration-begin.lark.json";
 import capturedPending from "../../../scripts/lark-platform/fixtures/registration-pending.lark.json";
 import capturedSuccess from "../../../scripts/lark-platform/fixtures/registration-success.lark.json";
@@ -30,7 +30,10 @@ import {
   readRemoteAgentLarkPlatformRegistrationAttempt,
   replacePendingRemoteAgentLarkPlatformRegistrationAttempt,
 } from "../src/remote-agent/infrastructure/postgresql/lark-platform-registration-attempt-repo";
-import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
+import {
+  createPostgresHarness,
+  preparePostgresTestTemplate,
+} from "./helpers/postgresql-harness.test-support";
 
 const CRYPTO_KEY = btoa("0123456789abcdef0123456789abcdef");
 const ACTOR = {
@@ -57,6 +60,9 @@ const ENV = {
 const classifyOrganizationWorkspace = async () =>
   ({ ok: true, personal: false }) as const;
 describe("Lark-platform registration service", () => {
+  beforeAll(async () => {
+    await preparePostgresTestTemplate();
+  });
   it("lets another manager update the existing bot and verifies grants before completing", async () => {
     const harness = await createRegistrationHarness();
     try {

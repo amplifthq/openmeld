@@ -1707,6 +1707,15 @@ describe("OpenMeld Core", () => {
         }): Promise<unknown>;
       };
       const originalBindings = space.bindings;
+      // Exercise explicit Stop and replay here; alarm recovery has its own
+      // lifetime tests and must not race this request's call-count assertion.
+      const nativeSetAlarm = state.storage.setAlarm.bind(state.storage);
+      const alarmSpy = vi
+        .spyOn(state.storage, "setAlarm")
+        .mockImplementation((time) =>
+          nativeSetAlarm(Math.max(Number(time), Date.now() + 3_600_000))
+        );
+      await state.storage.deleteAlarm();
       space.bindings = {
         ...originalBindings,
         OPENMELD_REMOTE_AGENT_WORKER: { cancelExecution },
@@ -1765,6 +1774,8 @@ describe("OpenMeld Core", () => {
         expect(cancelExecution).toHaveBeenCalledOnce();
       } finally {
         space.bindings = originalBindings;
+        await state.storage.deleteAlarm();
+        alarmSpy.mockRestore();
       }
     });
     await expect(
@@ -10096,6 +10107,7 @@ describe("OpenMeld Core", () => {
           body: {
             clientMutationId: randomUUID(),
             name: "Private Audit Folder",
+            parentId: fileId,
           },
           spaceAccess: createAuthenticatedSpaceAccessContext({
             requestContext: {
@@ -10109,7 +10121,7 @@ describe("OpenMeld Core", () => {
           }),
           spaceId,
         })
-      ).rejects.toMatchObject({ code: "space_file.name_conflict" });
+      ).rejects.toMatchObject({ code: "space_file.invalid_parent" });
     });
     const updateRequestId = "rpc-space-file-audit-update";
     await stub.rpcUpdateSpaceFileEntry({
@@ -10211,7 +10223,7 @@ describe("OpenMeld Core", () => {
           result: "succeeded",
         }),
         expect.objectContaining({
-          error_code: "space_file.name_conflict",
+          error_code: "space_file.invalid_parent",
           operation: "folder_create",
           request_id: failedFolderRequestId,
           result: "failed",
@@ -12970,7 +12982,7 @@ describe("OpenMeld Core", () => {
         profile_id: string;
       }>({
         ...{
-          text: 'SELECT profile_id FROM "openmeld"."space_index_memberships" WHERE space_id = $11',
+          text: 'SELECT profile_id FROM "openmeld"."space_index_memberships" WHERE space_id = $1',
           values: [],
         },
         values: [spaceId],

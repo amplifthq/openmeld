@@ -40,8 +40,6 @@ import {
 } from "../src/organization-skills/organization-skill-service";
 import { observePostgresDatabase } from "../test-support/postgresql-query.test-support";
 
-const SKILL_UPDATE_PATTERN = /^\s*UPDATE\s+"openmeld"\."organization_skills"/u;
-
 const GITHUB_SKILL_MARKDOWN = [
   "---",
   "name: release-review",
@@ -896,52 +894,18 @@ describe("Organization Skills", () => {
     let interleaved = false;
     const concurrentDb = observePostgresDatabase(
       getPostgresDatabase(env),
-      async ({ text }) => {
-        if (interleaved || !SKILL_UPDATE_PATTERN.test(text)) {
+      () => undefined,
+      async () => {
+        if (interleaved) {
           return;
         }
         interleaved = true;
-        await getPostgresDatabase(env).query({
-          ...{
-            text: `
-            UPDATE "openmeld"."organization_skills"
-            SET updated_at = $1,
-                version = version + 1
-            WHERE id = $2
-              AND organization_id = $3
-              AND version = $4
-          `,
-            values: [],
-          },
-          values: [
-            Date.now(),
-            created.id,
-            fixture.organizationId,
-            created.version,
-          ],
-        });
-        await getPostgresDatabase(env).query({
-          ...{
-            text: `
-            INSERT INTO "openmeld"."organization_skill_maintainers" (
-              assigned_at,
-              assigned_by_user_id,
-              organization_id,
-              skill_id,
-              user_id
-            )
-            VALUES ($1, $2, $3, $4, $5)
-          `,
-            values: [],
-          },
-          values: [
-            Date.now(),
-            fixture.owner.userId,
-            fixture.organizationId,
-            created.id,
-            fixture.member.userId,
-          ],
-        });
+        await service.setMaintainers(
+          fixture.owner,
+          created.id,
+          [fixture.member.userId],
+          created.version
+        );
       }
     );
     const staleService = createService({ db: concurrentDb });
@@ -1157,11 +1121,11 @@ describe("Organization Skills", () => {
       ...{
         text: `
         UPDATE "openmeld"."organization_skill_releases"
-        SET manifest_json = json_set(
-          manifest_json,
-          '$.runtimeBytes',
-          $1
-        )
+        SET manifest_json = jsonb_set(
+          manifest_json::jsonb,
+          '{runtimeBytes}',
+          to_jsonb($1::bigint)
+        )::text
         WHERE id = $2
       `,
         values: [],
@@ -1234,11 +1198,11 @@ describe("Organization Skills", () => {
       ...{
         text: `
         UPDATE "openmeld"."organization_skill_releases"
-        SET manifest_json = json_set(
-          manifest_json,
-          '$.runtimeBytes',
-          $1
-        )
+        SET manifest_json = jsonb_set(
+          manifest_json::jsonb,
+          '{runtimeBytes}',
+          to_jsonb($1::bigint)
+        )::text
         WHERE id = $2
       `,
         values: [],

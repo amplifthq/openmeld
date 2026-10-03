@@ -188,15 +188,13 @@ export async function listConnectorConnections(input: {
   service?: ConnectorService;
   userId?: string;
 }): Promise<ConnectorConnectionRecord[]> {
-  const userClause = input.userId
-    ? "AND (connection.scope = 'shared' OR connection.user_id = $1)"
+  const bindings = [input.organizationId];
+  const serviceClause = input.service
+    ? `AND connection.service = $${bindings.push(input.service)}`
     : "";
-  const serviceClause = input.service ? "AND connection.service = $1" : "";
-  const bindings = [
-    input.organizationId,
-    ...(input.service ? [input.service] : []),
-    ...(input.userId ? [input.userId] : []),
-  ];
+  const userClause = input.userId
+    ? `AND (connection.scope = 'shared' OR connection.user_id = $${bindings.push(input.userId)})`
+    : "";
   const result = await input.db.query<ConnectorConnectionRow>({
     text: `
         ${connectorConnectionSelectSql}
@@ -205,7 +203,7 @@ export async function listConnectorConnections(input: {
           ${userClause}
         ORDER BY connection.created_at_ms ASC NULLS FIRST, connection.connection_name ASC NULLS FIRST
       `,
-    values: [...bindings],
+    values: bindings,
   });
   return result.rows.map(toConnectorConnectionRecord);
 }

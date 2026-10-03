@@ -24,7 +24,7 @@
     "test": "pnpm run test:unit",
     "test:full": "pnpm run test && pnpm run test:runtime",
     "test:unit": "node ../../tooling/postgresql/local.mjs run pnpm exec vitest run",
-    "test:runtime": "node ./tests/auth-worker-runtime-smoke.mjs",
+    "test:runtime": "node ../../tooling/postgresql/local.mjs run node ./tests/auth-worker-runtime-smoke.mjs",
     "test:watch": "node ../../tooling/postgresql/local.mjs run pnpm exec vitest",
     "typecheck": "pnpm run typecheck:worker && pnpm run typecheck:tooling",
     "typecheck:worker": "tsc --noEmit",

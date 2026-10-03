@@ -2077,6 +2077,11 @@ function createAutomaticUpdateLocalComponentsStatus(): Record<string, unknown> {
     schemaVersion: 1,
     generatedAt: "2026-09-01T12:54:00.000Z",
     entrypoint: "setup",
+    installationSource: {
+      distribution: "npm",
+      channel: "stable",
+      platform: "darwin-arm64",
+    },
     summaryLabel: "Everything is up to date",
     summaryDescription: "OpenMeld Tools are ready.",
     setupAction: "none",

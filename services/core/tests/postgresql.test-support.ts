@@ -24,6 +24,35 @@ export function postgresFixtureOperator(env: {
 }
 
 const identifier = (value: string) => `"${value.replaceAll('"', '""')}"`;
+
+/** Runtime writes encounter a real PostgreSQL trigger; fixture DDL stays with the isolated owner. */
+export async function installWorkerPostgresWriteFailure(input: {
+  env: { TEST_POSTGRESQL_OWNER: PostgreSQLBinding };
+  table: string;
+  operation: "INSERT" | "UPDATE";
+  columns?: string[];
+  condition: string;
+  message?: string;
+}) {
+  const operator = postgresFixtureOperator(input.env);
+  const name = `fixture_failure_${crypto.randomUUID().replaceAll("-", "")}`;
+  const operation =
+    input.operation +
+    (input.columns?.length
+      ? ` OF ${input.columns.map(identifier).join(", ")}`
+      : "");
+  await operator.query(`
+    CREATE FUNCTION public.${identifier(name)}() RETURNS trigger LANGUAGE plpgsql AS $fixture$
+    BEGIN RAISE EXCEPTION '${(input.message ?? "forced native fixture write failure").replaceAll("'", "''")}'; END $fixture$;
+    CREATE TRIGGER ${identifier(name)} BEFORE ${operation} ON "openmeld".${identifier(input.table)}
+      FOR EACH ROW WHEN (${input.condition}) EXECUTE FUNCTION public.${identifier(name)}();
+  `);
+  return async () => {
+    await operator.query(`DROP TRIGGER ${identifier(name)} ON "openmeld".${identifier(input.table)};
+      DROP FUNCTION public.${identifier(name)}();`);
+  };
+}
+
 /** Private fixture database cloned from the complete immutable native journal. */
 export async function createWorkerPostgresFixture(
   env: {

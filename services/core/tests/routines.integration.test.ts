@@ -2209,14 +2209,14 @@ describe("Core Center Agent Routines", () => {
             projection_event_id
           )
           SELECT
-            $1 || printf('%03d', value),
+            $1 || lpad(value::text, 3, '0'),
             $2,
             'public',
             'active',
-            'Bulk Routine target ' || printf('%03d', value),
+            'Bulk Routine target ' || lpad(value::text, 3, '0'),
             $3,
             $4,
-            $5 || printf('%03d', value)
+            $5 || lpad(value::text, 3, '0')
           FROM sequence
         `,
               values: [],
@@ -2258,7 +2258,7 @@ describe("Core Center Agent Routines", () => {
             $5,
             'membership_' || space_id
           FROM "openmeld"."space_index_spaces"
-          WHERE space_id GLOB $6
+          WHERE space_id LIKE $6
         `,
               values: [],
             },
@@ -2268,7 +2268,7 @@ describe("Core Center Agent Routines", () => {
               FIXED_NOW_MS,
               FIXED_NOW_MS,
               FIXED_NOW_MS,
-              `${bulkSpacePrefix}*`,
+              `${bulkSpacePrefix}%`,
             ],
           },
         ]) {

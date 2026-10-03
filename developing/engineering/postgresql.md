@@ -93,11 +93,15 @@ release rejects `release/database-backend.json` until the separately reviewed
 cutover control plane is implemented. Isolated development and the foundation
 probe are the supported validation paths.
 
-`auth:generate` fails before writing: its historical Better Auth postprocessor
-contains D1 invariants and cannot regenerate the native model safely. Edit the
-canonical PostgreSQL Auth schema and use the native `db:generate` workflow for
-reviewed migrations. Reintroducing automatic Better Auth generation requires a
-native postprocessor that preserves epoch, boolean, schema, and ownership contracts.
+`pnpm --filter @openmeld/db auth:generate` runs the official CLI at the installed
+Better Auth 1.6 patch version after building the actual Auth config. Generation
+uses a temporary file and an unreachable codegen-only connection; it needs no
+database or runtime secrets. The existing bounded customization owner retains
+the `openmeld` namespace, text IDs, epoch milliseconds, integer booleans and
+personal Organization uniqueness. Unsupported output fails before replacing
+the canonical schema. Review the resulting Git diff, then run `db:generate` and
+review the migration. `auth:generate --check` checks reproducibility without
+replacing the file. Neither command applies a database migration.
 
 Drizzle Kit generates SQL and its journal in the PostgreSQL migrations directory.
 The official Drizzle migrator executes that journal and owns the only PostgreSQL
@@ -313,6 +317,89 @@ checksum drift, concurrency, rollback, runtime permission denial, database
 isolation and actual pg_dump/pg_restore. CI has no provider or production
 credentials. Hosted success can be claimed only after the workflow actually runs.
 
+### Core Worker coverage and the unresolved shared-process stall
+
+The ordinary `pnpm --filter @openmeld/core test:integration` command remains the
+standard eight-shard entrypoint. On the PostgreSQL candidate integrated with
+main `6981ec654fa9c2454bdad6d370eabde738a648e7`, its ordinary
+`test:integration:shard-2` process stalled on 2026-10-03: one attempt completed
+25 of 28 files before interruption (exit 130), and a later unchanged-source
+attempt completed 15 of 28 before interruption (exit 1). Neither is a pass.
+Reproduce with the normal shard command; preserve its complete output and
+termination result rather than treating a partial test summary as completion.
+
+The installed Worker pool is 0.12.14 with Vitest, runner and snapshot 3.2.4.
+The later log contains cross-file Inbox retry work and Durable Object
+invalidation reporting `index.ts changed`. The pool emits that message when an
+old object's constructor differs from the newly imported constructor; it does
+not establish that a source file changed on disk. Module reload and surviving
+background objects are concrete leads, but the stall's root cause is unresolved.
+This is not evidence of a PostgreSQL connection leak or a confirmed upstream
+bug. The comparable upstream report
+[workers-sdk#15498](https://github.com/cloudflare/workers-sdk/issues/15498) is
+a lead, not a diagnosis. Do not suppress errors, increase behavior timeouts,
+or add a private Worker runner to make this command appear successful.
+
+For bounded coverage, every file discovered from the actual Core configuration
+can run in a separate ordinary Vitest process and fresh PostgreSQL 18 cluster.
+The candidate's complete discovered scope was 219 files; all 219 independently
+returned exit 0. That proves the individual files' behavior, not successful
+completion of the ordinary long-lived shard process. The following reproducible
+commands discover the current scope instead of maintaining a second file list.
+Run them from the repository root after installing the pinned dependencies:
+
+```sh
+mkdir -p dev-tmp
+pnpm pg:local run node --input-type=module <<'NODE'
+import { createRequire } from 'node:module';
+import { resolve, relative } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { writeFileSync } from 'node:fs';
+const root = resolve('services/core');
+const require = createRequire(resolve(root, 'package.json'));
+const { createVitest } = await import(pathToFileURL(require.resolve('vitest/node')).href);
+const runner = await createVitest('test', {
+  root, config: resolve(root, 'vitest.config.ts'), watch: false,
+});
+try {
+  const specifications = await runner.globTestSpecifications();
+  const files = specifications.map(spec => relative(root, spec.moduleId)).sort();
+  if (!files.length || new Set(files).size !== files.length) {
+    throw new Error('Empty or duplicated Core Worker scope');
+  }
+  writeFileSync('dev-tmp/core-worker-files.json', JSON.stringify(files, null, 2));
+  console.log(`Discovered ${files.length} Core Worker files`);
+} finally {
+  await runner.close();
+}
+NODE
+
+# Run only after discovery exits successfully. No cached success or retries.
+node --input-type=module <<'NODE'
+import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+const files = JSON.parse(readFileSync('dev-tmp/core-worker-files.json', 'utf8'));
+for (const file of files) {
+  console.log(`Core Worker file: ${file}`);
+  const result = spawnSync('pnpm', [
+    'pg:local', 'run', 'pnpm', '--filter', '@openmeld/core', 'exec',
+    'vitest', 'run', '--config', 'vitest.config.ts', file,
+  ], { stdio: 'inherit', env: process.env });
+  if (result.error) throw result.error;
+  console.log(JSON.stringify({ file, exitCode: result.status, signal: result.signal }));
+  if (result.status !== 0) process.exit(result.status ?? 1);
+}
+NODE
+```
+
+Both snippets use public Vitest APIs or the ordinary Vitest CLI. Each child
+inherits its full output; the loop stops at the first unsuccessful exit or
+signal. Record the discovered manifest, candidate identity, commands and exit
+results with the review evidence. Do not call this a passing `test:integration`
+run, Ready status, or production readiness. Real Web → Service → Wake → trace →
+restart and continued product reads/writes remain separate acceptance gates;
+a similar stall in the actual product blocks local-product acceptance.
+
 Staging order: provision isolated targets and least-privilege roles; apply
 reviewed migrations once; verify grants and backups; deploy only the isolated
 probe; run authenticated and unauthorized checks; record evidence and remove
@@ -357,6 +444,36 @@ must match or exceed the server major version and use direct TLS connections.
 Restore to an empty independently named database, with `--exit-on-error` and
 `--single-transaction`; restore roles/grants deliberately. Never restore over a
 live target as part of routine verification.
+
+## Pre-cutover preparation status
+
+The local product milestone at fixed main baseline
+`6981ec654fa9c2454bdad6d370eabde738a648e7` has passed native journal 0012
+acceptance: ordinary owner/member Web sign-in, organization permission denial,
+Agent rename, public CLI Project creation/update, and two actual Web → Service →
+Codex → Space replies separated by a normal complete stack stop/restart.
+The same login session and synthetic product records survived that restart.
+Each trace linked its reply to a `reply_published` coordinator execution. The
+post-terminal head lifecycle read was missing; these receipts do not prove
+in-flight head reads. The ordinary long-lived Worker pool limitation above
+remains unresolved. This is Draft local-product evidence, not production
+readiness or a successful ordinary full-suite run.
+
+Preparation now continues locally before a separately coordinated maintenance
+window. The next deliverable inventories every relational writer and retained
+DO/R2 reference, selects official or mature export/import tooling, rehearses
+historical D1 data conversion and reconciliation using isolated synthetic
+data, and prepares the existing guarded release owner's dry-run and recovery
+contract. A PostgreSQL-to-PostgreSQL restore does not cover D1 data migration.
+No complete D1 business-data mover or cutover executor is delivered yet.
+
+Production Spaces remain active on D1. This preparation does not authorize a
+main merge, main-product deployment, production export, shared-staging mutation,
+writer freeze, task interruption, or real-data cutover. Cloud product acceptance
+and any paid resources beyond the approved foundation require concrete scoped
+review before execution. Measure a complete rehearsal before estimating the
+maintenance window; preserve the before/after-first-PostgreSQL-write recovery
+boundary below.
 
 ## Future short-maintenance-window cutover
 

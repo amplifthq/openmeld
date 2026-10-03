@@ -58,11 +58,17 @@ async function createTemplate(): Promise<string> {
   return name;
 }
 
+/** Prepare the immutable fixture journal before behavior-test timing begins. */
+export function preparePostgresTestTemplate(): Promise<string> {
+  isolatedUrls();
+  template ??= createTemplate();
+  return template;
+}
+
 /** Each test owns a real database cloned from the complete immutable journal. */
 export async function createPostgresHarness() {
   const { owner, runtime } = isolatedUrls();
-  template ??= createTemplate();
-  const templateName = await template;
+  const templateName = await preparePostgresTestTemplate();
   const name = `openmeld_pg_test_${crypto.randomUUID().replaceAll("-", "")}`;
   const admin = await connect(owner.toString(), true);
   try {

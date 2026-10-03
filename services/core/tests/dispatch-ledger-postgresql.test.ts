@@ -6,8 +6,9 @@ import {
   claimFinalReplyEmission,
 } from "../src/dispatch/infrastructure/postgresql/dispatch-ledger-postgresql";
 import { buildDispatchMessage } from "../tests-support/dispatch-ledger-message";
+import { installWorkerPostgresWriteFailure } from "./postgresql.test-support";
 
-describe("dispatch ledger on Cloudflare D1", () => {
+describe("dispatch ledger on PostgreSQL", () => {
   it("persists intake identity and claims one final reply for the same Wake", async () => {
     const id = crypto.randomUUID();
     const message = buildDispatchMessage({
@@ -63,7 +64,6 @@ describe("dispatch ledger on Cloudflare D1", () => {
   });
   it("rolls back intake on an attempt insert failure and allows the same Wake to retry", async () => {
     const id = crypto.randomUUID();
-    const trigger = `fail_dispatch_attempt_${id.replaceAll("-", "")}`;
     const message = buildDispatchMessage({
       dispatchId: id,
       idempotencyKey: id,
@@ -74,14 +74,14 @@ describe("dispatch ledger on Cloudflare D1", () => {
       attempt: 1,
       nowMs: 1000,
     };
-    // Scope the real SQLite failure to this fixture; other tests share D1.
-    await getPostgresDatabase(env).query({
-      text: `
-      CREATE TRIGGER ${trigger} BEFORE INSERT ON openMeldDaemon_dispatch_attempts
-      WHEN NEW.dispatch_id = '${id}'
-      BEGIN SELECT RAISE(ABORT, 'injected dispatch attempt insert failure'); END
-    `,
-      values: [],
+    const removeFailure = await installWorkerPostgresWriteFailure({
+      env: env as unknown as Parameters<
+        typeof installWorkerPostgresWriteFailure
+      >[0]["env"],
+      table: "openMeldDaemon_dispatch_attempts",
+      operation: "INSERT",
+      condition: `NEW.dispatch_id = '${id}'`,
+      message: "injected dispatch attempt insert failure",
     });
     try {
       await expect(claimDispatchAttempt(input)).rejects.toThrow(
@@ -101,10 +101,7 @@ describe("dispatch ledger on Cloudflare D1", () => {
           .then((result) => result.rows[0] ?? null)
       ).resolves.toBeNull();
     } finally {
-      await getPostgresDatabase(env).query({
-        text: `DROP TRIGGER ${trigger}`,
-        values: [],
-      });
+      await removeFailure();
     }
     await expect(claimDispatchAttempt(input)).resolves.toMatchObject({
       status: "claimed",

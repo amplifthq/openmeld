@@ -34,11 +34,12 @@ metadata. It separately applied every native PostgreSQL migration and read
 | Views | None in the final historical schema |
 | Triggers | Three historical triggers map to two native trigger owners |
 
-CHECK comparison found 503 expressions with corresponding ordered tokens after
-the reviewed syntax changes. The remaining 54 pairs were reviewed semantically:
+CHECK comparison found 502 expressions with corresponding ordered tokens after
+the reviewed syntax changes. Another 54 pairs were reviewed semantically:
 SQLite GLOB exclusion becomes a PostgreSQL regular expression; JSON validity
 and shape use native JSON predicates; BETWEEN and generated expressions retain
-their boundaries. This structural and semantic audit complements business
+their boundaries. The one deliberate welcome-retry correction is documented
+below. This structural and semantic audit complements business
 tests; it is not an exhaustive mutation test of every constraint.
 
 PostgreSQL truncates identifiers to 63 bytes. Nineteen historical index names

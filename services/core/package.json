@@ -61,6 +61,8 @@
     "@cloudflare/vitest-pool-workers": "0.12.14",
     "@openmeld/adapter-core": "workspace:*",
     "@slack/web-api": "8.0.0",
+    "@vitest/runner": "~3.2.0",
+    "@vitest/snapshot": "~3.2.0",
     "dotenv-cli": "^11.0.0",
     "esbuild": "0.27.7",
     "tsx": "4.21.0",

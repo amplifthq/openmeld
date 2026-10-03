@@ -7,19 +7,19 @@ import {
   spaceDispatchTraceResponseSchema,
 } from "@openmeld/schemas";
 import { describe, expect, it } from "vitest";
-import type { CoreBindings } from "../lib/bindings";
-import { upsertRemoteAgentNativeDeliveryRecord } from "../remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
-import { readSpaceDispatchTrace } from "../space/infrastructure/postgresql/space-dispatch-read-repo";
-import { ensureSpaceSqlSchema } from "../space/infrastructure/sql/space-schema-repo";
+import type { CoreBindings } from "../src/lib/bindings";
+import { upsertRemoteAgentNativeDeliveryRecord } from "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
+import { readSpaceDispatchTrace } from "../src/space/infrastructure/postgresql/space-dispatch-read-repo";
+import { ensureSpaceSqlSchema } from "../src/space/infrastructure/sql/space-schema-repo";
 import {
   insertSignalRecord,
   readFinalReplyClaimSignalId,
   readSignalEntryById,
-} from "../space/infrastructure/sql/space-signal-repo";
+} from "../src/space/infrastructure/sql/space-signal-repo";
 import {
   resolveFinalVisibleMessageTraceReadResult,
   toFinalVisibleMessageTraceRecordFromRawSignal,
-} from "../space/transport/do/space";
+} from "../src/space/transport/do/space";
 
 const BASE_SIGNAL = {
   v: 1,

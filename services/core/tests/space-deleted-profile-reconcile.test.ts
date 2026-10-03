@@ -323,6 +323,7 @@ describe("deleted agent profile reconcile", () => {
     const authState = { deleted: true };
     await runInDurableObject(shard, async (instance, state) => {
       const snapshotEnv = {
+        ...env,
         OPENMELD_AUTH_WORKER: createAuthRpcStub(authState),
       } as unknown as CoreBindings;
       const snapshot = await listSpaceMembersSnapshotUseCase({
@@ -454,6 +455,7 @@ describe("deleted agent profile reconcile", () => {
     const authState = { deleted: true };
     await runInDurableObject(shard, async (_instance, state) => {
       const snapshotEnv = {
+        ...env,
         OPENMELD_AUTH_WORKER: createAuthRpcStub(authState),
       } as unknown as CoreBindings;
       await listSpaceMembersSnapshotUseCase({

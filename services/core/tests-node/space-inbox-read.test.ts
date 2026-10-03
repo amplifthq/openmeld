@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createInboxService } from "../src/inbox/application/inbox-service";
 import { mutateSpaceInboxRead } from "../src/inbox/application/space-inbox-read";
 import { createInboxFeedFixture } from "./helpers/inbox-feed.test-support";
+import { postgresTestBinding } from "./helpers/postgresql-harness.test-support";
 
 describe("Space read selections", () => {
   it("reads exact viewed updates out of order without clearing unseen messages or other recipients", async () => {
@@ -167,16 +168,18 @@ describe("Space read selections", () => {
   it("reports complete scope counts and clears beyond the navigation page without changing legacy responses", async () => {
     const f = await createInboxFeedFixture();
     try {
-      for (let n = 0; n < 501; n++) {
-        await f.item(`reply-${n}`, {
-          sourceTarget: {
-            kind: "space",
-            spaceId: "space",
-            signalId: `reply-${n}`,
-            threadRootSignalId: "root",
-          },
-        });
-      }
+      await withPostgresRequest(postgresTestBinding(f.db), async () => {
+        for (let n = 0; n < 501; n++) {
+          await f.item(`reply-${n}`, {
+            sourceTarget: {
+              kind: "space",
+              spaceId: "space",
+              signalId: `reply-${n}`,
+              threadRootSignalId: "root",
+            },
+          });
+        }
+      });
       const service = createInboxService({ db: f.db });
       const legacy = await service.spaceUnreadTargets({
         ...f.identity,
@@ -220,3 +223,5 @@ describe("Space read selections", () => {
     }
   });
 });
+
+import { withPostgresRequest } from "@openmeld/db/postgresql";

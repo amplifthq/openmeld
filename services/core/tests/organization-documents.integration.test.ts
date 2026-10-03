@@ -1,10 +1,5 @@
 import { env } from "cloudflare:test";
-import type { QueryResult } from "@openmeld/db/postgresql";
-import {
-  getPostgresDatabase,
-  type PostgresDatabase,
-  type QueryConfig,
-} from "@openmeld/db/postgresql";
+import { getPostgresDatabase, type QueryResult } from "@openmeld/db/postgresql";
 import {
   centerAgentDraftOrganizationDocumentRpcInputSchema,
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
@@ -50,9 +45,8 @@ import {
   rpcCenterAgentReadMemberComputers,
   rpcListCenterAgentAuditJournal,
 } from "../src/rpc/methods";
+import { installWorkerPostgresWriteFailure } from "./postgresql.test-support";
 
-const ORGANIZATION_DOCUMENT_UPDATE_SQL_PATTERN =
-  /UPDATE organization_documents/u;
 const ISO_CALENDAR_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/u;
 describe("Organization documents", () => {
   it("projects a maximum-length document title within the Inbox title contract", async () => {
@@ -165,42 +159,52 @@ describe("Organization documents", () => {
     const fixture = await seedFixture();
     const draftedAtMs = 18_000;
     const service = createOrganizationDocumentService({
-      db: createOneShotFailingBatchDb(),
+      db: getPostgresDatabase(env),
       now: () => draftedAtMs,
     });
-    await expect(
-      service.draft(
-        fixture.organizationId,
-        {
-          draftContent: "A durable proposal",
-          kind: "knowledge",
-          title: "Recovery runbook",
-        },
-        documentReviewerUserIds(fixture)
-      )
-    ).resolves.toMatchObject({
-      document: { hasDraft: true, title: "Recovery runbook" },
+    const removeFailure = await installWorkerPostgresWriteFailure({
+      env,
+      table: "inbox_items",
+      operation: "INSERT",
+      condition: `NEW.organization_id = '${fixture.organizationId}'`,
     });
-    const durableDraft = await getPostgresDatabase(env)
-      .query<{
-        draft_created_at: number;
-        id: string;
-      }>({
-        ...{
-          text: `
+    try {
+      await expect(
+        service.draft(
+          fixture.organizationId,
+          {
+            draftContent: "A durable proposal",
+            kind: "knowledge",
+            title: "Recovery runbook",
+          },
+          documentReviewerUserIds(fixture)
+        )
+      ).resolves.toMatchObject({
+        document: { hasDraft: true, title: "Recovery runbook" },
+      });
+      const durableDraft = await getPostgresDatabase(env)
+        .query<{
+          draft_created_at: number;
+          id: string;
+        }>({
+          ...{
+            text: `
         SELECT id, draft_created_at
         FROM "openmeld"."organization_documents"
         WHERE organization_id = $1 AND title = 'Recovery runbook'
       `,
-          values: [],
-        },
-        values: [fixture.organizationId],
-      })
-      .then((result) => result.rows[0] ?? null);
-    expect(durableDraft).toMatchObject({ draft_created_at: draftedAtMs });
-    expect(await readDocumentReviewInboxRows(fixture.organizationId)).toEqual(
-      []
-    );
+            values: [],
+          },
+          values: [fixture.organizationId],
+        })
+        .then((result) => result.rows[0] ?? null);
+      expect(durableDraft).toMatchObject({ draft_created_at: draftedAtMs });
+      expect(await readDocumentReviewInboxRows(fixture.organizationId)).toEqual(
+        []
+      );
+    } finally {
+      await removeFailure();
+    }
     await expect(
       reconcileOrganizationDocumentDraftInbox({
         authWorker: createDocumentReviewDirectoryAuthWorker(),
@@ -299,29 +303,41 @@ describe("Organization documents", () => {
     );
     const pending = await draftService.get(fixture.owner, draft.document.id);
     const approvingService = createOrganizationDocumentService({
-      db: createOneShotFailingBatchDb(),
+      db: getPostgresDatabase(env),
       now: () => draftedAtMs + 1000,
     });
-    await expect(
-      approvingService.approveDraft(
-        fixture.owner,
-        draft.document.id,
-        draftVersion(pending)
-      )
-    ).resolves.toMatchObject({
-      content: "Approved content",
-      draftContent: null,
+    const removeFailure = await installWorkerPostgresWriteFailure({
+      env,
+      table: "inbox_items",
+      operation: "UPDATE",
+      condition: `NEW.organization_id = '${fixture.organizationId}'`,
     });
-    await expect(
-      draftService.get(fixture.owner, draft.document.id)
-    ).resolves.toMatchObject({
-      content: "Approved content",
-      draftContent: null,
-    });
-    expect(await readDocumentReviewInboxRows(fixture.organizationId)).toEqual([
-      expect.objectContaining({ resolution_status: "open" }),
-      expect.objectContaining({ resolution_status: "open" }),
-    ]);
+    try {
+      await expect(
+        approvingService.approveDraft(
+          fixture.owner,
+          draft.document.id,
+          draftVersion(pending)
+        )
+      ).resolves.toMatchObject({
+        content: "Approved content",
+        draftContent: null,
+      });
+      await expect(
+        draftService.get(fixture.owner, draft.document.id)
+      ).resolves.toMatchObject({
+        content: "Approved content",
+        draftContent: null,
+      });
+      expect(await readDocumentReviewInboxRows(fixture.organizationId)).toEqual(
+        [
+          expect.objectContaining({ resolution_status: "open" }),
+          expect.objectContaining({ resolution_status: "open" }),
+        ]
+      );
+    } finally {
+      await removeFailure();
+    }
     await expect(
       reconcileOrganizationDocumentDraftInbox({
         authWorker: createDocumentReviewDirectoryAuthWorker(),
@@ -891,36 +907,51 @@ describe("Organization documents", () => {
   });
   it("does not write unrequested columns during partial updates", async () => {
     const fixture = await seedFixture();
-    const updateStatements: string[] = [];
-    const db = {
-      prepare: (query: string) => {
-        if (ORGANIZATION_DOCUMENT_UPDATE_SQL_PATTERN.test(query)) {
-          updateStatements.push(query);
-        }
-        return {
-          text: query,
-          values: [],
-        };
-      },
-    } as unknown as PostgresDatabase;
-    const service = createOrganizationDocumentService({ db });
+    const service = createService();
     const document = await service.create(fixture.owner, {
       content: "Approved runbook",
       kind: "knowledge",
       title: "Runbook",
     });
-    const renamedDocument = await service.update(fixture.owner, document.id, {
-      title: "Operations runbook",
+    const removeContentFailure = await installWorkerPostgresWriteFailure({
+      env,
+      table: "organization_documents",
+      operation: "UPDATE",
+      columns: ["content"],
+      condition: `NEW.id = '${document.id}'`,
     });
-    await service.update(fixture.owner, document.id, {
-      content: "Updated content",
-      ...humanDocumentVersion(renamedDocument),
+    let renamedDocument: Awaited<ReturnType<typeof service.update>>;
+    try {
+      renamedDocument = await service.update(fixture.owner, document.id, {
+        title: "Operations runbook",
+      });
+      expect(renamedDocument).toMatchObject({
+        title: "Operations runbook",
+        content: "Approved runbook",
+      });
+    } finally {
+      await removeContentFailure();
+    }
+    const removeTitleFailure = await installWorkerPostgresWriteFailure({
+      env,
+      table: "organization_documents",
+      operation: "UPDATE",
+      columns: ["title"],
+      condition: `NEW.id = '${document.id}'`,
     });
-    expect(updateStatements).toHaveLength(2);
-    expect(updateStatements[0]).toContain("title = ?");
-    expect(updateStatements[0]).not.toContain("content = ?");
-    expect(updateStatements[1]).toContain("content = ?");
-    expect(updateStatements[1]).not.toContain("title = ?");
+    try {
+      await expect(
+        service.update(fixture.owner, document.id, {
+          content: "Updated content",
+          ...humanDocumentVersion(renamedDocument),
+        })
+      ).resolves.toMatchObject({
+        title: "Operations runbook",
+        content: "Updated content",
+      });
+    } finally {
+      await removeTitleFailure();
+    }
   });
   it("keeps one Organization Brief and preserves dated Profile Report history", async () => {
     const fixture = await seedFixture();
@@ -2671,32 +2702,6 @@ function createDocumentReviewDirectoryAuthWorker(): NonNullable<
       };
     },
   };
-}
-function createOneShotFailingBatchDb(): PostgresDatabase {
-  let shouldFail = true;
-  return new Proxy(getPostgresDatabase(env), {
-    get(target, property, receiver) {
-      if (property === "batch") {
-        return async (statements: QueryConfig[]) => {
-          if (shouldFail) {
-            shouldFail = false;
-            throw new Error("inbox projection unavailable");
-          }
-          return await target.transaction(async (client) =>
-            (async () => {
-              const results: QueryResult[] = [];
-              for (const query of statements) {
-                results.push(await client.query(query));
-              }
-              return results;
-            })()
-          );
-        };
-      }
-      const value = Reflect.get(target, property, receiver) as unknown;
-      return typeof value === "function" ? value.bind(target) : value;
-    },
-  });
 }
 async function seedFixture(): Promise<{
   admin: OrganizationDocumentActor;

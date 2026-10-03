@@ -155,25 +155,23 @@ async function resolveDeletedProfileSpaceIds(input: {
   // hints. The membership liveness backstop catches anything neither knows.
   let projectedSpaceIds: string[] = [];
   let discoveryConfirmed = false;
-  const db = getPostgresDatabase(input.env);
-  if (db) {
-    try {
-      projectedSpaceIds = await listActiveSpaceIdsForProfileFromSpaceIndex({
-        db,
-        // One extra row distinguishes a complete page from a truncated page.
-        // A later durable retry observes the next page after these Spaces
-        // project their removed membership.
-        limit: RECONCILE_DELETED_AGENT_PROFILE_MAX_SPACES + 1,
-        profileId: input.profileId,
-      });
-      discoveryConfirmed = true;
-    } catch (error) {
-      console.warn("[core.agent_profile.deleted_reconcile_index_failed]", {
-        event: "core.agent_profile.deleted_reconcile_index_failed",
-        error: error instanceof Error ? error.message : String(error),
-        profileId: input.profileId,
-      });
-    }
+  try {
+    const db = getPostgresDatabase(input.env);
+    projectedSpaceIds = await listActiveSpaceIdsForProfileFromSpaceIndex({
+      db,
+      // One extra row distinguishes a complete page from a truncated page.
+      // A later durable retry observes the next page after these Spaces
+      // project their removed membership.
+      limit: RECONCILE_DELETED_AGENT_PROFILE_MAX_SPACES + 1,
+      profileId: input.profileId,
+    });
+    discoveryConfirmed = true;
+  } catch (error) {
+    console.warn("[core.agent_profile.deleted_reconcile_index_failed]", {
+      event: "core.agent_profile.deleted_reconcile_index_failed",
+      error: error instanceof Error ? error.message : String(error),
+      profileId: input.profileId,
+    });
   }
   const candidateSpaceIds = [
     ...new Set([...projectedSpaceIds, ...input.requestedSpaceIds]),

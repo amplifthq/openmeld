@@ -170,6 +170,14 @@ describe("Organization Space self-join", () => {
       })
     );
     await passiveHello;
+    // Membership revalidation may close either stream during the awaited RPCs.
+    // Observe both close events before revoking the member's authorization.
+    const closed = new Promise<CloseEvent>((resolve) =>
+      socket.addEventListener("close", resolve, { once: true })
+    );
+    const passiveClosed = new Promise<CloseEvent>((resolve) =>
+      passiveSocket.addEventListener("close", resolve, { once: true })
+    );
     await getPostgresDatabase(env).query({
       ...{
         text: 'DELETE FROM "openmeld"."members" WHERE organization_id = $1 AND user_id = $2',
@@ -185,12 +193,6 @@ describe("Organization Space self-join", () => {
         }))()
     ).rejects.toThrow("space.membership_required");
     await expect(postMembers()).rejects.toThrow("space.membership_required");
-    const closed = new Promise<CloseEvent>((resolve) =>
-      socket.addEventListener("close", resolve, { once: true })
-    );
-    const passiveClosed = new Promise<CloseEvent>((resolve) =>
-      passiveSocket.addEventListener("close", resolve, { once: true })
-    );
     socket.send(
       JSON.stringify({
         type: "signal.text",
@@ -214,7 +216,7 @@ describe("Organization Space self-join", () => {
     expect((await passiveClosed).code).toBe(1008);
   });
 });
-// First-party Auth directory contract; membership decisions still exercise D1.
+// First-party Auth directory contract; membership decisions use PostgreSQL.
 describe("Space ownership handoff", () => {
   it("retains one owner during concurrent demotions and preserves creator attribution", async () => {
     const f = await fixture();

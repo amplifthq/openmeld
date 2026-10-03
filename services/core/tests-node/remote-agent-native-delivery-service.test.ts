@@ -4199,6 +4199,7 @@ describe("Remote Agent native delivery callback service", () => {
 
   it("delivers the watched terminal outcome even when its Inbox projection fails", async () => {
     const harness = await createPostgresHarness();
+    await seedRemoteAgentSubmitAuthority(harness);
     const probes: RemoteAgentNativeDeliveryDeadlineProbeQueueMessage[] = [];
     const env = buildEnv(harness.db, {
       deadlineProbeQueueSend: vi.fn((probe) => {

@@ -53,7 +53,8 @@ export function createProjectionPostgresBinding(
 /** Surround real pg queries with a race or fault hook; SQL execution remains native. */
 export function observePostgresDatabase(
   db: PostgresDatabase,
-  beforeQuery: (query: QueryConfig) => void | Promise<void>
+  beforeQuery: (query: QueryConfig) => void | Promise<void>,
+  beforeTransaction?: () => void | Promise<void>
 ): PostgresDatabase {
   const observeClient = (client: PoolClient) =>
     new Proxy(client, {
@@ -81,8 +82,12 @@ export function observePostgresDatabase(
         };
       }
       if (property === "transaction") {
-        return (callback: (client: PoolClient) => Promise<unknown>) =>
-          target.transaction((client) => callback(observeClient(client)));
+        return async (callback: (client: PoolClient) => Promise<unknown>) => {
+          await beforeTransaction?.();
+          return target.transaction((client) =>
+            callback(observeClient(client))
+          );
+        };
       }
       const value = Reflect.get(target, property);
       return typeof value === "function" ? value.bind(target) : value;

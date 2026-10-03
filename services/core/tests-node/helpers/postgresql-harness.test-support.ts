@@ -16,6 +16,7 @@ import {
 export {
   createPostgresHarness,
   installPostgresWriteFailure,
+  preparePostgresTestTemplate,
 } from "../../../../tooling/postgresql/test-harness";
 
 export function postgresTestBinding(db: PostgresDatabase): PostgreSQLBinding {
