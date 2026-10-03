@@ -177,4 +177,28 @@ test("keeps the PostgreSQL launcher flag out of Turbo arguments", () => {
       scheduledEventsEnabled: false,
     }
   );
+  const snapshot = fileURLToPath(
+    new URL("./synthetic-snapshot.sqlite", import.meta.url)
+  );
+  assert.deepEqual(
+    resolveIsolatedDevLaunchOptions([
+      "--postgresql",
+      `--d1-snapshot=${snapshot}`,
+    ]),
+    {
+      devGuardArgs: [],
+      postgresqlEnabled: true,
+      postgresqlSnapshot: snapshot,
+      remoteAgentSandboxEnabled: true,
+      scheduledEventsEnabled: false,
+    }
+  );
+  assert.throws(
+    () => resolveIsolatedDevLaunchOptions([`--d1-snapshot=${snapshot}`]),
+    { message: "Use pnpm dev:postgresql with --d1-snapshot=<path>." }
+  );
+  assert.throws(
+    () => resolveIsolatedDevLaunchOptions(["--postgresql", "--d1-snapshot="]),
+    { message: "Provide one D1 snapshot path with --d1-snapshot=<path>." }
+  );
 });

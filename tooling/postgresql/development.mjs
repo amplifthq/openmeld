@@ -12,6 +12,8 @@ import {
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { fileSha256 } from "./d1-snapshot.mjs";
 import { connect, grantRuntime, migrate } from "./database.mjs";
 
 const PG18_VERSION_PATTERN = /\b18\./u;
@@ -19,8 +21,17 @@ const DEVELOPMENT_DATABASE_PATH_PATTERN = /\/openmeld_pg_development$/u;
 
 // The existing isolated dev launcher owns this cluster's lifetime. Its data
 // belongs to the worktree lane and survives normal stack restarts.
-export async function startDevelopmentPostgres(stateDirectory) {
-  const root = path.join(stateDirectory, "postgresql");
+export async function startDevelopmentPostgres(stateDirectory, options = {}) {
+  const snapshotSha256 = options.snapshot
+    ? await fileSha256(options.snapshot)
+    : null;
+  const root = snapshotSha256
+    ? path.join(
+        stateDirectory,
+        "postgresql-d1-rehearsal",
+        `openmeld-pg-${snapshotSha256}`
+      )
+    : path.join(stateDirectory, "postgresql");
   const bin =
     process.env.OPENMELD_PG_BIN ??
     (existsSync("/opt/homebrew/opt/postgresql@18/bin/initdb")
@@ -155,6 +166,14 @@ export async function startDevelopmentPostgres(stateDirectory) {
     } finally {
       await client.end();
     }
+    if (options.snapshot) {
+      await importDevelopmentSnapshot({
+        root,
+        owner,
+        snapshot: options.snapshot,
+        snapshotSha256,
+      });
+    }
     console.log(
       `[dev:postgresql] PostgreSQL 18 at 127.0.0.1:${port}; state ${root}; synthetic local data persists across restarts.`
     );
@@ -175,4 +194,63 @@ export async function startDevelopmentPostgres(stateDirectory) {
     await stop();
     throw error;
   }
+}
+
+async function importDevelopmentSnapshot({
+  root,
+  owner,
+  snapshot,
+  snapshotSha256,
+}) {
+  const receiptPath = path.join(root, "d1-import.json");
+  if (existsSync(receiptPath)) {
+    const receipt = JSON.parse(await readFile(receiptPath, "utf8"));
+    if (
+      receipt.status !== "committed_and_reconciled" ||
+      receipt.snapshotSha256 !== snapshotSha256
+    ) {
+      throw new Error(
+        "The local D1 import receipt does not match this snapshot. Preserve the database for diagnosis."
+      );
+    }
+    return;
+  }
+  // Reuse the local-only migration owner in a child with an explicit isolated
+  // environment. Credentials are never command arguments or receipt contents.
+  const result = spawnSync(
+    process.execPath,
+    [
+      fileURLToPath(new URL("./cli.mjs", import.meta.url)),
+      "import-d1",
+      "local",
+      snapshot,
+    ],
+    {
+      encoding: "utf8",
+      maxBuffer: 4 * 1024 * 1024,
+      env: {
+        ...process.env,
+        OPENMELD_PG_ISOLATED: "1",
+        POSTGRESQL_OPENMELD_MIGRATION_URL: owner,
+      },
+    }
+  );
+  if (result.status !== 0) {
+    throw new Error(
+      `D1 snapshot import failed. The product was not started. ${result.stderr.trim()}`
+    );
+  }
+  const receipt = JSON.parse(result.stdout);
+  if (
+    receipt.status !== "committed_and_reconciled" ||
+    receipt.snapshotSha256 !== snapshotSha256
+  ) {
+    throw new Error(
+      "D1 snapshot import did not return a matching receipt. Preserve the database for diagnosis."
+    );
+  }
+  await writeFile(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, {
+    flag: "wx",
+    mode: 0o600,
+  });
 }

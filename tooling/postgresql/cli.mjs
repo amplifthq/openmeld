@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { acceptRuntime } from "./acceptance.mjs";
+import { importD1Snapshot } from "./d1-import.mjs";
 import { connect, grantRuntime, migrate, readMigrations } from "./database.mjs";
 
 const [command, target, ...extra] = process.argv.slice(2);
@@ -20,6 +21,19 @@ try {
         },
         null,
         2
+      )
+    );
+  } else if (
+    command === "import-d1" &&
+    target === "local" &&
+    extra.length === 1
+  ) {
+    console.log(
+      JSON.stringify(
+        await importD1Snapshot({
+          snapshot: extra[0],
+          connectionString: process.env.POSTGRESQL_OPENMELD_MIGRATION_URL,
+        })
       )
     );
   } else if (
@@ -77,7 +91,7 @@ try {
     }
   } else {
     throw new Error(
-      "Usage: pg plan | pg <migrate|grant-runtime|accept|inspect> <local|staging>. Production operations and automatic optimization are unavailable before the reviewed cutover."
+      "Usage: pg plan | pg <migrate|grant-runtime|accept|inspect> <local|staging> | pg import-d1 local <snapshot>. Production operations and automatic optimization are unavailable before the reviewed cutover."
     );
   }
 } catch (error) {

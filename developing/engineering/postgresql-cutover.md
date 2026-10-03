@@ -45,9 +45,64 @@ directory-name prefix under an existing private directory; it creates a new
 directory and writes a receipt only after every case passes. A 2026-10-03 local
 run took about 28 seconds including fixture preparation and failure cases, but
 excluding the outer PG cluster startup. This is not a production throughput
-measurement or maintenance-window estimate. Migrated real Web login,
-permissions, retained DO/R2 references, Wake, complete writer freeze/drain and
-cloud recovery acceptance remain open.
+measurement or maintenance-window estimate. The separate product checks below
+cover Web/Auth, permissions and retained DO/R2 content. Migrated Wake, complete
+writer freeze/drain and cloud product recovery acceptance remain open.
+
+## Local product rehearsal
+
+The 2026-10-03 full-product rehearsal used two deliberately separate sources:
+
+1. Existing synthetic native-PG product state was materialized into the immutable
+   historical D1 schema, inserted through actual local D1, captured and imported
+   into a fresh PG cluster. This source contained 425 rows in 42 populated tables
+   out of 159. It proves D1 transport and retained-product compatibility; it does
+   not establish the old D1 runtime's producer format.
+2. An independent empty historical D1 fixture used the unmodified Auth config,
+   Drizzle D1 schema and owner implementation from baseline
+   `6981ec654fa9c2454bdad6d370eabde738a648e7`, with Better Auth 1.6.30.
+   Real signup, synthetic email verification, password sign-in and Organization
+   APIs created two accounts, sessions, personal Organizations, one shared
+   Organization and owner/member roles. The fixture captured verification email
+   locally and sent nothing externally. It did not reverse-seed PG rows or
+   recreate the whole legacy product.
+
+The full product used the first snapshot's hash-isolated database while the
+original PG cluster remained stopped and preserved. Normal CLI Project rename
+was observed in that target's actual `data_directory`, with a different value
+in the source snapshot. Both pre-migration browser sessions resolved through
+`/v1/account/session`; that Auth owner explicitly disables cookie caching, and
+the returned session/user IDs matched source D1 records. Normal Web sign-in also
+succeeded after migration and a complete stack stop/restart. The changed Project
+name and Inbox read state survived restart without reimporting.
+
+The same lane retained actual Space messages, file-owner SQLite state and R2
+bodies. A file uploaded normally before migration, then copied to the existing
+Space, retained its IDs and revision. The Web file viewer's 280 UTF-8 bytes
+matched the original exactly, including Unicode and literal escapes. A second
+account was denied the private Organization. A synthetic encrypted token passed
+the actual product repository/AES-GCM reader after migration; wrong tenant and
+wrong key were rejected. No external credential was exercised.
+
+The second snapshot ran in its own fresh hash-isolated PG cluster. Both cookies
+issued by the real legacy Auth producer resolved to the original sessions through
+the current public Auth HTTP endpoint with cookie caching disabled. These are
+API-boundary checks. Separately, both legacy passwords succeeded through normal
+Web sign-in into the retained shared Organization. The current server permission
+endpoint allowed channel connection for the owner and denied it for the member.
+
+The migrated Codex Wake attempt was rejected before execution with
+`usage_exhausted`, while Binding, Runtime and Service evidence was ready and the
+route was online. An independent current account-limit read confirmed 100% use
+of the ordinary Codex window. The lane had no other existing workstation Agent
+Profile. The quota was not bypassed; previous native-PG Wake successes do not
+stand in for migrated Wake or authoritative in-flight drain evidence. Keep those
+acceptance gates open until an actual admitted execution can be observed.
+
+The new launcher option reuses the existing import owner and local database
+lifecycle. It does not transfer execution authority from RuntimeCoordinator,
+file-body ownership from R2, or Space state/outbox ownership from Durable Objects.
+Production/shared-staging admission remains closed.
 
 ## Tool selection and exact-value contract
 

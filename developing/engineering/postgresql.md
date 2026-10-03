@@ -71,6 +71,22 @@ this worktree's stack and database. The local Web, Auth, Gateway, Core and Remot
 services use aligned worktree origins and the same runtime role. This command
 never reads or writes production D1 or `~/.openmeld`.
 
+To run that same product with a captured local synthetic D1 snapshot, use:
+
+```sh
+pnpm dev:postgresql --d1-snapshot=/absolute/private/path/snapshot.sqlite
+```
+
+The launcher imports into a separate `postgresql-d1-rehearsal/openmeld-pg-<sha256>`
+cluster beneath the existing lane state. It preserves the original PostgreSQL
+cluster and the lane's DO/R2 state. A successful import receipt must match the
+snapshot before Workers start. Restart with the same argument to retain later
+product writes without reimporting. A missing or invalid receipt does not permit
+an automatic reset or reuse of a populated target. Import remains restricted to
+the capture owner's local synthetic format; this command cannot export D1 or
+admit a production target. See [the product rehearsal](postgresql-cutover.md#local-product-rehearsal)
+for what has been verified and what remains blocked.
+
 Use `psql` with process-injected PG variables for SQL inspection. PlanetScale's
 database dashboard provides query insights, connections, metrics and backups;
 Cloudflare's Hyperdrive dashboard provides connection/query metrics. No extra
@@ -469,8 +485,14 @@ historical D1 data conversion and reconciliation using isolated synthetic
 data, and prepares the existing guarded release owner's dry-run and recovery
 contract. A PostgreSQL-to-PostgreSQL restore does not cover D1 data migration.
 The local D1 capture/COPY rehearsal now preserves and reconciles representative
-business records and verifies rollback, including sequence generators. Real
-migrated Web/Wake acceptance and the production cutover executor remain open.
+business records and verifies rollback, including sequence generators. Migrated
+Web sign-in, retained database-backed sessions, permissions, actual DO/R2 file
+contents, normal product writes and complete restart persistence now pass
+locally. An independent sample produced by the real legacy D1 Auth owner also
+passes migrated password login, session resolution and permission checks.
+Migrated Codex Wake is blocked by observed provider quota exhaustion; no
+migrated execution or real in-flight drain acceptance is claimed. The production
+cutover executor remains unavailable.
 
 Production Spaces remain active on D1. This preparation does not authorize a
 main merge, main-product deployment, production export, shared-staging mutation,

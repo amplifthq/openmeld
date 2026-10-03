@@ -38,8 +38,19 @@ export function resolveIsolatedDevLaunchOptions(args) {
   let remoteAgentSandboxEnabled = true;
   let scheduledEventsEnabled = false;
   let postgresqlEnabled = false;
+  let postgresqlSnapshot;
 
   for (const arg of args) {
+    if (arg.startsWith("--d1-snapshot=")) {
+      const filename = arg.slice("--d1-snapshot=".length);
+      if (!filename || postgresqlSnapshot) {
+        throw new Error(
+          "Provide one D1 snapshot path with --d1-snapshot=<path>."
+        );
+      }
+      postgresqlSnapshot = resolve(filename);
+      continue;
+    }
     if (arg === "--postgresql") {
       postgresqlEnabled = true;
       continue;
@@ -55,11 +66,16 @@ export function resolveIsolatedDevLaunchOptions(args) {
     devGuardArgs.push(arg);
   }
 
+  if (postgresqlSnapshot && !postgresqlEnabled) {
+    throw new Error("Use pnpm dev:postgresql with --d1-snapshot=<path>.");
+  }
+
   return {
     devGuardArgs,
     remoteAgentSandboxEnabled,
     scheduledEventsEnabled,
     postgresqlEnabled,
+    ...(postgresqlSnapshot ? { postgresqlSnapshot } : {}),
   };
 }
 
@@ -151,7 +167,9 @@ export async function runIsolatedDev(args = process.argv.slice(2)) {
       ),
     };
     const postgres = options.postgresqlEnabled
-      ? await startDevelopmentPostgres(lane.wranglerStateDirectory)
+      ? await startDevelopmentPostgres(lane.wranglerStateDirectory, {
+          snapshot: options.postgresqlSnapshot,
+        })
       : null;
     printLaneSummary(lane, options, presentation);
 
