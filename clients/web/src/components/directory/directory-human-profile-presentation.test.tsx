@@ -39,7 +39,7 @@ describe("directory Human Profile presentation", () => {
 		const heading = screen.getByRole("heading", { name: "Agents" });
 		expect(screen.getByText("5 of 7")).toBeTruthy();
 		const list = screen.getByRole("list", { name: "Monica Cheng's Agents" });
-		expect(list.className).toContain("overflow-x-auto");
+		expect(list.children).toHaveLength(5);
 		expect(screen.getByRole("link", { name: "Open Agent 1" })).toBeTruthy();
 		expect(screen.getByRole("link", { name: "Open Agent 5" })).toBeTruthy();
 		expect(screen.queryByRole("link", { name: "Open Agent 6" })).toBeNull();

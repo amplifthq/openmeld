@@ -15,6 +15,7 @@ import {
 	AccordionTrigger,
 } from "@openmeld/ui/fluid/accordion";
 import { DialogContent } from "@openmeld/ui/fluid/dialog";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { EnvelopeSimpleIcon } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
@@ -403,7 +404,7 @@ function ScopedSpaceInvitationForm({
 						</AccordionTrigger>
 						<AccordionContent className="motion-reduce:transition-none">
 							<div className="pt-3">
-								<div className="max-h-48 space-y-2 overflow-y-auto">
+								<ScrollArea className="max-h-48" contentClassName="space-y-2">
 									{query.data?.map((invitation) => (
 										<div
 											className="flex items-center gap-2 text-sm"
@@ -451,7 +452,7 @@ function ScopedSpaceInvitationForm({
 											</Button>
 										</div>
 									))}
-								</div>
+								</ScrollArea>
 							</div>
 						</AccordionContent>
 					</AccordionItem>

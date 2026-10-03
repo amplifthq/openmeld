@@ -384,13 +384,13 @@
        flow margin. Tables shrink to fit, so widen the table to make it scroll
        instead of compress. */
     &:where(.typeset-scroll) {
-      overflow-x: auto;
       margin-block-start: var(--typeset-flow);
     }
     &:where(.typeset-scroll > *) {
       margin-block-start: 0;
     }
     &:where(.typeset-scroll table) {
+      margin-block-start: 0;
       width: max-content;
       max-width: none;
     }

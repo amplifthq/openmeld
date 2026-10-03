@@ -42,24 +42,48 @@ describe("SpaceInlineSidePanel", () => {
 	it("reserves reading space during drag and preserves the saved width through narrow layouts", () => {
 		const onWidthChange = vi.fn();
 		const { container } = render(
-			<SpaceInlineSidePanel
-				ariaLabel="Thread"
-				id="space-thread-panel"
-				maxWidth="60rem"
-				minRemainingWidth={512}
-				minWidth="22rem"
-				onWidthChange={onWidthChange}
-				open
-				resizeHandleLabel="Resize Thread panel"
-				width="60rem"
-			>
-				Thread content
-			</SpaceInlineSidePanel>
+			<>
+				<SpaceInlineSidePanel
+					ariaLabel="Thread"
+					id="space-thread-panel"
+					maxWidth="60rem"
+					minRemainingWidth={512}
+					minWidth="22rem"
+					onWidthChange={onWidthChange}
+					open
+					resizeHandleLabel="Resize Thread panel"
+					width="60rem"
+				>
+					Thread content
+				</SpaceInlineSidePanel>
+				<SpaceInlineSidePanel
+					ariaLabel="Members"
+					id="space-members-panel"
+					maxWidth="32rem"
+					minWidth="20rem"
+					onWidthChange={() => undefined}
+					open
+					resizeHandleLabel="Resize Members panel"
+					width="20rem"
+				>
+					Members content
+				</SpaceInlineSidePanel>
+			</>
 		);
 		const wrapper = container.querySelector<HTMLElement>(
 			'[data-slot="sidebar-wrapper"]'
 		);
 		let containerWidth = 1200;
+		let membersWidth = 0;
+		const membersWrapper = screen
+			.getByLabelText("Members")
+			.closest('[data-slot="sidebar-wrapper"]');
+		if (!membersWrapper) {
+			throw new Error("Members panel must be mounted");
+		}
+		vi.spyOn(membersWrapper, "getBoundingClientRect").mockImplementation(
+			() => ({ width: membersWidth }) as DOMRect
+		);
 		Object.defineProperty(container, "clientWidth", {
 			get: () => containerWidth,
 		});
@@ -74,7 +98,16 @@ describe("SpaceInlineSidePanel", () => {
 		act(() => notifyResizeObservers(container));
 		expect(wrapper?.getAttribute("data-space-panel-overlay")).toBe("true");
 		expect(wrapper?.style.getPropertyValue("--sidebar-width")).toBe("800px");
-		expect(screen.queryByRole("separator")).toBeNull();
+		expect(
+			screen.queryByRole("separator", { name: "Resize Thread panel" })
+		).toBeNull();
+		membersWidth = 320;
+		act(() => notifyResizeObservers(membersWrapper));
+		expect(wrapper?.style.getPropertyValue("--sidebar-width")).toBe("480px");
+		expect(
+			screen.getByRole("separator", { name: "Resize Members panel" })
+		).toBeTruthy();
+		membersWidth = 0;
 		containerWidth = 1600;
 		act(() => notifyResizeObservers(container));
 		expect(wrapper?.hasAttribute("data-space-panel-overlay")).toBe(false);
