@@ -1,5 +1,6 @@
 import * as z from "../../lazy-zod";
 import { openMeldRequestContextSchema } from "../daemon/profile-identity";
+import { runtimeCoordinatorExecutionTokenEchoSchema } from "../daemon/runtime-coordinator-execution-token";
 import { openConnectorRuntimeActionListSchema } from "../runtime/openconnector-runtime";
 import {
   centerAgentConnectorActionExecutionConnectionSchema,
@@ -17,6 +18,7 @@ const selection = {
   account: z.enum(["personal", "shared"]),
 };
 export const pluginActionRequestSchema = z.strictObject({
+  executionTokenEcho: runtimeCoordinatorExecutionTokenEchoSchema.optional(),
   includeRecoveryReceipt: z.literal(true).optional(),
   dispatchId: z.string().trim().min(1).max(256).optional(),
   action: z.discriminatedUnion("operation", [

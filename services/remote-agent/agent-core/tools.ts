@@ -15,6 +15,7 @@ import {
   aiUsageQueryResponseSchema,
   buildOpenMeldNavigationAction,
   CENTER_AGENT_ANONYMOUS_MEMBER_TOOL_NAMES,
+  CENTER_AGENT_APP_CONNECTOR_SERVICES,
   CENTER_AGENT_DELEGATION_COMPLETION_MODES,
   CENTER_AGENT_MEMBER_RESEARCH_COVERAGE_SOURCES,
   CENTER_AGENT_MEMBER_RESEARCH_COVERAGE_STATUSES,
@@ -644,6 +645,26 @@ const taskReplyLanguageInputSchema = optional(
   )
 );
 const wakeAgentProfilesInSpaceToolInputSchema = object({
+  pluginActions: optional(
+    pipe(
+      array(
+        object({
+          targetProfileId: nonEmptyStringSchema,
+          service: picklist(CENTER_AGENT_APP_CONNECTOR_SERVICES),
+          connectionName: nonEmptyStringSchema,
+          actionId: nonEmptyStringSchema,
+          input: record(string(), unknownSchema()),
+          effect: picklist(["read", "write"]),
+          expiresAtMs: pipe(number(), integer(), minValue(1)),
+        })
+      ),
+      minLength(1),
+      maxLength(10),
+      description(
+        "Exact ordinary Plugin actions explicitly authorized by the original requester for these children. Pin the original connection, target/input, effect and an expiry within 24 hours. This narrows current Plugin access; it never grants new access or forwards another Agent's authority."
+      )
+    )
+  ),
   agentProfileIds: pipe(
     array(nonEmptyStringSchema),
     minLength(1),

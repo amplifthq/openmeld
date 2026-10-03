@@ -9,7 +9,6 @@ import {
 import type {
   ConnectorService,
   OpenConnectorRuntimeAction,
-  RemoteAgentTurnEnvelope,
 } from "@openmeld/schemas/types";
 import { digestCanonicalJson } from "@openmeld/utils";
 import {
@@ -42,7 +41,10 @@ import type {
   RemoteAgentCoreWorkerBinding,
   RemoteAgentStorage,
 } from "./callback-context";
-import { recordRemoteAgentNavigationTarget } from "./callback-context";
+import {
+  readRemoteAgentCallbackContext,
+  recordRemoteAgentNavigationTarget,
+} from "./callback-context";
 import {
   type CenterAgentAppConnectorService,
   getConnectedAppDisplayName,
@@ -54,6 +56,7 @@ import {
   resolveRemoteAgentRoutineDestructiveActionBlock,
   resolveRemoteAgentRoutineExternalWriteBlock,
 } from "./destructive-authorization";
+import { readRemoteAgentExecutionAccess } from "./execution-access";
 import { tagRemoteAgentResultSources } from "./result-access";
 import {
   buildRemoteAgentToolContext,
@@ -80,6 +83,47 @@ type ConnectorToolDependencies = {
   storage: RemoteAgentStorage;
   submissionId: string;
 };
+type ConnectorToolContext = Awaited<
+  ReturnType<typeof buildRemoteAgentToolContext>
+> & {
+  delegatedRequester?: NonNullable<
+    Awaited<
+      ReturnType<typeof readRemoteAgentExecutionAccess>
+    >["delegatedRequester"]
+  >;
+  pluginDelegations?: Awaited<
+    ReturnType<typeof readRemoteAgentExecutionAccess>
+  >["pluginDelegations"];
+};
+
+async function buildConnectorToolContext(
+  input: Parameters<typeof buildRemoteAgentToolContext>[0] & {
+    coreWorker: RemoteAgentCoreWorkerBinding;
+  }
+): Promise<ConnectorToolContext> {
+  const context = await buildRemoteAgentToolContext(input);
+  if (context.turnEnvelope?.sender.kind !== "agent_profile") {
+    return context;
+  }
+  const callback = await readRemoteAgentCallbackContext(
+    input.storage,
+    input.submissionId
+  );
+  if (!callback) {
+    throw new Error("remote_agent.execution_context_unavailable");
+  }
+  const access = await readRemoteAgentExecutionAccess({
+    context: callback,
+    coreWorker: input.coreWorker,
+    includeDelegatedRequester: true,
+    includePluginDelegations: true,
+  });
+  return {
+    ...context,
+    delegatedRequester: access.delegatedRequester,
+    pluginDelegations: access.pluginDelegations,
+  };
+}
 type ConnectorActionOperationRequest = {
   actionId: string;
   connectionPreference?: "requester" | "shared";
@@ -123,16 +167,21 @@ export function getRemoteAgentConnectorToolDefinitions(
         "List the non-GitHub Plugins available to this Agent for the current requester, subject to each account's Agent access settings. Verified member requests can use their own connection; personal Remote Agents can use a personal connection only for their owner's request. Shared connections follow Organization access. Connected Message Channel members use shared access only. Routines use their verified delegated member identity.",
       input: object({}),
       execute: async () => {
-        const toolContext = await buildRemoteAgentToolContext({
+        const toolContext = await buildConnectorToolContext({
+          coreWorker: input.coreWorker,
           storage: input.storage,
           submissionId: input.submissionId,
           toolName: "openmeld_list_connected_apps",
         });
-        const requester = resolveConnectorTurnRequester(
-          toolContext.turnEnvelope
-        );
+        const requester = resolveConnectorTurnRequester(toolContext);
         const apps = await Promise.all(
-          CENTER_AGENT_APP_CONNECTOR_SERVICES.map(async (service) => {
+          CENTER_AGENT_APP_CONNECTOR_SERVICES.filter(
+            (service) =>
+              !toolContext.delegatedRequester ||
+              toolContext.pluginDelegations?.some(
+                (grant) => grant.service === service
+              )
+          ).map(async (service) => {
             const selection = await resolveConnectorConnection({
               connectionPreference: requester.connectionPreference,
               coreWorker: input.coreWorker,
@@ -170,14 +219,13 @@ export function getRemoteAgentConnectorToolDefinitions(
           query?: string;
           service: CenterAgentAppConnectorService;
         };
-        const toolContext = await buildRemoteAgentToolContext({
+        const toolContext = await buildConnectorToolContext({
+          coreWorker: input.coreWorker,
           storage: input.storage,
           submissionId: input.submissionId,
           toolName: "openmeld_list_app_actions",
         });
-        const requester = resolveConnectorTurnRequester(
-          toolContext.turnEnvelope
-        );
+        const requester = resolveConnectorTurnRequester(toolContext);
         const connection = await requireAvailableConnectorConnection({
           storage: input.storage,
           submissionId: input.submissionId,
@@ -211,7 +259,8 @@ async function executeAppAction(input: {
   dependencies: ConnectorToolDependencies;
   request: ExecuteAppActionRequest;
 }) {
-  const toolContext = await buildRemoteAgentToolContext({
+  const toolContext = await buildConnectorToolContext({
+    coreWorker: input.dependencies.coreWorker,
     storage: input.dependencies.storage,
     submissionId: input.dependencies.submissionId,
     toolName: "openmeld_execute_app_action",
@@ -301,7 +350,7 @@ async function executeAppAction(input: {
     requiresHighRiskConnectorActionPolicy(executionAction)
   ) {
     const requester = resolveConnectorTurnRequester(
-      toolContext.turnEnvelope,
+      toolContext,
       input.request.connectionPreference
     );
     confirmedSelection = await requireAvailableConnectorConnection({
@@ -429,7 +478,7 @@ export async function requireMemberResearchReadOnlyConnectorAction(input: {
   actionId: string;
   connectorExecution?: ConnectorExecutionConfig;
   service: ConnectorService;
-  toolContext: Awaited<ReturnType<typeof buildRemoteAgentToolContext>>;
+  toolContext: ConnectorToolContext;
 }): Promise<void> {
   if (input.toolContext.turnEnvelope?.trigger.source !== "member_research") {
     return;
@@ -447,7 +496,7 @@ export async function resolveConnectedMessageChannelActionPolicy(input: {
   actionId: string;
   connectorExecution?: ConnectorExecutionConfig;
   service: ConnectorService;
-  toolContext: Awaited<ReturnType<typeof buildRemoteAgentToolContext>>;
+  toolContext: ConnectorToolContext;
 }): Promise<{
   action?: OpenConnectorRuntimeAction;
   blockedResult?: {
@@ -489,7 +538,7 @@ async function prepareConnectorActionOperation(input: {
   dependencies: ConnectorToolDependencies;
   existingOperation: Awaited<ReturnType<typeof readConnectorActionOperation>>;
   request: ExecuteAppActionRequest;
-  toolContext: Awaited<ReturnType<typeof buildRemoteAgentToolContext>>;
+  toolContext: ConnectorToolContext;
 }) {
   let connectionName = input.existingOperation?.connectionName;
   let selection = input.confirmedSelection as
@@ -498,7 +547,7 @@ async function prepareConnectorActionOperation(input: {
   if (!input.existingOperation) {
     if (!selection) {
       const requester = resolveConnectorTurnRequester(
-        input.toolContext.turnEnvelope,
+        input.toolContext,
         input.request.connectionPreference
       );
       selection = await requireAvailableConnectorConnection({
@@ -682,7 +731,7 @@ export async function runAndFinalizeConnectorAction(input: {
   operationReplayed?: boolean;
   request: ConnectorActionOperationRequest;
   requestSignature: string;
-  toolContext: Awaited<ReturnType<typeof buildRemoteAgentToolContext>>;
+  toolContext: ConnectorToolContext;
 }): Promise<OpenConnectorActionRun> {
   if (
     input.effect !== "read" &&
@@ -779,7 +828,7 @@ async function finalizeFailedConnectorAction(input: {
   error: unknown;
   request: ConnectorActionOperationRequest;
   requestSignature: string;
-  toolContext: Awaited<ReturnType<typeof buildRemoteAgentToolContext>>;
+  toolContext: ConnectorToolContext;
 }): Promise<void> {
   try {
     await recordConnectorActionOperation({
@@ -882,7 +931,7 @@ async function resolveConnectorConnection(input: {
   coreWorker: RemoteAgentCoreWorkerBinding;
   requesterUserId: string | null;
   service: ConnectorService;
-  toolContext: Awaited<ReturnType<typeof buildRemoteAgentToolContext>>;
+  toolContext: ConnectorToolContext;
 }) {
   const resolveConnection = requireCoreRpc(
     input.coreWorker.centerAgentResolveConnectorConnection,
@@ -891,7 +940,10 @@ async function resolveConnectorConnection(input: {
   const selection = centerAgentConnectorConnectionSelectionSchema.parse(
     await resolveConnection({
       includeAccessPolicy: true,
-      connectionPreference: input.connectionPreference,
+      ...(input.toolContext.delegatedRequester
+        ? { includeDelegatedRequester: true as const }
+        : {}),
+      connectionPreference: delegatedConnectionPreference(input),
       context: input.toolContext.context,
       requesterUserId: input.requesterUserId,
       service: input.service,
@@ -907,6 +959,26 @@ async function resolveConnectorConnection(input: {
     );
   }
   return selection;
+}
+
+function delegatedConnectionPreference(
+  input: Parameters<typeof resolveConnectorConnection>[0]
+) {
+  if (
+    !input.toolContext.delegatedRequester ||
+    input.connectionPreference !== "automatic"
+  ) {
+    return input.connectionPreference;
+  }
+  const scopes = new Set(
+    input.toolContext.pluginDelegations
+      ?.filter((grant) => grant.service === input.service)
+      .map((grant) => grant.connectionScope)
+  );
+  if (scopes.size !== 1) {
+    return input.connectionPreference;
+  }
+  return scopes.has("shared") ? "shared" : "requester";
 }
 
 async function requireAvailableConnectorConnection(
@@ -938,12 +1010,19 @@ async function requireAvailableConnectorConnection(
 }
 
 function resolveConnectorTurnRequester(
-  turnEnvelope: RemoteAgentTurnEnvelope | undefined,
+  context: ConnectorToolContext,
   requested?: "requester" | "shared"
 ): {
   connectionPreference: "automatic" | "requester" | "shared";
   requesterUserId: string | null;
 } {
+  const { turnEnvelope, delegatedRequester } = context;
+  if (delegatedRequester) {
+    return {
+      connectionPreference: requested ?? "automatic",
+      requesterUserId: delegatedRequester.userId,
+    };
+  }
   if (turnEnvelope?.trigger.source === "member_research") {
     if (requested === "requester") {
       throw new Error("plugin.requester_identity_unavailable");
@@ -987,7 +1066,7 @@ export async function readConnectorActionOperation(input: {
   coreWorker: RemoteAgentCoreWorkerBinding;
   operationId: string;
   service: ConnectorService;
-  toolContext: Awaited<ReturnType<typeof buildRemoteAgentToolContext>>;
+  toolContext: ConnectorToolContext;
 }) {
   const speakerMember = requireConnectorActionSpeaker(input.toolContext);
   const startedAtMs = performance.now();
@@ -1029,7 +1108,7 @@ export async function recordConnectorActionOperation(input: {
   providerExecutionId: string | null;
   requestSignature: string;
   service: ConnectorService;
-  toolContext: Awaited<ReturnType<typeof buildRemoteAgentToolContext>>;
+  toolContext: ConnectorToolContext;
 }) {
   const speakerMember = requireConnectorActionSpeaker(input.toolContext);
   const startedAtMs = performance.now();
@@ -1082,9 +1161,13 @@ export async function recordConnectorActionOperation(input: {
   return result;
 }
 
-function requireConnectorActionSpeaker(
-  toolContext: Awaited<ReturnType<typeof buildRemoteAgentToolContext>>
-) {
+function requireConnectorActionSpeaker(toolContext: ConnectorToolContext) {
+  if (toolContext.delegatedRequester) {
+    return {
+      memberId: toolContext.delegatedRequester.memberId,
+      userId: toolContext.delegatedRequester.userId,
+    };
+  }
   const speakerMember = resolveOrganizationMemberTurnEnvelopeSpeaker(
     toolContext.turnEnvelope
   );

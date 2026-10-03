@@ -1,5 +1,16 @@
 # Shared Contracts
 
+Ordinary Plugin delegation is an additive constraint on the existing recorded
+Wake publication command (`pluginActions`). Core alone resolves the original
+human and one-hop task chain. Local clients privately forward the admitted
+`executionTokenEcho`; RuntimeCoordinator's read-only authorization RPC validates
+that proof without transferring execution truth to the dispatch ledger. Remote
+clients opt into `includePluginDelegations`; responses omit the projection for
+old callers. Missing proof or an older receiver rejects the new delegated path.
+These additions require a new packaged CLI/Service for delegated Local use and
+Core before the new Remote caller; they do not alter ordinary human-source
+calls, token issuance, token retirement, or finalization ownership.
+
 ## Agent Context
 
 - Purpose: Define cross-client and cross-service shared contract ownership for

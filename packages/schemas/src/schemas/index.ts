@@ -551,6 +551,8 @@ export {
   RUNTIME_COORDINATOR_TOKEN_AUTHORITY_MODEL_VERSION,
   RUNTIME_COORDINATOR_TOKEN_DIAGNOSTIC_MODEL_VERSION,
   RUNTIME_COORDINATOR_TOKEN_SECRET_FIELD_NAMES,
+  runtimeCoordinatorExecutionAccessRequestSchema,
+  runtimeCoordinatorExecutionAccessResponseSchema,
   runtimeCoordinatorExecutionTokenAuthorityRecordSchema,
   runtimeCoordinatorExecutionTokenEchoSchema,
   runtimeCoordinatorExecutionTokenEnvelopeSchema,
@@ -2003,6 +2005,10 @@ export {
   pluginActionResponseSchema,
   pluginActionRpcInputSchema,
 } from "./http/plugin-actions";
+export {
+  pluginDelegationAuthorizationSchema,
+  pluginDelegationRequestSchema,
+} from "./http/plugin-delegation";
 export {
   connectorActionOutcomeUnknownSchema,
   pluginActionEffectSchema,

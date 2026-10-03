@@ -1070,7 +1070,10 @@ import {
 } from "../projects/project-rpc";
 import { attachCenterAgentTurnRuntimeEvidence } from "../remote-agent/application/center-agent-turn-diagnostics";
 import { reconcileChannelAuthorizationUpdates } from "../remote-agent/application/channel-authorization-update-service";
-import { resolveRemoteAgentConnectorRequester } from "../remote-agent/application/delegated-requester";
+import {
+  requireDelegatedConnectionSelection,
+  resolveRemoteAgentConnectorRequester,
+} from "../remote-agent/application/delegated-requester";
 import { listLarkPlatformProvidersEnabledForOrganization } from "../remote-agent/application/lark-platform-provider-policy";
 import {
   beginRemoteAgentLarkPlatformRegistration,
@@ -8376,6 +8379,12 @@ export async function rpcCenterAgentResolveConnectorConnection(
     service,
   });
   assertBoundPluginConnection(binding, service, selected?.connection ?? null);
+  await requireDelegatedConnectionSelection({
+    env,
+    authorization,
+    includeDelegatedRequester: input.includeDelegatedRequester,
+    connection: selected?.connection ?? null,
+  });
   const response = await presentPluginSelection(
     env,
     selected,
@@ -15925,7 +15934,8 @@ export async function rpcCenterAgentReadConnectorActionOperation(
   const prepared = await prepareRemoteAgentMemberRequest(
     env,
     requireRpcContext(input.context),
-    parsed.data.speakerMember
+    parsed.data.speakerMember,
+    { service: parsed.data.service, actionId: parsed.data.actionId }
   );
   const requester = resolveCenterAgentConnectorActionRequester(prepared.member);
   const existing = await readCenterAgentConnectorActionOperationForRecovery({
@@ -16001,7 +16011,14 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
   const prepared = await prepareRemoteAgentMemberRequest(
     env,
     requireRpcContext(input.context),
-    parsed.data.speakerMember
+    parsed.data.speakerMember,
+    {
+      service: parsed.data.service,
+      actionId: parsed.data.actionId,
+      connectionName: parsed.data.connectionName,
+      requestSignature: parsed.data.requestSignature,
+      effect: parsed.data.effect,
+    }
   );
   const { authorization, member } = prepared;
   const requester = resolveCenterAgentConnectorActionRequester(member);
@@ -16317,7 +16334,15 @@ function resolveCenterAgentConnectorAuditAction(
 function parseCenterAgentWakeAgentProfilesInSpaceInput(
   input: CenterAgentWakeAgentProfilesInSpaceInput
 ) {
+  if (input.pluginActions && !input.completionMode) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "plugin.recorded_delegation_required",
+      reason: "Plugin authorization requires a recorded one-hop delegation.",
+    });
+  }
   const parsed = centerAgentWakeAgentProfilesInSpaceBodySchema.safeParse({
+    pluginActions: input.pluginActions,
     agentProfileIds: input.agentProfileIds,
     ...(input.completionMode === undefined
       ? {}
@@ -16396,6 +16421,7 @@ export async function rpcCenterAgentWakeAgentProfilesInSpace(
   }
 
   const clientMessageId = buildCenterAgentWakeClientMessageId({
+    pluginActions: parsed.pluginActions,
     activationTargets: targetProfileIds,
     completionMode: parsed.completionMode,
     context: authorization.context,
@@ -16428,6 +16454,7 @@ export async function rpcCenterAgentWakeAgentProfilesInSpace(
       };
   if (parsed.completionMode) {
     const delegatedWake = await executeCenterAgentDelegatedWake({
+      pluginActions: parsed.pluginActions,
       authorization,
       clientMessageId,
       completionMode: parsed.completionMode,
@@ -17015,6 +17042,7 @@ async function requireCenterAgentWakeMembers(input: {
 }
 
 async function executeCenterAgentDelegatedWake(input: {
+  pluginActions?: CenterAgentWakeAgentProfilesInSpaceInput["pluginActions"];
   authorization: CurrentDesignatedCenterAgentAuthorization;
   clientMessageId: string;
   completionMode: CenterAgentWakePublicationCommand["completionMode"];
@@ -17070,6 +17098,16 @@ async function executeCenterAgentDelegatedWake(input: {
   });
   await prepareCenterAgentWakePublication({
     command: {
+      pluginActions: await prepareDelegatedPluginActions({
+        env: input.env,
+        db: input.db,
+        organizationId: input.authorization.activeOrganization.organizationId,
+        actorProfileId: input.authorization.actorProfileId,
+        parentSubmissionId,
+        attribution,
+        targetProfileIds: input.targetProfileIds,
+        requests: input.pluginActions,
+      }),
       activationTargets: input.targetProfileIds,
       attribution,
       clientMessageId: input.clientMessageId,
@@ -17171,6 +17209,7 @@ export async function rpcResolveCenterAgentWakePublicationSignal(
 }
 
 function buildCenterAgentWakeClientMessageId(input: {
+  pluginActions?: CenterAgentWakeAgentProfilesInSpaceInput["pluginActions"];
   activationTargets: readonly string[];
   completionMode?: CenterAgentDelegationCompletionMode;
   context: CoreRpcContextInput;
@@ -17184,6 +17223,7 @@ function buildCenterAgentWakeClientMessageId(input: {
 }): string {
   const actorContext = input.context.actorContext;
   const material = JSON.stringify({
+    ...(input.pluginActions ? { pluginActions: input.pluginActions } : {}),
     actorRequestId: actorContext.requestId ?? null,
     agentControllerConversationId:
       input.context.agentControllerConversationId ?? null,
@@ -26062,3 +26102,5 @@ export async function rpcCenterAgentSetReplyPlacement(
   }
   return placement;
 }
+
+import { prepareDelegatedPluginActions } from "../center-agent/application/delegated-plugin-authorization";

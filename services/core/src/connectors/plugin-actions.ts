@@ -9,6 +9,7 @@ import type {
   PluginRuntimeRequest,
 } from "@openmeld/schemas/types";
 import { digestCanonicalJson } from "@openmeld/utils";
+import { requireDelegatedPluginAction } from "../center-agent/application/delegated-plugin-authorization";
 import {
   buildCenterAgentConnectorActionOperationScope,
   readCenterAgentConnectorActionOperationForRecovery,
@@ -64,6 +65,7 @@ export async function rpcPluginAction(
   const input = parsed.data;
   const caller = await requireLocalPluginCaller(env, input);
   const action = input.request.action;
+  const grant = await requireLocalDelegatedAction(caller, action);
   if (action.operation === "connect") {
     return await localPluginConnectionGuidance(env, caller, action);
   }
@@ -112,6 +114,7 @@ export async function rpcPluginAction(
     );
   }
   assertBoundPluginConnection(binding, action.service, selected.connection);
+  assertDelegatedConnection(grant, selected.connection);
   const connection = await presentConnection(env, caller, selected.connection);
   const catalog = await callRuntime(env, {
     operation: "list",
@@ -128,12 +131,7 @@ export async function rpcPluginAction(
     return {
       kind: "actions",
       connection,
-      actions: catalog.actions.filter((candidate) =>
-        pluginPermissionAllows(
-          connection.permission,
-          candidate.effect ?? "unspecified"
-        )
-      ),
+      actions: permittedLocalActions(catalog.actions, connection, caller),
     };
   }
   const metadata = catalog.actions.find(
@@ -147,6 +145,7 @@ export async function rpcPluginAction(
     );
   }
   const effect = metadata.effect ?? "unspecified";
+  assertDelegatedEffect(grant, effect);
   if (!pluginPermissionAllows(connection.permission, effect)) {
     throw failure(
       "plugin.action_forbidden",
@@ -184,12 +183,46 @@ export async function rpcPluginAction(
   }
   return await executeAction(
     env,
-    caller,
+    await requireLocalPluginCaller(env, input),
     action,
     connection,
     signature,
     effect,
     input.request.includeRecoveryReceipt === true
+  );
+}
+
+function assertDelegatedEffect(
+  grant: Awaited<ReturnType<typeof requireLocalDelegatedAction>>,
+  effect: string
+) {
+  if (grant && grant.effect !== effect) {
+    throw failure(
+      "plugin.delegation_scope_mismatch",
+      "This action's effect differs from the delegated authorization."
+    );
+  }
+}
+
+function permittedLocalActions(
+  actions: Extract<PluginActionResponse, { kind: "actions" }>["actions"],
+  connection: Connection,
+  caller: Caller
+) {
+  return actions.filter(
+    (action) =>
+      pluginPermissionAllows(
+        connection.permission,
+        action.effect ?? "unspecified"
+      ) &&
+      (!caller.delegatedPluginActions ||
+        caller.delegatedPluginActions.some(
+          (grant) =>
+            grant.connectionName === connection.connectionName &&
+            grant.actionId === action.id &&
+            grant.effect === action.effect &&
+            grant.expiresAtMs > Date.now()
+        ))
   );
 }
 
@@ -225,6 +258,18 @@ async function listAvailableConnections(
   });
   const connections: Connection[] = [];
   for (const record of records) {
+    if (
+      caller.delegatedPluginActions &&
+      !caller.delegatedPluginActions.some(
+        (grant) =>
+          grant.connectionName === record.connectionName &&
+          grant.connectionUpdatedAtMs === record.updatedAtMs &&
+          grant.connectionOwnerUserId === record.userId &&
+          grant.expiresAtMs > Date.now()
+      )
+    ) {
+      continue;
+    }
     if (
       record.status !== "active" ||
       (record.scope === "member" && !caller.personalAllowed)
@@ -356,6 +401,10 @@ async function recoverOperation(
     ...caller,
     connectionName: existing.executionConnection.connectionName,
   });
+  assertDelegatedConnection(
+    await requireLocalDelegatedAction(caller, action),
+    current
+  );
   if (
     current.status !== "active" ||
     current.userId !== existing.executionConnection.ownerUserId ||
@@ -397,6 +446,22 @@ async function executeAction(
   effect: "read" | "write" | "destructive" | "unspecified",
   includeRecoveryReceipt: boolean
 ): Promise<PluginActionResponse> {
+  const grant = await requireLocalDelegatedAction(caller, action);
+  const current = await requireConnectorConnectionForExecution({
+    ...caller,
+    connectionName: connection.connectionName,
+  });
+  assertDelegatedConnection(grant, current);
+  if (
+    current.scope !== connection.scope ||
+    current.userId !== connection.ownerUserId ||
+    current.service !== connection.service
+  ) {
+    throw failure(
+      "plugin.operation_identity_changed",
+      "The selected account changed before execution."
+    );
+  }
   await requirePluginPermission({
     ...caller,
     connectionName: connection.connectionName,
@@ -576,4 +641,59 @@ async function callRuntime(env: CoreBindings, input: PluginRuntimeRequest) {
 
 function failure(code: string, reason: string, status = 403) {
   return createCoreRpcHttpError({ code, reason, status });
+}
+
+async function requireLocalDelegatedAction(
+  caller: Caller,
+  action: PluginActionRequest["action"]
+) {
+  if (!caller.delegatedPluginActions || action.operation === "list") {
+    return undefined;
+  }
+  if (action.operation === "connect") {
+    throw failure(
+      "plugin.delegation_scope_mismatch",
+      "A delegated action must use its explicitly authorized connection."
+    );
+  }
+  const accountGrants = caller.delegatedPluginActions.filter(
+    (candidate) =>
+      candidate.connectionScope ===
+      (action.account === "personal" ? "member" : "shared")
+  );
+  const grant = requireDelegatedPluginAction(accountGrants, {
+    service: action.service,
+    ...(action.operation === "execute" ? { actionId: action.actionId } : {}),
+  });
+  if (action.operation === "execute") {
+    return requireDelegatedPluginAction(accountGrants, {
+      service: action.service,
+      actionId: action.actionId,
+      requestSignature: await digestCanonicalJson({
+        actionId: action.actionId,
+        service: action.service,
+        connectionName: grant.connectionName,
+        input: action.input,
+      }),
+    });
+  }
+  return grant;
+}
+
+function assertDelegatedConnection(
+  grant: Awaited<ReturnType<typeof requireLocalDelegatedAction>>,
+  connection: ConnectorConnectionRecord
+) {
+  if (
+    grant &&
+    (grant.connectionName !== connection.connectionName ||
+      grant.connectionUpdatedAtMs !== connection.updatedAtMs ||
+      grant.connectionOwnerUserId !== connection.userId ||
+      grant.connectionScope !== connection.scope)
+  ) {
+    throw failure(
+      "plugin.delegation_account_changed",
+      "The account selected for this delegation has changed."
+    );
+  }
 }

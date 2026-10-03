@@ -3235,6 +3235,7 @@ function createDispatchSpaceActionRuntimeContext(input: {
   runtimeEnvOverrides: Record<string, string | undefined> | undefined;
 } {
   const contextResult = createDispatchSpaceActionContext({
+    executionTokenEcho: input.parsedTask.executionTokenEcho,
     ...(input.claudeProjectRuntime && input.parsedTask.executionContext
       ? {
           projectShell: {

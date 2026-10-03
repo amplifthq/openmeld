@@ -53,7 +53,12 @@ export async function runPluginCommand(input: {
     ...(input.action.operation === "execute"
       ? { includeRecoveryReceipt: true }
       : {}),
-    ...(dispatch ? { dispatchId: dispatch.dispatchId } : {}),
+    ...(dispatch
+      ? {
+          dispatchId: dispatch.dispatchId,
+          executionTokenEcho: dispatch.executionTokenEcho,
+        }
+      : {}),
   });
   const api = createPluginsApi(
     createCliApiClientFoundation(await resolveBaseUrl())

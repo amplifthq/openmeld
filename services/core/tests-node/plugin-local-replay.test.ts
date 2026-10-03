@@ -1,11 +1,13 @@
 import {
   openConnectorRuntimeActionSchema,
   pluginActionRpcInputSchema,
+  pluginDelegationAuthorizationSchema,
 } from "@openmeld/schemas";
 import type {
   PluginRuntimeRequest,
   PluginRuntimeResponse,
 } from "@openmeld/schemas/types";
+import { digestCanonicalJson } from "@openmeld/utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import capturedActions from "../../remote-agent/tests/fixtures/openconnector-runtime-actions.json";
 import { rpcPluginAction } from "../src/connectors/plugin-actions";
@@ -42,6 +44,9 @@ let effects: Set<string>;
 let submission: string;
 let providerResult: "outcome_unknown" | "completed";
 let env: CoreBindings;
+let grants:
+  | ReturnType<typeof pluginDelegationAuthorizationSchema.parse>[]
+  | undefined;
 
 function request(operationId = "original-operation", replay = false) {
   return pluginActionRpcInputSchema.parse({
@@ -97,6 +102,7 @@ beforeEach(() => {
     sql: `INSERT INTO connector_connections (connection_name, organization_id, user_id, scope, service, status, created_at_ms, updated_at_ms, access_policy) VALUES ('${connectionName}', 'org-1', 'user-1', 'member', 'posthog', 'active', 1000, 1000, '{"local_agent":"write","remote_agent":"none","center_agent":"none"}')`,
   });
   submission = "dispatch:original-request";
+  grants = undefined;
   admission.caller.mockImplementation(async () => ({
     db: harness.db,
     organizationId: "org-1",
@@ -107,6 +113,7 @@ beforeEach(() => {
     sourceSignalId: null,
     sourceRequestKey: submission,
     personalAllowed: true,
+    delegatedPluginActions: grants,
     human: { profileId: humanId, profileName: "Synthetic member" },
   }));
   admission.identity.mockResolvedValue({
@@ -151,6 +158,62 @@ beforeEach(() => {
 afterEach(() => harness.close());
 
 describe("Local plugin replay through real operation and connection storage", () => {
+  it.each([
+    "allowed",
+    "target",
+    "account",
+    "effect",
+    "expired",
+    "replaced",
+  ])("enforces the admitted delegation's exact action against real storage: %s", async (scenario) => {
+    grants = [
+      pluginDelegationAuthorizationSchema.parse({
+        targetProfileId: profileId,
+        service: "posthog",
+        actionId: action.id,
+        connectionName,
+        connectionUpdatedAtMs: 1000,
+        connectionOwnerUserId: "user-1",
+        connectionScope: "member",
+        effect: scenario === "effect" ? "read" : "write",
+        expiresAtMs:
+          scenario === "expired" ? Date.now() - 1 : Date.now() + 60_000,
+        requestSignature: await digestCanonicalJson({
+          actionId: action.id,
+          service: "posthog",
+          connectionName,
+          input: { project: "isolated-target" },
+        }),
+      }),
+    ];
+    const input = request();
+    if (input.request.action.operation !== "execute") {
+      throw new Error("Expected execute fixture");
+    }
+    if (scenario === "target") {
+      input.request.action.input = { project: "different-target" };
+    }
+    if (scenario === "account") {
+      input.request.action.account = "shared";
+    }
+    if (scenario === "replaced") {
+      harness.run({
+        sql: "UPDATE connector_connections SET updated_at_ms = 1001",
+      });
+    }
+    if (scenario === "allowed") {
+      providerResult = "completed";
+      expect(await rpcPluginAction(env, input)).toMatchObject({
+        status: "completed",
+      });
+      expect(providerCalls).toHaveLength(1);
+    } else {
+      await expect(rpcPluginAction(env, input)).rejects.toThrow();
+      expect(providerCalls).toHaveLength(0);
+      expect(effects.size).toBe(0);
+    }
+  });
+
   it("permits one concurrent replay, retains the provider key, and fences another operation ID", async () => {
     expect(await rpcPluginAction(env, request())).toMatchObject({
       status: "outcome_unknown",

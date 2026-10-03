@@ -544,7 +544,7 @@ attribution, and destructive-action confirmation remain authoritative. Actions
 requiring a represented human still require the verified current human sender;
 an Agent-to-Agent handoff must not impersonate its owner to obtain those actions.
 General Computer, research, and current-Space collaboration tools remain usable
-on Agent handoffs. Recorded Center delegations have the narrow read path below.
+on Agent handoffs. Recorded Center delegations use the constrained paths below.
 
 Personal Remote Agents can read one current-Space message through
 `openmeld_read_space_evidence`, including a thread reply, and page a named thread
@@ -566,6 +566,26 @@ audience and checks the exact selected connection through the existing permissio
 owner for source reads. It cannot authorize provider writes. No permanent grant
 or new persisted delegation state is created; clients without the opt-in retain
 their existing behavior.
+
+Ordinary non-GitHub Plugin reads and writes additionally require explicit
+`pluginActions` on the existing recorded Wake publication. Core fixes each
+target Agent, original human, Organization, connection owner/scope/version,
+action effect, exact input digest, and expiry (at most 24 hours). This constraint
+is part of the immutable publication command, not a separate permission store.
+The current delegation, human membership, target ownership, and connection
+access policy are rechecked before execution and retained-result disclosure.
+The requester must own the target personal Agent; shared access and Agent
+ownership never substitute for missing authorization. A child cannot redelegate.
+
+Remote callers opt into `includePluginDelegations` to discover these constraints;
+an older Core fails closed. Local callers carry the private execution-token echo
+from their admitted dispatch context. RuntimeCoordinator validates it against
+the live authority and exact binding, dispatch, Space, source message, and target.
+The token is neither a model argument nor a public receipt. A dispatch ledger row
+alone cannot authorize a delegated Local action. Older Local clients keep their
+previous behavior and cannot use the new delegation path without this proof.
+Local and Remote retain their respective current connection policies. Generic
+delegation does not relax GitHub's separate policy or destructive confirmations.
 
 Personal Remote GitHub named read tools and `github_checkout_repository` consume
 this projection for recorded Center-to-personal-Agent Space delegations. The

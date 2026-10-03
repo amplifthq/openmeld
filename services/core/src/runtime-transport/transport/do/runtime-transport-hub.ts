@@ -1808,6 +1808,28 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     };
   }
 
+  async rpcAuthorizeExecutionAccess(
+    input: ReturnType<
+      typeof runtimeCoordinatorExecutionAccessRequestSchema.parse
+    >
+  ) {
+    const request = runtimeCoordinatorExecutionAccessRequestSchema.parse(input);
+    const authority = await this.readRuntimeCoordinatorTokenAuthority(
+      request.executionTokenEcho.runtimeCoordinatorExecutionId
+    );
+    const validation =
+      await validateRuntimeCoordinatorExecutionTokenAgainstAuthority({
+        ...request,
+        authority,
+        nowMs: Date.now(),
+      });
+    return runtimeCoordinatorExecutionAccessResponseSchema.parse(
+      validation.ok
+        ? { allowed: true }
+        : { allowed: false, reasonCode: validation.reasonCode }
+    );
+  }
+
   async rpcReadAgentProfileExecutionState(
     input: RuntimeTransportAgentProfileExecutionStateRequest
   ): Promise<RuntimeTransportAgentProfileExecutionStateResponse> {
@@ -22461,3 +22483,8 @@ const safeCloseSocket = (
     // ignore
   }
 };
+
+import {
+  runtimeCoordinatorExecutionAccessRequestSchema,
+  runtimeCoordinatorExecutionAccessResponseSchema,
+} from "@openmeld/schemas";

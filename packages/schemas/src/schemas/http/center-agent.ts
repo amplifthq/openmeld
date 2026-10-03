@@ -901,6 +901,11 @@ export const centerAgentDelegationCompletionModeSchema = z.enum(
 
 export const centerAgentWakeAgentProfilesInSpaceBodySchema = z
   .strictObject({
+    pluginActions: z
+      .array(pluginDelegationRequestSchema)
+      .min(1)
+      .max(10)
+      .optional(),
     agentProfileIds: z.array(agentProfileIdSchema).min(1).max(25),
     completionMode: centerAgentDelegationCompletionModeSchema.optional(),
     replyLanguageTag: workingLanguageTagSchema.optional(),
@@ -988,6 +993,11 @@ export const centerAgentWakeAgentProfilesInSpaceBodySchema = z
 
 export const centerAgentWakePublicationCommandSchema = z
   .strictObject({
+    pluginActions: z
+      .array(pluginDelegationAuthorizationSchema)
+      .min(1)
+      .max(10)
+      .optional(),
     activationTargets: z.array(agentProfileIdSchema).min(1),
     attribution: centerAgentAttributionSchema,
     clientMessageId: trimmedNonEmptyStringSchema,
@@ -1852,3 +1862,8 @@ export const openCenterAgentDirectMessageSpaceResponseSchema = z.strictObject({
   spaceId: trimmedNonEmptyStringSchema,
   created: z.boolean(),
 });
+
+import {
+  pluginDelegationAuthorizationSchema,
+  pluginDelegationRequestSchema,
+} from "./plugin-delegation";
