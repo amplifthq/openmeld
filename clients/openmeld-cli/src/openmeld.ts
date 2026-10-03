@@ -342,6 +342,7 @@ import { isSpaceCommandOutputHandledError } from "./space/command-output-handled
 import { runSpaceContract } from "./space/contract-command";
 import { runSpaceContractSet } from "./space/contract-set-command";
 import { normalizePublicationModeCliValue } from "./space/contract-set-options";
+import { runDirectMessage } from "./space/direct-message";
 import { registerSpaceFilesCommands } from "./space/files-registration";
 import {
   runSpaceGuideClear,
@@ -3855,6 +3856,41 @@ withSpaceProfileOption(
         entryChecksHandled: true,
       });
     },
+  });
+});
+
+withSpaceProfileOption(
+  spaceCmd
+    .command("dm")
+    .description(
+      "Open a Direct Message with a person or Agent, optionally sending a message."
+    )
+    .argument("<target-profile-id>", "Exact recipient Profile ID")
+    .argument("[text...]", "Message text")
+    .option("--stdin", "Read message text from stdin")
+    .option("--text-file <path>", "Read message text from a UTF-8 file")
+    .option("--wake", "Ask the recipient Agent to start work")
+    .option(
+      "--message-id <uuid>",
+      "Stable message ID; reuse it when retrying a send"
+    )
+    .option(
+      "--new-chat <uuid>",
+      "Create a separate Human–Center Agent chat; reuse the ID on retries"
+    )
+).action(async (targetProfileId, textParts, opts, command: Command) => {
+  const cliOptions = resolveSpaceCommandCliOptions(command, opts);
+  await runDirectMessage({
+    targetProfileId,
+    text: Array.isArray(textParts) ? textParts.join(" ") : "",
+    stdin: opts.stdin === true,
+    textFile: opts.textFile,
+    profile: cliOptions.profile,
+    baseUrl: cliOptions.gatewayUrl,
+    clientMessageId: opts.messageId,
+    creationId: opts.newChat,
+    wake: opts.wake === true,
+    view: getGlobalViewOption(),
   });
 });
 

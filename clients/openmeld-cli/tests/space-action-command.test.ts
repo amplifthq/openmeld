@@ -32,6 +32,7 @@ import {
   createDispatchSpaceTools,
   createSpaceActionMcpServer,
 } from "../src/space/action-mcp-server";
+import { openDirectMessage } from "../src/space/direct-message";
 
 const AGENT_PROFILE_ID = "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const AGENT_PROFILE_ID_TWO = "agt_bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
@@ -1035,6 +1036,39 @@ describe("OpenMeld Space Action MCP server", () => {
 });
 
 describe("dispatch-owned native Space tools", () => {
+  it("refuses another sender and an expired Wake before making any DM request", async () => {
+    const clock = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
+    const context = createTestContext([], { ttlMs: 1000 });
+    const fetch = vi.spyOn(globalThis, "fetch");
+    const request = { targetProfileId: HUMAN_PROFILE_ID };
+    await expect(
+      openDirectMessage({ request, profile: AGENT_PROFILE_ID_TWO })
+    ).rejects.toThrow("selected profile must match");
+    clock.mockReturnValue(context.expiresAtMs + 1);
+    await expect(openDirectMessage({ request })).rejects.toThrow(
+      "dispatch context has expired"
+    );
+    expect(fetch).not.toHaveBeenCalled();
+    expect(readDispatchSpaceActionRecord({ context }).status).toBe("missing");
+  });
+  it("rejects invalid DM input without ending the current Wake", async () => {
+    const context = createTestContext([]);
+    const tools = createDispatchSpaceTools({ env: { ...process.env } });
+    expect(tools.tools.map((tool) => tool.name)).toContain(
+      "open_direct_message"
+    );
+    const result = await tools.call("open_direct_message", {
+      targetProfileId: HUMAN_PROFILE_ID,
+      message: { clientMessageId: "not-a-uuid", text: "Hello", wake: false },
+    });
+    expect(result.isError).toBe(true);
+    expect(readDispatchSpaceActionRecord({ context }).status).toBe("missing");
+    await tools.call("reply", { message: "The current task is complete." });
+    expect(readLoadedActionRecord(context).action).toMatchObject({
+      messageEnvelope: { text: "The current task is complete." },
+    });
+    tools.close();
+  });
   it("reports non-final public progress without recording a final action", async () => {
     const context = createTestContext([]);
     const reportProgress = vi

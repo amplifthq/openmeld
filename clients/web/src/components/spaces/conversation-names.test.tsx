@@ -61,6 +61,16 @@ it("shares current sidebar data, covers unloaded chats, and reacts to saved name
 			fixtureSpace("space", "Shared current name"),
 			fixtureSpace("converted", "Converted Space"),
 			{
+				...fixtureSpace("agents", "Old names"),
+				spacePurpose: "openmeld_dm_space",
+				activeMemberCount: 2,
+				directMessageProfileIds: ["agent-writer", "agent-reviewer"],
+				openProfileId: "agent-writer",
+				joinedProfiles: [
+					{ profileId: "agent-writer", profileName: "Old writer" },
+				],
+			},
+			{
 				...fixtureSpace("foreign", "Private foreign name"),
 				organizationId: "other-org",
 			},
@@ -68,7 +78,14 @@ it("shares current sidebar data, covers unloaded chats, and reacts to saved name
 	});
 	client.setQueryData(organizationQueryKeys.profileIdentityDirectory("org"), {
 		members: [],
-		agentProfiles: [],
+		agentProfiles: [
+			{ profileId: "agent-writer", status: "active", profileName: "Writer" },
+			{
+				profileId: "agent-reviewer",
+				status: "active",
+				profileName: "Reviewer",
+			},
+		],
 	});
 	const { result, unmount } = renderHook(useConversationNames, {
 		wrapper: ({ children }: { children: ReactNode }) => (
@@ -85,6 +102,7 @@ it("shares current sidebar data, covers unloaded chats, and reacts to saved name
 	expect(result.current?.names.get("space")?.name).toBe("Shared current name");
 	expect(result.current?.names.get("converted")?.name).toBe("Converted Space");
 	expect(result.current?.names.has("foreign")).toBe(false);
+	expect(result.current?.names.get("agents")?.name).toBe("Writer and Reviewer");
 	act(() =>
 		client.setQueryData(sidebarKey, {
 			revision: 2,

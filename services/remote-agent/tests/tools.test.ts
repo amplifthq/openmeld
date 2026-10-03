@@ -3062,6 +3062,55 @@ describe("remote agent OpenMeld tool catalog", () => {
     ).resolves.not.toHaveProperty("navigationTarget");
   });
 
+  it("opens a DM as the native Agent and attaches its trusted navigation target", async () => {
+    const baseRequest = createSubmitTurnRequest();
+    const request = createSubmitTurnRequest({
+      turnEnvelope: {
+        ...baseRequest.turnEnvelope,
+        organization: {
+          ...baseRequest.turnEnvelope.organization,
+          webUrl: "https://openmeld.ai/o/amplift",
+        },
+      },
+    });
+    const storage = await createStorageWithPendingContext(request);
+    const remoteAgentOpenDirectMessageSpace = vi.fn(async () => ({
+      organizationId: request.organizationId,
+      memberProfileId: request.agentProfileId,
+      targetProfileId: HUMAN_PROFILE_ID,
+      spaceId: SPACE_ID,
+      created: true,
+    }));
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { remoteAgentOpenDirectMessageSpace },
+      storage,
+      turnEnvelope: request.turnEnvelope,
+    });
+    const creationId = "00000000-0000-4000-8000-000000000080";
+    const response = await executeTool(tools, "openmeld_open_direct_message", {
+      targetProfileId: HUMAN_PROFILE_ID,
+      creationId,
+    });
+    expect(remoteAgentOpenDirectMessageSpace).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetProfileId: HUMAN_PROFILE_ID,
+        creationId,
+        context: expect.objectContaining({
+          actorContext: expect.objectContaining({
+            openMeldProfileId: request.agentProfileId,
+            profileKind: "agent",
+          }),
+        }),
+      })
+    );
+    expect(response).toMatchObject({ spaceId: SPACE_ID, created: true });
+    await expect(
+      readRemoteAgentCallbackContext(storage, ACK.submissionId)
+    ).resolves.toMatchObject({
+      navigationTarget: { kind: "space", spaceId: SPACE_ID },
+    });
+  });
+
   it("creates a private Space with members-only access when access settings are omitted", async () => {
     const centerAgentCreateSpace = vi.fn(async () => createSpaceResponse());
     const tools = getRemoteAgentOpenMeldToolDefinitions({

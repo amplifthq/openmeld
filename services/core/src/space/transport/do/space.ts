@@ -2471,6 +2471,7 @@ type InitializeDirectMessageSpaceMetaInput = {
   purpose: string;
   pairKey: string;
   creator?: SpaceCreator;
+  ownerUserIds?: string[];
   guide: string;
   organizationId: string;
   visibility: "public" | "private";
@@ -5107,6 +5108,68 @@ export class Space extends DurableObject<CoreBindings> {
         input.spaceAddressingVersion === OPENMELD_SPACE_ADDRESSING_VERSION,
     });
     return readSpaceRpcJsonOrThrow(response);
+  }
+
+  async rpcPostDirectMessageSignal(
+    input: PostSignalOnceByClientMessageIdInput & { pairKey: string }
+  ): Promise<SignalEnvelope> {
+    this.applySpaceRef(input.spaceId);
+    const result = await this.ctx.blockConcurrencyWhile(async () => {
+      try {
+        const meta = this.requireConvertibleDirectMessageMeta();
+        const members = listSpaceMemberRecords(this.ctx.storage.sql, {
+          status: "active",
+        });
+        if (
+          meta.directMessage?.pairKey !== input.pairKey ||
+          members.length !== 2 ||
+          members
+            .map((member) => member.profileId)
+            .sort()
+            .join(":") !== input.pairKey
+        ) {
+          throw createCoreRpcHttpError({
+            code: "direct_message.conversation_changed",
+            reason: "The conversation changed. Open the Direct Message again.",
+            status: 409,
+          });
+        }
+        const existing = this.readSourceTextSignalByClientMessageId(
+          input.clientMessageId
+        );
+        if (
+          existing &&
+          (existing.profile.profileId !== input.profile.profileId ||
+            existing.data.text !== input.text.trim() ||
+            JSON.stringify(
+              existing.data.messageEnvelope?.activationTargets ?? []
+            ) !==
+              JSON.stringify(input.messageEnvelope?.activationTargets ?? []) ||
+            JSON.stringify(
+              existing.data.messageEnvelope?.referenceTargets ?? []
+            ) !== JSON.stringify(input.messageEnvelope?.referenceTargets ?? []))
+        ) {
+          throw createCoreRpcHttpError({
+            code: "direct_message.message_conflict",
+            reason: "This message ID was already used for a different message.",
+            status: 409,
+          });
+        }
+        return {
+          ok: true as const,
+          signal: await this.rpcPostSignalOnceByClientMessageId(input),
+        };
+      } catch (error) {
+        if (!this.coreRpcErrorResponse(error)) {
+          throw error;
+        }
+        return { ok: false as const, error };
+      }
+    });
+    if (!result.ok) {
+      throw result.error;
+    }
+    return result.signal;
   }
 
   async rpcReadPluginConnectionLocalSource(
@@ -11012,11 +11075,21 @@ export class Space extends DurableObject<CoreBindings> {
             member.profileKindSnapshot === "agent" &&
             member.ownerUserIdSnapshot === actorOwnerUserId
         ) &&
-        input.members.length === 1 &&
-        input.members[0]?.profileId ===
-          context.actorContext.openMeldProfileId &&
-        input.members[0]?.profileKind === "human" &&
-        input.members[0]?.ownerUserId === actorOwnerUserId
+        input.members.some(
+          (member) =>
+            member.profileId === context.actorContext.openMeldProfileId &&
+            member.profileKind === "human" &&
+            member.ownerUserId === actorOwnerUserId
+        ) &&
+        input.members.every(
+          (member) =>
+            member.profileKind === "human" &&
+            activeMembers.some(
+              (agent) =>
+                agent.profileKindSnapshot === "agent" &&
+                agent.ownerUserIdSnapshot === member.ownerUserId
+            )
+        )
     );
     if (!(isActiveHumanMember || isAgentOwnerJoiningAsSelf)) {
       throw createCoreRpcHttpError({
@@ -11721,6 +11794,7 @@ export class Space extends DurableObject<CoreBindings> {
           purpose: input.purpose,
           directMessage: { pairKey: input.pairKey },
           ...(input.creator ? { creator: input.creator } : {}),
+          ...(input.ownerUserIds ? { ownerUserIds: input.ownerUserIds } : {}),
           organizationId: input.organizationId,
           visibility: input.visibility,
           guide: input.guide,

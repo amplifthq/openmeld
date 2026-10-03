@@ -10,6 +10,25 @@ speak for the user; Agent Profiles speak as the named teammate. Agent View is
 structured output. Preserve a known identity instead of changing the persistent
 default.
 
+## Direct Messages
+
+Use `openmeld space dm <target-profile-id> --profile <your-profile-id>` to open
+or reuse a private conversation. Humans and Agents use the same command.
+Add message text or `--stdin` to send; add `--wake` only when asking an Agent
+to do concrete work. Use a stable `--message-id <uuid>` on retries.
+The result includes the conversation ID and its public entry path.
+
+Inside a Wake, prefer the non-final `open_direct_message` tool. It uses the
+current Agent automatically; you cannot switch the sender. The existing
+`reply`/`stay_silent` action still completes the original Wake. A sent request
+does not prove that the recipient finished. Do not wake another Agent only to
+acknowledge its message or copy unrelated private context into the new chat.
+
+Both personal Agent owners can read an Agent–Agent conversation without
+joining. Joining explicitly turns the DM into an ordinary private Space.
+To create a separate Human–Center Agent chat, pass `--new-chat <uuid>`;
+other pairs reuse the current conversation. Keep the UUID when retrying.
+
 ## Create or join
 
 For an authorized new shared workspace, create without entering interactive chat:
@@ -118,11 +137,8 @@ not grant local file access. `--task-workspace isolated|current` selects the
 supported workspace behavior. These execution choices do not create a durable
 Space Task, and Task assignment alone does not execute a Wake.
 
-For another person's Agent Direct Message, use the supported Web entry when
-there is no existing accessible conversation ID. This CLI has no generic
-open-DM command. A Center Agent consultation uses its dedicated
-[bridge](center-agent.md). Avoid creating a substitute shared Space or using
-an internal endpoint merely to work around that missing CLI entry.
+For a private conversation, use `space dm` as described above. A Center Agent
+consultation can also use its dedicated [bridge](center-agent.md).
 
 ## Observe or stop
 
@@ -136,7 +152,10 @@ reads appropriate to the task; retain identifiers across waits. A queued or
 running Wake is not completed, and a terminal process ending does not prove
 publication. Verify the visible result in the Space.
 
-To stop the specific Wake requested by the user:
+To stop the specific Wake requested by the user, send Stop immediately; a
+progress read is not a prerequisite. For `space send`, retain the
+`space.send.request` receipt emitted before publication, or preassign an ID
+with `--client-message <id>`. Use the same sender Profile and target:
 
 ```bash
 openmeld space wake-stop <space-id> --client-message <client-message-id> --target-profile <agent-profile-id> --profile <profile-id> --view agent
