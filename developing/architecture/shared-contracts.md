@@ -45,6 +45,14 @@ participant pair and unconverted DM status before publication. The CLI exposes
 same message ID. Native tools open first, then send using that receipt. There
 is no second cancellation store: the existing Space Stop fence owns late sends.
 
+Personal Remote progress and Stop operations accept optional `spaceId`, defaulting
+to the current delivery's Space. Core bounds an explicit destination to the
+delivery's Organization, then Space checks current access and exact request
+authority. Center Agent self-authored DM Stop uses its canonical identity and
+current designation; represented-member fallback for UUID messages requires an
+existing source signal. It never creates a pre-send fence under a different
+author. These optional native tool fields require Core before Remote deployment.
+
 Core resolves both participants canonically; Gateway, native Agent tools, CLI
 and dispatch tools share this contract. The Space owner serializes DM
 membership verification with ordinary idempotent message publication, so
