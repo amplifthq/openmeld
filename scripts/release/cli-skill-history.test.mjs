@@ -31,21 +31,14 @@ test("rejects mutation or deletion of every archived signed revision", async () 
       fixtureRoot,
       "clients/web/public/skills/openmeld-cli/archive.json"
     );
-    const trustedChannel = JSON.parse(
-      await readFile(
-        join(REPO_ROOT, "clients/web/public/skills/openmeld-cli/channel.json"),
-        "utf8"
-      )
-    );
-    await writeFile(
-      archivePath,
-      `${JSON.stringify(trustedChannel, null, 2)}\n`
-    );
+    // The delivery channel may omit superseded revisions; immutable history
+    // must retain the complete signed archive copied into this fixture.
+    const trustedArchive = JSON.parse(await readFile(archivePath, "utf8"));
     const run = () =>
       runCliSkill({
         mode: "check",
         root: fixtureRoot,
-        trustedReleases: trustedChannel.releases,
+        trustedReleases: trustedArchive.releases,
       });
     const historicalEntry = join(
       fixtureRoot,
@@ -64,8 +57,8 @@ test("rejects mutation or deletion of every archived signed revision", async () 
       archivePath,
       `${JSON.stringify(
         {
-          ...trustedChannel,
-          releases: trustedChannel.releases.filter(
+          ...trustedArchive,
+          releases: trustedArchive.releases.filter(
             (release) => JSON.parse(release.payload).revision !== 1
           ),
         },

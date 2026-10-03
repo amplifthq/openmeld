@@ -1,8 +1,8 @@
+import { findPluginDefinition } from "@openmeld/product-catalog/plugins";
 import type {
 	CenterAgentRoutineManagement,
 	CreateCenterAgentRoutineBody,
 } from "@openmeld/schemas/types";
-import { findPluginDefinition } from "./plugin-catalog";
 
 export const CENTER_AGENT_SELF_EVOLUTION_NAME = "Center Agent Self-Evolution";
 export const CENTER_AGENT_SELF_EVOLUTION_MARKER =

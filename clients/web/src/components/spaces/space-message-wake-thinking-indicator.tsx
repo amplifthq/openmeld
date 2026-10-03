@@ -57,7 +57,7 @@ export function SpaceMessageWakeThinkingIndicator(input: {
 	);
 	const statusContent = statusEntries.map((entry) => (
 		<output
-			aria-label={formatWakeProgressSummary(input.entries)}
+			aria-label={entry.text}
 			className="text-[13px] text-muted-foreground"
 			data-testid="space-wake-status"
 			key={entry.key}
@@ -238,7 +238,12 @@ function formatWakeProgressSummary(
 ): string {
 	const counts = new Map<WakeProgressStatusKind, number>();
 	for (const entry of entries) {
-		counts.set(entry.step.kind, (counts.get(entry.step.kind) ?? 0) + 1);
+		const kind = ["starting", "sent", "connecting", "retrying"].includes(
+			entry.step.kind
+		)
+			? "working"
+			: entry.step.kind;
+		counts.set(kind, (counts.get(kind) ?? 0) + 1);
 	}
 	const labels: string[] = [];
 	for (const [kind, count] of counts) {
@@ -262,22 +267,22 @@ function formatWakeProgressSummaryPart(
 		case "waiting_for_owner":
 			return `${agentCount} waiting for ${count === 1 ? "its" : "their"} owner`;
 		case "queued":
-			return `${agentCount} queued`;
+			return `${agentCount} waiting for earlier tasks`;
 		case "working":
-			return `${agentCount} working`;
+			return `${agentCount} thinking`;
 		case "replying":
 			return `${agentCount} replying`;
 		case "posting":
 			return count === 1 ? "Posting 1 reply" : `Posting ${count} replies`;
 		case "waiting_for_controller":
-			return `${agentCount} waiting for a controller task`;
+			return `${agentCount} waiting for an earlier task`;
 		case "waiting_for_device":
 			return `${agentCount} waiting for a computer`;
 		case "starting":
 		case "sent":
 		case "connecting":
 		case "retrying":
-			return `${agentCount} starting`;
+			return `${agentCount} thinking`;
 		default: {
 			const _exhaustive: never = kind;
 			return _exhaustive;

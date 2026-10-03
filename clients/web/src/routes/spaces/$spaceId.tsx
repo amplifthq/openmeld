@@ -30,6 +30,10 @@ import {
 	SelectLabel,
 	SelectTrigger,
 } from "@openmeld/ui/fluid/select";
+import {
+	APP_PAGE_FRAME_CLASS_NAME,
+	APP_PAGE_FRAME_PADDING_CLASS_NAME,
+} from "@openmeld/ui/lib/page-frame";
 import { LockKeyIcon, SignInIcon, UserIcon } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
@@ -45,10 +49,6 @@ import {
 } from "react";
 import { z } from "zod/v4";
 import { CrossPageHeader } from "#/components/app/cross-page-header";
-import {
-	APP_PAGE_FRAME_CLASS_NAME,
-	APP_PAGE_FRAME_PADDING_CLASS_NAME,
-} from "#/components/app/shell-layout";
 import { StartFlowStateProvider } from "#/components/app/start-flow-state";
 import type { SpaceComposerInputRef } from "#/components/spaces/space-composer-editor";
 import { SpaceConversationPanel } from "#/components/spaces/space-conversation-panel";

@@ -75,6 +75,9 @@ export function resolveDesktopPilotLaunch({
     ...env,
     ...buildIsolatedDevEnvironment(lane),
     OPENMELD_ENV_PRESET: preset,
+    OPENMELD_AUTH_CLIENT_ID:
+      env.OPENMELD_AUTH_CLIENT_ID ??
+      (preset === "dev-local" ? "openmeld-cli-dev" : "openmeld-cli"),
     OPENMELD_USER_FACING_CLI_COMMAND: cli,
     OPENMELD_BIN: cli,
     OPENMELD_DESKTOP_PILOT: "1",

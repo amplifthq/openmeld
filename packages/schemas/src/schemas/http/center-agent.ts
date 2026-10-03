@@ -183,6 +183,7 @@ export const centerAgentActionSchema = z.enum([
   "save_org_document",
   "read_org_space_directory",
   "read_space_context",
+  "manage_space_input_queue",
   "read_dispatch_history",
   "read_projects",
   "create_project",

@@ -7,6 +7,15 @@ import {
   spaceThreadEvidenceResponseSchema,
 } from "../http/space-evidence";
 import {
+  getSpaceWakeProgressInputSchema,
+  getSpaceWakeProgressResponseSchema,
+} from "../http/space-wake-progress";
+import {
+  postSpaceWakeStopBodySchema,
+  postSpaceWakeStopResponseSchema,
+} from "../http/space-wake-stop";
+import { clientMessageIdSchema } from "../protocol/client-message-id";
+import {
   agentReplyPlacementSchema,
   nativeReplyPlacementSchema,
 } from "../space-mesh/agent-reply-placement";
@@ -40,6 +49,16 @@ export const personalRemoteAgentSpaceToolRequestSchema = z.strictObject({
     }),
     z.strictObject({ kind: z.literal("board") }),
     z.strictObject({
+      kind: z.literal("wake_progress"),
+      spaceId: identifier.optional(),
+      query: getSpaceWakeProgressInputSchema.omit({ spaceId: true }),
+    }),
+    z.strictObject({
+      kind: z.literal("wake_stop"),
+      spaceId: identifier.optional(),
+      body: postSpaceWakeStopBodySchema,
+    }),
+    z.strictObject({
       kind: z.literal("reply_placement"),
       placement: agentReplyPlacementSchema,
     }),
@@ -49,6 +68,7 @@ export const personalRemoteAgentSpaceToolRequestSchema = z.strictObject({
     }),
     z.strictObject({
       kind: z.literal("wake"),
+      clientMessageId: clientMessageIdSchema.optional(),
       agentProfileId: identifier,
       text: z.string().trim().min(1).max(8000),
     }),
@@ -79,6 +99,14 @@ export const personalRemoteAgentSpaceToolResponseSchema = z.discriminatedUnion(
       messages: z.array(centerAgentContextManifestEntrySchema).max(30),
       nextAfterSignalId: identifier.nullable(),
       truncated: z.boolean(),
+    }),
+    z.strictObject({
+      kind: z.literal("wake_progress"),
+      progress: getSpaceWakeProgressResponseSchema,
+    }),
+    z.strictObject({
+      kind: z.literal("wake_stop"),
+      response: postSpaceWakeStopResponseSchema,
     }),
     z.strictObject({
       kind: z.literal("reply_placement"),
@@ -125,6 +153,7 @@ export const personalRemoteAgentSpaceToolResponseSchema = z.discriminatedUnion(
     z.strictObject({
       kind: z.literal("wake"),
       signalId: identifier,
+      clientMessageId: clientMessageIdSchema.optional(),
       agentProfileId: identifier,
     }),
   ]

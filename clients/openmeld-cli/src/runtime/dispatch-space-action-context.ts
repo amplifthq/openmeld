@@ -12,6 +12,7 @@ import { isDeepStrictEqual } from "node:util";
 import {
   executionContextAssignmentSchema,
   openMeldSpaceEgressActionSchema,
+  organizationSkillRuntimeReleaseSelectionSchema,
   runtimeCoordinatorExecutionTokenEchoSchema,
   spaceMemberDirectoryEntrySchema,
 } from "@openmeld/schemas";
@@ -19,6 +20,7 @@ import type {
   DispatchSpaceActionClosedReasonCode,
   DispatchSpaceActionReceipt,
   OpenMeldSpaceEgressAction,
+  OrganizationSkillRuntimeReleaseSelection,
   SpaceContract,
   SpaceMemberDirectoryEntry,
 } from "@openmeld/schemas/types";
@@ -87,6 +89,7 @@ export type DispatchSpaceActionContext = {
   executionTokenEcho?: ReturnType<
     typeof runtimeCoordinatorExecutionTokenEchoSchema.parse
   >;
+  organizationSkillReleases?: OrganizationSkillRuntimeReleaseSelection[];
   projectShell?: {
     boundaryRoot: string;
     executionContextId: string;
@@ -142,6 +145,7 @@ export type DispatchSpaceActionRecordReadResult =
 
 export function createDispatchSpaceActionContext(input: {
   executionTokenEcho?: DispatchSpaceActionContext["executionTokenEcho"];
+  organizationSkillReleases?: OrganizationSkillRuntimeReleaseSelection[];
   projectShell?: DispatchSpaceActionContext["projectShell"];
   workingCopyId?: string;
   attemptId: string;
@@ -182,6 +186,9 @@ export function createDispatchSpaceActionContext(input: {
             input.executionTokenEcho
           ),
         }
+      : {}),
+    ...(input.organizationSkillReleases
+      ? { organizationSkillReleases: input.organizationSkillReleases }
       : {}),
     ...(input.projectShell ? { projectShell: input.projectShell } : {}),
     ...(input.workingCopyId ? { workingCopyId: input.workingCopyId } : {}),
@@ -385,6 +392,14 @@ function parseDispatchSpaceActionContext(
         }
       : {}),
     version,
+    ...(record.organizationSkillReleases
+      ? {
+          organizationSkillReleases:
+            organizationSkillRuntimeReleaseSelectionSchema
+              .array()
+              .parse(record.organizationSkillReleases),
+        }
+      : {}),
     actionRecordPath: requiredString(
       record.actionRecordPath,
       "actionRecordPath"

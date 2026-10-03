@@ -192,6 +192,7 @@ export {
 } from "./desktop-release";
 export * from "./desktop-transport-diagnostics";
 export * from "./desktop-updater";
+export * from "./local-execution-input";
 export {
   buildOpenMeldNavigationAction,
   buildOpenMeldOrganizationWebUrl,
@@ -454,6 +455,7 @@ export {
   SPACE_ACCESS_VERSION,
   SPACE_ACCESS_VERSION_HEADER,
 } from "./space-access-version";
+export * from "./space-execution-input";
 export {
   ORGANIZATION_INVITATION_LIFETIME_SECONDS,
   type SpaceInvitation,

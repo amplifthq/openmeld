@@ -218,6 +218,11 @@ function useComputerConnection(input: ComputerConnectionProps) {
 	const settledProgressIdsRef = useRef(new Set<string>());
 	const expectedAccount = session.data?.user.id;
 	const intent = setup.routeIntent;
+	const requiresConnection = Boolean(
+		intent.resetThisComputer ||
+			input.sourceNavigationAction ||
+			intent.connectedComputerId
+	);
 	const connectionRequest: DesktopComputerConnectionRequest | null =
 		expectedAccount === undefined
 			? null
@@ -232,18 +237,13 @@ function useComputerConnection(input: ComputerConnectionProps) {
 	const connectionRequestKey = connectionRequest
 		? buildConnectionRequestKey(connectionRequest)
 		: null;
-	const canDisconnect =
-		input.allowDisconnect &&
-		!intent.resetThisComputer &&
-		!input.sourceNavigationAction &&
-		!intent.connectedComputerId;
+	const canDisconnect = Boolean(input.allowDisconnect && !requiresConnection);
 	const trustedDisplay = Boolean(
 		connection.data &&
 			(connection.data.status === "unavailable" ||
 				connection.data.accountId === expectedAccount)
 	);
 	const connected =
-		canDisconnect &&
 		connection.data?.status === "available" &&
 		connection.data.accountId === expectedAccount;
 	const isCurrentAction = useCallback(
@@ -631,7 +631,7 @@ function useComputerConnection(input: ComputerConnectionProps) {
 	const disconnect = async () => {
 		const desktop = getDesktopPlatform();
 		if (
-			!(desktop && expectedAccount && connected) ||
+			!(desktop && expectedAccount && connected && canDisconnect) ||
 			connection.data?.status !== "available"
 		) {
 			return;
@@ -680,11 +680,21 @@ function useComputerConnection(input: ComputerConnectionProps) {
 			// The query's existing error is the visible result; no mutation retry.
 		}
 	};
+	const continueWithConnection = () => {
+		if (connection.data?.status !== "available") {
+			return;
+		}
+		input.onCompleted?.(connection.data.target);
+		input.onContinue?.();
+	};
+	const useExistingConnection = connected && !requiresConnection;
 	return {
 		connection,
-		connect,
+		connect: useExistingConnection ? continueWithConnection : connect,
 		disconnect,
 		connected,
+		canDisconnect,
+		requiresConnection,
 		pending,
 		operation,
 		message,
@@ -763,7 +773,13 @@ function DesktopWebConnection(
 function nativeConnectionActionLabel(
 	state: Pick<
 		ReturnType<typeof useComputerConnection>,
-		"failed" | "connected" | "operation" | "disconnectPhase" | "checking"
+		| "failed"
+		| "connected"
+		| "canDisconnect"
+		| "requiresConnection"
+		| "operation"
+		| "disconnectPhase"
+		| "checking"
 	>,
 	disconnectFeedbackAvailable: boolean
 ) {
@@ -783,7 +799,13 @@ function nativeConnectionActionLabel(
 		return "Checking this Mac…";
 	}
 	if (state.connected) {
-		return "Disconnect this Mac";
+		if (state.canDisconnect) {
+			return "Disconnect this Mac";
+		}
+		if (state.requiresConnection) {
+			return state.failed ? "Try again" : "Reconnect this Mac";
+		}
+		return "Continue";
 	}
 	return state.failed ? "Try again" : "Connect this Mac";
 }
@@ -843,12 +865,31 @@ function ConnectionReadError({ error }: { error: unknown }) {
 	);
 }
 
+function nativeConnectionDescription(
+	state: Pick<
+		ReturnType<typeof useComputerConnection>,
+		"connected" | "requiresConnection" | "connection" | "pending"
+	>
+) {
+	if (state.connected) {
+		return state.requiresConnection
+			? "This Mac is connected to OpenMeld. Reconnect to refresh its connection."
+			: "This Mac is connected to OpenMeld. You don’t need to connect it again.";
+	}
+	if (state.connection.data?.status === "unavailable" && !state.pending) {
+		return state.connection.data.message;
+	}
+	return "Local agents can keep working after you quit Desktop.";
+}
+
 function NativeComputerConnection(input: ComputerConnectionProps) {
 	const {
 		connection,
 		connect,
 		disconnect,
 		connected,
+		canDisconnect,
+		requiresConnection,
 		pending,
 		operation,
 		message,
@@ -868,17 +909,28 @@ function NativeComputerConnection(input: ComputerConnectionProps) {
 		getDesktopPlatform()?.disconnectComputerWithFeedback
 	);
 	const actionLabel = nativeConnectionActionLabel(
-		{ failed, connected, operation, disconnectPhase, checking },
+		{
+			failed,
+			connected,
+			canDisconnect,
+			requiresConnection,
+			operation,
+			disconnectPhase,
+			checking,
+		},
 		disconnectFeedbackAvailable
 	);
 	let title = connected ? "Connected" : "Connect this Mac";
 	if (needsCheck) {
 		title = "Connection unconfirmed";
 	}
-	let description = "Local agents can keep working after you quit Desktop.";
-	if (connection.data?.status === "unavailable" && !pending) {
-		description = connection.data.message;
-	}
+	const description = nativeConnectionDescription({
+		connected,
+		requiresConnection,
+		connection,
+		pending,
+	});
+	const disconnectAction = connected && canDisconnect;
 	const observeInWebPath = buildObserveConnectionProgressPath({
 		orgSlug: input.orgSlug,
 		prepareSessionId: progress?.prepareSessionId ?? null,
@@ -911,9 +963,9 @@ function NativeComputerConnection(input: ComputerConnectionProps) {
 			) : null}
 			<Button
 				disabled={disabled}
-				onClick={connected ? disconnect : connect}
+				onClick={disconnectAction ? disconnect : connect}
 				type="button"
-				variant={connected ? "destructive" : "default"}
+				variant={disconnectAction ? "destructive" : "default"}
 			>
 				{actionLabel}
 			</Button>

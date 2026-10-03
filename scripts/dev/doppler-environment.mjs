@@ -152,6 +152,7 @@ const STAGING_OPEN_CONNECTOR_SECRET_SOURCE = {
 const STAGING_COMPONENT_PROJECTS = new Map([
   ["open-connector", ["openmeld-release", "openmeld-open-connector"]],
   ["release", ["openmeld-release"]],
+  ["website", ["openmeld-release"]],
   ["web", ["openmeld-release", "openmeld-web"]],
   ["auth", ["openmeld-release", "openmeld-auth"]],
   ["core", ["openmeld-release", "openmeld-core"]],

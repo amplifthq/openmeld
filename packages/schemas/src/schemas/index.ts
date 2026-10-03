@@ -28,6 +28,10 @@ export {
 } from "./daemon/service-connection-evidence";
 export { agentActivityOverviewResponseSchema } from "./http/agent-activity-overview";
 export {
+  agentWorkloadSnapshotSchema,
+  spaceAgentWorkloadInputSchema,
+} from "./http/agent-workload";
+export {
   centerAgentEvidenceSourceSpaceSchema,
   centerAgentReadAuditJournalResponseSchema,
   centerAgentReadAuditJournalRpcInputSchema,
@@ -205,6 +209,7 @@ export {
   cliJsonSpaceListOrganizationEnvelopeSchema,
   cliJsonSpaceMembersEnvelopeSchema,
 } from "./cli/json-output";
+export { spaceSendRequestReceiptSchema } from "./cli/space-send";
 export {
   commonErrorSchema,
   errorResponseSchema,
@@ -2421,6 +2426,10 @@ export {
   uploadSpaceFileResponseSchema,
 } from "./http/space-files";
 export {
+  spaceInputQueueMutationSchema,
+  spaceInputQueueResponseSchema,
+} from "./http/space-input-queue";
+export {
   addCenterAgentToSpaceBodySchema,
   addOrganizationDirectoryProfilesToSpaceBodySchema,
   leaveSpaceResponseSchema,
@@ -2959,6 +2968,10 @@ export {
   agentControllerUsageLimitStatusSchema,
   agentControllerUsageLimitsSchema,
 } from "./runtime/agent-controller-interface";
+export {
+  agentExecutionSteerRequestSchema,
+  agentExecutionSteerResponseSchema,
+} from "./runtime/agent-execution-steer";
 export {
   AGENT_TASK_COORDINATION_SCHEMA_VERSION,
   agentDelegationBarrierSchema,

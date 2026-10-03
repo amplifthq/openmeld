@@ -13,7 +13,7 @@ export const productionTrainAdmissionSchema = z.strictObject({
   version: z.literal(1),
   sourceSha: sha,
   scopes: z.array(trainScope).min(1),
-  artifactScopes: z.array(z.enum(["cli", "desktop", "web"])),
+  artifactScopes: z.array(z.enum(["cli", "desktop", "web", "website"])),
   producer: z.strictObject({
     repository: z.string().min(1),
     workflowRef: z.string().min(1),
@@ -36,7 +36,7 @@ export const productionTrainAdmissionSchema = z.strictObject({
         integrity: z.string().regex(/^sha512-[A-Za-z0-9+/]{86}==$/u),
       }),
       z.strictObject({
-        scope: z.enum(["desktop", "web"]),
+        scope: z.enum(["desktop", "web", "website"]),
         inputIdentity: sha256,
         artifactSha256: sha256,
         receiptSha256: sha256,

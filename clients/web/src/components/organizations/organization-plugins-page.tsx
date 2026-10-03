@@ -1,5 +1,9 @@
 "use client";
 
+import {
+	findPluginDefinition,
+	type PluginDefinition,
+} from "@openmeld/product-catalog/plugins";
 import { useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { AppPageHeader } from "#/components/app/app-page-header";
@@ -11,7 +15,6 @@ import {
 	OrganizationPluginDetailPage,
 	OrganizationPluginNotFoundPage,
 } from "./organization-plugin-detail-page";
-import { findPluginDefinition, type PluginDefinition } from "./plugin-catalog";
 import { PluginConnectionRequestPanel } from "./plugin-connection-request-panel";
 import { PluginScopeTabs } from "./plugin-scope-tabs";
 import { PluginsCatalogPanel } from "./plugins-catalog-panel";
