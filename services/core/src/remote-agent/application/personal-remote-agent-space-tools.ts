@@ -4,7 +4,10 @@ import {
   personalRemoteAgentSpaceToolRequestSchema,
   personalRemoteAgentSpaceToolResponseSchema,
 } from "@openmeld/schemas";
-import { buildCenterAgentContextMessageProjection } from "../../center-agent/application/center-agent-context-manifest-service";
+import {
+  buildCenterAgentContextMessageProjection,
+  buildSpaceMessageEvidence,
+} from "../../center-agent/application/center-agent-context-manifest-service";
 import {
   isCenterAgentDesignationActive,
   readCenterAgentDesignationRecord,
@@ -17,8 +20,10 @@ import {
 import {
   rpcGetSpaceBoard,
   rpcGetSpaceMemberDirectory,
+  rpcGetSpaceThread,
   rpcGetSpaceUpdates,
   rpcListSignals,
+  rpcListSpaceThreadSignals,
   rpcPostSignalOnceByClientMessageId,
 } from "../../rpc/methods";
 import {
@@ -260,6 +265,41 @@ export async function runPersonalRemoteAgentSpaceTool(
       truncated: projection.budget.truncated,
     });
   }
+  if (input.operation.kind === "evidence") {
+    const { sourceSignalId } = input.operation;
+    const page = await rpcListSignals(env, {
+      context,
+      spaceId: delivery.spaceId,
+      aroundSignalId: sourceSignalId,
+      beforeCount: 0,
+      afterCount: 0,
+      signalTypes: ["signal.text"],
+    });
+    const signal = page.signals.find(
+      (candidate) => candidate.id === sourceSignalId
+    );
+    if (!signal || signal.type !== "signal.text") {
+      throw new Error(
+        "space.evidence_unavailable: The requested message is unavailable."
+      );
+    }
+    return personalRemoteAgentSpaceToolResponseSchema.parse({
+      kind: "evidence",
+      ...(await buildSpaceMessageEvidence({
+        ...input.operation,
+        signal,
+        spaceId: delivery.spaceId,
+      })),
+    });
+  }
+  if (input.operation.kind === "thread") {
+    return await readPersonalSpaceThread({
+      env,
+      context,
+      spaceId: delivery.spaceId,
+      operation: input.operation,
+    });
+  }
   if (input.operation.kind === "members") {
     return personalRemoteAgentSpaceToolResponseSchema.parse({
       kind: "members",
@@ -323,5 +363,62 @@ export async function runPersonalRemoteAgentSpaceTool(
     kind: "wake",
     signalId: signal.id,
     agentProfileId: target.profileId,
+  });
+}
+
+async function readPersonalSpaceThread(input: {
+  env: CoreBindings;
+  context: Awaited<
+    ReturnType<typeof requirePersonalRemoteAgentExecution>
+  >["context"];
+  spaceId: string;
+  operation: Extract<
+    ReturnType<
+      typeof personalRemoteAgentSpaceToolRequestSchema.parse
+    >["operation"],
+    { kind: "thread" }
+  >;
+}) {
+  const { env, context, spaceId } = input;
+  const { threadId, afterSignalId, limit = 20 } = input.operation;
+  const thread = await rpcGetSpaceThread(env, { context, spaceId, threadId });
+  const replies = await rpcListSpaceThreadSignals(env, {
+    context,
+    spaceId,
+    threadId,
+    afterSignalId: afterSignalId ?? thread.thread.rootSignalId,
+    limit: limit + 1,
+  });
+  const candidates = [
+    ...(!afterSignalId && thread.rootSignal ? [thread.rootSignal] : []),
+    ...replies.signals,
+  ];
+  const page = candidates.slice(0, limit);
+  const signals = page.filter(
+    (signal) =>
+      signal.type === "signal.text" &&
+      signal.data.meta?.recalledAt === undefined
+  );
+  // The projection budgets newest-first. Reverse this forward page so budget
+  // pressure cannot skip its first unread message and advance beyond it.
+  const projection = await buildCenterAgentContextMessageProjection({
+    hasOlderMessages: false,
+    limit,
+    maxContextTokens: 8192,
+    signals: signals.toReversed(),
+    spaceId,
+  });
+  const messages = projection.entries.toReversed();
+  const budgetLimited = messages.length < signals.length;
+  const more = candidates.length > limit || budgetLimited;
+  const lastRead = budgetLimited
+    ? messages.at(-1)?.sourceRef.id
+    : page.at(-1)?.id;
+  return personalRemoteAgentSpaceToolResponseSchema.parse({
+    kind: "thread",
+    threadId,
+    messages,
+    nextAfterSignalId: more ? (lastRead ?? null) : null,
+    truncated: more || projection.budget.truncated,
   });
 }

@@ -231,6 +231,46 @@ async function materializeEntry(input: {
   return entry;
 }
 
+/** One exact message page; access must be checked by the source owner per call. */
+export async function buildSpaceMessageEvidence(input: {
+  signal: TextSignalEnvelope;
+  spaceId: string;
+  version?: string;
+  offset?: number;
+}) {
+  if (input.signal.data.meta?.recalledAt !== undefined) {
+    throw new Error("space.evidence_unavailable: This message was recalled.");
+  }
+  const entry = await materializeEntry(input);
+  if (
+    input.version !== undefined &&
+    input.version !== entry.sourceRef.version
+  ) {
+    throw new Error(
+      "space.evidence_version_unavailable: The requested message version is no longer available."
+    );
+  }
+  const offset = input.offset ?? 0;
+  const characters = Array.from(entry.content.text);
+  if (offset > characters.length) {
+    throw new Error(
+      "space.evidence_offset_invalid: The offset is outside this message."
+    );
+  }
+  const end = Math.min(characters.length, offset + 4000);
+  const complete = offset === 0 && end === characters.length;
+  return {
+    message: complete
+      ? entry
+      : await buildTruncatedEntry(
+          entry,
+          characters.slice(offset, end).join("")
+        ),
+    offset,
+    nextOffset: end < characters.length ? end : null,
+  };
+}
+
 async function truncateEntryToTokenBudget(input: {
   entry: CenterAgentContextManifestEntry;
   maxContextTokens: number;

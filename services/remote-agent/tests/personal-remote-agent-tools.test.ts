@@ -4,13 +4,15 @@ import { buildRemoteAgentSystemPrompt } from "../agent-core/prompt";
 import { createSubmitTurnRequest } from "./fixtures";
 
 describe("personal Remote Agent capabilities", () => {
-  it("keeps old Core submissions on the existing tool contract during rollout", () => {
+  it("keeps baseline collaboration tools and exposes bounded evidence reads", () => {
     const tools = getPersonalRemoteAgentTools({
       coreWorker: {},
       submissionId: "older-submission",
     });
     expect(tools.map((tool) => tool.name)).toEqual([
       "openmeld_read_space_messages",
+      "openmeld_read_space_evidence",
+      "openmeld_read_space_thread",
       "openmeld_read_space_members",
       "openmeld_wake_agent_in_space",
       "openmeld_set_reply_placement",
@@ -32,11 +34,13 @@ describe("personal Remote Agent capabilities", () => {
       "openmeld_read_space_board",
       "openmeld_read_space_updates",
       "openmeld_read_space_messages",
+      "openmeld_read_space_evidence",
+      "openmeld_read_space_thread",
       "openmeld_read_space_members",
       "openmeld_wake_agent_in_space",
       "openmeld_set_reply_placement",
     ]);
-    const [, , messages, members, wake, placement] = tools;
+    const [, , messages, , , members, wake, placement] = tools;
     if (!(messages && members && wake && placement)) {
       throw new Error("expected personal collaboration tools");
     }

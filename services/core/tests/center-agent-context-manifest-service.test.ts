@@ -2,6 +2,7 @@ import type { SignalEnvelope } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
 import {
   buildCenterAgentContextMessageProjection,
+  buildSpaceMessageEvidence,
   decodeCenterAgentContextCursor,
   encodeCenterAgentContextCursor,
 } from "../src/center-agent/application/center-agent-context-manifest-service";
@@ -9,6 +10,44 @@ import {
 const SHA_256_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 
 describe("Center Agent context manifest projection", () => {
+  it("pages an exact source without splitting Unicode and rejects changed or recalled versions", async () => {
+    const text = "😀".repeat(4500);
+    const signal = textSignal({ id: "selected-source", text, ts: 1 });
+    const first = await buildSpaceMessageEvidence({
+      signal,
+      spaceId: "space-1",
+    });
+    const second = await buildSpaceMessageEvidence({
+      signal,
+      spaceId: "space-1",
+      version: first.message.sourceRef.version,
+      offset: first.nextOffset ?? 0,
+    });
+    expect(first.nextOffset).toBe(4000);
+    expect(second.nextOffset).toBeNull();
+    expect(first.message.content.text + second.message.content.text).toBe(text);
+    expect(first.message.sourceRef).toEqual(second.message.sourceRef);
+    expect(first.message.materializedContentHash).not.toBe(
+      second.message.materializedContentHash
+    );
+    await expect(
+      buildSpaceMessageEvidence({
+        signal: { ...signal, data: { ...signal.data, text: "new version" } },
+        spaceId: "space-1",
+        version: first.message.sourceRef.version,
+      })
+    ).rejects.toThrow("evidence_version_unavailable");
+    await expect(
+      buildSpaceMessageEvidence({
+        signal: {
+          ...signal,
+          data: { ...signal.data, meta: { recalledAt: 2 } },
+        },
+        spaceId: "space-1",
+        version: first.message.sourceRef.version,
+      })
+    ).rejects.toThrow("evidence_unavailable");
+  });
   it("returns recent visible messages in conversation order with stable source refs", async () => {
     const result = await buildCenterAgentContextMessageProjection({
       hasOlderMessages: true,
@@ -189,7 +228,7 @@ function textSignal(input: {
   };
   text: string;
   ts: number;
-}): SignalEnvelope {
+}): Extract<SignalEnvelope, { type: "signal.text" }> {
   return {
     data: {
       ...(input.replyToSignalId

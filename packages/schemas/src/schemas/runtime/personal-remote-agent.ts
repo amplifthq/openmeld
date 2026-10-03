@@ -14,6 +14,25 @@ export const personalRemoteAgentSpaceToolRequestSchema = z.strictObject({
     z.strictObject({ kind: z.literal("authorize") }),
     z.strictObject({ kind: z.literal("members") }),
     z.strictObject({ kind: z.literal("messages") }),
+    z
+      .strictObject({
+        kind: z.literal("evidence"),
+        sourceSignalId: identifier,
+        version: z
+          .string()
+          .regex(/^sha256:[a-f0-9]{64}$/u)
+          .optional(),
+        offset: z.int().nonnegative().max(1_000_000).optional(),
+      })
+      .refine((value) => !value.offset || value.version !== undefined, {
+        message: "A continuation must retain the source version.",
+      }),
+    z.strictObject({
+      kind: z.literal("thread"),
+      threadId: identifier,
+      afterSignalId: identifier.optional(),
+      limit: z.int().min(1).max(30).optional(),
+    }),
     z.strictObject({ kind: z.literal("board") }),
     z.strictObject({
       kind: z.literal("reply_placement"),
@@ -35,6 +54,19 @@ export const personalRemoteAgentSpaceToolResponseSchema = z.discriminatedUnion(
   "kind",
   [
     z.strictObject({ kind: z.literal("authorize") }),
+    z.strictObject({
+      kind: z.literal("evidence"),
+      message: centerAgentContextManifestEntrySchema,
+      offset: z.int().nonnegative(),
+      nextOffset: z.int().positive().nullable(),
+    }),
+    z.strictObject({
+      kind: z.literal("thread"),
+      threadId: identifier,
+      messages: z.array(centerAgentContextManifestEntrySchema).max(30),
+      nextAfterSignalId: identifier.nullable(),
+      truncated: z.boolean(),
+    }),
     z.strictObject({
       kind: z.literal("reply_placement"),
       placement: nativeReplyPlacementSchema,

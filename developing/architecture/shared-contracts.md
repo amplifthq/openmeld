@@ -580,6 +580,23 @@ epoch changes. Before rolling Core back, let accepted recovery deliveries settle
 an old Core cannot read requests with this new strict field. No database migration
 or local component release is required.
 
+## Personal Remote Agent evidence
+
+Personal Remote evidence reads add `evidence` and `thread` variants to the
+existing `personalRemoteAgentSpaceTool` request/response union. The source
+identity and version use the current context-manifest `sourceRef`; the source
+Space remains fixed by the admitted delivery. Evidence continuations require
+the original version. Thread continuations use the Space-owned after-signal
+query and never advance past messages omitted by the context budget.
+
+Deploy the Core receiver before the Remote tool producer. Old Remote producers
+continue to use the unchanged variants. An old Core rejects the new variants;
+Remote must not fall back to latest content or a different conversation.
+This increment adds no stored grant, database migration, CLI command, Service
+transport, Prepare payload, or Wake envelope field. Existing workstation setup,
+Wake, Space Action, status and diagnostics contracts remain unchanged. Shared
+schema changes still require normal local artifact verification before delivery.
+
 ## Shared Agent Plugins
 
 `packages/schemas` owns `plugin-access`, `plugin-actions`, and `plugin-runtime`.

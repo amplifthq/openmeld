@@ -546,6 +546,17 @@ an Agent-to-Agent handoff must not impersonate its owner to obtain those actions
 General Computer, research, and current-Space collaboration tools remain usable
 on Agent handoffs. Recorded Center delegations have the narrow read path below.
 
+Personal Remote Agents can read one current-Space message through
+`openmeld_read_space_evidence`, including a thread reply, and page a named thread
+through `openmeld_read_space_thread`. Exact reads reuse the existing
+`sourceRef.version`; an unavailable version or recalled message fails instead
+of substituting newer text. Long text uses bounded character pages with the
+same version on each continuation. Thread pages are live, ordered reads rather
+than an immutable thread snapshot. Each call rechecks the active execution and
+current Space membership, then reads through the ordinary Space owner. These
+tools do not authorize another Space, confer delegated Plugin permission, or
+publish private excerpts.
+
 The first M2 increment provides an opt-in Core read projection through
 `authorizeRemoteAgentExecutionAccess(includeDelegatedRequester=true)`. It follows
 the exact recorded Space child task to its native Center parent, verifies the
