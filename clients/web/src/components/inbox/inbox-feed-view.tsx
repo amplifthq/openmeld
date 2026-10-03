@@ -14,7 +14,10 @@ import {
 	FluidDropdownMenuContent,
 	FluidDropdownMenuItem,
 } from "@openmeld/ui/fluid/dropdown-menu";
-import { SharedLayoutGroup } from "@openmeld/ui/fluid/shared-layout-group";
+import {
+	SharedLayoutGroup,
+	SharedLayoutItem,
+} from "@openmeld/ui/fluid/shared-layout-group";
 import {
 	BellIcon,
 	CaretDownIcon,
@@ -187,58 +190,63 @@ function InboxCollection(input: FeedViewProps & { row: InboxFeedRow }) {
 	const system = row.group?.kind === "system";
 	return (
 		<li data-inbox-group={system ? "system" : "space"}>
-			<div className="flex flex-wrap items-center gap-x-3 px-3 py-3 sm:px-4">
-				<button
-					aria-controls={panelId}
-					aria-expanded={expanded}
-					aria-label={`${label} ${groupSummary(row)}`}
-					className="flex min-w-0 flex-1 items-center gap-3 rounded-sm py-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
-					onClick={() => input.expansion.toggle(row.groupKey)}
-					type="button"
-				>
-					{expanded ? (
-						<CaretDownIcon
-							aria-hidden="true"
-							className="size-3.5 shrink-0 text-muted-foreground"
-						/>
-					) : (
-						<CaretRightIcon
-							aria-hidden="true"
-							className="size-3.5 shrink-0 text-muted-foreground"
-						/>
-					)}
-					<span className="grid size-8 shrink-0 place-items-center text-muted-foreground">
-						{system ? (
-							<BellIcon aria-hidden="true" className="size-5" />
+			<SharedLayoutItem
+				indicatorClassName="[@media(hover:none)]:hidden [@media(pointer:coarse)]:hidden"
+				itemId={row.groupKey}
+			>
+				<div className="flex flex-wrap items-center gap-x-3 px-3 py-3 sm:px-4">
+					<button
+						aria-controls={panelId}
+						aria-expanded={expanded}
+						aria-label={`${label} ${groupSummary(row)}`}
+						className="flex min-w-0 flex-1 items-center gap-3 rounded-sm py-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+						onClick={() => input.expansion.toggle(row.groupKey)}
+						type="button"
+					>
+						{expanded ? (
+							<CaretDownIcon
+								aria-hidden="true"
+								className="size-3.5 shrink-0 text-muted-foreground"
+							/>
 						) : (
-							(avatar ?? <FolderIcon aria-hidden="true" className="size-5" />)
+							<CaretRightIcon
+								aria-hidden="true"
+								className="size-3.5 shrink-0 text-muted-foreground"
+							/>
 						)}
-					</span>
-					<span className="min-w-0 flex-1">
-						<span className="flex items-center gap-2">
-							<span className="truncate font-medium text-sm">{label}</span>
-							{row.unreadCount > 0 ? (
-								<span
-									aria-hidden="true"
-									className="status-dot shrink-0 bg-unread"
-								/>
-							) : null}
-						</span>{" "}
-						<span className="mt-0.5 block text-muted-foreground text-xs">
-							{groupSummary(row)}
+						<span className="grid size-8 shrink-0 place-items-center text-muted-foreground">
+							{system ? (
+								<BellIcon aria-hidden="true" className="size-5" />
+							) : (
+								(avatar ?? <FolderIcon aria-hidden="true" className="size-5" />)
+							)}
 						</span>
-						{expanded ? null : (
-							<span className="mt-2 block truncate text-muted-foreground text-sm">
-								{row.item.preview}
+						<span className="min-w-0 flex-1">
+							<span className="flex items-center gap-2">
+								<span className="truncate font-medium text-sm">{label}</span>
+								{row.unreadCount > 0 ? (
+									<span
+										aria-hidden="true"
+										className="status-dot shrink-0 bg-unread"
+									/>
+								) : null}
+							</span>{" "}
+							<span className="mt-0.5 block text-muted-foreground text-xs">
+								{groupSummary(row)}
 							</span>
-						)}
+							{expanded ? null : (
+								<span className="mt-2 block truncate text-muted-foreground text-sm">
+									{row.item.preview}
+								</span>
+							)}
+						</span>
+					</button>
+					<span className="hidden text-muted-foreground text-xs sm:block">
+						<InboxTimestamp occurredAt={row.latestOccurredAt} />
 					</span>
-				</button>
-				<span className="hidden text-muted-foreground text-xs sm:block">
-					<InboxTimestamp occurredAt={row.latestOccurredAt} />
-				</span>
-				<InboxGroupActions {...input} label={label} />
-			</div>
+					<InboxGroupActions {...input} label={label} />
+				</div>
+			</SharedLayoutItem>
 			{expanded ? (
 				<InboxCollectionContents {...input} panelId={panelId} />
 			) : null}

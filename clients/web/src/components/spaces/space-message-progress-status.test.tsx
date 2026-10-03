@@ -8,9 +8,15 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
 import type { SpaceMessageWakeThinkingEntry } from "#/lib/spaces/wake-progress-presentation";
+import {
+	buildSpaceWakeOutcomeIndex,
+	buildSpaceWakeStopSelectorKey,
+} from "#/lib/spaces/wake-stop-target";
 import { SpaceMessageProgressStatus } from "./space-message-progress-status";
+import { SpaceWakeStopScope } from "./space-wake-stop-control";
 
-const AGENT_WORKING_TEXT_PATTERN = /Agent is working/;
+const AGENT_WORKING_TEXT_PATTERN = /Thinking…/;
+const REVIEWER_PROGRESS_PATTERN = /^Reviewer · Searching documents…/;
 
 afterEach(() => {
 	vi.useRealTimers();
@@ -18,6 +24,86 @@ afterEach(() => {
 });
 
 describe("SpaceMessageProgressStatus", () => {
+	it("does not let a late Stop receipt replace an already published reply", () => {
+		const source = {
+			...createStartingItem(),
+			activeWakeProgress: undefined,
+			deliveryState: "sent" as const,
+			id: "source-1",
+			actorProfileId: "human",
+			clientMessageId: "client-message-1",
+			wakeTargetProfileIds: ["agt_runner"],
+		};
+		const reply = {
+			...createStreamingItem(),
+			agentStreamState: undefined,
+			id: "reply-1",
+			isAgentFinalReply: true,
+			replyToSignalId: source.id,
+			wakeSourceSignalId: source.id,
+			text: "The review is complete.",
+		};
+		const key = buildSpaceWakeStopSelectorKey({
+			by: "client_message",
+			clientMessageId: "client-message-1",
+			targetProfileId: "agt_runner",
+		});
+		const view = render(
+			<SpaceWakeStopScope
+				stopRequestStatusBySelectorKey={
+					new Map([[key, "cancellation_requested"]])
+				}
+			>
+				<SpaceMessageProgressStatus
+					entries={[]}
+					item={source}
+					wakeOutcomeIndex={buildSpaceWakeOutcomeIndex([source, reply])}
+				/>
+			</SpaceWakeStopScope>
+		);
+		expect(screen.queryByText("Stopping…")).toBeNull();
+		expect(screen.queryByText("Stopped")).toBeNull();
+		expect(view.container.textContent).toBe("");
+	});
+	it("keeps another Agent's activity visible when stopping one recipient", () => {
+		const item = createStartingItem();
+		item.activeWakeProgress = undefined;
+		item.clientMessageId = "client-message-1";
+		item.wakeTargetProfileIds = ["agt_runner", "agt_reviewer"];
+		const selectorKey = buildSpaceWakeStopSelectorKey({
+			by: "client_message",
+			clientMessageId: "client-message-1",
+			targetProfileId: "agt_runner",
+		});
+		render(
+			<SpaceWakeStopScope
+				stopRequestStatusBySelectorKey={
+					new Map([[selectorKey, "cancellation_requested"]])
+				}
+			>
+				<SpaceMessageProgressStatus
+					entries={[
+						createWakeProgressEntry(),
+						createWakeProgressEntry({
+							key: "reviewer",
+							targetProfileId: "agt_reviewer",
+							text: "Reviewer · Searching documents…",
+							step: {
+								description: "Searching the project documents.",
+								kind: "working",
+								label: "Reviewer · Searching documents…",
+								status: "active",
+							},
+						}),
+					]}
+					item={item}
+				/>
+			</SpaceWakeStopScope>
+		);
+		expect(screen.getByText("Stopping…")).toBeTruthy();
+		expect(screen.getByText(REVIEWER_PROGRESS_PATTERN)).toBeTruthy();
+		expect(screen.queryByText("Thinking…")).toBeNull();
+	});
 	it("replaces stale work and preview with awaiting confirmation while keeping Stop", () => {
 		const item = createStreamingToolActivityItem();
 		const progress = createStartingItem().activeWakeProgress;
@@ -56,12 +142,12 @@ describe("SpaceMessageProgressStatus", () => {
 		);
 
 		const startingStatus = screen.getByRole("status", {
-			name: "Runner is working",
+			name: "Runner · Thinking…",
 		});
 		expect(
 			startingStatus.querySelector('[data-slot="thinking-indicator-word"]')
 				?.textContent
-		).toBe("Runner is working");
+		).toBe("Runner · Thinking…");
 		expect(
 			startingStatus.querySelector('[data-slot="agent-thinking-elapsed"]')
 		).toBeNull();
@@ -73,9 +159,9 @@ describe("SpaceMessageProgressStatus", () => {
 		expect(
 			document.querySelector('[data-slot="agent-thinking-elapsed"]')
 		).toBeNull();
-		expect(
-			screen.getByRole("status", { name: "Agent is working" }).textContent
-		).toBe("Agent is working");
+		expect(screen.getByRole("status", { name: "Thinking…" }).textContent).toBe(
+			"Thinking…"
+		);
 	});
 
 	it.each([
@@ -131,7 +217,7 @@ describe("SpaceMessageProgressStatus", () => {
 		expect(controlSlot.className).not.toContain("w-20");
 
 		const activityTrigger = screen.getByRole("button", {
-			name: "Agent is working. Work summary: Reviewing source files…",
+			name: "Thinking…. Work summary: Reviewing source files…",
 		});
 		expect(activityTrigger).toBe(activity);
 		expect(
@@ -246,7 +332,7 @@ describe("SpaceMessageProgressStatus", () => {
 		);
 		expect(
 			screen.getByRole("button", {
-				name: "Agent is working. Work summary: Reviewing source files…",
+				name: "Thinking…. Work summary: Reviewing source files…",
 			})
 		).toBeTruthy();
 		expect(
@@ -274,7 +360,7 @@ describe("SpaceMessageProgressStatus", () => {
 		);
 
 		const trigger = screen.getByRole("button", {
-			name: "Agent is working. Thinking process",
+			name: "Thinking…. Thinking process",
 		});
 		expect(trigger.getAttribute("aria-expanded")).toBe("true");
 		expect(screen.getByText("Reviewing the request.")).toBeTruthy();
@@ -327,11 +413,11 @@ describe("SpaceMessageProgressStatus", () => {
 
 		expect(
 			screen.getByTestId("space-wake-thinking-indicator").textContent
-		).toBe(`Agent is working · ${phase} · 0s`);
+		).toBe(`Thinking… · ${phase} · 0s`);
 		expect(screen.getAllByText(AGENT_WORKING_TEXT_PATTERN)).toHaveLength(1);
 	});
 
-	it("does not claim the Agent is working before the stream begins", () => {
+	it("does not claim the Thinking… before the stream begins", () => {
 		const item = createStreamingItem();
 		item.agentStreamState = undefined;
 
@@ -357,9 +443,7 @@ describe("SpaceMessageProgressStatus", () => {
 			/>
 		);
 
-		expect(
-			screen.getByRole("status", { name: "Agent is working" })
-		).toBeTruthy();
+		expect(screen.getByRole("status", { name: "Thinking…" })).toBeTruthy();
 		expect(screen.getByRole("button", { name: "Stop" })).toBeTruthy();
 		expect(screen.queryByText("Responding...")).toBeNull();
 	});
@@ -404,7 +488,7 @@ describe("SpaceMessageProgressStatus", () => {
 		expect(screen.getAllByText(AGENT_WORKING_TEXT_PATTERN)).toHaveLength(1);
 		expect(
 			screen.getByRole("button", {
-				name: "Agent is working. Work summary: Reviewing source files…",
+				name: "Thinking…. Work summary: Reviewing source files…",
 			})
 		).toBeTruthy();
 		expect(screen.getByRole("button", { name: "Stop" })).toBeTruthy();
@@ -440,18 +524,17 @@ function createWakeProgressEntry(
 ): SpaceMessageWakeThinkingEntry {
 	return {
 		elapsedStartedAtMs: 1_800_000_000_000,
-		lastEvidenceAtMs: 1_800_000_000_000,
 		key: "dispatch:agt_runner",
 		kind: "progress",
 		phase: "running",
 		step: {
 			description: "OpenMeld is running the agent.",
 			kind: "working",
-			label: "Agent is working",
+			label: "Thinking…",
 			status: "active",
 		},
 		targetProfileId: "agt_runner",
-		text: "Agent is working",
+		text: "Thinking…",
 		...overrides,
 	};
 }
@@ -459,14 +542,13 @@ function createWakeProgressEntry(
 function createWakePreviewEntry(): SpaceMessageWakeThinkingEntry {
 	return {
 		elapsedStartedAtMs: null,
-		lastEvidenceAtMs: null,
 		key: "dispatch:agt_runner:preview",
 		kind: "preview",
 		phase: "writing",
 		step: {
 			description: "OpenMeld is receiving live output from the agent.",
 			kind: "replying",
-			label: "Agent is working",
+			label: "Thinking…",
 			status: "active",
 		},
 		targetProfileId: "agt_runner",
@@ -493,7 +575,7 @@ function createStartingItem(): SpaceTimelineItem {
 	item.activeWakeProgress = {
 		clientMessageId: "client-message-1",
 		dispatchId: "dispatch-1",
-		message: "Runner is working.",
+		message: "Runner · Thinking….",
 		phase: "running",
 		sourceSignalId: "signal-1",
 		targetLabel: "Runner",

@@ -1,6 +1,7 @@
 import {
   COMPUTER_FILE_ACCESS_RUNTIME_CAPABILITY,
   daemonRouteObservationResponseSchema,
+  LOCAL_EXECUTION_INPUT_CAPABILITY_HEADER,
   LOCAL_FOLDER_PICKER_RUNTIME_CAPABILITY,
   OPENMELD_COMPUTER_CARE_HEADER,
   OPENMELD_EXECUTION_ADMISSION_HEADER,
@@ -127,6 +128,7 @@ export function registerDaemonRoutes(app: Hono<HonoBindings>): void {
             OPENMELD_COMPUTER_CARE_HEADER,
             OPENMELD_EXECUTION_ADMISSION_HEADER,
             SPACE_WORK_HANDOFF_CAPABILITY_HEADER,
+            LOCAL_EXECUTION_INPUT_CAPABILITY_HEADER,
           ]
             .filter((header) => c.req.header(header) === "1")
             .map((header) => [header, "1"])

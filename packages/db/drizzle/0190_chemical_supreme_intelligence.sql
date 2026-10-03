@@ -1,0 +1,3 @@
+CREATE INDEX `agent_activity_events_pending_session_idx` ON `agent_activity_events` (`daily_session_key`) WHERE daily_aggregated_at_ms IS NULL;--> statement-breakpoint
+CREATE INDEX `inbox_items_observation_idx` ON `inbox_items` (`recipient_user_id`,`organization_id`);--> statement-breakpoint
+CREATE INDEX `idx_openMeldDaemon_rce_diag_observed` ON `openMeldDaemon_runtime_coordinator_creation_diagnostics` (`observed_at_ms`);

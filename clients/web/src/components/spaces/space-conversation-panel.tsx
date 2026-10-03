@@ -169,6 +169,7 @@ import type { SpaceGraphFocusRequest } from "./space-graph";
 import { buildSpaceGraphPresentation } from "./space-graph-presentation";
 import { SpaceHistoryJumpControl } from "./space-history-jump-control";
 import { SpaceHistoryRail } from "./space-history-rail";
+import { SpaceInputQueue } from "./space-input-queue";
 import {
 	hasSpaceMessageAttachments,
 	SpaceMessageAttachments,
@@ -229,6 +230,7 @@ import {
 	groupAnchoredOutcomeNotices,
 	resolveGroupedOutcomeRowText,
 	SpaceOutcomeRow,
+	visibleAnchoredOutcomeNotices,
 } from "./space-outcome-row";
 import { resolveSpaceOutcomeRowTone } from "./space-outcome-tone";
 import { SpaceGraphSkeleton } from "./space-panel-skeletons";
@@ -684,6 +686,7 @@ function SpaceConversationPanelContent(
 	});
 	const navigation = useSpaceConversationNavigationController({
 		activeSpaceView: input.activeSpaceView,
+		isLiveHistory: !input.historyNavigation?.activeWindow,
 		ephemeralActivityItems: input.ephemeralActivityItems,
 		hasEarlierHistory: input.hasEarlierHistory,
 		historyActionErrorMessage: input.historyActionErrorMessage,
@@ -1481,6 +1484,7 @@ function useSpaceConversationPresentationController(
 
 function useSpaceConversationNavigationController(input: {
 	activeSpaceView: SpaceView;
+	isLiveHistory: boolean;
 	ephemeralActivityItems: readonly SpaceEphemeralActivityItem[];
 	hasEarlierHistory: boolean;
 	historyActionErrorMessage: string | null;
@@ -1516,6 +1520,7 @@ function useSpaceConversationNavigationController(input: {
 	const messageElementsBySignalIdRef = useRef(new Map<string, HTMLElement>());
 	const conversationPosition = useSpaceConversationPosition({
 		historyIsPending: input.historyIsPending,
+		isLiveHistory: input.isLiveHistory,
 		historyVersion: input.mainTimelineItems,
 		hasExplicitFocus: Boolean(
 			input.initialFocusSignalId ||
@@ -2076,6 +2081,7 @@ function SpaceComposerSection(input: {
 					context={{
 						conversationKind: input.composerContext,
 						placement: "conversation",
+						readOnly: panel.readOnly,
 						readOnlyPlaceholder: panel.readOnly
 							? panel.readOnlyComposerPlaceholder
 							: undefined,
@@ -2093,6 +2099,27 @@ function SpaceComposerSection(input: {
 					}}
 					slots={{
 						pendingActionSurface: panel.pendingActionSurface,
+						queuedMessages:
+							!panel.readOnly && panel.spaceId ? (
+								<SpaceInputQueue
+									key={`${panel.spaceId}:${panel.selfProfileId}`}
+									onEdit={(queuedText) => {
+										const text = panel.composerText
+											? `${panel.composerText}\n\n${queuedText}`
+											: queuedText;
+										panel.onComposerEditorChange({
+											authoredMentions: [
+												...(panel.composerAuthoredMentions ?? []),
+											],
+											selection: { start: text.length, end: text.length },
+											text,
+										});
+										panel.textareaRef.current?.focus();
+									}}
+									profileId={panel.selfProfileId}
+									spaceId={panel.spaceId}
+								/>
+							) : null,
 						beforePrimaryAction: (
 							<SpaceComposerActiveWakes placement="conversation" />
 						),
@@ -2714,12 +2741,15 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 					? [
 							resolveWakeStopTargetForProgressItem({
 								item: item.activeWakeProgress,
+								sourceItem: wakePresentationItem,
+								viewerProfileId: input.selfProfileId,
 								stopRequestStatusBySelectorKey:
 									input.wakeStopRequestStatusBySelectorKey,
 							}),
 						]
 					: resolveSpaceMessageWakeStopTargets({
 							item: wakePresentationItem,
+							viewerProfileId: input.selfProfileId,
 							stopRequestStatusBySelectorKey:
 								input.wakeStopRequestStatusBySelectorKey,
 							timelineItems: input.timelineItems,
@@ -2727,7 +2757,6 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 							wakeProgressItems: input.ephemeralActivityItems,
 						});
 				const wakeStopControl =
-					wakePresentationItem.deliveryState !== "pending" &&
 					!input.readOnly &&
 					input.onWakeStopRequest &&
 					shouldRenderSpaceWakeStopControl(wakeStopTargets) ? (
@@ -2779,6 +2808,8 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 					control: wakeStopControl,
 					entries: wakeThinkingEntries,
 					hideForActiveWakeSource: isActiveWakeSource,
+					wakeOutcomeIndex: input.wakeOutcomeIndex,
+					wakeSourceItem: wakePresentationItem,
 					item,
 					messageDetailsItem,
 					onOpenMessageDetails: input.onOpenMessageDetails,
@@ -3294,6 +3325,8 @@ function renderConversationMessageProgressStatus(input: {
 		typeof resolveSpaceMessageWakeProgressState
 	>["thinkingEntries"];
 	hideForActiveWakeSource: boolean;
+	wakeOutcomeIndex: SpaceWakeOutcomeIndex;
+	wakeSourceItem: SpaceTimelineItem;
 	item: SpaceTimelineItem;
 	messageDetailsItem: SpaceTimelineItem | null;
 	onOpenMessageDetails: (item: SpaceTimelineItem) => void;
@@ -3313,6 +3346,8 @@ function renderConversationMessageProgressStatus(input: {
 				item: input.messageDetailsItem ?? input.item,
 				onOpenMessageDetails: input.onOpenMessageDetails,
 			})}
+			wakeOutcomeIndex={input.wakeOutcomeIndex}
+			wakeSourceItem={input.wakeSourceItem}
 		/>
 	);
 }
@@ -4229,7 +4264,7 @@ const UNAVAILABLE_SPACE_WAKE_STOP_REQUEST: SpaceWakeStopRequestHandler = () =>
 	Promise.reject(new Error("Space Wake Stop is unavailable."));
 
 // Stopped system outcomes stay with their source message and open its details.
-// Terminal failures are represented by the source message failure footer.
+// Participants open terminal failures from the footer; observers read them inline.
 function renderAnchoredSpaceOutcomeRows(input: {
 	notices: readonly SpaceTimelineItem[];
 	onOpenMessageDetails: (item: SpaceTimelineItem) => void;
@@ -4243,11 +4278,7 @@ function renderAnchoredSpaceOutcomeRows(input: {
 		return null;
 	}
 
-	const outcomeNotices = input.notices.filter(
-		(notice) =>
-			isSpaceOutcomeNoticeItem(notice) &&
-			notice.systemNoticeType !== "terminal_failure"
-	);
+	const outcomeNotices = visibleAnchoredOutcomeNotices(input);
 	if (outcomeNotices.length === 0) {
 		return null;
 	}
@@ -4279,6 +4310,7 @@ function renderAnchoredSpaceOutcomeRows(input: {
 						spaceReferencesById={input.spaceReferencesById}
 						text={resolveGroupedOutcomeRowText({
 							notices: group.notices,
+							readOnly: input.readOnly,
 							resolveTargetLabel: (targetProfileId) =>
 								input.profileEntriesById.get(targetProfileId)?.profileName ??
 								null,

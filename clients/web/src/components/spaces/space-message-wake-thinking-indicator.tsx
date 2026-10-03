@@ -2,10 +2,7 @@ import { ThinkingIndicator } from "@openmeld/ui/components/thinking-indicator";
 import { fontWeights } from "@openmeld/ui/lib/font-weight";
 import { cn } from "@openmeld/ui/lib/utils";
 import { type ReactNode, useState } from "react";
-import {
-	isSpaceWakeProgressWaitingForFinalStatus,
-	SPACE_AGENT_WORKING_STATUS_TEXT,
-} from "#/lib/spaces/message-state";
+import { SPACE_AGENT_WORKING_STATUS_TEXT } from "#/lib/spaces/message-state";
 import { useNowMs } from "#/lib/spaces/use-now-ms";
 import type { SpaceMessageWakeThinkingEntry } from "#/lib/spaces/wake-progress-presentation";
 import {
@@ -18,8 +15,6 @@ import {
 	WAKE_STATUS_ORB_STATE,
 } from "./space-agent-orb-state";
 import { SpaceMessageProgressRow } from "./space-message-progress-row";
-
-const WAKE_PROGRESS_DELAYED_STATUS_TEXT = "Still waiting for the final status.";
 
 export function SpaceMessageWakeThinkingIndicator(input: {
 	align?: "start" | "end";
@@ -62,7 +57,7 @@ export function SpaceMessageWakeThinkingIndicator(input: {
 	);
 	const statusContent = statusEntries.map((entry) => (
 		<output
-			aria-label={formatWakeProgressSummary(input.entries)}
+			aria-label={entry.text}
 			className="text-[13px] text-muted-foreground"
 			data-testid="space-wake-status"
 			key={entry.key}
@@ -109,14 +104,9 @@ function WakeThinkingIndicatorContent(input: {
 		entry: input.rawElapsedEntry,
 	});
 	const nowMs = useNowMs(elapsedEntry ? 1000 : null);
-	const isWaitingForFinalStatus = isSpaceWakeProgressWaitingForFinalStatus({
-		lastEvidenceAtMs: input.rawElapsedEntry?.lastEvidenceAtMs ?? null,
-		nowMs,
-	});
 	const words = input.progressEntries.map((entry) =>
 		formatThinkingEntryText({
 			entry,
-			isWaitingForFinalStatus,
 			nowMs,
 			showAgentWorkingState: input.showAgentWorkingState,
 			showElapsedTime: entry === elapsedEntry,
@@ -126,7 +116,6 @@ function WakeThinkingIndicatorContent(input: {
 	const indicator = buildWakeThinkingIndicator({
 		className: input.className,
 		elapsedEntry,
-		isWaitingForFinalStatus,
 		latestPreviewEntry: input.latestPreviewEntry,
 		nowMs,
 		onOpenMessageDetails: input.onOpenMessageDetails !== undefined,
@@ -156,7 +145,6 @@ function WakeThinkingIndicatorContent(input: {
 function buildWakeThinkingIndicator(input: {
 	className?: string;
 	elapsedEntry: SpaceMessageWakeThinkingEntry | null;
-	isWaitingForFinalStatus: boolean;
 	latestPreviewEntry: SpaceMessageWakeThinkingEntry | null;
 	nowMs: number;
 	onOpenMessageDetails: boolean;
@@ -182,7 +170,6 @@ function buildWakeThinkingIndicator(input: {
 				className={input.className}
 				data-testid={dataTestId}
 				entry={input.elapsedEntry}
-				isWaitingForFinalStatus={input.isWaitingForFinalStatus}
 				nowMs={input.nowMs}
 				showAgentWorkingState={input.showAgentWorkingState}
 			/>
@@ -251,7 +238,12 @@ function formatWakeProgressSummary(
 ): string {
 	const counts = new Map<WakeProgressStatusKind, number>();
 	for (const entry of entries) {
-		counts.set(entry.step.kind, (counts.get(entry.step.kind) ?? 0) + 1);
+		const kind = ["starting", "sent", "connecting", "retrying"].includes(
+			entry.step.kind
+		)
+			? "working"
+			: entry.step.kind;
+		counts.set(kind, (counts.get(kind) ?? 0) + 1);
 	}
 	const labels: string[] = [];
 	for (const [kind, count] of counts) {
@@ -275,22 +267,22 @@ function formatWakeProgressSummaryPart(
 		case "waiting_for_owner":
 			return `${agentCount} waiting for ${count === 1 ? "its" : "their"} owner`;
 		case "queued":
-			return `${agentCount} queued`;
+			return `${agentCount} waiting for earlier tasks`;
 		case "working":
-			return `${agentCount} working`;
+			return `${agentCount} thinking`;
 		case "replying":
 			return `${agentCount} replying`;
 		case "posting":
 			return count === 1 ? "Posting 1 reply" : `Posting ${count} replies`;
 		case "waiting_for_controller":
-			return `${agentCount} waiting for a controller task`;
+			return `${agentCount} waiting for an earlier task`;
 		case "waiting_for_device":
 			return `${agentCount} waiting for a computer`;
 		case "starting":
 		case "sent":
 		case "connecting":
 		case "retrying":
-			return `${agentCount} starting`;
+			return `${agentCount} thinking`;
 		default: {
 			const _exhaustive: never = kind;
 			return _exhaustive;
@@ -333,17 +325,12 @@ function StaticElapsedThinkingIndicator(input: {
 	className?: string;
 	"data-testid"?: string;
 	entry: SpaceMessageWakeThinkingEntry;
-	isWaitingForFinalStatus: boolean;
 	nowMs: number;
 	showAgentWorkingState: boolean;
 }) {
 	return (
 		<output
-			aria-label={
-				input.isWaitingForFinalStatus
-					? WAKE_PROGRESS_DELAYED_STATUS_TEXT
-					: `${input.entry.text} · ${formatElapsedDuration(resolveElapsedSeconds(input))}`
-			}
+			aria-label={`${input.entry.text} · ${formatElapsedDuration(resolveElapsedSeconds(input))}`}
 			className={cn(
 				"flex max-w-full items-center gap-2 px-0 py-0 text-muted-foreground",
 				input.className
@@ -354,35 +341,16 @@ function StaticElapsedThinkingIndicator(input: {
 				aria-hidden="true"
 				className="flex size-5 shrink-0 items-center justify-center"
 			>
-				{input.isWaitingForFinalStatus ? (
-					<SpaceAgentOrb paused state="breathing" />
-				) : (
-					<SpaceAgentOrb />
-				)}
+				<SpaceAgentOrb />
 			</span>
 			<span
 				className="min-w-0 text-[13px]"
 				style={{ fontVariationSettings: fontWeights.medium }}
 			>
-				{input.isWaitingForFinalStatus ? (
-					<span>
-						{formatWakeProgress(
-							WAKE_PROGRESS_DELAYED_STATUS_TEXT,
-							input.showAgentWorkingState
-						)}
-					</span>
-				) : (
-					<>
-						<span>
-							{formatWakeProgress(
-								input.entry.text,
-								input.showAgentWorkingState
-							)}{" "}
-							·{" "}
-						</span>
-						<span>{formatElapsedDuration(resolveElapsedSeconds(input))}</span>
-					</>
-				)}
+				<span>
+					{formatWakeProgress(input.entry.text, input.showAgentWorkingState)} ·{" "}
+				</span>
+				<span>{formatElapsedDuration(resolveElapsedSeconds(input))}</span>
 			</span>
 		</output>
 	);
@@ -456,17 +424,10 @@ function resolveElapsedEntryIdentity(
 
 function formatThinkingEntryText(input: {
 	entry: SpaceMessageWakeThinkingEntry;
-	isWaitingForFinalStatus: boolean;
 	nowMs: number;
 	showAgentWorkingState: boolean;
 	showElapsedTime: boolean;
 }): string {
-	if (input.isWaitingForFinalStatus) {
-		return formatWakeProgress(
-			WAKE_PROGRESS_DELAYED_STATUS_TEXT,
-			input.showAgentWorkingState
-		);
-	}
 	if (!input.showElapsedTime || input.entry.elapsedStartedAtMs === null) {
 		return formatWakeProgress(input.entry.text, input.showAgentWorkingState);
 	}

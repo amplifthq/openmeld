@@ -2996,13 +2996,15 @@ open the exact same Agent.
 The selected Agent’s right-hand detail uses the same Profile Details section
 model, permissions, queries, mutations, execution-target locks, and diagnostic
 facts as the existing About and edit surfaces. Read-only detail is the default.
-Its Agent Profile Operational Context includes one **Activity** section. Owners
-and other members see the same compact workload copy, for example
-**Active task · 3 queued**. A Work Coordinator slot is not proof that the
-provider is generating. Selecting a disclosed work location opens its Space:
-the owner may see the current Space and queued task references, while another
-member sees only neutral working and queue-count facts. Neither view infers work
-from Agent Activity, browser timers, or message age.
+Its existing **Current activity** section combines Space-owned Wake progress and
+pending input across that Agent's Organization conversations. Owners and other
+members see the same compact counts, for example **1 active · 3 queued**.
+Each viewer sees source text and navigation only for conversations they can
+access; other conversations contribute neutral counts. Owning an Agent alone
+does not reveal its private conversations. A Work Coordinator slot is not proof
+that the provider is generating. This read-only presentation does not add a
+second execution queue or grant mutation access. Neither view infers work from
+Agent Activity, browser timers, or message age.
 If interrupted work needs attention, only the owner sees **Skip interrupted
 work** in this Activity section. The action resolves the exact current recovery
 gate and lets the oldest queued Wake continue; repeating it is harmless. Web
@@ -3532,11 +3534,15 @@ prerendered or placed in a shared server cache; intent prefetch, request-scoped
 SSR data, the account-scoped browser cache, and live invalidation are the
 allowed acceleration layers.
 
-TanStack Router owns the browser's coarse scroll-coordinate fallback. Its
-restoration key is the route pathname rather than the individual
-browser-history entry, and the Space message viewport has a stable id derived
-from the Space id. The conversation records a persisted signal and its viewport
-offset during scrolling and on departure. Reading-position restore and the
+TanStack Router restores ordinary pages by route pathname rather than the
+individual browser-history entry. Space, Chat, public Space, and Desk routes
+opt out through its public `scrollRestoration` option, including server-rendered
+restoration. Their conversation/canvas owners restore their own positions;
+the module sidebar retains its independent scoped scroll memory. The router
+must not replay old pixel coordinates over a restored message or explicit jump.
+The conversation records a persisted signal, its viewport offset, and whether
+the reader is at the live bottom during scrolling and on departure.
+Reading-position restore and the
 history rail's Back action share this anchor selection. Optimistic sends, live
 reply projections, and transient activity rows retain their display identities
 but cannot become history anchors. Prefer the first visible recorded signal;
@@ -3552,13 +3558,18 @@ mounts, before painting the default start position, loading earlier pages if
 needed. Subsequent resize corrections run directly in ResizeObserver's
 before-paint delivery; an extra animation-frame delay would expose the wrong
 position as deferred message layout resolves. The callback adjusts scrolling,
-not observed element sizes. A remembered position disables the MessageScroller's initial
-end jump and automatic following. Resize observation preserves the same message
+not observed element sizes. A remembered historical position disables the
+MessageScroller's initial end jump and automatic following. A saved live-bottom
+position opens the live tail and follows it using the MessageScroller, even when
+new messages have arrived since the previous visit. Older saved records without
+the bottom flag keep their existing message-anchor meaning.
+Resize observation preserves the same message
 as images and deferred layout settle, until deliberate user scrolling takes
 ownership. Reaching the bottom resumes normal following. Different Spaces
 remain independent; explicit message-focus navigation takes priority over the
 remembered position.
-The coarse fallback uses session storage. The semantic anchor keeps each tab's
+The conversation no longer reads a separate coarse-coordinate fallback.
+Its semantic position keeps each tab's
 session position and also saves a seven-day local-storage copy for a new tab or
 browser restart. An existing tab's position wins over another tab's last saved
 position. Auth cleanup removes both copies. This view-local presentation state does not
@@ -4483,8 +4494,10 @@ minimum and maximum widths, and reduced-motion behavior. Thread can grow to
 60rem, constrained by the available conversation area after other inline panels,
 with 512px reserved for the main conversation. When the available area cannot
 fit that width alongside Thread's minimum reading width, Thread covers the
-conversation area until closed instead of crushing either column. Covered
-content is hidden from interaction and the accessibility tree. A smaller viewport
+main conversation area until closed instead of crushing either column. Its
+overlay width excludes other inline panels, so opening Members keeps Members
+visible and interactive beside Thread. Only the covered main conversation is
+hidden from interaction and the accessibility tree. A smaller viewport
 constrains the displayed width without overwriting the saved wider preference.
 Members and Thread widths are persisted as separate browser presentation preferences. The
 Members open/closed state and width are scoped to the current Space id, so

@@ -22,10 +22,10 @@ import {
   resolveDispatchSpaceActionMcpServer,
 } from "@openmeld/adapter-core";
 import { execPlatformFile } from "@openmeld/adapter-core/process-launch";
+import { supportsAgentControllerVersion } from "@openmeld/agent-runtime";
 import { parse, stringify } from "smol-toml";
 
 const FINAL_TOOLS = ["read_receipt", "reply", "stay_silent"];
-const NATIVE_VERSION = /^1\.0\.(\d+)$/u;
 
 export type GrokBuildDeliveryScope = {
   env: Record<string, string | undefined>;
@@ -246,11 +246,13 @@ function nativePermissionMode(
 /** Native `grok inspect --json`, captured from Grok 1.0.40. */
 export function assertGrokBuildDeliveryInspection(value: unknown): void {
   const report = record(value);
-  const version =
-    typeof report?.grokVersion === "string"
-      ? report.grokVersion.match(NATIVE_VERSION)
-      : null;
-  if (!version || Number(version[1]) < 40 || report?.projectTrusted !== true) {
+  if (
+    !supportsAgentControllerVersion(
+      typeof report?.grokVersion === "string" ? report.grokVersion : null,
+      ">=1.0.40 <1.1.0-0"
+    ) ||
+    report?.projectTrusted !== true
+  ) {
     throw scopeError(
       "This Grok installation has not verified the required native scope."
     );

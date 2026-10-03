@@ -736,15 +736,28 @@ Important execution rules:
   member names, and other signed-in accounts are not ownership evidence. Use
   this ordinary policy for viewer-scoped progress eligibility and the ordinary
   Stop mutation, before native or workstation cancellation side effects.
-- A designated Organization Center Agent may request Stop only for a member
+- A designated Organization Center Agent may request Stop for a member
   verified by its current native delivery. Space grants the represented member
   ordinary source-account or target-owner authority, or authority over an exact
   Center-authored Wake whose immutable, Core-written audit provenance records
   that same member as `onBehalfOf`. A missing or mismatched attribution grants
   no Center-authored Wake authority. Routine deliveries use their verified
-  delegated member in the same comparison. An ownerless Center Agent Profile,
-  Organization membership, or a caller-supplied selector grants no Stop
-  authority. The progress projection uses this same Space authorization.
+  delegated member in the same comparison. Separately, the current active
+  designated Center may stop its own UUID-addressed request in its exact
+  Center–Agent DM pair. A converted DM requires a persisted Center-authored
+  source from before conversion; an unconverted DM permits a sender-scoped
+  pre-send fence. Space verifies the canonical Center controller and identity,
+  current designation, Organization, pair, and source rather than granting
+  authority from the ownerless Profile or Organization role alone. The progress
+  projection uses this same Space authorization. A `not_found` self-Stop must
+  not be retried as a Human pre-send fence. Except for the reserved `ca-wake:`
+  provenance path, delegation to the verified Human resolves an existing
+  source and uses a `source_signal` Stop, preserving the actual author.
+- Personal Remote Agent progress and Stop may target an explicit Space in the
+  admitted Organization. The original execution and requester remain verified;
+  Core checks the target Organization and Space applies ordinary access and
+  Stop authority. Omitting the target retains the admitted Space. This changes
+  neither reply placement nor the scope of other personal conversation tools.
 - An explicit Space Task cancellation has one additional, Task-scoped Stop
   authority. The same currently active, Auth-verified actor must have authored
   the retained cancellation operation, its event ID must match the operation
@@ -756,6 +769,18 @@ Important execution rules:
   actor, operation, Wake, or current-intent evidence fails closed.
   RuntimeCoordinator continues to own execution and the final stopped outcome;
   internal deletion/recovery cancellation is not a user Stop permission grant.
+- Before a source message reaches Space, an authenticated sender can Stop its
+  own `(clientMessageId, targetProfileId)` request. Space stores a durable fence
+  scoped to the authenticated author, never just a guessed client ID. A
+  represented Center send additionally requires the existing immutable Core
+  audit attribution; missing attribution returns an unconfirmed retry result.
+  Source/outbox inspection and fence insertion have no intervening asynchronous
+  work. Source publication checks the fence in the same SQL transaction that
+  inserts its dispatch outbox record, withdraws admission, and persists exactly
+  one stopped notice. No execution has been handed off at this boundary.
+  A durable Space outbox forwards this terminal outcome to Agent Task
+  Coordination and retries failed projection delivery. Neither the fence nor
+  that projection owns the truth of a running execution.
 - Before RuntimeCoordinator links an execution, OpenMeld-owned pre-agent Stop may
   move the target Wake head lifecycle to `stopped_before_execution`. That is a
   stopped terminal outcome for the target Wake, not a failed execution and not a
@@ -829,6 +854,14 @@ after a socket replacement, and accepts an exact repeated response
 idempotently. A conflicting repeat is rejected. Local Service owns one
 process-lifetime pending registry across socket reconnects and serializes
 provider requests so only one is visible per execution at a time.
+
+Response acceptance is a RuntimeCoordinator storage transaction. The same
+execution record retains a response fingerprint and acceptance time per
+interaction, including after delivery acknowledgement clears the private pending
+content. Exact HTTP retries still return the acceptance receipt; conflicting
+answers fail, and an already-handled interaction ID cannot create a new pending
+request. Receipts share the execution record's lifetime and contain no answer
+text. New request content requires a new interaction ID.
 
 An unresolved request pauses the ordinary stale-progress watchdog until its
 bounded expiry, at most eight hours. After a response is stored, delivery must

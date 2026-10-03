@@ -23,11 +23,12 @@ describe("space member testing fixtures", () => {
 
   it("creates schema-valid owner-scoped member snapshots by default", () => {
     const snapshot = createSpaceMembersSnapshot({
-      agents: [createSpaceMemberAgentSnapshot()],
+      agents: [createSpaceMemberAgentSnapshot({ avatarStyle: "star" })],
       humans: [createSpaceMemberHumanSnapshot()],
     });
 
     expect(spaceMembersSnapshotSchema.safeParse(snapshot).success).toBe(true);
+    expect(snapshot.agents[0]?.avatarStyle).toBe("star");
   });
 
   it("derives canonical blocked viewer recovery evidence for blocked agent fixtures", () => {

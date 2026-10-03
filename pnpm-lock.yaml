@@ -812,10 +812,16 @@ importers:
       '@openmeld/schemas':
         specifier: workspace:*
         version: link:../schemas
+      semver:
+        specifier: 7.7.4
+        version: 7.7.4
     devDependencies:
       '@types/node':
         specifier: ^24.3.0
         version: 24.10.13
+      '@types/semver':
+        specifier: 7.7.1
+        version: 7.7.1
       oxc-resolver:
         specifier: ^11.0.0
         version: 11.17.1
@@ -1275,6 +1281,9 @@ importers:
       '@openmeld/adapter-core':
         specifier: workspace:*
         version: link:../core
+      '@openmeld/agent-runtime':
+        specifier: workspace:*
+        version: link:../../../packages/agent-runtime
     devDependencies:
       '@types/node':
         specifier: ^24.3.0
@@ -1307,6 +1316,9 @@ importers:
       '@openmeld/adapter-core':
         specifier: workspace:*
         version: link:../core
+      '@openmeld/agent-runtime':
+        specifier: workspace:*
+        version: link:../../../packages/agent-runtime
       zod:
         specifier: 'catalog:'
         version: 4.6.5
@@ -1343,6 +1355,9 @@ importers:
       '@openmeld/adapter-core':
         specifier: workspace:*
         version: link:../core
+      '@openmeld/agent-runtime':
+        specifier: workspace:*
+        version: link:../../../packages/agent-runtime
       smol-toml:
         specifier: 1.7.0
         version: 1.7.0
@@ -1375,6 +1390,9 @@ importers:
       '@openmeld/adapter-core':
         specifier: workspace:*
         version: link:../core
+      '@openmeld/agent-runtime':
+        specifier: workspace:*
+        version: link:../../../packages/agent-runtime
     devDependencies:
       '@types/node':
         specifier: ^24.3.0
@@ -1572,6 +1590,9 @@ importers:
       esbuild:
         specifier: 0.27.7
         version: 0.27.7
+      tsx:
+        specifier: 4.21.0
+        version: 4.21.0
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -27290,7 +27311,6 @@ snapshots:
       get-tsconfig: 4.13.7
     optionalDependencies:
       fsevents: 2.3.3
-    optional: true
 
   tsyringe@4.10.0:
     dependencies:

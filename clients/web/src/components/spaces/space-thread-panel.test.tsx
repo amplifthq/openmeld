@@ -181,14 +181,12 @@ describe("SpaceThreadPanel", () => {
 			signals: [createTextSignal()],
 		});
 		expect(
-			screen.getByRole("button", { name: "Stop Wake for Thread Agent" })
+			screen.getByRole("button", { name: "Stop Thread Agent" })
 		).toBeTruthy();
 		expect(
-			screen.queryByRole("button", { name: "Stop Wake for Main Agent" })
+			screen.queryByRole("button", { name: "Stop Main Agent" })
 		).toBeNull();
-		expect(
-			screen.queryByRole("button", { name: "Stop Wake for 2 agents" })
-		).toBeNull();
+		expect(screen.queryByRole("button", { name: "Stop 2 agents" })).toBeNull();
 	});
 
 	it("places the current Space pending actions above the visible thread composer", () => {
@@ -384,7 +382,7 @@ describe("SpaceThreadPanel", () => {
 			],
 		});
 		const activityTrigger = screen.getByRole("button", {
-			name: "Agent is working. Work summary: Reviewing source files…",
+			name: "Thinking…. Work summary: Reviewing source files…",
 		});
 		expect(activityTrigger.getAttribute("aria-expanded")).toBe("true");
 		const progressRow = activityTrigger.closest(
@@ -1226,9 +1224,7 @@ describe("SpaceThreadPanel", () => {
 			}),
 		});
 
-		expect(
-			screen.getByRole("button", { name: "Stop Wake for @runner" })
-		).toBeTruthy();
+		expect(screen.getByRole("button", { name: "Stop @runner" })).toBeTruthy();
 	});
 
 	it("confirms and requests Stop for an active Wake in the thread timeline", async () => {
@@ -1241,20 +1237,17 @@ describe("SpaceThreadPanel", () => {
 			signals: [createWakeTextSignal()],
 		});
 
-		fireEvent.click(
-			screen.getByRole("button", { name: "Stop Wake for @runner" })
-		);
-		const dialog = within(
-			screen.getByRole("dialog", { name: "Stop this Wake?" })
-		);
-		fireEvent.click(dialog.getByRole("button", { name: "Stop Wake" }));
+		fireEvent.click(screen.getByRole("button", { name: "Stop @runner" }));
+		expect(
+			screen.queryByRole("dialog", { name: "Stop this Wake?" })
+		).toBeNull();
 
 		await waitFor(() => {
 			expect(onWakeStopRequest).toHaveBeenCalledWith(
 				expect.objectContaining({
 					selector: {
-						by: "source_signal",
-						sourceSignalId: "sig-thread-wake",
+						by: "client_message",
+						clientMessageId: "client-message-1",
 						targetProfileId: TARGET_PROFILE_ID,
 					},
 					status: "active",
@@ -1748,7 +1741,7 @@ function createWakeProgressItem(input?: {
 		clientMessageId: "client-message-1",
 		dispatchId: "dispatch-1",
 		failureReasonCode: null,
-		message: "@runner is working on this computer...",
+		message: "@runner · Thinking… on this computer...",
 		phase: "running",
 		sourceSignalId: "sig-thread-wake",
 		targetLabel: "@runner",

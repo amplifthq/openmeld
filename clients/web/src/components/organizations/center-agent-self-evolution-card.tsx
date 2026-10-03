@@ -17,6 +17,7 @@ import {
 import { Input } from "@openmeld/ui/components/input";
 import { Label } from "@openmeld/ui/components/label";
 import { Textarea } from "@openmeld/ui/components/textarea";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import {
 	Select,
 	SelectContent,
@@ -490,324 +491,329 @@ function SelfEvolutionSetupDialog(input: {
 
 	return (
 		<Dialog onOpenChange={input.onOpenChange} open={input.open}>
-			<DialogContent className="max-h-[min(90vh,780px)] overflow-y-auto sm:max-w-2xl">
-				<DialogHeader>
-					<DialogTitle>Set up Center Agent Self-Evolution</DialogTitle>
-					<DialogDescription>
-						Choose what your Center Agent should learn from, how often it should
-						learn, and where it should report.
-					</DialogDescription>
-				</DialogHeader>
-				<form className="grid gap-5" noValidate onSubmit={submit}>
-					<fieldset className="grid gap-2">
-						<legend className="font-medium text-foreground text-sm">
-							Sources
-						</legend>
-						<p className="text-muted-foreground text-xs leading-5">
-							Your selection guides the learning scope. Existing Plugin and
-							Channel permissions still control access. Self-Evolution never
-							writes back to a selected source.
-						</p>
-						<p className="text-muted-foreground text-xs leading-5">
-							A selected Slack Channel can use only the channel, member, and
-							history data its existing connection permits.
-						</p>
-						<div className="grid gap-2 sm:grid-cols-2">
-							{input.sources.map((source) => (
-								<label
-									className="flex min-h-11 cursor-pointer items-center gap-3 rounded-md border border-border/70 bg-background px-3 py-2 text-sm"
-									key={source.id}
-								>
-									<input
-										aria-label={source.label}
-										checked={selectedSourceIds.has(source.id)}
-										className="size-4 accent-primary"
-										onChange={(event) => {
-											setSelectedSourceIds((current) => {
-												const next = new Set(current);
-												if (event.target.checked) {
-													next.add(source.id);
-												} else {
-													next.delete(source.id);
-												}
-												return next;
-											});
-										}}
-										type="checkbox"
-									/>
-									<span>{source.label}</span>
-								</label>
-							))}
-						</div>
-						{selectedSources.length === 0 ? (
-							<p className="text-destructive text-xs" role="alert">
-								Select at least one connected source.
-							</p>
-						) : null}
-					</fieldset>
-
-					<div className="grid gap-1.5">
-						<Label htmlFor="self-evolution-project">Target Project</Label>
-						{input.projectsPending ? (
-							<output className="text-muted-foreground text-xs">
-								Loading Projects.
-							</output>
-						) : null}
-						{input.projectsFailed ? (
-							<p className="text-destructive text-xs" role="alert">
-								OpenMeld could not load Projects. Close this setup and try
-								again.
-							</p>
-						) : (
-							<Select
-								onValueChange={setSelectedProjectId}
-								value={selectedProjectId}
-							>
-								<SelectTrigger
-									aria-label="Target Project"
-									displayValue={
-										selectedProject?.name ?? "All Organization Projects"
-									}
-									id="self-evolution-project"
-								/>
-								<SelectContent>
-									<SelectItem index={0} value={ALL_PROJECTS_VALUE}>
-										All Organization Projects
-									</SelectItem>
-									{input.projects.map((project, index) => (
-										<SelectItem
-											index={index + 1}
-											key={project.id}
-											value={project.id}
-										>
-											{project.name}
-										</SelectItem>
-									))}
-								</SelectContent>
-							</Select>
-						)}
-						<p className="text-muted-foreground text-xs">
-							Choose one Project when the learning should stay focused.
-						</p>
-					</div>
-
-					<div className="grid gap-3">
-						<fieldset className="grid gap-1.5">
+			<DialogContent className="max-h-[min(90vh,780px)] overflow-hidden p-0 sm:max-w-2xl">
+				<ScrollArea
+					className="max-h-[inherit]"
+					contentClassName="grid gap-4 p-4"
+				>
+					<DialogHeader>
+						<DialogTitle>Set up Center Agent Self-Evolution</DialogTitle>
+						<DialogDescription>
+							Choose what your Center Agent should learn from, how often it
+							should learn, and where it should report.
+						</DialogDescription>
+					</DialogHeader>
+					<form className="grid gap-5" noValidate onSubmit={submit}>
+						<fieldset className="grid gap-2">
 							<legend className="font-medium text-foreground text-sm">
-								Frequency
+								Sources
 							</legend>
-							<div className="flex flex-wrap gap-2">
-								{(
-									[
-										["daily", "Daily"],
-										["weekly", "Weekly"],
-										["custom", "Custom"],
-									] as const
-								).map(([value, label]) => (
-									<Button
-										key={value}
-										onClick={() => setFrequency(value)}
-										size="sm"
-										type="button"
-										variant={frequency === value ? "default" : "outline"}
+							<p className="text-muted-foreground text-xs leading-5">
+								Your selection guides the learning scope. Existing Plugin and
+								Channel permissions still control access. Self-Evolution never
+								writes back to a selected source.
+							</p>
+							<p className="text-muted-foreground text-xs leading-5">
+								A selected Slack Channel can use only the channel, member, and
+								history data its existing connection permits.
+							</p>
+							<div className="grid gap-2 sm:grid-cols-2">
+								{input.sources.map((source) => (
+									<label
+										className="flex min-h-11 cursor-pointer items-center gap-3 rounded-md border border-border/70 bg-background px-3 py-2 text-sm"
+										key={source.id}
 									>
-										{label}
-									</Button>
+										<input
+											aria-label={source.label}
+											checked={selectedSourceIds.has(source.id)}
+											className="size-4 accent-primary"
+											onChange={(event) => {
+												setSelectedSourceIds((current) => {
+													const next = new Set(current);
+													if (event.target.checked) {
+														next.add(source.id);
+													} else {
+														next.delete(source.id);
+													}
+													return next;
+												});
+											}}
+											type="checkbox"
+										/>
+										<span>{source.label}</span>
+									</label>
 								))}
 							</div>
+							{selectedSources.length === 0 ? (
+								<p className="text-destructive text-xs" role="alert">
+									Select at least one connected source.
+								</p>
+							) : null}
 						</fieldset>
-						{frequency === "weekly" ? (
-							<div className="grid gap-1.5">
-								<Label htmlFor="self-evolution-weekday">Day</Label>
-								<Select onValueChange={setWeekday} value={weekday}>
+
+						<div className="grid gap-1.5">
+							<Label htmlFor="self-evolution-project">Target Project</Label>
+							{input.projectsPending ? (
+								<output className="text-muted-foreground text-xs">
+									Loading Projects.
+								</output>
+							) : null}
+							{input.projectsFailed ? (
+								<p className="text-destructive text-xs" role="alert">
+									OpenMeld could not load Projects. Close this setup and try
+									again.
+								</p>
+							) : (
+								<Select
+									onValueChange={setSelectedProjectId}
+									value={selectedProjectId}
+								>
 									<SelectTrigger
-										aria-label="Day"
+										aria-label="Target Project"
 										displayValue={
-											WEEKDAYS.find((day) => day.value === weekday)?.label
+											selectedProject?.name ?? "All Organization Projects"
 										}
-										id="self-evolution-weekday"
+										id="self-evolution-project"
 									/>
 									<SelectContent>
-										{WEEKDAYS.map((day, index) => (
+										<SelectItem index={0} value={ALL_PROJECTS_VALUE}>
+											All Organization Projects
+										</SelectItem>
+										{input.projects.map((project, index) => (
 											<SelectItem
-												index={index}
-												key={day.value}
-												value={day.value}
+												index={index + 1}
+												key={project.id}
+												value={project.id}
 											>
-												{day.label}
+												{project.name}
 											</SelectItem>
 										))}
 									</SelectContent>
 								</Select>
-							</div>
-						) : null}
-						{frequency === "custom" ? (
-							<div className="grid gap-1.5">
-								<Label htmlFor="self-evolution-custom-schedule">
-									Custom schedule
-								</Label>
-								<Input
-									aria-invalid={scheduleValidation.scheduleError !== null}
-									id="self-evolution-custom-schedule"
-									onBlur={() => scheduleValidation.admitSchedule(false)}
-									onChange={(event) => setCustomSchedule(event.target.value)}
-									placeholder="0 9 * * *"
-									ref={scheduleInputRef}
-									value={customSchedule}
-								/>
-								<p className="text-muted-foreground text-xs">
-									Use exactly five cron fields.
-								</p>
-							</div>
-						) : (
-							<div className="grid gap-1.5">
-								<Label htmlFor="self-evolution-time">Time</Label>
-								<Input
-									id="self-evolution-time"
-									onChange={(event) => setTime(event.target.value)}
-									ref={scheduleInputRef}
-									type="time"
-									value={time}
-								/>
-							</div>
-						)}
-						<div className="grid gap-1.5">
-							<Label htmlFor="self-evolution-timezone">Timezone</Label>
-							<Input
-								aria-invalid={scheduleValidation.timezoneError !== null}
-								id="self-evolution-timezone"
-								onBlur={() => scheduleValidation.admitSchedule(false)}
-								onChange={(event) => setTimezone(event.target.value)}
-								ref={timezoneInputRef}
-								value={timezone}
-							/>
+							)}
+							<p className="text-muted-foreground text-xs">
+								Choose one Project when the learning should stay focused.
+							</p>
 						</div>
-						<output className="text-muted-foreground text-xs">
-							{scheduleValidation.presentation.message}
-						</output>
-						{scheduleValidation.scheduleError ? (
-							<p className="text-destructive text-xs" role="alert">
-								{scheduleValidation.scheduleError.message}
-							</p>
-						) : null}
-						{scheduleValidation.timezoneError ? (
-							<p className="text-destructive text-xs" role="alert">
-								{scheduleValidation.timezoneError.message}
-							</p>
-						) : null}
-					</div>
 
-					<CenterAgentRoutineTargetSpaceField
-						ariaLabel="Learning archive"
-						fieldState={targetSpaceFieldState}
-						helpText="The complete learning record stays in this Space. You can also send a short team summary to Slack."
-						label="Learning archive"
-						onRetry={targetPreparation.onRetry}
-						onTargetSpaceChange={setTargetSpaceId}
-						orgSlug={input.orgSlug}
-						targetSpaceId={targetSpaceId}
-					/>
-
-					{input.sources.some((source) => source.kind === "slack") ? (
-						<fieldset className="grid gap-3 rounded-md border border-border/70 bg-muted/20 p-3">
-							<legend className="px-1 font-medium text-foreground text-sm">
-								Team report
-							</legend>
-							<label className="flex cursor-pointer items-start gap-3 text-sm">
-								<input
-									aria-label="Post a concise summary to Slack"
-									checked={postSlackSummary}
-									className="mt-0.5 size-4 accent-primary"
-									onChange={(event) =>
-										setPostSlackSummary(event.target.checked)
-									}
-									type="checkbox"
-								/>
-								<span className="min-w-0">
-									<span className="flex flex-wrap items-center gap-2">
-										<span>Post a concise summary to Slack</span>
-										<Badge variant="outline">Recommended</Badge>
-									</span>
-									<span className="mt-1 block text-muted-foreground text-xs leading-5">
-										Share what changed and the best opportunities without
-										exposing the full learning archive.
-									</span>
-								</span>
-							</label>
-							{postSlackSummary ? (
+						<div className="grid gap-3">
+							<fieldset className="grid gap-1.5">
+								<legend className="font-medium text-foreground text-sm">
+									Frequency
+								</legend>
+								<div className="flex flex-wrap gap-2">
+									{(
+										[
+											["daily", "Daily"],
+											["weekly", "Weekly"],
+											["custom", "Custom"],
+										] as const
+									).map(([value, label]) => (
+										<Button
+											key={value}
+											onClick={() => setFrequency(value)}
+											size="sm"
+											type="button"
+											variant={frequency === value ? "default" : "outline"}
+										>
+											{label}
+										</Button>
+									))}
+								</div>
+							</fieldset>
+							{frequency === "weekly" ? (
 								<div className="grid gap-1.5">
-									<Label htmlFor="self-evolution-slack-channel">
-										Slack channel
-									</Label>
-									<Input
-										aria-label="Slack channel"
-										id="self-evolution-slack-channel"
-										onChange={(event) =>
-											setSlackReportChannelName(event.target.value)
-										}
-										placeholder="#team-updates"
-										value={slackReportChannelName}
-									/>
-									<p className="text-muted-foreground text-xs leading-5">
-										Team members can reply in the Slack thread and continue the
-										conversation with the Center Agent.
-									</p>
+									<Label htmlFor="self-evolution-weekday">Day</Label>
+									<Select onValueChange={setWeekday} value={weekday}>
+										<SelectTrigger
+											aria-label="Day"
+											displayValue={
+												WEEKDAYS.find((day) => day.value === weekday)?.label
+											}
+											id="self-evolution-weekday"
+										/>
+										<SelectContent>
+											{WEEKDAYS.map((day, index) => (
+												<SelectItem
+													index={index}
+													key={day.value}
+													value={day.value}
+												>
+													{day.label}
+												</SelectItem>
+											))}
+										</SelectContent>
+									</Select>
 								</div>
 							) : null}
-						</fieldset>
-					) : null}
-
-					<div className="grid gap-1.5">
-						<Label htmlFor="self-evolution-focus">Learning focus</Label>
-						<Textarea
-							className="min-h-24 resize-y"
-							id="self-evolution-focus"
-							onChange={(event) => setFocus(event.target.value)}
-							value={focus}
-						/>
-						<p className="text-muted-foreground text-xs leading-5">
-							Adjust what deserves extra attention. Core safety, evidence,
-							document, and reporting behavior stays in place.
-						</p>
-					</div>
-
-					<div className="flex gap-3 rounded-md border border-border/70 bg-muted/20 p-3">
-						<BookOpenTextIcon
-							aria-hidden="true"
-							className="mt-0.5 size-4 shrink-0 text-muted-foreground"
-						/>
-						<p className="text-muted-foreground text-xs leading-5">
-							Self-Evolution maintains Organization Understanding, Opportunity
-							Ledger, and a monthly Learning Log in a dedicated Organization
-							Files → Knowledge folder.
-						</p>
-					</div>
-
-					{createMutation.isError &&
-					!(createMutation.error instanceof FormAdmissionError) ? (
-						<p className="text-destructive text-sm" role="alert">
-							{resolveCenterAgentRoutineErrorMessage(
-								createMutation.error,
-								"create"
+							{frequency === "custom" ? (
+								<div className="grid gap-1.5">
+									<Label htmlFor="self-evolution-custom-schedule">
+										Custom schedule
+									</Label>
+									<Input
+										aria-invalid={scheduleValidation.scheduleError !== null}
+										id="self-evolution-custom-schedule"
+										onBlur={() => scheduleValidation.admitSchedule(false)}
+										onChange={(event) => setCustomSchedule(event.target.value)}
+										placeholder="0 9 * * *"
+										ref={scheduleInputRef}
+										value={customSchedule}
+									/>
+									<p className="text-muted-foreground text-xs">
+										Use exactly five cron fields.
+									</p>
+								</div>
+							) : (
+								<div className="grid gap-1.5">
+									<Label htmlFor="self-evolution-time">Time</Label>
+									<Input
+										id="self-evolution-time"
+										onChange={(event) => setTime(event.target.value)}
+										ref={scheduleInputRef}
+										type="time"
+										value={time}
+									/>
+								</div>
 							)}
-						</p>
-					) : null}
-					<DialogFooter>
-						<Button
-							disabled={createMutation.isPending}
-							onClick={() => input.onOpenChange(false)}
-							type="button"
-							variant="outline"
-						>
-							Keep Self-Evolution off
-						</Button>
-						<Button disabled={!canSubmit} type="submit">
-							{createMutation.isPending
-								? "Enabling Self-Evolution"
-								: "Enable Self-Evolution"}
-						</Button>
-					</DialogFooter>
-				</form>
+							<div className="grid gap-1.5">
+								<Label htmlFor="self-evolution-timezone">Timezone</Label>
+								<Input
+									aria-invalid={scheduleValidation.timezoneError !== null}
+									id="self-evolution-timezone"
+									onBlur={() => scheduleValidation.admitSchedule(false)}
+									onChange={(event) => setTimezone(event.target.value)}
+									ref={timezoneInputRef}
+									value={timezone}
+								/>
+							</div>
+							<output className="text-muted-foreground text-xs">
+								{scheduleValidation.presentation.message}
+							</output>
+							{scheduleValidation.scheduleError ? (
+								<p className="text-destructive text-xs" role="alert">
+									{scheduleValidation.scheduleError.message}
+								</p>
+							) : null}
+							{scheduleValidation.timezoneError ? (
+								<p className="text-destructive text-xs" role="alert">
+									{scheduleValidation.timezoneError.message}
+								</p>
+							) : null}
+						</div>
+
+						<CenterAgentRoutineTargetSpaceField
+							ariaLabel="Learning archive"
+							fieldState={targetSpaceFieldState}
+							helpText="The complete learning record stays in this Space. You can also send a short team summary to Slack."
+							label="Learning archive"
+							onRetry={targetPreparation.onRetry}
+							onTargetSpaceChange={setTargetSpaceId}
+							orgSlug={input.orgSlug}
+							targetSpaceId={targetSpaceId}
+						/>
+
+						{input.sources.some((source) => source.kind === "slack") ? (
+							<fieldset className="grid gap-3 rounded-md border border-border/70 bg-muted/20 p-3">
+								<legend className="px-1 font-medium text-foreground text-sm">
+									Team report
+								</legend>
+								<label className="flex cursor-pointer items-start gap-3 text-sm">
+									<input
+										aria-label="Post a concise summary to Slack"
+										checked={postSlackSummary}
+										className="mt-0.5 size-4 accent-primary"
+										onChange={(event) =>
+											setPostSlackSummary(event.target.checked)
+										}
+										type="checkbox"
+									/>
+									<span className="min-w-0">
+										<span className="flex flex-wrap items-center gap-2">
+											<span>Post a concise summary to Slack</span>
+											<Badge variant="outline">Recommended</Badge>
+										</span>
+										<span className="mt-1 block text-muted-foreground text-xs leading-5">
+											Share what changed and the best opportunities without
+											exposing the full learning archive.
+										</span>
+									</span>
+								</label>
+								{postSlackSummary ? (
+									<div className="grid gap-1.5">
+										<Label htmlFor="self-evolution-slack-channel">
+											Slack channel
+										</Label>
+										<Input
+											aria-label="Slack channel"
+											id="self-evolution-slack-channel"
+											onChange={(event) =>
+												setSlackReportChannelName(event.target.value)
+											}
+											placeholder="#team-updates"
+											value={slackReportChannelName}
+										/>
+										<p className="text-muted-foreground text-xs leading-5">
+											Team members can reply in the Slack thread and continue
+											the conversation with the Center Agent.
+										</p>
+									</div>
+								) : null}
+							</fieldset>
+						) : null}
+
+						<div className="grid gap-1.5">
+							<Label htmlFor="self-evolution-focus">Learning focus</Label>
+							<Textarea
+								className="min-h-24 resize-y"
+								id="self-evolution-focus"
+								onChange={(event) => setFocus(event.target.value)}
+								value={focus}
+							/>
+							<p className="text-muted-foreground text-xs leading-5">
+								Adjust what deserves extra attention. Core safety, evidence,
+								document, and reporting behavior stays in place.
+							</p>
+						</div>
+
+						<div className="flex gap-3 rounded-md border border-border/70 bg-muted/20 p-3">
+							<BookOpenTextIcon
+								aria-hidden="true"
+								className="mt-0.5 size-4 shrink-0 text-muted-foreground"
+							/>
+							<p className="text-muted-foreground text-xs leading-5">
+								Self-Evolution maintains Organization Understanding, Opportunity
+								Ledger, and a monthly Learning Log in a dedicated Organization
+								Files → Knowledge folder.
+							</p>
+						</div>
+
+						{createMutation.isError &&
+						!(createMutation.error instanceof FormAdmissionError) ? (
+							<p className="text-destructive text-sm" role="alert">
+								{resolveCenterAgentRoutineErrorMessage(
+									createMutation.error,
+									"create"
+								)}
+							</p>
+						) : null}
+						<DialogFooter>
+							<Button
+								disabled={createMutation.isPending}
+								onClick={() => input.onOpenChange(false)}
+								type="button"
+								variant="outline"
+							>
+								Keep Self-Evolution off
+							</Button>
+							<Button disabled={!canSubmit} type="submit">
+								{createMutation.isPending
+									? "Enabling Self-Evolution"
+									: "Enable Self-Evolution"}
+							</Button>
+						</DialogFooter>
+					</form>
+				</ScrollArea>
 			</DialogContent>
 		</Dialog>
 	);

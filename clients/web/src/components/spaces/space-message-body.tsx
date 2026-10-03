@@ -24,6 +24,7 @@ import {
 	createUnscopedWebSpaceApi,
 } from "#/lib/spaces/api";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
+import { resolveSpaceMessageStopFeedback } from "#/lib/spaces/wake-progress-presentation";
 import {
 	CenterAgentComputerSetupCard,
 	type CenterAgentComputerSetupContext,
@@ -56,6 +57,7 @@ import {
 	type SpaceMessageReferencesById,
 	SpaceMessageReferenceText,
 } from "./space-message-reference";
+import { useSpaceWakeStopRequestStatuses } from "./space-wake-stop-control";
 import { usePluginConnectionReply } from "./use-plugin-connection-reply";
 import { useSpaceStreamDisplayText } from "./use-space-stream-display-text";
 
@@ -102,6 +104,10 @@ type SpaceMessageBodyProps = {
 				| "mentionTargetProfileIds"
 				| "spaceId"
 				| "wakeTargetProfileIds"
+				| "activeWakeProgress"
+				| "wakeClientMessageId"
+				| "clientMessageId"
+				| "wakeSourceSignalId"
 			>
 		>;
 	onOpenProfile?: (profileId: string) => void;
@@ -274,7 +280,26 @@ export const SpaceMessageBody = memo(function SpaceMessageBody(
 	input: SpaceMessageBodyProps
 ) {
 	const editing = useSpaceMessageEditing();
-	const textPresentation = useSpaceMessageTextPresentation(input);
+	const nextTextPresentation = useSpaceMessageTextPresentation(input);
+	const lastPresentation = useRef({
+		id: input.item.id,
+		value: nextTextPresentation,
+	});
+	const stopRequested =
+		resolveSpaceMessageStopFeedback(
+			input.item,
+			useSpaceWakeStopRequestStatuses()
+		).length > 0;
+	const holdPartialReply =
+		input.item.agentStreamState &&
+		(stopRequested || input.item.agentStreamState.status === "stopped");
+	if (!holdPartialReply || lastPresentation.current.id !== input.item.id) {
+		lastPresentation.current = {
+			id: input.item.id,
+			value: nextTextPresentation,
+		};
+	}
+	const textPresentation = lastPresentation.current.value;
 	const bodyRef = useRef<HTMLDivElement | null>(null);
 	const [bodySize, setBodySize] = useState<{
 		width: number;

@@ -18,7 +18,8 @@
     "check": "biome check --no-errors-on-unmatched ./ && pnpm run typecheck"
   },
   "dependencies": {
-    "@openmeld/adapter-core": "workspace:*"
+    "@openmeld/adapter-core": "workspace:*",
+    "@openmeld/agent-runtime": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^24.3.0"

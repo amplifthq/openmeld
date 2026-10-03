@@ -15,6 +15,7 @@ import {
   type AdapterPreviewCallback,
   type AdapterRuntimeProcessEvent,
   type AdapterTransportMode,
+  agentExecutionSteerRequestSchema,
   bridgeAgentControllerConversationRef,
   buildAdapterCancelRequest,
   buildExecutableLaunchContract,
@@ -78,7 +79,7 @@ export type CodexCancelSignalFn = (
 
 type CodexAppServerActiveTurn = Pick<
   CodexAppServerActiveTurnRegistration,
-  "interrupt" | "threadId" | "turnId"
+  "interrupt" | "steer" | "threadId" | "turnId"
 >;
 
 export type CodexAdapterOptions = {
@@ -219,6 +220,7 @@ export const createCodexAdapter = (
   ) => {
     const activeTurn = {
       interrupt: registration.interrupt,
+      steer: registration.steer,
       threadId: registration.threadId,
       turnId: registration.turnId,
     };
@@ -361,6 +363,22 @@ export const createCodexAdapter = (
         waitForCodexThreadWriterAvailability,
     });
 
+  const steer: NonNullable<RuntimeAdapter["steer"]> = async (request) => {
+    const parsed = agentExecutionSteerRequestSchema.safeParse(request);
+    if (!parsed.success) {
+      throw new Error("execution_input.invalid");
+    }
+    const activeTurn = activeAppServerTurns.get(parsed.data.taskId);
+    if (!activeTurn || stoppedDispatches.has(parsed.data.taskId)) {
+      return {
+        status: "not_applied",
+        taskId: parsed.data.taskId,
+        reasonCode: "execution_input.target_unavailable",
+      };
+    }
+    return await activeTurn.steer(parsed.data);
+  };
+
   const verifyComputerFileAccessBoundary: NonNullable<
     RuntimeAdapter["verifyComputerFileAccessBoundary"]
   > = async (request) => {
@@ -465,6 +483,7 @@ export const createCodexAdapter = (
       cancel,
       dispatch,
       interrupt,
+      steer,
       verifyComputerFileAccessBoundary,
     } satisfies RuntimeAdapter,
     {
