@@ -36,7 +36,7 @@ path and query. Browser fragment inheritance is left intact. Unknown pages
 remain website 404s; they are not an arbitrary proxy.
 
 Installers, `/api/auth/*`, `/v1/*`, downloads, managed skills, Slack OAuth start,
-and other enumerated protocols use the fixed `APP` service binding to the
+`/llms.txt`, and other enumerated protocols use the fixed `APP` service binding to the
 matching Web Worker. The original Request and streaming Response retain URL,
 method, body, cookies, Origin, Referer, Range, and upstream errors. There is no
 caller-selected upstream or second protocol implementation.
@@ -44,10 +44,16 @@ caller-selected upstream or second protocol implementation.
 Website assets use `/_website/assets/`, its client base is `/_website/build`,
 and server functions use `/_website/serverFn`. During cutover,
 `LEGACY_BROWSER_COMPATIBILITY=true` also forwards old App `/assets/` and
-`/_serverFn/` paths. This is a transition window, not a historical bundle store:
+`/_serverFn/` and `/emoji/` paths. This is a transition window, not a historical bundle store:
 save unsent drafts and close/reload old root-origin tabs before replacing the
 old Web deployment. Retire the flag only after old browser traffic is gone.
 Stable installer, Auth, API, and download paths remain forwarded independently.
+
+The website also owns `/.well-known/posthog-client.json`. PostHog uses that
+exact production root URL as its OAuth client ID and does not follow redirects
+when fetching it. Preserve the JSON bytes, stable Connector callback, and shared
+`/icon-512.png` logo. This is one public metadata owner, not a wildcard proxy for
+all well-known paths. Migration and rollback health verify its direct JSON response.
 
 ## Local development
 
@@ -65,3 +71,12 @@ App origin and explicit legacy root origin during migration, never arbitrary
 siblings. LocalStorage and IndexedDB do not move between origins. Save drafts
 before switching; preference/cache reinitialization is expected. Native clients
 have a separate installed-artifact acceptance requirement in `desktop.md`.
+
+The existing Web manifests use `start_url: "/"` and `display: "standalone"`.
+An old installed root-origin app therefore opens the Website after cutover.
+The Website home supplies a standalone-only explanation and an ordinary link
+to open the new App in the browser and install it again. Normal browser visits
+keep the public homepage. Do not change the manifest ID or use a cross-origin
+start URL to imply that installation identity or drafts moved. Save drafts in
+still-open old tabs before closing them; reopening the old shortcut is not a
+draft recovery path. Test a real old installation separately from visual preview.

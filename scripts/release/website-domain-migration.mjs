@@ -326,6 +326,34 @@ export async function checkWebsiteDomainEndpoints(names, fetchImpl = fetch) {
     }
     await response.body?.cancel();
   }
+  // PostHog identifies the production OAuth client by this exact public URL.
+  // Its metadata fetch does not follow redirects. Check after cutover and rollback.
+  if (names.root === "openmeld.ai") {
+    const url = `https://${names.root}/.well-known/posthog-client.json`;
+    const response = await fetchImpl(url, {
+      redirect: "error",
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (
+      response.status !== 200 ||
+      !response.headers.get("content-type")?.includes("application/json")
+    ) {
+      throw new Error(
+        "PostHog OAuth client metadata must remain a direct JSON response at the root domain."
+      );
+    }
+    const metadata = await response.json();
+    if (
+      metadata.client_id !== url ||
+      !metadata.redirect_uris?.includes(
+        "https://connectors.openmeld.ai/oauth/callback"
+      )
+    ) {
+      throw new Error(
+        "PostHog OAuth client identity or callback changed during domain migration."
+      );
+    }
+  }
 }
 
 async function restoreWebDomainTriggers(client, names, state) {

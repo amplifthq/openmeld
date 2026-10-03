@@ -31,6 +31,7 @@ describe("website App boundary", () => {
 		"/_website/assets/main.js",
 		"/unknown",
 		"/api/unknown",
+		"/.well-known/posthog-client.json",
 	])("keeps %s with the website router", (path) => {
 		expect(
 			routeAppRequest(new Request(`https://openmeld.ai${path}`), environment)
@@ -98,9 +99,11 @@ describe("website App boundary", () => {
 		"/cli/manifest.json",
 		"/desktop/download",
 		"/skills/openmeld-cli/SKILL.md",
+		"/llms.txt",
 		"/api/auth/callback/github",
 		"/_serverFn/old",
 		"/assets/old.js",
+		"/emoji/17.0.0/en/data.json",
 	])("uses the fixed service binding for %s", async (path) => {
 		const response = new Response("upstream");
 		const fetch = vi.fn<Fetcher["fetch"]>().mockResolvedValue(response);

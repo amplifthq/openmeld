@@ -4,6 +4,7 @@ const APP_PROTOCOL_PATHS = new Set([
 	"/setup",
 	"/SKILL.md",
 	"/guide.md",
+	"/llms.txt",
 	"/agent-interface/guide.md",
 	"/api/waitlist",
 	"/slack/oauth/start",
@@ -18,7 +19,7 @@ const APP_PROTOCOL_PREFIXES = [
 	"/desktop/",
 	"/skills/openmeld-cli/",
 ];
-const LEGACY_BROWSER_PREFIXES = ["/assets/", "/_serverFn/"];
+const LEGACY_BROWSER_PREFIXES = ["/assets/", "/_serverFn/", "/emoji/"];
 const APP_PAGES = new Set([
 	"/accept-invitation",
 	"/accept-space-invitation",

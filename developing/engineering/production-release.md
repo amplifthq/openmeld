@@ -429,6 +429,23 @@ checks prove the observed states, not an atomic zero-interruption guarantee.
 Keep `307`/`no-store` redirects and the bounded legacy browser forwarding window
 from [Website](../clients/website.md) until acceptance completes.
 
+Before preparation, record a direct `200 application/json` read of
+`https://openmeld.ai/.well-known/posthog-client.json` and its unchanged client ID
+and Connector redirect. The recorded previous Web version still contains this
+public file. The new Web source removes it only after Website has taken the root;
+the guard above forbids publishing that new Web while Web still owns the root.
+Rollback restores the exact recorded previous Web version before transferring
+the root back. Cutover and rollback endpoint checks reject a redirect, HTML, or
+changed PostHog client identity/callback. Never restore the new App-only Web
+version at the root or assume a successful homepage proves this OAuth dependency.
+
+Before replacing old Web assets, save unsent text and attachment drafts, finish
+or restart in-flight authorization, and close old tabs. Verify the old installed
+standalone app shows the migration entry; install the new App from its browser
+origin. Check browser notifications again there. Host-only protected-Space cookies
+may require entering the Space password again. Neither cache forwarding nor a
+parent Auth cookie migrates browser storage, PWA identity, or notification grants.
+
 ## Release Scopes
 
 The local release tool accepts these direct scopes:

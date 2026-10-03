@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import {
   admitWebsiteDomainRelease,
+  checkWebsiteDomainEndpoints,
   executeObservedDomainRelease,
   prepareWebsiteDomains,
   rollbackWebsiteDomains,
@@ -22,6 +23,47 @@ const needsSmoke = /real App login/u;
 const staleSmoke = /currently deployed/u;
 const interveningDeployment = /intervening deployments/u;
 const unexpectedOwner = /Unexpected website/u;
+const invalidPosthogMetadata = /PostHog OAuth/u;
+
+// Public fields captured from the production CIMD document on 2026-10-03.
+const posthogMetadata = {
+  client_id: "https://openmeld.ai/.well-known/posthog-client.json",
+  redirect_uris: ["https://connectors.openmeld.ai/oauth/callback"],
+};
+function healthyEndpoint(url) {
+  return url.endsWith("/.well-known/posthog-client.json")
+    ? Response.json(posthogMetadata)
+    : new Response("healthy");
+}
+
+test("domain health preserves the existing PostHog client URL and rejects HTML, redirects, or changed callbacks", async () => {
+  await checkWebsiteDomainEndpoints(names, healthyEndpoint);
+  for (const invalid of [
+    () =>
+      new Response("<html>Website</html>", {
+        headers: { "Content-Type": "text/html" },
+      }),
+    () =>
+      Response.redirect(
+        "https://app.openmeld.ai/.well-known/posthog-client.json",
+        307
+      ),
+    () =>
+      Response.json({
+        ...posthogMetadata,
+        redirect_uris: ["https://app.openmeld.ai/callback"],
+      }),
+  ]) {
+    await assert.rejects(
+      checkWebsiteDomainEndpoints(names, (url) =>
+        url.endsWith("/.well-known/posthog-client.json")
+          ? invalid()
+          : healthyEndpoint(url)
+      ),
+      invalidPosthogMetadata
+    );
+  }
+});
 
 // Domain/deployment shapes captured from the isolated Cloudflare domain trial.
 function fixture() {
@@ -173,7 +215,7 @@ test("rollback restores the recorded Web version before root ownership and retai
         assert.equal(versions[names.web], oldVersion);
         domains[0].service = names.web;
       },
-      fetchImpl: async () => new Response("healthy"),
+      fetchImpl: healthyEndpoint,
     });
     assert.equal(writes.at(-1).method, "POST");
     assert.equal(
