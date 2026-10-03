@@ -60,8 +60,9 @@ describe("space send OpenMeld profile identity", () => {
       );
       vi.stubGlobal("fetch", fetchMock);
 
-      await withCapturedStdio(async () => {
+      const { plainStdout } = await withCapturedStdio(async () => {
         await runSend({
+          clientMessageId: "chosen-before-send",
           profile: "mira--send",
           openMeldProfile: createOpenMeldProfileInput({
             openMeldProfileId: "aaaaaaaa-0000-0000-0000-000000000000",
@@ -77,6 +78,10 @@ describe("space send OpenMeld profile identity", () => {
       });
 
       expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(plainStdout).toContain("space.send.request");
+      expect(plainStdout.indexOf("chosen-before-send")).toBeLessThan(
+        plainStdout.indexOf("send.response")
+      );
       const requestInit = fetchMock.mock.calls[0]?.[1] as
         | RequestInit
         | undefined;
@@ -90,8 +95,10 @@ describe("space send OpenMeld profile identity", () => {
       expect(headers["x-openmeld-profile-name"]).toBe("Mira");
       const body = JSON.parse(String(requestInit?.body ?? "{}")) as {
         text?: string;
+        meta?: { clientMessageId: string };
       };
       expect(body.text).toBe("hello");
+      expect(body.meta?.clientMessageId).toBe("chosen-before-send");
     });
   });
 

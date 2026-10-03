@@ -3919,6 +3919,10 @@ withSpaceProfileOption(
       "--reply-to <signal-id>",
       "Reply into the thread of a message (creates the thread if it does not exist yet)"
     )
+    .option(
+      "--client-message <id>",
+      "Stable request ID for retrying or stopping this send before it starts"
+    )
     .option("--password <value>", "Space password for protected access")
 ).action(async (space, textParts, opts, command: Command) => {
   const cliOptions = resolveSpaceCommandCliOptions(command, opts);
@@ -3941,6 +3945,10 @@ withSpaceProfileOption(
     gatewayUrl: cliOptions.gatewayUrl,
     run: async () => {
       await runSpaceSend({
+        clientMessageId:
+          typeof opts.clientMessage === "string"
+            ? opts.clientMessage
+            : undefined,
         profile: cliOptions.profile,
         baseUrl: cliOptions.gatewayUrl,
         space: spaceValue,

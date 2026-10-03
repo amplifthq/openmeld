@@ -255,8 +255,11 @@ openmeld space wake-progress <space-id> --client-message <client-message-id> --t
 This is the live progress view. Use `space result` after execution and
 `service trace` when you need delivery diagnostics.
 
-Stop exactly one live Wake with its target Agent Profile and one public
-selector:
+Stop exactly one request with its target Agent Profile and one public selector.
+You do not need to wait for progress or a runtime to appear. `space send` emits
+`space.send.request` with its client message ID before network work; use that ID
+from another process to stop an in-flight send. To know the ID before sending,
+pass a fresh `--client-message <id>` to `space send`.
 
 ```bash
 openmeld space wake-stop <space-id> --client-message <client-message-id> --target-profile <agent-profile-id> --profile <profile-id> --view agent

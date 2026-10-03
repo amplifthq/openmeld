@@ -756,6 +756,18 @@ Important execution rules:
   actor, operation, Wake, or current-intent evidence fails closed.
   RuntimeCoordinator continues to own execution and the final stopped outcome;
   internal deletion/recovery cancellation is not a user Stop permission grant.
+- Before a source message reaches Space, an authenticated sender can Stop its
+  own `(clientMessageId, targetProfileId)` request. Space stores a durable fence
+  scoped to the authenticated author, never just a guessed client ID. A
+  represented Center send additionally requires the existing immutable Core
+  audit attribution; missing attribution returns an unconfirmed retry result.
+  Source/outbox inspection and fence insertion have no intervening asynchronous
+  work. Source publication checks the fence in the same SQL transaction that
+  inserts its dispatch outbox record, withdraws admission, and persists exactly
+  one stopped notice. No execution has been handed off at this boundary.
+  A durable Space outbox forwards this terminal outcome to Agent Task
+  Coordination and retries failed projection delivery. Neither the fence nor
+  that projection owns the truth of a running execution.
 - Before RuntimeCoordinator links an execution, OpenMeld-owned pre-agent Stop may
   move the target Wake head lifecycle to `stopped_before_execution`. That is a
   stopped terminal outcome for the target Wake, not a failed execution and not a

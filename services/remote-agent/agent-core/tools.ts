@@ -3208,7 +3208,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_stop_space_wake",
       description:
-        "Request Stop for one exact Wake in a Space. Use the sourceSignalId or clientMessageId and targetProfileId from Wake progress. OpenMeld checks whether this Center Agent sent the Wake or the verified current requester could stop it in Web. The result distinguishes a Stop request from a confirmed stopped outcome; do not describe cancellation_requested as stopped.",
+        "Stop one exact request in a Space, including while it is being sent or waiting to start. Use clientMessageId and targetProfileId from the send receipt; sourceSignalId also works after publication. A progress read is not required. OpenMeld checks the verified current requester's permission. cancellation_requested means stopping, not confirmed stopped. Completed actions are not undone.",
       input: stopSpaceWakeToolInputSchema,
       execute: async (payload) => {
         const request = parseValibot(stopSpaceWakeToolInputSchema, payload);

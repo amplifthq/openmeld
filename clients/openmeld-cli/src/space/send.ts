@@ -1,3 +1,4 @@
+import { clientMessageIdSchema } from "@openmeld/schemas";
 import { resolveBaseUrl } from "../config/base-url";
 import type { OpenMeldProfile } from "../config/openmeld-profiles-api";
 import { buildOpenMeldRequestContextFromProfile } from "../config/openmeld-request-context";
@@ -20,6 +21,7 @@ import {
 } from "./send-files";
 
 export async function runSend(input: {
+  clientMessageId?: string;
   contextSelection?: import("@openmeld/schemas/types").ExecutionContextSelection;
   wakeTargets?: readonly string[];
   referenceTargets?: readonly string[];
@@ -54,6 +56,16 @@ export async function runSend(input: {
     view: input.view,
   });
   const presenter = createPresenter(runtime);
+  const clientMessageId = resolveClientMessageId(input.clientMessageId);
+  presenter.line({
+    code: "space.send.request",
+    text: `Request: ${clientMessageId}`,
+    data: {
+      clientMessageId,
+      spaceId: input.space.trim(),
+      targetProfileIds: input.wakeTargets ?? [],
+    },
+  });
 
   const openMeldProfile =
     input.openMeldProfile ??
@@ -153,7 +165,6 @@ export async function runSend(input: {
     spaceApi,
     spaceId: space,
   });
-  const clientMessageId = crypto.randomUUID();
   emitAgentSendProgress({
     presenter,
     resolvedView: runtime.resolvedView,
@@ -349,6 +360,14 @@ function emitSendAddressingSummary(input: {
       wakeTargetCount: wakeCount,
     },
   });
+}
+
+function resolveClientMessageId(value: string | undefined): string {
+  const parsed = clientMessageIdSchema.safeParse(value ?? crypto.randomUUID());
+  if (!parsed.success) {
+    throw new Error("--client-message must be a valid message ID.");
+  }
+  return parsed.data;
 }
 
 function emitAgentSendProgress(input: {

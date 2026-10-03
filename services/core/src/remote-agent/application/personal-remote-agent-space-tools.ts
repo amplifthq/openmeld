@@ -18,8 +18,10 @@ import {
   rpcGetSpaceBoard,
   rpcGetSpaceMemberDirectory,
   rpcGetSpaceUpdates,
+  rpcGetSpaceWakeProgress,
   rpcListSignals,
   rpcPostSignalOnceByClientMessageId,
+  rpcPostSpaceWakeStop,
 } from "../../rpc/methods";
 import {
   isFormalSpaceUpdateSignal,
@@ -194,6 +196,26 @@ export async function runPersonalRemoteAgentSpaceTool(
       kind: "authorize",
     });
   }
+  if (input.operation.kind === "wake_progress") {
+    return personalRemoteAgentSpaceToolResponseSchema.parse({
+      kind: "wake_progress",
+      progress: await rpcGetSpaceWakeProgress(env, {
+        ...input.operation.query,
+        context,
+        spaceId: delivery.spaceId,
+      }),
+    });
+  }
+  if (input.operation.kind === "wake_stop") {
+    return personalRemoteAgentSpaceToolResponseSchema.parse({
+      kind: "wake_stop",
+      response: await rpcPostSpaceWakeStop(env, {
+        body: input.operation.body,
+        context,
+        spaceId: delivery.spaceId,
+      }),
+    });
+  }
   if (input.operation.kind === "reply_placement") {
     const placement = await resolveNativeDeliveryReplyPlacement({
       env,
@@ -294,7 +316,9 @@ export async function runPersonalRemoteAgentSpaceTool(
     "SHA-256",
     new TextEncoder().encode(JSON.stringify(input))
   );
-  const clientMessageId = `personal-agent:${Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+  const clientMessageId =
+    operation.clientMessageId ??
+    `personal-agent:${Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
   const signal = await rpcPostSignalOnceByClientMessageId(env, {
     authoringPolicy: "user_authored",
     clientMessageId,
@@ -322,6 +346,9 @@ export async function runPersonalRemoteAgentSpaceTool(
   return personalRemoteAgentSpaceToolResponseSchema.parse({
     kind: "wake",
     signalId: signal.id,
+    // Older Remote workers strictly validate this response. Echo only a
+    // caller-supplied ID, which also proves that the caller knows this field.
+    ...(operation.clientMessageId ? { clientMessageId } : {}),
     agentProfileId: target.profileId,
   });
 }

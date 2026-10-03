@@ -1602,14 +1602,26 @@ claim that a final reply exists.
 Only a one-to-one Center Agent Direct Message may show an optimistic reply shell
 before the first authoritative Agent stream event. The shell is derived from
 the current active Wake presentation and shows the known Center Agent identity.
-It starts with compact animated `Sending to Agent…` copy while the handoff is
-pending, then updates that same status row in place to `Agent is working`. The
-row reserves one stable Stop-control slot so Stop eligibility can change without
-moving the conversation. The shell makes no tool, reasoning, or final outcome
+It starts with compact `Thinking…` copy and an immediately available Stop
+control on the first optimistic message. Transport preparation, Wake delivery,
+connection, and retry steps stay in diagnostics. Meaningful queue, offline,
+approval, failure, and live tool progress remain visible. The row keeps one
+stable Stop-control slot without moving the conversation. The shell makes no
+tool, reasoning, or final outcome
 claim and is not independent execution authority.
 It must not be persisted, recovered as conversation history, or reused in an
 ordinary Space or thread. An authoritative stream projection, durable reply,
 stopped notice, failure notice, or ended Wake presentation removes it.
+
+Stop is one click for one target. Multiple targets use the shared picker with
+per-Agent Stop and Stop all. Clicking immediately shows `Stopping…` and freezes
+the current partial answer; only a confirmed terminal outcome says `Stopped`.
+Completed work remains visible and Stop does not imply rollback. A completed
+reply wins a race with a later Stop acknowledgement. A failed connection keeps
+the command intent with an explicit retry action. Receipts survive navigation
+and are isolated by acting Profile and Space; an interrupted request restored
+after reload is unconfirmed, never reported as stopped. New-chat preparation
+can be withdrawn locally before a Space exists and retains the unsent draft.
 
 Agent reply work summaries follow the same rule for hosted Center Agents and
 workstation Local Agents. A Space may show one compact live **Work summary**

@@ -2717,12 +2717,15 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 					? [
 							resolveWakeStopTargetForProgressItem({
 								item: item.activeWakeProgress,
+								sourceItem: wakePresentationItem,
+								viewerProfileId: input.selfProfileId,
 								stopRequestStatusBySelectorKey:
 									input.wakeStopRequestStatusBySelectorKey,
 							}),
 						]
 					: resolveSpaceMessageWakeStopTargets({
 							item: wakePresentationItem,
+							viewerProfileId: input.selfProfileId,
 							stopRequestStatusBySelectorKey:
 								input.wakeStopRequestStatusBySelectorKey,
 							timelineItems: input.timelineItems,
@@ -2730,7 +2733,6 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 							wakeProgressItems: input.ephemeralActivityItems,
 						});
 				const wakeStopControl =
-					wakePresentationItem.deliveryState !== "pending" &&
 					!input.readOnly &&
 					input.onWakeStopRequest &&
 					shouldRenderSpaceWakeStopControl(wakeStopTargets) ? (
@@ -2782,6 +2784,8 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 					control: wakeStopControl,
 					entries: wakeThinkingEntries,
 					hideForActiveWakeSource: isActiveWakeSource,
+					wakeOutcomeIndex: input.wakeOutcomeIndex,
+					wakeSourceItem: wakePresentationItem,
 					item,
 					messageDetailsItem,
 					onOpenMessageDetails: input.onOpenMessageDetails,
@@ -3297,6 +3301,8 @@ function renderConversationMessageProgressStatus(input: {
 		typeof resolveSpaceMessageWakeProgressState
 	>["thinkingEntries"];
 	hideForActiveWakeSource: boolean;
+	wakeOutcomeIndex: SpaceWakeOutcomeIndex;
+	wakeSourceItem: SpaceTimelineItem;
 	item: SpaceTimelineItem;
 	messageDetailsItem: SpaceTimelineItem | null;
 	onOpenMessageDetails: (item: SpaceTimelineItem) => void;
@@ -3316,6 +3322,8 @@ function renderConversationMessageProgressStatus(input: {
 				item: input.messageDetailsItem ?? input.item,
 				onOpenMessageDetails: input.onOpenMessageDetails,
 			})}
+			wakeOutcomeIndex={input.wakeOutcomeIndex}
+			wakeSourceItem={input.wakeSourceItem}
 		/>
 	);
 }

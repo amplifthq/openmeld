@@ -88,6 +88,7 @@ import {
 	type SpaceLiveState,
 	type SpaceTimelineItem,
 } from "#/lib/spaces/timeline";
+import { useWakeStopRequests } from "#/lib/spaces/use-wake-stop-requests";
 import type {
 	SpaceWakeStopRequestStatus,
 	SpaceWakeStopTargetResolution,
@@ -1603,9 +1604,7 @@ export function useSpaceLandingController(input: {
 	const [
 		wakeStopRequestStatusBySelectorKey,
 		setWakeStopRequestStatusBySelectorKey,
-	] = useState<ReadonlyMap<string, SpaceWakeStopRequestStatus>>(
-		() => new Map()
-	);
+	] = useWakeStopRequests(input.profileId, input.spaceId);
 	const recoveredWakeProgressClientMessageIdsRef = useRef(new Set<string>());
 	const [pendingAgentRecoveryProfileId, setPendingAgentRecoveryProfileId] =
 		useState<string | null>(null);
@@ -1752,8 +1751,6 @@ export function useSpaceLandingController(input: {
 		spaceId: input.spaceId,
 	});
 
-	const currentProfileId = input.profileId;
-	const currentSpaceId = input.spaceId;
 	const currentProfileMembershipState = useCurrentProfileSpaceMembershipState({
 		membersSnapshot,
 		profileId: input.profileId,
@@ -1761,15 +1758,6 @@ export function useSpaceLandingController(input: {
 	});
 	const currentProfileIsActiveSpaceMember =
 		currentProfileMembershipState === "member";
-	useEffect(() => {
-		if (
-			currentProfileId.trim().length === 0 ||
-			currentSpaceId.trim().length === 0
-		) {
-			return;
-		}
-		setWakeStopRequestStatusBySelectorKey(new Map());
-	}, [currentProfileId, currentSpaceId]);
 	useActiveSpaceHistorySync({
 		currentProfileIsActiveSpaceMember,
 		membersReady,
@@ -2184,7 +2172,6 @@ export function useSpaceLandingController(input: {
 		setIsLoadingEarlierHistory(false);
 		setIsLeavingSpace(false);
 		setLeaveSpaceErrorMessage(null);
-		setWakeStopRequestStatusBySelectorKey(new Map());
 		setPendingDiagnosticReportSignalIds(new Set());
 		setSentDiagnosticReportSignalIds(new Set());
 		recoveredWakeProgressClientMessageIdsRef.current.clear();
@@ -2447,11 +2434,13 @@ export function useSpaceLandingController(input: {
 			} catch (error) {
 				setWakeStopRequestStatusBySelectorKey((current) => {
 					const next = new Map(current);
-					next.delete(selectorKey);
+					next.set(selectorKey, "delivery_unknown");
 					return next;
 				});
 				const failure = toStructuredApiClientFailure(error);
-				toast.error(`OpenMeld couldn't request Stop. ${failure.message}`);
+				toast.error(
+					`Stop is not confirmed. Check your connection and try again. ${failure.message}`
+				);
 				throw failure;
 			}
 
@@ -2484,6 +2473,7 @@ export function useSpaceLandingController(input: {
 			input.spaceId,
 			queryClient,
 			threadController.activeThread?.threadId,
+			setWakeStopRequestStatusBySelectorKey,
 		]
 	);
 	const handleAgentInteractionResponse = useCallback(
@@ -2898,25 +2888,7 @@ export function useSpaceLandingController(input: {
 			localAdmissionReleased = true;
 			composerSession.send.finish();
 		};
-		if (!options?.retrySubmission) {
-			try {
-				await composerFilesController.waitForDiscovery();
-			} catch (error) {
-				const message =
-					error instanceof Error
-						? error.message
-						: "Couldn't restore your attachment drafts. Retry to continue.";
-				setComposerErrorMessage(message);
-				releaseLocalAdmission();
-				throwSpaceSendFailureWhenRequested({
-					error: error instanceof Error ? error : new Error(message),
-					postedMessage: false,
-					throwOnFailure: options?.throwOnFailure === true,
-				});
-				return;
-			}
-		}
-		const pendingFiles = resolvePendingSubmissionFiles(
+		let pendingFiles = resolvePendingSubmissionFiles(
 			composerFilesController,
 			options?.pendingMessage
 		);
@@ -2950,7 +2922,8 @@ export function useSpaceLandingController(input: {
 		let postedMessage = false;
 		let publishedLocalIds: readonly string[] = [];
 		let pendingSubmission: PendingComposerSubmission | null = null;
-		let submittedFiles: readonly SpaceComposerFile[] = [];
+		let submittedFiles: readonly SpaceComposerFile[] =
+			options?.retryFiles ?? pendingFiles ?? composerFilesController.files;
 		try {
 			const missingMembersMessage =
 				resolveMissingSpaceMembersMessage(membersErrorMessage);
@@ -2968,11 +2941,28 @@ export function useSpaceLandingController(input: {
 					),
 				};
 			pendingSubmission = preparedSubmission;
+			// Publish the cancellable request before attachment recovery can yield.
+			stagePreparedSpaceMessage({
+				composerFiles:
+					options?.retryFiles ?? pendingFiles ?? composerFilesController.files,
+				clientMessageId: messageSeed.clientMessageId,
+				createdAtMs: messageSeed.createdAtMs,
+				preparedSubmission,
+				status: statusSnapshot,
+			});
+			options?.onMessageStaged?.(messageSeed.clientMessageId);
+			if (!options?.retrySubmission) {
+				await composerFilesController.waitForDiscovery();
+				pendingFiles = resolvePendingSubmissionFiles(
+					composerFilesController,
+					options?.pendingMessage
+				);
+			}
 			submittedFiles =
 				options?.retryFiles ??
 				composerSession.recordPendingSubmission({
 					fileIds: pendingFiles?.map((file) => file.localId),
-					submittedAtMs: options?.pendingMessage?.createdAtMs,
+					submittedAtMs: messageSeed.createdAtMs,
 				});
 			markSpaceSendPending(messageSeed.clientMessageId, () => {
 				composerFilesController.consumePublishedFiles(
@@ -2988,7 +2978,6 @@ export function useSpaceLandingController(input: {
 				preparedSubmission,
 				status: statusSnapshot,
 			});
-			options?.onMessageStaged?.(messageSeed.clientMessageId);
 			releaseLocalAdmission();
 			await request.ready;
 			const sendBoundary = await resolveSpaceComposerSendBoundary({
@@ -4189,19 +4178,6 @@ function useSpaceThreadController(input: {
 		if (!(input.statusReady && composerSession.send.begin())) {
 			return;
 		}
-		if (!retry) {
-			try {
-				await composerFilesController.waitForDiscovery();
-			} catch (error) {
-				setComposerErrorMessage(
-					error instanceof Error
-						? error.message
-						: "Couldn't restore your attachment drafts. Retry to continue."
-				);
-				composerSession.send.finish();
-				return;
-			}
-		}
 		const thread = retry?.thread ?? activeThread;
 		const trimmedText =
 			retry?.submission.text ?? mentionAuthoring.composerText.trim();
@@ -4222,6 +4198,7 @@ function useSpaceThreadController(input: {
 		const submittedThread = thread;
 
 		const clientMessageId = retry?.clientMessageId ?? createClientMessageId();
+		const submittedAtMs = Date.now();
 		let posted = false;
 		let localAdmissionReleased = false;
 		let pendingSubmission: PendingComposerSubmission | null = null;
@@ -4241,17 +4218,28 @@ function useSpaceThreadController(input: {
 					),
 				};
 			pendingSubmission = preparedSubmission;
-			submittedFiles =
-				retry?.files ?? composerSession.recordPendingSubmission();
+			submittedFiles = retry?.files ?? composerFilesController.files;
 			await sendPreparedThreadMessage({
 				composerFiles: submittedFiles,
 				clientMessageId,
 				onMessageStaged: (stagedClientMessageId) => {
 					options?.onMessageStaged?.(stagedClientMessageId);
-					composerSession.send.finish();
-					localAdmissionReleased = true;
 				},
 				prepareFiles: async () => {
+					if (!retry) {
+						await composerFilesController.waitForDiscovery();
+						submittedFiles = composerSession.recordPendingSubmission({
+							submittedAtMs,
+						});
+					}
+					composerSession.send.finish();
+					localAdmissionReleased = true;
+					markSpaceSendPending(clientMessageId, () => {
+						composerFilesController.consumePublishedFiles(
+							submittedFiles.map((file) => file.localId)
+						);
+						composerFilesController.finishSubmission(submittedFiles);
+					});
 					const publishedFiles =
 						await composerFilesController.publishReadyFiles(submittedFiles);
 					publishedLocalIds = publishedFiles.publishedLocalIds;

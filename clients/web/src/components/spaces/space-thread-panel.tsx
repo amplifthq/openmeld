@@ -1431,12 +1431,15 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 		? [
 				resolveWakeStopTargetForProgressItem({
 					item: input.item.activeWakeProgress,
+					sourceItem: wakePresentationItem,
+					viewerProfileId: input.selfProfileId,
 					stopRequestStatusBySelectorKey:
 						input.wakeStopRequestStatusBySelectorKey,
 				}),
 			]
 		: resolveSpaceMessageWakeStopTargets({
 				item: wakePresentationItem,
+				viewerProfileId: input.selfProfileId,
 				stopRequestStatusBySelectorKey:
 					input.wakeStopRequestStatusBySelectorKey,
 				timelineItems: input.allItems,
@@ -1449,8 +1452,7 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 	});
 	const wakeStopControl = renderThreadWakeStopControl({
 		onWakeStopRequest: input.onWakeStopRequest,
-		readOnly:
-			input.readOnly || wakePresentationItem.deliveryState === "pending",
+		readOnly: input.readOnly,
 		wakeStopTargets,
 	});
 	const wakeThinkingEntries =
@@ -1496,6 +1498,8 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 				align: messageAlign,
 				control: wakeStopControl,
 				entries: wakeThinkingEntries,
+				wakeOutcomeIndex: input.wakeOutcomeIndex,
+				wakeSourceItem: wakePresentationItem,
 				item: input.item,
 				messageDetailsItem,
 				onOpenMessageDetails: input.onOpenMessageDetails,
@@ -1784,6 +1788,8 @@ function renderThreadMessageProgressStatus(input: {
 	align: "start" | "end";
 	control: ReactNode;
 	entries: readonly SpaceMessageWakeThinkingEntry[];
+	wakeOutcomeIndex: SpaceWakeOutcomeIndex;
+	wakeSourceItem: SpaceTimelineItem;
 	item: SpaceTimelineItem;
 	messageDetailsItem: SpaceTimelineItem | null;
 	onOpenMessageDetails: (item: SpaceTimelineItem) => void;
@@ -1800,6 +1806,8 @@ function renderThreadMessageProgressStatus(input: {
 					? () => input.onOpenMessageDetails(messageDetailsItem)
 					: undefined
 			}
+			wakeOutcomeIndex={input.wakeOutcomeIndex}
+			wakeSourceItem={input.wakeSourceItem}
 		/>
 	);
 }

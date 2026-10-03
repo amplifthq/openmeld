@@ -1692,10 +1692,13 @@ chain.
 `space wake-stop <space-id>` requires one Space-visible selector and an exact
 target profile: either `--source-signal <id> --target-profile <id>` or
 `--client-message <id> --target-profile <id>`. It must never expose
-`dispatchId` as a public Stop selector. Before POST, the CLI explicitly reads
-Wake Stop eligibility and fails closed when the selected active Wake or its
-eligibility is missing. The server remains the access and cancellation
-authority. Agent View exits zero only for the server-confirmed `cancelled` and
+`dispatchId` as a public Stop selector. POST the exact selector directly: a
+progress projection may not exist yet, so a preflight read must not block Stop.
+The server remains the access and cancellation authority. `space send` accepts
+`--client-message <id>` and emits a `space.send.request` receipt before file
+upload or network admission. Callers can retain or supply that ID and stop the
+same request while send is still pending. Agent View exits zero only for the
+server-confirmed `cancelled` and
 `already_cancelled` responses, exits two for `cancellation_requested`, and
 exits one for permission, eligibility, transport, or semantic failure. A
 pending request is not presented as a stopped Wake; Core and
