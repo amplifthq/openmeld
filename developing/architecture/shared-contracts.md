@@ -650,6 +650,23 @@ application boundary. It does not establish execution liveness or replace
 RuntimeCoordinator authority. The local account and Service remain the local
 trust boundary; a dispatch identifier is not a secret execution capability.
 
+Local non-read calls now also require the exact durable human request owned by
+Core. `includeRequestAuthorization` opts into the shared `authorization_required`
+projection; older callers receive an actionable failure and may repeat the same
+operation after Web confirmation. `plugin-action-requests` owns the private
+read/send-code/approve/reject DTOs. Auth's `plugin-request-authorization` RPCs
+return only sent/verified/denied, never a code to the caller. Only the approved
+stored request can supply `plugin-request:<id>` as an execution root. An executor
+change cannot borrow that root. Native Remote admission and its recorded request
+contracts remain unchanged; this does not claim cross-executor approval transfer.
+
+Inbox source-target capability 10 adds `plugin_action_request`; version 9 retains
+account-scoped notifications but receives an instruction to use current Web for
+this new detail. Rollout requires migration 0192, Auth and Gateway/schema readers
+before Core creates these rows, then Web/CLI consumers. The existing fifteen-minute
+destructive token remains distinct from the one-hour human request and the
+operation's single replay allowance within its original 24-hour maximum window.
+
 ### Contract impact and rollout
 
 - Migrations 0171 and 0172 add nullable policy/revision, access events, and

@@ -170,13 +170,18 @@ def seed_plugin_requests(context):
                        state="pending", created_at_ms=now, expires_at_ms=now + (-60000 if scenario == "expired" else 3600000))
         source = "plugin-action-request:" + request
         item = "inbox_item_" + hashlib.sha256(json.dumps([org, user, "system_attention_event", source], separators=(",", ":")).encode()).hexdigest()
+        target_json = json.dumps({"kind": "plugin_action_request", "requestId": request}, separators=(",", ":"))
+        facts_json = json.dumps({"version": 1, "recipientReasons": ["requester"], "requestCategory": "action"}, separators=(",", ":"))
         context.insert("inbox_items", id=item, organization_id=org, recipient_user_id=user,
                        source_kind="system_attention_event", source_key=source,
-                       source_target_json=json.dumps({"kind": "plugin_action_request", "requestId": request}),
-                       source_facts_json=json.dumps({"version": 1, "recipientReasons": ["requester"], "requestCategory": "action"}),
+                       source_target_json=target_json, source_facts_json=facts_json,
                        kind="system_issue", importance="normal", attention="action_required", resolution_status="open",
                        title="Confirm a Plugin action", preview="Open the request to review it.", context_label="Plugin request",
                        occurred_at_ms=now, created_at_ms=now, updated_at_ms=now)
+        # Match the source owner's JSON encoding without resetting a retained
+        # request or decision. This touches only this scenario's stable item.
+        context.db.execute("UPDATE inbox_items SET source_target_json=?, source_facts_json=? WHERE id=?",
+                           (target_json, facts_json, item))
     context.db.commit()
     count = context.db.execute("SELECT count(*) FROM plugin_action_requests WHERE organization_id=? AND operation_id LIKE 'local-ui-fixture-%'", (org,)).fetchone()[0]
     print(f"Plugin confirmation fixtures: {count}; provider credentials and executions: 0")

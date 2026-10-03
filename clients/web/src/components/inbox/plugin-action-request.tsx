@@ -56,8 +56,7 @@ export function PluginActionRequest({ requestId }: { requestId: string }) {
 		return (
 			<div className="mt-3 space-y-2 rounded-md border border-border/70 p-4">
 				<p className="text-destructive text-sm" role="alert">
-					This request is unavailable. It may belong to another account or
-					organization.
+					This request could not be loaded. Refresh to try again.
 				</p>
 				<Button onClick={() => query.refetch()} size="sm" variant="outline">
 					Refresh request

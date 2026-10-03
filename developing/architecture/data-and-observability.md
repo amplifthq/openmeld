@@ -650,8 +650,8 @@ Local, and personal Remote Agent consumers.
 Local plugin calls reuse `center_agent_connector_action_operations` and the
 existing audit journal; its historical physical name does not restrict its
 consumer. A claim freezes the authenticated Agent, represented member, selected
-connection, input signature, and operation ID. Recovery reads return that
-record, including after revocation. An unknown write can execute one exact
+connection, input signature, and operation ID. Recovery retains that
+record; current connection permission still controls disclosure. An unknown write can execute one exact
 replay only when current authorization and the original frozen account are
 verified and the operation journal atomically grants its unused allowance in
 the original 24-hour window. Missing account provenance never grants execution.
@@ -669,6 +669,26 @@ worker hosts the credential-bearing executor through an internal service
 binding, independently of any conversation or LLM. It rechecks provider action
 metadata against the admitted effect before execution. No broad runtime token
 or provider credential is returned to a CLI.
+
+`plugin_action_requests` retains an exact Local write that lacks separately
+verified human intent. Core's Plugin request owner is its sole writer. The row
+binds requester, Organization, executor, operation ID, frozen connection/access
+revisions, action, effect and input for one hour. Input stays in that protected
+owner record; Inbox receives only an opaque reference and generic private
+recipient text. The detail projection exposes bounded resource identifiers,
+not arbitrary input or credentials. Auth verifies a request-bound code delivered
+to the current verified account email through service-binding RPC. The caller's
+account credential or Profile selection alone cannot approve it. Email assumes
+that the recipient mailbox is independently controlled; an Agent separately
+authorized to read that mailbox is outside this verification guarantee.
+
+The decision and Inbox resolution share a conditional D1 batch. Repeated or
+lost responses return the same decision and root. The operation owner rechecks
+that approved root and current revisions in its atomic execution/replay claim.
+Changing IDs cannot authorize an old unknown replacement. An independently
+approved new request may intentionally repeat content without resolving the old
+unknown. Existing precise destructive confirmations remain an additional gate;
+they are not proof of a new human request.
 
 The `connector_app_requests` D1 table is Core's internal demand ledger for Apps
 that a member asks OpenMeld to support. A request is scoped by Organization,

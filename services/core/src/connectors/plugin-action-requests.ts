@@ -17,6 +17,7 @@ import { type CoreBindings, identityDb } from "../lib/bindings";
 import { requireExpectedOrganizationContext } from "../organizations/expected-organization-context";
 import { resolveActiveOrganizationMembership } from "../organizations/organization-context";
 import { createCoreRpcHttpError } from "../rpc/errors";
+import { callRequiredAuthWorkerRpc } from "../rpc/required-auth-worker-rpc";
 import { readConnectorConnectionForExecution } from "./connector-connection-repository";
 import { pluginPermissionAllows, readPluginAccess } from "./plugin-access";
 
@@ -277,13 +278,6 @@ async function sendRequestVerification(
   row: RequestRow,
   verification: import("@openmeld/schemas/types").PluginRequestVerification
 ) {
-  const send = env.OPENMELD_AUTH_WORKER?.sendPluginRequestVerification;
-  if (!send) {
-    throw denied(
-      "verification_unavailable",
-      "Email confirmation is not available yet. Try again later."
-    );
-  }
   // A lost response cannot automatically send another email. An explicit
   // later request may resend the same code, never a new request/root.
   const claimed = await db
@@ -294,7 +288,14 @@ async function sendRequestVerification(
     .run();
   if (claimed.meta.changes === 1) {
     const result = pluginRequestVerificationResultSchema.parse(
-      await send.call(env.OPENMELD_AUTH_WORKER, verification)
+      await callRequiredAuthWorkerRpc({
+        authWorker: env.OPENMELD_AUTH_WORKER,
+        call: (auth) => auth.sendPluginRequestVerification(verification),
+        unavailable: {
+          code: "plugin.verification_unavailable",
+          reason: "Email confirmation is not available yet. Try again later.",
+        },
+      })
     );
     if (result.status !== "sent") {
       throw denied(
@@ -323,17 +324,18 @@ async function decideRequest(
       "Request a confirmation code from this page first."
     );
   }
-  const check = env.OPENMELD_AUTH_WORKER?.checkPluginRequestVerification;
-  if (!check) {
-    throw denied(
-      "verification_unavailable",
-      "Email confirmation is not available yet. Try again later."
-    );
-  }
   const verified = pluginRequestVerificationResultSchema.parse(
-    await check.call(env.OPENMELD_AUTH_WORKER, {
-      ...verification,
-      code: command.code,
+    await callRequiredAuthWorkerRpc({
+      authWorker: env.OPENMELD_AUTH_WORKER,
+      call: (auth) =>
+        auth.checkPluginRequestVerification({
+          ...verification,
+          code: command.code,
+        }),
+      unavailable: {
+        code: "plugin.verification_unavailable",
+        reason: "Email confirmation is not available yet. Try again later.",
+      },
     })
   );
   if (verified.status !== "verified") {
