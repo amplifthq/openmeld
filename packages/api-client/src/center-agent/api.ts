@@ -108,19 +108,16 @@ export const createCenterAgentApi: CreateCenterAgentApi = (
       invalidMessage: "Invalid Center Agent model response.",
     }),
   updateModel: async (input) => {
-    const request = validateModelInput(input);
+    const body = requireValidModelBody(input);
     return await client.requestJson({
       url: buildCenterAgentModelPath(),
       operation: "center_agent.model.update",
       method: "PUT",
-      requestContext: request.requestContext,
-      signal: request.signal,
-      timeoutMs: request.timeoutMs,
+      requestContext: input.requestContext,
+      signal: input.signal,
+      timeoutMs: input.timeoutMs,
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        expectedConfigurationRevision: request.expectedConfigurationRevision,
-        preference: request.preference,
-      }),
+      body: JSON.stringify(body),
       schema: updateCenterAgentModelResponseSchema,
       invalidMessage: "Invalid Center Agent model update response.",
     });
@@ -449,12 +446,11 @@ function validateOperatingStateInput(
   return input;
 }
 
-function validateModelInput(
-  input: CenterAgentUpdateModelInput
-): CenterAgentUpdateModelInput {
+function requireValidModelBody(input: CenterAgentUpdateModelInput) {
   const parsed = updateCenterAgentModelBodySchema.safeParse({
     expectedConfigurationRevision: input.expectedConfigurationRevision,
     preference: input.preference,
+    reasoningLevel: input.reasoningLevel,
   });
   if (!parsed.success) {
     throw new Error(
@@ -462,7 +458,7 @@ function validateModelInput(
     );
   }
   validateRequestInput(input);
-  return input;
+  return parsed.data;
 }
 
 function validateAuditJournalInput(
