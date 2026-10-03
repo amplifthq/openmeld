@@ -300,6 +300,143 @@ test("codex Stop fences the default app-server path while writer occupancy waits
   }
 });
 
+for (const [mode, expectedStatus] of [
+  ["applied", "applied"],
+  ["unsupported", "not_applied"],
+  ["target-ended", "not_applied"],
+  ["target-changed", "not_applied"],
+  ["internal-error", "unconfirmed"],
+  ["wrong-receipt", "unconfirmed"],
+  ["withhold", "unconfirmed"],
+  ["stop-during", "unconfirmed"],
+]) {
+  test(`codex exact-turn Steer respects delivery and Stop boundaries: ${mode}`, async () => {
+    const { invokeCodexAppServerTransport } = await import("../dist/index.js");
+    const fixtureDir = await mkdtemp(join(tmpdir(), "codex-steer-"));
+    const fixturePath = join(fixtureDir, "fake-codex-app-server.mjs");
+    const logPath = join(fixtureDir, "rpc-log.jsonl");
+    await writeFakeCodexAppServerFixture(fixturePath);
+    let activeTurn;
+    let earlySteer;
+    let accepted;
+    const turnAccepted = new Promise((resolve) => {
+      accepted = resolve;
+    });
+    try {
+      const execution = invokeCodexAppServerTransport({
+        launchContract: createNodeScriptLaunchContract(fixturePath),
+        codexTimeoutMs: 5000,
+        controlRequestTimeoutMs: 500,
+        codexWorkdir: fixtureDir,
+        env: {
+          OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath,
+          OPENMELD_FAKE_CODEX_APP_SERVER_TURN_DELAY_MS: "60000",
+          OPENMELD_FAKE_CODEX_STEER_MODE: mode,
+        },
+        taskId: "task-steer",
+        threadId: "thread-steer",
+        prompt: "original request",
+        onActiveTurn: (turn) => {
+          activeTurn = turn;
+          earlySteer = turn.steer({
+            inputId: "input-early",
+            text: "do not send before native admission",
+          });
+          return () => undefined;
+        },
+        onRuntimeEvent: (event) => {
+          if (event.phase === "provider_turn_accepted") {
+            accepted();
+          }
+        },
+      });
+      await Promise.race([
+        turnAccepted,
+        execution.then(() => assert.fail("Turn ended before admission")),
+      ]);
+      assert.equal((await earlySteer).status, "not_applied");
+      const steering = activeTurn.steer({
+        inputId: "input-steer",
+        text: "correction for this execution",
+      });
+      if (mode === "stop-during") {
+        await activeTurn.interrupt();
+      }
+      const result = await steering;
+      assert.equal(result.status, expectedStatus);
+      if (mode === "applied") {
+        assert.deepEqual(result, {
+          status: "applied",
+          taskId: "task-steer",
+          threadId: "thread-steer",
+          turnId: "turn-1",
+        });
+      }
+      if (mode === "target-ended" || mode === "target-changed") {
+        assert.equal(result.reasonCode, "execution_input.rejected");
+      }
+      if (mode === "internal-error") {
+        assert.equal(result.nativeErrorCode, -32_603);
+      }
+      if (mode === "withhold") {
+        assert.equal(result.diagnosticCode, "runtime.turn_steer_timeout");
+      }
+      if (mode === "wrong-receipt") {
+        assert.equal(
+          result.diagnosticCode,
+          "runtime.turn_steer_receipt_mismatch"
+        );
+      }
+      // A missing receipt must neither stop the original task nor retry input.
+      const beforeStop = await readFakeAppServerMessages(logPath);
+      assert.equal(
+        beforeStop.filter((item) => item.method === "turn/start").length,
+        1
+      );
+      assert.equal(
+        beforeStop.filter((item) => item.method === "turn/interrupt").length,
+        mode === "stop-during" ? 1 : 0
+      );
+      const requests = beforeStop.filter(
+        (item) => item.method === "turn/steer"
+      );
+      assert.equal(requests.length, 1);
+      assert.deepEqual(requests[0].params, {
+        threadId: "thread-steer",
+        clientUserMessageId: "input-steer",
+        expectedTurnId: "turn-1",
+        input: [
+          {
+            type: "text",
+            text: "correction for this execution",
+            text_elements: [],
+          },
+        ],
+      });
+      await activeTurn.interrupt();
+      const stopped = await activeTurn.steer({
+        inputId: "input-stopped",
+        text: "do not send after Stop",
+      });
+      assert.equal(stopped.status, "not_applied");
+      await execution;
+      const late = await activeTurn.steer({
+        inputId: "input-late",
+        text: "do not send after completion",
+      });
+      assert.equal(late.status, "not_applied");
+      assert.equal(
+        (await readFakeAppServerMessages(logPath)).filter(
+          (item) => item.method === "turn/steer"
+        ).length,
+        1
+      );
+    } finally {
+      await rm(fixtureDir, { force: true, recursive: true });
+    }
+  });
+}
+
 test("codex Stop keeps the turn a released writer retry already started", async () => {
   const { createCodexAdapter } = await import("../dist/index.js");
   const fixtureDir = await mkdtemp(
@@ -363,11 +500,52 @@ test("codex Stop keeps the turn a released writer retry already started", async 
         )
       ),
     ]);
+    assert.equal(
+      (
+        await adapter.steer({
+          taskId: "another-task",
+          inputId: "input-wrong-target",
+          text: "wrong target",
+        })
+      ).status,
+      "not_applied"
+    );
+    await assert.rejects(
+      adapter.steer({
+        taskId: "task-default-stop-after-turn",
+        inputId: "input-invalid",
+        text: " ",
+      }),
+      { message: "execution_input.invalid" }
+    );
+    assert.deepEqual(
+      await adapter.steer({
+        inputId: "input-active",
+        taskId: "task-default-stop-after-turn",
+        text: "correction",
+      }),
+      {
+        status: "applied",
+        taskId: "task-default-stop-after-turn",
+        threadId: "thread-default-stop-after-turn",
+        turnId: "turn-1",
+      }
+    );
     const stopResult = await adapter.interrupt({
       mode: "force",
       taskId: "task-default-stop-after-turn",
     });
     const dispatchResult = await dispatchOutcome;
+    assert.equal(
+      (
+        await adapter.steer({
+          inputId: "input-after-stop",
+          taskId: "task-default-stop-after-turn",
+          text: "too late",
+        })
+      ).status,
+      "not_applied"
+    );
     const methods = await readFakeAppServerMethods(logPath);
 
     assert.equal(stopResult.accepted, true);
@@ -376,6 +554,7 @@ test("codex Stop keeps the turn a released writer retry already started", async 
       2
     );
     assert.equal(methods.filter((method) => method === "turn/start").length, 1);
+    assert.equal(methods.filter((method) => method === "turn/steer").length, 1);
     assert.equal(
       methods.filter((method) => method === "turn/interrupt").length,
       1
@@ -1032,6 +1211,21 @@ const writeFakeCodexAppServerFixture = async (fixturePath) => {
       "      completionTimer = setTimeout(() => completeTurn('completed'), delayMs);",
       "    };",
       "    if (startDelayMs > 0) setTimeout(onStart, startDelayMs); else onStart();",
+      "    return;",
+      "  }",
+      // Shape captured from Codex 0.150.1 generate-json-schema TurnSteerParams/
+      // TurnSteerResponse and the official App Server turn/steer contract.
+      // Rejections: openai/codex rust-v0.150.1, request_processors/turn_processor.rs.
+      "  if (message.method === 'turn/steer') {",
+      "    const mode = process.env.OPENMELD_FAKE_CODEX_STEER_MODE;",
+      "    if (mode === 'withhold' || mode === 'stop-during') return;",
+      "    if (mode === 'unsupported') { write({ id: message.id, error: { code: -32601, message: 'Method not found' } }); return; }",
+      "    if (mode === 'target-ended') { write({ id: message.id, error: { code: -32600, message: 'no active turn to steer' } }); return; }",
+      "    if (mode === 'target-changed') { write({ id: message.id, error: { code: -32600, message: 'expected active turn id `turn-1` but found `turn-2`' } }); return; }",
+      "    if (mode === 'internal-error') { write({ id: message.id, error: { code: -32603, message: 'failed to steer turn' } }); return; }",
+      "    if (!activeTurn || turnCompleted || message.params.expectedTurnId !== activeTurn.turnId || message.params.threadId !== activeTurn.threadId) { write({ id: message.id, error: { code: -32600, message: 'No matching active turn' } }); return; }",
+      "    activeTurn.prompt += '\\n' + message.params.input[0].text;",
+      "    write({ id: message.id, result: { turnId: mode === 'wrong-receipt' ? 'another-turn' : activeTurn.turnId } });",
       "    return;",
       "  }",
       "  if (message.method === 'turn/interrupt') {",

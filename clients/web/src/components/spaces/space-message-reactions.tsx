@@ -15,6 +15,7 @@ import {
 	PopoverTitle,
 	PopoverTrigger,
 } from "@openmeld/ui/components/popover";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { surfaceClasses } from "@openmeld/ui/lib/surface-classes";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ArrowLeftIcon, PlusIcon, SmileyIcon } from "@phosphor-icons/react";
@@ -610,7 +611,7 @@ export function MessageReactionViewer({
 						</Button>
 					))}
 				</div>
-				<div className="max-h-64 space-y-3 overflow-y-auto">
+				<ScrollArea className="max-h-64" contentClassName="space-y-3">
 					{query.data?.pages
 						.flatMap((page) => page.actors ?? [])
 						.map((actor) => (
@@ -655,7 +656,7 @@ export function MessageReactionViewer({
 							Show more
 						</Button>
 					) : null}
-				</div>
+				</ScrollArea>
 			</DialogContent>
 		</Dialog>
 	);

@@ -1,10 +1,16 @@
+import { OPENMELD_HEADER_REQUESTED_ORGANIZATION_ID } from "@openmeld/gateway-contract";
 import {
   createSpaceMemberAgentSnapshot,
   createSpaceMemberHumanSnapshot,
 } from "@openmeld/schemas/testing";
+import type {
+  OpenDirectMessageSpaceBody,
+  OpenDirectMessageSpaceResponse,
+} from "@openmeld/schemas/types";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runInit } from "../src/commands/init";
 import { setAuthSession } from "../src/config/auth-session";
+import { runDirectMessage } from "../src/space/direct-message";
 import { runSend } from "../src/space/send";
 import {
   withCapturedStdio,
@@ -43,6 +49,116 @@ describe("space send OpenMeld profile identity", () => {
     vi.unstubAllGlobals();
   });
 
+  it("opens a DM before exposing a stoppable receipt and pins the send and retry to that conversation", async () => {
+    await withTempHome(async () => {
+      process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
+      await setAuthSession({
+        accessToken: "cli-token",
+        tokenType: "Bearer",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        user: { id: "user-1" },
+      });
+      const profile = createTestOpenMeldProfile({
+        openMeldProfileId: "agt_11111111-1111-4111-8111-111111111111",
+        profileName: "Writer",
+      });
+      const targetProfileId = "agt_22222222-2222-4222-8222-222222222222";
+      const clientMessageId = "33333333-3333-4333-8333-333333333333";
+      const opened: OpenDirectMessageSpaceResponse = {
+        organizationId: "org-opened",
+        memberProfileId: profile.openMeldProfileId,
+        targetProfileId,
+        spaceId: "fixed-dm",
+        created: true,
+      };
+      const requests: OpenDirectMessageSpaceBody[] = [];
+      let stdoutBeforeSend = "";
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((request: string | URL, init?: RequestInit) => {
+          const url = new URL(String(request));
+          if (url.pathname === "/api/auth/get-session") {
+            return Response.json({
+              session: { active: true },
+              user: { id: "user-1" },
+            });
+          }
+          if (url.pathname === "/v1/profiles/resolve") {
+            return Response.json({ ok: true, profile });
+          }
+          expect(url.pathname).toBe("/v1/organizations/current/dm-space");
+          const body = JSON.parse(
+            String(init?.body)
+          ) as OpenDirectMessageSpaceBody;
+          requests.push(body);
+          if (!body.message) {
+            expect(stdoutBeforeSend).not.toContain("space.send.request");
+            return Response.json(opened);
+          }
+          // The receipt must exist while the publication request is still pending.
+          expect(
+            findLineEnvelope(stdoutBeforeSend, "space.send.request")
+          ).toMatchObject({
+            data: {
+              spaceId: "fixed-dm",
+              profileId: profile.openMeldProfileId,
+              clientMessageId,
+              targetProfileIds: [targetProfileId],
+            },
+          });
+          expect(body.spaceId).toBe("fixed-dm");
+          expect(body.creationId).toBeUndefined();
+          if (requests.length === 2) {
+            expect(
+              new Headers(init?.headers).get(
+                OPENMELD_HEADER_REQUESTED_ORGANIZATION_ID
+              )
+            ).toBe("org-opened");
+          }
+          const response: OpenDirectMessageSpaceResponse = {
+            ...opened,
+            created: false,
+            signal: {
+              v: 1,
+              id: "sig-dm",
+              spaceId: "fixed-dm",
+              ts: 1,
+              profile: {
+                kind: "agent",
+                profileId: profile.openMeldProfileId,
+                profileName: "Writer",
+              },
+              type: "signal.text",
+              data: { text: body.message.text, meta: { clientMessageId } },
+            },
+          };
+          return Response.json(response);
+        })
+      );
+      const input = {
+        targetProfileId,
+        profile: profile.openMeldProfileId,
+        clientMessageId,
+        text: "Please review this.",
+        wake: true,
+        view: "agent",
+        baseUrl: "https://gateway.openmeld.invalid",
+      };
+      for (const spaceId of [undefined, "fixed-dm"]) {
+        stdoutBeforeSend = "";
+        await withCapturedStdio(() => runDirectMessage({ ...input, spaceId }), {
+          onStdout: (text) => {
+            stdoutBeforeSend += text;
+          },
+        });
+      }
+      expect(requests).toHaveLength(3);
+      expect(requests[0]).toEqual({ targetProfileId });
+      expect(requests[1]).toEqual(requests[2]);
+    });
+  });
+
   it("falls back to disk profile identity when override fields are blank", async () => {
     await withTempHome(async () => {
       await withSilencedStdio(async () => {
@@ -60,8 +176,9 @@ describe("space send OpenMeld profile identity", () => {
       );
       vi.stubGlobal("fetch", fetchMock);
 
-      await withCapturedStdio(async () => {
+      const { plainStdout } = await withCapturedStdio(async () => {
         await runSend({
+          clientMessageId: "chosen-before-send",
           profile: "mira--send",
           openMeldProfile: createOpenMeldProfileInput({
             openMeldProfileId: "aaaaaaaa-0000-0000-0000-000000000000",
@@ -77,6 +194,10 @@ describe("space send OpenMeld profile identity", () => {
       });
 
       expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(plainStdout).toContain("space.send.request");
+      expect(plainStdout.indexOf("chosen-before-send")).toBeLessThan(
+        plainStdout.indexOf("send.response")
+      );
       const requestInit = fetchMock.mock.calls[0]?.[1] as
         | RequestInit
         | undefined;
@@ -90,8 +211,10 @@ describe("space send OpenMeld profile identity", () => {
       expect(headers["x-openmeld-profile-name"]).toBe("Mira");
       const body = JSON.parse(String(requestInit?.body ?? "{}")) as {
         text?: string;
+        meta?: { clientMessageId: string };
       };
       expect(body.text).toBe("hello");
+      expect(body.meta?.clientMessageId).toBe("chosen-before-send");
     });
   });
 

@@ -1,15 +1,15 @@
-import { cn } from "@openmeld/ui/lib/utils";
-import { Link } from "@tanstack/react-router";
-import type { ReactNode } from "react";
 import {
 	AppBrandStatusLabel,
 	type AppBrandStatusLabelValue,
 	OPENMELD_APP_STATUS_LABEL,
-} from "./app-brand-status-label";
+} from "@openmeld/ui/components/app-brand-status-label";
+import { OpenMeldWordmark } from "@openmeld/ui/components/openmeld-wordmark";
+import { APP_PAGE_FRAME_PADDING_CLASS_NAME } from "@openmeld/ui/lib/page-frame";
+import { cn } from "@openmeld/ui/lib/utils";
+import { Link } from "@tanstack/react-router";
+import type { ReactNode } from "react";
 import { CrossPageHeaderNavigation } from "./cross-page-header-navigation";
-import { CrossPageWordmark } from "./cross-page-wordmark";
 import {
-	APP_PAGE_FRAME_PADDING_CLASS_NAME,
 	type AppShellSection,
 	resolveAppShellFrameClassName,
 } from "./shell-layout";
@@ -66,7 +66,7 @@ export function CrossPageHeader({
 					)}
 					to="/"
 				>
-					<CrossPageWordmark className="transition-colors duration-200 hover:text-foreground" />
+					<OpenMeldWordmark className="transition-colors duration-200 hover:text-foreground" />
 					<AppBrandStatusLabel label={brandStatusLabel} />
 				</Link>
 

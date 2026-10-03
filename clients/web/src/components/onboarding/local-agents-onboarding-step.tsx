@@ -1,5 +1,6 @@
 "use client";
 
+import { listLocalAgentInstallGuides } from "@openmeld/product-catalog/local-agent-install-guides";
 import { Button } from "@openmeld/ui/components/button";
 import { Card } from "@openmeld/ui/components/card";
 import { LocalAgentLogo as LocalAgentBrandLogo } from "@openmeld/ui/components/local-agent-logo";
@@ -9,7 +10,6 @@ import { BringAgentsSetupProvider } from "#/components/connect/bring-agents-setu
 import { ComputerSetupFlow } from "#/components/connect/start-bring-agents-setup-page";
 import { OnboardingStepLayout } from "#/components/onboarding/onboarding-step-layout";
 import { DEFAULT_CONNECT_ROUTE_INTENT } from "#/lib/connect/connect-route";
-import { listLocalAgentInstallGuides } from "#/lib/local-agent-install-guides";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationOnboardingPath } from "#/lib/organizations/organization-routes";
 

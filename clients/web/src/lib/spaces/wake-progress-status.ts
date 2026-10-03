@@ -123,59 +123,58 @@ export function resolveWakeProgressStatus(
 	switch (item.phase) {
 		case "sending":
 			return {
-				description: "OpenMeld is preparing this Wake.",
+				description: "The Agent is processing your request.",
 				kind: "starting",
-				label: `Starting Wake for ${targetName}…`,
+				label: `${targetName} · Thinking…`,
 				status: "active",
 			};
 		case "request_sent":
 			return {
-				description: "OpenMeld accepted the Wake request.",
+				description: "The Agent is processing your request.",
 				kind: "sent",
-				label: `Wake sent to ${targetName}`,
+				label: `${targetName} · Thinking…`,
 				status: "active",
 			};
 		case "queued":
 			return {
-				description: "This Wake will start when the Agent is available.",
+				description: "The Agent will start when its earlier work finishes.",
 				kind: "queued",
-				label: `${targetName} is queued · Waiting for earlier tasks`,
+				label: `${targetName} · Waiting for earlier tasks`,
 				status: "active",
 			};
 		case "connecting":
 			return {
-				description:
-					"Your message is saved. OpenMeld is preparing the Agent to run it.",
+				description: "The Agent is processing your request.",
 				kind: "connecting",
-				label: `Preparing ${targetName}…`,
+				label: `${targetName} · Thinking…`,
 				status: "active",
 			};
 		case "running":
 			return {
-				description: "The Agent is working on this Wake.",
+				description: "The Agent is processing your request.",
 				kind: "working",
-				label: `${targetName} is working`,
+				label: `${targetName} · Thinking…`,
 				status: "active",
 			};
 		case "writing":
 			return {
 				description: "The Agent has started its reply.",
 				kind: "replying",
-				label: `${targetName} is replying`,
+				label: `${targetName} · Replying…`,
 				status: "active",
 			};
 		case "publishing":
 			return {
-				description: "The Agent finished and OpenMeld is posting the reply.",
+				description: "The Agent is finishing its reply.",
 				kind: "posting",
-				label: `${targetName} · Posting reply…`,
+				label: `${targetName} · Replying…`,
 				status: "active",
 			};
 		case "retrying":
 			return {
-				description: "OpenMeld is retrying delivery.",
+				description: "The Agent is processing your request.",
 				kind: "retrying",
-				label: `Trying to reach ${targetName}…`,
+				label: `${targetName} · Thinking…`,
 				status: "active",
 			};
 		default: {
@@ -196,7 +195,7 @@ function resolveDeviceWaitStatus(
 	wait: NonNullable<WakeProgressItem["deviceWait"]>,
 	targetName: string
 ): WakeProgressStatusPresentation {
-	let label = `${targetName} is queued · Waiting for earlier tasks`;
+	let label = `${targetName} · Waiting for earlier tasks`;
 	let reason = "Earlier work must finish first.";
 	if (wait.reason === "device_offline") {
 		label = `Waiting for ${targetName}’s computer to come online`;

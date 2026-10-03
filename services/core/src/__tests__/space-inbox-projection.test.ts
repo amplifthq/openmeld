@@ -171,6 +171,20 @@ describe("Space Inbox projection", () => {
           signalId: "signal-1",
         }),
       }),
+      ...(directMessage
+        ? [
+            expect.objectContaining({
+              recipientUserId: "other-owner",
+              sourceFacts: expect.objectContaining({
+                recipientReasons: ["agent_owner"],
+              }),
+              sourceTarget: expect.objectContaining({
+                agentOwnerActivity: true,
+                directMessage: true,
+              }),
+            }),
+          ]
+        : []),
     ]);
     expect(
       await selectSpaceInboxRecipients(

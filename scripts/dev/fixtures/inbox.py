@@ -77,6 +77,39 @@ def seed(context):
             }),
             "occurred_at_ms": now - index * 3600000,
         })
+    # Historical incidents retain source urgency after resolution.
+    device = context.ident("inbox-history-device")
+    computer = context.ident("inbox-history-computer")
+    context.insert("openMeldDaemon_connected_computers", owner_user_id=context.viewer["id"],
+                   connected_computer_id=computer, created_at_ms=now, updated_at_ms=now)
+    context.insert("openMeldDaemon_owned_devices", owner_user_id=context.viewer["id"],
+                   device_id=device, connected_computer_id=computer,
+                   observed_display_name="Studio Mac", first_seen_at_ms=now, updated_at_ms=now)
+    for index in range(8):
+        state = "deactivated" if index == 7 else "restored"
+        _item(context, f"connection:{index}", {
+            "organization_id": None, "kind": "computer_connection",
+            "attention": "action_required", "importance": "urgent",
+            "resolution_status": "resolved", "resolved_at_ms": now - index * 3600000,
+            "title": "Studio Mac connection stopped" if state == "deactivated" else "Studio Mac connection restored",
+            "preview": "This connection request has ended. No action is needed for this incident.",
+            "context_label": "Studio Mac", "source_kind": "computer_connection",
+            "source_target_json": json.dumps({
+                "kind": "computer_connection", "computerId": computer, "deviceId": device,
+                "lane": "dev-local", "incidentId": context.ident(f"inbox-incident:{index}"), "state": state,
+            }),
+            "source_facts_json": json.dumps({"version": 1, "recipientReasons": ["device_owner"], "requestCategory": "action"}),
+            "occurred_at_ms": now - (index + 1) * 3600000,
+            "read_at_ms": now if index == 7 else None,
+        })
+    _item(context, "resolved-system", {
+        "kind": "system_issue", "attention": "action_required", "importance": "urgent",
+        "resolution_status": "resolved", "resolved_at_ms": now,
+        "title": "System issue resolved", "preview": "No further action is needed.",
+        "context_label": "Workspace setup", "source_kind": "system_attention_event",
+        "source_target_json": json.dumps({"kind": "settings", "section": "computers"}),
+        "occurred_at_ms": now - 9 * 3600000,
+    })
     # Ordinary source-linked requests: no fabricated live execution or Wake facts.
     for category, title, preview in [
         ("action", "Check the build computer connection", "The last connection check needs your attention. Open Computers to inspect the device."),

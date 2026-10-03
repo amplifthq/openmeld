@@ -10,6 +10,11 @@ export type MagicLinkEmailProps = {
   brandName: string;
   expiresInSeconds: number;
 };
+export type PasswordResetEmailProps = {
+  resetPasswordUrl: string;
+  brandName: string;
+  expiresInSeconds: number;
+};
 export type OrganizationInvitationEmailProps = {
   invitationUrl: string;
   brandName: string;
@@ -77,6 +82,20 @@ export function magicLinkContent(input: MagicLinkEmailProps): ActionEmailProps {
     actionUrl: input.magicLinkUrl,
     note: `Link expires in ${expiryMinutes(input.expiresInSeconds)} minutes.`,
     footer: "If you didn’t request this, you can ignore this email.",
+  };
+}
+export function passwordResetContent(
+  input: PasswordResetEmailProps
+): ActionEmailProps {
+  return {
+    brandName: input.brandName,
+    heading: "Reset your password",
+    body: `Choose a new password for your ${input.brandName} account.`,
+    actionLabel: "Reset password",
+    actionUrl: input.resetPasswordUrl,
+    note: `Link expires in ${expiryMinutes(input.expiresInSeconds)} minutes.`,
+    footer:
+      "If you didn’t request this, you can ignore this email. Your password will stay the same.",
   };
 }
 export function organizationInvitationContent(

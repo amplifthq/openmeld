@@ -1,3 +1,7 @@
+import {
+	buildPublicPageHead,
+	siteConfig,
+} from "@openmeld/product-catalog/site";
 import { buttonVariants } from "@openmeld/ui/components/button";
 import { TooltipProvider } from "@openmeld/ui/components/tooltip";
 import { OPENMELD_LOGO_THEME_COLORS } from "@openmeld/ui/lib/openmeld-logo-theme";
@@ -36,7 +40,6 @@ import {
 	WEB_ERROR_BUILD,
 } from "#/lib/observability/application-error";
 import { submitApplicationErrorReport } from "#/lib/observability/application-error-client";
-import { buildPublicPageHead, siteConfig } from "#/lib/site";
 import { SPACE_CONVERSATION_LAYOUT_BOOTSTRAP_SCRIPT } from "#/lib/spaces/conversation-layout-preference";
 import { HISTORY_SLIDER_BOOTSTRAP_SCRIPT } from "#/lib/spaces/history-slider-preference";
 import { SPACE_SELF_MESSAGE_ALIGNMENT_BOOTSTRAP_SCRIPT } from "#/lib/spaces/self-message-alignment-preference";

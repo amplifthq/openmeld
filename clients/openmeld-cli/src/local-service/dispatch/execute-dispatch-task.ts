@@ -12,6 +12,10 @@ import type {
   AdapterToolActivityEvent,
 } from "@openmeld/adapter-core";
 import { DISPATCH_SPACE_ACTION_DELIVERY_ONLY_ENV } from "@openmeld/adapter-core";
+import {
+  renderTaskKnowledgeIndex,
+  TASK_KNOWLEDGE_GUIDANCE,
+} from "@openmeld/agent-runtime";
 import type { RuntimeTaskResult } from "@openmeld/local-execution";
 import {
   appendLedgerHistoryEntry,
@@ -105,6 +109,10 @@ import {
   createDispatchSpaceTools,
   type DispatchPublicProgressResult,
 } from "../../space/action-mcp-server";
+import {
+  readTaskDocuments,
+  readTaskSkillSelections,
+} from "../../space/dispatch-knowledge-read";
 import { fetchSpaceMeta } from "../../space/meta-api";
 import { resolveProviderRuntimeDispatchContinuation } from "../continuation/provider-runtime-continuation";
 import {
@@ -1027,6 +1035,8 @@ export async function handleDispatchDeliverFrame(input: {
       routeConfig?.agentControllerPermissionMode ?? null,
     dispatchId: parsedTask.dispatchId,
     runtimeCoordinatorExecutionId: parsedTask.runtimeCoordinatorExecutionId,
+    attemptId: parsedTask.attemptId,
+    runtimeCoordinatorRunId: parsedTask.executionTokenEcho.runId,
     targetProfileId: parsedTask.targetProfileId,
     taskId: parsedTask.taskId,
   });
@@ -2708,6 +2718,10 @@ async function loadDispatchLedgerContext(input: {
 }
 
 type DispatchBootstrapContext = {
+  organizationSkillReleases: NonNullable<
+    DispatchSpaceActionContext["organizationSkillReleases"]
+  >;
+  taskKnowledgeIndex: string;
   bootstrapTemplateFacts: BootstrapTemplateFacts;
   cliEntry: string | null;
   mentionSourceMentionLabel: string | null;
@@ -2746,6 +2760,24 @@ async function resolveDispatchBootstrapContext(input: {
   profileOwnerUserId: string;
   parsedTask: ParsedDispatchTask;
 }): Promise<DispatchBootstrapContext> {
+  const knowledgeScope = {
+    spaceId: input.parsedTask.spaceId,
+    targetProfileId: input.parsedTask.targetProfileId,
+  };
+  const [taskDocuments, organizationSkillReleases] = await Promise.all([
+    readTaskDocuments(knowledgeScope)
+      .then((result) => ("documents" in result ? result.documents : null))
+      .catch(() => null),
+    input.parsedTask.workHandoff
+      ? Promise.resolve(input.parsedTask.workHandoff.skills)
+      : readTaskSkillSelections(knowledgeScope).catch(() => null),
+  ]);
+  const taskKnowledgeIndex = renderTaskKnowledgeIndex({
+    documents: taskDocuments,
+    skills: organizationSkillReleases,
+    readHint:
+      "Use read_documents without documentId for the full directory, or with documentId for the current approved body. Use read_skills without name for all selected Skills, including omitted entries, or with name for the pinned instructions and resources. Handoff Skills use the existing task materializer. Never replace a selected release with latest or install knowledge into global Skills or repository AGENTS.md.",
+  });
   const [
     spaceOwnerProfileId,
     targetProfileContext,
@@ -2835,6 +2867,8 @@ async function resolveDispatchBootstrapContext(input: {
 
   return {
     bootstrapTemplateFacts,
+    taskKnowledgeIndex,
+    organizationSkillReleases: organizationSkillReleases ?? [],
     cliEntry,
     mentionSourceMentionLabel:
       mentionSourceContext.mentionSourceMentionLabel ?? null,
@@ -2925,18 +2959,20 @@ function buildDispatchRuntimePrompt(input: {
     organizationProtectedInformation:
       input.parsedTask.organizationProtectedInformation,
     workingLanguage: input.parsedTask.workingLanguage,
-    prompt: input.taskWorkspace?.baseCommit
-      ? `${input.parsedTask.prompt}\n\nOpenMeld task workspace: ${JSON.stringify(
-          {
-            projectId: input.parsedTask.defaultProjectId,
-            repositoryName: input.taskWorkspace.sourceWorkingDirectory
-              ? basename(input.taskWorkspace.sourceWorkingDirectory)
-              : null,
-            workingDirectory: input.taskWorkspace.workingDirectory,
-            baseCommit: input.taskWorkspace.baseCommit,
-          }
-        )}\nThis task uses an independent Git worktree with private Git metadata. The starting commit is frozen. Uncommitted and ignored source files were not copied. Make changes in this task worktree; the original checkout is not the task's working directory. Refer to the task and commit in public replies without disclosing private local paths.`
-      : input.parsedTask.prompt,
+    prompt: `${input.bootstrapContext.taskKnowledgeIndex}\n\n${TASK_KNOWLEDGE_GUIDANCE}\n\n${
+      input.taskWorkspace?.baseCommit
+        ? `${input.parsedTask.prompt}\n\nOpenMeld task workspace: ${JSON.stringify(
+            {
+              projectId: input.parsedTask.defaultProjectId,
+              repositoryName: input.taskWorkspace.sourceWorkingDirectory
+                ? basename(input.taskWorkspace.sourceWorkingDirectory)
+                : null,
+              workingDirectory: input.taskWorkspace.workingDirectory,
+              baseCommit: input.taskWorkspace.baseCommit,
+            }
+          )}\nThis task uses an independent Git worktree with private Git metadata. The starting commit is frozen. Uncommitted and ignored source files were not copied. Make changes in this task worktree; the original checkout is not the task's working directory. Refer to the task and commit in public replies without disclosing private local paths.`
+        : input.parsedTask.prompt
+    }`,
     recipientExplicitlyAddressedByActivationTargets:
       input.parsedTask.recipientExplicitlyAddressedByActivationTargets,
     sourceSignalId: input.parsedTask.sourceEventId,
@@ -3235,6 +3271,7 @@ function createDispatchSpaceActionRuntimeContext(input: {
   runtimeEnvOverrides: Record<string, string | undefined> | undefined;
 } {
   const contextResult = createDispatchSpaceActionContext({
+    organizationSkillReleases: input.bootstrapContext.organizationSkillReleases,
     ...(input.claudeProjectRuntime && input.parsedTask.executionContext
       ? {
           projectShell: {

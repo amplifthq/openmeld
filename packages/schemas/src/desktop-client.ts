@@ -29,7 +29,8 @@ export const desktopCompatibilitySchema = z.strictObject({
 export const desktopInstalledTargetSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("production"),
-    webOrigin: z.literal("https://openmeld.ai"),
+    // Existing installed builds retain the root-domain protocol entrypoint.
+    webOrigin: z.enum(["https://app.openmeld.ai", "https://openmeld.ai"]),
     authScheme: z.literal(DESKTOP_INSTALLED_AUTH_SCHEME),
     clientId: z.literal("openmeld-desktop"),
     appId: z.literal("sh.openmeld.desktop"),

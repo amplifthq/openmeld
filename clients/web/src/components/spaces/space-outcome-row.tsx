@@ -1,6 +1,9 @@
 import { cn } from "@openmeld/ui/lib/utils";
 import { APP_MOBILE_TOUCH_TARGET_CLASS_NAME } from "#/components/app/app-touch-target";
-import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
+import {
+	isSpaceOutcomeNoticeItem,
+	type SpaceTimelineItem,
+} from "#/lib/spaces/timeline";
 import {
 	isQuotaWakeFailure,
 	resolveWakeFailureDisplay,
@@ -159,6 +162,18 @@ export type AnchoredOutcomeRowGroup = {
 // panel -- both anchor notices under their source message the same way, and
 // keeping one implementation is what stops a fix like this landing in only
 // one of the two.
+export function visibleAnchoredOutcomeNotices(input: {
+	notices: readonly SpaceTimelineItem[];
+	readOnly: boolean;
+}) {
+	// Observers cannot open Message details, so retain the published explanation.
+	return input.notices.filter(
+		(notice) =>
+			isSpaceOutcomeNoticeItem(notice) &&
+			(input.readOnly || notice.systemNoticeType !== "terminal_failure")
+	);
+}
+
 export function groupAnchoredOutcomeNotices(
 	notices: readonly SpaceTimelineItem[]
 ): readonly AnchoredOutcomeRowGroup[] {
@@ -205,9 +220,13 @@ export function groupAnchoredOutcomeNotices(
 // Thread callers resolve member names from different projections.
 export function resolveGroupedOutcomeRowText(input: {
 	notices: readonly SpaceTimelineItem[];
+	readOnly?: boolean;
 	resolveTargetLabel: (targetProfileId: string) => string | null;
 	tone: SpaceOutcomeRowTone;
 }): string {
+	if (input.readOnly && input.notices.length === 1) {
+		return input.notices[0]?.text ?? "";
+	}
 	if (input.tone !== "muted") {
 		const targetProfileId = input.notices[0]?.systemNoticeTargetProfileId;
 		const targetLabel = targetProfileId

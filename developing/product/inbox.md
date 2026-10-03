@@ -14,6 +14,14 @@
 - Source of truth: This file owns the Inbox product model. Source owner documents
   remain authoritative for the work or event represented by an Inbox item.
 
+## Agent Direct Message activity
+
+Agent-authored Direct Messages include the receiving Agent's personal owner in
+the existing owner-activity projection, including messages without a Wake.
+The sender's owner can follow that Agent's activity as before. One owner of
+both Agents receives one item. These are Agent-owner updates; only actual Human
+participants receive the Human-directed Direct Message reason.
+
 ## Conversation names
 
 Web and the Desktop renderer resolve conversation labels from the same authorized
@@ -23,6 +31,11 @@ their current shared names. Inbox list, expanded activities, compact previews,
 and message search share this display rule. Stored Inbox copy remains historical;
 display resolution does not mutate source targets, read state, or delivery facts.
 Browser/native notifications and email still use the stored server copy.
+
+Owners observing a Direct Message between Agents see both current participant
+names and avatars through the same presentation used by the conversation list.
+Opening that conversation keeps the Human viewer's identity; it does not switch
+to an owned Agent or silently grant participation.
 
 ## Search
 
@@ -160,7 +173,12 @@ then by main timeline or Thread when expanded. A Thread has one latest-reply
 preview and a quick mark-as-read action. Open requests, urgent outcomes and
 first-contact attention remain separate rows above ordinary updates; they cannot
 be absorbed by a Space or Thread bulk action. Ordinary desktop, connection and
-system notices share a System updates collection. Completed desktop installation
+system notices share a System updates collection. Resolved system requests,
+including restored or stopped Computer connection incidents, join that collection
+even when their original importance was urgent. Reading an urgent informational
+outcome alone does not make it eligible, and open requests remain separate.
+This is read-time grouping of existing items; it does not rewrite source facts,
+read state or resolution. Completed desktop installation
 notices mark read in place instead of navigating to a selected-update panel.
 
 Grouping shares canonical items and read state. Category and other filters run

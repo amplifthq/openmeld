@@ -1,11 +1,17 @@
 "use client";
 
+import {
+	FEISHU_CHANNEL_IDENTITY,
+	LARK_CHANNEL_IDENTITY,
+	SLACK_CHANNEL_IDENTITY,
+} from "@openmeld/product-catalog/plugins";
 import type {
 	GetCenterAgentDesignationResponse,
 	LarkPlatformActiveRegistrationProjection,
 	LarkPlatformProvider,
 	MessageChannelConnectionProjection,
 } from "@openmeld/schemas/types";
+import { AppLogo } from "@openmeld/ui/components/app-logo";
 import { Badge } from "@openmeld/ui/components/badge";
 import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import {
@@ -26,14 +32,8 @@ import { cn } from "@openmeld/ui/lib/utils";
 import { LinkIcon, SignOutIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
-import { AppLogo } from "./app-logo";
 import { CenterAgentSlackConnectionDialog } from "./center-agent-slack-connection-dialog";
 import { requiresLarkPlatformSetupAuthorization } from "./lark-platform-setup-authorization";
-import {
-	FEISHU_CHANNEL_IDENTITY,
-	LARK_CHANNEL_IDENTITY,
-	SLACK_CHANNEL_IDENTITY,
-} from "./plugin-catalog";
 
 export type CenterAgentSlackConnection = NonNullable<
 	GetCenterAgentDesignationResponse["slackConnection"]

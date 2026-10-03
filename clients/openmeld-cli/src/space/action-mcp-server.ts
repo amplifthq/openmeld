@@ -13,6 +13,7 @@ import {
   dispatchSpaceHistoryRequestSchema,
   dispatchSpaceReadResultRequestSchema,
   dispatchSpaceReadResultSchema,
+  openDirectMessageSpaceBodySchema,
   openMeldRuntimeProfileIdSchema,
   spaceFileEntryIdSchema,
   spaceFileRevisionNumberSchema,
@@ -35,8 +36,13 @@ import {
   recordDispatchSpaceReply,
   recordDispatchSpaceSilent,
 } from "./action-command";
+import { openDirectMessage } from "./direct-message";
 import { readDispatchSpaceFile } from "./dispatch-file-read";
 import { readDispatchSpaceHistory } from "./dispatch-history-read";
+import {
+  readDispatchDocuments,
+  readDispatchSkill,
+} from "./dispatch-knowledge-read";
 import { DispatchReadResults } from "./dispatch-read-result";
 import {
   createDispatchSpaceTask,
@@ -92,9 +98,13 @@ class DispatchSpaceTools implements AdapterDispatchSpaceTools {
       config.inputSchema instanceof z.ZodObject
         ? config.inputSchema
         : z.strictObject(config.inputSchema);
-    const pagedRead = ["read_history", "read_file", "list_tasks"].includes(
-      name
-    );
+    const pagedRead = [
+      "read_history",
+      "read_file",
+      "list_tasks",
+      "read_documents",
+      "read_skills",
+    ].includes(name);
     this.tools.push({
       ...config,
       name,
@@ -146,9 +156,13 @@ class DispatchSpaceTools implements AdapterDispatchSpaceTools {
         );
       }, this.#env);
     }
-    const pagedRead = ["read_history", "read_file", "list_tasks"].includes(
-      name
-    );
+    const pagedRead = [
+      "read_history",
+      "read_file",
+      "list_tasks",
+      "read_documents",
+      "read_skills",
+    ].includes(name);
     if (pagedRead || name === "read_result") {
       try {
         readDispatchSpaceActionContextFromEnv(this.#env);
@@ -398,6 +412,50 @@ export function createDispatchSpaceTools(
     }
   );
 
+  server.registerTool(
+    "read_documents",
+    {
+      title: "Read approved task documents",
+      description:
+        "List all approved Organization documents visible to this Wake, or pass documentId to read its current approved body. Uses the current Agent and Space; never returns drafts or grants action permissions. Read relevant bodies before applying rules. This does not complete the Wake.",
+      inputSchema: { documentId: z.string().trim().min(1).optional() },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (args) => {
+      const result = await readDispatchDocuments({ ...args, env });
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(result) }],
+      };
+    }
+  );
+
+  server.registerTool(
+    "read_skills",
+    {
+      title: "Read this task's selected Skills",
+      description:
+        "List the task's frozen Skill selections, or pass name to read its exact instructions and resources through current Organization permissions. Includes entries omitted from the prompt. Does not install anything or change the selected release.",
+      inputSchema: { name: z.string().trim().min(1).optional() },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (args) => {
+      const result = await readDispatchSkill({ ...args, env });
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(result) }],
+      };
+    }
+  );
+
   if (input.reportProgress) {
     server.registerTool(
       "report_progress",
@@ -430,6 +488,31 @@ export function createDispatchSpaceTools(
       }
     );
   }
+
+  server.registerTool(
+    "open_direct_message",
+    {
+      title: "Open or send a Direct Message",
+      description:
+        "Open or reuse your private conversation with a Human or Agent in this organization. Open without message first to obtain spaceId. Then include that spaceId and a message with a stable UUID clientMessageId and wake=true to assign work; wake=false sends context only. Those IDs let you stop the request immediately with space wake-stop. Keep both IDs on retries. Agent owners can read and join. This is non-final: still return your final action to the current Space. A sent message does not prove work completed. Do not send acknowledgements that wake another Agent or forward unrelated private context.",
+      inputSchema: openDirectMessageSpaceBodySchema.shape,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (request) =>
+      executeTaskAction(() => {
+        if (request.message?.wake && !request.spaceId) {
+          throw new Error(
+            "Open the Direct Message first, then include its spaceId when assigning work."
+          );
+        }
+        return openDirectMessage({ request, env });
+      })
+  );
 
   server.registerTool(
     "list_tasks",

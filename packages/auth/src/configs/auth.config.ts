@@ -64,6 +64,7 @@ import {
 import {
   buildMagicLinkEmailContent,
   buildOrganizationInvitationEmailContent,
+  buildPasswordResetEmailContent,
   buildVerificationEmailContent,
 } from "../utils/email-templates";
 import { buildOrganizationInvitationWebUrl } from "../utils/invitation-url";
@@ -73,6 +74,7 @@ import {
   AUTHENTICATION_RATE_LIMIT_CONFIG,
   DEFAULT_EMAIL_VERIFICATION_EXPIRES_IN_SECONDS,
   DEFAULT_OTT_EXPIRES_IN_MINUTES,
+  DEFAULT_PASSWORD_RESET_EXPIRES_IN_SECONDS,
   LAST_USED_LOGIN_METHOD_COOKIE_NAME,
 } from "./constants";
 
@@ -115,14 +117,17 @@ type UserLookupContext = {
 function buildMagicLinkWebUrl(
   webAppUrl: string,
   token: string,
-  sourceUrl?: string
+  sourceUrl?: string,
+  legacyAppOrigin?: string
 ): string {
   const searchParams = new URLSearchParams({ token });
   const redirectTarget = resolveVerificationRedirectTarget(sourceUrl);
   if (redirectTarget) {
     searchParams.set("redirect", redirectTarget);
   }
-  if (hasTrustedAddAccountMagicLinkIntent(webAppUrl, sourceUrl)) {
+  if (
+    hasTrustedAddAccountMagicLinkIntent(webAppUrl, sourceUrl, legacyAppOrigin)
+  ) {
     searchParams.set("intent", ADD_ACCOUNT_AUTH_INTENT);
   }
 
@@ -138,7 +143,8 @@ function buildMagicLinkWebUrl(
 
 function hasTrustedAddAccountMagicLinkIntent(
   webAppUrl: string,
-  sourceUrl: string | undefined
+  sourceUrl: string | undefined,
+  legacyAppOrigin: string | undefined
 ): boolean {
   const parsedWebAppUrl = parseUrl(webAppUrl);
   const parsedSourceUrl = parseUrl(sourceUrl);
@@ -152,7 +158,8 @@ function hasTrustedAddAccountMagicLinkIntent(
   const expectedCallbackUrl = new URL("/magic-link", parsedWebAppUrl);
   const intentValues = callbackUrl.searchParams.getAll("intent");
   return (
-    callbackUrl.origin === expectedCallbackUrl.origin &&
+    (callbackUrl.origin === expectedCallbackUrl.origin ||
+      callbackUrl.origin === legacyAppOrigin) &&
     callbackUrl.pathname === expectedCallbackUrl.pathname &&
     intentValues.length === 1 &&
     intentValues[0] === ADD_ACCOUNT_AUTH_INTENT
@@ -658,6 +665,7 @@ export function createAuthConfig(env: AuthConfigEnv = {}): BetterAuthOptions {
     AUTH_BRAND_NAME: env.AUTH_BRAND_NAME,
     WEB_APP_URL: env.WEB_APP_URL,
     AUTH_COOKIE_DOMAIN: env.AUTH_COOKIE_DOMAIN,
+    AUTH_LEGACY_APP_ORIGIN: env.AUTH_LEGACY_APP_ORIGIN,
     AUTH_COOKIE_PREFIX: env.AUTH_COOKIE_PREFIX,
     PASSKEY_RP_ID: env.PASSKEY_RP_ID,
     GITHUB_OPENMELD_AUTH_OAUTH_CLIENT_ID:
@@ -953,6 +961,7 @@ export function createAuthConfig(env: AuthConfigEnv = {}): BetterAuthOptions {
       resolveTrustedOrigins({
         baseAuthUrl: validated.BETTER_AUTH_URL,
         appUrl: validated.WEB_APP_URL,
+        legacyAppOrigin: validated.AUTH_LEGACY_APP_ORIGIN,
         env: validated.AUTH_WORKER_NODE_ENV,
         developmentTarget: validated.AUTH_DESKTOP_DEVELOPMENT_TARGET,
         request,
@@ -1046,6 +1055,26 @@ export function createAuthConfig(env: AuthConfigEnv = {}): BetterAuthOptions {
     emailAndPassword: {
       enabled: true,
       requireEmailVerification: true,
+      resetPasswordTokenExpiresIn: DEFAULT_PASSWORD_RESET_EXPIRES_IN_SECONDS,
+      sendResetPassword: async ({ user, token }) => {
+        const resetPasswordUrl = new URL(
+          "/reset-password",
+          validated.WEB_APP_URL
+        );
+        resetPasswordUrl.searchParams.set("token", token);
+        const emailContent = await buildPasswordResetEmailContent({
+          brandName: validated.AUTH_BRAND_NAME,
+          expiresInSeconds: DEFAULT_PASSWORD_RESET_EXPIRES_IN_SECONDS,
+          resetPasswordUrl: resetPasswordUrl.href,
+        });
+        await sendCloudflareEmail(requireAuthEmailSender(authEmail), {
+          to: user.email,
+          from: validated.AUTH_FROM_EMAIL,
+          subject: `Reset your ${validated.AUTH_BRAND_NAME} password`,
+          html: emailContent.html,
+          text: emailContent.text,
+        });
+      },
     },
     emailVerification: {
       sendOnSignUp: true,
@@ -1103,7 +1132,8 @@ export function createAuthConfig(env: AuthConfigEnv = {}): BetterAuthOptions {
           const magicLinkUrl = buildMagicLinkWebUrl(
             validated.WEB_APP_URL,
             token,
-            url
+            url,
+            validated.AUTH_LEGACY_APP_ORIGIN
           );
           const emailContent = await buildMagicLinkEmailContent({
             brandName: validated.AUTH_BRAND_NAME,

@@ -80,7 +80,7 @@ export function useSidebarGroupFilter(options: readonly SidebarFilterOption[]) {
 					Groups
 					{filter.selected.length > 0 ? ` (${filter.selected.length})` : ""}
 				</DropdownMenuSubTrigger>
-				<DropdownMenuSubContent className="max-h-80 w-60 overflow-y-auto">
+				<DropdownMenuSubContent className="max-h-80 w-60">
 					{filter.menu}
 				</DropdownMenuSubContent>
 			</DropdownMenuSub>

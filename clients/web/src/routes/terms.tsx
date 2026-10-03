@@ -1,21 +1,9 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { TermsOfServicePage } from "#/components/legal/terms-of-service-page";
-import { buildPublicPageHead } from "#/lib/site";
-
-const TERMS_DESCRIPTION =
-	"Terms governing use of OpenMeld's experimental collaboration service, local agent connections, and connected Plugins.";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/terms")({
-	head: () => ({
-		...buildPublicPageHead({
-			description: TERMS_DESCRIPTION,
-			path: "/terms",
-			title: "Terms of Service",
-		}),
-	}),
-	component: TermsRoute,
+	beforeLoad: ({ location }) => {
+		throw redirect({
+			href: `${import.meta.env.VITE_WEBSITE_URL}${location.pathname}${location.searchStr}${location.hash ? `#${location.hash}` : ""}`,
+		});
+	},
 });
-
-function TermsRoute() {
-	return <TermsOfServicePage />;
-}

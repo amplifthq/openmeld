@@ -15,6 +15,8 @@ type RegisterInflightTaskInput = {
   adapterId: string;
   agentControllerPermissionMode?: AgentControllerPermissionMode | null;
   dispatchId: string;
+  attemptId?: string | null;
+  runtimeCoordinatorRunId?: string | null;
   runtimeCoordinatorExecutionId?: string | null;
   targetProfileId?: string | null;
   taskId: string;
@@ -112,6 +114,8 @@ export function createInflightTaskControlRegistry() {
           existing?.agentControllerPermissionMode ??
           null,
         dispatchId: input.dispatchId,
+        attemptId: input.attemptId ?? null,
+        runtimeCoordinatorRunId: input.runtimeCoordinatorRunId ?? null,
         processId: existing?.processId ?? null,
         runtimeCoordinatorExecutionId:
           input.runtimeCoordinatorExecutionId ?? null,

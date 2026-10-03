@@ -9,6 +9,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import {
@@ -167,51 +168,56 @@ export function ProjectPickerActions(input: {
 				onOpenChange={setDetailsOpen}
 				open={detailsOpen && selected !== null}
 			>
-				<DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-xl">
-					<DialogHeader>
-						<DialogTitle>{selected?.name}</DialogTitle>
-						<DialogDescription>
-							Shared in this workspace. Local folders stay private to their
-							owner.
-						</DialogDescription>
-					</DialogHeader>
-					{selected ? (
-						<>
-							{selected.repositoryUrl ? (
-								<a
-									className="break-all text-sm underline"
-									href={selected.repositoryUrl}
-									rel="noreferrer"
-									target="_blank"
-								>
-									{selected.repositoryUrl}
-								</a>
-							) : (
-								<p className="text-muted-foreground text-sm">
-									No repository linked.
-								</p>
-							)}
-							{selected.canManage ? (
-								<Button
-									className="justify-self-start"
-									onClick={() => {
-										setDetailsOpen(false);
-										setForm("edit");
-										setError(null);
-									}}
-									size="sm"
-									variant="outline"
-								>
-									Edit project
-								</Button>
-							) : null}
-							<ProjectComputerSection
-								organizationId={input.organizationId}
-								project={selected}
-								projects={input.projects}
-							/>
-						</>
-					) : null}
+				<DialogContent className="max-h-[85dvh] overflow-hidden p-0 sm:max-w-xl">
+					<ScrollArea
+						className="max-h-[inherit]"
+						contentClassName="grid gap-4 p-4"
+					>
+						<DialogHeader>
+							<DialogTitle>{selected?.name}</DialogTitle>
+							<DialogDescription>
+								Shared in this workspace. Local folders stay private to their
+								owner.
+							</DialogDescription>
+						</DialogHeader>
+						{selected ? (
+							<>
+								{selected.repositoryUrl ? (
+									<a
+										className="break-all text-sm underline"
+										href={selected.repositoryUrl}
+										rel="noreferrer"
+										target="_blank"
+									>
+										{selected.repositoryUrl}
+									</a>
+								) : (
+									<p className="text-muted-foreground text-sm">
+										No repository linked.
+									</p>
+								)}
+								{selected.canManage ? (
+									<Button
+										className="justify-self-start"
+										onClick={() => {
+											setDetailsOpen(false);
+											setForm("edit");
+											setError(null);
+										}}
+										size="sm"
+										variant="outline"
+									>
+										Edit project
+									</Button>
+								) : null}
+								<ProjectComputerSection
+									organizationId={input.organizationId}
+									project={selected}
+									projects={input.projects}
+								/>
+							</>
+						) : null}
+					</ScrollArea>
 				</DialogContent>
 			</Dialog>
 		</>

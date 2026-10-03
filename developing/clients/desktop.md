@@ -16,6 +16,16 @@
 
 ## Product boundary
 
+New installed builds use `https://app.openmeld.ai` as their production Web
+origin. The installed-target schema still accepts the old root for existing
+builds. Root Auth, API, compatibility, and installer requests are forwarded
+without redirects because native transport rejects redirects. Installed
+renderers reject generated server-function calls and use shared APIs.
+The native credential store is keyed by Web origin, so a new installed build
+may require signing in again. Native schemes and the Passkey parent RP ID stay
+unchanged. Verify an actual installed old-to-new client separately from browser
+smoke before publishing this origin change; see [Website](website.md).
+
 The native frame waits for hydration before adding its titlebar and content
 wrapper. Its first client tree must match the prerendered shell, where no native
 bridge exists. A document-level hydration replacement clears the shared Web
