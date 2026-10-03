@@ -3027,7 +3027,25 @@ describe("organization Core RPC", () => {
     expect(centerAgentAuditJournal).toEqual([]);
   });
 
-  it("lets every member read the Center Agent model while only owners and admins can change it", async () => {
+  it.each([
+    {
+      preference: {
+        kind: "selected_model" as const,
+        modelId: "deepseek/deepseek-v4-flash",
+      },
+      modelId: "deepseek/deepseek-v4-flash",
+      displayName: "DeepSeek V4 Flash",
+    },
+    {
+      preference: { kind: "system_default" as const },
+      modelId: "anthropic/claude-opus-5.5",
+      displayName: "Claude Opus 5.5",
+    },
+  ])("persists authorized Center Agent model and reasoning updates for $preference.kind", async ({
+    preference,
+    modelId,
+    displayName,
+  }) => {
     const db = createOrganizationRpcDb({
       agentProfiles: [
         managedCenterAgentProfileRow({ organizationId: "org-a" }),
@@ -3109,19 +3127,19 @@ describe("organization Core RPC", () => {
       rpcUpdateCenterAgentModel(env, {
         context: adminContext,
         expectedConfigurationRevision: 4,
-        preference: {
-          kind: "selected_model",
-          modelId: "deepseek/deepseek-v4-flash",
-        },
+        preference,
+        reasoningLevel: "high",
       })
     ).resolves.toMatchObject({
       canManage: true,
       changed: true,
       configurationRevision: 5,
       effectiveModel: {
-        displayName: "DeepSeek V4 Flash",
-        modelId: "deepseek/deepseek-v4-flash",
+        displayName,
+        modelId,
       },
+      reasoningLevel: "high",
+      effectiveReasoningLevel: "high",
     });
     await expect(
       rpcGetCenterAgentModel(env, { context: ownerContext })
@@ -3130,8 +3148,10 @@ describe("organization Core RPC", () => {
       configurationRevision: 5,
       preference: {
         kind: "selected_model",
-        modelId: "deepseek/deepseek-v4-flash",
+        modelId,
       },
+      reasoningLevel: "high",
+      effectiveReasoningLevel: "high",
     });
     await expect(
       rpcUpdateCenterAgentModel(env, {
@@ -3142,6 +3162,20 @@ describe("organization Core RPC", () => {
     ).rejects.toMatchObject({
       code: "center_agent.model_configuration_changed",
       status: 409,
+    });
+    await expect(
+      rpcUpdateCenterAgentModel(env, {
+        context: ownerContext,
+        expectedConfigurationRevision: 5,
+        preference: { kind: "system_default" },
+        reasoningLevel: null,
+      })
+    ).resolves.toMatchObject({
+      changed: true,
+      configurationRevision: 6,
+      preference: { kind: "system_default" },
+      reasoningLevel: null,
+      effectiveReasoningLevel: "medium",
     });
   });
 

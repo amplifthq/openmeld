@@ -8637,12 +8637,12 @@ export async function rpcUpdateCenterAgentModel(
     env,
     organizationId: activeOrganization.organizationId,
   });
-  const requestedModelId =
+  let requestedModelId =
     parsed.data.preference.kind === "system_default"
       ? null
       : parsed.data.preference.modelId;
   try {
-    resolveCenterAgentModelRouteForBinding({
+    const route = resolveCenterAgentModelRouteForBinding({
       binding: {
         configurationRevision: current.configurationRevision,
         modelId: requestedModelId,
@@ -8650,6 +8650,10 @@ export async function rpcUpdateCenterAgentModel(
       },
       catalog: readModelCatalog(),
     });
+    if (parsed.data.reasoningLevel) {
+      // An independent effort belongs to a concrete model, not a moving default.
+      requestedModelId = route.modelId;
+    }
   } catch (error) {
     throw createCoreRpcHttpError({
       code: "center_agent.model_invalid",
