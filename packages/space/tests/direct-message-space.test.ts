@@ -1,13 +1,44 @@
 import { describe, expect, it } from "vitest";
 import {
   buildDirectMessagePairKey,
-  isAgentDirectConversationSpace,
+  isAutomaticWakeSpace,
   isDirectMessageSpace,
   OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
   OPENMELD_WELCOMING_SPACE_PURPOSE,
 } from "../src";
 
 describe("direct message Space presentation", () => {
+  it.each([
+    {
+      purpose: "ordinary_private_space",
+      isThreadMessage: false,
+      expected: true,
+    },
+    {
+      purpose: "ordinary_private_space",
+      isThreadMessage: true,
+      expected: false,
+    },
+    {
+      purpose: OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
+      isThreadMessage: true,
+      expected: true,
+    },
+  ])("keeps Space membership addressing separate from Thread addressing: $purpose/$isThreadMessage", ({
+    purpose,
+    isThreadMessage,
+    expected,
+  }) => {
+    expect(
+      isAutomaticWakeSpace({
+        purpose,
+        isThreadMessage,
+        activeMemberCount: 2,
+        humanMemberCount: 1,
+        agentMemberCount: 1,
+      })
+    ).toBe(expected);
+  });
   it("derives Direct Message state from origin purpose and exactly two active members", () => {
     expect(
       isDirectMessageSpace({
@@ -66,7 +97,7 @@ describe("direct message Space presentation", () => {
 
   it("does not treat legacy welcoming Spaces as current agent direct conversations", () => {
     expect(
-      isAgentDirectConversationSpace({
+      isAutomaticWakeSpace({
         activeMemberCount: 2,
         agentMemberCount: 1,
         humanMemberCount: 1,
@@ -75,7 +106,7 @@ describe("direct message Space presentation", () => {
     ).toBe(false);
 
     expect(
-      isAgentDirectConversationSpace({
+      isAutomaticWakeSpace({
         activeMemberCount: 3,
         agentMemberCount: 1,
         humanMemberCount: 2,
@@ -84,14 +115,14 @@ describe("direct message Space presentation", () => {
     ).toBe(false);
   });
 
-  it("does not treat ordinary one-human one-agent Spaces as agent direct conversations", () => {
+  it("automatically addresses ordinary one-human one-agent Spaces", () => {
     expect(
-      isAgentDirectConversationSpace({
+      isAutomaticWakeSpace({
         activeMemberCount: 2,
         agentMemberCount: 1,
         humanMemberCount: 1,
         purpose: "ordinary_private_space",
       })
-    ).toBe(false);
+    ).toBe(true);
   });
 });

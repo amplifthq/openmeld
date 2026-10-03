@@ -15159,7 +15159,10 @@ describe("SpaceLanding", () => {
 		expect(onConsumed).toHaveBeenCalledTimes(1);
 	});
 
-	it("shows local Wake progress immediately for Direct Message automatic Wake", async () => {
+	it.each([
+		OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
+		"ordinary_private_space",
+	])("shows local Wake progress immediately for automatic Wake in %s", async (spacePurpose) => {
 		let resolvePost:
 			| ((signal: ReturnType<typeof createTextSignal>) => void)
 			| null = null;
@@ -15177,7 +15180,7 @@ describe("SpaceLanding", () => {
 				isSuccess: true,
 				data: {
 					...createSpaceStatus(),
-					spacePurpose: OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
+					spacePurpose,
 				},
 			}),
 			members: createQueryResult({

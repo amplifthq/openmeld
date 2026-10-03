@@ -2186,11 +2186,7 @@ type RequiredAuthWorkerRpc = Required<
 const ORGANIZATION_SPACE_DIRECTORY_LIMIT = 500;
 const CENTER_AGENT_AUDIT_JOURNAL_DEFAULT_LIMIT = 100;
 const CENTER_AGENT_DISPATCH_HISTORY_DEFAULT_LIMIT = 10;
-const CENTER_AGENT_DIRECT_MESSAGE_WELCOME_PURPOSE =
-  "center_agent_dm_welcome" as const;
 const CENTER_AGENT_MANAGED_ROLE = "center_agent" as const;
-const friendlyNameTextPattern = /[\p{L}\p{N}]/u;
-const friendlyNameWhitespacePattern = /\s+/u;
 
 const CREATE_SPACE_ALLOWED_FIELDS = new Set([
   "name",
@@ -2741,6 +2737,7 @@ export type GetSpaceWakeProgressInput = {
   clientMessageId: string;
   includePreviewText?: boolean;
   includeTiming?: boolean;
+  includeReplyPlacement?: boolean;
   includeSourceContext?: boolean;
   includeWaitReason?: boolean;
   includeWakeStopEligibility?: boolean;
@@ -2756,6 +2753,7 @@ export type GetActiveSpaceWakeProgressInput = {
   includePageInfo?: boolean;
   includePreviewText?: boolean;
   includeTiming?: boolean;
+  includeReplyPlacement?: boolean;
   includeSourceContext?: boolean;
   includeWaitReason?: boolean;
   includeWakeStopEligibility?: boolean;
@@ -3765,7 +3763,6 @@ export type CenterAgentSpaceInputQueueInput =
 export type OpenCenterAgentDirectMessageSpaceInput = {
   context?: CoreRpcContextInput;
   sessionCreationId?: string;
-  suppressWelcome?: boolean;
 };
 
 export type OpenDirectMessageSpaceInput = OpenDirectMessageSpaceBody & {
@@ -8642,12 +8639,12 @@ export async function rpcUpdateCenterAgentModel(
     env,
     organizationId: activeOrganization.organizationId,
   });
-  const requestedModelId =
+  let requestedModelId =
     parsed.data.preference.kind === "system_default"
       ? null
       : parsed.data.preference.modelId;
   try {
-    resolveCenterAgentModelRouteForBinding({
+    const route = resolveCenterAgentModelRouteForBinding({
       binding: {
         configurationRevision: current.configurationRevision,
         modelId: requestedModelId,
@@ -8655,6 +8652,10 @@ export async function rpcUpdateCenterAgentModel(
       },
       catalog: readModelCatalog(),
     });
+    if (parsed.data.reasoningLevel) {
+      // An independent effort belongs to a concrete model, not a moving default.
+      requestedModelId = route.modelId;
+    }
   } catch (error) {
     throw createCoreRpcHttpError({
       code: "center_agent.model_invalid",
@@ -10936,7 +10937,6 @@ export async function rpcCenterAgentStartSelfMemberResearch(
     ? await options.openDirectMessage(humanContext)
     : await rpcOpenCenterAgentDirectMessageSpace(env, {
         context: humanContext,
-        suppressWelcome: true,
       });
   return await startCenterAgentMemberResearch(
     env,
@@ -11025,7 +11025,6 @@ async function startSlackMemberResearch(input: {
   };
   const directMessage = await rpcOpenCenterAgentDirectMessageSpace(input.env, {
     context,
-    suppressWelcome: true,
   });
   const research = await startCenterAgentMemberResearch(
     input.env,
@@ -17605,32 +17604,6 @@ export async function rpcOpenCenterAgentDirectMessageSpace(
           })
     );
     opened = openedSpace;
-    if (!(input.suppressWelcome || sessionCreation)) {
-      try {
-        await timing.measure(
-          "welcome",
-          async () =>
-            await ensureCenterAgentDirectMessageWelcomeSignal(env, {
-              activeOrganization,
-              centerAgentMember,
-              humanMember,
-              requestContext: context,
-              spaceId: openedSpace.spaceId,
-            })
-        );
-      } catch (error) {
-        console.warn("[core.center_agent.dm_welcome_delivery_failed]", {
-          event: "core.center_agent.dm_welcome_delivery_failed",
-          organizationId: activeOrganization.organizationId,
-          spaceId: openedSpace.spaceId,
-          centerAgentProfileId: designation.agentProfileId,
-          memberProfileId: humanMember.profileId,
-          requestId: context.actorContext.requestId,
-          error: toErrorMessage(error),
-          errorStack: error instanceof Error ? error.stack : undefined,
-        });
-      }
-    }
     const response: OpenCenterAgentDirectMessageSpaceResponse = {
       organizationId: activeOrganization.organizationId,
       centerAgentProfileId: designation.agentProfileId,
@@ -17658,162 +17631,6 @@ export async function rpcOpenCenterAgentDirectMessageSpace(
       ...(failure === undefined ? {} : { failure }),
     });
   }
-}
-
-async function ensureCenterAgentDirectMessageWelcomeSignal(
-  env: CoreBindings,
-  input: {
-    activeOrganization: ActiveOrganization;
-    centerAgentMember: ResolvedSpaceMemberProfile;
-    humanMember: ResolvedSpaceMemberProfile;
-    requestContext: CoreRpcContextInput;
-    spaceId: string;
-  }
-): Promise<void> {
-  const centerAgentContext = buildCenterAgentActorContext({
-    activeOrganization: input.activeOrganization,
-    centerAgentMember: input.centerAgentMember,
-    requestContext: input.requestContext,
-  });
-  const organization = await readCenterAgentWelcomeOrganizationContext({
-    db: requireCenterAgentDb(env),
-    organizationId: input.activeOrganization.organizationId,
-  });
-  const text = buildCenterAgentDirectMessageWelcomeText({
-    firstName: resolveFriendlyFirstName(input.humanMember.profileName),
-    organizationKind: organization.isPersonal ? "personal" : "organization",
-    organizationName: organization.name,
-  });
-  const clientMessageId = buildCenterAgentDirectMessageWelcomeClientMessageId(
-    input.spaceId
-  );
-  await rpcPostSignalOnceByClientMessageId(env, {
-    authoringPolicy: "system_emitted",
-    clientMessageId,
-    context: centerAgentContext,
-    meta: {
-      clientMessageId,
-      purpose: CENTER_AGENT_DIRECT_MESSAGE_WELCOME_PURPOSE,
-    },
-    profile: {
-      kind: "agent",
-      profileId: input.centerAgentMember.profileId,
-      profileName: input.centerAgentMember.profileName,
-      ...(input.centerAgentMember.ownerUserId
-        ? { owner: input.centerAgentMember.ownerUserId }
-        : {}),
-      ...(input.centerAgentMember.ownerName
-        ? { ownerName: input.centerAgentMember.ownerName }
-        : {}),
-    },
-    spaceId: input.spaceId,
-    text,
-  });
-}
-
-function buildCenterAgentDirectMessageWelcomeClientMessageId(
-  spaceId: string
-): string {
-  return `center-agent-dm-welcome:${spaceId}`;
-}
-
-function buildCenterAgentActorContext(input: {
-  activeOrganization: ActiveOrganization;
-  centerAgentMember: ResolvedSpaceMemberProfile;
-  requestContext: CoreRpcContextInput;
-}): CoreRpcContextInput {
-  return {
-    activeOrganizationId: input.activeOrganization.organizationId,
-    actorContext: {
-      callerPrincipalId: input.centerAgentMember.profileId,
-      profileKind: "agent",
-      profileName: input.centerAgentMember.profileName,
-      requestId: `${input.requestContext.actorContext.requestId}:center-agent-welcome`,
-      openMeldProfileId: input.centerAgentMember.profileId,
-    },
-  };
-}
-
-type CenterAgentWelcomeOrganizationContext = {
-  isPersonal: boolean;
-  name: string;
-};
-
-async function readCenterAgentWelcomeOrganizationContext(input: {
-  db: D1Database;
-  organizationId: string;
-}): Promise<CenterAgentWelcomeOrganizationContext> {
-  const row = await input.db
-    .prepare(
-      `
-        SELECT
-          name,
-          slug,
-          metadata
-        FROM organizations
-        WHERE id = ?
-        LIMIT 1
-      `
-    )
-    .bind(input.organizationId)
-    .first<{
-      metadata: string | null;
-      name: string;
-      slug: string;
-    }>();
-  if (!row) {
-    throw new Error(
-      `Center Agent DM welcome could not resolve Organization ${input.organizationId}`
-    );
-  }
-
-  return {
-    isPersonal:
-      row.slug.startsWith("personal-") || hasPersonalOrganizationMetadata(row),
-    name: normalizeOptionalText(row.name) ?? "this organization",
-  };
-}
-
-function hasPersonalOrganizationMetadata(input: {
-  metadata: string | null;
-}): boolean {
-  const metadata = normalizeOptionalText(input.metadata);
-  if (!metadata) {
-    return false;
-  }
-  try {
-    const parsed = JSON.parse(metadata) as { personal?: unknown };
-    return parsed.personal === true || parsed.personal === 1;
-  } catch {
-    return false;
-  }
-}
-
-function buildCenterAgentDirectMessageWelcomeText(input: {
-  firstName: string | null;
-  organizationKind: "organization" | "personal";
-  organizationName: string;
-}): string {
-  const greeting = input.firstName ? `Hi ${input.firstName} — ` : "";
-  if (input.organizationKind === "personal") {
-    return `👋 ${greeting}I'm your Center Agent. Choose a starting point, or tell me what you'd like to get done.`;
-  }
-  return `👋 ${greeting}I'm the Center Agent for ${input.organizationName}. Choose a starting point, or tell me what you'd like to get done.`;
-}
-
-function resolveFriendlyFirstName(value: unknown): string | null {
-  const displayName = normalizeOptionalText(value);
-  if (!displayName) {
-    return null;
-  }
-  const firstSegment =
-    displayName.split(friendlyNameWhitespacePattern)[0] ?? "";
-  const emailLocalPart = normalizeEmailLocalPart(firstSegment);
-  const friendlyName = normalizeOptionalText(emailLocalPart ?? firstSegment);
-  if (!(friendlyName && friendlyNameTextPattern.test(friendlyName))) {
-    return null;
-  }
-  return friendlyName;
 }
 
 async function readCurrentMemberCenterAgentDirectMessageSpaceProjection(input: {
@@ -21870,6 +21687,9 @@ export async function rpcGetSpaceWakeProgress(
     ...(input.includePreviewText === undefined
       ? {}
       : { includePreviewText: input.includePreviewText }),
+    ...(input.includeReplyPlacement === undefined
+      ? {}
+      : { includeReplyPlacement: input.includeReplyPlacement }),
     ...(input.includeSourceContext === undefined
       ? {}
       : { includeSourceContext: input.includeSourceContext }),
@@ -21908,6 +21728,9 @@ export async function rpcGetSpaceWakeProgress(
     ...(parsed.data.includePreviewText === undefined
       ? {}
       : { includePreviewText: parsed.data.includePreviewText }),
+    ...(parsed.data.includeReplyPlacement === undefined
+      ? {}
+      : { includeReplyPlacement: parsed.data.includeReplyPlacement }),
     ...(parsed.data.includeSourceContext === undefined
       ? {}
       : { includeSourceContext: parsed.data.includeSourceContext }),
@@ -21940,6 +21763,9 @@ export async function rpcGetActiveSpaceWakeProgress(
     ...(input.includePreviewText === undefined
       ? {}
       : { includePreviewText: input.includePreviewText }),
+    ...(input.includeReplyPlacement === undefined
+      ? {}
+      : { includeReplyPlacement: input.includeReplyPlacement }),
     ...(input.includeSourceContext === undefined
       ? {}
       : { includeSourceContext: input.includeSourceContext }),
@@ -21983,6 +21809,9 @@ export async function rpcGetActiveSpaceWakeProgress(
     ...(parsed.data.includePreviewText === undefined
       ? {}
       : { includePreviewText: parsed.data.includePreviewText }),
+    ...(parsed.data.includeReplyPlacement === undefined
+      ? {}
+      : { includeReplyPlacement: parsed.data.includeReplyPlacement }),
     ...(parsed.data.includeSourceContext === undefined
       ? {}
       : { includeSourceContext: parsed.data.includeSourceContext }),
@@ -23287,18 +23116,6 @@ function normalizeSlackChannelNameForRpc(value: unknown): string {
     .trim()
     .replace(SLACK_CHANNEL_NAME_PREFIX_PATTERN, "")
     .toLowerCase();
-}
-
-function normalizeEmailLocalPart(value: unknown): string | null {
-  const email = normalizeOptionalText(value);
-  if (!email) {
-    return null;
-  }
-
-  const separatorIndex = email.indexOf("@");
-  const localPart =
-    separatorIndex >= 0 ? email.slice(0, separatorIndex) : email;
-  return normalizeOptionalText(localPart);
 }
 
 function toIsoDateTime(value: unknown): string {
@@ -26386,7 +26203,7 @@ export async function rpcCenterAgentSetReplyPlacement(
   const placement = await resolveNativeDeliveryReplyPlacement({
     env,
     delivery,
-    lock: true,
+    lock: false,
     placement: parsed.placement,
   });
   if (!placement) {

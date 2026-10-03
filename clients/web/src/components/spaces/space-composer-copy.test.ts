@@ -8,7 +8,7 @@ describe("resolveSpaceComposerConversationKind", () => {
 	it("keeps ordinary spaces distinct from direct messages", () => {
 		expect(
 			resolveSpaceComposerConversationKind({
-				isAgentDirectMessage: false,
+				hasAutomaticWakeTarget: false,
 				isCenterAgentDirectMessage: false,
 				isDirectMessage: false,
 			})
@@ -18,7 +18,7 @@ describe("resolveSpaceComposerConversationKind", () => {
 	it("gives Center Agent conversations precedence over generic DMs", () => {
 		expect(
 			resolveSpaceComposerConversationKind({
-				isAgentDirectMessage: true,
+				hasAutomaticWakeTarget: true,
 				isCenterAgentDirectMessage: true,
 				isDirectMessage: true,
 			})
@@ -44,7 +44,7 @@ describe("resolveSpaceComposerPolicy", () => {
 		},
 		{
 			accessibleName: "Message Atlas",
-			conversationKind: "agent_direct_message" as const,
+			conversationKind: "agent_conversation" as const,
 			placeholder: "Message Atlas…",
 			showMentionButton: false,
 			targetName: "Atlas",
@@ -83,7 +83,7 @@ describe("resolveSpaceComposerPolicy", () => {
 		expect(
 			resolveSpaceComposerPolicy({
 				canSendMessage: true,
-				conversationKind: "agent_direct_message",
+				conversationKind: "agent_conversation",
 				isSendingMessage: true,
 				placement: "thread",
 				targetName: "Atlas",
