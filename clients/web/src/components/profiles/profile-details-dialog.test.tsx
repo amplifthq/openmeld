@@ -77,7 +77,11 @@ describe("HumanProfileDetailsPopover", () => {
 		expect(dialog.getByText("Computer connected")).toBeTruthy();
 		expect(dialog.getByText("5 of 6")).toBeTruthy();
 		const list = dialog.getByRole("list", { name: "Monica Cheng's Agents" });
-		expect(list.className).toContain("overflow-x-auto");
+		expect(
+			list
+				.closest('[data-slot="scroll-area-viewport"]')
+				?.getAttribute("data-orientation")
+		).toBe("horizontal");
 		expect(
 			dialog.getByRole("link", { name: "Open Monica Agent 6" })
 		).toBeTruthy();

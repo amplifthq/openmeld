@@ -102,9 +102,14 @@ export function OrganizationSkillContextDialog(input: {
 									Sign in to OpenMeld and select {input.organizationName} first.
 									Then use:
 								</p>
-								<pre className="overflow-x-auto rounded-md bg-muted p-3 text-xs">
-									<code>{`openmeld skills list\nopenmeld skills show ${input.skill.id}${input.skill.enabled ? `\nopenmeld skills load ${input.skill.id}` : ""}`}</code>
-								</pre>
+								<ScrollArea
+									className="rounded-md bg-muted"
+									orientation="horizontal"
+								>
+									<pre className="p-3 text-xs">
+										<code>{`openmeld skills list\nopenmeld skills show ${input.skill.id}${input.skill.enabled ? `\nopenmeld skills load ${input.skill.id}` : ""}`}</code>
+									</pre>
+								</ScrollArea>
 							</section>
 							<p className="text-muted-foreground">
 								Enabled means available, not already loaded. Sharing a link does

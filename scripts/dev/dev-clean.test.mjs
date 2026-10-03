@@ -20,11 +20,49 @@ import {
 } from "./dev-clean.mjs";
 import {
   listWorktreeDevData,
+  manageWorktreeDevService,
   resolveWorktreeDevHome,
   resolveWorktreeDevServiceCommand,
 } from "./dev-service.mjs";
 
 const NESTED_WORKTREE_ERROR = /registered nested worktrees/u;
+
+test("failed lane Service control preserves output and exit status", () => {
+  const root = mkdtempSync(join(tmpdir(), "dev-service-error-"));
+  try {
+    mkdirSync(join(resolveWorktreeDevHome(root), "runtime/daemon"), {
+      recursive: true,
+    });
+    const entry = join(root, "clients/openmeld-cli/dist/openmeld-dev.js");
+    mkdirSync(join(root, "clients/openmeld-cli/dist"), { recursive: true });
+    for (const { stdout, stderr, detail } of [
+      {
+        stdout: '{"error":"owned Service is still running"}',
+        stderr: "",
+        detail: "owned Service is still running",
+      },
+      { stdout: "", stderr: "permission denied", detail: "permission denied" },
+      { stdout: "", stderr: "  \n", detail: "No error output" },
+    ]) {
+      writeFileSync(
+        entry,
+        `process.stdout.write(${JSON.stringify(stdout)}); process.stderr.write(${JSON.stringify(stderr)}); process.exit(7);`
+      );
+      for (const clean of [false, true]) {
+        assert.throws(
+          () => manageWorktreeDevService(root, { clean }),
+          (error) => {
+            assert.ok(error.message.includes(detail));
+            assert.ok(error.message.includes("exit code 7"));
+            return true;
+          }
+        );
+      }
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("cleanup uses the existing lane CLI without requiring a rebuild or falling back to another home", () => {
   const root = mkdtempSync(join(tmpdir(), "dev-stop-cli-"));

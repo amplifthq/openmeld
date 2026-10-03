@@ -1,6 +1,7 @@
 import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
 import { CheckboxGroup, CheckboxItem } from "@openmeld/ui/fluid/checkbox-group";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { cn } from "@openmeld/ui/lib/utils";
 import { CaretDownIcon, CaretRightIcon } from "@phosphor-icons/react";
 import { type ReactNode, useState } from "react";
@@ -39,11 +40,12 @@ export function SpaceAddMembersCandidates(input: {
 	}
 
 	return (
-		<div
+		<ScrollArea
 			className={cn(
-				"-mx-1 flex max-h-[min(32rem,calc(100dvh-18rem))] min-h-40 flex-col gap-4 overflow-y-auto px-1",
+				"-mx-1 max-h-[min(32rem,calc(100dvh-18rem))] min-h-40",
 				input.isSubmitting && "pointer-events-none opacity-70"
 			)}
+			contentClassName="flex flex-col gap-4 px-1"
 		>
 			<SpaceAddMembersCandidateGroup
 				candidates={input.candidateGroups.organizationCandidates}
@@ -90,7 +92,7 @@ export function SpaceAddMembersCandidates(input: {
 					</div>
 				</section>
 			) : null}
-		</div>
+		</ScrollArea>
 	);
 }
 

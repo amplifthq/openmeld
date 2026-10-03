@@ -15,6 +15,7 @@ import {
 } from "@openmeld/ui/components/dialog";
 import { Input } from "@openmeld/ui/components/input";
 import { Label } from "@openmeld/ui/components/label";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { resolveStatusToneSoftTextClassName } from "@openmeld/ui/lib/status-tone";
 import {
 	LinkIcon,
@@ -140,16 +141,25 @@ export function CenterAgentSlackConnectionDialog(
 	return (
 		<Dialog onOpenChange={handleOpenChange} open={open}>
 			<DialogTrigger render={input.trigger} />
-			<DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-lg">
-				<DialogHeader>
-					<DialogTitle>
-						{resolveDialogTitle({ connected, input, reconnectRequired })}
-					</DialogTitle>
-					<DialogDescription>
-						{resolveDialogDescription({ connected, input, reconnectRequired })}
-					</DialogDescription>
-				</DialogHeader>
-				{dialogContent}
+			<DialogContent className="max-h-[85dvh] overflow-hidden p-0 sm:max-w-lg">
+				<ScrollArea
+					className="max-h-[inherit]"
+					contentClassName="grid gap-4 p-4"
+				>
+					<DialogHeader>
+						<DialogTitle>
+							{resolveDialogTitle({ connected, input, reconnectRequired })}
+						</DialogTitle>
+						<DialogDescription>
+							{resolveDialogDescription({
+								connected,
+								input,
+								reconnectRequired,
+							})}
+						</DialogDescription>
+					</DialogHeader>
+					{dialogContent}
+				</ScrollArea>
 			</DialogContent>
 		</Dialog>
 	);

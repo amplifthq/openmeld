@@ -6934,7 +6934,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       },
       updatedAtMs: input.nowMs,
     };
-    let projectionWrite: "created" | "skipped_stale" | "updated";
+    let projectionWrite: "skipped_stale" | "written";
     try {
       projectionWrite = await writeRuntimeCoordinatorExecutionProjection({
         db: input.db,

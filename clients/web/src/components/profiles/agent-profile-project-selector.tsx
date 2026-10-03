@@ -12,6 +12,7 @@ import type {
 import { Button } from "@openmeld/ui/components/button";
 import { Input } from "@openmeld/ui/components/input";
 import { Label } from "@openmeld/ui/components/label";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { LocalFolderPickerButton } from "#/components/local-runtimes/local-folder-picker-button";
@@ -939,9 +940,11 @@ function MatchingProjectFolders(input: {
 								}
 								type="radio"
 							/>
-							<span className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap [scrollbar-width:thin]">
-								{candidate.canonicalPath}
-							</span>
+							<ScrollArea className="min-w-0 flex-1" orientation="horizontal">
+								<span className="whitespace-nowrap">
+									{candidate.canonicalPath}
+								</span>
+							</ScrollArea>
 						</label>
 					))}
 				</div>
@@ -981,13 +984,16 @@ function MissingProjectConnections(input: {
 		<div className="grid min-w-0 gap-1 pt-1 text-xs">
 			<p className="font-medium">Unavailable on this computer</p>
 			{missingConnections.map((connection) => (
-				<p
-					className="max-w-full overflow-x-auto whitespace-nowrap text-muted-foreground [scrollbar-width:thin]"
+				<ScrollArea
+					className="max-w-full"
 					key={connection.bindingGeneration}
+					orientation="horizontal"
 				>
-					{connection.path}
-					{connection.isDefault ? " (current default)" : ""}
-				</p>
+					<p className="whitespace-nowrap text-muted-foreground">
+						{connection.path}
+						{connection.isDefault ? " (current default)" : ""}
+					</p>
+				</ScrollArea>
 			))}
 		</div>
 	);

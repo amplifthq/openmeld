@@ -126,12 +126,13 @@ export function StatusWindowShell({
             destination={activeDestination}
           />
         </header>
-        <main
-          className="min-h-0 min-w-0 flex-1 overflow-y-auto"
+        <ScrollArea
+          className="min-h-0 min-w-0 flex-1"
           data-slot="app-frame-content"
+          render={<main />}
         >
           {children}
-        </main>
+        </ScrollArea>
       </div>
     </div>
   );
