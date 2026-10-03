@@ -3,6 +3,17 @@ export type {
   RuntimeTransportAgentProfileExecutionModeRequest,
 } from "../../schemas/http/agent-profile-execution-mode";
 export type {
+  PluginActionRequestCommand,
+  PluginActionRequestCommandRpc,
+  PluginActionRequestIntent,
+  PluginActionRequestView,
+} from "../../schemas/http/plugin-action-requests";
+export type {
+  PluginRequestVerification,
+  PluginRequestVerificationCheck,
+  PluginRequestVerificationResult,
+} from "../../schemas/http/plugin-request-authorization";
+export type {
   AccountDisplayName,
   SelectLastSelectedOrganizationBody,
   SelectLastSelectedOrganizationErrorCode,

@@ -12,7 +12,6 @@ export {
   remoteAiUsageWriteResponseSchema,
   remoteAiUsageWriteSchema,
 } from "./ai-usage";
-
 export {
   SERVICE_CONNECTION_ID_QUERY_PARAMETER,
   serviceConnectionDiagnosticIdSchema,
@@ -58,6 +57,17 @@ export {
   organizationMemberPresenceSchema,
   organizationMemberPresenceWriteResponseSchema,
 } from "./http/organization-member-presence";
+export {
+  pluginActionRequestCommandRpcSchema,
+  pluginActionRequestCommandSchema,
+  pluginActionRequestIntentSchema,
+  pluginActionRequestViewSchema,
+} from "./http/plugin-action-requests";
+export {
+  pluginRequestVerificationCheckSchema,
+  pluginRequestVerificationResultSchema,
+  pluginRequestVerificationSchema,
+} from "./http/plugin-request-authorization";
 export {
   resolveSpaceFileStreamMetadata,
   spaceFileStreamMetadataSchema,

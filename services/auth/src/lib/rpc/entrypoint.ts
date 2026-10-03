@@ -114,6 +114,10 @@ import {
   type AuthenticatedOrganizationContext,
   resolveAuthenticatedOrganizationContext,
 } from "../organization/authenticated-organization-context";
+import {
+  checkPluginRequestVerification,
+  sendPluginRequestVerification,
+} from "../plugin-request-verification";
 import { reconcileDeletedAgentProfileMemberships } from "../profiles/deleted-profile-reconcile";
 import { listMembershipSpaceIdsForProfiles } from "../profiles/membership-space-access";
 import {
@@ -716,6 +720,14 @@ export class AuthRpcEntrypoint extends WorkerEntrypoint<AuthBindings> {
       role,
       status: "member",
     };
+  }
+
+  sendPluginRequestVerification(input: unknown) {
+    return sendPluginRequestVerification(this.env, input);
+  }
+
+  checkPluginRequestVerification(input: unknown) {
+    return checkPluginRequestVerification(this.env, input);
   }
 
   async sendInboxUrgentEmail(
