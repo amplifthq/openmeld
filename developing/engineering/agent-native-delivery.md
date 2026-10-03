@@ -230,7 +230,7 @@ gh workflow run deep-confidence.yml --ref <candidate-branch> \
   -f scope=release-artifacts -f artifact_scopes=web,desktop
 ```
 
-Choose `web` or `desktop` when only that artifact is needed. This mode skips
+Choose `web`, `website`, or `desktop` when only that artifact is needed. This mode skips
 the broad diagnostic jobs, runs the same exact-source renderer/prerender and
 Workerd SSR entrypoints, and retains their source/input/output receipts. It
 uses read-only repository access and no production credentials. Match the run's

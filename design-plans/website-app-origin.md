@@ -1,6 +1,7 @@
 # Independent website and App origin
 
 Status: implementation in progress. No production routing has changed.
+Remove after the migration ships and its acceptance is recorded in the owner docs.
 Base: `42c456e34fedb9376bd1fe6a2bacc4905e75b9ea`.
 Implementation owner: `codex/website-app-origin`.
 Review owner: the **评估 App 子域名迁移成本** chat.
@@ -108,11 +109,62 @@ entry, distribution paths, and release selection. Localhost browser smoke and
 isolated HTTPS hostname evidence are reported separately. Provider consent and
 native installed-artifact acceptance are separate rows, never inferred from mocks.
 
-The final production sequence is reviewed before execution: prepare the App
-hostname and receiving service configuration; publish compatible internal
-clients; verify authentication and distribution; process internal drafts; then
-switch the root website routing. Record exact prior deployments/routes for
-rollback. Do not change production from this implementation worktree.
+The final production sequence is reviewed before execution. Follow the guarded
+[Website/App migration](../developing/engineering/production-release.md#websiteapp-origin-migration):
+attach App to the existing Web version, expand exact Auth origins, validate that
+actual Web/Auth pair at App, handle drafts and old tabs, then publish Website.
+Only after root cutover may the App-origin Web/Core/Gateway configuration ship.
+Compatible clients have their own acceptance before publication. Do not change
+real production or staging routing from this implementation worktree.
+
+## Contract impact and acceptance evidence
+
+Auth adds one exact legacy-origin option; cookies, parent RP ID, native schemes,
+Auth host and provider callback owners stay unchanged. Tests cover allowed
+current/legacy/native origins, rejected unrelated/sibling origins, explicit
+retirement, and a real Hono cookie-write admission boundary. Provider dashboard
+settings, consent and registered Passkey reuse remain unverified.
+
+CLI emits App Space URLs and accepts both new App and legacy website inputs.
+Old CLI can continue using Space IDs and old root URLs; pasting a new App URL
+requires the updated CLI. No Wake, setup, Service lifecycle, dispatch-owned Space
+action, status, trace, rescue, or managed Skill payload changes. New cloud still
+accepts old local transport, and new CLI still accepts old cloud responses.
+This is an additive URL capability; local components use advisory `available`
+policy rather than raising execution contract epochs. A bundled Service hash
+change from shared packaging does not by itself establish a wire incompatibility.
+New installed Desktop targets App but accepts existing root targets; its strict
+Auth/API/installer requests retain nonredirecting forwarding. Native credential
+storage is origin-keyed and can require sign-in after upgrading. Native installed
+old-to-new acceptance is still required, not inferred from these code checks.
+
+The architecture owner check finds no new readiness, routing, execution or
+publication authority: RuntimeCoordinator, Space, Service and Core retain their
+existing contracts. Website is presentation plus an explicit fixed service-binding
+forwarder. Domain observations do not replace component release receipts.
+
+On 2026-10-03, an isolated local fixture passed normal email login, Space read,
+message send, persisted read after reload, and sign-out in the in-app browser.
+The Chrome plugin was unavailable. The actual Website production build passed
+Workerd SSR for home, privacy, terms and local-agent guides, and was published
+only to the disposable `website-migration-1467` trial Worker/domain. Its HTTPS
+homepage and FAQ hydrated, canonical App links and the separate asset namespace
+were present, GET login returned 307/no-store with its encoded query intact, and
+POST forwarding retained the root URL, body and Origin. Browser fragment
+navigation was blocked by the browser tool, so it is not claimed as browser proof.
+The viewport override also did not change the observed 1560px viewport; mobile
+layout is not claimed from that attempt.
+
+The trial App deployment stayed `60e9fea6-c8d3-4f43-b7d6-56a173e197c9`
+(version `210101cc-ca71-4741-8ddc-37b0f4d7013b`) across Website publication.
+The Website version became `af1d3af6-e854-4f7a-abc2-64f8c7fae558`. The App side
+of that HTTPS trial was an echo fixture; actual App business behavior was tested
+locally as a separate layer. Prior trial forward/reverse domain transfers using
+Wrangler `triggers deploy` preserved both deployment IDs. Plain Domains PUT
+returned 409/100116 for takeover, so production recovery uses the public Wrangler
+command. These discrete observations do not prove atomic zero-downtime switching.
+No real production/staging cutover, native artifact publication, or provider
+registration change has been performed by this task.
 
 ## Worktree and concurrency
 
