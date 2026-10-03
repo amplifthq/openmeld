@@ -329,6 +329,7 @@ describe("Prepare diagnostic continuity", () => {
         openMeldBin: "/test-owned/openmeld",
         env: {
           OPENMELD_ENV_PRESET: "dev-local",
+          OPENMELD_AUTH_CLIENT_ID: "openmeld-cli-dev",
           OPENMELD_HOME: "/test-owned",
           OPENMELD_AUTH_URL: "http://lane.localhost:8788",
           OPENMELD_GATEWAY_URL: "http://lane.localhost:8080",
@@ -341,6 +342,9 @@ describe("Prepare diagnostic continuity", () => {
       confirmSwitch: async () => false,
     });
     const result = await connect({ expectedAccount: "account-a" });
+    expect(mocks.grant).toHaveBeenCalledWith(expect.any(Function), {
+      clientId: "openmeld-cli-dev",
+    });
     expect(result).toMatchObject({
       status: "failed",
       diagnosticId: "diagnostic-a",

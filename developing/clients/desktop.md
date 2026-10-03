@@ -300,6 +300,9 @@ one Electron call, owns OS callback delivery, and passes callbacks to the vendor
 public `handleDeepLink` API. SDK scheme registration, unrestricted IPC handlers,
 and the global CSP hook are disabled. Credentials never cross the
 renderer bridge. Storage is scoped to the configured Web origin.
+Computer authorization uses the CLI environment's device-auth client ID, keeping
+the grant and its CLI exchange aligned in isolated development lanes. A signed-out
+CLI is unconnected; only a present, different account is an account mismatch.
 
 Space video reuses this native cloud transport. The request allowlist forwards
 Range and If-Range; responses retain range/length, ETag and disposition while

@@ -177,7 +177,8 @@ export function createComputerConnection(input: {
             );
           }
           const grant = await createComputerAuthorizationGrant(
-            (path, method, body) => cloud(`/api/auth${path}`, method, body)
+            (path, method, body) => cloud(`/api/auth${path}`, method, body),
+            { clientId: deps.env?.OPENMELD_AUTH_CLIENT_ID }
           );
           await assertAccount();
           return await finishConnectionSetup({
