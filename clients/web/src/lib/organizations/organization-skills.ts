@@ -227,7 +227,10 @@ function assertOrganizationId(actual: string, expected: string): void {
 	}
 }
 
-export function resolveOrganizationSkillErrorMessage(error: unknown): string {
+export function resolveOrganizationSkillErrorMessage(
+	error: unknown,
+	action: "save" | "remove" = "save"
+): string {
 	const failure = toStructuredApiClientFailure(error);
 	switch (failure.upstreamCode ?? failure.code) {
 		case "organization_skill.edit_forbidden":
@@ -240,7 +243,7 @@ export function resolveOrganizationSkillErrorMessage(error: unknown): string {
 		case "organization_skill.organization_context_changed":
 			return ORGANIZATION_REQUEST_CONTEXT_MISMATCH_MESSAGE;
 		case "organization_skill.version_conflict":
-			return "This Skill changed after you opened it. Reload the latest version before saving.";
+			return "This skill changed after you opened it. Review the latest version and try again.";
 		case "organization_skill.github_selection_required":
 			return "This GitHub URL contains more than one Skill. Link directly to one Skill folder.";
 		case "organization_skill.github_source_changed":
@@ -262,6 +265,8 @@ export function resolveOrganizationSkillErrorMessage(error: unknown): string {
 		case "organization_skill.maintainer_not_member":
 			return "Every Skill Maintainer must be a current Organization member.";
 		default:
-			return "OpenMeld couldn't save this Skill. Try again.";
+			return action === "remove"
+				? "OpenMeld couldn't remove this skill. Try again."
+				: "OpenMeld couldn't save this Skill. Try again.";
 	}
 }

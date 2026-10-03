@@ -298,6 +298,17 @@ Skill and Organization. Phase 1 removes it from active Organization use and
 retains immutable release/audit evidence according to retention policy. A
 removed Skill cannot appear in runtime or CLI snapshots.
 
+Owners and admins can select multiple Skills in the Team catalog and remove
+them with one confirmation listing every selected name and the Organization.
+Select all covers the current search and status filter only. Changing either
+filter, leaving selection mode, or switching Organizations clears selection;
+selection is never persisted. Confirmation pins the reviewed Skill versions.
+Each removal uses Core's existing permission and version checks. Partial
+success removes confirmed successes from the list and retains failed selections
+with per-Skill errors for explicit review and retry. A retry requires another
+confirmation; it never silently retries a newer version. Leaving the catalog
+stops starting further removals, while already submitted requests may finish.
+
 ## Web Product
 
 Skills management belongs to **Team**, whose tabs are **People / Agents /
