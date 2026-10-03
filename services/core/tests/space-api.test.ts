@@ -9434,26 +9434,86 @@ describe("OpenMeld Core", () => {
     );
     expect(signalsResponse.status).toBe(200);
     const signalsPage = (await signalsResponse.json()) as {
-      signals?: Array<{
-        data?: { meta?: { purpose?: string }; text?: string };
-        profile?: { profileId?: string };
-        type?: string;
-      }>;
+      signals: Array<{ type: string }>;
     };
-    const welcomeSignals =
-      signalsPage.signals?.filter(
-        (signal) =>
-          signal.type === "signal.text" &&
-          signal.data?.meta?.purpose === "center_agent_dm_welcome"
-      ) ?? [];
-    expect(welcomeSignals).toHaveLength(1);
-    expect(welcomeSignals[0]).toMatchObject({
-      profile: { profileId: agentProfileId },
-      type: "signal.text",
+    expect(
+      signalsPage.signals.filter((signal) => signal.type === "signal.text")
+    ).toEqual([]);
+  });
+
+  it.each([
+    false,
+    true,
+  ])("reopens an existing Center chat without appending or rewriting messages (historical welcome: %s)", async (hasHistoricalWelcome) => {
+    const organizationId = `org-center-reopen-${randomUUID()}`;
+    const ownerUserId = `user-center-reopen-${randomUUID()}`;
+    const humanProfileId = randomUUID();
+    const agentProfileId = `agt_${randomUUID()}`;
+    await ensureTestCenterAgentDesignation({
+      agentProfileId,
+      agentProfileName: "Center Agent",
+      organizationId,
+      ownerUserId,
     });
-    expect(welcomeSignals[0]?.data?.text).toContain(
-      "I'm the Center Agent for Test Organization"
+    await insertTestPrimaryHumanProfile({
+      ownerUserId,
+      profileId: humanProfileId,
+    });
+    const context = createRpcContext({
+      activeOrganizationId: organizationId,
+      ownerUserId,
+      profileId: humanProfileId,
+      profileKind: "human",
+      profileName: "Ava",
+      requestId: "center-chat-reopen",
+    });
+    const session = await rpcOpenCenterAgentDirectMessageSpace(
+      env as CoreBindings,
+      {
+        context,
+        sessionCreationId: randomUUID(),
+      }
     );
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const stub = namespace.get(namespace.idFromString(session.spaceId));
+    await stub.rpcPostSignal({
+      context,
+      spaceId: session.spaceId,
+      profile: { kind: "human", profileId: humanProfileId, profileName: "Ava" },
+      authoringPolicy: "system_emitted",
+      text: "Existing conversation",
+    });
+    if (hasHistoricalWelcome) {
+      await stub.rpcPostSignalOnceByClientMessageId({
+        context,
+        spaceId: session.spaceId,
+        profile: {
+          kind: "human",
+          profileId: humanProfileId,
+          profileName: "Ava",
+        },
+        authoringPolicy: "system_emitted",
+        text: "Historical welcome",
+        clientMessageId: `center-agent-dm-welcome:${session.spaceId}`,
+        meta: {
+          clientMessageId: `center-agent-dm-welcome:${session.spaceId}`,
+          purpose: "center_agent_dm_welcome",
+        },
+      });
+    }
+    const before = await stub.rpcListSignals({
+      context,
+      spaceId: session.spaceId,
+    });
+    const reopened = await rpcOpenCenterAgentDirectMessageSpace(
+      env as CoreBindings,
+      { context }
+    );
+    expect(reopened.spaceId).toBe(session.spaceId);
+    expect(reopened.created).toBe(false);
+    expect(
+      await stub.rpcListSignals({ context, spaceId: session.spaceId })
+    ).toEqual(before);
   });
 
   it("bootstraps a fresh organization and opens a usable Center Agent DM through the real Core path", async () => {
@@ -9597,26 +9657,11 @@ describe("OpenMeld Core", () => {
     );
     expect(signalsResponse.status).toBe(200);
     const signalsPage = (await signalsResponse.json()) as {
-      signals?: Array<{
-        data?: { meta?: { purpose?: string }; text?: string };
-        profile?: { profileId?: string };
-        type?: string;
-      }>;
+      signals: Array<{ type: string }>;
     };
-    const welcomeSignals =
-      signalsPage.signals?.filter(
-        (signal) =>
-          signal.type === "signal.text" &&
-          signal.data?.meta?.purpose === "center_agent_dm_welcome"
-      ) ?? [];
-    expect(welcomeSignals).toHaveLength(1);
-    expect(welcomeSignals[0]).toMatchObject({
-      profile: { profileId: agentProfileId },
-      type: "signal.text",
-    });
-    expect(welcomeSignals[0]?.data?.text).toContain(
-      "I'm the Center Agent for Test Organization"
-    );
+    expect(
+      signalsPage.signals.filter((signal) => signal.type === "signal.text")
+    ).toEqual([]);
   });
 
   it("supports direct DO rpc methods and applies space ref per request", async () => {

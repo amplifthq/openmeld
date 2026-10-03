@@ -793,6 +793,12 @@ Center Agent chats reuse the ordinary Members panel for viewing the Human and
 Center Agent profiles. This read-only entry does not expose addition,
 conversion, removal, or invitation actions.
 
+Center Agent chat introductions and suggested starting points are presentation,
+not authored messages. Creating, opening, reusing, or preparing a private chat
+must not publish a welcome greeting or backfill one into an existing transcript.
+Clients reuse the shared introduction surface. Historical welcome messages remain
+ordinary retained history; opening a chat neither rewrites nor removes them.
+
 ### Center Agent session foundation (Flue 2 candidate)
 
 Each private Center Agent session reuses this stricter DM Space specialization;
