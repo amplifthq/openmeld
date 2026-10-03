@@ -266,7 +266,8 @@ async function recoverPushedProposal(
     recorded.some(
       (item, index) => item.controller !== evidence[index].controller
     ) ||
-    batchReviewFingerprint(recorded, before, config) !== fingerprint
+    batchReviewFingerprint(recorded, before, config, previousEvidence) !==
+      fingerprint
   ) {
     throw new Error("Existing proposal review facts differ");
   }
@@ -293,9 +294,14 @@ export async function publishUpdate(output) {
   const current = modelCatalogSchema.parse(
     JSON.parse(await readFile("release/vendor-models.json", "utf8"))
   );
-  const fingerprint = batchReviewFingerprint(evidence, current, config);
   const previousEvidence = await Promise.all(
     evidence.map((item) => readPreviousEvidence(process.cwd(), item.controller))
+  );
+  const fingerprint = batchReviewFingerprint(
+    evidence,
+    current,
+    config,
+    previousEvidence
   );
   const reviewChanges = evidence.map((item, index) => {
     const previous = previousEvidence[index];

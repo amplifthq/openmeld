@@ -3,18 +3,32 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { digest, runUpdate } from "./catalog-update.mjs";
-import { modelReviewFacts, renderBatchReview } from "./review.mjs";
+import {
+  modelReviewFacts,
+  renderBatchReview,
+  reviewFactsDelta,
+} from "./review.mjs";
 
-export function batchReviewFingerprint(evidence, current, config) {
+export function batchReviewFingerprint(
+  evidence,
+  current,
+  config,
+  previousEvidence
+) {
   return digest(
-    evidence.map((item) => ({
-      controller: item.controller,
-      facts: modelReviewFacts(
-        item,
-        current,
-        config[item.controller]?.discoverySince
-      ),
-    }))
+    evidence.map((item) => {
+      const since = config[item.controller]?.discoverySince;
+      const previous = previousEvidence.find(
+        (before) => before?.controller === item.controller
+      );
+      return {
+        controller: item.controller,
+        facts: reviewFactsDelta(
+          modelReviewFacts(item, current, since),
+          previous ? modelReviewFacts(previous, current, since) : undefined
+        ),
+      };
+    })
   );
 }
 
@@ -29,11 +43,17 @@ export function combineUpdates(current, results, config = {}) {
     }
   }
   const evidence = results.map((result) => result.evidence);
+  const previousEvidence = results.map((result) => result.previous);
   return {
     catalog,
     evidence,
-    previousEvidence: results.map((result) => result.previous),
-    fingerprint: batchReviewFingerprint(evidence, current, config),
+    previousEvidence,
+    fingerprint: batchReviewFingerprint(
+      evidence,
+      current,
+      config,
+      previousEvidence
+    ),
     changed: results.some((result) => result.changed),
   };
 }

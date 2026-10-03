@@ -507,9 +507,16 @@ test("one handoff names discovery-only candidates and flags actual source disagr
     ],
   });
   assert.equal(repeated.changed, false);
+  const acknowledged = prepareUpdate({
+    ...input,
+    controller: "claude-code",
+    codexModels: [],
+    sources: claude.evidence.sources,
+    previous: claude.evidence,
+  });
   assert.equal(
     combineUpdates(catalog, [repeated]).fingerprint,
-    combineUpdates(catalog, [claude]).fingerprint
+    combineUpdates(catalog, [acknowledged]).fingerprint
   );
   assert.equal(
     combineUpdates(catalog, [codex, claude]).fingerprint,
@@ -632,7 +639,7 @@ test("review classification preserves exact routes and detects changed reasoning
   );
   assert.equal(openCodeCandidate.candidateId, "opencode/gpt-6-astra");
   assert.deepEqual(openCodeCandidate.matchingExistingIds, []);
-  const scan = (scanSources, previous) =>
+  const scan = (scanSources, previous, discoverySince = "2026-10-01") =>
     prepareUpdate({
       ...input,
       catalog: current,
@@ -640,7 +647,7 @@ test("review classification preserves exact routes and detects changed reasoning
       codexModels: [],
       sources: scanSources,
       previous,
-      discoverySince: "2026-10-01",
+      discoverySince,
     });
   const baseline = scan(cursorEvidence.sources);
   assert.equal(
@@ -676,4 +683,42 @@ test("review classification preserves exact routes and detects changed reasoning
       .includes("Discovery reasoning changed")
   );
   assert.deepEqual(changed.catalog, current);
+  const source = (data) => [
+    { kind: "discovery-only", url: "https://models.dev/api.json", data },
+  ];
+  const committed = scan(source({}), undefined, "2026-09-01");
+  const declined = scan(
+    source({ xai: { "grok-4.7": discovery.xai["grok-4.7"] } }),
+    committed.evidence,
+    "2026-09-01"
+  );
+  const later = scan(
+    source({
+      xai: { "grok-4.7": discovery.xai["grok-4.7"] },
+      anthropic: discovery.anthropic,
+    }),
+    committed.evidence,
+    "2026-09-01"
+  );
+  const fingerprintConfig = { cursor: { discoverySince: "2026-09-01" } };
+  const closed = combineUpdates(current, [declined], fingerprintConfig);
+  const refreshed = combineUpdates(current, [later], fingerprintConfig);
+  assert.equal(
+    refreshed.changed,
+    true,
+    "the declined candidate is still absent from the catalog"
+  );
+  assert.equal(
+    publicationDecision({
+      ...refreshed,
+      pulls: [
+        {
+          state: "CLOSED",
+          headRefName: `codex/catalog-update-batch-${closed.fingerprint}`,
+        },
+      ],
+    }),
+    "already-proposed",
+    "initial metadata for a cataloged model must not reopen a declined candidate"
+  );
 });

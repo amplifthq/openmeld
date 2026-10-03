@@ -180,6 +180,7 @@ if (args[0] === 'pr' && args[1] === 'list') {
       catalog,
       controller: "codex",
       sources: [source, ...baseline.evidence.sources],
+      previous: baseline.evidence,
       codexModels: parseCodexModels(raw),
       observedAt: quiet.evidence.observedAt,
     });
@@ -190,6 +191,7 @@ if (args[0] === 'pr' && args[1] === 'list') {
     const refreshed = prepareUpdate({
       catalog,
       controller: "codex",
+      previous: baseline.evidence,
       sources: [
         source,
         ...baseline.evidence.sources,

@@ -332,7 +332,10 @@ The PR and Actions summary lead with only new review items relative to the last
 committed evidence, their source facts and a concrete verification action.
 Unchanged candidates and notices are folded into the full scan reference.
 The same comparison controls publication and the summary, including publication
-recovery from an already-pushed branch. No new facts means no new PR; evidence
+recovery from an already-pushed branch. The proposal fingerprint hashes that
+same actionable delta, not all observed metadata, so first observations of
+already cataloged model metadata cannot reopen a declined candidate.
+No new facts means no new PR; evidence
 artifacts and an existing review's latest-scan comment remain available.
 
 Actions uses its existing token only for `api.github.com` requests to avoid
