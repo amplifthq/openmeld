@@ -1,6 +1,7 @@
 import { resolveSpaceFileMimeType } from "@openmeld/schemas";
 import { Button } from "@openmeld/ui/components/button";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ArrowUpIcon } from "@phosphor-icons/react";
 import { type CSSProperties, type ReactNode, useEffect, useState } from "react";
@@ -137,9 +138,9 @@ export function CenterAgentOptimisticConversation(input: {
 				/>
 			)}
 			<div className="flex min-h-0 w-full flex-1 flex-col overflow-hidden">
-				<div
+				<ScrollArea
 					aria-label="Center Agent conversation"
-					className="min-h-0 flex-1 overflow-y-auto"
+					className="min-h-0 flex-1"
 					data-space-optimistic-conversation=""
 					role="log"
 				>
@@ -204,7 +205,7 @@ export function CenterAgentOptimisticConversation(input: {
 							!input.empty && <SpaceConversationSkeleton />
 						)}
 					</div>
-				</div>
+				</ScrollArea>
 				<footer className="shrink-0 bg-background">
 					<div className="w-full py-4" data-space-conversation-content-width="">
 						{input.composerErrorMessage ? (

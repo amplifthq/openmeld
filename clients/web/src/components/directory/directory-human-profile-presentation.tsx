@@ -6,6 +6,7 @@ import {
 	TooltipHint,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { resolveStatusToneIndicatorClassName } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
 import { CaretRightIcon, DesktopTowerIcon } from "@phosphor-icons/react";
@@ -253,20 +254,22 @@ function DirectoryAgentProfilesContent(input: {
 		);
 	}
 	return (
-		<ul
-			aria-label={`${input.ownerName}'s Agents`}
-			className="scrollbar-hide flex min-w-0 gap-2 overflow-x-auto overscroll-x-contain pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-		>
-			{input.profiles.map((profile) => (
-				<li className="shrink-0" key={profile.id}>
-					<AgentProfileSummaryCard
-						modelCatalog={input.modelCatalog}
-						profile={profile}
-						variant={input.variant}
-					/>
-				</li>
-			))}
-		</ul>
+		<ScrollArea className="min-w-0" orientation="horizontal">
+			<ul
+				aria-label={`${input.ownerName}'s Agents`}
+				className="flex min-w-0 gap-2 pb-1"
+			>
+				{input.profiles.map((profile) => (
+					<li className="shrink-0" key={profile.id}>
+						<AgentProfileSummaryCard
+							modelCatalog={input.modelCatalog}
+							profile={profile}
+							variant={input.variant}
+						/>
+					</li>
+				))}
+			</ul>
+		</ScrollArea>
 	);
 }
 
