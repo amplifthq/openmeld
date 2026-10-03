@@ -1700,7 +1700,10 @@ describe("space signal consistency matrix", () => {
     ]);
   });
 
-  it("keeps agent Direct Message dispatch independent of mention policy storage", () => {
+  it.each([
+    "openmeld_dm_space",
+    "ordinary_private_space",
+  ])("automatically addresses a one-human one-agent %s independently of mention policy storage", (purpose) => {
     const humanProfileId = "human-dm-sender";
     const agentProfileId = "agt-dm-target";
     const signal: SignalEnvelope = {
@@ -1741,7 +1744,7 @@ describe("space signal consistency matrix", () => {
         },
         readSpaceContractRecord: vi.fn(() => buildDefaultSpaceContract()),
         readSpaceMetaRecord: vi.fn(() => ({
-          purpose: "openmeld_dm_space",
+          purpose,
         })),
       },
       signal
@@ -1750,7 +1753,7 @@ describe("space signal consistency matrix", () => {
     expect(records).toHaveLength(1);
     expect(records[0]).toMatchObject({
       dispatchPolicy: "mention_only",
-      ruleId: "space_direct_message.auto_agent.v1",
+      ruleId: "space_one_human_agent.auto_agent.v1",
       targetProfileId: agentProfileId,
     });
   });

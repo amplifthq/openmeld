@@ -997,7 +997,8 @@ async function readResponseStatusAndCode(
 
 async function postTextSignal(
   spaceId: string,
-  text: string
+  text: string,
+  clientMessageId?: string
 ): Promise<SignalEnvelope & { type: "signal.text" }> {
   const response = await fetchWithOpenMeldAuth(
     `${BASE_URL}/v1/spaces/${spaceId}/signals`,
@@ -1007,6 +1008,7 @@ async function postTextSignal(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
+        ...(clientMessageId ? { clientMessageId } : {}),
         profile: {
           kind: "human",
           profileId: DEFAULT_HUMAN_PROFILE_ID,
@@ -9434,26 +9436,86 @@ describe("OpenMeld Core", () => {
     );
     expect(signalsResponse.status).toBe(200);
     const signalsPage = (await signalsResponse.json()) as {
-      signals?: Array<{
-        data?: { meta?: { purpose?: string }; text?: string };
-        profile?: { profileId?: string };
-        type?: string;
-      }>;
+      signals: Array<{ type: string }>;
     };
-    const welcomeSignals =
-      signalsPage.signals?.filter(
-        (signal) =>
-          signal.type === "signal.text" &&
-          signal.data?.meta?.purpose === "center_agent_dm_welcome"
-      ) ?? [];
-    expect(welcomeSignals).toHaveLength(1);
-    expect(welcomeSignals[0]).toMatchObject({
-      profile: { profileId: agentProfileId },
-      type: "signal.text",
+    expect(
+      signalsPage.signals.filter((signal) => signal.type === "signal.text")
+    ).toEqual([]);
+  });
+
+  it.each([
+    false,
+    true,
+  ])("reopens an existing Center chat without appending or rewriting messages (historical welcome: %s)", async (hasHistoricalWelcome) => {
+    const organizationId = `org-center-reopen-${randomUUID()}`;
+    const ownerUserId = `user-center-reopen-${randomUUID()}`;
+    const humanProfileId = randomUUID();
+    const agentProfileId = `agt_${randomUUID()}`;
+    await ensureTestCenterAgentDesignation({
+      agentProfileId,
+      agentProfileName: "Center Agent",
+      organizationId,
+      ownerUserId,
     });
-    expect(welcomeSignals[0]?.data?.text).toContain(
-      "I'm the Center Agent for Test Organization"
+    await insertTestPrimaryHumanProfile({
+      ownerUserId,
+      profileId: humanProfileId,
+    });
+    const context = createRpcContext({
+      activeOrganizationId: organizationId,
+      ownerUserId,
+      profileId: humanProfileId,
+      profileKind: "human",
+      profileName: "Ava",
+      requestId: "center-chat-reopen",
+    });
+    const session = await rpcOpenCenterAgentDirectMessageSpace(
+      env as CoreBindings,
+      {
+        context,
+        sessionCreationId: randomUUID(),
+      }
     );
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const stub = namespace.get(namespace.idFromString(session.spaceId));
+    await stub.rpcPostSignal({
+      context,
+      spaceId: session.spaceId,
+      profile: { kind: "human", profileId: humanProfileId, profileName: "Ava" },
+      authoringPolicy: "system_emitted",
+      text: "Existing conversation",
+    });
+    if (hasHistoricalWelcome) {
+      await stub.rpcPostSignalOnceByClientMessageId({
+        context,
+        spaceId: session.spaceId,
+        profile: {
+          kind: "human",
+          profileId: humanProfileId,
+          profileName: "Ava",
+        },
+        authoringPolicy: "system_emitted",
+        text: "Historical welcome",
+        clientMessageId: `center-agent-dm-welcome:${session.spaceId}`,
+        meta: {
+          clientMessageId: `center-agent-dm-welcome:${session.spaceId}`,
+          purpose: "center_agent_dm_welcome",
+        },
+      });
+    }
+    const before = await stub.rpcListSignals({
+      context,
+      spaceId: session.spaceId,
+    });
+    const reopened = await rpcOpenCenterAgentDirectMessageSpace(
+      env as CoreBindings,
+      { context }
+    );
+    expect(reopened.spaceId).toBe(session.spaceId);
+    expect(reopened.created).toBe(false);
+    expect(
+      await stub.rpcListSignals({ context, spaceId: session.spaceId })
+    ).toEqual(before);
   });
 
   it("bootstraps a fresh organization and opens a usable Center Agent DM through the real Core path", async () => {
@@ -9597,26 +9659,11 @@ describe("OpenMeld Core", () => {
     );
     expect(signalsResponse.status).toBe(200);
     const signalsPage = (await signalsResponse.json()) as {
-      signals?: Array<{
-        data?: { meta?: { purpose?: string }; text?: string };
-        profile?: { profileId?: string };
-        type?: string;
-      }>;
+      signals: Array<{ type: string }>;
     };
-    const welcomeSignals =
-      signalsPage.signals?.filter(
-        (signal) =>
-          signal.type === "signal.text" &&
-          signal.data?.meta?.purpose === "center_agent_dm_welcome"
-      ) ?? [];
-    expect(welcomeSignals).toHaveLength(1);
-    expect(welcomeSignals[0]).toMatchObject({
-      profile: { profileId: agentProfileId },
-      type: "signal.text",
-    });
-    expect(welcomeSignals[0]?.data?.text).toContain(
-      "I'm the Center Agent for Test Organization"
-    );
+    expect(
+      signalsPage.signals.filter((signal) => signal.type === "signal.text")
+    ).toEqual([]);
   });
 
   it("supports direct DO rpc methods and applies space ref per request", async () => {
@@ -12857,6 +12904,139 @@ describe("OpenMeld Core", () => {
       await env.OPENMELD_DB.prepare(
         "ALTER TABLE openMeldDaemon_dispatch_results_offline RENAME TO openMeldDaemon_dispatch_results"
       ).run();
+    }
+  });
+
+  it.each([
+    "native",
+    "outbox",
+    "ledger",
+  ] as const)("preserves native execution timing through the %s progress projection", async (carrier) => {
+    const spaceId = await createSpace({ name: `native-timing-${carrier}` });
+    const clientMessageId = randomUUID();
+    const source = await postTextSignal(spaceId, "ping", clientMessageId);
+    const targetProfileId = "agt_11111111-1111-4111-8111-111111111111";
+    const nowMs = Date.now();
+    const record = createDispatchOutboxRecord({
+      bindingEnabled: true,
+      bindingState: "bound",
+      dispatchPolicy: "mention_only",
+      nowMs,
+      ruleId: "wake_explicit_activation",
+      ruleReason: "Explicit Wake target",
+      ruleSource: "registry",
+      senderProfileId: DEFAULT_HUMAN_PROFILE_ID,
+      sourceEventId: source.id,
+      sourceClientMessageId: clientMessageId,
+      sourceSignalSnapshot: {
+        profileId: DEFAULT_HUMAN_PROFILE_ID,
+        profileKind: "human",
+        text: "ping",
+      },
+      spaceId,
+      targetProfileId,
+    });
+    if (carrier !== "native") {
+      const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+      await runInDurableObject(
+        namespace.get(namespace.idFromString(spaceId)),
+        (_instance, state) => {
+          insertDispatchOutboxRecord(state.storage.sql, record);
+          markDispatchOutboxHandedOff(state.storage.sql, {
+            dispatchId: record.dispatchId,
+            handedOffAtMs: nowMs,
+          });
+        }
+      );
+    }
+    if (carrier === "ledger") {
+      await env.OPENMELD_DB.prepare(`
+          INSERT INTO openMeldDaemon_dispatch_ledger
+            (idempotency_key, dispatch_id, space_id, source_event_id, source_client_message_id,
+             target_profile_id, status, first_seen_at_ms, last_attempt_at_ms, attempt_count)
+          VALUES (?, ?, ?, ?, ?, ?, 'dispatching', ?, ?, 1)
+        `)
+        .bind(
+          record.idempotencyKey,
+          record.dispatchId,
+          spaceId,
+          source.id,
+          clientMessageId,
+          targetProfileId,
+          nowMs,
+          nowMs
+        )
+        .run();
+    }
+    await upsertRemoteAgentNativeDeliveryRecord({
+      db: env.OPENMELD_DB,
+      nowMs,
+      organizationId: DEFAULT_TEST_ORGANIZATION_ID,
+      conversationKind: "space",
+      spaceId,
+      profileId: targetProfileId,
+      bindingId: "native-timing-binding",
+      sourceClientMessageId: clientMessageId,
+      attemptId: null,
+      triggerMessageId: source.id,
+      dispatchId: record.dispatchId,
+      idempotencyKey: record.idempotencyKey,
+      status: "submitted",
+    });
+    const startedAtMs = nowMs + 10;
+    await markRemoteAgentNativeDeliveryAck({
+      db: env.OPENMELD_DB,
+      nowMs: startedAtMs,
+      idempotencyKey: record.idempotencyKey,
+      submissionId: `timing-${record.dispatchId}`,
+      accepted: true,
+    });
+    const spaceStub = (
+      env.OPENMELD_SPACES as DurableObjectNamespace<Space>
+    ).get(
+      (env.OPENMELD_SPACES as DurableObjectNamespace<Space>).idFromString(
+        spaceId
+      )
+    );
+    await spaceStub.rpcResolveNativeReplyPlacement({
+      spaceId,
+      dispatchId: record.dispatchId,
+      sourceSignalId: source.id,
+      profileId: targetProfileId,
+      defaultToThread: true,
+      placement: "conversation",
+      lock: false,
+    });
+    for (const includeTiming of [false, true]) {
+      for (const path of [
+        `active-wake-progress?includeTiming=${includeTiming}&includeReplyPlacement=${includeTiming}`,
+        `wake-progress?clientMessageId=${clientMessageId}&targetProfileId=${targetProfileId}&includeTiming=${includeTiming}&includeReplyPlacement=${includeTiming}`,
+      ]) {
+        const response = await fetchSpaceDoWithOpenMeldAuth({
+          spaceId,
+          path: `/${path}`,
+        });
+        expect(response.status).toBe(200);
+        const body = (await response.json()) as {
+          items: Array<{
+            dispatchId: string;
+            startedAtMs?: number;
+            replyThreadRootSignalId?: string | null;
+            replyPlacementRevision?: number;
+          }>;
+        };
+        const item = body.items.find(
+          (item) => item.dispatchId === record.dispatchId
+        );
+        expect(item).toBeDefined();
+        expect(item?.startedAtMs).toBe(includeTiming ? startedAtMs : undefined);
+        expect(item?.replyThreadRootSignalId).toBe(
+          includeTiming ? null : undefined
+        );
+        expect(item?.replyPlacementRevision).toBe(
+          includeTiming ? 1 : undefined
+        );
+      }
     }
   });
 

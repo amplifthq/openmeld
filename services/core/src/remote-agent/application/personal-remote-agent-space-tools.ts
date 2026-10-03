@@ -264,7 +264,7 @@ export async function runPersonalRemoteAgentSpaceTool(
     const placement = await resolveNativeDeliveryReplyPlacement({
       env,
       delivery,
-      lock: true,
+      lock: false,
       placement: input.operation.placement,
     });
     if (!placement) {
