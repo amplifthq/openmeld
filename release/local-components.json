@@ -1,28 +1,28 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-03T08:25:06.753Z",
+  "updatedAt": "2026-10-03T11:52:35.912Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
-      "packageVersion": "0.3.238",
+      "packageVersion": "0.3.239",
       "updatePolicy": "available",
-      "reason": "The terminal receipt schema is additive; existing setup, Wake and Plugin request envelopes remain compatible."
+      "reason": "Typed Plugin approval responses are opt-in; older CLI writes fail closed with Inbox guidance and preserve the same operation identity."
     },
     "service": {
-      "bundleHash": "35b73f94ccec054c27ec5c76107388b235b447e1c2c2280d28a3ad6806b41206",
-      "portableBundleHash": "272bfe9870a0f56aa83ad6d081d6389e2e0cc5c471134bdfb38f83161e76c617",
-      "bundleVersion": "0.3.238",
+      "bundleHash": "e5be977ba25007ece704ae5cd9c1b02a1d8c2194c67853d74575e246a584e467",
+      "portableBundleHash": "c067de5c4e54da81c5cb9a0f15c776f2482d65a924cd2879314e3dc5c174f6da",
+      "bundleVersion": "0.3.239",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
       "serviceContractVersion": "openmeld-service-contract-2026-09-local-install-recovery-v1",
       "updatePolicy": "available",
-      "reason": "No Service transport, token lifecycle or execution identity contract changes in this receipt delta."
+      "reason": "Request approval is owned by Core and Auth; existing Service transport and execution token contracts remain compatible."
     },
     "skills": {
       "bundleHash": "bc35ca58399ae996362b3e2cfaddb56b40c1bdccf62f843f58d0e8bec0c7c94d",
       "skillContractVersion": "openmeld-skills-contract-2026-09-explicit-space-recipients-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Existing receipt-guided recovery remains compatible; missing account provenance cannot grant replay."
+      "reason": "Existing recovery remains receipt-guided; private request approval adds no caller-minted execution authority."
     }
   }
 }

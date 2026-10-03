@@ -1221,6 +1221,16 @@ email is required. Possession of an independent mailbox remains the verification
 boundary. A separately authorized Agent that can read that mailbox is not
 distinguished from its owner by email verification alone.
 
+This is still a blocking acceptance condition, not merely an operational note.
+For example, an Agent with an existing Gmail read grant can request a code, read
+that email, select the account's Human Profile using the same account credential,
+and submit the code. The current owner cannot prove mailbox independence from
+that account credential. The UI and independent-mailbox cases do not certify the
+unqualified requirement that a controller cannot approve itself. Closing that
+case requires request-bound authentication evidence unavailable to the Agent,
+including a supported path for accounts that currently use only email login;
+it must not silently require a passkey or claim that a browser session suffices.
+
 Approval and Inbox resolution use one conditional D1 batch. Repeated decisions
 return the retained state, conflicting decisions fail, and execution claims
 recheck the approved request, membership and frozen connection/access revisions.

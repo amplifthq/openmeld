@@ -113,8 +113,8 @@ export function PluginActionRequest({ requestId }: { requestId: string }) {
 					}}
 				>
 					<p className="text-muted-foreground text-sm" id={descriptionId}>
-						To confirm it’s you, enter the code sent to your verified account
-						email. This request expires at{" "}
+						Request a code at your verified account email, then enter it here.
+						This request expires at{" "}
 						{new Date(request.expiresAtMs).toLocaleTimeString([], {
 							hour: "numeric",
 							minute: "2-digit",
