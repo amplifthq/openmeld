@@ -1,15 +1,35 @@
 import {
+  pluginActionRequestCommandSchema,
   pluginActionRequestSchema,
+  pluginActionRequestViewSchema,
   pluginActionResponseSchema,
 } from "@openmeld/schemas";
 import type {
   OpenMeldRequestContext,
   PluginActionRequest,
+  PluginActionRequestCommand,
 } from "@openmeld/schemas/types";
 import type { OpenMeldApiClientFoundation } from "../client";
 
 export function createPluginsApi(client: OpenMeldApiClientFoundation) {
   return {
+    requestAuthorization: (input: {
+      organizationId: string;
+      command: PluginActionRequestCommand;
+      requestContext?: OpenMeldRequestContext;
+    }) =>
+      client.requestJson({
+        method: "POST",
+        operation: "plugins.requestAuthorization",
+        requestContext: input.requestContext,
+        url: `/v1/organizations/current/plugins/action-requests?expectedOrganizationId=${encodeURIComponent(input.organizationId)}`,
+        body: JSON.stringify(
+          pluginActionRequestCommandSchema.parse(input.command)
+        ),
+        headers: { "content-type": "application/json" },
+        schema: pluginActionRequestViewSchema,
+        invalidMessage: "Invalid Plugin request response.",
+      }),
     action: async (input: {
       organizationId: string;
       requestContext: OpenMeldRequestContext;

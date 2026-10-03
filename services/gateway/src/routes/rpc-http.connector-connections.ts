@@ -14,7 +14,9 @@ import {
   pluginAccessListResponseSchema,
   pluginAccessSchema,
   pluginAccessUpdateBodySchema,
+  pluginActionRequestCommandSchema,
   pluginActionRequestSchema,
+  pluginActionRequestViewSchema,
   pluginActionResponseSchema,
   pluginChannelContinueBodySchema,
   pluginChannelContinueResponseSchema,
@@ -189,6 +191,47 @@ export function registerConnectorConnectionRoutes(
     });
   });
   registerPluginChannelContinuationRoutes(app);
+  const requestRoute = "/v1/organizations/current/plugins/action-requests";
+  app.post(requestRoute, async (c) => {
+    const organization = parseConnectorOrganizationRequest(
+      c,
+      requestRoute,
+      "POST"
+    );
+    if (!organization.ok) {
+      return organization.response;
+    }
+    // JSON and a non-simple request header prevent form-based cross-site
+    // submissions. The request-specific email proof remains the authority.
+    const command =
+      c.req.header("content-type")?.split(";")[0] === "application/json"
+        ? pluginActionRequestCommandSchema.safeParse(
+            await c.req.json().catch(() => null)
+          )
+        : null;
+    if (!command?.success) {
+      return respondBadRequest({
+        c,
+        route: requestRoute,
+        method: "POST",
+        reason: "Invalid Plugin request.",
+        message: "Choose a valid Plugin request.",
+      });
+    }
+    return executeRpcRoute({
+      c,
+      route: requestRoute,
+      method: "POST",
+      retryMode: "none",
+      responseSchema: pluginActionRequestViewSchema,
+      execute: () =>
+        c.var.coreRpc.pluginActionRequest({
+          context: buildCoreRpcContext(c),
+          expectedOrganizationId: organization.expectedOrganizationId,
+          command: command.data,
+        }),
+    });
+  });
   const actionRoute = "/v1/organizations/current/plugins/actions";
   app.post(actionRoute, async (c) => {
     const organization = parseConnectorOrganizationRequest(

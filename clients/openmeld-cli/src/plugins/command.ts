@@ -51,7 +51,7 @@ export async function runPluginCommand(input: {
   const request = pluginActionRequestSchema.parse({
     action: input.action,
     ...(input.action.operation === "execute"
-      ? { includeRecoveryReceipt: true }
+      ? { includeRecoveryReceipt: true, includeRequestAuthorization: true }
       : {}),
     ...(dispatch
       ? {
@@ -78,14 +78,22 @@ export async function runPluginCommand(input: {
     renderPluginResponse(response);
   }
   if (
-    response.kind === "execution" &&
-    (response.status === "failed" || response.status === "outcome_unknown")
+    response.kind === "authorization_required" ||
+    (response.kind === "execution" &&
+      (response.status === "failed" || response.status === "outcome_unknown"))
   ) {
     process.exitCode = 1;
   }
 }
 
 function renderPluginResponse(response: PluginActionResponse) {
+  if (response.kind === "authorization_required") {
+    outLine(`Plugin request: ${response.request.state}`);
+    outLine(
+      "Open your Inbox in OpenMeld and review “Confirm a Plugin action.” After approval, repeat this command with the same operation ID. No new operation has run."
+    );
+    return;
+  }
   if (response.kind === "connection_guidance") {
     outLine(response.replyText);
     outLine(response.message);
