@@ -36,8 +36,7 @@ it.each([
   });
   const model = provider.getModel();
   const gate = Promise.withResolvers<ReturnType<typeof fauxAssistantMessage>>();
-  // Exceed the real publisher's chunk threshold so the failed attempt is
-  // already visible before the retry, not merely present in its buffer.
+  // The failed message and its buffered tail must be visible before retry.
   const failed = fauxAssistantMessage("Wrong partial answer. ".repeat(20), {
     stopReason: "error",
     errorMessage: "Connection error.",
@@ -117,7 +116,11 @@ it.each([
         replacementPrefixes.push(prefix);
       }
     }
-    if (event.type === "text_delta" || event.type === "thinking_delta") {
+    if (
+      event.type === "text_delta" ||
+      event.type === "thinking_delta" ||
+      event.type === "message_end"
+    ) {
       return dispatchObservation(event);
     }
   });

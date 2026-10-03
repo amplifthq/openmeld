@@ -58,24 +58,7 @@ export function createLocalComputerReader(
             "OpenMeld Tools are missing or need an update. Connect this Mac to install them and continue.",
         };
       }
-      if (review.account?.id !== before.user.id) {
-        return {
-          status: "unavailable",
-          message:
-            "This Mac is connected to a different account. Connect it to your Desktop account.",
-        };
-      }
-      if (!review.existingConnection) {
-        return {
-          status: "unavailable",
-          message: "Use local agents in OpenMeld, even after you quit Desktop.",
-        };
-      }
-      return {
-        status: "available",
-        accountId: before.user.id,
-        target: review.existingConnection,
-      };
+      return projectLocalComputer(review, before.user.id);
     } catch (error) {
       // Retain bounded native diagnostics without logging CLI output or private paths.
       console.warn("[desktop.computer_check_failed]", {
@@ -86,5 +69,29 @@ export function createLocalComputerReader(
         "Couldn’t check this Mac’s connection. Check its OpenMeld Service and try again."
       );
     }
+  };
+}
+
+function projectLocalComputer(
+  review: Awaited<ReturnType<typeof readComputerConnection>>,
+  accountId: string
+): DesktopLocalComputer {
+  if (review.account && review.account.id !== accountId) {
+    return {
+      status: "unavailable",
+      message:
+        "This Mac is connected to a different account. Connect it to your Desktop account.",
+    };
+  }
+  if (!(review.account && review.existingConnection)) {
+    return {
+      status: "unavailable",
+      message: "Use local agents in OpenMeld, even after you quit Desktop.",
+    };
+  }
+  return {
+    status: "available",
+    accountId,
+    target: review.existingConnection,
   };
 }

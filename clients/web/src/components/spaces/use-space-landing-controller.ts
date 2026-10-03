@@ -57,6 +57,7 @@ import {
 	ensureWebAgentProfileRuntimeBinding,
 	formatWebAgentProfileRuntimeBindingFailure,
 } from "#/lib/profiles/agent-profile-runtime-binding";
+import { projectAgentStreamReplyPlacements } from "#/lib/spaces/active-wake-conversation";
 import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
 import type { ComposerFileDraftCleanup } from "#/lib/spaces/composer-file-drafts";
@@ -1823,7 +1824,23 @@ export function useSpaceLandingController(input: {
 	});
 	const agentStreamProjections = useMemo(
 		() =>
-			liveAgentStreamProjections.filter(
+			projectAgentStreamReplyPlacements(
+				liveAgentStreamProjections,
+				mergeWakeProgressItemState({
+					currentItems: wakeProgressItems,
+					incomingItems: readConfirmedWakeProgressItems({
+						presentation: wakeProgressPresentationQuery.data,
+						spaceSummary: activeWakeProgressSummaryQuery.data,
+						ownSummary: ownActiveWakeProgressQuery.data,
+						spaceSummaryFetchedAfterMount:
+							activeWakeProgressSummaryQuery.isFetchedAfterMount,
+						ownSummaryFetchedAfterMount:
+							ownActiveWakeProgressQuery.isFetchedAfterMount,
+						signals: [],
+					}),
+					signals: [],
+				})
+			).filter(
 				(stream) =>
 					!hasSpaceWakeProgressOutcome({
 						presentation: wakeProgressPresentationQuery.data,
@@ -1836,7 +1853,15 @@ export function useSpaceLandingController(input: {
 						},
 					})
 			),
-		[liveAgentStreamProjections, wakeProgressPresentationQuery.data]
+		[
+			liveAgentStreamProjections,
+			wakeProgressItems,
+			wakeProgressPresentationQuery.data,
+			activeWakeProgressSummaryQuery.data,
+			activeWakeProgressSummaryQuery.isFetchedAfterMount,
+			ownActiveWakeProgressQuery.data,
+			ownActiveWakeProgressQuery.isFetchedAfterMount,
+		]
 	);
 	const historyNavigation = useSpaceHistoryNavigation({
 		liveEnvelopes: timelineEnvelopes,
@@ -3234,7 +3259,7 @@ export function useSpaceLandingController(input: {
 				senderProfileId: input.profileId,
 				status: sendInput.status,
 			});
-		// An implicit Direct Message Wake drives progress, but is not an authored
+		// An automatic one-human/Agent Wake drives progress, but is not an authored
 		// @Agent target and must not appear in the optimistic message body.
 		const pendingMessageEnvelope =
 			sendInput.preparedSubmission.messageEnvelope ?? null;
@@ -4049,6 +4074,7 @@ function useSpaceThreadController(input: {
 			composerFilesController.retryRestoration,
 		threadComposerBlockedWakeProfileId: composerBlockedWakeProfileId,
 		threadComposerAddressingTargets: resolveComposerAddressingTargets({
+			isThreadMessage: true,
 			addressingTargets: mentionAuthoring.addressingTargets,
 			membersSnapshot: input.membersSnapshot,
 			senderProfileId: input.profileId,
@@ -4356,6 +4382,7 @@ function useSpaceThreadController(input: {
 		await requireCurrentSpaceComposerWakeAdmission({
 			deviceWait: preparedSubmission.deviceWait,
 			agentProfileIds: resolveComposerWakeProgressTargetProfileIds({
+				isThreadMessage: true,
 				explicitActivationTargets:
 					preparedSubmission.messageEnvelope?.activationTargets ?? [],
 				explicitReferenceTargets:

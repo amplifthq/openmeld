@@ -62,6 +62,7 @@ test("the Desktop launcher uses its owned lane CLI and overrides unrelated paren
     assert.equal(launch.env.OPENMELD_HOME, home);
     assert.equal(launch.env.OPENMELD_BIN, cli);
     assert.equal(launch.env.OPENMELD_ENV_PRESET, "dev-local");
+    assert.equal(launch.env.OPENMELD_AUTH_CLIENT_ID, "openmeld-cli-dev");
     assert.equal(launch.env.WEB_APP_URL, "http://wt-example.localhost:28320");
     assert.equal(
       launch.env.OPENMELD_AUTH_URL,
@@ -102,6 +103,7 @@ test("the Desktop launcher uses its owned lane CLI and overrides unrelated paren
     assert.equal(packaged.command, executable);
     assert.equal(packaged.env.OPENMELD_DESKTOP_RENDERER_DIR, undefined);
     assert.equal(packaged.env.OPENMELD_ENV_PRESET, "canary");
+    assert.equal(packaged.env.OPENMELD_AUTH_CLIENT_ID, "openmeld-cli");
     assert.equal(packaged.env.OPENMELD_BIN, cli);
     assert.deepEqual(packaged.args, [
       `--user-data-dir=${join(home, "desktop/mock-keychain-user-data")}`,

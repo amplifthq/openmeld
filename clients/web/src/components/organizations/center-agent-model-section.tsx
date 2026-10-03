@@ -281,6 +281,14 @@ function ModelConfigurationContent(input: {
 						and increase input costs on the next turn.
 					</output>
 				) : null}
+				{input.selectedChoice?.preference.kind === "system_default" &&
+				input.selectedReasoningLevel ? (
+					<p className="text-muted-foreground text-sm">
+						This effort will be saved with{" "}
+						{input.selectedChoice.effectiveModelDisplayName}. The model will
+						stay selected when OpenMeld defaults change.
+					</p>
+				) : null}
 			</div>
 			{input.updateError ? (
 				<p className="text-destructive text-sm" role="alert">

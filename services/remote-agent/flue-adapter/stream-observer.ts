@@ -96,6 +96,17 @@ export async function handleCenterAgentObservation(input: {
     });
     return;
   }
+  if (event.type === "message_end" && event.message.role === "assistant") {
+    await flushRemoteAgentStream({
+      ...resolveDependencies(input.resolveDependencies),
+      event,
+      streamPublisher: input.streamPublisher,
+      submissionId: resolveRemoteAgentObservationSubmissionId(
+        event.submissionId
+      ),
+    });
+    return;
+  }
   const streamDelta = extractFlueStreamDelta(event);
   if (streamDelta) {
     await handleCenterAgentStreamDelta({
@@ -718,6 +729,7 @@ function normalizeSubmissionId(
 function isRemoteAgentExecutionObservation(event: FlueObservation): boolean {
   return (
     event.type === "text_delta" ||
+    (event.type === "message_end" && event.message.role === "assistant") ||
     event.type === "thinking_delta" ||
     event.type === "tool_start" ||
     event.type === "tool" ||

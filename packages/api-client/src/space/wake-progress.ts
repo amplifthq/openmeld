@@ -19,6 +19,7 @@ export async function getSpaceWakeProgress(
   input: SpaceRequestInput & {
     clientMessageId: string;
     includePreviewText?: boolean;
+    includeReplyPlacement?: boolean;
     includeSourceContext?: boolean;
     includeTiming?: boolean;
     includeWaitReason?: boolean;
@@ -31,6 +32,9 @@ export async function getSpaceWakeProgress(
   searchParams.set("clientMessageId", input.clientMessageId);
   if (input.includePreviewText === true) {
     searchParams.set("includePreviewText", "true");
+  }
+  if (input.includeReplyPlacement === true) {
+    searchParams.set("includeReplyPlacement", "true");
   }
   if (input.includeSourceContext === true) {
     searchParams.set("includeSourceContext", "true");
@@ -72,6 +76,7 @@ export async function getActiveSpaceWakeProgress(
   input: SpaceRequestInput & {
     includePageInfo?: boolean;
     includePreviewText?: boolean;
+    includeReplyPlacement?: boolean;
     includeSourceContext?: boolean;
     includeTiming?: boolean;
     includeWaitReason?: boolean;
@@ -87,6 +92,9 @@ export async function getActiveSpaceWakeProgress(
   }
   if (input.includePreviewText === true) {
     searchParams.set("includePreviewText", "true");
+  }
+  if (input.includeReplyPlacement === true) {
+    searchParams.set("includeReplyPlacement", "true");
   }
   if (input.includeSourceContext === true) {
     searchParams.set("includeSourceContext", "true");

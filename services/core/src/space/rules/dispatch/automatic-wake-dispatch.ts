@@ -1,25 +1,24 @@
 import type { SignalEnvelope } from "@openmeld/protocol";
-import {
-  isAgentDirectConversationSpace,
-  OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
-} from "@openmeld/space";
+import { isAutomaticWakeSpace } from "@openmeld/space";
 import type { SpaceMemberRecord } from "../../infrastructure/sql/space-member-repo";
 import type { DispatchReadyDecision } from "../mention/mention-dispatch-rules";
 
-export const DIRECT_MESSAGE_AUTO_DISPATCH_RULE_ID =
-  "space_direct_message.auto_agent.v1";
+export const AUTOMATIC_WAKE_DISPATCH_RULE_ID =
+  "space_one_human_agent.auto_agent.v1";
 
-export type DirectMessageDispatchReadyDecision = DispatchReadyDecision & {
-  directMessagePromptContext: string;
+export type AutomaticWakeDispatchReadyDecision = DispatchReadyDecision & {
+  automaticWakePromptContext: string;
 };
 
-export function buildDirectMessageDispatchReadyDecisions(input: {
+export function buildAutomaticWakeDispatchReadyDecisions(input: {
   activeMemberRecords: readonly SpaceMemberRecord[];
   senderProfileId: string;
   signal: SignalEnvelope;
   spacePurpose: string | null | undefined;
-}): DirectMessageDispatchReadyDecision[] {
-  if (!isDirectMessageAutoDispatchEligibleSignal(input.signal)) {
+  isThreadMessage?: boolean;
+  directMessageConvertedAt?: string | null;
+}): AutomaticWakeDispatchReadyDecision[] {
+  if (!isAutomaticWakeEligibleSignal(input.signal)) {
     return [];
   }
 
@@ -30,11 +29,13 @@ export function buildDirectMessageDispatchReadyDecisions(input: {
     (memberRecord) => memberRecord.profileKindSnapshot === "agent"
   );
   if (
-    !isAgentDirectConversationSpace({
+    !isAutomaticWakeSpace({
       activeMemberCount: input.activeMemberRecords.length,
       agentMemberCount: activeAgentMembers.length,
       humanMemberCount: activeHumanMembers.length,
       purpose: input.spacePurpose,
+      isThreadMessage: input.isThreadMessage,
+      directMessageConvertedAt: input.directMessageConvertedAt,
     })
   ) {
     return [];
@@ -48,7 +49,7 @@ export function buildDirectMessageDispatchReadyDecisions(input: {
   if (input.senderProfileId !== humanMember.profileId) {
     return [];
   }
-  // Explicit Reference is the member's opt-out from the default DM Wake.
+  // Explicit Reference is the member's opt-out from the automatic Wake.
   if (
     input.signal.type === "signal.text" &&
     input.signal.data.messageEnvelope?.referenceTargets.includes(
@@ -70,45 +71,43 @@ export function buildDirectMessageDispatchReadyDecisions(input: {
       sourceEventId,
       targetProfileId: agentMember.profileId,
       ruleSource: "system",
-      ruleId: DIRECT_MESSAGE_AUTO_DISPATCH_RULE_ID,
-      ruleReason: "direct message from human member to agent member",
-      directMessagePromptContext: buildDirectMessagePromptContext({
+      ruleId: AUTOMATIC_WAKE_DISPATCH_RULE_ID,
+      ruleReason: "message from the only human member to the only agent member",
+      automaticWakePromptContext: buildAutomaticWakePromptContext({
         humanName: humanMember.profileNameSnapshot,
       }),
     },
   ];
 }
 
-export function applyDirectMessageDispatchPromptContext(input: {
+export function applyAutomaticWakeDispatchPromptContext(input: {
   sourceText: string;
   decision: DispatchReadyDecision;
 }): string {
-  const promptContext = readDirectMessagePromptContext(input.decision);
+  const promptContext = readAutomaticWakePromptContext(input.decision);
   if (!promptContext) {
     return input.sourceText;
   }
   return `${promptContext}\n\n${input.sourceText}`;
 }
 
-export function readDirectMessagePromptContext(
+export function readAutomaticWakePromptContext(
   decision: DispatchReadyDecision
 ): string | null {
   const promptContext = (
-    decision as Partial<DirectMessageDispatchReadyDecision>
-  ).directMessagePromptContext;
+    decision as Partial<AutomaticWakeDispatchReadyDecision>
+  ).automaticWakePromptContext;
   return typeof promptContext === "string" && promptContext.trim().length > 0
     ? promptContext.trim()
     : null;
 }
 
-function buildDirectMessagePromptContext(input: { humanName: string }): string {
+function buildAutomaticWakePromptContext(input: { humanName: string }): string {
   const humanName = input.humanName.trim() || "the human member";
-  return `Direct message context: This is a direct message with ${humanName}. The message is addressed directly to you. Reply directly in this Space; no @mention is needed.`;
+  return `Conversation context: This Space has one human, ${humanName}, and one Agent, you. This human message is addressed to you without an @mention. A main-conversation request defaults to a main reply; continue an existing thread there. Follow explicit user preferences or select another reply location when the task calls for it. Agent-authored messages never automatically Wake another Agent; use an explicit Wake target to ask another Agent to work.`;
 }
 
-function isDirectMessageAutoDispatchEligibleSignal(
-  signal: SignalEnvelope
-): boolean {
+function isAutomaticWakeEligibleSignal(signal: SignalEnvelope): boolean {
   if (signal.type !== "signal.text") {
     return false;
   }
@@ -129,5 +128,3 @@ function toSignalMetaRecord(value: unknown): { transient?: boolean } | null {
   }
   return value as { transient?: boolean };
 }
-
-export { OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE };

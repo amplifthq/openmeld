@@ -14,7 +14,7 @@ import type {
 } from "@openmeld/schemas/types";
 import {
 	isActiveWakeProgressItem,
-	isAgentDirectConversationSpace,
+	isAutomaticWakeSpace,
 	isDirectMessageSpace,
 	resolveSpaceMemberAgentOwnerWakeDiagnosticsView,
 } from "@openmeld/space";
@@ -125,7 +125,7 @@ import { isManualOnlyAgentRecoveryPlan } from "./space-agent-manual-participatio
 import { SpaceAgentProfileEditProvider } from "./space-agent-profile-edit-context";
 import type { SpaceAgentProfileBindingRecoveryPlan } from "./space-agent-recovery-action";
 import { SpaceComposer } from "./space-composer";
-import type { SpaceAgentDirectConversationComposerHintKind } from "./space-composer-copy";
+import type { SpaceAutomaticWakeComposerHintKind } from "./space-composer-copy";
 import { SpaceConversationPanel } from "./space-conversation-panel";
 import { SpaceHeader } from "./space-header";
 import { SpaceLandingErrorBoundary } from "./space-landing-error-boundary";
@@ -1684,7 +1684,7 @@ function SpaceLandingReady({
 		isActiveSpaceMember: currentProfileIsActiveSpaceMember,
 		onLeaveSpace: controller.onLeaveSpace,
 	});
-	const agentDirectConversationKind = resolveAgentDirectConversationKind(
+	const automaticWakeConversationKind = resolveAutomaticWakeConversationKind(
 		controller.status
 	);
 	// In-Space identity switcher (built by a module helper to keep this
@@ -1893,10 +1893,10 @@ function SpaceLandingReady({
 					>
 						<SpaceLandingErrorBoundary>
 							<SpaceLandingConversation
-								agentDirectConversationKind={agentDirectConversationKind}
 								agentOwnerDirectMessageObserver={
 									agentOwnerDirectMessageObserver
 								}
+								automaticWakeConversationKind={automaticWakeConversationKind}
 								composerPrimaryAction={
 									resolveAgentOwnerDirectMessageComposerPrimaryAction(
 										agentOwnerDirectMessageJoin
@@ -1919,8 +1919,8 @@ function SpaceLandingReady({
 						{input.presentation === "compact" ||
 						!controller.isCurrentAccessConfirmed ? null : (
 							<SpaceLandingSecondaryPanels
-								agentDirectConversationKind={agentDirectConversationKind}
 								agentProfileEditContext={agentProfileEditContext}
+								automaticWakeConversationKind={automaticWakeConversationKind}
 								composerProfileControl={composerProfileControl}
 								controller={controller}
 								currentProfileIsActiveSpaceMember={
@@ -2126,7 +2126,7 @@ function SpaceFileNavigationGuards(input: {
 }
 
 function SpaceLandingConversation({
-	agentDirectConversationKind,
+	automaticWakeConversationKind,
 	agentOwnerDirectMessageObserver,
 	composerPrimaryAction,
 	composerProfileControl,
@@ -2140,8 +2140,8 @@ function SpaceLandingConversation({
 	prepareSetupHref,
 	state,
 }: {
-	agentDirectConversationKind: ReturnType<
-		typeof resolveAgentDirectConversationKind
+	automaticWakeConversationKind: ReturnType<
+		typeof resolveAutomaticWakeConversationKind
 	>;
 	agentOwnerDirectMessageObserver: ReturnType<
 		typeof resolveAgentOwnerDirectMessageObserver
@@ -2257,11 +2257,11 @@ function SpaceLandingConversation({
 		<SpaceConversationPanel
 			actionableAgentInteractionPlacement="pending-surface"
 			activeSpaceView={spaceView}
-			agentDirectConversationKind={agentDirectConversationKind}
 			agentRecoveryPlansByProfileId={agentRecoveryPlansByProfileId}
 			agentStreams={controller.agentStreams}
 			allowedActions={controller.status.allowedActions}
 			allowSendWhileAccessSettles={!controller.isCurrentAccessConfirmed}
+			automaticWakeConversationKind={automaticWakeConversationKind}
 			centerAgentProfileId={centerAgentState.centerAgentProfileId}
 			className="min-w-0"
 			composerAddressingTargets={controller.composerAddressingTargets}
@@ -2816,7 +2816,7 @@ function AgentOwnerDirectMessageJoinDialog(input: {
 }
 
 function SpaceLandingSecondaryPanels({
-	agentDirectConversationKind,
+	automaticWakeConversationKind,
 	agentProfileEditContext,
 	composerProfileControl,
 	controller,
@@ -2828,8 +2828,8 @@ function SpaceLandingSecondaryPanels({
 	prepareSetupHref,
 	state,
 }: {
-	agentDirectConversationKind: ReturnType<
-		typeof resolveAgentDirectConversationKind
+	automaticWakeConversationKind: ReturnType<
+		typeof resolveAutomaticWakeConversationKind
 	>;
 	agentProfileEditContext: ReturnType<
 		typeof resolveAgentProfileEditDialogContext
@@ -2908,9 +2908,11 @@ function SpaceLandingSecondaryPanels({
 			<SpaceThreadPanel
 				actionableAgentInteractionPlacement="pending-surface"
 				activeThread={controller.activeThread}
-				agentDirectConversationKind={agentDirectConversationKind}
 				agentRecoveryPlansByProfileId={agentRecoveryPlansByProfileId}
 				agentStreams={controller.agentStreams}
+				automaticWakeConversationKind={
+					state.isDirectMessage ? automaticWakeConversationKind : null
+				}
 				centerAgentProfileId={centerAgentState.centerAgentProfileId}
 				composerAddressingTargets={controller.threadComposerAddressingTargets}
 				composerAuthoredMentions={controller.threadComposerAuthoredMentions}
@@ -3145,28 +3147,19 @@ function SpaceLoadFailure(input: {
 	);
 }
 
-function resolveAgentDirectConversationKind(
+function resolveAutomaticWakeConversationKind(
 	status: GetSpaceStatusResponse
-): SpaceAgentDirectConversationComposerHintKind | null {
+): SpaceAutomaticWakeComposerHintKind | null {
 	const state = {
 		activeMemberCount: status.members.totalCount,
 		agentMemberCount: status.members.agentCount,
 		humanMemberCount: status.members.humanCount,
 		purpose: status.spacePurpose,
 	};
-	if (!isAgentDirectConversationSpace(state)) {
+	if (!isAutomaticWakeSpace(state)) {
 		return null;
 	}
-	if (
-		isDirectMessageSpace({
-			activeMemberCount: status.members.totalCount,
-			directMessageConvertedAt: status.directMessageConvertedAt,
-			purpose: status.spacePurpose,
-		})
-	) {
-		return "direct_message";
-	}
-	return null;
+	return "one_human_agent";
 }
 
 function useRedirectAwayFromDeletedSpace(input: {

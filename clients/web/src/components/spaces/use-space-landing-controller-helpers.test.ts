@@ -962,6 +962,7 @@ describe("pollWakeProgress", () => {
 		expect(getWakeProgress).toHaveBeenCalledWith({
 			clientMessageId: "client-message-1",
 			includePreviewText: true,
+			includeReplyPlacement: true,
 			includeTiming: true,
 			includeSourceContext: true,
 			includeWaitReason: true,
@@ -1167,7 +1168,7 @@ describe("resolveComposerWakeProgressTargetProfileIds", () => {
 		).toEqual([]);
 	});
 
-	it("does not derive a target for ordinary two-member spaces", () => {
+	it("derives the sole agent target for ordinary two-member spaces", () => {
 		expect(
 			resolveComposerWakeProgressTargetProfileIds({
 				explicitActivationTargets: [],
@@ -1175,7 +1176,7 @@ describe("resolveComposerWakeProgressTargetProfileIds", () => {
 				senderProfileId: HUMAN_PROFILE_ID,
 				status: createStatus(),
 			})
-		).toEqual([]);
+		).toEqual([AGENT_PROFILE_ID]);
 	});
 
 	it("does not derive a target after the Direct Message has degraded", () => {

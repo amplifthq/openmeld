@@ -521,6 +521,11 @@ is a hosted-runtime policy catalog, not a local Agent Profile controller:
   Agent tools use this same selection contract. The catalog default is `medium`
   where the provider supports it; GLM 5.3 Flash and the two DeepSeek Flash
   models retain `high` because they do not offer `medium`.
+  Saving an explicit effort with the Center Agent **OpenMeld default** preference
+  materializes the current default's concrete model ID in Core. The saved
+  preference then names that model, so a later system-default change cannot
+  silently apply the effort to a different model. Selecting **OpenMeld default**
+  with no explicit effort restores catalog-following behavior.
 - `hostedRuntimePolicy.imageUnderstandingModelId` names the image-capable
   auxiliary model used for every current-version image turn before persistent
   primary-model admission. The auxiliary returns an untrusted text
