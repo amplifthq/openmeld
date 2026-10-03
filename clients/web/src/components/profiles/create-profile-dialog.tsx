@@ -11,6 +11,10 @@ import {
 } from "@openmeld/agent-runtime";
 import { toStructuredApiClientFailure } from "@openmeld/api-client";
 import {
+	buildLocalAgentGuideDetailPath,
+	getLocalAgentInstallGuide,
+} from "@openmeld/product-catalog/local-agent-install-guides";
+import {
 	DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
 	formatAgentRecoveryActionLabel,
 	HOSTED_REMOTE_AGENT_CONTROLLER_REF,
@@ -73,10 +77,6 @@ import { AgentCreationComputerSetup } from "#/components/connect/agent-creation-
 import { canConfigureLocalComputer } from "#/desktop/platform";
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import { resolveLocalFolderPickerDeviceId } from "#/lib/connect/local-folder-picker";
-import {
-	buildLocalAgentGuideDetailPath,
-	getLocalAgentInstallGuide,
-} from "#/lib/local-agent-install-guides";
 import { useOptionalCurrentOrganizationSlug } from "#/lib/organizations/organization-context";
 import {
 	buildOrganizationCenterAgentChatPath,

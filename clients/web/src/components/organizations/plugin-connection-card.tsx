@@ -1,6 +1,12 @@
 "use client";
 
 import type {
+	PluginConnection,
+	PluginConnectionAuth,
+	PluginCredentialAuth,
+	PluginDefinition,
+} from "@openmeld/product-catalog/plugins";
+import type {
 	ConnectorConnection,
 	ConnectorConnectionListResponse,
 	ConnectorCredentialConnectResponse,
@@ -57,12 +63,6 @@ import {
 	organizationPluginConnectionQueryKeys,
 	organizationPluginServiceConnectionsQueryOptions,
 } from "#/query/organizations/plugin-connections";
-import type {
-	PluginConnection,
-	PluginConnectionAuth,
-	PluginCredentialAuth,
-	PluginDefinition,
-} from "./plugin-catalog";
 import {
 	PluginAccessLoadingSkeleton,
 	usePluginConnectionSnapshotCurrent,

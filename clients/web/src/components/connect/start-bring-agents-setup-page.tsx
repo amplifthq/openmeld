@@ -5,6 +5,7 @@ import {
 	isAgentExecutionReadyOrConnecting,
 } from "@openmeld/agent-runtime";
 import type { StructuredApiClientFailure } from "@openmeld/api-client";
+import { LOCAL_AGENTS_GUIDE_PATH } from "@openmeld/product-catalog/local-agent-install-guides";
 import {
 	type ComputerConnectionProgressObservation,
 	canonicalizeAgentControllerRef,
@@ -88,7 +89,6 @@ import {
 	resolveConnectBackTarget,
 	resolveConnectCompletionTarget,
 } from "#/lib/connect/connect-route";
-import { LOCAL_AGENTS_GUIDE_PATH } from "#/lib/local-agent-install-guides";
 import { buildOrganizationComputerPath } from "#/lib/organizations/organization-routes";
 import { createComputerAuthorizationGrant } from "#/query/auth-query";
 import {

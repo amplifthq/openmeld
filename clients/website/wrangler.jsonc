@@ -1,0 +1,32 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "openmeld-website",
+  "compatibility_date": "2026-04-12",
+  "compatibility_flags": ["nodejs_compat"],
+  "main": "./src/server.ts",
+  "observability": { "enabled": true },
+  "vars": {
+    "APP_URL": "http://localhost:3000",
+    "OPENMELD_GATEWAY_URL": "http://localhost:8080"
+  },
+  "env": {
+    "stg": {
+      "vars": {
+        "LEGACY_BROWSER_COMPATIBILITY": "true",
+        "APP_URL": "https://app.staging.openmeld.ai",
+        "OPENMELD_GATEWAY_URL": "https://gateway.staging.openmeld.ai"
+      },
+      "services": [{ "binding": "APP", "service": "openmeld-web-stg" }],
+      "observability": { "enabled": true }
+    },
+    "prod": {
+      "vars": {
+        "LEGACY_BROWSER_COMPATIBILITY": "true",
+        "APP_URL": "https://app.openmeld.ai",
+        "OPENMELD_GATEWAY_URL": "https://gateway.openmeld.ai"
+      },
+      "services": [{ "binding": "APP", "service": "openmeld-web-prod" }],
+      "observability": { "enabled": true }
+    }
+  }
+}

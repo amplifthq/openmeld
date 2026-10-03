@@ -4,6 +4,7 @@ import "./setup-instructions.css";
 
 import { Bars } from "@openmeld/ui/components/bars";
 import { Button } from "@openmeld/ui/components/button";
+import { TextShimmer } from "@openmeld/ui/components/text-shimmer";
 import {
 	Tooltip,
 	TooltipContent,
@@ -18,7 +19,6 @@ import {
 	ListChecksIcon,
 	TerminalIcon,
 } from "@phosphor-icons/react";
-import { TextShimmer } from "#/components/motion-primitives/text-shimmer";
 import type { WebSetupCommandPlatform } from "#/lib/cli-entry-command";
 
 export const OPENMELD_SETUP_TERMINAL_CONFIRMATION_STEP =
