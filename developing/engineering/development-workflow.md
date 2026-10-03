@@ -1121,6 +1121,40 @@ Answer these questions in the PR, task handoff, or release note:
   separately; a single generic "Core before Remote Agent" statement is not a
   Contract Impact Audit.
 
+### Trusted Delegation Contract Impact Audit
+
+The exact-evidence, ordinary Plugin delegation, excerpt-copy, and replay changes
+touch shared schemas, Core RPC/HTTP, native Remote tools, the packaged CLI,
+Service dispatch context, and the managed Plugin playbook.
+
+- Existing setup, Service status, trace, rescue, token issuance/retirement, and
+  finalization contracts remain unchanged. Ordinary human-source Plugin calls
+  keep their prior response shape unless the caller opts into recovery receipts.
+- New Local evidence tools and excerpt/verification commands require the new
+  CLI. Older Core rejects unsupported exact-evidence/selection requests; clients
+  must not substitute a latest version or broader history. Older Services receive
+  the structured references rendered into source text without a new strict wire
+  field. They cannot run delegated Plugin actions without the new private token
+  forwarding and fail closed. Existing Wake/setup paths can continue, so local
+  CLI, Service, and Skills updates are advisory (`available`). No token or
+  permission floor is weakened and no automatic update is initiated.
+- New Remote callers opt into Core delegation/permit projections and use new
+  evidence read variants. Missing projections refuse the new path. Deploy the
+  additive D1 migration before Core, Core receivers before Remote callers, and
+  publish new Local artifacts only after Core is ready. Keep the mixed window
+  short; old callers cannot use the new evidence or verification features.
+- The immutable task/effect fence applies to newly recorded operations. Legacy
+  Local operation signatures included the caller-chosen operation ID and did
+  not retain the original input or dispatch identity. They cannot be safely
+  reverse-mapped to the new effect key. Legacy unknown receipts remain unknown
+  and receive no replay permit without a frozen account version. Before rollout,
+  legacy active requests with unresolved writes need an explicit reconciliation
+  boundary; do not claim cross-version new-ID deduplication for those rows or
+  block unrelated later requests by guessing their task identity.
+- Excerpt copies use the existing Files reservation, R2 object, revision commit,
+  and audience owner. The new optional expected audience is checked synchronously
+  at the destination commit. Completed copies have independent Files lifecycles.
+
 ### Active-Wake Agent Settings Contract Impact Audit
 
 Active-Wake Agent settings change Web behavior, Core Binding writers,

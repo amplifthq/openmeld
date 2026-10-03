@@ -46,6 +46,108 @@ const CONNECTOR_OPERATION_ATTRIBUTION = {
 } as const;
 describe("Remote Agent generic App tools", () => {
   it.each([
+    true,
+    false,
+  ])("requires Core's original-operation association before a verification read (supported: %s)", async (supported) => {
+    const action = {
+      ...capturedExecutableOpenConnectorAction,
+      effect: "read",
+      operationType: "read",
+    };
+    const reference = {
+      operationId: "original-write",
+      actionId: "posthog.create_dashboard",
+    };
+    const verification = {
+      ...reference,
+      requestSignature: "a".repeat(64),
+      status: "outcome_unknown",
+      interpretation: "read_evidence_only",
+      connection: {
+        connectionName: "org_aaaaaaaaaaaaaaaaaa__member__user_1__posthog",
+        ownerDisplayName: "Felix",
+        ownerUserId: "user_1",
+        scope: "member",
+        service: "posthog",
+      },
+    };
+    const provider = vi.fn<typeof fetch>((_url, init) =>
+      Promise.resolve(
+        Response.json(
+          init?.method === "POST"
+            ? {
+                success: true,
+                message: "OK",
+                data: [],
+                meta: {
+                  actionId: action.id,
+                  executionId: "verification-read",
+                  auditPersisted: true,
+                },
+                outputSchema: action.outputSchema,
+              }
+            : { success: true, message: "OK", data: [action], meta: {} }
+        )
+      )
+    );
+    const record = vi.fn(async (entry: { outcome: string }) => ({
+      attribution: CONNECTOR_OPERATION_ATTRIBUTION,
+      operationId: "verification-read",
+      providerExecutionId: null,
+      recorded: true,
+      replayed: false,
+      status: entry.outcome === "attempted" ? "pending" : "completed",
+      ...(supported ? { verificationOf: verification } : {}),
+    }));
+    const tools = getRemoteAgentConnectorToolDefinitions({
+      connectorExecution: {
+        baseUrl: "https://connectors.example.test",
+        fetch: provider,
+        runtimeToken: "fixture",
+      },
+      coreWorker: {
+        centerAgentReadConnectorActionOperation: vi.fn(async () => ({
+          operation: null,
+        })),
+        centerAgentRecordConnectorActionOperation: record as never,
+        centerAgentResolveConnectorConnection: vi.fn(async () =>
+          connectionSelection({
+            ownerDisplayName: "Felix",
+            service: "posthog",
+            userId: "user_1",
+          })
+        ),
+      },
+      storage: await createStorage(createSubmitTurnRequest()),
+      submissionId: ACK.submissionId,
+    });
+    const invoke = executeTool(tools, "openmeld_execute_app_action", {
+      service: "posthog",
+      actionId: action.id,
+      operationId: "verification-read",
+      input: {},
+      verificationOf: reference,
+    });
+    if (supported) {
+      await expect(invoke).resolves.toMatchObject({
+        data: [],
+        verificationOf: verification,
+      });
+    } else {
+      await expect(invoke).rejects.toThrow("plugin.verification_unavailable");
+    }
+    expect(record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        verificationOf: reference,
+        effect: "read",
+        outcome: "attempted",
+      })
+    );
+    expect(
+      provider.mock.calls.filter(([, init]) => init?.method === "POST")
+    ).toHaveLength(supported ? 1 : 0);
+  });
+  it.each([
     "old_core",
     "expired",
   ] as const)("keeps a pending read safe to replay with a %s window", async (window) => {

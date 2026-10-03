@@ -1507,6 +1507,7 @@ describe("Core connector connection ownership", () => {
       context: center.context,
       effect: "write" as const,
       operationId: `live-replay-${crypto.randomUUID()}`,
+      includeExecutionPermit: true as const,
       outcome: "attempted" as const,
       providerExecutionId: null,
       requestSignature: "a".repeat(64),
@@ -1523,6 +1524,7 @@ describe("Core connector connection ownership", () => {
     ).resolves.toMatchObject({
       replayed: true,
       executionConnection: first.executionConnection,
+      executionAllowed: false,
     });
     for (const permission of ["read", "none"] as const) {
       await env.OPENMELD_DB.prepare(

@@ -987,10 +987,15 @@ function operationConflict(reason: string): Error {
 
 function assertOperationConnectionVersion(
   operation: CenterAgentConnectorActionOperationRecord,
-  request: { outcome: string; connectionUpdatedAtMs?: number | null }
+  request: {
+    outcome: string;
+    connectionUpdatedAtMs?: number | null;
+    allowReplay?: boolean;
+  }
 ): void {
   if (
     request.outcome === "attempted" &&
+    request.allowReplay === true &&
     request.connectionUpdatedAtMs !== operation.connectionUpdatedAtMs
   ) {
     throw operationConflict(
