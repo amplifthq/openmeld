@@ -178,7 +178,10 @@ describe("Remote Agent streaming", () => {
     });
   });
 
-  it("streams protocol-looking assistant prose as ordinary text", async () => {
+  it.each([
+    "在。",
+    "The provider calls its typed event <tool_call>, but this sentence is only an explanation.",
+  ])("publishes the first assistant text immediately: %s", async (text) => {
     const context = createRemoteAgentCallbackContext({
       ack: ACK,
       nowMs: TEST_NOW_MS,
@@ -193,22 +196,14 @@ describe("Remote Agent streaming", () => {
     );
     const publisher = createRemoteAgentStreamPublisher();
     const coreWorker = { submitRemoteAgentStreamDelta };
-    const text =
-      "The provider calls its typed event <tool_call>, but this sentence is only an explanation.";
 
-    await publisher.push({
-      context,
-      coreWorker,
-      delta: text,
-      kind: "text",
-      observedAtMs: TEST_NOW_MS,
-      storage,
-    });
     await expect(
-      publisher.flush({
+      publisher.push({
         context,
         coreWorker,
-        observedAtMs: TEST_NOW_MS + 100,
+        delta: text,
+        kind: "text",
+        observedAtMs: TEST_NOW_MS,
         storage,
       })
     ).resolves.toMatchObject({ status: "published" });
@@ -547,16 +542,16 @@ describe("Remote Agent streaming", () => {
         storage,
       });
     }
+    expect(submitRemoteAgentStreamDelta).toHaveBeenCalledTimes(10);
     await publisher.flush({
       context,
       coreWorker: { submitRemoteAgentStreamDelta },
       observedAtMs: TEST_NOW_MS + 1000,
       storage,
     });
-
-    expect(submitRemoteAgentStreamDelta).toHaveBeenCalledTimes(10);
+    expect(submitRemoteAgentStreamDelta).toHaveBeenCalledTimes(11);
     expect(submitRemoteAgentStreamDelta.mock.calls.at(-1)?.[0]).toMatchObject({
-      sequence: 10,
+      sequence: 11,
       snapshot: "a".repeat(100),
     });
   });
@@ -576,7 +571,7 @@ describe("Remote Agent streaming", () => {
     );
     const publisher = createRemoteAgentStreamPublisher();
 
-    for (let index = 0; index <= 100; index += 1) {
+    for (let index = 0; index < 100; index += 1) {
       await publisher.push({
         context,
         coreWorker: { submitRemoteAgentStreamDelta },

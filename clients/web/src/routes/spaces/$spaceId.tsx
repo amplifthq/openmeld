@@ -1046,9 +1046,9 @@ function PublicSpacePanels({ input }: { input: PublicSpaceOpenViewProps }) {
 			/>
 			<SpaceThreadPanel
 				activeThread={input.activeThread}
-				agentDirectConversationKind={null}
 				agentRecoveryPlansByProfileId={EMPTY_AGENT_RECOVERY_PLANS}
 				agentStreams={[]}
+				automaticWakeConversationKind={null}
 				centerAgentProfileId={input.status?.centerAgentProfileId ?? null}
 				composerBlockedWakeProfileId={null}
 				composerErrorMessage={null}

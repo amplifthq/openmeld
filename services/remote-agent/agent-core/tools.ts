@@ -296,6 +296,7 @@ import {
   understandRemoteAgentImages,
 } from "./image-understanding";
 import { pageOrganizationDirectory } from "./organization-directory-page";
+import { REPLY_PLACEMENT_TOOL_DESCRIPTION } from "./reply-placement-guidance";
 import { REMOTE_AGENT_SLACK_MEMBER_RESEARCH_STATE_PREFIX } from "./slack-member-research-state";
 import {
   extractSlackSearchThreadPublicationTargetKeys,
@@ -3857,8 +3858,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     }),
     toolDefinition({
       name: "openmeld_set_reply_placement",
-      description:
-        "Choose where this turn's reply will appear before writing the answer. In a shared Space, the default is the thread under the triggering message; existing thread conversations continue there. Direct messages default to a direct reply. When the user explicitly asks for the main conversation, choose conversation. The choice applies to this turn's streamed answer and final outcome. Once the answer starts, its placement is fixed.",
+      description: REPLY_PLACEMENT_TOOL_DESCRIPTION,
       input: object({
         placement: picklist(["conversation", "thread"] as const),
       }),

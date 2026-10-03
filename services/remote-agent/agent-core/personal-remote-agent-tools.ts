@@ -4,6 +4,7 @@ import {
 } from "@openmeld/schemas";
 import { literal, object, optional, picklist, string, variant } from "valibot";
 import type { RemoteAgentCoreWorkerBinding } from "./callback-context";
+import { REPLY_PLACEMENT_TOOL_DESCRIPTION } from "./reply-placement-guidance";
 import type { RemoteAgentToolDefinition } from "./tool-definition";
 
 // Share implementations, but never inherit the Center's organization duties.
@@ -149,8 +150,7 @@ export function getPersonalRemoteAgentTools(input: {
     },
     {
       name: "openmeld_set_reply_placement",
-      description:
-        "Choose where this turn's final answer appears before it starts. Shared Spaces default to the triggering message's thread. Choose conversation only when the user asks or a conclusion, decision, or blocker matters to the whole Space.",
+      description: REPLY_PLACEMENT_TOOL_DESCRIPTION,
       input: object({
         placement: picklist(["conversation", "thread"] as const),
       }),

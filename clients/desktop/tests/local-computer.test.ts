@@ -22,15 +22,19 @@ it.each([
   "account mismatch",
   "account changed",
   "disconnected",
+  "signed out",
   "read failed",
 ])("reads native identity without mutating the Service: %s", async (scenario) => {
   vi.mocked(readComputerConnection).mockResolvedValue({
     protocol: "computer-connection-v1",
     previousSessionIdentity: "not-for-renderer",
-    account: {
-      id: scenario === "account mismatch" ? "owner-b" : user.id,
-      email: user.email,
-    },
+    account:
+      scenario === "signed out"
+        ? null
+        : {
+            id: scenario === "account mismatch" ? "owner-b" : user.id,
+            email: user.email,
+          },
     existingConnection:
       scenario === "disconnected"
         ? null
@@ -61,6 +65,12 @@ it.each([
   );
   expect(result).not.toHaveProperty("previousSessionIdentity");
   expect(readComputerConnection).toHaveBeenCalledWith("/test/openmeld", deps);
+  if (scenario === "signed out") {
+    expect(result).toMatchObject({
+      status: "unavailable",
+      message: "Use local agents in OpenMeld, even after you quit Desktop.",
+    });
+  }
 });
 
 it("does not read the user's default lane from an unconfigured test build", async () => {
