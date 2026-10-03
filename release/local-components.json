@@ -1,28 +1,28 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-03T07:45:02.301Z",
+  "updatedAt": "2026-10-03T08:25:06.753Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
       "packageVersion": "0.3.238",
       "updatePolicy": "available",
-      "reason": "Existing setup and Wake envelopes remain compatible; exact evidence, excerpt sharing and verification are additive and unsupported receivers fail closed."
+      "reason": "The terminal receipt schema is additive; existing setup, Wake and Plugin request envelopes remain compatible."
     },
     "service": {
-      "bundleHash": "72d7b4513451ca97a53e77abcc8cd6c849a5aa9a18bab722c25d740dbcfa169c",
-      "portableBundleHash": "f53dd3478211f98b6d9df8279cd0bfba08fb44b7e759420f6a584281ee878d9d",
+      "bundleHash": "35b73f94ccec054c27ec5c76107388b235b447e1c2c2280d28a3ad6806b41206",
+      "portableBundleHash": "272bfe9870a0f56aa83ad6d081d6389e2e0cc5c471134bdfb38f83161e76c617",
       "bundleVersion": "0.3.238",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
       "serviceContractVersion": "openmeld-service-contract-2026-09-local-install-recovery-v1",
       "updatePolicy": "available",
-      "reason": "Private token forwarding preserves transport authority; older carriers refuse delegated Plugin actions without execution proof."
+      "reason": "No Service transport, token lifecycle or execution identity contract changes in this receipt delta."
     },
     "skills": {
       "bundleHash": "bc35ca58399ae996362b3e2cfaddb56b40c1bdccf62f843f58d0e8bec0c7c94d",
       "skillContractVersion": "openmeld-skills-contract-2026-09-explicit-space-recipients-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Recovery guidance uses the existing operation owner without changing Skill transport or authority."
+      "reason": "Existing receipt-guided recovery remains compatible; missing account provenance cannot grant replay."
     }
   }
 }
