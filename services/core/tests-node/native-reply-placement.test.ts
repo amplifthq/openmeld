@@ -21,6 +21,23 @@ const threadContext: SpaceThreadContext = {
 
 describe("Center Agent reply placement", () => {
   it.each([
+    null,
+    threadContext,
+  ])("keeps one human and one Agent in main unless already in a thread", (sourceThread) => {
+    expect(
+      chooseNativeReplyPlacement({
+        request,
+        current: null,
+        directMessage: false,
+        oneHumanAgent: true,
+        sourceThread,
+      })
+    ).toEqual({
+      useThread: Boolean(sourceThread),
+      threadContext: sourceThread,
+    });
+  });
+  it.each([
     {
       directMessage: false,
       sourceThread: null,

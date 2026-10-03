@@ -178,7 +178,10 @@ describe("Remote Agent streaming", () => {
     });
   });
 
-  it("streams protocol-looking assistant prose as ordinary text", async () => {
+  it.each([
+    "在。",
+    "The provider calls its typed event <tool_call>, but this sentence is only an explanation.",
+  ])("publishes the first assistant text immediately: %s", async (text) => {
     const context = createRemoteAgentCallbackContext({
       ack: ACK,
       nowMs: TEST_NOW_MS,
@@ -193,8 +196,6 @@ describe("Remote Agent streaming", () => {
     );
     const publisher = createRemoteAgentStreamPublisher();
     const coreWorker = { submitRemoteAgentStreamDelta };
-    const text =
-      "The provider calls its typed event <tool_call>, but this sentence is only an explanation.";
 
     await expect(
       publisher.push({
@@ -553,7 +554,6 @@ describe("Remote Agent streaming", () => {
       observedAtMs: TEST_NOW_MS + 1000,
       storage,
     });
-
     expect(submitRemoteAgentStreamDelta).toHaveBeenCalledTimes(11);
     expect(submitRemoteAgentStreamDelta.mock.calls.at(-1)?.[0]).toMatchObject({
       sequence: 11,

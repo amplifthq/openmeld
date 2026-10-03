@@ -2618,7 +2618,7 @@ describe("SpaceConversationPanel", () => {
 
 	it("uses the Agent name as the Agent DM placeholder", () => {
 		renderSpaceConversationPanel({
-			agentDirectConversationKind: "direct_message",
+			automaticWakeConversationKind: "one_human_agent",
 			allowedActions: ["post_message"],
 			isDirectMessage: true,
 			membersSnapshot: createSpaceMembersSnapshot({
@@ -2674,7 +2674,7 @@ describe("SpaceConversationPanel", () => {
 
 	it("uses dedicated Center Agent copy and hides the redundant @ button", () => {
 		renderSpaceConversationPanel({
-			agentDirectConversationKind: "direct_message",
+			automaticWakeConversationKind: "one_human_agent",
 			allowedActions: ["post_message"],
 			isCenterAgentDirectMessage: true,
 			isDirectMessage: true,
@@ -2749,7 +2749,7 @@ describe("SpaceConversationPanel", () => {
 
 		view.unmount();
 		renderSpaceConversationPanel({
-			agentDirectConversationKind: "direct_message",
+			automaticWakeConversationKind: "one_human_agent",
 			timelineItems: [createTimelineItem({ text: "Center Agent DM message" })],
 		});
 		scrollerContent = screen
@@ -2860,7 +2860,7 @@ describe("SpaceConversationPanel", () => {
 	it("renders a Slack-style Center Agent intro before Center Agent DM messages", () => {
 		renderSpaceConversationPanel({
 			allowedActions: ["post_message"],
-			agentDirectConversationKind: "direct_message",
+			automaticWakeConversationKind: "one_human_agent",
 			centerAgentProfileId: TARGET_PROFILE_ID,
 			hasEarlierHistory: false,
 			isCenterAgentDirectMessage: true,
@@ -2975,7 +2975,7 @@ describe("SpaceConversationPanel", () => {
 
 	it("uses the Center Agent DM intro instead of the generic empty state", () => {
 		renderSpaceConversationPanel({
-			agentDirectConversationKind: "direct_message",
+			automaticWakeConversationKind: "one_human_agent",
 			isCenterAgentDirectMessage: true,
 			timelineItems: [],
 		});
@@ -3175,7 +3175,7 @@ describe("SpaceConversationPanel", () => {
 
 	it("does not render the Center Agent intro in ordinary agent DMs", () => {
 		renderSpaceConversationPanel({
-			agentDirectConversationKind: "direct_message",
+			automaticWakeConversationKind: "one_human_agent",
 			isCenterAgentDirectMessage: false,
 			timelineItems: [createTimelineItem({ text: "Ordinary agent DM" })],
 		});
@@ -3869,7 +3869,7 @@ describe("SpaceConversationPanel", () => {
 		).toBeNull();
 		expect(
 			document.querySelector('[data-message-id^="active-wake:"]')
-		).toBeNull();
+		).not.toBeNull();
 
 		view.rerender(
 			<SpaceConversationPanel
@@ -3950,7 +3950,44 @@ describe("SpaceConversationPanel", () => {
 		).toBeNull();
 	});
 
-	it("keeps an undecided Center Agent stream out of the main conversation", () => {
+	it("shows an existing thread's progress before a reply destination is selected", () => {
+		const thread = createThread();
+		renderSpaceConversationPanel({
+			centerAgentProfileId: TARGET_PROFILE_ID,
+			ephemeralActivityItems: [
+				{
+					...createWakeProgressItem({ sourceSignalId: "thread-question" }),
+					targetLabel: "Center Agent",
+					sourceContext: {
+						messagePreview: "Please investigate",
+						profileId: "human-profile-1",
+						profileKind: "human",
+						profileName: "Human",
+						threadId: thread.threadId,
+					},
+				},
+			],
+			threads: [thread],
+			timelineItems: [
+				createTimelineItem({
+					id: thread.rootSignalId,
+					text: "Existing discussion",
+				}),
+			],
+		});
+		const source = screen
+			.getByText("Existing discussion")
+			.closest("[data-message-row-id='sig-root']");
+		expect(source).not.toBeNull();
+		expect(
+			within(source as HTMLElement).getByLabelText("Center Agent · Thinking…")
+		).toBeTruthy();
+		expect(
+			document.querySelector('[data-message-id^="active-wake:"]')
+		).toBeNull();
+	});
+
+	it("shows the live reply at its source while the Center Agent destination is undecided", () => {
 		const progress = createWakeProgressItem();
 		const streamId = "stream-undecided";
 		renderSpaceConversationPanel({
@@ -3985,6 +4022,15 @@ describe("SpaceConversationPanel", () => {
 						sequence: 1,
 						status: "streaming",
 						streamId,
+						toolParts: [
+							{
+								type: "tool",
+								toolCallId: "tool-undecided",
+								toolName: "agent_read_files",
+								state: "input-available",
+								work: { key: "source.read", v: 1 },
+							},
+						],
 					},
 					actorProfileId: TARGET_PROFILE_ID,
 					actorProfileKind: "agent",
@@ -3998,8 +4044,13 @@ describe("SpaceConversationPanel", () => {
 
 		expect(screen.getByText("Please investigate")).toBeTruthy();
 		expect(
+			screen.getByRole("button", {
+				name: "Thinking…. Work summary: Reviewing source files…",
+			})
+		).toBeTruthy();
+		expect(
 			document.querySelector(`[data-message-id="${streamId}"]`)
-		).toBeNull();
+		).not.toBeNull();
 		expect(
 			document.querySelector('[data-message-id^="active-wake:"]')
 		).toBeNull();

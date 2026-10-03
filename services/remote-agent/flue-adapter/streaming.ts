@@ -293,7 +293,6 @@ export function createRemoteAgentStreamPublisher(
     ) {
       return handleRemoteAgentStreamLimitExceeded({
         kind,
-        pendingDelta,
         state,
         storage: input.storage,
         transientState,
@@ -605,7 +604,6 @@ function appendPendingRemoteAgentStreamDelta(input: {
 
 async function handleRemoteAgentStreamLimitExceeded(input: {
   kind: RemoteAgentStreamDeltaKind;
-  pendingDelta: string;
   state: RemoteAgentStreamState;
   storage: RemoteAgentStorage;
   transientState: RemoteAgentTransientStreamState;
