@@ -852,15 +852,6 @@ async function flushRemoteAgentStream(input: {
       observedAtMs,
       storage: input.storage,
     });
-    if (result.status === "published") {
-      await recordFirstVisibleCenterAgentContent({
-        context,
-        env: input.env,
-        observedAtMs: Date.now(),
-        storage: input.storage,
-        submissionId: input.submissionId,
-      });
-    }
     logRemoteAgentStreamResult({
       context,
       env: input.env,

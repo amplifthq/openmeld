@@ -1116,10 +1116,13 @@ the connected provider API.
    own publication path. The same durable card is finalized after the result;
    streaming is not a second response or an execution-completion signal.
    The same publisher sends the first Web/Space text immediately and coalesces
-   subsequent text at 100 ms. An assistant `message_end` flushes its buffered
-   tail before any post-response compaction; prompt completion still owns final
-   execution settlement. Short answers must not wait for a later token or for
-   compaction to become visible.
+   subsequent text at 100 ms. A successful assistant `message_end` flushes its
+   buffered tail before any post-response compaction, provided the exact
+   execution is still active and has no requested safety failure. Failed or
+   aborted model messages do not trigger this flush. Prompt completion still
+   owns final execution settlement; showing text does not release the
+   conversation for another turn. Short answers must not wait for a later
+   token or for compaction to become visible.
    Lark-platform event ingestion is bounded to four Queue attempts. Exhaustion
    records one durable failed ingress and stops; it never resets the attempt
    count by creating a fresh copy of the same event. Replayed provider images
@@ -2248,13 +2251,6 @@ published to clients. Streaming is a bounded, best-effort presentation
 projection; it is not a second message writer, native-delivery status, or
 final-outcome authority.
 
-- The first stream snapshot is sent immediately. Later snapshots retain the
-  existing per-surface coalescing interval. A successful assistant
-  `message_end` observation flushes pending text before history compaction or
-  later tool work; failed or aborted model messages do not trigger that flush.
-  The exact execution must still be active and must have no requested safety
-  failure. This preview does not complete the native delivery, release its
-  conversation for another turn, or replace the authoritative final callback.
 - The worker uses provider reasoning deltas only as private execution-progress
   evidence. It never sends their content to Core, Space, Web, or a Message
   Channel. For active Space and Web direct-message deliveries, the Agent may call
