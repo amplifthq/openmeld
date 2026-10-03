@@ -4,8 +4,8 @@ import type {
   CenterAgentConnectorActionExecutionConnection,
   CenterAgentConnectorActionOperationStatus,
 } from "@openmeld/schemas/types";
+import type { PluginRequestExecutionGuard } from "../connectors/plugin-action-requests";
 import { createCoreRpcHttpError } from "../rpc/errors";
-import { prepareCenterAgentAuditJournalEntryIfMissingStatement } from "./center-agent-repository";
 
 /** The pinned OpenConnector reserves an action before execution for 24 hours. */
 export function resolveConnectorActionReplayWindowRemainingMs(
@@ -237,6 +237,7 @@ export async function recordCenterAgentConnectorActionOperation(input: {
   effectSignature?: string;
   effect?: "read" | "write" | "destructive" | "unspecified";
   allowReplay?: boolean;
+  executionGuard?: PluginRequestExecutionGuard;
 }): Promise<{
   attribution: CenterAgentAttribution;
   operation: CenterAgentConnectorActionOperationRecord;
@@ -293,12 +294,12 @@ export async function recordCenterAgentConnectorActionOperation(input: {
         sourceNativeDeliveryId: scope.sourceNativeDeliveryId,
         status: "pending",
       }),
-      prepareCenterAgentAuditJournalEntryIfMissingStatement({
+      prepareFinalizeAuditStatement({
         action: auditAction,
-        actorProfileId: input.actorProfileId,
         attribution,
         db: input.db,
         id: `${recordId}:attempted`,
+        operationRecordId: recordId,
         nowMs: input.nowMs,
         organizationId: input.organizationId,
         resource: operationAuditResource(input),
@@ -307,6 +308,7 @@ export async function recordCenterAgentConnectorActionOperation(input: {
           scope.sourceNativeDeliveryId
         ),
         sourceSpaceId: input.sourceSpaceId ?? null,
+        executionGuard: input.executionGuard,
       }),
     ]);
     // The row ID also fences a new operation ID for the same task/effect.
@@ -414,6 +416,7 @@ async function readClaimedOperation(
 }
 
 async function claimConnectorReplay(input: {
+  executionGuard?: PluginRequestExecutionGuard;
   allowReplay?: boolean;
   effect?: "read" | "write" | "destructive" | "unspecified";
   db: D1Database;
@@ -439,6 +442,7 @@ async function claimConnectorReplay(input: {
     sourceNativeDeliveryId: input.provenance.sourceNativeDeliveryId,
     sourceSpaceId: input.provenance.sourceSpaceId,
     replayClaim: true,
+    executionGuard: input.executionGuard,
   }).run();
   return Number(result.meta.changes ?? 0) === 1;
 }
@@ -534,6 +538,7 @@ function requireExistingAttribution(
 }
 
 function prepareFinalizeAuditStatement(input: {
+  executionGuard?: PluginRequestExecutionGuard;
   action: CenterAgentAction;
   attribution: CenterAgentAttribution;
   db: D1Database;
@@ -574,6 +579,7 @@ function prepareFinalizeAuditStatement(input: {
               AND connection_updated_at_ms IS NOT NULL
               AND created_at_ms <= ? AND created_at_ms > ?))
         )
+        AND (${input.executionGuard?.sql ?? "1"})
       `
     )
     .bind(
@@ -592,11 +598,13 @@ function prepareFinalizeAuditStatement(input: {
       input.operationRecordId,
       input.replayClaim ? 1 : 0,
       input.nowMs,
-      input.nowMs - 86_400_000
+      input.nowMs - 86_400_000,
+      ...(input.executionGuard?.bindings ?? [])
     );
 }
 
 function prepareInsertOperationStatement(input: {
+  executionGuard?: PluginRequestExecutionGuard;
   connectionUpdatedAtMs?: number | null;
   actionId: string;
   connectionName: string;
@@ -638,7 +646,8 @@ function prepareInsertOperationStatement(input: {
           provider_execution_id,
           created_at_ms,
           updated_at_ms
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+          WHERE ${input.executionGuard?.sql ?? "1"}
       `
     )
     .bind(
@@ -660,7 +669,8 @@ function prepareInsertOperationStatement(input: {
       input.status,
       input.providerExecutionId,
       input.nowMs,
-      input.nowMs
+      input.nowMs,
+      ...(input.executionGuard?.bindings ?? [])
     );
 }
 

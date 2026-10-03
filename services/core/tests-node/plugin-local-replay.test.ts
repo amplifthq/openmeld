@@ -9,7 +9,13 @@ import type {
 } from "@openmeld/schemas/types";
 import { digestCanonicalJson } from "@openmeld/utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { AuthBindings } from "../../auth/src/lib/bindings";
+import {
+  checkPluginRequestVerification,
+  sendPluginRequestVerification,
+} from "../../auth/src/lib/plugin-request-verification";
 import capturedActions from "../../remote-agent/tests/fixtures/openconnector-runtime-actions.json";
+import { rpcPluginActionRequest } from "../src/connectors/plugin-action-requests";
 import { rpcPluginAction } from "../src/connectors/plugin-actions";
 import type { CoreBindings } from "../src/lib/bindings";
 import {
@@ -25,6 +31,11 @@ vi.mock("../src/connectors/plugin-local-caller", () => ({
 }));
 vi.mock("../src/organizations/organization-context", () => ({
   readOrganizationAccountIdentityProjection: admission.identity,
+  resolveActiveOrganizationMembership: async () => ({
+    ok: true,
+    organizationId: "org-1",
+    userId: "user-1",
+  }),
 }));
 vi.mock("../src/rpc/methods", () => ({
   rpcReadPluginConnectionContinuationBinding: async () => null,
@@ -33,6 +44,7 @@ vi.mock("../src/rpc/methods", () => ({
 const profileId = "agt_00000000-0000-4000-8000-000000000001";
 const humanId = "22222222-2222-4222-8222-222222222222";
 const connectionName = "synthetic-posthog-personal";
+const REQUEST_CODE_PATTERN = /[a-f0-9]{8}(?:-[a-f0-9]{8}){3}/u;
 const action = openConnectorRuntimeActionSchema.parse({
   ...capturedActions.data[1],
   effect: "write",
@@ -49,6 +61,7 @@ let effects: Set<string>;
 let submission: string;
 let providerResult: "outcome_unknown" | "completed";
 let env: CoreBindings;
+let deliveredEmail: string;
 let grants:
   | ReturnType<typeof pluginDelegationAuthorizationSchema.parse>[]
   | undefined;
@@ -67,6 +80,7 @@ function request(operationId = "original-operation", replay = false) {
     },
     request: {
       includeRecoveryReceipt: true,
+      includeRequestAuthorization: true,
       action: {
         operation: "execute",
         service: "posthog",
@@ -90,12 +104,21 @@ beforeEach(() => {
     "connector_connections",
     "center_agent_connector_action_operations",
     "center_agent_audit_journal",
+    "plugin_action_requests",
+    "inbox_items",
+    "inbox_email_deliveries",
   ]);
   harness.run({
     sql: "INSERT INTO users (id, name, email, created_at, updated_at) VALUES ('user-1', 'Synthetic member', 'synthetic@example.test', 1000, 1000)",
   });
   harness.run({
     sql: "INSERT INTO organizations (id, name, slug, created_at) VALUES ('org-1', 'Synthetic organization', 'synthetic', 1000)",
+  });
+  harness.run({
+    sql: "INSERT INTO members (id, organization_id, user_id, role, created_at) VALUES ('member-1', 'org-1', 'user-1', 'owner', 1000)",
+  });
+  harness.run({
+    sql: "UPDATE users SET email_verified = 1 WHERE id = 'user-1'",
   });
   harness.run({
     sql: `INSERT INTO openmeld_profiles (profile_id, profile_name, profile_handle, profile_kind, organization_id, owner_user_id, source) VALUES ('${profileId}', 'Synthetic Agent', 'synthetic-agent', 'agent', 'org-1', 'user-1', 'cli_create')`,
@@ -130,6 +153,13 @@ beforeEach(() => {
   effects = new Set();
   providerResult = "outcome_unknown";
   env = {
+    OPENMELD_DB: harness.db,
+    OPENMELD_AUTH_WORKER: {
+      sendPluginRequestVerification: (value: unknown) =>
+        sendPluginRequestVerification(authEnv(), value),
+      checkPluginRequestVerification: (value: unknown) =>
+        checkPluginRequestVerification(authEnv(), value),
+    },
     OPENMELD_REMOTE_AGENT_WORKER: {
       pluginRuntime: (
         input: PluginRuntimeRequest
@@ -169,6 +199,52 @@ beforeEach(() => {
   } as unknown as CoreBindings;
 });
 afterEach(() => harness.close());
+
+function authEnv(): AuthBindings {
+  return {
+    OPENMELD_DB: harness.db,
+    AUTH_FROM_EMAIL: "test@example.test",
+    BETTER_AUTH_OPENMELD_SECRET: "synthetic-email-verification-key",
+    AUTH_EMAIL: {
+      send: (message: { text: string }) => {
+        deliveredEmail = message.text;
+        return Promise.resolve();
+      },
+    },
+  } as unknown as AuthBindings;
+}
+
+async function approveRequest(input = request()) {
+  const pending = await rpcPluginAction(env, input);
+  if (pending.kind !== "authorization_required") {
+    throw new Error("Expected exact pending authority");
+  }
+  const context = {
+    ...input.context,
+    actorContext: {
+      ...input.context.actorContext,
+      openMeldProfileId: humanId,
+      profileKind: "human" as const,
+    },
+  };
+  const scope = { context, expectedOrganizationId: "org-1" };
+  await rpcPluginActionRequest(env, {
+    ...scope,
+    command: { operation: "send_code", requestId: pending.request.requestId },
+  });
+  const code = deliveredEmail.match(REQUEST_CODE_PATTERN)?.[0];
+  if (!code) {
+    throw new Error("Expected separately delivered synthetic code");
+  }
+  await rpcPluginActionRequest(env, {
+    ...scope,
+    command: {
+      operation: "approve",
+      requestId: pending.request.requestId,
+      code,
+    },
+  });
+}
 
 describe("Local plugin replay through real operation and connection storage", () => {
   it.each([
@@ -216,6 +292,7 @@ describe("Local plugin replay through real operation and connection storage", ()
     }
     if (scenario === "allowed") {
       providerResult = "completed";
+      await approveRequest(input);
       expect(await rpcPluginAction(env, input)).toMatchObject({
         status: "completed",
       });
@@ -228,6 +305,7 @@ describe("Local plugin replay through real operation and connection storage", ()
   });
 
   it("permits one concurrent replay, retains the provider key, and fences another operation ID", async () => {
+    await approveRequest();
     expect(await rpcPluginAction(env, request())).toMatchObject({
       status: "outcome_unknown",
       replay: { allowed: true, maxAttempts: 1 },
@@ -248,6 +326,7 @@ describe("Local plugin replay through real operation and connection storage", ()
     expect(providerCalls).toHaveLength(2);
     submission = "dispatch:explicit-new-request";
     providerResult = "completed";
+    await approveRequest(request("explicit-new-operation"));
     expect(
       await rpcPluginAction(env, request("explicit-new-operation"))
     ).toMatchObject({
@@ -259,6 +338,7 @@ describe("Local plugin replay through real operation and connection storage", ()
   });
 
   it("denies revoked access and changed input without another provider call", async () => {
+    await approveRequest();
     await rpcPluginAction(env, request());
     const changed = request("original-operation", true);
     if (changed.request.action.operation !== "execute") {
@@ -276,6 +356,7 @@ describe("Local plugin replay through real operation and connection storage", ()
   });
 
   it("does not replay after the same connection name is replaced", async () => {
+    await approveRequest();
     await rpcPluginAction(env, request());
     harness.run({
       sql: "UPDATE connector_connections SET updated_at_ms = 2000",
@@ -287,6 +368,7 @@ describe("Local plugin replay through real operation and connection storage", ()
   });
 
   it("binds a target read to the original account and keeps a page without a match unknown", async () => {
+    await approveRequest();
     await rpcPluginAction(env, request());
     const check = request("verification-read");
     if (check.request.action.operation !== "execute") {
@@ -326,6 +408,7 @@ describe("Local plugin replay through real operation and connection storage", ()
   });
 
   it("keeps a legacy unknown receipt readable without granting replay", async () => {
+    await approveRequest();
     await rpcPluginAction(env, request());
     harness.run({
       sql: "UPDATE center_agent_connector_action_operations SET connection_updated_at_ms = NULL",

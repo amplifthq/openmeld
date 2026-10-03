@@ -1,4 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
+import { sendCloudflareEmail } from "@openmeld/auth/server";
 import {
   pluginRequestVerificationCheckSchema,
   pluginRequestVerificationSchema,
@@ -40,7 +41,7 @@ export async function sendPluginRequestVerification(
   // a URL, an RPC response, or a diagnostic log.
   const text = `Enter this code in OpenMeld to approve the Plugin request you are reviewing:\n\n${code}\n\nIt expires with that request. Approving starts a new operation; it does not resolve an earlier unknown result. If you did not request this code, ignore this email.`;
   try {
-    await env.AUTH_EMAIL.send({
+    await sendCloudflareEmail(env.AUTH_EMAIL, {
       from: env.AUTH_FROM_EMAIL,
       to: recipient.email,
       subject: "Confirm your Plugin request",
