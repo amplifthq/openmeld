@@ -1612,19 +1612,23 @@ describe("setup-bootstrap-script", () => {
 		});
 	});
 
-	it("allows the isolated binary canary lane from the official staging app", () => {
+	it.each([
+		["https://staging.openmeld.ai", "https://staging.openmeld.ai"],
+		["https://staging.openmeld.ai", "https://app.staging.openmeld.ai"],
+		["https://app.staging.openmeld.ai", "https://app.staging.openmeld.ai"],
+	])("allows the isolated binary canary lane from %s with App %s", (requestOrigin, webAppUrl) => {
 		const result = resolveOpenMeldSetupBootstrapScriptConfig({
 			authUrl: "https://auth.staging.openmeld.ai",
 			gatewayUrl: "https://gateway.staging.openmeld.ai",
 			platform: "posix",
-			requestUrl: "https://staging.openmeld.ai/setup?lane=canary&dist=binary",
-			webAppUrl: "https://staging.openmeld.ai",
+			requestUrl: `${requestOrigin}/setup?lane=canary&dist=binary`,
+			webAppUrl,
 		});
 
 		expect(result).toEqual({
 			config: {
 				authUrl: "https://auth.staging.openmeld.ai",
-				binaryManifestUrl: "https://staging.openmeld.ai/cli/manifest.json",
+				binaryManifestUrl: `${requestOrigin}/cli/manifest.json`,
 				distribution: "binary",
 				gatewayUrl: "https://gateway.staging.openmeld.ai",
 				lane: "canary",

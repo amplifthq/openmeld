@@ -14,6 +14,10 @@ import {
 	TabsSubtleItem,
 	TabsSubtlePanel,
 } from "@openmeld/ui/fluid/tabs-subtle";
+import {
+	APP_PAGE_FRAME_CLASS_NAME,
+	APP_PAGE_FRAME_PADDING_CLASS_NAME,
+} from "@openmeld/ui/lib/page-frame";
 import { springs } from "@openmeld/ui/lib/springs";
 import { resolveStatusToneIconClassName } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
@@ -36,10 +40,6 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { CrossPageHeader } from "#/components/app/cross-page-header";
-import {
-	APP_PAGE_FRAME_CLASS_NAME,
-	APP_PAGE_FRAME_PADDING_CLASS_NAME,
-} from "#/components/app/shell-layout";
 import { buildAgentInterfacePrompt } from "#/lib/agent-interface-guide";
 import {
 	buildWebSetupCommand,

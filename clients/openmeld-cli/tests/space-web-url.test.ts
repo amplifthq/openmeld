@@ -6,13 +6,13 @@ import {
 } from "../src/space/web-url";
 
 describe("Space web URLs", () => {
-  it("maps the production gateway origin to the public web origin", () => {
+  it("maps the production gateway origin to the App origin", () => {
     expect(resolveGatewayWebOrigin("https://gateway.openmeld.ai")).toBe(
-      "https://openmeld.ai"
+      "https://app.openmeld.ai"
     );
     expect(
       buildSpaceWebUrl("https://gateway.openmeld.ai", "acme", "space-123")
-    ).toBe("https://openmeld.ai/o/acme/spaces/space-123");
+    ).toBe("https://app.openmeld.ai/o/acme/spaces/space-123");
   });
 
   it("maps the non-routable gateway fixture origin to the matching web origin", () => {
@@ -36,8 +36,21 @@ describe("Space web URLs", () => {
       )
     ).toBe("https://gateway.staging.openmeld.ai");
     expect(resolveGatewayWebOrigin("https://gateway.staging.openmeld.ai")).toBe(
-      "https://staging.openmeld.ai"
+      "https://app.staging.openmeld.ai"
     );
+    for (const [origin, gateway] of [
+      ["https://app.openmeld.ai", "https://gateway.openmeld.ai"],
+      [
+        "https://app.staging.openmeld.ai",
+        "https://gateway.staging.openmeld.ai",
+      ],
+    ]) {
+      expect(
+        resolveSpaceWebGatewayOrigin(
+          new URL(`${origin}/o/acme/spaces/space-123`)
+        )
+      ).toBe(gateway);
+    }
     expect(
       resolveSpaceWebGatewayOrigin(
         new URL("https://openmeld.invalid/o/acme/spaces/space-123")
@@ -71,6 +84,6 @@ describe("Space web URLs", () => {
       buildSpaceWebUrl("https://gateway.openmeld.ai", "acme", "space-123", {
         profileId: "hum_123",
       })
-    ).toBe("https://openmeld.ai/o/acme/spaces/space-123?profileId=hum_123");
+    ).toBe("https://app.openmeld.ai/o/acme/spaces/space-123?profileId=hum_123");
   });
 });

@@ -1,0 +1,19 @@
+{
+  "name": "@openmeld/product-catalog",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Public product metadata shared by the website and App",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "~3.2.0"
+  },
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "dependencies": {
+    "@openmeld/schemas": "workspace:*"
+  }
+}
