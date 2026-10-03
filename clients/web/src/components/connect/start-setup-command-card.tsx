@@ -10,6 +10,7 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { TabItem, TabPanel, Tabs, TabsList } from "@openmeld/ui/fluid/tabs";
 import { surfaceClasses } from "@openmeld/ui/lib/surface-classes";
 import { cn } from "@openmeld/ui/lib/utils";
@@ -154,26 +155,31 @@ export function StartSetupCommandCard(input: StartSetupCommandCardProps) {
 					<SetupCommandPlatformSwitch />
 				) : null}
 				<TabPanel className="grid gap-2" value={platform}>
-					<button
-						className={cn(
-							"w-full min-w-0 touch-manipulation select-all rounded-md border border-border bg-muted/10 px-3 py-2 text-left font-mono text-xs transition-colors hover:bg-muted/30 max-lg:min-h-11",
-							platform === "posix"
-								? "whitespace-normal break-words"
-								: "overflow-x-auto whitespace-nowrap [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-						)}
-						onClick={input.onCopyCommand}
-						type="button"
+					<ScrollArea
+						className="rounded-md border border-border bg-muted/10"
+						orientation="horizontal"
 					>
-						{input.command ??
-							(input.isLoading ? (
-								<span className="inline-flex items-center gap-2">
-									<Bars className="h-4 w-6" />
-									{input.commandPlaceholder}
-								</span>
-							) : (
-								input.commandPlaceholder
-							))}
-					</button>
+						<button
+							className={cn(
+								"w-full min-w-0 touch-manipulation select-all rounded-md px-3 py-2 text-left font-mono text-xs transition-colors hover:bg-muted/30 max-lg:min-h-11",
+								platform === "posix"
+									? "whitespace-normal break-words"
+									: "whitespace-nowrap"
+							)}
+							onClick={input.onCopyCommand}
+							type="button"
+						>
+							{input.command ??
+								(input.isLoading ? (
+									<span className="inline-flex items-center gap-2">
+										<Bars className="h-4 w-6" />
+										{input.commandPlaceholder}
+									</span>
+								) : (
+									input.commandPlaceholder
+								))}
+						</button>
+					</ScrollArea>
 					<div className="flex flex-wrap gap-3">
 						<Button
 							disabled={!input.command || input.isLoading}

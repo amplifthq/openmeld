@@ -74,6 +74,21 @@ describe("Runtime Transport Computer incidents", () => {
       f.advance(LEASE_TTL_MS + 1);
       await restart.observe([]);
       expect(f.items()).toHaveLength(2);
+      await restart.observe([
+        f.session({ stopCause: "user_stop", acceptingDispatches: false }),
+      ]);
+      const history = await createInboxFeedService({
+        db: f.db,
+        nowMs: f.now,
+      }).list(f.identity, { grouping: "space" });
+      expect(history.rows).toHaveLength(1);
+      expect(history.rows[0]).toMatchObject({
+        group: { kind: "system" },
+        itemCount: 2,
+        unreadCount: 1,
+        section: "activity",
+        item: { sourceTarget: { state: "deactivated" } },
+      });
     } finally {
       f.close();
     }
@@ -176,6 +191,20 @@ describe("Runtime Transport Computer incidents", () => {
         item: {
           resolutionStatus: "resolved",
           sourceTarget: { state: "restored" },
+        },
+      });
+      const grouped = await feed.list(f.identity, { grouping: "space" });
+      expect(
+        grouped.rows.find((row) => row.group?.kind === "system")
+      ).toMatchObject({
+        itemCount: 1,
+        unreadCount: 1,
+        section: "activity",
+        dot: "blue",
+        item: {
+          id: original?.id,
+          importance: "urgent",
+          resolutionStatus: "resolved",
         },
       });
       expect(

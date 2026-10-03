@@ -1947,6 +1947,17 @@ contracts omit no-execution details they cannot represent. These read projection
 never schedule a retry. Public recovery classifies expired/revoked requests as
 `request_ended`, not automatic system retry.
 
+Trace response v6 adds optional `nativeDeliveryTrace` for an exact Space dispatch
+that has only a native-delivery ledger record. It is mutually exclusive with a
+workstation `trace`; identity, final visible messages, and correlation are
+validated by the shared schema. Responses negotiated as v2–5 retain their
+existing shape and never include the new field. Deploy Gateway and Core v6
+receivers before publishing a CLI that requests v6; an older Gateway rejects
+the unknown version header. No retry fallback, migration, execution contract
+epoch, or required Service/Skills update is introduced. Existing setup, Wake,
+Space actions, status, and recovery remain compatible. Rollback the new CLI
+caller before removing v6 receivers.
+
 Deploy Core receivers and owner storage logic before Gateway and Web enable
 device-wait producers; this feature overrides the usual generic cloud order.
 Rollback removes the producers first. Already accepted waits must continue to

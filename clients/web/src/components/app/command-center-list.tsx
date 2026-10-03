@@ -2,6 +2,7 @@
 
 import { Kbd, KbdGroup } from "@openmeld/ui/components/kbd";
 import { FluidHoverHighlight } from "@openmeld/ui/fluid/hover-highlight";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { Command } from "cmdk";
 import { type ReactNode, useLayoutEffect, useRef, useState } from "react";
 
@@ -144,10 +145,11 @@ export function CommandCenterList(input: {
 					value={input.query}
 				/>
 			</div>
-			<Command.List
-				aria-busy={input.loading}
-				className="relative max-h-[min(55dvh,440px)] min-h-24 overflow-y-auto px-2 pb-2"
-				ref={list}
+			<ScrollArea
+				className="max-h-[min(55dvh,440px)] min-h-24"
+				contentClassName="relative px-2 pb-2"
+				viewportProps={{ render: <Command.List aria-busy={input.loading} /> }}
+				viewportRef={list}
 			>
 				{rect && (
 					<FluidHoverHighlight
@@ -225,7 +227,7 @@ export function CommandCenterList(input: {
 						No results. Try another search.
 					</Command.Empty>
 				)}
-			</Command.List>
+			</ScrollArea>
 			<div className="flex items-center gap-2 border-t bg-muted/40 px-4 py-3 text-muted-foreground text-xs">
 				<kbd className="rounded bg-background px-1.5 py-0.5">↵</kbd>
 				<span>{selected?.actionLabel ?? "Open"}</span>

@@ -201,6 +201,14 @@ account/workspace lists, and code previews. `ScrollAreaRoot`,
 existing scroll owners. The MessageScroller uses these parts while retaining
 its own prepend, anchor, and automatic-follow behavior.
 
+Work summaries, live work details, file viewers, command lists, selects, and
+horizontal tables also compose this owner with fades enabled. Keep refs and
+scroll handlers on the viewport, and content layout and padding on the content
+slot. The viewport is positioned so measured hover geometry stays relative to
+the scrolling element. Do not maintain viewer-local copies of ScrollArea or
+disable their fades. Long dialogs keep their close control outside the scrolling
+body and reuse ScrollArea for that body.
+
 Native browser document scrolling, editable fields, editor-owned selection
 containers, and geometry-sensitive overlays keep their owning DOM and use the
 shared hover-only native scrollbar color ramp. Do not insert an extra scrolling

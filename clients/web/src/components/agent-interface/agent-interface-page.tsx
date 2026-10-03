@@ -8,6 +8,7 @@ import {
 	CardTitle,
 } from "@openmeld/ui/components/card";
 import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import {
 	TabsSubtle,
 	TabsSubtleItem,
@@ -523,15 +524,17 @@ export function AgentInterfacePage({
 											</div>
 											<Elevated
 												aria-label="Generated agent prompt"
-												className="max-h-80 overflow-auto rounded-md p-4 font-mono text-foreground text-xs leading-5 outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+												className="overflow-hidden rounded-md font-mono text-foreground text-xs leading-5 outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
 												offset={3}
 												role="region"
 												shadowLevel={6}
 												tabIndex={0}
 											>
-												<pre className="m-0 whitespace-pre-wrap break-words">
-													{generated.prompt}
-												</pre>
+												<ScrollArea className="max-h-80" contentClassName="p-4">
+													<pre className="m-0 whitespace-pre-wrap break-words">
+														{generated.prompt}
+													</pre>
+												</ScrollArea>
 											</Elevated>
 											<div className="flex flex-wrap items-end justify-between gap-3">
 												<Button

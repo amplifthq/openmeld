@@ -1295,7 +1295,7 @@ describe("local service run catalog signal", () => {
     await sessionPromise;
   });
 
-  it("publishes restored admission promptly when catalog configure finishes during a heartbeat", async () => {
+  it("keeps admission open when same-connection catalog configure finishes during a heartbeat", async () => {
     vi.useFakeTimers();
     vi.spyOn(Math, "random").mockReturnValue(1);
     let syncRouteCatalog: ((reason: string) => Promise<unknown>) | null = null;
@@ -1308,20 +1308,17 @@ describe("local service run catalog signal", () => {
     const secondConfigureStarted = Promise.withResolvers<void>();
     const releaseSecondConfigure = Promise.withResolvers<void>();
     let configureCallCount = 0;
-    let holdNonacceptingHeartbeat = false;
+    let holdHeartbeat = false;
     const socket = createMockSocket({
       executionAdmissionConfirmation: true,
-      respondToHeartbeat: (frame) =>
-        !(
-          holdNonacceptingHeartbeat &&
-          frame.payload.acceptingDispatches === false
-        ),
+      respondToHeartbeat: () => !holdHeartbeat,
     });
     const sessionPromise = runDaemonSocketSession({
       ...buildKeepaliveSessionInput(socket, [], 60_000),
       attachRouteCatalogSyncInvoker: (invoker) => {
         syncRouteCatalog = invoker;
       },
+      heartbeatIntervalMs: 1000,
       daemonSessionId: "session-catalog-configure-heartbeat-race",
       decorateExecutionHost: (host) => ({
         ...host,
@@ -1352,23 +1349,33 @@ describe("local service run catalog signal", () => {
     if (!attachedSyncRouteCatalog) {
       throw new Error("expected syncRouteCatalog to be attached");
     }
-    holdNonacceptingHeartbeat = true;
+    const framesBeforeSync = socket.sentFrames.length;
+    const heartbeatCountBeforeSync = socket.heartbeatSendCount;
+    holdHeartbeat = true;
     const syncPromise = attachedSyncRouteCatalog("periodic_catalog_refresh");
     await flushMicrotasks(() => configureCallCount === 2);
     await secondConfigureStarted.promise;
-    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(1000);
 
-    const falseHeartbeatIndex = socket.sentFrames.findLastIndex(
+    const pendingHeartbeatIndex = socket.sentFrames.findLastIndex(
       (frame) =>
-        isHeartbeatFrame(frame) && frame.payload.acceptingDispatches === false
+        isHeartbeatFrame(frame) && frame.payload.acceptingDispatches !== false
     );
-    expect(falseHeartbeatIndex).toBeGreaterThanOrEqual(0);
-    const heartbeatCountWithFalseInFlight = socket.heartbeatSendCount;
+    expect(pendingHeartbeatIndex).toBeGreaterThanOrEqual(0);
+    expect(socket.heartbeatSendCount).toBe(heartbeatCountBeforeSync + 1);
+    expect(
+      socket.sentFrames
+        .slice(framesBeforeSync)
+        .filter(isHeartbeatFrame)
+        .every((frame) => frame.payload.acceptingDispatches !== false)
+    ).toBe(true);
+    const heartbeatCountWithRequestInFlight = socket.heartbeatSendCount;
 
     releaseSecondConfigure.resolve();
     await flushMicrotasks();
     await vi.advanceTimersByTimeAsync(0);
-    const heartbeatCountBeforeFalseAck = socket.heartbeatSendCount;
+    const heartbeatCountBeforeAck = socket.heartbeatSendCount;
+    holdHeartbeat = false;
     socket.emitServerFrame({
       v: 1,
       code: "daemon.session.heartbeat",
@@ -1381,15 +1388,9 @@ describe("local service run catalog signal", () => {
     await vi.advanceTimersByTimeAsync(0);
     await expect(syncPromise).resolves.toMatchObject({ status: "unchanged" });
 
-    const acceptingPublishedPromptly = socket.sentFrames
-      .slice(falseHeartbeatIndex + 1)
-      .some(
-        (frame) =>
-          isHeartbeatFrame(frame) && frame.payload.acceptingDispatches !== false
-      );
     await vi.advanceTimersByTimeAsync(60_000);
     const acceptingPublishedAtCadence = socket.sentFrames
-      .slice(falseHeartbeatIndex + 1)
+      .slice(pendingHeartbeatIndex + 1)
       .some(
         (frame) =>
           isHeartbeatFrame(frame) && frame.payload.acceptingDispatches !== false
@@ -1402,14 +1403,12 @@ describe("local service run catalog signal", () => {
 
     expect({
       acceptingPublishedAtCadence,
-      acceptingPublishedPromptly,
-      heartbeatCountBeforeFalseAck,
+      heartbeatCountBeforeAck,
       heartbeatCountAfterClose: socket.heartbeatSendCount,
-      heartbeatCountWithFalseInFlight,
+      heartbeatCountWithRequestInFlight,
     }).toMatchObject({
       acceptingPublishedAtCadence: true,
-      acceptingPublishedPromptly: true,
-      heartbeatCountBeforeFalseAck: heartbeatCountWithFalseInFlight,
+      heartbeatCountBeforeAck: heartbeatCountWithRequestInFlight,
       heartbeatCountAfterClose,
     });
   });
@@ -1501,21 +1500,18 @@ describe("local service run catalog signal", () => {
     const shutdownRequested =
       Promise.withResolvers<RuntimeTransportStopCause>();
     let configureCallCount = 0;
-    let holdNonacceptingHeartbeat = false;
+    let holdHeartbeat = false;
     const lines: Array<{ code: string; text: string }> = [];
     const socket = createMockSocket({
       executionAdmissionConfirmation: true,
-      respondToHeartbeat: (frame) =>
-        !(
-          holdNonacceptingHeartbeat &&
-          frame.payload.acceptingDispatches === false
-        ),
+      respondToHeartbeat: () => !holdHeartbeat,
     });
     const sessionPromise = runDaemonSocketSession({
       ...buildKeepaliveSessionInput(socket, lines, 60_000),
       attachRouteCatalogSyncInvoker: (invoker) => {
         syncRouteCatalog = invoker;
       },
+      heartbeatIntervalMs: 1000,
       daemonSessionId: "session-catalog-configure-drain-race",
       decorateExecutionHost: (host) => ({
         ...host,
@@ -1542,16 +1538,17 @@ describe("local service run catalog signal", () => {
       throw new Error("expected syncRouteCatalog to be attached");
     }
 
-    holdNonacceptingHeartbeat = true;
+    holdHeartbeat = true;
     const syncPromise = attachedSyncRouteCatalog("periodic_catalog_refresh");
     await flushMicrotasks(() => configureCallCount === 2);
     await secondConfigureStarted.promise;
-    await vi.advanceTimersByTimeAsync(0);
-    const falseHeartbeatIndex = socket.sentFrames.findLastIndex(
+    await vi.advanceTimersByTimeAsync(1000);
+    const pendingHeartbeatIndex = socket.sentFrames.findLastIndex(
       (frame) =>
-        isHeartbeatFrame(frame) && frame.payload.acceptingDispatches === false
+        isHeartbeatFrame(frame) && frame.payload.acceptingDispatches !== false
     );
-    expect(falseHeartbeatIndex).toBeGreaterThanOrEqual(0);
+    expect(pendingHeartbeatIndex).toBeGreaterThanOrEqual(0);
+    const heartbeatCountWhilePending = socket.heartbeatSendCount;
 
     releaseSecondConfigure.resolve();
     await flushMicrotasks();
@@ -1562,7 +1559,8 @@ describe("local service run catalog signal", () => {
         (line) => line.code === "daemon.run.controlled_shutdown_started"
       )
     );
-    holdNonacceptingHeartbeat = false;
+    expect(socket.heartbeatSendCount).toBe(heartbeatCountWhilePending);
+    holdHeartbeat = false;
     socket.emitServerFrame({
       v: 1,
       code: "daemon.session.heartbeat",
@@ -1577,7 +1575,7 @@ describe("local service run catalog signal", () => {
     await sessionPromise;
 
     const heartbeatsAfterDrainStarted = socket.sentFrames
-      .slice(falseHeartbeatIndex + 1)
+      .slice(pendingHeartbeatIndex + 1)
       .filter(isHeartbeatFrame);
     expect(heartbeatsAfterDrainStarted.length).toBeGreaterThan(0);
     expect(

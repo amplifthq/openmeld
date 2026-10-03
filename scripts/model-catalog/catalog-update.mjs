@@ -275,6 +275,7 @@ export function prepareUpdate({
   return {
     catalog: updated,
     evidence,
+    previous,
     changed: hasNewReviewFacts(reviewFacts, previousFacts),
   };
 }
@@ -330,7 +331,9 @@ export async function runUpdate({ root = process.cwd(), controller, output }) {
   );
   await writeFile(
     resolve(output, "review.md"),
-    renderBatchReview([result.evidence], { [controller]: config }, catalog)
+    renderBatchReview([result.evidence], { [controller]: config }, catalog, [
+      previous,
+    ])
   );
   await writeFile(
     resolve(output, "result.json"),

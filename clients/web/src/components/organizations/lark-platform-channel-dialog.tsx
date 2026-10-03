@@ -16,6 +16,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { resolveStatusToneSoftTextClassName } from "@openmeld/ui/lib/status-tone";
 import {
 	ArrowSquareOutIcon,
@@ -93,71 +94,79 @@ export function LarkPlatformChannelDialog(input: {
 
 	return (
 		<Dialog onOpenChange={handleOpenChange} open={input.open}>
-			<DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-lg">
-				<DialogHeader>
-					<DialogTitle>{dialogTitle}</DialogTitle>
-					<DialogDescription>{dialogDescription}</DialogDescription>
-				</DialogHeader>
-				{input.registration && !needsRepair ? (
-					<RegistrationProgress
-						errorMessage={input.errorMessage}
-						onReauthorize={input.onReauthorize}
-						onRetryPoll={input.onRetryPoll}
-						onStartOver={input.onStartOver}
-						pollPending={input.pollPending}
-						providerLabel={providerLabel}
-						registration={input.registration}
-						startOverPending={input.startOverPending}
-					/>
-				) : (
-					<ConnectionSummary
-						canManage={input.canManage && !input.cleanupOnly}
-						connection={connection}
-						errorMessage={input.errorMessage}
-						onRepair={input.onRepair}
-						onStartOver={input.onStartOver}
-						providerLabel={providerLabel}
-						repairDisabled={
-							input.disconnectPending ||
-							input.repairPending ||
-							confirmingDisconnect
-						}
-						repairPending={input.repairPending}
-						startOverPending={input.startOverPending}
-					/>
-				)}
-				<DialogFooter className="items-stretch border-t pt-4 empty:hidden sm:items-center sm:justify-between">
-					{canDisconnect && input.canManage ? (
-						<DisconnectControl
-							confirming={confirmingDisconnect}
-							disabled={input.repairPending}
-							disconnectPending={input.disconnectPending}
-							onCancel={() => setConfirmingDisconnect(false)}
-							onConfirm={input.onDisconnect}
-							onStart={() => setConfirmingDisconnect(true)}
+			<DialogContent className="max-h-[85dvh] overflow-hidden p-0 sm:max-w-lg">
+				<ScrollArea
+					className="max-h-[inherit]"
+					contentClassName="grid gap-4 p-4"
+				>
+					<DialogHeader>
+						<DialogTitle>{dialogTitle}</DialogTitle>
+						<DialogDescription>{dialogDescription}</DialogDescription>
+					</DialogHeader>
+					{input.registration && !needsRepair ? (
+						<RegistrationProgress
+							errorMessage={input.errorMessage}
+							onReauthorize={input.onReauthorize}
+							onRetryPoll={input.onRetryPoll}
+							onStartOver={input.onStartOver}
+							pollPending={input.pollPending}
 							providerLabel={providerLabel}
+							registration={input.registration}
+							startOverPending={input.startOverPending}
 						/>
-					) : null}
-					{registrationInProgress || confirmingDisconnect ? null : (
-						<div className="flex justify-end gap-2 sm:ml-auto">
-							<Button onClick={() => handleOpenChange(false)} variant="outline">
-								Close
-							</Button>
-							{showAuthorizationAction ? (
-								<Button
-									disabled={input.disconnectPending || input.repairPending}
-									onClick={input.onReauthorize}
-								>
-									Update permissions
-									<ArrowSquareOutIcon
-										aria-hidden="true"
-										data-icon="inline-end"
-									/>
-								</Button>
-							) : null}
-						</div>
+					) : (
+						<ConnectionSummary
+							canManage={input.canManage && !input.cleanupOnly}
+							connection={connection}
+							errorMessage={input.errorMessage}
+							onRepair={input.onRepair}
+							onStartOver={input.onStartOver}
+							providerLabel={providerLabel}
+							repairDisabled={
+								input.disconnectPending ||
+								input.repairPending ||
+								confirmingDisconnect
+							}
+							repairPending={input.repairPending}
+							startOverPending={input.startOverPending}
+						/>
 					)}
-				</DialogFooter>
+					<DialogFooter className="items-stretch border-t pt-4 empty:hidden sm:items-center sm:justify-between">
+						{canDisconnect && input.canManage ? (
+							<DisconnectControl
+								confirming={confirmingDisconnect}
+								disabled={input.repairPending}
+								disconnectPending={input.disconnectPending}
+								onCancel={() => setConfirmingDisconnect(false)}
+								onConfirm={input.onDisconnect}
+								onStart={() => setConfirmingDisconnect(true)}
+								providerLabel={providerLabel}
+							/>
+						) : null}
+						{registrationInProgress || confirmingDisconnect ? null : (
+							<div className="flex justify-end gap-2 sm:ml-auto">
+								<Button
+									onClick={() => handleOpenChange(false)}
+									variant="outline"
+								>
+									Close
+								</Button>
+								{showAuthorizationAction ? (
+									<Button
+										disabled={input.disconnectPending || input.repairPending}
+										onClick={input.onReauthorize}
+									>
+										Update permissions
+										<ArrowSquareOutIcon
+											aria-hidden="true"
+											data-icon="inline-end"
+										/>
+									</Button>
+								) : null}
+							</div>
+						)}
+					</DialogFooter>
+				</ScrollArea>
 			</DialogContent>
 		</Dialog>
 	);

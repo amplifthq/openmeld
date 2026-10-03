@@ -133,6 +133,8 @@ type ServiceTraceAgentSummary = {
   controllerNormalizationStatus?: string;
   deliveryDestination?: string;
   runtimeFamily?: "hosted_center_agent";
+  nativeDeliveryId?: string;
+  publicationState?: string | null;
   waitingBoundary?: ServiceTraceAgentWaitingBoundary;
 };
 const WAITING_BOUNDARY_NEXT_ACTION: Record<
@@ -243,6 +245,7 @@ export async function runServiceTrace(
   );
   const agentSummary = buildAgentTraceCompactSummary({
     trace: traceResponse.trace,
+    nativeDeliveryTrace: traceResponse.nativeDeliveryTrace,
   });
   const admissionRejections = resolveAdmissionRejections(traceResponse.trace);
   const traceReadinessGuidance = shouldExposeCurrentReadinessGuidance(
@@ -252,6 +255,9 @@ export async function runServiceTrace(
     : null;
 
   const payload = {
+    ...(traceResponse.nativeDeliveryTrace
+      ? { nativeDeliveryTrace: traceResponse.nativeDeliveryTrace }
+      : {}),
     ...(traceResponse.serviceConnectionDiagnostics
       ? {
           serviceConnectionDiagnostics:
@@ -320,6 +326,7 @@ export async function runServiceTrace(
         diagnosticSummary: buildAgentTraceSummary({
           dispatchId: traceResponse.query.dispatchId,
           trace: traceResponse.trace,
+          nativeDeliveryTrace: traceResponse.nativeDeliveryTrace,
         }),
       },
     });
@@ -339,6 +346,7 @@ export async function runServiceTrace(
       dispatchId: traceResponse.query.dispatchId,
       lookup: selection.lookup,
       trace: traceResponse.trace,
+      nativeDeliveryTrace: traceResponse.nativeDeliveryTrace,
       targetProfile: targetContext.targetProfile,
       currentAgentReplyReadiness: targetContext.currentAgentReplyReadiness,
       currentDeviceReplyReadiness:
@@ -1077,6 +1085,7 @@ function buildHumanTraceRows(input: {
   dispatchId: string;
   lookup: GetSpaceDispatchLookupResponse | null;
   trace: DispatchTraceSnapshot;
+  nativeDeliveryTrace?: SpaceDispatchTraceResponse["nativeDeliveryTrace"];
   targetProfile: OpenMeldProfile | null;
   currentAgentReplyReadiness: AgentReplyReadinessStatus | null;
   currentDeviceReplyReadiness: DeviceReplyReadinessStatus | null;
@@ -1092,6 +1101,38 @@ function buildHumanTraceRows(input: {
   agentExecutionStatus: AgentExecutionStatusProjection | null;
   daemonDispatchJournal: ServiceTraceDaemonDispatchJournalEvidence;
 }): Array<{ label: string; value: string }> {
+  if (input.nativeDeliveryTrace) {
+    const native = input.nativeDeliveryTrace;
+    const summary = buildAgentTraceCompactSummary(input);
+    return [
+      {
+        label: "Actor",
+        value: formatServiceTraceActorLabel(input.actorProfile),
+      },
+      { label: "Space ID", value: input.spaceId },
+      { label: "Dispatch ID", value: input.dispatchId },
+      { label: "Native Delivery ID", value: native.turn.deliveryId },
+      { label: "Target Profile ID", value: native.destination.targetProfileId },
+      { label: "Execution", value: native.turn.status },
+      {
+        label: "Publication",
+        value: native.turn.publicationState ?? "not recorded",
+      },
+      { label: "Visible Outcome", value: native.finalVisibleOutcome.status },
+      ...(native.turn.runtimeEvidenceStatus
+        ? [
+            {
+              label: "Runtime Evidence",
+              value: native.turn.runtimeEvidenceStatus,
+            },
+          ]
+        : []),
+      ...(native.turn.failureCode
+        ? [{ label: "Failure", value: native.turn.failureCode }]
+        : []),
+      { label: "Next", value: summary.nextAction },
+    ];
+  }
   if (!input.trace) {
     return [
       {
@@ -2466,7 +2507,12 @@ function appendDispatchExecutionRows(
 function buildAgentTraceSummary(input: {
   dispatchId: string;
   trace: DispatchTraceSnapshot;
+  nativeDeliveryTrace?: SpaceDispatchTraceResponse["nativeDeliveryTrace"];
 }): string {
+  if (input.nativeDeliveryTrace) {
+    const native = input.nativeDeliveryTrace;
+    return `dispatch ${input.dispatchId}: nativeDelivery=${native.turn.status} publication=${native.turn.publicationState ?? "not_recorded"} visibleOutcome=${native.finalVisibleOutcome.status} delivered=${native.finalVisibleOutcome.delivered}`;
+  }
   if (!input.trace) {
     return `dispatch ${input.dispatchId}: not_found`;
   }
@@ -2509,9 +2555,36 @@ function buildAgentTraceSummary(input: {
   return `dispatch ${input.trace.dispatch.dispatchId}: ${finalVisibleOutcomeSummary} delivered=${finalVisibleOutcome.delivered ? "true" : "false"} rootCause=${resolveTraceRootCause(input.trace)} status=${input.trace.dispatch.status} latestAttempt=${attemptStatus} streaming=${streamingMode} preview=${previewEmitted ? "emitted" : "none"}${headLifecycleSummary}${resultInboxSummary}${projectFailureContextSummary}${finalVisibleSummary}${finalVisibleLinkageSummary}${nativeDeliverySummary}${runtimeSummary}${dispatchExecutionSummary}`;
 }
 
+function buildNativeDeliveryTraceCompactSummary(
+  native: NonNullable<SpaceDispatchTraceResponse["nativeDeliveryTrace"]>
+): ServiceTraceAgentSummary {
+  const outcome = native.finalVisibleOutcome;
+  return {
+    currentState: outcome.delivered ? "delivered" : native.turn.status,
+    delivered: outcome.delivered,
+    nextAction: outcome.delivered
+      ? "none"
+      : "check Space history, then rerun trace with --details",
+    reasonCode: outcome.delivered
+      ? outcome.reasonCode
+      : (native.turn.failureCode ??
+        native.finalVisibleMessageLinkage?.reasonCode ??
+        outcome.reasonCode),
+    visibleOutcome: outcome.status,
+    deliveryDestination: formatNativeDeliveryDestination(native.destination),
+    runtimeFamily: "hosted_center_agent",
+    nativeDeliveryId: native.turn.deliveryId,
+    publicationState: native.turn.publicationState,
+  };
+}
+
 function buildAgentTraceCompactSummary(input: {
   trace: DispatchTraceSnapshot;
+  nativeDeliveryTrace?: SpaceDispatchTraceResponse["nativeDeliveryTrace"];
 }): ServiceTraceAgentSummary {
+  if (input.nativeDeliveryTrace) {
+    return buildNativeDeliveryTraceCompactSummary(input.nativeDeliveryTrace);
+  }
   const trace = input.trace;
   if (!trace) {
     return {

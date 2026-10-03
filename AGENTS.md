@@ -207,14 +207,11 @@ change must leave those signals cleaner and less ambiguous.
   then follow the linked lifecycle and component-specific release rules. Do not
   infer a second delivery process from workflow YAML, tool output, or old task
   history.
-- When an Agent personally encounters a problem in any OpenMeld product
-  surface, App, client, Service, runtime, integration, developer workflow,
-  CI/CD, release, or validation path, record that occurrence through
+- Record firsthand problems from released, supported OpenMeld product use through
   [Agent Experience Occurrence Feedback](developing/engineering/agent-native-delivery.md#agent-experience-occurrence-feedback).
-  Use the authorized Felix Human Profile path, identify the actual
-  Agent/model/session and context, and continue the main task unless the issue
-  is a real blocker. Do not search for duplicates; recording is evidence
-  capture, not authorization to fix.
+  Apply its production-use eligibility, occurrence, and authorized Profile rules.
+  Keep unreleased development and validation findings in the owning task or PR;
+  a normal failure is not automatically a product defect.
 - Use focused checks while implementation or blocker-capable review can still
   change the code. Treat broad affected, integration, release-ready, and Final
   Candidate runs as closeout evidence after the practical scope is stable, not

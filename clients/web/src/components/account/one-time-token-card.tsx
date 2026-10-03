@@ -207,13 +207,18 @@ export function OneTimeTokenCard() {
 
 				<div className="space-y-1">
 					<p className="text-muted-foreground text-xs">CLI command</p>
-					<button
-						className="block w-full cursor-pointer overflow-x-auto rounded-md border border-border bg-surface-2 p-2 text-left text-xs shadow-surface-1 transition-colors hover:bg-muted/30"
-						onClick={handleCopyCommandClick}
-						type="button"
+					<ScrollArea
+						className="rounded-md border border-border bg-surface-2 shadow-surface-1"
+						orientation="horizontal"
 					>
-						{commandDisplay.primaryCommand}
-					</button>
+						<button
+							className="block min-w-full cursor-pointer p-2 text-left text-xs transition-colors hover:bg-muted/30"
+							onClick={handleCopyCommandClick}
+							type="button"
+						>
+							{commandDisplay.primaryCommand}
+						</button>
+					</ScrollArea>
 					<p className="text-muted-foreground text-xs">
 						{commandDisplay.helperText}
 					</p>

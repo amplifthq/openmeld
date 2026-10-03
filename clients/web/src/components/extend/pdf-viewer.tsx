@@ -77,7 +77,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@openmeld/ui/components/popover"
-import { ScrollArea } from "#/components/extend/ui/scroll-area"
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import {
   Select,
   SelectContent,

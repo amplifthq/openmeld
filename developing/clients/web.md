@@ -4502,8 +4502,10 @@ minimum and maximum widths, and reduced-motion behavior. Thread can grow to
 60rem, constrained by the available conversation area after other inline panels,
 with 512px reserved for the main conversation. When the available area cannot
 fit that width alongside Thread's minimum reading width, Thread covers the
-conversation area until closed instead of crushing either column. Covered
-content is hidden from interaction and the accessibility tree. A smaller viewport
+main conversation area until closed instead of crushing either column. Its
+overlay width excludes other inline panels, so opening Members keeps Members
+visible and interactive beside Thread. Only the covered main conversation is
+hidden from interaction and the accessibility tree. A smaller viewport
 constrains the displayed width without overwriting the saved wider preference.
 Members and Thread widths are persisted as separate browser presentation preferences. The
 Members open/closed state and width are scoped to the current Space id, so

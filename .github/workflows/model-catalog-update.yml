@@ -39,6 +39,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/model-catalog/collect-update.mjs dev-tmp/catalog-update
+      - name: Summarize new review items
+        run: cat dev-tmp/catalog-update/review.md >> "$GITHUB_STEP_SUMMARY"
       - name: Preserve evidence and review brief
         if: always()
         uses: actions/upload-artifact@v4
