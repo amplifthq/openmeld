@@ -9,6 +9,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { verifyPassword } from "better-auth/crypto";
 import { importD1Snapshot } from "./d1-import.mjs";
 import { createLocalD1FromSqlite } from "./d1-local-fixture.mjs";
+import { rehearseD1Recovery } from "./d1-recovery.test-support.mjs";
 import { createD1RehearsalFixture, fixture } from "./d1-rehearsal-fixture.mjs";
 import { captureD1Snapshot } from "./d1-snapshot.mjs";
 import { connect, migrate, quoteIdentifier as quote } from "./database.mjs";
@@ -293,6 +294,12 @@ test("historical D1 capture to native PG18 preserves business data and rolls bac
             await assert.rejects(readFile(path.join(root, `${name}.sqlite`)), {
               code: "ENOENT",
             });
+            await assert.rejects(
+              readFile(path.join(root, `${name}.sqlite.json`)),
+              {
+                code: "ENOENT",
+              }
+            );
             evidence.cases.push(name);
           } finally {
             await source.prepare(recovery).run();
@@ -464,7 +471,18 @@ test("historical D1 capture to native PG18 preserves business data and rolls bac
         evidence.cases.push("interrupted_copy_full_rollback_and_clean_retry");
       }
     );
-    if (evidence.cases.length !== 13) {
+    await t.test(
+      "interrupted local lifecycle stays closed and preserves new PG writes through native recovery",
+      async () => {
+        evidence.recovery = await rehearseD1Recovery({
+          snapshot,
+          root,
+          manifest,
+        });
+        evidence.cases.push(...evidence.recovery.cases);
+      }
+    );
+    if (evidence.cases.length !== 19) {
       throw new Error(
         "Migration cases failed; no successful rehearsal receipt written"
       );

@@ -132,7 +132,7 @@ async function verifyNativeTarget(client, catalog) {
   return { migrations, columns };
 }
 
-async function lockEmptyTarget(client, catalog) {
+async function lockMigrationTarget(client) {
   if (
     !(
       await client.query("SELECT pg_try_advisory_xact_lock($1) AS acquired", [
@@ -142,6 +142,10 @@ async function lockEmptyTarget(client, catalog) {
   ) {
     throw new Error("Another migration owns the target lock");
   }
+}
+
+async function lockEmptyTarget(client, catalog) {
+  await lockMigrationTarget(client);
   await client.query("SET LOCAL lock_timeout='5s'");
   await client.query(
     `LOCK TABLE ${catalog.map((table) => `openmeld.${quote(table.name)}`).join(",")} IN ACCESS EXCLUSIVE MODE`
@@ -236,7 +240,7 @@ function* copyRows(database, table, columns) {
   }
 }
 
-async function advanceIdentities(client, manifest) {
+async function reconcileIdentities(client, manifest, importData) {
   const identities = (
     await client.query(
       "SELECT c.relname AS table_name,a.attname AS column_name,pg_get_serial_sequence(format('%I.%I',n.nspname,c.relname),a.attname) AS sequence FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='openmeld' AND a.attidentity<>'' ORDER BY c.relname,a.attname"
@@ -276,16 +280,70 @@ async function advanceIdentities(client, manifest) {
         `Identity exceeds the product safe range: ${identity.table_name}`
       );
     }
-    // ALTER ... RESTART participates in this transaction; setval does not.
-    await client.query(
-      `ALTER SEQUENCE ${identity.sequence} RESTART WITH ${next}`
-    );
+    if (importData) {
+      // ALTER ... RESTART participates in this transaction; setval does not.
+      await client.query(
+        `ALTER SEQUENCE ${identity.sequence} RESTART WITH ${next}`
+      );
+    } else {
+      const state = (
+        await client.query(
+          `SELECT last_value::text AS value,is_called FROM ${identity.sequence}`
+        )
+      ).rows[0];
+      if (state.is_called || state.value !== String(next)) {
+        throw new Error(`Imported identity differs: ${identity.table_name}`);
+      }
+    }
   }
   return identities;
 }
 
 /** Direct connection, one transaction, existing native constraints, empty local target. */
-export async function importD1Snapshot({ snapshot, connectionString }) {
+export function importD1Snapshot(input) {
+  return processD1Snapshot(input, true);
+}
+
+/** Inspect actual target equality. This never reconstructs an import receipt or opens admission. */
+export function reconcileD1Snapshot(input) {
+  return processD1Snapshot(input, false);
+}
+
+async function reconcileTables({
+  client,
+  database,
+  catalog,
+  target,
+  manifest,
+  importData,
+}) {
+  const tables = [];
+  for (const table of orderD1Tables(catalog)) {
+    const columns = nativeColumns(table, target.columns);
+    if (importData) {
+      const writable = columns.filter((column) => column.hidden === 0);
+      await pipeline(
+        Readable.from(copyRows(database, table, writable)),
+        client.query(
+          copyFrom(
+            `COPY openmeld.${quote(table.name)} (${writable.map((column) => quote(column.name)).join(",")}) FROM STDIN WITH (FORMAT csv, ON_ERROR stop)`
+          )
+        )
+      );
+    }
+    const count = await reconcileTable(client, database, table, columns);
+    if (
+      String(count) !==
+      manifest.tables.find((entry) => entry.name === table.name).rows
+    ) {
+      throw new Error(`Imported count mismatch: ${table.name}`);
+    }
+    tables.push({ table: table.name, rows: count });
+  }
+  return tables;
+}
+
+async function processD1Snapshot({ snapshot, connectionString }, importData) {
   if (process.env.OPENMELD_PG_ISOLATED !== "1") {
     throw new Error("Only isolated local D1 import is enabled");
   }
@@ -322,32 +380,25 @@ export async function importD1Snapshot({ snapshot, connectionString }) {
       "Snapshot receipt omits a table"
     );
     client = await connect(connectionString, true);
-    const target = await verifyNativeTarget(client, catalog);
-    await client.query("BEGIN");
+    await client.query(
+      importData ? "BEGIN" : "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY"
+    );
     transaction = true;
-    await lockEmptyTarget(client, catalog);
-    const imported = [];
-    for (const table of orderD1Tables(catalog)) {
-      const columns = nativeColumns(table, target.columns);
-      const writable = columns.filter((column) => column.hidden === 0);
-      await pipeline(
-        Readable.from(copyRows(database, table, writable)),
-        client.query(
-          copyFrom(
-            `COPY openmeld.${quote(table.name)} (${writable.map((column) => quote(column.name)).join(",")}) FROM STDIN WITH (FORMAT csv, ON_ERROR stop)`
-          )
-        )
-      );
-      const count = await reconcileTable(client, database, table, columns);
-      if (
-        String(count) !==
-        manifest.tables.find((entry) => entry.name === table.name).rows
-      ) {
-        throw new Error(`Imported count mismatch: ${table.name}`);
-      }
-      imported.push({ table: table.name, rows: count });
+    const target = await verifyNativeTarget(client, catalog);
+    if (importData) {
+      await lockEmptyTarget(client, catalog);
+    } else {
+      await lockMigrationTarget(client);
     }
-    const identities = await advanceIdentities(client, manifest);
+    const imported = await reconcileTables({
+      client,
+      database,
+      catalog,
+      target,
+      manifest,
+      importData,
+    });
+    const identities = await reconcileIdentities(client, manifest, importData);
     await client.query("COMMIT");
     transaction = false;
     return {
@@ -362,7 +413,13 @@ export async function importD1Snapshot({ snapshot, connectionString }) {
         table: table_name,
         column: column_name,
       })),
-      status: "committed_and_reconciled",
+      status: importData ? "committed_and_reconciled" : "snapshot_reconciled",
+      ...(!importData && {
+        inspectionOnly: true,
+        promotionAllowed: false,
+        businessWriteHistory: "not_proven",
+        retainedDoR2Effects: "not_inspected",
+      }),
     };
   } catch (error) {
     if (transaction) {

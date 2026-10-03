@@ -106,6 +106,53 @@ lifecycle. It does not transfer execution authority from RuntimeCoordinator,
 file-body ownership from R2, or Space state/outbox ownership from Durable Objects.
 Production/shared-staging admission remains closed.
 
+## Local interrupted-recovery procedure
+
+Keep product processes stopped while inspecting a target whose import outcome
+or receipt is uncertain. In the existing isolated database environment, run:
+
+```sh
+pnpm pg reconcile-d1 local /absolute/private/path/snapshot.sqlite
+```
+
+This uses the import owner's exact schema, journal, table/field and identity
+mapping in a repeatable-read, read-only PostgreSQL transaction. It compares all
+application rows and the unconsumed identity positions with the source snapshot;
+it does not COPY, reset a sequence, repair a row or regenerate a commit receipt.
+The result is `snapshot_reconciled`, explicitly `inspectionOnly: true` and
+`promotionAllowed: false`. Equality does not prove that no business write ever
+occurred or that DO/R2 effects are unchanged. A concurrent writer would also make
+this only a point-in-time observation, never a writer-freeze certificate.
+
+Use the existing development lifecycle and the following recovery boundaries:
+
+1. Before capture completes, a rejected source leaves no successful snapshot or
+   manifest. Preserve the source, resolve its actual rejection and capture to a
+   new private path; partial artifacts are not import evidence.
+2. If import did not commit, PostgreSQL rolls back all rows and transactional
+   identity restarts. Inspect the empty target before retrying the same verified
+   snapshot. The real COPY interruption case exercises this boundary.
+3. If import committed but its external receipt is missing, startup stays closed
+   and refuses to import over the populated target. Read-only reconciliation can
+   inspect equality, but its result cannot replace a commit receipt. The local
+   rehearsal restores the preserved original receipt and then restarts with the
+   same snapshot; it never fabricates one from matching counts or hashes. Without
+   the original evidence, retain the target for diagnosis rather than resetting
+   it or opening the product.
+4. Once PG contains new writes, preserve that PG state. The rehearsal advances a
+   real identity and changes a row; reconciliation rejects both against the old
+   snapshot. Native `pg_dump`/`pg_restore` restores the resulting full database
+   into a separate empty database, then compares all 159 tables, identity states
+   and migration history. Reapply and verify runtime grants. Restarting the
+   original development database retains the new writes and original receipt.
+
+The repeatable `test:d1-migration` entrypoint includes these real storage and
+development-lifecycle checks. It does not start product traffic, restore DO/R2,
+exercise a workstation execution or certify a complete maintenance operation.
+Retain the actual DO/file IDs, object keys, revisions, bodies and outbox effects;
+restoring PostgreSQL does not restore those owners. Cloud/provider recovery and
+the final D1-compatible maintenance barrier remain separate acceptance gates.
+
 ## Tool selection and exact-value contract
 
 Checked on 2026-10-03 with installed Wrangler 4.145.0, pgloader 3.6.10 and

@@ -87,6 +87,12 @@ the capture owner's local synthetic format; this command cannot export D1 or
 admit a production target. See [the product rehearsal](postgresql-cutover.md#local-product-rehearsal)
 for what has been verified and what remains blocked.
 
+For an uncertain local import, `pnpm pg reconcile-d1 local <snapshot>` compares
+the target's fields and identity positions in a read-only transaction. It never
+reconstructs an import receipt or permits reopening; a missing original receipt
+keeps product startup closed. Follow the [interrupted-recovery procedure](postgresql-cutover.md#local-interrupted-recovery-procedure),
+including native backup/restore after PG has accepted new writes.
+
 Use `psql` with process-injected PG variables for SQL inspection. PlanetScale's
 database dashboard provides query insights, connections, metrics and backups;
 Cloudflare's Hyperdrive dashboard provides connection/query metrics. No extra
