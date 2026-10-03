@@ -23,7 +23,10 @@ const OPENMELD_SETUP_PACKAGE_DOWNLOAD_NOTICE =
 	"Downloading OpenMeld CLI (first run may take up to a minute)...";
 const DEFAULT_LOCAL_CLI_BINARY_MANIFEST_URL =
 	"http://127.0.0.1:3197/cli/manifest.json";
-const OPENMELD_STAGING_HOSTNAME = "staging.openmeld.ai";
+const OPENMELD_STAGING_ORIGINS = new Set([
+	"https://staging.openmeld.ai",
+	"https://app.staging.openmeld.ai",
+]);
 const MACOS_CLI_CODE_IDENTIFIER =
 	OPENMELD_MACOS_CLI_SIGNING_IDENTITY.codeIdentifier;
 const MACOS_CLI_TEAM_IDENTIFIER =
@@ -1297,11 +1300,8 @@ function buildSetupBinaryManifestUrl(
 function isOfficialStagingRequest(requestUrl: URL, webAppUrl: string): boolean {
 	const configuredWebAppUrl = new URL(webAppUrl);
 	return (
-		requestUrl.protocol === "https:" &&
-		configuredWebAppUrl.protocol === "https:" &&
-		requestUrl.hostname === OPENMELD_STAGING_HOSTNAME &&
-		configuredWebAppUrl.hostname === OPENMELD_STAGING_HOSTNAME &&
-		requestUrl.origin === configuredWebAppUrl.origin
+		OPENMELD_STAGING_ORIGINS.has(requestUrl.origin) &&
+		OPENMELD_STAGING_ORIGINS.has(configuredWebAppUrl.origin)
 	);
 }
 

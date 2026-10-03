@@ -327,6 +327,47 @@ it only after the input is recorded there. Core retries pending forwarding
 through the existing Space alarm and retains terminal receipts for replay.
 Deleting the Space removes its input outbox with the rest of Space data.
 
+The pending-input receiver retains editable inputs in that same outbox, not a
+second browser queue. A queued row has no forwarding deadline. Its Space-owned
+position is also the ordinary-consumption claim order. Synchronous conditional
+claims fence delete, reorder, ordinary consumption, and explicit Steer; claimed
+or uncertain input cannot be claimed again. Reordering compares the complete
+pending order before changing it in one storage transaction. Deleted and consumed
+rows remain as idempotency records and cannot be resurrected by enqueue replay.
+These are input-delivery states, never execution states.
+
+The current `spaceInputQueue` receiver supports only the original Human
+Profile of one native Center DM execution. It does not grant another Space member
+or Agent the original execution's frozen authority. Queue Steer sends once, then
+uses the existing Remote receipt reader. A missing or rejected receipt query is
+not proof that an earlier send was rejected. Unknown application retains and
+holds the input; an explicit intake rejection retains it as blocked Queue work.
+Only exact-target application removes it and publishes its original Signal,
+atomically, without creating a Wake. Queue receipt deadlines use a separate
+column so an older Core's forwarding query cannot resend uncertain Queue input.
+Old outbox rows retain their existing forwarding behavior.
+
+The Human/Center Web path uses the Gateway receiver and the same queue read
+projection. Ordinary consumption is driven by the existing persisted final reply
+claim for the preceding dispatch, not by client progress or elapsed time. The
+Space alarm promotes only the first eligible item after a successful reply or
+explicit silent outcome. Stop, failure, missing outcome content, revoked author,
+or an unavailable target retains blocked Queue work. Unknown Steer holds later
+claims as well.
+
+SQL schema 50 adds the preceding-dispatch dependency to the existing row. The
+normal publication owner prepares the usual unresolved handoff seed, then
+atomically claims the queued input, inserts its original Signal and single
+dispatch outbox record, retires the input, and moves remaining inputs behind
+that dispatch. A failed transaction leaves all inputs pending. After a crash,
+the existing durable dispatch outbox resumes the same identity; it does not
+claim or publish that queued input again. The dependency is input ordering,
+not a second execution state machine. Native execution and admission remain
+with Remote/Flue. Agent tools and Local Service callers remain unimplemented.
+The seed deliberately has no resolved controller yet: Core admission owns that
+selection. Queue validates its supported Center member and exact target rather
+than treating the seed's empty controller snapshot as unavailable execution.
+
 OpenMeld separates durable truth from query projections.
 
 Agent Profile Work Coordinator state lives in the existing owner-sharded
@@ -1136,6 +1177,12 @@ Examples:
   projection must reproduce the Space-owned marker rather than deriving it from
   member count.
 - Dispatch Ledger is a ledger/query projection for Wake execution.
+- RuntimeCoordinator execution projection writes atomically compare accepted
+  evidence with the stored lifecycle rank and, within the same rank, observation
+  time. Concurrent creation and progress writes must converge without discarding
+  newer evidence. Locked terminal outcomes cannot be replaced by another outcome
+  or reopened by progress. These writes record RuntimeCoordinator decisions;
+  they never grant execution authority.
 - Wake trace read models compose existing facts for diagnosis.
 - Wake progress composes each execution owner's current lifecycle with
   Space-owned public source context at read time. Space remains the only owner
@@ -3549,6 +3596,17 @@ Detailed CLI trace is the supported handoff to local agents and operators. A
 caller supplies the normal Space and dispatch selectors; Core resolves the
 frozen runtime conversation identity and returns the bounded runtime diagnostic
 projection. Callers must not query D1 or supply a runtime generation identity.
+
+Native continuations can have a native-delivery ledger record without a
+workstation Dispatch Ledger row. Negotiated trace response v6 reads the unique
+native record for the exact dispatch and Space and exposes `nativeDeliveryTrace`
+with `trace: null`. It never synthesizes a workstation dispatch or parses
+identity from a dispatch string. Non-Space conversations and ambiguous matches
+fail closed. Final visible messages still come from Space publication facts;
+native execution completion alone does not prove delivery. Detailed runtime
+evidence uses the frozen request identity, and an unavailable runtime read must
+preserve the durable delivery and publication facts. Default compact reads omit
+runtime evidence fields when that source has not been queried.
 
 When a controller exposes official context telemetry, task-result and local
 runtime observation may retain only bounded numeric token counters, the reported

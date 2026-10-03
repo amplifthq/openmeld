@@ -124,6 +124,7 @@ test("current control preflights a historical release source that predates the c
       releaseSha: fixture.releaseSha,
       releaseSource: fixture.releaseSource,
       scope: "web",
+      adapters: { admitWebsiteDomainRelease: async () => null },
     });
 
     const historicalControlProbe = spawnSync(
@@ -212,6 +213,7 @@ test("hosted Core preflight runs the CLI channel compatibility gate through trus
       releaseSha: fixture.releaseSha,
       releaseSource: fixture.releaseSource,
       scope: "core",
+      adapters: { admitWebsiteDomainRelease: async () => null },
     });
 
     assert.equal(existsSync(channelGateMarker), true);

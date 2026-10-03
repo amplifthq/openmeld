@@ -115,6 +115,11 @@ test("Web health requires rendered HTML from the exact clean source, not guide.m
       expectedBuildId,
       fetchImpl: (url) => {
         requested.push(url.pathname);
+        if (url.pathname === "/") {
+          return Promise.resolve(
+            new Response(null, { status: 302, headers: { location: "/login" } })
+          );
+        }
         return Promise.resolve(
           new Response(body, {
             status,
@@ -156,15 +161,17 @@ test("Web admission rejects an auth page with an unresolved server function", as
       url: "https://web.example",
       sourceSha,
       fetchImpl: (url) =>
-        new Response(
-          url.pathname === "/login"
-            ? "Server function info not found for login"
-            : html,
-          {
-            status: url.pathname === "/login" ? 500 : 200,
-            headers: { "content-type": "text/html" },
-          }
-        ),
+        url.pathname === "/"
+          ? new Response(null, { status: 302, headers: { location: "/login" } })
+          : new Response(
+              url.pathname === "/login"
+                ? "Server function info not found for login"
+                : html,
+              {
+                status: url.pathname === "/login" ? 500 : 200,
+                headers: { "content-type": "text/html" },
+              }
+            ),
     }),
     UNRESOLVED_SERVER_FUNCTION
   );
@@ -177,6 +184,7 @@ test("Web health waits briefly for the deployed SSR page to serve the verified a
   let requests = 0;
   let elapsedMs = 0;
   const options = {
+    scope: "website",
     url: "https://web.example",
     sourceSha,
     expectedBuildId: "verified-build",

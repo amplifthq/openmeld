@@ -57,6 +57,7 @@ import type {
 	Conversation,
 	ConversationPreview,
 } from "./conversation-sidebar-model";
+import { DirectMessageAvatar } from "./direct-message-avatar";
 import {
 	resolveConversationTimestamp,
 	SidebarConversationTime,
@@ -72,7 +73,6 @@ import {
 	type SpaceMemberAppearance,
 	SpaceMemberAvatars,
 } from "./space-member-avatars";
-import { SpaceProfileIcon } from "./space-profile-icon";
 import { SpaceUnreadLink } from "./space-unread-link";
 
 type ConversationSidebarRowProps = {
@@ -572,14 +572,9 @@ export function ChatIcon(input: {
 		);
 	}
 	return (
-		<SpaceProfileIcon
-			agentControllerRef={input.chat.peer?.agentControllerRef ?? null}
-			avatarImageUrl={input.chat.peer?.avatarUrl}
-			avatarModelId={input.chat.peer?.avatarModelId}
-			avatarStyle={input.chat.peer?.avatarStyle}
-			profileId={input.chat.peer?.profileId ?? input.chat.spaceId}
-			profileKind={input.chat.peer?.profileKind ?? "human"}
-			profileName={input.title}
+		<DirectMessageAvatar
+			participants={input.chat.participants}
+			peer={input.chat.peer}
 			size={input.size ?? "sm"}
 		/>
 	);

@@ -31,8 +31,8 @@ allowBuilds:
   workerd: true
 
 catalog:
-  '@cloudflare/workers-types': 5.20260908.1
-  wrangler: 4.145.0
+  '@cloudflare/workers-types': 5.20261001.1
+  wrangler: 4.147.0
   zod: 4.6.5
 
 minimumReleaseAgeExclude:

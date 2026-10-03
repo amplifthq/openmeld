@@ -41,12 +41,16 @@ export function agentTaskActivityNavigation(
 	};
 }
 
-export function useAgentTaskActivity(profileId: string) {
+export function useAgentTaskActivity(
+	profileId: string,
+	includeWorkload = false
+) {
 	const organization = useOptionalAppOrganization();
 	const query = useQuery(
 		organizationAgentRuntimeOverviewQueryOptions({
 			enabled: Boolean(organization),
 			organizationId: organization?.currentOrganization.id ?? "",
+			...(includeWorkload ? { workloadProfileId: profileId } : {}),
 		})
 	);
 	const activity = query.data?.agentProfiles.find(

@@ -1,4 +1,7 @@
-import { SPACE_WORK_HANDOFF_CAPABILITY_HEADER } from "@openmeld/schemas";
+import {
+  LOCAL_EXECUTION_INPUT_CAPABILITY_HEADER,
+  SPACE_WORK_HANDOFF_CAPABILITY_HEADER,
+} from "@openmeld/schemas";
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import type { HonoBindings } from "../src/lib/bindings";
@@ -33,6 +36,7 @@ describe("Service handoff capability at the Core stream boundary", () => {
     const headers = new Headers({ Upgrade: "websocket" });
     if (advertisement !== null) {
       headers.set(SPACE_WORK_HANDOFF_CAPABILITY_HEADER, advertisement);
+      headers.set(LOCAL_EXECUTION_INPUT_CAPABILITY_HEADER, advertisement);
     }
     const namespace = {
       idFromName: vi.fn(),
@@ -50,5 +54,8 @@ describe("Service handoff capability at the Core stream boundary", () => {
     expect(requests[0]?.headers.get(SPACE_WORK_HANDOFF_CAPABILITY_HEADER)).toBe(
       advertisement === "1" ? "1" : null
     );
+    expect(
+      requests[0]?.headers.get(LOCAL_EXECUTION_INPUT_CAPABILITY_HEADER)
+    ).toBe(advertisement === "1" ? "1" : null);
   });
 });

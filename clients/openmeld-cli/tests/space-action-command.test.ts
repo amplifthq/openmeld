@@ -2,6 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { OPENMELD_SPACE_ACTION_MCP_TOOL_NAMES } from "@openmeld/adapter-core";
 import { dispatchSpaceActionToolResultSchema } from "@openmeld/schemas";
 import type { SpaceMemberDirectorySendTargetEntry } from "@openmeld/space";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -32,6 +33,7 @@ import {
   createDispatchSpaceTools,
   createSpaceActionMcpServer,
 } from "../src/space/action-mcp-server";
+import { openDirectMessage } from "../src/space/direct-message";
 
 const AGENT_PROFILE_ID = "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const AGENT_PROFILE_ID_TWO = "agt_bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
@@ -644,6 +646,9 @@ describe("OpenMeld Space Action MCP server", () => {
         client.connect(clientTransport),
       ]);
       const catalog = await client.listTools();
+      expect(catalog.tools.map((tool) => tool.name).sort()).toEqual(
+        [...OPENMELD_SPACE_ACTION_MCP_TOOL_NAMES].sort()
+      );
       expect(
         catalog.tools.some((tool) => tool.name === "report_progress")
       ).toBe(true);
@@ -1035,6 +1040,49 @@ describe("OpenMeld Space Action MCP server", () => {
 });
 
 describe("dispatch-owned native Space tools", () => {
+  it("refuses another sender and an expired Wake before making any DM request", async () => {
+    const clock = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
+    const context = createTestContext([], { ttlMs: 1000 });
+    const fetch = vi.spyOn(globalThis, "fetch");
+    const request = { targetProfileId: HUMAN_PROFILE_ID };
+    await expect(
+      openDirectMessage({ request, profile: AGENT_PROFILE_ID_TWO })
+    ).rejects.toThrow("selected profile must match");
+    clock.mockReturnValue(context.expiresAtMs + 1);
+    await expect(openDirectMessage({ request })).rejects.toThrow(
+      "dispatch context has expired"
+    );
+    expect(fetch).not.toHaveBeenCalled();
+    expect(readDispatchSpaceActionRecord({ context }).status).toBe("missing");
+  });
+  it("rejects invalid DM input without ending the current Wake", async () => {
+    const context = createTestContext([]);
+    const tools = createDispatchSpaceTools({ env: { ...process.env } });
+    expect(tools.tools.map((tool) => tool.name)).toContain(
+      "open_direct_message"
+    );
+    const result = await tools.call("open_direct_message", {
+      targetProfileId: HUMAN_PROFILE_ID,
+      message: { clientMessageId: "not-a-uuid", text: "Hello", wake: false },
+    });
+    expect(result.isError).toBe(true);
+    const unpinnedWake = await tools.call("open_direct_message", {
+      targetProfileId: AGENT_PROFILE_ID_TWO,
+      message: {
+        clientMessageId: "22222222-2222-4222-8222-222222222222",
+        text: "Please review this.",
+        wake: true,
+      },
+    });
+    expect(unpinnedWake.isError).toBe(true);
+    expect(JSON.stringify(unpinnedWake.content)).toContain("spaceId");
+    expect(readDispatchSpaceActionRecord({ context }).status).toBe("missing");
+    await tools.call("reply", { message: "The current task is complete." });
+    expect(readLoadedActionRecord(context).action).toMatchObject({
+      messageEnvelope: { text: "The current task is complete." },
+    });
+    tools.close();
+  });
   it("reports non-final public progress without recording a final action", async () => {
     const context = createTestContext([]);
     const reportProgress = vi

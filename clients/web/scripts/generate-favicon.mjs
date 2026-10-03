@@ -8,13 +8,13 @@ import {
 	renderSimplePng,
 } from "./logo-pipeline.mjs";
 
-// Regenerates the entire web favicon set from the single logo source of truth.
+// Regenerates the shared website and App favicon set from the single logo source of truth.
 // Small sizes render the legible SIMPLE variant; large sizes downscale the
 // approved glow master. SVG favicons are intentionally retired (the glow cannot
 // be reproduced as a vector) — every browser size is shipped as a native PNG.
 
 const here = dirname(fileURLToPath(import.meta.url));
-const publicDir = resolve(here, "..", "public");
+const publicDir = resolve(here, "../../../packages/ui/public");
 const tmp = tmpdir();
 
 // Tiny sizes: solid O, slightly fuller as the canvas shrinks so it stays legible.

@@ -532,7 +532,7 @@ describe("RuntimeCoordinator active Wake progress projection repo", () => {
             updatedAtMs: 110,
           }),
         })
-      ).resolves.toBe("updated");
+      ).resolves.toBe("written");
 
       await expect(
         readRuntimeCoordinatorExecutionProjectionById({
@@ -548,7 +548,11 @@ describe("RuntimeCoordinator active Wake progress projection repo", () => {
     }
   });
 
-  it("locks cancelled terminal projections against later non-terminal writes", async () => {
+  it.each([
+    "cancelled",
+    "failed_terminal",
+    "reply_published",
+  ] as const)("locks %s terminal projections against later non-terminal or conflicting terminal writes", async (status) => {
     const harness = createSqliteD1Harness();
     applyDrizzleMigrationForTable(
       harness,
@@ -559,37 +563,188 @@ describe("RuntimeCoordinator active Wake progress projection repo", () => {
         dispatchId: "dispatch-cancelled",
         runtimeCoordinatorExecutionId: "rce-cancelled",
         sourceClientMessageId: "client-cancelled",
-        status: "cancelled",
+        status,
         targetProfileId: "agt_target_a",
         updatedAtMs: 100,
       });
 
-      await expect(
-        writeRuntimeCoordinatorExecutionProjection({
-          db: harness.db,
-          record: buildExecution({
-            dispatchId: "dispatch-cancelled",
-            runtimeCoordinatorExecutionId: "rce-cancelled",
-            sourceClientMessageId: "client-cancelled",
-            status: "running",
-            targetProfileId: "agt_target_a",
-            updatedAtMs: 110,
-          }),
-        })
-      ).resolves.toBe("skipped_stale");
+      const terminal = await readRuntimeCoordinatorExecutionProjectionById({
+        db: harness.db,
+        runtimeCoordinatorExecutionId: "rce-cancelled",
+      });
+      for (const nextStatus of [
+        "running",
+        status === "cancelled" ? "reply_published" : "cancelled",
+      ] as const) {
+        await expect(
+          writeRuntimeCoordinatorExecutionProjection({
+            db: harness.db,
+            record: buildExecution({
+              dispatchId: "dispatch-cancelled",
+              runtimeCoordinatorExecutionId: "rce-cancelled",
+              sourceClientMessageId: "client-cancelled",
+              status: nextStatus,
+              targetProfileId: "agt_target_a",
+              updatedAtMs: 110,
+            }),
+          })
+        ).resolves.toBe("skipped_stale");
+      }
 
       await expect(
         readRuntimeCoordinatorExecutionProjectionById({
           db: harness.db,
           runtimeCoordinatorExecutionId: "rce-cancelled",
         })
+      ).resolves.toEqual(terminal);
+    } finally {
+      harness.close();
+    }
+  });
+
+  it.each([
+    {
+      initial: "created",
+      first: "delivery_accepted",
+      second: "running",
+      expectedStatus: "running",
+      expectedAtMs: 111,
+    },
+    {
+      initial: "running",
+      first: "running",
+      second: "reply_published",
+      expectedStatus: "reply_published",
+      expectedAtMs: 111,
+    },
+    {
+      initial: "running",
+      first: "running",
+      second: "running",
+      expectedStatus: "running",
+      expectedAtMs: 111,
+    },
+    {
+      initial: null,
+      first: "created",
+      second: "running",
+      expectedStatus: "running",
+      expectedAtMs: 111,
+    },
+    {
+      initial: null,
+      first: "running",
+      second: "created",
+      expectedStatus: "running",
+      expectedAtMs: 110,
+    },
+  ] as const)("retains the advanced projection when $first and $second race from $initial", async ({
+    initial,
+    first,
+    second,
+    expectedStatus,
+    expectedAtMs,
+  }) => {
+    const harness = createSqliteD1Harness();
+    applyDrizzleMigrationForTable(
+      harness,
+      "openMeldDaemon_runtime_coordinator_executions"
+    );
+    const record = (
+      status: RuntimeCoordinatorExecutionStatus,
+      updatedAtMs: number
+    ) => ({
+      ...buildExecution({
+        dispatchId: "dispatch-race",
+        runtimeCoordinatorExecutionId: "rce-race",
+        sourceClientMessageId: "client-race",
+        status,
+        targetProfileId: "agt_target",
+        updatedAtMs,
+      }),
+      createdAtMs: 90,
+    });
+    try {
+      if (initial) {
+        await writeRuntimeCoordinatorExecutionProjection({
+          db: harness.db,
+          record: record(initial, 100),
+        });
+      }
+      await Promise.all(
+        [first, second].map((status, index) =>
+          writeRuntimeCoordinatorExecutionProjection({
+            db: harness.db,
+            record: record(status, 110 + index),
+          })
+        )
+      );
+      await expect(
+        readRuntimeCoordinatorExecutionProjectionById({
+          db: harness.db,
+          runtimeCoordinatorExecutionId: "rce-race",
+        })
       ).resolves.toMatchObject({
-        status: "cancelled",
-        terminalOutcome: {
-          kind: "cancelled",
-          reasonCode: "runtime_coordinator.wake_stop_local_control_accepted",
-        },
+        createdAtMs: 90,
+        status: expectedStatus,
+        updatedAtMs: expectedAtMs,
       });
+    } finally {
+      harness.close();
+    }
+  });
+
+  it.each([
+    {
+      status: "delivery_accepted",
+      updatedAtMs: 120,
+      expected: "skipped_stale",
+    },
+    {
+      status: "running",
+      updatedAtMs: 100,
+      expected: "skipped_stale",
+    },
+    {
+      status: "running",
+      updatedAtMs: 110,
+      expected: "written",
+    },
+  ] as const)("adjudicates $status at $updatedAtMs against the stored running projection", async ({
+    status,
+    updatedAtMs,
+    expected,
+  }) => {
+    const harness = createSqliteD1Harness();
+    applyDrizzleMigrationForTable(
+      harness,
+      "openMeldDaemon_runtime_coordinator_executions"
+    );
+    const base = buildExecution({
+      dispatchId: "dispatch-stale",
+      runtimeCoordinatorExecutionId: "rce-stale",
+      sourceClientMessageId: "client-stale",
+      status: "running",
+      targetProfileId: "agt_target",
+      updatedAtMs: 110,
+    });
+    try {
+      await writeRuntimeCoordinatorExecutionProjection({
+        db: harness.db,
+        record: base,
+      });
+      await expect(
+        writeRuntimeCoordinatorExecutionProjection({
+          db: harness.db,
+          record: { ...base, status, updatedAtMs },
+        })
+      ).resolves.toBe(expected);
+      await expect(
+        readRuntimeCoordinatorExecutionProjectionById({
+          db: harness.db,
+          runtimeCoordinatorExecutionId: "rce-stale",
+        })
+      ).resolves.toEqual(base);
     } finally {
       harness.close();
     }
@@ -709,6 +864,13 @@ function buildTerminalOutcomeForTest(input: {
       kind: "cancelled",
       observedAtMs: input.updatedAtMs,
       reasonCode: "runtime_coordinator.wake_stop_local_control_accepted",
+    };
+  }
+  if (input.status === "failed_terminal") {
+    return {
+      kind: "failed_terminal",
+      observedAtMs: input.updatedAtMs,
+      reasonCode: "runtime.progress_stale",
     };
   }
   return null;

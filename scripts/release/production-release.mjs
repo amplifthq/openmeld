@@ -20,6 +20,12 @@ import {
 import { readCurrentWorkerVersionIds } from "./release-stage-probes.mjs";
 import { resolveRemoteAgentRequestCompatibilityBridge } from "./remote-agent-request-compatibility.mjs";
 import { requireMainlineReleaseSha } from "./require-mainline-release-sha.mjs";
+import {
+  admitWebsiteDomainRelease,
+  executeObservedDomainRelease,
+  prepareWebsiteDomains,
+  rollbackWebsiteDomains,
+} from "./website-domain-migration.mjs";
 
 const DEFAULT_BASE_REF = "origin/main";
 const COMPLETION_PROBE_TIMEOUT_MS = 30_000;
@@ -37,8 +43,16 @@ const DIRECT_SCOPES = new Set([
   "gateway",
   "remote-agent",
   "web",
+  "website",
 ]);
-const CLOUD_SCOPES = ["auth", "web", "gateway", "core", "remote-agent"];
+const CLOUD_SCOPES = [
+  "auth",
+  "web",
+  "gateway",
+  "core",
+  "remote-agent",
+  "website",
+];
 const FULL_SCOPES = ["db", ...CLOUD_SCOPES];
 const SCOPE_ORDER = [
   "db",
@@ -48,6 +62,7 @@ const SCOPE_ORDER = [
   "gateway",
   "core",
   "remote-agent",
+  "website",
 ];
 const REMOTE_AGENT_RECEIVER_FIRST_SCOPE_ORDER = [
   "db",
@@ -57,6 +72,7 @@ const REMOTE_AGENT_RECEIVER_FIRST_SCOPE_ORDER = [
   "gateway",
   "web",
   "cli",
+  "website",
 ];
 const CENTER_AGENT_CLI_RECEIVER_FIRST_SCOPE_ORDER = [
   "db",
@@ -66,6 +82,7 @@ const CENTER_AGENT_CLI_RECEIVER_FIRST_SCOPE_ORDER = [
   "gateway",
   "web",
   "cli",
+  "website",
 ];
 const CORE_WORKER_RESPONSE_READER_FIRST_SCOPE_ORDER = [
   "db",
@@ -75,6 +92,7 @@ const CORE_WORKER_RESPONSE_READER_FIRST_SCOPE_ORDER = [
   "web",
   "remote-agent",
   "cli",
+  "website",
 ];
 const INBOX_SOURCE_TARGET_RECEIVER_FIRST_SCOPE_ORDER = [
   "db",
@@ -84,6 +102,7 @@ const INBOX_SOURCE_TARGET_RECEIVER_FIRST_SCOPE_ORDER = [
   "core",
   "remote-agent",
   "cli",
+  "website",
 ];
 const LOCAL_SERVICE_RUNTIME_RECEIVER_FIRST_SCOPE_ORDER = [
   "db",
@@ -93,6 +112,7 @@ const LOCAL_SERVICE_RUNTIME_RECEIVER_FIRST_SCOPE_ORDER = [
   "core",
   "remote-agent",
   "cli",
+  "website",
 ];
 const WAKE_PROGRESS_OPT_IN_RECEIVERS_FIRST_SCOPE_ORDER =
   LOCAL_SERVICE_RUNTIME_RECEIVER_FIRST_SCOPE_ORDER;
@@ -106,6 +126,7 @@ const CONNECT_COMPUTER_CLI_RECEIVER_FIRST_SCOPE_ORDER = [
   "gateway",
   "core",
   "remote-agent",
+  "website",
 ];
 const REMOTE_AGENT_AND_INBOX_RECEIVERS_FIRST_SCOPE_ORDER = [
   "db",
@@ -115,6 +136,7 @@ const REMOTE_AGENT_AND_INBOX_RECEIVERS_FIRST_SCOPE_ORDER = [
   "gateway",
   "core",
   "cli",
+  "website",
 ];
 const REMOTE_AGENT_AND_CONNECT_COMPUTER_RECEIVERS_FIRST_SCOPE_ORDER = [
   "db",
@@ -124,6 +146,7 @@ const REMOTE_AGENT_AND_CONNECT_COMPUTER_RECEIVERS_FIRST_SCOPE_ORDER = [
   "web",
   "gateway",
   "core",
+  "website",
 ];
 const REMOTE_AGENT_AND_WAKE_PROGRESS_OPT_IN_RECEIVERS_FIRST_SCOPE_ORDER =
   REMOTE_AGENT_AND_INBOX_RECEIVERS_FIRST_SCOPE_ORDER;
@@ -139,6 +162,7 @@ const SPACE_MESSAGE_SEARCH_RECEIVERS_FIRST_SCOPE_ORDER = [
   "gateway",
   "web",
   "remote-agent",
+  "website",
 ];
 const DEPLOY_SCOPE_ORDER_BY_PROFILE = {
   "center-agent-evidence-receivers-first": SCOPE_ORDER,
@@ -630,6 +654,7 @@ const PACKAGE_SCOPE = new Map([
   ["@openmeld/remote-agent", "remote-agent"],
   ["openmeld", "cli"],
   ["openmeld-web", "web"],
+  ["openmeld-website", "website"],
 ]);
 const DB_MIGRATION_PATH_PREFIX = "packages/db/drizzle/";
 const DB_SCHEMA_PATH_PREFIXES = [
@@ -652,6 +677,11 @@ const GLOBAL_WORKSPACE_RUNTIME_PATHS = new Set([
   "turbo.json",
 ]);
 const SCOPE_VERIFY_SPECS = {
+  website: {
+    filter: "openmeld-website...",
+    label: "Verify Website",
+    tasks: ["check", "test"],
+  },
   auth: {
     filter: "@openmeld/auth-worker...",
     label: "Verify Auth Worker",
@@ -713,6 +743,11 @@ export function parseProductionReleaseArgs(argv) {
       options.scope = readRequiredArgument(argv, index, arg);
       continue;
     }
+    if (["--domain-evidence", "--domain-phase"].includes(arg)) {
+      options[arg === "--domain-evidence" ? "domainEvidence" : "domainPhase"] =
+        readRequiredArgument(argv, ++index, arg);
+      continue;
+    }
     if (arg === "--redeploy" && command === "deploy") {
       options.redeploy = true;
       continue;
@@ -723,7 +758,29 @@ export function parseProductionReleaseArgs(argv) {
     }
     throw new Error(`Unknown production release option: ${arg}`);
   }
+  validateDomainReleaseOptions(options);
   return options;
+}
+
+function validateDomainReleaseOptions(options) {
+  if (
+    (options.domainEvidence || options.domainPhase) &&
+    options.command !== "deploy"
+  ) {
+    throw new Error("Domain options apply only to the guarded deploy command.");
+  }
+  if (
+    options.domainPhase &&
+    (!(
+      ["prepare", "rollback"].includes(options.domainPhase) &&
+      options.domainEvidence
+    ) ||
+      options.scope !== "auth,web,website")
+  ) {
+    throw new Error(
+      "Domain operations require prepare or rollback, --scope auth,web,website and --domain-evidence <file>."
+    );
+  }
 }
 
 export function expandRequestedReleaseScopes(scope) {
@@ -1177,6 +1234,35 @@ function annotateReleaseScope(steps, start, scope) {
   }
 }
 
+function appendRendererDeploySteps(input) {
+  const website = input.scope === "website";
+  const client = website ? "website" : "web";
+  input.steps.push(
+    packageDeployStep(
+      `openmeld-${client}`,
+      website ? "Deploy Website" : "Deploy Web",
+      {
+        args: ["--config", `clients/${client}/wrangler.jsonc`, "--env", "prod"],
+      }
+    ),
+    {
+      args: [
+        "scripts/release/production-web-health.mjs",
+        "--scope",
+        client,
+        "--url",
+        website ? "https://openmeld.ai" : "https://app.openmeld.ai",
+        "--source-sha",
+        input.releaseSha,
+        "--artifact-receipt",
+        `dev-tmp/release-artifact-check/${client}.json`,
+      ],
+      command: "node",
+      label: website ? "Verify Website health" : "Verify Web health",
+    }
+  );
+}
+
 function appendProductionDeployScopeSteps(input) {
   if (input.scope === "db") {
     input.steps.push({
@@ -1193,25 +1279,8 @@ function appendProductionDeployScopeSteps(input) {
     });
     return;
   }
-  if (input.scope === "web") {
-    input.steps.push(
-      packageDeployStep("openmeld-web", "Deploy Web", {
-        args: ["--config", "clients/web/wrangler.jsonc", "--env", "prod"],
-      }),
-      {
-        args: [
-          "scripts/release/production-web-health.mjs",
-          "--url",
-          "https://openmeld.ai",
-          "--source-sha",
-          input.releaseSha,
-          "--artifact-receipt",
-          "dev-tmp/release-artifact-check/web.json",
-        ],
-        command: "node",
-        label: "Verify Web health",
-      }
-    );
+  if (input.scope === "web" || input.scope === "website") {
+    appendRendererDeploySteps(input);
     return;
   }
   if (input.scope === "gateway") {
@@ -2748,8 +2817,14 @@ async function main(argv) {
   assertCleanWorktree();
   refreshCurrentMain();
   assertProductionReleaseSource({ sourceSha: plan.sourceSha });
-  const preparationSteps =
+  // Domain preparation/restoration publishes no candidate application bytes.
+  // Keep source and environment guards without requiring a new renderer build
+  // to restore the exact previous deployment during an outage.
+  let preparationSteps =
     options.command === "verify" ? plan.verifySteps : plan.preflightSteps;
+  if (options.domainPhase) {
+    preparationSteps = buildCommonReleaseStepSpecs([]);
+  }
   for (const step of preparationSteps) {
     runStep(step);
   }
@@ -2757,19 +2832,39 @@ async function main(argv) {
   if (options.command === "verify" || options.command === "preflight") {
     return;
   }
-  await executeWithProductionScopeLeases({
-    execute: () =>
-      executeRecordedProductionDeploySteps({
-        sourceSha: plan.sourceSha,
-        executeSteps: executeProductionDeploySteps,
-        redeploy: options.redeploy ?? false,
-        beforeStep: () => assertSourceStillMatches(plan.sourceSha),
-        runCommand: runReadOnlyCommand,
-        afterStep: () => assertSourceStillMatches(plan.sourceSha),
-        steps: plan.deploySteps,
-      }),
-    owner: resolveLocalReleaseOwner(),
+  const domainInput = {
+    sourceSha: plan.sourceSha,
     scopes: plan.scopes,
+    evidencePath: options.domainEvidence,
+  };
+  await executeWithProductionScopeLeases({
+    execute: async () => {
+      if (options.domainPhase) {
+        const operation =
+          options.domainPhase === "prepare"
+            ? prepareWebsiteDomains
+            : rollbackWebsiteDomains;
+        const result = await operation(domainInput);
+        process.stdout.write(`${JSON.stringify(result)}\n`);
+        return;
+      }
+      const admission = await admitWebsiteDomainRelease(domainInput);
+      await executeObservedDomainRelease(domainInput, admission, () =>
+        executeRecordedProductionDeploySteps({
+          sourceSha: plan.sourceSha,
+          executeSteps: executeProductionDeploySteps,
+          redeploy: options.redeploy ?? false,
+          beforeStep: () => assertSourceStillMatches(plan.sourceSha),
+          runCommand: runReadOnlyCommand,
+          afterStep: () => assertSourceStillMatches(plan.sourceSha),
+          steps: plan.deploySteps,
+        })
+      );
+    },
+    owner: resolveLocalReleaseOwner(),
+    scopes: options.domainEvidence
+      ? [...plan.scopes, "auth", "web", "website"]
+      : plan.scopes,
     sourceSha: plan.sourceSha,
   });
 }

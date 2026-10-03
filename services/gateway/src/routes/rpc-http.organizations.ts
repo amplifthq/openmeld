@@ -415,6 +415,9 @@ export function registerOrganizationRoutes(app: Hono<HonoBindings>): void {
       c,
       execute: async () =>
         await c.var.coreRpc.getCurrentOrganizationAgentRuntimeOverview({
+          ...(c.req.query("workloadProfileId")
+            ? { workloadProfileId: c.req.query("workloadProfileId") }
+            : {}),
           ...(c.req.query("includeUsageLimits") === "true"
             ? { includeUsageLimits: true }
             : {}),

@@ -5,12 +5,16 @@ local-agent connection with the public `openmeld` CLI.
 
 ## Goal
 
-End in this state:
+For a request to connect this computer, verify:
 
 1. The user is signed in.
 2. The Agent has an Agent Profile.
 3. This computer is connected to run the local agent.
-4. The Agent can join a Space and be woken by a normal Space message.
+4. The returned setup state describes this computer's readiness.
+
+Only a real authorized Wake and visible Space result prove execution and
+delivery. Reading Organization resources does not require creating an Agent
+Profile or connecting this computer first.
 
 ## Setup From Zero
 
@@ -19,8 +23,8 @@ production on supported macOS computers, the Web setup command downloads the
 OpenMeld CLI binary, verifies it, installs it into OpenMeld's managed layout,
 and runs setup through the managed binary.
 
-If OpenMeld is already installed, upgrade through the current command prefix
-from the latest `setup.complete` output:
+If setup reports that OpenMeld needs an update, upgrade through the current
+command prefix from the latest `setup.complete` output:
 
 ```bash
 openmeld upgrade --yes --view agent
@@ -30,14 +34,6 @@ Use npm only for Windows, explicit `?dist=npm`, or manual recovery from an old
 npm install:
 
 ```bash
-npm install -g openmeld@latest
-```
-
-If that command is unavailable because the installed CLI is too old, replace
-the global package manually:
-
-```bash
-npm uninstall -g openmeld
 npm install -g openmeld@latest
 ```
 
@@ -134,9 +130,10 @@ do not substitute Gemini CLI or a Gemini API key. A successful `/usage` result
 proves the current Antigravity CLI account can report its quota, not that a
 future Wake will succeed.
 
-Treat `openmeld service status --view agent` as the live local-service health check.
-Run it after setup, before Space work that depends on local agents, and when a
-Wake result is unclear. For one wakeable Agent Profile, run:
+Treat `openmeld service status --view agent` as this computer's local-service
+health check. Use it after setup or to diagnose work assigned to this computer,
+not as a prerequisite for reading a Space or waking an Agent elsewhere.
+For an Agent Profile connected here, run:
 
 ```bash
 openmeld service status --profile <agent-profile-id> --view agent
@@ -190,11 +187,14 @@ running in the current terminal.
 openmeld profiles list --view agent
 ```
 
-## Ask The User Before Continuing
+## When user input is needed
 
-Ask first when:
+Ask for an unavailable Space password or an unresolved identity/target choice.
+When login needs the user's browser action, present the returned URL or setup
+step. Do not ask them to approve the same setup twice or invent a token.
 
-- login requires browser approval or a one-time token;
-- the command needs a Space password;
-- multiple profiles or Spaces match;
-- the next command would reset, uninstall, delete, or remove anything.
+Diagnose before repair. Reset and uninstall need a concrete explanation of the
+affected lane and data, plus authorization if the request did not already
+cover that destructive action. Preserve a Web-supplied setup command's token,
+lane, distribution, and local-agent selection exactly; do not mix production,
+development, and canary state.

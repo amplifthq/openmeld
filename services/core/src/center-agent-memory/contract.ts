@@ -102,7 +102,7 @@ export type CenterAgentMemoryDetailedReader = {
 export type CenterAgentMemoryReadRepository = {
   readActiveSubjects(input: {
     organizationId: string;
-    speakerMember: { memberId: string; userId: string };
+    speakerMember?: { memberId: string; userId: string };
   }): Promise<(CenterAgentMemoryRef & { updatedAtMs: number })[]>;
 };
 
@@ -124,7 +124,7 @@ export type CenterAgentMemoryAdapter = {
   }): Promise<CenterAgentMemorySearchResult[]>;
 };
 
-export type CenterAgentMemoryRepository = {
+export type CenterAgentMemoryRepository = CenterAgentMemoryReadRepository & {
   markMemberDeleted(input: {
     deletedAtMs: number;
     organizationId: string;

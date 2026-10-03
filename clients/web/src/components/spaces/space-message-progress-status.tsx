@@ -7,9 +7,11 @@ import {
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
 import { useNowMs } from "#/lib/spaces/use-now-ms";
 import {
+	resolveSpaceMessageStopFeedback,
 	resolveWakeProgressThinkingEntry,
 	type SpaceMessageWakeThinkingEntry,
 } from "#/lib/spaces/wake-progress-presentation";
+import type { SpaceWakeOutcomeIndex } from "#/lib/spaces/wake-stop-target";
 import { SpaceAgentToolActivity } from "./space-agent-tool-activity";
 import { hasLiveSpaceAgentToolActivity } from "./space-agent-tool-activity-state";
 import { SpaceMessageDeliveryStatus } from "./space-message-delivery-status";
@@ -19,6 +21,7 @@ import {
 	useSpaceSendFailure,
 } from "./space-pending-send";
 import { SpaceWakeBookmarkAnchor } from "./space-wake-bookmarks";
+import { useSpaceWakeStopRequestStatuses } from "./space-wake-stop-control";
 
 export function SpaceMessageProgressStatus(input: {
 	align?: "start" | "end";
@@ -26,8 +29,20 @@ export function SpaceMessageProgressStatus(input: {
 	control?: ReactNode;
 	entries: readonly SpaceMessageWakeThinkingEntry[];
 	item: SpaceTimelineItem;
+	wakeOutcomeIndex?: SpaceWakeOutcomeIndex;
+	wakeSourceItem?: SpaceTimelineItem;
 	onOpenMessageDetails?: () => void;
 }) {
+	const stopFeedback = resolveSpaceMessageStopFeedback(
+		input.item,
+		useSpaceWakeStopRequestStatuses()
+	).filter(
+		(entry) =>
+			!input.wakeOutcomeIndex?.hasVisibleOutcomeForSourceTarget({
+				sourceItem: input.wakeSourceItem ?? input.item,
+				targetProfileId: entry.targetProfileId,
+			})
+	);
 	const sendFailure = useSpaceSendFailure(input.item.id);
 	const shouldTick = input.item.deliveryState === "pending";
 	const nowMs = useNowMs(shouldTick ? 1000 : null);
@@ -35,12 +50,29 @@ export function SpaceMessageProgressStatus(input: {
 		item: input.item,
 		nowMs,
 	});
-	const content = resolveSpaceMessageProgressContent({
-		deliveryPresentation,
-		entries: input.entries,
-		hasControl: input.control != null,
-		item: input.item,
-	});
+	const content: SpaceMessageProgressContent | null =
+		stopFeedback.length > 0
+			? {
+					kind: "status",
+					deliveryPresentation: null,
+					entries: [
+						...input.entries.filter(
+							(entry) =>
+								!stopFeedback.some(
+									(feedback) =>
+										feedback.targetProfileId === entry.targetProfileId
+								)
+						),
+						...stopFeedback,
+					],
+					showAgentWorkingState: false,
+				}
+			: resolveSpaceMessageProgressContent({
+					deliveryPresentation,
+					entries: input.entries,
+					hasControl: input.control != null,
+					item: input.item,
+				});
 	if (sendFailure) {
 		return wrapProgressStatus(
 			<SpacePendingSendFeedback align={input.align} signalId={input.item.id} />,

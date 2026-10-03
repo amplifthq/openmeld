@@ -4,6 +4,7 @@ import {
 	createOpenMeldApiClient,
 	createSpaceApi,
 	OpenMeldApiClientHttpError,
+	readOrUpdateSpaceInputQueue,
 } from "@openmeld/api-client";
 import { SPACE_STREAM_KEEPALIVE_PING } from "@openmeld/protocol";
 import {
@@ -46,6 +47,8 @@ import {
 } from "@testing-library/react";
 import { type ReactNode, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const JORDAN_OPTION_NAME = /Jordan/;
 
 // These submission tests start with an empty draft store; browser reload
 // persistence is outside this component/API integration boundary.
@@ -316,6 +319,7 @@ vi.mock("@openmeld/api-client", async () => {
 		...actual,
 		createDirectMessageApi: (...args: unknown[]) =>
 			createDirectMessageApiMock(...args),
+		readOrUpdateSpaceInputQueue: vi.fn(async () => ({ items: [] })),
 	};
 });
 
@@ -332,6 +336,7 @@ vi.mock("@tanstack/react-query", async () => {
 	// mocked download API, including the optimistic local-preview phase.
 	const usesRealQuery = (queryKey: unknown) =>
 		isWakeProgressPresentationQuery(queryKey) ||
+		(Array.isArray(queryKey) && queryKey[0] === "space-input-queue") ||
 		(Array.isArray(queryKey) && queryKey[0] === "space-link-previews") ||
 		(Array.isArray(queryKey) &&
 			queryKey[0] === "spaces" &&
@@ -1844,12 +1849,12 @@ describe("SpaceLanding", () => {
 
 		expect(upsertProfileSpaceHistoryMock).not.toHaveBeenCalled();
 		expect(FakeWebSocket.instances).toHaveLength(0);
-		const composer = screen.getByRole("textbox", {
-			name: "Message this space",
-		});
-		expect(composer.getAttribute("aria-placeholder")).toBe(
-			"Join as Mira to participate in this Space."
-		);
+		expect(
+			screen.queryByRole("textbox", { name: "Message this space" })
+		).toBeNull();
+		expect(
+			screen.getByText("Join as Mira to participate in this Space.")
+		).toBeTruthy();
 		fireEvent.click(screen.getByRole("button", { name: "Join as Mira" }));
 
 		await waitFor(() => {
@@ -3059,13 +3064,9 @@ describe("SpaceLanding", () => {
 		).toBeNull();
 		fireEvent.click(profileControl);
 		const profileListbox = await screen.findByRole("listbox");
-		const profileMenuPositioningFrame =
-			profileListbox.parentElement?.parentElement;
-
-		expect(profileMenuPositioningFrame?.style.bottom).not.toBe("");
-		expect(profileMenuPositioningFrame?.style.right).not.toBe("");
-		expect(profileMenuPositioningFrame?.style.left).toBe("");
-		expect(profileMenuPositioningFrame?.style.top).toBe("");
+		expect(
+			within(profileListbox).getByRole("option", { name: JORDAN_OPTION_NAME })
+		).toBeTruthy();
 		expect(screen.queryByText("1 other profile also joined")).toBeNull();
 		expect(screen.queryByText("+ 1 profile")).toBeNull();
 	});
@@ -3726,7 +3727,7 @@ describe("SpaceLanding", () => {
 			const thinkingIndicator = screen.getByTestId(
 				"space-wake-thinking-indicator"
 			);
-			expect(thinkingIndicator.textContent).toContain("runner is working");
+			expect(thinkingIndicator.textContent).toContain("runner · Thinking…");
 		});
 	});
 
@@ -3840,7 +3841,7 @@ describe("SpaceLanding", () => {
 		const thinkingIndicator = screen.getByTestId(
 			"space-wake-thinking-indicator"
 		);
-		expect(thinkingIndicator.textContent).toContain("runner is working");
+		expect(thinkingIndicator.textContent).toContain("runner · Thinking…");
 
 		await act(async () => {
 			resolveDetailedWakeProgress({
@@ -3854,7 +3855,10 @@ describe("SpaceLanding", () => {
 		});
 	});
 
-	it("sends a Center Agent correction to a running response confirmed by Core", async () => {
+	it.each([
+		"Center",
+		"Local",
+	] as const)("queues text during a confirmed %s response without publishing or steering it", async (controller) => {
 		vi.stubGlobal(
 			"IntersectionObserver",
 			class {
@@ -3899,7 +3903,8 @@ describe("SpaceLanding", () => {
 			getUpdates: vi.fn().mockResolvedValue({ signals: [] }),
 		});
 		mockSpaceQueries({
-			centerAgentProfileId: DEFAULT_AGENT_PROFILE_ID,
+			centerAgentProfileId:
+				controller === "Center" ? DEFAULT_AGENT_PROFILE_ID : null,
 			activeWakeProgressSummary: createQueryResult({
 				isSuccess: true,
 				isFetchedAfterMount: true,
@@ -3914,7 +3919,10 @@ describe("SpaceLanding", () => {
 			status: createQueryResult({ isSuccess: true, data: createSpaceStatus() }),
 			members: createQueryResult({
 				isSuccess: true,
-				data: createMembersSnapshot(),
+				data: createMembersSnapshot({
+					defaultAgentControllerRef:
+						controller === "Center" ? "hosted:center-agent" : "builtin:codex",
+				}),
 			}),
 			history: createQueryResult({
 				isSuccess: true,
@@ -3930,23 +3938,32 @@ describe("SpaceLanding", () => {
 				},
 			}),
 		});
-		renderSpaceLanding({ queryClient, isCenterAgentDirectMessage: true });
-		await setComposerValue(
-			screen.getByRole("textbox", { name: "Message Center Agent" }),
-			"Only North America."
-		);
+		renderSpaceLanding({
+			queryClient,
+			isCenterAgentDirectMessage: controller === "Center",
+		});
+		await setComposerValue(screen.getByRole("textbox"), "Only North America.");
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 		await waitFor(() =>
-			expect(postNormalMessage).toHaveBeenCalledWith(
+			expect(readOrUpdateSpaceInputQueue).toHaveBeenCalledWith(
+				expect.anything(),
 				expect.objectContaining({
-					meta: expect.objectContaining({
-						centerAgentExecutionInput: {
+					spaceId: "space-123",
+					mutation: expect.objectContaining({
+						action: "enqueue",
+						text: "Only North America.",
+						target: {
 							dispatchId: "original-dispatch",
 							targetProfileId: DEFAULT_AGENT_PROFILE_ID,
 						},
 					}),
-					messageEnvelope: expect.objectContaining({ activationTargets: [] }),
 				})
+			)
+		);
+		expect(postNormalMessage).not.toHaveBeenCalled();
+		await waitFor(() =>
+			expect(screen.getByRole("textbox").textContent).not.toContain(
+				"Only North America."
 			)
 		);
 	});
@@ -4145,9 +4162,7 @@ describe("SpaceLanding", () => {
 			const thinkingIndicator = screen.getByTestId(
 				"space-wake-thinking-indicator"
 			);
-			expect(thinkingIndicator.textContent).toContain(
-				"runner · Posting reply…"
-			);
+			expect(thinkingIndicator.textContent).toContain("runner · Replying…");
 		});
 	});
 
@@ -4504,7 +4519,7 @@ describe("SpaceLanding", () => {
 			const thinkingIndicator = screen.getByTestId(
 				"space-wake-thinking-indicator"
 			);
-			expect(thinkingIndicator.textContent).toContain("runner is working");
+			expect(thinkingIndicator.textContent).toContain("runner · Thinking…");
 		});
 	});
 
@@ -5856,7 +5871,7 @@ describe("SpaceLanding", () => {
 		expect(screen.queryByText("Add your first agent")).toBeNull();
 		expect(screen.queryByText(CAN_VIEW_TEXT_PATTERN)).toBeNull();
 		expect(
-			screen.queryByRole("button", { name: "Join conversation first" })
+			screen.queryByRole("button", { name: "Join conversation" })
 		).toBeNull();
 	});
 
@@ -5918,17 +5933,20 @@ describe("SpaceLanding", () => {
 				.getByText("View only")
 				.closest('[data-slot="space-window-header-title"]')
 		).not.toBeNull();
-		const composer = screen.getByRole("textbox", {
-			name: "Message Runner",
-		});
-		expect(composer.getAttribute("aria-placeholder")).toBe(
-			"Alice is chatting with your agent, Runner. Join this conversation to send messages."
-		);
+		expect(
+			screen.queryByRole("textbox", { name: "Message Runner" })
+		).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "Add People or Agents" })
+		).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "Mention a member" })
+		).toBeNull();
 		expect(
 			screen.getByText("Join the conversation to send the first message.")
 		).toBeTruthy();
 		const joinButtons = screen.getAllByRole("button", {
-			name: "Join conversation first",
+			name: "Join conversation",
 		});
 		expect(joinButtons).toHaveLength(2);
 		const composerSection = document.querySelector(
@@ -5939,7 +5957,7 @@ describe("SpaceLanding", () => {
 			within(composerSection as HTMLElement).queryByText(
 				"Alice is chatting with your agent, Runner. Join this conversation to send messages."
 			)
-		).toBeNull();
+		).not.toBeNull();
 		expect(
 			within(composerSection as HTMLElement).queryByRole("button", {
 				name: "Send message",
@@ -5947,7 +5965,7 @@ describe("SpaceLanding", () => {
 		).toBeNull();
 		fireEvent.click(
 			within(composerSection as HTMLElement).getByRole("button", {
-				name: "Join conversation first",
+				name: "Join conversation",
 			})
 		);
 		expect(
@@ -6010,7 +6028,7 @@ describe("SpaceLanding", () => {
 
 		expect(screen.getByText("Mira can view")).toBeTruthy();
 		expect(
-			screen.queryByRole("button", { name: "Join conversation first" })
+			screen.queryByRole("button", { name: "Join conversation" })
 		).toBeNull();
 	});
 
@@ -6159,7 +6177,7 @@ describe("SpaceLanding", () => {
 
 		fireEvent.click(
 			screen.getAllByRole("button", {
-				name: "Join conversation first",
+				name: "Join conversation",
 			})[0] as Element
 		);
 		fireEvent.change(screen.getByRole("textbox", { name: "Space name" }), {
@@ -6528,7 +6546,7 @@ describe("SpaceLanding", () => {
 		).toBeNull();
 		expect(screen.queryByText(CAN_VIEW_TEXT_PATTERN)).toBeNull();
 		expect(
-			screen.queryByRole("button", { name: "Join conversation first" })
+			screen.queryByRole("button", { name: "Join conversation" })
 		).toBeNull();
 	});
 
@@ -9810,7 +9828,9 @@ describe("SpaceLanding", () => {
 		const targetList = await openComposerMemberPicker();
 		expect(targetList.className).toContain("z-500");
 		expect(targetList.className).toContain("max-h-[288px]");
-		expect(targetList.className).toContain("overflow-y-auto");
+		expect(
+			targetList.querySelector('[data-slot="scroll-area-viewport"]')
+		).not.toBeNull();
 		expect(within(targetList).getByText("Agents")).toBeTruthy();
 		expect(within(targetList).getByText("People")).toBeTruthy();
 		expect(within(targetList).getByText("Runner")).toBeTruthy();
@@ -9910,7 +9930,9 @@ describe("SpaceLanding", () => {
 
 		const targetList = await openComposerMemberPicker();
 		expect(targetList.className).toContain("max-h-[288px]");
-		expect(targetList.className).toContain("overflow-y-auto");
+		expect(
+			targetList.querySelector('[data-slot="scroll-area-viewport"]')
+		).not.toBeNull();
 		expect(within(targetList).getByText("Scroll Agent 18")).toBeTruthy();
 		expect(within(targetList).getAllByRole("option").length).toBeGreaterThan(
 			18
@@ -11358,13 +11380,7 @@ describe("SpaceLanding", () => {
 			{ button: 0, detail: 1 }
 		);
 
-		await waitFor(() => {
-			expect(scrollToMock).toHaveBeenCalledWith({
-				behavior: "instant",
-				top: 960,
-			});
-		});
-		expect(conversationHistory.scrollTop).toBe(640);
+		await waitFor(() => expect(conversationHistory.scrollTop).toBe(640));
 		await waitFor(() => {
 			expect(
 				screen
@@ -14253,7 +14269,13 @@ describe("SpaceLanding", () => {
 
 		await screen.findByText("The Space does not belong to this Organization.");
 		await screen.findByRole("group", { name: "Files to send" });
+		fireEvent.click(
+			screen.getByRole("button", { name: "Attachment error: broken.png" })
+		);
 		expect(screen.getByText("Request ID: request-upload-403")).toBeTruthy();
+		fireEvent.keyDown(document.activeElement ?? document.body, {
+			key: "Escape",
+		});
 		await setComposerValue(
 			screen.getByRole("textbox", { name: "Message this space" }),
 			"Text can still be sent"
@@ -15201,9 +15223,7 @@ describe("SpaceLanding", () => {
 		const wakeThinkingIndicator = screen.getByTestId(
 			"space-wake-thinking-indicator"
 		);
-		expect(wakeThinkingIndicator.textContent).toContain(
-			"Starting Wake for runner…"
-		);
+		expect(wakeThinkingIndicator.textContent).toContain("runner · Thinking…");
 
 		await act(async () => {
 			resolvePost?.(
@@ -16080,7 +16100,7 @@ describe("SpaceLanding", () => {
 		const wakeThinkingIndicator = screen.getByTestId(
 			"space-wake-thinking-indicator"
 		);
-		expect(wakeThinkingIndicator.textContent).toContain("Wake sent to watcher");
+		expect(wakeThinkingIndicator.textContent).toContain("watcher · Thinking…");
 		fireEvent.click(wakeThinkingIndicator);
 		expect(
 			await screen.findByRole("heading", { name: "Message details" })
@@ -16399,8 +16419,8 @@ describe("SpaceLanding", () => {
 		expect(
 			await screen.findByText(
 				failure === "missing"
-					? "This message is no longer available."
-					: "The connection was interrupted. Try again."
+					? "This message is no longer available in this conversation. Showing the latest messages."
+					: "Couldn’t load this part of the conversation. Try again."
 			)
 		).toBeTruthy();
 	});

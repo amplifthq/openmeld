@@ -564,7 +564,11 @@ export function SpaceFileDetail(input: {
 				saveError={saveError}
 			/>
 
-			<div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-5 lg:overflow-hidden">
+			<ScrollArea
+				className="min-h-0 flex-1"
+				contentClassName="flex min-h-full flex-col p-5 lg:h-full"
+				viewportClassName="lg:overflow-hidden!"
+			>
 				<SpaceFilePreviewSurface
 					fallback={fileContent}
 					fileName={input.file.name}
@@ -578,7 +582,7 @@ export function SpaceFileDetail(input: {
 						organizationSlug: input.organizationSlug,
 					}}
 				/>
-			</div>
+			</ScrollArea>
 			<SpaceFileHistoryDrawer
 				currentRevision={input.file.latestRevision.revision}
 				downloadingRevision={downloadingRevision}

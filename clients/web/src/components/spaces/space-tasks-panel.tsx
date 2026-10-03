@@ -2,6 +2,7 @@
 
 import type { SpaceTask, SpaceTaskPhase } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import {
 	CheckCircleIcon,
 	CircleIcon,
@@ -185,7 +186,7 @@ export function SpaceTasksPanel(input: SpaceTasksPanelProps) {
 		: `/spaces/${encodeURIComponent(input.spaceId)}`;
 
 	return (
-		<div className="min-h-0 flex-1 overflow-y-auto">
+		<ScrollArea className="min-h-0 flex-1">
 			<div className="mx-auto max-w-[1600px] p-4 sm:p-6">
 				<TasksRefreshNotice
 					isFetching={tasksQuery.isFetching}
@@ -281,7 +282,7 @@ export function SpaceTasksPanel(input: SpaceTasksPanelProps) {
 				}
 				task={selectedTask}
 			/>
-		</div>
+		</ScrollArea>
 	);
 }
 

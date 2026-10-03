@@ -1,5 +1,12 @@
 "use client";
 
+import {
+	PLUGIN_CATEGORIES,
+	PLUGINS,
+	type PluginCategory,
+	type PluginDefinition,
+} from "@openmeld/product-catalog/plugins";
+import { AppLogo } from "@openmeld/ui/components/app-logo";
 import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
 import { Input } from "@openmeld/ui/components/input";
@@ -14,13 +21,6 @@ import { useState } from "react";
 import { ObjectMenuItems } from "#/components/app/object-menu-items";
 import { buildOrganizationPluginPath } from "#/lib/organizations/organization-routes";
 import { organizationPluginConnectionCatalogQueryOptions } from "#/query/organizations/plugin-connections";
-import { AppLogo } from "./app-logo";
-import {
-	PLUGIN_CATEGORIES,
-	PLUGINS,
-	type PluginCategory,
-	type PluginDefinition,
-} from "./plugin-catalog";
 import { usePluginScope } from "./plugin-scope-tabs";
 
 export function PluginsCatalogPanel(input: {

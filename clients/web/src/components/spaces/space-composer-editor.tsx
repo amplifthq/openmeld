@@ -8,8 +8,6 @@ import {
 	SelectItem,
 	SelectTrigger,
 } from "@openmeld/ui/fluid/select";
-import { surfaceClasses } from "@openmeld/ui/lib/surface-classes";
-import { useSurface } from "@openmeld/ui/lib/surface-context";
 import { cn } from "@openmeld/ui/lib/utils";
 import { SpinnerGapIcon, UsersIcon, XIcon } from "@phosphor-icons/react";
 import { MentionInputPlugin, MentionPlugin } from "@platejs/mention/react";
@@ -79,6 +77,12 @@ import {
 import { SpaceAgentAvailabilityIndicator } from "./space-member-inline-status-text";
 import { resolveSpaceMemberStatusTone } from "./space-member-status-tone";
 import { SpaceProfileIcon } from "./space-profile-icon";
+import {
+	SPACE_PROFILE_MENTION_NAME_CLASS_NAME,
+	SPACE_PROFILE_MENTION_RELATION_CLASS_NAME,
+	SPACE_PROFILE_MENTION_TOKEN_CLASS_NAME,
+	SpaceProfileMentionIdentity,
+} from "./space-profile-mention-token";
 import { SpaceWakeSuggestionToken } from "./space-wake-suggestion-token";
 import type {
 	SpaceComposerAddressingTarget,
@@ -696,7 +700,6 @@ function SpaceComposerProfileToken(
 	props: PlateElementProps<SpaceComposerProfileElement>
 ) {
 	const { editor, element } = props;
-	const surface = useSurface() + 1;
 	// Moving focus into the portaled menu must not move the draft's caret.
 	const relationSelection = useRef(editor.selection);
 	const context = useSpaceComposerEditorContext();
@@ -705,15 +708,17 @@ function SpaceComposerProfileToken(
 			<PlateElement {...props} as="span">
 				<span
 					className={cn(
-						surfaceClasses(surface),
-						"group/profile-token relative mx-0.5 inline-flex h-7 max-w-full items-center gap-1 rounded-md px-1.5 align-baseline text-foreground focus-within:ring-2 focus-within:ring-ring"
+						SPACE_PROFILE_MENTION_TOKEN_CLASS_NAME,
+						"group/profile-token relative content-space-message focus-within:ring-2 focus-within:ring-ring"
 					)}
 					contentEditable={false}
 					data-mention-text={element.mentionText}
 					data-testid="space-composer-audience-token"
 				>
-					<UsersIcon aria-hidden="true" className="size-4 shrink-0" />
-					<span className="font-medium">{element.mentionText}</span>
+					<UsersIcon aria-hidden="true" className="size-3.5 shrink-0" />
+					<span className={SPACE_PROFILE_MENTION_NAME_CLASS_NAME}>
+						{element.mentionText}
+					</span>
 					<button
 						aria-label={`Remove ${element.mentionText} from message`}
 						className="pointer-events-none absolute -top-2 -right-2 z-10 inline-flex size-5 items-center justify-center rounded-full bg-popover text-muted-foreground opacity-0 shadow-sm ring-1 ring-border transition-opacity duration-100 ease-out hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-focus-within/profile-token:pointer-events-auto group-focus-within/profile-token:opacity-100 group-hover/profile-token:pointer-events-auto group-hover/profile-token:opacity-100 motion-reduce:transition-none [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
@@ -747,9 +752,7 @@ function SpaceComposerProfileToken(
 	let relationControl: ReactNode = null;
 	if (locked) {
 		relationControl = (
-			<span className="inline-flex h-6 items-center border-border border-l px-2 font-medium text-muted-foreground text-xs">
-				Wake
-			</span>
+			<span className={SPACE_PROFILE_MENTION_RELATION_CLASS_NAME}>Wake</span>
 		);
 	} else if (
 		profileKind === "agent" &&
@@ -801,7 +804,10 @@ function SpaceComposerProfileToken(
 				>
 					<SelectTrigger
 						aria-label={`Change relation for ${profileName}`}
-						className="h-6 min-w-0 gap-1 rounded-none border-0 border-border border-l px-1.5 py-0 font-medium text-muted-foreground text-xs max-lg:h-6 max-lg:min-w-0 [&>svg]:size-3"
+						className={cn(
+							SPACE_PROFILE_MENTION_RELATION_CLASS_NAME,
+							"h-5 min-w-0 gap-1 rounded-none border-0 border-l py-0 pr-0 max-lg:h-5 max-lg:min-w-0 [&>svg]:size-3"
+						)}
 						displayValue={
 							<span className="inline-flex items-center gap-1">
 								{composerRelationLabel(
@@ -862,7 +868,7 @@ function SpaceComposerProfileToken(
 		);
 	} else if (isRepeatedAgent) {
 		relationControl = (
-			<span className="inline-flex h-6 items-center border-border border-l px-2 font-medium text-muted-foreground text-xs">
+			<span className={SPACE_PROFILE_MENTION_RELATION_CLASS_NAME}>
 				Mention only
 			</span>
 		);
@@ -872,45 +878,32 @@ function SpaceComposerProfileToken(
 		<PlateElement {...props} as="span">
 			<span
 				className={cn(
-					surfaceClasses(surface),
-					"group/profile-token relative mx-0.5 inline-flex h-7 max-w-full items-center gap-1 rounded-md px-1.5 align-baseline focus-within:ring-2 focus-within:ring-ring",
-					isBlockedWake ? "text-muted-foreground" : "text-foreground"
+					SPACE_PROFILE_MENTION_TOKEN_CLASS_NAME,
+					"group/profile-token relative content-space-message focus-within:ring-2 focus-within:ring-ring",
+					isBlockedWake && "text-muted-foreground"
 				)}
 				contentEditable={false}
 				data-mention-text={element.mentionText}
 				data-testid="space-composer-profile-token"
 				data-wake-confirmed={element.wakeRecommendationAccepted || undefined}
 			>
-				<span
-					aria-hidden="true"
-					className="shrink-0 font-semibold"
-					data-slot="space-composer-profile-token-at"
+				<SpaceProfileMentionIdentity
+					muted={isBlockedWake}
+					profile={{
+						agentControllerRef:
+							pickerItem?.memberEntry.agentControllerRef ?? null,
+						avatarImageUrl: pickerItem?.memberEntry.avatarUrl ?? null,
+						isCenterAgent: element.profileId === context.centerAgentProfileId,
+						profileId: element.profileId,
+						profileKind,
+						profileName,
+					}}
 				>
-					@
-				</span>
-				<span
-					className={cn(
-						"inline-flex shrink-0",
-						isBlockedWake && "opacity-50 grayscale"
-					)}
-					data-slot="space-composer-profile-token-icon"
-				>
-					<SpaceProfileIcon
-						agentControllerRef={
-							pickerItem?.memberEntry.agentControllerRef ?? null
-						}
-						avatarImageUrl={pickerItem?.memberEntry.avatarUrl}
-						className="size-4"
-						isCenterAgent={element.profileId === context.centerAgentProfileId}
-						profileId={element.profileId}
-						profileKind={profileKind}
+					<SpaceComposerProfileName
+						pickerItem={pickerItem}
 						profileName={profileName}
 					/>
-				</span>
-				<SpaceComposerProfileName
-					pickerItem={pickerItem}
-					profileName={profileName}
-				/>
+				</SpaceProfileMentionIdentity>
 				{relationControl}
 				{locked ? null : (
 					<button
@@ -1038,7 +1031,7 @@ function SpaceComposerProfileName({
 	const trigger = (
 		<button
 			aria-label={`View ${profileName}'s profile`}
-			className="min-w-0 truncate font-medium outline-none"
+			className={cn(SPACE_PROFILE_MENTION_NAME_CLASS_NAME, "outline-none")}
 			data-slot="space-composer-profile-token-name"
 			onMouseDown={(event) => event.preventDefault()}
 			type="button"
@@ -1052,7 +1045,7 @@ function SpaceComposerProfileName({
 				profileDetailsPopoverTrigger(trigger)
 			) : (
 				<span
-					className="min-w-0 truncate font-medium"
+					className={SPACE_PROFILE_MENTION_NAME_CLASS_NAME}
 					data-slot="space-composer-profile-token-name"
 				>
 					{profileName}

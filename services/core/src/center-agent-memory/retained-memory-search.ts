@@ -4,6 +4,7 @@ import type {
   CenterAgentMemoryReadRepository,
 } from "./contract";
 import { CENTER_AGENT_MEMORY_RECALL_TIMEOUT_MS } from "./contract";
+import { interleaveMemoryScopes } from "./memory-selection";
 import { withCenterAgentMemoryTimeout } from "./memory-service";
 
 export type RetainedMemoryRead = {
@@ -52,17 +53,11 @@ export async function searchRetainedCenterAgentMemory(input: {
     const incomplete =
       successful.length !== results.length ||
       successful.some((result) => result.status === "partial");
-    const items: CenterAgentMemoryDetailedSearchItem[] = [];
     // Preserve provider rank within each scope without letting the first scope
     // consume the entire candidate window. This is not exhaustive history.
-    for (let rank = 0; rank < input.limit; rank += 1) {
-      for (const result of successful) {
-        const item = result.items[rank];
-        if (item) {
-          items.push(item);
-        }
-      }
-    }
+    const items = interleaveMemoryScopes(
+      successful.map((result) => result.items.slice(0, input.limit))
+    );
     let status: RetainedMemoryRead["status"] = incomplete
       ? "partial"
       : "complete";

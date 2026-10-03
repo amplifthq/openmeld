@@ -1,11 +1,11 @@
 "use client";
 
+import { findPluginDefinition } from "@openmeld/product-catalog/plugins";
 import { pluginChannelRequestPreviewSchema } from "@openmeld/schemas";
 import { Button } from "@openmeld/ui/components/button";
 import { useQuery } from "@tanstack/react-query";
 import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
-import { findPluginDefinition } from "./plugin-catalog";
 import { PluginConnectionSetupPanel } from "./plugin-connection-message-card";
 
 /** This private request page reuses the same setup surface as Message UI.
