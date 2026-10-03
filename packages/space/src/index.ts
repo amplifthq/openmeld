@@ -81,9 +81,10 @@ export {
   type SpaceProfileAddSelector,
 } from "./membership/profile-add-plan";
 export {
-  type AgentDirectConversationSpaceStateInput,
-  isAgentDirectConversationSpace,
-} from "./presentation/agent-direct-conversation-space";
+  type AutomaticWakeSpaceStateInput,
+  isAutomaticWakeSpace,
+  isOneHumanAgentConversation,
+} from "./presentation/automatic-wake-space";
 export {
   buildDirectMessagePairKey,
   type DirectMessageSpaceStateInput,

@@ -1,25 +1,23 @@
 import { isDirectMessageSpace } from "./direct-message-space";
+import { OPENMELD_WELCOMING_SPACE_PURPOSE } from "./welcoming-space";
 
-export type AgentDirectConversationSpaceStateInput = {
+export type AutomaticWakeSpaceStateInput = {
   activeMemberCount: number | null | undefined;
   agentMemberCount: number | null | undefined;
-  directMessageConvertedAt?: string | null | undefined;
   humanMemberCount: number | null | undefined;
   purpose: string | null | undefined;
+  isThreadMessage?: boolean;
+  directMessageConvertedAt?: string | null;
 };
 
-export function isAgentDirectConversationSpace(
-  input: AgentDirectConversationSpaceStateInput
+export function isAutomaticWakeSpace(
+  input: AutomaticWakeSpaceStateInput
 ): boolean {
-  if (!isOneHumanAgentConversation(input)) {
-    return false;
-  }
-
-  return isDirectMessageSpace({
-    activeMemberCount: input.activeMemberCount,
-    directMessageConvertedAt: input.directMessageConvertedAt,
-    purpose: input.purpose,
-  });
+  return (
+    input.purpose !== OPENMELD_WELCOMING_SPACE_PURPOSE &&
+    (!input.isThreadMessage || isDirectMessageSpace(input)) &&
+    isOneHumanAgentConversation(input)
+  );
 }
 
 export function isOneHumanAgentConversation(input: {

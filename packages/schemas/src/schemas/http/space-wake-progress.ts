@@ -102,6 +102,9 @@ export const wakeProgressItemSchema = z.strictObject({
     .nullable()
     .optional(),
   dispatchId: z.string().trim().min(1).nullable(),
+  // Space-owned output placement, independent of source context and stream arrival.
+  replyThreadRootSignalId: z.string().trim().min(1).nullable().optional(),
+  replyPlacementRevision: z.number().int().nonnegative().optional(),
   runtimeCoordinatorExecutionId:
     runtimeCoordinatorExecutionRecordSchema.shape.runtimeCoordinatorExecutionId
       .nullable()
@@ -124,6 +127,7 @@ export const wakeProgressItemSchema = z.strictObject({
 
 export const getSpaceWakeProgressInputSchema = z.strictObject({
   spaceId: nonEmptyTrimmedStringFromUnknown,
+  includeReplyPlacement: optionalBooleanQuerySchema,
   clientMessageId: clientMessageIdSchema,
   includePreviewText: optionalBooleanQuerySchema,
   includeTiming: optionalBooleanQuerySchema,
@@ -145,6 +149,7 @@ export const getSpaceWakeProgressResponseSchema = z.strictObject({
 
 export const getActiveSpaceWakeProgressInputSchema = z.strictObject({
   spaceId: nonEmptyTrimmedStringFromUnknown,
+  includeReplyPlacement: optionalBooleanQuerySchema,
   includePageInfo: optionalBooleanQuerySchema,
   includePreviewText: optionalBooleanQuerySchema,
   includeTiming: optionalBooleanQuerySchema,

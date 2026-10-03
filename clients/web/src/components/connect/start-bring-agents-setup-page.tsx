@@ -155,6 +155,9 @@ const prepareSessionLoadRequests = new Map<
 
 export type StartBringAgentsSetupPageProps = {
 	autoReturnOnCompletion?: boolean;
+	onCompleted?: (
+		snapshot: Pick<PrepareSessionSnapshot, "deviceId" | "runtimeLane">
+	) => void;
 	observePrepareSessionId?: string;
 	orgSlug?: string;
 	selfRoute?: string;
@@ -164,9 +167,6 @@ export type StartBringAgentsSetupPageProps = {
 
 type ComputerSetupFlowProps = StartBringAgentsSetupPageProps & {
 	onContinue?: () => void;
-	onCompleted?: (
-		snapshot: Pick<PrepareSessionSnapshot, "deviceId" | "runtimeLane">
-	) => void;
 	onNavigationActionAlreadyStarted?: () => void;
 	preferExistingConnection?: boolean;
 	presentation: "conversation" | "embedded" | "page";

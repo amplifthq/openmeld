@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-03T10:37:01.604Z",
+  "updatedAt": "2026-10-03T16:42:05.810Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
-      "packageVersion": "0.3.239",
+      "packageVersion": "0.3.240",
       "updatePolicy": "available",
-      "reason": "Task knowledge readers with current main App origins"
+      "reason": "Existing CLI commands remain compatible with both cloud versions; the version accompanies the updated shared Service package."
     },
     "service": {
-      "bundleHash": "1e7d7b8895f0e19ae81da06613d41c1ec77c88ff69e3c1f48e71338e7371cfcf",
-      "portableBundleHash": "e8a573ef4a7820b4fe154a56e4ef117dc79c0eae685a80004770a5cecac3b058",
-      "bundleVersion": "0.3.239",
+      "bundleHash": "bd0171df578786cfdadb0424193c5d8d3f829aafe0f32387ade813b8c099896b",
+      "portableBundleHash": "f04eb0e1ef1f25d1ac2d47016b2650f33be159e5d9b9bcc2fc2737b0ff923f66",
+      "bundleVersion": "0.3.240",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
       "serviceContractVersion": "openmeld-service-contract-2026-09-local-install-recovery-v1",
       "updatePolicy": "available",
-      "reason": "Task-scoped knowledge readers with current main integration"
+      "reason": "The added reply placement fields are opt-in and optional; existing Services remain compatible with old and new cloud receivers."
     },
     "skills": {
       "bundleHash": "74569de82e8b0aa6803bd418ae8eab60063a4bda19e0173a66628b4d93d9fa98",
