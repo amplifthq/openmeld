@@ -75,6 +75,37 @@ const CONNECTOR_CONNECTION_NAME_PATTERN =
 const REQUEST_CODE_PATTERN = /[a-f0-9]{8}(?:-[a-f0-9]{8}){3}/u;
 
 describe("Local Plugin human request authority", () => {
+  it("distinguishes proposed dashboard names without disclosing bodies or secrets", async () => {
+    const f = await seedHumanPluginRequestFixture();
+    const captured = capturedActions.data[1];
+    if (!captured) {
+      throw new Error("Missing captured dashboard action");
+    }
+    const metadata = { ...captured, effect: "write" as const };
+    f.runtime.mockImplementation(async () => ({
+      status: "catalog",
+      actions: [metadata] as (typeof f.metadata)[],
+    }));
+    const views: { label: string; value: string }[][] = [];
+    for (const name of ["Intended dashboard", "Unrequested dashboard"]) {
+      f.input.request.action = {
+        ...f.action,
+        actionId: metadata.id,
+        operationId: name,
+        input: { name, body: "private-body-canary", token: "secret-canary" },
+      };
+      const request = await f.pending();
+      expect(request.targets).toEqual([
+        { label: "Dashboard name", value: name },
+      ]);
+      expect(JSON.stringify(request)).not.toContain("private-body-canary");
+      expect(JSON.stringify(request)).not.toContain("secret-canary");
+      views.push(request.targets);
+    }
+    expect(views[0]).not.toEqual(views[1]);
+    expect(f.executions()).toHaveLength(0);
+  });
+
   it("blocks self-issued tokens and changing IDs, but executes two independently approved identical manual requests", async () => {
     const f = await seedHumanPluginRequestFixture();
     const first = await f.pending();

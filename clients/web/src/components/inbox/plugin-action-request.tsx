@@ -100,9 +100,10 @@ export function PluginActionRequest({ requestId }: { requestId: string }) {
 				))}
 			</dl>
 			<p className="text-muted-foreground text-xs">
-				This approval applies to the exact account and submitted input. Private
-				content and credentials are not shown here. Only approve if you
-				recognize the action you asked for.
+				This approval applies to the exact account and submitted input.
+				{request.inputFieldCount > request.targets.length
+					? " Some input is not shown. This summary does not verify omitted content."
+					: " Review the details before approving."}
 			</p>
 			{request.state === "pending" ? (
 				<form

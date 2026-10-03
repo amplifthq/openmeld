@@ -25,6 +25,7 @@ const REQUEST_LIFETIME_MS = 60 * 60 * 1000;
 const TARGET_FIELD =
   /^(?:project|workspace|repository|repo|issue|document|channel|folder|record|resource|target)(?:_?id|Id|ID)?$/u;
 const TARGET_VALUE = /^[a-zA-Z0-9_.:/-]{1,120}$/u;
+const UNSAFE_LABEL_CHARACTERS = /[\p{Cc}\p{Cf}]/u;
 type RequestRow = {
   id: string;
   organization_id: string;
@@ -436,6 +437,18 @@ async function projectRequest(
     }),
   ]);
   const targets: PluginActionRequestView["targets"] = [];
+  // This action's name is the proposed resource label, not a credential or
+  // message body. Keep it in the private detail, never the Inbox projection.
+  if (
+    intent.service === "posthog" &&
+    intent.actionId === "posthog.create_dashboard" &&
+    typeof intent.input.name === "string" &&
+    intent.input.name.length > 0 &&
+    intent.input.name.length <= 200 &&
+    !UNSAFE_LABEL_CHARACTERS.test(intent.input.name)
+  ) {
+    targets.push({ label: "Dashboard name", value: intent.input.name });
+  }
   for (const [key, value] of Object.entries(intent.input)) {
     if (targets.length === 12) {
       break;

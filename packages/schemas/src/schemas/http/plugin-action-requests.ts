@@ -29,8 +29,9 @@ export const pluginActionRequestViewSchema = z.strictObject({
   accountScope: z.enum(["member", "shared"]),
   actorProfileId: z.string(),
   inputFieldCount: z.number().int().nonnegative(),
-  // Only bounded resource identifiers appear here. Arbitrary action input,
-  // credentials and message bodies never enter this projection or Inbox.
+  // Bounded resource identifiers and explicitly reviewed action labels appear
+  // only in private detail. Arbitrary input, credentials and message bodies
+  // never enter this projection; no input values enter the Inbox preview.
   targets: z
     .array(z.strictObject({ label: z.string(), value: z.string() }))
     .max(12),

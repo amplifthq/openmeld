@@ -29,3 +29,5 @@ Inbox. Review the account and action, then use the code sent to your verified
 email to approve or decline the request. You can continue a manual CLI request
 without creating a Space. Retrying the same approved request keeps its original
 identity; approving a new request does not resolve an older uncertain result.
+Private request details show the proposed PostHog dashboard name and identify
+when other input is omitted from the review summary.

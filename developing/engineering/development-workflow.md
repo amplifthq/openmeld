@@ -1236,6 +1236,35 @@ case requires request-bound authentication evidence unavailable to the Agent,
 including a supported path for accounts that currently use only email login;
 it must not silently require a passkey or claim that a browser session suffices.
 
+The existing Auth configuration does not yet supply an independently enrolled
+confirmation factor. Better Auth 1.6.30 passkey registration uses a fresh session;
+OpenMeld adds no previous-factor requirement or trusted-enrollment provenance.
+The passkey table retains credential material and creation time, not who proved
+the enrollment. Password creation accepts the existing session, and password
+recovery and magic-link login use the same verified email. Consequently, simply
+changing the request challenge to a password, a recent cookie, or any currently
+registered passkey would not close self-enrollment from an Agent-held account.
+This is an unresolved release blocker, not a claim that existing login is broken.
+
+Two different guarantees must remain explicit: the operation owner can prevent
+repeat effects for the same authorized root; identifying a new human request
+also requires authority the old caller cannot manufacture. A future Auth-owned
+request challenge can reuse the pending request digest, but its enrollment,
+replacement and recovery must require a separately established trusted root.
+An email-only account with delegated mailbox access has no such independent root
+in the current model. Supporting that account requires a concrete initial trust
+establishment/recovery product decision; a client flag, timestamp cutoff, new
+factor registered with the same session, or new operation ID cannot supply it.
+Do not convert this missing boundary into permanent manual-write removal or a
+global same-content fence. Keep the candidate Draft pending that decision.
+
+Private request detail may expose explicitly reviewed, bounded resource labels
+from the immutable intent (currently the PostHog dashboard name), alongside
+bounded target identifiers. Inbox previews and email remain input-free. The Web
+detail must identify omitted input and must not claim omitted content was
+reviewed. This is not a generic raw-input preview or a complete safe-summary
+catalog for every Plugin action.
+
 Approval and Inbox resolution use one conditional D1 batch. Repeated decisions
 return the retained state, conflicting decisions fail, and execution claims
 recheck the approved request, membership and frozen connection/access revisions.
