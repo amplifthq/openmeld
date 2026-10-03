@@ -83,6 +83,7 @@ export {
 export {
   type AutomaticWakeSpaceStateInput,
   isAutomaticWakeSpace,
+  isOneHumanAgentConversation,
 } from "./presentation/automatic-wake-space";
 export {
   buildDirectMessagePairKey,

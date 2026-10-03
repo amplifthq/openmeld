@@ -721,6 +721,7 @@ export async function pollWakeProgress(input: {
 						clientMessageId,
 						includePreviewText: true,
 						includeSourceContext: true,
+						includeReplyPlacement: true,
 						includeTiming: true,
 						includeWaitReason: true,
 						includeDeviceWait: true,
@@ -771,6 +772,8 @@ export function areWakeProgressItemsEqual(
 				other !== undefined &&
 				item.clientMessageId === other.clientMessageId &&
 				item.dispatchId === other.dispatchId &&
+				item.replyThreadRootSignalId === other.replyThreadRootSignalId &&
+				item.replyPlacementRevision === other.replyPlacementRevision &&
 				item.failureReasonCode === other.failureReasonCode &&
 				item.message === other.message &&
 				item.previewText === other.previewText &&

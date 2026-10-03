@@ -3845,6 +3845,14 @@ function ThreadPreview(input: {
 		})
 	);
 	const replyCount = input.preview?.replyCount ?? 0;
+	if (
+		input.preview &&
+		replyCount === 0 &&
+		progressStatuses.length === 0 &&
+		!input.isReplyInProgress
+	) {
+		return null;
+	}
 	const replyCountText = formatThreadReplyCount(replyCount);
 	const unreadLabel = `${String(input.unreadCount)} unread`;
 	const countLabel = input.unreadCount > 0 ? unreadLabel : replyCountText;

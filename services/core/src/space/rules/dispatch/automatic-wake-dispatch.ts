@@ -104,7 +104,7 @@ export function readAutomaticWakePromptContext(
 
 function buildAutomaticWakePromptContext(input: { humanName: string }): string {
   const humanName = input.humanName.trim() || "the human member";
-  return `Conversation context: This Space has one human, ${humanName}, and one Agent, you. This human message is addressed to you without an @mention. This does not change reply placement. Agent-authored messages never automatically Wake another Agent; use an explicit Wake target to ask another Agent to work.`;
+  return `Conversation context: This Space has one human, ${humanName}, and one Agent, you. This human message is addressed to you without an @mention. A main-conversation request defaults to a main reply; continue an existing thread there. Follow explicit user preferences or select another reply location when the task calls for it. Agent-authored messages never automatically Wake another Agent; use an explicit Wake target to ask another Agent to work.`;
 }
 
 function isAutomaticWakeEligibleSignal(signal: SignalEnvelope): boolean {

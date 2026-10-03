@@ -1497,10 +1497,13 @@ reject that Wake action instead of silently posting it to the main Space.
 A reply should appear where the user expects the conversation to continue.
 
 For Local Agents, personal Remote Agents, and interactive Center Agent turns in
-shared Spaces, the final answer belongs in the Thread under the triggering
-message by default. Existing Thread conversations continue there; direct
-messages remain direct. A user may request the main conversation, or an Agent
-may put a conclusion, decision, or blocker there when the whole Space needs it.
+shared Spaces, existing Thread conversations continue there by default. A main
+conversation request in a Direct Message or an ordinary Space with exactly one
+active human and one active Agent defaults to main. Other main-conversation
+requests default to the Thread under the triggering message. These defaults
+are recommendations: explicit user instructions take precedence, and an Agent
+may choose the location that fits the task, including a main-conversation
+announcement or a focused Thread exchange.
 That choice must be structured: Local Agents select `placement=conversation`
 on their final reply, while hosted Agents use `openmeld_set_reply_placement`.
 Answer text alone never changes placement. Do not also publish a copy in the
@@ -1514,7 +1517,10 @@ observation scope or RuntimeCoordinator execution authority.
 For interactive Center Agent turns, follow an explicit user preference for the
 main conversation, including a continuing preference while it remains relevant.
 The Center Agent selects that destination with `openmeld_set_reply_placement`
-before composing its answer.
+as early as possible, preferably before public progress. Center and personal
+Remote Agents can change their selection until final publication begins.
+Reconsider each request using current instructions and relevant conversation
+preferences; a per-dispatch selection is not a permanent Space setting.
 While the destination is unresolved, Web presents the unfinished Agent reply in
 the source conversation, using the same progress projection as the sidebar and
 conversation controls. Public work and answer deltas appear in that reply as
@@ -1526,9 +1532,12 @@ and an authorized Stop control; the complete progress and final answer appear
 in that Thread. A final reply preview replaces the interim entrance status.
 
 Space owns one durable output placement per dispatch, separate from source
-context and conversation continuity. Explicit selection or the first answer
-text locks the destination. Streaming, final publication, callback failures,
-and result recovery reuse it. Pre-execution system notices still follow the
+context and conversation continuity. Explicit selection and the first answer
+text resolve an editable destination. Public work, reply drafts, and active
+status follow the current selection, including changes with no new text delta.
+Final publication locks the destination for callbacks and result recovery.
+An abandoned empty Thread does not retain an active preview entrance; existing
+Thread content is never deleted when placement changes. Pre-execution system notices still follow the
 source message. Routines and external Message Channels keep their own policies.
 
 Guide answer detail positively: prioritize useful new information, make outcomes

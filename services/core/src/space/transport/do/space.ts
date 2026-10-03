@@ -282,6 +282,7 @@ import {
   getSpaceAccessPassword,
   getSpaceAccessRequestContext,
   isDirectMessageSpace,
+  isOneHumanAgentConversation,
   resolveThreadAutomaticWakeTarget,
   resolveThreadWakeContinuation,
   type SpaceAccessContext,
@@ -7161,26 +7162,32 @@ export class Space extends DurableObject<CoreBindings> {
     });
   }
 
-  private readActiveAgentStreamSnapshots(): Promise<
+  private async readActiveAgentStreamSnapshots(): Promise<
     SpaceAgentStreamSnapshot[]
   > {
-    return listActiveAgentStreamSnapshots({
+    const streams = await listActiveAgentStreamSnapshots({
       storage: this.agentStreamProjectionStorage,
       nowMs: Date.now(),
       onInvalidRecord: (record) =>
         this.logQuarantinedAgentStreamProjection(record),
     });
+    return await Promise.all(
+      streams.map((stream) => this.projectAgentStreamReplyPlacement(stream))
+    );
   }
 
-  private readActiveAgentStreamPresences(): Promise<
+  private async readActiveAgentStreamPresences(): Promise<
     SpaceAgentStreamPresence[]
   > {
-    return listActiveAgentStreamPresences({
+    const streams = await listActiveAgentStreamPresences({
       storage: this.agentStreamProjectionStorage,
       nowMs: Date.now(),
       onInvalidRecord: (record) =>
         this.logQuarantinedAgentStreamProjection(record),
     });
+    return await Promise.all(
+      streams.map((stream) => this.projectAgentStreamReplyPlacement(stream))
+    );
   }
 
   private async syncDispatchOutboxAlarm(): Promise<void> {
@@ -7311,7 +7318,7 @@ export class Space extends DurableObject<CoreBindings> {
         continue;
       }
       const projected = agentStreamForReplyPlacementReader(
-        frame,
+        { ...frame, replyThreadRootSignalId: presence.replyThreadRootSignalId },
         session.supportsAgentReplyPlacement === true
       );
       if (!projected) {
@@ -9405,8 +9412,14 @@ export class Space extends DurableObject<CoreBindings> {
     input: ResolveNativeReplyPlacementInput
   ): Promise<NativeReplyPlacement> {
     const key = `native-reply-placement:${input.dispatchId}`;
-    const stored = await this.ctx.storage.get<NativeReplyPlacement>(key);
-    const current = stored ? nativeReplyPlacementSchema.parse(stored) : null;
+    const stored = await this.ctx.storage.get<NativeReplyPlacementRecord>(key);
+    const record = stored
+      ? nativeReplyPlacementRecordSchema.parse(stored)
+      : null;
+    const { revision: previousRevision = 0, ...currentFields } = record ?? {};
+    const current = record
+      ? nativeReplyPlacementSchema.parse(currentFields)
+      : null;
     const meta = this.readSpaceMetaRecord();
     if (!meta) {
       throw new Error("space.reply_placement.space_unavailable");
@@ -9421,10 +9434,22 @@ export class Space extends DurableObject<CoreBindings> {
     const directMessage = Boolean(
       meta.directMessage && !meta.directMessage.convertedAt
     );
+    const activeMembers = listSpaceMemberRecords(this.ctx.storage.sql, {
+      status: "active",
+    });
     const choice = chooseNativeReplyPlacement({
       request: input,
       current,
       directMessage,
+      oneHumanAgent: isOneHumanAgentConversation({
+        activeMemberCount: activeMembers.length,
+        humanMemberCount: activeMembers.filter(
+          (member) => member.profileKindSnapshot === "human"
+        ).length,
+        agentMemberCount: activeMembers.filter(
+          (member) => member.profileKindSnapshot === "agent"
+        ).length,
+      }),
       sourceThread,
     });
     if ("current" in choice) {
@@ -9465,8 +9490,90 @@ export class Space extends DurableObject<CoreBindings> {
       threadContext,
       locked: input.lock,
     });
-    await this.ctx.storage.put(key, result);
+    const changed =
+      !current ||
+      current.threadContext?.rootSignalId !==
+        result.threadContext?.rootSignalId;
+    await this.ctx.storage.put(key, {
+      ...result,
+      revision: previousRevision + (changed ? 1 : 0),
+    });
+    if (changed) {
+      await this.rpcBroadcastWakeProgressChanged({
+        spaceId: input.spaceId,
+        agentProfileIds: [input.profileId],
+        clientMessageIds: [],
+        reason: "space.reply_placement.changed",
+      });
+    }
     return result;
+  }
+
+  private async readAgentReplyPlacement(input: {
+    dispatchId: string;
+    sourceSignalId: string;
+    profileId: string;
+  }): Promise<NativeReplyPlacementRecord | null> {
+    const stored = await this.ctx.storage.get<NativeReplyPlacementRecord>(
+      `native-reply-placement:${input.dispatchId}`
+    );
+    if (!stored) {
+      return null;
+    }
+    const placement = nativeReplyPlacementRecordSchema.parse(stored);
+    if (
+      placement.sourceSignalId !== input.sourceSignalId ||
+      placement.profileId !== input.profileId
+    ) {
+      throw new Error("space.reply_placement.identity_mismatch");
+    }
+    return placement;
+  }
+
+  private async projectAgentStreamReplyPlacement<
+    T extends {
+      dispatchId: string;
+      triggerMessageId: string;
+      profileId: string;
+    },
+  >(stream: T): Promise<T & { replyThreadRootSignalId?: string | null }> {
+    const placement = await this.readAgentReplyPlacement({
+      dispatchId: stream.dispatchId,
+      sourceSignalId: stream.triggerMessageId,
+      profileId: stream.profileId,
+    });
+    return placement
+      ? {
+          ...stream,
+          replyThreadRootSignalId:
+            placement.threadContext?.rootSignalId ?? null,
+        }
+      : stream;
+  }
+
+  private async attachWakeProgressReplyPlacements(
+    items: WakeProgressItem[]
+  ): Promise<WakeProgressItem[]> {
+    return await Promise.all(
+      items.map(async (item) => {
+        if (!(item.dispatchId && item.sourceSignalId)) {
+          return item;
+        }
+        const placement = await this.readAgentReplyPlacement({
+          dispatchId: item.dispatchId,
+          sourceSignalId: item.sourceSignalId,
+          profileId: item.targetProfileId,
+        });
+        return placement
+          ? {
+              ...item,
+              replyPlacementRevision: placement.revision ?? 0,
+              replyThreadRootSignalId:
+                placement.threadContext?.rootSignalId ?? null,
+            }
+          : item;
+      })
+    );
   }
 
   rpcClearReasoningReplay(input: ClearSpaceReasoningReplay): void {
@@ -9476,13 +9583,14 @@ export class Space extends DurableObject<CoreBindings> {
   }
 
   async rpcApplyAgentStreamDelta(
-    input: ApplySpaceAgentStreamDeltaInput
+    raw: ApplySpaceAgentStreamDeltaInput
   ): Promise<
     | { status: "accepted"; lastSequence: number; gapDetected?: boolean }
     | { status: "duplicate_accepted"; lastSequence: number }
     | { status: "rejected"; lastSequence: number; reasonCode: string }
   > {
-    this.applySpaceRef(input.spaceId);
+    this.applySpaceRef(raw.spaceId);
+    const input = await this.projectAgentStreamReplyPlacement(raw);
     if (input.kind === "thinking" || input.kind === "progress") {
       const nowMs = Date.now();
       const replayRevision = this.transientStreamReplay.revision;
@@ -9525,13 +9633,14 @@ export class Space extends DurableObject<CoreBindings> {
   }
 
   async rpcApplyAgentStreamPart(
-    input: ApplySpaceAgentStreamPartInput
+    raw: ApplySpaceAgentStreamPartInput
   ): Promise<
     | { status: "accepted"; lastSequence: number; gapDetected?: boolean }
     | { status: "duplicate_accepted"; lastSequence: number }
     | { status: "rejected"; lastSequence: number; reasonCode: string }
   > {
-    this.applySpaceRef(input.spaceId);
+    this.applySpaceRef(raw.spaceId);
+    const input = await this.projectAgentStreamReplyPlacement(raw);
     const result = await applyAgentStreamPart({
       storage: this.agentStreamProjectionStorage,
       part: input,
@@ -9546,6 +9655,7 @@ export class Space extends DurableObject<CoreBindings> {
         sequence: input.sequence,
         profileId: input.profileId,
         triggerMessageId: input.triggerMessageId,
+        replyThreadRootSignalId: input.replyThreadRootSignalId,
         dispatchId: input.dispatchId,
         part: result.part,
         updatedAtMs: Date.now(),
@@ -9586,7 +9696,9 @@ export class Space extends DurableObject<CoreBindings> {
       sequence: result.stream.sequence,
       profileId: result.stream.profileId,
       triggerMessageId: result.stream.triggerMessageId,
-      replyThreadRootSignalId: result.stream.replyThreadRootSignalId,
+      replyThreadRootSignalId: (
+        await this.projectAgentStreamReplyPlacement(result.stream)
+      ).replyThreadRootSignalId,
       dispatchId: result.stream.dispatchId,
       terminal: result.terminal,
       updatedAtMs: nowMs,
@@ -10377,6 +10489,9 @@ export class Space extends DurableObject<CoreBindings> {
     if (input.includePreviewText === true) {
       url.searchParams.set("includePreviewText", "true");
     }
+    if (input.includeReplyPlacement === true) {
+      url.searchParams.set("includeReplyPlacement", "true");
+    }
     if (input.includeSourceContext === true) {
       url.searchParams.set("includeSourceContext", "true");
     }
@@ -10421,6 +10536,9 @@ export class Space extends DurableObject<CoreBindings> {
     }
     if (input.includePreviewText === true) {
       url.searchParams.set("includePreviewText", "true");
+    }
+    if (input.includeReplyPlacement === true) {
+      url.searchParams.set("includeReplyPlacement", "true");
     }
     if (input.includeSourceContext === true) {
       url.searchParams.set("includeSourceContext", "true");
@@ -13731,6 +13849,7 @@ export class Space extends DurableObject<CoreBindings> {
           includePageInfo: url.searchParams.get("includePageInfo"),
           includePreviewText: url.searchParams.get("includePreviewText"),
           includeTiming: url.searchParams.get("includeTiming"),
+          includeReplyPlacement: url.searchParams.get("includeReplyPlacement"),
           includeSourceContext: url.searchParams.get("includeSourceContext"),
           includeWaitReason: url.searchParams.get("includeWaitReason"),
           includeDeviceWait: url.searchParams.get("includeDeviceWait"),
@@ -13766,6 +13885,8 @@ export class Space extends DurableObject<CoreBindings> {
                 includePageInfo: parsed.data.includePageInfo === true,
                 includeTiming: parsed.data.includeTiming === true,
                 includePreviewText: parsed.data.includePreviewText === true,
+                includeReplyPlacement:
+                  parsed.data.includeReplyPlacement === true,
                 includeSourceContext: parsed.data.includeSourceContext === true,
                 includeWaitReason: parsed.data.includeWaitReason === true,
                 includeDeviceWait: parsed.data.includeDeviceWait === true,
@@ -15033,6 +15154,7 @@ export class Space extends DurableObject<CoreBindings> {
           clientMessageId: url.searchParams.get("clientMessageId"),
           includeTiming: url.searchParams.get("includeTiming"),
           includePreviewText: url.searchParams.get("includePreviewText"),
+          includeReplyPlacement: url.searchParams.get("includeReplyPlacement"),
           includeSourceContext: url.searchParams.get("includeSourceContext"),
           includeWaitReason: url.searchParams.get("includeWaitReason"),
           includeDeviceWait: url.searchParams.get("includeDeviceWait"),
@@ -15058,6 +15180,7 @@ export class Space extends DurableObject<CoreBindings> {
               clientMessageId: parsed.data.clientMessageId,
               includeTiming: parsed.data.includeTiming === true,
               includePreviewText: parsed.data.includePreviewText === true,
+              includeReplyPlacement: parsed.data.includeReplyPlacement === true,
               includeSourceContext: parsed.data.includeSourceContext === true,
               includeWaitReason: parsed.data.includeWaitReason === true,
               includeDeviceWait: parsed.data.includeDeviceWait === true,
@@ -22110,6 +22233,7 @@ export class Space extends DurableObject<CoreBindings> {
     clientMessageId?: string | null;
     includeTiming?: boolean;
     includePreviewText?: boolean;
+    includeReplyPlacement?: boolean;
     includeSourceContext?: boolean;
     includeWaitReason?: boolean;
     includeDeviceWait?: boolean;
@@ -22274,10 +22398,14 @@ export class Space extends DurableObject<CoreBindings> {
       })
     );
 
+    const placedItems =
+      input.includeReplyPlacement === true
+        ? await this.attachWakeProgressReplyPlacements(items)
+        : items;
     const contextualItems =
       input.includeSourceContext === true
-        ? this.attachWakeProgressSourceContexts(items)
-        : items;
+        ? this.attachWakeProgressSourceContexts(placedItems)
+        : placedItems;
     const responseItems = projectWakeProgressItemsForClient({
       includeDeviceWait: input.includeDeviceWait === true,
       includePreviewText: input.includePreviewText === true,
@@ -22412,6 +22540,7 @@ export class Space extends DurableObject<CoreBindings> {
     includeTiming?: boolean;
     includePreviewText?: boolean;
     includePageInfo?: boolean;
+    includeReplyPlacement?: boolean;
     includeSourceContext?: boolean;
     includeWaitReason?: boolean;
     includeDeviceWait?: boolean;
@@ -22592,6 +22721,10 @@ export class Space extends DurableObject<CoreBindings> {
       items: activeSummaryItems,
     });
     if (useFastSummary) {
+      const placedPageItems =
+        input.includeReplyPlacement === true
+          ? await this.attachWakeProgressReplyPlacements(page.items)
+          : page.items;
       return {
         query: {
           spaceId: this.spaceId,
@@ -22604,8 +22737,8 @@ export class Space extends DurableObject<CoreBindings> {
           includePreviewText: input.includePreviewText === true,
           items:
             input.includeSourceContext === true
-              ? this.attachWakeProgressSourceContexts(page.items)
-              : page.items,
+              ? this.attachWakeProgressSourceContexts(placedPageItems)
+              : placedPageItems,
         }),
       };
     }
@@ -22656,6 +22789,7 @@ export class Space extends DurableObject<CoreBindings> {
           includeTiming: input.includeTiming === true,
           includePreviewText: input.includePreviewText === true,
           includeSourceContext: false,
+          includeReplyPlacement: input.includeReplyPlacement === true,
           includeWaitReason: input.includeWaitReason === true,
           includeDeviceWait: input.includeDeviceWait === true,
           includeWakeStopEligibility: input.includeWakeStopEligibility === true,
@@ -28234,4 +28368,8 @@ import type {
   NativeReplyPlacement,
   ResolveNativeReplyPlacementInput,
 } from "@openmeld/schemas/types";
-import { chooseNativeReplyPlacement } from "../../application/native-reply-placement";
+import {
+  chooseNativeReplyPlacement,
+  type NativeReplyPlacementRecord,
+  nativeReplyPlacementRecordSchema,
+} from "../../application/native-reply-placement";

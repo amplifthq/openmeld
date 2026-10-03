@@ -12991,10 +12991,26 @@ describe("OpenMeld Core", () => {
       submissionId: `timing-${record.dispatchId}`,
       accepted: true,
     });
+    const spaceStub = (
+      env.OPENMELD_SPACES as DurableObjectNamespace<Space>
+    ).get(
+      (env.OPENMELD_SPACES as DurableObjectNamespace<Space>).idFromString(
+        spaceId
+      )
+    );
+    await spaceStub.rpcResolveNativeReplyPlacement({
+      spaceId,
+      dispatchId: record.dispatchId,
+      sourceSignalId: source.id,
+      profileId: targetProfileId,
+      defaultToThread: true,
+      placement: "conversation",
+      lock: false,
+    });
     for (const includeTiming of [false, true]) {
       for (const path of [
-        `active-wake-progress?includeTiming=${includeTiming}`,
-        `wake-progress?clientMessageId=${clientMessageId}&targetProfileId=${targetProfileId}&includeTiming=${includeTiming}`,
+        `active-wake-progress?includeTiming=${includeTiming}&includeReplyPlacement=${includeTiming}`,
+        `wake-progress?clientMessageId=${clientMessageId}&targetProfileId=${targetProfileId}&includeTiming=${includeTiming}&includeReplyPlacement=${includeTiming}`,
       ]) {
         const response = await fetchSpaceDoWithOpenMeldAuth({
           spaceId,
@@ -13002,13 +13018,24 @@ describe("OpenMeld Core", () => {
         });
         expect(response.status).toBe(200);
         const body = (await response.json()) as {
-          items: Array<{ dispatchId: string; startedAtMs?: number }>;
+          items: Array<{
+            dispatchId: string;
+            startedAtMs?: number;
+            replyThreadRootSignalId?: string | null;
+            replyPlacementRevision?: number;
+          }>;
         };
         const item = body.items.find(
           (item) => item.dispatchId === record.dispatchId
         );
         expect(item).toBeDefined();
         expect(item?.startedAtMs).toBe(includeTiming ? startedAtMs : undefined);
+        expect(item?.replyThreadRootSignalId).toBe(
+          includeTiming ? null : undefined
+        );
+        expect(item?.replyPlacementRevision).toBe(
+          includeTiming ? 1 : undefined
+        );
       }
     }
   });

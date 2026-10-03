@@ -68,7 +68,7 @@ export async function submitRemoteAgentStreamDelta(
         ? await resolveNativeDeliveryReplyPlacement({
             env,
             delivery: target.delivery,
-            lock: true,
+            lock: false,
           })
         : null;
     return remoteAgentStreamDeltaCallbackResponseSchema.parse(

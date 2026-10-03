@@ -89,7 +89,7 @@ describe("Remote Agent stream delta service", () => {
       expect(selectPlacement).not.toHaveBeenCalled();
       await submitRemoteAgentStreamDelta(environment, createDelta());
       expect(selectPlacement).toHaveBeenCalledWith(
-        expect.objectContaining({ lock: true })
+        expect.objectContaining({ lock: false })
       );
     } finally {
       harness.close();

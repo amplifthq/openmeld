@@ -962,6 +962,7 @@ describe("pollWakeProgress", () => {
 		expect(getWakeProgress).toHaveBeenCalledWith({
 			clientMessageId: "client-message-1",
 			includePreviewText: true,
+			includeReplyPlacement: true,
 			includeTiming: true,
 			includeSourceContext: true,
 			includeWaitReason: true,

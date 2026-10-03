@@ -57,6 +57,7 @@ import {
 	ensureWebAgentProfileRuntimeBinding,
 	formatWebAgentProfileRuntimeBindingFailure,
 } from "#/lib/profiles/agent-profile-runtime-binding";
+import { projectAgentStreamReplyPlacements } from "#/lib/spaces/active-wake-conversation";
 import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
 import type { ComposerFileDraftCleanup } from "#/lib/spaces/composer-file-drafts";
@@ -1823,7 +1824,23 @@ export function useSpaceLandingController(input: {
 	});
 	const agentStreamProjections = useMemo(
 		() =>
-			liveAgentStreamProjections.filter(
+			projectAgentStreamReplyPlacements(
+				liveAgentStreamProjections,
+				mergeWakeProgressItemState({
+					currentItems: wakeProgressItems,
+					incomingItems: readConfirmedWakeProgressItems({
+						presentation: wakeProgressPresentationQuery.data,
+						spaceSummary: activeWakeProgressSummaryQuery.data,
+						ownSummary: ownActiveWakeProgressQuery.data,
+						spaceSummaryFetchedAfterMount:
+							activeWakeProgressSummaryQuery.isFetchedAfterMount,
+						ownSummaryFetchedAfterMount:
+							ownActiveWakeProgressQuery.isFetchedAfterMount,
+						signals: [],
+					}),
+					signals: [],
+				})
+			).filter(
 				(stream) =>
 					!hasSpaceWakeProgressOutcome({
 						presentation: wakeProgressPresentationQuery.data,
@@ -1836,7 +1853,15 @@ export function useSpaceLandingController(input: {
 						},
 					})
 			),
-		[liveAgentStreamProjections, wakeProgressPresentationQuery.data]
+		[
+			liveAgentStreamProjections,
+			wakeProgressItems,
+			wakeProgressPresentationQuery.data,
+			activeWakeProgressSummaryQuery.data,
+			activeWakeProgressSummaryQuery.isFetchedAfterMount,
+			ownActiveWakeProgressQuery.data,
+			ownActiveWakeProgressQuery.isFetchedAfterMount,
+		]
 	);
 	const historyNavigation = useSpaceHistoryNavigation({
 		liveEnvelopes: timelineEnvelopes,
