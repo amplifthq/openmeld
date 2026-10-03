@@ -2,6 +2,15 @@ import * as z from "zod/v4";
 import { centerAgentContextManifestEntrySchema } from "../http/center-agent-context-manifest";
 import { spaceBoardResponseSchema } from "../http/space-board";
 import {
+  getSpaceWakeProgressInputSchema,
+  getSpaceWakeProgressResponseSchema,
+} from "../http/space-wake-progress";
+import {
+  postSpaceWakeStopBodySchema,
+  postSpaceWakeStopResponseSchema,
+} from "../http/space-wake-stop";
+import { clientMessageIdSchema } from "../protocol/client-message-id";
+import {
   agentReplyPlacementSchema,
   nativeReplyPlacementSchema,
 } from "../space-mesh/agent-reply-placement";
@@ -16,6 +25,16 @@ export const personalRemoteAgentSpaceToolRequestSchema = z.strictObject({
     z.strictObject({ kind: z.literal("messages") }),
     z.strictObject({ kind: z.literal("board") }),
     z.strictObject({
+      kind: z.literal("wake_progress"),
+      spaceId: identifier.optional(),
+      query: getSpaceWakeProgressInputSchema.omit({ spaceId: true }),
+    }),
+    z.strictObject({
+      kind: z.literal("wake_stop"),
+      spaceId: identifier.optional(),
+      body: postSpaceWakeStopBodySchema,
+    }),
+    z.strictObject({
       kind: z.literal("reply_placement"),
       placement: agentReplyPlacementSchema,
     }),
@@ -25,6 +44,7 @@ export const personalRemoteAgentSpaceToolRequestSchema = z.strictObject({
     }),
     z.strictObject({
       kind: z.literal("wake"),
+      clientMessageId: clientMessageIdSchema.optional(),
       agentProfileId: identifier,
       text: z.string().trim().min(1).max(8000),
     }),
@@ -35,6 +55,14 @@ export const personalRemoteAgentSpaceToolResponseSchema = z.discriminatedUnion(
   "kind",
   [
     z.strictObject({ kind: z.literal("authorize") }),
+    z.strictObject({
+      kind: z.literal("wake_progress"),
+      progress: getSpaceWakeProgressResponseSchema,
+    }),
+    z.strictObject({
+      kind: z.literal("wake_stop"),
+      response: postSpaceWakeStopResponseSchema,
+    }),
     z.strictObject({
       kind: z.literal("reply_placement"),
       placement: nativeReplyPlacementSchema,
@@ -80,6 +108,7 @@ export const personalRemoteAgentSpaceToolResponseSchema = z.discriminatedUnion(
     z.strictObject({
       kind: z.literal("wake"),
       signalId: identifier,
+      clientMessageId: clientMessageIdSchema.optional(),
       agentProfileId: identifier,
     }),
   ]

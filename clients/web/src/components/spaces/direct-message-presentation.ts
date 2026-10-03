@@ -11,22 +11,44 @@ type DirectMessagePeer = {
 	profileName: string;
 };
 
-export function resolveDirectMessagePeer(input: {
+export function resolveDirectMessagePresentation(input: {
 	item: AccountSpaceItem;
 	profileDirectory: OrganizationProfileDirectoryResponse | undefined;
 	viewerProfileId: string;
-}): DirectMessagePeer | null {
+}) {
 	const profileIds = input.item.directMessageProfileIds;
-	if (!profileIds?.includes(input.viewerProfileId)) {
-		return null;
-	}
-	const profileId = profileIds.find(
-		(candidate) => candidate !== input.viewerProfileId
+	const participants = profileIds?.map((id) =>
+		resolveProfile(id, input.profileDirectory)
 	);
-	if (!profileId) {
-		return null;
-	}
-	const agent = input.profileDirectory?.agentProfiles.find(
+	const peer = profileIds?.includes(input.viewerProfileId)
+		? (participants?.find(
+				(profile) => profile && profile.profileId !== input.viewerProfileId
+			) ?? null)
+		: null;
+	return {
+		peer,
+		participants:
+			participants?.filter(
+				(profile): profile is DirectMessagePeer => profile !== null
+			) ?? [],
+		name:
+			peer?.profileName ??
+			(participants?.length === 2 && participants.every(Boolean)
+				? participants.map((profile) => profile?.profileName).join(" and ")
+				: input.item.spaceName),
+		profileKind:
+			peer?.profileKind ??
+			(participants?.some((profile) => profile?.profileKind === "agent")
+				? "agent"
+				: "unknown"),
+	};
+}
+
+function resolveProfile(
+	profileId: string,
+	profileDirectory: OrganizationProfileDirectoryResponse | undefined
+): DirectMessagePeer | null {
+	const agent = profileDirectory?.agentProfiles.find(
 		(profile) => profile.profileId === profileId && profile.status === "active"
 	);
 	if (agent) {
@@ -40,7 +62,7 @@ export function resolveDirectMessagePeer(input: {
 			profileName: agent.profileName,
 		};
 	}
-	const member = input.profileDirectory?.members.find(
+	const member = profileDirectory?.members.find(
 		(candidate) =>
 			candidate.humanProfile?.profileId === profileId &&
 			candidate.humanProfile.status === "active"

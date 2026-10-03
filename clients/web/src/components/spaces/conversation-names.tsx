@@ -16,7 +16,7 @@ import {
 	isDirectMessageItem,
 	resolveAccountSpaceViewerProfileId,
 } from "./account-space-sections";
-import { resolveDirectMessagePeer } from "./direct-message-peer";
+import { resolveDirectMessagePresentation } from "./direct-message-presentation";
 
 export type ConversationNames = {
 	organizationId: string;
@@ -70,8 +70,8 @@ export function ConversationNamesProvider({
 				continue;
 			}
 			const direct = isDirectMessageItem(item);
-			const peer = direct
-				? resolveDirectMessagePeer({
+			const presentation = direct
+				? resolveDirectMessagePresentation({
 						item,
 						profileDirectory: directory.data,
 						viewerProfileId: resolveAccountSpaceViewerProfileId({
@@ -84,7 +84,7 @@ export function ConversationNamesProvider({
 				name: direct
 					? resolveConversationTitle(
 							item.spaceId,
-							peer?.profileName ?? item.spaceName,
+							presentation?.name ?? item.spaceName,
 							titles
 						)
 					: item.spaceName,

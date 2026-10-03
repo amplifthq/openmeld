@@ -709,6 +709,14 @@ describe("Organization Skill editing", () => {
 		expect(Boolean(screen.queryByRole("button", { name: "Save" }))).toBe(
 			canEdit
 		);
+		const filesTab = screen.queryByRole("tab", { name: "Files (0)" });
+		expect(Boolean(filesTab)).toBe(canEdit);
+		if (filesTab) {
+			fireEvent.click(filesTab);
+			fireEvent.click(screen.getByRole("button", { name: "Add file" }));
+			await screen.findByRole("dialog", { name: "Add a supporting file" });
+			fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+		}
 		fireEvent.click(screen.getByRole("button", { name: "More actions" }));
 		expect(
 			Boolean(await screen.findByRole("menuitem", { name: "Properties" }))

@@ -16,420 +16,173 @@ import {
 	SpaceWakeStopScope,
 } from "./space-wake-stop-control";
 
-describe("SpaceWakeStopControl", () => {
-	it("cancels an unstarted device wait through the existing exact Wake selector", async () => {
-		const target = createWakeStopTarget({
-			targetLabel: "Runner",
-			isWaitingToStart: true,
-		});
-		const onStopWake = vi.fn().mockResolvedValue(createWakeStopResponse());
-		render(<SpaceWakeStopControl onStopWake={onStopWake} target={target} />);
-		fireEvent.click(
-			screen.getByRole("button", { name: "Cancel waiting for Runner" })
-		);
-		const dialog = within(
-			screen.getByRole("dialog", { name: "Cancel waiting?" })
-		);
-		expect(dialog.getByRole("button", { name: "Keep waiting" })).toBeTruthy();
-		fireEvent.click(dialog.getByRole("button", { name: "Cancel waiting" }));
-		await waitFor(() =>
-			expect(onStopWake).toHaveBeenCalledExactlyOnceWith(target)
-		);
-	});
-
-	afterEach(() => {
-		cleanup();
-	});
-
-	it.each([
-		"Close",
-		"Close icon",
-		"Escape",
-	])("dismisses a pending Stop with %s without closing a later confirmation", async (dismissAction) => {
-		let finishStop!: (response: PostSpaceWakeStopResponse) => void;
-		const onStopWake = vi.fn(
-			() =>
-				new Promise<PostSpaceWakeStopResponse>((resolve) => {
-					finishStop = resolve;
-				})
-		);
-		render(
-			<SpaceWakeStopControl
-				onStopWake={onStopWake}
-				target={createWakeStopTarget({})}
-			/>
-		);
-		fireEvent.click(
-			screen.getByRole("button", { name: "Stop Wake for Runner Agent" })
-		);
-		fireEvent.click(screen.getByRole("button", { name: "Stop Wake" }));
-		expect(
-			screen
-				.getByRole("button", { name: "Requesting Stop..." })
-				.hasAttribute("disabled")
-		).toBe(true);
-		if (dismissAction === "Escape") {
-			fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
-		} else {
-			const closeButtons = screen.getAllByRole("button", {
-				name: "Close",
-			});
-			expect(closeButtons).toHaveLength(2);
-			const button = closeButtons[dismissAction === "Close icon" ? 1 : 0];
-			if (!button) {
-				throw new Error("Missing dialog close action");
-			}
-			fireEvent.click(button);
-		}
-		expect(screen.queryByRole("dialog")).toBeNull();
-		expect(onStopWake).toHaveBeenCalledTimes(1);
-		fireEvent.click(
-			screen.getByRole("button", { name: "Stop Wake for Runner Agent" })
-		);
-		await act(async () => finishStop(createWakeStopResponse()));
-		expect(
-			screen.getByRole("dialog", { name: "Stop this Wake?" })
-		).toBeTruthy();
-		expect(onStopWake).toHaveBeenCalledTimes(1);
-	});
-
-	it("keeps confirmation and its exact target when an active reply replaces the trigger row", async () => {
-		const target = createWakeStopTarget({ targetLabel: "Review Agent" });
-		const onStopWake = vi.fn().mockResolvedValue(createWakeStopResponse());
-		const view = render(
-			<SpaceWakeStopScope>
-				<SpaceWakeStopControl onStopWake={onStopWake} target={target} />
-			</SpaceWakeStopScope>
-		);
-		fireEvent.click(
-			screen.getByRole("button", { name: "Stop Wake for Review Agent" })
-		);
-		view.rerender(
-			<SpaceWakeStopScope>
-				<p>The public reply is streaming.</p>
-			</SpaceWakeStopScope>
-		);
-		const dialog = within(
-			screen.getByRole("dialog", { name: "Stop this Wake?" })
-		);
-		fireEvent.click(dialog.getByRole("button", { name: "Stop Wake" }));
-		await waitFor(() => expect(onStopWake).toHaveBeenCalledWith(target));
-	});
-
-	it("shows a visible Stop label for the details trigger", () => {
-		const onStopWake = vi.fn().mockResolvedValue(createWakeStopResponse());
-
-		render(
-			<SpaceWakeStopControl
-				onStopWake={onStopWake}
-				target={createWakeStopTarget({ targetLabel: "@runner" })}
-				variant="details"
-			/>
-		);
-
-		const button = screen.getByRole("button", {
-			name: "Stop Wake for @runner",
-		});
-		expect(button.textContent).toContain("Stop");
-	});
-
-	it("labels the disabled details trigger while Stop is pending", () => {
-		const onStopWake = vi.fn().mockResolvedValue(createWakeStopResponse());
-
-		render(
-			<SpaceWakeStopControl
-				onStopWake={onStopWake}
-				target={createWakeStopTarget({
-					canStop: false,
-					status: "stopping",
-					targetLabel: "@runner",
-				})}
-				variant="details"
-			/>
-		);
-
-		const button = screen.getByRole("button", {
-			name: "Stop request pending for @runner",
-		}) as HTMLButtonElement;
-		expect(button.disabled).toBe(true);
-		expect(button.textContent).toContain("Stopping...");
-		expect(
-			screen.getByText(
-				"Stop requested. Waiting for OpenMeld to confirm this Wake was stopped."
-			)
-		).toBeTruthy();
-	});
-
-	it.each([
-		["Hosted Agent", "remote_agent.cancellation_delivery_failed", null],
-		["local Wake", "runtime_coordinator.wake_stop_service_offline", "rce_123"],
-	])("keeps %s Stop retryable without claiming a local Service failure", async (_source, reasonCode, runtimeCoordinatorExecutionId) => {
-		const target = createWakeStopTarget({});
-		const response = postSpaceWakeStopResponseSchema.parse({
-			cancellationState: {
-				observedAtMs: Date.UTC(2026, 5, 3, 22, 8),
-				reasonCode,
-				status: "delivery_rejected",
-			},
-			ok: false,
-			reasonCode,
-			runtimeCoordinatorExecutionId,
-			status: "retry_later",
-			targetProfileId: target.targetProfileId,
-		});
-		const onStopWake = vi.fn().mockResolvedValue(response);
-		const view = render(
-			<SpaceWakeStopControl onStopWake={onStopWake} target={target} />
-		);
-		fireEvent.click(
-			screen.getByRole("button", { name: "Stop Wake for Runner Agent" })
-		);
-		const dialog = within(
-			screen.getByRole("dialog", { name: "Stop this Wake?" })
-		);
-		fireEvent.click(dialog.getByRole("button", { name: "Stop Wake" }));
-		await waitFor(() => {
-			expect(
-				dialog.getByText(
-					"OpenMeld couldn't confirm the Stop request. Try again in a moment."
-				)
-			).toBeTruthy();
-		});
-		expect(dialog.getByRole("button", { name: "Stop Wake" })).toBeTruthy();
-		expect(onStopWake).toHaveBeenCalledExactlyOnceWith(target);
-		fireEvent.click(dialog.getByRole("button", { name: "Keep Running" }));
-		view.rerender(
-			<SpaceWakeStopControl
-				onStopWake={onStopWake}
-				target={createWakeStopTarget({ status: "retry_later" })}
-				variant="details"
-			/>
-		);
-		expect(
-			screen.getByText(
-				"OpenMeld couldn't confirm the Stop request. Try again in a moment."
-			)
-		).toBeTruthy();
-	});
-
-	it("lets the user stop one target from a multi-target Wake", async () => {
-		const claudeTarget = createWakeStopTarget({
-			targetLabel: "Claude Agent",
-			targetProfileId: "agt_claude",
-		});
-		const codexTarget = createWakeStopTarget({
-			targetLabel: "Codex Agent",
-			targetProfileId: "agt_codex",
-		});
-		const onStopWake = vi.fn().mockResolvedValue(
-			createWakeStopResponse({
-				cancellationStateStatus: "cancelled",
-				runtimeCoordinatorExecutionId: null,
-				status: "cancelled",
-				stopMode: "openmeld_owned_pre_agent",
-			})
-		);
-
-		render(
-			<SpaceWakeStopControl
-				onStopWake={onStopWake}
-				targets={[claudeTarget, codexTarget]}
-			/>
-		);
-
-		fireEvent.click(
-			screen.getByRole("button", { name: "Stop Wake for 2 agents" })
-		);
-		const dialog = within(
-			screen.getByRole("dialog", { name: "Stop agents in this Wake" })
-		);
-		fireEvent.click(dialog.getByRole("button", { name: "Stop Codex Agent" }));
-
-		await waitFor(() => {
-			expect(onStopWake).toHaveBeenCalledTimes(1);
-		});
-		expect(onStopWake).toHaveBeenCalledWith(codexTarget);
-		expect(onStopWake).not.toHaveBeenCalledWith(claudeTarget);
-	});
-
-	it("continues an explicit Stop All after the pending dialog is dismissed", async () => {
-		const claudeTarget = createWakeStopTarget({
-			targetLabel: "Claude Agent",
-			targetProfileId: "agt_claude",
-		});
-		const codexTarget = createWakeStopTarget({
-			targetLabel: "Codex Agent",
-			targetProfileId: "agt_codex",
-		});
-		let finishFirstStop!: (response: PostSpaceWakeStopResponse) => void;
-		const firstStop = new Promise<PostSpaceWakeStopResponse>((resolve) => {
-			finishFirstStop = resolve;
-		});
-		const onStopWake = vi.fn().mockResolvedValue(
-			createWakeStopResponse({
-				cancellationStateStatus: "cancelled",
-				runtimeCoordinatorExecutionId: null,
-				status: "cancelled",
-				stopMode: "openmeld_owned_pre_agent",
-			})
-		);
-
-		render(
-			<SpaceWakeStopControl
-				onStopWake={onStopWake}
-				targets={[claudeTarget, codexTarget]}
-			/>
-		);
-
-		fireEvent.click(
-			screen.getByRole("button", { name: "Stop Wake for 2 agents" })
-		);
-		const dialog = within(
-			screen.getByRole("dialog", { name: "Stop agents in this Wake" })
-		);
-		onStopWake.mockImplementationOnce(() => firstStop);
-		fireEvent.click(dialog.getByRole("button", { name: "Stop All" }));
-		const closeButton = dialog.getAllByRole("button", { name: "Close" })[0];
-		if (!closeButton) {
-			throw new Error("Missing dialog close action");
-		}
-		fireEvent.click(closeButton);
-		expect(screen.queryByRole("dialog")).toBeNull();
-		expect(onStopWake).toHaveBeenCalledTimes(1);
-		await act(async () => finishFirstStop(createWakeStopResponse()));
-
-		await waitFor(() => {
-			expect(onStopWake).toHaveBeenCalledTimes(2);
-		});
-		expect(onStopWake).toHaveBeenNthCalledWith(1, claudeTarget);
-		expect(onStopWake).toHaveBeenNthCalledWith(2, codexTarget);
-	});
-
-	it("excludes unauthorized targets from the multi-target stop selection", async () => {
-		const allowed = createWakeStopTarget({
-			targetProfileId: "agt_owned",
-			targetLabel: "Owned agent",
-		});
-		const denied = createWakeStopTarget({
-			targetProfileId: "agt_other",
-			targetLabel: "Other agent",
-			canStop: false,
-			status: "not_stoppable",
-		});
-		const onStopWake = vi.fn().mockResolvedValue(createWakeStopResponse());
-		render(
-			<SpaceWakeStopControl
-				onStopWake={onStopWake}
-				targets={[allowed, denied]}
-			/>
-		);
-		fireEvent.click(
-			screen.getByRole("button", { name: "Stop Wake for Owned agent" })
-		);
-		const dialog = within(screen.getByRole("dialog"));
-		expect(dialog.queryByRole("button", { name: "Stop All" })).toBeNull();
-		fireEvent.click(dialog.getByRole("button", { name: "Stop Wake" }));
-		await waitFor(() => expect(onStopWake).toHaveBeenCalledWith(allowed));
-		expect(onStopWake).not.toHaveBeenCalledWith(denied);
-	});
-
-	it("keeps an open multi-target picker stable after one target stops", async () => {
-		const claudeTarget = createWakeStopTarget({
-			targetLabel: "Claude Agent",
-			targetProfileId: "agt_claude",
-		});
-		const codexTarget = createWakeStopTarget({
-			targetLabel: "Codex Agent",
-			targetProfileId: "agt_codex",
-		});
-		const onStopWake = vi.fn().mockResolvedValue(
-			createWakeStopResponse({
-				cancellationStateStatus: "cancelled",
-				runtimeCoordinatorExecutionId: null,
-				status: "cancelled",
-				stopMode: "openmeld_owned_pre_agent",
-			})
-		);
-		const view = render(
-			<SpaceWakeStopControl
-				onStopWake={onStopWake}
-				targets={[claudeTarget, codexTarget]}
-			/>
-		);
-
-		fireEvent.click(
-			screen.getByRole("button", { name: "Stop Wake for 2 agents" })
-		);
-		fireEvent.click(
-			within(
-				screen.getByRole("dialog", { name: "Stop agents in this Wake" })
-			).getByRole("button", { name: "Stop Codex Agent" })
-		);
-
-		await waitFor(() => {
-			expect(onStopWake).toHaveBeenCalledTimes(1);
-		});
-		view.rerender(
-			<SpaceWakeStopControl onStopWake={onStopWake} targets={[claudeTarget]} />
-		);
-
-		const dialog = screen.getByRole("dialog", {
-			name: "Stop agents in this Wake",
-		});
-		expect(dialog.textContent).toContain("Claude Agent");
-		expect(dialog.textContent).toContain("Codex Agent");
-		expect(dialog.textContent).toContain("Stopped.");
-		expect(
-			within(dialog).getByRole("button", { name: "Codex Agent stopped" })
-				.textContent
-		).toContain("Stopped");
-		expect(
-			screen.queryByRole("dialog", { name: "Stop this Wake?" })
-		).toBeNull();
-	});
+afterEach(cleanup);
+const response = postSpaceWakeStopResponseSchema.parse({
+	ok: true,
+	status: "cancellation_requested",
+	stopMode: "controller_control",
+	runtimeCoordinatorExecutionId: "rce_123",
+	targetProfileId: "agt_runner",
+	cancellationState: { status: "requested", observedAtMs: 1, reasonCode: null },
 });
-
-function createWakeStopTarget(
-	overrides: Partial<SpaceWakeStopTargetResolution>
+function target(
+	name = "Runner",
+	overrides: Partial<SpaceWakeStopTargetResolution> = {}
 ): SpaceWakeStopTargetResolution {
-	const targetProfileId = overrides.targetProfileId ?? "agt_runner";
-	const selector = {
-		by: "source_signal" as const,
-		sourceSignalId: "sig-source",
-		targetProfileId,
-	};
 	return {
 		canStop: true,
-		clientMessageId: "client-message-1",
-		selector,
-		selectorKey: `source_signal:sig-source:${targetProfileId}`,
-		sourceSignalId: "sig-source",
+		clientMessageId: "message-1",
+		selector: {
+			by: "client_message",
+			clientMessageId: "message-1",
+			targetProfileId: name,
+		},
+		selectorKey: `client_message:message-1:${name}`,
+		sourceSignalId: null,
 		status: "active",
-		targetLabel: "Runner Agent",
-		targetProfileId,
+		targetLabel: name,
+		targetProfileId: name,
 		...overrides,
 	};
 }
 
-function createWakeStopResponse(
-	overrides: {
-		cancellationStateStatus?: "cancelled" | "requested";
-		runtimeCoordinatorExecutionId?: string | null;
-		status?: PostSpaceWakeStopResponse["status"];
-		stopMode?: "openmeld_owned_pre_agent" | "controller_control";
-	} = {}
-): PostSpaceWakeStopResponse {
-	return {
-		cancellationState: {
-			observedAtMs: Date.UTC(2026, 5, 3, 22, 8),
-			reasonCode: null,
-			status: overrides.cancellationStateStatus ?? "requested",
-		},
-		ok: true,
-		runtimeCoordinatorExecutionId:
-			overrides.runtimeCoordinatorExecutionId ?? "rce_123",
-		status: overrides.status ?? "cancellation_requested",
-		stopMode: overrides.stopMode ?? "controller_control",
-		targetProfileId: "agt_runner",
-	} as PostSpaceWakeStopResponse;
-}
+describe("immediate Stop", () => {
+	it.each([
+		false,
+		true,
+	])("stops a single target on the first click (waiting=%s)", async (isWaitingToStart) => {
+		const selected = target("Runner", { isWaitingToStart });
+		let finish!: (value: PostSpaceWakeStopResponse) => void;
+		const onStopWake = vi.fn(
+			() =>
+				new Promise<PostSpaceWakeStopResponse>((resolve) => {
+					finish = resolve;
+				})
+		);
+		render(<SpaceWakeStopControl onStopWake={onStopWake} target={selected} />);
+		const button = screen.getByRole("button", {
+			name: isWaitingToStart ? "Cancel waiting for Runner" : "Stop Runner",
+		});
+		fireEvent.click(button);
+		expect(onStopWake).toHaveBeenCalledExactlyOnceWith(selected);
+		expect(screen.queryByRole("dialog")).toBeNull();
+		expect(button.textContent).toBe("Stopping…");
+		expect(button.hasAttribute("disabled")).toBe(true);
+		fireEvent.click(button);
+		expect(onStopWake).toHaveBeenCalledTimes(1);
+		await act(async () => finish(response));
+	});
+	it("retains confirmed versus requested state from the controller", () => {
+		const view = render(
+			<SpaceWakeStopControl
+				onStopWake={vi.fn()}
+				target={target("Runner", { status: "stopping", canStop: false })}
+			/>
+		);
+		expect(screen.getByRole("button").textContent).toBe("Stopping…");
+		expect(screen.queryByText("Stopped.")).toBeNull();
+		view.rerender(
+			<SpaceWakeStopControl
+				onStopWake={vi.fn()}
+				target={target("Runner", { status: "stopped", canStop: false })}
+				variant="details"
+			/>
+		);
+		expect(screen.getByText("Stopped.")).toBeTruthy();
+		expect(screen.queryByRole("button")).toBeNull();
+	});
+	it("shows failure next to the request and permits retry", async () => {
+		const onStopWake = vi
+			.fn()
+			.mockRejectedValueOnce(new Error("Connection lost"))
+			.mockResolvedValue(response);
+		render(<SpaceWakeStopControl onStopWake={onStopWake} target={target()} />);
+		fireEvent.click(screen.getByRole("button", { name: "Stop Runner" }));
+		await waitFor(() =>
+			expect(screen.getByRole("alert").textContent).toContain("Connection lost")
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Stop Runner" }));
+		await waitFor(() => expect(onStopWake).toHaveBeenCalledTimes(2));
+	});
+	it("never exposes unsupported runtime control as Stop", () => {
+		const onStopWake = vi.fn();
+		render(
+			<SpaceWakeStopControl
+				onStopWake={onStopWake}
+				target={target("Runner", { canStop: false, status: "unsupported" })}
+				variant="details"
+			/>
+		);
+		expect(
+			screen.getByText("Stop is not supported for this local agent.")
+		).toBeTruthy();
+		expect(screen.queryByRole("button")).toBeNull();
+		expect(onStopWake).not.toHaveBeenCalled();
+	});
+	it("selects one target and keeps the others running", async () => {
+		const first = target("Codex"),
+			second = target("Claude");
+		const onStopWake = vi.fn().mockResolvedValue(response);
+		render(
+			<SpaceWakeStopControl onStopWake={onStopWake} targets={[first, second]} />
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Stop 2 agents" }));
+		expect(onStopWake).not.toHaveBeenCalled();
+		fireEvent.click(
+			within(screen.getByRole("dialog", { name: "Stop agents" })).getByRole(
+				"button",
+				{ name: "Stop Codex" }
+			)
+		);
+		await waitFor(() =>
+			expect(onStopWake).toHaveBeenCalledExactlyOnceWith(first)
+		);
+		expect(
+			screen
+				.getByRole("button", { name: "Stop Claude" })
+				.hasAttribute("disabled")
+		).toBe(false);
+	});
+	it("stops all targets concurrently even if one request is slow or fails", async () => {
+		let rejectFirst!: (error: Error) => void;
+		const first = target("Codex"),
+			second = target("Claude");
+		const onStopWake = vi.fn((selected: SpaceWakeStopTargetResolution) =>
+			selected === first
+				? new Promise<PostSpaceWakeStopResponse>((_, reject) => {
+						rejectFirst = reject;
+					})
+				: Promise.resolve(response)
+		);
+		render(
+			<SpaceWakeStopControl onStopWake={onStopWake} targets={[first, second]} />
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Stop 2 agents" }));
+		fireEvent.click(screen.getByRole("button", { name: "Stop all" }));
+		expect(onStopWake).toHaveBeenCalledTimes(2);
+		await act(async () => rejectFirst(new Error("Connection lost")));
+		expect(
+			screen.getByText(
+				"Stop is not confirmed. Check your connection and try again."
+			)
+		).toBeTruthy();
+	});
+	it("keeps target selection when a streaming reply replaces the source row", () => {
+		const targets = [target("Codex"), target("Claude")];
+		const onStopWake = vi.fn().mockResolvedValue(response);
+		const view = render(
+			<SpaceWakeStopScope>
+				<SpaceWakeStopControl onStopWake={onStopWake} targets={targets} />
+			</SpaceWakeStopScope>
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Stop 2 agents" }));
+		view.rerender(
+			<SpaceWakeStopScope>
+				<p>Streaming reply</p>
+			</SpaceWakeStopScope>
+		);
+		expect(screen.getByRole("dialog", { name: "Stop agents" })).toBeTruthy();
+		fireEvent.click(screen.getByRole("button", { name: "Stop Claude" }));
+		expect(onStopWake).toHaveBeenCalledExactlyOnceWith(targets[1]);
+	});
+});

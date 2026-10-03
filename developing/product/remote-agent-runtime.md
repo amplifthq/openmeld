@@ -3377,10 +3377,21 @@ but not trigger.
    Space Stop targets one logical Wake, including its automatic work-loop
    submissions; it must not abort unrelated queued work in the conversation.
    The Center Agent's Stop tool accepts one exact Wake selector and uses the
-   same Core and Space Stop mutation as Web. It can Stop its own authored Wake
-   only when that Wake's persisted `onBehalfOf` matches the member verified by
-   the current delivery. Other Wakes require that member's ordinary Web Stop
-   permission. Progress exposes
+   same Core and Space Stop mutation as Web. For ordinary Space delegation,
+   that Wake's persisted `onBehalfOf` must match the member verified by the
+   current delivery. The current designated Center Agent may also Stop its own
+   UUID-addressed request in its exact Agent Direct Message. Before publication,
+   that DM must still be unconverted; after conversion, the actual source must
+   have been authored by the Center before conversion. This grants no authority
+   over another author's work. Other Wakes require the verified member's ordinary
+   Web Stop permission. Delegating a UUID Stop to that member requires an existing
+   source signal, so an unknown Center request never becomes a Human-authored
+   early-Stop fence. The reserved `ca-wake:` provenance path remains unchanged.
+   Personal Remote Agent Stop and progress tools accept an optional target
+   `spaceId`, defaulting to their admitted conversation. Core requires the same
+   Organization; Space still checks access and the Agent's ordinary authority.
+   Other conversation-scoped tools remain in the admitted conversation.
+   Progress exposes
    Stop eligibility only to an authorized viewer. A requested cancellation is
    reported as requested until the execution owner confirms it stopped.
    Space records Stop in its existing dispatch outbox before contacting the
