@@ -35,7 +35,7 @@ another Agent, or upload work.
 
 Read only the topic needed. Follow relative links from this folder or the
 [public entry](https://openmeld.ai/skills/openmeld-cli/SKILL.md). This guide
-requires CLI **0.3.237 or later**; check `openmeld --version` when a command is
+requires CLI **0.3.238 or later**; check `openmeld --version` when a command is
 missing or the installation is unknown. Use `openmeld <command> --help` for
 additional flags. The guide cannot add a missing command or cloud capability.
 

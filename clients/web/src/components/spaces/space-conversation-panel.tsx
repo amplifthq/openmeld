@@ -230,6 +230,7 @@ import {
 	groupAnchoredOutcomeNotices,
 	resolveGroupedOutcomeRowText,
 	SpaceOutcomeRow,
+	visibleAnchoredOutcomeNotices,
 } from "./space-outcome-row";
 import { resolveSpaceOutcomeRowTone } from "./space-outcome-tone";
 import { SpaceGraphSkeleton } from "./space-panel-skeletons";
@@ -2080,6 +2081,7 @@ function SpaceComposerSection(input: {
 					context={{
 						conversationKind: input.composerContext,
 						placement: "conversation",
+						readOnly: panel.readOnly,
 						readOnlyPlaceholder: panel.readOnly
 							? panel.readOnlyComposerPlaceholder
 							: undefined,
@@ -2739,12 +2741,15 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 					? [
 							resolveWakeStopTargetForProgressItem({
 								item: item.activeWakeProgress,
+								sourceItem: wakePresentationItem,
+								viewerProfileId: input.selfProfileId,
 								stopRequestStatusBySelectorKey:
 									input.wakeStopRequestStatusBySelectorKey,
 							}),
 						]
 					: resolveSpaceMessageWakeStopTargets({
 							item: wakePresentationItem,
+							viewerProfileId: input.selfProfileId,
 							stopRequestStatusBySelectorKey:
 								input.wakeStopRequestStatusBySelectorKey,
 							timelineItems: input.timelineItems,
@@ -2752,7 +2757,6 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 							wakeProgressItems: input.ephemeralActivityItems,
 						});
 				const wakeStopControl =
-					wakePresentationItem.deliveryState !== "pending" &&
 					!input.readOnly &&
 					input.onWakeStopRequest &&
 					shouldRenderSpaceWakeStopControl(wakeStopTargets) ? (
@@ -2804,6 +2808,8 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 					control: wakeStopControl,
 					entries: wakeThinkingEntries,
 					hideForActiveWakeSource: isActiveWakeSource,
+					wakeOutcomeIndex: input.wakeOutcomeIndex,
+					wakeSourceItem: wakePresentationItem,
 					item,
 					messageDetailsItem,
 					onOpenMessageDetails: input.onOpenMessageDetails,
@@ -3319,6 +3325,8 @@ function renderConversationMessageProgressStatus(input: {
 		typeof resolveSpaceMessageWakeProgressState
 	>["thinkingEntries"];
 	hideForActiveWakeSource: boolean;
+	wakeOutcomeIndex: SpaceWakeOutcomeIndex;
+	wakeSourceItem: SpaceTimelineItem;
 	item: SpaceTimelineItem;
 	messageDetailsItem: SpaceTimelineItem | null;
 	onOpenMessageDetails: (item: SpaceTimelineItem) => void;
@@ -3338,6 +3346,8 @@ function renderConversationMessageProgressStatus(input: {
 				item: input.messageDetailsItem ?? input.item,
 				onOpenMessageDetails: input.onOpenMessageDetails,
 			})}
+			wakeOutcomeIndex={input.wakeOutcomeIndex}
+			wakeSourceItem={input.wakeSourceItem}
 		/>
 	);
 }
@@ -4254,7 +4264,7 @@ const UNAVAILABLE_SPACE_WAKE_STOP_REQUEST: SpaceWakeStopRequestHandler = () =>
 	Promise.reject(new Error("Space Wake Stop is unavailable."));
 
 // Stopped system outcomes stay with their source message and open its details.
-// Terminal failures are represented by the source message failure footer.
+// Participants open terminal failures from the footer; observers read them inline.
 function renderAnchoredSpaceOutcomeRows(input: {
 	notices: readonly SpaceTimelineItem[];
 	onOpenMessageDetails: (item: SpaceTimelineItem) => void;
@@ -4268,11 +4278,7 @@ function renderAnchoredSpaceOutcomeRows(input: {
 		return null;
 	}
 
-	const outcomeNotices = input.notices.filter(
-		(notice) =>
-			isSpaceOutcomeNoticeItem(notice) &&
-			notice.systemNoticeType !== "terminal_failure"
-	);
+	const outcomeNotices = visibleAnchoredOutcomeNotices(input);
 	if (outcomeNotices.length === 0) {
 		return null;
 	}
@@ -4304,6 +4310,7 @@ function renderAnchoredSpaceOutcomeRows(input: {
 						spaceReferencesById={input.spaceReferencesById}
 						text={resolveGroupedOutcomeRowText({
 							notices: group.notices,
+							readOnly: input.readOnly,
 							resolveTargetLabel: (targetProfileId) =>
 								input.profileEntriesById.get(targetProfileId)?.profileName ??
 								null,

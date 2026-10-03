@@ -70,6 +70,7 @@ import {
   nativeReplyPlacementSchema,
   normalizeMessageEnvelope,
   normalizeSpaceCursorPatch,
+  openDirectMessageSpaceBodySchema,
   openMeldDaemonTaskResultEnvelopeSchema,
   type PluginConnectionContinuationBinding,
   type PluginConnectionLocalSourceRequest,
@@ -289,6 +290,7 @@ import { buildSystemNoticeText } from "@openmeld/space-mesh";
 import { publishAccountInvalidation } from "../../../account-invalidation/publish-account-invalidation";
 import { projectSpaceAgentWorkload } from "../../../agent-profile/application/agent-workload";
 import { readPrimaryAgentProfileBindingRecord } from "../../../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
+import { recordAndEnqueueAgentTaskTerminalOutcome } from "../../../agent-task-coordination/application/agent-task-terminal-outcome-service";
 import {
   recordRuntimeCoordinatorFailureTaskOutcome,
   recordRuntimeCoordinatorFinalizationTaskOutcome,
@@ -296,6 +298,7 @@ import {
 import type { AuthProfileFacts } from "../../../auth/application/profile-facts-reader";
 import { readAgentProfileOrganizationContext } from "../../../center-agent/center-agent-organization-scope";
 import {
+  isCenterAgentDesignationActive,
   readCenterAgentDesignationRecord,
   readCenterAgentWakeAuditAttribution,
   readResolvedOrganizationOwnerHumanSpaceMember,
@@ -774,6 +777,13 @@ import {
   type SpaceMetaRecord,
   upsertSpaceMetaRecord,
 } from "../../infrastructure/sql/space-meta-repo";
+import {
+  completeWakeStopOutcome,
+  enqueueWakeStopOutcome,
+  hasPendingWakeStop,
+  listPendingWakeStopOutcomes,
+  recordPendingWakeStop,
+} from "../../infrastructure/sql/space-pending-wake-stop-repo";
 import {
   hydrateSpaceSignalReactions,
   readSpaceReactionActors,
@@ -2463,6 +2473,7 @@ type InitializeDirectMessageSpaceMetaInput = {
   purpose: string;
   pairKey: string;
   creator?: SpaceCreator;
+  ownerUserIds?: string[];
   guide: string;
   organizationId: string;
   visibility: "public" | "private";
@@ -2721,6 +2732,9 @@ export class Space extends DurableObject<CoreBindings> {
     );
     await this.runIsolatedAlarmStep("pending_native_wake_stops", () =>
       this.reconcilePendingHostedWakeStops()
+    );
+    await this.runIsolatedAlarmStep("early_wake_stop_outcomes", () =>
+      this.flushPendingWakeStopOutcomes()
     );
     await this.runIsolatedAlarmStep("execution_input_outbox", () =>
       this.flushPendingExecutionInputs()
@@ -4890,6 +4904,7 @@ export class Space extends DurableObject<CoreBindings> {
       });
     }
     const nowMs = Date.now();
+    const stoppedNotices: SignalEnvelope[] = [];
     const result = this.ctx.storage.transactionSync(() => {
       const outcome = mutateSpaceMessage({
         sql: this.ctx.storage.sql,
@@ -4952,7 +4967,11 @@ export class Space extends DurableObject<CoreBindings> {
             message,
             context
           );
-          this.collectInsertedDispatchMessages(plan.outboxRecords, []);
+          this.collectInsertedDispatchMessages(
+            plan.outboxRecords,
+            [],
+            stoppedNotices
+          );
         },
       });
       if (!outcome.changed) {
@@ -5013,6 +5032,7 @@ export class Space extends DurableObject<CoreBindings> {
           }
         : undefined;
       this.broadcastSignal(result.message, signalContext, { persisted: true });
+      this.finishEarlyWakeStops(stoppedNotices, signalContext);
       if (result.change) {
         this.broadcastSignal(result.change, signalContext, { persisted: true });
       }
@@ -5090,6 +5110,72 @@ export class Space extends DurableObject<CoreBindings> {
         input.spaceAddressingVersion === OPENMELD_SPACE_ADDRESSING_VERSION,
     });
     return readSpaceRpcJsonOrThrow(response);
+  }
+
+  async rpcPostDirectMessageSignal(
+    input: PostSignalOnceByClientMessageIdInput & {
+      pairKey: string;
+      organizationId: string;
+    }
+  ): Promise<SignalEnvelope> {
+    this.applySpaceRef(input.spaceId);
+    const result = await this.ctx.blockConcurrencyWhile(async () => {
+      try {
+        const meta = this.requireConvertibleDirectMessageMeta();
+        const members = listSpaceMemberRecords(this.ctx.storage.sql, {
+          status: "active",
+        });
+        if (
+          meta.organizationId !== input.organizationId ||
+          meta.directMessage?.pairKey !== input.pairKey ||
+          members.length !== 2 ||
+          members
+            .map((member) => member.profileId)
+            .sort()
+            .join(":") !== input.pairKey
+        ) {
+          throw createCoreRpcHttpError({
+            code: "direct_message.conversation_changed",
+            reason: "The conversation changed. Open the Direct Message again.",
+            status: 409,
+          });
+        }
+        const existing = this.readSourceTextSignalByClientMessageId(
+          input.clientMessageId
+        );
+        if (
+          existing &&
+          (existing.profile.profileId !== input.profile.profileId ||
+            existing.data.text !== input.text.trim() ||
+            JSON.stringify(
+              existing.data.messageEnvelope?.activationTargets ?? []
+            ) !==
+              JSON.stringify(input.messageEnvelope?.activationTargets ?? []) ||
+            JSON.stringify(
+              existing.data.messageEnvelope?.referenceTargets ?? []
+            ) !== JSON.stringify(input.messageEnvelope?.referenceTargets ?? []))
+        ) {
+          throw createCoreRpcHttpError({
+            code: "direct_message.message_conflict",
+            reason: "This message ID was already used for a different message.",
+            status: 409,
+          });
+        }
+        return {
+          ok: true as const,
+          signal: await this.rpcPostSignalOnceByClientMessageId(input),
+        };
+      } catch (error) {
+        if (!this.coreRpcErrorResponse(error)) {
+          throw error;
+        }
+        return { ok: false as const, error };
+      }
+    });
+    if (!result.ok) {
+      throw result.error;
+    }
+    return result.signal;
   }
 
   async rpcReadPluginConnectionLocalSource(
@@ -6937,12 +7023,11 @@ export class Space extends DurableObject<CoreBindings> {
       this.ctx.storage.sql,
       { minAgeMs: MEMBER_PROFILE_LIVENESS_MIN_AGE_MS }
     );
-    const nextStopPublicationAlarmAtMs = listPendingNativeWakeStops(
-      this.ctx.storage.sql,
-      1
-    ).length
-      ? Date.now() + OUTBOX_ALARM_REDRIVE_INTERVAL_MS
-      : null;
+    const nextStopPublicationAlarmAtMs =
+      listPendingNativeWakeStops(this.ctx.storage.sql, 1).length ||
+      listPendingWakeStopOutcomes(this.ctx.storage.sql, 1).length
+        ? Date.now() + OUTBOX_ALARM_REDRIVE_INTERVAL_MS
+        : null;
     const nextDirtyProjectionAlarmAtMs = isSpaceMemberProjectionDirty(
       this.ctx.storage.sql
     )
@@ -10996,11 +11081,21 @@ export class Space extends DurableObject<CoreBindings> {
             member.profileKindSnapshot === "agent" &&
             member.ownerUserIdSnapshot === actorOwnerUserId
         ) &&
-        input.members.length === 1 &&
-        input.members[0]?.profileId ===
-          context.actorContext.openMeldProfileId &&
-        input.members[0]?.profileKind === "human" &&
-        input.members[0]?.ownerUserId === actorOwnerUserId
+        input.members.some(
+          (member) =>
+            member.profileId === context.actorContext.openMeldProfileId &&
+            member.profileKind === "human" &&
+            member.ownerUserId === actorOwnerUserId
+        ) &&
+        input.members.every(
+          (member) =>
+            member.profileKind === "human" &&
+            activeMembers.some(
+              (agent) =>
+                agent.profileKindSnapshot === "agent" &&
+                agent.ownerUserIdSnapshot === member.ownerUserId
+            )
+        )
     );
     if (!(isActiveHumanMember || isAgentOwnerJoiningAsSelf)) {
       throw createCoreRpcHttpError({
@@ -11705,6 +11800,7 @@ export class Space extends DurableObject<CoreBindings> {
           purpose: input.purpose,
           directMessage: { pairKey: input.pairKey },
           ...(input.creator ? { creator: input.creator } : {}),
+          ...(input.ownerUserIds ? { ownerUserIds: input.ownerUserIds } : {}),
           organizationId: input.organizationId,
           visibility: input.visibility,
           guide: input.guide,
@@ -13884,11 +13980,25 @@ export class Space extends DurableObject<CoreBindings> {
         targetProfileId: body.target.targetProfileId,
       });
     }
+    const earlyStop = await this.tryStopUnreceivedWake(body, context);
+    if (earlyStop) {
+      return earlyStop;
+    }
     const lookup = await this.readWakeStopDispatchLookup(body.target);
-    const lookupMatch = lookup.matches.find(
-      (match) => match.targetProfileId === body.target.targetProfileId
-    );
+    const lookupMatch =
+      lookup.matches.find(
+        (match) => match.targetProfileId === body.target.targetProfileId
+      ) ??
+      this.readWakeStopOutboxDispatchLookup(body.target).matches.find(
+        (match) => match.targetProfileId === body.target.targetProfileId
+      );
     if (!lookupMatch) {
+      // No await between checking the Space-owned source/outbox and recording
+      // this fence. An in-flight send checks it in its insertion transaction.
+      const pendingStop = await this.tryStopUnreceivedWake(body, context);
+      if (pendingStop) {
+        return pendingStop;
+      }
       return buildSpaceWakeStopFailureResponse({
         reasonCode: "space.wake_stop_target_not_found",
         runtimeCoordinatorExecutionId: null,
@@ -13938,6 +14048,26 @@ export class Space extends DurableObject<CoreBindings> {
       });
     }
 
+    const finalSignalId =
+      lookupMatch.status === "cancelled"
+        ? readFinalReplyClaimSignalId(this.ctx.storage.sql, {
+            dispatchId: lookupMatch.dispatchId,
+            profileId: lookupMatch.targetProfileId,
+          })
+        : null;
+    const finalSignal = finalSignalId
+      ? this.readSignalById(finalSignalId)
+      : null;
+    if (
+      finalSignal?.type === "signal.system_notice" &&
+      finalSignal.data.noticeType === "wake_stopped" &&
+      finalSignal.data.reasonCode === "space.wake_stopped_before_send"
+    ) {
+      return buildSpaceWakeStopPreAgentCancelledResponse({
+        reasonCode: "space.wake_stopped_before_send",
+        targetProfileId: lookupMatch.targetProfileId,
+      });
+    }
     const nativeDeliveryStop = await this.requestRemoteAgentNativeDeliveryStop({
       body,
       lookupMatch,
@@ -13949,6 +14079,102 @@ export class Space extends DurableObject<CoreBindings> {
     return await this.requestPreAgentWakeStop({
       body,
       lookupMatch,
+    });
+  }
+
+  private async tryStopUnreceivedWake(
+    body: PostSpaceWakeStopBody,
+    context: OpenMeldRequestContext
+  ): Promise<PostSpaceWakeStopResponse | null> {
+    if (body.target.by !== "client_message") {
+      return null;
+    }
+    // Center sends have a reserved namespace and a verified represented requester.
+    // Never place a human-scoped fence and claim that it cancelled a Center send.
+    if (
+      body.target.clientMessageId.startsWith("ca-wake:") &&
+      context.actorContext.profileKind === "human"
+    ) {
+      const author = await this.readRepresentedCenterAgentWakeAuthor({
+        clientMessageId: body.target.clientMessageId,
+        context,
+      });
+      if (author) {
+        return this.stopUnreceivedWake(body, context, author);
+      }
+      if (
+        this.readSourceTextSignalByClientMessageId(
+          body.target.clientMessageId
+        ) ||
+        this.readWakeStopOutboxDispatchLookup(body.target).matches.length
+      ) {
+        return null;
+      }
+      return buildSpaceWakeStopFailureResponse({
+        status: "retry_later",
+        reasonCode: "space.wake_stop_requester_unconfirmed",
+        runtimeCoordinatorExecutionId: null,
+        targetProfileId: body.target.targetProfileId,
+      });
+    }
+    const centerDirectMessageAuthor =
+      !context.actorContext.ownerUserId &&
+      (await this.isCenterAgentDirectMessageWakeAuthor({
+        clientMessageId: body.target.clientMessageId,
+        context,
+        targetProfileId: body.target.targetProfileId,
+      }));
+    // Identity reads precede the synchronous source/outbox and conversion check.
+    return this.stopUnreceivedWake(
+      body,
+      context,
+      context.actorContext.openMeldProfileId,
+      centerDirectMessageAuthor
+    );
+  }
+
+  private stopUnreceivedWake(
+    body: PostSpaceWakeStopBody,
+    context: OpenMeldRequestContext,
+    sourceProfileId = context.actorContext.openMeldProfileId,
+    centerDirectMessageAuthor = false
+  ): PostSpaceWakeStopResponse | null {
+    const actor = context.actorContext;
+    if (
+      body.target.by !== "client_message" ||
+      actor.profileKind === "system" ||
+      !(
+        actor.ownerUserId ||
+        (centerDirectMessageAuthor &&
+          this.isCenterAgentDirectMessageWake({
+            clientMessageId: body.target.clientMessageId,
+            context,
+            targetProfileId: body.target.targetProfileId,
+          }))
+      ) ||
+      this.readSourceTextSignalByClientMessageId(body.target.clientMessageId) ||
+      this.readWakeStopOutboxDispatchLookup(body.target).matches.length > 0
+    ) {
+      return null;
+    }
+    const target = readSpaceMemberRecord(
+      this.ctx.storage.sql,
+      body.target.targetProfileId
+    );
+    if (target?.status !== "active" || target.profileKindSnapshot !== "agent") {
+      return null;
+    }
+    // Guessed or colliding IDs cannot cancel another sender's message. The
+    // immutable authenticated author must also match when the message arrives.
+    recordPendingWakeStop(this.ctx.storage.sql, {
+      clientMessageId: body.target.clientMessageId,
+      sourceProfileId,
+      targetProfileId: body.target.targetProfileId,
+      requestedAtMs: Date.now(),
+    });
+    return buildSpaceWakeStopPreAgentCancelledResponse({
+      reasonCode: "space.wake_stopped_before_send",
+      targetProfileId: body.target.targetProfileId,
     });
   }
 
@@ -13965,8 +14191,20 @@ export class Space extends DurableObject<CoreBindings> {
     const source = input.sourceSignalId
       ? this.readSignalById(input.sourceSignalId)
       : null;
-    if (!ownerUserId || actor.profileKind === "system") {
+    if (actor.profileKind === "system") {
       return false;
+    }
+    if (!ownerUserId) {
+      return (
+        source?.type === "signal.text" &&
+        source.profile.profileId === actor.openMeldProfileId &&
+        (await this.isCenterAgentDirectMessageWakeAuthor({
+          clientMessageId: source.data.meta?.clientMessageId,
+          context: input.context,
+          sourceTimestamp: source.ts,
+          targetProfileId: input.targetProfileId,
+        }))
+      );
     }
     if (source?.profile.profileId === actor.openMeldProfileId) {
       return true;
@@ -14017,14 +14255,82 @@ export class Space extends DurableObject<CoreBindings> {
     return false;
   }
 
+  private isCenterAgentDirectMessageWake(input: {
+    clientMessageId: unknown;
+    context: OpenMeldRequestContext;
+    sourceTimestamp?: number;
+    targetProfileId: string;
+  }): boolean {
+    const actor = input.context.actorContext;
+    if (
+      actor.profileKind !== "agent" ||
+      actor.ownerUserId ||
+      actor.agentControllerRef !== HOSTED_CENTER_AGENT_CONTROLLER_REF ||
+      actor.callerPrincipalId !== actor.openMeldProfileId ||
+      !openDirectMessageSpaceBodySchema.shape.message
+        .unwrap()
+        .shape.clientMessageId.safeParse(input.clientMessageId).success
+    ) {
+      return false;
+    }
+    const meta = this.readSpaceMetaRecord();
+    return Boolean(
+      meta?.purpose === "openmeld_dm_space" &&
+        meta.organizationId === input.context.activeOrganizationId &&
+        meta.directMessage?.pairKey ===
+          [actor.openMeldProfileId, input.targetProfileId].sort().join(":") &&
+        (!meta.directMessage.convertedAt ||
+          (input.sourceTimestamp !== undefined &&
+            input.sourceTimestamp <=
+              Date.parse(meta.directMessage.convertedAt)))
+    );
+  }
+
+  private async isCenterAgentDirectMessageWakeAuthor(input: {
+    clientMessageId: unknown;
+    context: OpenMeldRequestContext;
+    sourceTimestamp?: number;
+    targetProfileId: string;
+  }): Promise<boolean> {
+    const organizationId = input.context.activeOrganizationId;
+    if (!(organizationId && this.isCenterAgentDirectMessageWake(input))) {
+      return false;
+    }
+    const db = identityDb(this.bindings);
+    if (!db) {
+      return false;
+    }
+    const designation = await readCenterAgentDesignationRecord({
+      db,
+      organizationId,
+    });
+    return Boolean(
+      designation &&
+        isCenterAgentDesignationActive(designation) &&
+        designation.agentProfileId ===
+          input.context.actorContext.openMeldProfileId &&
+        this.isCenterAgentDirectMessageWake(input)
+    );
+  }
+
   private async isRepresentedCenterAgentWakeRequester(input: {
     clientMessageId: string;
     context: OpenMeldRequestContext;
     sourceProfileId: string;
   }): Promise<boolean> {
+    return (
+      (await this.readRepresentedCenterAgentWakeAuthor(input)) ===
+      input.sourceProfileId
+    );
+  }
+
+  private async readRepresentedCenterAgentWakeAuthor(input: {
+    clientMessageId: string;
+    context: OpenMeldRequestContext;
+  }): Promise<string | null> {
     const db = localStateDb(this.bindings);
     if (!db) {
-      return false;
+      return null;
     }
     let provenance: Awaited<
       ReturnType<typeof readCenterAgentWakeAuditAttribution>
@@ -14039,18 +14345,17 @@ export class Space extends DurableObject<CoreBindings> {
         error: error instanceof Error ? error.message : String(error),
         spaceId: this.spaceId,
       });
-      return false;
+      return null;
     }
-    return Boolean(
-      provenance &&
-        provenance.organizationId === input.context.activeOrganizationId &&
-        provenance.actorProfileId === input.sourceProfileId &&
-        provenance.resourceType === "space" &&
-        provenance.resourceId === this.spaceId &&
-        provenance.onBehalfOfProfileId ===
-          input.context.actorContext.openMeldProfileId &&
-        provenance.onBehalfOfUserId === input.context.actorContext.ownerUserId
-    );
+    return provenance &&
+      provenance.organizationId === input.context.activeOrganizationId &&
+      provenance.resourceType === "space" &&
+      provenance.resourceId === this.spaceId &&
+      provenance.onBehalfOfProfileId ===
+        input.context.actorContext.openMeldProfileId &&
+      provenance.onBehalfOfUserId === input.context.actorContext.ownerUserId
+      ? provenance.actorProfileId
+      : null;
   }
 
   private async projectWakeStopEligibilityForViewer<
@@ -19183,6 +19488,7 @@ export class Space extends DurableObject<CoreBindings> {
     persistedSignal: boolean;
   } {
     const dispatchMessages: OpenMeldDaemonDispatchQueueMessage[] = [];
+    const stoppedNotices: SignalEnvelope[] = [];
     let duplicateFinalReplyBlocked = false;
     let persistedSignal = false;
     let repostedSource: Extract<
@@ -19258,7 +19564,8 @@ export class Space extends DurableObject<CoreBindings> {
             }
             this.collectInsertedDispatchMessages(
               preparedDispatchOutboxPlan.outboxRecords,
-              dispatchMessages
+              dispatchMessages,
+              stoppedNotices
             );
           },
           storage: this.ctx.storage,
@@ -19293,6 +19600,7 @@ export class Space extends DurableObject<CoreBindings> {
       },
     });
     this.broadcastRepostedSource(repostedSource);
+    this.finishEarlyWakeStops(stoppedNotices, signalContext);
     if (persistedSignal) {
       this.scheduleInitialSessionTitle(signal, signalContext);
     }
@@ -19498,6 +19806,7 @@ export class Space extends DurableObject<CoreBindings> {
     }
 
     const dispatchMessages: OpenMeldDaemonDispatchQueueMessage[] = [];
+    const stoppedNotices: SignalEnvelope[] = [];
     let duplicateFinalReplyBlocked = false;
     let persistedSignal = false;
     let repostedSource: SignalEnvelope | null = null;
@@ -19602,7 +19911,8 @@ export class Space extends DurableObject<CoreBindings> {
             }
             this.collectInsertedDispatchMessages(
               preparedDispatchOutboxPlan.outboxRecords,
-              dispatchMessages
+              dispatchMessages,
+              stoppedNotices
             );
             if (queuedHandoff) {
               const dispatch = dispatchMessages[0];
@@ -19648,6 +19958,7 @@ export class Space extends DurableObject<CoreBindings> {
       },
     });
     this.broadcastRepostedSource(repostedSource);
+    this.finishEarlyWakeStops(stoppedNotices, signalContext);
     this.maybeEmitRetentionWarningSignal({
       signal,
       createOutboxRecord,
@@ -20172,7 +20483,8 @@ export class Space extends DurableObject<CoreBindings> {
 
   private collectInsertedDispatchMessages(
     preparedOutboxRecords: ReturnType<typeof createDispatchOutboxRecord>[],
-    dispatchMessages: OpenMeldDaemonDispatchQueueMessage[]
+    dispatchMessages: OpenMeldDaemonDispatchQueueMessage[],
+    stoppedNotices: SignalEnvelope[] = []
   ): void {
     for (const outboxRecord of preparedOutboxRecords) {
       const insertResult = insertDispatchOutboxHandoffSeed(
@@ -20180,7 +20492,9 @@ export class Space extends DurableObject<CoreBindings> {
         outboxRecord
       );
       if (insertResult.status === "idempotent_existing") {
-        dispatchMessages.push(insertResult.record);
+        if (insertResult.record.outboxStatus !== "cancelled") {
+          dispatchMessages.push(insertResult.record);
+        }
         continue;
       }
       if (insertResult.status === "conflict") {
@@ -20193,9 +20507,127 @@ export class Space extends DurableObject<CoreBindings> {
         });
         throw createWakeHandoffSeedFailedError(outboxRecord.targetProfileId);
       }
+      if (this.cancelFencedDispatch(outboxRecord, stoppedNotices)) {
+        continue;
+      }
       dispatchMessages.push(
         buildDispatchQueueMessageFromOutboxRecord(outboxRecord)
       );
+    }
+  }
+
+  private cancelFencedDispatch(
+    outboxRecord: ReturnType<typeof createDispatchOutboxRecord>,
+    stoppedNotices: SignalEnvelope[]
+  ): boolean {
+    if (
+      !(
+        outboxRecord.sourceClientMessageId &&
+        outboxRecord.sourceSignalSnapshot?.profileId &&
+        hasPendingWakeStop(this.ctx.storage.sql, {
+          sourceProfileId: outboxRecord.sourceSignalSnapshot.profileId,
+          clientMessageId: outboxRecord.sourceClientMessageId,
+          targetProfileId: outboxRecord.targetProfileId,
+        })
+      )
+    ) {
+      return false;
+    }
+
+    // This transaction has never exposed the handoff. Space can withdraw
+    // admission and persist the visible outcome without creating a runtime.
+    markDispatchOutboxCancelled(this.ctx.storage.sql, {
+      dispatchId: outboxRecord.dispatchId,
+    });
+    const notice = this.buildSystemNoticeSignal(
+      {
+        kind: "system",
+        profileId: DISPATCH_HINT_SYSTEM_PROFILE_ID,
+        profileName: DISPATCH_HINT_SYSTEM_PROFILE_NAME,
+      },
+      {
+        noticeType: "wake_stopped",
+        actorProfileId: outboxRecord.targetProfileId,
+        actorName: outboxRecord.targetProfileNameSnapshot ?? "Agent",
+        dispatchId: outboxRecord.dispatchId,
+        generatedBy: "openmeld",
+        reasonCode: "space.wake_stopped_before_send",
+        text: "Stopped before the Agent started.",
+        ...(outboxRecord.replyToSnapshot
+          ? { replyTo: outboxRecord.replyToSnapshot }
+          : {}),
+      }
+    );
+    const result = insertSignalRecord(this.ctx.storage.sql, notice);
+    if (result.persistedSignal) {
+      const signalContext = outboxRecord.threadContext
+        ? { threadContext: outboxRecord.threadContext }
+        : undefined;
+      this.insertThreadPlacementForPublishedSignal(notice, {
+        ...(outboxRecord.threadContext
+          ? { threadContext: outboxRecord.threadContext }
+          : {}),
+      });
+      this.insertSpaceInboxProjectionForPublishedSignal({
+        nowMs: notice.ts,
+        signal: notice,
+        signalContext,
+      });
+      enqueueWakeStopOutcome(this.ctx.storage.sql, {
+        dispatchId: outboxRecord.dispatchId,
+        clientMessageId: outboxRecord.sourceClientMessageId,
+        targetProfileId: outboxRecord.targetProfileId,
+        signalId: notice.id,
+        occurredAtMs: notice.ts,
+      });
+      stoppedNotices.push(notice);
+    }
+    return true;
+  }
+
+  private finishEarlyWakeStops(
+    notices: SignalEnvelope[],
+    signalContext?: SignalPublishContext
+  ): void {
+    if (notices.length === 0) {
+      return;
+    }
+    for (const notice of notices) {
+      this.broadcastSignal(notice, signalContext, { persisted: true });
+    }
+    this.ctx.waitUntil(
+      this.runIsolatedAlarmStep("early_wake_stop_outcomes", () =>
+        this.flushPendingWakeStopOutcomes()
+      ).then(() => this.syncSpaceBackgroundAlarm())
+    );
+  }
+
+  private async flushPendingWakeStopOutcomes(): Promise<void> {
+    const db = agentTaskCoordinationDb(this.bindings);
+    if (!db) {
+      return;
+    }
+    for (const record of listPendingWakeStopOutcomes(this.ctx.storage.sql)) {
+      await recordAndEnqueueAgentTaskTerminalOutcome({
+        db,
+        env: this.bindings,
+        nowMs: record.occurredAtMs,
+        task: {
+          v: 1,
+          kind: "space_wake",
+          spaceId: this.spaceId,
+          sourceClientMessageId: record.clientMessageId,
+          targetProfileId: record.targetProfileId,
+        },
+        outcome: {
+          status: "stopped",
+          eventId: `space-early-stop:${record.dispatchId}`,
+          occurredAtMs: record.occurredAtMs,
+          publishedSignalId: record.signalId,
+          errorCode: "space.wake_stopped_before_send",
+        },
+      });
+      completeWakeStopOutcome(this.ctx.storage.sql, record.dispatchId);
     }
   }
 

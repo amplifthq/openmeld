@@ -587,8 +587,15 @@ diagnostics; neither replaces the live progress view.
 
 ### `openmeld space wake-stop`
 
-Request Stop for exactly one live Wake. Pass `--target-profile` and exactly one
-of `--client-message` or `--source-signal`. `--reason` is optional.
+Request Stop for exactly one Wake, including before the message has reached
+OpenMeld. Pass `--target-profile` and exactly one of `--client-message` or
+`--source-signal`. `--reason` is optional. No progress preflight is required.
+
+`space send --client-message <id>` lets a caller allocate a fresh ID before
+sending. The `space.send.request` receipt also exposes the ID before network
+work begins. Use the same source Profile and target Agent when stopping that
+request. A confirmed early stop prevents a delayed send from starting the Agent;
+it does not delete the message or undo completed actions.
 
 ```bash
 openmeld space wake-stop <space-id> --client-message <client-message-id> --target-profile <agent-profile-id> --profile <profile-id> --view agent

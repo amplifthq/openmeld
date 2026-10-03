@@ -98,6 +98,7 @@ export type SpaceComposerProps = {
 	context: {
 		conversationKind: SpaceComposerConversationKind;
 		placement: SpaceComposerPlacement;
+		readOnly?: boolean;
 		readOnlyPlaceholder?: string;
 		targetName?: string | null;
 	};
@@ -328,6 +329,20 @@ export function SpaceComposer(input: SpaceComposerProps) {
 		override: input.slots?.primaryAction,
 		policy,
 	});
+	if (input.context.readOnly) {
+		return (
+			<div
+				className={input.presentation?.className}
+				data-slot={input.presentation?.dataSlot}
+			>
+				<div className="flex items-center justify-between gap-4 rounded-lg border border-border p-3">
+					<p className="text-muted-foreground text-sm">{policy.placeholder}</p>
+					{input.slots?.primaryAction}
+				</div>
+				{input.slots?.error}
+			</div>
+		);
+	}
 
 	return (
 		<div

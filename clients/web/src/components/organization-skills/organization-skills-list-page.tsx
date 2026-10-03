@@ -54,6 +54,7 @@ import {
 } from "#/query/organizations/organization-skills";
 import { CreateSkillDialog } from "./organization-skill-create-dialog";
 import { InstallSkillDialog } from "./organization-skill-install-dialog";
+import { OrganizationSkillsSelection } from "./organization-skills-selection";
 import { useSkillCatalogView } from "./use-skill-catalog-view";
 
 export function OrganizationSkillsListPage() {
@@ -87,6 +88,9 @@ function OrganizationSkillsCatalog() {
 	);
 	const [createOpen, setCreateOpen] = useState(false);
 	const [installOpen, setInstallOpen] = useState(false);
+	const [selecting, setSelecting] = useState(false);
+	const selectRef = useRef<HTMLButtonElement>(null);
+	const selectAllRef = useRef<HTMLButtonElement>(null);
 	const addRef = useRef<HTMLButtonElement>(null);
 	const [completedSkill, setCompletedSkill] =
 		useState<OrganizationSkill | null>(null);
@@ -236,6 +240,20 @@ function OrganizationSkillsCatalog() {
 							</SelectItem>
 						</SelectContent>
 					</Select>
+					{skillsQuery.data?.canManage &&
+						!selecting &&
+						filteredSkills.length > 0 && (
+							<Button
+								onClick={() => {
+									setSelecting(true);
+									requestAnimationFrame(() => selectAllRef.current?.focus());
+								}}
+								ref={selectRef}
+								variant="outline"
+							>
+								Select
+							</Button>
+						)}
 				</search>
 				{skillsQuery.isError && skillsQuery.data ? (
 					<div
@@ -253,25 +271,39 @@ function OrganizationSkillsCatalog() {
 					</div>
 				) : null}
 
-				<SkillsListContent
-					emptyActions={
-						normalizedSearch || status !== "all" ? (
-							<Button
-								onClick={() =>
-									update({ search: "", status: "all", scrollTop: 0 })
-								}
-								variant="outline"
-							>
-								Clear filters
-							</Button>
-						) : undefined
-					}
-					filteredSkills={filteredSkills}
-					isPersonalWorkspace={isPersonalWorkspace}
-					orgSlug={currentOrganization.slug}
-					query={skillsQuery}
-					searching={normalizedSearch.length > 0 || status !== "all"}
-				/>
+				{selecting && skillsQuery.data?.canManage ? (
+					<OrganizationSkillsSelection
+						key={JSON.stringify([search, status])}
+						onDone={() => {
+							setSelecting(false);
+							requestAnimationFrame(() => selectRef.current?.focus());
+						}}
+						organizationId={currentOrganization.id}
+						organizationName={currentOrganization.name}
+						selectAllRef={selectAllRef}
+						skills={filteredSkills}
+					/>
+				) : (
+					<SkillsListContent
+						emptyActions={
+							normalizedSearch || status !== "all" ? (
+								<Button
+									onClick={() =>
+										update({ search: "", status: "all", scrollTop: 0 })
+									}
+									variant="outline"
+								>
+									Clear filters
+								</Button>
+							) : undefined
+						}
+						filteredSkills={filteredSkills}
+						isPersonalWorkspace={isPersonalWorkspace}
+						orgSlug={currentOrganization.slug}
+						query={skillsQuery}
+						searching={normalizedSearch.length > 0 || status !== "all"}
+					/>
+				)}
 			</div>
 
 			{createOpen && (

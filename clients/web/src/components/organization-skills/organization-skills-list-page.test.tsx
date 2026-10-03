@@ -1,3 +1,4 @@
+import { OpenMeldApiClientHttpError } from "@openmeld/api-client";
 import type {
 	OrganizationSkill,
 	OrganizationSkillGitHubPreview,
@@ -35,6 +36,7 @@ const HUGE_SKILL_PATTERN = /huge-skill/;
 const {
 	currentOrganizationMock,
 	createCurrentOrganizationSkillMock,
+	deleteCurrentOrganizationSkillMock,
 	importCurrentOrganizationSkillFromGitHubMock,
 	listCurrentOrganizationSkillsMock,
 	previewCurrentOrganizationSkillFromGitHubMock,
@@ -47,6 +49,7 @@ const {
 		slug: "acme",
 	},
 	createCurrentOrganizationSkillMock: vi.fn(),
+	deleteCurrentOrganizationSkillMock: vi.fn(),
 	importCurrentOrganizationSkillFromGitHubMock: vi.fn(),
 	listCurrentOrganizationSkillsMock: vi.fn(),
 	previewCurrentOrganizationSkillFromGitHubMock: vi.fn(),
@@ -75,6 +78,7 @@ vi.mock("#/lib/organizations/organization-skills", async (importOriginal) => {
 	return {
 		...original,
 		createCurrentOrganizationSkill: createCurrentOrganizationSkillMock,
+		deleteCurrentOrganizationSkill: deleteCurrentOrganizationSkillMock,
 		importCurrentOrganizationSkillFromGitHub:
 			importCurrentOrganizationSkillFromGitHubMock,
 		listCurrentOrganizationSkills: listCurrentOrganizationSkillsMock,
@@ -100,12 +104,171 @@ beforeEach(() => {
 	});
 	listCurrentOrganizationSkillsMock.mockReset();
 	createCurrentOrganizationSkillMock.mockReset();
+	deleteCurrentOrganizationSkillMock.mockReset();
 	previewCurrentOrganizationSkillFromGitHubMock.mockReset();
 	previewCurrentOrganizationSkillRepositoryMock.mockReset();
 	importCurrentOrganizationSkillFromGitHubMock.mockReset();
 });
 
 describe("OrganizationSkillsListPage", () => {
+	it("removes only confirmed filtered selections, retains failures, and retries with reviewed versions", async () => {
+		const first = skillSummary({
+			id: "one",
+			name: "release-review",
+			description: "Review releases.",
+		});
+		const second = skillSummary({
+			id: "two",
+			name: "release-notes",
+			description: "Write release notes.",
+		});
+		const third = skillSummary({
+			id: "three",
+			name: "support-triage",
+			description: "Triage support.",
+		});
+		let skills = [first, second, third];
+		listCurrentOrganizationSkillsMock.mockImplementation(async () => ({
+			organizationId: "org-acme",
+			canManage: true,
+			skills,
+		}));
+		const pending = deferred<void>();
+		deleteCurrentOrganizationSkillMock.mockImplementation(
+			async ({ skillId }) => {
+				if (skillId === "two") {
+					throw new OpenMeldApiClientHttpError({
+						code: "gateway.http_error",
+						upstreamCode: "organization_skill.version_conflict",
+						rawBody: "",
+						message: "Version conflict",
+						status: 409,
+					});
+				}
+				await pending.promise;
+				skills = skills.filter((skill) => skill.id !== skillId);
+				return { deleted: true, organizationId: "org-acme", skillId };
+			}
+		);
+		const { queryClient } = renderPage();
+		fireEvent.click(await screen.findByRole("button", { name: "Select" }));
+		fireEvent.click(screen.getByText("Select all 3"));
+		fireEvent.change(screen.getByLabelText("Search skills"), {
+			target: { value: "release" },
+		});
+		expect(screen.getByText("0 selected")).toBeTruthy();
+		fireEvent.click(screen.getByText("Select all 2"));
+		fireEvent.click(screen.getByText("Remove 2 skills"));
+		let dialog = within(await screen.findByRole("dialog"));
+		expect(
+			dialog.getByText(
+				"These skills will be removed from Acme. Agents will no longer be able to load them. Work already in progress is not affected."
+			)
+		).toBeTruthy();
+		expect(dialog.getByText("release-review")).toBeTruthy();
+		expect(dialog.queryByText("support-triage")).toBeNull();
+		fireEvent.click(dialog.getByText("Cancel"));
+		await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+		expect(deleteCurrentOrganizationSkillMock).not.toHaveBeenCalled();
+		fireEvent.click(screen.getByText("Remove 2 skills"));
+		dialog = within(await screen.findByRole("dialog"));
+		// A background update must not silently change the version being confirmed.
+		skills = [{ ...first, version: 2 }, { ...second, version: 2 }, third];
+		await act(() =>
+			queryClient.refetchQueries({
+				queryKey: organizationSkillQueryKeys.list("org-acme"),
+			})
+		);
+		fireEvent.click(dialog.getByText("Remove 2 skills"));
+		await waitFor(() =>
+			expect(
+				(dialog.getByText("Removing…") as HTMLButtonElement).disabled
+			).toBe(true)
+		);
+		fireEvent.click(dialog.getByText("Removing…"));
+		await act(() => pending.resolve());
+		await screen.findByText(
+			"1 skill removed. 1 could not be removed. Review the errors and try again."
+		);
+		expect(
+			screen.getByText("release-notes", { selector: "span.font-medium" })
+				.parentElement?.textContent
+		).toContain(
+			"This skill changed after you opened it. Review the latest version and try again."
+		);
+		expect(
+			deleteCurrentOrganizationSkillMock.mock.calls.map(([input]) => input)
+		).toEqual([
+			{
+				expectedOrganizationId: "org-acme",
+				expectedVersion: 1,
+				skillId: "two",
+			},
+			{
+				expectedOrganizationId: "org-acme",
+				expectedVersion: 1,
+				skillId: "one",
+			},
+		]);
+		expect(screen.getByText("1 selected")).toBeTruthy();
+		expect(
+			screen.queryByRole("checkbox", { name: "release-review" })
+		).toBeNull();
+		deleteCurrentOrganizationSkillMock.mockImplementation(({ skillId }) => {
+			skills = skills.filter((skill) => skill.id !== skillId);
+			return Promise.resolve({
+				deleted: true,
+				organizationId: "org-acme",
+				skillId,
+			});
+		});
+		fireEvent.click(screen.getByText("Remove 1 skill"));
+		dialog = within(await screen.findByRole("dialog"));
+		fireEvent.click(dialog.getByText("Remove 1 skill"));
+		await screen.findByText("1 skill removed.");
+		expect(deleteCurrentOrganizationSkillMock).toHaveBeenLastCalledWith({
+			expectedOrganizationId: "org-acme",
+			expectedVersion: 2,
+			skillId: "two",
+		});
+		expect(skills.map((skill) => skill.id)).toEqual(["three"]);
+	});
+
+	it("discards selection across organizations and removes selection controls when management permission is lost", async () => {
+		let canManage = true;
+		listCurrentOrganizationSkillsMock.mockImplementation(
+			async ({ organizationId }) => ({
+				organizationId,
+				canManage,
+				skills: [
+					skillSummary({
+						id: "one",
+						name: "review",
+						description: "Review work.",
+					}),
+				],
+			})
+		);
+		const { router, queryClient } = renderPage();
+		fireEvent.click(await screen.findByRole("button", { name: "Select" }));
+		fireEvent.click(screen.getByRole("checkbox", { name: "review" }));
+		expect(screen.getByText("1 selected")).toBeTruthy();
+		await act(() =>
+			router.navigate({ to: "/o/$orgSlug/skills", params: { orgSlug: "beta" } })
+		);
+		fireEvent.click(await screen.findByRole("button", { name: "Select" }));
+		expect(screen.getByText("0 selected")).toBeTruthy();
+		canManage = false;
+		await act(() =>
+			queryClient.refetchQueries({
+				queryKey: organizationSkillQueryKeys.list("org-beta"),
+			})
+		);
+		await waitFor(() => expect(screen.queryByRole("checkbox")).toBeNull());
+		expect(screen.queryByRole("button", { name: "Select" })).toBeNull();
+		expect(deleteCurrentOrganizationSkillMock).not.toHaveBeenCalled();
+	});
+
 	it("restores catalog filters and scroll after opening a Skill, without transferring them to another organization", async () => {
 		listCurrentOrganizationSkillsMock.mockImplementation(
 			async ({ organizationId }) => ({
