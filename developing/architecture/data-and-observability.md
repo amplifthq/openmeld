@@ -650,13 +650,16 @@ Local, and personal Remote Agent consumers.
 Local plugin calls reuse `center_agent_connector_action_operations` and the
 existing audit journal; its historical physical name does not restrict its
 consumer. A claim freezes the authenticated Agent, represented member, selected
-connection, input signature, and operation ID. An exact replay returns that
-record, including after revocation, and never starts a second provider call.
+connection, input signature, and operation ID. Recovery reads return that
+record, including after revocation. An unknown write can execute one exact
+replay only when current authorization and the original frozen account are
+verified and the operation journal atomically grants its unused allowance in
+the original 24-hour window. Missing account provenance never grants execution.
 New operations recheck access immediately before claiming. A revocation blocks
 new admission; it does not cancel a provider action already admitted.
-Unknown provider outcomes remain unknown and require investigation rather than
-automatic resubmission. Provider response data is returned to the caller but
-is not copied into the operation ledger.
+Known completed or failed claims retain their outcome without another provider
+write. Provider response data is returned to the caller but is not copied into
+the operation ledger; a recovered terminal receipt must not invent that data.
 
 `plugin_action_confirmations` stores short-lived, exact-request confirmations
 bound to the organization, Agent, signature (including operation ID), and access

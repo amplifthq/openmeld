@@ -5156,6 +5156,12 @@ function testReplayPermission(operation: TestConnectorOperation) {
   if (operation.status === "completed" || operation.status === "failed") {
     return { allowed: false as const, reason: "operation_terminal" as const };
   }
+  if (!operation.executionConnection) {
+    return {
+      allowed: false as const,
+      reason: "original_account_unverified" as const,
+    };
+  }
   if (operation.replayAttempted) {
     return { allowed: false as const, reason: "already_replayed" as const };
   }
