@@ -7,9 +7,16 @@ import type {
   PluginRuntimeResponse,
 } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
+import { createSubmitTurnRequestV2 } from "../../remote-agent/tests/fixtures";
 import capturedActions from "../../remote-agent/tests/fixtures/openconnector-runtime-actions.json";
+import {
+  activateAgentDelegationChildren,
+  createAgentDelegation,
+} from "../src/agent-task-coordination/infrastructure/d1/agent-delegation-repo";
+import { prepareDelegatedPluginActions } from "../src/center-agent/application/delegated-plugin-authorization";
 import { prepareCenterAgentRepresentedMemberRequest } from "../src/center-agent/application/represented-member-request";
 import { recordCenterAgentConnectorActionOperation } from "../src/center-agent/connector-action-operation-repository";
+import { prepareCenterAgentWakePublicationRecord } from "../src/center-agent/infrastructure/d1/center-agent-wake-publication-repo";
 import {
   createConnectorConnectionName,
   createSharedConnectorConnectionName,
@@ -28,6 +35,8 @@ import { rpcPluginAction } from "../src/connectors/plugin-actions";
 import type { CoreBindings } from "../src/lib/bindings";
 import {
   markRemoteAgentNativeDeliveryAck,
+  persistRemoteAgentWorkerSubmitRequest,
+  readRemoteAgentNativeDeliveryByIdempotencyKey,
   upsertRemoteAgentNativeDeliveryRecord,
 } from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
 import {
@@ -46,6 +55,9 @@ import {
   rpcReadPendingGitHubAppInstallation,
   rpcReconcileCurrentOrganizationConnectorConnections,
 } from "../src/rpc/methods";
+import { issueRuntimeCoordinatorExecutionToken } from "../src/runtime-transport/application/runtime-coordinator-execution-token";
+import { writeRuntimeCoordinatorTokenAuthorityToStorage } from "../src/runtime-transport/application/runtime-coordinator-storage";
+import type { RuntimeTransportHub } from "../src/runtime-transport/transport/do/runtime-transport-hub";
 
 import { upsertSpaceMetaRecord } from "../src/space/infrastructure/sql/space-meta-repo";
 import { insertSignalRecord } from "../src/space/infrastructure/sql/space-signal-repo";
@@ -55,6 +67,115 @@ const CONNECTOR_CONNECTION_NAME_PATTERN =
   /^org_[A-Za-z0-9_-]{18}__user_[A-Za-z0-9_-]{18}__github$/u;
 
 describe("Local Agent plugin admission", () => {
+  it("executes a recorded one-hop write and its verification through current Local admission", async () => {
+    const fixture = await seedLocalPluginFixture("write", "write");
+    const delegated = await seedLocalRecordedDelegation(fixture);
+    const readAction = {
+      ...fixture.metadata,
+      id: "fixture.verify",
+      effect: "read" as const,
+    };
+    const effects = new Map<string, unknown>();
+    fixture.runtime.mockImplementation((request) => {
+      if (request.operation === "list") {
+        return Promise.resolve({
+          status: "catalog",
+          actions: [fixture.metadata, readAction],
+        });
+      }
+      if (request.actionId === fixture.action.actionId) {
+        effects.set(request.idempotencyKey, request.input);
+      }
+      return Promise.resolve({
+        status: "completed",
+        providerExecutionId: "isolated-provider-result",
+        data:
+          request.actionId === readAction.id
+            ? [...effects.values()]
+            : request.input,
+        outputSchema: {},
+      });
+    });
+    const input: PluginActionRpcInput = {
+      ...fixture.input,
+      request: {
+        ...delegated.request,
+        includeRecoveryReceipt: true,
+        action: {
+          ...fixture.action,
+          input: { target: "isolated-A", text: "synthetic selection" },
+        },
+      },
+    };
+    const executeCalls = () =>
+      fixture.runtime.mock.calls.filter(
+        ([request]) => request.operation === "execute"
+      );
+    for (const changed of [
+      {
+        ...input.request,
+        executionTokenEcho: {
+          ...delegated.request.executionTokenEcho,
+          executionToken: `rcet_v1_${"b".repeat(64)}`,
+        },
+      },
+      {
+        ...input.request,
+        action: { ...fixture.action, input: { target: "isolated-B" } },
+      },
+      {
+        ...input.request,
+        action: { ...fixture.action, account: "personal" as const },
+      },
+    ]) {
+      await expect(
+        rpcPluginAction(fixture.core, { ...input, request: changed })
+      ).rejects.toThrow();
+      expect(executeCalls()).toHaveLength(0);
+      expect(effects.size).toBe(0);
+    }
+    expect(await rpcPluginAction(fixture.core, input)).toMatchObject({
+      status: "completed",
+      replayed: false,
+      data: { target: "isolated-A", text: "synthetic selection" },
+    });
+    expect(effects.size).toBe(1);
+    const verification: PluginActionRpcInput = {
+      ...input,
+      request: {
+        ...input.request,
+        action: {
+          ...fixture.action,
+          actionId: readAction.id,
+          operationId: "target-check",
+          input: { target: "isolated-A" },
+          verificationOf: {
+            actionId: fixture.action.actionId,
+            operationId: fixture.action.operationId,
+          },
+        },
+      },
+    };
+    expect(await rpcPluginAction(fixture.core, verification)).toMatchObject({
+      status: "completed",
+      data: [{ target: "isolated-A", text: "synthetic selection" }],
+      verificationOf: {
+        operationId: fixture.action.operationId,
+        interpretation: "read_evidence_only",
+      },
+    });
+    expect(executeCalls()).toHaveLength(2);
+    await env.OPENMELD_DB.prepare(
+      "UPDATE agent_delegations SET state = 'cancelled' WHERE delegation_id = ?"
+    )
+      .bind(delegated.delegationId)
+      .run();
+    await expect(rpcPluginAction(fixture.core, verification)).rejects.toThrow(
+      "recorded delegation"
+    );
+    expect(executeCalls()).toHaveLength(2);
+    expect(effects.size).toBe(1);
+  });
   it("keeps the Agent owner's private account out of another member's Wake", async () => {
     const fixture = await seedLocalPluginFixture("read", "read");
     const privateConnection = await createConnectorConnectionName({
@@ -336,6 +457,387 @@ describe("Local Agent plugin admission", () => {
     ).toHaveLength(1);
   });
 });
+
+async function seedLocalRecordedDelegation(
+  fixture: Awaited<ReturnType<typeof seedLocalPluginFixture>>
+) {
+  const db = env.OPENMELD_DB;
+  const center = `agt_${crypto.randomUUID()}`;
+  const spaces = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+  const spaceId = spaces.newUniqueId().toString();
+  fixture.core.OPENMELD_SPACES = spaces;
+  const dispatchId = crypto.randomUUID();
+  const clientMessageId = crypto.randomUUID();
+  const sourceSignalId = crypto.randomUUID();
+  const delegationId = crypto.randomUUID();
+  const nowMs = Date.now();
+  await runInDurableObject(
+    spaces.get(spaces.idFromString(spaceId)),
+    (_instance, state) => {
+      const timestamp = new Date(nowMs).toISOString();
+      upsertSpaceMetaRecord(state.storage.sql, {
+        v: 1,
+        spaceId,
+        organizationId: fixture.organizationA,
+        visibility: "private",
+        accessMode: "members_only",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      });
+      insertSignalRecord(state.storage.sql, {
+        v: 1,
+        id: sourceSignalId,
+        spaceId,
+        ts: nowMs,
+        type: "signal.text",
+        profile: {
+          kind: "agent",
+          profileId: center,
+          profileName: "Synthetic Center",
+        },
+        data: {
+          text: "Use the isolated fixture.",
+          meta: { clientMessageId },
+          messageEnvelope: {
+            text: "Use the isolated fixture.",
+            activationTargets: [fixture.actor],
+            referenceTargets: [],
+          },
+        },
+      });
+    }
+  );
+  const member = await db
+    .prepare("SELECT id FROM members WHERE organization_id = ? AND user_id = ?")
+    .bind(fixture.organizationA, fixture.ownerA)
+    .first<{ id: string }>();
+  if (!member) {
+    throw new Error("Missing original member fixture");
+  }
+  await db
+    .prepare(
+      "INSERT INTO openmeld_profiles (profile_id, profile_name, profile_handle, profile_kind, organization_id, owner_user_id, source) VALUES (?, 'Synthetic Center', ?, 'agent', ?, ?, 'cli_create')"
+    )
+    .bind(center, center, fixture.organizationA, fixture.ownerA)
+    .run();
+  await db
+    .prepare(
+      "INSERT INTO center_agent_designations (organization_id, agent_profile_id, operating_state, created_at) VALUES (?, ?, 'active', ?)"
+    )
+    .bind(fixture.organizationA, center, nowMs)
+    .run();
+  await db
+    .prepare(
+      "UPDATE connector_connections SET access_policy = ? WHERE connection_name = ?"
+    )
+    .bind(
+      JSON.stringify({
+        center_agent: "write",
+        local_agent: "write",
+        remote_agent: "none",
+      }),
+      fixture.connection
+    )
+    .run();
+  const auth = fixture.core.OPENMELD_AUTH_WORKER;
+  if (!auth?.resolveProfileById) {
+    throw new Error("Missing identity fixture");
+  }
+  const resolveProfile = auth.resolveProfileById.bind(auth);
+  auth.resolveProfileById = (input) =>
+    input.openMeldProfileId === center
+      ? Promise.resolve({
+          ok: true,
+          profile: {
+            profileId: center,
+            profileName: "Synthetic Center",
+            profileHandle: center,
+            profileKind: "agent",
+            status: "active",
+            ownerUserId: fixture.ownerA,
+            organizationId: fixture.organizationA,
+          },
+        })
+      : resolveProfile(input);
+  const defaults = createSubmitTurnRequestV2();
+  const parent = createSubmitTurnRequestV2({
+    organizationId: fixture.organizationA,
+    agentProfileId: center,
+    agentProfileOwnerUserId: fixture.ownerA,
+    spaceId,
+    dispatchId: crypto.randomUUID(),
+    idempotencyKey: crypto.randomUUID(),
+    author: {
+      profileId: fixture.ownerProfileId,
+      profileKind: "human",
+      displayName: "Synthetic member",
+    },
+    turnEnvelope: {
+      ...defaults.turnEnvelope,
+      sender: {
+        kind: "member",
+        id: member.id,
+        verified: true,
+        profileId: fixture.ownerProfileId,
+        ownerUserId: fixture.ownerA,
+        displayName: "Synthetic member",
+        role: "owner",
+      },
+      space: { ...defaults.turnEnvelope.space, id: spaceId },
+      organization: {
+        ...defaults.turnEnvelope.organization,
+        id: fixture.organizationA,
+      },
+    },
+  });
+  await upsertRemoteAgentNativeDeliveryRecord({
+    db,
+    nowMs,
+    attemptId: null,
+    bindingId: parent.bindingId,
+    dispatchId: parent.dispatchId,
+    idempotencyKey: parent.idempotencyKey,
+    organizationId: fixture.organizationA,
+    profileId: center,
+    sourceClientMessageId: parent.sourceClientMessageId ?? null,
+    spaceId,
+    triggerMessageId: parent.triggerMessageId,
+    status: "submitted",
+  });
+  await persistRemoteAgentWorkerSubmitRequest({
+    db,
+    nowMs,
+    idempotencyKey: parent.idempotencyKey,
+    workerSubmitRequest: parent,
+  });
+  const parentSubmissionId = crypto.randomUUID();
+  await markRemoteAgentNativeDeliveryAck({
+    db,
+    nowMs,
+    idempotencyKey: parent.idempotencyKey,
+    submissionId: parentSubmissionId,
+    workerRequestId: crypto.randomUUID(),
+    accepted: true,
+  });
+  const delivery = await readRemoteAgentNativeDeliveryByIdempotencyKey({
+    db,
+    idempotencyKey: parent.idempotencyKey,
+  });
+  if (!delivery) {
+    throw new Error("Missing parent delivery");
+  }
+  await createAgentDelegation({
+    db,
+    nowMs,
+    delegationId,
+    idempotencyKey: delegationId,
+    organizationId: fixture.organizationA,
+    spaceId,
+    parentTask: {
+      v: 1,
+      kind: "native_delivery",
+      deliveryId: delivery.deliveryId,
+    },
+    children: [
+      {
+        agentProfileId: fixture.actor,
+        role: "primary",
+        task: {
+          v: 1,
+          kind: "space_wake",
+          spaceId,
+          sourceClientMessageId: clientMessageId,
+          targetProfileId: fixture.actor,
+        },
+      },
+    ],
+    completionPolicy: { mode: "resume_parent", when: "all_terminal" },
+  });
+  await activateAgentDelegationChildren({ db, nowMs, delegationId });
+  const attribution = {
+    actorProfileId: center,
+    onBehalfOf: {
+      userId: fixture.ownerA,
+      profileId: fixture.ownerProfileId,
+      displayName: "Synthetic member",
+    },
+  };
+  fixture.runtime.mockResolvedValue({
+    status: "catalog",
+    actions: [
+      fixture.metadata,
+      { ...fixture.metadata, id: "fixture.verify", effect: "read" },
+    ],
+  });
+  const pluginActions = await prepareDelegatedPluginActions({
+    env: fixture.core,
+    db,
+    organizationId: fixture.organizationA,
+    actorProfileId: center,
+    parentSubmissionId,
+    attribution,
+    targetProfileIds: [fixture.actor],
+    requests: [
+      {
+        targetProfileId: fixture.actor,
+        service: "posthog",
+        connectionName: fixture.connection,
+        actionId: fixture.action.actionId,
+        effect: "write",
+        input: { target: "isolated-A", text: "synthetic selection" },
+        expiresAtMs: nowMs + 60_000,
+      },
+      {
+        targetProfileId: fixture.actor,
+        service: "posthog",
+        connectionName: fixture.connection,
+        actionId: "fixture.verify",
+        effect: "read",
+        input: { target: "isolated-A" },
+        expiresAtMs: nowMs + 60_000,
+      },
+    ],
+  });
+  await prepareCenterAgentWakePublicationRecord({
+    db,
+    nowMs,
+    command: {
+      v: 1,
+      clientMessageId,
+      delegationId,
+      organizationId: fixture.organizationA,
+      spaceId,
+      context: {
+        ...fixture.input.context,
+        actorContext: {
+          ...fixture.input.context.actorContext,
+          openMeldProfileId: center,
+        },
+        agentControllerConversationId: parentSubmissionId,
+      },
+      parentSubmissionId,
+      profile: {
+        kind: "agent",
+        profileId: center,
+        profileName: "Synthetic Center",
+      },
+      attribution,
+      activationTargets: [fixture.actor],
+      mentionTargets: [],
+      referenceTargets: [],
+      fallbackAgentProfileId: null,
+      subscriptionIds: [crypto.randomUUID()],
+      text: "Use the isolated fixture.",
+      completionMode: "resume_parent_when_all_terminal",
+      pluginActions,
+    },
+  });
+  await db
+    .prepare(
+      "UPDATE center_agent_wake_publications SET state = 'completed', accepted_at_ms = ?, completed_at_ms = ?, signal_json = ? WHERE publication_id = ?"
+    )
+    .bind(
+      nowMs,
+      nowMs,
+      JSON.stringify({
+        v: 1,
+        id: sourceSignalId,
+        type: "signal.text",
+        ts: nowMs,
+        spaceId,
+        profile: {
+          kind: "agent",
+          profileId: center,
+          profileName: "Synthetic Center",
+        },
+        data: {
+          text: "Use the isolated fixture.",
+          meta: { clientMessageId },
+          messageEnvelope: {
+            text: "Use the isolated fixture.",
+            activationTargets: [fixture.actor],
+            referenceTargets: [],
+          },
+        },
+      }),
+      clientMessageId
+    )
+    .run();
+  await db
+    .prepare(
+      "INSERT INTO space_index_spaces (space_id, organization_id, organization_visibility, status, source_updated_at_ms, projected_at_ms, projection_event_id) VALUES (?, ?, 'private', 'active', ?, ?, ?)"
+    )
+    .bind(spaceId, fixture.organizationA, nowMs, nowMs, crypto.randomUUID())
+    .run();
+  await db
+    .prepare(
+      "INSERT INTO openMeldDaemon_dispatch_ledger (idempotency_key, dispatch_id, space_id, source_event_id, source_profile_id, source_client_message_id, target_profile_id, status, first_seen_at_ms, last_attempt_at_ms, attempt_count) VALUES (?, ?, ?, ?, ?, ?, ?, 'accepted', ?, ?, 1)"
+    )
+    .bind(
+      dispatchId,
+      dispatchId,
+      spaceId,
+      sourceSignalId,
+      center,
+      clientMessageId,
+      fixture.actor,
+      nowMs,
+      nowMs
+    )
+    .run();
+  const binding = await db
+    .prepare(
+      "SELECT binding_id FROM openMeldDaemon_agent_profile_bindings WHERE agent_profile_id = ?"
+    )
+    .bind(fixture.actor)
+    .first<{ binding_id: string }>();
+  if (!binding) {
+    throw new Error("Missing Local binding fixture");
+  }
+  const token = await issueRuntimeCoordinatorExecutionToken({
+    nowMs,
+    authorityScope: {
+      bindingId: binding.binding_id,
+      agentControllerRef: "codex",
+      openMeldServiceRuntimeId: "test-local-runtime",
+    },
+    executionScope: {
+      dispatchId,
+      runtimeCoordinatorExecutionId: crypto.randomUUID(),
+      sourceClientMessageId: clientMessageId,
+      spaceId,
+      targetProfileId: fixture.actor,
+    },
+    deliveryProvenance: {
+      connectionGeneration: null,
+      daemonSessionId: null,
+      leaseEpoch: null,
+    },
+  });
+  const namespace =
+    env.OPENMELD_RUNTIME_TRANSPORT as DurableObjectNamespace<RuntimeTransportHub>;
+  const stub = namespace.get(namespace.idFromName(fixture.ownerA));
+  await runInDurableObject(stub, async (_instance, state) => {
+    await writeRuntimeCoordinatorTokenAuthorityToStorage(
+      state.storage,
+      token.authority
+    );
+  });
+  fixture.core.OPENMELD_RUNTIME_TRANSPORT = namespace;
+  return {
+    delegationId,
+    request: {
+      dispatchId,
+      executionTokenEcho: {
+        executionToken: token.envelope.executionToken,
+        runId: token.envelope.runId,
+        runtimeCoordinatorExecutionId:
+          token.envelope.executionScope.runtimeCoordinatorExecutionId,
+        tokenFingerprint: token.envelope.tokenFingerprint,
+      },
+    },
+  };
+}
 
 async function seedLocalPluginFixture(
   effect: "read" | "write" | "destructive",
