@@ -1,28 +1,28 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-02T17:46:20.763Z",
+  "updatedAt": "2026-10-03T08:41:30.623Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
-      "packageVersion": "0.3.237",
+      "packageVersion": "0.3.238",
       "updatePolicy": "available",
-      "reason": "Controller version checks and inventory advice change locally without changing command, setup, Space action, or cloud payload contracts; old and new cloud both accept the CLI."
+      "reason": "Existing setup, Wake, Space actions and recovery remain compatible. New DM publication and trace v6 ship only after their Core and Gateway receivers."
     },
     "service": {
-      "bundleHash": "d30a5591d3d9f1cd286b6d2db6f6fce457572a411abeaed7d8ddf19f78f3ad03",
-      "portableBundleHash": "a1de283ab28743808f41a9a27a518785cb69be00699820c08d944f9f67957714",
-      "bundleVersion": "0.3.237",
+      "bundleHash": "04fda710e167a73dc9860a17c15fd507742fccc1a788490e5e37d17d6eb02ff7",
+      "portableBundleHash": "a8fea58e703b3f6a9b768826c162ffaf0dd203026f86cdd3e31f808af717d16b",
+      "bundleVersion": "0.3.238",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
       "serviceContractVersion": "openmeld-service-contract-2026-09-local-install-recovery-v1",
       "updatePolicy": "available",
-      "reason": "Codex preview capability handling fixes a safe rejection; runtime transport payloads, permission checks, active dispatches, and rescue commands remain compatible in both rollout directions."
+      "reason": "Execution input is optional and negotiated per Service connection. Old Services continue ordinary work; new Services retain existing registration, Wake and recovery contracts."
     },
     "skills": {
-      "bundleHash": "2d2bc74e8aa66f6f78f469f6d4441467ebab07d5e6ccceb89c7b22a24b38746f",
+      "bundleHash": "74569de82e8b0aa6803bd418ae8eab60063a4bda19e0173a66628b4d93d9fa98",
       "skillContractVersion": "openmeld-skills-contract-2026-09-explicit-space-recipients-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "The Plugin playbook adds guidance without changing the existing managed Skill contract."
+      "reason": "The revised guide and DM commands require CLI 0.3.238, while existing Skills remain usable. Publish the matching CLI before distributing the new Skill to local users."
     }
   }
 }
