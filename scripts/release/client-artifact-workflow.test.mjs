@@ -311,6 +311,35 @@ test("Production and Deep Confidence share an explicit heap within available run
   );
   assert.equal(website.NODE_OPTIONS, "--max-old-space-size=2048");
   assert.equal(website.OPENMELD_LOCAL_HEAVY_GIB, "3");
+  for (const [scope, standaloneHeap] of [
+    ["web", 5120],
+    ["website", 2048],
+  ]) {
+    const child = workflow(`workflows/deploy-${scope}.yml`).jobs.deploy;
+    for (const hasParent of [false, true]) {
+      const expectedHeap = hasParent ? 5120 : standaloneHeap;
+      // GitHub evaluates the optional-parent expression to an empty string
+      // for standalone calls, not an absent environment variable.
+      const actual = productionBuildEnvironment(
+        scope,
+        {
+          ...child.env,
+          OPENMELD_RENDERER_NODE_HEAP_MB: hasParent
+            ? productionJob.steps.find((step) =>
+                step.run?.includes("production-train-artifact-admission.mjs")
+              ).env.OPENMELD_RENDERER_NODE_HEAP_MB
+            : "",
+        },
+        memoryBytes,
+        "linux"
+      );
+      assert.equal(actual.NODE_OPTIONS, `--max-old-space-size=${expectedHeap}`);
+      assert.equal(
+        actual.OPENMELD_LOCAL_HEAVY_GIB,
+        String((expectedHeap + 1024) / 1024)
+      );
+    }
+  }
 });
 
 test("handoff acceptance uses separate clean jobs and the production artifact transport with no mutation credentials", () => {

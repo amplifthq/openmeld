@@ -42,19 +42,36 @@ test("renderer heap stays within machine headroom and its heavy reservation", ()
   );
 });
 
-test("explicit bounded heap overrides prior Node heap flags without affecting other options", () => {
-  const env = rendererBuildEnvironment(
-    {
-      OPENMELD_RENDERER_NODE_HEAP_MB: "4096",
-      NODE_OPTIONS: "--enable-source-maps --max_old_space_size=8192",
-    },
-    32 * 1024 ** 3
+test("optional bounded heap overrides preserve existing Node flags when unset", () => {
+  for (const [override, existing, expected] of [
+    ["4096", "8192", 4096],
+    ["", "2048", 2048],
+    ["  ", undefined, 4096],
+  ]) {
+    const env = rendererBuildEnvironment(
+      {
+        OPENMELD_RENDERER_NODE_HEAP_MB: override,
+        NODE_OPTIONS: `--enable-source-maps${existing ? ` --max_old_space_size=${existing}` : ""}`,
+      },
+      32 * 1024 ** 3
+    );
+    assert.equal(
+      env.NODE_OPTIONS,
+      `--enable-source-maps --max-old-space-size=${expected}`
+    );
+    assert.equal(
+      env.OPENMELD_LOCAL_HEAVY_GIB,
+      String((expected + 1024) / 1024)
+    );
+  }
+  assert.throws(
+    () =>
+      rendererBuildEnvironment(
+        { OPENMELD_RENDERER_NODE_HEAP_MB: "0" },
+        32 * 1024 ** 3
+      ),
+    BUDGET
   );
-  assert.equal(
-    env.NODE_OPTIONS,
-    "--enable-source-maps --max-old-space-size=4096"
-  );
-  assert.equal(env.OPENMELD_LOCAL_HEAVY_GIB, "5");
 });
 
 test("hosted renderer builds run without waiting for the local worktree resource queue", async () => {

@@ -79,7 +79,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
-      NODE_OPTIONS: "--max-old-space-size=2048"
       OPENMELD_PRODUCTION_TRAIN_SCOPES: ${{ inputs.production_train_scopes }}
       OPENMELD_PARENT_TRAIN_ADMISSION: ${{ inputs.parent_admission_evidence }}
       OPENMELD_PARENT_WEBSITE_ARTIFACT_ID: ${{ inputs.parent_website_artifact_id }}
