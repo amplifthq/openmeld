@@ -1,4 +1,7 @@
-import { clientMessageIdSchema } from "@openmeld/schemas";
+import {
+  clientMessageIdSchema,
+  spaceSendRequestReceiptSchema,
+} from "@openmeld/schemas";
 import { resolveBaseUrl } from "../config/base-url";
 import type { OpenMeldProfile } from "../config/openmeld-profiles-api";
 import { buildOpenMeldRequestContextFromProfile } from "../config/openmeld-request-context";
@@ -60,11 +63,11 @@ export async function runSend(input: {
   presenter.line({
     code: "space.send.request",
     text: `Request: ${clientMessageId}`,
-    data: {
+    data: spaceSendRequestReceiptSchema.parse({
       clientMessageId,
       spaceId: input.space.trim(),
       targetProfileIds: input.wakeTargets ?? [],
-    },
+    }),
   });
 
   const openMeldProfile =

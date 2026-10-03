@@ -1,7 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { createDirectMessageApi } from "@openmeld/api-client";
-import { openDirectMessageSpaceBodySchema } from "@openmeld/schemas";
-import type { OpenDirectMessageSpaceBody } from "@openmeld/schemas/types";
+import {
+  openDirectMessageSpaceBodySchema,
+  spaceSendRequestReceiptSchema,
+} from "@openmeld/schemas";
+import type {
+  OpenDirectMessageSpaceBody,
+  SpaceSendRequestReceipt,
+} from "@openmeld/schemas/types";
 import { buildPublicSpaceEntryPath } from "@openmeld/space";
 import { resolveBaseUrl } from "../config/base-url";
 import { buildOpenMeldRequestContextFromProfile } from "../config/openmeld-request-context";
@@ -23,12 +29,7 @@ export async function openDirectMessage(input: {
   profile?: string;
   baseUrl?: string;
   env?: NodeJS.ProcessEnv;
-  onRequest?: (receipt: {
-    spaceId: string;
-    profileId: string;
-    clientMessageId: string;
-    targetProfileIds: string[];
-  }) => void;
+  onRequest?: (receipt: SpaceSendRequestReceipt) => void;
 }) {
   const request = openDirectMessageSpaceBodySchema.parse(input.request);
   const env = input.env ?? process.env;
@@ -53,12 +54,14 @@ export async function openDirectMessage(input: {
   const spaceId = request.spaceId ?? opened?.spaceId;
   if (request.message && spaceId) {
     // No work is submitted until the caller has an exact, stoppable identity.
-    input.onRequest?.({
-      spaceId,
-      profileId: profile.openMeldProfileId,
-      clientMessageId: request.message.clientMessageId,
-      targetProfileIds: request.message.wake ? [request.targetProfileId] : [],
-    });
+    input.onRequest?.(
+      spaceSendRequestReceiptSchema.parse({
+        spaceId,
+        profileId: profile.openMeldProfileId,
+        clientMessageId: request.message.clientMessageId,
+        targetProfileIds: request.message.wake ? [request.targetProfileId] : [],
+      })
+    );
     assertCurrentDispatch(dispatch, env);
   }
   const sendApi = opened

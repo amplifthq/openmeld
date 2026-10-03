@@ -1,5 +1,7 @@
 // biome-ignore-all lint/performance/noBarrelFile: Shared schema package intentionally exposes stable contract entrypoints.
 
+export type { SpaceSendRequestReceipt } from "../schemas/cli/space-send";
+
 export type {
   ServiceConnectionEvidenceEvent,
   ServiceConnectionEvidenceJournal,

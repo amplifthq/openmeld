@@ -193,6 +193,7 @@ export {
   cliJsonSpaceListOrganizationEnvelopeSchema,
   cliJsonSpaceMembersEnvelopeSchema,
 } from "./cli/json-output";
+export { spaceSendRequestReceiptSchema } from "./cli/space-send";
 export {
   commonErrorSchema,
   errorResponseSchema,
