@@ -658,6 +658,7 @@ export function createAuthConfig(env: AuthConfigEnv = {}): BetterAuthOptions {
     AUTH_BRAND_NAME: env.AUTH_BRAND_NAME,
     WEB_APP_URL: env.WEB_APP_URL,
     AUTH_COOKIE_DOMAIN: env.AUTH_COOKIE_DOMAIN,
+    AUTH_LEGACY_APP_ORIGIN: env.AUTH_LEGACY_APP_ORIGIN,
     AUTH_COOKIE_PREFIX: env.AUTH_COOKIE_PREFIX,
     PASSKEY_RP_ID: env.PASSKEY_RP_ID,
     GITHUB_OPENMELD_AUTH_OAUTH_CLIENT_ID:
@@ -953,6 +954,7 @@ export function createAuthConfig(env: AuthConfigEnv = {}): BetterAuthOptions {
       resolveTrustedOrigins({
         baseAuthUrl: validated.BETTER_AUTH_URL,
         appUrl: validated.WEB_APP_URL,
+        legacyAppOrigin: validated.AUTH_LEGACY_APP_ORIGIN,
         env: validated.AUTH_WORKER_NODE_ENV,
         developmentTarget: validated.AUTH_DESKTOP_DEVELOPMENT_TARGET,
         request,
