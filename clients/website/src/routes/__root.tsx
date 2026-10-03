@@ -4,6 +4,12 @@ import { ThemeProvider } from "next-themes";
 import { PublicPageHeader } from "#/components/public-page-header";
 import css from "../styles.css?url";
 
+declare const __OPENMELD_WEBSITE_BUILD__: {
+	id: string;
+	sha: string;
+	dirty: boolean;
+};
+
 export const Route = createRootRoute({
 	head: () => ({
 		links: [
@@ -11,6 +17,12 @@ export const Route = createRootRoute({
 			{ rel: "icon", href: "/favicon.ico" },
 		],
 		meta: [
+			{ name: "openmeld-source-sha", content: __OPENMELD_WEBSITE_BUILD__.sha },
+			{ name: "openmeld-build-id", content: __OPENMELD_WEBSITE_BUILD__.id },
+			{
+				name: "openmeld-build-dirty",
+				content: String(__OPENMELD_WEBSITE_BUILD__.dirty),
+			},
 			{ charSet: "utf-8" },
 			{ name: "viewport", content: "width=device-width, initial-scale=1" },
 			...buildPublicPageHead({ includeCanonical: false }).meta,

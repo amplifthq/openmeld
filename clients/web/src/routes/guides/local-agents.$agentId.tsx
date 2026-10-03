@@ -3,7 +3,7 @@ import { createFileRoute, redirect } from "@tanstack/react-router";
 export const Route = createFileRoute("/guides/local-agents/$agentId")({
 	beforeLoad: ({ location }) => {
 		throw redirect({
-			href: `https://openmeld.ai${location.pathname}${location.searchStr}${location.hash ? `#${location.hash}` : ""}`,
+			href: `${import.meta.env.VITE_WEBSITE_URL}${location.pathname}${location.searchStr}${location.hash ? `#${location.hash}` : ""}`,
 		});
 	},
 });

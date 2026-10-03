@@ -4,29 +4,101 @@
   "compatibility_date": "2026-04-12",
   "compatibility_flags": ["nodejs_compat"],
   "main": "./src/server.ts",
-  "observability": { "enabled": true },
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "invocation_logs": true,
+      "head_sampling_rate": 1
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 1
+    }
+  },
   "vars": {
     "APP_URL": "http://localhost:3000",
-    "OPENMELD_GATEWAY_URL": "http://localhost:8080"
+    "OPENMELD_GATEWAY_URL": "http://localhost:8080",
+    "OPENMELD_WORKER_ENVIRONMENT": "local"
   },
   "env": {
     "stg": {
+      "route": {
+        "custom_domain": true,
+        "pattern": "staging.openmeld.ai"
+      },
       "vars": {
         "LEGACY_BROWSER_COMPATIBILITY": "true",
         "APP_URL": "https://app.staging.openmeld.ai",
-        "OPENMELD_GATEWAY_URL": "https://gateway.staging.openmeld.ai"
+        "OPENMELD_GATEWAY_URL": "https://gateway.staging.openmeld.ai",
+        "OPENMELD_WORKER_ENVIRONMENT": "stg"
       },
-      "services": [{ "binding": "APP", "service": "openmeld-web-stg" }],
-      "observability": { "enabled": true }
+      "services": [
+        {
+          "binding": "APP",
+          "service": "openmeld-web-stg"
+        }
+      ],
+      "observability": {
+        "enabled": true,
+        "logs": {
+          "enabled": true,
+          "invocation_logs": true,
+          "head_sampling_rate": 1
+        },
+        "traces": {
+          "enabled": true,
+          "head_sampling_rate": 1
+        }
+      },
+      "analytics_engine_datasets": [
+        {
+          "binding": "OPENMELD_OBSERVABILITY",
+          "dataset": "openmeld_runtime_evidence_stg"
+        }
+      ]
     },
     "prod": {
+      "route": {
+        "custom_domain": true,
+        "pattern": "openmeld.ai"
+      },
       "vars": {
         "LEGACY_BROWSER_COMPATIBILITY": "true",
         "APP_URL": "https://app.openmeld.ai",
-        "OPENMELD_GATEWAY_URL": "https://gateway.openmeld.ai"
+        "OPENMELD_GATEWAY_URL": "https://gateway.openmeld.ai",
+        "OPENMELD_WORKER_ENVIRONMENT": "prod"
       },
-      "services": [{ "binding": "APP", "service": "openmeld-web-prod" }],
-      "observability": { "enabled": true }
+      "services": [
+        {
+          "binding": "APP",
+          "service": "openmeld-web-prod"
+        }
+      ],
+      "observability": {
+        "enabled": true,
+        "logs": {
+          "enabled": true,
+          "invocation_logs": true,
+          "head_sampling_rate": 1
+        },
+        "traces": {
+          "enabled": true,
+          "head_sampling_rate": 1
+        }
+      },
+      "analytics_engine_datasets": [
+        {
+          "binding": "OPENMELD_OBSERVABILITY",
+          "dataset": "openmeld_runtime_evidence_prod"
+        }
+      ]
     }
-  }
+  },
+  "analytics_engine_datasets": [
+    {
+      "binding": "OPENMELD_OBSERVABILITY",
+      "dataset": "openmeld_runtime_evidence"
+    }
+  ]
 }

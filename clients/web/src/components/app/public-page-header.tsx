@@ -12,7 +12,7 @@ export function PublicPageHeader(
 	return (
 		<SharedPublicPageHeader
 			appEntryPath={PUBLIC_APP_ENTRY_PATH}
-			brandHref="https://openmeld.ai"
+			brandHref={import.meta.env.VITE_WEBSITE_URL}
 			{...props}
 		/>
 	);

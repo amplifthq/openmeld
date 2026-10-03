@@ -96,6 +96,7 @@ test("deploys isolated prerequisites, database, secrets, and Workers in order", 
       "Deploy staging Gateway",
       "Deploy staging Web",
       "Deploy staging Remote Agent",
+      "Deploy staging Website",
       "Verify staging resources",
       "Verify staging user entry points",
     ]

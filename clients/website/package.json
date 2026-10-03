@@ -13,8 +13,13 @@
     "typecheck": "tsc --noEmit",
     "check": "biome check --no-errors-on-unmatched ./ && pnpm run typecheck",
     "test": "vitest run",
-    "cf-typegen": "wrangler types --env-interface=CloudflareBindings",
-    "deploy": "node ../../scripts/release/production-artifact-check.mjs --scope website && wrangler deploy --env=prod"
+    "cf-typegen": "wrangler types --env-interface=CloudflareBindings && pnpm run typecheck",
+    "deploy": "node ../../scripts/release/production-artifact-check.mjs --scope website && wrangler deploy --env=prod",
+    "deploy:stg": "pnpm run build:stg && wrangler deploy --env=stg",
+    "sync:config:prod": "pnpm run deploy",
+    "sync:config:stg": "pnpm run deploy:stg",
+    "sync:prod": "pnpm run sync:config:prod",
+    "sync:stg": "pnpm run sync:config:stg"
   },
   "dependencies": {
     "@cloudflare/vite-plugin": "1.54.6",

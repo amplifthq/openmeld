@@ -1,3 +1,5 @@
+import { execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { cloudflare } from "@cloudflare/vite-plugin";
 import tailwindcss from "@tailwindcss/vite";
@@ -16,6 +18,16 @@ const appOrigins: Record<string, string> = {
 
 export default defineConfig({
 	define: {
+		__OPENMELD_WEBSITE_BUILD__: JSON.stringify({
+			id: randomUUID(),
+			sha: execFileSync("git", ["rev-parse", "HEAD"], {
+				encoding: "utf8",
+			}).trim(),
+			dirty:
+				execFileSync("git", ["status", "--porcelain"], {
+					encoding: "utf8",
+				}).trim().length > 0,
+		}),
 		"import.meta.env.VITE_APP_URL": JSON.stringify(
 			process.env.VITE_APP_URL ??
 				appOrigins[process.env.CLOUDFLARE_ENV ?? ""] ??

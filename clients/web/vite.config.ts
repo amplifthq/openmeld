@@ -25,6 +25,10 @@ const lucideIconsPackagePattern = /^lucide-react$/;
 const phosphorIconsPackagePattern = /^@phosphor-icons\/react$/;
 const streamdownMermaidChunkPattern = /^\.\/mermaid-[\w-]+\.js$/;
 const isolatedDev = resolveIsolatedWebDevSettings(process.env);
+const websiteOrigins: Record<string, string> = {
+	prod: "https://openmeld.ai",
+	stg: "https://staging.openmeld.ai",
+};
 
 const config = defineConfig(({ command, mode }) => {
 	const installedTarget = readInstalledDesktopTarget(process.env);
@@ -68,6 +72,13 @@ const config = defineConfig(({ command, mode }) => {
 	}
 	return {
 		define: {
+			"import.meta.env.VITE_WEBSITE_URL": JSON.stringify(
+				websiteOrigins[
+					process.env.CLOUDFLARE_ENV ?? (installedTarget ? "prod" : "")
+				] ??
+					process.env.VITE_WEBSITE_URL ??
+					"http://localhost:3500"
+			),
 			...Object.fromEntries(
 				Object.entries(cliBuildEnvironment).map(([key, value]) => [
 					`import.meta.env.${key}`,

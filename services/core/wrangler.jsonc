@@ -277,7 +277,7 @@
         "OPENMELD_AGENT_ACTIVITY_DIGEST_ENABLED": "false",
         "OPENMELD_ROUTINE_ENGINE_DEFAULT": "workflow",
         "OPENMELD_ROUTINE_LEGACY_ORGANIZATION_IDS": "",
-        "WEB_APP_URL": "https://staging.openmeld.ai",
+        "WEB_APP_URL": "https://app.staging.openmeld.ai",
         "CORS_ORIGINS": "https://gateway.staging.openmeld.ai"
       },
       "d1_databases": [
@@ -426,7 +426,7 @@
         "OPENMELD_AGENT_ACTIVITY_DIGEST_ENABLED": "false",
         "OPENMELD_ROUTINE_ENGINE_DEFAULT": "workflow",
         "OPENMELD_ROUTINE_LEGACY_ORGANIZATION_IDS": "",
-        "WEB_APP_URL": "https://openmeld.ai",
+        "WEB_APP_URL": "https://app.openmeld.ai",
         "CORS_ORIGINS": "https://gateway.openmeld.ai"
       },
       "secrets": {

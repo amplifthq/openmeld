@@ -79,7 +79,7 @@ export async function buildProductionRenderer(
   try {
     const code = await (options.runCommand ?? runOwnedCommand)(
       "pnpm",
-      ["--dir", "clients/web", "run", "build:prod"],
+      ["--dir", options.clientDirectory ?? "clients/web", "run", "build:prod"],
       {
         cwd: root,
         env: {
