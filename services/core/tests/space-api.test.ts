@@ -58,6 +58,7 @@ import {
   rpcGetSpaceStatus,
   rpcListCenterAgentSessions,
   rpcOpenCenterAgentDirectMessageSpace,
+  rpcOpenDirectMessageSpace,
   rpcPostSignal,
   rpcPostStatusSignal,
   rpcPostSystemNoticeSignal,
@@ -2561,6 +2562,149 @@ describe("OpenMeld Core", () => {
     const status = await stub.rpcGetStatus({ context, spaceId });
     expect(status).toMatchObject({ members: { totalCount: 1 } });
     expect(status.directMessageConvertedAt).toBeUndefined();
+  });
+
+  it("keeps two-Agent DMs private, retries one message, and admits both owners through explicit conversion", async () => {
+    const organizationId = "org-two-agent-dm";
+    const firstAgent = "agt_59595959-5959-4595-8595-595959595959";
+    const secondAgent = "agt_60606060-6060-4060-8060-606060606060";
+    const pairKey = [firstAgent, secondAgent].sort().join(":");
+    const agents = [
+      {
+        profileId: firstAgent,
+        profileKind: "agent" as const,
+        profileName: "Writer",
+        ownerUserId: "dm-writer-owner",
+        ownerName: "Writer Owner",
+        agentControllerRef: "builtin:codex",
+      },
+      {
+        profileId: secondAgent,
+        profileKind: "agent" as const,
+        profileName: "Reviewer",
+        ownerUserId: "dm-reviewer-owner",
+        ownerName: "Reviewer Owner",
+        agentControllerRef: "builtin:codex",
+      },
+    ];
+    for (const agent of agents) {
+      await ensureTestOrganizationMembership({
+        organizationId,
+        userId: agent.ownerUserId,
+      });
+      await insertTestOrganizationAgentProfile({
+        organizationId,
+        agentProfileId: agent.profileId,
+        ownerUserId: agent.ownerUserId,
+      });
+    }
+    const context = createRpcContext({
+      activeOrganizationId: organizationId,
+      ownerUserId: "dm-writer-owner",
+      profileId: firstAgent,
+      profileKind: "agent",
+      profileName: "Writer",
+      requestId: "dm-writer",
+    });
+    const ownerContext = createRpcContext({
+      activeOrganizationId: organizationId,
+      ownerUserId: "dm-reviewer-owner",
+      profileId: THIRD_HUMAN_PROFILE_ID,
+      profileKind: "human",
+      profileName: "Reviewer Owner",
+      requestId: "dm-reader",
+    });
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const opened = await rpcOpenDirectMessageSpace(env as CoreBindings, {
+      context,
+      targetProfileId: secondAgent,
+      message: {
+        clientMessageId: "00000000-0000-4000-8000-000000000077",
+        text: "The review is ready.",
+        wake: false,
+      },
+    });
+    const spaceId = opened.spaceId;
+    const stub = namespace.get(namespace.idFromString(spaceId));
+    const message = {
+      spaceId,
+      pairKey,
+      context,
+      authoringPolicy: "user_authored" as const,
+      profile: {
+        kind: "agent" as const,
+        profileId: firstAgent,
+        profileName: "Writer",
+      },
+      clientMessageId: "00000000-0000-4000-8000-000000000077",
+      meta: { clientMessageId: "00000000-0000-4000-8000-000000000077" },
+      text: "The review is ready.",
+      messageEnvelope: {
+        text: "The review is ready.",
+        activationTargets: [],
+        referenceTargets: [secondAgent],
+      },
+    };
+    expect(opened.signal?.profile.profileId).toBe(firstAgent);
+    expect((await stub.rpcPostDirectMessageSignal(message)).id).toBe(
+      opened.signal?.id
+    );
+    const conflict = await stub
+      .rpcPostDirectMessageSignal({ ...message, text: "Different work" })
+      .then(
+        () => null,
+        (error: Error) => error.message
+      );
+    expect(conflict).toContain("direct_message.message_conflict");
+    await expect(
+      stub.rpcGetStatus({ context: ownerContext, spaceId })
+    ).resolves.toMatchObject({ members: { totalCount: 2 } });
+    const readOnlyError = await stub
+      .rpcPostSignal({
+        ...message,
+        context: ownerContext,
+        profile: {
+          kind: "human",
+          profileId: THIRD_HUMAN_PROFILE_ID,
+          profileName: "Reviewer Owner",
+        },
+      })
+      .then(
+        () => null,
+        (error: Error) => error.message
+      );
+    expect(readOnlyError).toContain("space.access.read_only");
+    const converted = await stub.rpcConvertDirectMessageToSpace({
+      context: ownerContext,
+      spaceId,
+      name: "Review team",
+      members: [
+        {
+          profileId: SECOND_HUMAN_PROFILE_ID,
+          profileKind: "human",
+          profileName: "Writer Owner",
+          ownerUserId: "dm-writer-owner",
+          ownerName: "Writer Owner",
+          agentControllerRef: null,
+        },
+        {
+          profileId: THIRD_HUMAN_PROFILE_ID,
+          profileKind: "human",
+          profileName: "Reviewer Owner",
+          ownerUserId: "dm-reviewer-owner",
+          ownerName: "Reviewer Owner",
+          agentControllerRef: null,
+        },
+      ],
+    });
+    expect(converted.addedMemberIds.sort()).toEqual(
+      [SECOND_HUMAN_PROFILE_ID, THIRD_HUMAN_PROFILE_ID].sort()
+    );
+    const convertedError = await stub.rpcPostDirectMessageSignal(message).then(
+      () => null,
+      (error: Error) => error.message
+    );
+    expect(convertedError).toContain("direct_message.conversion_required");
   });
 
   it("keeps an Agent owner read-only until they explicitly join and convert the Direct Message", async () => {

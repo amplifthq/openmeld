@@ -4429,16 +4429,28 @@ describe("SpaceConversationPanel", () => {
 		).toBeTruthy();
 	});
 
-	it("shows the outcome row text but hides the Message details action for a read-only viewer", () => {
+	it.each([
+		false,
+		true,
+	])("shows the failure explanation to a read-only viewer (anchored: %s)", (anchored) => {
 		renderSpaceConversationPanel({
 			readOnly: true,
 			timelineItems: [
+				...(anchored
+					? [
+							createTimelineItem({
+								id: "readonly-wake",
+								text: "Please review the release.",
+							}),
+						]
+					: []),
 				createTimelineItem({
 					actorName: "OpenMeld",
 					actorProfileId: "system",
 					actorProfileKind: "system",
 					actorProfileName: "OpenMeld",
 					id: "signal-terminal-failure",
+					replyToSignalId: anchored ? "readonly-wake" : null,
 					signalType: "signal.system_notice",
 					systemNoticeType: "terminal_failure",
 					text: "OpenMeld could not post the reply.",

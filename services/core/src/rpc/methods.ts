@@ -240,6 +240,7 @@ import {
   notifyAgentProfileRouteCatalogChangedResponseSchema,
   notifyAgentProfilesRouteCatalogChangedBodySchema,
   openCenterAgentDirectMessageSpaceResponseSchema,
+  openDirectMessageSpaceBodySchema,
   openDirectMessageSpaceResponseSchema,
   openMeldRequestContextSchema,
   organizationAgentRuntimeOverviewResponseSchema,
@@ -1938,6 +1939,11 @@ type SpaceRpcStub = DurableObjectStub<Space> & {
     input: ListSignalsInput
   ): Promise<SpaceRpcJsonResult<ListSignalsResult>>;
   rpcPostSignal(input: PostSignalInput): Promise<SignalEnvelope>;
+  rpcPostDirectMessageSignal(
+    input: PostSignalOnceByClientMessageIdInput & {
+      pairKey: string;
+    }
+  ): Promise<SignalEnvelope>;
   rpcPostSignalOnceByClientMessageId(
     input: PostSignalOnceByClientMessageIdInput
   ): Promise<SignalEnvelope>;
@@ -2029,6 +2035,7 @@ type SpaceRpcStub = DurableObjectStub<Space> & {
     purpose: string;
     pairKey: string;
     creator?: SpaceCreator;
+    ownerUserIds?: string[];
     guide: string;
     organizationId: string;
     visibility: "public" | "private";
@@ -17407,13 +17414,13 @@ export async function rpcOpenCenterAgentDirectMessageSpace(
         ? await createCenterAgentSessionSpace(env, {
             context,
             creationId: sessionCreation.data.creationId,
-            humanMember,
+            member: humanMember,
             organizationId: activeOrganization.organizationId,
             targetMember: centerAgentMember,
           })
         : await openDirectMessageSpaceInternal(env, {
             context,
-            humanMember,
+            member: humanMember,
             legacySpaceId,
             organizationId: activeOrganization.organizationId,
             targetMember: centerAgentMember,
@@ -17780,11 +17787,100 @@ export async function rpcOpenDirectMessageSpace(
     env,
   });
   const db = requireCenterAgentDb(env);
-  const humanMember = requireHumanSpaceMemberFromContext({
-    context,
-    userId: activeOrganization.userId,
+  const member =
+    context.actorContext.profileKind === "human"
+      ? requireHumanSpaceMemberFromContext({
+          context,
+          userId: activeOrganization.userId,
+        })
+      : await readResolvedOrganizationSpaceMember({
+          db,
+          organizationId: activeOrganization.organizationId,
+          profileId: context.actorContext.openMeldProfileId,
+        });
+  if (
+    !member ||
+    member.ownerUserId !== activeOrganization.userId ||
+    member.profileKind !== context.actorContext.profileKind
+  ) {
+    throw createCoreRpcHttpError({
+      status: 403,
+      code: "direct_message.caller_forbidden",
+      reason: "Use an active profile owned by your signed-in account.",
+    });
+  }
+  return await openDirectMessageForCaller(
+    env,
+    { ...input, context },
+    member,
+    activeOrganization.organizationId
+  );
+}
+
+/** Native execution identity is verified before entering the shared DM owner. */
+export async function rpcRemoteAgentOpenDirectMessageSpace(
+  env: CoreBindings,
+  input: OpenDirectMessageSpaceInput
+): Promise<OpenDirectMessageSpaceResponse> {
+  const authorization = await requireRemoteAgentToolCaller({
+    context: requireRpcContext(input.context),
+    env,
   });
-  if (input.targetProfileId === humanMember.profileId) {
+  const member = await readResolvedOrganizationSpaceMember({
+    db: authorization.db,
+    organizationId: authorization.activeOrganization.organizationId,
+    profileId: authorization.actorProfileId,
+  });
+  if (!member || member.profileKind !== "agent") {
+    throw createCoreRpcHttpError({
+      status: 403,
+      code: "direct_message.caller_forbidden",
+      reason: "The calling Agent is no longer available in this organization.",
+    });
+  }
+  return await openDirectMessageForCaller(
+    env,
+    { ...input, context: authorization.context },
+    member,
+    authorization.activeOrganization.organizationId
+  );
+}
+
+export async function rpcRemoteAgentGetOrganizationDirectory(
+  env: CoreBindings,
+  input: { context?: CoreRpcContextInput }
+): Promise<OrganizationDirectoryResponse> {
+  const authorization = await requireRemoteAgentToolCaller({
+    context: requireRpcContext(input.context),
+    env,
+  });
+  return await rpcGetCurrentOrganizationDirectory(env, {
+    context: authorization.context,
+  });
+}
+
+async function openDirectMessageForCaller(
+  env: CoreBindings,
+  input: OpenDirectMessageSpaceInput & { context: CoreRpcContextInput },
+  member: ResolvedSpaceMemberProfile,
+  organizationId: string
+): Promise<OpenDirectMessageSpaceResponse> {
+  const parsed = openDirectMessageSpaceBodySchema.safeParse({
+    targetProfileId: input.targetProfileId,
+    creationId: input.creationId,
+    message: input.message,
+  });
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason:
+        parsed.error.issues[0]?.message ?? "Invalid Direct Message request.",
+    });
+  }
+  const { context } = input;
+  const db = requireCenterAgentDb(env);
+  if (parsed.data.targetProfileId === member.profileId) {
     throw createCoreRpcHttpError({
       status: 400,
       reason: "Choose another profile to start a Direct Message.",
@@ -17794,8 +17890,8 @@ export async function rpcOpenDirectMessageSpace(
 
   const targetMember = await readResolvedOrganizationSpaceMember({
     db,
-    organizationId: activeOrganization.organizationId,
-    profileId: input.targetProfileId,
+    organizationId,
+    profileId: parsed.data.targetProfileId,
   });
   if (!targetMember) {
     throw createCoreRpcHttpError({
@@ -17805,26 +17901,85 @@ export async function rpcOpenDirectMessageSpace(
     });
   }
 
-  const opened = await openDirectMessageSpaceInternal(env, {
-    context,
-    humanMember,
-    organizationId: activeOrganization.organizationId,
-    targetMember,
-  });
-  const response: OpenDirectMessageSpaceResponse = {
-    organizationId: activeOrganization.organizationId,
-    memberProfileId: humanMember.profileId,
+  if (parsed.data.message?.wake && targetMember.profileKind !== "agent") {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "direct_message.wake_requires_agent",
+      reason: "Only an Agent can be asked to start work.",
+    });
+  }
+  if (parsed.data.creationId) {
+    const designation = await readCenterAgentDesignationRecord({
+      db,
+      organizationId,
+    });
+    const isHumanCenterPair =
+      (member.profileKind === "human" &&
+        targetMember.profileId === designation?.agentProfileId) ||
+      (targetMember.profileKind === "human" &&
+        member.profileId === designation?.agentProfileId);
+    if (!isHumanCenterPair) {
+      throw createCoreRpcHttpError({
+        status: 400,
+        code: "direct_message.new_session_requires_center",
+        reason:
+          "New chat sessions are available between a person and their Center Agent. Other Direct Messages reuse the current conversation.",
+      });
+    }
+  }
+  const participants = { context, member, organizationId, targetMember };
+  const opened = parsed.data.creationId
+    ? await createCenterAgentSessionSpace(env, {
+        ...participants,
+        creationId: parsed.data.creationId,
+      })
+    : await openDirectMessageSpaceInternal(env, participants);
+  const message = parsed.data.message;
+  const signal = message
+    ? await resolveRpcSpaceStubOrThrow(
+        env,
+        opened.spaceId
+      ).stub.rpcPostDirectMessageSignal({
+        spaceId: opened.spaceId,
+        pairKey: buildDirectMessagePairKey(
+          member.profileId,
+          targetMember.profileId
+        ),
+        authoringPolicy: "user_authored",
+        context,
+        profile: buildProfileDisplay({
+          agentControllerRef: member.agentControllerRef,
+          ownerName: member.ownerName,
+          ownerUserId: member.ownerUserId,
+          profileId: member.profileId,
+          profileKind: member.profileKind,
+          profileName: member.profileName,
+        }),
+        text: message.text,
+        clientMessageId: message.clientMessageId,
+        meta: { clientMessageId: message.clientMessageId },
+        messageEnvelope: {
+          text: message.text,
+          activationTargets: message.wake ? [targetMember.profileId] : [],
+          // A human can explicitly send context without triggering an implicit DM Wake.
+          referenceTargets:
+            !message.wake && targetMember.profileKind === "agent"
+              ? [targetMember.profileId]
+              : [],
+        },
+        spaceAddressingVersion: OPENMELD_SPACE_ADDRESSING_VERSION,
+      })
+    : undefined;
+  const response = {
+    organizationId,
+    memberProfileId: member.profileId,
     targetProfileId: targetMember.profileId,
     spaceId: opened.spaceId,
     created: opened.created,
+    creationId: parsed.data.creationId,
+    ...(signal ? { signal } : {}),
   };
-  const validated = openDirectMessageSpaceResponseSchema.safeParse(response);
-  if (!validated.success) {
-    throw new Error(
-      `failed to build Direct Message Space response: ${validated.error.message}`
-    );
-  }
-  return validated.data;
+  return openDirectMessageSpaceResponseSchema.parse(response);
 }
 
 export async function rpcConvertDirectMessageToSpace(
@@ -17942,7 +18097,7 @@ async function openDirectMessageSpaceInternal(
   env: CoreBindings,
   input: {
     context: CoreRpcContextInput;
-    humanMember: ResolvedSpaceMemberProfile;
+    member: ResolvedSpaceMemberProfile;
     legacySpaceId?: string;
     organizationId: string;
     targetMember: ResolvedSpaceMemberProfile;
@@ -17957,7 +18112,7 @@ async function openDirectMessageSpaceInternal(
       ? await input.timing.measure(stage, operation)
       : await operation();
   const pairKey = buildDirectMessagePairKey(
-    input.humanMember.profileId,
+    input.member.profileId,
     input.targetMember.profileId
   );
   const spaceIndexDb = requireSpaceIndexDb(env);
@@ -17975,6 +18130,7 @@ async function openDirectMessageSpaceInternal(
     if (
       !hasCompleteDirectMessageMembership({
         candidate: reusableCandidate,
+        member: input.member,
         targetMember: input.targetMember,
       })
     ) {
@@ -17983,7 +18139,7 @@ async function openDirectMessageSpaceInternal(
         async () =>
           await addDirectMessageMembers(env, {
             context: input.context,
-            humanMember: input.humanMember,
+            member: input.member,
             spaceId: reusableCandidate.spaceId,
             targetMember: input.targetMember,
           })
@@ -17993,10 +18149,10 @@ async function openDirectMessageSpaceInternal(
   }
 
   const guide = buildDirectMessageSpaceGuide({
-    firstName: input.humanMember.profileName,
+    firstName: input.member.profileName,
     secondName: input.targetMember.profileName,
   });
-  const name = `${input.humanMember.profileName} and ${input.targetMember.profileName}`;
+  const name = `${input.member.profileName} and ${input.targetMember.profileName}`;
 
   const legacySpaceId = input.legacySpaceId;
   if (legacySpaceId) {
@@ -18017,6 +18173,8 @@ async function openDirectMessageSpaceInternal(
         "meta_upsert",
         async () =>
           await initializeDirectMessageSpaceMeta(env, {
+            ownerUserId:
+              input.member.ownerUserId ?? input.targetMember.ownerUserId,
             context: input.context,
             guide,
             name,
@@ -18030,7 +18188,7 @@ async function openDirectMessageSpaceInternal(
         async () =>
           await addDirectMessageMembers(env, {
             context: input.context,
-            humanMember: input.humanMember,
+            member: input.member,
             spaceId: legacyCandidate.spaceId,
             targetMember: input.targetMember,
           })
@@ -18057,6 +18215,7 @@ async function openDirectMessageSpaceInternal(
     "meta_upsert",
     async () =>
       await initializeDirectMessageSpaceMeta(env, {
+        ownerUserId: input.member.ownerUserId ?? input.targetMember.ownerUserId,
         context: input.context,
         guide,
         name,
@@ -18070,7 +18229,7 @@ async function openDirectMessageSpaceInternal(
     async () =>
       await addDirectMessageMembers(env, {
         context: input.context,
-        humanMember: input.humanMember,
+        member: input.member,
         spaceId,
         targetMember: input.targetMember,
       })
@@ -18083,13 +18242,13 @@ async function createCenterAgentSessionSpace(
   input: {
     context: CoreRpcContextInput;
     creationId: string;
-    humanMember: ResolvedSpaceMemberProfile;
+    member: ResolvedSpaceMemberProfile;
     organizationId: string;
     targetMember: ResolvedSpaceMemberProfile;
   }
 ): Promise<{ created: boolean; spaceId: string }> {
   const pairKey = buildDirectMessagePairKey(
-    input.humanMember.profileId,
+    input.member.profileId,
     input.targetMember.profileId
   );
   const spaceId = resolveNamedSpaceId(
@@ -18102,9 +18261,10 @@ async function createCenterAgentSessionSpace(
     ])
   ).toString();
   const initialized = await initializeDirectMessageSpaceMeta(env, {
+    ownerUserId: input.member.ownerUserId ?? input.targetMember.ownerUserId,
     context: input.context,
     guide: buildDirectMessageSpaceGuide({
-      firstName: input.humanMember.profileName,
+      firstName: input.member.profileName,
       secondName: input.targetMember.profileName,
     }),
     name: "New chat",
@@ -18114,7 +18274,7 @@ async function createCenterAgentSessionSpace(
   });
   await addDirectMessageMembers(env, {
     context: input.context,
-    humanMember: input.humanMember,
+    member: input.member,
     spaceId,
     targetMember: input.targetMember,
   });
@@ -18122,6 +18282,7 @@ async function createCenterAgentSessionSpace(
 }
 
 function hasCompleteDirectMessageMembership(input: {
+  member: ResolvedSpaceMemberProfile;
   candidate: {
     activeAgentCount: number | null;
     activeHumanCount: number | null;
@@ -18129,8 +18290,10 @@ function hasCompleteDirectMessageMembership(input: {
   };
   targetMember: ResolvedSpaceMemberProfile;
 }): boolean {
-  const expectedAgentCount = input.targetMember.profileKind === "agent" ? 1 : 0;
-  const expectedHumanCount = input.targetMember.profileKind === "human" ? 2 : 1;
+  const expectedAgentCount = [input.member, input.targetMember].filter(
+    (member) => member.profileKind === "agent"
+  ).length;
+  const expectedHumanCount = 2 - expectedAgentCount;
   return (
     input.candidate.activeMemberCount === 2 &&
     input.candidate.activeAgentCount === expectedAgentCount &&
@@ -18150,6 +18313,7 @@ async function initializeDirectMessageSpaceMeta(
   env: CoreBindings,
   input: {
     context: CoreRpcContextInput;
+    ownerUserId: string | null;
     guide: string;
     name: string;
     organizationId: string;
@@ -18164,6 +18328,7 @@ async function initializeDirectMessageSpaceMeta(
     purpose: OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
     pairKey: input.pairKey,
     creator: toSpaceCreator(input.context),
+    ownerUserIds: input.ownerUserId ? [input.ownerUserId] : [],
     guide: input.guide,
     organizationId: input.organizationId,
     visibility: "private",
@@ -18174,7 +18339,7 @@ async function addDirectMessageMembers(
   env: CoreBindings,
   input: {
     context: CoreRpcContextInput;
-    humanMember: ResolvedSpaceMemberProfile;
+    member: ResolvedSpaceMemberProfile;
     spaceId: string;
     targetMember: ResolvedSpaceMemberProfile;
   }
@@ -18182,7 +18347,7 @@ async function addDirectMessageMembers(
   const { stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
   await stub.rpcPostMembers({
     spaceId: input.spaceId,
-    members: [input.humanMember, input.targetMember],
+    members: [input.member, input.targetMember],
     context: input.context,
   });
 }

@@ -170,6 +170,8 @@ import {
   ORGANIZATION_SKILL_INSTRUCTIONS_MAX_CHARS,
   ORGANIZATION_SKILL_NAME_MAX_CHARS,
   ORGANIZATION_SKILL_OPERATION_ID_MAX_CHARS,
+  openDirectMessageSpaceBodySchema,
+  openDirectMessageSpaceResponseSchema,
   openMeldNavigationTargetSchema,
   organizationDirectoryResponseSchema,
   organizationSpaceDirectoryResponseSchema,
@@ -1433,6 +1435,7 @@ async function executeMessageChannelIdentityNavigationAction(input: {
 
 export const REMOTE_AGENT_OPENMELD_TOOL_NAMES = [
   ...REMOTE_AGENT_EXTERNAL_TOOL_NAMES,
+  "openmeld_open_direct_message",
   "openmeld_require_identity_for_action",
   "openmeld_get_navigation_action",
   "openmeld_read_organization_directory",
@@ -2151,6 +2154,56 @@ export function getRemoteAgentOpenMeldToolDefinitions(
       submissionId: input.submissionId,
     }),
     toolDefinition({
+      name: "openmeld_open_direct_message",
+      description:
+        "Open or reuse your Direct Message with an active Human or Agent Profile in this organization. Use an exact profile ID from the organization directory. To send a message, include message with a fresh UUID clientMessageId and an explicit wake boolean; reuse that UUID when retrying the same message. Set wake=true only to assign concrete work to an Agent; it replies in the new conversation. Sending is not proof of completion. Ordinary messages never start Agent work. Agent owners can read the conversation and join, which turns it into a Space. To create a separate chat between yourself as Center Agent and a Human, pass a fresh UUID creationId; keep it on retries. Omit creationId for all other pairs. Return the conversation link so the user can open it. Do not forward unrelated private context or wake another Agent just to acknowledge its reply.",
+      input: strictObject({
+        targetProfileId: string(),
+        creationId: optional(string()),
+        message: optional(
+          strictObject({
+            clientMessageId: string(),
+            text: string(),
+            wake: boolean(),
+          })
+        ),
+      }),
+      execute: async (payload) => {
+        const request = openDirectMessageSpaceBodySchema.parse(payload);
+        const toolContext = await buildRemoteAgentToolContext({
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_open_direct_message",
+        });
+        const rpc = requireCoreRpc(
+          input.coreWorker.remoteAgentOpenDirectMessageSpace,
+          "remoteAgentOpenDirectMessageSpace"
+        );
+        const response = openDirectMessageSpaceResponseSchema.parse(
+          await rpc({
+            ...request,
+            context: toolContext.context,
+          })
+        );
+        const organizationWebUrl =
+          toolContext.turnEnvelope?.organization.webUrl;
+        const navigation = organizationWebUrl
+          ? buildOpenMeldNavigationAction({
+              organizationWebUrl,
+              target: { kind: "space", spaceId: response.spaceId },
+            })
+          : undefined;
+        if (navigation) {
+          await recordRemoteAgentNavigationTarget({
+            storage: input.storage,
+            submissionId: input.submissionId,
+            target: navigation.target,
+          });
+        }
+        return { ...response, ...(navigation ? { navigation } : {}) };
+      },
+    }),
+    toolDefinition({
       name: "openmeld_require_identity_for_action",
       description:
         "Record that one explicit action requested by the current connected Message Channel member cannot proceed without their personal OpenMeld access. Use this only for a personal or member-owned capability, a role-restricted action, a destructive or human-attributed action, or an action whose owner reports that a verified OpenMeld member is required. Never use it for public research, Organization information, shared-App reads, or ordinary safe shared-App writes. Complete every independent part first. This does not execute the blocked action. OpenMeld immediately records one private Connect my account and continue action for the current request. You may then compare the current provider account with openmeld_read_organization_directory and refine the action through openmeld_get_navigation_action when exactly one member is clearly the same person; otherwise the generic private action is already ready. Never expose tools, catalogs, sessions, routing, or permission infrastructure to the user.",
@@ -2278,15 +2331,20 @@ export function getRemoteAgentOpenMeldToolDefinitions(
           organizationReadPageToolInputSchema,
           payload
         );
-        const toolContext =
-          await buildAnonymousCompatibleOrganizationReadToolContext({
-            storage: input.storage,
-            submissionId: input.submissionId,
-            toolName: "openmeld_read_organization_directory",
-          });
+        const toolContext = await (input.personalAgent
+          ? buildRemoteAgentToolContext
+          : buildAnonymousCompatibleOrganizationReadToolContext)({
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_read_organization_directory",
+        });
         const rpc = requireCoreRpc(
-          input.coreWorker.centerAgentGetOrganizationDirectory,
-          "centerAgentGetOrganizationDirectory"
+          input.personalAgent
+            ? input.coreWorker.remoteAgentGetOrganizationDirectory
+            : input.coreWorker.centerAgentGetOrganizationDirectory,
+          input.personalAgent
+            ? "remoteAgentGetOrganizationDirectory"
+            : "centerAgentGetOrganizationDirectory"
         );
         const response = pageOrganizationDirectory(
           organizationDirectoryResponseSchema.parse(

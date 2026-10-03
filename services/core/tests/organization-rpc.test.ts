@@ -96,6 +96,7 @@ import {
   rpcRecordCenterAgentAudit,
   rpcRecordCurrentOrganizationMemberPresence,
   rpcRecordCurrentOrganizationWebActivity,
+  rpcRemoteAgentOpenDirectMessageSpace,
   rpcRemoveSpaceMembers,
   rpcSetCenterAgentOrganizationMemoryPolicy,
   rpcSetOrganizationInformationProtectionPolicy,
@@ -9801,6 +9802,156 @@ describe("organization Core RPC", () => {
     expect(db.spaces).toHaveLength(1);
   });
 
+  it("lets either owned Agent open the same DM without adding their Humans", async () => {
+    const db = createOrganizationRpcDb({
+      agentProfiles: [
+        {
+          organizationId: "org-a",
+          ownerUserId: "user-a",
+          profileHandle: "codex",
+          profileId: AGENT_PROFILE_ID,
+          profileName: "Codex",
+          status: "active",
+        },
+        {
+          organizationId: "org-a",
+          ownerUserId: "user-b",
+          profileHandle: "reviewer",
+          profileId: SECOND_AGENT_PROFILE_ID,
+          profileName: "Reviewer",
+          status: "active",
+        },
+      ],
+      members: [
+        memberRow("member-a", "org-a", "user-a"),
+        memberRow("member-b", "org-a", "user-b"),
+      ],
+    });
+    const spaceStub = createSpaceStub({ spaces: db.spaces });
+    const env = buildEnv({ db, spaceStub });
+    const first = await rpcOpenDirectMessageSpace(env, {
+      context: buildContext({
+        activeOrganizationId: "org-a",
+        userId: "user-a",
+        profileKind: "agent",
+      }),
+      targetProfileId: SECOND_AGENT_PROFILE_ID,
+    });
+    const second = await rpcOpenDirectMessageSpace(env, {
+      context: buildContext({
+        activeOrganizationId: "org-a",
+        userId: "user-b",
+        profileId: SECOND_AGENT_PROFILE_ID,
+        profileKind: "agent",
+      }),
+      targetProfileId: AGENT_PROFILE_ID,
+    });
+    expect(second).toMatchObject({ spaceId: first.spaceId, created: false });
+    expect(spaceStub.rpcPostMembers).toHaveBeenCalledTimes(1);
+    expect(
+      spaceStub.rpcPostMembers.mock.calls[0]?.[0].members
+        .map((member) => member.profileId)
+        .sort()
+    ).toEqual([AGENT_PROFILE_ID, SECOND_AGENT_PROFILE_ID].sort());
+    await expect(
+      rpcOpenDirectMessageSpace(env, {
+        context: buildContext({
+          activeOrganizationId: "org-a",
+          userId: "user-b",
+          profileKind: "agent",
+        }),
+        targetProfileId: SECOND_HUMAN_PROFILE_ID,
+      })
+    ).rejects.toMatchObject({
+      code: "direct_message.caller_forbidden",
+      status: 403,
+    });
+  });
+
+  it("lets the Center create a fresh Human chat or delegate in an ordinary Agent DM", async () => {
+    const db = createOrganizationRpcDb({
+      agentProfiles: [
+        managedCenterAgentProfileRow(),
+        {
+          organizationId: "org-a",
+          ownerUserId: "user-a",
+          profileHandle: "codex",
+          profileId: SECOND_AGENT_PROFILE_ID,
+          profileName: "Codex",
+          status: "active",
+        },
+      ],
+      centerAgentDesignations: [
+        centerAgentDesignationRow({
+          agentProfileId: AGENT_PROFILE_ID,
+          designatedBy: "user-a",
+          organizationId: "org-a",
+        }),
+      ],
+      members: [memberRow("member-a", "org-a", "user-a", "owner")],
+    });
+    const spaceStub = createSpaceStub({ spaces: db.spaces });
+    const env = buildEnv({ db, spaceStub });
+    const context = buildCenterAgentContext({
+      activeOrganizationId: "org-a",
+      userId: "user-a",
+      profileKind: "agent",
+    });
+    const creationId = "00000000-0000-4000-8000-000000000041";
+    const first = await rpcRemoteAgentOpenDirectMessageSpace(env, {
+      context,
+      targetProfileId: HUMAN_PROFILE_ID,
+      creationId,
+    });
+    const retry = await rpcRemoteAgentOpenDirectMessageSpace(env, {
+      context,
+      targetProfileId: HUMAN_PROFILE_ID,
+      creationId,
+    });
+    const next = await rpcRemoteAgentOpenDirectMessageSpace(env, {
+      context,
+      targetProfileId: HUMAN_PROFILE_ID,
+      creationId: "00000000-0000-4000-8000-000000000042",
+    });
+    expect(retry.spaceId).toBe(first.spaceId);
+    expect(next.spaceId).not.toBe(first.spaceId);
+    const request = {
+      context,
+      targetProfileId: SECOND_AGENT_PROFILE_ID,
+      message: {
+        clientMessageId: "00000000-0000-4000-8000-000000000043",
+        text: "Review the release checklist.",
+        wake: true,
+      },
+    };
+    const sent = await rpcRemoteAgentOpenDirectMessageSpace(env, request);
+    const resent = await rpcRemoteAgentOpenDirectMessageSpace(env, request);
+    expect(sent.signal).toMatchObject({
+      profile: { profileId: AGENT_PROFILE_ID },
+      data: {
+        messageEnvelope: {
+          activationTargets: [SECOND_AGENT_PROFILE_ID],
+          referenceTargets: [],
+        },
+      },
+    });
+    expect(resent.signal?.id).toBe(sent.signal?.id);
+    expect(spaceStub.rpcInitializeDirectMessageMeta).toHaveBeenLastCalledWith(
+      expect.objectContaining({ ownerUserIds: ["user-a"] })
+    );
+    await expect(
+      rpcRemoteAgentOpenDirectMessageSpace(env, { ...request, creationId })
+    ).rejects.toMatchObject({
+      code: "direct_message.new_session_requires_center",
+    });
+    await expect(
+      rpcRemoteAgentOpenDirectMessageSpace(env, {
+        ...request,
+        targetProfileId: HUMAN_PROFILE_ID,
+      })
+    ).rejects.toMatchObject({ code: "direct_message.wake_requires_agent" });
+  });
+
   it("resolves Organization profiles before converting a Direct Message", async () => {
     const spaceId =
       "7777777777777777777777777777777777777777777777777777777777777777";
@@ -14520,6 +14671,7 @@ function createSpaceStub(
     ),
     rpcPostSignal: postSignal,
     rpcPostSignalOnceByClientMessageId: postSignalOnceByClientMessageId,
+    rpcPostDirectMessageSignal: postSignalOnceByClientMessageId,
     rpcPostMembers: vi.fn(
       (request: {
         members: Array<{ profileId: string; profileKind?: string }>;

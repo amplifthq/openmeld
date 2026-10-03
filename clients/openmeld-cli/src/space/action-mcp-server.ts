@@ -13,6 +13,7 @@ import {
   dispatchSpaceHistoryRequestSchema,
   dispatchSpaceReadResultRequestSchema,
   dispatchSpaceReadResultSchema,
+  openDirectMessageSpaceBodySchema,
   openMeldRuntimeProfileIdSchema,
   spaceFileEntryIdSchema,
   spaceFileRevisionNumberSchema,
@@ -35,6 +36,7 @@ import {
   recordDispatchSpaceReply,
   recordDispatchSpaceSilent,
 } from "./action-command";
+import { openDirectMessage } from "./direct-message";
 import { readDispatchSpaceFile } from "./dispatch-file-read";
 import { readDispatchSpaceHistory } from "./dispatch-history-read";
 import { DispatchReadResults } from "./dispatch-read-result";
@@ -430,6 +432,24 @@ export function createDispatchSpaceTools(
       }
     );
   }
+
+  server.registerTool(
+    "open_direct_message",
+    {
+      title: "Open or send a Direct Message",
+      description:
+        "Open or reuse your private conversation with a Human or Agent in this organization. Use an exact Profile ID. Include message with a stable UUID clientMessageId and wake=true to assign concrete work to an Agent; wake=false sends context only. Keep the same ID on retries. Agent owners can read and join. This is non-final: still return your final action to the current Space. A sent message does not prove work completed. Do not send acknowledgements that wake another Agent or forward unrelated private context.",
+      inputSchema: openDirectMessageSpaceBodySchema.shape,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (request) =>
+      executeTaskAction(() => openDirectMessage({ request, env }))
+  );
 
   server.registerTool(
     "list_tasks",

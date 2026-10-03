@@ -1050,6 +1050,8 @@ import {
   rpcRecordSpaceAttachment,
   rpcRefreshCurrentLocalAgentCatalog,
   rpcRefreshPeopleComputerLocalAgentCatalog,
+  rpcRemoteAgentGetOrganizationDirectory,
+  rpcRemoteAgentOpenDirectMessageSpace,
   rpcRemoveConnection,
   rpcRemoveMissingConnections,
   rpcRemoveSpaceMembers,
@@ -5981,6 +5983,16 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
 }
 
 export class CenterAgentRpcEntrypoint extends CoreRpcEntrypoint {
+  remoteAgentOpenDirectMessageSpace(input: OpenDirectMessageSpaceInput) {
+    return rpcRemoteAgentOpenDirectMessageSpace(this.env, input);
+  }
+
+  remoteAgentGetOrganizationDirectory(input: {
+    context?: CoreRpcContextInput;
+  }) {
+    return rpcRemoteAgentGetOrganizationDirectory(this.env, input);
+  }
+
   writeSpaceFileContent(
     input: WriteSpaceFileContentRpcInput,
     spaceFilesOriginVersion?: string,

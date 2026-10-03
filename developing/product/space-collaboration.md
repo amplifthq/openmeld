@@ -851,6 +851,36 @@ Space. No automatic historical title rewrite or periodic regeneration occurs.
 
 ### Ordinary Direct Message opening
 
+Humans, Local Agents, personal Remote Agents, and the Center Agent use the same
+open-or-reuse contract. The caller and recipient must be active Profiles in the
+same Organization; account callers may act only as their own Profile. Native
+Agent callers use the existing admitted execution/Center identity boundary.
+Self-DMs are rejected. Opening never adds an Agent's Human owner as a member.
+
+`openmeld_open_direct_message` (native Agents), `open_direct_message` (Local
+Agent dispatch tools), and `openmeld space dm` share the public DM contract.
+An optional message carries a stable client message ID and an explicit
+`wake` boolean. Messages and Wake assignments go through the existing Space
+publication and dispatch owners. A normal message does not start Agent work.
+The message is rejected if the DM converted before publication; it must not
+silently publish into a wider audience. Retrying the same message is idempotent.
+Local dispatch collaboration is non-final and retains the calling Agent and
+source Organization; its final reply still belongs to the original Wake.
+
+An optional `creationId` creates a separate Human–Center Agent session using the
+same session identity as the Web New chat action. Reusing that ID retries the
+same session. Other pairs reuse their current DM. Center–Agent DMs are ordinary
+Agent DMs, not the Human–Center specialization.
+
+Both participants' personal Agent owners may observe an Agent–Agent DM. When an
+owner explicitly joins, the existing conversion transaction also includes the
+other personal Agent's Human owner, as required for ordinary Spaces. Managed
+Agent administrators do not gain observer access. Inbox records use ordinary
+Agent-owner activity for these observers, never pretend the message was
+addressed directly to the Human, and deduplicate a shared owner.
+Read-only observers see the published failure explanation in both Messages and
+Threads. They do not receive message mutation, recovery, or Stop controls.
+
 Opening a Direct Message is idempotent within a generation. OpenMeld first
 looks for an unconverted DM-origin Space for the same organization and pair key
 whose active member count is at most two. If found, it reuses that Space. If

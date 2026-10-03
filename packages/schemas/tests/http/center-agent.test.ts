@@ -718,6 +718,14 @@ describe("Center Agent HTTP schemas", () => {
 
   it("derives Center Agent DM only from DM origin and the designated profile", () => {
     expect(
+      isCenterAgentDirectMessageSpaceProjection({
+        centerAgentProfileId: "agt_00000000-0000-4000-8000-000000000002",
+        directMessagePairKey:
+          "agt_00000000-0000-4000-8000-000000000002:agt_00000000-0000-4000-8000-000000000003",
+        spacePurpose: "openmeld_dm_space",
+      })
+    ).toBe(false);
+    expect(
       deriveCenterAgentDirectMessageSpaceProjection({
         centerAgentProfileId: "agt-center",
         directMessagePairKey: "human-1:agt-center",

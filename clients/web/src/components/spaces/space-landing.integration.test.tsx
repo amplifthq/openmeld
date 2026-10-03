@@ -1844,12 +1844,12 @@ describe("SpaceLanding", () => {
 
 		expect(upsertProfileSpaceHistoryMock).not.toHaveBeenCalled();
 		expect(FakeWebSocket.instances).toHaveLength(0);
-		const composer = screen.getByRole("textbox", {
-			name: "Message this space",
-		});
-		expect(composer.getAttribute("aria-placeholder")).toBe(
-			"Join as Mira to participate in this Space."
-		);
+		expect(
+			screen.queryByRole("textbox", { name: "Message this space" })
+		).toBeNull();
+		expect(
+			screen.getByText("Join as Mira to participate in this Space.")
+		).toBeTruthy();
 		fireEvent.click(screen.getByRole("button", { name: "Join as Mira" }));
 
 		await waitFor(() => {
@@ -5856,7 +5856,7 @@ describe("SpaceLanding", () => {
 		expect(screen.queryByText("Add your first agent")).toBeNull();
 		expect(screen.queryByText(CAN_VIEW_TEXT_PATTERN)).toBeNull();
 		expect(
-			screen.queryByRole("button", { name: "Join conversation first" })
+			screen.queryByRole("button", { name: "Join conversation" })
 		).toBeNull();
 	});
 
@@ -5918,17 +5918,20 @@ describe("SpaceLanding", () => {
 				.getByText("View only")
 				.closest('[data-slot="space-window-header-title"]')
 		).not.toBeNull();
-		const composer = screen.getByRole("textbox", {
-			name: "Message Runner",
-		});
-		expect(composer.getAttribute("aria-placeholder")).toBe(
-			"Alice is chatting with your agent, Runner. Join this conversation to send messages."
-		);
+		expect(
+			screen.queryByRole("textbox", { name: "Message Runner" })
+		).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "Add People or Agents" })
+		).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "Mention a member" })
+		).toBeNull();
 		expect(
 			screen.getByText("Join the conversation to send the first message.")
 		).toBeTruthy();
 		const joinButtons = screen.getAllByRole("button", {
-			name: "Join conversation first",
+			name: "Join conversation",
 		});
 		expect(joinButtons).toHaveLength(2);
 		const composerSection = document.querySelector(
@@ -5939,7 +5942,7 @@ describe("SpaceLanding", () => {
 			within(composerSection as HTMLElement).queryByText(
 				"Alice is chatting with your agent, Runner. Join this conversation to send messages."
 			)
-		).toBeNull();
+		).not.toBeNull();
 		expect(
 			within(composerSection as HTMLElement).queryByRole("button", {
 				name: "Send message",
@@ -5947,7 +5950,7 @@ describe("SpaceLanding", () => {
 		).toBeNull();
 		fireEvent.click(
 			within(composerSection as HTMLElement).getByRole("button", {
-				name: "Join conversation first",
+				name: "Join conversation",
 			})
 		);
 		expect(
@@ -6010,7 +6013,7 @@ describe("SpaceLanding", () => {
 
 		expect(screen.getByText("Mira can view")).toBeTruthy();
 		expect(
-			screen.queryByRole("button", { name: "Join conversation first" })
+			screen.queryByRole("button", { name: "Join conversation" })
 		).toBeNull();
 	});
 
@@ -6159,7 +6162,7 @@ describe("SpaceLanding", () => {
 
 		fireEvent.click(
 			screen.getAllByRole("button", {
-				name: "Join conversation first",
+				name: "Join conversation",
 			})[0] as Element
 		);
 		fireEvent.change(screen.getByRole("textbox", { name: "Space name" }), {
@@ -6528,7 +6531,7 @@ describe("SpaceLanding", () => {
 		).toBeNull();
 		expect(screen.queryByText(CAN_VIEW_TEXT_PATTERN)).toBeNull();
 		expect(
-			screen.queryByRole("button", { name: "Join conversation first" })
+			screen.queryByRole("button", { name: "Join conversation" })
 		).toBeNull();
 	});
 
