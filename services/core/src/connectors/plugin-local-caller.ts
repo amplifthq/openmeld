@@ -1,8 +1,9 @@
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { authRpcResolveProfileByIdResultSchema } from "@openmeld/schemas";
 import type { PluginActionRpcInput } from "@openmeld/schemas/types";
-import { readPrimaryAgentProfileBindingRecord } from "../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
+import { readPrimaryAgentProfileBindingRecord } from "../agent-profile-binding/infrastructure/postgresql/agent-profile-binding-repo";
 import { readPluginDispatchRequester } from "../dispatch/application/plugin-request-provenance";
-import { type CoreBindings, identityDb } from "../lib/bindings";
+import type { CoreBindings } from "../lib/bindings";
 import { requireExpectedOrganizationContext } from "../organizations/expected-organization-context";
 import {
   readOrganizationAccountIdentityProjection,
@@ -11,7 +12,6 @@ import {
 } from "../organizations/organization-context";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import { callRequiredAuthWorkerRpc } from "../rpc/required-auth-worker-rpc";
-
 export async function requireLocalPluginCaller(
   env: CoreBindings,
   input: PluginActionRpcInput
@@ -42,7 +42,7 @@ export async function requireLocalPluginCaller(
   ) {
     throw denied("Use a Local Agent owned by your signed-in account.");
   }
-  const db = identityDb(env);
+  const db = getPostgresDatabase(env);
   if (!db) {
     throw createCoreRpcHttpError({
       code: "plugin.state_unavailable",
@@ -113,7 +113,6 @@ export async function requireLocalPluginCaller(
     personalAllowed: representedUserId === member.userId,
   };
 }
-
 export async function requirePluginProfile(
   env: CoreBindings,
   profileId: string
@@ -140,7 +139,6 @@ export async function requirePluginProfile(
   }
   return parsed.data.profile;
 }
-
 function denied(reason: string) {
   return createCoreRpcHttpError({
     code: "plugin.caller_forbidden",

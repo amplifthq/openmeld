@@ -2,6 +2,7 @@
 
 import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { assertProductDatabaseReleaseSupported } from "./database-backend-admission.mjs";
 
 const STAGING_ENTRY_POINTS = [
   "https://staging.openmeld.ai/guide.md",
@@ -163,6 +164,7 @@ async function runStagingRelease(input) {
     return;
   }
   if (input.command === "deploy") {
+    assertProductDatabaseReleaseSupported();
     assertCleanWorktree();
   }
 

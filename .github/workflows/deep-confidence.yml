@@ -68,7 +68,7 @@ jobs:
   workers-integration:
     if: inputs.scope == 'full'
     name: Deep Confidence / Workers Integration ${{ matrix.shard }}/8
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -83,12 +83,14 @@ jobs:
       - name: Setup Node.js, pnpm, and dependencies
         uses: ./.github/actions/setup-node-pnpm
 
+      - uses: ./.github/actions/setup-postgresql
+
       - name: Build Core Worker integration dependencies
         run: pnpm exec turbo run build --filter=@openmeld/core^...
 
       - name: Run Workers Integration ${{ matrix.shard }}/8
         working-directory: services/core
-        run: pnpm exec vitest run --config vitest.config.ts --shard=${{ matrix.shard }}/8
+        run: node ../../tooling/postgresql/local.mjs run pnpm exec vitest run --config vitest.config.ts --shard=${{ matrix.shard }}/8
 
   cli-integration:
     if: inputs.scope == 'full'

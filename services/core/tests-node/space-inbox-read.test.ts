@@ -5,7 +5,7 @@ import { createInboxFeedFixture } from "./helpers/inbox-feed.test-support";
 
 describe("Space read selections", () => {
   it("reads exact viewed updates out of order without clearing unseen messages or other recipients", async () => {
-    const f = createInboxFeedFixture();
+    const f = await createInboxFeedFixture();
     try {
       const earlier = await f.item("earlier");
       const viewed = await f.item("viewed", { occurredAtMs: 2000 });
@@ -36,12 +36,12 @@ describe("Space read selections", () => {
           .totalUnreadCount
       ).toBe(1);
     } finally {
-      f.close();
+      await f.close();
     }
   });
 
   it("freezes all main and Thread updates while preserving later arrivals, other Spaces, and pending work", async () => {
-    const f = createInboxFeedFixture();
+    const f = await createInboxFeedFixture();
     try {
       await f.item("main");
       await f.item("thread", {
@@ -53,7 +53,7 @@ describe("Space read selections", () => {
         },
       });
       const action = await f.item("action", { attention: "action_required" });
-      f.space("second");
+      await f.space("second");
       await f.item("second", {
         sourceTarget: { kind: "space", spaceId: "second", signalId: "second" },
       });
@@ -112,11 +112,11 @@ describe("Space read selections", () => {
         })
       ).rejects.toMatchObject({ status: 409 });
     } finally {
-      f.close();
+      await f.close();
     }
   });
   it("retains an updated item and rechecks current access when confirming", async () => {
-    const f = createInboxFeedFixture();
+    const f = await createInboxFeedFixture();
     try {
       const item = await f.item("changing");
       const selection = await mutateSpaceInboxRead({
@@ -128,9 +128,9 @@ describe("Space read selections", () => {
       if (selection.operation !== "prepare") {
         throw new Error("Expected selection");
       }
-      f.run({
-        sql: "UPDATE inbox_items SET occurred_at_ms=11000,updated_at_ms=11000 WHERE id=?",
-        params: [item.itemId],
+      await f.query({
+        text: 'UPDATE "openmeld"."inbox_items" SET occurred_at_ms=11000,updated_at_ms=11000 WHERE id=$1',
+        values: [item.itemId],
       });
       const body = {
         spaceId: "space",
@@ -145,8 +145,8 @@ describe("Space read selections", () => {
           body,
         })
       ).toMatchObject({ markedReadCount: 0 });
-      f.run({
-        sql: "UPDATE space_index_memberships SET status='removed' WHERE space_id='space'",
+      await f.query({
+        text: "UPDATE \"openmeld\".\"space_index_memberships\" SET status='removed' WHERE space_id='space'",
       });
       expect(
         await mutateSpaceInboxRead({
@@ -161,11 +161,11 @@ describe("Space read selections", () => {
         })
       ).toMatchObject({ markedReadCount: 0 });
     } finally {
-      f.close();
+      await f.close();
     }
   });
   it("reports complete scope counts and clears beyond the navigation page without changing legacy responses", async () => {
-    const f = createInboxFeedFixture();
+    const f = await createInboxFeedFixture();
     try {
       for (let n = 0; n < 501; n++) {
         await f.item(`reply-${n}`, {
@@ -216,7 +216,7 @@ describe("Space read selections", () => {
         })
       ).toMatchObject({ markedReadCount: 501 });
     } finally {
-      f.close();
+      await f.close();
     }
   });
 });

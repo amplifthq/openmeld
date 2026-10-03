@@ -13,11 +13,11 @@ import {
   type RuntimeTransportSessionState,
 } from "../src/runtime-transport/application/runtime-transport-state";
 import { createInboxFeedFixture } from "./helpers/inbox-feed.test-support";
-import { createFaultInjectingD1Database } from "./helpers/sqlite-d1-harness.test-support";
+import { createFaultInjectingPostgresDatabase } from "./helpers/postgresql-harness.test-support";
 
 describe("Runtime Transport Computer incidents", () => {
   it("waits out transient loss, persists one incident across restarts and updates it on actual recovery without consuming read state", async () => {
-    const f = fixture();
+    const f = await fixture();
     try {
       await f.source.observe([f.session()]);
       const expiry = await f.source.nextAlarmAtMs();
@@ -31,11 +31,11 @@ describe("Runtime Transport Computer incidents", () => {
           lastHeartbeatMs: 1000,
         }),
       ]);
-      expect(f.items()).toEqual([]);
+      expect(await f.items()).toEqual([]);
       await f.source.observe([f.session()]);
       f.advance(LEASE_TTL_MS + 1);
       await f.source.observe([]); // Cloud alarm works without the disconnected device.
-      const original = f.items()[0];
+      const original = (await f.items())[0];
       if (!original) {
         throw new Error("Expected a source-produced Computer incident");
       }
@@ -46,7 +46,7 @@ describe("Runtime Transport Computer incidents", () => {
       });
       const restart = f.restart();
       await restart.observe([]);
-      expect(f.items()).toHaveLength(1);
+      expect(await f.items()).toHaveLength(1);
       const inbox = createInboxService({
         db: f.db,
         includeAccountItems: true,
@@ -57,25 +57,27 @@ describe("Runtime Transport Computer incidents", () => {
         itemId: String(original.id),
         read: true,
       });
-      const readAt = f.items()[0]?.read_at_ms;
+      const readAt = (await f.items())[0]?.read_at_ms;
       await restart.observe([f.session()]);
-      expect(f.items()).toHaveLength(1);
-      expect(f.items()[0]).toMatchObject({
+      expect(await f.items()).toHaveLength(1);
+      expect((await f.items())[0]).toMatchObject({
         id: original.id,
         read_at_ms: readAt,
         resolution_status: "resolved",
       });
-      expect(JSON.parse(String(f.items()[0]?.source_target_json)).state).toBe(
-        "restored"
-      );
       expect(
-        f.queryAll({ sql: "SELECT * FROM inbox_email_deliveries" })
+        JSON.parse(String((await f.items())[0]?.source_target_json)).state
+      ).toBe("restored");
+      expect(
+        await f.queryAll({
+          text: 'SELECT * FROM "openmeld"."inbox_email_deliveries"',
+        })
       ).toEqual([]);
       f.advance(LEASE_TTL_MS + 1);
       await restart.observe([]);
-      expect(f.items()).toHaveLength(2);
+      expect(await f.items()).toHaveLength(2);
     } finally {
-      f.close();
+      await f.close();
     }
   });
 
@@ -97,14 +99,14 @@ describe("Runtime Transport Computer incidents", () => {
   }[])("resolves an unread disconnect when Computer is online with $name", async ({
     patch,
   }) => {
-    const f = fixture();
+    const f = await fixture();
     const clock = vi.spyOn(Date, "now").mockImplementation(f.now);
     try {
       await f.source.observe([f.session()]);
       f.advance(LEASE_TTL_MS + 1);
       const source = f.restart();
       await source.observe([]);
-      const original = f.items()[0];
+      const original = (await f.items())[0];
       expect(original).toMatchObject({
         resolution_status: "open",
         read_at_ms: null,
@@ -113,7 +115,7 @@ describe("Runtime Transport Computer incidents", () => {
       await source.observe([
         f.session({ lastHeartbeatMs: 1000, socket: null }),
       ]);
-      expect(f.items()[0]?.resolution_status).toBe("open");
+      expect((await f.items())[0]?.resolution_status).toBe("open");
       await f.item("unrelated-update");
       const inbox = createInboxService({
         db: f.db,
@@ -147,8 +149,8 @@ describe("Runtime Transport Computer incidents", () => {
       ).toBe(true);
       await source.observe(state.sessionsById.values());
 
-      expect(f.items()).toHaveLength(1);
-      expect(f.items()[0]).toMatchObject({
+      expect(await f.items()).toHaveLength(1);
+      expect((await f.items())[0]).toMatchObject({
         id: original?.id,
         read_at_ms: null,
         resolution_status: "resolved",
@@ -183,7 +185,7 @@ describe("Runtime Transport Computer incidents", () => {
       ).toEqual([]);
     } finally {
       clock.mockRestore();
-      f.close();
+      await f.close();
     }
   });
 
@@ -192,7 +194,7 @@ describe("Runtime Transport Computer incidents", () => {
     "controlled_service_update",
     "unknown",
   ] as const)("does not turn %s into an unexpected disconnect", async (stopCause) => {
-    const f = fixture();
+    const f = await fixture();
     try {
       await f.source.observe([f.session()]);
       await f.source.observe([
@@ -200,19 +202,19 @@ describe("Runtime Transport Computer incidents", () => {
       ]);
       f.advance(LEASE_TTL_MS + 1);
       await f.restart().observe([]);
-      expect(f.items()).toEqual([]);
+      expect(await f.items()).toEqual([]);
     } finally {
-      f.close();
+      await f.close();
     }
   });
 
   it("requires prior confirmed availability and ignores a stale replaced session", async () => {
-    const f = fixture();
+    const f = await fixture();
     try {
       await f.source.observe([f.session({ acceptingDispatches: false })]);
       f.advance(LEASE_TTL_MS + 1);
       await f.source.observe([]);
-      expect(f.items()).toEqual([]);
+      expect(await f.items()).toEqual([]);
       await f.source.observe([
         f.session({
           daemonSessionId: "old",
@@ -223,10 +225,10 @@ describe("Runtime Transport Computer incidents", () => {
         }),
         f.session({ daemonSessionId: "replacement", connectionGeneration: 2 }),
       ]);
-      expect(f.items()).toEqual([]);
+      expect(await f.items()).toEqual([]);
       expect(await f.source.nextAlarmAtMs()).toBe(f.now() + LEASE_TTL_MS + 1);
     } finally {
-      f.close();
+      await f.close();
     }
   });
 
@@ -234,14 +236,13 @@ describe("Runtime Transport Computer incidents", () => {
     "disconnected",
     "restored",
   ] as const)("retries a failed %s projection after restart without reopening or duplicating the incident", async (failedState) => {
-    const f = fixture();
+    const f = await fixture();
     try {
       let restoring = false;
-      const db = createFaultInjectingD1Database({
+      const db = createFaultInjectingPostgresDatabase({
         db: f.db,
-        matches: (sql, operation) =>
-          operation === "run" &&
-          sql.includes("INSERT INTO inbox_items") &&
+        matches: (sql) =>
+          sql.includes('INSERT INTO "openmeld"."inbox_items"') &&
           restoring === (failedState === "restored"),
       });
       const source = createComputerConnectionIncidents({
@@ -252,12 +253,14 @@ describe("Runtime Transport Computer incidents", () => {
       await source.observe([f.session()]);
       f.advance(LEASE_TTL_MS + 1);
       await source.observe([]);
-      const original = f.items()[0];
-      expect(f.items()).toHaveLength(failedState === "disconnected" ? 0 : 1);
+      const original = (await f.items())[0];
+      expect(await f.items()).toHaveLength(
+        failedState === "disconnected" ? 0 : 1
+      );
       restoring = true;
       await source.observe([f.session({ socket: null })]);
       if (failedState === "restored") {
-        expect(f.items()[0]).toMatchObject({
+        expect((await f.items())[0]).toMatchObject({
           id: original?.id,
           resolution_status: "open",
         });
@@ -266,15 +269,15 @@ describe("Runtime Transport Computer incidents", () => {
         f.advance(Number(retryAtMs) - f.now());
       }
       await f.restart().observe([f.session({ socket: null })]);
-      expect(f.items()).toHaveLength(1);
-      expect(f.items()[0]?.resolution_status).toBe("resolved");
+      expect(await f.items()).toHaveLength(1);
+      expect((await f.items())[0]?.resolution_status).toBe("resolved");
       if (original) {
-        expect(f.items()[0]?.id).toBe(original.id);
+        expect((await f.items())[0]?.id).toBe(original.id);
       }
       await f.restart().observe([f.session({ socket: null })]);
-      expect(f.items()).toHaveLength(1);
+      expect(await f.items()).toHaveLength(1);
     } finally {
-      f.close();
+      await f.close();
     }
   });
 
@@ -285,14 +288,14 @@ describe("Runtime Transport Computer incidents", () => {
     deviceId,
     lane,
   }) => {
-    const f = fixture();
+    const f = await fixture();
     try {
       if (deviceId !== "device") {
-        f.run({
-          sql: "INSERT INTO openMeldDaemon_owned_devices (owner_user_id, device_id, connected_computer_id, user_display_name, first_seen_at_ms, updated_at_ms) VALUES ('owner', 'other-device', 'other-computer', 'Other Mac', 0, 0)",
+        await f.query({
+          text: "INSERT INTO \"openmeld\".\"openMeldDaemon_owned_devices\" (owner_user_id, device_id, connected_computer_id, user_display_name, first_seen_at_ms, updated_at_ms) VALUES ('owner', 'other-device', 'other-computer', 'Other Mac', 0, 0)",
         });
-        f.run({
-          sql: "INSERT INTO openMeldDaemon_connected_computers VALUES ('owner', 'other-computer', 0, 0)",
+        await f.query({
+          text: "INSERT INTO \"openmeld\".\"openMeldDaemon_connected_computers\" VALUES ('owner', 'other-computer', 0, 0)",
         });
       }
       await f.source.observe([
@@ -301,15 +304,15 @@ describe("Runtime Transport Computer incidents", () => {
       ]);
       f.advance(LEASE_TTL_MS + 1);
       await f.source.observe([]);
-      expect(f.items()).toHaveLength(2);
+      expect(await f.items()).toHaveLength(2);
       const failure = await f.item("failure", {
         kind: "wake_outcome",
         importance: "urgent",
         sourceTarget: { kind: "space", spaceId: "space", signalId: "failure" },
       });
-      const before = f.queryAll({
-        sql: "SELECT * FROM inbox_items WHERE id = ?",
-        params: [failure.itemId],
+      const before = await f.queryAll({
+        text: 'SELECT * FROM "openmeld"."inbox_items" WHERE id = $1',
+        values: [failure.itemId],
       });
       await f.source.observe([f.session({ socket: null })]);
       const feed = await createInboxFeedService({
@@ -333,42 +336,42 @@ describe("Runtime Transport Computer incidents", () => {
         state: "restored",
       });
       expect(
-        f.queryAll({
-          sql: "SELECT * FROM inbox_items WHERE id = ?",
-          params: [failure.itemId],
+        await f.queryAll({
+          text: 'SELECT * FROM "openmeld"."inbox_items" WHERE id = $1',
+          values: [failure.itemId],
         })
       ).toEqual(before);
       expect(feed.rows.find((row) => row.item.id === failure.itemId)?.dot).toBe(
         "yellow"
       );
     } finally {
-      f.close();
+      await f.close();
     }
   });
 
   it("does not publish an old connection incident after the Computer is forgotten or re-enrolled", async () => {
-    const f = fixture();
+    const f = await fixture();
     try {
       await f.source.observe([f.session()]);
-      f.run({
-        sql: "UPDATE openMeldDaemon_owned_devices SET connected_computer_id = 'new-computer' WHERE device_id = 'device'",
+      await f.query({
+        text: "UPDATE \"openmeld\".\"openMeldDaemon_owned_devices\" SET connected_computer_id = 'new-computer' WHERE device_id = 'device'",
       });
       f.advance(LEASE_TTL_MS + 1);
       await f.source.observe([]);
-      expect(f.items()).toEqual([]);
+      expect(await f.items()).toEqual([]);
     } finally {
-      f.close();
+      await f.close();
     }
   });
 });
 
-function fixture() {
-  const f = createInboxFeedFixture();
-  f.run({
-    sql: "INSERT INTO openMeldDaemon_owned_devices (owner_user_id, device_id, connected_computer_id, user_display_name, first_seen_at_ms, updated_at_ms) VALUES ('owner', 'device', 'computer', 'Build Mac', 0, 0)",
+async function fixture() {
+  const f = await createInboxFeedFixture();
+  await f.query({
+    text: "INSERT INTO \"openmeld\".\"openMeldDaemon_owned_devices\" (owner_user_id, device_id, connected_computer_id, user_display_name, first_seen_at_ms, updated_at_ms) VALUES ('owner', 'device', 'computer', 'Build Mac', 0, 0)",
   });
-  f.run({
-    sql: "INSERT INTO openMeldDaemon_connected_computers VALUES ('owner', 'computer', 0, 0)",
+  await f.query({
+    text: "INSERT INTO \"openmeld\".\"openMeldDaemon_connected_computers\" VALUES ('owner', 'computer', 0, 0)",
   });
   let nowMs = 1000;
   const now = () => nowMs;
@@ -384,9 +387,9 @@ function fixture() {
     advance: (ms: number) => {
       nowMs += ms;
     },
-    items: () =>
-      f.queryAll({
-        sql: "SELECT * FROM inbox_items WHERE kind = 'computer_connection' ORDER BY occurred_at_ms",
+    items: async () =>
+      await f.queryAll({
+        text: 'SELECT * FROM "openmeld"."inbox_items" WHERE kind = \'computer_connection\' ORDER BY occurred_at_ms',
       }),
     session: (
       patch: Partial<RuntimeTransportSessionState> = {}

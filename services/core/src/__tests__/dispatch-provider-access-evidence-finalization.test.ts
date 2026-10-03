@@ -1,3 +1,4 @@
+import { PostgresDatabase } from "@openmeld/db/postgresql";
 import { signalEnvelopeSchema } from "@openmeld/schemas";
 import type {
   OpenMeldDaemonDispatchQueueMessage,
@@ -5,29 +6,29 @@ import type {
 } from "@openmeld/schemas/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
-import * as readinessImpactRepo from "../agent-execution/infrastructure/d1/agent-execution-readiness-impact-repo";
+import * as readinessImpactRepo from "../agent-execution/infrastructure/postgresql/agent-execution-readiness-impact-repo";
 import {
   clearAgentExecutionReadinessImpactForExecutionSuccess,
   writeAcceptedAgentExecutionReadinessImpact,
-} from "../agent-execution/infrastructure/d1/agent-execution-readiness-impact-repo";
+} from "../agent-execution/infrastructure/postgresql/agent-execution-readiness-impact-repo";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
-import * as providerAccessEvidenceRepo from "../agent-execution/infrastructure/d1/provider-access-evidence-repo";
+import * as providerAccessEvidenceRepo from "../agent-execution/infrastructure/postgresql/provider-access-evidence-repo";
 import {
   clearProviderAccessFailureEvidenceForExecutionSuccess,
   writeAcceptedProviderAccessFailureEvidence,
-} from "../agent-execution/infrastructure/d1/provider-access-evidence-repo";
+} from "../agent-execution/infrastructure/postgresql/provider-access-evidence-repo";
 import { finalizeAcceptedDispatchResult } from "../dispatch/application/dispatch-execution-service";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
 import * as dispatchResultService from "../dispatch/application/dispatch-result-service";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
-import * as dispatchLedgerD1 from "../dispatch/infrastructure/d1/dispatch-ledger-d1";
+import * as dispatchLedgerD1 from "../dispatch/infrastructure/postgresql/dispatch-ledger-postgresql";
 import {
   markDispatchStatus,
   readDispatchAttemptExecutionOwnershipFact,
-} from "../dispatch/infrastructure/d1/dispatch-ledger-d1";
+} from "../dispatch/infrastructure/postgresql/dispatch-ledger-postgresql";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
 import * as spaceSignalEmitter from "../rpc/space-signal-emitter";
-import type { DispatchResultInboxRecord } from "../runtime-transport/infrastructure/d1/dispatch-result-inbox-repo";
+import type { DispatchResultInboxRecord } from "../runtime-transport/infrastructure/postgresql/dispatch-result-inbox-repo";
 
 const AGENT_PROFILE_ID = "agt_11111111-1111-4111-8111-111111111111";
 
@@ -300,12 +301,18 @@ const buildInboxRecord = (
 const buildEnv = () =>
   ({
     OPENMELD_AUTH_WORKER: {},
-    OPENMELD_LOCAL_STATE_DB: {} as D1Database,
+    OPENMELD_POSTGRESQL: {
+      connectionString:
+        "postgresql://127.0.0.1:1/unexpected_test_database_access",
+    },
   }) as unknown as Parameters<typeof finalizeAcceptedDispatchResult>[0]["env"];
 
 const finalizeExistingAcceptedDispatchResultForTest = async () => {
   await finalizeAcceptedDispatchResult({
-    db: {} as D1Database,
+    db: new PostgresDatabase({
+      connectionString:
+        "postgresql://127.0.0.1:1/unexpected_test_database_access",
+    }),
     dispatchMessage,
     env: buildEnv(),
     inboxRecord: buildInboxRecord(successTaskResult),
@@ -336,7 +343,10 @@ describe("dispatch provider access evidence finalization", () => {
     );
     await expect(
       finalizeAcceptedDispatchResult({
-        db: {} as D1Database,
+        db: new PostgresDatabase({
+          connectionString:
+            "postgresql://127.0.0.1:1/unexpected_test_database_access",
+        }),
         dispatchMessage,
         env: buildEnv(),
         inboxRecord: buildInboxRecord(unboundSuccessTaskResult),
@@ -486,7 +496,10 @@ describe("dispatch provider access evidence finalization", () => {
   it("writes provider account evidence only from an accepted matching failed result", async () => {
     await expect(
       finalizeAcceptedDispatchResult({
-        db: {} as D1Database,
+        db: new PostgresDatabase({
+          connectionString:
+            "postgresql://127.0.0.1:1/unexpected_test_database_access",
+        }),
         dispatchMessage,
         env: buildEnv(),
         inboxRecord: buildInboxRecord(failedTaskResult),
@@ -503,12 +516,12 @@ describe("dispatch provider access evidence finalization", () => {
 
     expect(readDispatchAttemptExecutionOwnershipFact).toHaveBeenCalledWith({
       attemptId: "attempt-provider-access-1",
-      db: {},
+      db: expect.any(PostgresDatabase),
       dispatchId: "dispatch-provider-access-1",
     });
     expect(writeAcceptedProviderAccessFailureEvidence).toHaveBeenCalledWith({
       agentProfileId: AGENT_PROFILE_ID,
-      db: {},
+      db: expect.any(PostgresDatabase),
       evidence: failedTaskResult.payload.providerAccessEvidence,
       executionIdentity: {
         bindingId: "binding-claude-code-1",
@@ -539,7 +552,10 @@ describe("dispatch provider access evidence finalization", () => {
 
     await expect(
       finalizeAcceptedDispatchResult({
-        db: {} as D1Database,
+        db: new PostgresDatabase({
+          connectionString:
+            "postgresql://127.0.0.1:1/unexpected_test_database_access",
+        }),
         dispatchMessage: codexDispatchMessage,
         env: buildEnv(),
         inboxRecord: buildInboxRecord(codexFailedTaskResult),
@@ -555,7 +571,7 @@ describe("dispatch provider access evidence finalization", () => {
 
     expect(writeAcceptedProviderAccessFailureEvidence).toHaveBeenCalledWith({
       agentProfileId: AGENT_PROFILE_ID,
-      db: {},
+      db: expect.any(PostgresDatabase),
       evidence: codexFailedTaskResult.payload.providerAccessEvidence,
       executionIdentity: {
         bindingId: "binding-codex-1",
@@ -582,7 +598,10 @@ describe("dispatch provider access evidence finalization", () => {
 
     await expect(
       finalizeAcceptedDispatchResult({
-        db: {} as D1Database,
+        db: new PostgresDatabase({
+          connectionString:
+            "postgresql://127.0.0.1:1/unexpected_test_database_access",
+        }),
         dispatchMessage: codexDispatchMessage,
         env: buildEnv(),
         inboxRecord: buildInboxRecord(codexStructuredUsageExhaustedTaskResult),
@@ -598,7 +617,7 @@ describe("dispatch provider access evidence finalization", () => {
 
     expect(writeAcceptedProviderAccessFailureEvidence).toHaveBeenCalledWith({
       agentProfileId: AGENT_PROFILE_ID,
-      db: {},
+      db: expect.any(PostgresDatabase),
       evidence: {
         observedAtMs: 1_700_000_000_100,
         provider: "codex",
@@ -630,7 +649,10 @@ describe("dispatch provider access evidence finalization", () => {
 
     await expect(
       finalizeAcceptedDispatchResult({
-        db: {} as D1Database,
+        db: new PostgresDatabase({
+          connectionString:
+            "postgresql://127.0.0.1:1/unexpected_test_database_access",
+        }),
         dispatchMessage: opencodeDispatchMessage,
         env: buildEnv(),
         inboxRecord: buildInboxRecord(
@@ -663,7 +685,10 @@ describe("dispatch provider access evidence finalization", () => {
 
     await expect(
       finalizeAcceptedDispatchResult({
-        db: {} as D1Database,
+        db: new PostgresDatabase({
+          connectionString:
+            "postgresql://127.0.0.1:1/unexpected_test_database_access",
+        }),
         dispatchMessage: opencodeDispatchMessage,
         env: buildEnv(),
         inboxRecord: buildInboxRecord(opencodeReportedUsageExhaustedTaskResult),
@@ -695,7 +720,10 @@ describe("dispatch provider access evidence finalization", () => {
 
     await expect(
       finalizeAcceptedDispatchResult({
-        db: {} as D1Database,
+        db: new PostgresDatabase({
+          connectionString:
+            "postgresql://127.0.0.1:1/unexpected_test_database_access",
+        }),
         dispatchMessage: codexDispatchMessage,
         env: buildEnv(),
         inboxRecord: buildInboxRecord(legacyCapacityTaskResult),
@@ -715,7 +743,10 @@ describe("dispatch provider access evidence finalization", () => {
   it("writes readiness impact from an accepted failed result covered by policy", async () => {
     await expect(
       finalizeAcceptedDispatchResult({
-        db: {} as D1Database,
+        db: new PostgresDatabase({
+          connectionString:
+            "postgresql://127.0.0.1:1/unexpected_test_database_access",
+        }),
         dispatchMessage,
         env: buildEnv(),
         inboxRecord: buildInboxRecord(readinessImpactFailedTaskResult),
@@ -732,7 +763,7 @@ describe("dispatch provider access evidence finalization", () => {
 
     expect(writeAcceptedAgentExecutionReadinessImpact).toHaveBeenCalledWith({
       agentProfileId: AGENT_PROFILE_ID,
-      db: {},
+      db: expect.any(PostgresDatabase),
       executionIdentity: {
         bindingId: "binding-claude-code-1",
         agentControllerRef: "builtin:claude-code",
@@ -749,7 +780,10 @@ describe("dispatch provider access evidence finalization", () => {
   it("normalizes workspace aliases before writing accepted readiness impact", async () => {
     await expect(
       finalizeAcceptedDispatchResult({
-        db: {} as D1Database,
+        db: new PostgresDatabase({
+          connectionString:
+            "postgresql://127.0.0.1:1/unexpected_test_database_access",
+        }),
         dispatchMessage,
         env: buildEnv(),
         inboxRecord: buildInboxRecord(
@@ -768,7 +802,7 @@ describe("dispatch provider access evidence finalization", () => {
 
     expect(writeAcceptedAgentExecutionReadinessImpact).toHaveBeenCalledWith({
       agentProfileId: AGENT_PROFILE_ID,
-      db: {},
+      db: expect.any(PostgresDatabase),
       executionIdentity: {
         bindingId: "binding-claude-code-1",
         agentControllerRef: "builtin:claude-code",
@@ -784,7 +818,10 @@ describe("dispatch provider access evidence finalization", () => {
   it("clears matching provider account evidence after an accepted successful result", async () => {
     await expect(
       finalizeAcceptedDispatchResult({
-        db: {} as D1Database,
+        db: new PostgresDatabase({
+          connectionString:
+            "postgresql://127.0.0.1:1/unexpected_test_database_access",
+        }),
         dispatchMessage,
         env: buildEnv(),
         inboxRecord: buildInboxRecord(successTaskResult),
@@ -804,7 +841,7 @@ describe("dispatch provider access evidence finalization", () => {
     ).toHaveBeenCalledWith({
       agentProfileId: AGENT_PROFILE_ID,
       clearedAtMs: 1_700_000_000_100,
-      db: {},
+      db: expect.any(PostgresDatabase),
       executionIdentity: {
         bindingId: "binding-claude-code-1",
         agentControllerRef: "builtin:claude-code",
@@ -818,7 +855,7 @@ describe("dispatch provider access evidence finalization", () => {
     ).toHaveBeenCalledWith({
       agentProfileId: AGENT_PROFILE_ID,
       clearedAtMs: 1_700_000_000_100,
-      db: {},
+      db: expect.any(PostgresDatabase),
       executionIdentity: {
         bindingId: "binding-claude-code-1",
         agentControllerRef: "builtin:claude-code",
@@ -833,7 +870,10 @@ describe("dispatch provider access evidence finalization", () => {
   it("leaves accepted success settlement to the Space after publishing without a conversation id", async () => {
     await expect(
       finalizeAcceptedDispatchResult({
-        db: {} as D1Database,
+        db: new PostgresDatabase({
+          connectionString:
+            "postgresql://127.0.0.1:1/unexpected_test_database_access",
+        }),
         dispatchMessage,
         env: buildEnv(),
         inboxRecord: buildInboxRecord(unboundSuccessTaskResult),
@@ -869,7 +909,10 @@ describe("dispatch provider access evidence finalization", () => {
       });
 
       await finalizeAcceptedDispatchResult({
-        db: {} as D1Database,
+        db: new PostgresDatabase({
+          connectionString:
+            "postgresql://127.0.0.1:1/unexpected_test_database_access",
+        }),
         dispatchMessage,
         env: buildEnv(),
         inboxRecord: buildInboxRecord(taskResult),
@@ -896,7 +939,10 @@ describe("dispatch provider access evidence finalization", () => {
     });
 
     await finalizeAcceptedDispatchResult({
-      db: {} as D1Database,
+      db: new PostgresDatabase({
+        connectionString:
+          "postgresql://127.0.0.1:1/unexpected_test_database_access",
+      }),
       dispatchMessage,
       env: buildEnv(),
       inboxRecord: buildInboxRecord(readinessImpactFailedTaskResult),

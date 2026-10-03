@@ -3999,3 +3999,28 @@ Use scoped owner documents for related rules:
 - Analytics Engine is a compact historical projection; it must not drift from
   the shared runtime evidence contract or exceed Cloudflare physical limits.
 - Sensitive data must not be logged or persisted for diagnostics.
+
+### Native PostgreSQL Slack initial submission
+
+The native delivery ledger holds an exact, short submission claim alongside
+the frozen worker request. A guarded update grants one concurrent caller the
+initial worker RPC. An overlapping request returns the existing submitted
+intent and leaves acknowledgement to that caller or the admission watchdog.
+The claim is released by its exact nonce after the attempt, including an
+ambiguous response, so a later retry can replay the same frozen request and
+worker idempotency key. A crashed caller's claim expires for recovery.
+
+The claim excludes overlapping admission operations only. Expiry neither
+finalizes nor fails an execution; the worker acknowledgement/callback and
+RuntimeCoordinator keep their established authority. Network calls hold no
+PostgreSQL transaction or row lock.
+
+### RuntimeCoordinator execution projection writes
+
+The shared PostgreSQL execution projection advances in one atomic write.
+PostgreSQL evaluates the existing status and observation time while holding the
+row lock, so a concurrent earlier delivery projection cannot discard accepted
+running evidence. Equal-rank observations retain their timestamp ordering;
+locked terminal outcomes cannot be replaced by another outcome or nonterminal
+progress. The repository owns the status ordering. This projection remains a
+read model; RuntimeCoordinator retains execution and finalization authority.

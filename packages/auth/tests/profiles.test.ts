@@ -18,6 +18,7 @@ import type {
   SpaceDeletionTombstoneRecord,
   SpaceDeletionTombstoneRepository,
 } from "../src/profiles/space-deletion-tombstone-repository";
+import { createCapturedPostgresUniqueError } from "./postgresql-errors.test-support";
 
 const TEST_AGENT_PROFILE_ID = "agt_aaaaaaaa-0000-0000-0000-000000000000";
 const TEST_HUMAN_PROFILE_ID = "11111111-2222-4333-8444-555555555555";
@@ -1719,9 +1720,7 @@ describe("OpenMeld profile service", () => {
             updatedAt: new Date("2026-02-19T00:00:00.000Z"),
           })
         );
-        throw new Error(
-          "UNIQUE constraint failed: openmeld_profiles.owner_user_id, openmeld_profiles.profile_handle"
-        );
+        throw createCapturedPostgresUniqueError("profileOwnerHandle");
       }
 
       return updateProfileIdentityForOwner(ownerUserId, profileId, input);

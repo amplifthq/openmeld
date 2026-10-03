@@ -1,15 +1,9 @@
 import { sql } from "drizzle-orm";
-import {
-  check,
-  index,
-  integer,
-  sqliteTable,
-  text,
-  uniqueIndex,
-} from "drizzle-orm/sqlite-core";
+import { bigint, check, index, text, uniqueIndex } from "drizzle-orm/pg-core";
 import { members, organizations, users } from "../auth/auth.schema.ts";
+import { applicationTable } from "../postgresql/schema.ts";
 
-export const connectorConnections = sqliteTable(
+export const connectorConnections = applicationTable(
   "connector_connections",
   {
     connectionName: text("connection_name").primaryKey(),
@@ -21,12 +15,14 @@ export const connectorConnections = sqliteTable(
       .references(() => users.id, { onDelete: "cascade" }),
     scope: text("scope").default("member").notNull(),
     accessPolicy: text("access_policy"),
-    accessRevision: integer("access_revision").default(0).notNull(),
+    accessRevision: bigint("access_revision", { mode: "number" })
+      .default(0)
+      .notNull(),
     service: text("service").notNull(),
     status: text("status").notNull(),
-    createdAtMs: integer("created_at_ms").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
-    disconnectedAtMs: integer("disconnected_at_ms"),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
+    disconnectedAtMs: bigint("disconnected_at_ms", { mode: "number" }),
   },
   (table) => [
     uniqueIndex("connector_connections_org_scope_user_service_unique").on(
@@ -45,7 +41,7 @@ export const connectorConnections = sqliteTable(
     ),
     check(
       "connector_connections_name_format_check",
-      sql`length("connection_name") between 1 and 64 and "connection_name" glob '[A-Za-z0-9]*' and "connection_name" not glob '*[^A-Za-z0-9_-]*'`
+      sql`length("connection_name") between 1 and 64 and "connection_name" ~ '^[A-Za-z0-9].*$' and "connection_name" !~ '^.*[^A-Za-z0-9_-].*$'`
     ),
     check(
       "connector_connections_org_non_empty_check",
@@ -93,7 +89,7 @@ export const connectorConnections = sqliteTable(
   ]
 );
 
-export const connectorAccessEvents = sqliteTable(
+export const connectorAccessEvents = applicationTable(
   "connector_access_events",
   {
     id: text("id").primaryKey(),
@@ -103,10 +99,10 @@ export const connectorAccessEvents = sqliteTable(
       .references(() => organizations.id, { onDelete: "cascade" }),
     actorProfileId: text("actor_profile_id").notNull(),
     actorUserId: text("actor_user_id").notNull(),
-    revision: integer("revision").notNull(),
+    revision: bigint("revision", { mode: "number" }).notNull(),
     previousPolicy: text("previous_policy").notNull(),
     policy: text("policy").notNull(),
-    createdAtMs: integer("created_at_ms").notNull(),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     uniqueIndex("connector_access_events_connection_revision_unique").on(
@@ -119,12 +115,12 @@ export const connectorAccessEvents = sqliteTable(
     ),
     check(
       "connector_access_events_policy_json_check",
-      sql`json_valid("policy") and json_valid("previous_policy")`
+      sql`("policy" is json) and ("previous_policy" is json)`
     ),
   ]
 );
 
-export const connectorAppRequests = sqliteTable(
+export const connectorAppRequests = applicationTable(
   "connector_app_requests",
   {
     id: text("id").primaryKey(),
@@ -147,10 +143,10 @@ export const connectorAppRequests = sqliteTable(
     useCase: text("use_case"),
     source: text("source").notNull(),
     status: text("status").default("requested").notNull(),
-    availableAtMs: integer("available_at_ms"),
-    notifiedAtMs: integer("notified_at_ms"),
-    createdAtMs: integer("created_at_ms").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    availableAtMs: bigint("available_at_ms", { mode: "number" }),
+    notifiedAtMs: bigint("notified_at_ms", { mode: "number" }),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     uniqueIndex("connector_app_requests_org_requester_provider_unique").on(
@@ -181,7 +177,7 @@ export const connectorAppRequests = sqliteTable(
     ),
     check(
       "connector_app_requests_capabilities_length_check",
-      sql`length("requested_capabilities") between 2 and 2000 and json_valid("requested_capabilities") and json_type("requested_capabilities") = 'array'`
+      sql`length("requested_capabilities") between 2 and 2000 and "requested_capabilities" is json array`
     ),
     check(
       "connector_app_requests_use_case_length_check",
@@ -214,7 +210,7 @@ export const connectorAppRequests = sqliteTable(
   ]
 );
 
-export const githubAppInstallationStates = sqliteTable(
+export const githubAppInstallationStates = applicationTable(
   "github_app_installation_states",
   {
     stateDigest: text("state_digest").primaryKey(),
@@ -233,9 +229,9 @@ export const githubAppInstallationStates = sqliteTable(
     verificationConnectionName: text("verification_connection_name"),
     installationId: text("installation_id"),
     status: text("status").notNull(),
-    expiresAtMs: integer("expires_at_ms").notNull(),
-    createdAtMs: integer("created_at_ms").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    expiresAtMs: bigint("expires_at_ms", { mode: "number" }).notNull(),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     index("github_app_installation_states_org_user_status_idx").on(
@@ -254,15 +250,15 @@ export const githubAppInstallationStates = sqliteTable(
     ),
     check(
       "github_app_installation_states_target_name_check",
-      sql`length("target_connection_name") between 1 and 64 and "target_connection_name" glob '[A-Za-z0-9]*' and "target_connection_name" not glob '*[^A-Za-z0-9_-]*'`
+      sql`length("target_connection_name") between 1 and 64 and "target_connection_name" ~ '^[A-Za-z0-9].*$' and "target_connection_name" !~ '^.*[^A-Za-z0-9_-].*$'`
     ),
     check(
       "github_app_installation_states_verifier_name_check",
-      sql`"verification_connection_name" is null or (length("verification_connection_name") between 1 and 64 and "verification_connection_name" glob '[A-Za-z0-9]*' and "verification_connection_name" not glob '*[^A-Za-z0-9_-]*')`
+      sql`"verification_connection_name" is null or (length("verification_connection_name") between 1 and 64 and "verification_connection_name" ~ '^[A-Za-z0-9].*$' and "verification_connection_name" !~ '^.*[^A-Za-z0-9_-].*$')`
     ),
     check(
       "github_app_installation_states_installation_id_check",
-      sql`"installation_id" is null or ("installation_id" glob '[1-9]*' and "installation_id" not glob '*[^0-9]*')`
+      sql`"installation_id" is null or ("installation_id" ~ '^[1-9].*$' and "installation_id" !~ '^.*[^0-9].*$')`
     ),
     check(
       "github_app_installation_states_status_check",
@@ -285,7 +281,7 @@ export const githubAppInstallationStates = sqliteTable(
     ),
   ]
 );
-export const pluginActionConfirmations = sqliteTable(
+export const pluginActionConfirmations = applicationTable(
   "plugin_action_confirmations",
   {
     token: text("token").primaryKey(),
@@ -294,8 +290,8 @@ export const pluginActionConfirmations = sqliteTable(
       .references(() => organizations.id, { onDelete: "cascade" }),
     actorProfileId: text("actor_profile_id").notNull(),
     requestSignature: text("request_signature").notNull(),
-    accessRevision: integer("access_revision").notNull(),
-    expiresAtMs: integer("expires_at_ms").notNull(),
+    accessRevision: bigint("access_revision", { mode: "number" }).notNull(),
+    expiresAtMs: bigint("expires_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     index("plugin_action_confirmations_expiry_idx").on(table.expiresAtMs),

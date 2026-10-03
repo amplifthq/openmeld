@@ -16,12 +16,12 @@ import {
 import {
   readRemoteAgentLarkPlatformChannelConnection,
   readRemoteAgentLarkPlatformChannelCredentials,
-} from "../src/remote-agent/infrastructure/d1/lark-platform-channel-connection-repo";
+} from "../src/remote-agent/infrastructure/postgresql/lark-platform-channel-connection-repo";
 import {
   readRemoteAgentLarkPlatformContextCursor,
   upsertRemoteAgentLarkPlatformContextCursor,
-} from "../src/remote-agent/infrastructure/d1/lark-platform-context-cursor-repo";
-import { readRemoteAgentLarkPlatformIdentityLink } from "../src/remote-agent/infrastructure/d1/lark-platform-identity-link-repo";
+} from "../src/remote-agent/infrastructure/postgresql/lark-platform-context-cursor-repo";
+import { readRemoteAgentLarkPlatformIdentityLink } from "../src/remote-agent/infrastructure/postgresql/lark-platform-identity-link-repo";
 import {
   claimRemoteAgentLarkPlatformRegistrationAttempt,
   createRemoteAgentLarkPlatformRegistrationAttempt,
@@ -29,11 +29,8 @@ import {
   readActiveRemoteAgentLarkPlatformRegistrationAttempt,
   readRemoteAgentLarkPlatformRegistrationAttempt,
   replacePendingRemoteAgentLarkPlatformRegistrationAttempt,
-} from "../src/remote-agent/infrastructure/d1/lark-platform-registration-attempt-repo";
-import {
-  applyDrizzleMigrationForTable as applyMigrationForTable,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+} from "../src/remote-agent/infrastructure/postgresql/lark-platform-registration-attempt-repo";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 const CRYPTO_KEY = btoa("0123456789abcdef0123456789abcdef");
 const ACTOR = {
@@ -61,7 +58,7 @@ const classifyOrganizationWorkspace = async () =>
   ({ ok: true, personal: false }) as const;
 describe("Lark-platform registration service", () => {
   it("lets another manager update the existing bot and verifies grants before completing", async () => {
-    const harness = createRegistrationHarness();
+    const harness = await createRegistrationHarness();
     try {
       const common = {
         actor: ACTOR,
@@ -97,9 +94,9 @@ describe("Lark-platform registration service", () => {
         db: harness.db,
         connectionId,
       });
-      harness.run({
-        sql: "UPDATE openMeldRemoteAgent_lark_platform_channel_connections SET permission_bundle_version = 'previous-bundle' WHERE connection_id = ?",
-        params: [connectionId],
+      await harness.query({
+        text: 'UPDATE "openmeld"."openMeldRemoteAgent_lark_platform_channel_connections" SET permission_bundle_version = \'previous-bundle\' WHERE connection_id = $1',
+        values: [connectionId],
       });
       const update = await beginRemoteAgentLarkPlatformRegistration({
         ...common,
@@ -159,7 +156,7 @@ describe("Lark-platform registration service", () => {
           LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE.version,
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
   it.each([
@@ -167,24 +164,24 @@ describe("Lark-platform registration service", () => {
     "disconnected",
     "replaced",
   ])("does not activate a socket whose setup claim became %s during the handshake", async (outcome) => {
-    const harness = createRegistrationHarness();
+    const harness = await createRegistrationHarness();
     let now = 1300;
     const env = {
       ...ENV,
       OPENMELD_LARK_CHANNEL_CONNECTOR: {
         getByName: () => ({
-          ensureConnected: () => {
+          ensureConnected: async () => {
             if (outcome === "expired") {
               now = 32_000;
             }
             if (outcome === "disconnected") {
-              harness.run({
-                sql: "UPDATE openMeldRemoteAgent_lark_platform_channel_connections SET status = 'disconnected'",
+              await harness.query({
+                text: 'UPDATE "openmeld"."openMeldRemoteAgent_lark_platform_channel_connections" SET status = \'disconnected\'',
               });
             }
             if (outcome === "replaced") {
-              harness.run({
-                sql: "UPDATE openMeldRemoteAgent_lark_platform_registration_attempts SET poll_claim_id = 'new-owner'",
+              await harness.query({
+                text: 'UPDATE "openmeld"."openMeldRemoteAgent_lark_platform_registration_attempts" SET poll_claim_id = \'new-owner\'',
               });
             }
             return Promise.resolve(true);
@@ -227,14 +224,14 @@ describe("Lark-platform registration service", () => {
       expect(result.connection?.status).not.toBe("connected");
       expect(result.connection?.lastVerifiedAt).toBeNull();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
   it.each([
     "accounts.feishu.cn",
     "accounts.larksuite.com",
   ])("keeps polling a legacy Lark attempt on %s without requiring resume", async (accountDomain) => {
-    const harness = createRegistrationHarness();
+    const harness = await createRegistrationHarness();
     try {
       const started = await beginRemoteAgentLarkPlatformRegistration({
         actor: ACTOR,
@@ -250,9 +247,9 @@ describe("Lark-platform registration service", () => {
         credential:
           "https://open.feishu.cn/page/launcher?user_code=legacy-code&name=Existing+app",
       });
-      harness.run({
-        sql: "UPDATE openMeldRemoteAgent_lark_platform_registration_attempts SET account_domain = ?, encrypted_registration_url = ? WHERE attempt_id = ?",
-        params: [accountDomain, encryptedRegistrationUrl, started.attempt.id],
+      await harness.query({
+        text: 'UPDATE "openmeld"."openMeldRemoteAgent_lark_platform_registration_attempts" SET account_domain = $1, encrypted_registration_url = $2 WHERE attempt_id = $3',
+        values: [accountDomain, encryptedRegistrationUrl, started.attempt.id],
       });
       const fetchImpl = jsonFetch(capturedPending, 400);
       for (const nowMs of [1100, 1200]) {
@@ -284,7 +281,7 @@ describe("Lark-platform registration service", () => {
         consumedAtMs: null,
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
@@ -292,7 +289,7 @@ describe("Lark-platform registration service", () => {
     false,
     true,
   ])("preserves unreadable setup diagnostics and permits an explicit restart (rotated key: %s)", async (rotatedKey) => {
-    const harness = createRegistrationHarness();
+    const harness = await createRegistrationHarness();
     try {
       const started = await beginRemoteAgentLarkPlatformRegistration({
         actor: ACTOR,
@@ -303,9 +300,9 @@ describe("Lark-platform registration service", () => {
         provider: "lark",
       });
       if (!rotatedKey) {
-        harness.run({
-          sql: "UPDATE openMeldRemoteAgent_lark_platform_registration_attempts SET encrypted_registration_url = ? WHERE attempt_id = ?",
-          params: ["corrupt-ciphertext", started.attempt.id],
+        await harness.query({
+          text: 'UPDATE "openmeld"."openMeldRemoteAgent_lark_platform_registration_attempts" SET encrypted_registration_url = $1 WHERE attempt_id = $2',
+          values: ["corrupt-ciphertext", started.attempt.id],
         });
       }
       const env = rotatedKey
@@ -352,7 +349,7 @@ describe("Lark-platform registration service", () => {
       expect(restarted.attempt.status).toBe("pending_registration");
       expect(fetchImpl).toHaveBeenCalledTimes(1);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
@@ -360,7 +357,7 @@ describe("Lark-platform registration service", () => {
     "accounts.feishu.cn",
     "accounts.larksuite.com",
   ])("resumes the same legacy attempt without another provider request on %s", async (accountDomain) => {
-    const harness = createRegistrationHarness();
+    const harness = await createRegistrationHarness();
     try {
       const started = await beginRemoteAgentLarkPlatformRegistration({
         actor: ACTOR,
@@ -376,9 +373,9 @@ describe("Lark-platform registration service", () => {
         credential:
           "https://open.feishu.cn/page/launcher?user_code=legacy-code",
       });
-      harness.run({
-        sql: "UPDATE openMeldRemoteAgent_lark_platform_registration_attempts SET account_domain = ?, encrypted_registration_url = ? WHERE attempt_id = ?",
-        params: [accountDomain, encryptedRegistrationUrl, started.attempt.id],
+      await harness.query({
+        text: 'UPDATE "openmeld"."openMeldRemoteAgent_lark_platform_registration_attempts" SET account_domain = $1, encrypted_registration_url = $2 WHERE attempt_id = $3',
+        values: [accountDomain, encryptedRegistrationUrl, started.attempt.id],
       });
       const fetchImpl = jsonFetch(capturedBegin);
       const resumed = await beginRemoteAgentLarkPlatformRegistration({
@@ -405,7 +402,7 @@ describe("Lark-platform registration service", () => {
         consumedAtMs: null,
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
@@ -413,7 +410,7 @@ describe("Lark-platform registration service", () => {
     "lark",
     "feishu",
   ] as const)("migrates a repaired %s Webhook connection without rotating callback secrets", async (provider) => {
-    const harness = createRegistrationHarness();
+    const harness = await createRegistrationHarness();
     const env = {
       ...ENV,
       OPENMELD_FEISHU_CHANNEL_ENABLED: "true",
@@ -444,9 +441,9 @@ describe("Lark-platform registration service", () => {
       const first = await poll(1100);
       const saved = provider === "lark" ? await poll(1200) : first;
       const connectionId = saved.connection?.id ?? "";
-      harness.run({
-        sql: "UPDATE openMeldRemoteAgent_lark_platform_channel_connections SET transport = 'webhook' WHERE connection_id = ?",
-        params: [connectionId],
+      await harness.query({
+        text: 'UPDATE "openmeld"."openMeldRemoteAgent_lark_platform_channel_connections" SET transport = \'webhook\' WHERE connection_id = $1',
+        values: [connectionId],
       });
       const credentials = await readRemoteAgentLarkPlatformChannelCredentials({
         connectionId,
@@ -482,12 +479,12 @@ describe("Lark-platform registration service", () => {
         callbacksWebhookVerifiedAtMs: null,
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("projects active setup without decrypting its setup URL", async () => {
-    const harness = createRegistrationHarness();
+    const harness = await createRegistrationHarness();
     try {
       await beginRemoteAgentLarkPlatformRegistration({
         actor: ACTOR,
@@ -538,12 +535,12 @@ describe("Lark-platform registration service", () => {
         }),
       ]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("does not show expired setup and cannot revive cancelled setup through a late poll", async () => {
-    const harness = createRegistrationHarness();
+    const harness = await createRegistrationHarness();
     try {
       const started = await beginRemoteAgentLarkPlatformRegistration({
         actor: ACTOR,
@@ -592,12 +589,12 @@ describe("Lark-platform registration service", () => {
         })
       ).toEqual([]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("continues a due registration after Web stops polling", async () => {
-    const harness = createRegistrationHarness();
+    const harness = await createRegistrationHarness();
     try {
       await beginRemoteAgentLarkPlatformRegistration({
         actor: ACTOR,
@@ -659,12 +656,12 @@ describe("Lark-platform registration service", () => {
         status: "configuring",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("stops a due Personal Workspace registration before calling the provider", async () => {
-    const harness = createRegistrationHarness();
+    const harness = await createRegistrationHarness();
     try {
       await beginRemoteAgentLarkPlatformRegistration({
         actor: ACTOR,
@@ -698,12 +695,12 @@ describe("Lark-platform registration service", () => {
       });
       expect(fetchImpl).not.toHaveBeenCalled();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("quarantines a due registration when its Organization cannot be classified", async () => {
-    const harness = createRegistrationHarness();
+    const harness = await createRegistrationHarness();
     try {
       await beginRemoteAgentLarkPlatformRegistration({
         actor: ACTOR,
@@ -748,12 +745,12 @@ describe("Lark-platform registration service", () => {
       expect(classifyOrganization).toHaveBeenCalledTimes(1);
       expect(fetchImpl).not.toHaveBeenCalled();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("expires a durable attempt without another Web request", async () => {
-    const harness = createRegistrationHarness();
+    const harness = await createRegistrationHarness();
     try {
       const started = await beginRemoteAgentLarkPlatformRegistration({
         actor: ACTOR,
@@ -786,12 +783,12 @@ describe("Lark-platform registration service", () => {
       });
       expect(fetchImpl).not.toHaveBeenCalled();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("does not call the provider when an open Web poll owns the lease", async () => {
-    const harness = createRegistrationHarness();
+    const harness = await createRegistrationHarness();
     try {
       await beginRemoteAgentLarkPlatformRegistration({
         actor: ACTOR,
@@ -822,12 +819,12 @@ describe("Lark-platform registration service", () => {
       ).resolves.toEqual({ errors: 0, processed: 0, scanned: 0 });
       expect(fetchImpl).not.toHaveBeenCalled();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("aborts a provider request before its registration claim can expire", async () => {
-    const harness = createRegistrationHarness();
+    const harness = await createRegistrationHarness();
     const deadline = new AbortController();
     const timeout = vi
       .spyOn(AbortSignal, "timeout")
@@ -895,12 +892,12 @@ describe("Lark-platform registration service", () => {
       expect(fetchImpl.mock.contexts[0]).toBeUndefined();
     } finally {
       timeout.mockRestore();
-      harness.close();
+      await harness.close();
     }
   });
 
   it("keeps the Web Crypto receiver when creating default registration IDs", async () => {
-    const harness = createRegistrationHarness();
+    const harness = await createRegistrationHarness();
     const ids = [
       "00000000-0000-4000-8000-000000000001",
       "00000000-0000-4000-8000-000000000002",
@@ -949,12 +946,12 @@ describe("Lark-platform registration service", () => {
       expect(randomUuid).toHaveBeenCalledTimes(2);
     } finally {
       randomUuid.mockRestore();
-      harness.close();
+      await harness.close();
     }
   });
 
   it("stores no unused callback secrets for persistent registrations", async () => {
-    const harness = createRegistrationHarness();
+    const harness = await createRegistrationHarness();
     try {
       const started = await beginRemoteAgentLarkPlatformRegistration({
         actor: ACTOR,
@@ -983,12 +980,12 @@ describe("Lark-platform registration service", () => {
       expect(credentials?.encryptedVerificationToken).toBeNull();
       expect(credentials?.encryptedEventEncryptKey).toBeNull();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("resumes one encrypted pending attempt without starting another device flow", async () => {
-    const harness = createRegistrationHarness();
+    const harness = await createRegistrationHarness();
     try {
       const fetchImpl = vi.fn<typeof fetch>(() =>
         Promise.resolve(Response.json(capturedBegin))
@@ -1048,12 +1045,12 @@ describe("Lark-platform registration service", () => {
       expect(resumed).toEqual(first);
       expect(fetchImpl).toHaveBeenCalledTimes(1);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("does not treat a pending device flow as an existing-app repair", async () => {
-    const harness = createRegistrationHarness();
+    const harness = await createRegistrationHarness();
     try {
       const fetchImpl = vi.fn<typeof fetch>(() =>
         Promise.resolve(Response.json(capturedBegin))
@@ -1085,12 +1082,12 @@ describe("Lark-platform registration service", () => {
       });
       expect(fetchImpl).toHaveBeenCalledTimes(1);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("replaces a pending attempt when the user explicitly starts over", async () => {
-    const harness = createRegistrationHarness();
+    const harness = await createRegistrationHarness();
     try {
       const fetchImpl = vi.fn<typeof fetch>(() =>
         Promise.resolve(Response.json(capturedBegin))
@@ -1139,12 +1136,12 @@ describe("Lark-platform registration service", () => {
         status: "repair_required",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("returns the concurrent replacement when another restart wins the race", async () => {
-    const harness = createRegistrationHarness();
+    const harness = await createRegistrationHarness();
     try {
       await beginRemoteAgentLarkPlatformRegistration({
         actor: ACTOR,
@@ -1163,16 +1160,16 @@ describe("Lark-platform registration service", () => {
       if (!first) {
         throw new Error("Expected the first registration attempt");
       }
-      harness.run({
-        params: [1050, 1050, first.attemptId],
-        sql: `
-          UPDATE openMeldRemoteAgent_lark_platform_registration_attempts
+      await harness.query({
+        values: [1050, 1050, first.attemptId],
+        text: `
+          UPDATE "openmeld"."openMeldRemoteAgent_lark_platform_registration_attempts"
           SET
             status = 'repair_required',
             failure_reason_code = 'lark.registration_restarted',
-            consumed_at_ms = ?,
-            updated_at_ms = ?
-          WHERE attempt_id = ?
+            consumed_at_ms = $1,
+            updated_at_ms = $2
+          WHERE attempt_id = $3
         `,
       });
       const commonInput = {
@@ -1212,12 +1209,12 @@ describe("Lark-platform registration service", () => {
         })
       ).resolves.toBeNull();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("persists credentials, connects after the authenticated handshake, and revokes identity on disconnect", async () => {
-    const harness = createRegistrationHarness();
+    const harness = await createRegistrationHarness();
     try {
       await beginRemoteAgentLarkPlatformRegistration({
         actor: ACTOR,
@@ -1279,9 +1276,9 @@ describe("Lark-platform registration service", () => {
       );
 
       const configureFetch = configuredAppFetch();
-      harness.run({
-        sql: "UPDATE openMeldRemoteAgent_lark_platform_registration_attempts SET failure_reason_code = ? WHERE attempt_id = ?",
-        params: ["lark.application_config_permission_required", "attempt_1"],
+      await harness.query({
+        text: 'UPDATE "openmeld"."openMeldRemoteAgent_lark_platform_registration_attempts" SET failure_reason_code = $1 WHERE attempt_id = $2',
+        values: ["lark.application_config_permission_required", "attempt_1"],
       });
       const reauthorization = await beginRemoteAgentLarkPlatformRegistration({
         actor: ACTOR,
@@ -1437,12 +1434,12 @@ describe("Lark-platform registration service", () => {
         })
       ).resolves.toBeNull();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("keeps saved app credentials alive beyond the device flow and repairs the same app", async () => {
-    const harness = createRegistrationHarness();
+    const harness = await createRegistrationHarness();
     const env = {
       ...ENV,
       OPENMELD_LARK_CHANNEL_CONNECTOR: {
@@ -1675,12 +1672,12 @@ describe("Lark-platform registration service", () => {
         status: "repair_required",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("does not connect when platform verification outlives its poll claim", async () => {
-    const harness = createRegistrationHarness();
+    const harness = await createRegistrationHarness();
     try {
       await beginRemoteAgentLarkPlatformRegistration({
         actor: ACTOR,
@@ -1747,12 +1744,12 @@ describe("Lark-platform registration service", () => {
         status: "configuring",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("keeps the scheduler on a live clock through provider settlement", async () => {
-    const harness = createRegistrationHarness();
+    const harness = await createRegistrationHarness();
     try {
       await beginRemoteAgentLarkPlatformRegistration({
         actor: ACTOR,
@@ -1814,12 +1811,12 @@ describe("Lark-platform registration service", () => {
         status: "configuring",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("fails closed before registration when the provider gate is disabled", async () => {
-    const harness = createRegistrationHarness();
+    const harness = await createRegistrationHarness();
     const fetchImpl = vi.fn<typeof fetch>();
     try {
       await expect(
@@ -1849,12 +1846,12 @@ describe("Lark-platform registration service", () => {
       });
       expect(fetchImpl).not.toHaveBeenCalled();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("does not expose one administrator's registration attempt to another", async () => {
-    const harness = createRegistrationHarness();
+    const harness = await createRegistrationHarness();
     const fetchImpl = jsonFetch(capturedBegin);
     const otherActor = {
       organizationId: ACTOR.organizationId,
@@ -1902,12 +1899,12 @@ describe("Lark-platform registration service", () => {
       });
       expect(fetchImpl).toHaveBeenCalledTimes(1);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("keeps a globally enabled provider closed outside its Organization allowlist", async () => {
-    const harness = createRegistrationHarness();
+    const harness = await createRegistrationHarness();
     const fetchImpl = vi.fn<typeof fetch>();
     try {
       await expect(
@@ -1928,44 +1925,29 @@ describe("Lark-platform registration service", () => {
       });
       expect(fetchImpl).not.toHaveBeenCalled();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });
 
-function createRegistrationHarness() {
-  const harness = createSqliteD1Harness();
-  harness.run({ sql: "CREATE TABLE users (id TEXT PRIMARY KEY)" });
-  harness.run({ sql: "CREATE TABLE organizations (id TEXT PRIMARY KEY)" });
-  harness.run({
-    sql: `
-      CREATE TABLE members (
-        id TEXT PRIMARY KEY,
-        organization_id TEXT NOT NULL,
-        user_id TEXT NOT NULL
-      )
-    `,
+async function createRegistrationHarness() {
+  const harness = await createPostgresHarness();
+
+  await harness.query({
+    text: "INSERT INTO \"openmeld\".\"users\" (id, \"name\", \"email\") VALUES ('user_1', 'Test User', ('user_1')::text || '@example.com'),\n('user_2', 'Test User', ('user_2')::text || '@example.com')",
   });
-  harness.run({
-    sql: "INSERT INTO users (id) VALUES ('user_1'), ('user_2')",
+  await harness.query({
+    text: 'INSERT INTO "openmeld"."organizations" (id, "name", "slug", "created_at") VALUES (\'org_1\', \'Test Organization\', (\'org_1\')::text, 1700000000000)',
   });
-  harness.run({ sql: "INSERT INTO organizations (id) VALUES ('org_1')" });
-  harness.run({
-    sql: `
-      INSERT INTO members (id, organization_id, user_id)
+  await harness.query({
+    text: `
+      INSERT INTO "openmeld"."members" (id, organization_id, user_id, "created_at")
       VALUES
-        ('member_1', 'org_1', 'user_1'),
-        ('member_2', 'org_1', 'user_2')
+        ('member_1', 'org_1', 'user_1', 1700000000000),
+('member_2', 'org_1', 'user_2', 1700000000000)
     `,
   });
-  applyMigrationForTable(
-    harness,
-    "openMeldRemoteAgent_lark_platform_channel_connections"
-  );
-  applyMigrationForTable(
-    harness,
-    "openMeldRemoteAgent_lark_platform_registration_attempts"
-  );
+
   return harness;
 }
 

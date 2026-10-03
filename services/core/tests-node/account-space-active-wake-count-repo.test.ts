@@ -1,27 +1,22 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import { RUNTIME_COORDINATOR_EXECUTION_MODEL_VERSION } from "@openmeld/schemas";
 import type {
   RuntimeCoordinatorExecutionRecord,
   RuntimeCoordinatorExecutionStatus,
 } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
-import { listActiveRemoteAgentNativeDeliveryTargetsBySpaceIds } from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+import { listActiveRemoteAgentNativeDeliveryTargetsBySpaceIds } from "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import {
   listActiveRuntimeCoordinatorExecutionTargetsBySpaceIds,
   writeRuntimeCoordinatorExecutionProjection,
-} from "../src/runtime-transport/infrastructure/d1/runtime-coordinator-execution-repo";
+} from "../src/runtime-transport/infrastructure/postgresql/runtime-coordinator-execution-repo";
 import { listSpaceIndexTargetProfileNameSnapshots } from "../src/space-index/space-index-repository";
-import {
-  applyDrizzleMigrationForTable,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 describe("account space active wake count repos", () => {
   it("counts only fresh active executions inside the requested space list", async () => {
-    const harness = createSqliteD1Harness();
-    applyDrizzleMigrationForTable(
-      harness,
-      "openMeldDaemon_runtime_coordinator_executions"
-    );
+    const harness = await createPostgresHarness();
+
     try {
       await writeExecution(harness.db, {
         dispatchId: "dispatch-running",
@@ -78,16 +73,13 @@ describe("account space active wake count repos", () => {
         },
       ]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("counts only fresh active non-routine Space native deliveries", async () => {
-    const harness = createSqliteD1Harness();
-    applyDrizzleMigrationForTable(
-      harness,
-      "openMeldRemoteAgent_native_delivery_ledger"
-    );
+    const harness = await createPostgresHarness();
+
     try {
       for (const row of [
         {
@@ -154,8 +146,8 @@ describe("account space active wake count repos", () => {
           updatedAtMs: 1300,
         },
       ] as const) {
-        harness.run({
-          params: [
+        await harness.query({
+          values: [
             row.deliveryId,
             row.conversationKind,
             row.spaceId,
@@ -167,8 +159,8 @@ describe("account space active wake count repos", () => {
             row.updatedAtMs,
             row.updatedAtMs,
           ],
-          sql: `
-            INSERT INTO openMeldRemoteAgent_native_delivery_ledger (
+          text: `
+            INSERT INTO "openmeld"."openMeldRemoteAgent_native_delivery_ledger" (
               delivery_id,
               organization_id,
               conversation_kind,
@@ -184,7 +176,7 @@ describe("account space active wake count repos", () => {
               created_at_ms,
               updated_at_ms
             )
-            VALUES (?, 'org-1', ?, ?, 'agt_target_native', 'binding-1', 'signal-1', ?, ?, ?, ?, ?, ?, ?)
+            VALUES ($1, 'org-1', $2, $3, 'agt_target_native', 'binding-1', 'signal-1', $4, $5, $6, $7, $8, $9, $10)
           `,
         });
       }
@@ -203,16 +195,16 @@ describe("account space active wake count repos", () => {
         },
       ]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("keeps removed Space membership names available for active Wake attribution", async () => {
-    const harness = createSqliteD1Harness();
-    applyDrizzleMigrationForTable(harness, "space_index_memberships");
+    const harness = await createPostgresHarness();
+
     try {
-      harness.run({
-        params: [
+      await harness.query({
+        values: [
           "space-1",
           "agt_deleted",
           "Clico Codex",
@@ -224,8 +216,8 @@ describe("account space active wake count repos", () => {
           1250,
           "projection-1",
         ],
-        sql: `
-          INSERT INTO space_index_memberships (
+        text: `
+          INSERT INTO "openmeld"."space_index_memberships" (
             space_id,
             profile_id,
             profile_kind_snapshot,
@@ -239,7 +231,7 @@ describe("account space active wake count repos", () => {
             projected_at_ms,
             projection_event_id
           )
-          VALUES (?, ?, 'agent', ?, ?, ?, 'member', ?, ?, ?, ?, ?)
+          VALUES ($1, $2, 'agent', $3, $4, $5, 'member', $6, $7, $8, $9, $10)
         `,
       });
 
@@ -259,9 +251,9 @@ describe("account space active wake count repos", () => {
           spaceId: "space-1",
         },
       ]);
-      harness.run({
-        sql: "UPDATE space_index_memberships SET profile_name_snapshot = profile_id WHERE profile_id = ?",
-        params: ["agt_deleted"],
+      await harness.query({
+        text: 'UPDATE "openmeld"."space_index_memberships" SET profile_name_snapshot = profile_id WHERE profile_id = $1',
+        values: ["agt_deleted"],
       });
       await expect(
         listSpaceIndexTargetProfileNameSnapshots({
@@ -270,13 +262,13 @@ describe("account space active wake count repos", () => {
         })
       ).resolves.toEqual([]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });
 
 async function writeExecution(
-  db: D1Database,
+  db: PostgresDatabase,
   input: {
     dispatchId: string;
     runtimeCoordinatorExecutionId: string;

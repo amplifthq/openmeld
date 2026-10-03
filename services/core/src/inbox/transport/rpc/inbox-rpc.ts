@@ -1,3 +1,4 @@
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import {
   centerAgentInboxSummaryResponseSchema,
   dismissInboxItemResponseSchema,
@@ -74,7 +75,7 @@ import type {
   UpdateInboxMessageNotificationPreferencesRpcInput,
   UpdateInboxNotificationPreferencesRpcInput,
 } from "@openmeld/schemas/types";
-import { type CoreBindings, inboxDb } from "../../../lib/bindings";
+import type { CoreBindings } from "../../../lib/bindings";
 import { reconcileInvitationInbox } from "../../../organizations/invitation-inbox-projection";
 import { resolveActiveOrganizationMembership } from "../../../organizations/organization-context";
 import { createCoreRpcHttpError } from "../../../rpc/errors";
@@ -562,7 +563,7 @@ async function prepareRequest(
       status: membership.status,
     });
   }
-  const db = inboxDb(env);
+  const db = getPostgresDatabase(env);
   if (!db) {
     throw createCoreRpcHttpError({
       code: "inbox.store_unavailable",

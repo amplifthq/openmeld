@@ -1,10 +1,6 @@
-import {
-  type CoreBindings,
-  identityDb,
-  wakeEvidenceDb,
-} from "../../lib/bindings";
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
+import type { CoreBindings } from "../../lib/bindings";
 import { createCoreRpcHttpError } from "../../rpc/errors";
-
 // This reads immutable request provenance, never execution liveness or token
 // authority. The authenticated local account remains the calling principal.
 export async function readPluginDispatchRequester(input: {
@@ -13,24 +9,24 @@ export async function readPluginDispatchRequester(input: {
   agentProfileId: string;
   organizationId: string;
 }) {
-  const ledger = await wakeEvidenceDb(input.env)
-    ?.prepare(
-      "SELECT space_id, source_event_id, source_profile_id FROM openMeldDaemon_dispatch_ledger WHERE dispatch_id = ? AND target_profile_id = ? LIMIT 1"
-    )
-    .bind(input.dispatchId, input.agentProfileId)
-    .first<{
+  const ledger = await getPostgresDatabase(input.env)
+    ?.query<{
       space_id: string;
       source_event_id: string;
       source_profile_id: string | null;
-    }>();
+    }>({
+      text: 'SELECT space_id, source_event_id, source_profile_id FROM "openmeld"."openMeldDaemon_dispatch_ledger" WHERE dispatch_id = $1 AND target_profile_id = $2 LIMIT 1',
+      values: [input.dispatchId, input.agentProfileId],
+    })
+    .then((result) => result.rows[0] ?? null);
   const space =
     ledger &&
-    (await identityDb(input.env)
-      ?.prepare(
-        "SELECT space_id FROM space_index_spaces WHERE space_id = ? AND organization_id = ?"
-      )
-      .bind(ledger.space_id, input.organizationId)
-      .first());
+    (await getPostgresDatabase(input.env)
+      ?.query({
+        text: 'SELECT space_id FROM "openmeld"."space_index_spaces" WHERE space_id = $1 AND organization_id = $2',
+        values: [ledger.space_id, input.organizationId],
+      })
+      .then((result) => result.rows[0] ?? null));
   if (!(ledger?.source_profile_id && space)) {
     throw createCoreRpcHttpError({
       code: "plugin.request_provenance_unavailable",

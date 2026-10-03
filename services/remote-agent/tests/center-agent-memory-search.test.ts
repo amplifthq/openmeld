@@ -5,8 +5,8 @@ import {
   buildCenterAgentMemberMemoryRef,
   buildCenterAgentOrganizationMemoryRef,
 } from "../../core/src/center-agent-memory/contract";
-import { createD1CenterAgentMemoryRepository } from "../../core/src/center-agent-memory/d1-memory-repository";
 import { rpcCenterAgentSearchMemory } from "../../core/src/center-agent-memory/memory-search-rpc";
+import { createPostgresCenterAgentMemoryRepository } from "../../core/src/center-agent-memory/postgresql-memory-repository";
 import { applyDrizzleMigrationsForTables } from "../../core/tests-node/helpers/sqlite-d1-harness.test-support";
 import { buildRemoteAgentCoreContext } from "../agent-core/tool-context";
 import { isRemoteAgentToolResultWithinLimit } from "../agent-core/tool-result-boundary";
@@ -144,7 +144,7 @@ async function fixture(
           : "Private prior conversation",
     });
   }
-  const repository = createD1CenterAgentMemoryRepository(f.harness.db);
+  const repository = createPostgresCenterAgentMemoryRepository(f.harness.db);
   const member = await repository.upsertMemberSubject({
     organizationId: f.request.organizationId,
     memberId: f.speaker.id,

@@ -2,7 +2,6 @@ import type {
   OpenMeldDaemonAcceptedDispatchSnapshot,
   OpenMeldDaemonDispatchQueueMessage,
 } from "@openmeld/schemas/types";
-
 export async function buildAcceptedDispatchSnapshot(input: {
   message: OpenMeldDaemonDispatchQueueMessage;
   openMeldServiceRuntimeId?: string | null;
@@ -62,7 +61,6 @@ export async function buildAcceptedDispatchSnapshot(input: {
     runtimeKind: input.runtimeKind,
   };
 }
-
 export function applyAcceptedDispatchSnapshotToMessage(input: {
   message: OpenMeldDaemonDispatchQueueMessage;
   snapshot: OpenMeldDaemonAcceptedDispatchSnapshot;
@@ -92,7 +90,6 @@ export function applyAcceptedDispatchSnapshotToMessage(input: {
     },
   };
 }
-
 async function fingerprintAcceptedDispatchPayload(
   message: OpenMeldDaemonDispatchQueueMessage
 ): Promise<`sha256:${string}`> {
@@ -123,7 +120,6 @@ async function fingerprintAcceptedDispatchPayload(
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("")}`;
 }
-
 function stableJson(value: unknown): string {
   if (value === null || typeof value !== "object") {
     return JSON.stringify(value);

@@ -1,14 +1,15 @@
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import {
   remoteAgentExecutionAccessRequestSchema,
   remoteAgentExecutionAccessResponseSchema,
   resolveRemoteAgentExecutionScope,
 } from "@openmeld/schemas";
-import { readPrimaryAgentProfileBindingRecord } from "../../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
+import { readPrimaryAgentProfileBindingRecord } from "../../agent-profile-binding/infrastructure/postgresql/agent-profile-binding-repo";
 import { requireRemotePluginConnection } from "../../connectors/plugin-access";
-import { type CoreBindings, wakeEvidenceDb } from "../../lib/bindings";
+import type { CoreBindings } from "../../lib/bindings";
 import { resolveOrganizationMembershipById } from "../../organizations/organization-context";
 import { rpcGetSpaceMemberDirectory } from "../../rpc/methods";
-import { readRemoteAgentNativeDeliveryBySubmissionId } from "../infrastructure/d1/native-delivery-ledger-repo";
+import { readRemoteAgentNativeDeliveryBySubmissionId } from "../infrastructure/postgresql/native-delivery-ledger-repo";
 import { readRemoteAgentDelegatedRequester } from "./delegated-requester";
 import { isNativeDeliveryExecutingStatus } from "./native-delivery-execution-status";
 import { isActiveRemoteAgentRequesterProfile } from "./personal-remote-agent-space-tools";
@@ -151,7 +152,7 @@ async function requireActiveExecution(
   input: ReturnType<typeof remoteAgentExecutionAccessRequestSchema.parse>
 ) {
   const { context, submissionId } = input;
-  const db = wakeEvidenceDb(env);
+  const db = getPostgresDatabase(env);
   if (!db) {
     throw new Error("remote_agent.execution_store_unavailable");
   }

@@ -7,23 +7,16 @@ import type { MessageChannelTurnParticipant } from "../src/remote-agent/applicat
 import {
   readRemoteAgentNativeDeliveryByDeliveryId,
   upsertRemoteAgentNativeDeliveryRecord,
-} from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
-import {
-  applyDrizzleMigrationForTable,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+} from "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 describe("native card execution controls", () => {
   it.each([
     "feishu",
     "lark",
   ] as const)("authorizes the requester and lets the %s execution owner finalize cancellation", async (provider) => {
-    const harness = createSqliteD1Harness();
+    const harness = await createPostgresHarness();
     try {
-      applyDrizzleMigrationForTable(
-        harness,
-        "openMeldRemoteAgent_native_delivery_ledger"
-      );
       const locator = {
         provider,
         connectionId: "connection",
@@ -53,9 +46,9 @@ describe("native card execution controls", () => {
         status: "submitted",
         nowMs: 1000,
       });
-      harness.run({
-        sql: "UPDATE openMeldRemoteAgent_native_delivery_ledger SET submission_id = 'submission', status = 'accepted', accepted_at_ms = 1000, provider_progress_message_id = 'card-message' WHERE delivery_id = ?",
-        params: [delivery.deliveryId],
+      await harness.query({
+        text: "UPDATE \"openmeld\".\"openMeldRemoteAgent_native_delivery_ledger\" SET submission_id = 'submission', status = 'accepted', accepted_at_ms = 1000, provider_progress_message_id = 'card-message' WHERE delivery_id = $1",
+        values: [delivery.deliveryId],
       });
       const cancelExecution = vi.fn().mockResolvedValue({
         status: "cancellation_requested",
@@ -169,9 +162,9 @@ describe("native card execution controls", () => {
           })
         )?.status
       ).toBe("accepted");
-      harness.run({
-        sql: "UPDATE openMeldRemoteAgent_native_delivery_ledger SET status = 'completed' WHERE delivery_id = ?",
-        params: [delivery.deliveryId],
+      await harness.query({
+        text: 'UPDATE "openmeld"."openMeldRemoteAgent_native_delivery_ledger" SET status = \'completed\' WHERE delivery_id = $1',
+        values: [delivery.deliveryId],
       });
       expect(await processMessageChannelCardControl(input)).toMatchObject({
         reasonCode: "message_channel.control.already_finished",
@@ -189,9 +182,9 @@ describe("native card execution controls", () => {
       expect(
         await processMessageChannelCardControl({ ...input, event: replyEvent })
       ).toMatchObject({ reasonCode: "message_channel.control.not_finished" });
-      harness.run({
-        sql: "UPDATE openMeldRemoteAgent_native_delivery_ledger SET final_publication_state = 'published' WHERE delivery_id = ?",
-        params: [delivery.deliveryId],
+      await harness.query({
+        text: 'UPDATE "openmeld"."openMeldRemoteAgent_native_delivery_ledger" SET final_publication_state = \'published\' WHERE delivery_id = $1',
+        values: [delivery.deliveryId],
       });
       const reply = await processMessageChannelCardControl({
         ...input,
@@ -219,7 +212,7 @@ describe("native card execution controls", () => {
         })
       ).toMatchObject({ reasonCode: "message_channel.control.expired" });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });

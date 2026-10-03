@@ -1,4 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
+import { PostgresDatabase } from "@openmeld/db/postgresql";
 import type { SignalEnvelope } from "@openmeld/protocol";
 import { describe, expect, it } from "vitest";
 import { recordSpaceInboxFirstContacts } from "../src/space/application/space-inbox-first-contact";
@@ -142,9 +143,8 @@ describe("durable personal-Agent contact identity", () => {
         signal: reference,
         spacePurpose: "openmeld_dm_space",
       });
-      expect(dispatch.map((decision) => decision.targetProfileId)).toEqual([
-        CODEX,
-      ]);
+      // A Reference opts out of the default DM Wake while still recording the first real contact.
+      expect(dispatch.map((decision) => decision.targetProfileId)).toEqual([]);
       const first = fixture.publish(reference, undefined, true);
       expect(
         first.candidates.flatMap(
@@ -277,13 +277,17 @@ describe("durable personal-Agent contact identity", () => {
         text("first", { mentionTargets: [FELIX] })
       );
       const failed = await attemptSpaceInboxProjectionOutboxRecord({
-        db: {} as D1Database,
+        db: new PostgresDatabase({
+          connectionString:
+            "postgresql://127.0.0.1:1/unexpected_test_database_access",
+        }),
         sql: fixture.sql,
         record,
         nowMs: 2000,
         canReceiveAgentActivity: async () => true,
         isRecipientEligible: async () => true,
-        ensureItem: () => Promise.reject(new Error("Transient D1 failure")),
+        ensureItem: () =>
+          Promise.reject(new Error("Transient database failure")),
       });
       expect(failed.status).toBe("failed");
       const retry = listDueSpaceInboxProjectionOutboxRecords(fixture.sql, {
@@ -295,7 +299,10 @@ describe("durable personal-Agent contact identity", () => {
       expect(
         (
           await attemptSpaceInboxProjectionOutboxRecord({
-            db: {} as D1Database,
+            db: new PostgresDatabase({
+              connectionString:
+                "postgresql://127.0.0.1:1/unexpected_test_database_access",
+            }),
             sql: fixture.sql,
             record: retry ?? record,
             nowMs: 100_000,
@@ -307,7 +314,7 @@ describe("durable personal-Agent contact identity", () => {
               return Promise.resolve(true);
             },
             ensureItem: ({ candidate }) => {
-              // The source relationship was frozen before the first D1 attempt.
+              // The source relationship was frozen before the first database attempt.
               // Rechecking access must not change the item's idempotent payload.
               expect(candidate.sourceTarget).toHaveProperty(
                 "agentOwnerActivity",

@@ -1,4 +1,9 @@
 import {
+  isPostgresCheckViolation,
+  isPostgresUniqueViolation,
+  type PostgresDatabase,
+} from "@openmeld/db/postgresql";
+import {
   CENTER_AGENT_ORGANIZATION_DOCUMENT_DRAFT_CREATED_BY,
   centerAgentMemberResearchReportSchema,
   ORGANIZATION_DOCUMENT_CONTENT_MAX_CHARS,
@@ -30,20 +35,17 @@ const PROFILE_REPORTS_ROOT_FOLDER_NAME = "Profile Reports";
 const PROFILE_REPORT_TYPE = "work_profile" as const;
 const PROFILE_REPORT_TYPE_LABEL = "Work Profile";
 const NUMBERED_FOLDER_NAME_PATTERN = /^(.*) \((\d+)\)$/u;
-
 export type OrganizationDocumentActor = {
   organizationId: string;
   role: string;
   userId: string;
 };
-
 export type OrganizationDocumentReadActor = Omit<
   OrganizationDocumentActor,
   "userId"
 > & {
   userId: string | null;
 };
-
 type OrganizationDocumentRow = {
   content: string;
   created_at: number;
@@ -60,7 +62,6 @@ type OrganizationDocumentRow = {
   title: string;
   updated_at: number;
 };
-
 type OrganizationDocumentFolderRow = {
   created_at: number;
   id: string;
@@ -71,13 +72,11 @@ type OrganizationDocumentFolderRow = {
   system_kind: "profile_reports_person" | "profile_reports_root" | null;
   updated_at: number;
 };
-
 type OrganizationDocumentServiceDependencies = {
-  db: D1Database;
+  db: PostgresDatabase;
   newId?: () => string;
   now?: () => number;
 };
-
 type OrganizationDocumentDraftInput = Omit<
   CenterAgentDraftOrganizationDocumentRpcInput,
   "context" | "memberResearchTaskId" | "speakerMember"
@@ -87,14 +86,12 @@ type OrganizationDocumentDraftInput = Omit<
     taskId: string;
   };
 };
-
 type PreparedOrganizationDocumentDraftInput = OrganizationDocumentDraftInput & {
   folderId?: string | null;
   profileReportDate?: string;
   profileReportType?: typeof PROFILE_REPORT_TYPE;
   title?: string;
 };
-
 type OrganizationDocumentDraftWriteResult = {
   currentContent: string;
   document: OrganizationDocumentSummary;
@@ -102,22 +99,18 @@ type OrganizationDocumentDraftWriteResult = {
   draftReplaced: boolean;
   replacedDraftCreatedAtMs: number | null;
 };
-
 type OrganizationDocumentDraftReviewerSource =
   | readonly string[]
   | (() => Promise<readonly string[]>);
-
 type OrganizationDocumentUpdateInput = Omit<
   UpdateOrganizationDocumentBody,
   "expectedOrganizationId"
 >;
-
 export function createOrganizationDocumentService(
   dependencies: OrganizationDocumentServiceDependencies
 ) {
   const now = dependencies.now ?? Date.now;
   const newId = dependencies.newId ?? (() => crypto.randomUUID());
-
   return {
     async approveDraft(
       actor: OrganizationDocumentActor,
@@ -135,29 +128,27 @@ export function createOrganizationDocumentService(
         expectedDraftCreatedAt
       );
       const resolvedAtMs = now();
-      const result = await dependencies.db
-        .prepare(
-          `
-            UPDATE organization_documents
+      const result = await dependencies.db.query({
+        text: `
+            UPDATE "openmeld"."organization_documents"
             SET content = draft_content,
                 draft_content = NULL,
                 draft_created_by = NULL,
                 draft_created_at = NULL,
-                updated_at = ?
-            WHERE id = ?
-              AND organization_id = ?
+                updated_at = $1
+            WHERE id = $2
+              AND organization_id = $3
               AND draft_content IS NOT NULL
-              AND draft_created_at = ?
-          `
-        )
-        .bind(
+              AND draft_created_at = $4
+          `,
+        values: [
           resolvedAtMs,
           documentId,
           actor.organizationId,
-          expectedDraftCreatedAtMs
-        )
-        .run();
-      if (result.meta.changes !== 1) {
+          expectedDraftCreatedAtMs,
+        ],
+      });
+      if (result.rowCount !== 1) {
         throw draftChangedError();
       }
       await runBestEffortDraftInboxProjection(
@@ -178,7 +169,6 @@ export function createOrganizationDocumentService(
       );
       return await getDocument(dependencies.db, actor, documentId);
     },
-
     async create(
       actor: OrganizationDocumentActor,
       input: {
@@ -201,10 +191,9 @@ export function createOrganizationDocumentService(
       });
       const documentId = newId();
       try {
-        const result = await dependencies.db
-          .prepare(
-            `
-              INSERT INTO organization_documents (
+        const result = await dependencies.db.query({
+          text: `
+              INSERT INTO "openmeld"."organization_documents" (
                 id,
                 organization_id,
                 kind,
@@ -220,16 +209,15 @@ export function createOrganizationDocumentService(
                 created_at,
                 updated_at
               )
-              SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?
-              WHERE ? != 'knowledge'
+              SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, NULL, NULL, NULL, $10, $11
+              WHERE $12 != 'knowledge'
                 OR (
                   SELECT COUNT(*)
-                  FROM organization_documents
-                  WHERE organization_id = ? AND kind = 'knowledge'
-                ) < ?
-            `
-          )
-          .bind(
+                  FROM "openmeld"."organization_documents"
+                  WHERE organization_id = $13 AND kind = 'knowledge'
+                ) < $14
+            `,
+          values: [
             documentId,
             actor.organizationId,
             input.kind,
@@ -243,10 +231,10 @@ export function createOrganizationDocumentService(
             timestamp,
             input.kind,
             actor.organizationId,
-            ORGANIZATION_KNOWLEDGE_DOCUMENT_LIMIT
-          )
-          .run();
-        if (result.meta.changes !== 1) {
+            ORGANIZATION_KNOWLEDGE_DOCUMENT_LIMIT,
+          ],
+        });
+        if (result.rowCount !== 1) {
           throw knowledgeLimitError();
         }
       } catch (error) {
@@ -254,10 +242,12 @@ export function createOrganizationDocumentService(
       }
       return await getDocument(dependencies.db, actor, documentId);
     },
-
     async createFolder(
       actor: OrganizationDocumentActor,
-      input: { name: string; parentFolderId?: string | null }
+      input: {
+        name: string;
+        parentFolderId?: string | null;
+      }
     ): Promise<OrganizationDocumentFolder> {
       requireManager(actor);
       const requestedName = validateFolderName(input.name);
@@ -286,10 +276,9 @@ export function createOrganizationDocumentService(
         const timestamp = now();
         const folderId = newId();
         try {
-          const result = await dependencies.db
-            .prepare(
-              `
-              INSERT INTO organization_document_folders (
+          const result = await dependencies.db.query({
+            text: `
+              INSERT INTO "openmeld"."organization_document_folders" (
                 id,
                 organization_id,
                 parent_folder_id,
@@ -297,15 +286,14 @@ export function createOrganizationDocumentService(
                 created_at,
                 updated_at
               )
-              SELECT ?, ?, ?, ?, ?, ?
+              SELECT $1, $2, $3, $4, $5, $6
               WHERE (
                 SELECT COUNT(*)
-                FROM organization_document_folders
-                WHERE organization_id = ?
-              ) < ?
-            `
-            )
-            .bind(
+                FROM "openmeld"."organization_document_folders"
+                WHERE organization_id = $7
+              ) < $8
+            `,
+            values: [
               folderId,
               actor.organizationId,
               parentFolderId,
@@ -313,10 +301,10 @@ export function createOrganizationDocumentService(
               timestamp,
               timestamp,
               actor.organizationId,
-              ORGANIZATION_DOCUMENT_FOLDER_LIMIT
-            )
-            .run();
-          if (result.meta.changes !== 1) {
+              ORGANIZATION_DOCUMENT_FOLDER_LIMIT,
+            ],
+          });
+          if (result.rowCount !== 1) {
             throw folderLimitError();
           }
           return await requireFolder(
@@ -325,10 +313,7 @@ export function createOrganizationDocumentService(
             folderId
           );
         } catch (error) {
-          if (
-            error instanceof Error &&
-            error.message.includes("UNIQUE constraint failed")
-          ) {
+          if (isFolderNameConflict(error)) {
             continue;
           }
           throw mapFolderWriteError(error);
@@ -336,7 +321,6 @@ export function createOrganizationDocumentService(
       }
       throw folderExistsError();
     },
-
     async deleteFolder(
       actor: OrganizationDocumentActor,
       folderId: string
@@ -354,60 +338,60 @@ export function createOrganizationDocumentService(
       try {
         // Deleting a folder unwraps one level instead of deleting content:
         // its documents and direct child folders move to its parent.
-        const [, , deleteResult] = await dependencies.db.batch([
-          dependencies.db
-            .prepare(
-              `
-                UPDATE organization_documents
-                SET folder_id = ?
-                WHERE organization_id = ? AND folder_id = ?
-              `
-            )
-            .bind(parentFolderId, actor.organizationId, folderId),
-          dependencies.db
-            .prepare(
-              `
-                UPDATE organization_document_folders
-                SET parent_folder_id = ?, updated_at = ?
-                WHERE organization_id = ? AND parent_folder_id = ?
-              `
-            )
-            .bind(parentFolderId, now(), actor.organizationId, folderId),
-          dependencies.db
-            .prepare(
-              "DELETE FROM organization_document_folders WHERE id = ? AND organization_id = ?"
-            )
-            .bind(folderId, actor.organizationId),
-        ]);
-        if (deleteResult?.meta.changes !== 1) {
+        const [, , deleteResult] = await dependencies.db.transaction(
+          async (client) =>
+            [
+              await client.query({
+                text: `
+                UPDATE "openmeld"."organization_documents"
+                SET folder_id = $1
+                WHERE organization_id = $2 AND folder_id = $3
+              `,
+                values: [parentFolderId, actor.organizationId, folderId],
+              }),
+              await client.query({
+                text: `
+                UPDATE "openmeld"."organization_document_folders"
+                SET parent_folder_id = $1, updated_at = $2
+                WHERE organization_id = $3 AND parent_folder_id = $4
+              `,
+                values: [parentFolderId, now(), actor.organizationId, folderId],
+              }),
+              await client.query({
+                text: 'DELETE FROM "openmeld"."organization_document_folders" WHERE id = $1 AND organization_id = $2',
+                values: [folderId, actor.organizationId],
+              }),
+            ] as const
+        );
+        if (deleteResult.rowCount !== 1) {
           throw folderNotFoundError();
         }
       } catch (error) {
         throw mapFolderWriteError(error);
       }
     },
-
     async listFolders(
       actor: OrganizationDocumentReadActor
     ): Promise<OrganizationDocumentFolder[]> {
-      const result = await dependencies.db
-        .prepare(
-          `
+      const result = await dependencies.db.query<OrganizationDocumentFolderRow>(
+        {
+          text: `
             SELECT *
-            FROM organization_document_folders
-            WHERE organization_id = ?
+            FROM "openmeld"."organization_document_folders"
+            WHERE organization_id = $1
             ORDER BY lower(name), created_at
-          `
-        )
-        .bind(actor.organizationId)
-        .all<OrganizationDocumentFolderRow>();
-      return (result.results ?? []).map(toFolder);
+          `,
+          values: [actor.organizationId],
+        }
+      );
+      return (result.rows ?? []).map(toFolder);
     },
-
     async renameFolder(
       actor: OrganizationDocumentActor,
       folderId: string,
-      input: { name: string }
+      input: {
+        name: string;
+      }
     ): Promise<OrganizationDocumentFolder> {
       requireManager(actor);
       const name = validateFolderName(input.name);
@@ -429,16 +413,14 @@ export function createOrganizationDocumentService(
         );
       }
       try {
-        await dependencies.db
-          .prepare(
-            `
-              UPDATE organization_document_folders
-              SET name = ?, updated_at = ?
-              WHERE id = ? AND organization_id = ?
-            `
-          )
-          .bind(name, now(), folderId, actor.organizationId)
-          .run();
+        await dependencies.db.query({
+          text: `
+              UPDATE "openmeld"."organization_document_folders"
+              SET name = $1, updated_at = $2
+              WHERE id = $3 AND organization_id = $4
+            `,
+          values: [name, now(), folderId, actor.organizationId],
+        });
       } catch (error) {
         throw mapFolderWriteError(error);
       }
@@ -448,7 +430,6 @@ export function createOrganizationDocumentService(
         folderId
       );
     },
-
     async moveFolder(
       actor: OrganizationDocumentActor,
       folderId: string,
@@ -484,27 +465,25 @@ export function createOrganizationDocumentService(
         folderId
       );
       try {
-        const result = await dependencies.db
-          .prepare(
-            `
+        const result = await dependencies.db.query({
+          text: `
               WITH RECURSIVE descendants(id) AS (
                 SELECT id
-                FROM organization_document_folders
-                WHERE id = ? AND organization_id = ?
+                FROM "openmeld"."organization_document_folders"
+                WHERE id = $1 AND organization_id = $2
                 UNION ALL
                 SELECT child.id
-                FROM organization_document_folders AS child
+                FROM "openmeld"."organization_document_folders" AS child
                 INNER JOIN descendants ON child.parent_folder_id = descendants.id
-                WHERE child.organization_id = ?
+                WHERE child.organization_id = $3
               )
-              UPDATE organization_document_folders
-              SET parent_folder_id = ?, updated_at = ?
-              WHERE id = ?
-                AND organization_id = ?
-                AND (? IS NULL OR ? NOT IN (SELECT id FROM descendants))
-            `
-          )
-          .bind(
+              UPDATE "openmeld"."organization_document_folders"
+              SET parent_folder_id = $4, updated_at = $5
+              WHERE id = $6
+                AND organization_id = $7
+                AND ($8::text IS NULL OR $9 NOT IN (SELECT id FROM descendants))
+            `,
+          values: [
             folderId,
             actor.organizationId,
             actor.organizationId,
@@ -513,10 +492,10 @@ export function createOrganizationDocumentService(
             folderId,
             actor.organizationId,
             parentFolderId,
-            parentFolderId
-          )
-          .run();
-        if (result.meta.changes !== 1) {
+            parentFolderId,
+          ],
+        });
+        if (result.rowCount !== 1) {
           throw folderCycleError();
         }
       } catch (error) {
@@ -528,20 +507,17 @@ export function createOrganizationDocumentService(
         folderId
       );
     },
-
     async delete(
       actor: OrganizationDocumentActor,
       documentId: string
     ): Promise<void> {
       requireManager(actor);
       const resolvedAtMs = now();
-      const result = await dependencies.db
-        .prepare(
-          "DELETE FROM organization_documents WHERE id = ? AND organization_id = ?"
-        )
-        .bind(documentId, actor.organizationId)
-        .run();
-      if (result.meta.changes !== 1) {
+      const result = await dependencies.db.query({
+        text: 'DELETE FROM "openmeld"."organization_documents" WHERE id = $1 AND organization_id = $2',
+        values: [documentId, actor.organizationId],
+      });
+      if (result.rowCount !== 1) {
         throw documentNotFoundError();
       }
       await runBestEffortDraftInboxProjection(
@@ -560,7 +536,6 @@ export function createOrganizationDocumentService(
         }
       );
     },
-
     async discardDraft(
       actor: OrganizationDocumentActor,
       documentId: string,
@@ -577,28 +552,26 @@ export function createOrganizationDocumentService(
         expectedDraftCreatedAt
       );
       const resolvedAtMs = now();
-      const result = await dependencies.db
-        .prepare(
-          `
-            UPDATE organization_documents
+      const result = await dependencies.db.query({
+        text: `
+            UPDATE "openmeld"."organization_documents"
             SET draft_content = NULL,
                 draft_created_by = NULL,
                 draft_created_at = NULL,
-                updated_at = ?
-            WHERE id = ?
-              AND organization_id = ?
+                updated_at = $1
+            WHERE id = $2
+              AND organization_id = $3
               AND draft_content IS NOT NULL
-              AND draft_created_at = ?
-          `
-        )
-        .bind(
+              AND draft_created_at = $4
+          `,
+        values: [
           resolvedAtMs,
           documentId,
           actor.organizationId,
-          expectedDraftCreatedAtMs
-        )
-        .run();
-      if (result.meta.changes !== 1) {
+          expectedDraftCreatedAtMs,
+        ],
+      });
+      if (result.rowCount !== 1) {
         throw draftChangedError();
       }
       await runBestEffortDraftInboxProjection(
@@ -619,7 +592,6 @@ export function createOrganizationDocumentService(
       );
       return await getDocument(dependencies.db, actor, documentId);
     },
-
     async draft(
       organizationId: string,
       input: OrganizationDocumentDraftInput,
@@ -705,52 +677,47 @@ export function createOrganizationDocumentService(
         draftReplaced: result.draftReplaced,
       };
     },
-
     get: async (
       actor: OrganizationDocumentReadActor,
       documentId: string
     ): Promise<OrganizationDocument> =>
       await getDocument(dependencies.db, actor, documentId),
-
     async list(
       actor: OrganizationDocumentReadActor
     ): Promise<OrganizationDocumentSummary[]> {
-      const result = await dependencies.db
-        .prepare(
-          `
+      const result = await dependencies.db.query<OrganizationDocumentRow>({
+        text: `
             SELECT *
-            FROM organization_documents
-            WHERE organization_id = ?
+            FROM "openmeld"."organization_documents"
+            WHERE organization_id = $1
             ORDER BY
               CASE kind WHEN 'brief' THEN 0 WHEN 'member_profile' THEN 1 ELSE 2 END,
               lower(title),
               created_at
-          `
-        )
-        .bind(actor.organizationId)
-        .all<OrganizationDocumentRow>();
-      return (result.results ?? []).map((row) => toSummary(row, actor));
+          `,
+        values: [actor.organizationId],
+      });
+      return (result.rows ?? []).map((row) => toSummary(row, actor));
     },
-
     async readPromptContext(organizationId: string): Promise<{
       briefContent: string | null;
       documentTitles: string[];
     }> {
-      const result = await dependencies.db
-        .prepare(
-          `
+      const result = await dependencies.db.query<
+        Pick<OrganizationDocumentRow, "content" | "kind" | "title">
+      >({
+        text: `
             SELECT kind, title, content
-            FROM organization_documents
-            WHERE organization_id = ?
+            FROM "openmeld"."organization_documents"
+            WHERE organization_id = $1
             ORDER BY
               CASE kind WHEN 'brief' THEN 0 WHEN 'member_profile' THEN 1 ELSE 2 END,
               lower(title),
               created_at
-          `
-        )
-        .bind(organizationId)
-        .all<Pick<OrganizationDocumentRow, "content" | "kind" | "title">>();
-      const rows = result.results ?? [];
+          `,
+        values: [organizationId],
+      });
+      const rows = result.rows ?? [];
       const briefContent = rows.find((row) => row.kind === "brief")?.content;
       return {
         briefContent: briefContent?.trim() ? briefContent : null,
@@ -759,7 +726,6 @@ export function createOrganizationDocumentService(
           .map((row) => row.title),
       };
     },
-
     async readComputerSnapshot(
       organizationId: string
     ): Promise<
@@ -767,34 +733,30 @@ export function createOrganizationDocumentService(
     > {
       const actor = centerAgentDocumentActor(organizationId);
       const [documentRows, folders] = await Promise.all([
-        dependencies.db
-          .prepare(
-            `
+        dependencies.db.query<OrganizationDocumentRow>({
+          text: `
               SELECT *
-              FROM organization_documents
-              WHERE organization_id = ?
+              FROM "openmeld"."organization_documents"
+              WHERE organization_id = $1
               ORDER BY
                 CASE kind WHEN 'brief' THEN 0 WHEN 'member_profile' THEN 1 ELSE 2 END,
                 lower(title),
                 created_at
-            `
-          )
-          .bind(organizationId)
-          .all<OrganizationDocumentRow>(),
-        dependencies.db
-          .prepare(
-            `
+            `,
+          values: [organizationId],
+        }),
+        dependencies.db.query<OrganizationDocumentFolderRow>({
+          text: `
               SELECT *
-              FROM organization_document_folders
-              WHERE organization_id = ?
+              FROM "openmeld"."organization_document_folders"
+              WHERE organization_id = $1
               ORDER BY lower(name), created_at
-            `
-          )
-          .bind(organizationId)
-          .all<OrganizationDocumentFolderRow>(),
+            `,
+          values: [organizationId],
+        }),
       ]);
       return {
-        documents: (documentRows.results ?? []).map((row) => {
+        documents: (documentRows.rows ?? []).map((row) => {
           const document = toDocument(row, actor);
           return {
             content: document.content,
@@ -806,11 +768,10 @@ export function createOrganizationDocumentService(
             updatedAt: document.updatedAt,
           };
         }),
-        folders: (folders.results ?? []).map(toFolder),
+        folders: (folders.rows ?? []).map(toFolder),
         organizationId,
       };
     },
-
     async update(
       actor: OrganizationDocumentActor,
       documentId: string,
@@ -834,28 +795,26 @@ export function createOrganizationDocumentService(
           ? existing.draft_created_at
           : null;
       const update = buildDocumentUpdate(existing, input, updatedAtMs);
-      const result = await dependencies.db
-        .prepare(
-          `
-            UPDATE organization_documents
+      const result = await dependencies.db.query({
+        text: `
+            UPDATE "openmeld"."organization_documents"
             SET ${update.assignments.join(", ")}
-            WHERE id = ? AND organization_id = ?
+            WHERE id = $${update.values.length + 1} AND organization_id = $${update.values.length + 2}
               AND (
-                ? = 0
-                OR (updated_at = ? AND draft_created_at IS ?)
+                $${update.values.length + 3} = 0
+                OR (updated_at = $${update.values.length + 4} AND draft_created_at IS NOT DISTINCT FROM $${update.values.length + 5})
               )
-          `
-        )
-        .bind(
+          `,
+        values: [
           ...update.values,
           documentId,
           actor.organizationId,
           version ? 1 : 0,
           version?.documentUpdatedAtMs ?? null,
-          version?.draftCreatedAtMs ?? null
-        )
-        .run();
-      if (Number(result.meta.changes ?? 0) !== 1) {
+          version?.draftCreatedAtMs ?? null,
+        ],
+      });
+      if (Number(result.rowCount ?? 0) !== 1) {
         await requireDocument(
           dependencies.db,
           actor.organizationId,
@@ -883,11 +842,14 @@ export function createOrganizationDocumentService(
       }
       return await getDocument(dependencies.db, actor, documentId);
     },
-
     async updateApprovedKnowledge(
       actor: OrganizationDocumentActor,
       documentId: string,
-      input: { content: string; folderId?: string | null; title?: string }
+      input: {
+        content: string;
+        folderId?: string | null;
+        title?: string;
+      }
     ): Promise<OrganizationDocument> {
       requireManager(actor);
       const existing = await requireDocument(
@@ -917,17 +879,15 @@ export function createOrganizationDocumentService(
         }
       }
       const update = buildDocumentUpdate(existing, input, now());
-      const result = await dependencies.db
-        .prepare(
-          `
-            UPDATE organization_documents
+      const result = await dependencies.db.query({
+        text: `
+            UPDATE "openmeld"."organization_documents"
             SET ${update.assignments.join(", ")}
-            WHERE id = ? AND organization_id = ? AND draft_content IS NULL
-          `
-        )
-        .bind(...update.values, documentId, actor.organizationId)
-        .run();
-      if (result.meta.changes !== 1) {
+            WHERE id = $${update.values.length + 1} AND organization_id = $${update.values.length + 2} AND draft_content IS NULL
+          `,
+        values: [...update.values, documentId, actor.organizationId],
+      });
+      if (result.rowCount !== 1) {
         const current = await requireDocument(
           dependencies.db,
           actor.organizationId,
@@ -942,10 +902,9 @@ export function createOrganizationDocumentService(
     },
   };
 }
-
 async function resolveNewDocumentPlacement(input: {
   actor: OrganizationDocumentActor;
-  db: D1Database;
+  db: PostgresDatabase;
   input: {
     folderId?: string | null;
     kind: OrganizationDocumentKind;
@@ -989,7 +948,6 @@ async function resolveNewDocumentPlacement(input: {
       }),
     };
   }
-
   const folderId = input.input.folderId ?? null;
   if (folderId !== null) {
     await requireUnmanagedFolder(
@@ -1012,12 +970,15 @@ async function resolveNewDocumentPlacement(input: {
     }),
   };
 }
-
 async function validateDocumentUpdate(input: {
   actor: OrganizationDocumentActor;
-  db: D1Database;
+  db: PostgresDatabase;
   existing: OrganizationDocumentRow;
-  input: { content?: string; folderId?: string | null; title?: string };
+  input: {
+    content?: string;
+    folderId?: string | null;
+    title?: string;
+  };
 }): Promise<void> {
   const isManager = canManage(input.actor);
   const isSubject =
@@ -1045,9 +1006,8 @@ async function validateDocumentUpdate(input: {
     );
   }
 }
-
 async function requireUnmanagedFolder(
-  db: D1Database,
+  db: PostgresDatabase,
   organizationId: string,
   folderId: string
 ): Promise<void> {
@@ -1056,9 +1016,8 @@ async function requireUnmanagedFolder(
     throw managedPlacementError();
   }
 }
-
 async function prepareMemberResearchDraft(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   draftedAtMs: number;
   input: OrganizationDocumentDraftInput;
   newId: () => string;
@@ -1131,9 +1090,8 @@ async function prepareMemberResearchDraft(input: {
         }),
   };
 }
-
 async function updateOrganizationDocumentDraft(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   input: PreparedOrganizationDocumentDraftInput;
   now: () => number;
   organizationId: string;
@@ -1153,48 +1111,46 @@ async function updateOrganizationDocumentDraft(input: {
     input.input.expectedDocumentUpdatedAt === undefined
       ? null
       : Date.parse(input.input.expectedDocumentUpdatedAt);
-  const result = await input.db
-    .prepare(
-      `
-        UPDATE organization_documents
-        SET draft_content = ?,
-            draft_created_by = ?,
-            draft_created_at = ?,
-            last_member_research_task_id = COALESCE(?, last_member_research_task_id),
-            folder_id = CASE WHEN ? = 1 THEN ? ELSE folder_id END,
-            title = CASE WHEN ? = 1 THEN ? ELSE title END,
-            profile_report_date = CASE WHEN ? = 1 THEN ? ELSE profile_report_date END,
-            profile_report_type = CASE WHEN ? = 1 THEN ? ELSE profile_report_type END,
-            updated_at = ?
-        WHERE id = ? AND organization_id = ?
-          AND (? IS NULL OR updated_at = ?)
+  const result = await input.db.query({
+    text: `
+        UPDATE "openmeld"."organization_documents"
+        SET draft_content = $1,
+            draft_created_by = $2,
+            draft_created_at = $3,
+            last_member_research_task_id = COALESCE($4, last_member_research_task_id),
+            folder_id = CASE WHEN $5 = 1 THEN $6 ELSE folder_id END,
+            title = CASE WHEN $7 = 1 THEN $8 ELSE title END,
+            profile_report_date = CASE WHEN $9 = 1 THEN $10 ELSE profile_report_date END,
+            profile_report_type = CASE WHEN $11 = 1 THEN $12 ELSE profile_report_type END,
+            updated_at = $13
+        WHERE id = $14 AND organization_id = $15
+          AND ($16::text IS NULL OR updated_at = $17)
           AND (
-            ? IS NULL
+            $18::text IS NULL
             OR EXISTS (
               SELECT 1
-              FROM center_agent_member_research_tasks task
-              INNER JOIN center_agent_member_research_batches batch
+              FROM "openmeld"."center_agent_member_research_tasks" task
+              INNER JOIN "openmeld"."center_agent_member_research_batches" batch
                 ON batch.id = task.batch_id
-              INNER JOIN openMeldRemoteAgent_native_delivery_ledger delivery
+              INNER JOIN "openmeld"."openMeldRemoteAgent_native_delivery_ledger" delivery
                 ON delivery.idempotency_key = task.id
-              WHERE task.id = ?
+              WHERE task.id = $19
                 AND task.status = 'running'
                 AND batch.organization_id = organization_documents.organization_id
                 AND delivery.organization_id = batch.organization_id
-                AND delivery.submission_id = ?
+                AND delivery.submission_id = $20
                 AND delivery.status IN ('accepted', 'retry_observed')
                 AND task.subject_user_id = organization_documents.subject_user_id
                 AND organization_documents.kind = 'member_profile'
                 AND NOT EXISTS (
                   SELECT 1
-                  FROM organization_documents evidence
+                  FROM "openmeld"."organization_documents" evidence
                   WHERE evidence.last_member_research_task_id = task.id
                 )
             )
           )
-      `
-    )
-    .bind(
+      `,
+    values: [
       input.input.draftContent,
       CENTER_AGENT_ORGANIZATION_DOCUMENT_DRAFT_CREATED_BY,
       timestamp,
@@ -1214,10 +1170,10 @@ async function updateOrganizationDocumentDraft(input: {
       expectedDocumentUpdatedAtMs,
       memberResearch?.taskId ?? null,
       memberResearch?.taskId ?? null,
-      memberResearch?.submissionId ?? null
-    )
-    .run();
-  if (result.meta.changes !== 1) {
+      memberResearch?.submissionId ?? null,
+    ],
+  });
+  if (result.rowCount !== 1) {
     return await resolveOrganizationDocumentDraftUpdateMiss({
       db: input.db,
       input: input.input,
@@ -1241,9 +1197,8 @@ async function updateOrganizationDocumentDraft(input: {
     replacedDraftCreatedAtMs: existing.draft_created_at,
   };
 }
-
 async function resolveOrganizationDocumentDraftUpdateMiss(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   expectedDocumentUpdatedAtMs: number | null;
   input: PreparedOrganizationDocumentDraftInput;
   organizationId: string;
@@ -1281,9 +1236,8 @@ async function resolveOrganizationDocumentDraftUpdateMiss(input: {
     standardError: documentNotFoundError,
   });
 }
-
 async function createOrganizationDocumentDraft(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   input: PreparedOrganizationDocumentDraftInput;
   newId: () => string;
   now: () => number;
@@ -1312,10 +1266,9 @@ async function createOrganizationDocumentDraft(input: {
   const documentId = input.newId();
   const memberResearch = input.input.memberResearch ?? null;
   try {
-    const result = await input.db
-      .prepare(
-        `
-          INSERT INTO organization_documents (
+    const result = await input.db.query({
+      text: `
+          INSERT INTO "openmeld"."organization_documents" (
             id,
             organization_id,
             kind,
@@ -1332,43 +1285,42 @@ async function createOrganizationDocumentDraft(input: {
             created_at,
             updated_at
           )
-          SELECT ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?
+          SELECT $1, $2, $3, $4, $5, $6, $7, $8, '', $9, $10, $11, $12, $13, $14
           WHERE (
-              ? IS NULL
+              $15::text IS NULL
               OR (
-                ? = 'member_profile'
-                AND ? IS NOT NULL
+                $16 = 'member_profile'
+                AND $17::text IS NOT NULL
                 AND EXISTS (
                   SELECT 1
-                  FROM center_agent_member_research_tasks task
-                  INNER JOIN center_agent_member_research_batches batch
+                  FROM "openmeld"."center_agent_member_research_tasks" task
+                  INNER JOIN "openmeld"."center_agent_member_research_batches" batch
                     ON batch.id = task.batch_id
-                  INNER JOIN openMeldRemoteAgent_native_delivery_ledger delivery
+                  INNER JOIN "openmeld"."openMeldRemoteAgent_native_delivery_ledger" delivery
                     ON delivery.idempotency_key = task.id
-                  WHERE task.id = ?
+                  WHERE task.id = $18
                     AND task.status = 'running'
-                    AND batch.organization_id = ?
+                    AND batch.organization_id = $19
                     AND delivery.organization_id = batch.organization_id
-                    AND delivery.submission_id = ?
+                    AND delivery.submission_id = $20
                     AND delivery.status IN ('accepted', 'retry_observed')
-                    AND task.subject_user_id = ?
+                    AND task.subject_user_id = $21
                     AND NOT EXISTS (
                       SELECT 1
-                      FROM organization_documents evidence
+                      FROM "openmeld"."organization_documents" evidence
                       WHERE evidence.last_member_research_task_id = task.id
                     )
                 )
               )
             )
-            AND (? != 'knowledge'
+            AND ($22 != 'knowledge'
             OR (
               SELECT COUNT(*)
-              FROM organization_documents
-              WHERE organization_id = ? AND kind = 'knowledge'
-            ) < ?)
-        `
-      )
-      .bind(
+              FROM "openmeld"."organization_documents"
+              WHERE organization_id = $23 AND kind = 'knowledge'
+            ) < $24)
+        `,
+      values: [
         documentId,
         input.organizationId,
         input.input.kind,
@@ -1392,10 +1344,10 @@ async function createOrganizationDocumentDraft(input: {
         subjectUserId,
         input.input.kind,
         input.organizationId,
-        ORGANIZATION_KNOWLEDGE_DOCUMENT_LIMIT
-      )
-      .run();
-    if (result.meta.changes !== 1) {
+        ORGANIZATION_KNOWLEDGE_DOCUMENT_LIMIT,
+      ],
+    });
+    if (result.rowCount !== 1) {
       return await resolveOrganizationDocumentDraftWriteMiss({
         db: input.db,
         input: input.input,
@@ -1422,9 +1374,8 @@ async function createOrganizationDocumentDraft(input: {
     replacedDraftCreatedAtMs: null,
   };
 }
-
 async function resolveOrganizationDocumentDraftWriteMiss(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   input: OrganizationDocumentDraftInput;
   organizationId: string;
   standardError: () => Error;
@@ -1438,42 +1389,38 @@ async function resolveOrganizationDocumentDraftWriteMiss(input: {
   }
   throw input.standardError();
 }
-
 function centerAgentDocumentActor(
   organizationId: string
 ): OrganizationDocumentActor {
   return { organizationId, role: "member", userId: "center_agent" };
 }
-
 async function getDocument(
-  db: D1Database,
+  db: PostgresDatabase,
   actor: OrganizationDocumentReadActor,
   documentId: string
 ): Promise<OrganizationDocument> {
   const row = await requireDocument(db, actor.organizationId, documentId);
   return toDocument(row, actor);
 }
-
 async function requireDocument(
-  db: D1Database,
+  db: PostgresDatabase,
   organizationId: string,
   documentId: string
 ): Promise<OrganizationDocumentRow> {
   const row = await db
-    .prepare(
-      "SELECT * FROM organization_documents WHERE id = ? AND organization_id = ? LIMIT 1"
-    )
-    .bind(documentId, organizationId)
-    .first<OrganizationDocumentRow>();
+    .query<OrganizationDocumentRow>({
+      text: 'SELECT * FROM "openmeld"."organization_documents" WHERE id = $1 AND organization_id = $2 LIMIT 1',
+      values: [documentId, organizationId],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!row) {
     throw documentNotFoundError();
   }
   return row;
 }
-
 async function resolveNewDocumentTitle(input: {
   actor: OrganizationDocumentActor;
-  db: D1Database;
+  db: PostgresDatabase;
   kind: OrganizationDocumentKind;
   subjectUserId: string | null;
   title?: string;
@@ -1507,24 +1454,25 @@ async function resolveNewDocumentTitle(input: {
   }
   return validateTitle(input.title);
 }
-
 async function readMemberDisplayName(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   subjectUserId: string;
 }): Promise<string> {
   const subject = await input.db
-    .prepare(
-      `
+    .query<{
+      name: string;
+    }>({
+      text: `
         SELECT users.name
-        FROM members
-        INNER JOIN users ON users.id = members.user_id
-        WHERE members.organization_id = ? AND members.user_id = ?
+        FROM "openmeld"."members"
+        INNER JOIN "openmeld"."users" ON users.id = members.user_id
+        WHERE members.organization_id = $1 AND members.user_id = $2
         LIMIT 1
-      `
-    )
-    .bind(input.organizationId, input.subjectUserId)
-    .first<{ name: string }>();
+      `,
+      values: [input.organizationId, input.subjectUserId],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!subject) {
     throw documentError(
       400,
@@ -1534,15 +1482,16 @@ async function readMemberDisplayName(input: {
   }
   return subject.name;
 }
-
 async function ensureProfileReportPlacement(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   displayName: string;
   newId: () => string;
   organizationId: string;
   subjectUserId: string;
   timestamp: number;
-}): Promise<{ folderId: string }> {
+}): Promise<{
+  folderId: string;
+}> {
   const root = await ensureProfileReportsRootFolder(input);
   const person = await ensureProfileReportsPersonFolder({
     ...input,
@@ -1550,9 +1499,8 @@ async function ensureProfileReportPlacement(input: {
   });
   return { folderId: person.id };
 }
-
 async function ensureProfileReportsRootFolder(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   newId: () => string;
   organizationId: string;
   timestamp: number;
@@ -1562,18 +1510,20 @@ async function ensureProfileReportsRootFolder(input: {
     return managedRoot;
   }
   const existingNamedRoot = await input.db
-    .prepare(
-      `
+    .query<{
+      id: string;
+    }>({
+      text: `
         SELECT *
-        FROM organization_document_folders
-        WHERE organization_id = ?
+        FROM "openmeld"."organization_document_folders"
+        WHERE organization_id = $1
           AND parent_folder_id IS NULL
-          AND lower(name) = lower(?)
+          AND lower(name) = lower($2)
         LIMIT 1
-      `
-    )
-    .bind(input.organizationId, PROFILE_REPORTS_ROOT_FOLDER_NAME)
-    .first<{ id: string }>();
+      `,
+      values: [input.organizationId, PROFILE_REPORTS_ROOT_FOLDER_NAME],
+    })
+    .then((result) => result.rows[0] ?? null);
   const collisionNames = Array.from(
     { length: ORGANIZATION_DOCUMENT_FOLDER_LIMIT },
     (_, index) =>
@@ -1593,36 +1543,36 @@ async function ensureProfileReportsRootFolder(input: {
   }
   throw folderLimitError();
 }
-
 async function tryCreateProfileReportsRootFolder(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   name: string;
   newId: () => string;
   organizationId: string;
   timestamp: number;
 }): Promise<OrganizationDocumentFolderRow | null> {
   const nameCollision = await input.db
-    .prepare(
-      `
+    .query<{
+      id: string;
+    }>({
+      text: `
         SELECT id
-        FROM organization_document_folders
-        WHERE organization_id = ?
+        FROM "openmeld"."organization_document_folders"
+        WHERE organization_id = $1
           AND parent_folder_id IS NULL
-          AND lower(name) = lower(?)
+          AND lower(name) = lower($2)
         LIMIT 1
-      `
-    )
-    .bind(input.organizationId, input.name)
-    .first<{ id: string }>();
+      `,
+      values: [input.organizationId, input.name],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (nameCollision) {
     return await readProfileReportsRootFolder(input);
   }
   const folderId = input.newId();
   try {
-    const result = await input.db
-      .prepare(
-        `
-          INSERT INTO organization_document_folders (
+    const result = await input.db.query({
+      text: `
+          INSERT INTO "openmeld"."organization_document_folders" (
             id,
             organization_id,
             parent_folder_id,
@@ -1632,25 +1582,24 @@ async function tryCreateProfileReportsRootFolder(input: {
             created_at,
             updated_at
           )
-          SELECT ?, ?, NULL, 'profile_reports_root', NULL, ?, ?, ?
+          SELECT $1, $2, NULL, 'profile_reports_root', NULL, $3, $4, $5
           WHERE (
             SELECT COUNT(*)
-            FROM organization_document_folders
-            WHERE organization_id = ?
-          ) < ?
-        `
-      )
-      .bind(
+            FROM "openmeld"."organization_document_folders"
+            WHERE organization_id = $6
+          ) < $7
+        `,
+      values: [
         folderId,
         input.organizationId,
         input.name,
         input.timestamp,
         input.timestamp,
         input.organizationId,
-        ORGANIZATION_DOCUMENT_FOLDER_LIMIT
-      )
-      .run();
-    if (result.meta.changes !== 1) {
+        ORGANIZATION_DOCUMENT_FOLDER_LIMIT,
+      ],
+    });
+    if (result.rowCount !== 1) {
       throw folderLimitError();
     }
     return await requireFolderRow(input.db, input.organizationId, folderId);
@@ -1659,33 +1608,31 @@ async function tryCreateProfileReportsRootFolder(input: {
     if (racedRoot) {
       return racedRoot;
     }
-    if (isUniqueConstraintError(error)) {
+    if (isFolderNameConflict(error)) {
       return null;
     }
     throw mapFolderWriteError(error);
   }
 }
-
 async function readProfileReportsRootFolder(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
 }): Promise<OrganizationDocumentFolderRow | null> {
   return await input.db
-    .prepare(
-      `
+    .query<OrganizationDocumentFolderRow>({
+      text: `
         SELECT *
-        FROM organization_document_folders
-        WHERE organization_id = ?
+        FROM "openmeld"."organization_document_folders"
+        WHERE organization_id = $1
           AND system_kind = 'profile_reports_root'
         LIMIT 1
-      `
-    )
-    .bind(input.organizationId)
-    .first<OrganizationDocumentFolderRow>();
+      `,
+      values: [input.organizationId],
+    })
+    .then((result) => result.rows[0] ?? null);
 }
-
 async function ensureProfileReportsPersonFolder(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   displayName: string;
   newId: () => string;
   organizationId: string;
@@ -1700,27 +1647,28 @@ async function ensureProfileReportsPersonFolder(input: {
   for (let suffix = 1; suffix <= ORGANIZATION_DOCUMENT_FOLDER_LIMIT; suffix++) {
     const name = buildProfileReportsPersonFolderName(input.displayName, suffix);
     const nameCollision = await input.db
-      .prepare(
-        `
+      .query<{
+        id: string;
+      }>({
+        text: `
           SELECT id
-          FROM organization_document_folders
-          WHERE organization_id = ?
-            AND parent_folder_id = ?
-            AND lower(name) = lower(?)
+          FROM "openmeld"."organization_document_folders"
+          WHERE organization_id = $1
+            AND parent_folder_id = $2
+            AND lower(name) = lower($3)
           LIMIT 1
-        `
-      )
-      .bind(input.organizationId, input.parentFolderId, name)
-      .first<{ id: string }>();
+        `,
+        values: [input.organizationId, input.parentFolderId, name],
+      })
+      .then((result) => result.rows[0] ?? null);
     if (nameCollision) {
       continue;
     }
     const folderId = input.newId();
     try {
-      const result = await input.db
-        .prepare(
-          `
-            INSERT INTO organization_document_folders (
+      const result = await input.db.query({
+        text: `
+            INSERT INTO "openmeld"."organization_document_folders" (
               id,
               organization_id,
               parent_folder_id,
@@ -1730,15 +1678,14 @@ async function ensureProfileReportsPersonFolder(input: {
               created_at,
               updated_at
             )
-            SELECT ?, ?, ?, 'profile_reports_person', ?, ?, ?, ?
+            SELECT $1, $2, $3, 'profile_reports_person', $4, $5, $6, $7
             WHERE (
               SELECT COUNT(*)
-              FROM organization_document_folders
-              WHERE organization_id = ?
-            ) < ?
-          `
-        )
-        .bind(
+              FROM "openmeld"."organization_document_folders"
+              WHERE organization_id = $8
+            ) < $9
+          `,
+        values: [
           folderId,
           input.organizationId,
           input.parentFolderId,
@@ -1747,10 +1694,10 @@ async function ensureProfileReportsPersonFolder(input: {
           input.timestamp,
           input.timestamp,
           input.organizationId,
-          ORGANIZATION_DOCUMENT_FOLDER_LIMIT
-        )
-        .run();
-      if (result.meta.changes !== 1) {
+          ORGANIZATION_DOCUMENT_FOLDER_LIMIT,
+        ],
+      });
+      if (result.rowCount !== 1) {
         throw folderLimitError();
       }
       return await requireFolderRow(input.db, input.organizationId, folderId);
@@ -1759,7 +1706,7 @@ async function ensureProfileReportsPersonFolder(input: {
       if (racedFolder) {
         return racedFolder;
       }
-      if (isUniqueConstraintError(error)) {
+      if (isFolderNameConflict(error)) {
         continue;
       }
       throw mapFolderWriteError(error);
@@ -1767,27 +1714,25 @@ async function ensureProfileReportsPersonFolder(input: {
   }
   throw folderLimitError();
 }
-
 async function readProfileReportsPersonFolder(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   subjectUserId: string;
 }): Promise<OrganizationDocumentFolderRow | null> {
   return await input.db
-    .prepare(
-      `
+    .query<OrganizationDocumentFolderRow>({
+      text: `
         SELECT *
-        FROM organization_document_folders
-        WHERE organization_id = ?
+        FROM "openmeld"."organization_document_folders"
+        WHERE organization_id = $1
           AND system_kind = 'profile_reports_person'
-          AND subject_user_id = ?
+          AND subject_user_id = $2
         LIMIT 1
-      `
-    )
-    .bind(input.organizationId, input.subjectUserId)
-    .first<OrganizationDocumentFolderRow>();
+      `,
+      values: [input.organizationId, input.subjectUserId],
+    })
+    .then((result) => result.rows[0] ?? null);
 }
-
 function buildProfileReportsPersonFolderName(
   displayName: string,
   suffix: number
@@ -1801,52 +1746,44 @@ function buildProfileReportsPersonFolderName(
     );
   }
   const suffixText = suffix === 1 ? "" : ` (${suffix})`;
-  const name = `${normalized.slice(
-    0,
-    ORGANIZATION_DOCUMENT_FOLDER_NAME_MAX_CHARS - suffixText.length
-  )}${suffixText}`;
+  const name = `${normalized.slice(0, ORGANIZATION_DOCUMENT_FOLDER_NAME_MAX_CHARS - suffixText.length)}${suffixText}`;
   return validateFolderName(name);
 }
-
 function buildProfileReportsRootFolderName(
   baseName: string,
   suffix: number
 ): string {
   const suffixText = suffix === 1 ? "" : ` (${suffix})`;
   return validateFolderName(
-    `${baseName.slice(
-      0,
-      ORGANIZATION_DOCUMENT_FOLDER_NAME_MAX_CHARS - suffixText.length
-    )}${suffixText}`
+    `${baseName.slice(0, ORGANIZATION_DOCUMENT_FOLDER_NAME_MAX_CHARS - suffixText.length)}${suffixText}`
   );
 }
-
 async function resolveNextProfileReportTitle(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   profileReportDate: string;
   subjectUserId: string;
 }): Promise<string> {
-  const result = await input.db
-    .prepare(
-      `
+  const result = await input.db.query<{
+    title: string;
+  }>({
+    text: `
         SELECT title
-        FROM organization_documents
-        WHERE organization_id = ?
+        FROM "openmeld"."organization_documents"
+        WHERE organization_id = $1
           AND kind = 'member_profile'
-          AND subject_user_id = ?
-          AND profile_report_date = ?
-          AND profile_report_type = ?
-      `
-    )
-    .bind(
+          AND subject_user_id = $2
+          AND profile_report_date = $3
+          AND profile_report_type = $4
+      `,
+    values: [
       input.organizationId,
       input.subjectUserId,
       input.profileReportDate,
-      PROFILE_REPORT_TYPE
-    )
-    .all<{ title: string }>();
-  const existingTitles = new Set(result.results.map((row) => row.title));
+      PROFILE_REPORT_TYPE,
+    ],
+  });
+  const existingTitles = new Set(result.rows.map((row) => row.title));
   for (let copyNumber = 1; copyNumber <= 100; copyNumber += 1) {
     const title = buildProfileReportTitle(input.profileReportDate, copyNumber);
     if (!existingTitles.has(title)) {
@@ -1859,7 +1796,6 @@ async function resolveNextProfileReportTitle(input: {
     "Today's Profile Report could not be saved. Try again tomorrow or ask your Center Agent to use a different report type."
   );
 }
-
 function buildProfileReportTitle(
   reportDate: string,
   copyNumber: number
@@ -1867,17 +1803,21 @@ function buildProfileReportTitle(
   const suffix = copyNumber === 1 ? "" : ` (${copyNumber})`;
   return `${reportDate} — ${PROFILE_REPORT_TYPE_LABEL}${suffix}`;
 }
-
 function toIsoDate(timestamp: number): string {
   return new Date(timestamp).toISOString().slice(0, 10);
 }
-
-function isUniqueConstraintError(error: unknown): boolean {
-  return (error instanceof Error ? error.message : String(error)).includes(
-    "UNIQUE constraint failed"
+function isFolderNameConflict(error: unknown): boolean {
+  return (
+    isPostgresUniqueViolation(
+      error,
+      "organization_document_folders_root_name_unique"
+    ) ||
+    isPostgresUniqueViolation(
+      error,
+      "organization_document_folders_sibling_name_unique"
+    )
   );
 }
-
 function toDocument(
   row: OrganizationDocumentRow,
   actor: OrganizationDocumentReadActor
@@ -1910,7 +1850,6 @@ function toDocument(
     updatedAt: new Date(row.updated_at).toISOString(),
   };
 }
-
 function toSummary(
   row: OrganizationDocumentRow,
   actor: OrganizationDocumentReadActor
@@ -1924,9 +1863,8 @@ function toSummary(
   } = toDocument(row, actor);
   return { ...summary, hasDraft: row.draft_content !== null };
 }
-
 async function readMemberResearchDraftReplay(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   input: OrganizationDocumentDraftInput;
   organizationId: string;
 }): Promise<OrganizationDocumentDraftWriteResult | null> {
@@ -1934,17 +1872,17 @@ async function readMemberResearchDraftReplay(input: {
     return null;
   }
   const document = await input.db
-    .prepare(
-      `
+    .query<OrganizationDocumentRow>({
+      text: `
         SELECT *
-        FROM organization_documents
-        WHERE organization_id = ?
-          AND last_member_research_task_id = ?
+        FROM "openmeld"."organization_documents"
+        WHERE organization_id = $1
+          AND last_member_research_task_id = $2
         LIMIT 1
-      `
-    )
-    .bind(input.organizationId, input.input.memberResearch.taskId)
-    .first<OrganizationDocumentRow>();
+      `,
+      values: [input.organizationId, input.input.memberResearch.taskId],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!document) {
     return null;
   }
@@ -1967,7 +1905,6 @@ async function readMemberResearchDraftReplay(input: {
     replacedDraftCreatedAtMs: null,
   };
 }
-
 async function runBestEffortDraftInboxProjection(
   context: {
     documentId: string;
@@ -1985,17 +1922,14 @@ async function runBestEffortDraftInboxProjection(
     });
   }
 }
-
 function canManage(actor: OrganizationDocumentReadActor): boolean {
   return actor.role === "owner" || actor.role === "admin";
 }
-
 function requireManager(actor: OrganizationDocumentActor): void {
   if (!canManage(actor)) {
     throw writeForbiddenError();
   }
 }
-
 function validateContent(content: string): void {
   if (content.length > ORGANIZATION_DOCUMENT_CONTENT_MAX_CHARS) {
     throw documentError(
@@ -2005,7 +1939,6 @@ function validateContent(content: string): void {
     );
   }
 }
-
 function pendingDraftConflictError(): Error {
   return documentError(
     409,
@@ -2013,16 +1946,18 @@ function pendingDraftConflictError(): Error {
     "This document already has a pending draft. Review or discard that draft before saving approved content."
   );
 }
-
 function buildDocumentUpdate(
   existing: OrganizationDocumentRow,
   input: OrganizationDocumentUpdateInput,
   updatedAt: number
-): { assignments: string[]; values: unknown[] } {
+): {
+  assignments: string[];
+  values: unknown[];
+} {
   const assignments: string[] = [];
   const values: unknown[] = [];
   if (input.title !== undefined) {
-    assignments.push("title = ?");
+    assignments.push(`title = $${values.length + 1}`);
     values.push(
       existing.kind === "brief"
         ? ORGANIZATION_BRIEF_TITLE
@@ -2030,7 +1965,7 @@ function buildDocumentUpdate(
     );
   }
   if (input.content !== undefined) {
-    assignments.push("content = ?");
+    assignments.push(`content = $${values.length + 1}`);
     values.push(input.content);
     if (existing.kind === "member_profile") {
       assignments.push(
@@ -2041,7 +1976,7 @@ function buildDocumentUpdate(
     }
   }
   if (input.folderId !== undefined) {
-    assignments.push("folder_id = ?");
+    assignments.push(`folder_id = $${values.length + 1}`);
     values.push(input.folderId);
   }
   if (assignments.length === 0) {
@@ -2051,14 +1986,16 @@ function buildDocumentUpdate(
       "At least one document field must be updated."
     );
   }
-  assignments.push("updated_at = ?");
+  assignments.push(`updated_at = $${values.length + 1}`);
   values.push(updatedAt);
   return { assignments, values };
 }
-
 function requireHumanDocumentUpdateVersion(
   input: OrganizationDocumentUpdateInput
-): { documentUpdatedAtMs: number; draftCreatedAtMs: number | null } | null {
+): {
+  documentUpdatedAtMs: number;
+  draftCreatedAtMs: number | null;
+} | null {
   if (input.content === undefined) {
     return null;
   }
@@ -2080,7 +2017,6 @@ function requireHumanDocumentUpdateVersion(
         : Date.parse(input.expectedDraftCreatedAt),
   };
 }
-
 function requireExpectedDraft(
   row: OrganizationDocumentRow,
   expectedDraftCreatedAt: string
@@ -2098,7 +2034,6 @@ function requireExpectedDraft(
   }
   return expectedDraftCreatedAtMs;
 }
-
 function draftChangedError(): Error {
   return documentError(
     409,
@@ -2106,7 +2041,6 @@ function draftChangedError(): Error {
     "This draft changed after it was loaded. Review the latest draft before continuing."
   );
 }
-
 function workingCopyConflictError(): Error {
   return documentError(
     409,
@@ -2114,7 +2048,6 @@ function workingCopyConflictError(): Error {
     "This document changed after this copy was loaded. Load the latest version and reapply the useful edits before saving again."
   );
 }
-
 function memberResearchDraftConflictError(): Error {
   return documentError(
     409,
@@ -2122,7 +2055,6 @@ function memberResearchDraftConflictError(): Error {
     "This member research task cannot accept a draft."
   );
 }
-
 function validateTitle(title: string): string {
   const normalized = title.trim();
   if (
@@ -2137,15 +2069,12 @@ function validateTitle(title: string): string {
   }
   return normalized;
 }
-
 function mapCreateError(error: unknown, kind: OrganizationDocumentKind): Error {
   if (isCoreDocumentError(error)) {
     return error;
   }
-  const message = error instanceof Error ? error.message : String(error);
   if (
-    message.includes("organization_documents_org_brief_unique") ||
-    (kind === "brief" && message.includes("UNIQUE constraint failed"))
+    isPostgresUniqueViolation(error, "organization_documents_org_brief_unique")
   ) {
     return documentError(
       409,
@@ -2159,14 +2088,16 @@ function mapCreateError(error: unknown, kind: OrganizationDocumentKind): Error {
     `The ${kind} document could not be saved.`
   );
 }
-
 function isCoreDocumentError(error: unknown): error is Error {
   return (
     error instanceof Error &&
-    typeof (error as Error & { status?: unknown }).status === "number"
+    typeof (
+      error as Error & {
+        status?: unknown;
+      }
+    ).status === "number"
   );
 }
-
 function knowledgeLimitError(): Error {
   return documentError(
     409,
@@ -2174,7 +2105,6 @@ function knowledgeLimitError(): Error {
     `An Organization can have up to ${ORGANIZATION_KNOWLEDGE_DOCUMENT_LIMIT} knowledge documents.`
   );
 }
-
 function invalidSubjectError(): Error {
   return documentError(
     400,
@@ -2182,7 +2112,6 @@ function invalidSubjectError(): Error {
     "Only a Profile Report can be associated with a member."
   );
 }
-
 function managedPlacementError(): Error {
   return documentError(
     409,
@@ -2190,7 +2119,6 @@ function managedPlacementError(): Error {
     "OpenMeld keeps Profile Reports in this folder automatically. No folder changes are needed."
   );
 }
-
 function toFolder(
   row: OrganizationDocumentFolderRow
 ): OrganizationDocumentFolder {
@@ -2204,7 +2132,6 @@ function toFolder(
     updatedAt: new Date(row.updated_at).toISOString(),
   };
 }
-
 function validateFolderName(name: string): string {
   const normalized = name.trim();
   if (
@@ -2219,86 +2146,84 @@ function validateFolderName(name: string): string {
   }
   return normalized;
 }
-
 async function requireFolder(
-  db: D1Database,
+  db: PostgresDatabase,
   organizationId: string,
   folderId: string
 ): Promise<OrganizationDocumentFolder> {
   return toFolder(await requireFolderRow(db, organizationId, folderId));
 }
-
 async function requireFolderRow(
-  db: D1Database,
+  db: PostgresDatabase,
   organizationId: string,
   folderId: string
 ): Promise<OrganizationDocumentFolderRow> {
   const row = await db
-    .prepare(
-      "SELECT * FROM organization_document_folders WHERE id = ? AND organization_id = ? LIMIT 1"
-    )
-    .bind(folderId, organizationId)
-    .first<OrganizationDocumentFolderRow>();
+    .query<OrganizationDocumentFolderRow>({
+      text: 'SELECT * FROM "openmeld"."organization_document_folders" WHERE id = $1 AND organization_id = $2 LIMIT 1',
+      values: [folderId, organizationId],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!row) {
     throw folderNotFoundError();
   }
   return row;
 }
-
 async function requireFolderNameAvailable(
-  db: D1Database,
+  db: PostgresDatabase,
   organizationId: string,
   name: string,
   parentFolderId: string | null,
   excludeFolderId?: string
 ): Promise<void> {
   const row = await db
-    .prepare(
-      `
+    .query<{
+      id: string;
+    }>({
+      text: `
         SELECT id
-        FROM organization_document_folders
-        WHERE organization_id = ?
-          AND lower(name) = lower(?)
+        FROM "openmeld"."organization_document_folders"
+        WHERE organization_id = $1
+          AND lower(name) = lower($2)
           AND (
-            (parent_folder_id IS NULL AND ? IS NULL)
-            OR parent_folder_id = ?
+            (parent_folder_id IS NULL AND $3::text IS NULL)
+            OR parent_folder_id = $4
           )
-          AND id != ?
+          AND id != $5
         LIMIT 1
-      `
-    )
-    .bind(
-      organizationId,
-      name,
-      parentFolderId,
-      parentFolderId,
-      excludeFolderId ?? ""
-    )
-    .first<{ id: string }>();
+      `,
+      values: [
+        organizationId,
+        name,
+        parentFolderId,
+        parentFolderId,
+        excludeFolderId ?? "",
+      ],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (row) {
     throw folderExistsError();
   }
 }
-
 async function resolveAvailableFolderName(
-  db: D1Database,
+  db: PostgresDatabase,
   organizationId: string,
   requestedName: string,
   parentFolderId: string | null
 ): Promise<string> {
-  const rows = await db
-    .prepare(
-      `
+  const rows = await db.query<{
+    name: string;
+  }>({
+    text: `
         SELECT name
-        FROM organization_document_folders
-        WHERE organization_id = ?
-          AND ((parent_folder_id IS NULL AND ? IS NULL) OR parent_folder_id = ?)
-      `
-    )
-    .bind(organizationId, parentFolderId, parentFolderId)
-    .all<{ name: string }>();
+        FROM "openmeld"."organization_document_folders"
+        WHERE organization_id = $1
+          AND ((parent_folder_id IS NULL AND $2::text IS NULL) OR parent_folder_id = $3)
+      `,
+    values: [organizationId, parentFolderId, parentFolderId],
+  });
   const occupied = new Set(
-    rows.results.map((row) => row.name.toLocaleLowerCase("en-US"))
+    rows.rows.map((row) => row.name.toLocaleLowerCase("en-US"))
   );
   if (!occupied.has(requestedName.toLocaleLowerCase("en-US"))) {
     return requestedName;
@@ -2319,16 +2244,16 @@ async function resolveAvailableFolderName(
   }
   throw folderExistsError();
 }
-
 function mapFolderWriteError(error: unknown): Error {
   if (isCoreDocumentError(error)) {
     return error;
   }
-  const message = error instanceof Error ? error.message : String(error);
-  if (message.includes("UNIQUE constraint failed")) {
+  if (isFolderNameConflict(error)) {
     return folderExistsError();
   }
-  if (message.includes("CHECK constraint failed")) {
+  if (
+    isPostgresCheckViolation(error, "organization_document_folders_name_check")
+  ) {
     return documentError(
       400,
       "organization_document.folder_name_invalid",
@@ -2341,7 +2266,6 @@ function mapFolderWriteError(error: unknown): Error {
     "Organization document folders are temporarily unavailable."
   );
 }
-
 function folderExistsError(): Error {
   return documentError(
     409,
@@ -2349,7 +2273,6 @@ function folderExistsError(): Error {
     "A folder with this name already exists here."
   );
 }
-
 function folderCycleError(): Error {
   return documentError(
     409,
@@ -2357,7 +2280,6 @@ function folderCycleError(): Error {
     "A folder cannot be moved inside itself or one of its subfolders."
   );
 }
-
 function folderLimitError(): Error {
   return documentError(
     409,
@@ -2365,7 +2287,6 @@ function folderLimitError(): Error {
     `Organizations can keep up to ${ORGANIZATION_DOCUMENT_FOLDER_LIMIT} document folders.`
   );
 }
-
 function folderNotFoundError(): Error {
   return documentError(
     404,
@@ -2373,7 +2294,6 @@ function folderNotFoundError(): Error {
     "This folder no longer exists."
   );
 }
-
 function documentNotFoundError(): Error {
   return documentError(
     404,
@@ -2381,7 +2301,6 @@ function documentNotFoundError(): Error {
     "Organization document not found."
   );
 }
-
 function writeForbiddenError(): Error {
   return documentError(
     403,
@@ -2389,7 +2308,6 @@ function writeForbiddenError(): Error {
     "Only an Organization owner or admin can manage this document."
   );
 }
-
 function documentError(status: number, code: string, reason: string): Error {
   return createCoreRpcHttpError({ code, reason, status });
 }

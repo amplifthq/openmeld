@@ -1,11 +1,10 @@
+import type { PostgresDatabase, QueryConfig } from "@openmeld/db/postgresql";
 import { createCoreRpcHttpError } from "../rpc/errors";
-
 export type CenterAgentProjectOperationKind =
   | "create_project"
   | "remove_project"
   | "set_agent_profile_default_project"
   | "update_project";
-
 export type CenterAgentProjectOperationScope = {
   actorProfileId: string;
   operationId: string;
@@ -13,7 +12,6 @@ export type CenterAgentProjectOperationScope = {
   organizationId: string;
   representedUserId: string;
 };
-
 export type CenterAgentProjectOperationRecord =
   CenterAgentProjectOperationScope & {
     createdAtMs: number;
@@ -24,7 +22,6 @@ export type CenterAgentProjectOperationRecord =
     targetResourceId: string;
     updatedAtMs: number;
   };
-
 type CenterAgentProjectOperationRow = {
   actor_profile_id: string;
   created_at_ms: number;
@@ -39,7 +36,6 @@ type CenterAgentProjectOperationRow = {
   target_resource_id: string;
   updated_at_ms: number;
 };
-
 type CenterAgentProjectRemoveConfirmationRow = {
   actor_profile_id: string;
   consumed_at_ms: number | null;
@@ -54,7 +50,6 @@ type CenterAgentProjectRemoveConfirmationRow = {
   represented_user_id: string;
   token_hash: string;
 };
-
 export type CenterAgentProjectRemoveConfirmation = {
   actorProfileId: string;
   consumedAtMs: number | null;
@@ -69,27 +64,23 @@ export type CenterAgentProjectRemoveConfirmation = {
   representedUserId: string;
   tokenHash: string;
 };
-
 const REMOVE_CONFIRMATION_TTL_MS = 15 * 60 * 1000;
-
 export async function buildCenterAgentProjectRequestSignature(
   value: unknown
 ): Promise<string> {
   return await sha256Hex(stableJson(value));
 }
-
 export async function beginCenterAgentProjectOperation(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs: number;
   requestSignature: string;
   scope: CenterAgentProjectOperationScope;
   targetResourceId: string;
 }): Promise<CenterAgentProjectOperationRecord> {
   const id = `center_agent_project_operation_${crypto.randomUUID()}`;
-  await input.db
-    .prepare(
-      `
-        INSERT OR IGNORE INTO center_agent_project_operations (
+  await input.db.query({
+    text: `
+        INSERT INTO "openmeld"."center_agent_project_operations" (
           id,
           organization_id,
           actor_profile_id,
@@ -102,10 +93,8 @@ export async function beginCenterAgentProjectOperation(input: {
           status,
           created_at_ms,
           updated_at_ms
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 'pending', ?, ?)
-      `
-    )
-    .bind(
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL, 'pending', $9, $10) ON CONFLICT DO NOTHING`,
+    values: [
       id,
       input.scope.organizationId,
       input.scope.actorProfileId,
@@ -115,10 +104,9 @@ export async function beginCenterAgentProjectOperation(input: {
       input.requestSignature,
       input.targetResourceId,
       input.nowMs,
-      input.nowMs
-    )
-    .run();
-
+      input.nowMs,
+    ],
+  });
   const operation = await readCenterAgentProjectOperation({
     db: input.db,
     scope: input.scope,
@@ -136,27 +124,24 @@ export async function beginCenterAgentProjectOperation(input: {
   }
   return operation;
 }
-
 export function prepareCompleteCenterAgentProjectOperationStatement(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs: number;
   operationId: string;
   responseJson: string;
-}): D1PreparedStatement {
-  return input.db
-    .prepare(
-      `
-        UPDATE center_agent_project_operations
-        SET response_json = ?, status = 'completed', updated_at_ms = ?
-        WHERE id = ? AND status = 'pending'
-      `
-    )
-    .bind(input.responseJson, input.nowMs, input.operationId);
+}): QueryConfig {
+  return {
+    text: `
+        UPDATE "openmeld"."center_agent_project_operations"
+        SET response_json = $1, status = 'completed', updated_at_ms = $2
+        WHERE id = $3 AND status = 'pending'
+      `,
+    values: [input.responseJson, input.nowMs, input.operationId],
+  };
 }
-
 export async function createCenterAgentProjectRemoveConfirmation(input: {
   actorProfileId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs: number;
   organizationId: string;
   preparedRequestId: string;
@@ -166,16 +151,15 @@ export async function createCenterAgentProjectRemoveConfirmation(input: {
   representedUserId: string;
 }): Promise<{
   confirmation: CenterAgentProjectRemoveConfirmation;
-  statement: D1PreparedStatement;
+  statement: QueryConfig;
   token: string;
 }> {
   const token = `project_remove_${crypto.randomUUID()}_${crypto.randomUUID()}`;
   const tokenHash = await sha256Hex(token);
   const expiresAtMs = input.nowMs + REMOVE_CONFIRMATION_TTL_MS;
-  const statement = input.db
-    .prepare(
-      `
-        INSERT INTO center_agent_project_remove_confirmations (
+  const statement = {
+    text: `
+        INSERT INTO "openmeld"."center_agent_project_remove_confirmations" (
           token_hash,
           organization_id,
           actor_profile_id,
@@ -188,10 +172,9 @@ export async function createCenterAgentProjectRemoveConfirmation(input: {
           created_at_ms,
           consumed_at_ms,
           consumed_operation_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)
-      `
-    )
-    .bind(
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NULL, NULL)
+      `,
+    values: [
       tokenHash,
       input.organizationId,
       input.actorProfileId,
@@ -201,8 +184,9 @@ export async function createCenterAgentProjectRemoveConfirmation(input: {
       input.projectUpdatedAtMs,
       input.preparedRequestId,
       expiresAtMs,
-      input.nowMs
-    );
+      input.nowMs,
+    ],
+  };
   return {
     confirmation: {
       actorProfileId: input.actorProfileId,
@@ -222,56 +206,51 @@ export async function createCenterAgentProjectRemoveConfirmation(input: {
     token,
   };
 }
-
 export async function readCenterAgentProjectRemoveConfirmation(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   token: string;
 }): Promise<CenterAgentProjectRemoveConfirmation | null> {
   const tokenHash = await sha256Hex(input.token);
   const row = await input.db
-    .prepare(
-      `
+    .query<CenterAgentProjectRemoveConfirmationRow>({
+      text: `
         SELECT *
-        FROM center_agent_project_remove_confirmations
-        WHERE token_hash = ?
+        FROM "openmeld"."center_agent_project_remove_confirmations"
+        WHERE token_hash = $1
         LIMIT 1
-      `
-    )
-    .bind(tokenHash)
-    .first<CenterAgentProjectRemoveConfirmationRow>();
+      `,
+      values: [tokenHash],
+    })
+    .then((result) => result.rows[0] ?? null);
   return row ? mapRemoveConfirmation(row) : null;
 }
-
 export async function claimCenterAgentProjectRemoveConfirmation(input: {
   confirmation: CenterAgentProjectRemoveConfirmation;
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs: number;
   operationId: string;
 }): Promise<void> {
-  const result = await input.db
-    .prepare(
-      `
-        UPDATE center_agent_project_remove_confirmations
-        SET consumed_at_ms = ?, consumed_operation_id = ?
-        WHERE token_hash = ?
+  const result = await input.db.query({
+    text: `
+        UPDATE "openmeld"."center_agent_project_remove_confirmations"
+        SET consumed_at_ms = $1, consumed_operation_id = $2
+        WHERE token_hash = $3
           AND (
             consumed_operation_id IS NULL
-            OR consumed_operation_id = ?
+            OR consumed_operation_id = $4
           )
-      `
-    )
-    .bind(
+      `,
+    values: [
       input.nowMs,
       input.operationId,
       input.confirmation.tokenHash,
-      input.operationId
-    )
-    .run();
-  if (Number(result.meta.changes ?? 0) !== 1) {
+      input.operationId,
+    ],
+  });
+  if (Number(result.rowCount ?? 0) !== 1) {
     throw invalidRemoveConfirmationError();
   }
 }
-
 export function invalidRemoveConfirmationError(): Error {
   return createCoreRpcHttpError({
     code: "project.remove_confirmation_invalid",
@@ -280,35 +259,33 @@ export function invalidRemoveConfirmationError(): Error {
     status: 409,
   });
 }
-
 async function readCenterAgentProjectOperation(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   scope: CenterAgentProjectOperationScope;
 }): Promise<CenterAgentProjectOperationRecord | null> {
   const row = await input.db
-    .prepare(
-      `
+    .query<CenterAgentProjectOperationRow>({
+      text: `
         SELECT *
-        FROM center_agent_project_operations
-        WHERE organization_id = ?
-          AND actor_profile_id = ?
-          AND represented_user_id = ?
-          AND operation_kind = ?
-          AND operation_id = ?
+        FROM "openmeld"."center_agent_project_operations"
+        WHERE organization_id = $1
+          AND actor_profile_id = $2
+          AND represented_user_id = $3
+          AND operation_kind = $4
+          AND operation_id = $5
         LIMIT 1
-      `
-    )
-    .bind(
-      input.scope.organizationId,
-      input.scope.actorProfileId,
-      input.scope.representedUserId,
-      input.scope.operationKind,
-      input.scope.operationId
-    )
-    .first<CenterAgentProjectOperationRow>();
+      `,
+      values: [
+        input.scope.organizationId,
+        input.scope.actorProfileId,
+        input.scope.representedUserId,
+        input.scope.operationKind,
+        input.scope.operationId,
+      ],
+    })
+    .then((result) => result.rows[0] ?? null);
   return row ? mapOperation(row) : null;
 }
-
 function mapOperation(
   row: CenterAgentProjectOperationRow
 ): CenterAgentProjectOperationRecord {
@@ -327,7 +304,6 @@ function mapOperation(
     updatedAtMs: Number(row.updated_at_ms),
   };
 }
-
 function mapRemoveConfirmation(
   row: CenterAgentProjectRemoveConfirmationRow
 ): CenterAgentProjectRemoveConfirmation {
@@ -347,7 +323,6 @@ function mapRemoveConfirmation(
     tokenHash: row.token_hash,
   };
 }
-
 async function sha256Hex(value: string): Promise<string> {
   const bytes = new TextEncoder().encode(value);
   const digest = await crypto.subtle.digest("SHA-256", bytes);
@@ -355,7 +330,6 @@ async function sha256Hex(value: string): Promise<string> {
     byte.toString(16).padStart(2, "0")
   ).join("");
 }
-
 function stableJson(value: unknown): string {
   if (value === undefined) {
     return "undefined";

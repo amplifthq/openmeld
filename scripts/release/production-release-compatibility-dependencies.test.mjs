@@ -33,7 +33,7 @@ const REMOTE_AI_USAGE = [
   "services/remote-agent/agent-core/ai-usage.ts",
 ];
 
-test("admits the reviewed Core request bridge while retaining the metering receiver dependency", () => {
+test("refuses the retired Core request bridge after its source owners change", () => {
   const base = "e4454cf165b96c7f918e420f28205c2b2ed3c575";
   const sourceSha = "a".repeat(40);
   const readGitFile = (ref, path) =>
@@ -44,39 +44,16 @@ test("admits the reviewed Core request bridge while retaining the metering recei
     ...REMOTE_AI_USAGE,
     "services/remote-agent/.flue/cloudflare.ts",
   ];
-  const plan = buildProductionReleasePlan({
-    base,
-    sourceSha,
-    changedPaths: paths,
-    scope: "core,remote-agent",
-    readGitFile,
-  });
-  assert.deepEqual(plan.deployScopeOrder, ["core", "remote-agent"]);
-  assert.deepEqual(plan.compatibilityDependencies, [["core", "remote-agent"]]);
-  assert.equal(
-    plan.compatibilityBridges[0].kind,
-    "negotiated-remote-task-attribution"
-  );
-  assert.equal(plan.compatibilityBridges[0].baselineSha, base);
-  const components = [
-    { scope: "core", state: "pending", sha: base, ...plan },
-    { scope: "remote-agent", state: "pending", sha: base, ...plan },
-  ];
-  assert.doesNotThrow(() =>
-    assertProductionStageAdmission({
-      components,
-      sourceSha,
-      selectedScopes: ["core"],
-    })
-  );
   assert.throws(
     () =>
-      assertProductionStageAdmission({
-        components,
+      buildProductionReleasePlan({
+        base,
         sourceSha,
-        selectedScopes: ["remote-agent"],
+        changedPaths: paths,
+        scope: "core,remote-agent",
+        readGitFile,
       }),
-    PENDING_RECEIVER
+    CONTRACT_CYCLE
   );
 });
 

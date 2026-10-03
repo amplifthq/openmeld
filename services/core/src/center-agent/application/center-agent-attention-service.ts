@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import { centerAgentRequestMemberAttentionBodySchema } from "@openmeld/schemas";
 import type {
   CenterAgentAttentionImpact,
@@ -10,9 +11,8 @@ import {
 } from "../../inbox/application/inbox-item-service";
 
 const SOURCE_KIND = "remote_agent_native_interaction" as const;
-
 type CenterAgentAttentionRequestInput = {
-  db: D1Database;
+  db: PostgresDatabase;
   impact: CenterAgentAttentionImpact;
   nativeDeliveryId: string;
   nowMs: number;
@@ -25,10 +25,12 @@ type CenterAgentAttentionRequestInput = {
   title: string;
   triggerSignalId: string;
 };
-
 export async function createCenterAgentAttentionRequest(
   input: CenterAgentAttentionRequestInput
-): Promise<{ importance: InboxImportance; requestId: string }> {
+): Promise<{
+  importance: InboxImportance;
+  requestId: string;
+}> {
   const request = centerAgentRequestMemberAttentionBodySchema.parse({
     impact: input.impact,
     prompt: input.prompt,
@@ -49,7 +51,6 @@ export async function createCenterAgentAttentionRequest(
       requestId: existing.id,
     };
   }
-
   const importance = importanceForImpact(request.impact);
   const candidate = {
     attention: "action_required" as const,
@@ -70,10 +71,9 @@ export async function createCenterAgentAttentionRequest(
     db: input.db,
     nowMs: input.nowMs,
   });
-  const sourceInsert = input.db
-    .prepare(
-      `
-        INSERT INTO center_agent_attention_requests (
+  const sourceInsert = {
+    text: `
+        INSERT INTO "openmeld"."center_agent_attention_requests" (
           id,
           organization_id,
           recipient_user_id,
@@ -87,10 +87,9 @@ export async function createCenterAgentAttentionRequest(
           status,
           created_at_ms,
           updated_at_ms
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?)
-      `
-    )
-    .bind(
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'open', $11, $12)
+      `,
+    values: [
       request.submissionId,
       input.organizationId,
       input.recipientUserId,
@@ -102,10 +101,16 @@ export async function createCenterAgentAttentionRequest(
       request.title,
       request.prompt,
       input.nowMs,
-      input.nowMs
-    );
+      input.nowMs,
+    ],
+  };
   try {
-    await input.db.batch([sourceInsert, ...preparedInbox.statements]);
+    await input.db.transaction(async (client) =>
+      Promise.all([
+        client.query(sourceInsert),
+        ...preparedInbox.statements.map((query) => client.query(query)),
+      ])
+    );
   } catch (error) {
     const raced = await readAttentionRequest(input.db, request.submissionId);
     if (raced) {
@@ -116,57 +121,54 @@ export async function createCenterAgentAttentionRequest(
   }
   return { importance, requestId: request.submissionId };
 }
-
 export async function resolveCenterAgentAttentionRequestsForReply(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs: number;
   organizationId: string;
   recipientUserId: string;
   spaceId: string;
 }): Promise<number> {
   assertTimestamp(input.nowMs, "nowMs");
-  const open = await input.db
-    .prepare(
-      `
+  const open = await input.db.query<{
+    submission_id: string;
+  }>({
+    text: `
         SELECT submission_id
-        FROM center_agent_attention_requests
-        WHERE organization_id = ?
-          AND recipient_user_id = ?
-          AND space_id = ?
+        FROM "openmeld"."center_agent_attention_requests"
+        WHERE organization_id = $1
+          AND recipient_user_id = $2
+          AND space_id = $3
           AND status = 'open'
         ORDER BY created_at_ms, submission_id
-      `
-    )
-    .bind(input.organizationId, input.recipientUserId, input.spaceId)
-    .all<{ submission_id: string }>();
-  const sourceKeys = (open.results ?? []).map((row) => row.submission_id);
+      `,
+    values: [input.organizationId, input.recipientUserId, input.spaceId],
+  });
+  const sourceKeys = (open.rows ?? []).map((row) => row.submission_id);
   if (sourceKeys.length === 0) {
     return 0;
   }
-  const placeholders = sourceKeys.map(() => "?").join(", ");
-  const sourceUpdate = input.db
-    .prepare(
-      `
-        UPDATE center_agent_attention_requests
+  const sourceUpdate = {
+    text: `
+        UPDATE "openmeld"."center_agent_attention_requests"
         SET
           status = 'resolved',
-          resolved_at_ms = ?,
-          updated_at_ms = max(updated_at_ms, ?)
-        WHERE organization_id = ?
-          AND recipient_user_id = ?
-          AND space_id = ?
+          resolved_at_ms = $1,
+          updated_at_ms = GREATEST(updated_at_ms, $2)
+        WHERE organization_id = $3
+          AND recipient_user_id = $4
+          AND space_id = $5
           AND status = 'open'
-          AND submission_id IN (${placeholders})
-      `
-    )
-    .bind(
+          AND submission_id = ANY($6::text[])
+      `,
+    values: [
       input.nowMs,
       input.nowMs,
       input.organizationId,
       input.recipientUserId,
       input.spaceId,
-      ...sourceKeys
-    );
+      sourceKeys,
+    ],
+  };
   const inboxStatements = sourceKeys.flatMap((sourceKey) =>
     prepareResolveInboxItemsBySourceStatements({
       db: input.db,
@@ -176,10 +178,14 @@ export async function resolveCenterAgentAttentionRequestsForReply(input: {
       sourceKind: SOURCE_KIND,
     })
   );
-  const [result] = await input.db.batch([sourceUpdate, ...inboxStatements]);
-  return Math.max(0, Math.trunc(Number(result?.meta.changes ?? 0)));
+  const [result] = await input.db.transaction(async (client) =>
+    Promise.all([
+      client.query(sourceUpdate),
+      ...inboxStatements.map((query) => client.query(query)),
+    ])
+  );
+  return Math.max(0, Math.trunc(Number(result.rowCount ?? 0)));
 }
-
 type AttentionRequestRow = {
   id: string;
   impact: CenterAgentAttentionImpact;
@@ -191,14 +197,13 @@ type AttentionRequestRow = {
   title: string;
   trigger_signal_id: string;
 };
-
 async function readAttentionRequest(
-  db: D1Database,
+  db: PostgresDatabase,
   submissionId: string
 ): Promise<AttentionRequestRow | null> {
   return await db
-    .prepare(
-      `
+    .query<AttentionRequestRow>({
+      text: `
         SELECT
           id,
           organization_id,
@@ -209,15 +214,14 @@ async function readAttentionRequest(
           impact,
           title,
           prompt
-        FROM center_agent_attention_requests
-        WHERE submission_id = ?
+        FROM "openmeld"."center_agent_attention_requests"
+        WHERE submission_id = $1
         LIMIT 1
-      `
-    )
-    .bind(submissionId)
-    .first<AttentionRequestRow>();
+      `,
+      values: [submissionId],
+    })
+    .then((result) => result.rows[0] ?? null);
 }
-
 function assertSameRequest(
   existing: AttentionRequestRow,
   input: CenterAgentAttentionRequestInput
@@ -238,19 +242,16 @@ function assertSameRequest(
     "Center Agent attention request conflicts with an existing submission."
   );
 }
-
 function importanceForImpact(
   impact: CenterAgentAttentionImpact
 ): InboxImportance {
   return impact === "response_needed" ? "normal" : "urgent";
 }
-
 function assertIdentifier(value: string, field: string): void {
   if (!value.trim()) {
     throw new Error(`${field} is required`);
   }
 }
-
 function assertTimestamp(value: number, field: string): void {
   if (!(Number.isSafeInteger(value) && value >= 0)) {
     throw new Error(`${field} must be a non-negative integer`);

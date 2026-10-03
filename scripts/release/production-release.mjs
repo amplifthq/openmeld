@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { assertProductDatabaseReleaseSupported } from "./database-backend-admission.mjs";
 import { executeRecordedProductionDeploySteps } from "./production-release-receipts.mjs";
 import {
   acquireProductionScopeLease,
@@ -2733,6 +2734,10 @@ function printPlan(plan, json) {
 }
 
 async function main(argv) {
+  const command = parseProductionReleaseArgs(argv).command;
+  if (command === "deploy") {
+    assertProductDatabaseReleaseSupported();
+  }
   const options = parseProductionReleaseArgs(argv);
   const plan = buildProductionReleasePlan(options);
   printPlan(plan, options.json);

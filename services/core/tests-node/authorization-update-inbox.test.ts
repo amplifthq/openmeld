@@ -3,31 +3,23 @@ import {
   requireAuthorizationUpdateInbox,
   resolveAuthorizationUpdateInbox,
 } from "../src/inbox/application/authorization-update-inbox";
-import {
-  applyDrizzleMigrationsForTables,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 describe("shared authorization-update Inbox lifecycle", () => {
-  let harness: ReturnType<typeof createSqliteD1Harness>;
-  beforeEach(() => {
-    harness = createSqliteD1Harness();
+  let harness: Awaited<ReturnType<typeof createPostgresHarness>>;
+  beforeEach(async () => {
+    harness = await createPostgresHarness();
     for (const sql of [
-      "CREATE TABLE organizations(id text PRIMARY KEY)",
-      "CREATE TABLE users(id text PRIMARY KEY)",
-      "INSERT INTO organizations VALUES ('org'), ('other')",
-      "INSERT INTO users VALUES ('owner'), ('admin'), ('member')",
-      "CREATE TABLE source_authorization(needed integer)",
-      "INSERT INTO source_authorization VALUES (1)",
+      "INSERT INTO \"openmeld\".\"organizations\" (id, name, slug, created_at) VALUES ('org', 'Organization', 'organization', 0), ('other', 'Other', 'other', 0)",
+      "INSERT INTO \"openmeld\".\"users\" (id, name, email, created_at, updated_at) VALUES ('owner', 'Owner', 'owner@example.test', 0, 0), ('admin', 'Admin', 'admin@example.test', 0, 0), ('member', 'Member', 'member@example.test', 0, 0)",
+      'CREATE TABLE "openmeld"."source_authorization"(needed integer)',
+      'GRANT SELECT ON "openmeld"."source_authorization" TO openmeld_pg_runtime',
+      'INSERT INTO "openmeld"."source_authorization" VALUES (1)',
     ]) {
-      harness.run({ sql });
+      await harness.query({ text: sql });
     }
-    applyDrizzleMigrationsForTables(harness, [
-      "inbox_items",
-      "inbox_email_deliveries",
-    ]);
   });
-  afterEach(() => harness.close());
+  afterEach(async () => await harness.close());
   const identity = {
     organizationId: "org",
     sourceId: "channel.feishu.test",
@@ -42,7 +34,8 @@ describe("shared authorization-update Inbox lifecycle", () => {
       { userId: "member", role: "member" },
     ],
     sourceGuard: {
-      sql: "EXISTS (SELECT 1 FROM source_authorization WHERE needed = ?)",
+      sql: (parameterOffset: number) =>
+        `EXISTS (SELECT 1 FROM "openmeld"."source_authorization" WHERE needed = $${parameterOffset + 1})`,
       bindings: [1],
     },
   };
@@ -54,8 +47,8 @@ describe("shared authorization-update Inbox lifecycle", () => {
       nowMs: 3000,
     });
     expect(
-      harness.queryAll({
-        sql: "SELECT recipient_user_id, attention, resolution_status FROM inbox_items ORDER BY recipient_user_id",
+      await harness.queryAll({
+        text: 'SELECT recipient_user_id, attention, resolution_status FROM "openmeld"."inbox_items" ORDER BY recipient_user_id',
       })
     ).toEqual([
       {
@@ -70,14 +63,18 @@ describe("shared authorization-update Inbox lifecycle", () => {
       },
     ]);
     expect(
-      harness.queryFirst<{ count: number }>({
-        sql: "SELECT count(*) AS count FROM inbox_email_deliveries",
-      })?.count
+      await (
+        await harness.queryFirst<{ count: number }>({
+          text: 'SELECT count(*) AS count FROM "openmeld"."inbox_email_deliveries"',
+        })
+      )?.count
     ).toBe(2);
   });
   it("clears action, unread and pending email for every recipient after one completed authorization", async () => {
     await requireAuthorizationUpdateInbox({ ...identity, db: harness.db });
-    harness.run({ sql: "UPDATE source_authorization SET needed = 0" });
+    await harness.query({
+      text: 'UPDATE "openmeld"."source_authorization" SET needed = 0',
+    });
     await resolveAuthorizationUpdateInbox({
       ...identity,
       db: harness.db,
@@ -85,15 +82,17 @@ describe("shared authorization-update Inbox lifecycle", () => {
       sourceGuard: { ...identity.sourceGuard, bindings: [0] },
     });
     expect(
-      harness.queryAll({
-        sql: "SELECT resolution_status, read_at_ms FROM inbox_items",
+      await harness.queryAll({
+        text: 'SELECT resolution_status, read_at_ms FROM "openmeld"."inbox_items"',
       })
     ).toEqual([
       { resolution_status: "resolved", read_at_ms: 4000 },
       { resolution_status: "resolved", read_at_ms: 4000 },
     ]);
     expect(
-      harness.queryAll({ sql: "SELECT state FROM inbox_email_deliveries" })
+      await harness.queryAll({
+        text: 'SELECT state FROM "openmeld"."inbox_email_deliveries"',
+      })
     ).toEqual([{ state: "suppressed" }, { state: "suppressed" }]);
     await requireAuthorizationUpdateInbox({
       ...identity,
@@ -101,9 +100,11 @@ describe("shared authorization-update Inbox lifecycle", () => {
       nowMs: 5000,
     });
     expect(
-      harness.queryFirst<{ count: number }>({
-        sql: "SELECT count(*) AS count FROM inbox_items WHERE resolution_status = 'open'",
-      })?.count
+      await (
+        await harness.queryFirst<{ count: number }>({
+          text: 'SELECT count(*) AS count FROM "openmeld"."inbox_items" WHERE resolution_status = \'open\'',
+        })
+      )?.count
     ).toBe(0);
   });
   it("does not clear a newer requirement with stale success evidence", async () => {
@@ -115,22 +116,34 @@ describe("shared authorization-update Inbox lifecycle", () => {
       sourceGuard: { ...identity.sourceGuard, bindings: [0] },
     });
     expect(
-      harness.queryFirst<{ count: number }>({
-        sql: "SELECT count(*) AS count FROM inbox_items WHERE resolution_status = 'open' AND read_at_ms IS NULL",
-      })?.count
+      await (
+        await harness.queryFirst<{ count: number }>({
+          text: 'SELECT count(*) AS count FROM "openmeld"."inbox_items" WHERE resolution_status = \'open\' AND read_at_ms IS NULL',
+        })
+      )?.count
     ).toBe(2);
     expect(
-      harness.queryFirst<{ count: number }>({
-        sql: "SELECT count(*) AS count FROM inbox_email_deliveries WHERE state = 'pending'",
-      })?.count
+      await (
+        await harness.queryFirst<{ count: number }>({
+          text: 'SELECT count(*) AS count FROM "openmeld"."inbox_email_deliveries" WHERE state = \'pending\'',
+        })
+      )?.count
     ).toBe(2);
   });
   it("never creates a late notification after the source has already recovered", async () => {
-    harness.run({ sql: "UPDATE source_authorization SET needed = 0" });
+    await harness.query({
+      text: 'UPDATE "openmeld"."source_authorization" SET needed = 0',
+    });
     await requireAuthorizationUpdateInbox({ ...identity, db: harness.db });
-    expect(harness.queryAll({ sql: "SELECT id FROM inbox_items" })).toEqual([]);
     expect(
-      harness.queryAll({ sql: "SELECT id FROM inbox_email_deliveries" })
+      await harness.queryAll({
+        text: 'SELECT id FROM "openmeld"."inbox_items"',
+      })
+    ).toEqual([]);
+    expect(
+      await harness.queryAll({
+        text: 'SELECT id FROM "openmeld"."inbox_email_deliveries"',
+      })
     ).toEqual([]);
   });
 });

@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import type { CenterAgentRoutineTargetSpace } from "@openmeld/schemas/types";
 import { buildDirectMessagePairKey } from "@openmeld/space";
 import { readCenterAgentDesignationRecord } from "../center-agent/center-agent-repository";
@@ -9,26 +10,27 @@ import {
   readSpaceIndexOrganizationJoinTarget,
 } from "../space-index/space-index-repository";
 import { isActiveCenterAgentProfile } from "./routine-repository";
-
 export type RoutineRepresentedHuman = {
   profileId: string;
   userId: string;
 };
-
 type RoutineTargetEligibilityContext = {
   centerAgentDirectMessagePairKey: string;
   centerAgentIsActive: boolean;
   centerAgentProfileId: string;
 };
-
 type RoutineTargetEligibilityContextResolution =
-  | { status: "available"; value: RoutineTargetEligibilityContext }
-  | { status: "designation_missing" };
-
+  | {
+      status: "available";
+      value: RoutineTargetEligibilityContext;
+    }
+  | {
+      status: "designation_missing";
+    };
 export function createRoutineTargetSpaceEligibility(input: {
   agentProfileId?: string;
-  db: D1Database;
-  projectionsDb: D1Database;
+  db: PostgresDatabase;
+  projectionsDb: PostgresDatabase;
 }) {
   return {
     async listEligible(inputList: {
@@ -60,7 +62,6 @@ export function createRoutineTargetSpaceEligibility(input: {
         representedHumanUserId: inputList.representedHuman.userId,
       });
     },
-
     async requireEligible(inputTarget: {
       organizationId: string;
       representedHuman: RoutineRepresentedHuman;
@@ -76,7 +77,6 @@ export function createRoutineTargetSpaceEligibility(input: {
       if (target.organizationId !== inputTarget.organizationId) {
         throw targetSpaceOrganizationMismatchError();
       }
-
       const context = await resolveRoutineTargetEligibilityContext({
         agentProfileId: input.agentProfileId,
         db: input.db,
@@ -94,7 +94,6 @@ export function createRoutineTargetSpaceEligibility(input: {
               centerAgentDirectMessagePairKey: null,
               centerAgentProfileId: null,
             };
-
       const eligibility = await readRoutineTargetSpaceEligibilityFromSpaceIndex(
         {
           ...queryContext,
@@ -132,10 +131,9 @@ export function createRoutineTargetSpaceEligibility(input: {
     },
   };
 }
-
 async function resolveRoutineTargetEligibilityContext(input: {
   agentProfileId?: string;
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   representedHuman: RoutineRepresentedHuman;
 }): Promise<RoutineTargetEligibilityContextResolution> {
@@ -182,7 +180,6 @@ async function resolveRoutineTargetEligibilityContext(input: {
     },
   };
 }
-
 function targetSpaceNotFoundError() {
   return createCoreRpcHttpError({
     status: 404,
@@ -190,7 +187,6 @@ function targetSpaceNotFoundError() {
     code: "routine.target_space_not_found",
   });
 }
-
 function targetSpaceOrganizationMismatchError() {
   return createCoreRpcHttpError({
     status: 403,
@@ -198,7 +194,6 @@ function targetSpaceOrganizationMismatchError() {
     code: "routine.target_space_org_mismatch",
   });
 }
-
 function centerAgentRequiredError() {
   return createCoreRpcHttpError({
     status: 409,
@@ -206,7 +201,6 @@ function centerAgentRequiredError() {
     code: "routine.center_agent_required",
   });
 }
-
 function targetSpacePublicationUnavailableError() {
   return createCoreRpcHttpError({
     status: 409,

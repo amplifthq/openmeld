@@ -1,6 +1,8 @@
-import { createHash } from "node:crypto";
-import { readdir, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import { readMigrationFiles } from "drizzle-orm/migrator";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { migrate as migrateDrizzle } from "drizzle-orm/node-postgres/migrator";
 import pg from "pg";
 
 export const migrationDirectory = fileURLToPath(
@@ -49,27 +51,27 @@ export async function connect(connectionString, local = false) {
 }
 
 export async function readMigrations(directory = migrationDirectory) {
-  const files = (await readdir(directory))
-    .filter((name) => name.endsWith(".sql"))
-    .sort();
+  const journal = JSON.parse(
+    await readFile(`${directory}/meta/_journal.json`, "utf8")
+  );
+  const migrations = readMigrationFiles({ migrationsFolder: directory });
   if (
-    !files.length ||
-    files.some(
-      (file, i) => !file.startsWith(`${String(i + 1).padStart(4, "0")}_`)
+    !migrations.length ||
+    journal.entries.some(
+      (entry, index) =>
+        entry.idx !== index ||
+        (index > 0 && entry.when <= journal.entries[index - 1].when)
     )
   ) {
-    throw new Error("Migrations must be consecutively numbered from 0001");
+    throw new Error(
+      "Drizzle migration journal must be nonempty and strictly ordered"
+    );
   }
-  return Promise.all(
-    files.map(async (name) => {
-      const sql = await readFile(`${directory}/${name}`, "utf8");
-      return {
-        name,
-        sql,
-        checksum: createHash("sha256").update(sql).digest("hex"),
-      };
-    })
-  );
+  return migrations.map((entry, index) => ({
+    ...entry,
+    name: `${journal.entries[index].tag}.sql`,
+    checksum: entry.hash,
+  }));
 }
 
 export async function migrate(client, directory = migrationDirectory) {
@@ -88,48 +90,36 @@ export async function migrate(client, directory = migrationDirectory) {
     await client.query(
       "SET lock_timeout = '5s'; SET statement_timeout = '60s'; SET idle_in_transaction_session_timeout = '30s'"
     );
-    await client.query("BEGIN");
-    try {
+    const tables = (
       await client.query(
-        "CREATE SCHEMA IF NOT EXISTS openmeld_meta; REVOKE ALL ON SCHEMA openmeld_meta FROM PUBLIC"
-      );
-      await client.query(
-        "CREATE TABLE IF NOT EXISTS openmeld_meta.migrations (name text PRIMARY KEY, checksum text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())"
-      );
-      await client.query("COMMIT");
-    } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
-    }
-    const applied = (
-      await client.query(
-        "SELECT name, checksum FROM openmeld_meta.migrations ORDER BY name"
+        "SELECT to_regclass('openmeld_meta.migrations') AS legacy, to_regclass('drizzle.__drizzle_migrations') AS current"
       )
-    ).rows;
+    ).rows[0];
+    if (tables.legacy) {
+      throw new Error(
+        "Legacy foundation ledger exists; reconcile it explicitly before adopting Drizzle migrations"
+      );
+    }
+    const applied = tables.current
+      ? (
+          await client.query(
+            "SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY created_at, id"
+          )
+        ).rows
+      : [];
     for (const [index, entry] of applied.entries()) {
       if (
-        migrations[index]?.name !== entry.name ||
-        migrations[index]?.checksum !== entry.checksum
+        migrations[index]?.checksum !== entry.hash ||
+        migrations[index]?.folderMillis !== Number(entry.created_at)
       ) {
-        throw new Error(`Applied migration drift: ${entry.name}`);
+        throw new Error(`Applied migration drift at position ${index}`);
       }
     }
-    const added = [];
-    for (const migration of migrations.slice(applied.length)) {
-      await client.query("BEGIN");
-      try {
-        await client.query(migration.sql);
-        await client.query(
-          "INSERT INTO openmeld_meta.migrations (name, checksum) VALUES ($1, $2)",
-          [migration.name, migration.checksum]
-        );
-        await client.query("COMMIT");
-        added.push(migration.name);
-      } catch (error) {
-        await client.query("ROLLBACK");
-        throw error;
-      }
-    }
+    await migrateDrizzle(drizzle(client), { migrationsFolder: directory });
+    await client.query("REVOKE ALL ON SCHEMA drizzle FROM PUBLIC");
+    const added = migrations
+      .slice(applied.length)
+      .map((migration) => migration.name);
     return { applied: added, total: migrations.length };
   } finally {
     await client.query("SELECT pg_advisory_unlock($1)", [migrationLock]);

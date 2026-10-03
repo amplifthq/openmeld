@@ -15,6 +15,7 @@ import {
   upsertSpaceMemberRecord,
 } from "../src/space/infrastructure/sql/space-member-repo";
 import { ensureSpaceSqlSchema } from "../src/space/infrastructure/sql/space-schema-repo";
+import { createProjectionPostgresBinding } from "../test-support/postgresql-query.test-support";
 
 const NOW_ISO = "2026-06-19T00:00:00.000Z";
 const AGENT_PROFILE_ID = "agt_11111111-1111-4111-8111-111111111111";
@@ -214,6 +215,7 @@ function createCoreEnv(input: {
   lineage: Record<string, string | null>;
 }): CoreBindings {
   return {
+    OPENMELD_POSTGRESQL: createProjectionPostgresBinding(() => []),
     OPENMELD_AUTH_WORKER: {
       listProfileLineage: vi.fn().mockResolvedValue({
         ok: true,

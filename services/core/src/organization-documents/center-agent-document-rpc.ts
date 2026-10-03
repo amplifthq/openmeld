@@ -1,4 +1,8 @@
 import {
+  getPostgresDatabase,
+  type PostgresDatabase,
+} from "@openmeld/db/postgresql";
+import {
   centerAgentManageOrganizationDocumentsResponseSchema,
   centerAgentManageOrganizationDocumentsRpcInputSchema,
 } from "@openmeld/schemas";
@@ -10,8 +14,8 @@ import type {
 } from "@openmeld/schemas/types";
 import { prepareCenterAgentRepresentedMemberRequest } from "../center-agent/application/represented-member-request";
 import { prepareCenterAgentAuditJournalEntryIfMissingStatement } from "../center-agent/center-agent-repository";
-import { type CoreBindings, organizationDocumentsDb } from "../lib/bindings";
-import { readRemoteAgentNativeDeliveryBySubmissionId } from "../remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+import type { CoreBindings } from "../lib/bindings";
+import { readRemoteAgentNativeDeliveryBySubmissionId } from "../remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import {
   readRoutineRecord,
   readRoutineRunExecutionRecord,
@@ -32,23 +36,27 @@ import {
 } from "./organization-document-service";
 
 type RuntimeSchema<T> = {
-  safeParse(
-    value: unknown
-  ):
-    | { data: T; success: true }
-    | { error: { message: string }; success: false };
+  safeParse(value: unknown):
+    | {
+        data: T;
+        success: true;
+      }
+    | {
+        error: {
+          message: string;
+        };
+        success: false;
+      };
 };
-
 type PreparedCenterAgentDocumentRequest = {
   actor: OrganizationDocumentActor;
   actorProfileId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   representedHuman: Awaited<
     ReturnType<typeof prepareCenterAgentRepresentedMemberRequest>
   >["representedHuman"];
   sourceNativeDeliveryId: string | null;
 };
-
 export async function rpcCenterAgentManageOrganizationDocuments(
   env: CoreBindings,
   input: CenterAgentManageOrganizationDocumentsRpcInput
@@ -101,15 +109,16 @@ export async function rpcCenterAgentManageOrganizationDocuments(
     });
   }
   const operation = claim.operation;
-
   const service = createOrganizationDocumentService({
     db: prepared.db,
     newId: () => operation.targetResourceId,
   });
   let response: CenterAgentManageOrganizationDocumentsResponse;
   let action: CenterAgentAction;
-  let resource: { id: string; type: string };
-
+  let resource: {
+    id: string;
+    type: string;
+  };
   switch (request.action) {
     case "create_folder": {
       const folder = await service
@@ -208,7 +217,6 @@ export async function rpcCenterAgentManageOrganizationDocuments(
     default:
       return assertNever(request);
   }
-
   return await completeOperation({
     action,
     operation,
@@ -217,7 +225,6 @@ export async function rpcCenterAgentManageOrganizationDocuments(
     response,
   });
 }
-
 async function requireApprovedKnowledgeSaveAuthorization(input: {
   context: CenterAgentManageOrganizationDocumentsRpcInput["context"];
   prepared: PreparedCenterAgentDocumentRequest;
@@ -244,14 +251,12 @@ async function requireApprovedKnowledgeSaveAuthorization(input: {
   ) {
     throwDirectSaveAuthorizationError();
   }
-
   // Interactive deliveries already carry a Core-recorded represented member.
   // Their full worker request is deliberately retired after admission, while
   // Routine worker requests stay durable so Core can verify the stored grant.
   if (!delivery.routineRunId) {
     return;
   }
-
   const request = delivery.workerSubmitRequest;
   if (!request) {
     throwDirectSaveAuthorizationError();
@@ -293,7 +298,6 @@ async function requireApprovedKnowledgeSaveAuthorization(input: {
     throwDirectSaveAuthorizationError();
   }
 }
-
 function throwDirectSaveAuthorizationError(): never {
   throw createCoreRpcHttpError({
     code: "organization_document.direct_save_not_authorized",
@@ -302,7 +306,6 @@ function throwDirectSaveAuthorizationError(): never {
     status: 403,
   });
 }
-
 async function prepareRequest(
   env: CoreBindings,
   request: CenterAgentManageOrganizationDocumentsRpcInput
@@ -312,7 +315,7 @@ async function prepareRequest(
     request.context,
     request.speakerMember
   );
-  const db = organizationDocumentsDb(env);
+  const db = getPostgresDatabase(env);
   if (!db) {
     throw createCoreRpcHttpError({
       code: "organization_document.store_unavailable",
@@ -333,7 +336,6 @@ async function prepareRequest(
     sourceNativeDeliveryId: represented.sourceNativeDeliveryId,
   };
 }
-
 function resolveOperationTargetResourceId(
   request: CenterAgentManageOrganizationDocumentsRpcInput
 ): string {
@@ -350,13 +352,11 @@ function resolveOperationTargetResourceId(
       return assertNever(request);
   }
 }
-
 function assertNever(value: never): never {
   throw new TypeError(
     `Unsupported Organization Document action: ${String(value)}`
   );
 }
-
 async function prepareOperationRequest(input: {
   kind: CenterAgentOrganizationDocumentOperationKind;
   operationId: string;
@@ -381,7 +381,6 @@ async function prepareOperationRequest(input: {
     scope,
   };
 }
-
 async function beginOperation(input: {
   prepared: PreparedCenterAgentDocumentRequest;
   requestSignature: string;
@@ -398,7 +397,6 @@ async function beginOperation(input: {
     targetResourceId: input.targetResourceId,
   });
 }
-
 function resolveExistingOperation(input: {
   operation: CenterAgentOrganizationDocumentOperationRecord;
   requestSignature: string;
@@ -419,7 +417,6 @@ function resolveExistingOperation(input: {
   }
   return parseResponse(JSON.parse(input.operation.responseJson));
 }
-
 async function readCompletedOperationReplayAfterAuthorizationFailure(input: {
   operationRequest: Awaited<ReturnType<typeof prepareOperationRequest>>;
   prepared: PreparedCenterAgentDocumentRequest;
@@ -442,12 +439,14 @@ async function readCompletedOperationReplayAfterAuthorizationFailure(input: {
       })
     : null;
 }
-
 async function completeOperation(input: {
   action: CenterAgentAction;
   operation: CenterAgentOrganizationDocumentOperationRecord;
   prepared: PreparedCenterAgentDocumentRequest;
-  resource: { id: string; type: string };
+  resource: {
+    id: string;
+    type: string;
+  };
   response: CenterAgentManageOrganizationDocumentsResponse;
 }): Promise<CenterAgentManageOrganizationDocumentsResponse> {
   if (!input.operation.claimId) {
@@ -456,35 +455,43 @@ async function completeOperation(input: {
     );
   }
   const nowMs = Date.now();
-  const results = await input.prepared.db.batch([
-    prepareCenterAgentAuditJournalEntryIfMissingStatement({
-      action: input.action,
-      actorProfileId: input.prepared.actorProfileId,
-      attribution: {
-        actorProfileId: input.prepared.actorProfileId,
-        onBehalfOf: {
-          displayName: input.prepared.representedHuman.displayName,
-          profileId: input.prepared.representedHuman.profileId,
-          userId: input.prepared.representedHuman.userId,
-        },
-      },
-      db: input.prepared.db,
-      id: `audit_${input.operation.id}`,
-      nowMs,
-      organizationId: input.prepared.actor.organizationId,
-      resource: input.resource,
-      sourceNativeDeliveryId: input.prepared.sourceNativeDeliveryId,
-    }),
-    prepareCompleteCenterAgentOrganizationDocumentOperationStatement({
-      db: input.prepared.db,
-      claimId: input.operation.claimId,
-      nowMs,
-      operationRecordId: input.operation.id,
-      responseJson: JSON.stringify(input.response),
-    }),
-  ]);
+  const claimId = input.operation.claimId;
+  const results = await input.prepared.db.transaction(
+    async (client) =>
+      [
+        await client.query(
+          prepareCenterAgentAuditJournalEntryIfMissingStatement({
+            action: input.action,
+            actorProfileId: input.prepared.actorProfileId,
+            attribution: {
+              actorProfileId: input.prepared.actorProfileId,
+              onBehalfOf: {
+                displayName: input.prepared.representedHuman.displayName,
+                profileId: input.prepared.representedHuman.profileId,
+                userId: input.prepared.representedHuman.userId,
+              },
+            },
+            db: input.prepared.db,
+            id: `audit_${input.operation.id}`,
+            nowMs,
+            organizationId: input.prepared.actor.organizationId,
+            resource: input.resource,
+            sourceNativeDeliveryId: input.prepared.sourceNativeDeliveryId,
+          })
+        ),
+        await client.query(
+          prepareCompleteCenterAgentOrganizationDocumentOperationStatement({
+            db: input.prepared.db,
+            claimId,
+            nowMs,
+            operationRecordId: input.operation.id,
+            responseJson: JSON.stringify(input.response),
+          })
+        ),
+      ] as const
+  );
   const completion = results[1];
-  if (Number(completion?.meta?.changes ?? 0) === 1) {
+  if (Number(completion.rowCount ?? 0) === 1) {
     return input.response;
   }
   const current = await readCenterAgentOrganizationDocumentOperation({
@@ -513,7 +520,6 @@ async function completeOperation(input: {
     requestSignature: input.operation.requestSignature,
   });
 }
-
 function operationPayload(
   request: CenterAgentManageOrganizationDocumentsRpcInput
 ): unknown {
@@ -525,7 +531,6 @@ function operationPayload(
   } = request;
   return payload;
 }
-
 function parseRequest<T>(schema: RuntimeSchema<T>, value: unknown): T {
   const parsed = schema.safeParse(value);
   if (!parsed.success) {
@@ -537,7 +542,6 @@ function parseRequest<T>(schema: RuntimeSchema<T>, value: unknown): T {
   }
   return parsed.data;
 }
-
 function parseResponse(
   value: unknown
 ): CenterAgentManageOrganizationDocumentsResponse {
@@ -550,7 +554,6 @@ function parseResponse(
   }
   return parsed.data;
 }
-
 function toProjection(document: OrganizationDocument) {
   return {
     content: document.content,

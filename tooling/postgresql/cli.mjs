@@ -23,14 +23,13 @@ try {
       )
     );
   } else if (
-    ["migrate", "grant-runtime", "accept"].includes(command) &&
+    ["migrate", "grant-runtime", "accept", "inspect"].includes(command) &&
     ["local", "staging"].includes(target) &&
     extra.length === 0
   ) {
-    const variable =
-      command === "accept"
-        ? "POSTGRESQL_OPENMELD_RUNTIME_URL"
-        : "POSTGRESQL_OPENMELD_MIGRATION_URL";
+    const variable = ["accept", "inspect"].includes(command)
+      ? "POSTGRESQL_OPENMELD_RUNTIME_URL"
+      : "POSTGRESQL_OPENMELD_MIGRATION_URL";
     const value = process.env[variable];
     if (!value) {
       throw new Error(`Missing ${variable}; use the scoped secret launcher`);
@@ -67,19 +66,26 @@ try {
       if (command === "accept") {
         console.log(JSON.stringify(await acceptRuntime(client)));
       }
+      if (command === "inspect") {
+        const result = await client.query(
+          "SELECT current_database() AS database, current_user AS role, current_setting('server_version') AS version"
+        );
+        console.log(JSON.stringify({ target, ...result.rows[0] }));
+      }
     } finally {
       await client.end();
     }
   } else {
     throw new Error(
-      "Usage: pg plan | pg <migrate|grant-runtime|accept> <local|staging>. Production apply is deliberately unavailable before cutover preparation."
+      "Usage: pg plan | pg <migrate|grant-runtime|accept|inspect> <local|staging>. Production operations and automatic optimization are unavailable before the reviewed cutover."
     );
   }
 } catch (error) {
   // Server errors can contain SQL/user data. Emit only their structured SQLSTATE.
+  const sqlState = error.code ?? error.cause?.code;
   console.error(
-    error.code
-      ? `PostgreSQL operation failed (SQLSTATE ${error.code})`
+    sqlState
+      ? `PostgreSQL operation failed (SQLSTATE ${sqlState})`
       : error.message
   );
   process.exitCode = 1;

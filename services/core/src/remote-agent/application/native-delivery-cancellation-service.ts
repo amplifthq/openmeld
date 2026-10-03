@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import { remoteAgentWorkerCancellationResponseSchema } from "@openmeld/schemas";
 import type { RemoteAgentWorkerCancellationResponse } from "@openmeld/schemas/types";
 import type { CoreBindings } from "../../lib/bindings";
@@ -9,15 +10,14 @@ import {
   type RemoteAgentNativeDeliveryRecord,
   readRemoteAgentNativeDeliveryByIdempotencyKey,
   readRemoteAgentNativeDeliveryBySubmissionId,
-} from "../infrastructure/d1/native-delivery-ledger-repo";
+} from "../infrastructure/postgresql/native-delivery-ledger-repo";
 import { resolveRemoteAgentNativeDeliveryRuntimeConversationId } from "./remote-agent-conversation-continuity";
 import { readRemoteAgentWorkerAdmissionStop } from "./remote-agent-worker-admission";
 import { resolvePendingRemoteAgentCancellationTarget } from "./space-wake-stop-intent";
 import { closeRemoteAgentStreamProjection } from "./stream-delta-service";
-
 export async function requestRemoteAgentNativeDeliveryStop(input: {
   admittedSubmissionId?: string;
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
   nowMs: number;
@@ -47,9 +47,8 @@ export async function requestRemoteAgentNativeDeliveryStop(input: {
     ? "stop_requested"
     : "not_stoppable";
 }
-
 async function stopPendingRemoteAgentNativeDelivery(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
   nowMs: number;
@@ -101,20 +100,18 @@ async function stopPendingRemoteAgentNativeDelivery(input: {
   });
   return stopped && isStoppedDelivery(stopped) ? "stopped" : "stop_requested";
 }
-
 export async function stopRemoteAgentNativeDelivery(input: {
   admittedSubmissionId?: string;
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
   nowMs: number;
 }): Promise<RemoteAgentNativeDeliveryRecord | null> {
   return (await stopRemoteAgentNativeDeliveryWithOutcome(input)).delivery;
 }
-
 async function stopRemoteAgentNativeDeliveryWithOutcome(input: {
   admittedSubmissionId?: string;
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
   nowMs: number;
@@ -130,7 +127,6 @@ async function stopRemoteAgentNativeDeliveryWithOutcome(input: {
   const submissionId =
     normalizeOptionalText(input.admittedSubmissionId) ??
     normalizeOptionalText(current.submissionId);
-
   if (!submissionId) {
     return { cancellation: null, delivery: null };
   }
@@ -142,7 +138,6 @@ async function stopRemoteAgentNativeDeliveryWithOutcome(input: {
   if (!isConfirmedRemoteAgentCancellation(cancellation)) {
     return { cancellation, delivery: null };
   }
-
   if (current.status === "submitted") {
     await markRemoteAgentNativeDeliveryFailure({
       db: input.db,
@@ -157,7 +152,6 @@ async function stopRemoteAgentNativeDeliveryWithOutcome(input: {
         idempotencyKey: current.idempotencyKey,
       })) ?? current;
   }
-
   if (
     (current.status === "accepted" || current.status === "retry_observed") &&
     current.submissionId
@@ -175,7 +169,6 @@ async function stopRemoteAgentNativeDeliveryWithOutcome(input: {
         submissionId: current.submissionId,
       })) ?? current;
   }
-
   if (!isStoppedDelivery(current)) {
     return { cancellation, delivery: null };
   }
@@ -189,7 +182,6 @@ async function stopRemoteAgentNativeDeliveryWithOutcome(input: {
   });
   return { cancellation, delivery: current };
 }
-
 export async function requestRemoteAgentWorkerCancellation(input: {
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
@@ -235,7 +227,6 @@ export async function requestRemoteAgentWorkerCancellation(input: {
   });
   return response;
 }
-
 function isConfirmedRemoteAgentCancellation(
   response: RemoteAgentWorkerCancellationResponse
 ): boolean {
@@ -244,15 +235,15 @@ function isConfirmedRemoteAgentCancellation(
     response.execution.status === "aborted"
   );
 }
-
 function resolveRemoteAgentCancellationConversationIdentity(
   delivery: RemoteAgentNativeDeliveryRecord
-): { conversationId?: string } {
+): {
+  conversationId?: string;
+} {
   const conversationId =
     resolveRemoteAgentNativeDeliveryRuntimeConversationId(delivery);
   return conversationId ? { conversationId } : {};
 }
-
 function isStoppedDelivery(delivery: RemoteAgentNativeDeliveryRecord): boolean {
   return (
     delivery.status === "failed" &&
@@ -260,7 +251,6 @@ function isStoppedDelivery(delivery: RemoteAgentNativeDeliveryRecord): boolean {
       RUNTIME_COORDINATOR_PRE_AGENT_STOP_REQUESTED_REASON_CODE
   );
 }
-
 function normalizeOptionalText(
   value: string | null | undefined
 ): string | null {

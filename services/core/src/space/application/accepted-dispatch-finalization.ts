@@ -10,13 +10,12 @@ import type {
   OpenMeldDaemonDispatchQueueMessage,
   SpaceThreadContext,
 } from "@openmeld/schemas/types";
-import type { DispatchResultInboxRecord } from "../../runtime-transport/infrastructure/d1/dispatch-result-inbox-repo";
-import type { AcceptedDispatchFinalizationFact } from "../infrastructure/d1/accepted-dispatch-finalization-repo";
+import type { DispatchResultInboxRecord } from "../../runtime-transport/infrastructure/postgresql/dispatch-result-inbox-repo";
+import type { AcceptedDispatchFinalizationFact } from "../infrastructure/postgresql/accepted-dispatch-finalization-repo";
 
 const FINALIZATION_RULE_SOURCE = "system" as const;
 const FINALIZATION_RULE_ID = "durable_result.finalize";
 const FINALIZATION_RULE_REASON = "durable accepted result finalization";
-
 export const buildAcceptedDispatchFinalizationQueueMessage = (input: {
   fact: AcceptedDispatchFinalizationFact;
   inboxRecord: DispatchResultInboxRecord;
@@ -41,12 +40,10 @@ export const buildAcceptedDispatchFinalizationQueueMessage = (input: {
   ) {
     return null;
   }
-
   const sourceSignalSnapshot = buildSourceSignalSnapshot(input.sourceSignal);
   if (!sourceSignalSnapshot) {
     return null;
   }
-
   const dispatchPolicy: OpenMeldDaemonDispatchQueueMessage["dispatchPolicy"] =
     input.spaceContract.dispatchPolicy.mode === "listen_all"
       ? "listen_all"
@@ -58,7 +55,6 @@ export const buildAcceptedDispatchFinalizationQueueMessage = (input: {
     ruleReason: FINALIZATION_RULE_REASON,
   };
   const controllerSnapshot = buildControllerSnapshot(input.inboxRecord);
-
   return {
     v: OPENMELD_DAEMON_DISPATCH_QUEUE_SCHEMA_VERSION,
     dispatchId: input.fact.dispatchId,
@@ -103,7 +99,6 @@ export const buildAcceptedDispatchFinalizationQueueMessage = (input: {
     enqueuedAtMs: input.fact.enqueuedAtMs,
   };
 };
-
 function readTransportMode(
   inboxRecord: DispatchResultInboxRecord
 ): OpenMeldDaemonDispatchQueueMessage["transportMode"] {
@@ -115,13 +110,15 @@ function readTransportMode(
   const parsed = runtimeTransportModeSchema.safeParse(transportMode);
   return parsed.success ? parsed.data : null;
 }
-
 function buildControllerSnapshot(
   inboxRecord: DispatchResultInboxRecord
 ): OpenMeldDaemonDispatchQueueMessage["controllerSnapshot"] {
   const agentControllerRef = normalizeOptionalText(
-    (inboxRecord.taskResult.payload as { agentControllerRef?: unknown })
-      .agentControllerRef
+    (
+      inboxRecord.taskResult.payload as {
+        agentControllerRef?: unknown;
+      }
+    ).agentControllerRef
   );
   return {
     agentControllerRef,
@@ -129,7 +126,6 @@ function buildControllerSnapshot(
     targetBindingState: "bound",
   };
 }
-
 function buildSourceSignalSnapshot(
   sourceSignal: SignalEnvelope
 ): OpenMeldDaemonDispatchQueueMessage["sourceSignalSnapshot"] | null {
@@ -158,22 +154,24 @@ function buildSourceSignalSnapshot(
     profileKind: normalizeProfileKind(sourceSignal.profile.kind),
   };
 }
-
-function buildOptionalSourceMessageEnvelope(
-  sourceSignal: SignalEnvelope
-): { sourceMessageEnvelope: MessageEnvelope } | Record<string, never> {
+function buildOptionalSourceMessageEnvelope(sourceSignal: SignalEnvelope):
+  | {
+      sourceMessageEnvelope: MessageEnvelope;
+    }
+  | Record<string, never> {
   if (sourceSignal.type !== "signal.text") {
     return {};
   }
   const messageEnvelope = sourceSignal.data.messageEnvelope;
   return messageEnvelope ? { sourceMessageEnvelope: messageEnvelope } : {};
 }
-
 function buildOptionalReplyToSnapshot(
   sourceSignal: SignalEnvelope,
   sourceProfileNameSnapshot: string | null
 ):
-  | { replyToSnapshot: OpenMeldDaemonDispatchQueueMessage["replyToSnapshot"] }
+  | {
+      replyToSnapshot: OpenMeldDaemonDispatchQueueMessage["replyToSnapshot"];
+    }
   | Record<string, never> {
   if (sourceSignal.type !== "signal.text") {
     return {};
@@ -207,7 +205,6 @@ function buildOptionalReplyToSnapshot(
     },
   };
 }
-
 function normalizeProfileKind(
   value: unknown
 ): "agent" | "human" | "system" | null {
@@ -215,7 +212,6 @@ function normalizeProfileKind(
     ? value
     : null;
 }
-
 function normalizeOptionalText(value: unknown): string | null {
   const normalized = String(value ?? "").trim();
   return normalized.length > 0 ? normalized : null;

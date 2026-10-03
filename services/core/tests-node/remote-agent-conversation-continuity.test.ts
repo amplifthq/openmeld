@@ -1,3 +1,4 @@
+import { PostgresDatabase } from "@openmeld/db/postgresql";
 import type {
   RemoteAgentWorkerSubmitTurnRequest,
   SignalEnvelope,
@@ -84,7 +85,10 @@ describe("Remote Agent conversation rollover continuity", () => {
 
     await expect(
       buildRemoteAgentConversationContinuityContext({
-        db: {} as D1Database,
+        db: new PostgresDatabase({
+          connectionString:
+            "postgresql://127.0.0.1:1/unexpected_test_database_access",
+        }),
         env: {
           OPENMELD_SPACES: createSpaceNamespace({
             rpcListDispatchConversationContinuitySignalsResult,
@@ -133,7 +137,10 @@ describe("Remote Agent conversation rollover continuity", () => {
 
     await expect(
       buildRemoteAgentConversationContinuityContext({
-        db: {} as D1Database,
+        db: new PostgresDatabase({
+          connectionString:
+            "postgresql://127.0.0.1:1/unexpected_test_database_access",
+        }),
         env: {
           OPENMELD_SPACES: createSpaceNamespace({
             rpcListDispatchConversationContinuitySignalsResult: async () => ({

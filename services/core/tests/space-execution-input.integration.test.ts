@@ -1,4 +1,5 @@
 import { env, runInDurableObject } from "cloudflare:test";
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import type { Profile, SignalEnvelope } from "@openmeld/protocol";
 import type {
   RemoteAgentWorkerExecutionInputRequest,
@@ -10,7 +11,7 @@ import {
   markRemoteAgentNativeDeliveryAck,
   persistRemoteAgentWorkerSubmitRequest,
   upsertRemoteAgentNativeDeliveryRecord,
-} from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+} from "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import { upsertSpaceCreatorMember } from "../src/space/application/space-members-service";
 import type { SignalPublishContext } from "../src/space/application/types";
 import {
@@ -32,7 +33,6 @@ type InputSpace = {
   flushPendingSpaceInboxProjectionOutbox(): Promise<void>;
   syncSpaceBackgroundAlarm(): Promise<void>;
 };
-
 async function fixture(
   run: (f: {
     instance: InputSpace;
@@ -95,7 +95,7 @@ async function fixture(
     },
   };
   await upsertRemoteAgentNativeDeliveryRecord({
-    db: env.OPENMELD_DB,
+    db: getPostgresDatabase(env),
     nowMs: Date.now(),
     organizationId: request.organizationId,
     spaceId,
@@ -108,13 +108,13 @@ async function fixture(
     status: "submitted",
   });
   await persistRemoteAgentWorkerSubmitRequest({
-    db: env.OPENMELD_DB,
+    db: getPostgresDatabase(env),
     idempotencyKey: request.idempotencyKey,
     nowMs: Date.now(),
     workerSubmitRequest: request,
   });
   await markRemoteAgentNativeDeliveryAck({
-    db: env.OPENMELD_DB,
+    db: getPostgresDatabase(env),
     idempotencyKey: request.idempotencyKey,
     nowMs: Date.now(),
     submissionId: crypto.randomUUID(),
@@ -181,7 +181,6 @@ async function fixture(
     }
   });
 }
-
 describe("Center Agent execution input in the Space owner", () => {
   it("shows one unconfirmed-input notice without claiming the original execution failed", async () => {
     await fixture(async ({ instance, state, request, post }) => {
@@ -203,7 +202,9 @@ describe("Center Agent execution input in the Space owner", () => {
       };
       await instance.flushPendingExecutionInputs();
       const notices = state.storage.sql
-        .exec<{ payload_json: string }>(
+        .exec<{
+          payload_json: string;
+        }>(
           "SELECT payload_json FROM space_signals WHERE type = 'signal.system_notice'"
         )
         .toArray();
@@ -215,28 +216,29 @@ describe("Center Agent execution input in the Space owner", () => {
       await post();
       expect(
         state.storage.sql
-          .exec<{ n: number }>(
+          .exec<{
+            n: number;
+          }>(
             "SELECT count(*) AS n FROM space_signals WHERE type = 'signal.text'"
           )
           .toArray()[0]?.n
       ).toBe(1);
     });
   });
-
   it("atomically persists one message and one exact target across concurrent retries", async () => {
     await fixture(async ({ state, signal, post }) => {
       await Promise.all([post(), post({ ...signal, id: crypto.randomUUID() })]);
       const rows = state.storage.sql
-        .exec<{ n: number }>(
-          "SELECT count(*) AS n FROM space_signals WHERE type = 'signal.text'"
-        )
+        .exec<{
+          n: number;
+        }>("SELECT count(*) AS n FROM space_signals WHERE type = 'signal.text'")
         .toArray();
       expect(rows[0]?.n).toBe(1);
       expect(
         state.storage.sql
-          .exec<{ n: number }>(
-            "SELECT count(*) AS n FROM space_execution_input_outbox"
-          )
+          .exec<{
+            n: number;
+          }>("SELECT count(*) AS n FROM space_execution_input_outbox")
           .toArray()[0]?.n
       ).toBe(1);
       expect(
@@ -244,7 +246,6 @@ describe("Center Agent execution input in the Space owner", () => {
       ).not.toBeNull();
     });
   });
-
   it("rolls back the visible message if durable intake cannot be saved", async () => {
     await fixture(async ({ state, post }) => {
       state.storage.sql.exec(
@@ -253,13 +254,14 @@ describe("Center Agent execution input in the Space owner", () => {
       await expect(post()).rejects.toThrow("input store unavailable");
       expect(
         state.storage.sql
-          .exec<{ n: number }>("SELECT count(*) AS n FROM space_signals")
+          .exec<{
+            n: number;
+          }>("SELECT count(*) AS n FROM space_signals")
           .toArray()[0]?.n
       ).toBe(0);
       expect(readNextSpaceExecutionInputAlarm(state.storage.sql)).toBeNull();
     });
   });
-
   it("rejects another member and a late new input without creating queued work", async () => {
     await fixture(async ({ state, signal, request, post }) => {
       await expect(
@@ -268,16 +270,17 @@ describe("Center Agent execution input in the Space owner", () => {
           profile: { ...signal.profile, profileId: crypto.randomUUID() },
         })
       ).rejects.toThrow("cannot receive");
-      await env.OPENMELD_DB.prepare(
-        "UPDATE openMeldRemoteAgent_native_delivery_ledger SET status = 'completed' WHERE idempotency_key = ?"
-      )
-        .bind(request.idempotencyKey)
-        .run();
+      await getPostgresDatabase(env).query({
+        ...{
+          text: 'UPDATE "openmeld"."openMeldRemoteAgent_native_delivery_ledger" SET status = \'completed\' WHERE idempotency_key = $1',
+          values: [],
+        },
+        values: [request.idempotencyKey],
+      });
       await expect(post()).rejects.toThrow("cannot receive");
       expect(readNextSpaceExecutionInputAlarm(state.storage.sql)).toBeNull();
     });
   });
-
   it("retries the same durable request and retires it only after runtime application", async () => {
     await fixture(async ({ instance, state, signal, post }) => {
       await post();

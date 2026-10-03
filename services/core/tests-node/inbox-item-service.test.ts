@@ -6,17 +6,14 @@ import {
   InboxSourceConflictError,
   resolveInboxItemsBySource,
 } from "../src/inbox/application/inbox-item-service";
-import {
-  applyDrizzleMigrationsForTables,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 describe("Inbox item service", () => {
   it.each([
     "pending",
     "sent",
   ] as const)("repairs only legacy owner awareness while preserving %s delivery evidence and private state", async (state) => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
       const candidate = {
         ...buildCandidate(),
@@ -42,15 +39,15 @@ describe("Inbox item service", () => {
         db: harness.db,
         nowMs: 2000,
       });
-      harness.run({
-        sql: "UPDATE inbox_items SET importance = 'urgent', read_at_ms = 2500, cleared_at_ms = 2600 WHERE id = ?",
-        params: [saved.itemId],
+      await harness.query({
+        text: 'UPDATE "openmeld"."inbox_items" SET importance = \'urgent\', read_at_ms = 2500, cleared_at_ms = 2600 WHERE id = $1',
+        values: [saved.itemId],
       });
-      harness.run({
-        sql: `INSERT INTO inbox_email_deliveries
+      await harness.query({
+        text: `INSERT INTO "openmeld"."inbox_email_deliveries"
         (id, inbox_item_id, state, attempt_count, next_attempt_at_ms, message_id, sent_at_ms, created_at_ms, updated_at_ms)
-        VALUES (?, ?, ?, ?, 2000, ?, ?, 2000, 2700)`,
-        params: [
+        VALUES ($1, $2, $3, $4, 2000, $5, $6, 2000, 2700)`,
+        values: [
           "legacy-delivery",
           saved.itemId,
           state,
@@ -59,32 +56,30 @@ describe("Inbox item service", () => {
           state === "sent" ? 2700 : null,
         ],
       });
-      const before = harness.queryFirst({
-        sql: "SELECT * FROM inbox_items WHERE id = ?",
-        params: [saved.itemId],
+      const before = await harness.queryFirst({
+        text: 'SELECT * FROM "openmeld"."inbox_items" WHERE id = $1',
+        values: [saved.itemId],
       });
       // Apply the actual generated migration's bounded correction to populated
       // storage, then replay the delayed old writer and the correction again.
       const repairs = readFileSync(
         new URL(
-          "../../../packages/db/drizzle/0175_sudden_lily_hollister.sql",
+          "../../../packages/db/postgresql/migrations/0011_retired_owner_awareness.sql",
           import.meta.url
         ),
         "utf8"
-      )
-        .split("--> statement-breakpoint")
-        .slice(1);
+      ).split("--> statement-breakpoint");
       for (const statement of repairs) {
-        harness.run({ sql: statement });
+        await harness.query({ text: statement });
       }
       expect(
-        harness.queryFirst({
-          sql: "SELECT * FROM inbox_items WHERE id = ?",
-          params: [saved.itemId],
+        await harness.queryFirst({
+          text: 'SELECT * FROM "openmeld"."inbox_items" WHERE id = $1',
+          values: [saved.itemId],
         })
       ).toEqual({ ...before, importance: "normal" });
-      const delivery = harness.queryFirst({
-        sql: "SELECT * FROM inbox_email_deliveries WHERE id = 'legacy-delivery'",
+      const delivery = await harness.queryFirst({
+        text: 'SELECT * FROM "openmeld"."inbox_email_deliveries" WHERE id = \'legacy-delivery\'',
       });
       expect(delivery).toMatchObject(
         state === "sent"
@@ -108,17 +103,17 @@ describe("Inbox item service", () => {
         })
       ).toEqual(saved);
       for (const statement of repairs) {
-        harness.run({ sql: statement });
+        await harness.query({ text: statement });
       }
       expect(
-        harness.queryFirst({
-          sql: "SELECT * FROM inbox_email_deliveries WHERE id = 'legacy-delivery'",
+        await harness.queryFirst({
+          text: 'SELECT * FROM "openmeld"."inbox_email_deliveries" WHERE id = \'legacy-delivery\'',
         })
       ).toEqual(delivery);
       expect(
-        harness.queryFirst({
-          sql: "SELECT importance, resolution_status FROM inbox_items WHERE id = ?",
-          params: [request.itemId],
+        await harness.queryFirst({
+          text: 'SELECT importance, resolution_status FROM "openmeld"."inbox_items" WHERE id = $1',
+          values: [request.itemId],
         })
       ).toEqual({ importance: "urgent", resolution_status: "open" });
       await expect(
@@ -151,12 +146,12 @@ describe("Inbox item service", () => {
         })
       ).rejects.toBeInstanceOf(InboxSourceConflictError);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("persists first-contact awareness without creating an urgent email and rejects reclassification on replay", async () => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
       const candidate = {
         ...buildCandidate(),
@@ -185,16 +180,16 @@ describe("Inbox item service", () => {
         nowMs: 2000,
       });
       expect(saved.deliveryId).toBeNull();
-      harness.run({
-        sql: "UPDATE inbox_items SET read_at_ms = 2500, cleared_at_ms = 2600 WHERE id = ?",
-        params: [saved.itemId],
+      await harness.query({
+        text: 'UPDATE "openmeld"."inbox_items" SET read_at_ms = 2500, cleared_at_ms = 2600 WHERE id = $1',
+        values: [saved.itemId],
       });
       expect(
         await ensureInboxItem({ candidate, db: harness.db, nowMs: 3000 })
       ).toEqual(saved);
       expect(
-        harness.queryFirst({
-          sql: "SELECT source_facts_json, read_at_ms, cleared_at_ms, occurred_at_ms FROM inbox_items",
+        await harness.queryFirst({
+          text: 'SELECT source_facts_json, read_at_ms, cleared_at_ms, occurred_at_ms FROM "openmeld"."inbox_items"',
         })
       ).toEqual({
         source_facts_json: JSON.stringify(candidate.sourceFacts),
@@ -216,17 +211,19 @@ describe("Inbox item service", () => {
         })
       ).rejects.toBeInstanceOf(InboxSourceConflictError);
       expect(
-        harness.queryFirst<{ n: number }>({
-          sql: "SELECT count(*) AS n FROM inbox_email_deliveries",
-        })?.n
+        (
+          await harness.queryFirst<{ n: number }>({
+            text: 'SELECT count(*) AS n FROM "openmeld"."inbox_email_deliveries"',
+          })
+        )?.n
       ).toBe(0);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("deduplicates a source event and atomically creates one urgent email delivery", async () => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
       const candidate = buildCandidate();
       const first = await ensureInboxItem({
@@ -245,27 +242,33 @@ describe("Inbox item service", () => {
 
       expect(replay.itemId).toBe(first.itemId);
       expect(
-        harness.queryFirst<{ count: number }>({
-          sql: "SELECT count(*) AS count FROM inbox_items",
-        })?.count
+        (
+          await harness.queryFirst<{ count: number }>({
+            text: 'SELECT count(*) AS count FROM "openmeld"."inbox_items"',
+          })
+        )?.count
       ).toBe(1);
       expect(
-        harness.queryFirst<{ count: number }>({
-          sql: "SELECT count(*) AS count FROM inbox_email_deliveries",
-        })?.count
+        (
+          await harness.queryFirst<{ count: number }>({
+            text: 'SELECT count(*) AS count FROM "openmeld"."inbox_email_deliveries"',
+          })
+        )?.count
       ).toBe(1);
       expect(
-        harness.queryFirst<{ preview: string }>({
-          sql: "SELECT preview FROM inbox_items",
-        })?.preview
+        (
+          await harness.queryFirst<{ preview: string }>({
+            text: 'SELECT preview FROM "openmeld"."inbox_items"',
+          })
+        )?.preview
       ).toBe("The agent is still waiting for approval.");
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("fails fast when the same source identity changes immutable semantics", async () => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
       const candidate = buildCandidate();
       await ensureInboxItem({ candidate, db: harness.db, nowMs: 2000 });
@@ -281,12 +284,12 @@ describe("Inbox item service", () => {
         })
       ).rejects.toBeInstanceOf(InboxSourceConflictError);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("cannot use new recipient facts to bypass a generic source conflict", async () => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
       const candidate = buildCandidate();
       await ensureInboxItem({ candidate, db: harness.db, nowMs: 2000 });
@@ -306,12 +309,12 @@ describe("Inbox item service", () => {
         })
       ).rejects.toBeInstanceOf(InboxSourceConflictError);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("resolves source-owned action state without mutating read state", async () => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
       const candidate = buildCandidate();
       await ensureInboxItem({ candidate, db: harness.db, nowMs: 2000 });
@@ -325,20 +328,22 @@ describe("Inbox item service", () => {
 
       expect(resolvedCount).toBe(1);
       expect(
-        harness.queryFirst<{
+        await harness.queryFirst<{
           read_at_ms: number | null;
           resolution_status: string;
         }>({
-          sql: "SELECT read_at_ms, resolution_status FROM inbox_items",
+          text: 'SELECT read_at_ms, resolution_status FROM "openmeld"."inbox_items"',
         })
       ).toEqual({ read_at_ms: null, resolution_status: "resolved" });
       expect(
-        harness.queryFirst<{ state: string }>({
-          sql: "SELECT state FROM inbox_email_deliveries",
-        })?.state
+        (
+          await harness.queryFirst<{ state: string }>({
+            text: 'SELECT state FROM "openmeld"."inbox_email_deliveries"',
+          })
+        )?.state
       ).toBe("suppressed");
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });
@@ -365,40 +370,16 @@ function buildCandidate() {
   };
 }
 
-function createInboxHarness() {
-  const harness = createSqliteD1Harness();
-  harness.run({
-    sql: `
-      CREATE TABLE organizations (
-        id TEXT PRIMARY KEY NOT NULL,
-        name TEXT NOT NULL,
-        slug TEXT NOT NULL,
-        created_at INTEGER NOT NULL
-      )
-    `,
+async function createInboxHarness() {
+  const harness = await createPostgresHarness();
+
+  await harness.query({
+    values: ["org_inbox", "Inbox Org", "inbox-org", 1000],
+    text: 'INSERT INTO "openmeld"."organizations" (id, name, slug, created_at) VALUES ($1, $2, $3, $4)',
   });
-  harness.run({
-    sql: `
-      CREATE TABLE users (
-        id TEXT PRIMARY KEY NOT NULL,
-        name TEXT NOT NULL,
-        email TEXT NOT NULL
-      )
-    `,
-  });
-  applyDrizzleMigrationsForTables(harness, [
-    "inbox_items",
-    "inbox_email_deliveries",
-    "inbox_center_agent_read_watermarks",
-    "inbox_space_thread_read_watermarks",
-  ]);
-  harness.run({
-    params: ["org_inbox", "Inbox Org", "inbox-org", 1000],
-    sql: "INSERT INTO organizations (id, name, slug, created_at) VALUES (?, ?, ?, ?)",
-  });
-  harness.run({
-    params: ["user_inbox", "Inbox User", "inbox@example.com"],
-    sql: "INSERT INTO users (id, name, email) VALUES (?, ?, ?)",
+  await harness.query({
+    values: ["user_inbox", "Inbox User", "inbox@example.com"],
+    text: 'INSERT INTO "openmeld"."users" (id, name, email) VALUES ($1, $2, $3)',
   });
   return harness;
 }

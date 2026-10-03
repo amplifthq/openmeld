@@ -1,3 +1,4 @@
+import type { PostgresDatabase, QueryResult } from "@openmeld/db/postgresql";
 import {
   inboxFeedQuerySchema,
   inboxFeedResponseSchema,
@@ -30,8 +31,14 @@ import {
   mapInboxItemRow,
 } from "./inbox-service";
 
-type Identity = { organizationId: string; recipientUserId: string };
-type Snapshot = InboxFeedScope & { id: string; expiresAtMs: number };
+type Identity = {
+  organizationId: string;
+  recipientUserId: string;
+};
+type Snapshot = InboxFeedScope & {
+  id: string;
+  expiresAtMs: number;
+};
 type SnapshotRow = {
   id: string;
   organization_id: string;
@@ -65,23 +72,23 @@ type CountRow = {
   priority_count: number;
 };
 const SNAPSHOT_TTL_MS = 15 * 60 * 1000;
-
 export function createInboxFeedService(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs?: () => number;
   canManageOrganization?: boolean;
 }) {
   const now = input.nowMs ?? Date.now;
-
   async function readSnapshot(
     identity: Identity,
     id: string
   ): Promise<Snapshot> {
     const row = await input.db
-      .prepare(`SELECT * FROM inbox_feed_snapshots
-      WHERE id = ? AND organization_id = ? AND recipient_user_id = ? AND expires_at_ms > ?`)
-      .bind(id, identity.organizationId, identity.recipientUserId, now())
-      .first<SnapshotRow>();
+      .query<SnapshotRow>({
+        text: `SELECT * FROM "openmeld"."inbox_feed_snapshots"
+      WHERE id = $1 AND organization_id = $2 AND recipient_user_id = $3 AND expires_at_ms > $4`,
+        values: [id, identity.organizationId, identity.recipientUserId, now()],
+      })
+      .then((result) => result.rows[0] ?? null);
     if (!row) {
       throw new InboxServiceError({
         code: "inbox.snapshot_expired",
@@ -104,7 +111,6 @@ export function createInboxFeedService(input: {
       snapshotId: row.id,
     };
   }
-
   async function createSnapshot(
     identity: Identity,
     query: InboxFeedQuery
@@ -121,36 +127,39 @@ export function createInboxFeedService(input: {
       throughRowId: Number.MAX_SAFE_INTEGER,
     } as const;
     const cte = inboxFeedCte(seedScope, input.canManageOrganization === true);
-    await input.db.batch([
-      input.db
-        .prepare(
-          "DELETE FROM inbox_feed_snapshots WHERE id IN (SELECT id FROM inbox_feed_snapshots WHERE expires_at_ms <= ? LIMIT 100)"
-        )
-        .bind(created),
-      input.db
-        .prepare(`INSERT INTO inbox_feed_snapshots
+    await input.db.transaction(
+      async (client) =>
+        [
+          await client.query({
+            text: 'DELETE FROM "openmeld"."inbox_feed_snapshots" WHERE id IN (SELECT id FROM "openmeld"."inbox_feed_snapshots" WHERE expires_at_ms <= $1 LIMIT 100)',
+            values: [created],
+          }),
+          await client.query({
+            text: `INSERT INTO "openmeld"."inbox_feed_snapshots"
         (id, organization_id, recipient_user_id, category, unread_only, agents_only, people_only, conversation_type, through_row_id, created_at_ms, expires_at_ms)
-        SELECT ?, ?, ?, ?, ?, ?, ?, ?, coalesce(max(rowid), 0), ?, ? FROM inbox_items`)
-        .bind(
-          id,
-          identity.organizationId,
-          identity.recipientUserId,
-          query.category ?? "all",
-          query.unreadOnly === "true" ? 1 : 0,
-          query.agentsOnly === "true" ? 1 : 0,
-          query.peopleOnly === "true" ? 1 : 0,
-          query.conversationType ?? "all",
-          created,
-          created + SNAPSHOT_TTL_MS
-        ),
-      input.db
-        .prepare(`${cte.sql} INSERT INTO inbox_feed_snapshot_members (snapshot_id, item_id)
-        SELECT ?, id FROM filtered`)
-        .bind(...cte.bindings, id),
-    ]);
+        SELECT $1, $2, $3, $4, $5, $6, $7, $8, coalesce(max(sequence), 0), $9, $10 FROM "openmeld"."inbox_items"`,
+            values: [
+              id,
+              identity.organizationId,
+              identity.recipientUserId,
+              query.category ?? "all",
+              query.unreadOnly === "true" ? 1 : 0,
+              query.agentsOnly === "true" ? 1 : 0,
+              query.peopleOnly === "true" ? 1 : 0,
+              query.conversationType ?? "all",
+              created,
+              created + SNAPSHOT_TTL_MS,
+            ],
+          }),
+          await client.query({
+            text: `${cte.sql} INSERT INTO "openmeld"."inbox_feed_snapshot_members" (snapshot_id, item_id)
+        SELECT $4, id FROM filtered`,
+            values: [...cte.bindings, id],
+          }),
+        ] as const
+    );
     return readSnapshot(identity, id);
   }
-
   return {
     async list(
       identity: Identity,
@@ -174,21 +183,24 @@ export function createInboxFeedService(input: {
       const collectionKind = expandedKey
         ? readGroupKind(expandedKey)
         : undefined;
-      const results = await input.db.batch([
-        input.db
-          .prepare(`${cte.sql} ${INBOX_FEED_COUNTS_SQL}`)
-          .bind(...cte.bindings),
-        input.db
-          .prepare(
-            `${cte.sql} ${inboxFeedRowsSql(Boolean(query.groupKey), query.grouping, collectionKind)}`
-          )
-          .bind(
-            ...cte.bindings,
-            ...(expandedKey ? [expandedKey] : []),
-            ...cursorBindings(cursor),
-            limit + 1
-          ),
-      ]);
+      const results = await input.db.transaction(
+        async (client) =>
+          [
+            await client.query({
+              text: `${cte.sql} ${INBOX_FEED_COUNTS_SQL}`,
+              values: [...cte.bindings],
+            }),
+            await client.query({
+              text: `${cte.sql} ${inboxFeedRowsSql(Boolean(query.groupKey), query.grouping, collectionKind, cte.bindings.length)}`,
+              values: [
+                ...cte.bindings,
+                ...(expandedKey ? [expandedKey] : []),
+                ...cursorBindings(cursor),
+                limit + 1,
+              ],
+            }),
+          ] as const
+      );
       const { counts, candidates, selectionUnreadCount } =
         readQueryResults(results);
       const page = candidates.slice(0, limit);
@@ -202,21 +214,22 @@ export function createInboxFeedService(input: {
         nextCursor: nextPageCursor(candidates, limit, snapshot.id, query),
       });
     },
-
     async mutate(
       identity: Identity,
       rawBody: MutateInboxFeedBody
-    ): Promise<{ changedCount: number }> {
+    ): Promise<{
+      changedCount: number;
+    }> {
       const body = mutateInboxFeedBodySchema.parse(rawBody);
       const snapshot = await readSnapshot(identity, body.snapshotId);
       const cte = inboxFeedCte(snapshot, input.canManageOrganization === true);
       const timestamp = now();
       const column = body.operation === "read" ? "read_at_ms" : "cleared_at_ms";
-      const result = await input.db
-        .prepare(`${cte.sql}
-        UPDATE inbox_items SET ${column} = max(?, created_at_ms), updated_at_ms = max(?, updated_at_ms)
-        WHERE ${column} IS NULL AND id IN (SELECT id FROM selected ${body.groupKey ? "WHERE raw_group_key = ? OR collection_key = ? OR json_array('conversation_group', raw_group_key, collection_key) = ?" : ""})`)
-        .bind(
+      const result = await input.db.query({
+        text: `${cte.sql}
+        UPDATE "openmeld"."inbox_items" SET ${column} = GREATEST($5, created_at_ms), updated_at_ms = GREATEST($6, updated_at_ms)
+        WHERE ${column} IS NULL AND id IN (SELECT id FROM selected ${body.groupKey ? "WHERE raw_group_key = $7 OR collection_key = $8 OR json_build_array('conversation_group', raw_group_key, collection_key)::text = $9" : ""})`,
+        values: [
           ...cte.bindings,
           timestamp,
           timestamp,
@@ -226,14 +239,13 @@ export function createInboxFeedService(input: {
                 decodeInboxFeedKey(body.groupKey),
                 decodeInboxFeedKey(body.groupKey),
               ]
-            : [])
-        )
-        .run();
-      return { changedCount: Math.max(0, Number(result.meta.changes ?? 0)) };
+            : []),
+        ],
+      });
+      return { changedCount: Math.max(0, Number(result.rowCount ?? 0)) };
     },
   };
 }
-
 function selectionCountProjection(
   query: InboxFeedQuery,
   selectionUnreadCount: number
@@ -242,7 +254,6 @@ function selectionCountProjection(
     ? { selectionUnreadCount }
     : {};
 }
-
 function assertMatchingSnapshot(
   snapshot: Snapshot,
   query: InboxFeedQuery,
@@ -266,8 +277,7 @@ function assertMatchingSnapshot(
     throw invalidInboxFeedCursor();
   }
 }
-
-function readQueryResults(results: D1Result[]): {
+function readQueryResults(results: readonly QueryResult[]): {
   selectionUnreadCount: number;
   counts: InboxFeedCounts;
   candidates: FeedItemRow[];
@@ -275,30 +285,28 @@ function readQueryResults(results: D1Result[]): {
   const [countResult, pageResult] = results;
   if (
     !(
-      countResult?.success &&
-      pageResult?.success &&
-      Array.isArray(countResult.results) &&
-      Array.isArray(pageResult.results) &&
-      countResult.results.length === 1
+      countResult &&
+      pageResult &&
+      Array.isArray(countResult.rows) &&
+      Array.isArray(pageResult.rows) &&
+      countResult.rows.length === 1
     )
   ) {
     throw new Error("Inbox query did not return a complete snapshot page");
   }
   return {
     selectionUnreadCount: Number(
-      (countResult.results[0] as CountRow).selection_unread_count
+      (countResult.rows[0] as CountRow).selection_unread_count
     ),
-    counts: mapCounts(countResult.results[0] as CountRow),
-    candidates: pageResult.results as FeedItemRow[],
+    counts: mapCounts(countResult.rows[0] as CountRow),
+    candidates: pageResult.rows as FeedItemRow[],
   };
 }
-
 function cursorBindings(cursor: InboxFeedCursor | null) {
   const rank = cursor?.rank ?? null;
   const occurredAt = cursor?.occurredAtMs ?? null;
   return [rank, rank, rank, occurredAt, rank, occurredAt, cursor?.key ?? null];
 }
-
 function nextPageCursor(
   rows: FeedItemRow[],
   limit: number,
@@ -318,21 +326,18 @@ function nextPageCursor(
     ...(query.grouping ? { grouping: query.grouping } : {}),
   });
 }
-
 function feedSection(rank: number): InboxFeedRow["section"] {
   if (rank === 0) {
     return "priority";
   }
   return rank === 1 ? "open" : "activity";
 }
-
 function feedDot(rank: number, unreadCount: number): InboxFeedRow["dot"] {
   if (rank === 0) {
     return "yellow";
   }
   return unreadCount > 0 ? "blue" : null;
 }
-
 function mapCounts(row?: CountRow): InboxFeedCounts {
   return {
     all: Number(row?.all_count ?? 0),
@@ -343,7 +348,6 @@ function mapCounts(row?: CountRow): InboxFeedCounts {
     priority: Number(row?.priority_count ?? 0),
   };
 }
-
 function mapFeedRow(row: FeedItemRow, grouping?: "space"): InboxFeedRow {
   const item = mapInboxItemRow({
     ...row,
@@ -361,7 +365,6 @@ function mapFeedRow(row: FeedItemRow, grouping?: "space"): InboxFeedRow {
     ...groupProjection(row, grouping),
   };
 }
-
 function groupProjection(
   row: FeedItemRow,
   grouping?: "space"
@@ -378,7 +381,6 @@ function groupProjection(
   }
   return {};
 }
-
 function readGroupKind(key: string): string {
   try {
     const parts: unknown = JSON.parse(key);

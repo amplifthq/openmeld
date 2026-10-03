@@ -1,10 +1,11 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import { RUNTIME_COORDINATOR_EXECUTION_MODEL_VERSION } from "@openmeld/schemas";
 import type {
   RuntimeCoordinatorExecutionRecord,
   RuntimeCoordinatorExecutionStatus,
 } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
-import { listActiveRemoteAgentNativeDeliveryWakeProgressEvidenceBySpace } from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+import { listActiveRemoteAgentNativeDeliveryWakeProgressEvidenceBySpace } from "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import {
   listActiveRuntimeCoordinatorExecutionProjectionsBySpace,
   listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace,
@@ -12,23 +13,66 @@ import {
   readRuntimeCoordinatorExecutionRunningAtMs,
   writeRuntimeCoordinatorExecutionEventFromParts,
   writeRuntimeCoordinatorExecutionProjection,
-} from "../src/runtime-transport/infrastructure/d1/runtime-coordinator-execution-repo";
-import {
-  applyDrizzleMigrationForTable,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+} from "../src/runtime-transport/infrastructure/postgresql/runtime-coordinator-execution-repo";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 describe("RuntimeCoordinator active Wake progress projection repo", () => {
-  it("keeps working time separate from waiting, heartbeat replacement, and missing legacy evidence", async () => {
-    const harness = createSqliteD1Harness();
-    for (const table of [
-      "openMeldDaemon_runtime_coordinator_executions",
-      "openMeldDaemon_runtime_coordinator_execution_events",
-      "openMeldDaemon_dispatch_ledger",
-      "openMeldDaemon_dispatch_attempts",
-    ]) {
-      applyDrizzleMigrationForTable(harness, table);
+  it("preserves running progress when a delivery acceptance write wins the same-row race", async () => {
+    const harness = await createPostgresHarness();
+    const identity = {
+      dispatchId: "dispatch-race",
+      runtimeCoordinatorExecutionId: "rce-race",
+      sourceClientMessageId: "client-race",
+      targetProfileId: "agt_target_a",
+    };
+    let locked = false;
+    const writes: Promise<unknown>[] = [];
+    try {
+      await writeExecution(harness.db, {
+        ...identity,
+        status: "created",
+        updatedAtMs: 100,
+      });
+      await harness.query("BEGIN");
+      locked = true;
+      await harness.query({
+        text: 'SELECT 1 FROM "openmeld"."openMeldDaemon_runtime_coordinator_executions" WHERE runtime_coordinator_execution_id=$1 FOR UPDATE',
+        values: [identity.runtimeCoordinatorExecutionId],
+      });
+      for (const status of ["delivery_accepted", "running"] as const) {
+        writes.push(
+          writeRuntimeCoordinatorExecutionProjection({
+            db: harness.db,
+            record: buildExecution({ ...identity, status, updatedAtMs: 110 }),
+          })
+        );
+        await vi.waitFor(async () => {
+          await harness.query("SELECT pg_stat_clear_snapshot()");
+          const result = await harness.query<{ count: string }>(
+            "SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND usename='openmeld_pg_runtime' AND wait_event_type='Lock'"
+          );
+          expect(Number(result.rows[0]?.count)).toBe(writes.length);
+        });
+      }
+      await harness.query("COMMIT");
+      locked = false;
+      await Promise.all(writes);
+      expect(
+        await readRuntimeCoordinatorExecutionProjectionById({
+          db: harness.db,
+          runtimeCoordinatorExecutionId: identity.runtimeCoordinatorExecutionId,
+        })
+      ).toMatchObject({ status: "running", terminalOutcome: null });
+    } finally {
+      if (locked) {
+        await harness.query("ROLLBACK");
+      }
+      await Promise.allSettled(writes);
+      await harness.close();
     }
+  });
+  it("keeps working time separate from waiting, heartbeat replacement, and missing legacy evidence", async () => {
+    const harness = await createPostgresHarness();
     try {
       await writeExecution(harness.db, {
         dispatchId: "dispatch-timing",
@@ -43,22 +87,15 @@ describe("RuntimeCoordinator active Wake progress projection repo", () => {
           db: harness.db,
           runtimeCoordinatorExecutionId: "rce-timing",
         });
-      const prepared = vi.spyOn(harness.db, "prepare");
       expect(await readStart()).toBeNull();
-      const timingSql = prepared.mock.calls[0]?.[0];
-      expect(timingSql).toBeTypeOf("string");
-      const plan = harness.queryAll<{ detail: string }>({
-        sql: `EXPLAIN QUERY PLAN ${timingSql}`,
-        params: ["rce-timing"],
+      const timingIndex = await harness.queryFirst<{ indexdef: string }>({
+        text: `SELECT indexdef FROM pg_indexes WHERE schemaname = 'openmeld'
+          AND tablename = 'openMeldDaemon_runtime_coordinator_execution_events'
+          AND indexdef LIKE '%runtime_coordinator_execution_id, event_type%'`,
       });
-      expect(
-        plan.some((row) =>
-          row.detail.includes(
-            "runtime_coordinator_execution_id=? AND event_type=?"
-          )
-        )
-      ).toBe(true);
-      prepared.mockRestore();
+      expect(timingIndex?.indexdef).toContain(
+        "runtime_coordinator_execution_id, event_type"
+      );
       for (const observedAtMs of [4_260_000, 4_440_000]) {
         await writeRuntimeCoordinatorExecutionEventFromParts({
           db: harness.db,
@@ -90,15 +127,12 @@ describe("RuntimeCoordinator active Wake progress projection repo", () => {
         );
       expect(withoutTiming?.runningAtMs).toBeNull();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
   it("lists active native delivery evidence without a RuntimeCoordinator execution", async () => {
-    const harness = createSqliteD1Harness();
-    applyDrizzleMigrationForTable(
-      harness,
-      "openMeldRemoteAgent_native_delivery_ledger"
-    );
+    const harness = await createPostgresHarness();
+
     try {
       for (const row of [
         {
@@ -157,8 +191,8 @@ describe("RuntimeCoordinator active Wake progress projection repo", () => {
           updatedAtMs: 150,
         },
       ] as const) {
-        harness.run({
-          params: [
+        await harness.query({
+          values: [
             row.deliveryId,
             row.spaceId,
             `client-${row.deliveryId}`,
@@ -172,8 +206,8 @@ describe("RuntimeCoordinator active Wake progress projection repo", () => {
             row.updatedAtMs,
             row.updatedAtMs,
           ],
-          sql: `
-            INSERT INTO openMeldRemoteAgent_native_delivery_ledger (
+          text: `
+            INSERT INTO "openmeld"."openMeldRemoteAgent_native_delivery_ledger" (
               delivery_id,
               organization_id,
               conversation_kind,
@@ -193,7 +227,7 @@ describe("RuntimeCoordinator active Wake progress projection repo", () => {
               created_at_ms,
               updated_at_ms
             )
-            VALUES (?, 'org-1', 'space', ?, 'agt_target_native', 'binding-1', 'signal-1', ?, ?, ?, ?, 'human-source-1', ?, ?, ?, ?, ?, ?)
+            VALUES ($1, 'org-1', 'space', $2, 'agt_target_native', 'binding-1', 'signal-1', $3, $4, $5, $6, 'human-source-1', $7, $8, $9, $10, $11, $12)
           `,
         });
       }
@@ -246,22 +280,13 @@ describe("RuntimeCoordinator active Wake progress projection repo", () => {
         },
       ]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("joins the latest dispatch attempt into active Wake progress selectors", async () => {
-    const harness = createSqliteD1Harness();
-    applyDrizzleMigrationForTable(
-      harness,
-      "openMeldDaemon_runtime_coordinator_executions"
-    );
-    applyDrizzleMigrationForTable(harness, "openMeldDaemon_dispatch_ledger");
-    applyDrizzleMigrationForTable(harness, "openMeldDaemon_dispatch_attempts");
-    applyDrizzleMigrationForTable(
-      harness,
-      "openMeldDaemon_runtime_coordinator_execution_events"
-    );
+    const harness = await createPostgresHarness();
+
     try {
       await writeExecution(harness.db, {
         dispatchId: "dispatch-native-delivery",
@@ -271,8 +296,8 @@ describe("RuntimeCoordinator active Wake progress projection repo", () => {
         targetProfileId: "agt_target_native",
         updatedAtMs: 100,
       });
-      harness.run({
-        params: [
+      await harness.query({
+        values: [
           "idem-native-delivery",
           "dispatch-native-delivery",
           "space-1",
@@ -285,8 +310,8 @@ describe("RuntimeCoordinator active Wake progress projection repo", () => {
           1,
           "attempt-native-delivery",
         ],
-        sql: `
-					INSERT INTO openMeldDaemon_dispatch_ledger (
+        text: `
+					INSERT INTO "openmeld"."openMeldDaemon_dispatch_ledger" (
 						idempotency_key,
 						dispatch_id,
 						space_id,
@@ -299,11 +324,11 @@ describe("RuntimeCoordinator active Wake progress projection repo", () => {
 						attempt_count,
 						latest_attempt_id
 					)
-					VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+					VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 				`,
       });
-      harness.run({
-        params: [
+      await harness.query({
+        values: [
           "attempt-native-delivery",
           "dispatch-native-delivery",
           "idem-native-delivery",
@@ -313,8 +338,8 @@ describe("RuntimeCoordinator active Wake progress projection repo", () => {
           90,
           100,
         ],
-        sql: `
-					INSERT INTO openMeldDaemon_dispatch_attempts (
+        text: `
+					INSERT INTO "openmeld"."openMeldDaemon_dispatch_attempts" (
 						attempt_id,
 						dispatch_id,
 						idempotency_key,
@@ -324,7 +349,7 @@ describe("RuntimeCoordinator active Wake progress projection repo", () => {
 						created_at_ms,
 						started_at_ms
 					)
-					VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+					VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 				`,
       });
       await writeRuntimeCoordinatorExecutionEventFromParts({
@@ -368,12 +393,12 @@ describe("RuntimeCoordinator active Wake progress projection repo", () => {
         }),
       ]);
 
-      harness.run({
-        params: ["human-source-1", "dispatch-native-delivery"],
-        sql: `
-          UPDATE openMeldDaemon_dispatch_ledger
-          SET source_profile_id = ?
-          WHERE dispatch_id = ?
+      await harness.query({
+        values: ["human-source-1", "dispatch-native-delivery"],
+        text: `
+          UPDATE "openmeld"."openMeldDaemon_dispatch_ledger"
+          SET source_profile_id = $1
+          WHERE dispatch_id = $2
         `,
       });
       await expect(
@@ -413,16 +438,13 @@ describe("RuntimeCoordinator active Wake progress projection repo", () => {
         }),
       ]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("lists only active executions for one Space in newest-first order", async () => {
-    const harness = createSqliteD1Harness();
-    applyDrizzleMigrationForTable(
-      harness,
-      "openMeldDaemon_runtime_coordinator_executions"
-    );
+    const harness = await createPostgresHarness();
+
     try {
       await writeExecution(harness.db, {
         dispatchId: "dispatch-running-old",
@@ -500,16 +522,13 @@ describe("RuntimeCoordinator active Wake progress projection repo", () => {
         },
       ]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("allows running executions to enter cancellation_requested without treating the request as terminal", async () => {
-    const harness = createSqliteD1Harness();
-    applyDrizzleMigrationForTable(
-      harness,
-      "openMeldDaemon_runtime_coordinator_executions"
-    );
+    const harness = await createPostgresHarness();
+
     try {
       await writeExecution(harness.db, {
         dispatchId: "dispatch-stop-requested",
@@ -544,16 +563,13 @@ describe("RuntimeCoordinator active Wake progress projection repo", () => {
         terminalOutcome: null,
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("locks cancelled terminal projections against later non-terminal writes", async () => {
-    const harness = createSqliteD1Harness();
-    applyDrizzleMigrationForTable(
-      harness,
-      "openMeldDaemon_runtime_coordinator_executions"
-    );
+    const harness = await createPostgresHarness();
+
     try {
       await writeExecution(harness.db, {
         dispatchId: "dispatch-cancelled",
@@ -591,16 +607,13 @@ describe("RuntimeCoordinator active Wake progress projection repo", () => {
         },
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("filters active executions by target profile", async () => {
-    const harness = createSqliteD1Harness();
-    applyDrizzleMigrationForTable(
-      harness,
-      "openMeldDaemon_runtime_coordinator_executions"
-    );
+    const harness = await createPostgresHarness();
+
     try {
       await writeExecution(harness.db, {
         dispatchId: "dispatch-target-a",
@@ -634,13 +647,13 @@ describe("RuntimeCoordinator active Wake progress projection repo", () => {
         targetProfileId: "agt_target_b",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });
 
 async function writeExecution(
-  db: D1Database,
+  db: PostgresDatabase,
   input: {
     dispatchId: string;
     runtimeCoordinatorExecutionId: string;

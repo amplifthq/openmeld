@@ -1,4 +1,6 @@
 import { env } from "cloudflare:test";
+import type { QueryResult } from "@openmeld/db/postgresql";
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { describe, expect, it } from "vitest";
 import {
   listConnectorAppRequestsForRequester,
@@ -12,32 +14,49 @@ describe("connector App request repository", () => {
     const userId = `user-request-${fixtureId}`;
     const memberId = `member-request-${fixtureId}`;
     const nowMs = Date.now();
-    await env.OPENMELD_DB.batch([
-      env.OPENMELD_DB.prepare(
-        `
-          INSERT INTO users (
+    await getPostgresDatabase(env).transaction(async (client) =>
+      (async () => {
+        const results: QueryResult[] = [];
+        for (const query of [
+          {
+            ...{
+              text: `
+          INSERT INTO "openmeld"."users" (
             id, name, email, email_verified, created_at, updated_at
-          ) VALUES (?, 'Mira', ?, 1, ?, ?)
-        `
-      ).bind(userId, `${fixtureId}@example.test`, nowMs, nowMs),
-      env.OPENMELD_DB.prepare(
-        `
-          INSERT INTO organizations (id, name, slug, created_at)
-          VALUES (?, 'Acme', ?, ?)
-        `
-      ).bind(organizationId, `acme-${fixtureId}`, nowMs),
-    ]);
-    await env.OPENMELD_DB.prepare(
-      `
-        INSERT INTO members (id, organization_id, user_id, role, created_at)
-        VALUES (?, ?, ?, 'member', ?)
-      `
-    )
-      .bind(memberId, organizationId, userId, nowMs)
-      .run();
-
+          ) VALUES ($1, 'Mira', $2, 1, $3, $4)
+        `,
+              values: [],
+            },
+            values: [userId, `${fixtureId}@example.test`, nowMs, nowMs],
+          },
+          {
+            ...{
+              text: `
+          INSERT INTO "openmeld"."organizations" (id, name, slug, created_at)
+          VALUES ($1, 'Acme', $2, $3)
+        `,
+              values: [],
+            },
+            values: [organizationId, `acme-${fixtureId}`, nowMs],
+          },
+        ]) {
+          results.push(await client.query(query));
+        }
+        return results;
+      })()
+    );
+    await getPostgresDatabase(env).query({
+      ...{
+        text: `
+        INSERT INTO "openmeld"."members" (id, organization_id, user_id, role, created_at)
+        VALUES ($1, $2, $3, 'member', $4)
+      `,
+        values: [],
+      },
+      values: [memberId, organizationId, userId, nowMs],
+    });
     const initial = await upsertConnectorAppRequest({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       nowMs,
       organizationId,
       providerId: "microsoft-teams",
@@ -49,7 +68,7 @@ describe("connector App request repository", () => {
       useCase: "Coordinate customer escalations.",
     });
     const updated = await upsertConnectorAppRequest({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       nowMs: nowMs + 1,
       organizationId,
       providerId: "MICROSOFT-TEAMS",
@@ -60,7 +79,6 @@ describe("connector App request repository", () => {
       source: "openconnector_catalog",
       useCase: "Keep engineering and support aligned.",
     });
-
     expect(updated.id).toBe(initial.id);
     expect(updated).toMatchObject({
       providerId: "MICROSOFT-TEAMS",
@@ -70,19 +88,21 @@ describe("connector App request repository", () => {
       status: "requested",
       useCase: "Keep engineering and support aligned.",
     });
-    await env.OPENMELD_DB.prepare(
-      `
-        UPDATE connector_app_requests
+    await getPostgresDatabase(env).query({
+      ...{
+        text: `
+        UPDATE "openmeld"."connector_app_requests"
         SET status = 'declined',
-            available_at_ms = ?,
-            notified_at_ms = ?
-        WHERE id = ?
-      `
-    )
-      .bind(nowMs + 2, nowMs + 3, updated.id)
-      .run();
+            available_at_ms = $1,
+            notified_at_ms = $2
+        WHERE id = $3
+      `,
+        values: [],
+      },
+      values: [nowMs + 2, nowMs + 3, updated.id],
+    });
     const reopened = await upsertConnectorAppRequest({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       nowMs: nowMs + 4,
       organizationId,
       providerId: "microsoft-teams",
@@ -102,7 +122,7 @@ describe("connector App request repository", () => {
     });
     await expect(
       listConnectorAppRequestsForRequester({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         organizationId,
         requesterUserId: userId,
       })

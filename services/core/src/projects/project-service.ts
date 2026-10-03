@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   buildCanonicalRepositoryUrl,
   buildRepositoryFingerprint,
@@ -29,16 +30,14 @@ import {
   type StoredProject,
   updateProjectRecord,
 } from "./project-repository";
-
 export function createProjectService(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   generateId?: () => string;
   now?: () => number;
 }) {
   const generateId =
     input.generateId ?? (() => `project_${crypto.randomUUID()}`);
   const now = input.now ?? Date.now;
-
   return {
     async list(authority: ProjectReadAuthority): Promise<ListProjectsResponse> {
       const projects = await listProjectRecords({
@@ -50,7 +49,6 @@ export function createProjectService(input: {
         projects: projects.map((project) => toProject(project, authority)),
       };
     },
-
     async listForActivitySnapshot(
       authority: ProjectReadAuthority
     ): Promise<ListProjectsResponse> {
@@ -63,7 +61,6 @@ export function createProjectService(input: {
         projects: projects.map((project) => toProject(project, authority)),
       };
     },
-
     async read(
       authority: ProjectAuthority,
       projectId: string
@@ -75,7 +72,6 @@ export function createProjectService(input: {
       });
       return toProject(project, authority);
     },
-
     async prepareArchive(
       authority: ProjectAuthority,
       projectId: string
@@ -92,7 +88,6 @@ export function createProjectService(input: {
       requireActiveProject(project);
       return toProject(project, authority);
     },
-
     async create(
       authority: ProjectAuthority,
       body: Omit<CreateProjectBody, "expectedOrganizationId">
@@ -149,7 +144,6 @@ export function createProjectService(input: {
         ...repository,
         updatedAtMs: nowMs,
       } satisfies Omit<StoredProject, "slug">;
-
       if (body.slug !== undefined && !body.operationId) {
         return await insertProjectWithExplicitSlug({
           authority,
@@ -157,7 +151,6 @@ export function createProjectService(input: {
           project: { ...baseProject, slug: body.slug },
         });
       }
-
       return await insertProjectWithGeneratedSlug({
         db: input.db,
         authority,
@@ -168,7 +161,6 @@ export function createProjectService(input: {
         assertNoDuplicate,
       });
     },
-
     async update(
       authority: ProjectAuthority,
       projectId: string,
@@ -212,7 +204,6 @@ export function createProjectService(input: {
       }
       return toProject(updated, authority);
     },
-
     async archive(
       authority: ProjectAuthority,
       projectId: string
@@ -253,7 +244,6 @@ export function createProjectService(input: {
     },
   };
 }
-
 async function hashProjectCreation(value: unknown): Promise<string> {
   const bytes = await crypto.subtle.digest(
     "SHA-256",
@@ -263,12 +253,10 @@ async function hashProjectCreation(value: unknown): Promise<string> {
     byte.toString(16).padStart(2, "0")
   ).join("");
 }
-
 export type ProjectService = ReturnType<typeof createProjectService>;
-
 async function insertProjectWithExplicitSlug(input: {
   authority: ProjectAuthority;
-  db: D1Database;
+  db: PostgresDatabase;
   project: StoredProject;
 }): Promise<Project> {
   try {
@@ -287,14 +275,12 @@ async function insertProjectWithExplicitSlug(input: {
   }
   return toProject(input.project, input.authority);
 }
-
 function nextMutationTime(nowMs: number, currentUpdatedAtMs: number): number {
   return Math.max(nowMs, currentUpdatedAtMs + 1);
 }
-
 async function requireProject(input: {
   authority: ProjectAuthority;
-  db: D1Database;
+  db: PostgresDatabase;
   projectId: string;
 }): Promise<StoredProject> {
   const project = await readProjectRecord({
@@ -307,7 +293,6 @@ async function requireProject(input: {
   }
   return project;
 }
-
 function requireActiveProject(project: StoredProject): void {
   if (project.archivedAtMs === null) {
     return;
@@ -318,7 +303,6 @@ function requireActiveProject(project: StoredProject): void {
     status: 409,
   });
 }
-
 function projectNotFoundError(): Error {
   return createCoreRpcHttpError({
     code: "project.not_found",
@@ -326,7 +310,6 @@ function projectNotFoundError(): Error {
     status: 404,
   });
 }
-
 function projectSlugConflictError(): Error {
   return createCoreRpcHttpError({
     code: "project.slug_conflict",
@@ -334,7 +317,6 @@ function projectSlugConflictError(): Error {
     status: 409,
   });
 }
-
 function automaticProjectSlugConflictError(): Error {
   return createCoreRpcHttpError({
     code: "project.slug_conflict",
@@ -343,7 +325,6 @@ function automaticProjectSlugConflictError(): Error {
     status: 409,
   });
 }
-
 function projectLimitReachedError(): Error {
   return createCoreRpcHttpError({
     code: "project.limit_reached",
@@ -352,7 +333,6 @@ function projectLimitReachedError(): Error {
     status: 409,
   });
 }
-
 function projectConflictError(): Error {
   return createCoreRpcHttpError({
     code: "project.conflict",
@@ -360,7 +340,6 @@ function projectConflictError(): Error {
     status: 409,
   });
 }
-
 function projectHasActivityError(): Error {
   return createCoreRpcHttpError({
     code: "project.has_activity",
@@ -369,7 +348,6 @@ function projectHasActivityError(): Error {
     status: 409,
   });
 }
-
 function toProject(
   project: StoredProject,
   authority: ProjectReadAuthority
@@ -403,7 +381,6 @@ function toProject(
     updatedAtMs: project.updatedAtMs,
   };
 }
-
 function toProjectMutationAuthority(
   authority: ProjectReadAuthority
 ): ProjectAuthority | null {
@@ -412,7 +389,6 @@ function toProjectMutationAuthority(
   }
   return { ...authority, userId: authority.userId };
 }
-
 async function resolveCreatedRepositoryIdentity(
   body: Pick<CreateProjectBody, "repositoryFingerprint" | "repositoryUrl">
 ): Promise<Pick<StoredProject, "repositoryFingerprint" | "repositoryUrl">> {
@@ -427,7 +403,6 @@ async function resolveCreatedRepositoryIdentity(
     repositoryUrl: body.repositoryUrl,
   });
 }
-
 async function resolveUpdatedRepositoryIdentity(input: {
   body: Pick<UpdateProjectBody, "repositoryFingerprint" | "repositoryUrl">;
   current: StoredProject;
@@ -458,7 +433,6 @@ async function resolveUpdatedRepositoryIdentity(input: {
     repositoryUrl: input.current.repositoryUrl,
   };
 }
-
 async function resolveCanonicalRepositoryIdentity(input: {
   repositoryFingerprint?: string | null;
   repositoryUrl: string;
@@ -476,7 +450,6 @@ async function resolveCanonicalRepositoryIdentity(input: {
   }
   return { repositoryFingerprint, repositoryUrl };
 }
-
 function projectRepositoryIdentityInvalidError(): Error {
   return createCoreRpcHttpError({
     code: "project.repository_identity_invalid",
@@ -484,9 +457,8 @@ function projectRepositoryIdentityInvalidError(): Error {
     status: 400,
   });
 }
-
 async function readProjectCreationReplay(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   authority: ProjectAuthority;
   projectId: string;
   requestSignature: string | null;
@@ -513,9 +485,8 @@ async function readProjectCreationReplay(input: {
   requireActiveProject(existing);
   return toProject(existing, input.authority);
 }
-
 async function assertProjectRepositoryAvailable(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   repositoryFingerprint: string | null;
 }): Promise<void> {
@@ -534,9 +505,8 @@ async function assertProjectRepositoryAvailable(input: {
     });
   }
 }
-
 async function insertProjectWithGeneratedSlug(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   authority: ProjectAuthority;
   baseProject: Omit<StoredProject, "slug">;
   requestedSlug?: string;
@@ -581,7 +551,6 @@ async function insertProjectWithGeneratedSlug(input: {
   }
   throw automaticProjectSlugConflictError();
 }
-
 function shouldRetryGeneratedSlug(
   error: unknown,
   requestedSlug: string | undefined

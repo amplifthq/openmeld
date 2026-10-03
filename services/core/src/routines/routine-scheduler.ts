@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import type { CenterAgentRoutineRun } from "@openmeld/schemas/types";
 import type { RoutineExecutionEngine } from "./routine-execution-engine";
 import {
@@ -9,19 +10,18 @@ import {
   quarantineInvalidRoutineSchedule,
 } from "./routine-repository";
 import { loadRoutineSchedule } from "./routine-schedule-runtime";
-
 export const ROUTINE_SCHEDULER_BATCH_SIZE = 250;
 export const ROUTINE_CLAIM_WATCHDOG_TIMEOUT_MS = 4 * 60 * 1000;
 export const ROUTINE_CATCH_UP_MAX_WINDOW_MS = 60 * 60 * 1000;
-
 type RoutineDeliverySubmitter = (input: {
-  db: D1Database;
+  db: PostgresDatabase;
   executionEngine: RoutineExecutionEngine;
   nowMs: number;
   routine: DueRoutine;
   run: CenterAgentRoutineRun;
-}) => Promise<{ status: "failed" | "pending" | "skipped" | "submitted" }>;
-
+}) => Promise<{
+  status: "failed" | "pending" | "skipped" | "submitted";
+}>;
 export type RoutineSchedulerTickSummary = {
   claimed: number;
   errors: number;
@@ -33,9 +33,8 @@ export type RoutineSchedulerTickSummary = {
   submitted: number;
   watchdogFailed: number;
 };
-
 export async function runRoutineSchedulerTick(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   generateRunId?: () => string;
   limit?: number;
   nowMs: number;
@@ -67,7 +66,6 @@ export async function runRoutineSchedulerTick(input: {
   summary.scanned = routines.length;
   const generateRunId =
     input.generateRunId ?? (() => `routine_run_${crypto.randomUUID()}`);
-
   for (const routine of routines) {
     try {
       await processDueRoutine({
@@ -90,13 +88,11 @@ export async function runRoutineSchedulerTick(input: {
       });
     }
   }
-
   console.info("[core.routine.scheduler.tick_completed]", summary);
   return summary;
 }
-
 async function processDueRoutine(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   generateRunId: () => string;
   nowMs: number;
   resolveExecutionEngine: (routine: DueRoutine) => RoutineExecutionEngine;
@@ -168,7 +164,6 @@ async function processDueRoutine(input: {
     }
     input.summary.skipped += 1;
   }
-
   if (!plan.catchUp) {
     return;
   }
@@ -229,7 +224,6 @@ async function processDueRoutine(input: {
     throw error;
   }
 }
-
 function buildRoutineOccurrencePlan(
   routine: DueRoutine,
   nowMs: number,
@@ -241,7 +235,10 @@ function buildRoutineOccurrencePlan(
     typeof import("@openmeld/routine-schedule").getStoredRoutineOccurrenceWindow
   >
 ): {
-  catchUp: { nextDueAt: number | null; scheduledFor: number } | null;
+  catchUp: {
+    nextDueAt: number | null;
+    scheduledFor: number;
+  } | null;
   skipped: {
     advanceTo: number;
     calendarMonthsEvaluated: number;
@@ -299,7 +296,6 @@ function buildRoutineOccurrencePlan(
     skipped,
   };
 }
-
 function buildOverdueFailureDetail(input: {
   count: number;
   first: number;
@@ -308,7 +304,6 @@ function buildOverdueFailureDetail(input: {
   const occurrenceLabel = input.count === 1 ? "occurrence" : "occurrences";
   return `Skipped ${input.count} ${occurrenceLabel} from ${new Date(input.first).toISOString()} to ${new Date(input.last).toISOString()} because this Routine was overdue beyond its catch-up window.`;
 }
-
 function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }

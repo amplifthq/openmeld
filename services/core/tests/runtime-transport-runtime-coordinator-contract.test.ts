@@ -1,3 +1,31 @@
+import type {
+  PostgreSQLBinding,
+  PostgresDatabase,
+  QueryConfig,
+} from "@openmeld/db/postgresql";
+import { observePostgresDatabase } from "../test-support/postgresql-query.test-support";
+import {
+  createWorkerPostgresFixture,
+  type NativeFixtureRows,
+} from "./postgresql.test-support";
+
+const postgresqlObservers = vi.hoisted(
+  () => new WeakMap<PostgreSQLBinding, PostgresDatabase>()
+);
+vi.mock("@openmeld/db/postgresql", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@openmeld/db/postgresql")>();
+  return {
+    ...actual,
+    getPostgresDatabase: (bindings: {
+      OPENMELD_POSTGRESQL?: PostgreSQLBinding;
+    }) =>
+      (bindings.OPENMELD_POSTGRESQL &&
+        postgresqlObservers.get(bindings.OPENMELD_POSTGRESQL)) ??
+      actual.getPostgresDatabase(bindings),
+  };
+});
+
 import { env, runInDurableObject } from "cloudflare:test";
 import {
   buildAgentTaskKey,
@@ -44,7 +72,7 @@ import type {
   RuntimeTransportRuntimeCoordinatorWakeStopRequest,
   RuntimeTransportSubmitTaskResultRequest,
 } from "@openmeld/schemas/types";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { handleDispatchQueueBatch } from "../src/dispatch/transport/queue/dispatch-queue-consumer";
 import type { CoreBindings } from "../src/lib/bindings";
 import { resolveCoreLocalComponentsReleaseManifest } from "../src/local-components/update-projection";
@@ -100,8 +128,13 @@ import {
   type PendingDispatchState,
   type RuntimeTransportMutableState,
 } from "../src/runtime-transport/application/runtime-transport-state";
-import { listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace } from "../src/runtime-transport/infrastructure/d1/runtime-coordinator-execution-repo";
+import { listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace } from "../src/runtime-transport/infrastructure/postgresql/runtime-coordinator-execution-repo";
 import { RuntimeTransportHub } from "../src/runtime-transport/transport/do/runtime-transport-hub";
+
+const SELECT_QUERY_PATTERN = /^\s*SELECT/u;
+const MUTATION_QUERY_PATTERN = /^\s*(?:INSERT|UPDATE|DELETE)/u;
+const EXECUTION_ID_FILTER_PATTERN =
+  /WHERE\s+runtime_coordinator_execution_id\s*=/u;
 
 const HEX_SPACE_ID = (
   env as unknown as CoreBindings
@@ -171,6 +204,11 @@ const createAutomaticUpdateCapabilities = (
     },
     entrypoint: "setup",
     generatedAt: "2026-09-01T12:54:00.000Z",
+    installationSource: {
+      distribution: "npm",
+      channel: "stable",
+      platform: "darwin-arm64",
+    },
     maintenance: {
       automaticUpdatesEnabled: true,
       status: "ready",
@@ -210,7 +248,7 @@ const createAutomaticUpdateCapabilities = (
     : {}),
 });
 
-type RecordingD1Call = {
+type RecordingPostgresCall = {
   params: unknown[];
   query: string;
 };
@@ -256,7 +294,13 @@ const buildResolvedAgentProfileAuthScope = (input?: {
   },
 });
 
-const createRecordingD1 = (input?: {
+const fixtureByStorage = new WeakMap<
+  Map<string, unknown>,
+  Awaited<ReturnType<typeof createWorkerPostgresFixture>>
+>();
+
+const createRecordingPostgres = async (input?: {
+  fixture?: Awaited<ReturnType<typeof createWorkerPostgresFixture>>;
   bindingReadGate?: Promise<void>;
   onBindingRead?: () => void;
   bindingControllerRef?: string;
@@ -277,724 +321,375 @@ const createRecordingD1 = (input?: {
   terminalProjectionWriteFailures?: number;
   onAgentControllerReportRead?: () => void;
 }) => {
-  const calls: RecordingD1Call[] = [];
-  const eventRows = new Map<string, Record<string, unknown>>();
-  const inboxRows = new Map<string, Record<string, unknown>>();
-  const interactionInboxRows = new Map<string, Record<string, unknown>>();
-  const taskNeedsAttentionObservationRows = new Map<
-    string,
-    Record<string, unknown>
-  >();
-  const taskTerminalOutcomeRows = new Map<string, Record<string, unknown>>();
-  let remainingTaskNeedsAttentionObservationWriteFailures =
-    input?.taskNeedsAttentionObservationWriteFailures ?? 0;
-  let remainingInteractionInboxResolveFailures =
-    input?.interactionInboxResolveFailures ?? 0;
-  let remainingInteractionInboxWriteFailures =
-    input?.interactionInboxWriteFailures ?? 0;
-  let remainingTaskTerminalOutcomeWriteFailures =
-    input?.taskTerminalOutcomeWriteFailures ?? 0;
-  let remainingTaskTerminalOutcomeReadFailures =
-    input?.taskTerminalOutcomeReadFailures ?? 0;
-  let remainingReplyPublishedProjectionWriteFailures =
-    input?.replyPublishedProjectionWriteFailures ?? 0;
-  let remainingTerminalProjectionWriteFailures =
-    input?.terminalProjectionWriteFailures ?? 0;
+  const fixture = input?.fixture ?? (await createWorkerPostgresFixture(env));
+  const calls: RecordingPostgresCall[] = [];
+  const write = fixture.writeRow;
+  await write(
+    "users",
+    { id: "owner-1", name: "Owner", email: "owner-1@example.com" },
+    ["id"]
+  );
+  await write(
+    "organizations",
+    {
+      id: "org-one",
+      name: "Organization",
+      slug: "org-one",
+      created_at: 1_700_000_000_000,
+    },
+    ["id"]
+  );
+  const profile = {
+    ...{
+      profile_id: TARGET_AGENT_PROFILE_ID,
+      profile_handle: "codex-agent",
+      profile_name: "Codex Agent",
+      profile_kind: "agent",
+      organization_id: "org-one",
+      owner_user_id: "owner-1",
+      source: "migration",
+    },
+    ...input?.agentProfileRow,
+  };
+  if (
+    typeof profile.owner_user_id === "string" &&
+    profile.owner_user_id !== "owner-1"
+  ) {
+    await write(
+      "users",
+      {
+        id: profile.owner_user_id,
+        name: "Other Owner",
+        email: `${profile.owner_user_id}@example.com`,
+      },
+      ["id"]
+    );
+  }
+  if (profile.organization_id !== "org-one") {
+    await write(
+      "organizations",
+      {
+        id: profile.organization_id,
+        name: "Profile Organization",
+        slug: profile.organization_id,
+        created_at: 1_700_000_000_000,
+      },
+      ["id"]
+    );
+  }
+  await write(
+    "members",
+    {
+      id: "member-owner-1",
+      organization_id: "org-one",
+      user_id: "owner-1",
+      role: "owner",
+      created_at: 1_700_000_000_000,
+    },
+    ["id"]
+  );
+  if (!input?.fixture) {
+    const humanProfileId = "11111111-1111-4111-8111-111111111111";
+    await write(
+      "openmeld_profiles",
+      {
+        profile_id: humanProfileId,
+        profile_handle: "owner",
+        profile_name: "Owner",
+        profile_kind: "human",
+        owner_user_id: "owner-1",
+        source: "auth_bootstrap",
+        is_default: 1,
+      },
+      ["profile_id"]
+    );
+    await write(
+      "space_index_memberships",
+      {
+        space_id: HEX_SPACE_ID,
+        profile_id: humanProfileId,
+        owner_user_id_snapshot: "owner-1",
+        profile_kind_snapshot: "human",
+        profile_name_snapshot: "Owner",
+        status: "active",
+        member_source: "space_membership",
+        added_at_ms: 1_700_000_000_000,
+        source_updated_at_ms: 1_700_000_000_000,
+        projected_at_ms: 1_700_000_000_000,
+        projection_event_id: "event-human-member",
+      },
+      ["space_id", "profile_id"]
+    );
+  }
+  await write("openmeld_profiles", profile, ["profile_id"]);
+  await write(
+    "space_index_spaces",
+    {
+      space_id: HEX_SPACE_ID,
+      organization_id: "org-one",
+      organization_visibility: "private",
+      status: "active",
+      source_updated_at_ms: 1_700_000_000_000,
+      projected_at_ms: 1_700_000_000_000,
+      projection_event_id: "event-space",
+    },
+    ["space_id"]
+  );
+  await write(
+    "space_index_memberships",
+    {
+      space_id: HEX_SPACE_ID,
+      profile_id: TARGET_AGENT_PROFILE_ID,
+      profile_kind_snapshot: "agent",
+      profile_name_snapshot: "Codex Agent",
+      status: "active",
+      member_source: "space_membership",
+      added_at_ms: 1_700_000_000_000,
+      source_updated_at_ms: 1_700_000_000_000,
+      projected_at_ms: 1_700_000_000_000,
+      projection_event_id: "event-member",
+    },
+    ["space_id", "profile_id"]
+  );
+  await write(
+    "openMeldDaemon_agent_profile_bindings",
+    {
+      agent_profile_id: TARGET_AGENT_PROFILE_ID,
+      binding_id: "binding-accepted-1",
+      binding_state: "enabled_primary",
+      agent_controller_ref: input?.bindingControllerRef ?? "builtin:codex",
+      agent_controller_conversation_id: input?.bindingConversationId ?? null,
+      configuration_revision: 7,
+      created_at_ms: 1_700_000_000_000,
+      updated_at_ms: 1_700_000_000_000,
+      owner_kind: "owner_account",
+      owner_id: profile.owner_user_id,
+      openmeld_service_runtime_id: "runtime-accepted-1",
+      runtime_kind: "openmeld_service",
+    },
+    ["binding_id"]
+  );
+  const facts =
+    input?.dispatchFactsByDispatchId ??
+    new Map([
+      [
+        "dispatch-1",
+        {
+          attemptId: "attempt-1",
+          idempotencyKey: "idempotency-1",
+          sourceClientMessageId: "client-message-1",
+          sourceEventId: "signal-1",
+          taskId: "task-1",
+        },
+      ],
+    ]);
+  for (const [dispatchId, fact] of facts) {
+    await write(
+      "openMeldDaemon_dispatch_ledger",
+      {
+        idempotency_key: fact.idempotencyKey,
+        dispatch_id: dispatchId,
+        space_id: HEX_SPACE_ID,
+        source_event_id: fact.sourceEventId,
+        source_client_message_id: fact.sourceClientMessageId,
+        dispatch_owner_kind: "owner_account",
+        dispatch_owner_id: "owner-1",
+        target_profile_id: TARGET_AGENT_PROFILE_ID,
+        status: "waiting_result",
+        first_seen_at_ms: 1_700_000_000_000,
+        last_attempt_at_ms: 1_700_000_000_000,
+        attempt_count: 1,
+        latest_attempt_id: fact.attemptId,
+      },
+      ["idempotency_key"]
+    );
+    const acceptance = input?.attemptAcceptanceRow;
+    await write(
+      "openMeldDaemon_dispatch_attempts",
+      {
+        attempt_id: fact.attemptId,
+        dispatch_id: dispatchId,
+        idempotency_key: fact.idempotencyKey,
+        attempt_no: 1,
+        status: acceptance?.attemptStatus ?? "waiting_result",
+        task_id: acceptance?.taskId ?? fact.taskId,
+        target_profile_id:
+          acceptance?.targetProfileId ?? TARGET_AGENT_PROFILE_ID,
+        daemon_session_id: acceptance?.daemonSessionId ?? "daemon-session-1",
+        lease_epoch: acceptance?.leaseEpoch ?? 2,
+        connection_generation: 1,
+        execution_identity_model_version:
+          RUNTIME_EXECUTION_IDENTITY_MODEL_VERSION,
+        execution_binding_id: "binding-1",
+        execution_openmeld_service_runtime_id: "runtime-1",
+        execution_agent_controller_ref: "builtin:codex",
+        created_at_ms: 1_700_000_000_000,
+      },
+      ["attempt_id"]
+    );
+  }
+  if (input?.agentControllerReportRow) {
+    await write(
+      "openMeldDaemon_runtime_registry_records",
+      {
+        openmeld_service_runtime_id: "runtime-1",
+        owner_kind: "owner_account",
+        owner_id: "owner-1",
+        device_id: "device-1",
+        lane: "dev-local",
+        created_at_ms: 1_700_000_000_000,
+        last_registered_at_ms: 1_700_000_000_000,
+        updated_at_ms: 1_700_000_000_000,
+      },
+      ["openmeld_service_runtime_id"]
+    );
+    await write(
+      "openMeldDaemon_runtime_agent_controller_reports",
+      input.agentControllerReportRow,
+      ["openmeld_service_runtime_id", "agent_controller_ref"]
+    );
+  }
+  const projectionRows = fixture.rows(
+    "openMeldDaemon_runtime_coordinator_executions",
+    ["runtime_coordinator_execution_id"]
+  );
+  if (input?.executionRow) {
+    await projectionRows.set(
+      String(input.executionRow.runtime_coordinator_execution_id),
+      input.executionRow
+    );
+  }
+  const remaining = {
+    attention: input?.taskNeedsAttentionObservationWriteFailures ?? 0,
+    interactionWrite: input?.interactionInboxWriteFailures ?? 0,
+    interactionResolve: input?.interactionInboxResolveFailures ?? 0,
+    terminalWrite: input?.taskTerminalOutcomeWriteFailures ?? 0,
+    terminalRead: input?.taskTerminalOutcomeReadFailures ?? 0,
+    reply: input?.replyPublishedProjectionWriteFailures ?? 0,
+    terminalProjection: input?.terminalProjectionWriteFailures ?? 0,
+  };
   let projectionReadFailureCountdown: number | null = null;
   let nextProjectionReadGate: {
     gate: Promise<void>;
     onStarted: () => void;
   } | null = null;
-  const projectionRows = new Map<
-    string,
-    RecordingRuntimeCoordinatorExecutionRow
-  >();
-  if (input?.executionRow) {
-    projectionRows.set(
-      String(input.executionRow.runtime_coordinator_execution_id),
-      input.executionRow
-    );
-  }
-  const db = {
-    batch: vi.fn(async (statements: D1PreparedStatement[]) => {
-      const results: D1Result<unknown>[] = [];
-      for (const statement of statements) {
-        results.push(await statement.run());
+  const beforeQuery = async ({ text, values }: QueryConfig) => {
+    calls.push({ query: text, params: values ?? [] });
+    const reads = SELECT_QUERY_PATTERN.test(text);
+    const writes = MUTATION_QUERY_PATTERN.test(text);
+    const fail = (key: keyof typeof remaining, message: string) => {
+      if (remaining[key] > 0) {
+        remaining[key] -= 1;
+        throw new Error(message);
       }
-      return results;
-    }),
-    prepare: vi.fn((query: string) => ({
-      bind: vi.fn((...params: unknown[]) => {
-        calls.push({ params, query });
-        return {
-          all: vi.fn(() => {
-            if (
-              query.includes(
-                "FROM openMeldDaemon_runtime_coordinator_executions AS executions"
-              )
-            ) {
-              const spaceId = String(params[0] ?? "");
-              const activeStatuses = new Set(params.map(String));
-              return {
-                results: [...projectionRows.values()]
-                  .filter(
-                    (row) =>
-                      row.space_id === spaceId &&
-                      activeStatuses.has(String(row.status))
-                  )
-                  .map((row) => ({
-                    dispatch_id: row.dispatch_id,
-                    runtime_coordinator_execution_id:
-                      row.runtime_coordinator_execution_id,
-                    source_client_message_id: row.source_client_message_id,
-                    source_event_id: "signal-1",
-                    status: row.status,
-                    target_profile_id: row.target_profile_id,
-                    updated_at_ms: row.updated_at_ms,
-                  })),
-              };
-            }
-            return { results: [] };
-          }),
-          first: vi.fn(async () => {
-            if (query.includes("FROM openmeld_profiles")) {
-              return (
-                input?.agentProfileRow ?? {
-                  managed_role: null,
-                  organization_id: "org-one",
-                  owner_user_id: "owner-1",
-                  profile_kind: "agent",
-                  profile_name: "Codex Agent",
-                }
-              );
-            }
-            if (
-              query.includes("FROM space_index_spaces AS space") &&
-              query.includes("LEFT JOIN space_index_memberships AS membership")
-            ) {
-              return {
-                has_active_membership: 1,
-                membership_count: 1,
-                space_status: "active",
-              };
-            }
-            if (query.includes("FROM space_index_spaces")) {
-              return {
-                organization_id: "org-one",
-                organization_visibility: "private",
-                space_id: String(params[0]),
-              };
-            }
-            if (
-              query.includes("FROM inbox_items") &&
-              query.includes("recipient_user_id = ?")
-            ) {
-              const key = params.map(String).join("::");
-              return interactionInboxRows.get(key) ?? null;
-            }
-            if (query.includes("FROM openMeldDaemon_agent_profile_bindings")) {
-              input?.onBindingRead?.();
-              await input?.bindingReadGate;
-              if (query.includes("agent_profile_id !=")) {
-                return null;
-              }
-              return {
-                agent_profile_id: TARGET_AGENT_PROFILE_ID,
-                binding_id: "binding-accepted-1",
-                binding_state: "enabled_primary",
-                agent_controller_ref:
-                  input?.bindingControllerRef ?? "builtin:codex",
-                agent_controller_conversation_id:
-                  input?.bindingConversationId ?? null,
-                configuration_revision: 7,
-                created_at_ms: 1_700_000_000_000,
-                updated_at_ms: 1_700_000_000_000,
-                disabled_at_ms: null,
-                owner_kind: "owner_account",
-                owner_id: "owner-1",
-                openmeld_service_runtime_id: "runtime-accepted-1",
-                runtime_kind: "openmeld_service",
-                model_id: null,
-                opencode_permission: null,
-              };
-            }
-            if (
-              query.includes("FROM agent_task_needs_attention_observations")
-            ) {
-              const taskKey = String(params[0]);
-              const eventId =
-                typeof params[1] === "string" ? String(params[1]) : null;
-              if (eventId) {
-                return (
-                  taskNeedsAttentionObservationRows.get(
-                    `${taskKey}::${eventId}`
-                  ) ?? null
-                );
-              }
-              return (
-                [...taskNeedsAttentionObservationRows.values()]
-                  .filter((row) => row.task_key === taskKey)
-                  .sort(
-                    (left, right) =>
-                      Number(right.occurred_at_ms) - Number(left.occurred_at_ms)
-                  )[0] ?? null
-              );
-            }
-            if (
-              query.includes("SELECT *") &&
-              query.includes("FROM agent_task_terminal_outcomes")
-            ) {
-              if (remainingTaskTerminalOutcomeReadFailures > 0) {
-                remainingTaskTerminalOutcomeReadFailures -= 1;
-                throw new Error("agent task terminal outcome read unavailable");
-              }
-              return taskTerminalOutcomeRows.get(String(params[0])) ?? null;
-            }
-            if (query.includes("openMeldDaemon_dispatch_result_inbox")) {
-              return inboxRows.get(String(params[0])) ?? null;
-            }
-            if (
-              query.includes(
-                "FROM openMeldDaemon_runtime_coordinator_execution_events"
-              )
-            ) {
-              const [runtimeCoordinatorExecutionId, eventType, reasonCode] =
-                params;
-              return (
-                [...eventRows.values()].find(
-                  (row) =>
-                    row.runtime_coordinator_execution_id ===
-                      runtimeCoordinatorExecutionId &&
-                    row.event_type === eventType &&
-                    row.reason_code === reasonCode
-                ) ?? null
-              );
-            }
-            if (
-              query.includes("FROM openMeldDaemon_dispatch_ledger") &&
-              query.includes("latest_attempt_id AS latestAttemptId")
-            ) {
-              return { latestAttemptId: "attempt-1" };
-            }
-            if (
-              query.includes(
-                "FROM openMeldDaemon_runtime_agent_controller_reports"
-              )
-            ) {
-              input?.onAgentControllerReportRead?.();
-              return input?.agentControllerReportReadGate
-                ? input.agentControllerReportReadGate.then(
-                    () => input.agentControllerReportRow ?? null
-                  )
-                : (input?.agentControllerReportRow ?? null);
-            }
-            if (
-              query.includes("FROM openMeldDaemon_dispatch_attempts") &&
-              query.includes("execution_binding_id AS bindingId")
-            ) {
-              return {
-                agentControllerRef: "builtin:codex",
-                attemptId: "attempt-1",
-                openMeldServiceRuntimeId: "runtime-1",
-                bindingId: "binding-1",
-                dispatchId: "dispatch-1",
-                targetProfileId: TARGET_AGENT_PROFILE_ID,
-                taskId: "task-1",
-              };
-            }
-            if (query.includes("attempts.status AS attemptStatus")) {
-              return input?.attemptAcceptanceRow ?? null;
-            }
-            if (
-              query.includes("openMeldDaemon_dispatch_ledger") &&
-              query.includes("openMeldDaemon_dispatch_attempts")
-            ) {
-              const dispatchId = String(params[0]);
-              const dispatchFact =
-                input?.dispatchFactsByDispatchId?.get(dispatchId);
-              return {
-                attemptId: dispatchFact?.attemptId ?? params[2],
-                dispatchId,
-                dispatchOwnerId: "owner-1",
-                dispatchOwnerKind: "owner_account",
-                firstSeenAtMs: 1_700_000_000_000,
-                idempotencyKey: dispatchFact?.idempotencyKey ?? "idempotency-1",
-                sourceClientMessageId:
-                  dispatchFact?.sourceClientMessageId ?? "client-message-1",
-                sourceEventId: dispatchFact?.sourceEventId ?? "signal-1",
-                spaceId: params[1],
-                targetProfileId: TARGET_AGENT_PROFILE_ID,
-                taskId: dispatchFact?.taskId ?? "task-1",
-              };
-            }
-            if (
-              query.includes("openMeldDaemon_runtime_coordinator_executions")
-            ) {
-              if (
-                query.includes("WHERE runtime_coordinator_execution_id = ?")
-              ) {
-                if (nextProjectionReadGate) {
-                  const pendingGate = nextProjectionReadGate;
-                  nextProjectionReadGate = null;
-                  pendingGate.onStarted();
-                  await pendingGate.gate;
-                }
-                if (projectionReadFailureCountdown !== null) {
-                  if (projectionReadFailureCountdown === 0) {
-                    projectionReadFailureCountdown = null;
-                    throw new Error(
-                      "runtime coordinator projection reread unavailable"
-                    );
-                  }
-                  projectionReadFailureCountdown -= 1;
-                }
-                return projectionRows.get(String(params[0])) ?? null;
-              }
-              if (
-                query.includes(
-                  "WHERE space_id = ? AND dispatch_id = ? AND target_profile_id = ?"
-                )
-              ) {
-                return (
-                  [...projectionRows.values()].find(
-                    (row) =>
-                      row.space_id === params[0] &&
-                      row.dispatch_id === params[1] &&
-                      row.target_profile_id === params[2]
-                  ) ?? null
-                );
-              }
-              return null;
-            }
-            return null;
-          }),
-          run: vi.fn(() => {
-            if (query.includes("INSERT INTO inbox_items")) {
-              if (remainingInteractionInboxWriteFailures > 0) {
-                remainingInteractionInboxWriteFailures -= 1;
-                throw new Error("interaction Inbox write unavailable");
-              }
-              const [
-                id,
-                organizationId,
-                recipientUserId,
-                kind,
-                attention,
-                importance,
-                title,
-                preview,
-                contextLabel,
-                sourceKind,
-                sourceKey,
-                sourceTargetJson,
-                sourceFactsJson,
-                resolutionStatus,
-                occurredAtMs,
-                createdAtMs,
-                updatedAtMs,
-              ] = params;
-              const key = [
-                organizationId,
-                recipientUserId,
-                sourceKind,
-                sourceKey,
-              ]
-                .map(String)
-                .join("::");
-              const existing = interactionInboxRows.get(key);
-              interactionInboxRows.set(key, {
-                attention,
-                context_label: contextLabel,
-                created_at_ms: existing?.created_at_ms ?? createdAtMs,
-                id,
-                importance,
-                kind,
-                occurred_at_ms: occurredAtMs,
-                organization_id: organizationId,
-                preview,
-                recipient_user_id: recipientUserId,
-                resolution_status:
-                  existing?.resolution_status ?? resolutionStatus,
-                source_facts_json: sourceFactsJson,
-                source_key: sourceKey,
-                source_kind: sourceKind,
-                source_target_json: sourceTargetJson,
-                title,
-                updated_at_ms: updatedAtMs,
-              });
-              return { meta: { changes: 1 } };
-            }
-            if (
-              query.includes("UPDATE inbox_items") &&
-              query.includes("resolution_status = 'resolved'")
-            ) {
-              if (remainingInteractionInboxResolveFailures > 0) {
-                remainingInteractionInboxResolveFailures -= 1;
-                throw new Error("interaction Inbox resolution unavailable");
-              }
-              const [
-                resolvedAtMs,
-                updatedAtMs,
-                organizationId,
-                sourceKind,
-                sourceKey,
-              ] = params;
-              let changes = 0;
-              for (const [key, row] of interactionInboxRows) {
-                if (
-                  row.organization_id === organizationId &&
-                  row.source_kind === sourceKind &&
-                  row.source_key === sourceKey &&
-                  row.attention === "action_required" &&
-                  row.resolution_status === "open"
-                ) {
-                  interactionInboxRows.set(key, {
-                    ...row,
-                    resolution_status: "resolved",
-                    resolved_at_ms: resolvedAtMs,
-                    updated_at_ms: updatedAtMs,
-                  });
-                  changes += 1;
-                }
-              }
-              return { meta: { changes } };
-            }
-            if (
-              query.includes(
-                "INSERT INTO agent_task_needs_attention_observations"
-              )
-            ) {
-              if (remainingTaskNeedsAttentionObservationWriteFailures > 0) {
-                remainingTaskNeedsAttentionObservationWriteFailures -= 1;
-                throw new Error(
-                  "agent task needs-attention observation unavailable"
-                );
-              }
-              const [
-                taskKey,
-                eventId,
-                taskHandleJson,
-                status,
-                observationJson,
-                occurredAtMs,
-                observedAtMs,
-              ] = params;
-              const rowKey = `${String(taskKey)}::${String(eventId)}`;
-              if (!taskNeedsAttentionObservationRows.has(rowKey)) {
-                taskNeedsAttentionObservationRows.set(rowKey, {
-                  event_id: eventId,
-                  observation_json: observationJson,
-                  observed_at_ms: observedAtMs,
-                  occurred_at_ms: occurredAtMs,
-                  status,
-                  task_handle_json: taskHandleJson,
-                  task_key: taskKey,
-                });
-              }
-            }
-            if (query.includes("INSERT INTO agent_task_terminal_outcomes")) {
-              if (remainingTaskTerminalOutcomeWriteFailures > 0) {
-                remainingTaskTerminalOutcomeWriteFailures -= 1;
-                throw new Error("agent task terminal outcome unavailable");
-              }
-              const [
-                taskKey,
-                taskHandleJson,
-                status,
-                eventId,
-                outcomeJson,
-                occurredAtMs,
-                observedAtMs,
-              ] = params;
-              if (!taskTerminalOutcomeRows.has(String(taskKey))) {
-                taskTerminalOutcomeRows.set(String(taskKey), {
-                  event_id: eventId,
-                  observed_at_ms: observedAtMs,
-                  occurred_at_ms: occurredAtMs,
-                  outcome_json: outcomeJson,
-                  status,
-                  task_handle_json: taskHandleJson,
-                  task_key: taskKey,
-                });
-              }
-            }
-            if (
-              query.includes(
-                "INSERT INTO openMeldDaemon_agent_execution_readiness_impacts"
-              ) &&
-              input?.readinessImpactWriteError
-            ) {
-              throw input.readinessImpactWriteError;
-            }
-            if (
-              query.includes("INSERT INTO openMeldDaemon_dispatch_result_inbox")
-            ) {
-              const [
-                resultKey,
-                dispatchId,
-                attemptId,
-                taskId,
-                targetProfileId,
-                daemonSessionId,
-                leaseEpoch,
-                submittedConnectionGeneration,
-                runtimeCoordinatorExecutionId,
-                executionTokenRunId,
-                executionTokenFingerprint,
-                resultPayloadJson,
-                acceptedAtMs,
-                publishState,
-                publishedSignalId,
-                publicationErrorCode,
-                updatedAtMs,
-              ] = params;
-              inboxRows.set(String(resultKey), {
-                accepted_at_ms: acceptedAtMs,
-                attempt_id: attemptId,
-                daemon_session_id: daemonSessionId,
-                dispatch_id: dispatchId,
-                execution_token_fingerprint: executionTokenFingerprint,
-                execution_token_run_id: executionTokenRunId,
-                lease_epoch: leaseEpoch,
-                publication_error_code: publicationErrorCode,
-                publish_state: publishState,
-                published_signal_id: publishedSignalId,
-                result_key: resultKey,
-                result_payload_json: resultPayloadJson,
-                runtime_coordinator_execution_id: runtimeCoordinatorExecutionId,
-                submitted_connection_generation: submittedConnectionGeneration,
-                target_profile_id: targetProfileId,
-                task_id: taskId,
-                updated_at_ms: updatedAtMs,
-              });
-            }
-            if (query.includes("UPDATE openMeldDaemon_dispatch_result_inbox")) {
-              const [
-                publishState,
-                publishedSignalId,
-                publicationErrorCode,
-                updatedAtMs,
-                resultKey,
-              ] = params;
-              const existing = inboxRows.get(String(resultKey));
-              if (existing) {
-                inboxRows.set(String(resultKey), {
-                  ...existing,
-                  publication_error_code: publicationErrorCode,
-                  publish_state: publishState,
-                  published_signal_id: publishedSignalId,
-                  updated_at_ms: updatedAtMs,
-                });
-              }
-            }
-            if (
-              query.includes(
-                "INSERT INTO openMeldDaemon_runtime_coordinator_executions"
-              )
-            ) {
-              const [
-                runtimeCoordinatorExecutionId,
-                modelVersion,
-                spaceId,
-                dispatchId,
-                targetProfileId,
-                sourceClientMessageId,
-                openMeldServiceRuntimeIdSource,
-                openMeldServiceRuntimeId,
-                bindingId,
-                agentControllerRef,
-                status,
-                terminalOutcomeJson,
-                attemptId,
-                claimLeaseId,
-                daemonSessionId,
-                connectionGeneration,
-                leaseEpoch,
-                createdAtMs,
-                updatedAtMs,
-              ] = params;
-              if (
-                status === "failed_terminal" &&
-                remainingTerminalProjectionWriteFailures > 0
-              ) {
-                remainingTerminalProjectionWriteFailures -= 1;
-                throw new Error("runtime coordinator projection unavailable");
-              }
-              if (
-                status === "reply_published" &&
-                remainingReplyPublishedProjectionWriteFailures > 0
-              ) {
-                remainingReplyPublishedProjectionWriteFailures -= 1;
-                throw new Error(
-                  "runtime coordinator reply projection unavailable"
-                );
-              }
-              projectionRows.set(String(runtimeCoordinatorExecutionId), {
-                attempt_id: attemptId,
-                binding_id: bindingId,
-                agent_controller_ref: agentControllerRef,
-                claim_lease_id: claimLeaseId,
-                connection_generation: connectionGeneration,
-                created_at_ms: createdAtMs,
-                daemon_session_id: daemonSessionId,
-                dispatch_id: dispatchId,
-                lease_epoch: leaseEpoch,
-                model_version: modelVersion,
-                runtime_coordinator_execution_id: runtimeCoordinatorExecutionId,
-                openmeld_service_runtime_id: openMeldServiceRuntimeId,
-                openmeld_service_runtime_id_source:
-                  openMeldServiceRuntimeIdSource,
-                source_client_message_id: sourceClientMessageId,
-                space_id: spaceId,
-                status,
-                target_profile_id: targetProfileId,
-                terminal_outcome_json: terminalOutcomeJson,
-                updated_at_ms: updatedAtMs,
-              });
-            }
-            if (
-              query.includes(
-                "INTO openMeldDaemon_runtime_coordinator_execution_events"
-              )
-            ) {
-              const [
-                eventId,
-                runtimeCoordinatorExecutionId,
-                eventType,
-                statusAfter,
-                reasonCode,
-                observedAtMs,
-                idempotencyKey,
-                payloadJson,
-              ] = params;
-              if (
-                query.includes("ON CONFLICT(event_id) DO UPDATE") ||
-                !eventRows.has(String(eventId))
-              ) {
-                eventRows.set(String(eventId), {
-                  event_id: eventId,
-                  event_type: eventType,
-                  idempotency_key: idempotencyKey,
-                  observed_at_ms: observedAtMs,
-                  payload_json: payloadJson,
-                  reason_code: reasonCode,
-                  runtime_coordinator_execution_id:
-                    runtimeCoordinatorExecutionId,
-                  status_after: statusAfter,
-                });
-              }
-            }
-            if (
-              query.includes(
-                "UPDATE openMeldDaemon_runtime_coordinator_executions"
-              )
-            ) {
-              const [
-                modelVersion,
-                spaceId,
-                dispatchId,
-                targetProfileId,
-                sourceClientMessageId,
-                openMeldServiceRuntimeIdSource,
-                openMeldServiceRuntimeId,
-                bindingId,
-                agentControllerRef,
-                status,
-                terminalOutcomeJson,
-                attemptId,
-                claimLeaseId,
-                daemonSessionId,
-                connectionGeneration,
-                leaseEpoch,
-                updatedAtMs,
-                runtimeCoordinatorExecutionId,
-              ] = params;
-              if (
-                status === "failed_terminal" &&
-                remainingTerminalProjectionWriteFailures > 0
-              ) {
-                remainingTerminalProjectionWriteFailures -= 1;
-                throw new Error("runtime coordinator projection unavailable");
-              }
-              if (
-                status === "reply_published" &&
-                remainingReplyPublishedProjectionWriteFailures > 0
-              ) {
-                remainingReplyPublishedProjectionWriteFailures -= 1;
-                throw new Error(
-                  "runtime coordinator reply projection unavailable"
-                );
-              }
-              const existing =
-                projectionRows.get(String(runtimeCoordinatorExecutionId)) ?? {};
-              const existingStatus = String(existing.status ?? "");
-              if (
-                query.includes("AND status = ?") &&
-                (existingStatus !== String(params[18]) ||
-                  Number(existing.updated_at_ms) !== Number(params[19]))
-              ) {
-                return { meta: { changes: 0 } };
-              }
-              if (
-                ["cancelled", "failed_terminal", "reply_published"].includes(
-                  existingStatus
-                ) &&
-                existingStatus !== status
-              ) {
-                return { meta: { changes: 0 } };
-              }
-              projectionRows.set(String(runtimeCoordinatorExecutionId), {
-                ...existing,
-                attempt_id: attemptId,
-                binding_id: bindingId,
-                agent_controller_ref: agentControllerRef,
-                claim_lease_id: claimLeaseId,
-                connection_generation: connectionGeneration,
-                daemon_session_id: daemonSessionId,
-                dispatch_id: dispatchId,
-                lease_epoch: leaseEpoch,
-                model_version: modelVersion,
-                runtime_coordinator_execution_id: runtimeCoordinatorExecutionId,
-                openmeld_service_runtime_id: openMeldServiceRuntimeId,
-                openmeld_service_runtime_id_source:
-                  openMeldServiceRuntimeIdSource,
-                source_client_message_id: sourceClientMessageId,
-                space_id: spaceId,
-                status,
-                target_profile_id: targetProfileId,
-                terminal_outcome_json: terminalOutcomeJson,
-                updated_at_ms: updatedAtMs,
-              });
-            }
-            return { meta: { changes: 1 } };
-          }),
-        };
-      }),
-    })),
-  } as unknown as D1Database;
-
+    };
+    if (reads && text.includes('"openMeldDaemon_agent_profile_bindings"')) {
+      input?.onBindingRead?.();
+      await input?.bindingReadGate;
+    }
+    if (
+      reads &&
+      text.includes('"openMeldDaemon_runtime_agent_controller_reports"')
+    ) {
+      input?.onAgentControllerReportRead?.();
+      await input?.agentControllerReportReadGate;
+    }
+    if (reads && text.includes('"agent_task_terminal_outcomes"')) {
+      fail("terminalRead", "agent task terminal outcome read unavailable");
+    }
+    if (
+      reads &&
+      text.includes('"openMeldDaemon_runtime_coordinator_executions"') &&
+      EXECUTION_ID_FILTER_PATTERN.test(text)
+    ) {
+      if (nextProjectionReadGate) {
+        const pending = nextProjectionReadGate;
+        nextProjectionReadGate = null;
+        pending.onStarted();
+        await pending.gate;
+      }
+      if (projectionReadFailureCountdown !== null) {
+        if (projectionReadFailureCountdown === 0) {
+          projectionReadFailureCountdown = null;
+          throw new Error("runtime coordinator projection reread unavailable");
+        }
+        projectionReadFailureCountdown -= 1;
+      }
+    }
+    if (!writes) {
+      return;
+    }
+    if (text.includes('"inbox_items"')) {
+      if (text.trimStart().startsWith("INSERT")) {
+        fail("interactionWrite", "interaction Inbox write unavailable");
+      } else if (text.includes("resolution_status = 'resolved'")) {
+        fail("interactionResolve", "interaction Inbox resolution unavailable");
+      }
+    }
+    if (text.includes('"agent_task_needs_attention_observations"')) {
+      fail("attention", "agent task needs-attention observation unavailable");
+    }
+    if (text.includes('"agent_task_terminal_outcomes"')) {
+      fail("terminalWrite", "agent task terminal outcome unavailable");
+    }
+    if (
+      text.includes('"openMeldDaemon_agent_execution_readiness_impacts"') &&
+      input?.readinessImpactWriteError
+    ) {
+      throw input.readinessImpactWriteError;
+    }
+    if (text.includes('"openMeldDaemon_runtime_coordinator_executions"')) {
+      const status = values?.[text.trimStart().startsWith("INSERT") ? 10 : 9];
+      if (status === "failed_terminal") {
+        fail(
+          "terminalProjection",
+          "runtime coordinator projection unavailable"
+        );
+      }
+      if (status === "reply_published") {
+        fail("reply", "runtime coordinator reply projection unavailable");
+      }
+    }
+  };
+  const db = observePostgresDatabase(fixture.db, beforeQuery);
+  postgresqlObservers.set(fixture.binding, db);
   return {
     calls,
     db,
-    eventRows,
+    binding: fixture.binding,
+    fixture,
+    eventRows: fixture.rows(
+      "openMeldDaemon_runtime_coordinator_execution_events",
+      ["event_id"]
+    ),
+    inboxRows: fixture.rows("openMeldDaemon_dispatch_result_inbox", [
+      "result_key",
+    ]),
+    interactionInboxRows: fixture.rows("inbox_items", ["id"]),
+    projectionRows,
+    taskNeedsAttentionObservationRows: fixture.rows(
+      "agent_task_needs_attention_observations",
+      ["task_key", "event_id"]
+    ),
+    taskTerminalOutcomeRows: fixture.rows("agent_task_terminal_outcomes", [
+      "task_key",
+    ]),
     failProjectionReadAfter: (successfulReads: number) => {
       projectionReadFailureCountdown = successfulReads;
     },
-    gateNextProjectionRead: (input: {
+    gateNextProjectionRead: (gate: {
       gate: Promise<void>;
       onStarted: () => void;
     }) => {
-      nextProjectionReadGate = input;
+      nextProjectionReadGate = gate;
     },
-    inboxRows,
-    interactionInboxRows,
-    projectionRows,
-    taskNeedsAttentionObservationRows,
-    taskTerminalOutcomeRows,
+    failReplyProjectionWrites: (count: number) => {
+      remaining.reply = count;
+    },
   };
 };
 
-const createHarness = (input?: {
+const createHarness = async (input?: {
   bindingReadGate?: Promise<void>;
   onBindingRead?: () => void;
   bindingControllerRef?: string;
@@ -1028,13 +723,16 @@ const createHarness = (input?: {
   terminalProjectionWriteFailures?: number;
   onAgentControllerReportRead?: () => void;
 }) => {
+  const storageRecords = input?.storageRecords ?? new Map<string, unknown>();
+  const existingFixture = fixtureByStorage.get(storageRecords);
   const state = createRuntimeTransportMutableState();
   state.pendingDispatches.set(
     buildDispatchAttemptKey("dispatch-1", "attempt-1"),
     buildPendingDispatch()
   );
 
-  const recordingD1 = createRecordingD1({
+  const recordingPostgres = await createRecordingPostgres({
+    fixture: existingFixture,
     bindingReadGate: input?.bindingReadGate,
     onBindingRead: input?.onBindingRead,
     bindingControllerRef: input?.bindingControllerRef,
@@ -1061,6 +759,7 @@ const createHarness = (input?: {
       input?.terminalProjectionWriteFailures ?? 0,
     onAgentControllerReportRead: input?.onAgentControllerReportRead,
   });
+  fixtureByStorage.set(storageRecords, recordingPostgres.fixture);
   const authResolveProfileById =
     input?.authResolveProfileById ??
     vi.fn(async ({ openMeldProfileId }) =>
@@ -1074,6 +773,8 @@ const createHarness = (input?: {
     [];
   const spaceFetchRequests: Array<{ body: unknown; path: string }> = [];
   const spaceStub = {
+    rpcBroadcastAgentReadinessInvalidated: vi.fn(async () => undefined),
+    rpcBroadcastWakeProgressChanged: vi.fn(async () => undefined),
     fetch: vi.fn(async (request: Request) => {
       const url = new URL(request.url);
       const body = await request.json();
@@ -1247,14 +948,13 @@ const createHarness = (input?: {
     ),
   };
   const sentFrames: unknown[] = [];
-  const storageRecords = input?.storageRecords ?? new Map<string, unknown>();
   let remainingReplyPublishedAuthorityWriteFailures =
     input?.replyPublishedAuthorityWriteFailures ?? 0;
   let remainingExhaustionAuthorityWriteFailures =
     input?.exhaustionAuthorityWriteFailures ?? 0;
   let remainingRunCommandStateWriteFailures =
     input?.runCommandStateWriteFailures ?? 0;
-  const storagePut = vi.fn((key: string, value: unknown) => {
+  const storagePut = vi.fn(async (key: string, value: unknown) => {
     const terminalOutcome = (
       value as {
         terminalOutcome?: { reasonCode?: unknown; status?: unknown } | null;
@@ -1266,9 +966,7 @@ const createHarness = (input?: {
       remainingRunCommandStateWriteFailures > 0
     ) {
       remainingRunCommandStateWriteFailures -= 1;
-      return Promise.reject(
-        new Error("runtime coordinator command state unavailable")
-      );
+      throw new Error("runtime coordinator command state unavailable");
     }
     if (
       key.includes("runtime-coordinator:execution-token-authority:") &&
@@ -1276,9 +974,7 @@ const createHarness = (input?: {
       remainingReplyPublishedAuthorityWriteFailures > 0
     ) {
       remainingReplyPublishedAuthorityWriteFailures -= 1;
-      return Promise.reject(
-        new Error("runtime coordinator reply authority unavailable")
-      );
+      throw new Error("runtime coordinator reply authority unavailable");
     }
     if (
       key.includes("runtime-coordinator:execution-token-authority:") &&
@@ -1288,15 +984,13 @@ const createHarness = (input?: {
     ) {
       if (remainingExhaustionAuthorityWriteFailures > 0) {
         remainingExhaustionAuthorityWriteFailures -= 1;
-        return Promise.reject(
-          new Error("runtime coordinator exhaustion authority unavailable")
-        );
+        throw new Error("runtime coordinator exhaustion authority unavailable");
       }
       if (!input?.exhaustionAuthorityProjectionRaceStatus) {
         storageRecords.set(key, value);
         return Promise.resolve();
       }
-      const existingProjection = recordingD1.projectionRows.get(
+      const existingProjection = await recordingPostgres.projectionRows.get(
         RUNTIME_COORDINATOR_EXECUTION_ID
       );
       if (existingProjection) {
@@ -1305,21 +999,24 @@ const createHarness = (input?: {
           raceStatus === "failed_terminal_other"
             ? "failed_terminal"
             : raceStatus;
-        recordingD1.projectionRows.set(RUNTIME_COORDINATOR_EXECUTION_ID, {
-          ...existingProjection,
-          status,
-          terminal_outcome_json: JSON.stringify({
-            kind: status,
-            observedAtMs: Date.now(),
-            reasonCode: "test.concurrent_terminal_projection",
-          }),
-          updated_at_ms:
-            raceStatus === "failed_terminal_other"
-              ? Date.now() + 1
-              : Date.now(),
-        });
+        await recordingPostgres.projectionRows.set(
+          RUNTIME_COORDINATOR_EXECUTION_ID,
+          {
+            ...existingProjection,
+            status,
+            terminal_outcome_json: JSON.stringify({
+              kind: status,
+              observedAtMs: Date.now(),
+              reasonCode: "test.concurrent_terminal_projection",
+            }),
+            updated_at_ms:
+              raceStatus === "failed_terminal_other"
+                ? Date.now() + 1
+                : Date.now(),
+          }
+        );
         if (input.exhaustionProjectionRereadError) {
-          recordingD1.failProjectionReadAfter(1);
+          recordingPostgres.failProjectionReadAfter(0);
         }
       }
       storageRecords.set(key, value);
@@ -1440,6 +1137,7 @@ const createHarness = (input?: {
     }
   );
   const waitUntilTasks: Promise<unknown>[] = [];
+  const activeWaitUntilTasks = new Set<Promise<unknown>>();
   const queuedObservationRedrives: unknown[] = [];
   const queueSend = vi.fn((message: unknown) => {
     queuedObservationRedrives.push(message);
@@ -1496,7 +1194,7 @@ const createHarness = (input?: {
       OPENMELD_AUTH_WORKER: {
         resolveProfileById: authResolveProfileById,
       },
-      OPENMELD_DB: recordingD1.db,
+      OPENMELD_POSTGRESQL: recordingPostgres.binding,
       OPENMELD_DAEMON_DISPATCH_QUEUE: {
         send: queueSend,
       },
@@ -1523,6 +1221,11 @@ const createHarness = (input?: {
       },
       waitUntil: vi.fn((task: Promise<unknown>) => {
         waitUntilTasks.push(task);
+        activeWaitUntilTasks.add(task);
+        task.then(
+          () => activeWaitUntilTasks.delete(task),
+          () => activeWaitUntilTasks.delete(task)
+        );
       }),
     },
   });
@@ -1599,12 +1302,25 @@ const createHarness = (input?: {
     value: vi.fn(),
   });
 
+  onTestFinished(async () => {
+    if (vi.isFakeTimers()) {
+      vi.useRealTimers();
+    }
+    for (let wave = 0; activeWaitUntilTasks.size && wave < 20; wave += 1) {
+      await Promise.allSettled([...activeWaitUntilTasks]);
+    }
+    if (activeWaitUntilTasks.size) {
+      throw new Error(
+        "RuntimeCoordinator fixture still has live request tasks"
+      );
+    }
+  });
   return {
     hub,
     appliedFailurePublicationCommands,
     appliedFinalizationCommands,
     authResolveProfileById,
-    recordingD1,
+    recordingPostgres,
     getMaxConcurrentArrayStorageGets: () => maxConcurrentArrayStorageGetCount,
     queuedObservationRedrives,
     queueSend,
@@ -1708,7 +1424,7 @@ const finishExecutionIndexGenerationRepair = async (
 
 async function deliverAgentTaskObservationRedriveThroughQueue(input: {
   body: unknown;
-  db: D1Database;
+  binding: PostgreSQLBinding;
   hub: RuntimeTransportHub;
 }): Promise<void> {
   const ack = vi.fn();
@@ -1730,8 +1446,7 @@ async function deliverAgentTaskObservationRedriveThroughQueue(input: {
       waitUntil: vi.fn(),
     },
     env: {
-      OPENMELD_DB: input.db,
-      OPENMELD_LOCAL_STATE_DB: input.db,
+      OPENMELD_POSTGRESQL: input.binding,
       OPENMELD_RUNTIME_TRANSPORT: {
         get: vi.fn(() => input.hub),
         idFromName: vi.fn((ownerUserId: string) => ownerUserId),
@@ -2386,12 +2101,12 @@ const registerCompatibleRoute = (input: {
   });
 };
 
-const createContextHarness = (
+const createContextHarness = async (
   input?: Parameters<typeof createHarness>[0] & {
     contextVersion?: 1 | 2 | 3 | null;
   }
 ) => {
-  const harness = createHarness(input);
+  const harness = await createHarness(input);
   registerCompatibleRoute({
     state: harness.state,
     socket: harness.socket,
@@ -2927,11 +2642,11 @@ const buildExecutionTokenEcho = (
   tokenFingerprint: envelope.tokenFingerprint,
 });
 
-const seedAcceptedResultInbox = (
-  inboxRows: Map<string, Record<string, unknown>>,
+const seedAcceptedResultInbox = async (
+  inboxRows: NativeFixtureRows,
   executionToken: RuntimeCoordinatorExecutionTokenEnvelope
 ) => {
-  inboxRows.set("dispatch-1::attempt-1", {
+  await inboxRows.set("dispatch-1::attempt-1", {
     accepted_at_ms: 1_700_000_000_100,
     attempt_id: "attempt-1",
     daemon_session_id: "daemon-session-1",
@@ -3067,15 +2782,15 @@ const buildRuntimeAgentControllerReportRow = (input?: {
   updated_at_ms: 1_700_000_000_000,
 });
 
-const getRuntimeCoordinatorEventCalls = (calls: RecordingD1Call[]) =>
+const getRuntimeCoordinatorEventCalls = (calls: RecordingPostgresCall[]) =>
   calls.filter((call) =>
     call.query.includes("openMeldDaemon_runtime_coordinator_execution_events")
   );
 
-const getReadinessImpactWriteCalls = (calls: RecordingD1Call[]) =>
+const getReadinessImpactWriteCalls = (calls: RecordingPostgresCall[]) =>
   calls.filter((call) =>
     call.query.includes(
-      "INSERT INTO openMeldDaemon_agent_execution_readiness_impacts"
+      'INSERT INTO "openmeld"."openMeldDaemon_agent_execution_readiness_impacts"'
     )
   );
 
@@ -3191,7 +2906,7 @@ const findRuntimeCoordinatorWakeStoppedNoticePublicationRecord = (
         "openmeld.runtime_coordinator.wake_stopped_notice_publication.v1"
   );
 
-type RuntimeTransportTestHarness = ReturnType<typeof createHarness>;
+type RuntimeTransportTestHarness = Awaited<ReturnType<typeof createHarness>>;
 
 describe("device waiting Wake lifecycle", () => {
   const isDeliveryFrame = (frame: unknown): boolean =>
@@ -3223,7 +2938,7 @@ describe("device waiting Wake lifecycle", () => {
   ] as const)("redrives %s on unchanged heartbeats when the first online event preceded waiting persistence", async (reasonCode) => {
     const clock = vi.spyOn(Date, "now").mockReturnValue(nowMs);
     try {
-      const harness = createHarness();
+      const harness = await createHarness();
       const {
         hub,
         state,
@@ -3351,7 +3066,7 @@ describe("device waiting Wake lifecycle", () => {
   ] as const)("preserves $reasonCode while waiting, then replaces its recovery action at expiry", async (waiting) => {
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(nowMs);
     try {
-      const { hub, storageRecords } = createHarness();
+      const { hub, storageRecords } = await createHarness();
       const accepted = request();
       await fetchRuntimeTransportJson(
         hub,
@@ -3420,7 +3135,7 @@ describe("device waiting Wake lifecycle", () => {
   it("retains the exact admission rejection in a failed head write", async () => {
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(nowMs);
     try {
-      const { hub, storageRecords } = createHarness();
+      const { hub, storageRecords } = await createHarness();
       await fetchRuntimeTransportJson(
         hub,
         "/runtime-coordinator/head/accept",
@@ -3470,7 +3185,7 @@ describe("device waiting Wake lifecycle", () => {
   it("retains the explicit deadline across offline redrives beyond five minutes", async () => {
     const clock = vi.spyOn(Date, "now").mockReturnValue(nowMs);
     try {
-      const { hub, state, sentFrames, storageRecords } = createHarness();
+      const { hub, state, sentFrames, storageRecords } = await createHarness();
       state.pendingDispatches.clear();
       expect(
         (
@@ -3514,7 +3229,7 @@ describe("device waiting Wake lifecycle", () => {
   it("delivers one execution when the specified device returns, even after duplicate delivery", async () => {
     const clock = vi.spyOn(Date, "now").mockReturnValue(nowMs);
     try {
-      const { hub, state, socket, sentFrames } = createHarness();
+      const { hub, state, socket, sentFrames } = await createHarness();
       state.pendingDispatches.clear();
       await fetchRuntimeTransportJson(
         hub,
@@ -3543,7 +3258,7 @@ describe("device waiting Wake lifecycle", () => {
   it("never delivers a cancelled device waiting Wake after reconnect or reacceptance", async () => {
     const clock = vi.spyOn(Date, "now").mockReturnValue(nowMs);
     try {
-      const { hub, state, socket, sentFrames } = createHarness();
+      const { hub, state, socket, sentFrames } = await createHarness();
       state.pendingDispatches.clear();
       await fetchRuntimeTransportJson(
         hub,
@@ -3585,7 +3300,7 @@ describe("device waiting Wake lifecycle", () => {
   it("fences first execution at the deadline even when the expiry alarm has not run", async () => {
     const clock = vi.spyOn(Date, "now").mockReturnValue(nowMs);
     try {
-      const { hub, state, socket, sentFrames } = createHarness();
+      const { hub, state, socket, sentFrames } = await createHarness();
       state.pendingDispatches.clear();
       await fetchRuntimeTransportJson(
         hub,
@@ -3606,7 +3321,7 @@ describe("device waiting Wake lifecycle", () => {
   it("does not revive an already failed Wake when the same waiting request is redriven", async () => {
     const clock = vi.spyOn(Date, "now").mockReturnValue(nowMs);
     try {
-      const { hub, state, socket, sentFrames } = createHarness();
+      const { hub, state, socket, sentFrames } = await createHarness();
       state.pendingDispatches.clear();
       await fetchRuntimeTransportJson(
         hub,
@@ -3647,7 +3362,7 @@ describe("device waiting Wake lifecycle", () => {
   ] as const)("expires a %s device wait without inventing an offline boundary", async (initialStatus) => {
     const clock = vi.spyOn(Date, "now").mockReturnValue(nowMs);
     try {
-      const { hub, state, storageRecords } = createHarness();
+      const { hub, state, storageRecords } = await createHarness();
       state.pendingDispatches.clear();
       if (initialStatus === "queued") {
         await acceptDefaultRuntimeCoordinatorHead(hub);
@@ -3791,6 +3506,12 @@ const completeLatestAutomaticUpdateRequest = async (input: {
   harness: RuntimeTransportTestHarness;
   result?: OpenMeldToolsControlResult;
 }): Promise<void> => {
+  await vi.waitFor(() =>
+    // biome-ignore lint/suspicious/noMisplacedAssertion: Poll the real asynchronous request frame before resolving its test continuation.
+    expect(
+      getAutomaticUpdateRequestFrames(input.harness.sentFrames).length
+    ).toBeGreaterThan(0)
+  );
   const request = getAutomaticUpdateRequestFrames(input.harness.sentFrames).at(
     -1
   );
@@ -3824,7 +3545,7 @@ const completeLatestAutomaticUpdateRequest = async (input: {
 
 describe("runtime transport runtime coordinator transport contract", () => {
   it("assigns ordinary Claude Wakes independent Space contexts in parallel mode", async () => {
-    const { hub } = createContextHarness({
+    const { hub } = await createContextHarness({
       bindingControllerRef: "builtin:claude-code",
     });
     const replies: Array<{
@@ -3904,7 +3625,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     if (!firstRequest) {
       throw new Error("Expected the first ordinary Wake fixture");
     }
-    const olderService = createContextHarness({
+    const olderService = await createContextHarness({
       bindingControllerRef: "builtin:claude-code",
       contextVersion: 2,
     });
@@ -3920,7 +3641,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     };
     expect(olderResponse.status).toBe("accepted");
     expect(olderResponse.executionContext?.access).toBe("space_context");
-    const legacyService = createContextHarness({
+    const legacyService = await createContextHarness({
       bindingControllerRef: "builtin:claude-code",
       contextVersion: 1,
     });
@@ -3933,7 +3654,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ).json()) as { status: string; executionContext?: unknown };
     expect(legacyResponse.status).toBe("accepted");
     expect(legacyResponse.executionContext).toBeUndefined();
-    const explicitSpaceOnly = createContextHarness({
+    const explicitSpaceOnly = await createContextHarness({
       bindingControllerRef: "builtin:claude-code",
     });
     const spaceOnlyRequest = buildRuntimeCoordinatorHeadAcceptRequest({
@@ -3980,7 +3701,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("keeps an ordinary Codex Wake in the Profile's current working folder after context activation", async () => {
-    const { hub, storageRecords } = createContextHarness({
+    const { hub, storageRecords } = await createContextHarness({
       bindingControllerRef: "builtin:codex",
     });
     const firstRequest = buildRuntimeCoordinatorHeadAcceptRequest({
@@ -4063,7 +3784,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     "builtin:openclaw",
     "custom:reviewer",
   ])("keeps ordinary thread Wakes serial for %s and refuses explicit context requests", async (agentControllerRef) => {
-    const { hub, storageRecords } = createHarness();
+    const { hub, storageRecords } = await createHarness();
     const replies: Array<{ status: string; executionContext?: unknown }> = [];
     let firstHead: RuntimeCoordinatorHeadLifecycleRecord | undefined;
     for (let index = 0; index < 2; index += 1) {
@@ -4165,7 +3886,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("keeps the accepted context through linking and retains its fork checkpoint after Head retirement", async () => {
-    const { hub, storageRecords } = createContextHarness();
+    const { hub, storageRecords } = await createContextHarness();
     const request = buildRuntimeCoordinatorHeadAcceptRequest({
       acceptedDispatchSnapshot: {
         ...buildAcceptedDispatchSnapshot({ fingerprint: "7" }),
@@ -4304,7 +4025,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     agentControllerRef,
     confirmsOwnBoundary,
   }) => {
-    const { hub, storageRecords } = createContextHarness({
+    const { hub, storageRecords } = await createContextHarness({
       bindingControllerRef: agentControllerRef,
     });
     const request = buildRuntimeCoordinatorHeadAcceptRequest({
@@ -4450,7 +4171,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     agentControllerRef,
     access,
   }) => {
-    const { hub } = createContextHarness({
+    const { hub } = await createContextHarness({
       bindingControllerRef: agentControllerRef,
     });
     const requests = Array.from({ length: 6 }, (_, index) =>
@@ -4578,7 +4299,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     const startedAtMs = 1_700_000_000_000;
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(startedAtMs);
     try {
-      const harness = createHarness({
+      const harness = await createHarness({
         agentControllerReportRow: buildRuntimeAgentControllerReportRow(),
       });
       const executionToken = await issueDeliveryToken(harness);
@@ -4658,14 +4379,16 @@ describe("runtime transport runtime coordinator transport contract", () => {
         status: "cancellation_requested",
       });
       expect(
-        harness.recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+        await harness.recordingPostgres.projectionRows.get(
+          RUNTIME_COORDINATOR_EXECUTION_ID
+        )
       ).toMatchObject({ status: "cancellation_requested" });
     } finally {
       nowSpy.mockRestore();
     }
   });
   it("advances bounded watchdog pages past retained terminal history using real Durable Object storage", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     await issueDeliveryToken(harness);
     const command = findRuntimeCoordinatorRunCommandState(
       harness.storageRecords
@@ -4755,11 +4478,16 @@ describe("runtime transport runtime coordinator transport contract", () => {
     );
   });
   it("requests the published release through a real register frame", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     const firstWaitUntilTaskIndex = harness.waitUntilTasks.length;
 
     sendAutomaticUpdateRegisterFrame(harness);
 
+    await vi.waitFor(() =>
+      expect(getAutomaticUpdateRequestFrames(harness.sentFrames)).toHaveLength(
+        1
+      )
+    );
     expect(getAutomaticUpdateRequestFrames(harness.sentFrames)).toEqual([
       expect.objectContaining({
         payload: expect.objectContaining({
@@ -4777,13 +4505,18 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("requests the published release through a real heartbeat frame", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     sendAutomaticUpdateRegisterFrame(harness, false);
     await Promise.all(harness.waitUntilTasks);
     const firstWaitUntilTaskIndex = harness.waitUntilTasks.length;
 
     sendAutomaticUpdateHeartbeatFrame(harness);
 
+    await vi.waitFor(() =>
+      expect(getAutomaticUpdateRequestFrames(harness.sentFrames)).toHaveLength(
+        1
+      )
+    );
     expect(getAutomaticUpdateRequestFrames(harness.sentFrames)).toEqual([
       expect.objectContaining({
         payload: expect.objectContaining({
@@ -4801,7 +4534,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("coalesces the heartbeat after register reaches the published release", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     const firstWaitUntilTaskIndex = harness.waitUntilTasks.length;
     sendAutomaticUpdateRegisterFrame(harness);
     await completeLatestAutomaticUpdateRequest({
@@ -4878,7 +4611,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("verifies exact owner, controller conversation, task, and destination before offering controller resume", async () => {
-    const { hub, sentFrames, socket, state } = createHarness();
+    const { hub, sentFrames, socket, state } = await createHarness();
     configureCompatibleRoute({ socket, state });
     const session = state.sessionsById.get("daemon-session-1");
     if (!session) {
@@ -4985,7 +4718,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("round-trips Computer file access only through a capable exact session", async () => {
-    const { hub, sentFrames, socket, state } = createHarness();
+    const { hub, sentFrames, socket, state } = await createHarness();
     configureCompatibleRoute({ socket, state });
     const session = state.sessionsById.get("daemon-session-1");
     if (!session) {
@@ -5056,7 +4789,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("does not send Computer file access to a Service without the capability", async () => {
-    const { hub, sentFrames, socket, state } = createHarness();
+    const { hub, sentFrames, socket, state } = await createHarness();
     configureCompatibleRoute({ socket, state });
 
     const response = await fetchRuntimeTransportJson(
@@ -5089,7 +4822,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("round-trips Local Folder Picker only through a capable exact session", async () => {
-    const { hub, sentFrames, socket, state } = createHarness();
+    const { hub, sentFrames, socket, state } = await createHarness();
     configureCompatibleRoute({ socket, state });
     const session = state.sessionsById.get("daemon-session-1");
     if (!session) {
@@ -5162,7 +4895,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("does not open Local Folder Picker through an older Service", async () => {
-    const { hub, sentFrames, socket, state } = createHarness();
+    const { hub, sentFrames, socket, state } = await createHarness();
     configureCompatibleRoute({ socket, state });
 
     const response = await fetchRuntimeTransportJson(
@@ -5199,7 +4932,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("returns service_offline when no current-device Project session exists", async () => {
-    const { hub } = createHarness();
+    const { hub } = await createHarness();
     const response = await fetchRuntimeTransportJson(
       hub,
       "/local-project-control/discover-projects",
@@ -5227,7 +4960,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   it("returns 504 when a current-device Project operation times out", async () => {
     vi.useFakeTimers();
     try {
-      const { hub, socket, state } = createHarness();
+      const { hub, socket, state } = await createHarness();
       configureCompatibleRoute({ socket, state });
       const session = state.sessionsById.get("daemon-session-1");
       if (!session) {
@@ -5282,7 +5015,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     true,
     false,
   ])("negotiates Project fast reads with Service support %s and rejects malformed results", async (readConnections) => {
-    const { hub, sentFrames, socket, state } = createHarness();
+    const { hub, sentFrames, socket, state } = await createHarness();
     configureCompatibleRoute({ socket, state });
     const session = state.sessionsById.get("daemon-session-1");
     if (!session) {
@@ -5364,7 +5097,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("returns invalid_response when a Project operation receives the wrong result code", async () => {
-    const { hub, sentFrames, socket, state } = createHarness();
+    const { hub, sentFrames, socket, state } = await createHarness();
     configureCompatibleRoute({ socket, state });
     const session = state.sessionsById.get("daemon-session-1");
     if (!session) {
@@ -5466,7 +5199,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ] as const;
 
     for (const request of requests) {
-      const { hub } = createHarness();
+      const { hub } = await createHarness();
       const syncHousekeepingAlarm = vi.fn(() =>
         Promise.reject(
           new Error("lookup fast paths must not sync housekeeping")
@@ -5511,7 +5244,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     const nowMs = 1_700_000_000_000;
     const dateNow = vi.spyOn(Date, "now").mockReturnValue(nowMs);
     try {
-      const { hub, storageSetAlarm } = createHarness();
+      const { hub, storageSetAlarm } = await createHarness();
       const finalizationPhase = vi.fn(() =>
         Promise.reject(new Error("forced phase failure"))
       );
@@ -5541,7 +5274,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     const nowMs = 1_700_000_000_000;
     const dateNow = vi.spyOn(Date, "now").mockReturnValue(nowMs);
     try {
-      const { hub, storageSetAlarm } = createHarness();
+      const { hub, storageSetAlarm } = await createHarness();
       const reserveWorkUnit = (
         hub as unknown as {
           reserveHousekeepingAlarmWorkUnit: (
@@ -5584,7 +5317,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     const nowMs = 1_700_000_000_000;
     const dateNow = vi.spyOn(Date, "now").mockReturnValue(nowMs);
     try {
-      const { hub, storageSetAlarm } = createHarness();
+      const { hub, storageSetAlarm } = await createHarness();
       const order: string[] = [];
       const phaseNames = [
         "processRuntimeCoordinatorFinalizationRetryAlarm",
@@ -5635,8 +5368,14 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("issues and stores an execution token before sending an accepted delivery to the daemon", async () => {
-    const { hub, recordingD1, sentFrames, socket, state, storageRecords } =
-      createHarness();
+    const {
+      hub,
+      recordingPostgres,
+      sentFrames,
+      socket,
+      state,
+      storageRecords,
+    } = await createHarness();
     state.pendingDispatches.clear();
     state.ownerUserId = "owner-1";
     state.sessionsById.set("daemon-session-1", {
@@ -5713,7 +5452,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
       TOKEN_VALIDATION_HASH_PATTERN
     );
 
-    const eventPayloads = getRuntimeCoordinatorEventCalls(recordingD1.calls)
+    const eventPayloads = getRuntimeCoordinatorEventCalls(
+      recordingPostgres.calls
+    )
       .map((call) => String(call.params[7] ?? ""))
       .join("\n");
     expect(eventPayloads).toContain(String(executionToken?.tokenFingerprint));
@@ -5724,7 +5465,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("accepts one target Wake head and keeps later dispatches diagnostic-only", async () => {
-    const { hub, storageRecords } = createHarness();
+    const { hub, storageRecords } = await createHarness();
     const firstResponse = await fetchRuntimeTransportJson(
       hub,
       "/runtime-coordinator/head/accept",
@@ -5782,7 +5523,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("queues distinct Wake lifecycles for one Agent Profile while another Profile starts immediately", async () => {
-    const { hub } = createHarness();
+    const { hub } = await createHarness();
     const publishAgentReadinessInvalidated = vi.fn();
     (
       hub as unknown as {
@@ -5904,11 +5645,11 @@ describe("runtime transport runtime coordinator transport contract", () => {
     const {
       appliedFailurePublicationCommands,
       hub,
-      recordingD1,
+      recordingPostgres,
       socket,
       state,
       storageRecords,
-    } = createHarness();
+    } = await createHarness();
     configureCompatibleRoute({ socket, state });
     const firstSnapshot = buildAcceptedDispatchSnapshot({ fingerprint: "a" });
     await expect(
@@ -6056,7 +5797,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       status: "conflict",
     });
 
-    recordingD1.calls.length = 0;
+    recordingPostgres.calls.length = 0;
     const noExecutionResponse = await fetchRuntimeTransportJson(
       hub,
       "/runtime-coordinator/head/no-execution",
@@ -6100,7 +5841,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
           RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE,
       })
     );
-    expect(getReadinessImpactWriteCalls(recordingD1.calls)).toHaveLength(0);
+    expect(getReadinessImpactWriteCalls(recordingPostgres.calls)).toHaveLength(
+      0
+    );
   });
 
   it("keeps authority v1 rollback-compatible and compares the fingerprint sidecar on terminal replay", async () => {
@@ -6111,7 +5854,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       socket,
       state,
       storageRecords,
-    } = createHarness();
+    } = await createHarness();
     configureCompatibleRoute({ socket, state });
     const originalSnapshot = buildAcceptedDispatchSnapshot({
       fingerprint: "a",
@@ -6266,7 +6009,8 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("safely dedupes a legacy terminal replay without claiming the Wake details changed", async () => {
-    const { hub, sentFrames, socket, state, storageRecords } = createHarness();
+    const { hub, sentFrames, socket, state, storageRecords } =
+      await createHarness();
     configureCompatibleRoute({ socket, state });
     const acceptRequest = buildRuntimeCoordinatorHeadAcceptRequest({
       acceptedDispatchSnapshot: buildAcceptedDispatchSnapshot({
@@ -6388,7 +6132,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       socket,
       state,
       waitUntilTasks,
-    } = createHarness({
+    } = await createHarness({
       dispatchFactsByDispatchId: new Map(
         wakes.map((wake) => [
           wake.dispatchId,
@@ -6598,7 +6342,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("keeps an old Core caller from reaccepting a head that owns an accepted snapshot", async () => {
-    const { hub } = createHarness();
+    const { hub } = await createHarness();
     const acceptedSnapshot = buildAcceptedDispatchSnapshot({
       fingerprint: "a",
     });
@@ -6634,7 +6378,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("keeps a new Core caller from upgrading a legacy head that may already be executing", async () => {
-    const { hub } = createHarness();
+    const { hub } = await createHarness();
     await expect(
       (
         await fetchRuntimeTransportJson(
@@ -6668,7 +6412,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("atomically upgrades a queued legacy head before a new Core caller can use it", async () => {
-    const { hub } = createHarness();
+    const { hub } = await createHarness();
     await expect(
       (
         await fetchRuntimeTransportJson(
@@ -6728,7 +6472,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("atomically upgrades a promoted legacy head from its exact pending promotion", async () => {
-    const { hub, socket, state, storageRecords } = createHarness();
+    const { hub, socket, state, storageRecords } = await createHarness();
     configureCompatibleRoute({ socket, state });
     await acceptDefaultRuntimeCoordinatorHead(hub);
     const deliveryResponse = await (
@@ -6843,7 +6587,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
 
   it("preserves the running Wake and FIFO queue across an execution-index generation repair", async () => {
     const { hub, socket, spaceFetchRequests, state, storageRecords } =
-      createHarness();
+      await createHarness();
     configureCompatibleRoute({ socket, state });
     await acceptDefaultRuntimeCoordinatorHead(hub);
     const deliveryResponse = await (
@@ -7006,7 +6750,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
 
   it("drops retired queue entries so a new Wake is not queued behind work that can never run", async () => {
     const { hub, socket, spaceFetchRequests, state, storageRecords } =
-      createHarness();
+      await createHarness();
     configureCompatibleRoute({ socket, state });
     await acceptDefaultRuntimeCoordinatorHead(hub);
 
@@ -7151,7 +6895,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("keeps a running Wake's reservation when its execution authority cannot be read", async () => {
-    const { hub, socket, state, storageRecords } = createHarness();
+    const { hub, socket, state, storageRecords } = await createHarness();
     configureCompatibleRoute({ socket, state });
     await acceptDefaultRuntimeCoordinatorHead(hub);
     const deliveryResponse = await (
@@ -7210,7 +6954,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
 
   it("promotes the FIFO successor when completion lands during an execution-index generation repair", async () => {
     const { hub, socket, spaceFetchRequests, state, storageRecords } =
-      createHarness();
+      await createHarness();
     configureCompatibleRoute({ socket, state });
     await acceptDefaultRuntimeCoordinatorHead(hub);
     const deliveryResponse = await (
@@ -7288,7 +7032,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ["cancelled", "runtime_coordinator.wake_stop_local_control_accepted"],
   ] as const)("atomically promotes and immediately redrives the FIFO successor after a running Wake becomes %s", async (terminalStatus, reasonCode) => {
     const { hub, spaceFetchRequests, socket, state, storageRecords } =
-      createHarness();
+      await createHarness();
     configureCompatibleRoute({ socket, state });
     await acceptDefaultRuntimeCoordinatorHead(hub);
     const deliveryResponse = await (
@@ -7405,12 +7149,12 @@ describe("runtime transport runtime coordinator transport contract", () => {
   ] as const)("orders Usage continuation and Default Project writes when %s", async (_caseName, saveFutureSettings, expectedOutcome) => {
     const {
       hub,
-      recordingD1,
+      recordingPostgres,
       spaceFetchRequests,
       socket,
       state,
       storageRecords,
-    } = createHarness({
+    } = await createHarness({
       agentProfileRow: {
         managed_role: null,
         organization_id: "org-one",
@@ -7653,7 +7397,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
       continuationProfileIds: [TARGET_AGENT_PROFILE_ID],
       status: "updated",
     });
-    expect([...recordingD1.interactionInboxRows.values()]).toEqual([]);
+    expect([
+      ...(await recordingPostgres.interactionInboxRows.values()),
+    ]).toEqual([]);
     await expect(
       recoveryHub.rpcAuthorizeAgentProfileWorkContinuation({
         continuationClientMessageId: "client-message-usage-continuation",
@@ -7847,13 +7593,13 @@ describe("runtime transport runtime coordinator transport contract", () => {
   it("projects and resolves the queued-work approval from Coordinator truth", async () => {
     const {
       hub,
-      recordingD1,
+      recordingPostgres,
       sentFrames,
       socket,
       state,
       storageRecords,
       storageSetAlarm,
-    } = createHarness();
+    } = await createHarness();
     const { admissionKey, authority } =
       await prepareRunningContinuationWithQueuedWork({
         hub,
@@ -7887,7 +7633,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
         expect.objectContaining({ dispatchId: "dispatch-owner-approval" }),
       ],
     });
-    expect([...recordingD1.interactionInboxRows.values()]).toEqual([]);
+    expect([
+      ...(await recordingPostgres.interactionInboxRows.values()),
+    ]).toEqual([]);
     await (
       hub as unknown as {
         rpcReadAgentProfileOperationalContexts: (input: {
@@ -7901,9 +7649,13 @@ describe("runtime transport runtime coordinator transport contract", () => {
       ownerUserId: "owner-1",
       targetProfileIds: [TARGET_AGENT_PROFILE_ID],
     });
-    expect([...recordingD1.interactionInboxRows.values()]).toEqual([]);
+    expect([
+      ...(await recordingPostgres.interactionInboxRows.values()),
+    ]).toEqual([]);
     await (hub as unknown as { alarm: () => Promise<void> }).alarm();
-    expect([...recordingD1.interactionInboxRows.values()]).toEqual([
+    expect([
+      ...(await recordingPostgres.interactionInboxRows.values()),
+    ]).toEqual([
       expect.objectContaining({
         attention: "action_required",
         context_label: "Codex Agent",
@@ -7918,16 +7670,24 @@ describe("runtime transport runtime coordinator transport contract", () => {
     expect(
       JSON.parse(
         String(
-          [...recordingD1.interactionInboxRows.values()][0]?.source_target_json
+          [...(await recordingPostgres.interactionInboxRows.values())][0]
+            ?.source_target_json
         )
       )
     ).toEqual({
       kind: "agent_profile",
       profileId: TARGET_AGENT_PROFILE_ID,
     });
-    const projectedApproval = [...recordingD1.interactionInboxRows.values()][0];
-    recordingD1.interactionInboxRows.set("unrelated-recovery", {
-      ...projectedApproval,
+    const projectedApproval = [
+      ...(await recordingPostgres.interactionInboxRows.values()),
+    ][0];
+    if (!projectedApproval) {
+      throw new Error("Expected the persisted queued-work approval");
+    }
+    const { sequence: _databaseSequence, ...approvalContent } =
+      projectedApproval;
+    await recordingPostgres.interactionInboxRows.set("unrelated-recovery", {
+      ...approvalContent,
       id: "unrelated-recovery",
       source_key: "unrelated-recovery",
     });
@@ -7952,31 +7712,31 @@ describe("runtime transport runtime coordinator transport contract", () => {
       })
     ).resolves.toEqual({ status: "approved" });
     expect(
-      [...recordingD1.interactionInboxRows.values()].find(
+      [...(await recordingPostgres.interactionInboxRows.values())].find(
         (row) => row.source_key === projectedApproval?.source_key
       )
     ).toMatchObject({ resolution_status: "open" });
     await (hub as unknown as { alarm: () => Promise<void> }).alarm();
     expect(
-      [...recordingD1.interactionInboxRows.values()].find(
+      [...(await recordingPostgres.interactionInboxRows.values())].find(
         (row) => row.source_key === projectedApproval?.source_key
       )
     ).toMatchObject({ resolution_status: "resolved" });
     expect(
-      recordingD1.interactionInboxRows.get("unrelated-recovery")
+      await recordingPostgres.interactionInboxRows.get("unrelated-recovery")
     ).toMatchObject({ resolution_status: "open" });
   });
 
   it("projects one interrupted-work review and promotes queued work only after the owner skips", async () => {
     const {
       hub,
-      recordingD1,
+      recordingPostgres,
       sentFrames,
       socket,
       spaceFetchRequests,
       state,
       storageRecords,
-    } = createHarness();
+    } = await createHarness();
     const { admissionKey, queuedIdentity } =
       await prepareRunningContinuationWithQueuedWork({
         hub,
@@ -8069,7 +7829,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
     });
 
     await (hub as unknown as { alarm: () => Promise<void> }).alarm();
-    const reviewRows = [...recordingD1.interactionInboxRows.values()];
+    const reviewRows = [
+      ...(await recordingPostgres.interactionInboxRows.values()),
+    ];
     expect(reviewRows).toEqual([
       expect.objectContaining({
         resolution_status: "open",
@@ -8082,7 +7844,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       spaceId: HEX_SPACE_ID,
     });
     await (hub as unknown as { alarm: () => Promise<void> }).alarm();
-    expect(recordingD1.interactionInboxRows.size).toBe(1);
+    expect(await recordingPostgres.interactionInboxRows.size()).toBe(1);
 
     await expect(
       recoveryHub.rpcSkipAgentProfileInterruptedWork(skipRequest)
@@ -8107,9 +7869,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
     });
 
     await (hub as unknown as { alarm: () => Promise<void> }).alarm();
-    expect([...recordingD1.interactionInboxRows.values()]).toEqual([
-      expect.objectContaining({ resolution_status: "resolved" }),
-    ]);
+    expect([
+      ...(await recordingPostgres.interactionInboxRows.values()),
+    ]).toEqual([expect.objectContaining({ resolution_status: "resolved" })]);
   });
 
   it("offers one occupancy decision and closes it whichever way the owner answers", async () => {
@@ -8172,7 +7934,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       };
     };
 
-    const forked = createHarness();
+    const forked = await createHarness();
     const forkedPrepared = await prepareRunningContinuationWithQueuedWork({
       hub: forked.hub,
       profileConfigurationRevision: 1,
@@ -8217,7 +7979,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
       status: "available",
     });
     await (forked.hub as unknown as { alarm: () => Promise<void> }).alarm();
-    expect([...forked.recordingD1.interactionInboxRows.values()]).toEqual([
+    expect([
+      ...(await forked.recordingPostgres.interactionInboxRows.values()),
+    ]).toEqual([
       expect.objectContaining({
         resolution_status: "open",
         title: "Choose how to continue work for Codex Agent",
@@ -8273,11 +8037,11 @@ describe("runtime transport runtime coordinator transport contract", () => {
       },
     });
     await (forked.hub as unknown as { alarm: () => Promise<void> }).alarm();
-    expect([...forked.recordingD1.interactionInboxRows.values()]).toEqual([
-      expect.objectContaining({ resolution_status: "resolved" }),
-    ]);
+    expect([
+      ...(await forked.recordingPostgres.interactionInboxRows.values()),
+    ]).toEqual([expect.objectContaining({ resolution_status: "resolved" })]);
 
-    const skipped = createHarness();
+    const skipped = await createHarness();
     const skippedPrepared = await prepareRunningContinuationWithQueuedWork({
       hub: skipped.hub,
       queuedWorkName: "occupancy-skip-successor",
@@ -8299,9 +8063,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
       }) => Promise<unknown>;
     };
     await (skipped.hub as unknown as { alarm: () => Promise<void> }).alarm();
-    expect([...skipped.recordingD1.interactionInboxRows.values()]).toEqual([
-      expect.objectContaining({ resolution_status: "open" }),
-    ]);
+    expect([
+      ...(await skipped.recordingPostgres.interactionInboxRows.values()),
+    ]).toEqual([expect.objectContaining({ resolution_status: "open" })]);
 
     await expect(
       skippedHub.rpcSkipAgentProfileInterruptedWork({
@@ -8317,9 +8081,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
     await (skipped.hub as unknown as { alarm: () => Promise<void> }).alarm();
     // The resolve has to name the stage the open item was written under, or
     // skipping leaves the owner's decision sitting in the Inbox.
-    expect([...skipped.recordingD1.interactionInboxRows.values()]).toEqual([
-      expect.objectContaining({ resolution_status: "resolved" }),
-    ]);
+    expect([
+      ...(await skipped.recordingPostgres.interactionInboxRows.values()),
+    ]).toEqual([expect.objectContaining({ resolution_status: "resolved" })]);
     expect(
       skipped.storageRecords.get(
         buildRuntimeCoordinatorHeadLifecycleStorageKey(
@@ -8331,7 +8095,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     // A branch cannot be taken off a conversation the current execution target
     // does not own, so the decision has to become attention rather than answer
     // that nothing is pending.
-    const moved = createHarness();
+    const moved = await createHarness();
     const movedPrepared = await prepareRunningContinuationWithQueuedWork({
       hub: moved.hub,
       profileConfigurationRevision: 1,
@@ -8349,7 +8113,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
     // The decision has to be in the Inbox before the owner takes it, or nothing
     // proves the stage it left gets closed.
     await (moved.hub as unknown as { alarm: () => Promise<void> }).alarm();
-    expect([...moved.recordingD1.interactionInboxRows.values()]).toEqual([
+    expect([
+      ...(await moved.recordingPostgres.interactionInboxRows.values()),
+    ]).toEqual([
       expect.objectContaining({
         resolution_status: "open",
         title: "Choose how to continue work for Codex Agent",
@@ -8390,7 +8156,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
     // One intent slot per profile means the review item has to carry the close
     // of the occupancy stage; two intents would overwrite each other and leave
     // the owner two open items for one Wake.
-    const movedRows = [...moved.recordingD1.interactionInboxRows.values()];
+    const movedRows = [
+      ...(await moved.recordingPostgres.interactionInboxRows.values()),
+    ];
     expect(movedRows).toHaveLength(2);
     expect(movedRows).toEqual(
       expect.arrayContaining([
@@ -8487,7 +8255,8 @@ describe("runtime transport runtime coordinator transport contract", () => {
     };
 
   it("hands the occupied reservation to the successor Wake and answers a replay without moving it again", async () => {
-    const { hub, sentFrames, socket, state, storageRecords } = createHarness();
+    const { hub, sentFrames, socket, state, storageRecords } =
+      await createHarness();
     const {
       admissionKey,
       sourceTargetWakeLifecycleId,
@@ -8531,7 +8300,8 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("refuses a successor Wake this owner and Profile do not actually have", async () => {
-    const { hub, sentFrames, socket, state, storageRecords } = createHarness();
+    const { hub, sentFrames, socket, state, storageRecords } =
+      await createHarness();
     const { admissionKey, sourceTargetWakeLifecycleId } =
       await prepareOccupiedWorkWithSuccessorWake({
         hub,
@@ -8567,7 +8337,8 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("refuses to hand off work that is not blocked on the occupied conversation", async () => {
-    const { hub, sentFrames, socket, state, storageRecords } = createHarness();
+    const { hub, sentFrames, socket, state, storageRecords } =
+      await createHarness();
     const {
       admissionKey,
       sourceTargetWakeLifecycleId,
@@ -8604,7 +8375,8 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("does not let a stale Skip action clear a later interrupted-work gate", async () => {
-    const { hub, sentFrames, socket, state, storageRecords } = createHarness();
+    const { hub, sentFrames, socket, state, storageRecords } =
+      await createHarness();
     const { admissionKey } = await prepareRunningContinuationWithQueuedWork({
       hub,
       queuedWorkName: "stale-skip-successor",
@@ -8660,7 +8432,8 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("does not let a delayed failure mark a later interrupted-work gate", async () => {
-    const { hub, sentFrames, socket, state, storageRecords } = createHarness();
+    const { hub, sentFrames, socket, state, storageRecords } =
+      await createHarness();
     const { admissionKey } = await prepareRunningContinuationWithQueuedWork({
       hub,
       queuedWorkName: "stale-needs-attention-successor",
@@ -8723,7 +8496,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       spaceFetchRequests,
       state,
       storageRecords,
-    } = createHarness();
+    } = await createHarness();
     const { admissionKey } = await prepareRunningContinuationWithQueuedWork({
       hub,
       queuedWorkName: "future-settings-successor",
@@ -8803,7 +8576,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       spaceFetchRequests,
       state,
       storageRecords,
-    } = createHarness();
+    } = await createHarness();
     await issueDeliveryToken({
       hub,
       profileConfigurationRevision: 1,
@@ -8971,7 +8744,8 @@ describe("runtime transport runtime coordinator transport contract", () => {
     currentDefaultProjectId,
     label,
   }) => {
-    const { hub, sentFrames, socket, state, storageRecords } = createHarness();
+    const { hub, sentFrames, socket, state, storageRecords } =
+      await createHarness();
     const publishAgentReadinessInvalidated = vi.fn();
     (
       hub as unknown as {
@@ -9063,8 +8837,14 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("keeps a stopped Usage continuation terminal and holds queued work for owner approval", async () => {
-    const { hub, recordingD1, sentFrames, socket, state, storageRecords } =
-      createHarness();
+    const {
+      hub,
+      recordingPostgres,
+      sentFrames,
+      socket,
+      state,
+      storageRecords,
+    } = await createHarness();
     const { admissionKey, authority } =
       await prepareRunningContinuationWithQueuedWork({
         hub,
@@ -9118,7 +8898,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
     });
 
     await (hub as unknown as { alarm: () => Promise<void> }).alarm();
-    expect([...recordingD1.interactionInboxRows.values()]).toEqual([
+    expect([
+      ...(await recordingPostgres.interactionInboxRows.values()),
+    ]).toEqual([
       expect.objectContaining({
         attention: "action_required",
         resolution_status: "open",
@@ -9134,7 +8916,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         profileName: "Current Auth Agent",
       })
     );
-    const { hub, recordingD1, storageRecords } = createHarness({
+    const { hub, recordingPostgres, storageRecords } = await createHarness({
       agentProfileRow: {
         managed_role: null,
         organization_id: "org-stale",
@@ -9144,6 +8926,27 @@ describe("runtime transport runtime coordinator transport contract", () => {
       },
       authResolveProfileById,
     });
+    await recordingPostgres.fixture.writeRow(
+      "organizations",
+      {
+        id: "org-auth",
+        name: "Auth Organization",
+        slug: "org-auth",
+        created_at: 1_700_000_000_000,
+      },
+      ["id"]
+    );
+    await recordingPostgres.fixture.writeRow(
+      "members",
+      {
+        id: "member-owner-auth",
+        organization_id: "org-auth",
+        user_id: "owner-1",
+        role: "owner",
+        created_at: 1_700_000_000_000,
+      },
+      ["id"]
+    );
     await acceptDefaultRuntimeCoordinatorHead(hub);
     const identity =
       buildRuntimeCoordinatorHeadAcceptRequest().targetWakeLifecycleIdentity;
@@ -9163,7 +8966,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
 
     await (hub as unknown as { alarm: () => Promise<void> }).alarm();
 
-    expect([...recordingD1.interactionInboxRows.values()]).toEqual([
+    expect([
+      ...(await recordingPostgres.interactionInboxRows.values()),
+    ]).toEqual([
       expect.objectContaining({
         context_label: "Current Auth Agent",
         organization_id: "org-auth",
@@ -9176,7 +8981,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       openMeldProfileId: TARGET_AGENT_PROFILE_ID,
     });
     expect(
-      recordingD1.calls.some((call) =>
+      recordingPostgres.calls.some((call) =>
         call.query.includes("FROM openmeld_profiles")
       )
     ).toBe(false);
@@ -9208,7 +9013,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   ])("defers recovery Inbox projection for $scenario", async ({
     authResult,
   }) => {
-    const { hub, recordingD1, storageRecords } = createHarness({
+    const { hub, recordingPostgres, storageRecords } = await createHarness({
       authResolveProfileById: vi.fn(async () => authResult),
     });
     await acceptDefaultRuntimeCoordinatorHead(hub);
@@ -9230,7 +9035,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
 
     await (hub as unknown as { alarm: () => Promise<void> }).alarm();
 
-    expect(recordingD1.interactionInboxRows.size).toBe(0);
+    expect(await recordingPostgres.interactionInboxRows.size()).toBe(0);
     expect(
       [...storageRecords.values()].filter((value) =>
         parseAgentProfileWorkRecoveryInboxProjectionIntent(value)
@@ -9243,7 +9048,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       .fn<ResolveProfileByIdRpc>()
       .mockRejectedValueOnce(new Error("Auth temporarily unavailable"))
       .mockResolvedValue(buildResolvedAgentProfileAuthScope());
-    const { hub, recordingD1, storageRecords } = createHarness({
+    const { hub, recordingPostgres, storageRecords } = await createHarness({
       authResolveProfileById,
     });
     await acceptDefaultRuntimeCoordinatorHead(hub);
@@ -9264,7 +9069,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     );
 
     await (hub as unknown as { alarm: () => Promise<void> }).alarm();
-    expect(recordingD1.interactionInboxRows.size).toBe(0);
+    expect(await recordingPostgres.interactionInboxRows.size()).toBe(0);
     expect(
       [...storageRecords.values()].filter((value) =>
         parseAgentProfileWorkRecoveryInboxProjectionIntent(value)
@@ -9274,7 +9079,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     await (hub as unknown as { alarm: () => Promise<void> }).alarm();
     await (hub as unknown as { alarm: () => Promise<void> }).alarm();
 
-    expect(recordingD1.interactionInboxRows.size).toBe(1);
+    expect(await recordingPostgres.interactionInboxRows.size()).toBe(1);
     expect(
       [...storageRecords.values()].filter((value) =>
         parseAgentProfileWorkRecoveryInboxProjectionIntent(value)
@@ -9284,7 +9089,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("bounds recovery Inbox projection work per housekeeping alarm", async () => {
-    const { hub, recordingD1, storageRecords } = createHarness();
+    const { hub, recordingPostgres, storageRecords } = await createHarness();
     await acceptDefaultRuntimeCoordinatorHead(hub);
     const baseIdentity =
       buildRuntimeCoordinatorHeadAcceptRequest().targetWakeLifecycleIdentity;
@@ -9338,20 +9143,20 @@ describe("runtime transport runtime coordinator transport contract", () => {
     }
 
     await (hub as unknown as { alarm: () => Promise<void> }).alarm();
-    expect(recordingD1.interactionInboxRows.size).toBe(8);
+    expect(await recordingPostgres.interactionInboxRows.size()).toBe(8);
     expect(
       projectionKeys.filter((key) => storageRecords.has(key))
     ).toHaveLength(1);
 
     await (hub as unknown as { alarm: () => Promise<void> }).alarm();
-    expect(recordingD1.interactionInboxRows.size).toBe(9);
+    expect(await recordingPostgres.interactionInboxRows.size()).toBe(9);
     expect(
       projectionKeys.filter((key) => storageRecords.has(key))
     ).toHaveLength(0);
   });
 
   it("parks broken recovery projections without starving later Inbox work", async () => {
-    const { hub, recordingD1, storageRecords } = createHarness();
+    const { hub, recordingPostgres, storageRecords } = await createHarness();
     await acceptDefaultRuntimeCoordinatorHead(hub);
     const baseIdentity =
       buildRuntimeCoordinatorHeadAcceptRequest().targetWakeLifecycleIdentity;
@@ -9409,7 +9214,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     for (let attempt = 0; attempt < 3; attempt += 1) {
       await (hub as unknown as { alarm: () => Promise<void> }).alarm();
     }
-    expect(recordingD1.interactionInboxRows.size).toBe(0);
+    expect(await recordingPostgres.interactionInboxRows.size()).toBe(0);
     expect(
       [...storageRecords.values()].filter((value) =>
         parseAgentProfileWorkRecoveryInboxProjectionIntent(value)
@@ -9417,7 +9222,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ).toHaveLength(9);
 
     await (hub as unknown as { alarm: () => Promise<void> }).alarm();
-    expect(recordingD1.interactionInboxRows.size).toBe(1);
+    expect(await recordingPostgres.interactionInboxRows.size()).toBe(1);
     expect(
       [...storageRecords.values()].filter((value) =>
         parseAgentProfileWorkRecoveryInboxProjectionIntent(value)
@@ -9426,9 +9231,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("retries a parked recovery Inbox projection after transient failures", async () => {
-    vi.useFakeTimers({ now: 1_700_000_000_000 });
+    vi.useFakeTimers({ now: 1_700_000_000_000, toFake: ["Date"] });
     try {
-      const { hub, recordingD1, storageRecords } = createHarness({
+      const { hub, recordingPostgres, storageRecords } = await createHarness({
         interactionInboxWriteFailures: 3,
       });
       await acceptDefaultRuntimeCoordinatorHead(hub);
@@ -9451,7 +9256,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       for (let attempt = 0; attempt < 3; attempt += 1) {
         await (hub as unknown as { alarm: () => Promise<void> }).alarm();
       }
-      expect(recordingD1.interactionInboxRows.size).toBe(0);
+      expect(await recordingPostgres.interactionInboxRows.size()).toBe(0);
       expect(
         [...storageRecords.values()].filter((value) =>
           parseAgentProfileWorkRecoveryInboxProjectionIntent(value)
@@ -9468,7 +9273,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
       vi.setSystemTime(1_700_000_060_001);
       await (hub as unknown as { alarm: () => Promise<void> }).alarm();
 
-      expect([...recordingD1.interactionInboxRows.values()]).toEqual([
+      expect([
+        ...(await recordingPostgres.interactionInboxRows.values()),
+      ]).toEqual([
         expect.objectContaining({
           resolution_status: "open",
           source_kind: "agent_profile_work_recovery",
@@ -9492,10 +9299,16 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("eventually resolves parked recovery Inbox work and retires its old head", async () => {
-    vi.useFakeTimers({ now: 1_700_000_000_000 });
+    vi.useFakeTimers({ now: 1_700_000_000_000, toFake: ["Date"] });
     try {
-      const { hub, recordingD1, sentFrames, socket, state, storageRecords } =
-        createHarness({ interactionInboxResolveFailures: 3 });
+      const {
+        hub,
+        recordingPostgres,
+        sentFrames,
+        socket,
+        state,
+        storageRecords,
+      } = await createHarness({ interactionInboxResolveFailures: 3 });
       const { admissionKey, authority } =
         await prepareRunningContinuationWithQueuedWork({
           hub,
@@ -9530,9 +9343,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
       );
 
       await (hub as unknown as { alarm: () => Promise<void> }).alarm();
-      expect([...recordingD1.interactionInboxRows.values()]).toEqual([
-        expect.objectContaining({ resolution_status: "open" }),
-      ]);
+      expect([
+        ...(await recordingPostgres.interactionInboxRows.values()),
+      ]).toEqual([expect.objectContaining({ resolution_status: "open" })]);
 
       await expect(
         (
@@ -9557,9 +9370,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
       for (let attempt = 0; attempt < 3; attempt += 1) {
         await (hub as unknown as { alarm: () => Promise<void> }).alarm();
       }
-      expect([...recordingD1.interactionInboxRows.values()]).toEqual([
-        expect.objectContaining({ resolution_status: "open" }),
-      ]);
+      expect([
+        ...(await recordingPostgres.interactionInboxRows.values()),
+      ]).toEqual([expect.objectContaining({ resolution_status: "open" })]);
       expect(storageRecords.has(interruptedHeadKey)).toBe(true);
       expect(
         [...storageRecords.values()].filter((value) =>
@@ -9570,9 +9383,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
       vi.setSystemTime(1_700_000_060_001);
       await (hub as unknown as { alarm: () => Promise<void> }).alarm();
 
-      expect([...recordingD1.interactionInboxRows.values()]).toEqual([
-        expect.objectContaining({ resolution_status: "resolved" }),
-      ]);
+      expect([
+        ...(await recordingPostgres.interactionInboxRows.values()),
+      ]).toEqual([expect.objectContaining({ resolution_status: "resolved" })]);
       expect(storageRecords.has(interruptedHeadKey)).toBe(false);
       expect(
         [...storageRecords.values()].filter((value) =>
@@ -9594,13 +9407,13 @@ describe("runtime transport runtime coordinator transport contract", () => {
   it("repairs queued-work Inbox projection without rolling back Coordinator truth", async () => {
     const {
       hub,
-      recordingD1,
+      recordingPostgres,
       sentFrames,
       socket,
       state,
       storageRecords,
       storageDelete,
-    } = createHarness({
+    } = await createHarness({
       interactionInboxResolveFailures: 1,
       interactionInboxWriteFailures: 1,
     });
@@ -9634,15 +9447,19 @@ describe("runtime transport runtime coordinator transport contract", () => {
     expect(storageRecords.get(admissionKey)).toMatchObject({
       recoveryGate: { status: "awaiting_owner_approval" },
     });
-    expect([...recordingD1.interactionInboxRows.values()]).toEqual([]);
+    expect([
+      ...(await recordingPostgres.interactionInboxRows.values()),
+    ]).toEqual([]);
 
     await (hub as unknown as { alarm: () => Promise<void> }).alarm();
-    expect([...recordingD1.interactionInboxRows.values()]).toEqual([]);
+    expect([
+      ...(await recordingPostgres.interactionInboxRows.values()),
+    ]).toEqual([]);
 
     await (hub as unknown as { alarm: () => Promise<void> }).alarm();
-    expect([...recordingD1.interactionInboxRows.values()]).toEqual([
-      expect.objectContaining({ resolution_status: "open" }),
-    ]);
+    expect([
+      ...(await recordingPostgres.interactionInboxRows.values()),
+    ]).toEqual([expect.objectContaining({ resolution_status: "open" })]);
 
     await expect(
       (
@@ -9669,9 +9486,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
         expect.objectContaining({ dispatchId: "dispatch-recovery-retry" }),
       ],
     });
-    expect([...recordingD1.interactionInboxRows.values()]).toEqual([
-      expect.objectContaining({ resolution_status: "open" }),
-    ]);
+    expect([
+      ...(await recordingPostgres.interactionInboxRows.values()),
+    ]).toEqual([expect.objectContaining({ resolution_status: "open" })]);
 
     await expect(
       (
@@ -9686,9 +9503,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
         targetProfileId: TARGET_AGENT_PROFILE_ID,
       })
     ).resolves.toEqual({ status: "active" });
-    expect([...recordingD1.interactionInboxRows.values()]).toEqual([
-      expect.objectContaining({ resolution_status: "open" }),
-    ]);
+    expect([
+      ...(await recordingPostgres.interactionInboxRows.values()),
+    ]).toEqual([expect.objectContaining({ resolution_status: "open" })]);
 
     const recoveryProjectionKey =
       buildAgentProfileWorkRecoveryInboxProjectionStorageKey(
@@ -9701,9 +9518,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
       resolvedIntent.targetWakeLifecycleId
     );
     await (hub as unknown as { alarm: () => Promise<void> }).alarm();
-    expect([...recordingD1.interactionInboxRows.values()]).toEqual([
-      expect.objectContaining({ resolution_status: "open" }),
-    ]);
+    expect([
+      ...(await recordingPostgres.interactionInboxRows.values()),
+    ]).toEqual([expect.objectContaining({ resolution_status: "open" })]);
     expect(storageRecords.has(recoveryProjectionKey)).toBe(true);
     expect(storageRecords.has(interruptedHeadKey)).toBe(true);
 
@@ -9721,9 +9538,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
     });
     await (hub as unknown as { alarm: () => Promise<void> }).alarm();
     expect(rejectedProjectionDelete).toBe(true);
-    expect([...recordingD1.interactionInboxRows.values()]).toEqual([
-      expect.objectContaining({ resolution_status: "resolved" }),
-    ]);
+    expect([
+      ...(await recordingPostgres.interactionInboxRows.values()),
+    ]).toEqual([expect.objectContaining({ resolution_status: "resolved" })]);
     expect(storageRecords.has(recoveryProjectionKey)).toBe(true);
     expect(storageRecords.has(interruptedHeadKey)).toBe(true);
 
@@ -9733,7 +9550,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("approves only the observed recovery and redrives queued work once", async () => {
-    const { hub, spaceFetchRequests, storageRecords } = createHarness();
+    const { hub, spaceFetchRequests, storageRecords } = await createHarness();
     const queuedIdentity = projectTargetWakeLifecycleIdentity({
       clientMessageId: "client-message-recovery-approved",
       dispatchId: "dispatch-recovery-approved",
@@ -9908,7 +9725,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("promotes the next accepted head after no-execution and never pops it again on terminal replay", async () => {
-    const { hub, spaceFetchRequests, storageRecords } = createHarness();
+    const { hub, spaceFetchRequests, storageRecords } = await createHarness();
     const firstIdentity =
       buildRuntimeCoordinatorHeadAcceptRequest().targetWakeLifecycleIdentity;
     const secondIdentity = projectTargetWakeLifecycleIdentity({
@@ -10007,7 +9824,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("removes the inactive Coordinator snapshot after final publication is visible", async () => {
-    const { hub, storageRecords } = createHarness();
+    const { hub, storageRecords } = await createHarness();
     const identity =
       buildRuntimeCoordinatorHeadAcceptRequest().targetWakeLifecycleIdentity;
     const admissionKey =
@@ -10038,7 +9855,8 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("removes the completed execution head and empty Coordinator snapshot", async () => {
-    const { hub, sentFrames, socket, state, storageRecords } = createHarness();
+    const { hub, sentFrames, socket, state, storageRecords } =
+      await createHarness();
     await issueDeliveryToken({ hub, sentFrames, socket, state });
     const authority =
       findRuntimeCoordinatorExecutionTokenAuthorityRecord(storageRecords);
@@ -10082,7 +9900,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("never admits an exact head replay after its execution reached a visible terminal outcome", async () => {
-    const { hub, socket, state, storageRecords } = createHarness();
+    const { hub, socket, state, storageRecords } = await createHarness();
     configureCompatibleRoute({ socket, state });
     const acceptRequest = buildRuntimeCoordinatorHeadAcceptRequest({
       acceptedDispatchSnapshot: buildAcceptedDispatchSnapshot({
@@ -10173,7 +9991,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("retains terminal head current state while final publication still needs repair", async () => {
-    const { hub, spaceStub, storageRecords } = createHarness();
+    const { hub, spaceStub, storageRecords } = await createHarness();
     const identity =
       buildRuntimeCoordinatorHeadAcceptRequest().targetWakeLifecycleIdentity;
     const headKey = buildRuntimeCoordinatorHeadLifecycleStorageKey(
@@ -10206,7 +10024,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("removes a queued Stop without disturbing running work or promoting another queued Wake", async () => {
-    const { hub, spaceFetchRequests, storageRecords } = createHarness();
+    const { hub, spaceFetchRequests, storageRecords } = await createHarness();
     const secondIdentity = projectTargetWakeLifecycleIdentity({
       clientMessageId: "client-message-stop-2",
       dispatchId: "dispatch-stop-2",
@@ -10277,7 +10095,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("settles a pre-link stopped continuation and keeps its successor behind owner approval", async () => {
-    const { hub, spaceFetchRequests, storageRecords } = createHarness();
+    const { hub, spaceFetchRequests, storageRecords } = await createHarness();
     const continuationIdentity =
       buildRuntimeCoordinatorHeadAcceptRequest().targetWakeLifecycleIdentity;
     const successorIdentity = projectTargetWakeLifecycleIdentity({
@@ -10365,7 +10183,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("clears recovery when a pre-link stopped continuation has no successor", async () => {
-    const { hub, storageRecords } = createHarness();
+    const { hub, storageRecords } = await createHarness();
     const continuationIdentity =
       buildRuntimeCoordinatorHeadAcceptRequest().targetWakeLifecycleIdentity;
     await acceptDefaultRuntimeCoordinatorHead(hub);
@@ -10432,7 +10250,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       spaceFetchRequests,
       state,
       storageRecords,
-    } = createHarness();
+    } = await createHarness();
     const { admissionKey, queuedIdentities } =
       await prepareAwaitingOwnerApprovalWorkQueue({
         hub,
@@ -10481,7 +10299,8 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("keeps Q1 paused when Q2 is stopped behind owner approval", async () => {
-    const { hub, sentFrames, socket, state, storageRecords } = createHarness();
+    const { hub, sentFrames, socket, state, storageRecords } =
+      await createHarness();
     const { admissionKey, queuedIdentities } =
       await prepareAwaitingOwnerApprovalWorkQueue({
         hub,
@@ -10522,7 +10341,8 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("clears owner approval and records resolved Inbox intent when its last Q1 is stopped", async () => {
-    const { hub, sentFrames, socket, state, storageRecords } = createHarness();
+    const { hub, sentFrames, socket, state, storageRecords } =
+      await createHarness();
     const { admissionKey, interruptedTargetWakeLifecycleId, queuedIdentities } =
       await prepareAwaitingOwnerApprovalWorkQueue({
         hub,
@@ -10561,7 +10381,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("promotes after the running head is stopped before execution and stays idempotent on replay", async () => {
-    const { hub, spaceFetchRequests, storageRecords } = createHarness();
+    const { hub, spaceFetchRequests, storageRecords } = await createHarness();
     const successorIdentity = projectTargetWakeLifecycleIdentity({
       clientMessageId: "client-message-stopped-successor",
       dispatchId: "dispatch-stopped-successor",
@@ -10614,7 +10434,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   it("starts the promoted head waiting boundary when FIFO ownership transfers", async () => {
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
     try {
-      const { hub, storageRecords } = createHarness();
+      const { hub, storageRecords } = await createHarness();
       const successorIdentity = projectTargetWakeLifecycleIdentity({
         clientMessageId: "client-message-aged-successor",
         dispatchId: "dispatch-aged-successor",
@@ -10679,7 +10499,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     const promotedAtMs = 1_700_000_360_000;
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(createdAtMs);
     try {
-      const { hub, spaceFetchRequests, storageRecords } = createHarness();
+      const { hub, spaceFetchRequests, storageRecords } = await createHarness();
       const successorIdentity = projectTargetWakeLifecycleIdentity({
         clientMessageId: "client-message-legacy-aged-successor",
         dispatchId: "dispatch-legacy-aged-successor",
@@ -10769,7 +10589,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("keeps the FIFO successor queued while the running head is waiting", async () => {
-    const { hub, spaceFetchRequests, storageRecords } = createHarness();
+    const { hub, spaceFetchRequests, storageRecords } = await createHarness();
     const successorIdentity = projectTargetWakeLifecycleIdentity({
       clientMessageId: "client-message-waiting-successor",
       dispatchId: "dispatch-waiting-successor",
@@ -10817,10 +10637,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("keeps a failed legacy promotion redrive durable through Space enqueue until identity reacceptance", async () => {
-    vi.useFakeTimers({ now: 1_700_000_000_000 });
+    vi.useFakeTimers({ now: 1_700_000_000_000, toFake: ["Date"] });
     try {
       const { hub, spaceFetchRequests, spaceStub, storageRecords } =
-        createHarness();
+        await createHarness();
       const successorIdentity = projectTargetWakeLifecycleIdentity({
         clientMessageId: "client-message-recovery-2",
         dispatchId: "dispatch-recovery-2",
@@ -10893,9 +10713,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("keeps retry-scheduled promotion redrive durable until Space accepts it", async () => {
-    vi.useFakeTimers({ now: 1_700_000_000_000 });
+    vi.useFakeTimers({ now: 1_700_000_000_000, toFake: ["Date"] });
     try {
-      const { hub, storageRecords } = createHarness({
+      const { hub, storageRecords } = await createHarness({
         promotionRedriveStatus: "retry_scheduled",
       });
       const successorIdentity = projectTargetWakeLifecycleIdentity({
@@ -10940,7 +10760,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("does not report inactive when the legacy head index is missing an active Wake", async () => {
-    const { hub, storageRecords } = createHarness();
+    const { hub, storageRecords } = await createHarness();
     await acceptDefaultRuntimeCoordinatorHead(hub);
     storageRecords.delete(RUNTIME_COORDINATOR_HEAD_LIFECYCLE_INDEX_STORAGE_KEY);
 
@@ -10960,7 +10780,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("projects one Profile's current and queued work without exposing locations unless requested", async () => {
-    const { hub } = createHarness();
+    const { hub } = await createHarness();
     const queuedIdentity = projectTargetWakeLifecycleIdentity({
       clientMessageId: "client-message-operational-context-2",
       dispatchId: "dispatch-operational-context-2",
@@ -11038,7 +10858,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       setMaxStorageGetKeys,
       storageGet,
       storageRecords,
-    } = createHarness();
+    } = await createHarness();
     const targetProfileIds = Array.from({ length: 100 }, (_, index) =>
       index === 0
         ? TARGET_AGENT_PROFILE_ID
@@ -11212,7 +11032,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("preserves recovery-only work across an execution-index generation repair", async () => {
-    const { hub, socket, state, storageRecords } = createHarness({
+    const { hub, socket, state, storageRecords } = await createHarness({
       agentProfileRow: {
         managed_role: null,
         organization_id: "org-one",
@@ -11342,7 +11162,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("does not restart owner index repair for active legacy work without FIFO metadata", async () => {
-    const { hub, storageRecords } = createHarness();
+    const { hub, storageRecords } = await createHarness();
     await acceptDefaultRuntimeCoordinatorHead(hub);
     const admissionKey =
       runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys.admission(
@@ -11423,7 +11243,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("rebuilds a stale active-profile projection from canonical execution truth", async () => {
-    const { hub, storageRecords } = createHarness();
+    const { hub, storageRecords } = await createHarness();
     storageRecords.set("runtime-coordinator:agent-profile-active-index:v1", [
       TARGET_AGENT_PROFILE_ID,
     ]);
@@ -11444,7 +11264,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("repairs a ready execution index that loses its per-profile admission", async () => {
-    const { hub, storageRecords } = createHarness();
+    const { hub, storageRecords } = await createHarness();
     await acceptDefaultRuntimeCoordinatorHead(hub);
     const executionStateHub = hub as unknown as {
       rpcReadAgentProfileExecutionState: (input: {
@@ -11482,7 +11302,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("deletes a legacy inactive Coordinator snapshot during bounded index repair", async () => {
-    const { hub, storageRecords } = createHarness();
+    const { hub, storageRecords } = await createHarness();
     const admissionKey =
       runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys.admission(
         TARGET_AGENT_PROFILE_ID
@@ -11515,7 +11335,8 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("bounds execution-state repair work instead of reading the full owner history", async () => {
-    const { hub, storageGet, storageList, storageRecords } = createHarness();
+    const { hub, storageGet, storageList, storageRecords } =
+      await createHarness();
     const historyIds: string[] = [];
     for (let index = 0; index < 512; index += 1) {
       const dispatchId = `history-dispatch-${String(index).padStart(4, "0")}`;
@@ -11587,7 +11408,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("keeps a Wake that starts during index repair active after the repair completes", async () => {
-    const { hub, storageRecords } = createHarness();
+    const { hub, storageRecords } = await createHarness();
     for (let index = 0; index < 256; index += 1) {
       const dispatchId = `repair-race-history-${String(index).padStart(4, "0")}`;
       const targetWakeLifecycleIdentity = projectTargetWakeLifecycleIdentity({
@@ -11645,9 +11466,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("retries a transient index repair failure instead of locking normal changes forever", async () => {
-    vi.useFakeTimers({ now: 1_700_000_000_000 });
+    vi.useFakeTimers({ now: 1_700_000_000_000, toFake: ["Date"] });
     try {
-      const { hub, storageList } = createHarness();
+      const { hub, storageList } = await createHarness();
       storageList.mockRejectedValueOnce(new Error("transient storage failure"));
       const executionStateHub = hub as unknown as {
         rpcReadAgentProfileExecutionState: (input: {
@@ -11676,9 +11497,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("backs off and recovers when applying an index repair page fails", async () => {
-    vi.useFakeTimers({ now: 1_700_000_000_000 });
+    vi.useFakeTimers({ now: 1_700_000_000_000, toFake: ["Date"] });
     try {
-      const { hub, storagePut, storageRecords } = createHarness();
+      const { hub, storagePut, storageRecords } = await createHarness();
       await acceptDefaultRuntimeCoordinatorHead(hub);
       await expect(
         (
@@ -11761,7 +11582,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
     null,
     1,
   ] as const)("rejects a first explicit Context on Service capability %s without disabling ordinary legacy Wakes", async (contextVersion) => {
-    const { hub, storageRecords } = createContextHarness({ contextVersion });
+    const { hub, storageRecords } = await createContextHarness({
+      contextVersion,
+    });
     const rejected = await fetchRuntimeTransportJson(
       hub,
       "/runtime-coordinator/head/accept",
@@ -11814,7 +11637,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("keeps a first scoped device-wait intent pending without activating until a compatible Service returns", async () => {
-    const { hub, storageRecords } = createHarness();
+    const { hub, storageRecords } = await createHarness();
     const request = contextMigrationRequest("offline-first-context");
     if (!request.acceptedDispatchSnapshot) {
       throw new Error("Expected accepted snapshot fixture");
@@ -11862,7 +11685,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         }
       ).resolveNextRuntimeCoordinatorHeadWaitingAlarmAtMs()
     ).toBe(request.acceptedDispatchSnapshot.deviceWait.deadlineAtMs);
-    const restarted = createContextHarness({ storageRecords });
+    const restarted = await createContextHarness({ storageRecords });
     await (
       restarted.hub as unknown as {
         processAgentProfileWorkPromotionAlarm(nowMs: number): Promise<void>;
@@ -11891,7 +11714,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     const readEntered = new Promise<void>((resolve) => {
       entered = resolve;
     });
-    const { hub, state } = createContextHarness({
+    const { hub, state } = await createContextHarness({
       bindingReadGate,
       onBindingRead: entered,
     });
@@ -11929,7 +11752,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("keeps pre-marker Context history scoped after its old admission record is pruned", async () => {
-    const { hub, storageRecords } = createContextHarness();
+    const { hub, storageRecords } = await createContextHarness();
     const prior = contextMigrationRequest("pre-marker-context");
     await fetchRuntimeTransportJson(
       hub,
@@ -11989,7 +11812,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("schedules migration after an abandoned mutation lease and recovers without unrelated traffic", async () => {
-    const first = createContextHarness({
+    const first = await createContextHarness({
       onBindingRead: () => {
         throw new Error("binding temporarily unavailable");
       },
@@ -12013,7 +11836,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         expiresAtMs,
       },
     });
-    const restarted = createContextHarness({
+    const restarted = await createContextHarness({
       storageRecords: first.storageRecords,
     });
     const storage = (restarted.hub as unknown as { ctx: DurableObjectState })
@@ -12049,7 +11872,8 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("does not rewind admission ownership when index generation advances during a rollback request", async () => {
-    const { hub, storageRecords, storageTransaction } = createContextHarness();
+    const { hub, storageRecords, storageTransaction } =
+      await createContextHarness();
     await fetchRuntimeTransportJson(
       hub,
       "/runtime-coordinator/head/accept",
@@ -12109,7 +11933,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     const bindingReadGate = new Promise<void>((resolve) => {
       releaseRead = resolve;
     });
-    const { hub } = createContextHarness({
+    const { hub } = await createContextHarness({
       bindingReadGate,
       onBindingRead: readEntered,
     });
@@ -12151,7 +11975,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("freezes legacy admission, drains accepted legacy work, and preserves the current unclassified Binding claim across restart", async () => {
-    const { hub, storageRecords } = createContextHarness({
+    const { hub, storageRecords } = await createContextHarness({
       bindingConversationId: "legacy-mixed-spaces",
     });
     const legacy = buildRuntimeCoordinatorHeadAcceptRequest();
@@ -12229,7 +12053,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         })
       );
     }
-    const restarted = createContextHarness({
+    const restarted = await createContextHarness({
       storageRecords,
       bindingConversationId: "legacy-mixed-spaces",
     });
@@ -12283,7 +12107,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("persists serial rollback without revoking reservations and keeps Context mode after idle pruning", async () => {
-    const { hub, storageRecords } = createContextHarness();
+    const { hub, storageRecords } = await createContextHarness();
     const requests = [0, 1, 2, 3, 4, 5].map((index) =>
       contextMigrationRequest(`rollback-${index}`)
     );
@@ -12303,7 +12127,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         hub as unknown as RuntimeTransportHub
       ).rpcAgentProfileExecutionMode({ ...modeRequest, mode: "serial" })
     ).toMatchObject({ mode: "serial", migration: "contexts" });
-    const restarted = createHarness({ storageRecords });
+    const restarted = await createHarness({ storageRecords });
     expect(
       await (
         restarted.hub as unknown as RuntimeTransportHub
@@ -12348,7 +12172,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   it.each([
     1, 5,
   ])("persists %i reservations with fifty waiting Wakes and rejects overflow", async (reservations) => {
-    const { hub, storageRecords } = createContextHarness();
+    const { hub, storageRecords } = await createContextHarness();
     const requestFor = (index: number) => {
       const dispatchId = `bounded-dispatch-${index}`;
       return buildRuntimeCoordinatorHeadAcceptRequest({
@@ -12418,7 +12242,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       }
     }
 
-    const restarted = createHarness({ storageRecords });
+    const restarted = await createHarness({ storageRecords });
     const replay = await fetchRuntimeTransportJson(
       restarted.hub,
       "/runtime-coordinator/head/accept",
@@ -12459,7 +12283,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("rejects three reserved plus fifty-two waiting records despite the readable total ceiling of fifty-five", async () => {
-    const { hub, storageRecords } = createContextHarness();
+    const { hub, storageRecords } = await createContextHarness();
     await fetchRuntimeTransportJson(
       hub,
       "/runtime-coordinator/head/accept",
@@ -12494,7 +12318,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("fails closed without batch-reading corrupted over-limit execution references", async () => {
-    const seeded = createHarness();
+    const seeded = await createHarness();
     await acceptDefaultRuntimeCoordinatorHead(seeded.hub);
     await expect(
       (
@@ -12510,7 +12334,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       })
     ).resolves.toEqual({ status: "active" });
     const storageRecords = new Map(seeded.storageRecords);
-    const { hub, storageGet } = createHarness({ storageRecords });
+    const { hub, storageGet } = await createHarness({ storageRecords });
     const admissionKey =
       runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys.admission(
         TARGET_AGENT_PROFILE_ID
@@ -12556,7 +12380,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("serializes Controller mutation admission with new Wake acceptance", async () => {
-    const { hub, storageRecords } = createHarness();
+    const { hub, storageRecords } = await createHarness();
     const mutationHub = hub as unknown as {
       rpcAcquireAgentProfileControllerMutation: (input: {
         operationId: string;
@@ -12618,7 +12442,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("allows future-work settings to save while the current Wake keeps its accepted revision", async () => {
-    const { hub } = createHarness();
+    const { hub } = await createHarness();
     const acceptedWake = await acceptDefaultRuntimeCoordinatorHead(hub);
     expect(acceptedWake.status).toBe(200);
 
@@ -12695,7 +12519,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       targetProfileId: TARGET_AGENT_PROFILE_ID,
     };
 
-    const mutationFirst = createHarness();
+    const mutationFirst = await createHarness();
     const mutationFirstHub = createMutationHub(mutationFirst.hub);
     await expect(
       mutationFirstHub.rpcReadAgentProfileExecutionState(executionStateRequest)
@@ -12716,7 +12540,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     pausedMutation.release();
     await expect(mutationPromise).resolves.toMatchObject({ status: "blocked" });
 
-    const wakeFirst = createHarness();
+    const wakeFirst = await createHarness();
     const wakeFirstHub = createMutationHub(wakeFirst.hub);
     await expect(
       wakeFirstHub.rpcReadAgentProfileExecutionState(executionStateRequest)
@@ -12740,9 +12564,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("lets a new Wake proceed after an abandoned Controller mutation lease expires", async () => {
-    vi.useFakeTimers({ now: 1_700_000_000_000 });
+    vi.useFakeTimers({ now: 1_700_000_000_000, toFake: ["Date"] });
     try {
-      const { hub } = createHarness();
+      const { hub } = await createHarness();
       const mutationHub = hub as unknown as {
         rpcAcquireAgentProfileControllerMutation: (input: {
           operationId: string;
@@ -12773,9 +12597,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("keeps a new Wake blocked while an unknown working-folder outcome may arrive late", async () => {
-    vi.useFakeTimers({ now: 1_700_000_000_000 });
+    vi.useFakeTimers({ now: 1_700_000_000_000, toFake: ["Date"] });
     try {
-      const { hub } = createHarness();
+      const { hub } = await createHarness();
       const mutationHub = hub as unknown as {
         rpcAcquireAgentProfileControllerMutation: (input: {
           operationId: string;
@@ -12811,7 +12635,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("records pre-agent Stop before execution without creating execution authority", async () => {
-    const { hub, spaceFetchRequests, storageRecords } = createHarness();
+    const { hub, spaceFetchRequests, storageRecords } = await createHarness();
     const stopRequest = buildRuntimeCoordinatorHeadPreAgentStopRequest({
       reason: "The Agent Profile was deleted.",
     });
@@ -12907,7 +12731,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("keeps late head accept from creating execution after pre-agent Stop", async () => {
-    const { hub } = createHarness();
+    const { hub } = await createHarness();
     await fetchRuntimeTransportJson(
       hub,
       "/runtime-coordinator/head/pre-agent-stop",
@@ -12932,7 +12756,8 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("blocks late delivery preparation after pre-agent Stop before issuing execution token state", async () => {
-    const { hub, sentFrames, socket, state, storageRecords } = createHarness();
+    const { hub, sentFrames, socket, state, storageRecords } =
+      await createHarness();
     configureCompatibleRoute({ socket, state });
     await fetchRuntimeTransportJson(
       hub,
@@ -12974,7 +12799,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
 
   it("records no-execution publication intent for an accepted target Wake head without creating execution authority", async () => {
     const { appliedFailurePublicationCommands, hub, storageRecords } =
-      createHarness();
+      await createHarness();
     await fetchRuntimeTransportJson(
       hub,
       "/runtime-coordinator/head/accept",
@@ -13052,7 +12877,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
 
   it("does not publish a second failure notice when a ready no-execution intent is replayed", async () => {
     const { appliedFailurePublicationCommands, hub, storageRecords } =
-      createHarness();
+      await createHarness();
     await fetchRuntimeTransportJson(
       hub,
       "/runtime-coordinator/head/accept",
@@ -13095,7 +12920,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         spaceStub,
         storageRecords,
         waitUntilTasks,
-      } = createHarness();
+      } = await createHarness();
       let applyCount = 0;
       spaceStub.rpcApplyRuntimeCoordinatorFailurePublicationCommand.mockImplementation(
         (command: RuntimeCoordinatorFailurePublicationCommand) => {
@@ -13195,7 +13020,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         spaceStub,
         storageRecords,
         waitUntilTasks,
-      } = createHarness();
+      } = await createHarness();
       spaceStub.rpcApplyRuntimeCoordinatorFailurePublicationCommand.mockImplementation(
         (command: RuntimeCoordinatorFailurePublicationCommand) => {
           appliedFailurePublicationCommands.push(command);
@@ -13288,7 +13113,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   it("keeps service-offline head waiting under RuntimeCoordinator ownership until the hard deadline", async () => {
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
     try {
-      const { hub, state, storageRecords } = createHarness();
+      const { hub, state, storageRecords } = await createHarness();
       state.pendingDispatches.clear();
       await fetchRuntimeTransportJson(
         hub,
@@ -13337,7 +13162,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
     try {
       const { appliedFailurePublicationCommands, hub, state, storageRecords } =
-        createHarness();
+        await createHarness();
       state.pendingDispatches.clear();
       const acceptRequest = buildRuntimeCoordinatorHeadAcceptRequest();
       await fetchRuntimeTransportJson(
@@ -13431,7 +13256,8 @@ describe("runtime transport runtime coordinator transport contract", () => {
   it("moves an accepted Wake head without execution into service wait after the handoff window", async () => {
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
     try {
-      const { hub, state, storageRecords, storageSetAlarm } = createHarness();
+      const { hub, state, storageRecords, storageSetAlarm } =
+        await createHarness();
       state.pendingDispatches.clear();
 
       await acceptDefaultRuntimeCoordinatorHead(hub);
@@ -13474,15 +13300,15 @@ describe("runtime transport runtime coordinator transport contract", () => {
       const {
         appliedFailurePublicationCommands,
         hub,
-        recordingD1,
+        recordingPostgres,
         state,
         storageRecords,
-      } = createHarness();
+      } = await createHarness();
       state.pendingDispatches.clear();
 
       await acceptDefaultRuntimeCoordinatorHead(hub);
 
-      recordingD1.calls.length = 0;
+      recordingPostgres.calls.length = 0;
       nowSpy.mockReturnValue(1_700_000_301_000);
 
       await (
@@ -13512,7 +13338,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
         status: "publication_intent_ready",
       });
       expect(appliedFailurePublicationCommands).toHaveLength(1);
-      expect(getReadinessImpactWriteCalls(recordingD1.calls)).toHaveLength(0);
+      expect(
+        getReadinessImpactWriteCalls(recordingPostgres.calls)
+      ).toHaveLength(0);
     } finally {
       nowSpy.mockRestore();
     }
@@ -13521,7 +13349,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   it("re-enqueues a pending-first-report Wake when the route report arrives", async () => {
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
     try {
-      const { hub, spaceFetchRequests, waitUntilTasks } = createHarness();
+      const { hub, spaceFetchRequests, waitUntilTasks } = await createHarness();
       await fetchRuntimeTransportJson(
         hub,
         "/runtime-coordinator/head/accept",
@@ -13575,7 +13403,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         spaceFetchRequests,
         storageRecords,
         waitUntilTasks,
-      } = createHarness();
+      } = await createHarness();
       await fetchRuntimeTransportJson(
         hub,
         "/runtime-coordinator/head/accept",
@@ -13635,7 +13463,8 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("links the accepted target Wake head to the first created execution", async () => {
-    const { hub, sentFrames, socket, state, storageRecords } = createHarness();
+    const { hub, sentFrames, socket, state, storageRecords } =
+      await createHarness();
     await fetchRuntimeTransportJson(
       hub,
       "/runtime-coordinator/head/accept",
@@ -13691,10 +13520,16 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("records Wake Stop as cancellation_requested for an eligible active RuntimeCoordinator execution", async () => {
-    const { hub, recordingD1, sentFrames, socket, state, storageRecords } =
-      createHarness({
-        agentControllerReportRow: buildRuntimeAgentControllerReportRow(),
-      });
+    const {
+      hub,
+      recordingPostgres,
+      sentFrames,
+      socket,
+      state,
+      storageRecords,
+    } = await createHarness({
+      agentControllerReportRow: buildRuntimeAgentControllerReportRow(),
+    });
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
@@ -13760,7 +13595,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
       })
     );
     expect(
-      recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+      await recordingPostgres.projectionRows.get(
+        RUNTIME_COORDINATOR_EXECUTION_ID
+      )
     ).toMatchObject({
       status: "cancellation_requested",
       terminal_outcome_json: null,
@@ -13774,11 +13611,11 @@ describe("runtime transport runtime coordinator transport contract", () => {
         runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
       }
     );
-    expect([...recordingD1.interactionInboxRows.values()]).toEqual([
-      expect.objectContaining({ resolution_status: "resolved" }),
-    ]);
+    expect([
+      ...(await recordingPostgres.interactionInboxRows.values()),
+    ]).toEqual([expect.objectContaining({ resolution_status: "resolved" })]);
     const requestedEvents = getRuntimeCoordinatorEventCalls(
-      recordingD1.calls
+      recordingPostgres.calls
     ).filter((call) => call.params[2] === "cancellation_requested");
     expect(requestedEvents).toHaveLength(1);
     expect(requestedEvents[0]?.params[3]).toBe("cancellation_requested");
@@ -13788,7 +13625,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       source: "space_wake_stop",
     });
     const deliveryEvents = getRuntimeCoordinatorEventCalls(
-      recordingD1.calls
+      recordingPostgres.calls
     ).filter((call) => call.params[2] === "cancellation_delivery_accepted");
     expect(deliveryEvents).toHaveLength(1);
     expect(deliveryEvents[0]?.params[3]).toBe("cancellation_requested");
@@ -13810,7 +13647,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       },
     });
     expect(
-      getRuntimeCoordinatorEventCalls(recordingD1.calls).filter(
+      getRuntimeCoordinatorEventCalls(recordingPostgres.calls).filter(
         (call) => call.params[2] === "cancellation_requested"
       )
     ).toHaveLength(1);
@@ -13825,11 +13662,12 @@ describe("runtime transport runtime coordinator transport contract", () => {
     const controllerReportReadStarted = new Promise<void>((resolve) => {
       markControllerReportReadStarted = resolve;
     });
-    const { hub, sentFrames, socket, state, storageRecords } = createHarness({
-      agentControllerReportReadGate: controllerReportGate,
-      agentControllerReportRow: buildRuntimeAgentControllerReportRow(),
-      onAgentControllerReportRead: () => markControllerReportReadStarted?.(),
-    });
+    const { hub, sentFrames, socket, state, storageRecords } =
+      await createHarness({
+        agentControllerReportReadGate: controllerReportGate,
+        agentControllerReportRow: buildRuntimeAgentControllerReportRow(),
+        onAgentControllerReportRead: () => markControllerReportReadStarted?.(),
+      });
     await issueDeliveryToken({ hub, sentFrames, socket, state });
     enableWakeStopControl(state, "cancel");
     const stopResponsePromise = requestRuntimeCoordinatorWakeStop(hub);
@@ -13897,12 +13735,18 @@ describe("runtime transport runtime coordinator transport contract", () => {
     const controllerReportReadStarted = new Promise<void>((resolve) => {
       markControllerReportReadStarted = resolve;
     });
-    const { hub, recordingD1, sentFrames, socket, state, storageRecords } =
-      createHarness({
-        agentControllerReportReadGate: controllerReportGate,
-        agentControllerReportRow: buildRuntimeAgentControllerReportRow(),
-        onAgentControllerReportRead: () => markControllerReportReadStarted?.(),
-      });
+    const {
+      hub,
+      recordingPostgres,
+      sentFrames,
+      socket,
+      state,
+      storageRecords,
+    } = await createHarness({
+      agentControllerReportReadGate: controllerReportGate,
+      agentControllerReportRow: buildRuntimeAgentControllerReportRow(),
+      onAgentControllerReportRead: () => markControllerReportReadStarted?.(),
+    });
     await issueDeliveryToken({ hub, sentFrames, socket, state });
     enableWakeStopControl(state, "cancel");
 
@@ -13912,22 +13756,25 @@ describe("runtime transport runtime coordinator transport contract", () => {
       RUNTIME_COORDINATOR_EXECUTION_ID
     );
     storageRecords.delete(commandStateKey);
-    const projection = recordingD1.projectionRows.get(
+    const projection = await recordingPostgres.projectionRows.get(
       RUNTIME_COORDINATOR_EXECUTION_ID
     );
     if (!projection) {
       throw new Error("Expected RuntimeCoordinator projection.");
     }
-    recordingD1.projectionRows.set(RUNTIME_COORDINATOR_EXECUTION_ID, {
-      ...projection,
-      status: "cancelled",
-      terminal_outcome_json: JSON.stringify({
-        kind: "cancelled",
-        observedAtMs: 1_700_000_003_000,
-        reasonCode: "test.concurrent_stop",
-      }),
-      updated_at_ms: 1_700_000_003_000,
-    });
+    await recordingPostgres.projectionRows.set(
+      RUNTIME_COORDINATOR_EXECUTION_ID,
+      {
+        ...projection,
+        status: "cancelled",
+        terminal_outcome_json: JSON.stringify({
+          kind: "cancelled",
+          observedAtMs: 1_700_000_003_000,
+          reasonCode: "test.concurrent_stop",
+        }),
+        updated_at_ms: 1_700_000_003_000,
+      }
+    );
     const localControlFrameCount = sentFrames.filter(
       (frame) =>
         (frame as { code?: unknown }).code ===
@@ -13939,7 +13786,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
     expect(stopResponse.status).toBe(200);
     expect(storageRecords.has(commandStateKey)).toBe(false);
     expect(
-      recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+      await recordingPostgres.projectionRows.get(
+        RUNTIME_COORDINATOR_EXECUTION_ID
+      )
     ).toMatchObject({
       status: "cancelled",
     });
@@ -13953,22 +13802,28 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("records Wake Stop through interrupt delivery for interrupt-only RuntimeCoordinator executions", async () => {
-    const { hub, recordingD1, sentFrames, socket, state, storageRecords } =
-      createHarness({
-        agentControllerReportRow: buildRuntimeAgentControllerReportRow({
-          agentControllerInterface: buildAgentControllerInterfaceSnapshot({
-            capabilities: {
-              approvals: false,
-              cancel: false,
-              interrupt: true,
-              modelSelection: false,
-              nativeEventStream: true,
-              permissionModes: false,
-              structuredUserInput: false,
-            },
-          }),
+    const {
+      hub,
+      recordingPostgres,
+      sentFrames,
+      socket,
+      state,
+      storageRecords,
+    } = await createHarness({
+      agentControllerReportRow: buildRuntimeAgentControllerReportRow({
+        agentControllerInterface: buildAgentControllerInterfaceSnapshot({
+          capabilities: {
+            approvals: false,
+            cancel: false,
+            interrupt: true,
+            modelSelection: false,
+            nativeEventStream: true,
+            permissionModes: false,
+            structuredUserInput: false,
+          },
         }),
-      });
+      }),
+    });
     await issueDeliveryToken({ hub, sentFrames, socket, state });
     enableWakeStopControl(state, "interrupt");
 
@@ -14002,7 +13857,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
       })
     );
     expect(
-      recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+      await recordingPostgres.projectionRows.get(
+        RUNTIME_COORDINATOR_EXECUTION_ID
+      )
     ).toMatchObject({
       status: "cancellation_requested",
       terminal_outcome_json: null,
@@ -14014,7 +13871,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       }
     );
     const requestedEvents = getRuntimeCoordinatorEventCalls(
-      recordingD1.calls
+      recordingPostgres.calls
     ).filter((call) => call.params[2] === "cancellation_requested");
     expect(JSON.parse(String(requestedEvents[0]?.params[7]))).toMatchObject({
       controlMode: "interrupt",
@@ -14022,7 +13879,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       source: "space_wake_stop",
     });
     const deliveryEvents = getRuntimeCoordinatorEventCalls(
-      recordingD1.calls
+      recordingPostgres.calls
     ).filter((call) => call.params[2] === "cancellation_delivery_accepted");
     expect(deliveryEvents).toHaveLength(1);
     expect(JSON.parse(String(deliveryEvents[0]?.params[7]))).toMatchObject({
@@ -14036,7 +13893,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     const {
       appliedFinalizationCommands,
       hub,
-      recordingD1,
+      recordingPostgres,
       sentFrames,
       socket,
       spaceFetchRequests,
@@ -14044,7 +13901,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       state,
       storageRecords,
       waitUntilTasks,
-    } = createHarness({
+    } = await createHarness({
       agentControllerReportRow: buildRuntimeAgentControllerReportRow(),
     });
     const executionToken = await issueDeliveryToken({
@@ -14056,7 +13913,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     enableWakeStopControl(state);
     await requestRuntimeCoordinatorWakeStop(hub);
     appliedFinalizationCommands.length = 0;
-    recordingD1.calls.length = 0;
+    recordingPostgres.calls.length = 0;
     sentFrames.length = 0;
     spaceFetchRequests.length = 0;
 
@@ -14075,7 +13932,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
       })
     );
     expect(
-      recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+      await recordingPostgres.projectionRows.get(
+        RUNTIME_COORDINATOR_EXECUTION_ID
+      )
     ).toMatchObject({
       status: "cancelled",
     });
@@ -14091,28 +13950,22 @@ describe("runtime transport runtime coordinator transport contract", () => {
       })
     );
     expect(appliedFinalizationCommands).toHaveLength(0);
-    expect(spaceFetchRequests).toContainEqual({
-      path: "/rpc/signals/system-notice",
-      body: {
-        finalOutcomeAuthority: "runtime_coordinator_wake_stop_publication",
-        profile: {
-          kind: "system",
-          profileId: "openmeld-system",
-          profileName: "OpenMeld System",
-        },
-        data: {
-          noticeType: "wake_stopped",
-          actorProfileId: TARGET_AGENT_PROFILE_ID,
-          actorName: "Codex Agent",
-          dispatchId: "dispatch-1",
-          generatedBy: "openmeld",
-          reason: "runtime_coordinator.wake_stop_requested",
-          reasonCode: "runtime_coordinator.wake_stop_requested",
-          text: "Wake was stopped for Codex Agent.",
-        },
-      },
-    });
-    const projection = recordingD1.projectionRows.get(
+    expect(
+      spaceStub.rpcApplyRuntimeCoordinatorWakeStopCommand
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dispatchId: "dispatch-1",
+        spaceId: HEX_SPACE_ID,
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+        targetOwnerUserId: "owner-1",
+        runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+        acceptedResult: expect.objectContaining({
+          executionTokenRunId: executionToken.runId,
+          executionTokenFingerprint: executionToken.tokenFingerprint,
+        }),
+      })
+    );
+    const projection = await recordingPostgres.projectionRows.get(
       RUNTIME_COORDINATOR_EXECUTION_ID
     );
     expect(projection).toMatchObject({
@@ -14125,10 +13978,12 @@ describe("runtime transport runtime coordinator transport contract", () => {
       }
     );
     expect(
-      recordingD1.inboxRows.get("dispatch-1::attempt-1")?.publish_state
+      (await recordingPostgres.inboxRows.get("dispatch-1::attempt-1"))
+        ?.publish_state
     ).toBe("reply_suppressed_stopped");
     expect(
-      recordingD1.inboxRows.get("dispatch-1::attempt-1")?.publication_error_code
+      (await recordingPostgres.inboxRows.get("dispatch-1::attempt-1"))
+        ?.publication_error_code
     ).toBe("runtime_coordinator.wake_stop_requested");
     const authority =
       findRuntimeCoordinatorExecutionTokenAuthorityRecord(storageRecords);
@@ -14152,7 +14007,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         targetProfileId: TARGET_AGENT_PROFILE_ID,
       })
     ).resolves.toEqual({ status: "inactive" });
-    const events = getRuntimeCoordinatorEventCalls(recordingD1.calls);
+    const events = getRuntimeCoordinatorEventCalls(recordingPostgres.calls);
     expect(events.some((call) => call.params[2] === "reply_published")).toBe(
       false
     );
@@ -14171,8 +14026,8 @@ describe("runtime transport runtime coordinator transport contract", () => {
       }),
       publishState: "reply_suppressed_stopped",
       stoppedNoticePublication: {
-        publishedSignalId: "signal-delivery-expired-1",
-        status: "published",
+        publishedSignalId: "signal-wake-stopped-1",
+        status: "already_visible",
       },
     });
     expect(spaceStub.rpcCloseAgentStream).toHaveBeenCalledWith({
@@ -14187,10 +14042,17 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("threads the upstream reply-to snapshot into the wake-stopped notice", async () => {
-    const { hub, sentFrames, socket, spaceFetchRequests, state } =
-      createHarness({
-        agentControllerReportRow: buildRuntimeAgentControllerReportRow(),
-      });
+    const {
+      hub,
+      sentFrames,
+      socket,
+      spaceFetchRequests,
+      spaceStub,
+      state,
+      storageRecords,
+    } = await createHarness({
+      agentControllerReportRow: buildRuntimeAgentControllerReportRow(),
+    });
     const replyToSnapshot = {
       signalId: "signal-source-2",
       profileId: "11111111-1111-4111-8111-111111111111",
@@ -14225,24 +14087,25 @@ describe("runtime transport runtime coordinator transport contract", () => {
       })
     );
 
-    expect(spaceFetchRequests).toContainEqual(
+    expect(
+      spaceStub.rpcApplyRuntimeCoordinatorWakeStopCommand
+    ).toHaveBeenCalledWith(
       expect.objectContaining({
-        path: "/rpc/signals/system-notice",
-        body: expect.objectContaining({
-          data: expect.objectContaining({
-            noticeType: "wake_stopped",
-            reasonCode: "runtime_coordinator.wake_stop_requested",
-            replyTo: replyToSnapshot,
-          }),
-        }),
+        dispatchId: "dispatch-1",
+        spaceId: HEX_SPACE_ID,
+        runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
       })
     );
+    expect(
+      findRuntimeCoordinatorRunCommandState(storageRecords)
+        ?.sanitizedDeliveryRequest.payload.replyToSnapshot
+    ).toEqual(replyToSnapshot);
   });
 
   it("settles a Wake execution as cancelled only after accepted local cancel control", async () => {
     const {
       hub,
-      recordingD1,
+      recordingPostgres,
       sentFrames,
       socket,
       spaceFetchRequests,
@@ -14250,7 +14113,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       state,
       storageRecords,
       waitUntilTasks,
-    } = createHarness({
+    } = await createHarness({
       agentControllerReportRow: buildRuntimeAgentControllerReportRow(),
     });
     const executionToken = await issueDeliveryToken({
@@ -14266,7 +14129,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         reason: "The Agent Profile was deleted.",
       })
     );
-    recordingD1.calls.length = 0;
+    recordingPostgres.calls.length = 0;
 
     await submitWakeStopLocalControlResult({
       hub,
@@ -14275,7 +14138,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       waitUntilTasks,
     });
 
-    const projection = recordingD1.projectionRows.get(
+    const projection = await recordingPostgres.projectionRows.get(
       RUNTIME_COORDINATOR_EXECUTION_ID
     );
     expect(projection).toMatchObject({
@@ -14351,7 +14214,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       }
     );
     const acceptedEvents = getRuntimeCoordinatorEventCalls(
-      recordingD1.calls
+      recordingPostgres.calls
     ).filter((call) => call.params[2] === "cancellation_control_accepted");
     expect(acceptedEvents).toHaveLength(1);
     expect(acceptedEvents[0]?.params[3]).toBe("cancelled");
@@ -14403,21 +14266,21 @@ describe("runtime transport runtime coordinator transport contract", () => {
     });
     const {
       hub,
-      recordingD1,
+      recordingPostgres,
       sentFrames,
       socket,
       spaceFetchRequests,
       state,
       storageRecords,
       waitUntilTasks,
-    } = createHarness({
+    } = await createHarness({
       agentControllerReportRow: buildRuntimeAgentControllerReportRow(),
     });
     await issueDeliveryToken({ hub, sentFrames, socket, state });
     enableWakeStopControl(state);
     await requestRuntimeCoordinatorWakeStop(hub);
-    recordingD1.calls.length = 0;
-    recordingD1.gateNextProjectionRead({
+    recordingPostgres.calls.length = 0;
+    recordingPostgres.gateNextProjectionRead({
       gate: projectionReadGate,
       onStarted: () => markProjectionReadStarted?.(),
     });
@@ -14479,7 +14342,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     });
     expect(spaceFetchRequests).toEqual([]);
     expect(
-      getRuntimeCoordinatorEventCalls(recordingD1.calls).filter(
+      getRuntimeCoordinatorEventCalls(recordingPostgres.calls).filter(
         (call) => call.params[2] === "cancellation_control_accepted"
       )
     ).toEqual([]);
@@ -14494,7 +14357,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       state,
       storageRecords,
       waitUntilTasks,
-    } = createHarness({
+    } = await createHarness({
       agentControllerReportRow: buildRuntimeAgentControllerReportRow(),
     });
     await issueDeliveryToken({ hub, sentFrames, socket, state });
@@ -14565,20 +14428,20 @@ describe("runtime transport runtime coordinator transport contract", () => {
   it("settles a user-requested Wake Stop when the restarted service reports task.not_found", async () => {
     const {
       hub,
-      recordingD1,
+      recordingPostgres,
       sentFrames,
       socket,
       spaceFetchRequests,
       state,
       storageRecords,
       waitUntilTasks,
-    } = createHarness({
+    } = await createHarness({
       agentControllerReportRow: buildRuntimeAgentControllerReportRow(),
     });
     await issueDeliveryToken({ hub, sentFrames, socket, state });
     enableWakeStopControl(state);
     await requestRuntimeCoordinatorWakeStop(hub);
-    recordingD1.calls.length = 0;
+    recordingPostgres.calls.length = 0;
     spaceFetchRequests.length = 0;
 
     await submitWakeStopLocalControlResult({
@@ -14593,7 +14456,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
     });
 
     expect(
-      recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+      await recordingPostgres.projectionRows.get(
+        RUNTIME_COORDINATOR_EXECUTION_ID
+      )
     ).toMatchObject({
       status: "cancelled",
     });
@@ -14618,34 +14483,40 @@ describe("runtime transport runtime coordinator transport contract", () => {
       })
     );
     expect(
-      getRuntimeCoordinatorEventCalls(recordingD1.calls).filter(
+      getRuntimeCoordinatorEventCalls(recordingPostgres.calls).filter(
         (call) => call.params[2] === "cancellation_control_accepted"
       )
     ).toHaveLength(1);
     expect(
-      getRuntimeCoordinatorEventCalls(recordingD1.calls).some(
+      getRuntimeCoordinatorEventCalls(recordingPostgres.calls).some(
         (call) => call.params[2] === "runtime_connection_lost"
       )
     ).toBe(false);
   });
 
   it("settles a Wake execution as cancelled only after accepted local interrupt control", async () => {
-    const { hub, recordingD1, sentFrames, socket, state, waitUntilTasks } =
-      createHarness({
-        agentControllerReportRow: buildRuntimeAgentControllerReportRow({
-          agentControllerInterface: buildAgentControllerInterfaceSnapshot({
-            capabilities: {
-              approvals: false,
-              cancel: false,
-              interrupt: true,
-              modelSelection: false,
-              nativeEventStream: true,
-              permissionModes: false,
-              structuredUserInput: false,
-            },
-          }),
+    const {
+      hub,
+      recordingPostgres,
+      sentFrames,
+      socket,
+      state,
+      waitUntilTasks,
+    } = await createHarness({
+      agentControllerReportRow: buildRuntimeAgentControllerReportRow({
+        agentControllerInterface: buildAgentControllerInterfaceSnapshot({
+          capabilities: {
+            approvals: false,
+            cancel: false,
+            interrupt: true,
+            modelSelection: false,
+            nativeEventStream: true,
+            permissionModes: false,
+            structuredUserInput: false,
+          },
         }),
-      });
+      }),
+    });
     await issueDeliveryToken({
       hub,
       sentFrames,
@@ -14654,7 +14525,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     });
     enableWakeStopControl(state, "interrupt");
     await requestRuntimeCoordinatorWakeStop(hub);
-    recordingD1.calls.length = 0;
+    recordingPostgres.calls.length = 0;
 
     await submitWakeStopLocalControlResult({
       hub,
@@ -14665,7 +14536,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       waitUntilTasks,
     });
 
-    const projection = recordingD1.projectionRows.get(
+    const projection = await recordingPostgres.projectionRows.get(
       RUNTIME_COORDINATOR_EXECUTION_ID
     );
     expect(projection).toMatchObject({
@@ -14678,7 +14549,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       }
     );
     const acceptedEvents = getRuntimeCoordinatorEventCalls(
-      recordingD1.calls
+      recordingPostgres.calls
     ).filter((call) => call.params[2] === "cancellation_control_accepted");
     expect(acceptedEvents).toHaveLength(1);
     expect(acceptedEvents[0]?.params[3]).toBe("cancelled");
@@ -14693,13 +14564,13 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("projects a published Wake Stop task outcome through Agent Task Coordination storage", async () => {
-    const { hub, recordingD1, storageRecords } = createHarness();
-    const wakeEvidenceD1 = createRecordingD1();
+    const { hub, recordingPostgres, storageRecords } = await createHarness();
+    const wakeEvidencePostgres = recordingPostgres;
     (
       hub as unknown as {
         env: CoreBindings;
       }
-    ).env.OPENMELD_WAKE_EVIDENCE_DB = wakeEvidenceD1.db;
+    ).env.OPENMELD_POSTGRESQL = wakeEvidencePostgres.binding;
 
     await (
       hub as unknown as {
@@ -14745,15 +14616,14 @@ describe("runtime transport runtime coordinator transport contract", () => {
     });
 
     expect(
-      recordingD1.calls.some((call) =>
-        call.query.includes("INSERT INTO agent_task_terminal_outcomes")
+      recordingPostgres.calls.some((call) =>
+        call.query.includes(
+          'INSERT INTO "openmeld"."agent_task_terminal_outcomes"'
+        )
       )
     ).toBe(true);
-    expect(
-      wakeEvidenceD1.calls.some((call) =>
-        call.query.includes("INSERT INTO agent_task_terminal_outcomes")
-      )
-    ).toBe(false);
+    expect(wakeEvidencePostgres.binding).toBe(recordingPostgres.binding);
+    expect(await recordingPostgres.taskTerminalOutcomeRows.size()).toBe(1);
     expect(
       findRuntimeCoordinatorWakeStoppedNoticePublicationRecord(storageRecords)
     ).toMatchObject({
@@ -14766,13 +14636,13 @@ describe("runtime transport runtime coordinator transport contract", () => {
   it("keeps Wake Stop cancellation_requested when local cancel control is rejected", async () => {
     const {
       hub,
-      recordingD1,
+      recordingPostgres,
       sentFrames,
       socket,
       state,
       storageRecords,
       waitUntilTasks,
-    } = createHarness({
+    } = await createHarness({
       agentControllerReportRow: buildRuntimeAgentControllerReportRow(),
     });
     const executionToken = await issueDeliveryToken({
@@ -14783,7 +14653,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     });
     enableWakeStopControl(state);
     await requestRuntimeCoordinatorWakeStop(hub);
-    recordingD1.calls.length = 0;
+    recordingPostgres.calls.length = 0;
 
     await submitWakeStopLocalControlResult({
       accepted: false,
@@ -14796,7 +14666,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
     });
 
     expect(
-      recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+      await recordingPostgres.projectionRows.get(
+        RUNTIME_COORDINATOR_EXECUTION_ID
+      )
     ).toMatchObject({
       status: "cancellation_requested",
       terminal_outcome_json: null,
@@ -14809,7 +14681,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       tokenStatus: "active",
     });
     const rejectedEvents = getRuntimeCoordinatorEventCalls(
-      recordingD1.calls
+      recordingPostgres.calls
     ).filter((call) => call.params[2] === "cancellation_control_rejected");
     expect(rejectedEvents).toHaveLength(1);
     expect(rejectedEvents[0]?.params[3]).toBe("cancellation_requested");
@@ -14819,14 +14691,14 @@ describe("runtime transport runtime coordinator transport contract", () => {
   it("records a stopped_notice blocker when Wake Stop publication fails after cancellation settles", async () => {
     const {
       hub,
-      recordingD1,
+      recordingPostgres,
       sentFrames,
       socket,
       spaceStub,
       state,
       storageRecords,
       waitUntilTasks,
-    } = createHarness({
+    } = await createHarness({
       agentControllerReportRow: buildRuntimeAgentControllerReportRow(),
     });
     await issueDeliveryToken({
@@ -14837,7 +14709,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     });
     enableWakeStopControl(state);
     await requestRuntimeCoordinatorWakeStop(hub);
-    recordingD1.calls.length = 0;
+    recordingPostgres.calls.length = 0;
     spaceStub.rpcPostSystemNoticeSignal.mockRejectedValue(
       new Error("space unavailable")
     );
@@ -14850,7 +14722,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
     });
 
     expect(
-      recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+      await recordingPostgres.projectionRows.get(
+        RUNTIME_COORDINATOR_EXECUTION_ID
+      )
     ).toMatchObject({
       status: "cancelled",
     });
@@ -14874,7 +14748,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       status: "unresolved_publication_failure",
     });
     const acceptedEvents = getRuntimeCoordinatorEventCalls(
-      recordingD1.calls
+      recordingPostgres.calls
     ).filter((call) => call.params[2] === "cancellation_control_accepted");
     expect(acceptedEvents).toHaveLength(1);
     expect(JSON.parse(String(acceptedEvents[0]?.params[7]))).toMatchObject({
@@ -14884,7 +14758,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       },
     });
     const blockerEvents = getRuntimeCoordinatorEventCalls(
-      recordingD1.calls
+      recordingPostgres.calls
     ).filter(
       (call) => call.params[4] === "runtime_coordinator.publication_unresolved"
     );
@@ -14914,13 +14788,13 @@ describe("runtime transport runtime coordinator transport contract", () => {
     const {
       appliedFinalizationCommands,
       hub,
-      recordingD1,
+      recordingPostgres,
       sentFrames,
       socket,
       spaceStub,
       state,
       waitUntilTasks,
-    } = createHarness({
+    } = await createHarness({
       agentControllerReportRow: buildRuntimeAgentControllerReportRow(),
     });
     const executionToken = await issueDeliveryToken({
@@ -14938,7 +14812,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       waitUntilTasks,
     });
     spaceStub.rpcCloseAgentStream.mockClear();
-    recordingD1.calls.length = 0;
+    recordingPostgres.calls.length = 0;
     sentFrames.length = 0;
     appliedFinalizationCommands.length = 0;
 
@@ -14968,13 +14842,17 @@ describe("runtime transport runtime coordinator transport contract", () => {
       })
     );
     expect(
-      recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+      await recordingPostgres.projectionRows.get(
+        RUNTIME_COORDINATOR_EXECUTION_ID
+      )
     ).toMatchObject({
       status: "cancelled",
     });
     expect(
-      recordingD1.calls.some((call) =>
-        call.query.includes("INSERT INTO openMeldDaemon_dispatch_result_inbox")
+      recordingPostgres.calls.some((call) =>
+        call.query.includes(
+          'INSERT INTO "openmeld"."openMeldDaemon_dispatch_result_inbox"'
+        )
       )
     ).toBe(false);
     expect(appliedFinalizationCommands).toHaveLength(0);
@@ -14988,28 +14866,29 @@ describe("runtime transport runtime coordinator transport contract", () => {
       },
     });
     expect(
-      getRuntimeCoordinatorEventCalls(recordingD1.calls).some(
+      getRuntimeCoordinatorEventCalls(recordingPostgres.calls).some(
         (call) => call.params[2] === "execution_token_terminal_late"
       )
     ).toBe(true);
   });
 
   it("rejects Wake Stop when the current Agent Controller Interface has no stop capability", async () => {
-    const { hub, recordingD1, sentFrames, socket, state } = createHarness({
-      agentControllerReportRow: buildRuntimeAgentControllerReportRow({
-        agentControllerInterface: buildAgentControllerInterfaceSnapshot({
-          capabilities: {
-            approvals: false,
-            cancel: false,
-            interrupt: false,
-            modelSelection: false,
-            nativeEventStream: false,
-            permissionModes: false,
-            structuredUserInput: false,
-          },
+    const { hub, recordingPostgres, sentFrames, socket, state } =
+      await createHarness({
+        agentControllerReportRow: buildRuntimeAgentControllerReportRow({
+          agentControllerInterface: buildAgentControllerInterfaceSnapshot({
+            capabilities: {
+              approvals: false,
+              cancel: false,
+              interrupt: false,
+              modelSelection: false,
+              nativeEventStream: false,
+              permissionModes: false,
+              structuredUserInput: false,
+            },
+          }),
         }),
-      }),
-    });
+      });
     await issueDeliveryToken({ hub, sentFrames, socket, state });
 
     const response = await requestRuntimeCoordinatorWakeStop(hub);
@@ -15026,21 +14905,24 @@ describe("runtime transport runtime coordinator transport contract", () => {
       },
     });
     expect(
-      recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+      await recordingPostgres.projectionRows.get(
+        RUNTIME_COORDINATOR_EXECUTION_ID
+      )
     ).not.toMatchObject({
       status: "cancellation_requested",
     });
     expect(
-      getRuntimeCoordinatorEventCalls(recordingD1.calls).some(
+      getRuntimeCoordinatorEventCalls(recordingPostgres.calls).some(
         (call) => call.params[2] === "cancellation_requested"
       )
     ).toBe(false);
   });
 
   it("rejects Wake Stop when the request source client message does not match execution scope", async () => {
-    const { hub, recordingD1, sentFrames, socket, state } = createHarness({
-      agentControllerReportRow: buildRuntimeAgentControllerReportRow(),
-    });
+    const { hub, recordingPostgres, sentFrames, socket, state } =
+      await createHarness({
+        agentControllerReportRow: buildRuntimeAgentControllerReportRow(),
+      });
     await issueDeliveryToken({ hub, sentFrames, socket, state });
     enableWakeStopControl(state);
 
@@ -15072,16 +14954,17 @@ describe("runtime transport runtime coordinator transport contract", () => {
       )
     ).toBe(false);
     expect(
-      getRuntimeCoordinatorEventCalls(recordingD1.calls).some(
+      getRuntimeCoordinatorEventCalls(recordingPostgres.calls).some(
         (call) => call.params[2] === "cancellation_requested"
       )
     ).toBe(false);
   });
 
   it("fails Wake Stop delivery closed when the live local OpenMeld Service is too old for cancel frames", async () => {
-    const { hub, recordingD1, sentFrames, socket, state } = createHarness({
-      agentControllerReportRow: buildRuntimeAgentControllerReportRow(),
-    });
+    const { hub, recordingPostgres, sentFrames, socket, state } =
+      await createHarness({
+        agentControllerReportRow: buildRuntimeAgentControllerReportRow(),
+      });
     await issueDeliveryToken({ hub, sentFrames, socket, state });
 
     const response = await requestRuntimeCoordinatorWakeStop(hub);
@@ -15107,28 +14990,29 @@ describe("runtime transport runtime coordinator transport contract", () => {
       )
     ).toBe(false);
     expect(
-      getRuntimeCoordinatorEventCalls(recordingD1.calls).filter(
+      getRuntimeCoordinatorEventCalls(recordingPostgres.calls).filter(
         (call) => call.params[2] === "cancellation_delivery_rejected"
       )
     ).toHaveLength(1);
   });
 
   it("fails Wake Stop delivery closed when interrupt-only Stop has no live interrupt frame support", async () => {
-    const { hub, recordingD1, sentFrames, socket, state } = createHarness({
-      agentControllerReportRow: buildRuntimeAgentControllerReportRow({
-        agentControllerInterface: buildAgentControllerInterfaceSnapshot({
-          capabilities: {
-            approvals: false,
-            cancel: false,
-            interrupt: true,
-            modelSelection: false,
-            nativeEventStream: true,
-            permissionModes: false,
-            structuredUserInput: false,
-          },
+    const { hub, recordingPostgres, sentFrames, socket, state } =
+      await createHarness({
+        agentControllerReportRow: buildRuntimeAgentControllerReportRow({
+          agentControllerInterface: buildAgentControllerInterfaceSnapshot({
+            capabilities: {
+              approvals: false,
+              cancel: false,
+              interrupt: true,
+              modelSelection: false,
+              nativeEventStream: true,
+              permissionModes: false,
+              structuredUserInput: false,
+            },
+          }),
         }),
-      }),
-    });
+      });
     await issueDeliveryToken({ hub, sentFrames, socket, state });
     const session = state.sessionsById.get("daemon-session-1");
     if (!session) {
@@ -15164,16 +15048,17 @@ describe("runtime transport runtime coordinator transport contract", () => {
       )
     ).toBe(false);
     expect(
-      getRuntimeCoordinatorEventCalls(recordingD1.calls).filter(
+      getRuntimeCoordinatorEventCalls(recordingPostgres.calls).filter(
         (call) => call.params[2] === "cancellation_delivery_rejected"
       )
     ).toHaveLength(1);
   });
 
   it("fails Wake Stop delivery closed when the original local OpenMeld Service session is offline", async () => {
-    const { hub, recordingD1, sentFrames, socket, state } = createHarness({
-      agentControllerReportRow: buildRuntimeAgentControllerReportRow(),
-    });
+    const { hub, recordingPostgres, sentFrames, socket, state } =
+      await createHarness({
+        agentControllerReportRow: buildRuntimeAgentControllerReportRow(),
+      });
     await issueDeliveryToken({ hub, sentFrames, socket, state });
     state.sessionsById.delete("daemon-session-1");
 
@@ -15194,7 +15079,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       },
     });
     expect(
-      getRuntimeCoordinatorEventCalls(recordingD1.calls).filter(
+      getRuntimeCoordinatorEventCalls(recordingPostgres.calls).filter(
         (call) => call.params[2] === "cancellation_delivery_rejected"
       )
     ).toHaveLength(1);
@@ -15204,10 +15089,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
     false,
     true,
   ])("settles an accepted file-access refusal through existing Stop publication (first publication unavailable: %s)", async (unavailable) => {
-    const harness = createHarness();
+    const harness = await createHarness();
     const {
       hub,
-      recordingD1,
+      recordingPostgres,
       socket,
       spaceStub,
       storageRecords,
@@ -15258,13 +15143,16 @@ describe("runtime transport runtime coordinator transport contract", () => {
       expect(
         findRuntimeCoordinatorWakeStoppedNoticePublicationRecord(storageRecords)
       ).toBeUndefined();
-      const inbox = recordingD1.inboxRows.get("dispatch-1::attempt-1");
+      const inbox = await recordingPostgres.inboxRows.get(
+        "dispatch-1::attempt-1"
+      );
       if (!inbox) {
         throw new Error("Expected the accepted result receipt");
       }
       const originalFingerprint = inbox.execution_token_fingerprint;
       inbox.execution_token_fingerprint =
         "etfp_v1_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+      await recordingPostgres.inboxRows.set("dispatch-1::attempt-1", inbox);
       const retryAt = Date.now() + 10_000;
       const nowSpy = vi.spyOn(Date, "now").mockReturnValue(retryAt);
       try {
@@ -15280,6 +15168,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
           )
         ).toBeUndefined();
         inbox.execution_token_fingerprint = originalFingerprint;
+        await recordingPostgres.inboxRows.set("dispatch-1::attempt-1", inbox);
         nowSpy.mockReturnValue(retryAt + 30_000);
         await (hub as unknown as { alarm(): Promise<void> }).alarm();
         await Promise.all(waitUntilTasks.splice(0));
@@ -15288,10 +15177,13 @@ describe("runtime transport runtime coordinator transport contract", () => {
       }
     }
     expect(
-      recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+      await recordingPostgres.projectionRows.get(
+        RUNTIME_COORDINATOR_EXECUTION_ID
+      )
     ).toMatchObject({ status: "cancelled" });
     expect(
-      recordingD1.inboxRows.get("dispatch-1::attempt-1")?.publish_state
+      (await recordingPostgres.inboxRows.get("dispatch-1::attempt-1"))
+        ?.publish_state
     ).toBe("reply_suppressed_stopped");
     expect(
       findRuntimeCoordinatorExecutionTokenAuthorityRecord(storageRecords)
@@ -15312,7 +15204,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
     await submit();
     await Promise.all(waitUntilTasks.splice(0));
     expect(
-      recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+      await recordingPostgres.projectionRows.get(
+        RUNTIME_COORDINATOR_EXECUTION_ID
+      )
     ).toMatchObject({ status: "cancelled" });
     expect(
       spaceStub.rpcApplyRuntimeCoordinatorFinalizationCommand
@@ -15328,10 +15222,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
     [false, "reply_wins"],
     [false, "slow"],
   ] as const)("stops an accepted unpublished result without its old Service (legacy command missing: %s, first publication: %s)", async (removeCommand, firstPublication) => {
-    const harness = createHarness();
+    const harness = await createHarness();
     const {
       hub,
-      recordingD1,
+      recordingPostgres,
       sentFrames,
       socket,
       spaceStub,
@@ -15402,12 +15296,15 @@ describe("runtime transport runtime coordinator transport contract", () => {
     });
     await expect(wrongOwner.json()).resolves.toBeNull();
     if (firstPublication === "identity_mismatch") {
-      const inbox = recordingD1.inboxRows.get("dispatch-1::attempt-1");
+      const inbox = await recordingPostgres.inboxRows.get(
+        "dispatch-1::attempt-1"
+      );
       if (!inbox) {
         throw new Error("Expected the accepted result inbox row.");
       }
       inbox.execution_token_fingerprint =
         "etfp_v1_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+      await recordingPostgres.inboxRows.set("dispatch-1::attempt-1", inbox);
       const rejected = await requestRuntimeCoordinatorWakeStop(hub);
       await expect(rejected.json()).resolves.toMatchObject({
         ok: false,
@@ -15448,7 +15345,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
         reasonCode: "runtime_coordinator.wake_stop_execution_terminal",
       });
       expect(
-        recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+        await recordingPostgres.projectionRows.get(
+          RUNTIME_COORDINATOR_EXECUTION_ID
+        )
       ).toMatchObject({ status: "reply_published" });
       expect(
         findRuntimeCoordinatorWakeStoppedNoticePublicationRecord(storageRecords)
@@ -15529,10 +15428,13 @@ describe("runtime transport runtime coordinator transport contract", () => {
       status: firstPublication === "none" ? "cancelled" : "already_cancelled",
     });
     expect(
-      recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+      await recordingPostgres.projectionRows.get(
+        RUNTIME_COORDINATOR_EXECUTION_ID
+      )
     ).toMatchObject({ status: "cancelled" });
     expect(
-      recordingD1.inboxRows.get("dispatch-1::attempt-1")?.publish_state
+      (await recordingPostgres.inboxRows.get("dispatch-1::attempt-1"))
+        ?.publish_state
     ).toBe("reply_suppressed_stopped");
     expect(
       findRuntimeCoordinatorWakeStoppedNoticePublicationRecord(storageRecords)
@@ -15548,11 +15450,12 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("rejects Wake Stop for terminal RuntimeCoordinator executions without marking stopped", async () => {
-    const { hub, recordingD1, sentFrames, socket, state } = createHarness({
-      agentControllerReportRow: buildRuntimeAgentControllerReportRow(),
-    });
+    const { hub, recordingPostgres, sentFrames, socket, state } =
+      await createHarness({
+        agentControllerReportRow: buildRuntimeAgentControllerReportRow(),
+      });
     await issueDeliveryToken({ hub, sentFrames, socket, state });
-    recordingD1.projectionRows.set(
+    await recordingPostgres.projectionRows.set(
       RUNTIME_COORDINATOR_EXECUTION_ID,
       buildRuntimeCoordinatorProjectionRow({
         status: "reply_published",
@@ -15574,14 +15477,17 @@ describe("runtime transport runtime coordinator transport contract", () => {
       },
     });
     expect(
-      recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+      await recordingPostgres.projectionRows.get(
+        RUNTIME_COORDINATOR_EXECUTION_ID
+      )
     ).toMatchObject({
       status: "reply_published",
     });
   });
 
   it("rejects a result that omits the coordinator execution id without completing the pending dispatch", async () => {
-    const { hub, recordingD1, sentFrames, socket, state } = createHarness();
+    const { hub, recordingPostgres, sentFrames, socket, state } =
+      await createHarness();
 
     await (
       hub as unknown as {
@@ -15609,21 +15515,22 @@ describe("runtime transport runtime coordinator transport contract", () => {
       })
     );
 
-    const eventCalls = getRuntimeCoordinatorEventCalls(recordingD1.calls);
+    const eventCalls = getRuntimeCoordinatorEventCalls(recordingPostgres.calls);
     expect(eventCalls).toHaveLength(1);
     expect(eventCalls[0]?.params[1]).toBe(RUNTIME_COORDINATOR_EXECUTION_ID);
     expect(eventCalls[0]?.params[2]).toBe(
       "runtime_coordinator_execution_id_missing"
     );
     expect(
-      recordingD1.calls.some((call) =>
+      recordingPostgres.calls.some((call) =>
         call.query.includes("openMeldDaemon_dispatch_result_inbox")
       )
     ).toBe(false);
   });
 
   it("records a mismatched result id against the authoritative pending execution, not the echoed wrong id", async () => {
-    const { hub, recordingD1, sentFrames, socket, state } = createHarness();
+    const { hub, recordingPostgres, sentFrames, socket, state } =
+      await createHarness();
 
     await (
       hub as unknown as {
@@ -15656,7 +15563,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       })
     );
 
-    const eventCalls = getRuntimeCoordinatorEventCalls(recordingD1.calls);
+    const eventCalls = getRuntimeCoordinatorEventCalls(recordingPostgres.calls);
     expect(eventCalls).toHaveLength(1);
     expect(eventCalls[0]?.params[1]).toBe(RUNTIME_COORDINATOR_EXECUTION_ID);
     expect(eventCalls[0]?.params[1]).not.toBe(
@@ -15674,7 +15581,8 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("rejects a result with an unknown coordinator execution id after pending state is gone without writing to that id", async () => {
-    const { hub, recordingD1, sentFrames, socket, state } = createHarness();
+    const { hub, recordingPostgres, sentFrames, socket, state } =
+      await createHarness();
     state.pendingDispatches.clear();
 
     await (
@@ -15701,16 +15609,19 @@ describe("runtime transport runtime coordinator transport contract", () => {
         }),
       })
     );
-    expect(getRuntimeCoordinatorEventCalls(recordingD1.calls)).toHaveLength(0);
     expect(
-      recordingD1.calls.some((call) =>
+      getRuntimeCoordinatorEventCalls(recordingPostgres.calls)
+    ).toHaveLength(0);
+    expect(
+      recordingPostgres.calls.some((call) =>
         call.query.includes("openMeldDaemon_dispatch_result_inbox")
       )
     ).toBe(false);
   });
 
   it("rejects a lifecycle frame with a wrong coordinator execution id before advancing lifecycle state", async () => {
-    const { hub, recordingD1, sentFrames, socket, state } = createHarness();
+    const { hub, recordingPostgres, sentFrames, socket, state } =
+      await createHarness();
 
     await (
       hub as unknown as {
@@ -15739,7 +15650,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       })
     );
 
-    const eventCalls = getRuntimeCoordinatorEventCalls(recordingD1.calls);
+    const eventCalls = getRuntimeCoordinatorEventCalls(recordingPostgres.calls);
     expect(eventCalls).toHaveLength(1);
     expect(eventCalls[0]?.params[1]).toBe(RUNTIME_COORDINATOR_EXECUTION_ID);
     expect(eventCalls[0]?.params[2]).toBe(
@@ -15751,8 +15662,14 @@ describe("runtime transport runtime coordinator transport contract", () => {
     false,
     true,
   ])("advances lifecycle only after validating the echoed execution token (acknowledgement: %s)", async (acknowledged) => {
-    const { hub, recordingD1, sentFrames, socket, state, storageRecords } =
-      createHarness();
+    const {
+      hub,
+      recordingPostgres,
+      sentFrames,
+      socket,
+      state,
+      storageRecords,
+    } = await createHarness();
     const publishAgentReadinessInvalidated = vi.fn();
     (
       hub as unknown as {
@@ -15775,7 +15692,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     expect(authorityBefore?.runsById[executionToken.runId]).toMatchObject({
       tokenStatus: "active",
     });
-    recordingD1.calls.length = 0;
+    recordingPostgres.calls.length = 0;
     sentFrames.length = 0;
 
     await (
@@ -15820,13 +15737,13 @@ describe("runtime transport runtime coordinator transport contract", () => {
         : []
     );
     expect(
-      getRuntimeCoordinatorEventCalls(recordingD1.calls).some(
+      getRuntimeCoordinatorEventCalls(recordingPostgres.calls).some(
         (call) => call.params[2] === "lifecycle_running"
       )
     ).toBe(true);
-    const readinessImpactClear = recordingD1.calls.find((call) =>
+    const readinessImpactClear = recordingPostgres.calls.find((call) =>
       call.query.includes(
-        "UPDATE openMeldDaemon_agent_execution_readiness_impacts"
+        'UPDATE "openmeld"."openMeldDaemon_agent_execution_readiness_impacts"'
       )
     );
     expect(readinessImpactClear?.params.slice(3, 8)).toEqual([
@@ -15843,14 +15760,15 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("rejects a lifecycle frame that omits the execution token before advancing lifecycle state", async () => {
-    const { hub, recordingD1, sentFrames, socket, state } = createHarness();
+    const { hub, recordingPostgres, sentFrames, socket, state } =
+      await createHarness();
     await issueDeliveryToken({
       hub,
       sentFrames,
       socket,
       state,
     });
-    recordingD1.calls.length = 0;
+    recordingPostgres.calls.length = 0;
     sentFrames.length = 0;
 
     await (
@@ -15879,9 +15797,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
         }),
       })
     );
-    const tokenEvent = getRuntimeCoordinatorEventCalls(recordingD1.calls).find(
-      (call) => call.params[2] === "execution_token_validation_failed"
-    );
+    const tokenEvent = getRuntimeCoordinatorEventCalls(
+      recordingPostgres.calls
+    ).find((call) => call.params[2] === "execution_token_validation_failed");
     expect(tokenEvent?.params[1]).toBe(RUNTIME_COORDINATOR_EXECUTION_ID);
     expect(JSON.parse(String(tokenEvent?.params[7]))).toEqual(
       expect.objectContaining({
@@ -15892,14 +15810,15 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("rejects a lifecycle frame with an unknown execution token before advancing lifecycle state", async () => {
-    const { hub, recordingD1, sentFrames, socket, state } = createHarness();
+    const { hub, recordingPostgres, sentFrames, socket, state } =
+      await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
       socket,
       state,
     });
-    recordingD1.calls.length = 0;
+    recordingPostgres.calls.length = 0;
     sentFrames.length = 0;
 
     await (
@@ -15933,7 +15852,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       })
     );
     expect(
-      getRuntimeCoordinatorEventCalls(recordingD1.calls).some(
+      getRuntimeCoordinatorEventCalls(recordingPostgres.calls).some(
         (call) => call.params[2] === "execution_token_validation_failed"
       )
     ).toBe(true);
@@ -15943,7 +15862,8 @@ describe("runtime transport runtime coordinator transport contract", () => {
     false,
     true,
   ])("rejects runtime evidence that omits the execution token before writing evidence (lost transient state: %s)", async (lostTransientState) => {
-    const { hub, recordingD1, sentFrames, socket, state } = createHarness();
+    const { hub, recordingPostgres, sentFrames, socket, state } =
+      await createHarness();
     await issueDeliveryToken({
       hub,
       sentFrames,
@@ -15953,7 +15873,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     if (lostTransientState) {
       state.pendingDispatches.clear();
     }
-    recordingD1.calls.length = 0;
+    recordingPostgres.calls.length = 0;
     sentFrames.length = 0;
 
     await (
@@ -15978,15 +15898,16 @@ describe("runtime transport runtime coordinator transport contract", () => {
         }),
       })
     );
-    const eventTypes = getRuntimeCoordinatorEventCalls(recordingD1.calls).map(
-      (call) => call.params[2]
-    );
+    const eventTypes = getRuntimeCoordinatorEventCalls(
+      recordingPostgres.calls
+    ).map((call) => call.params[2]);
     expect(eventTypes).toContain("execution_token_validation_failed");
     expect(eventTypes).not.toContain("runtime_evidence_observed");
   });
 
   it("accepts authority-bound runtime evidence after losing transient transport state", async () => {
-    const { hub, recordingD1, sentFrames, socket, state } = createHarness();
+    const { hub, recordingPostgres, sentFrames, socket, state } =
+      await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
@@ -15994,7 +15915,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       state,
     });
     state.pendingDispatches.clear();
-    recordingD1.calls.length = 0;
+    recordingPostgres.calls.length = 0;
     sentFrames.length = 0;
     await (
       hub as unknown as {
@@ -16012,7 +15933,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     );
     expect(sentFrames).toEqual([]);
     expect(
-      getRuntimeCoordinatorEventCalls(recordingD1.calls).map(
+      getRuntimeCoordinatorEventCalls(recordingPostgres.calls).map(
         (call) => call.params[2]
       )
     ).toContain("runtime_evidence_observed");
@@ -16020,7 +15941,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("applies authority-bound Local Agent tool activity to the shared Space stream", async () => {
-    const { hub, sentFrames, socket, spaceStub, state } = createHarness();
+    const { hub, sentFrames, socket, spaceStub, state } = await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
@@ -16062,7 +15983,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("applies authority-bound Local Agent public progress without finalizing the Wake", async () => {
-    const { hub, sentFrames, socket, spaceStub, state } = createHarness();
+    const { hub, sentFrames, socket, spaceStub, state } = await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
@@ -16103,7 +16024,8 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("projects and resolves one normal-priority Inbox review for the interaction owner", async () => {
-    const { hub, recordingD1, sentFrames, socket, state } = createHarness();
+    const { hub, recordingPostgres, sentFrames, socket, state } =
+      await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
@@ -16128,7 +16050,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
       buildInteractionRequest(executionToken)
     );
 
-    expect([...recordingD1.interactionInboxRows.values()]).toEqual([
+    expect([
+      ...(await recordingPostgres.interactionInboxRows.values()),
+    ]).toEqual([
       expect.objectContaining({
         attention: "action_required",
         importance: "normal",
@@ -16140,7 +16064,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       }),
     ]);
     const projectedInboxItem = [
-      ...recordingD1.interactionInboxRows.values(),
+      ...(await recordingPostgres.interactionInboxRows.values()),
     ][0];
     expect(JSON.parse(String(projectedInboxItem?.source_target_json))).toEqual({
       interactionId: "interaction-1",
@@ -16171,14 +16095,20 @@ describe("runtime transport runtime coordinator transport contract", () => {
       ok: true,
       status: "accepted",
     });
-    expect([...recordingD1.interactionInboxRows.values()]).toEqual([
-      expect.objectContaining({ resolution_status: "resolved" }),
-    ]);
+    expect([
+      ...(await recordingPostgres.interactionInboxRows.values()),
+    ]).toEqual([expect.objectContaining({ resolution_status: "resolved" })]);
   });
 
   it("keeps the pending interaction authoritative when Inbox creation fails", async () => {
-    const { hub, recordingD1, sentFrames, socket, state, storageRecords } =
-      createHarness({ interactionInboxWriteFailures: 1 });
+    const {
+      hub,
+      recordingPostgres,
+      sentFrames,
+      socket,
+      state,
+      storageRecords,
+    } = await createHarness({ interactionInboxWriteFailures: 1 });
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
@@ -16202,7 +16132,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       )
     ).resolves.toBeUndefined();
 
-    expect(recordingD1.interactionInboxRows.size).toBe(0);
+    expect(await recordingPostgres.interactionInboxRows.size()).toBe(0);
     expect(findRuntimeCoordinatorRunCommandState(storageRecords)).toMatchObject(
       {
         pendingInteraction: {
@@ -16214,9 +16144,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("repairs a transient Inbox creation failure on exact interaction replay", async () => {
-    const { hub, recordingD1, sentFrames, socket, state } = createHarness({
-      interactionInboxWriteFailures: 1,
-    });
+    const { hub, recordingPostgres, sentFrames, socket, state } =
+      await createHarness({
+        interactionInboxWriteFailures: 1,
+      });
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
@@ -16238,10 +16169,12 @@ describe("runtime transport runtime coordinator transport contract", () => {
       ).handleDispatchInteractionRequestFrame(socket, request);
 
     await handleInteraction();
-    expect(recordingD1.interactionInboxRows.size).toBe(0);
+    expect(await recordingPostgres.interactionInboxRows.size()).toBe(0);
 
     await handleInteraction();
-    expect([...recordingD1.interactionInboxRows.values()]).toEqual([
+    expect([
+      ...(await recordingPostgres.interactionInboxRows.values()),
+    ]).toEqual([
       expect.objectContaining({
         recipient_user_id: "owner-1",
         resolution_status: "open",
@@ -16253,7 +16186,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     const nowMs = 1_700_000_000_000;
     const dateNow = vi.spyOn(Date, "now").mockReturnValue(nowMs);
     try {
-      const first = createHarness({ interactionInboxWriteFailures: 1 });
+      const first = await createHarness({ interactionInboxWriteFailures: 1 });
       const executionToken = await issueDeliveryToken({
         hub: first.hub,
         sentFrames: first.sentFrames,
@@ -16274,9 +16207,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
         first.socket,
         buildInteractionRequest(executionToken)
       );
-      expect(first.recordingD1.interactionInboxRows.size).toBe(0);
+      expect(await first.recordingPostgres.interactionInboxRows.size()).toBe(0);
 
-      const restarted = createHarness({
+      const restarted = await createHarness({
         storageRecords: first.storageRecords,
       });
       dateNow.mockReturnValue(nowMs + 1000);
@@ -16284,7 +16217,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
         restarted.hub as unknown as { alarm: () => Promise<void> }
       ).alarm();
 
-      expect([...restarted.recordingD1.interactionInboxRows.values()]).toEqual([
+      expect([
+        ...(await restarted.recordingPostgres.interactionInboxRows.values()),
+      ]).toEqual([
         expect.objectContaining({
           recipient_user_id: "owner-1",
           resolution_status: "open",
@@ -16307,8 +16242,14 @@ describe("runtime transport runtime coordinator transport contract", () => {
     const nowMs = 1_700_000_000_000;
     const dateNow = vi.spyOn(Date, "now").mockReturnValue(nowMs);
     try {
-      const { hub, recordingD1, sentFrames, socket, state, storageRecords } =
-        createHarness();
+      const {
+        hub,
+        recordingPostgres,
+        sentFrames,
+        socket,
+        state,
+        storageRecords,
+      } = await createHarness();
       const executionToken = await issueDeliveryToken({
         hub,
         sentFrames,
@@ -16328,7 +16269,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
         buildInteractionRequest(executionToken)
       );
 
-      const inboxRow = [...recordingD1.interactionInboxRows.values()][0];
+      const inboxRow = [
+        ...(await recordingPostgres.interactionInboxRows.values()),
+      ][0];
       if (!inboxRow) {
         throw new Error("Expected the interaction Inbox item.");
       }
@@ -16338,6 +16281,11 @@ describe("runtime transport runtime coordinator transport contract", () => {
           unknown
         >;
       inboxRow.source_target_json = JSON.stringify(legacySourceTarget);
+      const { sequence: _sequence, ...legacyInboxContent } = inboxRow;
+      await recordingPostgres.interactionInboxRows.set(
+        String(inboxRow.id),
+        legacyInboxContent
+      );
 
       const repairStorageKey = `runtime-coordinator:interaction-inbox-repair:${RUNTIME_COORDINATOR_EXECUTION_ID}`;
       storageRecords.set(repairStorageKey, {
@@ -16363,17 +16311,31 @@ describe("runtime transport runtime coordinator transport contract", () => {
       await (hub as unknown as { alarm: () => Promise<void> }).alarm();
 
       expect(storageRecords.has(repairStorageKey)).toBe(false);
-      expect(JSON.parse(String(inboxRow.source_target_json))).toEqual(
-        legacySourceTarget
-      );
+      expect(
+        JSON.parse(
+          String(
+            (
+              await recordingPostgres.interactionInboxRows.get(
+                String(inboxRow.id)
+              )
+            )?.source_target_json
+          )
+        )
+      ).toEqual(legacySourceTarget);
     } finally {
       dateNow.mockRestore();
     }
   });
 
   it("accepts the owner response when Inbox resolution fails", async () => {
-    const { hub, recordingD1, sentFrames, socket, state, storageRecords } =
-      createHarness({ interactionInboxResolveFailures: 1 });
+    const {
+      hub,
+      recordingPostgres,
+      sentFrames,
+      socket,
+      state,
+      storageRecords,
+    } = await createHarness({ interactionInboxResolveFailures: 1 });
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
@@ -16414,9 +16376,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
       ok: true,
       status: "accepted",
     });
-    expect([...recordingD1.interactionInboxRows.values()]).toEqual([
-      expect.objectContaining({ resolution_status: "open" }),
-    ]);
+    expect([
+      ...(await recordingPostgres.interactionInboxRows.values()),
+    ]).toEqual([expect.objectContaining({ resolution_status: "open" })]);
     expect(findRuntimeCoordinatorRunCommandState(storageRecords)).toMatchObject(
       {
         pendingInteraction: {
@@ -16431,8 +16393,14 @@ describe("runtime transport runtime coordinator transport contract", () => {
     const nowMs = 1_700_000_000_000;
     const dateNow = vi.spyOn(Date, "now").mockReturnValue(nowMs);
     try {
-      const { hub, recordingD1, sentFrames, socket, state, storageRecords } =
-        createHarness({ interactionInboxResolveFailures: 1 });
+      const {
+        hub,
+        recordingPostgres,
+        sentFrames,
+        socket,
+        state,
+        storageRecords,
+      } = await createHarness({ interactionInboxResolveFailures: 1 });
       const executionToken = await issueDeliveryToken({
         hub,
         sentFrames,
@@ -16468,16 +16436,16 @@ describe("runtime transport runtime coordinator transport contract", () => {
         }
       );
       expect(respondResponse.status).toBe(200);
-      expect([...recordingD1.interactionInboxRows.values()]).toEqual([
-        expect.objectContaining({ resolution_status: "open" }),
-      ]);
+      expect([
+        ...(await recordingPostgres.interactionInboxRows.values()),
+      ]).toEqual([expect.objectContaining({ resolution_status: "open" })]);
 
       dateNow.mockReturnValue(nowMs + 1000);
       await (hub as unknown as { alarm: () => Promise<void> }).alarm();
 
-      expect([...recordingD1.interactionInboxRows.values()]).toEqual([
-        expect.objectContaining({ resolution_status: "resolved" }),
-      ]);
+      expect([
+        ...(await recordingPostgres.interactionInboxRows.values()),
+      ]).toEqual([expect.objectContaining({ resolution_status: "resolved" })]);
       expect(
         findRuntimeCoordinatorRunCommandState(storageRecords)
       ).toMatchObject({
@@ -16492,7 +16460,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("does not let an older open repair delete a newer resolved generation", async () => {
-    const { hub, storageRecords } = createHarness();
+    const { hub, storageRecords } = await createHarness();
     const storageKey = `runtime-coordinator:interaction-inbox-repair:${RUNTIME_COORDINATOR_EXECUTION_ID}`;
     const olderOpenRepair = {
       attemptCount: 1,
@@ -16532,7 +16500,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("persists, privacy-projects, responds to, and acknowledges a Local Agent interaction", async () => {
-    const { hub, sentFrames, socket, state } = createHarness();
+    const { hub, sentFrames, socket, state } = await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
@@ -16646,7 +16614,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("restores a pending Local Agent interaction after restart and replays its response after reconnect", async () => {
-    const first = createHarness();
+    const first = await createHarness();
     const executionToken = await issueDeliveryToken({
       hub: first.hub,
       sentFrames: first.sentFrames,
@@ -16667,7 +16635,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       buildInteractionRequest(executionToken)
     );
 
-    const restarted = createHarness({
+    const restarted = await createHarness({
       storageRecords: first.storageRecords,
     });
     const restoredReadResponse = await fetchRuntimeTransportJson(
@@ -16760,7 +16728,8 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("cancels an expired Local Agent interaction without expiring the Wake watchdog", async () => {
-    const { hub, recordingD1, sentFrames, socket, state } = createHarness();
+    const { hub, recordingPostgres, sentFrames, socket, state } =
+      await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
@@ -16826,13 +16795,13 @@ describe("runtime transport runtime coordinator transport contract", () => {
         response: { kind: "cancel" },
       },
     });
-    expect([...recordingD1.interactionInboxRows.values()]).toEqual([
-      expect.objectContaining({ resolution_status: "resolved" }),
-    ]);
+    expect([
+      ...(await recordingPostgres.interactionInboxRows.values()),
+    ]).toEqual([expect.objectContaining({ resolution_status: "resolved" })]);
   });
 
   it("bounds daemon-supplied Local Agent interaction timestamps to the Core window", async () => {
-    const { hub, sentFrames, socket, state } = createHarness();
+    const { hub, sentFrames, socket, state } = await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
@@ -16885,7 +16854,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
 
   it("redrives a durable interaction observation after the first Agent Task write fails", async () => {
     const storageRecords = new Map<string, unknown>();
-    const first = createHarness({
+    const first = await createHarness({
       storageRecords,
       taskNeedsAttentionObservationWriteFailures: 1,
     });
@@ -16909,7 +16878,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
       buildInteractionRequest(executionToken)
     );
 
-    expect(first.recordingD1.taskNeedsAttentionObservationRows.size).toBe(0);
+    expect(
+      await first.recordingPostgres.taskNeedsAttentionObservationRows.size()
+    ).toBe(0);
     expect(
       storageRecords.get(
         "runtime-coordinator:agent-task-observation-delivery:index"
@@ -16933,17 +16904,17 @@ describe("runtime transport runtime coordinator transport contract", () => {
       status: "pending",
     });
 
-    const restarted = createHarness({ storageRecords });
+    const restarted = await createHarness({ storageRecords });
     expect(first.queuedObservationRedrives).toHaveLength(1);
     await deliverAgentTaskObservationRedriveThroughQueue({
       body: first.queuedObservationRedrives[0],
-      db: restarted.recordingD1.db,
+      binding: restarted.recordingPostgres.binding,
       hub: restarted.hub,
     });
 
-    expect(restarted.recordingD1.taskNeedsAttentionObservationRows.size).toBe(
-      1
-    );
+    expect(
+      await restarted.recordingPostgres.taskNeedsAttentionObservationRows.size()
+    ).toBe(1);
     expect(
       storageRecords.get(
         "runtime-coordinator:agent-task-observation-delivery:index"
@@ -16965,7 +16936,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
 
   it("fails the interaction acknowledgement when both immediate projection and durable alarm scheduling fail", async () => {
     const storageRecords = new Map<string, unknown>();
-    const first = createHarness({
+    const first = await createHarness({
       storageRecords,
       taskNeedsAttentionObservationWriteFailures: 1,
     });
@@ -17000,7 +16971,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
       )
     ).rejects.toThrow("durable object alarm unavailable");
 
-    expect(first.recordingD1.taskNeedsAttentionObservationRows.size).toBe(0);
+    expect(
+      await first.recordingPostgres.taskNeedsAttentionObservationRows.size()
+    ).toBe(0);
     expect(
       storageRecords.get(
         "runtime-coordinator:agent-task-observation-delivery:index"
@@ -17008,21 +16981,21 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ).toHaveLength(1);
 
     expect(first.queuedObservationRedrives).toHaveLength(1);
-    const restarted = createHarness({ storageRecords });
+    const restarted = await createHarness({ storageRecords });
     await deliverAgentTaskObservationRedriveThroughQueue({
       body: first.queuedObservationRedrives[0],
-      db: restarted.recordingD1.db,
+      binding: restarted.recordingPostgres.binding,
       hub: restarted.hub,
     });
     await deliverAgentTaskObservationRedriveThroughQueue({
       body: first.queuedObservationRedrives[0],
-      db: restarted.recordingD1.db,
+      binding: restarted.recordingPostgres.binding,
       hub: restarted.hub,
     });
 
-    expect(restarted.recordingD1.taskNeedsAttentionObservationRows.size).toBe(
-      1
-    );
+    expect(
+      await restarted.recordingPostgres.taskNeedsAttentionObservationRows.size()
+    ).toBe(1);
     expect(
       storageRecords.get(
         "runtime-coordinator:agent-task-observation-delivery:index"
@@ -17032,7 +17005,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
 
   it("does not report terminal failure publication success when task projection and alarm scheduling both fail", async () => {
     const storageRecords = new Map<string, unknown>();
-    const first = createHarness({
+    const first = await createHarness({
       storageRecords,
       taskTerminalOutcomeWriteFailures: 1,
     });
@@ -17079,7 +17052,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
       reasonCode: "runtime_coordinator.failure_publication_unavailable",
     });
     expect(first.spaceFetchRequests).toHaveLength(1);
-    expect(first.recordingD1.taskTerminalOutcomeRows.size).toBe(0);
+    expect(await first.recordingPostgres.taskTerminalOutcomeRows.size()).toBe(
+      0
+    );
     expect(
       storageRecords.get(
         "runtime-coordinator:agent-task-observation-delivery:index"
@@ -17087,19 +17062,21 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ).toHaveLength(1);
 
     expect(first.queuedObservationRedrives).toHaveLength(1);
-    const restarted = createHarness({ storageRecords });
+    const restarted = await createHarness({ storageRecords });
     await deliverAgentTaskObservationRedriveThroughQueue({
       body: first.queuedObservationRedrives[0],
-      db: restarted.recordingD1.db,
+      binding: restarted.recordingPostgres.binding,
       hub: restarted.hub,
     });
     await deliverAgentTaskObservationRedriveThroughQueue({
       body: first.queuedObservationRedrives[0],
-      db: restarted.recordingD1.db,
+      binding: restarted.recordingPostgres.binding,
       hub: restarted.hub,
     });
 
-    expect(restarted.recordingD1.taskTerminalOutcomeRows.size).toBe(1);
+    expect(
+      await restarted.recordingPostgres.taskTerminalOutcomeRows.size()
+    ).toBe(1);
     expect(
       storageRecords.get(
         "runtime-coordinator:agent-task-observation-delivery:index"
@@ -17109,7 +17086,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("orders Local Agent tool activity before its result without blocking heartbeat frames", async () => {
-    const { hub, sentFrames, socket, spaceStub, state } = createHarness();
+    const { hub, sentFrames, socket, spaceStub, state } = await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
@@ -17196,7 +17173,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("continues ordered result handling after tool activity fails and releases the dispatch queue", async () => {
-    const { hub, sentFrames, socket, spaceStub, state } = createHarness();
+    const { hub, sentFrames, socket, spaceStub, state } = await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
@@ -17255,7 +17232,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     false,
     true,
   ])("rejects Local Agent tool activity without an execution token (lost transient state: %s)", async (lostTransientState) => {
-    const { hub, sentFrames, socket, spaceStub, state } = createHarness();
+    const { hub, sentFrames, socket, spaceStub, state } = await createHarness();
     await issueDeliveryToken({ hub, sentFrames, socket, state });
     if (lostTransientState) {
       state.pendingDispatches.clear();
@@ -17290,7 +17267,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     false,
     true,
   ])("rejects Local Agent tool activity that targets another source message (lost transient state: %s)", async (lostTransientState) => {
-    const { hub, sentFrames, socket, spaceStub, state } = createHarness();
+    const { hub, sentFrames, socket, spaceStub, state } = await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
@@ -17330,7 +17307,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     false,
     true,
   ])("rejects Local Agent tool activity from a replaced connection after execution starts (lost transient state: %s)", async (lostTransientState) => {
-    const { hub, sentFrames, socket, spaceStub, state } = createHarness();
+    const { hub, sentFrames, socket, spaceStub, state } = await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
@@ -17378,7 +17355,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     false,
     true,
   ])("accepts Local Agent tool activity from the current reconnected owner (lost transient state: %s)", async (lostTransientState) => {
-    const { hub, sentFrames, socket, spaceStub, state } = createHarness();
+    const { hub, sentFrames, socket, spaceStub, state } = await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
@@ -17432,14 +17409,15 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("rejects a result with an unknown execution token before result inbox acceptance", async () => {
-    const { hub, recordingD1, sentFrames, socket, state } = createHarness();
+    const { hub, recordingPostgres, sentFrames, socket, state } =
+      await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
       socket,
       state,
     });
-    recordingD1.calls.length = 0;
+    recordingPostgres.calls.length = 0;
     sentFrames.length = 0;
 
     await (
@@ -17481,26 +17459,27 @@ describe("runtime transport runtime coordinator transport contract", () => {
       })
     );
     expect(
-      recordingD1.calls.some((call) =>
+      recordingPostgres.calls.some((call) =>
         call.query.includes("openMeldDaemon_dispatch_result_inbox")
       )
     ).toBe(false);
     expect(
-      getRuntimeCoordinatorEventCalls(recordingD1.calls).some(
+      getRuntimeCoordinatorEventCalls(recordingPostgres.calls).some(
         (call) => call.params[2] === "execution_token_validation_failed"
       )
     ).toBe(true);
   });
 
   it("rejects a result that omits the execution token before result inbox acceptance", async () => {
-    const { hub, recordingD1, sentFrames, socket, state } = createHarness();
+    const { hub, recordingPostgres, sentFrames, socket, state } =
+      await createHarness();
     await issueDeliveryToken({
       hub,
       sentFrames,
       socket,
       state,
     });
-    recordingD1.calls.length = 0;
+    recordingPostgres.calls.length = 0;
     sentFrames.length = 0;
 
     await (
@@ -17528,12 +17507,12 @@ describe("runtime transport runtime coordinator transport contract", () => {
       })
     );
     expect(
-      recordingD1.calls.some((call) =>
+      recordingPostgres.calls.some((call) =>
         call.query.includes("openMeldDaemon_dispatch_result_inbox")
       )
     ).toBe(false);
     expect(
-      getRuntimeCoordinatorEventCalls(recordingD1.calls).some(
+      getRuntimeCoordinatorEventCalls(recordingPostgres.calls).some(
         (call) => call.params[2] === "execution_token_validation_failed"
       )
     ).toBe(true);
@@ -17543,11 +17522,11 @@ describe("runtime transport runtime coordinator transport contract", () => {
     const {
       appliedFinalizationCommands,
       hub,
-      recordingD1,
+      recordingPostgres,
       sentFrames,
       socket,
       state,
-    } = createHarness();
+    } = await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
@@ -17575,7 +17554,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         buildDispatchAttemptKey("dispatch-1", "attempt-1")
       )
     ).toBe(true);
-    recordingD1.calls.length = 0;
+    recordingPostgres.calls.length = 0;
     sentFrames.length = 0;
     appliedFinalizationCommands.length = 0;
 
@@ -17605,8 +17584,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
       })
     );
     expect(
-      recordingD1.calls.some((call) =>
-        call.query.includes("INSERT INTO openMeldDaemon_dispatch_result_inbox")
+      recordingPostgres.calls.some((call) =>
+        call.query.includes(
+          'INSERT INTO "openmeld"."openMeldDaemon_dispatch_result_inbox"'
+        )
       )
     ).toBe(false);
     expect(appliedFinalizationCommands).toHaveLength(0);
@@ -17616,12 +17597,12 @@ describe("runtime transport runtime coordinator transport contract", () => {
     const {
       appliedFinalizationCommands,
       hub,
-      recordingD1,
+      recordingPostgres,
       sentFrames,
       socket,
       state,
       storageRecords,
-    } = createHarness();
+    } = await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
@@ -17653,7 +17634,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       }
       return Promise.resolve(storageRecords.get(key));
     });
-    recordingD1.calls.length = 0;
+    recordingPostgres.calls.length = 0;
     sentFrames.length = 0;
     appliedFinalizationCommands.length = 0;
 
@@ -17684,7 +17665,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       })
     );
     expect(
-      recordingD1.calls.some((call) =>
+      recordingPostgres.calls.some((call) =>
         call.query.includes("openMeldDaemon_dispatch_result_inbox")
       )
     ).toBe(false);
@@ -17692,7 +17673,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     expect(waitUntil).toHaveBeenCalledTimes(2);
     await Promise.allSettled(waitUntil.mock.calls.map(([promise]) => promise));
     expect(
-      getRuntimeCoordinatorEventCalls(recordingD1.calls).some((call) => {
+      getRuntimeCoordinatorEventCalls(recordingPostgres.calls).some((call) => {
         const payload = JSON.parse(String(call.params[7]));
         return (
           payload.reasonCode ===
@@ -17706,11 +17687,11 @@ describe("runtime transport runtime coordinator transport contract", () => {
     const {
       appliedFinalizationCommands,
       hub,
-      recordingD1,
+      recordingPostgres,
       sentFrames,
       socket,
       state,
-    } = createHarness();
+    } = await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
@@ -17730,7 +17711,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         taskResult: replayRequest.taskResult,
       })
     );
-    recordingD1.calls.length = 0;
+    recordingPostgres.calls.length = 0;
     sentFrames.length = 0;
     appliedFinalizationCommands.length = 0;
 
@@ -17753,8 +17734,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
       })
     );
     expect(
-      recordingD1.calls.some((call) =>
-        call.query.includes("INSERT INTO openMeldDaemon_dispatch_result_inbox")
+      recordingPostgres.calls.some((call) =>
+        call.query.includes(
+          'INSERT INTO "openmeld"."openMeldDaemon_dispatch_result_inbox"'
+        )
       )
     ).toBe(false);
     expect(appliedFinalizationCommands).toHaveLength(0);
@@ -17764,11 +17747,11 @@ describe("runtime transport runtime coordinator transport contract", () => {
     const {
       appliedFinalizationCommands,
       hub,
-      recordingD1,
+      recordingPostgres,
       sentFrames,
       socket,
       state,
-    } = createHarness();
+    } = await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
@@ -17787,7 +17770,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         executionTokenRunId: executionToken.runId,
       })
     );
-    recordingD1.calls.length = 0;
+    recordingPostgres.calls.length = 0;
     sentFrames.length = 0;
     appliedFinalizationCommands.length = 0;
 
@@ -17837,8 +17820,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
     }
     expect(cachedResult.payload.output).toBe("done");
     expect(
-      recordingD1.calls.some((call) =>
-        call.query.includes("INSERT INTO openMeldDaemon_dispatch_result_inbox")
+      recordingPostgres.calls.some((call) =>
+        call.query.includes(
+          'INSERT INTO "openmeld"."openMeldDaemon_dispatch_result_inbox"'
+        )
       )
     ).toBe(false);
     expect(appliedFinalizationCommands).toHaveLength(0);
@@ -17848,11 +17833,11 @@ describe("runtime transport runtime coordinator transport contract", () => {
     const {
       appliedFinalizationCommands,
       hub,
-      recordingD1,
+      recordingPostgres,
       sentFrames,
       socket,
       state,
-    } = createHarness();
+    } = await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
@@ -17860,7 +17845,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       state,
     });
     state.pendingDispatches.clear();
-    recordingD1.inboxRows.set("dispatch-1::attempt-1", {
+    await recordingPostgres.inboxRows.set("dispatch-1::attempt-1", {
       accepted_at_ms: 1_700_000_000_100,
       attempt_id: "attempt-1",
       daemon_session_id: "daemon-session-1",
@@ -17879,7 +17864,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       task_id: "task-1",
       updated_at_ms: 1_700_000_000_100,
     });
-    recordingD1.calls.length = 0;
+    recordingPostgres.calls.length = 0;
     sentFrames.length = 0;
     appliedFinalizationCommands.length = 0;
 
@@ -17910,7 +17895,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     );
     expect(appliedFinalizationCommands).toHaveLength(0);
     expect(
-      getRuntimeCoordinatorEventCalls(recordingD1.calls).some(
+      getRuntimeCoordinatorEventCalls(recordingPostgres.calls).some(
         (call) => call.params[4] === "daemon.result.identity_mismatch"
       )
     ).toBe(true);
@@ -17920,11 +17905,11 @@ describe("runtime transport runtime coordinator transport contract", () => {
     const {
       appliedFinalizationCommands,
       hub,
-      recordingD1,
+      recordingPostgres,
       sentFrames,
       socket,
       state,
-    } = createHarness({
+    } = await createHarness({
       attemptAcceptanceRow: buildAttemptAcceptanceRow(),
     });
     const executionToken = await issueDeliveryToken({
@@ -17934,7 +17919,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       state,
     });
     state.pendingDispatches.clear();
-    recordingD1.calls.length = 0;
+    recordingPostgres.calls.length = 0;
     sentFrames.length = 0;
     appliedFinalizationCommands.length = 0;
 
@@ -17962,8 +17947,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
         }),
       })
     );
-    const inboxInsertCall = recordingD1.calls.find((call) =>
-      call.query.includes("INSERT INTO openMeldDaemon_dispatch_result_inbox")
+    const inboxInsertCall = recordingPostgres.calls.find((call) =>
+      call.query.includes(
+        'INSERT INTO "openmeld"."openMeldDaemon_dispatch_result_inbox"'
+      )
     );
     expect(inboxInsertCall?.params).toEqual(
       expect.arrayContaining([
@@ -17983,15 +17970,16 @@ describe("runtime transport runtime coordinator transport contract", () => {
     });
   });
 
-  it("does not require D1 RuntimeCoordinator projection to accept a pending-missing token-valid result", async () => {
+  it("does not require the PostgreSQL RuntimeCoordinator projection to accept a pending-missing token-valid result", async () => {
     const {
       appliedFinalizationCommands,
       hub,
-      recordingD1,
+      recordingPostgres,
       sentFrames,
       socket,
       state,
-    } = createHarness({
+      waitUntilTasks,
+    } = await createHarness({
       attemptAcceptanceRow: buildAttemptAcceptanceRow(),
     });
     const executionToken = await issueDeliveryToken({
@@ -18001,8 +17989,8 @@ describe("runtime transport runtime coordinator transport contract", () => {
       state,
     });
     state.pendingDispatches.clear();
-    recordingD1.projectionRows.clear();
-    recordingD1.calls.length = 0;
+    await recordingPostgres.projectionRows.clear();
+    recordingPostgres.calls.length = 0;
     sentFrames.length = 0;
     appliedFinalizationCommands.length = 0;
 
@@ -18021,6 +18009,8 @@ describe("runtime transport runtime coordinator transport contract", () => {
       })
     );
 
+    await Promise.all(waitUntilTasks);
+
     expect(sentFrames).toContainEqual(
       expect.objectContaining({
         code: "daemon.dispatch.accepted",
@@ -18031,22 +18021,24 @@ describe("runtime transport runtime coordinator transport contract", () => {
       })
     );
     expect(
-      getRuntimeCoordinatorEventCalls(recordingD1.calls).some(
+      getRuntimeCoordinatorEventCalls(recordingPostgres.calls).some(
         (call) => call.params[4] === "runtime_coordinator.execution_id_mismatch"
       )
     ).toBe(false);
     expect(
-      getRuntimeCoordinatorEventCalls(recordingD1.calls).some(
+      getRuntimeCoordinatorEventCalls(recordingPostgres.calls).some(
         (call) => call.params[2] === "result_accepted"
       )
     ).toBe(true);
     expect(
-      getRuntimeCoordinatorEventCalls(recordingD1.calls).some(
+      getRuntimeCoordinatorEventCalls(recordingPostgres.calls).some(
         (call) => call.params[2] === "result_late_diagnostic"
       )
     ).toBe(false);
-    const inboxInsertCall = recordingD1.calls.find((call) =>
-      call.query.includes("INSERT INTO openMeldDaemon_dispatch_result_inbox")
+    const inboxInsertCall = recordingPostgres.calls.find((call) =>
+      call.query.includes(
+        'INSERT INTO "openmeld"."openMeldDaemon_dispatch_result_inbox"'
+      )
     );
     expect(inboxInsertCall?.params).toEqual(
       expect.arrayContaining([
@@ -18059,14 +18051,15 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("records owner conflict with a current token as a RuntimeCoordinator decision event", async () => {
-    const { hub, recordingD1, sentFrames, socket, state } = createHarness();
+    const { hub, recordingPostgres, sentFrames, socket, state } =
+      await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
       socket,
       state,
     });
-    recordingD1.calls.length = 0;
+    recordingPostgres.calls.length = 0;
     sentFrames.length = 0;
 
     await (
@@ -18086,7 +18079,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     );
 
     const ownerConflictEvent = getRuntimeCoordinatorEventCalls(
-      recordingD1.calls
+      recordingPostgres.calls
     ).find((call) => call.params[2] === "owner_conflict_current_token");
     expect(ownerConflictEvent?.params[1]).toBe(
       RUNTIME_COORDINATOR_EXECUTION_ID
@@ -18108,13 +18101,13 @@ describe("runtime transport runtime coordinator transport contract", () => {
     const {
       appliedFinalizationCommands,
       hub,
-      recordingD1,
+      recordingPostgres,
       sentFrames,
       socket,
       state,
       storageRecords,
       waitUntilTasks,
-    } = createHarness();
+    } = await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
@@ -18125,7 +18118,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       "dispatch-1",
       "attempt-1"
     );
-    recordingD1.calls.length = 0;
+    recordingPostgres.calls.length = 0;
     sentFrames.length = 0;
     appliedFinalizationCommands.length = 0;
 
@@ -18156,9 +18149,11 @@ describe("runtime transport runtime coordinator transport contract", () => {
     );
     expect(appliedFinalizationCommands).toHaveLength(0);
     expect(state.pendingDispatches.has(dispatchAttemptKey)).toBe(true);
-    expect(recordingD1.inboxRows.has("dispatch-1::attempt-1")).toBe(false);
+    expect(await recordingPostgres.inboxRows.has("dispatch-1::attempt-1")).toBe(
+      false
+    );
     expect(
-      getRuntimeCoordinatorEventCalls(recordingD1.calls).some(
+      getRuntimeCoordinatorEventCalls(recordingPostgres.calls).some(
         (call) => call.params[2] === "owner_conflict_current_token"
       )
     ).toBe(true);
@@ -18175,14 +18170,14 @@ describe("runtime transport runtime coordinator transport contract", () => {
       tokenStatus: "active",
     });
     expect(
-      getRuntimeCoordinatorEventCalls(recordingD1.calls).some(
+      getRuntimeCoordinatorEventCalls(recordingPostgres.calls).some(
         (call) =>
           call.params[2] === "runtime_coordinator_owner_conflict_terminal"
       )
     ).toBe(false);
 
     sentFrames.length = 0;
-    recordingD1.calls.length = 0;
+    recordingPostgres.calls.length = 0;
 
     await (
       hub as unknown as {
@@ -18223,8 +18218,14 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("records owner conflict with a stale token as stale diagnostic only", async () => {
-    const { hub, recordingD1, sentFrames, socket, state, storageRecords } =
-      createHarness();
+    const {
+      hub,
+      recordingPostgres,
+      sentFrames,
+      socket,
+      state,
+      storageRecords,
+    } = await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
@@ -18248,7 +18249,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         tokenStatus: "superseded",
       })
     );
-    recordingD1.calls.length = 0;
+    recordingPostgres.calls.length = 0;
     sentFrames.length = 0;
 
     await (
@@ -18278,7 +18279,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       })
     );
     const ownerConflictEvent = getRuntimeCoordinatorEventCalls(
-      recordingD1.calls
+      recordingPostgres.calls
     ).find((call) => call.params[2] === "owner_conflict_stale_token");
     expect(JSON.parse(String(ownerConflictEvent?.params[7]))).toMatchObject({
       coordinatorAction: "record_diagnostic_only",
@@ -18294,14 +18295,15 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("records owner conflict without a token as a contract diagnostic", async () => {
-    const { hub, recordingD1, sentFrames, socket, state } = createHarness();
+    const { hub, recordingPostgres, sentFrames, socket, state } =
+      await createHarness();
     await issueDeliveryToken({
       hub,
       sentFrames,
       socket,
       state,
     });
-    recordingD1.calls.length = 0;
+    recordingPostgres.calls.length = 0;
     sentFrames.length = 0;
 
     await (
@@ -18320,7 +18322,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     );
 
     const ownerConflictEvent = getRuntimeCoordinatorEventCalls(
-      recordingD1.calls
+      recordingPostgres.calls
     ).find((call) => call.params[2] === "owner_conflict_missing_token");
     expect(JSON.parse(String(ownerConflictEvent?.params[7]))).toMatchObject({
       coordinatorAction: "record_diagnostic_only",
@@ -18331,22 +18333,28 @@ describe("runtime transport runtime coordinator transport contract", () => {
       usesLegacyClaimLeaseAuthority: false,
     });
     expect(
-      getRuntimeCoordinatorEventCalls(recordingD1.calls).some(
+      getRuntimeCoordinatorEventCalls(recordingPostgres.calls).some(
         (call) => call.params[2] === "execution_token_validation_failed"
       )
     ).toBe(true);
   });
 
   it("redelivers the same active run on retry after rechecking the current route", async () => {
-    const { hub, recordingD1, sentFrames, socket, state, storageRecords } =
-      createHarness();
+    const {
+      hub,
+      recordingPostgres,
+      sentFrames,
+      socket,
+      state,
+      storageRecords,
+    } = await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
       socket,
       state,
     });
-    recordingD1.calls.length = 0;
+    recordingPostgres.calls.length = 0;
     sentFrames.length = 0;
     state.sessionsById.set("daemon-session-2", {
       capabilities: {
@@ -18501,22 +18509,28 @@ describe("runtime transport runtime coordinator transport contract", () => {
     );
     expect(decisionLog).toHaveLength(2);
     expect(
-      getRuntimeCoordinatorEventCalls(recordingD1.calls).filter(
+      getRuntimeCoordinatorEventCalls(recordingPostgres.calls).filter(
         (call) => call.params[2] === "runtime_coordinator_redelivery_commanded"
       )
     ).toHaveLength(2);
   });
 
   it("does not mark a redelivery pending when the daemon frame send fails", async () => {
-    const { hub, recordingD1, sentFrames, socket, state, storageRecords } =
-      createHarness();
+    const {
+      hub,
+      recordingPostgres,
+      sentFrames,
+      socket,
+      state,
+      storageRecords,
+    } = await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
       socket,
       state,
     });
-    recordingD1.calls.length = 0;
+    recordingPostgres.calls.length = 0;
     sentFrames.length = 0;
     state.pendingDispatches.clear();
 
@@ -18562,21 +18576,22 @@ describe("runtime transport runtime coordinator transport contract", () => {
       tokenStatus: "active",
     });
     expect(
-      getRuntimeCoordinatorEventCalls(recordingD1.calls).some(
+      getRuntimeCoordinatorEventCalls(recordingPostgres.calls).some(
         (call) => call.params[2] === "runtime_coordinator_redelivery_commanded"
       )
     ).toBe(false);
   });
 
   it("re-evaluates a deferred redelivery with the same idempotency key after the route recovers", async () => {
-    const { hub, recordingD1, sentFrames, socket, state } = createHarness();
+    const { hub, recordingPostgres, sentFrames, socket, state } =
+      await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
       socket,
       state,
     });
-    recordingD1.calls.length = 0;
+    recordingPostgres.calls.length = 0;
     sentFrames.length = 0;
     state.pendingDispatches.clear();
     state.profileLeasesByProfileId.clear();
@@ -18640,14 +18655,15 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("keeps waiting instead of redelivering when the active run has local progress", async () => {
-    const { hub, recordingD1, sentFrames, socket, state } = createHarness();
+    const { hub, recordingPostgres, sentFrames, socket, state } =
+      await createHarness();
     await issueDeliveryToken({
       hub,
       sentFrames,
       socket,
       state,
     });
-    recordingD1.calls.length = 0;
+    recordingPostgres.calls.length = 0;
     sentFrames.length = 0;
 
     const dispatchAttemptKey = buildDispatchAttemptKey(
@@ -18687,21 +18703,22 @@ describe("runtime transport runtime coordinator transport contract", () => {
       runningAtMs: 1_700_000_000_200,
     });
     expect(
-      getRuntimeCoordinatorEventCalls(recordingD1.calls).some(
+      getRuntimeCoordinatorEventCalls(recordingPostgres.calls).some(
         (call) => call.params[2] === "runtime_coordinator_redelivery_commanded"
       )
     ).toBe(false);
   });
 
   it("keeps waiting from durable run progress after pending memory is lost", async () => {
-    const { hub, recordingD1, sentFrames, socket, state } = createHarness();
+    const { hub, recordingPostgres, sentFrames, socket, state } =
+      await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
       socket,
       state,
     });
-    recordingD1.calls.length = 0;
+    recordingPostgres.calls.length = 0;
     sentFrames.length = 0;
     state.pendingDispatches.clear();
 
@@ -18745,14 +18762,15 @@ describe("runtime transport runtime coordinator transport contract", () => {
       )
     ).toBe(false);
     expect(
-      getRuntimeCoordinatorEventCalls(recordingD1.calls).some(
+      getRuntimeCoordinatorEventCalls(recordingPostgres.calls).some(
         (call) => call.params[2] === "runtime_coordinator_redelivery_commanded"
       )
     ).toBe(false);
   });
 
   it("keeps the latest conversation occupancy transition as current evidence", async () => {
-    const { hub, recordingD1, sentFrames, socket, state } = createHarness();
+    const { hub, recordingPostgres, sentFrames, socket, state } =
+      await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
@@ -18785,9 +18803,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
             runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
           })
         );
-        await vi.waitFor(() => {
+        await vi.waitFor(async () => {
           expect(
-            [...recordingD1.eventRows.values()].some((row) => {
+            [...(await recordingPostgres.eventRows.values())].some((row) => {
               const payload = JSON.parse(String(row.payload_json));
               return (
                 payload.agentControllerConversationOccupancy?.state ===
@@ -18802,12 +18820,12 @@ describe("runtime transport runtime coordinator transport contract", () => {
       await reportOccupancy("available", 1_700_000_000_200);
       await reportOccupancy("occupied", 1_700_000_000_300);
 
-      const occupancyRows = [...recordingD1.eventRows.values()].filter(
-        (row) => {
-          const payload = JSON.parse(String(row.payload_json));
-          return Boolean(payload.agentControllerConversationOccupancy);
-        }
-      );
+      const occupancyRows = [
+        ...(await recordingPostgres.eventRows.values()),
+      ].filter((row) => {
+        const payload = JSON.parse(String(row.payload_json));
+        return Boolean(payload.agentControllerConversationOccupancy);
+      });
       expect(occupancyRows).toHaveLength(2);
       expect(
         occupancyRows.map((row) => ({
@@ -18827,14 +18845,15 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("defers redelivery instead of keep-waiting when the current route lacks capability", async () => {
-    const { hub, recordingD1, sentFrames, socket, state } = createHarness();
+    const { hub, recordingPostgres, sentFrames, socket, state } =
+      await createHarness();
     await issueDeliveryToken({
       hub,
       sentFrames,
       socket,
       state,
     });
-    recordingD1.calls.length = 0;
+    recordingPostgres.calls.length = 0;
     sentFrames.length = 0;
     state.pendingDispatches.clear();
 
@@ -18872,7 +18891,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       )
     ).toBe(false);
     expect(
-      getRuntimeCoordinatorEventCalls(recordingD1.calls).some(
+      getRuntimeCoordinatorEventCalls(recordingPostgres.calls).some(
         (call) => call.params[2] === "runtime_coordinator_redelivery_commanded"
       )
     ).toBe(false);
@@ -18883,20 +18902,20 @@ describe("runtime transport runtime coordinator transport contract", () => {
     try {
       const {
         hub,
-        recordingD1,
+        recordingPostgres,
         sentFrames,
         socket,
         spaceFetchRequests,
         state,
         storageRecords,
-      } = createHarness();
+      } = await createHarness();
       const executionToken = await issueDeliveryToken({
         hub,
         sentFrames,
         socket,
         state,
       });
-      recordingD1.calls.length = 0;
+      recordingPostgres.calls.length = 0;
       sentFrames.length = 0;
       spaceFetchRequests.length = 0;
       state.pendingDispatches.clear();
@@ -18947,7 +18966,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       expect(authority?.runsById[executionToken.runId]).toMatchObject({
         tokenStatus: "expired",
       });
-      const terminalProjection = recordingD1.projectionRows.get(
+      const terminalProjection = await recordingPostgres.projectionRows.get(
         RUNTIME_COORDINATOR_EXECUTION_ID
       );
       expect(terminalProjection).toMatchObject({
@@ -18959,9 +18978,11 @@ describe("runtime transport runtime coordinator transport contract", () => {
         kind: "timed_out",
         reasonCode: "runtime_coordinator.delivery_expired",
       });
-      expect(getReadinessImpactWriteCalls(recordingD1.calls)).toHaveLength(1);
       expect(
-        getReadinessImpactWriteCalls(recordingD1.calls)[0]?.params
+        getReadinessImpactWriteCalls(recordingPostgres.calls)
+      ).toHaveLength(1);
+      expect(
+        getReadinessImpactWriteCalls(recordingPostgres.calls)[0]?.params
       ).toEqual([
         `readiness_impact:local_execution:${TARGET_AGENT_PROFILE_ID}:binding-1:runtime-1:builtin:codex`,
         "local_execution",
@@ -18979,7 +19000,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         1_700_000_031_000,
       ]);
       const terminalEvent = getRuntimeCoordinatorEventCalls(
-        recordingD1.calls
+        recordingPostgres.calls
       ).find(
         (call) => call.params[2] === "runtime_coordinator_timeout_terminal"
       );
@@ -18998,7 +19019,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
     try {
       const { hub, sentFrames, socket, spaceFetchRequests, state } =
-        createHarness();
+        await createHarness();
       const replyToSnapshot = {
         signalId: "signal-source-1",
         profileId: "11111111-1111-4111-8111-111111111111",
@@ -19047,13 +19068,13 @@ describe("runtime transport runtime coordinator transport contract", () => {
     try {
       const {
         hub,
-        recordingD1,
+        recordingPostgres,
         sentFrames,
         socket,
         spaceFetchRequests,
         state,
         storageRecords,
-      } = createHarness();
+      } = await createHarness();
       const executionToken = await issueDeliveryToken({
         hub,
         sentFrames,
@@ -19082,7 +19103,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       ).alarm();
       expect(spaceFetchRequests).toEqual([]);
       expect(setAlarm).toHaveBeenCalledWith(1_700_000_030_001);
-      recordingD1.calls.length = 0;
+      recordingPostgres.calls.length = 0;
       sentFrames.length = 0;
       nowSpy.mockReturnValue(1_700_000_031_000);
 
@@ -19120,12 +19141,12 @@ describe("runtime transport runtime coordinator transport contract", () => {
         tokenStatus: "expired",
       });
       expect(
-        getRuntimeCoordinatorEventCalls(recordingD1.calls).some(
+        getRuntimeCoordinatorEventCalls(recordingPostgres.calls).some(
           (call) => call.params[2] === "runtime_coordinator_timeout_terminal"
         )
       ).toBe(true);
       expect(
-        recordingD1.calls.some(
+        recordingPostgres.calls.some(
           (call) =>
             SQL_SELECT_PATTERN.test(call.query) &&
             call.query.includes("openMeldDaemon_runtime_coordinator_executions")
@@ -19139,7 +19160,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   it("keeps legacy pre-execution handoff as evidence instead of publishing final Space failure", async () => {
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_005_000);
     try {
-      const { hub, spaceFetchRequests, storageRecords } = createHarness();
+      const { hub, spaceFetchRequests, storageRecords } = await createHarness();
       const requestBody = {
         v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
         attemptId: "attempt-preexec-1",
@@ -19228,7 +19249,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_031_000);
     try {
       const { hub, spaceFetchRequests, spaceStub, state, storageRecords } =
-        createHarness();
+        await createHarness();
       state.pendingDispatches.clear();
       vi.mocked(spaceStub.fetch).mockRejectedValueOnce(
         new Error("space unavailable")
@@ -19309,7 +19330,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_005_000);
     try {
       const { hub, sentFrames, socket, spaceFetchRequests, state } =
-        createHarness();
+        await createHarness();
       state.pendingDispatches.clear();
 
       await fetchRuntimeTransportJson(
@@ -19371,7 +19392,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_031_000);
     try {
       const { hub, sentFrames, socket, spaceFetchRequests, state } =
-        createHarness();
+        await createHarness();
       state.pendingDispatches.clear();
 
       await fetchRuntimeTransportJson(
@@ -19423,7 +19444,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
     try {
       const { hub, sentFrames, socket, state, storageRecords } =
-        createHarness();
+        await createHarness();
       const setAlarm = vi.mocked(
         (
           hub as unknown as {
@@ -19472,7 +19493,8 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("rejects a delivery that selects one Profile route for another Profile's Wake", async () => {
-    const { hub, sentFrames, socket, state, storageRecords } = createHarness();
+    const { hub, sentFrames, socket, state, storageRecords } =
+      await createHarness();
     configureCompatibleRoute({ socket, state });
     const session = state.sessionsById.get("daemon-session-1");
     const targetLease = state.profileLeasesByProfileId.get(
@@ -19546,7 +19568,8 @@ describe("runtime transport runtime coordinator transport contract", () => {
   ])("rejects mismatched $label before delivery authority is created", async ({
     mutate,
   }) => {
-    const { hub, sentFrames, socket, state, storageRecords } = createHarness();
+    const { hub, sentFrames, socket, state, storageRecords } =
+      await createHarness();
     configureCompatibleRoute({ socket, state });
     await acceptDefaultRuntimeCoordinatorHead(hub);
     const request = buildDeliverRequest();
@@ -19590,13 +19613,13 @@ describe("runtime transport runtime coordinator transport contract", () => {
     try {
       const {
         hub,
-        recordingD1,
+        recordingPostgres,
         sentFrames,
         socket,
         spaceFetchRequests,
         state,
         storageRecords,
-      } = createHarness();
+      } = await createHarness();
       configureCompatibleRoute({
         socket,
         state,
@@ -19644,7 +19667,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         status: "stopped_before_execution",
       });
 
-      recordingD1.calls.length = 0;
+      recordingPostgres.calls.length = 0;
       sentFrames.length = 0;
       spaceFetchRequests.length = 0;
       nowSpy.mockReturnValue(1_700_000_031_000);
@@ -19658,7 +19681,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       expect(sentFrames).toEqual([]);
       expect(spaceFetchRequests).toEqual([]);
       expect(
-        getRuntimeCoordinatorEventCalls(recordingD1.calls).some(
+        getRuntimeCoordinatorEventCalls(recordingPostgres.calls).some(
           (call) => call.params[2] === "runtime_coordinator_timeout_terminal"
         )
       ).toBe(false);
@@ -19679,9 +19702,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
   it("atomically rejects pre-send preparation when command storage fails after the head is ready to link", async () => {
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
     try {
-      const { hub, sentFrames, socket, state, storageRecords } = createHarness({
-        runCommandStateWriteFailures: 1,
-      });
+      const { hub, sentFrames, socket, state, storageRecords } =
+        await createHarness({
+          runCommandStateWriteFailures: 1,
+        });
       configureCompatibleRoute({ socket, state });
       await acceptDefaultRuntimeCoordinatorHead(hub);
 
@@ -19749,7 +19773,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         state,
         storageRecords,
         storageSetAlarm,
-      } = createHarness();
+      } = await createHarness();
       configureCompatibleRoute({ socket, state });
       await acceptDefaultRuntimeCoordinatorHead(hub);
       storageSetAlarm.mockRejectedValueOnce(
@@ -19797,13 +19821,13 @@ describe("runtime transport runtime coordinator transport contract", () => {
     try {
       const {
         hub,
-        recordingD1,
+        recordingPostgres,
         sentFrames,
         socket,
         spaceFetchRequests,
         state,
         storageRecords,
-      } = createHarness();
+      } = await createHarness();
       configureCompatibleRoute({
         socket,
         state,
@@ -19845,7 +19869,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         findRuntimeCoordinatorRunCommandState(storageRecords)
       ).toBeUndefined();
 
-      recordingD1.calls.length = 0;
+      recordingPostgres.calls.length = 0;
       sentFrames.length = 0;
       spaceFetchRequests.length = 0;
       const decisionResponse = await (
@@ -19882,12 +19906,12 @@ describe("runtime transport runtime coordinator transport contract", () => {
       expect(sentFrames).toEqual([]);
       expect(spaceFetchRequests).toEqual([]);
       expect(
-        getRuntimeCoordinatorEventCalls(recordingD1.calls).some(
+        getRuntimeCoordinatorEventCalls(recordingPostgres.calls).some(
           (call) => call.params[2] === "runtime_coordinator_timeout_terminal"
         )
       ).toBe(false);
 
-      recordingD1.calls.length = 0;
+      recordingPostgres.calls.length = 0;
       const secondResponse = await (
         hub as unknown as {
           handleDeliverDispatchRequest: (request: Request) => Promise<Response>;
@@ -19940,7 +19964,8 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("does not roll back an unsent delivery after Wake Stop is durably requested", async () => {
-    const { hub, sentFrames, socket, state, storageRecords } = createHarness();
+    const { hub, sentFrames, socket, state, storageRecords } =
+      await createHarness();
     await issueDeliveryToken({
       hub,
       sentFrames,
@@ -19983,7 +20008,8 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("does not revive an unsent delivery after its token run becomes terminal", async () => {
-    const { hub, sentFrames, socket, state, storageRecords } = createHarness();
+    const { hub, sentFrames, socket, state, storageRecords } =
+      await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
@@ -20033,13 +20059,13 @@ describe("runtime transport runtime coordinator transport contract", () => {
     try {
       const {
         hub,
-        recordingD1,
+        recordingPostgres,
         sentFrames,
         socket,
         spaceFetchRequests,
         state,
         storageRecords,
-      } = createHarness();
+      } = await createHarness();
       const executionToken = await issueDeliveryToken({
         hub,
         sentFrames,
@@ -20065,7 +20091,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         })
       );
 
-      recordingD1.calls.length = 0;
+      recordingPostgres.calls.length = 0;
       sentFrames.length = 0;
       spaceFetchRequests.length = 0;
       nowSpy.mockReturnValue(1_700_000_031_000);
@@ -20087,12 +20113,12 @@ describe("runtime transport runtime coordinator transport contract", () => {
         tokenStatus: "active",
       });
       expect(
-        getRuntimeCoordinatorEventCalls(recordingD1.calls).some(
+        getRuntimeCoordinatorEventCalls(recordingPostgres.calls).some(
           (call) => call.params[2] === "runtime_coordinator_timeout_terminal"
         )
       ).toBe(false);
       const progressDecision = getRuntimeCoordinatorEventCalls(
-        recordingD1.calls
+        recordingPostgres.calls
       ).find(
         (call) => call.params[2] === "runtime_coordinator_decision_recorded"
       );
@@ -20129,7 +20155,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         ).resolveNextRuntimeCoordinatorWatchdogAlarmAtMs()
       ).resolves.toBe(1_700_000_061_000);
       expect(
-        recordingD1.calls.some(
+        recordingPostgres.calls.some(
           (call) =>
             SQL_SELECT_PATTERN.test(call.query) &&
             call.query.includes("openMeldDaemon_runtime_coordinator_executions")
@@ -20148,14 +20174,14 @@ describe("runtime transport runtime coordinator transport contract", () => {
     try {
       const {
         hub,
-        recordingD1,
+        recordingPostgres,
         sentFrames,
         socket,
         spaceFetchRequests,
         state,
         storageRecords,
         waitUntilTasks,
-      } = createHarness();
+      } = await createHarness();
       const executionToken = await issueDeliveryToken({
         hub,
         sentFrames,
@@ -20296,7 +20322,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       ).toBe(1_700_000_000_300);
       liveSession.lastHeartbeatMs = 1_700_000_300_300;
 
-      recordingD1.calls.length = 0;
+      recordingPostgres.calls.length = 0;
       sentFrames.length = 0;
       spaceFetchRequests.length = 0;
       nowSpy.mockReturnValue(1_700_000_300_300);
@@ -20335,7 +20361,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         },
       });
       const occupiedTerminalEvent = getRuntimeCoordinatorEventCalls(
-        recordingD1.calls
+        recordingPostgres.calls
       ).find(
         (call) => call.params[2] === "runtime_coordinator_timeout_terminal"
       );
@@ -20457,9 +20483,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
   it("keeps a failed head reread unknown instead of reporting that nothing started", async () => {
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
     try {
-      const { hub, sentFrames, socket, state, storageRecords } = createHarness({
-        agentControllerReportRow: buildRuntimeAgentControllerReportRow(),
-      });
+      const { hub, sentFrames, socket, state, storageRecords } =
+        await createHarness({
+          agentControllerReportRow: buildRuntimeAgentControllerReportRow(),
+        });
       await issueDeliveryToken({ hub, sentFrames, socket, state });
       const admissionKey =
         runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys.admission(
@@ -20513,7 +20540,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
     try {
       const { hub, sentFrames, socket, state, storageRecords, waitUntilTasks } =
-        createHarness({
+        await createHarness({
           agentControllerReportRow: buildRuntimeAgentControllerReportRow(),
         });
       await issueDeliveryToken({ hub, sentFrames, socket, state });
@@ -20548,7 +20575,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
     try {
       const { hub, sentFrames, socket, state, storageRecords, waitUntilTasks } =
-        createHarness({
+        await createHarness({
           agentControllerReportRow: buildRuntimeAgentControllerReportRow(),
         });
       await issueDeliveryToken({ hub, sentFrames, socket, state });
@@ -20594,7 +20621,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         state,
         storageRecords,
         spaceFetchRequests,
-      } = createHarness();
+      } = await createHarness();
       const executionToken = await issueDeliveryToken({
         hub,
         sentFrames,
@@ -20688,13 +20715,13 @@ describe("runtime transport runtime coordinator transport contract", () => {
     try {
       const {
         hub,
-        recordingD1,
+        recordingPostgres,
         sentFrames,
         socket,
         spaceFetchRequests,
         state,
         storageRecords,
-      } = createHarness();
+      } = await createHarness();
       const executionToken = await issueDeliveryToken({
         hub,
         sentFrames,
@@ -20762,7 +20789,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       }
       liveSession.lastHeartbeatMs = 1_700_000_300_300;
 
-      recordingD1.calls.length = 0;
+      recordingPostgres.calls.length = 0;
       spaceFetchRequests.length = 0;
       nowSpy.mockReturnValue(1_700_000_300_300);
       await (
@@ -20780,7 +20807,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         },
       });
       const staleTerminalEvent = getRuntimeCoordinatorEventCalls(
-        recordingD1.calls
+        recordingPostgres.calls
       ).find(
         (call) => call.params[2] === "runtime_coordinator_timeout_terminal"
       );
@@ -20812,14 +20839,14 @@ describe("runtime transport runtime coordinator transport contract", () => {
     try {
       const {
         hub,
-        recordingD1,
+        recordingPostgres,
         sentFrames,
         socket,
         spaceStub,
         spaceFetchRequests,
         state,
         storageRecords,
-      } = createHarness({ taskTerminalOutcomeWriteFailures: 2 });
+      } = await createHarness({ taskTerminalOutcomeWriteFailures: 2 });
       const executionToken = await issueDeliveryToken({
         hub,
         sentFrames,
@@ -20845,7 +20872,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         })
       );
 
-      recordingD1.calls.length = 0;
+      recordingPostgres.calls.length = 0;
       sentFrames.length = 0;
       spaceFetchRequests.length = 0;
       nowSpy.mockReturnValue(1_700_000_031_000);
@@ -20855,7 +20882,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         }
       ).alarm();
 
-      recordingD1.calls.length = 0;
+      recordingPostgres.calls.length = 0;
       sentFrames.length = 0;
       spaceFetchRequests.length = 0;
       nowSpy.mockReturnValue(1_700_000_061_000);
@@ -20868,7 +20895,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       expect(sentFrames).toEqual([]);
       expect(spaceFetchRequests).toEqual([]);
       const secondRoundDecision = getRuntimeCoordinatorEventCalls(
-        recordingD1.calls
+        recordingPostgres.calls
       ).find(
         (call) => call.params[2] === "runtime_coordinator_decision_recorded"
       );
@@ -20878,15 +20905,17 @@ describe("runtime transport runtime coordinator transport contract", () => {
         trigger: "alarm",
       });
       expect(
-        getRuntimeCoordinatorEventCalls(recordingD1.calls).some((call) => {
-          const payload = JSON.parse(String(call.params[7]));
-          return (
-            payload.reasonCode === "runtime_coordinator.local_progress_active"
-          );
-        })
+        getRuntimeCoordinatorEventCalls(recordingPostgres.calls).some(
+          (call) => {
+            const payload = JSON.parse(String(call.params[7]));
+            return (
+              payload.reasonCode === "runtime_coordinator.local_progress_active"
+            );
+          }
+        )
       ).toBe(false);
       expect(
-        getRuntimeCoordinatorEventCalls(recordingD1.calls).some(
+        getRuntimeCoordinatorEventCalls(recordingPostgres.calls).some(
           (call) => call.params[2] === "runtime_coordinator_timeout_terminal"
         )
       ).toBe(false);
@@ -20902,7 +20931,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         },
       });
 
-      recordingD1.calls.length = 0;
+      recordingPostgres.calls.length = 0;
       sentFrames.length = 0;
       spaceFetchRequests.length = 0;
       const drainingSession = state.sessionsById.get("daemon-session-1");
@@ -20939,7 +20968,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         },
       });
       const localRuntimeLostEvent = getRuntimeCoordinatorEventCalls(
-        recordingD1.calls
+        recordingPostgres.calls
       ).find((call) => call.params[2] === "runtime_connection_lost");
       expect(
         JSON.parse(String(localRuntimeLostEvent?.params[7]))
@@ -20962,8 +20991,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
         replySignalId: "signal-delivery-expired-1",
         status: "failed_terminal",
       });
-      const agentTaskOutcomeWrite = recordingD1.calls.find((call) =>
-        call.query.includes("INSERT INTO agent_task_terminal_outcomes")
+      const agentTaskOutcomeWrite = recordingPostgres.calls.find((call) =>
+        call.query.includes(
+          'INSERT INTO "openmeld"."agent_task_terminal_outcomes"'
+        )
       );
       expect(agentTaskOutcomeWrite?.params[2]).toBe("failed");
       expect(JSON.parse(String(agentTaskOutcomeWrite?.params[4]))).toEqual({
@@ -20973,7 +21004,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         publishedSignalId: "signal-delivery-expired-1",
         status: "failed",
       });
-      expect(recordingD1.taskTerminalOutcomeRows.size).toBe(0);
+      expect(await recordingPostgres.taskTerminalOutcomeRows.size()).toBe(0);
       expect(
         storageRecords.get(
           "runtime-coordinator:agent-task-observation-delivery:index"
@@ -20982,7 +21013,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         `agent-task-observation:${RUNTIME_COORDINATOR_EXECUTION_ID}:runtime-coordinator-terminal:${RUNTIME_COORDINATOR_EXECUTION_ID}`,
       ]);
 
-      const restarted = createHarness({ storageRecords });
+      const restarted = await createHarness({ storageRecords });
       await (
         restarted.hub as unknown as {
           processRuntimeCoordinatorAgentTaskObservationDeliveryAlarm: (
@@ -20992,7 +21023,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
       ).processRuntimeCoordinatorAgentTaskObservationDeliveryAlarm(
         1_700_000_300_301
       );
-      expect(restarted.recordingD1.taskTerminalOutcomeRows.size).toBe(1);
+      expect(
+        await restarted.recordingPostgres.taskTerminalOutcomeRows.size()
+      ).toBe(1);
       expect(
         storageRecords.get(
           "runtime-coordinator:agent-task-observation-delivery:index"
@@ -21000,7 +21033,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       ).toEqual([]);
       expect(spaceFetchRequests).toHaveLength(1);
 
-      recordingD1.calls.length = 0;
+      recordingPostgres.calls.length = 0;
       sentFrames.length = 0;
       spaceFetchRequests.length = 0;
       vi.mocked(
@@ -21034,10 +21067,12 @@ describe("runtime transport runtime coordinator transport contract", () => {
         })
       );
       expect(
-        recordingD1.inboxRows.get("dispatch-1::attempt-1")?.publish_state
+        (await recordingPostgres.inboxRows.get("dispatch-1::attempt-1"))
+          ?.publish_state
       ).toBe("late_result_available");
       expect(
-        recordingD1.inboxRows.get("dispatch-1::attempt-1")?.published_signal_id
+        (await recordingPostgres.inboxRows.get("dispatch-1::attempt-1"))
+          ?.published_signal_id
       ).toBeNull();
 
       sentFrames.length = 0;
@@ -21080,7 +21115,8 @@ describe("runtime transport runtime coordinator transport contract", () => {
         "/rpc/signals/execution-recovery"
       );
       expect(
-        recordingD1.inboxRows.get("dispatch-1::attempt-1")?.published_signal_id
+        (await recordingPostgres.inboxRows.get("dispatch-1::attempt-1"))
+          ?.published_signal_id
       ).toBe("execution-recovery:space-1:dispatch-1::attempt-1");
       expect(terminalAuthority?.terminalOutcome).toMatchObject({
         reasonCode: "runtime.local_runtime_lost",
@@ -21097,12 +21133,12 @@ describe("runtime transport runtime coordinator transport contract", () => {
     try {
       const {
         hub,
-        recordingD1,
+        recordingPostgres,
         sentFrames,
         socket,
         spaceFetchRequests,
         state,
-      } = createHarness();
+      } = await createHarness();
       const executionToken = await issueDeliveryToken({
         hub,
         sentFrames,
@@ -21132,7 +21168,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         state,
       });
       sentFrames.length = 0;
-      recordingD1.calls.length = 0;
+      recordingPostgres.calls.length = 0;
       spaceFetchRequests.length = 0;
       nowSpy.mockReturnValue(1_700_000_001_200);
 
@@ -21172,12 +21208,14 @@ describe("runtime transport runtime coordinator transport contract", () => {
       ]);
       expect(spaceFetchRequests).toEqual([]);
       expect(
-        recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+        await recordingPostgres.projectionRows.get(
+          RUNTIME_COORDINATOR_EXECUTION_ID
+        )
       ).toMatchObject({
         status: "delivery_accepted",
       });
       expect(
-        getRuntimeCoordinatorEventCalls(recordingD1.calls).some(
+        getRuntimeCoordinatorEventCalls(recordingPostgres.calls).some(
           (call) =>
             call.params[2] === "runtime_coordinator_redelivery_commanded"
         )
@@ -21190,7 +21228,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   it("redelivers exactly once after a hub restart loses the old in-memory Service session", async () => {
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
     try {
-      const first = createHarness();
+      const first = await createHarness();
       const executionToken = await issueDeliveryToken({
         hub: first.hub,
         sentFrames: first.sentFrames,
@@ -21207,7 +21245,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         lane: "dev-local",
       });
 
-      const restarted = createHarness({
+      const restarted = await createHarness({
         storageRecords: first.storageRecords,
       });
       const replacementSocket = {
@@ -21288,14 +21326,14 @@ describe("runtime transport runtime coordinator transport contract", () => {
     try {
       const {
         hub,
-        recordingD1,
+        recordingPostgres,
         sentFrames,
         socket,
         spaceFetchRequests,
         state,
         storageRecords,
         waitUntilTasks,
-      } = createHarness({
+      } = await createHarness({
         agentControllerReportRow: buildRuntimeAgentControllerReportRow(),
       });
       Object.defineProperty(hub, "reconcileExpectedRoutesForSession", {
@@ -21344,7 +21382,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
           replacementAttachment = value;
         }),
       } as unknown as WebSocket;
-      recordingD1.calls.length = 0;
+      recordingPostgres.calls.length = 0;
       spaceFetchRequests.length = 0;
       waitUntilTasks.length = 0;
       nowSpy.mockReturnValue(1_700_000_001_100);
@@ -21378,7 +21416,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
       await registerReplacement();
 
       expect(
-        recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+        await recordingPostgres.projectionRows.get(
+          RUNTIME_COORDINATOR_EXECUTION_ID
+        )
       ).toMatchObject({
         status: "running",
       });
@@ -21442,15 +21482,20 @@ describe("runtime transport runtime coordinator transport contract", () => {
       });
 
       expect(
-        recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+        await recordingPostgres.projectionRows.get(
+          RUNTIME_COORDINATOR_EXECUTION_ID
+        )
       ).toMatchObject({
         status: "failed_terminal",
       });
       expect(
         JSON.parse(
           String(
-            recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
-              ?.terminal_outcome_json
+            (
+              await recordingPostgres.projectionRows.get(
+                RUNTIME_COORDINATOR_EXECUTION_ID
+              )
+            )?.terminal_outcome_json
           )
         )
       ).toMatchObject({
@@ -21480,20 +21525,24 @@ describe("runtime transport runtime coordinator transport contract", () => {
           }),
         },
       });
-      expect(recordingD1.taskTerminalOutcomeRows.size).toBe(1);
-      const terminalTaskWritesAfterFirstReconcile = recordingD1.calls.filter(
-        (call) =>
-          call.query.includes("INSERT INTO agent_task_terminal_outcomes")
-      ).length;
+      expect(await recordingPostgres.taskTerminalOutcomeRows.size()).toBe(1);
+      const terminalTaskWritesAfterFirstReconcile =
+        recordingPostgres.calls.filter((call) =>
+          call.query.includes(
+            'INSERT INTO "openmeld"."agent_task_terminal_outcomes"'
+          )
+        ).length;
 
       waitUntilTasks.length = 0;
       await registerReplacement();
 
       expect(spaceFetchRequests).toHaveLength(1);
-      expect(recordingD1.taskTerminalOutcomeRows.size).toBe(1);
+      expect(await recordingPostgres.taskTerminalOutcomeRows.size()).toBe(1);
       expect(
-        recordingD1.calls.filter((call) =>
-          call.query.includes("INSERT INTO agent_task_terminal_outcomes")
+        recordingPostgres.calls.filter((call) =>
+          call.query.includes(
+            'INSERT INTO "openmeld"."agent_task_terminal_outcomes"'
+          )
         )
       ).toHaveLength(terminalTaskWritesAfterFirstReconcile);
     } finally {
@@ -21504,12 +21553,13 @@ describe("runtime transport runtime coordinator transport contract", () => {
   it("serializes concurrent lost-run reconciliation after replacement route registration", async () => {
     vi.useFakeTimers({
       now: 1_700_000_000_000,
+      toFake: ["Date"],
     });
     try {
       const {
         hub,
         queuedObservationRedrives,
-        recordingD1,
+        recordingPostgres,
         sentFrames,
         socket,
         spaceFetchRequests,
@@ -21517,7 +21567,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         state,
         storageRecords,
         waitUntilTasks,
-      } = createHarness({
+      } = await createHarness({
         agentControllerReportRow: buildRuntimeAgentControllerReportRow(),
       });
       Object.defineProperty(hub, "reconcileExpectedRoutesForSession", {
@@ -21567,7 +21617,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
           replacementAttachment = value;
         }),
       } as unknown as WebSocket;
-      recordingD1.calls.length = 0;
+      recordingPostgres.calls.length = 0;
       spaceFetchRequests.length = 0;
       waitUntilTasks.length = 0;
       vi.setSystemTime(1_700_000_001_100);
@@ -21755,10 +21805,8 @@ describe("runtime transport runtime coordinator transport contract", () => {
       registerReplacement([TARGET_AGENT_PROFILE_ID, conflictingProfileId]);
       registerReplacement([TARGET_AGENT_PROFILE_ID, conflictingProfileId]);
       const settleBurst = settleWaitUntilTasks();
-      await vi.advanceTimersByTimeAsync(0);
-      expect(reconciliationAttempt).toBe(1);
+      await vi.waitFor(() => expect(reconciliationAttempt).toBe(1));
       expect(noticePublicationAttempt).toBe(0);
-      await vi.advanceTimersByTimeAsync(1000);
       rejectFirstReconciliation?.(
         new Error("simulated slow first reconciliation failure")
       );
@@ -21803,15 +21851,20 @@ describe("runtime transport runtime coordinator transport contract", () => {
         ])
       );
       expect(
-        recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+        await recordingPostgres.projectionRows.get(
+          RUNTIME_COORDINATOR_EXECUTION_ID
+        )
       ).toMatchObject({
         status: "failed_terminal",
       });
       expect(
         JSON.parse(
           String(
-            recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
-              ?.terminal_outcome_json
+            (
+              await recordingPostgres.projectionRows.get(
+                RUNTIME_COORDINATOR_EXECUTION_ID
+              )
+            )?.terminal_outcome_json
           )
         )
       ).toMatchObject({
@@ -21843,9 +21896,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
           }),
         },
       });
-      expect(recordingD1.taskTerminalOutcomeRows.size).toBe(1);
+      expect(await recordingPostgres.taskTerminalOutcomeRows.size()).toBe(1);
       const taskOutcomeRow = [
-        ...recordingD1.taskTerminalOutcomeRows.values(),
+        ...(await recordingPostgres.taskTerminalOutcomeRows.values()),
       ][0];
       expect(JSON.parse(String(taskOutcomeRow?.outcome_json))).toMatchObject({
         errorCode: "runtime.local_runtime_lost",
@@ -21859,7 +21912,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         },
       });
       expect(
-        [...recordingD1.eventRows.values()].filter(
+        [...(await recordingPostgres.eventRows.values())].filter(
           (event) => event.reason_code === "runtime.local_runtime_lost"
         )
       ).toHaveLength(1);
@@ -21873,20 +21926,20 @@ describe("runtime transport runtime coordinator transport contract", () => {
     try {
       const {
         hub,
-        recordingD1,
+        recordingPostgres,
         sentFrames,
         socket,
         spaceStub,
         state,
         storageRecords,
-      } = createHarness();
+      } = await createHarness();
       await issueDeliveryToken({
         hub,
         sentFrames,
         socket,
         state,
       });
-      recordingD1.calls.length = 0;
+      recordingPostgres.calls.length = 0;
       sentFrames.length = 0;
       state.pendingDispatches.clear();
       vi.mocked(spaceStub.rpcPostSystemNoticeSignal).mockImplementationOnce(
@@ -21921,12 +21974,12 @@ describe("runtime transport runtime coordinator transport contract", () => {
         status: "failed_terminal",
       });
       expect(
-        getRuntimeCoordinatorEventCalls(recordingD1.calls).some(
+        getRuntimeCoordinatorEventCalls(recordingPostgres.calls).some(
           (call) => call.params[2] === "runtime_coordinator_timeout_terminal"
         )
       ).toBe(true);
       const terminalEvent = getRuntimeCoordinatorEventCalls(
-        recordingD1.calls
+        recordingPostgres.calls
       ).find(
         (call) => call.params[2] === "runtime_coordinator_timeout_terminal"
       );
@@ -21938,7 +21991,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
           publishedSignalId: null,
         },
       });
-      expect(getReadinessImpactWriteCalls(recordingD1.calls)).toHaveLength(1);
+      expect(
+        getReadinessImpactWriteCalls(recordingPostgres.calls)
+      ).toHaveLength(1);
       expect(
         findRuntimeCoordinatorPublicationBlockerRecord(storageRecords)
       ).toMatchObject({
@@ -21962,12 +22017,12 @@ describe("runtime transport runtime coordinator transport contract", () => {
     try {
       const {
         hub,
-        recordingD1,
+        recordingPostgres,
         sentFrames,
         socket,
         spaceFetchRequests,
         state,
-      } = createHarness({
+      } = await createHarness({
         readinessImpactWriteError: new Error("readiness impact D1 failed"),
       });
       await issueDeliveryToken({
@@ -21976,7 +22031,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         socket,
         state,
       });
-      recordingD1.calls.length = 0;
+      recordingPostgres.calls.length = 0;
       sentFrames.length = 0;
       state.pendingDispatches.clear();
       nowSpy.mockReturnValue(1_700_000_031_000);
@@ -21999,7 +22054,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       });
       expect(spaceFetchRequests).toHaveLength(1);
       expect(
-        getRuntimeCoordinatorEventCalls(recordingD1.calls).some(
+        getRuntimeCoordinatorEventCalls(recordingPostgres.calls).some(
           (call) => call.params[2] === "runtime_coordinator_timeout_terminal"
         )
       ).toBe(true);
@@ -22024,13 +22079,13 @@ describe("runtime transport runtime coordinator transport contract", () => {
     try {
       const {
         hub,
-        recordingD1,
+        recordingPostgres,
         sentFrames,
         socket,
         spaceFetchRequests,
         state,
         storageRecords,
-      } = createHarness();
+      } = await createHarness();
       const executionToken = await issueDeliveryToken({
         hub,
         sentFrames,
@@ -22056,7 +22111,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         })
       );
 
-      recordingD1.calls.length = 0;
+      recordingPostgres.calls.length = 0;
       sentFrames.length = 0;
       spaceFetchRequests.length = 0;
       nowSpy.mockReturnValue(1_700_000_031_000);
@@ -22078,12 +22133,12 @@ describe("runtime transport runtime coordinator transport contract", () => {
         tokenStatus: "active",
       });
       expect(
-        getRuntimeCoordinatorEventCalls(recordingD1.calls).some(
+        getRuntimeCoordinatorEventCalls(recordingPostgres.calls).some(
           (call) => call.params[2] === "runtime_coordinator_timeout_terminal"
         )
       ).toBe(false);
       expect(
-        recordingD1.calls.some(
+        recordingPostgres.calls.some(
           (call) =>
             SQL_SELECT_PATTERN.test(call.query) &&
             call.query.includes("openMeldDaemon_runtime_coordinator_executions")
@@ -22095,7 +22150,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("fails closed when D1 has a projection but Durable Object token authority is missing", async () => {
-    const { hub, recordingD1, storageRecords } = createHarness({
+    const { hub, recordingPostgres, storageRecords } = await createHarness({
       executionRow: buildRuntimeCoordinatorProjectionRow(),
     });
 
@@ -22147,30 +22202,36 @@ describe("runtime transport runtime coordinator transport contract", () => {
           value !== null && typeof value === "object" && "runsById" in value
       )
     ).toBe(false);
-    const eventTypes = getRuntimeCoordinatorEventCalls(recordingD1.calls).map(
-      (call) => call.params[2]
-    );
+    const eventTypes = getRuntimeCoordinatorEventCalls(
+      recordingPostgres.calls
+    ).map((call) => call.params[2]);
     expect(eventTypes).not.toContain("runtime_coordinator_decision_recorded");
     expect(eventTypes).not.toContain("runtime_coordinator_retry_blocked");
     expect(
-      recordingD1.calls.some((call) =>
+      recordingPostgres.calls.some((call) =>
         call.query.includes(
-          "UPDATE openMeldDaemon_runtime_coordinator_executions"
+          'UPDATE "openmeld"."openMeldDaemon_runtime_coordinator_executions"'
         )
       )
     ).toBe(false);
   });
 
   it("rejects a decision scope mismatch without terminalizing the real execution", async () => {
-    const { hub, recordingD1, sentFrames, socket, state, storageRecords } =
-      createHarness();
+    const {
+      hub,
+      recordingPostgres,
+      sentFrames,
+      socket,
+      state,
+      storageRecords,
+    } = await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
       socket,
       state,
     });
-    recordingD1.calls.length = 0;
+    recordingPostgres.calls.length = 0;
 
     const response = await (
       hub as unknown as {
@@ -22223,13 +22284,13 @@ describe("runtime transport runtime coordinator transport contract", () => {
     expect(authority?.runsById[executionToken.runId]).toMatchObject({
       tokenStatus: "active",
     });
-    const eventTypes = getRuntimeCoordinatorEventCalls(recordingD1.calls).map(
-      (call) => call.params[2]
-    );
+    const eventTypes = getRuntimeCoordinatorEventCalls(
+      recordingPostgres.calls
+    ).map((call) => call.params[2]);
     expect(eventTypes).toContain("runtime_coordinator_decision_recorded");
     expect(eventTypes).not.toContain("runtime_coordinator_retry_blocked");
     const decisionEvent = getRuntimeCoordinatorEventCalls(
-      recordingD1.calls
+      recordingPostgres.calls
     ).find(
       (call) => call.params[2] === "runtime_coordinator_decision_recorded"
     );
@@ -22238,17 +22299,23 @@ describe("runtime transport runtime coordinator transport contract", () => {
     expect(decisionEvent?.params[7]).not.toContain("wrong-space");
     expect(decisionEvent?.params[7]).not.toContain("wrong-agent");
     expect(
-      recordingD1.calls.some((call) =>
+      recordingPostgres.calls.some((call) =>
         call.query.includes(
-          "UPDATE openMeldDaemon_runtime_coordinator_executions"
+          'UPDATE "openmeld"."openMeldDaemon_runtime_coordinator_executions"'
         )
       )
     ).toBe(false);
   });
 
   it("keeps a published result terminal when a later coordinator reminder arrives", async () => {
-    const { hub, recordingD1, sentFrames, socket, state, storageRecords } =
-      createHarness();
+    const {
+      hub,
+      recordingPostgres,
+      sentFrames,
+      socket,
+      state,
+      storageRecords,
+    } = await createHarness();
     await issueDeliveryToken({
       hub,
       sentFrames,
@@ -22275,7 +22342,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         status: "reply_published",
       },
     } satisfies RuntimeCoordinatorExecutionTokenAuthorityRecord);
-    recordingD1.calls.length = 0;
+    recordingPostgres.calls.length = 0;
 
     const response = await (
       hub as unknown as {
@@ -22326,9 +22393,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
         status: "reply_published",
       },
     });
-    const eventTypes = getRuntimeCoordinatorEventCalls(recordingD1.calls).map(
-      (call) => call.params[2]
-    );
+    const eventTypes = getRuntimeCoordinatorEventCalls(
+      recordingPostgres.calls
+    ).map((call) => call.params[2]);
     expect(eventTypes).toContain("runtime_coordinator_decision_recorded");
     expect(eventTypes).not.toContain("runtime_coordinator_timeout_terminal");
   });
@@ -22337,13 +22404,13 @@ describe("runtime transport runtime coordinator transport contract", () => {
     const {
       appliedFinalizationCommands,
       hub,
-      recordingD1,
+      recordingPostgres,
       sentFrames,
       socket,
       state,
       storageRecords,
       waitUntilTasks,
-    } = createHarness();
+    } = await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
@@ -22352,7 +22419,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     });
     const daemonEchoRunId = "run-from-daemon-echo";
     const daemonEchoTokenFingerprint = `etfp_v1_${"b".repeat(32)}`;
-    recordingD1.calls.length = 0;
+    recordingPostgres.calls.length = 0;
     sentFrames.length = 0;
 
     await (
@@ -22394,12 +22461,14 @@ describe("runtime transport runtime coordinator transport contract", () => {
       })
     );
     expect(
-      recordingD1.calls.some((call) =>
+      recordingPostgres.calls.some((call) =>
         call.query.includes("openMeldDaemon_dispatch_result_inbox")
       )
     ).toBe(true);
-    const inboxInsertCall = recordingD1.calls.find((call) =>
-      call.query.includes("INSERT INTO openMeldDaemon_dispatch_result_inbox")
+    const inboxInsertCall = recordingPostgres.calls.find((call) =>
+      call.query.includes(
+        'INSERT INTO "openmeld"."openMeldDaemon_dispatch_result_inbox"'
+      )
     );
     expect(inboxInsertCall?.params).toEqual(
       expect.arrayContaining([
@@ -22411,7 +22480,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     expect(inboxInsertCall?.params).not.toContain(daemonEchoRunId);
     expect(inboxInsertCall?.params).not.toContain(daemonEchoTokenFingerprint);
     expect(
-      getRuntimeCoordinatorEventCalls(recordingD1.calls).some(
+      getRuntimeCoordinatorEventCalls(recordingPostgres.calls).some(
         (call) => call.params[2] === "result_accepted"
       )
     ).toBe(true);
@@ -22465,7 +22534,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       targetOwnerUserId: "owner-1",
     });
     expect(
-      getRuntimeCoordinatorEventCalls(recordingD1.calls).some(
+      getRuntimeCoordinatorEventCalls(recordingPostgres.calls).some(
         (call) => call.params[2] === "reply_published"
       )
     ).toBe(true);
@@ -22475,14 +22544,14 @@ describe("runtime transport runtime coordinator transport contract", () => {
     const {
       appliedFinalizationCommands,
       hub,
-      recordingD1,
+      recordingPostgres,
       sentFrames,
       socket,
       spaceStub,
       state,
       storageRecords,
       waitUntilTasks,
-    } = createHarness();
+    } = await createHarness();
     spaceStub.rpcApplyRuntimeCoordinatorFinalizationCommand.mockImplementation(
       (command: RuntimeCoordinatorFinalizationCommand) => {
         appliedFinalizationCommands.push(command);
@@ -22523,13 +22592,18 @@ describe("runtime transport runtime coordinator transport contract", () => {
 
     expect(appliedFinalizationCommands).toHaveLength(1);
     expect(
-      recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+      await recordingPostgres.projectionRows.get(
+        RUNTIME_COORDINATOR_EXECUTION_ID
+      )
     ).toMatchObject({ status: "failed_terminal" });
     expect(
       JSON.parse(
         String(
-          recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
-            ?.terminal_outcome_json
+          (
+            await recordingPostgres.projectionRows.get(
+              RUNTIME_COORDINATOR_EXECUTION_ID
+            )
+          )?.terminal_outcome_json
         )
       )
     ).toMatchObject({
@@ -22537,9 +22611,11 @@ describe("runtime transport runtime coordinator transport contract", () => {
       reasonCode: "agent_task.invalid_space_action",
     });
     expect(
-      recordingD1.calls
+      recordingPostgres.calls
         .filter((call) =>
-          call.query.includes("INSERT INTO agent_task_terminal_outcomes")
+          call.query.includes(
+            'INSERT INTO "openmeld"."agent_task_terminal_outcomes"'
+          )
         )
         .map((call) => call.params[2])
     ).toEqual(["failed"]);
@@ -22567,13 +22643,13 @@ describe("runtime transport runtime coordinator transport contract", () => {
   it("keeps a published failure notice failed across RuntimeCoordinator truth", async () => {
     const {
       hub,
-      recordingD1,
+      recordingPostgres,
       sentFrames,
       socket,
       state,
       storageRecords,
       waitUntilTasks,
-    } = createHarness();
+    } = await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
@@ -22602,15 +22678,20 @@ describe("runtime transport runtime coordinator transport contract", () => {
       await Promise.all(waitUntilTasks.splice(0));
 
       expect(
-        recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+        await recordingPostgres.projectionRows.get(
+          RUNTIME_COORDINATOR_EXECUTION_ID
+        )
       ).toMatchObject({
         status: "failed_terminal",
       });
       expect(
         JSON.parse(
           String(
-            recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
-              ?.terminal_outcome_json
+            (
+              await recordingPostgres.projectionRows.get(
+                RUNTIME_COORDINATOR_EXECUTION_ID
+              )
+            )?.terminal_outcome_json
           )
         )
       ).toMatchObject({
@@ -22618,9 +22699,11 @@ describe("runtime transport runtime coordinator transport contract", () => {
         reasonCode: "quota.exceeded",
       });
       expect(
-        recordingD1.calls
+        recordingPostgres.calls
           .filter((call) =>
-            call.query.includes("INSERT INTO agent_task_terminal_outcomes")
+            call.query.includes(
+              'INSERT INTO "openmeld"."agent_task_terminal_outcomes"'
+            )
           )
           .map((call) => call.params[2])
       ).toEqual(["failed"]);
@@ -22650,19 +22733,19 @@ describe("runtime transport runtime coordinator transport contract", () => {
     const {
       appliedFinalizationCommands,
       hub,
-      recordingD1,
+      recordingPostgres,
       sentFrames,
       socket,
       state,
       storageRecords,
-    } = createHarness();
+    } = await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
       socket,
       state,
     });
-    seedAcceptedResultInbox(recordingD1.inboxRows, executionToken);
+    await seedAcceptedResultInbox(recordingPostgres.inboxRows, executionToken);
 
     await expect(
       (
@@ -22698,7 +22781,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       )
     ).toBe(false);
     expect(
-      getRuntimeCoordinatorEventCalls(recordingD1.calls).some(
+      getRuntimeCoordinatorEventCalls(recordingPostgres.calls).some(
         (call) =>
           call.params[2] === "runtime_coordinator_decision_recorded" &&
           call.params[4] === "runtime_coordinator.finalization_command_missing"
@@ -22716,7 +22799,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       state,
       storageRecords,
       waitUntilTasks,
-    } = createHarness();
+    } = await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
@@ -22858,7 +22941,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       state,
       storageRecords,
       waitUntilTasks,
-    } = createHarness();
+    } = await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
@@ -22953,7 +23036,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       state,
       storageRecords,
       waitUntilTasks,
-    } = createHarness();
+    } = await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
@@ -23034,13 +23117,13 @@ describe("runtime transport runtime coordinator transport contract", () => {
   it("acks the daemon after command persistence when Space publication fails", async () => {
     const {
       hub,
-      recordingD1,
+      recordingPostgres,
       sentFrames,
       socket,
       spaceStub,
       state,
       waitUntilTasks,
-    } = createHarness();
+    } = await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
@@ -23057,7 +23140,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         status: "retry_later" as const,
       })
     );
-    recordingD1.calls.length = 0;
+    recordingPostgres.calls.length = 0;
     sentFrames.length = 0;
 
     await (
@@ -23086,12 +23169,12 @@ describe("runtime transport runtime coordinator transport contract", () => {
     );
     await Promise.all(waitUntilTasks.splice(0));
     expect(
-      getRuntimeCoordinatorEventCalls(recordingD1.calls).some(
+      getRuntimeCoordinatorEventCalls(recordingPostgres.calls).some(
         (call) => call.params[2] === "reply_publication_failed"
       )
     ).toBe(true);
     expect(
-      getRuntimeCoordinatorEventCalls(recordingD1.calls).some(
+      getRuntimeCoordinatorEventCalls(recordingPostgres.calls).some(
         (call) => call.params[2] === "reply_published"
       )
     ).toBe(false);
@@ -23100,7 +23183,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   it("records success reply and failure notice apply failures as retry-scheduled publication states, not visible closure", async () => {
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
     try {
-      const success = createHarness();
+      const success = await createHarness();
       const executionToken = await issueDeliveryToken({
         hub: success.hub,
         sentFrames: success.sentFrames,
@@ -23120,7 +23203,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
           };
         }
       );
-      success.recordingD1.calls.length = 0;
+      success.recordingPostgres.calls.length = 0;
       success.sentFrames.length = 0;
       success.storageSetAlarm.mockClear();
       success.waitUntilTasks.length = 0;
@@ -23160,17 +23243,17 @@ describe("runtime transport runtime coordinator transport contract", () => {
         }),
       ]);
       expect(
-        getRuntimeCoordinatorEventCalls(success.recordingD1.calls).some(
+        getRuntimeCoordinatorEventCalls(success.recordingPostgres.calls).some(
           (call) => call.params[2] === "reply_publication_failed"
         )
       ).toBe(true);
       expect(
-        getRuntimeCoordinatorEventCalls(success.recordingD1.calls).some(
+        getRuntimeCoordinatorEventCalls(success.recordingPostgres.calls).some(
           (call) => call.params[2] === "reply_published"
         )
       ).toBe(false);
 
-      const failure = createHarness();
+      const failure = await createHarness();
       failure.spaceStub.rpcApplyRuntimeCoordinatorFailurePublicationCommand.mockImplementation(
         (command: RuntimeCoordinatorFailurePublicationCommand) => {
           failure.appliedFailurePublicationCommands.push(command);
@@ -23235,7 +23318,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       const {
         appliedFinalizationCommands,
         hub,
-        recordingD1,
+        recordingPostgres,
         sentFrames,
         socket,
         spaceStub,
@@ -23243,7 +23326,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         storageSetAlarm,
         storageRecords,
         waitUntilTasks,
-      } = createHarness();
+      } = await createHarness();
       const executionToken = await issueDeliveryToken({
         hub,
         sentFrames,
@@ -23305,7 +23388,8 @@ describe("runtime transport runtime coordinator transport contract", () => {
       );
       expect(appliedFinalizationCommands).toHaveLength(1);
       expect(
-        recordingD1.inboxRows.get("dispatch-1::attempt-1")?.publish_state
+        (await recordingPostgres.inboxRows.get("dispatch-1::attempt-1"))
+          ?.publish_state
       ).toBe("reply_publication_failed");
       expect(waitUntilTasks.length).toBeGreaterThan(0);
       await Promise.all(waitUntilTasks);
@@ -23314,8 +23398,8 @@ describe("runtime transport runtime coordinator transport contract", () => {
       expect(scheduledAlarmAtMs).toBeGreaterThanOrEqual(Date.now());
       expect(scheduledAlarmAtMs).toBeLessThanOrEqual(1_700_000_005_000);
 
-      recordingD1.inboxRows.delete("dispatch-1::attempt-1");
-      recordingD1.calls.length = 0;
+      await recordingPostgres.inboxRows.delete("dispatch-1::attempt-1");
+      recordingPostgres.calls.length = 0;
       sentFrames.length = 0;
       nowSpy.mockReturnValue(1_700_000_006_000);
 
@@ -23332,7 +23416,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
       });
       expect(
-        getRuntimeCoordinatorEventCalls(recordingD1.calls).some(
+        getRuntimeCoordinatorEventCalls(recordingPostgres.calls).some(
           (call) => call.params[2] === "reply_published"
         )
       ).toBe(true);
@@ -23346,7 +23430,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         status: "reply_published",
       });
 
-      recordingD1.calls.length = 0;
+      recordingPostgres.calls.length = 0;
       sentFrames.length = 0;
       nowSpy.mockReturnValue(1_700_000_012_000);
 
@@ -23358,7 +23442,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
 
       expect(appliedFinalizationCommands).toHaveLength(2);
       expect(
-        getRuntimeCoordinatorEventCalls(recordingD1.calls).some(
+        getRuntimeCoordinatorEventCalls(recordingPostgres.calls).some(
           (call) => call.params[2] === "reply_published"
         )
       ).toBe(false);
@@ -23369,7 +23453,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
 
   it("classifies an existing success reply finalization command as authoritative publication command evidence", async () => {
     const { hub, sentFrames, socket, spaceStub, state, waitUntilTasks } =
-      createHarness();
+      await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
@@ -23428,7 +23512,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
 
   it("classifies a missing success reply finalization command as missing authoritative publication facts", async () => {
     await expect(
-      classifyPublicationClosureDiagnostics(createHarness().hub, {
+      classifyPublicationClosureDiagnostics((await createHarness()).hub, {
         dispatchId: "dispatch-1",
         finalizationCommandId: "rcfc:missing",
         publicationKind: "success_reply",
@@ -23445,7 +23529,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
 
   it("classifies a success reply selector target mismatch as missing authoritative publication facts", async () => {
     const { hub, sentFrames, socket, spaceStub, state, waitUntilTasks } =
-      createHarness();
+      await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
@@ -23495,7 +23579,8 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("classifies an already published success reply outcome as already visible", async () => {
-    const { hub, sentFrames, socket, state, waitUntilTasks } = createHarness();
+    const { hub, sentFrames, socket, state, waitUntilTasks } =
+      await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
@@ -23541,7 +23626,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       hub,
       spaceStub,
       storageRecords,
-    } = createHarness();
+    } = await createHarness();
     spaceStub.rpcApplyRuntimeCoordinatorFailurePublicationCommand.mockImplementation(
       (
         command: RuntimeCoordinatorFailurePublicationCommand
@@ -23601,7 +23686,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("classifies an incomplete failed-head lifecycle as missing authoritative publication facts", async () => {
-    const { hub, storageRecords } = createHarness();
+    const { hub, storageRecords } = await createHarness();
     await fetchRuntimeTransportJson(
       hub,
       "/runtime-coordinator/head/accept",
@@ -23631,7 +23716,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("classifies stopped notice publication as unreplayable until the execution is cancelled", async () => {
-    const { hub, sentFrames, socket, state } = createHarness({
+    const { hub, sentFrames, socket, state } = await createHarness({
       agentControllerReportRow: buildRuntimeAgentControllerReportRow(),
     });
     await issueDeliveryToken({
@@ -23658,14 +23743,15 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("classifies accepted result inbox evidence alone as historical evidence only", async () => {
-    const { hub, recordingD1, sentFrames, socket, state } = createHarness();
+    const { hub, recordingPostgres, sentFrames, socket, state } =
+      await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
       socket,
       state,
     });
-    seedAcceptedResultInbox(recordingD1.inboxRows, executionToken);
+    await seedAcceptedResultInbox(recordingPostgres.inboxRows, executionToken);
 
     await expect(
       classifyPublicationClosureDiagnostics(hub, {
@@ -23688,14 +23774,14 @@ describe("runtime transport runtime coordinator transport contract", () => {
     try {
       const {
         hub,
-        recordingD1,
+        recordingPostgres,
         sentFrames,
         socket,
         spaceStub,
         state,
         storageRecords,
         waitUntilTasks,
-      } = createHarness();
+      } = await createHarness();
       const executionToken = await issueDeliveryToken({
         hub,
         sentFrames,
@@ -23740,7 +23826,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
           storageRecords.delete(key);
         }
       }
-      recordingD1.calls.length = 0;
+      recordingPostgres.calls.length = 0;
       nowSpy.mockReturnValue(1_700_000_006_000);
 
       await (
@@ -23762,7 +23848,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       });
       const publicationBlockerEventPayload = JSON.parse(
         String(
-          getRuntimeCoordinatorEventCalls(recordingD1.calls).find(
+          getRuntimeCoordinatorEventCalls(recordingPostgres.calls).find(
             (call) =>
               call.params[2] === "runtime_coordinator_decision_recorded" &&
               call.params[4] === "runtime_coordinator.publication_unresolved"
@@ -23773,14 +23859,14 @@ describe("runtime transport runtime coordinator transport contract", () => {
         targetProfileId: TARGET_AGENT_PROFILE_ID,
       });
       expect(
-        getRuntimeCoordinatorEventCalls(recordingD1.calls).some(
+        getRuntimeCoordinatorEventCalls(recordingPostgres.calls).some(
           (call) =>
             call.params[2] === "runtime_coordinator_decision_recorded" &&
             call.params[4] === "runtime_coordinator.publication_unresolved"
         )
       ).toBe(true);
       expect(
-        getRuntimeCoordinatorEventCalls(recordingD1.calls).some(
+        getRuntimeCoordinatorEventCalls(recordingPostgres.calls).some(
           (call) => call.params[2] === "reply_published"
         )
       ).toBe(false);
@@ -23795,7 +23881,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       const {
         appliedFinalizationCommands,
         hub,
-        recordingD1,
+        recordingPostgres,
         sentFrames,
         socket,
         spaceStub,
@@ -23803,7 +23889,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         storageSetAlarm,
         storageRecords,
         waitUntilTasks,
-      } = createHarness();
+      } = await createHarness();
       const executionToken = await issueDeliveryToken({
         hub,
         sentFrames,
@@ -23854,7 +23940,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       await Promise.all(waitUntilTasks);
       expect(appliedFinalizationCommands).toHaveLength(1);
       storageSetAlarm.mockClear();
-      recordingD1.calls.length = 0;
+      recordingPostgres.calls.length = 0;
       nowSpy.mockReturnValue(1_700_000_601_000);
 
       await (
@@ -23876,7 +23962,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       });
       const publicationBlockerEventPayload = JSON.parse(
         String(
-          getRuntimeCoordinatorEventCalls(recordingD1.calls).find(
+          getRuntimeCoordinatorEventCalls(recordingPostgres.calls).find(
             (call) =>
               call.params[2] === "runtime_coordinator_decision_recorded" &&
               call.params[4] === "runtime_coordinator.publication_unresolved"
@@ -23902,19 +23988,19 @@ describe("runtime transport runtime coordinator transport contract", () => {
         }),
       ]);
       expect(
-        getRuntimeCoordinatorEventCalls(recordingD1.calls).some(
+        getRuntimeCoordinatorEventCalls(recordingPostgres.calls).some(
           (call) =>
             call.params[2] === "runtime_coordinator_decision_recorded" &&
             call.params[4] === "runtime_coordinator.publication_unresolved"
         )
       ).toBe(true);
       expect(
-        getRuntimeCoordinatorEventCalls(recordingD1.calls).some(
+        getRuntimeCoordinatorEventCalls(recordingPostgres.calls).some(
           (call) => call.params[2] === "reply_published"
         )
       ).toBe(false);
 
-      recordingD1.calls.length = 0;
+      recordingPostgres.calls.length = 0;
       storageSetAlarm.mockClear();
       nowSpy.mockReturnValue(
         1_700_000_601_000 + RUNTIME_COORDINATOR_FINALIZATION_RETRY_PARK_DELAY_MS
@@ -23933,12 +24019,12 @@ describe("runtime transport runtime coordinator transport contract", () => {
         )
       ).toEqual([]);
       expect(
-        getRuntimeCoordinatorEventCalls(recordingD1.calls).some(
+        getRuntimeCoordinatorEventCalls(recordingPostgres.calls).some(
           (call) => call.params[2] === "reply_published"
         )
       ).toBe(true);
       expect(
-        getRuntimeCoordinatorEventCalls(recordingD1.calls).some(
+        getRuntimeCoordinatorEventCalls(recordingPostgres.calls).some(
           (call) =>
             call.params[2] === "runtime_coordinator_decision_recorded" &&
             call.params[4] === "runtime_coordinator.publication_unresolved"
@@ -23955,20 +24041,20 @@ describe("runtime transport runtime coordinator transport contract", () => {
       const {
         appliedFinalizationCommands,
         hub,
-        recordingD1,
+        recordingPostgres,
         sentFrames,
         socket,
         spaceStub,
         state,
         storageRecords,
         waitUntilTasks,
-      } = createHarness();
-      const wakeEvidenceD1 = createRecordingD1();
+      } = await createHarness();
+      const wakeEvidencePostgres = recordingPostgres;
       (
         hub as unknown as {
           env: CoreBindings;
         }
-      ).env.OPENMELD_WAKE_EVIDENCE_DB = wakeEvidenceD1.db;
+      ).env.OPENMELD_POSTGRESQL = wakeEvidencePostgres.binding;
       const executionToken = await issueDeliveryToken({
         hub,
         sentFrames,
@@ -24005,8 +24091,8 @@ describe("runtime transport runtime coordinator transport contract", () => {
       );
       await Promise.all(waitUntilTasks);
 
-      recordingD1.calls.length = 0;
-      wakeEvidenceD1.calls.length = 0;
+      recordingPostgres.calls.length = 0;
+      wakeEvidencePostgres.calls.length = 0;
       nowSpy.mockReturnValue(1_700_000_301_000);
       await (
         hub as unknown as {
@@ -24025,12 +24111,15 @@ describe("runtime transport runtime coordinator transport contract", () => {
         }),
       ]);
       expect(
-        wakeEvidenceD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
-          ?.status
+        (
+          await wakeEvidencePostgres.projectionRows.get(
+            RUNTIME_COORDINATOR_EXECUTION_ID
+          )
+        )?.status
       ).not.toBe("failed_terminal");
 
-      recordingD1.calls.length = 0;
-      wakeEvidenceD1.calls.length = 0;
+      recordingPostgres.calls.length = 0;
+      wakeEvidencePostgres.calls.length = 0;
       nowSpy.mockReturnValue(
         1_700_000_000_000 +
           RUNTIME_COORDINATOR_FINALIZATION_RETRY_PARK_MAX_AGE_MS +
@@ -24062,7 +24151,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         status: "unresolved_publication_failure",
         targetProfileId: TARGET_AGENT_PROFILE_ID,
       });
-      const projection = wakeEvidenceD1.projectionRows.get(
+      const projection = await wakeEvidencePostgres.projectionRows.get(
         RUNTIME_COORDINATOR_EXECUTION_ID
       );
       expect(projection).toMatchObject({
@@ -24076,8 +24165,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
           1,
         reasonCode: "runtime_coordinator.publication_retry_exhausted",
       });
-      const agentTaskOutcomeWrite = recordingD1.calls.find((call) =>
-        call.query.includes("INSERT INTO agent_task_terminal_outcomes")
+      const agentTaskOutcomeWrite = recordingPostgres.calls.find((call) =>
+        call.query.includes(
+          'INSERT INTO "openmeld"."agent_task_terminal_outcomes"'
+        )
       );
       expect(agentTaskOutcomeWrite?.params[2]).toBe("publication_failed");
       expect(JSON.parse(String(agentTaskOutcomeWrite?.params[4]))).toEqual({
@@ -24097,7 +24188,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         },
       });
       expect(
-        getRuntimeCoordinatorEventCalls(wakeEvidenceD1.calls).some(
+        getRuntimeCoordinatorEventCalls(wakeEvidencePostgres.calls).some(
           (call) =>
             call.params[2] === "runtime_coordinator_decision_recorded" &&
             call.params[4] ===
@@ -24107,13 +24198,15 @@ describe("runtime transport runtime coordinator transport contract", () => {
       ).toBe(true);
       await expect(
         listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace({
-          db: wakeEvidenceD1.db,
+          db: wakeEvidencePostgres.db,
           spaceId: HEX_SPACE_ID,
         })
       ).resolves.toEqual([]);
 
-      const terminalOutcomeWriteCount = recordingD1.calls.filter((call) =>
-        call.query.includes("INSERT INTO agent_task_terminal_outcomes")
+      const terminalOutcomeWriteCount = recordingPostgres.calls.filter((call) =>
+        call.query.includes(
+          'INSERT INTO "openmeld"."agent_task_terminal_outcomes"'
+        )
       ).length;
       nowSpy.mockReturnValue(
         1_700_000_000_000 +
@@ -24127,8 +24220,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
         }
       ).alarm();
       expect(
-        recordingD1.calls.filter((call) =>
-          call.query.includes("INSERT INTO agent_task_terminal_outcomes")
+        recordingPostgres.calls.filter((call) =>
+          call.query.includes(
+            'INSERT INTO "openmeld"."agent_task_terminal_outcomes"'
+          )
         )
       ).toHaveLength(terminalOutcomeWriteCount);
     } finally {
@@ -24152,14 +24247,14 @@ describe("runtime transport runtime coordinator transport contract", () => {
     try {
       const {
         hub,
-        recordingD1,
+        recordingPostgres,
         sentFrames,
         socket,
         spaceStub,
         state,
         storageRecords,
         waitUntilTasks,
-      } = createHarness(harnessInput);
+      } = await createHarness(harnessInput);
       const executionToken = await issueDeliveryToken({
         hub,
         sentFrames,
@@ -24211,7 +24306,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         }
       ).alarm();
 
-      expect(recordingD1.taskTerminalOutcomeRows.size).toBe(0);
+      expect(await recordingPostgres.taskTerminalOutcomeRows.size()).toBe(0);
       expect(spaceStub.rpcCloseAgentStream).not.toHaveBeenCalled();
       const parkedRetries = storageRecords.get(
         RUNTIME_COORDINATOR_FINALIZATION_RETRY_INDEX_STORAGE_KEY
@@ -24244,7 +24339,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
         status: "failed_terminal",
       });
       expect(
-        recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+        await recordingPostgres.projectionRows.get(
+          RUNTIME_COORDINATOR_EXECUTION_ID
+        )
       ).toMatchObject({ status: "failed_terminal" });
       const task = {
         kind: "space_wake" as const,
@@ -24253,9 +24350,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
         targetProfileId: TARGET_AGENT_PROFILE_ID,
         v: 1 as const,
       };
-      const taskOutcomeRow = recordingD1.taskTerminalOutcomeRows.get(
-        buildAgentTaskKey(task)
-      );
+      const taskOutcomeRow =
+        await recordingPostgres.taskTerminalOutcomeRows.get(
+          buildAgentTaskKey(task)
+        );
       expect(taskOutcomeRow).toBeDefined();
       expect(JSON.parse(String(taskOutcomeRow?.outcome_json))).toMatchObject({
         errorCode: "runtime_coordinator.publication_retry_exhausted",
@@ -24288,7 +24386,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         state,
         storageRecords,
         waitUntilTasks,
-      } = createHarness({
+      } = await createHarness({
         terminalProjectionWriteFailures: 1,
       });
       const executionToken = await issueDeliveryToken({
@@ -24443,14 +24541,14 @@ describe("runtime transport runtime coordinator transport contract", () => {
       const {
         appliedFinalizationCommands,
         hub,
-        recordingD1,
+        recordingPostgres,
         sentFrames,
         socket,
         spaceStub,
         state,
         storageRecords,
         waitUntilTasks,
-      } = createHarness();
+      } = await createHarness();
       const executionToken = await issueDeliveryToken({
         hub,
         sentFrames,
@@ -24504,15 +24602,18 @@ describe("runtime transport runtime coordinator transport contract", () => {
         publishedSignalId: "signal-historical-success",
         status: "succeeded" as const,
       };
-      recordingD1.taskTerminalOutcomeRows.set(buildAgentTaskKey(task), {
-        event_id: existingOutcome.eventId,
-        observed_at_ms: existingOutcome.occurredAtMs,
-        occurred_at_ms: existingOutcome.occurredAtMs,
-        outcome_json: JSON.stringify(existingOutcome),
-        status: existingOutcome.status,
-        task_handle_json: JSON.stringify(task),
-        task_key: buildAgentTaskKey(task),
-      });
+      await recordingPostgres.taskTerminalOutcomeRows.set(
+        buildAgentTaskKey(task),
+        {
+          event_id: existingOutcome.eventId,
+          observed_at_ms: existingOutcome.occurredAtMs,
+          occurred_at_ms: existingOutcome.occurredAtMs,
+          outcome_json: JSON.stringify(existingOutcome),
+          status: existingOutcome.status,
+          task_handle_json: JSON.stringify(task),
+          task_key: buildAgentTaskKey(task),
+        }
+      );
 
       const exhaustedAtMs =
         1_700_000_000_000 +
@@ -24526,7 +24627,11 @@ describe("runtime transport runtime coordinator transport contract", () => {
           ?.terminalOutcome
       ).toBeNull();
       expect(
-        recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)?.status
+        (
+          await recordingPostgres.projectionRows.get(
+            RUNTIME_COORDINATOR_EXECUTION_ID
+          )
+        )?.status
       ).not.toBe("failed_terminal");
       expect(
         storageRecords.get(
@@ -24540,7 +24645,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
         }),
       ]);
       expect(
-        recordingD1.taskTerminalOutcomeRows.get(buildAgentTaskKey(task))
+        await recordingPostgres.taskTerminalOutcomeRows.get(
+          buildAgentTaskKey(task)
+        )
       ).toMatchObject({
         event_id: existingOutcome.eventId,
         status: existingOutcome.status,
@@ -24576,7 +24683,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       state,
       storageRecords,
       waitUntilTasks,
-    } = createHarness();
+    } = await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
@@ -24665,14 +24772,14 @@ describe("runtime transport runtime coordinator transport contract", () => {
     try {
       const {
         hub,
-        recordingD1,
+        recordingPostgres,
         sentFrames,
         socket,
         spaceStub,
         state,
         storageRecords,
         waitUntilTasks,
-      } = createHarness();
+      } = await createHarness();
       const executionToken = await issueDeliveryToken({
         hub,
         sentFrames,
@@ -24735,10 +24842,11 @@ describe("runtime transport runtime coordinator transport contract", () => {
         )
       ).toEqual([]);
       expect(
-        recordingD1.calls.some(
+        recordingPostgres.calls.some(
           (call) =>
-            call.query.includes("INSERT INTO agent_task_terminal_outcomes") &&
-            call.params[2] === "publication_failed"
+            call.query.includes(
+              'INSERT INTO "openmeld"."agent_task_terminal_outcomes"'
+            ) && call.params[2] === "publication_failed"
         )
       ).toBe(true);
 
@@ -24829,16 +24937,8 @@ describe("runtime transport runtime coordinator transport contract", () => {
     {
       expectedAppliedCountAfterFailure: 2,
       expectedAppliedCountAfterRecovery: 3,
-      expectedStatus: "db_unavailable",
-      keepWakeEvidenceDb: false,
-      removeCoordinationDb: true,
-      taskTerminalOutcomeReadFailures: 0,
-    },
-    {
-      expectedAppliedCountAfterFailure: 3,
-      expectedAppliedCountAfterRecovery: 4,
-      expectedStatus: "task_outcome_unavailable",
-      keepWakeEvidenceDb: true,
+      expectedStatus: "binding_missing",
+      denyTaskOutcomeRead: false,
       removeCoordinationDb: true,
       taskTerminalOutcomeReadFailures: 0,
     },
@@ -24846,7 +24946,15 @@ describe("runtime transport runtime coordinator transport contract", () => {
       expectedAppliedCountAfterFailure: 3,
       expectedAppliedCountAfterRecovery: 4,
       expectedStatus: "task_outcome_inspection_failed",
-      keepWakeEvidenceDb: false,
+      denyTaskOutcomeRead: true,
+      removeCoordinationDb: false,
+      taskTerminalOutcomeReadFailures: 0,
+    },
+    {
+      expectedAppliedCountAfterFailure: 3,
+      expectedAppliedCountAfterRecovery: 4,
+      expectedStatus: "task_outcome_inspection_failed",
+      denyTaskOutcomeRead: false,
       removeCoordinationDb: false,
       taskTerminalOutcomeReadFailures: 1,
     },
@@ -24854,7 +24962,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     expectedAppliedCountAfterFailure,
     expectedAppliedCountAfterRecovery,
     expectedStatus,
-    keepWakeEvidenceDb,
+    denyTaskOutcomeRead,
     removeCoordinationDb,
     taskTerminalOutcomeReadFailures,
   }) => {
@@ -24866,13 +24974,14 @@ describe("runtime transport runtime coordinator transport contract", () => {
       const {
         appliedFinalizationCommands,
         hub,
+        recordingPostgres,
         sentFrames,
         socket,
         spaceStub,
         state,
         storageRecords,
         waitUntilTasks,
-      } = createHarness({ taskTerminalOutcomeReadFailures });
+      } = await createHarness({ taskTerminalOutcomeReadFailures });
       const executionToken = await issueDeliveryToken({
         hub,
         sentFrames,
@@ -24921,23 +25030,39 @@ describe("runtime transport runtime coordinator transport contract", () => {
           env: Record<string, unknown>;
         }
       ).env;
-      const coordinationDb = env.OPENMELD_DB;
-      if (keepWakeEvidenceDb) {
-        env.OPENMELD_WAKE_EVIDENCE_DB = coordinationDb;
+      const coordinationDb = env.OPENMELD_POSTGRESQL;
+      if (denyTaskOutcomeRead) {
+        await recordingPostgres.fixture.operator.query(
+          'REVOKE SELECT ON "openmeld"."agent_task_terminal_outcomes" FROM openmeld_pg_runtime'
+        );
       }
       if (removeCoordinationDb) {
-        env.OPENMELD_DB = undefined;
+        env.OPENMELD_POSTGRESQL = undefined;
       }
       const exhaustedAtMs =
         1_700_000_000_000 +
         RUNTIME_COORDINATOR_FINALIZATION_RETRY_PARK_MAX_AGE_MS +
         1;
       nowSpy.mockReturnValue(exhaustedAtMs);
-      await (
-        hub as unknown as {
-          alarm: () => Promise<void>;
+      const parkedBeforeFailure = structuredClone(
+        storageRecords.get(
+          RUNTIME_COORDINATOR_FINALIZATION_RETRY_INDEX_STORAGE_KEY
+        )
+      );
+      if (removeCoordinationDb) {
+        let failure: unknown;
+        try {
+          await (hub as unknown as { alarm: () => Promise<void> }).alarm();
+        } catch (error) {
+          failure = error;
         }
-      ).alarm();
+        expect(failure).toBeInstanceOf(Error);
+        expect((failure as Error).message).toBe(
+          "OPENMELD_POSTGRESQL Hyperdrive binding is required"
+        );
+      } else {
+        await (hub as unknown as { alarm: () => Promise<void> }).alarm();
+      }
 
       expect(appliedFinalizationCommands).toHaveLength(
         expectedAppliedCountAfterFailure
@@ -24946,20 +25071,31 @@ describe("runtime transport runtime coordinator transport contract", () => {
         storageRecords.get(
           RUNTIME_COORDINATOR_FINALIZATION_RETRY_INDEX_STORAGE_KEY
         )
-      ).toEqual([
-        expect.objectContaining({
-          nextReplayAtMs:
-            exhaustedAtMs +
-            RUNTIME_COORDINATOR_FINALIZATION_RETRY_PARK_DELAY_MS,
-        }),
-      ]);
-      expect(warnSpy).toHaveBeenCalledWith(
-        "[core.runtime_transport.runtime_coordinator_finalization_retry_terminal_recovery_pending]",
-        expect.objectContaining({ terminalStatus: expectedStatus })
+      ).toEqual(
+        removeCoordinationDb
+          ? parkedBeforeFailure
+          : [
+              expect.objectContaining({
+                nextReplayAtMs:
+                  exhaustedAtMs +
+                  RUNTIME_COORDINATOR_FINALIZATION_RETRY_PARK_DELAY_MS,
+              }),
+            ]
       );
+      if (!removeCoordinationDb) {
+        expect(warnSpy).toHaveBeenCalledWith(
+          "[core.runtime_transport.runtime_coordinator_finalization_retry_terminal_recovery_pending]",
+          expect.objectContaining({ terminalStatus: expectedStatus })
+        );
+      }
 
       if (removeCoordinationDb) {
-        env.OPENMELD_DB = coordinationDb;
+        env.OPENMELD_POSTGRESQL = coordinationDb;
+      }
+      if (denyTaskOutcomeRead) {
+        await recordingPostgres.fixture.operator.query(
+          'GRANT SELECT ON "openmeld"."agent_task_terminal_outcomes" TO openmeld_pg_runtime'
+        );
       }
       nowSpy.mockReturnValue(
         exhaustedAtMs + RUNTIME_COORDINATOR_FINALIZATION_RETRY_PARK_DELAY_MS
@@ -24989,14 +25125,14 @@ describe("runtime transport runtime coordinator transport contract", () => {
     try {
       const {
         hub,
-        recordingD1,
+        recordingPostgres,
         sentFrames,
         socket,
         spaceStub,
         state,
         storageRecords,
         waitUntilTasks,
-      } = createHarness();
+      } = await createHarness();
       const executionToken = await issueDeliveryToken({
         hub,
         sentFrames,
@@ -25037,22 +25173,25 @@ describe("runtime transport runtime coordinator transport contract", () => {
         }
       ).alarm();
 
-      const projection = recordingD1.projectionRows.get(
+      const projection = await recordingPostgres.projectionRows.get(
         RUNTIME_COORDINATOR_EXECUTION_ID
       );
       if (!projection) {
         throw new Error("Expected RuntimeCoordinator projection.");
       }
-      recordingD1.projectionRows.set(RUNTIME_COORDINATOR_EXECUTION_ID, {
-        ...projection,
-        status: "reply_published",
-        terminal_outcome_json: JSON.stringify({
-          kind: "reply_published",
-          observedAtMs: 1_700_000_600_000,
-          reasonCode: "space.reply_published",
-        }),
-      });
-      recordingD1.calls.length = 0;
+      await recordingPostgres.projectionRows.set(
+        RUNTIME_COORDINATOR_EXECUTION_ID,
+        {
+          ...projection,
+          status: "reply_published",
+          terminal_outcome_json: JSON.stringify({
+            kind: "reply_published",
+            observedAtMs: 1_700_000_600_000,
+            reasonCode: "space.reply_published",
+          }),
+        }
+      );
+      recordingPostgres.calls.length = 0;
       const exhaustedAtMs =
         1_700_000_000_000 +
         RUNTIME_COORDINATOR_FINALIZATION_RETRY_PARK_MAX_AGE_MS +
@@ -25066,7 +25205,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
       ).alarm();
 
       expect(
-        recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+        await recordingPostgres.projectionRows.get(
+          RUNTIME_COORDINATOR_EXECUTION_ID
+        )
       ).toMatchObject({
         status: "reply_published",
       });
@@ -25092,7 +25233,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
           ?.terminalOutcome
       ).toBeNull();
       expect(
-        getRuntimeCoordinatorEventCalls(recordingD1.calls).some(
+        getRuntimeCoordinatorEventCalls(recordingPostgres.calls).some(
           (call) =>
             call.params[2] === "runtime_coordinator_decision_recorded" &&
             call.params[4] ===
@@ -25110,14 +25251,14 @@ describe("runtime transport runtime coordinator transport contract", () => {
     try {
       const {
         hub,
-        recordingD1,
+        recordingPostgres,
         sentFrames,
         socket,
         spaceStub,
         state,
         storageRecords,
         waitUntilTasks,
-      } = createHarness({
+      } = await createHarness({
         exhaustionAuthorityProjectionRaceStatus: "reply_published",
       });
       const executionToken = await issueDeliveryToken({
@@ -25179,7 +25320,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
         status: "failed_terminal",
       });
       expect(
-        recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+        await recordingPostgres.projectionRows.get(
+          RUNTIME_COORDINATOR_EXECUTION_ID
+        )
       ).toMatchObject({ status: "reply_published" });
       expect(
         storageRecords.get(
@@ -25193,14 +25336,15 @@ describe("runtime transport runtime coordinator transport contract", () => {
         }),
       ]);
       expect(
-        recordingD1.calls.some(
+        recordingPostgres.calls.some(
           (call) =>
-            call.query.includes("INSERT INTO agent_task_terminal_outcomes") &&
-            call.params[2] === "publication_failed"
+            call.query.includes(
+              'INSERT INTO "openmeld"."agent_task_terminal_outcomes"'
+            ) && call.params[2] === "publication_failed"
         )
       ).toBe(false);
       expect(
-        getRuntimeCoordinatorEventCalls(recordingD1.calls).some(
+        getRuntimeCoordinatorEventCalls(recordingPostgres.calls).some(
           (call) =>
             call.params[2] === "runtime_coordinator_decision_recorded" &&
             call.params[4] === "runtime_coordinator.publication_retry_exhausted"
@@ -25244,7 +25388,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         state,
         storageRecords,
         waitUntilTasks,
-      } = createHarness({
+      } = await createHarness({
         exhaustionAuthorityProjectionRaceStatus: "failed_terminal_other",
       });
       const executionToken = await issueDeliveryToken({
@@ -25317,7 +25461,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     });
     try {
       const { hub, sentFrames, socket, spaceStub, state, waitUntilTasks } =
-        createHarness({
+        await createHarness({
           exhaustionAuthorityProjectionRaceStatus: "reply_published",
           exhaustionProjectionRereadError: true,
         });
@@ -25396,7 +25540,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         spaceStub,
         state,
         waitUntilTasks,
-      } = createHarness();
+      } = await createHarness();
       const executionToken = await issueDeliveryToken({
         hub,
         sentFrames,
@@ -25456,20 +25600,20 @@ describe("runtime transport runtime coordinator transport contract", () => {
       const {
         appliedFinalizationCommands,
         hub,
-        recordingD1,
+        recordingPostgres,
         sentFrames,
         socket,
         spaceStub,
         state,
         storageRecords,
         waitUntilTasks,
-      } = createHarness();
-      const wakeEvidenceD1 = createRecordingD1();
+      } = await createHarness();
+      const wakeEvidencePostgres = recordingPostgres;
       (
         hub as unknown as {
           env: CoreBindings;
         }
-      ).env.OPENMELD_WAKE_EVIDENCE_DB = wakeEvidenceD1.db;
+      ).env.OPENMELD_POSTGRESQL = wakeEvidencePostgres.binding;
       const executionToken = await issueDeliveryToken({
         hub,
         sentFrames,
@@ -25571,14 +25715,18 @@ describe("runtime transport runtime coordinator transport contract", () => {
         )
       ).toEqual([]);
       expect(
-        wakeEvidenceD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+        await wakeEvidencePostgres.projectionRows.get(
+          RUNTIME_COORDINATOR_EXECUTION_ID
+        )
       ).toMatchObject({
         status: "reply_published",
       });
       expect(
-        recordingD1.calls
+        recordingPostgres.calls
           .filter((call) =>
-            call.query.includes("INSERT INTO agent_task_terminal_outcomes")
+            call.query.includes(
+              'INSERT INTO "openmeld"."agent_task_terminal_outcomes"'
+            )
           )
           .map((call) => call.params[2])
       ).toEqual(["succeeded"]);
@@ -25615,24 +25763,23 @@ describe("runtime transport runtime coordinator transport contract", () => {
       const {
         appliedFinalizationCommands,
         hub,
-        recordingD1,
+        recordingPostgres,
         sentFrames,
         socket,
         spaceStub,
         state,
         storageRecords,
         waitUntilTasks,
-      } = createHarness({
+      } = await createHarness({
         replyPublishedAuthorityWriteFailures: authorityWriteFailures,
       });
-      const wakeEvidenceD1 = createRecordingD1({
-        replyPublishedProjectionWriteFailures: projectionWriteFailures,
-      });
+      const wakeEvidencePostgres = recordingPostgres;
+      wakeEvidencePostgres.failReplyProjectionWrites(projectionWriteFailures);
       (
         hub as unknown as {
           env: CoreBindings;
         }
-      ).env.OPENMELD_WAKE_EVIDENCE_DB = wakeEvidenceD1.db;
+      ).env.OPENMELD_POSTGRESQL = wakeEvidencePostgres.binding;
       const executionToken = await issueDeliveryToken({
         hub,
         sentFrames,
@@ -25734,15 +25881,19 @@ describe("runtime transport runtime coordinator transport contract", () => {
         }),
       ]);
       expect(
-        recordingD1.calls.some(
+        recordingPostgres.calls.some(
           (call) =>
-            call.query.includes("INSERT INTO agent_task_terminal_outcomes") &&
-            call.params[2] === "publication_failed"
+            call.query.includes(
+              'INSERT INTO "openmeld"."agent_task_terminal_outcomes"'
+            ) && call.params[2] === "publication_failed"
         )
       ).toBe(false);
       expect(
-        wakeEvidenceD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
-          ?.status === "reply_published"
+        (
+          await wakeEvidencePostgres.projectionRows.get(
+            RUNTIME_COORDINATOR_EXECUTION_ID
+          )
+        )?.status === "reply_published"
       ).toBe(projectionWriteFailures === 0);
       expect(
         findRuntimeCoordinatorExecutionTokenAuthorityRecord(storageRecords)
@@ -25765,7 +25916,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
         )
       ).toEqual([]);
       expect(
-        wakeEvidenceD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+        await wakeEvidencePostgres.projectionRows.get(
+          RUNTIME_COORDINATOR_EXECUTION_ID
+        )
       ).toMatchObject({ status: "reply_published" });
       expect(
         findRuntimeCoordinatorExecutionTokenAuthorityRecord(storageRecords)
@@ -25775,10 +25928,11 @@ describe("runtime transport runtime coordinator transport contract", () => {
         status: "reply_published",
       });
       expect(
-        recordingD1.calls.some(
+        recordingPostgres.calls.some(
           (call) =>
-            call.query.includes("INSERT INTO agent_task_terminal_outcomes") &&
-            call.params[2] === "succeeded"
+            call.query.includes(
+              'INSERT INTO "openmeld"."agent_task_terminal_outcomes"'
+            ) && call.params[2] === "succeeded"
         )
       ).toBe(true);
     } finally {
@@ -25792,20 +25946,20 @@ describe("runtime transport runtime coordinator transport contract", () => {
       const {
         appliedFinalizationCommands,
         hub,
-        recordingD1,
+        recordingPostgres,
         sentFrames,
         socket,
         spaceStub,
         state,
         storageRecords,
         waitUntilTasks,
-      } = createHarness({ taskTerminalOutcomeWriteFailures: 1 });
-      const wakeEvidenceD1 = createRecordingD1();
+      } = await createHarness({ taskTerminalOutcomeWriteFailures: 1 });
+      const wakeEvidencePostgres = recordingPostgres;
       (
         hub as unknown as {
           env: CoreBindings;
         }
-      ).env.OPENMELD_WAKE_EVIDENCE_DB = wakeEvidenceD1.db;
+      ).env.OPENMELD_POSTGRESQL = wakeEvidencePostgres.binding;
       const executionToken = await issueDeliveryToken({
         hub,
         sentFrames,
@@ -25942,10 +26096,11 @@ describe("runtime transport runtime coordinator transport contract", () => {
           ?.terminalOutcome
       ).toBeNull();
       expect(
-        recordingD1.calls.some(
+        recordingPostgres.calls.some(
           (call) =>
-            call.query.includes("INSERT INTO agent_task_terminal_outcomes") &&
-            call.params[2] === "publication_failed"
+            call.query.includes(
+              'INSERT INTO "openmeld"."agent_task_terminal_outcomes"'
+            ) && call.params[2] === "publication_failed"
         )
       ).toBe(false);
 
@@ -25965,13 +26120,16 @@ describe("runtime transport runtime coordinator transport contract", () => {
         )
       ).toEqual([]);
       expect(
-        wakeEvidenceD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+        await wakeEvidencePostgres.projectionRows.get(
+          RUNTIME_COORDINATOR_EXECUTION_ID
+        )
       ).toMatchObject({ status: "reply_published" });
       expect(
-        recordingD1.calls.some(
+        recordingPostgres.calls.some(
           (call) =>
-            call.query.includes("INSERT INTO agent_task_terminal_outcomes") &&
-            call.params[2] === "succeeded"
+            call.query.includes(
+              'INSERT INTO "openmeld"."agent_task_terminal_outcomes"'
+            ) && call.params[2] === "succeeded"
         )
       ).toBe(true);
     } finally {
@@ -25984,13 +26142,13 @@ describe("runtime transport runtime coordinator transport contract", () => {
     try {
       const {
         hub,
-        recordingD1,
+        recordingPostgres,
         sentFrames,
         socket,
         spaceStub,
         state,
         waitUntilTasks,
-      } = createHarness();
+      } = await createHarness();
       const executionToken = await issueDeliveryToken({
         hub,
         sentFrames,
@@ -26119,32 +26277,41 @@ describe("runtime transport runtime coordinator transport contract", () => {
       expect(alarmCompletedWithinBound).toBe(true);
       expect(concurrentReplayCount).toBe(1);
       expect(
-        recordingD1.calls.some((call) =>
-          call.query.includes("INSERT INTO agent_task_terminal_outcomes")
+        recordingPostgres.calls.some((call) =>
+          call.query.includes(
+            'INSERT INTO "openmeld"."agent_task_terminal_outcomes"'
+          )
         )
       ).toBe(false);
 
       releaseLatePublication();
       await replayPromise;
-      await vi.waitFor(() => {
+      await vi.waitFor(async () => {
         expect(
-          recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+          await recordingPostgres.projectionRows.get(
+            RUNTIME_COORDINATOR_EXECUTION_ID
+          )
         ).toMatchObject({
           status: "failed_terminal",
         });
       });
       expect(
-        recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+        await recordingPostgres.projectionRows.get(
+          RUNTIME_COORDINATOR_EXECUTION_ID
+        )
       ).toMatchObject({
         status: "failed_terminal",
       });
       expect(
-        recordingD1.inboxRows.get("dispatch-1::attempt-1")?.published_signal_id
+        (await recordingPostgres.inboxRows.get("dispatch-1::attempt-1"))
+          ?.published_signal_id
       ).toBe("signal-late-final");
       expect(
-        recordingD1.calls
+        recordingPostgres.calls
           .filter((call) =>
-            call.query.includes("INSERT INTO agent_task_terminal_outcomes")
+            call.query.includes(
+              'INSERT INTO "openmeld"."agent_task_terminal_outcomes"'
+            )
           )
           .map((call) => call.params[2])
       ).toEqual(["failed"]);
@@ -26156,20 +26323,20 @@ describe("runtime transport runtime coordinator transport contract", () => {
   it("recovers an accepted final Space claim when the publication RPC response stays in flight", async () => {
     const {
       hub,
-      recordingD1,
+      recordingPostgres,
       sentFrames,
       socket,
       spaceStub,
       state,
       storageRecords,
       waitUntilTasks,
-    } = createHarness();
-    const wakeEvidenceD1 = createRecordingD1();
+    } = await createHarness();
+    const wakeEvidencePostgres = recordingPostgres;
     (
       hub as unknown as {
         env: CoreBindings;
       }
-    ).env.OPENMELD_WAKE_EVIDENCE_DB = wakeEvidenceD1.db;
+    ).env.OPENMELD_POSTGRESQL = wakeEvidencePostgres.binding;
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
@@ -26286,20 +26453,35 @@ describe("runtime transport runtime coordinator transport contract", () => {
       spaceStub.rpcApplyRuntimeCoordinatorFinalizationCommand
     ).toHaveBeenCalledTimes(2);
     expect(
-      wakeEvidenceD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+      await wakeEvidencePostgres.projectionRows.get(
+        RUNTIME_COORDINATOR_EXECUTION_ID
+      )
     ).toMatchObject({
       status: "reply_published",
     });
     expect(
-      recordingD1.calls.some((call) =>
-        call.query.includes("INSERT INTO agent_task_terminal_outcomes")
+      recordingPostgres.calls.some((call) =>
+        call.query.includes(
+          'INSERT INTO "openmeld"."agent_task_terminal_outcomes"'
+        )
       )
     ).toBe(true);
-    expect(
-      wakeEvidenceD1.calls.some((call) =>
-        call.query.includes("INSERT INTO agent_task_terminal_outcomes")
-      )
-    ).toBe(false);
+    expect(wakeEvidencePostgres.binding).toBe(recordingPostgres.binding);
+    const outcomes = await recordingPostgres.fixture
+      .rows("agent_task_terminal_outcomes", ["task_key"])
+      .values();
+    expect(outcomes).toHaveLength(1);
+    expect(outcomes[0]).toMatchObject({ status: "succeeded" });
+    expect(JSON.parse(String(outcomes[0]?.task_handle_json))).toEqual({
+      v: 1,
+      kind: "space_wake",
+      sourceClientMessageId: "client-message-1",
+      spaceId: HEX_SPACE_ID,
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    });
+    expect(JSON.stringify(outcomes)).toContain(
+      RUNTIME_COORDINATOR_EXECUTION_ID
+    );
 
     releasePublicationResponse();
     await vi.waitFor(() => {
@@ -26333,7 +26515,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("treats a failed final-claim repair as publication uncertainty", async () => {
-    const { hub } = createHarness();
+    const { hub } = await createHarness();
     const warning = vi
       .spyOn(console, "warn")
       .mockImplementation(() => undefined);
@@ -26400,7 +26582,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       state,
       storageRecords,
       waitUntilTasks,
-    } = createHarness();
+    } = await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
@@ -26559,14 +26741,14 @@ describe("runtime transport runtime coordinator transport contract", () => {
   it("keeps a claimed Wake Stop terminal when a late finalization failure returns", async () => {
     const {
       hub,
-      recordingD1,
+      recordingPostgres,
       sentFrames,
       socket,
       spaceStub,
       state,
       storageRecords,
       waitUntilTasks,
-    } = createHarness({
+    } = await createHarness({
       agentControllerReportRow: buildRuntimeAgentControllerReportRow(),
     });
     const executionToken = await issueDeliveryToken({
@@ -26650,16 +26832,19 @@ describe("runtime transport runtime coordinator transport contract", () => {
       spaceId: HEX_SPACE_ID,
     });
     await publicationStarted;
-    const projection = recordingD1.projectionRows.get(
+    const projection = await recordingPostgres.projectionRows.get(
       RUNTIME_COORDINATOR_EXECUTION_ID
     );
     expect(projection).toBeDefined();
-    recordingD1.projectionRows.set(RUNTIME_COORDINATOR_EXECUTION_ID, {
-      ...projection,
-      status: "cancellation_requested",
-      terminal_outcome_json: null,
-      updated_at_ms: Date.now(),
-    });
+    await recordingPostgres.projectionRows.set(
+      RUNTIME_COORDINATOR_EXECUTION_ID,
+      {
+        ...projection,
+        status: "cancellation_requested",
+        terminal_outcome_json: null,
+        updated_at_ms: Date.now(),
+      }
+    );
 
     await expect(replayPromise).resolves.toEqual({
       ok: true,
@@ -26667,12 +26852,15 @@ describe("runtime transport runtime coordinator transport contract", () => {
       status: "suppressed",
     });
     expect(
-      recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+      await recordingPostgres.projectionRows.get(
+        RUNTIME_COORDINATOR_EXECUTION_ID
+      )
     ).toMatchObject({
       status: "cancelled",
     });
     expect(
-      recordingD1.inboxRows.get("dispatch-1::attempt-1")?.publish_state
+      (await recordingPostgres.inboxRows.get("dispatch-1::attempt-1"))
+        ?.publish_state
     ).toBe("reply_suppressed_stopped");
 
     releasePublicationResponse();
@@ -26691,7 +26879,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
       )
     ).toEqual([]);
     expect(
-      recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+      await recordingPostgres.projectionRows.get(
+        RUNTIME_COORDINATOR_EXECUTION_ID
+      )
     ).toMatchObject({
       status: "cancelled",
     });
@@ -26707,7 +26897,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       state,
       storageRecords,
       waitUntilTasks,
-    } = createHarness();
+    } = await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
@@ -26818,7 +27008,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       state,
       storageRecords,
       waitUntilTasks,
-    } = createHarness();
+    } = await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
@@ -26883,7 +27073,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       state,
       storageRecords,
       waitUntilTasks,
-    } = createHarness();
+    } = await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
@@ -26960,14 +27150,14 @@ describe("runtime transport runtime coordinator transport contract", () => {
   it("freezes the corrected reply checkpoint only after review acceptance and rejects old result replays", async () => {
     const {
       hub,
-      recordingD1,
+      recordingPostgres,
       sentFrames,
       socket,
       spaceStub,
       state,
       storageRecords,
       waitUntilTasks,
-    } = createContextHarness();
+    } = await createContextHarness();
     const headRequest = buildRuntimeCoordinatorHeadAcceptRequest({
       acceptedDispatchSnapshot: {
         ...buildAcceptedDispatchSnapshot({ fingerprint: "c" }),
@@ -27067,7 +27257,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
       throw new Error("Expected Wake association");
     }
     expect(storageRecords.get(wakeKey)).not.toHaveProperty("completion");
-    expect(recordingD1.inboxRows.has("dispatch-1::attempt-1")).toBe(false);
+    expect(await recordingPostgres.inboxRows.has("dispatch-1::attempt-1")).toBe(
+      false
+    );
     expect(publish).toHaveBeenCalledOnce();
     await submit(resultFor("corrected-turn"));
     await Promise.all(waitUntilTasks.splice(0));
@@ -27126,13 +27318,13 @@ describe("runtime transport runtime coordinator transport contract", () => {
   it("returns review_required without accepting the result when a capable Service proposed a stale reply", async () => {
     const {
       hub,
-      recordingD1,
+      recordingPostgres,
       sentFrames,
       socket,
       spaceStub,
       state,
       storageRecords,
-    } = createHarness();
+    } = await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
@@ -27188,7 +27380,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
         },
       })
     );
-    expect(recordingD1.inboxRows.has("dispatch-1::attempt-1")).toBe(false);
+    expect(await recordingPostgres.inboxRows.has("dispatch-1::attempt-1")).toBe(
+      false
+    );
     expect(
       state.pendingDispatches.get(
         buildDispatchAttemptKey("dispatch-1", "attempt-1")
@@ -27222,14 +27416,14 @@ describe("runtime transport runtime coordinator transport contract", () => {
     });
     const {
       hub,
-      recordingD1,
+      recordingPostgres,
       sentFrames,
       socket,
       spaceStub,
       state,
       storageRecords,
       waitUntilTasks,
-    } = createHarness();
+    } = await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
@@ -27305,7 +27499,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
       });
     });
     expect(
-      recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+      await recordingPostgres.projectionRows.get(
+        RUNTIME_COORDINATOR_EXECUTION_ID
+      )
     ).toMatchObject({
       status: "failed_terminal",
     });
@@ -27347,13 +27543,13 @@ describe("runtime transport runtime coordinator transport contract", () => {
     const {
       appliedFinalizationCommands,
       hub,
-      recordingD1,
+      recordingPostgres,
       sentFrames,
       socket,
       state,
       storageRecords,
       waitUntilTasks,
-    } = createHarness();
+    } = await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
@@ -27395,9 +27591,13 @@ describe("runtime transport runtime coordinator transport contract", () => {
     );
     expect(appliedFinalizationCommands).toHaveLength(1);
     expect(
-      recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+      await recordingPostgres.projectionRows.get(
+        RUNTIME_COORDINATOR_EXECUTION_ID
+      )
     ).toMatchObject({ status: "reply_published" });
-    expect(recordingD1.inboxRows.get("dispatch-1::attempt-1")).toMatchObject({
+    expect(
+      await recordingPostgres.inboxRows.get("dispatch-1::attempt-1")
+    ).toMatchObject({
       published_signal_id: "signal-final-1",
       publish_state: "reply_published",
     });
@@ -27412,14 +27612,14 @@ describe("runtime transport runtime coordinator transport contract", () => {
     const {
       appliedFinalizationCommands,
       hub,
-      recordingD1,
+      recordingPostgres,
       sentFrames,
       socket,
       state,
       storagePut,
       storageRecords,
       waitUntilTasks,
-    } = createHarness();
+    } = await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
@@ -27433,7 +27633,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       storageRecords.set(key, value);
       return Promise.resolve();
     });
-    recordingD1.calls.length = 0;
+    recordingPostgres.calls.length = 0;
     sentFrames.length = 0;
 
     await (
@@ -27473,14 +27673,15 @@ describe("runtime transport runtime coordinator transport contract", () => {
       )
     ).toBe(false);
     expect(
-      recordingD1.inboxRows.get("dispatch-1::attempt-1")?.publish_state
+      (await recordingPostgres.inboxRows.get("dispatch-1::attempt-1"))
+        ?.publish_state
     ).toBe("result_accepted");
 
     storagePut.mockImplementation((key: string, value: unknown) => {
       storageRecords.set(key, value);
       return Promise.resolve();
     });
-    recordingD1.calls.length = 0;
+    recordingPostgres.calls.length = 0;
     sentFrames.length = 0;
 
     await (
@@ -27528,7 +27729,8 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("refuses execution admission after the Coordinator has terminalized the execution", async () => {
-    const { hub, recordingD1, sentFrames, socket, state } = createHarness();
+    const { hub, recordingPostgres, sentFrames, socket, state } =
+      await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
@@ -27550,7 +27752,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
       })
     );
-    recordingD1.calls.length = 0;
+    recordingPostgres.calls.length = 0;
     sentFrames.length = 0;
 
     await (
@@ -27587,9 +27789,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
         }),
       })
     );
-    const tokenEvent = getRuntimeCoordinatorEventCalls(recordingD1.calls).find(
-      (call) => call.params[2] === "execution_token_terminal_late"
-    );
+    const tokenEvent = getRuntimeCoordinatorEventCalls(
+      recordingPostgres.calls
+    ).find((call) => call.params[2] === "execution_token_terminal_late");
     expect(tokenEvent?.params[1]).toBe(RUNTIME_COORDINATOR_EXECUTION_ID);
     expect(JSON.parse(String(tokenEvent?.params[7]))).toEqual(
       expect.objectContaining({
@@ -27602,8 +27804,14 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("rejects expired execution admission and result before result inbox acceptance", async () => {
-    const { hub, recordingD1, sentFrames, socket, state, storageRecords } =
-      createHarness();
+    const {
+      hub,
+      recordingPostgres,
+      sentFrames,
+      socket,
+      state,
+      storageRecords,
+    } = await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
@@ -27631,7 +27839,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         },
       },
     });
-    recordingD1.calls.length = 0;
+    recordingPostgres.calls.length = 0;
     sentFrames.length = 0;
 
     await (
@@ -27686,20 +27894,26 @@ describe("runtime transport runtime coordinator transport contract", () => {
       })
     );
     expect(
-      recordingD1.calls.some((call) =>
+      recordingPostgres.calls.some((call) =>
         call.query.includes("openMeldDaemon_dispatch_result_inbox")
       )
     ).toBe(false);
     expect(
-      getRuntimeCoordinatorEventCalls(recordingD1.calls).some(
+      getRuntimeCoordinatorEventCalls(recordingPostgres.calls).some(
         (call) => call.params[2] === "execution_token_expired"
       )
     ).toBe(true);
   });
 
   it("classifies a superseded token result from DO token history without accepting the result", async () => {
-    const { hub, recordingD1, sentFrames, socket, state, storageRecords } =
-      createHarness();
+    const {
+      hub,
+      recordingPostgres,
+      sentFrames,
+      socket,
+      state,
+      storageRecords,
+    } = await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
@@ -27721,7 +27935,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       tokenStatus: "superseded",
     });
     storageRecords.set(authorityKey, retiredAuthority);
-    recordingD1.calls.length = 0;
+    recordingPostgres.calls.length = 0;
     sentFrames.length = 0;
 
     await (
@@ -27755,13 +27969,13 @@ describe("runtime transport runtime coordinator transport contract", () => {
       })
     );
     expect(
-      recordingD1.calls.some((call) =>
+      recordingPostgres.calls.some((call) =>
         call.query.includes("openMeldDaemon_dispatch_result_inbox")
       )
     ).toBe(false);
-    const tokenEvent = getRuntimeCoordinatorEventCalls(recordingD1.calls).find(
-      (call) => call.params[2] === "execution_token_superseded"
-    );
+    const tokenEvent = getRuntimeCoordinatorEventCalls(
+      recordingPostgres.calls
+    ).find((call) => call.params[2] === "execution_token_superseded");
     expect(tokenEvent?.params[1]).toBe(RUNTIME_COORDINATOR_EXECUTION_ID);
     expect(JSON.parse(String(tokenEvent?.params[7]))).toEqual(
       expect.objectContaining({

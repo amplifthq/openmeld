@@ -1,3 +1,4 @@
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import {
   RECONCILE_DELETED_AGENT_PROFILE_MAX_SPACES,
   reconcileDeletedAgentProfileRequestSchema,
@@ -12,14 +13,10 @@ import {
   cancelRuntimeTransportDeletedAgentProfileWakes,
   notifyRuntimeTransportRouteCatalogChanged,
 } from "../../dispatch/infrastructure/runtime-transport/runtime-transport-client";
-import {
-  type CoreBindings,
-  localStateDb,
-  projectionsDb,
-} from "../../lib/bindings";
+import type { CoreBindings } from "../../lib/bindings";
 import { resolveSpaceStub } from "../../rpc/space-ref";
 import { listActiveSpaceIdsForProfileFromSpaceIndex } from "../../space-index/space-index-repository";
-import { disablePrimaryAgentProfileBindingRecord } from "../infrastructure/d1/agent-profile-binding-repo";
+import { disablePrimaryAgentProfileBindingRecord } from "../infrastructure/postgresql/agent-profile-binding-repo";
 
 // Server-side consequence of deleting an agent profile: every client entry
 // point (web, CLI, future surfaces) converges on the auth DELETE, and auth
@@ -96,7 +93,7 @@ async function resolveDeletedProfileWakeCancellation(input: {
     return true;
   }
   if (!input.ownerUserId) {
-    const db = localStateDb(input.env);
+    const db = getPostgresDatabase(input.env);
     if (!(db && input.organizationId)) {
       return false;
     }
@@ -158,7 +155,7 @@ async function resolveDeletedProfileSpaceIds(input: {
   // hints. The membership liveness backstop catches anything neither knows.
   let projectedSpaceIds: string[] = [];
   let discoveryConfirmed = false;
-  const db = projectionsDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (db) {
     try {
       projectedSpaceIds = await listActiveSpaceIdsForProfileFromSpaceIndex({
@@ -238,7 +235,7 @@ async function disableDeletedAgentProfileBinding(input: {
   profileId: string;
 }): Promise<{ bindingDisabled: boolean; bindingReconciled: boolean }> {
   try {
-    const db = localStateDb(input.env);
+    const db = getPostgresDatabase(input.env);
     if (!db) {
       throw new Error("agent_profile_binding.store_unavailable");
     }

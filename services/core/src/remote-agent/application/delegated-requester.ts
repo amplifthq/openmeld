@@ -1,19 +1,22 @@
+import {
+  getPostgresDatabase,
+  type PostgresDatabase,
+} from "@openmeld/db/postgresql";
 import { buildAgentTaskKey } from "@openmeld/schemas";
 import type { RemoteAgentWorkerSubmitTurnRequest } from "@openmeld/schemas/types";
-import { readAgentDelegationByChildTask } from "../../agent-task-coordination/infrastructure/d1/agent-delegation-repo";
+import { readAgentDelegationByChildTask } from "../../agent-task-coordination/infrastructure/postgresql/agent-delegation-repo";
 import {
   isCenterAgentDesignationActive,
   readCenterAgentDesignationRecord,
 } from "../../center-agent/center-agent-repository";
-import { type CoreBindings, wakeEvidenceDb } from "../../lib/bindings";
+import type { CoreBindings } from "../../lib/bindings";
 import { createCoreRpcHttpError } from "../../rpc/errors";
 import {
   type RemoteAgentNativeDeliveryRecord,
   readRemoteAgentNativeDeliveryByDeliveryId,
-} from "../infrastructure/d1/native-delivery-ledger-repo";
+} from "../infrastructure/postgresql/native-delivery-ledger-repo";
 import type { requireRemoteAgentToolCaller } from "./remote-agent-tool-caller";
 import { readActiveRepresentedHumanSender } from "./turn-envelope";
-
 /** Connection selection still uses the existing owner and access policy. */
 export async function resolveRemoteAgentConnectorRequester(input: {
   env: CoreBindings;
@@ -35,7 +38,7 @@ export async function resolveRemoteAgentConnectorRequester(input: {
       ? (sender.ownerUserId ?? null)
       : null;
   }
-  const evidenceDb = wakeEvidenceDb(input.env);
+  const evidenceDb = getPostgresDatabase(input.env);
   const delegated =
     personal &&
     evidenceDb &&
@@ -57,11 +60,10 @@ export async function resolveRemoteAgentConnectorRequester(input: {
   }
   return delegated.userId;
 }
-
 /** A current projection of one recorded Center delegation, never a stored grant. */
 export async function readRemoteAgentDelegatedRequester(input: {
-  identityDb: D1Database;
-  evidenceDb: D1Database;
+  identityDb: PostgresDatabase;
+  evidenceDb: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   request: RemoteAgentWorkerSubmitTurnRequest;
 }) {
@@ -155,15 +157,15 @@ export async function readRemoteAgentDelegatedRequester(input: {
       userId: represented.ownerUserId,
     }),
     input.identityDb
-      .prepare(
-        "SELECT profile_id FROM openmeld_profiles WHERE profile_id = ? AND organization_id = ? AND owner_user_id = ? AND profile_kind = 'agent' AND managed_role IS NULL AND status = 'active' LIMIT 1"
-      )
-      .bind(
-        delivery.profileId,
-        delivery.organizationId,
-        represented.ownerUserId
-      )
-      .first(),
+      .query({
+        text: "SELECT profile_id FROM \"openmeld\".\"openmeld_profiles\" WHERE profile_id = $1 AND organization_id = $2 AND owner_user_id = $3 AND profile_kind = 'agent' AND managed_role IS NULL AND status = 'active' LIMIT 1",
+        values: [
+          delivery.profileId,
+          delivery.organizationId,
+          represented.ownerUserId,
+        ],
+      })
+      .then((result) => result.rows[0] ?? null),
   ]);
   if (!member?.member_id || member.member_id !== represented.id || !agent) {
     return null;

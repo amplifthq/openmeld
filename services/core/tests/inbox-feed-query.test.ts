@@ -1,4 +1,6 @@
 import { env } from "cloudflare:test";
+import type { QueryResult } from "@openmeld/db/postgresql";
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import type { InboxSourceCandidate } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
 import { createInboxFeedService } from "../src/inbox/application/inbox-feed-service";
@@ -9,27 +11,39 @@ describe("Inbox attention feed on D1", () => {
     undefined,
     "space",
   ] as const)("executes ranked CTE batches and frozen mutations without clearing subsequently projected events (grouping=%s)", async (grouping) => {
-    const db = env.OPENMELD_DB;
+    const db = getPostgresDatabase(env);
     const suffix = crypto.randomUUID();
     const identity = {
       organizationId: `feed-org-${suffix}`,
       recipientUserId: `feed-user-${suffix}`,
     };
-    await db.batch([
-      db
-        .prepare(
-          "INSERT INTO organizations (id, name, slug, created_at) VALUES (?, 'Inbox acceptance', ?, 1)"
-        )
-        .bind(identity.organizationId, identity.organizationId),
-      db
-        .prepare(
-          "INSERT INTO users (id, name, email) VALUES (?, 'Inbox acceptance', ?)"
-        )
-        .bind(
-          identity.recipientUserId,
-          `${identity.recipientUserId}@example.test`
-        ),
-    ]);
+    await db.transaction(async (client) =>
+      (async () => {
+        const results: QueryResult[] = [];
+        for (const query of [
+          {
+            ...{
+              text: 'INSERT INTO "openmeld"."organizations" (id, name, slug, created_at) VALUES ($1, \'Inbox acceptance\', $2, 1)',
+              values: [],
+            },
+            values: [identity.organizationId, identity.organizationId],
+          },
+          {
+            ...{
+              text: 'INSERT INTO "openmeld"."users" (id, name, email) VALUES ($1, \'Inbox acceptance\', $2)',
+              values: [],
+            },
+            values: [
+              identity.recipientUserId,
+              `${identity.recipientUserId}@example.test`,
+            ],
+          },
+        ]) {
+          results.push(await client.query(query));
+        }
+        return results;
+      })()
+    );
     const base: InboxSourceCandidate = {
       ...identity,
       attention: "update",
@@ -90,19 +104,25 @@ describe("Inbox attention feed on D1", () => {
     ).toEqual({ changedCount: 2 });
     expect(
       await db
-        .prepare("SELECT read_at_ms FROM inbox_items WHERE id = ?")
-        .bind(later.itemId)
-        .first()
+        .query({
+          ...{
+            text: 'SELECT read_at_ms FROM "openmeld"."inbox_items" WHERE id = $1',
+            values: [],
+          },
+          values: [later.itemId],
+        })
+        .then((result) => result.rows[0] ?? null)
     ).toEqual({ read_at_ms: null });
     expect(
       (await service.list(identity, { category: "needs_action" })).rows[0]?.dot
     ).toBe("yellow");
-    await db
-      .prepare(
-        "UPDATE inbox_items SET resolution_status = 'resolved', resolved_at_ms = 3500 WHERE id = ?"
-      )
-      .bind(priority.itemId)
-      .run();
+    await db.query({
+      ...{
+        text: 'UPDATE "openmeld"."inbox_items" SET resolution_status = \'resolved\', resolved_at_ms = 3500 WHERE id = $1',
+        values: [],
+      },
+      values: [priority.itemId],
+    });
     expect(
       (await service.list(identity, { category: "needs_action" })).rows
     ).toEqual([]);

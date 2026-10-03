@@ -1,4 +1,8 @@
 import {
+  getPostgresDatabase,
+  type PostgresDatabase,
+} from "@openmeld/db/postgresql";
+import {
   approveOrganizationDocumentDraftResponseSchema,
   approveOrganizationDocumentDraftRpcInputSchema,
   CENTER_AGENT_PROFILE_REPORT_COMPUTER_ROOT,
@@ -75,7 +79,7 @@ import {
   recordCenterAgentMemberResearchComputerFile,
   requireCenterAgentMemberResearchDraftTarget,
 } from "../center-agent-member-research/member-research-repository";
-import { type CoreBindings, organizationDocumentsDb } from "../lib/bindings";
+import type { CoreBindings } from "../lib/bindings";
 import { requireExpectedOrganizationContext } from "../organizations/expected-organization-context";
 import {
   readOrganizationPersonalClassification,
@@ -83,10 +87,7 @@ import {
 } from "../organizations/organization-context";
 import { resolveOrganizationDirectoryMembers } from "../organizations/organization-directory";
 import { readOrganizationInformationProtectionForPrompt } from "../organizations/organization-information-protection-prompt";
-import {
-  observeOrganizationWorkingLanguage,
-  prepareRequirePreviousStatementChangedOneRow,
-} from "../organizations/organization-working-language-repository";
+import { observeOrganizationWorkingLanguage } from "../organizations/organization-working-language-repository";
 import { prepareRemoteAgentMemberRequest } from "../remote-agent/application/remote-agent-member-request";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import {
@@ -94,7 +95,6 @@ import {
   type OrganizationDocumentActor,
   type OrganizationDocumentReadActor,
 } from "./organization-document-service";
-
 export async function rpcListOrganizationDocuments(
   env: CoreBindings,
   input: ListOrganizationDocumentsRpcInput
@@ -113,7 +113,6 @@ export async function rpcListOrganizationDocuments(
     organizationId: actor.organizationId,
   });
 }
-
 export async function rpcCreateOrganizationDocumentFolder(
   env: CoreBindings,
   input: CreateOrganizationDocumentFolderRpcInput
@@ -134,7 +133,6 @@ export async function rpcCreateOrganizationDocumentFolder(
     }),
   });
 }
-
 export async function rpcUpdateOrganizationDocumentFolder(
   env: CoreBindings,
   input: UpdateOrganizationDocumentFolderRpcInput
@@ -162,7 +160,6 @@ export async function rpcUpdateOrganizationDocumentFolder(
     folder,
   });
 }
-
 export async function rpcDeleteOrganizationDocumentFolder(
   env: CoreBindings,
   input: DeleteOrganizationDocumentFolderRpcInput
@@ -183,7 +180,6 @@ export async function rpcDeleteOrganizationDocumentFolder(
     organizationId: actor.organizationId,
   });
 }
-
 export async function rpcGetOrganizationDocument(
   env: CoreBindings,
   input: GetOrganizationDocumentRpcInput
@@ -194,7 +190,6 @@ export async function rpcGetOrganizationDocument(
     document: await service.get(actor, request.documentId),
   });
 }
-
 export async function rpcCreateOrganizationDocument(
   env: CoreBindings,
   input: CreateOrganizationDocumentRpcInput
@@ -207,7 +202,6 @@ export async function rpcCreateOrganizationDocument(
     document: await service.create(actor, body),
   });
 }
-
 export async function rpcUpdateOrganizationDocument(
   env: CoreBindings,
   input: UpdateOrganizationDocumentRpcInput
@@ -220,7 +214,6 @@ export async function rpcUpdateOrganizationDocument(
     document: await service.update(actor, documentId, body),
   });
 }
-
 export async function rpcDeleteOrganizationDocument(
   env: CoreBindings,
   input: DeleteOrganizationDocumentRpcInput
@@ -238,7 +231,6 @@ export async function rpcDeleteOrganizationDocument(
     organizationId: actor.organizationId,
   });
 }
-
 export async function rpcApproveOrganizationDocumentDraft(
   env: CoreBindings,
   input: ApproveOrganizationDocumentDraftRpcInput
@@ -260,7 +252,6 @@ export async function rpcApproveOrganizationDocumentDraft(
     ),
   });
 }
-
 export async function rpcDiscardOrganizationDocumentDraft(
   env: CoreBindings,
   input: DiscardOrganizationDocumentDraftRpcInput
@@ -282,7 +273,6 @@ export async function rpcDiscardOrganizationDocumentDraft(
     ),
   });
 }
-
 export async function rpcCenterAgentReadOrganizationDocuments(
   env: CoreBindings,
   input: CenterAgentReadOrganizationDocumentsRpcInput
@@ -357,7 +347,6 @@ export async function rpcCenterAgentReadOrganizationDocuments(
     organizationId: actor.organizationId,
   });
 }
-
 export async function rpcCenterAgentOrganizationDocumentsComputerSnapshot(
   env: CoreBindings,
   input: CenterAgentOrganizationDocumentsComputerSnapshotRpcInput
@@ -400,7 +389,6 @@ export async function rpcCenterAgentOrganizationDocumentsComputerSnapshot(
     { ...snapshot, revision }
   );
 }
-
 async function allowsSharedOrganizationWorkingLanguageObservation(input: {
   env: CoreBindings;
   memberResearchTaskId: string;
@@ -428,7 +416,6 @@ async function allowsSharedOrganizationWorkingLanguageObservation(input: {
   }
   return true;
 }
-
 export async function rpcCenterAgentDraftOrganizationDocument(
   env: CoreBindings,
   input: CenterAgentDraftOrganizationDocumentRpcInput
@@ -450,7 +437,12 @@ export async function rpcCenterAgentDraftOrganizationDocument(
     ...draft
   } = request;
   const db = requireStore(env);
-  let memberResearch: { submissionId: string; taskId: string } | undefined;
+  let memberResearch:
+    | {
+        submissionId: string;
+        taskId: string;
+      }
+    | undefined;
   if (memberResearchTaskId) {
     const submissionId = request.context.agentControllerConversationId;
     if (!submissionId) {
@@ -501,35 +493,39 @@ export async function rpcCenterAgentDraftOrganizationDocument(
     const observedLanguageTag = memberResearchReport.observedLanguageTag;
     const reportResult = memberResearchReport.result;
     const nowMs = Date.now();
-    const taskUpdateStatement = db
-      .prepare(
-        `
-          UPDATE center_agent_member_research_tasks
+    const taskUpdateStatement = {
+      text: `
+          UPDATE "openmeld"."center_agent_member_research_tasks"
           SET
-            observed_language_tag = COALESCE(?, observed_language_tag),
-            report_result = ?
-          WHERE id = ?
+            observed_language_tag = COALESCE($1, observed_language_tag),
+            report_result = $2
+          WHERE id = $3
             AND status = 'running'
-            AND (report_result IS NULL OR report_result = ?)
+            AND (report_result IS NULL OR report_result = $4)
             AND EXISTS (
               SELECT 1
-              FROM center_agent_member_research_batches AS batch
+              FROM "openmeld"."center_agent_member_research_batches" AS batch
               WHERE batch.id = center_agent_member_research_tasks.batch_id
-                AND batch.organization_id = ?
+                AND batch.organization_id = $5
             )
-        `
-      )
-      .bind(
+        `,
+      values: [
         observedLanguageTag ?? null,
         reportResult,
         memberResearch.taskId,
         reportResult,
-        organizationId
-      );
-    const taskStatements = [
-      taskUpdateStatement,
-      prepareRequirePreviousStatementChangedOneRow(db),
-    ];
+        organizationId,
+      ],
+    };
+    const updateTask = async (
+      client: import("@openmeld/db/postgresql").PoolClient
+    ) => {
+      if ((await client.query(taskUpdateStatement)).rowCount !== 1) {
+        throw new Error(
+          "Member research task changed concurrently; report was rolled back."
+        );
+      }
+    };
     const observesSharedOrganization = observedLanguageTag
       ? await allowsSharedOrganizationWorkingLanguageObservation({
           env,
@@ -558,7 +554,7 @@ export async function rpcCenterAgentDraftOrganizationDocument(
         sourceNativeDeliveryId,
       });
       await observeOrganizationWorkingLanguage({
-        beforeStatements: taskStatements,
+        beforeMutation: updateTask,
         db,
         languageTag: observedLanguageTag,
         nowMs,
@@ -566,7 +562,7 @@ export async function rpcCenterAgentDraftOrganizationDocument(
         organizationId,
       });
     } else {
-      await db.batch(taskStatements);
+      await db.transaction(updateTask);
     }
   }
   await writeCenterAgentAuditEntry({
@@ -611,36 +607,37 @@ export async function rpcCenterAgentDraftOrganizationDocument(
     ...(memberResearchDraft ? { memberResearchDraft } : {}),
   });
 }
-
 async function requireMemberResearchProfileReportFolderName(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   documentId: string;
   organizationId: string;
   subjectUserId: string;
 }): Promise<string> {
   const folder = await input.db
-    .prepare(
-      `
+    .query<{
+      name: string;
+    }>({
+      text: `
         SELECT person.name
-        FROM organization_documents document
-        INNER JOIN organization_document_folders person
+        FROM "openmeld"."organization_documents" document
+        INNER JOIN "openmeld"."organization_document_folders" person
           ON person.id = document.folder_id
          AND person.organization_id = document.organization_id
-        INNER JOIN organization_document_folders root
+        INNER JOIN "openmeld"."organization_document_folders" root
           ON root.id = person.parent_folder_id
          AND root.organization_id = document.organization_id
-        WHERE document.id = ?
-          AND document.organization_id = ?
+        WHERE document.id = $1
+          AND document.organization_id = $2
           AND document.kind = 'member_profile'
-          AND document.subject_user_id = ?
+          AND document.subject_user_id = $3
           AND person.system_kind = 'profile_reports_person'
           AND person.subject_user_id = document.subject_user_id
           AND root.system_kind = 'profile_reports_root'
         LIMIT 1
-      `
-    )
-    .bind(input.documentId, input.organizationId, input.subjectUserId)
-    .first<{ name: string }>();
+      `,
+      values: [input.documentId, input.organizationId, input.subjectUserId],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!folder) {
     throw new Error(
       "Member research created a Profile Report without its managed person folder."
@@ -648,7 +645,6 @@ async function requireMemberResearchProfileReportFolderName(input: {
   }
   return folder.name;
 }
-
 export async function rpcRecordCenterAgentMemberResearchComputerFile(
   env: CoreBindings,
   input: RecordCenterAgentMemberResearchComputerFileRpcInput
@@ -694,7 +690,6 @@ export async function rpcRecordCenterAgentMemberResearchComputerFile(
     { ...recorded, recorded: true }
   );
 }
-
 export async function rpcReadOrganizationDocumentPromptContext(
   env: CoreBindings,
   input: OrganizationDocumentPromptContextRpcInput
@@ -725,7 +720,6 @@ export async function rpcReadOrganizationDocumentPromptContext(
     organizationId,
   });
 }
-
 async function prepareHumanRequest(
   env: CoreBindings,
   context: OpenMeldRequestContext
@@ -750,19 +744,19 @@ async function prepareHumanRequest(
   }
   const db = requireStore(env);
   const profile = await db
-    .prepare(
-      `
+    .query({
+      text: `
         SELECT 1
-        FROM openmeld_profiles
-        WHERE profile_id = ?
-          AND owner_user_id = ?
+        FROM "openmeld"."openmeld_profiles"
+        WHERE profile_id = $1
+          AND owner_user_id = $2
           AND profile_kind = 'human'
           AND status = 'active'
         LIMIT 1
-      `
-    )
-    .bind(context.actorContext.openMeldProfileId, membership.userId)
-    .first();
+      `,
+      values: [context.actorContext.openMeldProfileId, membership.userId],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!profile) {
     throw createCoreRpcHttpError({
       code: "organization_document.human_actor_required",
@@ -780,9 +774,8 @@ async function prepareHumanRequest(
     service: createOrganizationDocumentService({ db }),
   };
 }
-
-function requireStore(env: CoreBindings): D1Database {
-  const db = organizationDocumentsDb(env);
+function requireStore(env: CoreBindings): PostgresDatabase {
+  const db = getPostgresDatabase(env);
   if (!db) {
     throw createCoreRpcHttpError({
       code: "organization_document.store_unavailable",
@@ -792,7 +785,6 @@ function requireStore(env: CoreBindings): D1Database {
   }
   return db;
 }
-
 function requireExpectedOrganization(
   activeOrganizationId: string,
   expectedOrganizationId: string
@@ -803,10 +795,16 @@ function requireExpectedOrganization(
     expectedOrganizationId,
   });
 }
-
 function parseRequest<T>(
   schema: {
-    safeParse(value: unknown): { data: T; success: true } | { success: false };
+    safeParse(value: unknown):
+      | {
+          data: T;
+          success: true;
+        }
+      | {
+          success: false;
+        };
   },
   input: unknown
 ): T {
@@ -820,10 +818,16 @@ function parseRequest<T>(
   }
   return parsed.data;
 }
-
 function parseResponse<T>(
   schema: {
-    safeParse(value: unknown): { data: T; success: true } | { success: false };
+    safeParse(value: unknown):
+      | {
+          data: T;
+          success: true;
+        }
+      | {
+          success: false;
+        };
   },
   input: unknown
 ): T {
@@ -833,7 +837,6 @@ function parseResponse<T>(
   }
   return parsed.data;
 }
-
 async function sha256Hex(value: string): Promise<string> {
   const digest = await crypto.subtle.digest(
     "SHA-256",

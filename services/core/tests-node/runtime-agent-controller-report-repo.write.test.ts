@@ -9,12 +9,9 @@ import { describe, expect, it } from "vitest";
 import {
   acceptRuntimeAgentControllerReportRecord,
   readCurrentRuntimeAgentControllerReport,
-} from "../src/runtime-registry/infrastructure/d1/runtime-agent-controller-report-repo";
-import { registerRuntimeRegistryRecord } from "../src/runtime-registry/infrastructure/d1/runtime-registry-repo";
-import {
-  applyDrizzleMigrationForTable as applyMigrationForTable,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+} from "../src/runtime-registry/infrastructure/postgresql/runtime-agent-controller-report-repo";
+import { registerRuntimeRegistryRecord } from "../src/runtime-registry/infrastructure/postgresql/runtime-registry-repo";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 const lookupInput = (): RuntimeLookupInput =>
   createRuntimeLookupInput({
@@ -68,12 +65,8 @@ describe("runtime agent controller report repo write-side", () => {
   } satisfies AgentControllerInterfaceSnapshot;
 
   it("creates and reads one current report for an existing registered Runtime", async () => {
-    const harness = createSqliteD1Harness();
-    applyMigrationForTable(harness, "openMeldDaemon_runtime_registry_records");
-    applyMigrationForTable(
-      harness,
-      "openMeldDaemon_runtime_agent_controller_reports"
-    );
+    const harness = await createPostgresHarness();
+
     try {
       const runtimeLookupInput = lookupInput();
       const registeredRuntimeId = openMeldServiceRuntimeId(
@@ -133,17 +126,13 @@ describe("runtime agent controller report repo write-side", () => {
         status: "ready",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("rejects a current report for an unregistered Runtime without writing", async () => {
-    const harness = createSqliteD1Harness();
-    applyMigrationForTable(harness, "openMeldDaemon_runtime_registry_records");
-    applyMigrationForTable(
-      harness,
-      "openMeldDaemon_runtime_agent_controller_reports"
-    );
+    const harness = await createPostgresHarness();
+
     try {
       const runtimeLookupInput = lookupInput();
       const unregisteredRuntimeId = openMeldServiceRuntimeId(
@@ -170,22 +159,18 @@ describe("runtime agent controller report repo write-side", () => {
       });
 
       expect(
-        harness.queryAll<{ openmeld_service_runtime_id: string }>({
-          sql: "SELECT openmeld_service_runtime_id FROM openMeldDaemon_runtime_agent_controller_reports",
+        await harness.queryAll<{ openmeld_service_runtime_id: string }>({
+          text: 'SELECT openmeld_service_runtime_id FROM "openmeld"."openMeldDaemon_runtime_agent_controller_reports"',
         })
       ).toEqual([]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("reuses the current report for an identical retry", async () => {
-    const harness = createSqliteD1Harness();
-    applyMigrationForTable(harness, "openMeldDaemon_runtime_registry_records");
-    applyMigrationForTable(
-      harness,
-      "openMeldDaemon_runtime_agent_controller_reports"
-    );
+    const harness = await createPostgresHarness();
+
     try {
       const runtimeLookupInput = lookupInput();
       const registeredRuntimeId = openMeldServiceRuntimeId(
@@ -226,22 +211,18 @@ describe("runtime agent controller report repo write-side", () => {
         status: "accepted",
       });
       expect(
-        harness.queryAll<{ openmeld_service_runtime_id: string }>({
-          sql: "SELECT openmeld_service_runtime_id FROM openMeldDaemon_runtime_agent_controller_reports",
+        await harness.queryAll<{ openmeld_service_runtime_id: string }>({
+          text: 'SELECT openmeld_service_runtime_id FROM "openmeld"."openMeldDaemon_runtime_agent_controller_reports"',
         })
       ).toHaveLength(1);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("rejects an older report without mutating the current report", async () => {
-    const harness = createSqliteD1Harness();
-    applyMigrationForTable(harness, "openMeldDaemon_runtime_registry_records");
-    applyMigrationForTable(
-      harness,
-      "openMeldDaemon_runtime_agent_controller_reports"
-    );
+    const harness = await createPostgresHarness();
+
     try {
       const runtimeLookupInput = lookupInput();
       const registeredRuntimeId = openMeldServiceRuntimeId(
@@ -296,17 +277,13 @@ describe("runtime agent controller report repo write-side", () => {
         })
       ).resolves.toEqual(currentReport);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("rejects a conflicting same-observedAt report without mutating the current report", async () => {
-    const harness = createSqliteD1Harness();
-    applyMigrationForTable(harness, "openMeldDaemon_runtime_registry_records");
-    applyMigrationForTable(
-      harness,
-      "openMeldDaemon_runtime_agent_controller_reports"
-    );
+    const harness = await createPostgresHarness();
+
     try {
       const runtimeLookupInput = lookupInput();
       const registeredRuntimeId = openMeldServiceRuntimeId(
@@ -359,7 +336,7 @@ describe("runtime agent controller report repo write-side", () => {
         })
       ).resolves.toEqual(currentReport);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
@@ -368,12 +345,8 @@ describe("runtime agent controller report repo write-side", () => {
     "unavailable",
     "unknown",
   ] as const)("accepts %s as a current Runtime report fact only", async (status) => {
-    const harness = createSqliteD1Harness();
-    applyMigrationForTable(harness, "openMeldDaemon_runtime_registry_records");
-    applyMigrationForTable(
-      harness,
-      "openMeldDaemon_runtime_agent_controller_reports"
-    );
+    const harness = await createPostgresHarness();
+
     try {
       const runtimeLookupInput = lookupInput();
       const registeredRuntimeId = openMeldServiceRuntimeId(
@@ -409,24 +382,20 @@ describe("runtime agent controller report repo write-side", () => {
         status: "accepted",
       });
       expect(
-        harness.queryAll<{
+        await harness.queryAll<{
           report_status: string;
         }>({
-          sql: "SELECT report_status FROM openMeldDaemon_runtime_agent_controller_reports",
+          text: 'SELECT report_status FROM "openmeld"."openMeldDaemon_runtime_agent_controller_reports"',
         })
       ).toEqual([{ report_status: status }]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("returns explicit missing when no current report exists", async () => {
-    const harness = createSqliteD1Harness();
-    applyMigrationForTable(harness, "openMeldDaemon_runtime_registry_records");
-    applyMigrationForTable(
-      harness,
-      "openMeldDaemon_runtime_agent_controller_reports"
-    );
+    const harness = await createPostgresHarness();
+
     try {
       const runtimeLookupInput = lookupInput();
       const registeredRuntimeId = openMeldServiceRuntimeId(
@@ -450,17 +419,13 @@ describe("runtime agent controller report repo write-side", () => {
         })
       ).resolves.toBeNull();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("converges concurrent duplicate reports to one current fact", async () => {
-    const harness = createSqliteD1Harness();
-    applyMigrationForTable(harness, "openMeldDaemon_runtime_registry_records");
-    applyMigrationForTable(
-      harness,
-      "openMeldDaemon_runtime_agent_controller_reports"
-    );
+    const harness = await createPostgresHarness();
+
     try {
       const runtimeLookupInput = lookupInput();
       const registeredRuntimeId = openMeldServiceRuntimeId(
@@ -507,22 +472,18 @@ describe("runtime agent controller report repo write-side", () => {
         )
       ).toEqual([report, report]);
       expect(
-        harness.queryAll<{ openmeld_service_runtime_id: string }>({
-          sql: "SELECT openmeld_service_runtime_id FROM openMeldDaemon_runtime_agent_controller_reports",
+        await harness.queryAll<{ openmeld_service_runtime_id: string }>({
+          text: 'SELECT openmeld_service_runtime_id FROM "openmeld"."openMeldDaemon_runtime_agent_controller_reports"',
         })
       ).toHaveLength(1);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("converges concurrent first reports so the newer observation wins", async () => {
-    const harness = createSqliteD1Harness();
-    applyMigrationForTable(harness, "openMeldDaemon_runtime_registry_records");
-    applyMigrationForTable(
-      harness,
-      "openMeldDaemon_runtime_agent_controller_reports"
-    );
+    const harness = await createPostgresHarness();
+
     try {
       const runtimeLookupInput = lookupInput();
       const registeredRuntimeId = openMeldServiceRuntimeId(
@@ -566,10 +527,21 @@ describe("runtime agent controller report repo write-side", () => {
         }),
       ]);
 
-      expect(results.map((result) => result.status)).toEqual([
-        "accepted",
-        "accepted",
-      ]);
+      // Concurrent calls have no arrival-order guarantee. A newer report that
+      // wins the insert makes the older report out of order, never current.
+      expect(results[1]).toMatchObject({
+        currentReport: newerReport,
+        status: "accepted",
+      });
+      expect(results[0]).toMatchObject(
+        results[0]?.status === "accepted"
+          ? { currentReport: olderReport, status: "accepted" }
+          : {
+              currentReport: newerReport,
+              reason: "out_of_order",
+              status: "rejected",
+            }
+      );
       await expect(
         readCurrentRuntimeAgentControllerReport({
           agentControllerRef: "builtin:codex",
@@ -578,22 +550,18 @@ describe("runtime agent controller report repo write-side", () => {
         })
       ).resolves.toEqual(newerReport);
       expect(
-        harness.queryAll<{ openmeld_service_runtime_id: string }>({
-          sql: "SELECT openmeld_service_runtime_id FROM openMeldDaemon_runtime_agent_controller_reports",
+        await harness.queryAll<{ openmeld_service_runtime_id: string }>({
+          text: 'SELECT openmeld_service_runtime_id FROM "openmeld"."openMeldDaemon_runtime_agent_controller_reports"',
         })
       ).toHaveLength(1);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("keeps the first current fact when concurrent first reports conflict at the same observedAt", async () => {
-    const harness = createSqliteD1Harness();
-    applyMigrationForTable(harness, "openMeldDaemon_runtime_registry_records");
-    applyMigrationForTable(
-      harness,
-      "openMeldDaemon_runtime_agent_controller_reports"
-    );
+    const harness = await createPostgresHarness();
+
     try {
       const runtimeLookupInput = lookupInput();
       const registeredRuntimeId = openMeldServiceRuntimeId(
@@ -635,42 +603,36 @@ describe("runtime agent controller report repo write-side", () => {
         }),
       ]);
 
-      expect(results).toEqual([
-        {
-          currentReport: readyReport,
-          outcome: "created",
-          status: "accepted",
-        },
-        {
-          currentReport: readyReport,
-          reason: "conflict",
-          status: "rejected",
-        },
-      ]);
+      const winner = results.find((result) => result.status === "accepted");
+      expect(winner).toMatchObject({ outcome: "created", status: "accepted" });
+      expect(
+        results.filter((result) => result.status === "accepted")
+      ).toHaveLength(1);
+      expect(results.find((result) => result.status === "rejected")).toEqual({
+        currentReport: winner?.currentReport,
+        reason: "conflict",
+        status: "rejected",
+      });
       await expect(
         readCurrentRuntimeAgentControllerReport({
           agentControllerRef: "builtin:codex",
           db: harness.db,
           openMeldServiceRuntimeId: registeredRuntimeId,
         })
-      ).resolves.toEqual(readyReport);
+      ).resolves.toEqual(winner?.currentReport);
       expect(
-        harness.queryAll<{ openmeld_service_runtime_id: string }>({
-          sql: "SELECT openmeld_service_runtime_id FROM openMeldDaemon_runtime_agent_controller_reports",
+        await harness.queryAll<{ openmeld_service_runtime_id: string }>({
+          text: 'SELECT openmeld_service_runtime_id FROM "openmeld"."openMeldDaemon_runtime_agent_controller_reports"',
         })
       ).toHaveLength(1);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("replaces the current fact when a newer report arrives", async () => {
-    const harness = createSqliteD1Harness();
-    applyMigrationForTable(harness, "openMeldDaemon_runtime_registry_records");
-    applyMigrationForTable(
-      harness,
-      "openMeldDaemon_runtime_agent_controller_reports"
-    );
+    const harness = await createPostgresHarness();
+
     try {
       const runtimeLookupInput = lookupInput();
       const registeredRuntimeId = openMeldServiceRuntimeId(
@@ -725,22 +687,18 @@ describe("runtime agent controller report repo write-side", () => {
         })
       ).resolves.toEqual(newerReport);
       expect(
-        harness.queryAll<{ openmeld_service_runtime_id: string }>({
-          sql: "SELECT openmeld_service_runtime_id FROM openMeldDaemon_runtime_agent_controller_reports",
+        await harness.queryAll<{ openmeld_service_runtime_id: string }>({
+          text: 'SELECT openmeld_service_runtime_id FROM "openmeld"."openMeldDaemon_runtime_agent_controller_reports"',
         })
       ).toHaveLength(1);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("rejects a stale report without writing current facts", async () => {
-    const harness = createSqliteD1Harness();
-    applyMigrationForTable(harness, "openMeldDaemon_runtime_registry_records");
-    applyMigrationForTable(
-      harness,
-      "openMeldDaemon_runtime_agent_controller_reports"
-    );
+    const harness = await createPostgresHarness();
+
     try {
       const runtimeLookupInput = lookupInput();
       const registeredRuntimeId = openMeldServiceRuntimeId(
@@ -774,12 +732,12 @@ describe("runtime agent controller report repo write-side", () => {
         status: "rejected",
       });
       expect(
-        harness.queryAll<{ openmeld_service_runtime_id: string }>({
-          sql: "SELECT openmeld_service_runtime_id FROM openMeldDaemon_runtime_agent_controller_reports",
+        await harness.queryAll<{ openmeld_service_runtime_id: string }>({
+          text: 'SELECT openmeld_service_runtime_id FROM "openmeld"."openMeldDaemon_runtime_agent_controller_reports"',
         })
       ).toEqual([]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });

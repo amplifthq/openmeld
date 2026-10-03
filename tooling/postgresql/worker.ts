@@ -1,6 +1,8 @@
 import { timingSafeEqual } from "node:crypto";
+import { readPostgresErrorCode } from "@openmeld/db/postgresql";
 import pg from "pg";
 import { acceptRuntime } from "./acceptance.mjs";
+import { acceptRuntimeTransport } from "./runtime-transport-acceptance";
 
 const bearerPrefix = /^Bearer /u;
 
@@ -37,9 +39,22 @@ export default {
     }
     if (
       request.method !== "POST" ||
-      new URL(request.url).pathname !== "/acceptance"
+      !["/acceptance", "/runtime-transport"].includes(
+        new URL(request.url).pathname
+      )
     ) {
       return new Response(null, { status: 404 });
+    }
+    if (new URL(request.url).pathname === "/runtime-transport") {
+      try {
+        await acceptRuntimeTransport(env.OPENMELD_POSTGRESQL);
+        return new Response(null, { status: 204 });
+      } catch (error) {
+        console.error("PostgreSQL product transport acceptance failed", {
+          code: readPostgresErrorCode(error) ?? "acceptance_failed",
+        });
+        return new Response(null, { status: 500 });
+      }
     }
     // One request-scoped client; Hyperdrive owns origin pooling.
     const client = new pg.Client({
@@ -52,10 +67,7 @@ export default {
       return new Response(null, { status: 204 });
     } catch (error) {
       console.error("PostgreSQL acceptance failed", {
-        code:
-          error instanceof Error && "code" in error
-            ? String(error.code)
-            : "acceptance_failed",
+        code: readPostgresErrorCode(error) ?? "acceptance_failed",
       });
       // SQL text, connection details, and credentials never enter public output/logs.
       return new Response(null, { status: 500 });

@@ -7,28 +7,31 @@ import {
 import { reconcileOrganizationAgentOwnership } from "../src/space/infrastructure/sql/organization-agent-ownership";
 import type { SpaceMemberRecord } from "../src/space/infrastructure/sql/space-member-repo";
 import type { SpaceMetaRecord } from "../src/space/infrastructure/sql/space-meta-repo";
-import { createSqliteD1Harness } from "./helpers/sqlite-d1-harness.test-support";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 describe("Organization Agent ownership in existing Spaces", () => {
   it("removes inherited read and join access while preserving actual Agent membership", async () => {
-    const identity = createSqliteD1Harness();
+    const identity = await createPostgresHarness();
     const storage = new DatabaseSync(":memory:");
     try {
-      identity.run({
-        sql: "CREATE TABLE openmeld_profiles (profile_id TEXT, organization_id TEXT, managed_role TEXT)",
-      });
-      identity.run({
-        sql: "INSERT INTO openmeld_profiles VALUES ('center', 'org', 'center_agent'), ('personal-agent', 'org', NULL)",
+      await identity.query({
+        text: `
+        INSERT INTO "openmeld"."users" (id,name,email) VALUES ('creator','Creator','creator@example.com'),('another-member','Member','member@example.com');
+        INSERT INTO "openmeld"."organizations" (id,name,slug,created_at) VALUES ('org','Organization','org',1700000000000);
+        INSERT INTO "openmeld"."openmeld_profiles" (profile_id,profile_name,profile_handle,profile_kind,organization_id,managed_role,owner_user_id,created_by_user_id,source)
+        VALUES ('agt_00000000-0000-4000-8000-000000000001','Center','center','agent','org','center_agent',NULL,'creator','auth_bootstrap'),
+        ('agt_00000000-0000-4000-8000-000000000002','Personal Agent','personal-agent','agent','org',NULL,'another-member','another-member','migration')
+      `,
       });
       storage.exec(
         "CREATE TABLE space_members (profile_id TEXT, owner_user_id_snapshot TEXT, owner_name_snapshot TEXT); CREATE TABLE space_meta (creator_json TEXT)"
       );
       storage.exec(
-        "INSERT INTO space_members VALUES ('center', 'creator', 'Creator'), ('personal-agent', 'another-member', 'Another member')"
+        "INSERT INTO space_members VALUES ('agt_00000000-0000-4000-8000-000000000001', 'creator', 'Creator'), ('agt_00000000-0000-4000-8000-000000000002', 'another-member', 'Another member')"
       );
       storage.prepare("INSERT INTO space_meta VALUES (?)").run(
         JSON.stringify({
-          profileId: "center",
+          profileId: "agt_00000000-0000-4000-8000-000000000001",
           kind: "agent",
           ownerUserId: "creator",
         })
@@ -50,7 +53,7 @@ describe("Organization Agent ownership in existing Spaces", () => {
               openMeldProfileId: profileId,
               ownerUserId,
               profileKind:
-                profileId === "center"
+                profileId === "agt_00000000-0000-4000-8000-000000000001"
                   ? ("agent" as const)
                   : ("human" as const),
               requestId: "test",
@@ -108,7 +111,9 @@ describe("Organization Agent ownership in existing Spaces", () => {
         await authorizeSpaceJoinAccess(readAccess("creator-human", "creator"))
       ).toEqual({ ok: false, code: "space.membership_required" });
       expect(
-        await authorizeProtectedSpaceAccess(readAccess("center"))
+        await authorizeProtectedSpaceAccess(
+          readAccess("agt_00000000-0000-4000-8000-000000000001")
+        )
       ).toMatchObject({ ok: true });
       expect(
         await authorizeProtectedSpaceAccess(
@@ -118,13 +123,13 @@ describe("Organization Agent ownership in existing Spaces", () => {
       expect(
         storage
           .prepare(
-            "SELECT owner_user_id_snapshot FROM space_members WHERE profile_id = 'center'"
+            "SELECT owner_user_id_snapshot FROM space_members WHERE profile_id = 'agt_00000000-0000-4000-8000-000000000001'"
           )
           .get()
       ).toEqual({ owner_user_id_snapshot: null });
     } finally {
-      storage.close();
-      identity.close();
+      await storage.close();
+      await identity.close();
     }
   });
 });

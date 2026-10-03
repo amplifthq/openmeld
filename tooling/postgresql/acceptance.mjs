@@ -55,7 +55,7 @@ export async function acceptRuntime(client) {
     );
     for (const statement of [
       "CREATE TABLE openmeld.forbidden_probe(id int)",
-      "SELECT * FROM openmeld_meta.migrations",
+      "SELECT * FROM drizzle.__drizzle_migrations",
       "TRUNCATE openmeld_probe.records",
     ]) {
       await client.query("BEGIN");

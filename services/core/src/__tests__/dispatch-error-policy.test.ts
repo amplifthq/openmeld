@@ -3,9 +3,9 @@ import {
   classifyDispatchError,
   DISPATCH_STORAGE_OVERLOADED_ERROR_CODE,
   DISPATCH_STORAGE_SCHEMA_MISSING_ERROR_CODE,
-  isD1SchemaError,
   isDispatchAttemptTimeoutErrorCode,
   isOfflineRetryErrorCode,
+  isPostgresSchemaError,
   isRuntimeTaskDedupedErrorCode,
   resolveDispatchErrorCode,
 } from "../dispatch/rules/dispatch-error-policy";
@@ -258,9 +258,9 @@ describe("dispatch error policy treats D1 schema faults as terminal", () => {
   });
 
   it("does not mistake ordinary dispatch errors for schema faults", () => {
-    expect(isD1SchemaError("daemon.profile.offline: route is offline")).toBe(
-      false
-    );
-    expect(isD1SchemaError("D1_ERROR: no such table: x")).toBe(true);
+    expect(
+      isPostgresSchemaError("daemon.profile.offline: route is offline")
+    ).toBe(false);
+    expect(isPostgresSchemaError("D1_ERROR: no such table: x")).toBe(true);
   });
 });

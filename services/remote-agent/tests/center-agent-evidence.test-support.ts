@@ -7,7 +7,7 @@ import {
   markRemoteAgentNativeDeliveryAck,
   persistRemoteAgentWorkerSubmitRequest,
   upsertRemoteAgentNativeDeliveryRecord,
-} from "../../core/src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+} from "../../core/src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import {
   applyDrizzleMigrationsForTables,
   createSqliteD1Harness,

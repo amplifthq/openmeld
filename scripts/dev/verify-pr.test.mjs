@@ -78,7 +78,7 @@ test("focused PR validation keeps checks for changed workspaces with adjacent te
 test("Core feedback selects the runner that actually contains each changed test", () => {
   const paths = [
     "services/core/tests-node/local-contract.test.ts",
-    "services/core/tests-split-gate/dispatch-queue-hot-path.split-routing.test.ts",
+    "services/core/tests-postgresql-owner/dispatch-queue.test.ts",
     "services/core/tests/remote-agent-routine-delivery.integration.test.ts",
   ];
   const commands = planPrChecks(paths, {
@@ -105,8 +105,8 @@ test("Core feedback selects the runner that actually contains each changed test"
         test: "tests-node/local-contract.test.ts",
       },
       {
-        config: "vitest.split-gate.config.ts",
-        test: "tests-split-gate/dispatch-queue-hot-path.split-routing.test.ts",
+        config: "vitest.postgresql-owner.config.ts",
+        test: "tests-postgresql-owner/dispatch-queue.test.ts",
       },
       {
         config: "vitest.config.ts",

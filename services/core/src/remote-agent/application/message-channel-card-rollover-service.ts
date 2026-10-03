@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   claimRemoteAgentMessageChannelProviderCardRolloverCreation,
   claimRemoteAgentMessageChannelProviderCardRolloverFinalize,
@@ -11,11 +12,11 @@ import {
   markRemoteAgentMessageChannelProviderCardRolloverSendFailed,
   markRemoteAgentMessageChannelProviderCardRolloverSendOutcomeUnknown,
   markRemoteAgentMessageChannelProviderCardRolloverSent,
-} from "../infrastructure/d1/message-channel-provider-progress-repo";
+} from "../infrastructure/postgresql/message-channel-provider-progress-repo";
 import {
   type RemoteAgentNativeDeliveryRecord,
   readRemoteAgentNativeDeliveryByIdempotencyKey,
-} from "../infrastructure/d1/native-delivery-ledger-repo";
+} from "../infrastructure/postgresql/native-delivery-ledger-repo";
 import {
   hashMessageChannelCardText,
   MESSAGE_CHANNEL_CARD_MAX_SEGMENTS,
@@ -31,7 +32,6 @@ import {
   projectMessageChannelCardRevision,
   revisePreviousMessageChannelCards,
 } from "./message-channel-card-revision";
-
 export type MessageChannelCardRolloverResult =
   | {
       delivery: RemoteAgentNativeDeliveryRecord;
@@ -43,7 +43,6 @@ export type MessageChannelCardRolloverResult =
       retryAfterMs?: number;
       status: "in_progress" | "outcome_unknown" | "retryable";
     };
-
 type RolloverEvidence = {
   revision: ReturnType<typeof projectMessageChannelCardRevision>;
   snapshot: string;
@@ -52,9 +51,8 @@ type RolloverEvidence = {
   pendingTextHash: string;
   sequence: number;
 };
-
 export async function advanceRemoteAgentMessageChannelCardRollover(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   finalPublicationClaimId?: string | null;
   nowMs: number;
@@ -105,7 +103,6 @@ export async function advanceRemoteAgentMessageChannelCardRollover(input: {
       provider: input.target.locator.provider,
       publicationKind: `rollover:${rolloverIndex}:finalize:${evidence.sequence}`,
     });
-
   if (delivery.providerProgressState === "sent") {
     const claim =
       await claimRemoteAgentMessageChannelProviderCardRolloverFinalize({
@@ -131,7 +128,6 @@ export async function advanceRemoteAgentMessageChannelCardRollover(input: {
     }
     delivery = claim.delivery;
   }
-
   if (delivery.providerProgressState === "rollover_finalize_claimed") {
     const finalized = await finalizeCurrentCard({
       db: input.db,
@@ -146,7 +142,6 @@ export async function advanceRemoteAgentMessageChannelCardRollover(input: {
     }
     delivery = finalized.delivery;
   }
-
   if (delivery.providerProgressState === "rollover_finalized") {
     const created = await createContinuedCard({
       db: input.db,
@@ -162,7 +157,6 @@ export async function advanceRemoteAgentMessageChannelCardRollover(input: {
     }
     delivery = created.delivery;
   }
-
   if (
     delivery.providerProgressState === "rollover_created" ||
     delivery.providerProgressState === "rollover_send_claimed"
@@ -180,12 +174,10 @@ export async function advanceRemoteAgentMessageChannelCardRollover(input: {
     }
     return { delivery: sent.delivery, status: "rolled_over" };
   }
-
   return classifyRolloverConflict(delivery, evidence);
 }
-
 async function finalizeCurrentCard(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   evidence: RolloverEvidence;
   nowMs: number;
@@ -275,9 +267,8 @@ async function finalizeCurrentCard(input: {
   );
   return retryable(delivery, publication.reasonCode, publication.retryAfterMs);
 }
-
 async function createContinuedCard(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   evidence: RolloverEvidence;
   nowMs: number;
@@ -351,10 +342,9 @@ async function createContinuedCard(input: {
     creation.status === "failed" ? creation.retryAfterMs : undefined
   );
 }
-
 async function sendContinuedCard(input: {
   evidence: RolloverEvidence;
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   nowMs: number;
   rolloverIndex: number;
@@ -456,7 +446,6 @@ async function sendContinuedCard(input: {
   );
   return retryable(delivery, publication.reasonCode, publication.retryAfterMs);
 }
-
 async function buildRolloverEvidence(input: {
   delivery: RemoteAgentNativeDeliveryRecord;
   sequence: number;
@@ -482,7 +471,6 @@ async function buildRolloverEvidence(input: {
     sequence,
   };
 }
-
 function validatePendingEvidence(
   delivery: RemoteAgentNativeDeliveryRecord,
   evidence: RolloverEvidence
@@ -500,7 +488,6 @@ function validatePendingEvidence(
   }
   return null;
 }
-
 function classifyRolloverConflict(
   delivery: RemoteAgentNativeDeliveryRecord | null,
   evidence: Pick<RolloverEvidence, "pendingSourceOffset"> | null
@@ -528,9 +515,8 @@ function classifyRolloverConflict(
     status: "in_progress",
   };
 }
-
 async function requireCurrentDelivery(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
 }): Promise<RemoteAgentNativeDeliveryRecord> {
   const delivery = await readRemoteAgentNativeDeliveryByIdempotencyKey({
@@ -542,7 +528,6 @@ async function requireCurrentDelivery(input: {
   }
   return delivery;
 }
-
 function assertRolloverInput(input: {
   delivery: RemoteAgentNativeDeliveryRecord;
   sequence: number;
@@ -566,7 +551,6 @@ function assertRolloverInput(input: {
     );
   }
 }
-
 function assertCurrentFinalPublicationClaim(input: {
   delivery: RemoteAgentNativeDeliveryRecord;
   finalPublicationClaimId?: string | null;
@@ -582,7 +566,6 @@ function assertCurrentFinalPublicationClaim(input: {
     );
   }
 }
-
 function retryable(
   delivery: RemoteAgentNativeDeliveryRecord,
   reasonCode: string,
@@ -595,14 +578,12 @@ function retryable(
     status: "retryable",
   };
 }
-
 function outcomeUnknown(
   delivery: RemoteAgentNativeDeliveryRecord,
   reasonCode: string
 ): MessageChannelCardRolloverResult {
   return { delivery, reasonCode, status: "outcome_unknown" };
 }
-
 async function requireTransition(
   transition: Promise<RemoteAgentNativeDeliveryRecord | null>,
   errorMessage: string
@@ -613,7 +594,6 @@ async function requireTransition(
   }
   return delivery;
 }
-
 function requireText(value: string | null, errorMessage: string): string {
   const normalized = value?.trim();
   if (!normalized) {

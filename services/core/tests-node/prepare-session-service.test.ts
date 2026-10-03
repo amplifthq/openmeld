@@ -24,12 +24,12 @@ import {
   readPrepareSessionRecord,
   readPrepareSessionRecordByTokenDigest,
   updatePrepareSessionSnapshotIfRevision,
-} from "../src/prepare-session/infrastructure/d1/prepare-session-repo";
-import { createSqliteD1Harness } from "./helpers/sqlite-d1-harness.test-support";
+} from "../src/prepare-session/infrastructure/postgresql/prepare-session-repo";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 const CREATED_AT = new Date("2026-05-08T00:00:00.000Z");
 
-type SqliteD1Harness = ReturnType<typeof createSqliteD1Harness>;
+type SqliteD1Harness = Awaited<ReturnType<typeof createPostgresHarness>>;
 
 const buildValidPrepareStepDiagnostics = (
   overrides: Record<string, unknown> = {}
@@ -122,7 +122,7 @@ function readPrepareDiagnosticsLogLines(logSpy: {
 
 describe("prepare session service", () => {
   it("rejects a second automatic session for the same Navigation Action", async () => {
-    const harness = createSqliteD1Harness();
+    const harness = await createPostgresHarness();
     const request = {
       selectedLocalAgentIds: [],
       sourceNavigationAction: {
@@ -156,19 +156,25 @@ describe("prepare session service", () => {
       );
 
       expect(
-        harness.queryFirst<{ count: number }>({
-          sql: "SELECT COUNT(*) AS count FROM openMeldDaemon_prepare_sessions",
-        })?.count
+        await (
+          await harness.queryFirst<{ count: number }>({
+            text: 'SELECT COUNT(*) AS count FROM "openmeld"."openMeldDaemon_prepare_sessions"',
+          })
+        )?.count
       ).toBe(1);
       expect(
-        harness.queryFirst<{ count: number }>({
-          sql: "SELECT COUNT(*) AS count FROM openMeldDaemon_prepare_session_tokens",
-        })?.count
+        await (
+          await harness.queryFirst<{ count: number }>({
+            text: 'SELECT COUNT(*) AS count FROM "openmeld"."openMeldDaemon_prepare_session_tokens"',
+          })
+        )?.count
       ).toBe(1);
       expect(
-        harness.queryFirst<{ count: number }>({
-          sql: "SELECT COUNT(*) AS count FROM openMeldDaemon_prepare_session_events",
-        })?.count
+        await (
+          await harness.queryFirst<{ count: number }>({
+            text: 'SELECT COUNT(*) AS count FROM "openmeld"."openMeldDaemon_prepare_session_events"',
+          })
+        )?.count
       ).toBe(1);
 
       await createPrepareSessionUseCase({
@@ -181,17 +187,19 @@ describe("prepare session service", () => {
         hashOpaqueToken: async () => "sha256:explicit-continue",
       });
       expect(
-        harness.queryFirst<{ count: number }>({
-          sql: "SELECT COUNT(*) AS count FROM openMeldDaemon_prepare_sessions",
-        })?.count
+        await (
+          await harness.queryFirst<{ count: number }>({
+            text: 'SELECT COUNT(*) AS count FROM "openmeld"."openMeldDaemon_prepare_sessions"',
+          })
+        )?.count
       ).toBe(2);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("creates, reads, resolves, and diagnoses the prepare session source of truth", async () => {
-    const harness = createSqliteD1Harness();
+    const harness = await createPostgresHarness();
     try {
       const result = await createPrepareSessionUseCase({
         db: harness.db,
@@ -241,12 +249,12 @@ describe("prepare session service", () => {
       expect(diagnostic.events).toHaveLength(1);
       expect(diagnostic.events[0]?.eventType).toBe("session.created");
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("uses revision checks as the only snapshot write gate", async () => {
-    const harness = createSqliteD1Harness();
+    const harness = await createPostgresHarness();
     try {
       const { snapshot } = await createPrepareSessionUseCase({
         db: harness.db,
@@ -290,12 +298,12 @@ describe("prepare session service", () => {
         })
       ).rejects.toBeInstanceOf(PrepareSessionRevisionConflictError);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("records duplicate terminal replacement and rejects stale terminal writes", async () => {
-    const harness = createSqliteD1Harness();
+    const harness = await createPostgresHarness();
     try {
       await createPrepareSessionUseCase({
         db: harness.db,
@@ -379,12 +387,12 @@ describe("prepare session service", () => {
         "terminal.step_started",
       ]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("requires a replacement Terminal to verify its own Service alignment", async () => {
-    const harness = createSqliteD1Harness();
+    const harness = await createPostgresHarness();
     try {
       await createPrepareSessionUseCase({
         db: harness.db,
@@ -437,12 +445,12 @@ describe("prepare session service", () => {
           ?.state
       ).toBe("pending");
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("rejects Terminal step results after Web changes the selected agents", async () => {
-    const harness = createSqliteD1Harness();
+    const harness = await createPostgresHarness();
     try {
       await createPrepareSessionUseCase({
         db: harness.db,
@@ -536,12 +544,12 @@ describe("prepare session service", () => {
         )?.state
       ).toBe("active");
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("saves Terminal agent selection with current connection evidence", async () => {
-    const harness = createSqliteD1Harness();
+    const harness = await createPostgresHarness();
     try {
       await createPrepareSessionUseCase({
         db: harness.db,
@@ -586,12 +594,12 @@ describe("prepare session service", () => {
         localAgentIds: ["codex"],
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("stores the Terminal-reported local agent catalog as prepare session truth", async () => {
-    const harness = createSqliteD1Harness();
+    const harness = await createPostgresHarness();
     try {
       await createPrepareSessionUseCase({
         db: harness.db,
@@ -662,12 +670,12 @@ describe("prepare session service", () => {
         connectionEpoch,
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("records the real computer identity reported by Terminal-owned setup steps", async () => {
-    const harness = createSqliteD1Harness();
+    const harness = await createPostgresHarness();
     try {
       await createPrepareSessionUseCase({
         db: harness.db,
@@ -722,12 +730,12 @@ describe("prepare session service", () => {
       );
       expect(refreshed.runtimeLane).toBe("dev-local");
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("lets Terminal-reported runtime identity replace stale Web device hints", async () => {
-    const harness = createSqliteD1Harness();
+    const harness = await createPostgresHarness();
     try {
       await createPrepareSessionUseCase({
         db: harness.db,
@@ -770,12 +778,12 @@ describe("prepare session service", () => {
       expect(refreshed.runtimeLane).toBe("dev-local");
       expect(refreshed.blockers).toEqual([]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("blocks runtime-owned verification when Terminal does not report runtime identity", async () => {
-    const harness = createSqliteD1Harness();
+    const harness = await createPostgresHarness();
     try {
       await createPrepareSessionUseCase({
         db: harness.db,
@@ -820,12 +828,12 @@ describe("prepare session service", () => {
         "pending"
       );
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("blocks out-of-order Terminal completion before prior setup steps complete", async () => {
-    const harness = createSqliteD1Harness();
+    const harness = await createPostgresHarness();
     try {
       await createPrepareSessionUseCase({
         db: harness.db,
@@ -875,12 +883,12 @@ describe("prepare session service", () => {
         "pending"
       );
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("re-verifies Service alignment before a replacement Terminal resumes setup", async () => {
-    const harness = createSqliteD1Harness();
+    const harness = await createPostgresHarness();
     try {
       await createPrepareSessionUseCase({
         db: harness.db,
@@ -989,12 +997,12 @@ describe("prepare session service", () => {
       ).toBe("pending");
       expect(reconnected.blockers).toEqual([]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("logs one [prepare.diagnostics] line for failed step writes with diagnostics and keeps them out of events", async () => {
-    const harness = createSqliteD1Harness();
+    const harness = await createPostgresHarness();
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {
       // Silence output; assertions read the spy calls.
     });
@@ -1041,12 +1049,12 @@ describe("prepare session service", () => {
       );
     } finally {
       logSpy.mockRestore();
-      harness.close();
+      await harness.close();
     }
   });
 
   it("logs invalid_json for non-JSON prepare diagnostics without raw text", async () => {
-    const harness = createSqliteD1Harness();
+    const harness = await createPostgresHarness();
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {
       // Silence output; assertions read the spy calls.
     });
@@ -1076,12 +1084,12 @@ describe("prepare session service", () => {
       expect(logged.diagnostics).toBeUndefined();
     } finally {
       logSpy.mockRestore();
-      harness.close();
+      await harness.close();
     }
   });
 
   it("logs schema_invalid for invalid prepare diagnostics without raw payload", async () => {
-    const harness = createSqliteD1Harness();
+    const harness = await createPostgresHarness();
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {
       // Silence output; assertions read the spy calls.
     });
@@ -1113,12 +1121,12 @@ describe("prepare session service", () => {
       expect(logged.diagnostics).toBeUndefined();
     } finally {
       logSpy.mockRestore();
-      harness.close();
+      await harness.close();
     }
   });
 
   it("redacts smuggled prepare diagnostics credentials before logging", async () => {
-    const harness = createSqliteD1Harness();
+    const harness = await createPostgresHarness();
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {
       // Silence output; assertions read the spy calls.
     });
@@ -1145,12 +1153,12 @@ describe("prepare session service", () => {
       ]);
     } finally {
       logSpy.mockRestore();
-      harness.close();
+      await harness.close();
     }
   });
 
   it("records owner-correlated failures even when published CLIs send no diagnostic bundle", async () => {
-    const harness = createSqliteD1Harness();
+    const harness = await createPostgresHarness();
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {
       // Silence output; assertions read the spy calls.
     });
@@ -1174,12 +1182,12 @@ describe("prepare session service", () => {
       });
     } finally {
       logSpy.mockRestore();
-      harness.close();
+      await harness.close();
     }
   });
 
   it("moves agent selection back to pending when Terminal disconnects before selection is saved", async () => {
-    const harness = createSqliteD1Harness();
+    const harness = await createPostgresHarness();
     try {
       await createPrepareSessionUseCase({
         db: harness.db,
@@ -1215,12 +1223,12 @@ describe("prepare session service", () => {
           ?.state
       ).toBe("pending");
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("keeps a Connect Terminal blocker visible after the wrong Terminal closes", async () => {
-    const harness = createSqliteD1Harness();
+    const harness = await createPostgresHarness();
     try {
       await createPrepareSessionUseCase({
         db: harness.db,
@@ -1274,12 +1282,12 @@ describe("prepare session service", () => {
         },
       ]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("requires verified Service alignment before completing with no local agents", async () => {
-    const harness = createSqliteD1Harness();
+    const harness = await createPostgresHarness();
     try {
       await createPrepareSessionUseCase({
         db: harness.db,
@@ -1384,12 +1392,12 @@ describe("prepare session service", () => {
         })
       );
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("keeps verified Service alignment when the selected local agents change", async () => {
-    const harness = createSqliteD1Harness();
+    const harness = await createPostgresHarness();
     try {
       const terminal = await createPrepareSessionWithConnectedTerminal(harness);
       const refreshed = await writeTerminalStepUseCase({
@@ -1426,12 +1434,12 @@ describe("prepare session service", () => {
           ?.state
       ).toBe("active");
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("does not downgrade a ready session when Terminal closes after setup completes", async () => {
-    const harness = createSqliteD1Harness();
+    const harness = await createPostgresHarness();
     try {
       await createPrepareSessionUseCase({
         db: harness.db,
@@ -1528,12 +1536,12 @@ describe("prepare session service", () => {
         disconnected.steps.find((step) => step.id === "connect_terminal")?.state
       ).toBe("complete");
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("records the setup bootstrap result on the completed prepare session", async () => {
-    const harness = createSqliteD1Harness();
+    const harness = await createPostgresHarness();
     try {
       const { snapshot } = await createPrepareSessionUseCase({
         db: harness.db,
@@ -1580,12 +1588,12 @@ describe("prepare session service", () => {
         "terminal.setup_bootstrap_recorded"
       );
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("rejects setup bootstrap results before the prepare session is complete", async () => {
-    const harness = createSqliteD1Harness();
+    const harness = await createPostgresHarness();
     try {
       await createPrepareSessionUseCase({
         db: harness.db,
@@ -1608,12 +1616,12 @@ describe("prepare session service", () => {
         })
       ).rejects.toBeInstanceOf(PrepareSessionSetupBootstrapNotReadyError);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("keeps token expiry and event append behavior explicit in the repo", async () => {
-    const harness = createSqliteD1Harness();
+    const harness = await createPostgresHarness();
     try {
       const { snapshot } = await createPrepareSessionUseCase({
         db: harness.db,
@@ -1655,7 +1663,7 @@ describe("prepare session service", () => {
       expect(appended).toBe(true);
       expect(diagnostic.events.at(-1)?.eventType).toBe("blocker.added");
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });

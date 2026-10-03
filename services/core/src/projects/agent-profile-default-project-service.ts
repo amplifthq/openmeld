@@ -1,14 +1,15 @@
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import {
   isHostedAgentRuntimeKind,
   updateAgentProfileDefaultProjectResponseSchema,
 } from "@openmeld/schemas";
 import type { UpdateAgentProfileDefaultProjectResponse } from "@openmeld/schemas/types";
-import { readPrimaryAgentProfileBindingRecord } from "../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
+import { readPrimaryAgentProfileBindingRecord } from "../agent-profile-binding/infrastructure/postgresql/agent-profile-binding-repo";
 import {
   acquireRuntimeTransportAgentProfileFutureWorkSettingsMutation,
   releaseRuntimeTransportAgentProfileExecutionTargetMutation,
 } from "../dispatch/infrastructure/runtime-transport/runtime-transport-client";
-import { type CoreBindings, localStateDb } from "../lib/bindings";
+import type { CoreBindings } from "../lib/bindings";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import { callRequiredAuthWorkerRpc } from "../rpc/required-auth-worker-rpc";
 import type { ProjectAuthority } from "./project-authority";
@@ -35,7 +36,7 @@ export async function updateAgentProfileDefaultProjectForAuthority(input: {
     }
   }
 
-  const db = localStateDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (!db) {
     throw createCoreRpcHttpError({
       code: "profile.default_project_unavailable",

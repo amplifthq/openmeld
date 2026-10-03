@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import { AGENT_ACTIVITY_EVENT_RETENTION_MS } from "@openmeld/schemas";
 import type { AgentActivityEventType } from "@openmeld/schemas/types";
 import { calculateAgentActivityDailyActiveDurations } from "./activity-active-duration";
@@ -6,7 +7,6 @@ const RETENTION_DELETE_LIMIT = 5000;
 const DAILY_AGGREGATION_BATCH_LIMIT = 5000;
 const DAILY_AGGREGATION_MAX_BATCHES = 10;
 const DAILY_SESSION_KEY_RETENTION_DAYS = 29;
-
 type DailyAggregationEventRow = {
   accepted_sequence: number;
   event_type: AgentActivityEventType;
@@ -16,10 +16,9 @@ type DailyAggregationEventRow = {
   project_id: string;
   provider_session_id: string;
 };
-
 export async function runAgentActivityDailyAggregation(input: {
   batchLimit?: number;
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs: number;
 }) {
   const currentUtcDayStartedAtMs =
@@ -32,20 +31,18 @@ export async function runAgentActivityDailyAggregation(input: {
     DAILY_AGGREGATION_BATCH_LIMIT
   );
   for (let batch = 0; batch < DAILY_AGGREGATION_MAX_BATCHES; batch += 1) {
-    const candidateRows = await input.db
-      .prepare(
-        `
+    const candidateRows = await input.db.query<DailyAggregationEventRow>({
+      text: `
           SELECT accepted_sequence, organization_id, project_id,
             member_user_id, provider_session_id, event_type, observed_at_ms
-          FROM agent_activity_events
-          WHERE daily_aggregated_at_ms IS NULL AND observed_at_ms < ?
-          ORDER BY accepted_sequence ASC
-          LIMIT ?
-        `
-      )
-      .bind(currentUtcDayStartedAtMs, batchLimit)
-      .all<DailyAggregationEventRow>();
-    const candidates = candidateRows.results ?? [];
+          FROM "openmeld"."agent_activity_events"
+          WHERE daily_aggregated_at_ms IS NULL AND observed_at_ms < $1
+          ORDER BY accepted_sequence ASC NULLS FIRST
+          LIMIT $2
+        `,
+      values: [currentUtcDayStartedAtMs, batchLimit],
+    });
+    const candidates = candidateRows.rows ?? [];
     if (candidates.length === 0) {
       break;
     }
@@ -68,145 +65,148 @@ export async function runAgentActivityDailyAggregation(input: {
         }))
       )
     );
-    const [keyResult, aggregateResult, eventResult] = await input.db.batch([
-      input.db
-        .prepare(
-          `
+    const [keyResult, aggregateResult, eventResult] =
+      await input.db.transaction(
+        async (client) =>
+          [
+            await client.query({
+              text: `
             WITH candidate AS (
               SELECT accepted_sequence, id, organization_id, project_id,
                 member_user_id, observed_at_ms, daily_session_key
-              FROM agent_activity_events
+              FROM "openmeld"."agent_activity_events"
               WHERE daily_aggregated_at_ms IS NULL
                 AND accepted_sequence IN (
-                  SELECT CAST(value AS INTEGER) FROM json_each(?)
+                  SELECT CAST(value AS BIGINT) FROM jsonb_array_elements_text($1::jsonb) AS json_elements(value)
                 )
             ), ranked AS (
               SELECT *, row_number() OVER (
-                PARTITION BY daily_session_key ORDER BY accepted_sequence ASC
+                PARTITION BY daily_session_key ORDER BY accepted_sequence ASC NULLS FIRST
               ) AS session_rank
               FROM candidate
             )
-            INSERT INTO agent_activity_daily_session_keys (
+            INSERT INTO "openmeld"."agent_activity_daily_session_keys" (
               daily_session_key, organization_id, project_id, member_user_id,
               utc_date, first_event_storage_id, created_at_ms, expires_at_ms
             )
             SELECT daily_session_key, organization_id, project_id,
               member_user_id,
-              strftime('%Y-%m-%d', observed_at_ms / 1000, 'unixepoch'),
-              id, ?,
-              (CAST(observed_at_ms / 86400000 AS INTEGER) + ?) * 86400000
+              to_char(to_timestamp(observed_at_ms / 1000) AT TIME ZONE 'UTC', 'YYYY-MM-DD'),
+              id, $2,
+              (CAST(observed_at_ms / 86400000 AS BIGINT) + $3) * 86400000
             FROM ranked
             WHERE session_rank = 1
-              AND (SELECT count(*) FROM candidate) = ?
+              AND (SELECT count(*) FROM candidate) = $4
             ON CONFLICT(daily_session_key) DO NOTHING
-          `
-        )
-        .bind(
-          acceptedSequencesJson,
-          input.nowMs,
-          DAILY_SESSION_KEY_RETENTION_DAYS,
-          expectedCandidateCount
-        ),
-      input.db
-        .prepare(
-          `
+          `,
+              values: [
+                acceptedSequencesJson,
+                input.nowMs,
+                DAILY_SESSION_KEY_RETENTION_DAYS,
+                expectedCandidateCount,
+              ],
+            }),
+            await client.query({
+              text: `
             WITH duration_values AS (
               SELECT
-                json_extract(value, '$.organizationId') AS organization_id,
-                json_extract(value, '$.projectId') AS project_id,
-                json_extract(value, '$.memberUserId') AS member_user_id,
-                json_extract(value, '$.utcDate') AS utc_date,
-                json_extract(value, '$.activeDurationMs') AS active_duration_ms
-              FROM json_each(?)
+                ((value)::jsonb #>> '{organizationId}') AS organization_id,
+                ((value)::jsonb #>> '{projectId}') AS project_id,
+                ((value)::jsonb #>> '{memberUserId}') AS member_user_id,
+                ((value)::jsonb #>> '{utcDate}') AS utc_date,
+                ((value)::jsonb #>> '{activeDurationMs}')::bigint AS active_duration_ms
+              FROM jsonb_array_elements_text($1::jsonb) AS json_elements(value)
             ), candidate AS (
               SELECT accepted_sequence, id, organization_id, project_id,
-                member_user_id, provider, observed_at_ms, daily_session_key
-              FROM agent_activity_events
+                member_user_id, provider, observed_at_ms, daily_session_key,
+                to_char(to_timestamp(observed_at_ms / 1000) AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS utc_date
+              FROM "openmeld"."agent_activity_events"
               WHERE daily_aggregated_at_ms IS NULL
                 AND accepted_sequence IN (
-                  SELECT CAST(value AS INTEGER) FROM json_each(?)
+                  SELECT CAST(value AS BIGINT) FROM jsonb_array_elements_text($2::jsonb) AS json_elements(value)
                 )
             )
-            INSERT INTO agent_activity_daily_aggregates (
+            INSERT INTO "openmeld"."agent_activity_daily_aggregates" (
               id, organization_id, project_id, member_user_id, utc_date,
               active_duration_ms, session_count, event_count, first_observed_at_ms,
               last_observed_at_ms, provider_counts_json, updated_at_ms
             )
             SELECT
               'activity_daily_' || organization_id || '_' || project_id || '_' ||
-                member_user_id || '_' || strftime('%Y-%m-%d', observed_at_ms / 1000, 'unixepoch'),
+                member_user_id || '_' || utc_date,
               organization_id, project_id, member_user_id,
-              strftime('%Y-%m-%d', observed_at_ms / 1000, 'unixepoch'),
+              utc_date,
               coalesce((
                 SELECT duration.active_duration_ms
                 FROM duration_values AS duration
                 WHERE duration.organization_id = candidate.organization_id
                   AND duration.project_id = candidate.project_id
                   AND duration.member_user_id = candidate.member_user_id
-                  AND duration.utc_date = strftime(
-                    '%Y-%m-%d', candidate.observed_at_ms / 1000, 'unixepoch'
-                  )
+                  AND duration.utc_date = candidate.utc_date
               ), 0),
               count(DISTINCT CASE WHEN EXISTS (
-                SELECT 1 FROM agent_activity_daily_session_keys AS session_keys
+                SELECT 1 FROM "openmeld"."agent_activity_daily_session_keys" AS session_keys
                 WHERE session_keys.daily_session_key = candidate.daily_session_key
                   AND session_keys.first_event_storage_id = candidate.id
               ) THEN daily_session_key END),
               count(*), min(observed_at_ms), max(observed_at_ms),
-              json_object(
-                'codex', sum(provider = 'codex'),
-                'claude-code', sum(provider = 'claude-code'),
-                'cursor', sum(provider = 'cursor'),
-                'opencode', sum(provider = 'opencode')
-              ), ?
+              jsonb_build_object(
+                'codex', count(*) FILTER (WHERE provider = 'codex'),
+                'claude-code', count(*) FILTER (WHERE provider = 'claude-code'),
+                'cursor', count(*) FILTER (WHERE provider = 'cursor'),
+                'opencode', count(*) FILTER (WHERE provider = 'opencode')
+              )::text, $3
             FROM candidate
-            WHERE (SELECT count(*) FROM candidate) = ?
-            GROUP BY organization_id, project_id, member_user_id,
-              strftime('%Y-%m-%d', observed_at_ms / 1000, 'unixepoch')
+            WHERE (SELECT count(*) FROM candidate) = $4
+            GROUP BY organization_id, project_id, member_user_id, utc_date
             ON CONFLICT(organization_id, project_id, member_user_id, utc_date)
             DO UPDATE SET
               active_duration_ms = agent_activity_daily_aggregates.active_duration_ms + excluded.active_duration_ms,
               session_count = agent_activity_daily_aggregates.session_count + excluded.session_count,
               event_count = agent_activity_daily_aggregates.event_count + excluded.event_count,
-              first_observed_at_ms = min(agent_activity_daily_aggregates.first_observed_at_ms, excluded.first_observed_at_ms),
-              last_observed_at_ms = max(agent_activity_daily_aggregates.last_observed_at_ms, excluded.last_observed_at_ms),
-              provider_counts_json = json_object(
-                'codex', coalesce(json_extract(agent_activity_daily_aggregates.provider_counts_json, '$.codex'), 0) + coalesce(json_extract(excluded.provider_counts_json, '$.codex'), 0),
-                'claude-code', coalesce(json_extract(agent_activity_daily_aggregates.provider_counts_json, '$.claude-code'), 0) + coalesce(json_extract(excluded.provider_counts_json, '$.claude-code'), 0),
-                'cursor', coalesce(json_extract(agent_activity_daily_aggregates.provider_counts_json, '$.cursor'), 0) + coalesce(json_extract(excluded.provider_counts_json, '$.cursor'), 0),
-                'opencode', coalesce(json_extract(agent_activity_daily_aggregates.provider_counts_json, '$.opencode'), 0) + coalesce(json_extract(excluded.provider_counts_json, '$.opencode'), 0)
-              ),
+              first_observed_at_ms = LEAST(agent_activity_daily_aggregates.first_observed_at_ms, excluded.first_observed_at_ms),
+              last_observed_at_ms = GREATEST(agent_activity_daily_aggregates.last_observed_at_ms, excluded.last_observed_at_ms),
+              provider_counts_json = jsonb_build_object(
+                'codex', coalesce(((agent_activity_daily_aggregates.provider_counts_json)::jsonb #>> '{codex}')::bigint, 0) + coalesce(((excluded.provider_counts_json)::jsonb #>> '{codex}')::bigint, 0),
+                'claude-code', coalesce(((agent_activity_daily_aggregates.provider_counts_json)::jsonb #>> '{claude-code}')::bigint, 0) + coalesce(((excluded.provider_counts_json)::jsonb #>> '{claude-code}')::bigint, 0),
+                'cursor', coalesce(((agent_activity_daily_aggregates.provider_counts_json)::jsonb #>> '{cursor}')::bigint, 0) + coalesce(((excluded.provider_counts_json)::jsonb #>> '{cursor}')::bigint, 0),
+                'opencode', coalesce(((agent_activity_daily_aggregates.provider_counts_json)::jsonb #>> '{opencode}')::bigint, 0) + coalesce(((excluded.provider_counts_json)::jsonb #>> '{opencode}')::bigint, 0)
+              )::text,
               updated_at_ms = excluded.updated_at_ms
-          `
-        )
-        .bind(
-          activeDurationsJson,
-          acceptedSequencesJson,
-          input.nowMs,
-          expectedCandidateCount
-        ),
-      input.db
-        .prepare(
-          `
+          `,
+              values: [
+                activeDurationsJson,
+                acceptedSequencesJson,
+                input.nowMs,
+                expectedCandidateCount,
+              ],
+            }),
+            await client.query({
+              text: `
             WITH candidate AS (
               SELECT accepted_sequence
-              FROM agent_activity_events
+              FROM "openmeld"."agent_activity_events"
               WHERE daily_aggregated_at_ms IS NULL
                 AND accepted_sequence IN (
-                  SELECT CAST(value AS INTEGER) FROM json_each(?)
+                  SELECT CAST(value AS BIGINT) FROM jsonb_array_elements_text($1::jsonb) AS json_elements(value)
                 )
             )
-            UPDATE agent_activity_events
-            SET daily_aggregated_at_ms = ?
+            UPDATE "openmeld"."agent_activity_events"
+            SET daily_aggregated_at_ms = $2
             WHERE accepted_sequence IN (SELECT accepted_sequence FROM candidate)
-              AND (SELECT count(*) FROM candidate) = ?
-          `
-        )
-        .bind(acceptedSequencesJson, input.nowMs, expectedCandidateCount),
-    ]);
-    sessionKeys += Number(keyResult?.meta.changes ?? 0);
-    aggregates += Number(aggregateResult?.meta.changes ?? 0);
-    const batchEvents = Number(eventResult?.meta.changes ?? 0);
+              AND (SELECT count(*) FROM candidate) = $3
+          `,
+              values: [
+                acceptedSequencesJson,
+                input.nowMs,
+                expectedCandidateCount,
+              ],
+            }),
+          ] as const
+      );
+    sessionKeys += Number(keyResult.rowCount ?? 0);
+    aggregates += Number(aggregateResult.rowCount ?? 0);
+    const batchEvents = Number(eventResult.rowCount ?? 0);
     if (batchEvents === 0) {
       // Another aggregation may have consumed part of the pre-read batch.
       // The transaction writes nothing unless every candidate is still
@@ -225,73 +225,69 @@ export async function runAgentActivityDailyAggregation(input: {
   }
   return { aggregates, events, sessionKeys };
 }
-
 export async function runAgentActivityRetention(input: {
   batchLimit?: number;
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs: number;
 }) {
   const cutoff = input.nowMs - AGENT_ACTIVITY_EVENT_RETENTION_MS;
   const batchLimit = resolveBatchLimit(input.batchLimit);
   const [events, sessions, links, digests, dailySessionKeys] =
-    await input.db.batch([
-      input.db
-        .prepare(
-          `
+    await input.db.transaction(
+      async (client) =>
+        [
+          await client.query({
+            text: `
           WITH candidate AS (
-            SELECT id FROM agent_activity_events
-            WHERE observed_at_ms < ? AND daily_aggregated_at_ms IS NOT NULL
-            ORDER BY accepted_sequence ASC
-            LIMIT ?
+            SELECT id FROM "openmeld"."agent_activity_events"
+            WHERE observed_at_ms < $1 AND daily_aggregated_at_ms IS NOT NULL
+            ORDER BY accepted_sequence ASC NULLS FIRST
+            LIMIT $2
           )
-          DELETE FROM agent_activity_events
+          DELETE FROM "openmeld"."agent_activity_events"
           WHERE id IN (SELECT id FROM candidate)
-        `
-        )
-        .bind(cutoff, batchLimit),
-      input.db
-        .prepare(
-          `DELETE FROM agent_activity_sessions WHERE id IN (
-          SELECT id FROM agent_activity_sessions
-          WHERE last_observed_at_ms < ? ORDER BY expires_at_ms ASC LIMIT ?
-        )`
-        )
-        .bind(cutoff, RETENTION_DELETE_LIMIT),
-      input.db
-        .prepare(
-          `DELETE FROM agent_activity_execution_links WHERE id IN (
-          SELECT id FROM agent_activity_execution_links
-          WHERE created_at_ms < ? ORDER BY created_at_ms ASC LIMIT ?
-        )`
-        )
-        .bind(cutoff, RETENTION_DELETE_LIMIT),
-      input.db
-        .prepare(
-          `DELETE FROM agent_activity_digests WHERE id IN (
-          SELECT id FROM agent_activity_digests
-          WHERE expires_at_ms < ? ORDER BY expires_at_ms ASC LIMIT ?
-        )`
-        )
-        .bind(input.nowMs, RETENTION_DELETE_LIMIT),
-      input.db
-        .prepare(
-          `DELETE FROM agent_activity_daily_session_keys WHERE daily_session_key IN (
-          SELECT daily_session_key FROM agent_activity_daily_session_keys
-          WHERE expires_at_ms < ? ORDER BY expires_at_ms ASC LIMIT ?
-        )`
-        )
-        .bind(input.nowMs, RETENTION_DELETE_LIMIT),
-    ]);
+        `,
+            values: [cutoff, batchLimit],
+          }),
+          await client.query({
+            text: `DELETE FROM "openmeld"."agent_activity_sessions" WHERE id IN (
+          SELECT id FROM "openmeld"."agent_activity_sessions"
+          WHERE last_observed_at_ms < $1 ORDER BY expires_at_ms ASC NULLS FIRST LIMIT $2
+        )`,
+            values: [cutoff, RETENTION_DELETE_LIMIT],
+          }),
+          await client.query({
+            text: `DELETE FROM "openmeld"."agent_activity_execution_links" WHERE id IN (
+          SELECT id FROM "openmeld"."agent_activity_execution_links"
+          WHERE created_at_ms < $1 ORDER BY created_at_ms ASC NULLS FIRST LIMIT $2
+        )`,
+            values: [cutoff, RETENTION_DELETE_LIMIT],
+          }),
+          await client.query({
+            text: `DELETE FROM "openmeld"."agent_activity_digests" WHERE id IN (
+          SELECT id FROM "openmeld"."agent_activity_digests"
+          WHERE expires_at_ms < $1 ORDER BY expires_at_ms ASC NULLS FIRST LIMIT $2
+        )`,
+            values: [input.nowMs, RETENTION_DELETE_LIMIT],
+          }),
+          await client.query({
+            text: `DELETE FROM "openmeld"."agent_activity_daily_session_keys" WHERE daily_session_key IN (
+          SELECT daily_session_key FROM "openmeld"."agent_activity_daily_session_keys"
+          WHERE expires_at_ms < $1 ORDER BY expires_at_ms ASC NULLS FIRST LIMIT $2
+        )`,
+            values: [input.nowMs, RETENTION_DELETE_LIMIT],
+          }),
+        ] as const
+    );
   return {
     aggregates: 0,
-    dailySessionKeys: Number(dailySessionKeys?.meta.changes ?? 0),
-    digests: Number(digests?.meta.changes ?? 0),
-    events: Number(events?.meta.changes ?? 0),
-    executionLinks: Number(links?.meta.changes ?? 0),
-    sessions: Number(sessions?.meta.changes ?? 0),
+    dailySessionKeys: Number(dailySessionKeys.rowCount ?? 0),
+    digests: Number(digests.rowCount ?? 0),
+    events: Number(events.rowCount ?? 0),
+    executionLinks: Number(links.rowCount ?? 0),
+    sessions: Number(sessions.rowCount ?? 0),
   };
 }
-
 function resolveBatchLimit(value: number | undefined) {
   if (value === undefined) {
     return RETENTION_DELETE_LIMIT;

@@ -14,12 +14,10 @@ import {
 } from "../infrastructure/sql/space-meta-repo";
 import { normalizeOwnerUserId } from "../rules/access/space-creator-identity";
 import type { PasswordAuthorizationResult } from "./types";
-
 export type SpaceAccessViewerIdentity = {
   viewerOwnerUserId: string | null;
   viewerProfileId: string | null;
 };
-
 export function assertSpaceAccessMatchesSpace(input: {
   spaceAccess?: SpaceAccessContext;
   spaceId: string;
@@ -35,7 +33,6 @@ export function assertSpaceAccessMatchesSpace(input: {
     });
   }
 }
-
 export async function authorizeSpaceAccessProof(input: {
   authorizeSpacePasswordAccess: (input: {
     context?: OpenMeldRequestContext;
@@ -50,15 +47,16 @@ export async function authorizeSpaceAccessProof(input: {
     spacePassword: getSpaceAccessPassword(input.spaceAccess),
   });
 }
-
 export type ProtectedSpaceAccessGrantReason =
   | "unprotected_space"
   | "valid_password"
   | "active_member_profile"
   | "same_owner_active_member";
-
 export type ProtectedSpaceAccessAuthorizationResult =
-  | { ok: true; reason: ProtectedSpaceAccessGrantReason }
+  | {
+      ok: true;
+      reason: ProtectedSpaceAccessGrantReason;
+    }
   | {
       ok: false;
       code:
@@ -66,7 +64,6 @@ export type ProtectedSpaceAccessAuthorizationResult =
         | "space.password_required"
         | "space.password_invalid";
     };
-
 export async function authorizeProtectedSpaceAccess(input: {
   context?: OpenMeldRequestContext;
   hasActiveMemberForOwnerUserId: (ownerUserId: string) => boolean;
@@ -96,10 +93,8 @@ export async function authorizeProtectedSpaceAccess(input: {
   if (!input.meta.passwordProof) {
     return { ok: false, code: "space.password_required" };
   }
-
   return await authorizeSpacePasswordGate(input);
 }
-
 export async function authorizeSpaceJoinAccess(input: {
   context?: OpenMeldRequestContext;
   hasActiveMemberForOwnerUserId: (ownerUserId: string) => boolean;
@@ -141,10 +136,8 @@ export async function authorizeSpaceJoinAccess(input: {
   if (!input.meta.passwordProof) {
     return { ok: false, code: "space.password_required" };
   }
-
   return await authorizeSpacePasswordGate(input);
 }
-
 function authorizeMembersOnlySpaceAccess(input: {
   context?: OpenMeldRequestContext;
   hasActiveMemberForOwnerUserId: (ownerUserId: string) => boolean;
@@ -161,7 +154,6 @@ function authorizeMembersOnlySpaceAccess(input: {
     ? { ok: true, reason: authenticatedGrant }
     : { ok: false, code: "space.membership_required" };
 }
-
 async function authorizeSpacePasswordGate(input: {
   context?: OpenMeldRequestContext;
   hasActiveMemberForOwnerUserId: (ownerUserId: string) => boolean;
@@ -177,7 +169,6 @@ async function authorizeSpacePasswordGate(input: {
   if (!passwordProof) {
     return { ok: false, code: "space.password_required" };
   }
-
   const authenticatedGrant = resolveAuthenticatedProtectedSpaceAccessGrant({
     context: input.context,
     hasActiveMemberForOwnerUserId: input.hasActiveMemberForOwnerUserId,
@@ -187,11 +178,9 @@ async function authorizeSpacePasswordGate(input: {
   if (authenticatedGrant) {
     return { ok: true, reason: authenticatedGrant };
   }
-
   if (input.spacePassword === undefined) {
     return { ok: false, code: "space.password_required" };
   }
-
   const valid = await input.verifySpacePasswordProof(
     input.spacePassword,
     passwordProof
@@ -199,10 +188,8 @@ async function authorizeSpacePasswordGate(input: {
   if (!valid) {
     return { ok: false, code: "space.password_invalid" };
   }
-
   return { ok: true, reason: "valid_password" };
 }
-
 function resolveAuthenticatedProtectedSpaceAccessGrant(input: {
   context?: OpenMeldRequestContext;
   hasActiveMemberForOwnerUserId: (ownerUserId: string) => boolean;
@@ -216,27 +203,22 @@ function resolveAuthenticatedProtectedSpaceAccessGrant(input: {
   if (!actorContext) {
     return null;
   }
-
   const viewerProfileId = normalizeProfileId(actorContext.openMeldProfileId);
   const viewerOwnerUserId = normalizeOwnerUserId(actorContext.ownerUserId);
-
   if (viewerProfileId) {
     const member = input.readMemberByProfileId(viewerProfileId);
     if (member?.status === "active") {
       return "active_member_profile";
     }
   }
-
   if (
     viewerOwnerUserId &&
     input.hasActiveMemberForOwnerUserId(viewerOwnerUserId)
   ) {
     return "same_owner_active_member";
   }
-
   return null;
 }
-
 function normalizeProfileId(value: unknown): string | null {
   if (typeof value !== "string") {
     return null;
@@ -244,7 +226,6 @@ function normalizeProfileId(value: unknown): string | null {
   const normalized = value.trim();
   return normalized.length > 0 ? normalized : null;
 }
-
 export function requireAuthenticatedSpaceActor(
   spaceAccess: SpaceAccessContext
 ): OpenMeldRequestContext {
@@ -258,7 +239,6 @@ export function requireAuthenticatedSpaceActor(
   }
   return requestContext;
 }
-
 export function requireWritableSpaceActor(
   spaceAccess: SpaceAccessContext
 ): OpenMeldRequestContext {
@@ -271,7 +251,6 @@ export function requireWritableSpaceActor(
   }
   return requireAuthenticatedSpaceActor(spaceAccess);
 }
-
 export function resolveViewerIdentity(
   spaceAccess: SpaceAccessContext
 ): SpaceAccessViewerIdentity {

@@ -1,9 +1,16 @@
-import { sql } from "drizzle-orm";
-import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { text } from "drizzle-orm/pg-core";
+import {
+  applicationTable,
+  currentTimestampMilliseconds,
+} from "../postgresql/schema.ts";
+import { epochMilliseconds } from "../postgresql/schema-types.ts";
 
-export const openMeldWaitlistEmails = sqliteTable("openmeld_waitlist_emails", {
-  email: text("email").primaryKey(),
-  createdAt: integer("created_at", { mode: "timestamp_ms" })
-    .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
-    .notNull(),
-});
+export const openMeldWaitlistEmails = applicationTable(
+  "openmeld_waitlist_emails",
+  {
+    email: text("email").primaryKey(),
+    createdAt: epochMilliseconds("created_at")
+      .default(currentTimestampMilliseconds)
+      .notNull(),
+  }
+);

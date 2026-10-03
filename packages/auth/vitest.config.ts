@@ -4,14 +4,6 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   resolve: {
     alias: {
-      "@openmeld/db/auth": path.resolve(
-        import.meta.dirname,
-        "../db/src/auth/index.ts"
-      ),
-      "@openmeld/db/query": path.resolve(
-        import.meta.dirname,
-        "../db/src/query.ts"
-      ),
       "@openmeld/protocol": path.resolve(
         import.meta.dirname,
         "../protocol/src/index.ts"
@@ -20,6 +12,7 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    fileParallelism: false,
     include: ["tests/**/*.test.ts"],
   },
 });

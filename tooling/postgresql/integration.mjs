@@ -4,6 +4,12 @@ import { spawnSync } from "node:child_process";
 import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { createAuthDatabase } from "../../packages/db/src/auth/index.ts";
+import {
+  getPostgresDatabase,
+  PostgresDatabase,
+  withPostgresRequest,
+} from "../../packages/db/src/postgresql.ts";
 import { acceptRuntime } from "./acceptance.mjs";
 import {
   connect,
@@ -12,7 +18,12 @@ import {
   migrate,
   migrationDirectory,
   migrationLock,
+  readMigrations,
 } from "./database.mjs";
+
+const NESTED_TRANSACTION_PATTERN = /Nested PostgreSQL/u;
+const ROLLBACK_ERROR_PATTERN = /expected rollback/u;
+const TRANSACTION_CLIENT_ERROR_PATTERN = /explicit transaction client/u;
 
 if (process.env.OPENMELD_PG_ISOLATED !== "1") {
   throw new Error("Run only through pg:local check");
@@ -50,7 +61,8 @@ try {
     ).rows[0].server_version_num.startsWith("18"),
     true
   );
-  assert.equal((await migrate(owner)).applied.length, 1);
+  const baselineCount = (await readMigrations()).length;
+  assert.equal((await migrate(owner)).applied.length, baselineCount);
   assert.equal((await migrate(owner)).applied.length, 0);
   pass("empty database baseline and repeat migration");
   const contender = await connect(ownerUrl, true);
@@ -67,8 +79,22 @@ try {
   );
   const copied = path.join(temp, "migrations");
   await cp(migrationDirectory, copied, { recursive: true });
-  await writeFile(
-    path.join(copied, "0002_upgrade.sql"),
+  const journalPath = path.join(copied, "meta/_journal.json");
+  const journal = JSON.parse(await readFile(journalPath, "utf8"));
+  async function appendMigration(tag, sql) {
+    const last = journal.entries.at(-1);
+    journal.entries.push({
+      idx: journal.entries.length,
+      version: "7",
+      when: last.when + 1,
+      tag,
+      breakpoints: true,
+    });
+    await writeFile(journalPath, JSON.stringify(journal));
+    await writeFile(path.join(copied, `${tag}.sql`), sql);
+  }
+  await appendMigration(
+    "0002_upgrade",
     "CREATE TABLE openmeld.upgrade_fixture(id text PRIMARY KEY, value jsonb NOT NULL); INSERT INTO openmeld.upgrade_fixture VALUES ('preserved', '{\"count\":1}');"
   );
   assert.deepEqual((await migrate(owner, copied)).applied, [
@@ -92,11 +118,14 @@ try {
   );
   await assert.rejects(migrate(owner, copied), /Applied migration drift/u);
   await writeFile(path.join(copied, "0001_foundation.sql"), original);
-  await writeFile(
-    path.join(copied, "0003_failure.sql"),
+  await appendMigration(
+    "0003_failure",
     "CREATE TABLE openmeld.must_rollback(id int); SELECT 1/0;"
   );
-  await assert.rejects(migrate(owner, copied), { code: "22012" });
+  await assert.rejects(migrate(owner, copied), (error) => {
+    assert.equal(error.cause?.code, "22012");
+    return true;
+  });
   assert.equal(
     (await owner.query("SELECT to_regclass('openmeld.must_rollback') AS name"))
       .rows[0].name,
@@ -105,15 +134,131 @@ try {
   assert.equal(
     (
       await owner.query(
-        "SELECT count(*)::int AS count FROM openmeld_meta.migrations"
+        "SELECT count(*)::int AS count FROM drizzle.__drizzle_migrations"
       )
     ).rows[0].count,
-    2
+    baselineCount + 1
   );
   pass(
     "upgrade preserves rows; checksum drift rejected; failed DDL rolls back with ledger"
   );
   await grantRuntime(owner, "openmeld_pg_runtime");
+  await owner.query(
+    "CREATE TABLE openmeld.runtime_contract_fixture(id text PRIMARY KEY)"
+  );
+  const binding = {
+    connectionString: process.env.POSTGRESQL_OPENMELD_RUNTIME_URL,
+  };
+  const businessDb = new PostgresDatabase(binding);
+  const deferred = () => {
+    let resolve;
+    const promise = new Promise((done) => {
+      resolve = done;
+    });
+    return { promise, resolve };
+  };
+  await withPostgresRequest(binding, async () => {
+    const requestDatabase = getPostgresDatabase({
+      OPENMELD_POSTGRESQL: binding,
+    });
+    assert.equal(
+      getPostgresDatabase({ OPENMELD_POSTGRESQL: binding }),
+      requestDatabase
+    );
+    await withPostgresRequest(binding, () => {
+      assert.equal(
+        getPostgresDatabase({ OPENMELD_POSTGRESQL: binding }),
+        requestDatabase
+      );
+    });
+    await withPostgresRequest(
+      binding,
+      () => {
+        assert.notEqual(
+          getPostgresDatabase({ OPENMELD_POSTGRESQL: binding }),
+          requestDatabase
+        );
+      },
+      { reuseConnection: false }
+    );
+    assert.equal(
+      getPostgresDatabase({ OPENMELD_POSTGRESQL: binding }),
+      requestDatabase
+    );
+    const startedB = deferred();
+    const releaseB = deferred();
+    const a = businessDb.transaction(async (client) => {
+      await client.query(
+        "INSERT INTO openmeld.runtime_contract_fixture VALUES ('committed')"
+      );
+      await startedB.promise;
+    });
+    const b = businessDb.transaction(async (client) => {
+      await client.query(
+        "INSERT INTO openmeld.runtime_contract_fixture VALUES ('rolled-back')"
+      );
+      startedB.resolve();
+      await releaseB.promise;
+      throw new Error("expected rollback");
+    });
+    const rejectedB = assert.rejects(b, ROLLBACK_ERROR_PATTERN);
+    await a;
+    assert.deepEqual(
+      (
+        await businessDb.query(
+          "SELECT id FROM openmeld.runtime_contract_fixture ORDER BY id"
+        )
+      ).rows,
+      [{ id: "committed" }]
+    );
+    releaseB.resolve();
+    await rejectedB;
+    await businessDb.transaction(() => {
+      assert.throws(
+        () => businessDb.transaction(() => Promise.resolve()),
+        NESTED_TRANSACTION_PATTERN
+      );
+      assert.throws(
+        () => businessDb.query("SELECT 1"),
+        TRANSACTION_CLIENT_ERROR_PATTERN
+      );
+      return Promise.resolve();
+    });
+    const authDb = createAuthDatabase();
+    const now = new Date();
+    await authDb
+      .insert((await import("../../packages/db/src/auth/auth.schema.ts")).users)
+      .values({
+        id: "pg-runtime-auth-fixture",
+        name: "PostgreSQL fixture",
+        email: "pg-fixture@example.invalid",
+        createdAt: now,
+        updatedAt: now,
+      });
+    const user = await authDb.query.users.findFirst();
+    assert.equal(user.emailVerified, false);
+    assert.equal(user.createdAt.getTime(), now.getTime());
+  });
+  assert.deepEqual(
+    (
+      await businessDb.query(
+        "SELECT id FROM openmeld.runtime_contract_fixture ORDER BY id"
+      )
+    ).rows,
+    [{ id: "committed" }]
+  );
+  const releaseBackground = deferred();
+  let background;
+  await withPostgresRequest(binding, () => {
+    background = releaseBackground.promise.then(() =>
+      businessDb.query("SELECT 1 AS value")
+    );
+  });
+  releaseBackground.resolve();
+  assert.equal((await background).rows[0].value, 1);
+  pass(
+    "independent concurrent transactions and sibling reads stay isolated; nested misuse rejected; background queries own their lifetime; native auth epoch/boolean schema round-trips"
+  );
   await owner.query(
     "CREATE SCHEMA openmeld_probe; REVOKE ALL ON SCHEMA openmeld_probe FROM PUBLIC; CREATE TABLE openmeld_probe.records(id uuid PRIMARY KEY, payload jsonb NOT NULL); GRANT USAGE ON SCHEMA openmeld_probe TO openmeld_pg_runtime; GRANT SELECT, INSERT, UPDATE, DELETE ON openmeld_probe.records TO openmeld_pg_runtime"
   );
@@ -165,12 +310,12 @@ try {
   assert.deepEqual(
     (
       await restore.query(
-        "SELECT name, checksum FROM openmeld_meta.migrations ORDER BY name"
+        "SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY created_at"
       )
     ).rows,
     (
       await owner.query(
-        "SELECT name, checksum FROM openmeld_meta.migrations ORDER BY name"
+        "SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY created_at"
       )
     ).rows
   );

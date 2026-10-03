@@ -1,5 +1,9 @@
 import { memberRoleHasOrganizationPermission } from "@openmeld/auth/organization-policy";
 import {
+  getPostgresDatabase,
+  type PostgresDatabase,
+} from "@openmeld/db/postgresql";
+import {
   type OrganizationJoinRequest,
   type OrganizationJoinRequestResponse,
   type OrganizationJoinRequestRpcInput,
@@ -10,8 +14,8 @@ import {
   ensureInboxItem,
   resolveInboxItemsBySource,
 } from "../inbox/application/inbox-item-service";
-import { readInboxItemBySource } from "../inbox/infrastructure/d1/inbox-item-repo";
-import { type CoreBindings, identityDb } from "../lib/bindings";
+import { readInboxItemBySource } from "../inbox/infrastructure/postgresql/inbox-item-repo";
+import type { CoreBindings } from "../lib/bindings";
 import { reconcileInvitationInbox } from "./invitation-inbox-projection";
 import {
   readOrganizationAccountIdentityProjection,
@@ -24,12 +28,11 @@ import {
   InvitationError,
 } from "./space-invitations";
 
-const SELECT = `SELECT id, organization_id AS organizationId, space_id AS spaceId,
-  requested_by_user_id AS requestedByUserId, email, status,
-  reviewed_by_user_id AS reviewedByUserId, created_at AS createdAt,
-  reviewed_at AS reviewedAt, invitation_sent_at AS invitationSentAt,
-  applicant_user_id AS applicantUserId, joined_at AS joinedAt FROM organization_join_requests`;
-
+const SELECT = `SELECT id, organization_id AS "organizationId", space_id AS "spaceId",
+  requested_by_user_id AS "requestedByUserId", email, status,
+  reviewed_by_user_id AS "reviewedByUserId", created_at AS "createdAt",
+  reviewed_at AS "reviewedAt", invitation_sent_at AS "invitationSentAt",
+  applicant_user_id AS "applicantUserId", joined_at AS "joinedAt" FROM "openmeld"."organization_join_requests"`;
 class JoinRequestError extends Error {
   readonly code: string;
   constructor(code: string, message: string) {
@@ -40,7 +43,6 @@ class JoinRequestError extends Error {
 function deny(message: string): never {
   throw new JoinRequestError("organization.join_request.forbidden", message);
 }
-
 export async function organizationJoinRequest(
   env: CoreBindings,
   raw: OrganizationJoinRequestRpcInput
@@ -65,12 +67,11 @@ export async function organizationJoinRequest(
     throw error;
   }
 }
-
 async function execute(
   env: CoreBindings,
   input: OrganizationJoinRequestRpcInput
 ): Promise<OrganizationJoinRequestResponse> {
-  const db = identityDb(env);
+  const db = getPostgresDatabase(env);
   if (!db) {
     throw new Error("Join request database is unavailable");
   }
@@ -103,14 +104,15 @@ async function execute(
   }
   return await manageRequest(env, db, input, request);
 }
-
 async function createOrListRequests(
   env: CoreBindings,
-  db: D1Database,
+  db: PostgresDatabase,
   input: OrganizationJoinRequestRpcInput,
   request: Extract<
     OrganizationJoinRequestRpcInput["request"],
-    { action: "create" | "list" | "summary" | "create_from_link" }
+    {
+      action: "create" | "list" | "summary" | "create_from_link";
+    }
   >
 ): Promise<OrganizationJoinRequestResponse> {
   const sponsorUserId =
@@ -125,35 +127,32 @@ async function createOrListRequests(
   if (request.action === "summary") {
     const count = canReview(member.role)
       ? await db
-          .prepare(
-            "SELECT count(*) AS total FROM organization_join_requests WHERE organization_id = ? AND (status = 'pending' OR (status = 'approved' AND invitation_sent_at IS NULL AND joined_at IS NULL))"
-          )
-          .bind(request.organizationId)
-          .first<{ total: number }>()
+          .query<{
+            total: number;
+          }>({
+            text: "SELECT count(*) AS total FROM \"openmeld\".\"organization_join_requests\" WHERE organization_id = $1 AND (status = 'pending' OR (status = 'approved' AND invitation_sent_at IS NULL AND joined_at IS NULL))",
+            values: [request.organizationId],
+          })
+          .then((result) => result.rows[0] ?? null)
       : null;
     return { ok: true, requests: [], actionRequiredCount: count?.total ?? 0 };
   }
   if (request.action === "list") {
     const reviewer = canReview(member.role);
-    const rows = await db
-      .prepare(
-        `${SELECT} WHERE organization_id = ? ${reviewer ? "" : "AND requested_by_user_id = ?"} ${request.before ? "AND ((status = 'pending') < ? OR ((status = 'pending') = ? AND (created_at < ? OR (created_at = ? AND id < ?))))" : ""} ORDER BY (status = 'pending') DESC, created_at DESC, id DESC LIMIT 100`
-      )
-      .bind(
+    const rows = await db.query<OrganizationJoinRequest>({
+      text: `${SELECT} WHERE organization_id = $1
+                  AND ($2::text IS NULL OR requested_by_user_id = $2)
+                  AND ($3::boolean IS NULL OR ((status = 'pending'), created_at, id) < ($3::boolean, $4::bigint, $5::text))
+                  ORDER BY (status = 'pending') DESC NULLS LAST, created_at DESC NULLS LAST, id DESC NULLS LAST LIMIT 100`,
+      values: [
         request.organizationId,
-        ...(reviewer ? [] : [input.userId]),
-        ...(request.before
-          ? [
-              Number(request.before.pending),
-              Number(request.before.pending),
-              request.before.createdAt,
-              request.before.createdAt,
-              request.before.id,
-            ]
-          : [])
-      )
-      .all<OrganizationJoinRequest>();
-    const members = rows.results.length
+        reviewer ? null : input.userId,
+        request.before?.pending ?? null,
+        request.before?.createdAt ?? null,
+        request.before?.id ?? null,
+      ],
+    });
+    const members = rows.rows.length
       ? await resolveOrganizationDirectoryMembers({
           authWorker: env.OPENMELD_AUTH_WORKER,
           organizationId: request.organizationId,
@@ -162,23 +161,24 @@ async function createOrListRequests(
     const names = new Map(
       members.map((entry) => [entry.userId, entry.user.name])
     );
-    const spaceIds = rows.results.flatMap((row) =>
+    const spaceIds = rows.rows.flatMap((row) =>
       row.spaceId ? [row.spaceId] : []
     );
     const spaces = spaceIds.length
-      ? await db
-          .prepare(
-            "SELECT space_id AS id, space_name AS name FROM space_index_spaces WHERE organization_id = ? AND space_id IN (SELECT value FROM json_each(?))"
-          )
-          .bind(request.organizationId, JSON.stringify(spaceIds))
-          .all<{ id: string; name: string }>()
+      ? await db.query<{
+          id: string;
+          name: string;
+        }>({
+          text: 'SELECT space_id AS id, space_name AS name FROM "openmeld"."space_index_spaces" WHERE organization_id = $1 AND space_id IN (SELECT value FROM jsonb_array_elements_text($2::jsonb) AS json_elements(value))',
+          values: [request.organizationId, JSON.stringify(spaceIds)],
+        })
       : null;
     const spaceNames = new Map(
-      spaces?.results.map((space) => [space.id, space.name])
+      spaces?.rows.map((space) => [space.id, space.name]) ?? []
     );
     return {
       ok: true,
-      requests: rows.results.map((row) => ({
+      requests: rows.rows.map((row) => ({
         ...row,
         canReview: reviewer,
         requestedByName: names.get(row.requestedByUserId),
@@ -191,14 +191,15 @@ async function createOrListRequests(
   }
   return createRequest(env, db, input, request, member.role, sponsorUserId);
 }
-
 async function createRequest(
   env: CoreBindings,
-  db: D1Database,
+  db: PostgresDatabase,
   input: OrganizationJoinRequestRpcInput,
   request: Extract<
     OrganizationJoinRequestRpcInput["request"],
-    { action: "create" | "create_from_link" }
+    {
+      action: "create" | "create_from_link";
+    }
   >,
   role: string,
   sponsorUserId: string
@@ -217,11 +218,16 @@ async function createRequest(
       : request.email;
   if (request.action === "create_from_link") {
     const existing = await db
-      .prepare(
-        `${SELECT} WHERE organization_id = ? AND coalesce(space_id, '') = ? AND applicant_user_id = ? AND email = ? AND status IN ('pending', 'approved') AND joined_at IS NULL ORDER BY created_at DESC LIMIT 1`
-      )
-      .bind(request.organizationId, request.spaceId ?? "", input.userId, email)
-      .first<OrganizationJoinRequest>();
+      .query<OrganizationJoinRequest>({
+        text: `${SELECT} WHERE organization_id = $1 AND coalesce(space_id, '') = $2 AND applicant_user_id = $3 AND email = $4 AND status IN ('pending', 'approved') AND joined_at IS NULL ORDER BY created_at DESC NULLS LAST LIMIT 1`,
+        values: [
+          request.organizationId,
+          request.spaceId ?? "",
+          input.userId,
+          email,
+        ],
+      })
+      .then((result) => result.rows[0] ?? null);
     if (existing) {
       if (existing.status === "pending") {
         await projectReview(env, db, existing);
@@ -229,11 +235,11 @@ async function createRequest(
       return { ok: true, requests: [{ ...existing, canReview: false }] };
     }
   }
-  await db
-    .prepare(`INSERT INTO organization_join_requests
+  await db.query({
+    text: `INSERT INTO "openmeld"."organization_join_requests"
     (id, organization_id, space_id, requested_by_user_id, email, status, created_at, applicant_user_id)
-    VALUES (?, ?, ?, ?, ?, 'pending', ?, ?) ON CONFLICT DO NOTHING`)
-    .bind(
+    VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7) ON CONFLICT DO NOTHING`,
+    values: [
       crypto.randomUUID(),
       request.organizationId,
       request.spaceId ?? null,
@@ -241,30 +247,33 @@ async function createRequest(
       email,
       Date.now(),
       request.action === "create_from_link" &&
-        input.responseVersion !== undefined
+      input.responseVersion !== undefined
         ? input.userId
-        : null
-    )
-    .run();
+        : null,
+    ],
+  });
   if (
     request.action === "create_from_link" &&
     input.responseVersion !== undefined
   ) {
     // The verified recipient has now explicitly asked to join, even if a
     // teammate had already submitted an email invitation for them.
-    await db
-      .prepare(
-        "UPDATE organization_join_requests SET applicant_user_id = ? WHERE organization_id = ? AND coalesce(space_id, '') = ? AND email = ? AND status = 'pending' AND applicant_user_id IS NULL"
-      )
-      .bind(input.userId, request.organizationId, request.spaceId ?? "", email)
-      .run();
+    await db.query({
+      text: "UPDATE \"openmeld\".\"organization_join_requests\" SET applicant_user_id = $1 WHERE organization_id = $2 AND coalesce(space_id, '') = $3 AND email = $4 AND status = 'pending' AND applicant_user_id IS NULL",
+      values: [
+        input.userId,
+        request.organizationId,
+        request.spaceId ?? "",
+        email,
+      ],
+    });
   }
   const row = await db
-    .prepare(
-      `${SELECT} WHERE organization_id = ? AND coalesce(space_id, '') = ? AND email = ? AND status = 'pending'`
-    )
-    .bind(request.organizationId, request.spaceId ?? "", email)
-    .first<OrganizationJoinRequest>();
+    .query<OrganizationJoinRequest>({
+      text: `${SELECT} WHERE organization_id = $1 AND coalesce(space_id, '') = $2 AND email = $3 AND status = 'pending'`,
+      values: [request.organizationId, request.spaceId ?? "", email],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!row) {
     throw new Error("Join request could not be saved");
   }
@@ -289,10 +298,9 @@ async function createRequest(
     ],
   };
 }
-
 async function manageRequest(
   env: CoreBindings,
-  db: D1Database,
+  db: PostgresDatabase,
   input: OrganizationJoinRequestRpcInput,
   request: Exclude<
     OrganizationJoinRequestRpcInput["request"],
@@ -307,9 +315,11 @@ async function manageRequest(
   >
 ): Promise<OrganizationJoinRequestResponse> {
   const row = await db
-    .prepare(`${SELECT} WHERE id = ?`)
-    .bind(request.requestId)
-    .first<OrganizationJoinRequest>();
+    .query<OrganizationJoinRequest>({
+      text: `${SELECT} WHERE id = $1`,
+      values: [request.requestId],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!row) {
     throw new JoinRequestError(
       "organization.join_request.unavailable",
@@ -357,7 +367,6 @@ async function manageRequest(
     input.responseVersion === "3"
   );
 }
-
 async function requireApplicantMembership(
   env: CoreBindings,
   row: OrganizationJoinRequest
@@ -374,10 +383,9 @@ async function requireApplicantMembership(
     deny("The applicant has not joined the organization yet.");
   }
 }
-
 async function decideRequest(
   env: CoreBindings,
-  db: D1Database,
+  db: PostgresDatabase,
   userId: string,
   row: OrganizationJoinRequest,
   action: "approve" | "reject" | "cancel" | "retry",
@@ -403,22 +411,22 @@ async function decideRequest(
       );
     }
   }
-  const decision = await db
-    .prepare(
-      `UPDATE organization_join_requests SET status = ?, reviewed_by_user_id = ?, reviewed_at = ? WHERE id = ? AND status = 'pending'`
-    )
-    .bind(status, userId, Date.now(), row.id)
-    .run();
-  if (requireNewDecision && action !== "retry" && decision.meta.changes === 0) {
+  const decision = await db.query({
+    text: `UPDATE "openmeld"."organization_join_requests" SET status = $1, reviewed_by_user_id = $2, reviewed_at = $3 WHERE id = $4 AND status = 'pending'`,
+    values: [status, userId, Date.now(), row.id],
+  });
+  if (requireNewDecision && action !== "retry" && decision.rowCount === 0) {
     throw new JoinRequestError(
       "organization.join_request.already_reviewed",
       "Another person handled this request. Refresh to see the result."
     );
   }
   const current = await db
-    .prepare(`${SELECT} WHERE id = ?`)
-    .bind(row.id)
-    .first<OrganizationJoinRequest>();
+    .query<OrganizationJoinRequest>({
+      text: `${SELECT} WHERE id = $1`,
+      values: [row.id],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!current) {
     throw new Error("Reviewed join request disappeared");
   }
@@ -465,7 +473,6 @@ async function decideRequest(
   await reconcileInvitationInbox(db, row.organizationId);
   return { ok: true, requests: [current] };
 }
-
 function assertDecisionAllowed(
   current: OrganizationJoinRequest["status"],
   next: OrganizationJoinRequest["status"],
@@ -483,7 +490,6 @@ function assertDecisionAllowed(
     );
   }
 }
-
 async function requireMember(
   env: CoreBindings,
   organizationId: string,
@@ -511,7 +517,7 @@ function canReview(role: string) {
 }
 async function projectReview(
   env: CoreBindings,
-  db: D1Database,
+  db: PostgresDatabase,
   request: OrganizationJoinRequest
 ) {
   const members = await resolveOrganizationDirectoryMembers({
@@ -558,10 +564,9 @@ async function projectReview(
   }
   await reconcileInvitationInbox(db, request.organizationId);
 }
-
 async function viewRequest(
   env: CoreBindings,
-  db: D1Database,
+  db: PostgresDatabase,
   row: OrganizationJoinRequest,
   reviewer: boolean
 ): Promise<OrganizationJoinRequestResponse> {
@@ -575,11 +580,13 @@ async function viewRequest(
   }
   const space = row.spaceId
     ? await db
-        .prepare(
-          "SELECT space_name FROM space_index_spaces WHERE space_id = ? AND organization_id = ?"
-        )
-        .bind(row.spaceId, row.organizationId)
-        .first<{ space_name: string }>()
+        .query<{
+          space_name: string;
+        }>({
+          text: 'SELECT space_name FROM "openmeld"."space_index_spaces" WHERE space_id = $1 AND organization_id = $2',
+          values: [row.spaceId, row.organizationId],
+        })
+        .then((result) => result.rows[0] ?? null)
     : null;
   const reviewerIdentity =
     reviewer && row.reviewedByUserId
@@ -605,25 +612,24 @@ async function viewRequest(
     ],
   };
 }
-
 async function completeDelivery(
-  db: D1Database,
+  db: PostgresDatabase,
   row: OrganizationJoinRequest,
   joined = false
 ): Promise<OrganizationJoinRequestResponse> {
   const sentAt = (joined ? row.joinedAt : row.invitationSentAt) ?? Date.now();
-  await db
-    .prepare(
-      joined
-        ? "UPDATE organization_join_requests SET joined_at = coalesce(joined_at, ?) WHERE id = ? AND status = 'approved'"
-        : "UPDATE organization_join_requests SET invitation_sent_at = coalesce(invitation_sent_at, ?) WHERE id = ? AND status = 'approved'"
-    )
-    .bind(sentAt, row.id)
-    .run();
+  await db.query({
+    text: joined
+      ? 'UPDATE "openmeld"."organization_join_requests" SET joined_at = coalesce(joined_at, $1) WHERE id = $2 AND status = \'approved\''
+      : 'UPDATE "openmeld"."organization_join_requests" SET invitation_sent_at = coalesce(invitation_sent_at, $1) WHERE id = $2 AND status = \'approved\'',
+    values: [sentAt, row.id],
+  });
   const completed = await db
-    .prepare(`${SELECT} WHERE id = ?`)
-    .bind(row.id)
-    .first<OrganizationJoinRequest>();
+    .query<OrganizationJoinRequest>({
+      text: `${SELECT} WHERE id = $1`,
+      values: [row.id],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!completed) {
     throw new Error("Completed invitation request disappeared");
   }

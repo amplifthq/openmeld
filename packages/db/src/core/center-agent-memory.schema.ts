@@ -1,30 +1,23 @@
 import { sql } from "drizzle-orm";
-import {
-  check,
-  index,
-  integer,
-  sqliteTable,
-  text,
-  uniqueIndex,
-} from "drizzle-orm/sqlite-core";
+import { bigint, check, index, text, uniqueIndex } from "drizzle-orm/pg-core";
 import { members, organizations, users } from "../auth/auth.schema.ts";
+import { applicationTable } from "../postgresql/schema.ts";
+import { integerBoolean } from "../postgresql/schema-types.ts";
 
-export const centerAgentMemoryPolicies = sqliteTable(
+export const centerAgentMemoryPolicies = applicationTable(
   "center_agent_memory_policies",
   {
     organizationId: text("organization_id")
       .primaryKey()
       .references(() => organizations.id, { onDelete: "cascade" }),
-    organizationMemoryOptIn: integer("organization_memory_opt_in", {
-      mode: "boolean",
-    })
-      .default(true)
+    organizationMemoryOptIn: integerBoolean("organization_memory_opt_in")
+      .default(sql`1`)
       .notNull(),
     updatedByUserId: text("updated_by_user_id").references(() => users.id, {
       onDelete: "set null",
     }),
-    createdAtMs: integer("created_at_ms").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (_table) => [
     check(
@@ -38,7 +31,7 @@ export const centerAgentMemoryPolicies = sqliteTable(
   ]
 );
 
-export const centerAgentMemorySubjects = sqliteTable(
+export const centerAgentMemorySubjects = applicationTable(
   "center_agent_memory_subjects",
   {
     subjectId: text("subject_id").primaryKey(),
@@ -56,9 +49,9 @@ export const centerAgentMemorySubjects = sqliteTable(
     zepUserId: text("zep_user_id"),
     zepGraphId: text("zep_graph_id"),
     status: text("status").default("active").notNull(),
-    createdAtMs: integer("created_at_ms").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
-    deletedAtMs: integer("deleted_at_ms"),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
+    deletedAtMs: bigint("deleted_at_ms", { mode: "number" }),
     lastError: text("last_error"),
   },
   (table) => [

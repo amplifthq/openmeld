@@ -65,10 +65,13 @@ if (process.argv[2] === "deploy") {
   const hash = createHash("sha256");
   for (const name of [
     "worker.ts",
+    "runtime-transport-acceptance.ts",
     "acceptance.mjs",
     "wrangler.jsonc",
     "package.json",
     "../../pnpm-lock.yaml",
+    "../../packages/db/src/postgresql.ts",
+    "../../packages/db/dist/postgresql.mjs",
   ]) {
     hash.update(name);
     hash.update(await readFile(new URL(name, import.meta.url)));
@@ -98,7 +101,7 @@ if (process.argv[2] === "deploy") {
     `${JSON.stringify(inventory, null, 2)}\n`
   );
   console.log(output);
-} else if (process.argv[2] === "check") {
+} else if (["check", "transport-check"].includes(process.argv[2])) {
   const url = new URL(process.argv[3]);
   if (
     url.protocol !== "https:" ||
@@ -108,7 +111,8 @@ if (process.argv[2] === "deploy") {
   ) {
     throw new Error("Expected isolated probe URL");
   }
-  url.pathname = "/acceptance";
+  const transportCheck = process.argv[2] === "transport-check";
+  url.pathname = transportCheck ? "/runtime-transport" : "/acceptance";
   assert.equal(
     (await fetch(url, { method: "POST", redirect: "error" })).status,
     401
@@ -126,11 +130,18 @@ if (process.argv[2] === "deploy") {
     );
   }
   console.log(
-    "PASS cloud Worker → Hyperdrive → PostgreSQL: auth, repeated transactions, rollback, immediate reads, CRUD and denied DDL/ledger/TRUNCATE"
+    transportCheck
+      ? "PASS isolated cloud product PostgreSQL owner: repeated request pools, transaction commit/rollback, immediate reads, query failure propagation and normal close"
+      : "PASS cloud Worker → Hyperdrive → PostgreSQL: auth, repeated transactions, rollback, immediate reads, CRUD and denied DDL/ledger/TRUNCATE"
   );
   inventory.environments.staging.probe.status = "verified";
   inventory.environments.staging.probe.verifiedAt = new Date().toISOString();
-  inventory.environments.staging.status = "foundation-verified";
+  if (transportCheck) {
+    inventory.environments.staging.probe.productTransportVerifiedAt =
+      new Date().toISOString();
+  } else {
+    inventory.environments.staging.status = "foundation-verified";
+  }
   await writeFile(
     new URL("./resources.json", import.meta.url),
     `${JSON.stringify(inventory, null, 2)}\n`
@@ -158,6 +169,6 @@ if (process.argv[2] === "deploy") {
   );
 } else {
   throw new Error(
-    "Usage: probe.mjs deploy | check <isolated workers.dev URL> | cleanup"
+    "Usage: probe.mjs deploy | check <isolated workers.dev URL> | transport-check <isolated workers.dev URL> | cleanup"
   );
 }

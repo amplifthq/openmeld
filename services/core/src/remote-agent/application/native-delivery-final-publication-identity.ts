@@ -1,4 +1,4 @@
-import type { RemoteAgentNativeDeliveryRecord } from "../infrastructure/d1/native-delivery-ledger-repo";
+import type { RemoteAgentNativeDeliveryRecord } from "../infrastructure/postgresql/native-delivery-ledger-repo";
 
 export const REMOTE_AGENT_FINAL_PUBLICATION_METADATA_EVENT_TYPE =
   "openmeld_remote_agent_final_publication";

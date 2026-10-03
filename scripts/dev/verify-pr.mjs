@@ -207,8 +207,10 @@ function focusedWorkspaceCommands(paths, workspace, existingFiles) {
             [...tests].filter((file) => file.startsWith("tests-node/")),
           ],
           [
-            "vitest.split-gate.config.ts",
-            [...tests].filter((file) => file.startsWith("tests-split-gate/")),
+            "vitest.postgresql-owner.config.ts",
+            [...tests].filter((file) =>
+              file.startsWith("tests-postgresql-owner/")
+            ),
           ],
           [
             "vitest.config.ts",
@@ -216,7 +218,7 @@ function focusedWorkspaceCommands(paths, workspace, existingFiles) {
               (file) =>
                 !(
                   file.startsWith("tests-node/") ||
-                  file.startsWith("tests-split-gate/")
+                  file.startsWith("tests-postgresql-owner/")
                 )
             ),
           ],

@@ -2,6 +2,7 @@
 
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { startDevelopmentPostgres } from "../../tooling/postgresql/development.mjs";
 import {
   buildIsolatedDevEnvironment,
   buildIsolatedDevUrl,
@@ -36,8 +37,13 @@ export function resolveIsolatedDevLaunchOptions(args) {
   const devGuardArgs = [];
   let remoteAgentSandboxEnabled = true;
   let scheduledEventsEnabled = false;
+  let postgresqlEnabled = false;
 
   for (const arg of args) {
+    if (arg === "--postgresql") {
+      postgresqlEnabled = true;
+      continue;
+    }
     if (arg === "--no-sandbox") {
       remoteAgentSandboxEnabled = false;
       continue;
@@ -53,6 +59,7 @@ export function resolveIsolatedDevLaunchOptions(args) {
     devGuardArgs,
     remoteAgentSandboxEnabled,
     scheduledEventsEnabled,
+    postgresqlEnabled,
   };
 }
 
@@ -95,7 +102,8 @@ export function buildIsolatedWebStartupMessages(input) {
 
 export function resolveIsolatedWebDopplerCommand(
   env = process.env,
-  pnpmCommand = process.platform === "win32" ? "pnpm.cmd" : "pnpm"
+  pnpmCommand = process.platform === "win32" ? "pnpm.cmd" : "pnpm",
+  script = resolveIsolatedWebScript(env)
 ) {
   if (
     env[DEVELOPMENT_ENVIRONMENT_SOURCE_VARIABLE] !==
@@ -106,13 +114,7 @@ export function resolveIsolatedWebDopplerCommand(
   }
   return buildDopplerComponentCommand(
     "web",
-    [
-      pnpmCommand,
-      "--filter",
-      "openmeld-web",
-      "run",
-      resolveIsolatedWebScript(env),
-    ],
+    [pnpmCommand, "--filter", "openmeld-web", "run", script],
     env
   );
 }
@@ -148,15 +150,24 @@ export async function runIsolatedDev(args = process.argv.slice(2)) {
         options.remoteAgentSandboxEnabled
       ),
     };
+    const postgres = options.postgresqlEnabled
+      ? await startDevelopmentPostgres(lane.wranglerStateDirectory)
+      : null;
     printLaneSummary(lane, options, presentation);
 
     try {
       const exitCode = await runDevGuard({
-        env: { ...process.env, ...isolatedEnvironment },
+        env: {
+          ...process.env,
+          ...isolatedEnvironment,
+          ...postgres?.env,
+          ...(postgres ? { OPENMELD_DEV_WITH_WEB: "1" } : {}),
+        },
         extraArgs: options.devGuardArgs,
       });
       process.exitCode = exitCode;
     } finally {
+      await postgres?.stop();
       await releaseIsolatedDevLane({
         kind: "stack",
         pid: process.pid,
@@ -187,9 +198,11 @@ function printLaneSummary(lane, options, presentation) {
   console.log(
     `${prefix} State ${lane.wranglerStateDirectory} | OPENMELD_HOME ${lane.openMeldHome}`
   );
-  console.log(
-    `${prefix} After the Worker stack reports ready, open a second terminal in this worktree and run: ${presentation.webStartCommand}`
-  );
+  if (!options.postgresqlEnabled) {
+    console.log(
+      `${prefix} After the Worker stack reports ready, open a second terminal in this worktree and run: ${presentation.webStartCommand}`
+    );
+  }
   if (!options.remoteAgentSandboxEnabled) {
     console.log(
       `${prefix} Remote Agent Sandbox tools and Wrangler containers are disabled; Docker is not required.`

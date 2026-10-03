@@ -2,6 +2,7 @@ import { defineConfig } from "tsdown";
 
 export default defineConfig({
   entry: {
+    postgresql: "src/postgresql.ts",
     index: "src/index.ts",
     auth: "src/auth.ts",
     core: "src/core.ts",

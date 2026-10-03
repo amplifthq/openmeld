@@ -1,3 +1,4 @@
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import {
   centerAgentAuthorizeAnonymousMemberToolResponseSchema,
   centerAgentAuthorizeAnonymousMemberToolRpcInputSchema,
@@ -8,9 +9,9 @@ import type {
   CenterAgentToolSpeaker,
   OpenMeldRequestContext,
 } from "@openmeld/schemas/types";
-import { type CoreBindings, wakeEvidenceDb } from "../../lib/bindings";
+import type { CoreBindings } from "../../lib/bindings";
 import { readOrganizationAccountIdentityProjection } from "../../organizations/organization-context";
-import { readRemoteAgentNativeDeliveryBySubmissionId } from "../../remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+import { readRemoteAgentNativeDeliveryBySubmissionId } from "../../remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import { createCoreRpcHttpError } from "../../rpc/errors";
 import type { CurrentDesignatedCenterAgentAuthorization } from "../current-designated-center-agent";
 import { resolveNativeDeliverySourceSpaceId } from "./native-delivery-source-space";
@@ -123,7 +124,7 @@ export async function prepareCenterAgentOrganizationMemberRequest(
 
   const authorization = await prepareHostedCenterAgentRequest(env, context);
   const submissionId = context.agentControllerConversationId;
-  const db = wakeEvidenceDb(env);
+  const db = getPostgresDatabase(env);
   if (!(submissionId && db)) {
     throw anonymousMemberDeliveryRequiredError();
   }

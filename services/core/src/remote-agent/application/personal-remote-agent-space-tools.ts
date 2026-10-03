@@ -1,3 +1,7 @@
+import {
+  getPostgresDatabase,
+  type PostgresDatabase,
+} from "@openmeld/db/postgresql";
 import { buildProfileDisplay } from "@openmeld/protocol";
 import {
   HOSTED_REMOTE_AGENT_CONTROLLER_REF,
@@ -9,11 +13,7 @@ import {
   isCenterAgentDesignationActive,
   readCenterAgentDesignationRecord,
 } from "../../center-agent/center-agent-repository";
-import {
-  type CoreBindings,
-  identityDb,
-  wakeEvidenceDb,
-} from "../../lib/bindings";
+import type { CoreBindings } from "../../lib/bindings";
 import {
   rpcGetSpaceBoard,
   rpcGetSpaceMemberDirectory,
@@ -29,22 +29,21 @@ import {
 import {
   readRemoteAgentNativeDeliveryByIdempotencyKey,
   readRemoteAgentNativeDeliveryBySubmissionId,
-} from "../infrastructure/d1/native-delivery-ledger-repo";
+} from "../infrastructure/postgresql/native-delivery-ledger-repo";
 import { isNativeDeliveryExecutingStatus } from "./native-delivery-execution-status";
 import { requirePersonalRemoteAgentBinding } from "./personal-remote-agent-binding";
 import { resolveRemoteAgentNativeDeliveryRuntimeConversationId } from "./remote-agent-conversation-continuity";
 import { resolveNativeDeliveryReplyPlacement } from "./reply-placement";
-
 export async function requirePersonalRemoteAgentExecution(
   env: CoreBindings,
   submissionId: string,
   skillPreparationKey?: string
 ) {
-  const db = identityDb(env);
+  const db = getPostgresDatabase(env);
   if (!db) {
     throw new Error("remote_agent.identity_store_unavailable");
   }
-  const evidenceDb = wakeEvidenceDb(env);
+  const evidenceDb = getPostgresDatabase(env);
   if (!evidenceDb) {
     throw new Error("remote_agent.execution_store_unavailable");
   }
@@ -137,7 +136,6 @@ export async function requirePersonalRemoteAgentExecution(
     spaceDispatchContext: request.spaceDispatchContext,
   };
 }
-
 /**
  * The author of a Wake is the requester whose authority the Agent runs under.
  * It is either a Profile owned by an active member (a human, or a member's own
@@ -146,7 +144,7 @@ export async function requirePersonalRemoteAgentExecution(
  * Core already authorized that delegation before publishing the Wake.
  */
 export async function isActiveRemoteAgentRequesterProfile(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   profileId: string | null;
 }): Promise<boolean> {
@@ -154,11 +152,11 @@ export async function isActiveRemoteAgentRequesterProfile(input: {
     return false;
   }
   const memberProfile = await input.db
-    .prepare(
-      `SELECT p.profile_id FROM openmeld_profiles p JOIN members m ON m.user_id = p.owner_user_id AND m.organization_id = ? WHERE p.profile_id = ? AND p.status = 'active' LIMIT 1`
-    )
-    .bind(input.organizationId, input.profileId)
-    .first();
+    .query({
+      text: `SELECT p.profile_id FROM "openmeld"."openmeld_profiles" p JOIN "openmeld"."members" m ON m.user_id = p.owner_user_id AND m.organization_id = $1 WHERE p.profile_id = $2 AND p.status = 'active' LIMIT 1`,
+      values: [input.organizationId, input.profileId],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (memberProfile) {
     return true;
   }
@@ -174,14 +172,13 @@ export async function isActiveRemoteAgentRequesterProfile(input: {
     return false;
   }
   const centerAgentProfile = await input.db
-    .prepare(
-      `SELECT profile_id FROM openmeld_profiles WHERE profile_id = ? AND organization_id = ? AND status = 'active' AND profile_kind = 'agent' AND managed_role = 'center_agent' AND owner_user_id IS NULL LIMIT 1`
-    )
-    .bind(input.profileId, input.organizationId)
-    .first();
+    .query({
+      text: `SELECT profile_id FROM "openmeld"."openmeld_profiles" WHERE profile_id = $1 AND organization_id = $2 AND status = 'active' AND profile_kind = 'agent' AND managed_role = 'center_agent' AND owner_user_id IS NULL LIMIT 1`,
+      values: [input.profileId, input.organizationId],
+    })
+    .then((result) => result.rows[0] ?? null);
   return Boolean(centerAgentProfile);
 }
-
 export async function runPersonalRemoteAgentSpaceTool(
   env: CoreBindings,
   value: unknown

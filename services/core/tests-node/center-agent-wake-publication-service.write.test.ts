@@ -1,10 +1,11 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import type {
   CenterAgentAttribution,
   CenterAgentWakePublicationCommand,
 } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
-import { readAgentDelegation } from "../src/agent-task-coordination/infrastructure/d1/agent-delegation-repo";
-import { readAgentTaskCompletionSubscription } from "../src/agent-task-coordination/infrastructure/d1/agent-task-coordination-repo";
+import { readAgentDelegation } from "../src/agent-task-coordination/infrastructure/postgresql/agent-delegation-repo";
+import { readAgentTaskCompletionSubscription } from "../src/agent-task-coordination/infrastructure/postgresql/agent-task-coordination-repo";
 import { planCenterAgentWakeDelegation } from "../src/center-agent/application/center-agent-delegation-service";
 import {
   executeCenterAgentWakePublication,
@@ -15,20 +16,16 @@ import {
   claimCenterAgentWakePublication,
   markCenterAgentWakePublicationAccepted,
   readCenterAgentWakePublication,
-} from "../src/center-agent/infrastructure/d1/center-agent-wake-publication-repo";
-import {
-  applyDrizzleMigrationForTable,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+} from "../src/center-agent/infrastructure/postgresql/center-agent-wake-publication-repo";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 const CENTER_AGENT_PROFILE_ID = "agt_00000000-0000-4000-8000-000000000001";
 const CHILD_PROFILE_ID = "agt_00000000-0000-4000-8000-000000000002";
 const HUMAN_PROFILE_ID = "00000000-0000-4000-8000-000000000003";
 const CLIENT_MESSAGE_ID = "ca-wake:durable-publication";
-
 describe("Center Agent Wake publication recovery", () => {
   it("redrives an outcome-unknown Space publication and completes coordination once", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     const publishSignal = vi
       .fn()
       .mockRejectedValueOnce(
@@ -60,7 +57,6 @@ describe("Center Agent Wake publication recovery", () => {
           delegationId: prepared.delegationId,
         })
       ).resolves.toBeNull();
-
       await expect(
         executeCenterAgentWakePublication({
           db: harness.db,
@@ -74,7 +70,6 @@ describe("Center Agent Wake publication recovery", () => {
         retryAfterSeconds: 15,
         status: "pending",
       });
-
       await expect(
         readCenterAgentWakePublication({
           db: harness.db,
@@ -96,7 +91,6 @@ describe("Center Agent Wake publication recovery", () => {
         children: [{ state: "planned" }],
         state: "active",
       });
-
       await expect(
         retryPendingCenterAgentWakePublications({
           db: harness.db,
@@ -142,24 +136,25 @@ describe("Center Agent Wake publication recovery", () => {
         children: [{ state: "active" }],
         state: "active",
       });
-      const auditRows = await harness.db
-        .prepare(
-          "SELECT id, action FROM center_agent_audit_journal ORDER BY id ASC"
-        )
-        .all<{ action: string; id: string }>();
-      expect(auditRows.results).toEqual([
+      const auditRows = await harness.db.query<{
+        action: string;
+        id: string;
+      }>({
+        text: 'SELECT id, action FROM "openmeld"."center_agent_audit_journal" ORDER BY id ASC',
+        values: [],
+      });
+      expect(auditRows.rows).toEqual([
         {
           action: "wake_agent_profiles_in_space",
           id: `center-agent-wake:${CLIENT_MESSAGE_ID}`,
         },
       ]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("cancels coordination only when Space definitely rejects the publication", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     const resolveSignal = vi.fn().mockResolvedValue(null);
     try {
       await insertAuditIdentity(harness.db);
@@ -178,7 +173,6 @@ describe("Center Agent Wake publication recovery", () => {
         db: harness.db,
         nowMs: 1000,
       });
-
       await expect(
         executeCenterAgentWakePublication({
           db: harness.db,
@@ -195,7 +189,6 @@ describe("Center Agent Wake publication recovery", () => {
         })
       ).rejects.toThrow("HTTP 400");
       expect(resolveSignal).toHaveBeenCalledOnce();
-
       await expect(
         readCenterAgentWakePublication({
           db: harness.db,
@@ -218,12 +211,11 @@ describe("Center Agent Wake publication recovery", () => {
         })
       ).resolves.toMatchObject({ state: "cancelled" });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("reconciles an earlier outcome-unknown publication before handling a later rejection", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     const clientMessageId = "ca-wake:reconciled";
     const reconciledSignal = buildSignal({
       clientMessageId,
@@ -259,7 +251,6 @@ describe("Center Agent Wake publication recovery", () => {
         db: harness.db,
         nowMs: 1000,
       });
-
       await expect(
         executeCenterAgentWakePublication({
           db: harness.db,
@@ -270,7 +261,6 @@ describe("Center Agent Wake publication recovery", () => {
         })
       ).resolves.toMatchObject({ status: "pending" });
       expect(resolveSignal).not.toHaveBeenCalled();
-
       await expect(
         executeCenterAgentWakePublication({
           db: harness.db,
@@ -300,12 +290,11 @@ describe("Center Agent Wake publication recovery", () => {
         state: "active",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("leases one publication attempt and recovers it after the owner disappears", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     const delayedSignal = createDeferred<ReturnType<typeof buildSignal>>();
     const publishSignal = vi
       .fn()
@@ -333,7 +322,6 @@ describe("Center Agent Wake publication recovery", () => {
         db: harness.db,
         nowMs: 1000,
       });
-
       const firstAttempt = executeCenterAgentWakePublication({
         db: harness.db,
         nowMs: 1010,
@@ -344,7 +332,6 @@ describe("Center Agent Wake publication recovery", () => {
       await vi.waitFor(() => {
         expect(publishSignal).toHaveBeenCalledTimes(1);
       });
-
       await expect(
         executeCenterAgentWakePublication({
           db: harness.db,
@@ -356,7 +343,6 @@ describe("Center Agent Wake publication recovery", () => {
       ).resolves.toMatchObject({
         status: "pending",
       });
-
       await expect(
         executeCenterAgentWakePublication({
           db: harness.db,
@@ -368,7 +354,6 @@ describe("Center Agent Wake publication recovery", () => {
       ).resolves.toMatchObject({
         signal: { id: "signal-leased" },
       });
-
       delayedSignal.resolve(
         buildSignal({
           clientMessageId: "ca-wake:leased",
@@ -390,12 +375,11 @@ describe("Center Agent Wake publication recovery", () => {
         state: "completed",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("bounds a stuck publication attempt without starving the next due Wake", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     try {
       await insertAuditIdentity(harness.db);
       await insertParentDelivery(harness.db);
@@ -429,7 +413,6 @@ describe("Center Agent Wake publication recovery", () => {
           });
         }
       );
-
       await expect(
         retryPendingCenterAgentWakePublications({
           db: harness.db,
@@ -463,12 +446,11 @@ describe("Center Agent Wake publication recovery", () => {
         state: "completed",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("reports a persisted Space acceptance while another owner finalizes coordination", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     const clientMessageId = "ca-wake:accepted";
     const publishSignal = vi.fn();
     const resolveSignal = vi.fn();
@@ -507,7 +489,6 @@ describe("Center Agent Wake publication recovery", () => {
           signalId: "signal-accepted",
         }),
       });
-
       await expect(
         executeCenterAgentWakePublication({
           db: harness.db,
@@ -523,12 +504,11 @@ describe("Center Agent Wake publication recovery", () => {
       expect(publishSignal).not.toHaveBeenCalled();
       expect(resolveSignal).not.toHaveBeenCalled();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("stops a redrive batch before multiple hung publications consume the minute", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     try {
       await insertAuditIdentity(harness.db);
       await insertParentDelivery(harness.db);
@@ -552,19 +532,13 @@ describe("Center Agent Wake publication recovery", () => {
           nowMs: 1000,
         });
       }
-      let clockMs = 0;
       const publishSignal = vi.fn(
         async () => await new Promise<never>(() => undefined)
       );
-
       await expect(
         retryPendingCenterAgentWakePublications({
-          batchBudgetMs: 10,
-          clock: () => {
-            const current = clockMs;
-            clockMs += 6;
-            return current;
-          },
+          batchBudgetMs: 1000,
+          clock: () => (publishSignal.mock.calls.length ? 1000 : 0),
           db: harness.db,
           nowMs: 1010,
           publishSignal,
@@ -579,13 +553,11 @@ describe("Center Agent Wake publication recovery", () => {
       });
       expect(publishSignal).toHaveBeenCalledOnce();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("enforces the batch deadline across publish and reconciliation", async () => {
-    vi.useFakeTimers();
-    const harness = createHarness();
+    const harness = await createHarness();
     const clientMessageId = "ca-wake:whole-batch-deadline";
     try {
       await insertAuditIdentity(harness.db);
@@ -604,14 +576,19 @@ describe("Center Agent Wake publication recovery", () => {
         db: harness.db,
         nowMs: 1000,
       });
+      let markPublicationStarted!: () => void;
+      const publicationStarted = new Promise<void>((resolve) => {
+        markPublicationStarted = resolve;
+      });
       const publishSignal = vi.fn(async () => {
+        markPublicationStarted();
         await new Promise<void>((resolve) => setTimeout(resolve, 60));
         throw new Error('HTTP 400: {"error":{"message":"rejected"}}');
       });
       const resolveSignal = vi.fn(
         async () => await new Promise<never>(() => undefined)
       );
-
+      vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
       const redrive = retryPendingCenterAgentWakePublications({
         batchBudgetMs: 100,
         db: harness.db,
@@ -625,7 +602,8 @@ describe("Center Agent Wake publication recovery", () => {
         settled = true;
         return result;
       });
-
+      await publicationStarted;
+      // Native database I/O must reach publication before advancing its deadline.
       await vi.advanceTimersByTimeAsync(99);
       expect(settled).toBe(false);
       await vi.advanceTimersByTimeAsync(1);
@@ -640,11 +618,10 @@ describe("Center Agent Wake publication recovery", () => {
     } finally {
       vi.clearAllTimers();
       vi.useRealTimers();
-      harness.close();
+      await harness.close();
     }
   });
 });
-
 function buildCommand(input: {
   clientMessageId?: string;
   delegationId: string;
@@ -692,7 +669,6 @@ function buildCommand(input: {
     v: 1 as const,
   };
 }
-
 function buildSignal(
   input: { clientMessageId?: string; signalId?: string } = {}
 ) {
@@ -718,7 +694,6 @@ function buildSignal(
     v: 1 as const,
   };
 }
-
 function createDeferred<T>(): {
   promise: Promise<T>;
   resolve: (value: T) => void;
@@ -729,45 +704,32 @@ function createDeferred<T>(): {
   });
   return { promise, resolve: resolvePromise };
 }
-
-function createHarness() {
-  const harness = createSqliteD1Harness();
-  harness.run({ sql: "CREATE TABLE users (id TEXT PRIMARY KEY)" });
-  harness.run({ sql: "CREATE TABLE organizations (id TEXT PRIMARY KEY)" });
-  harness.run({
-    sql: "CREATE TABLE openmeld_profiles (profile_id TEXT PRIMARY KEY)",
-  });
-  applyDrizzleMigrationForTable(
-    harness,
-    "openMeldRemoteAgent_native_delivery_ledger"
-  );
-  applyDrizzleMigrationForTable(harness, "center_agent_audit_journal");
-  applyDrizzleMigrationForTable(harness, "agent_task_terminal_outcomes");
-  applyDrizzleMigrationForTable(harness, "agent_task_completion_subscriptions");
-  applyDrizzleMigrationForTable(harness, "agent_delegations");
-  applyDrizzleMigrationForTable(harness, "agent_delegation_children");
-  applyDrizzleMigrationForTable(harness, "center_agent_wake_publications");
+async function createHarness() {
+  const harness = await createPostgresHarness();
   return harness;
 }
-
-async function insertAuditIdentity(db: D1Database): Promise<void> {
-  await db.batch([
-    db.prepare("INSERT INTO users (id) VALUES (?)").bind("user-parent"),
-    db.prepare("INSERT INTO organizations (id) VALUES ('org-1')"),
-    db
-      .prepare("INSERT INTO openmeld_profiles (profile_id) VALUES (?)")
-      .bind(CENTER_AGENT_PROFILE_ID),
-    db
-      .prepare("INSERT INTO openmeld_profiles (profile_id) VALUES (?)")
-      .bind(HUMAN_PROFILE_ID),
-  ]);
+async function insertAuditIdentity(db: PostgresDatabase): Promise<void> {
+  await db.transaction(async (client) => {
+    await client.query({
+      text: `INSERT INTO "openmeld"."users" (id, name, email) VALUES ('user-parent', 'Requester', 'requester@example.test')`,
+    });
+    await client.query({
+      text: `INSERT INTO "openmeld"."organizations" (id, name, slug, created_at) VALUES ('org-1', 'Organization', 'org-1', 1700000000000)`,
+    });
+    await client.query({
+      text: `INSERT INTO "openmeld"."openmeld_profiles" (profile_id, profile_name, profile_handle, profile_kind, organization_id, owner_user_id, created_by_user_id, managed_role, source, status) VALUES
+        ($1, 'Center Agent', 'center-agent', 'agent', 'org-1', NULL, 'user-parent', 'center_agent', 'auth_bootstrap', 'active'),
+        ($2, 'Requester', 'requester', 'human', NULL, 'user-parent', NULL, NULL, 'auth_bootstrap', 'active')`,
+      values: [CENTER_AGENT_PROFILE_ID, HUMAN_PROFILE_ID],
+    });
+  });
 }
 
-async function insertParentDelivery(db: D1Database): Promise<void> {
-  await db
-    .prepare(
-      `
-        INSERT INTO openMeldRemoteAgent_native_delivery_ledger (
+async function insertParentDelivery(db: PostgresDatabase): Promise<void> {
+  await db.query({
+    ...{
+      text: `
+        INSERT INTO "openmeld"."openMeldRemoteAgent_native_delivery_ledger" (
           delivery_id,
           organization_id,
           conversation_kind,
@@ -787,10 +749,11 @@ async function insertParentDelivery(db: D1Database): Promise<void> {
           created_at_ms,
           updated_at_ms
         )
-        VALUES (?, ?, 'space', ?, ?, ?, ?, NULL, ?, ?, ?, 'accepted', ?, ?, ?, NULL, ?, ?)
-      `
-    )
-    .bind(
+        VALUES ($1, $2, 'space', $3, $4, $5, $6, NULL, $7, $8, $9, 'accepted', $10, $11, $12, NULL, $13, $14)
+      `,
+      values: [],
+    },
+    values: [
       "delivery-parent",
       "org-1",
       "space-parent",
@@ -804,7 +767,7 @@ async function insertParentDelivery(db: D1Database): Promise<void> {
       "user-parent",
       "Felix",
       900,
-      900
-    )
-    .run();
+      900,
+    ],
+  });
 }

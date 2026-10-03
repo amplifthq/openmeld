@@ -2,13 +2,12 @@ import { describe, expect, it } from "vitest";
 import { requireOrganizationWorkingLanguageManager } from "../src/organizations/center-agent-working-language-rpc";
 import {
   observeOrganizationWorkingLanguage,
-  prepareRequirePreviousStatementChangedOneRow,
   readOrganizationWorkingLanguagePreference,
   readOrganizationWorkingLanguagePreferenceForSpace,
   setOrganizationWorkingLanguagePreference,
   toWorkingLanguageGuidance,
 } from "../src/organizations/organization-working-language-repository";
-import { createSqliteD1Harness } from "./helpers/sqlite-d1-harness.test-support";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 describe("Organization working language", () => {
   it("allows only Organization owners and admins to select the preference", () => {
@@ -22,9 +21,8 @@ describe("Organization working language", () => {
       "Only an Organization owner or admin"
     );
   });
-
   it("keeps trusted observations automatic and never overwrites an explicit selection", async () => {
-    const harness = createWorkingLanguageHarness();
+    const harness = await createWorkingLanguageHarness();
     try {
       expect(
         await readOrganizationWorkingLanguagePreference({
@@ -32,7 +30,6 @@ describe("Organization working language", () => {
           organizationId: "org-1",
         })
       ).toMatchObject({ languageTag: null, mode: "automatic", revision: 0 });
-
       const observed = await observeOrganizationWorkingLanguage({
         db: harness.db,
         languageTag: "zh-hans",
@@ -48,7 +45,6 @@ describe("Organization working language", () => {
           updatedByUserId: null,
         },
       });
-
       const selected = await setOrganizationWorkingLanguagePreference({
         db: harness.db,
         languageTag: "fr-ca",
@@ -63,7 +59,6 @@ describe("Organization working language", () => {
         revision: 2,
         updatedByUserId: "owner-1",
       });
-
       const ignored = await observeOrganizationWorkingLanguage({
         db: harness.db,
         languageTag: "ja",
@@ -83,12 +78,11 @@ describe("Organization working language", () => {
         })
       ).toEqual(selected);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("resets to automatic without inventing a language", async () => {
-    const harness = createWorkingLanguageHarness();
+    const harness = await createWorkingLanguageHarness();
     try {
       await setOrganizationWorkingLanguagePreference({
         db: harness.db,
@@ -105,7 +99,6 @@ describe("Organization working language", () => {
         organizationId: "org-1",
         updatedByUserId: "owner-1",
       });
-
       expect(reset).toMatchObject({
         languageTag: null,
         mode: "automatic",
@@ -115,30 +108,28 @@ describe("Organization working language", () => {
       });
       expect(toWorkingLanguageGuidance(reset)).toBeNull();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("rolls back an explicit preference when its required audit write fails", async () => {
-    const harness = createWorkingLanguageHarness();
+    const harness = await createWorkingLanguageHarness();
     try {
-      harness.run({
-        sql: "CREATE TABLE required_audit (id TEXT PRIMARY KEY)",
+      await harness.query({
+        text: "CREATE TABLE public.required_audit (id TEXT PRIMARY KEY CONSTRAINT audit_rejected CHECK (false))",
       });
-      harness.run({
-        sql: `CREATE TRIGGER reject_required_audit
-          BEFORE INSERT ON required_audit
-          BEGIN
-            SELECT RAISE(ABORT, 'audit rejected');
-          END`,
+      await harness.query({
+        text: "GRANT INSERT ON public.required_audit TO openmeld_pg_runtime",
       });
-
       await expect(
         setOrganizationWorkingLanguagePreference({
           atomicStatements: [
-            harness.db
-              .prepare("INSERT INTO required_audit (id) VALUES (?)")
-              .bind("audit-1"),
+            {
+              ...{
+                text: "INSERT INTO required_audit (id) VALUES ($1)",
+                values: [],
+              },
+              values: ["audit-1"],
+            },
           ],
           db: harness.db,
           languageTag: "fr",
@@ -147,7 +138,7 @@ describe("Organization working language", () => {
           organizationId: "org-1",
           updatedByUserId: "owner-1",
         })
-      ).rejects.toThrow("audit rejected");
+      ).rejects.toThrow("audit_rejected");
       await expect(
         readOrganizationWorkingLanguagePreference({
           db: harness.db,
@@ -159,55 +150,56 @@ describe("Organization working language", () => {
         revision: 0,
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("rolls back an automatic observation when its required audit write fails", async () => {
-    const harness = createWorkingLanguageHarness();
+    const harness = await createWorkingLanguageHarness();
     try {
-      harness.run({
-        sql: "CREATE TABLE required_audit (id TEXT PRIMARY KEY)",
+      await harness.query({
+        text: "CREATE TABLE public.required_audit (id TEXT PRIMARY KEY CONSTRAINT audit_rejected CHECK (false))",
       });
-      harness.run({
-        sql: `CREATE TABLE member_research_tasks (
+      await harness.query({
+        text: `CREATE TABLE member_research_tasks (
           id TEXT PRIMARY KEY, observed_language_tag TEXT
         )`,
       });
-      harness.run({
-        sql: `INSERT INTO member_research_tasks (id, observed_language_tag)
+      await harness.query({
+        text: "GRANT SELECT, UPDATE ON public.member_research_tasks TO openmeld_pg_runtime",
+      });
+      await harness.query({
+        text: `INSERT INTO member_research_tasks (id, observed_language_tag)
           VALUES ('task-1', NULL)`,
       });
-      harness.run({
-        sql: `CREATE TRIGGER reject_required_audit
-          BEFORE INSERT ON required_audit
-          BEGIN
-            SELECT RAISE(ABORT, 'audit rejected');
-          END`,
+      await harness.query({
+        text: "GRANT INSERT ON public.required_audit TO openmeld_pg_runtime",
       });
-
       await expect(
         observeOrganizationWorkingLanguage({
-          beforeStatements: [
-            harness.db
-              .prepare(
-                `UPDATE member_research_tasks
-                  SET observed_language_tag = ? WHERE id = ?`
-              )
-              .bind("zh-CN", "task-1"),
-            prepareRequirePreviousStatementChangedOneRow(harness.db),
-          ],
+          beforeMutation: async (client) => {
+            const result = await client.query({
+              text: "UPDATE public.member_research_tasks SET observed_language_tag = $1 WHERE id = $2",
+              values: ["zh-CN", "task-1"],
+            });
+            if (result.rowCount !== 1) {
+              throw new Error("Research task no longer exists");
+            }
+          },
           db: harness.db,
           languageTag: "zh-CN",
           nowMs: 100,
           onChangedStatements: [
-            harness.db
-              .prepare("INSERT INTO required_audit (id) VALUES (?)")
-              .bind("audit-1"),
+            {
+              ...{
+                text: "INSERT INTO required_audit (id) VALUES ($1)",
+                values: [],
+              },
+              values: ["audit-1"],
+            },
           ],
           organizationId: "org-1",
         })
-      ).rejects.toThrow("audit rejected");
+      ).rejects.toThrow("audit_rejected");
       await expect(
         readOrganizationWorkingLanguagePreference({
           db: harness.db,
@@ -219,37 +211,29 @@ describe("Organization working language", () => {
         revision: 0,
       });
       expect(
-        harness.queryFirst({
-          sql: `SELECT observed_language_tag FROM member_research_tasks
+        await harness.queryFirst({
+          text: `SELECT observed_language_tag FROM member_research_tasks
             WHERE id = 'task-1'`,
         })
       ).toEqual({ observed_language_tag: null });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });
-
-function createWorkingLanguageHarness() {
-  const harness = createSqliteD1Harness();
-  for (const sql of [
-    `CREATE TABLE organization_working_language_preferences (
-      organization_id TEXT PRIMARY KEY,
-      mode TEXT NOT NULL,
-      language_tag TEXT NOT NULL,
-      revision INTEGER NOT NULL,
-      updated_by_user_id TEXT,
-      created_at_ms INTEGER NOT NULL,
-      updated_at_ms INTEGER NOT NULL
-    )`,
-    `CREATE TABLE space_index_spaces (
-      space_id TEXT PRIMARY KEY,
-      organization_id TEXT NOT NULL
-    )`,
-    `INSERT INTO space_index_spaces (space_id, organization_id)
-      VALUES ('space-1', 'org-1')`,
-  ]) {
-    harness.run({ sql });
-  }
+async function createWorkingLanguageHarness() {
+  const harness = await createPostgresHarness();
+  await harness.query({
+    text: 'INSERT INTO "openmeld"."users" (id, name, email) VALUES ($1, $2, $3)',
+    values: ["owner-1", "Owner", "owner@example.com"],
+  });
+  await harness.query({
+    text: 'INSERT INTO "openmeld"."organizations" (id, name, slug, created_at) VALUES ($1, $2, $3, $4)',
+    values: ["org-1", "Organization", "org-one", 1000],
+  });
+  await harness.query({
+    text: 'INSERT INTO "openmeld"."space_index_spaces" (space_id, organization_id, organization_visibility, status, source_updated_at_ms, projected_at_ms, projection_event_id) VALUES ($1, $2, $3, $4, $5, $5, $6)',
+    values: ["space-1", "org-1", "private", "active", 1000, "evt-one"],
+  });
   return harness;
 }

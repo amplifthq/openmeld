@@ -1,3 +1,4 @@
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { reconcileDeletedAgentProfileResponseSchema } from "@openmeld/schemas";
 import type { AuthBindings } from "../bindings";
 import {
@@ -8,24 +9,20 @@ import {
 
 const DELETED_PROFILE_RECONCILE_DEFAULT_LIMIT = 40;
 const DELETED_PROFILE_RECONCILE_MAX_LIMIT = 50;
-
 type DeletedProfileLike = {
   ownerUserId: string | null;
   organizationId?: string | null;
   profileId: string;
   profileKind: string;
 };
-
 type SupportedDeletedProfile = DeletedProfileLike & {
   profileKind: "agent" | "human";
 };
-
 export type DeletedProfileReconcileOutboxSummary = {
   completed: number;
   failed: number;
   scanned: number;
 };
-
 // Server-side fan-out for Profile deletion (agent and human kinds). The DB
 // deletion trigger writes the Auth-owned outbox in the same transaction as the
 // Profile delete. This interactive attempt makes the common path immediate;
@@ -41,10 +38,12 @@ export async function reconcileDeletedAgentProfileMemberships(
   }
   await attemptDeletedProfileReconcile({ env, profile });
 }
-
 export async function runDeletedProfileReconcileOutbox(
   env: AuthBindings,
-  options?: { limit?: number; nowMs?: number }
+  options?: {
+    limit?: number;
+    nowMs?: number;
+  }
 ): Promise<DeletedProfileReconcileOutboxSummary> {
   const nowMs = options?.nowMs ?? Date.now();
   const limit = Math.min(
@@ -57,7 +56,7 @@ export async function runDeletedProfileReconcileOutbox(
   let records: Awaited<ReturnType<typeof listDueDeletedProfileReconcileOutbox>>;
   try {
     records = await listDueDeletedProfileReconcileOutbox({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       limit,
       nowMs,
     });
@@ -68,7 +67,6 @@ export async function runDeletedProfileReconcileOutbox(
     });
     return { completed: 0, failed: 0, scanned: 0 };
   }
-
   let completed = 0;
   for (const record of records) {
     const outcome = await attemptDeletedProfileReconcile({
@@ -91,7 +89,6 @@ export async function runDeletedProfileReconcileOutbox(
   });
   return summary;
 }
-
 async function attemptDeletedProfileReconcile(input: {
   attemptCount?: number;
   env: AuthBindings;
@@ -114,7 +111,6 @@ async function attemptDeletedProfileReconcile(input: {
     });
     return "failed";
   }
-
   try {
     const rawResponse = await coreWorker.reconcileDeletedAgentProfile({
       ownerUserId: profile.ownerUserId,
@@ -135,9 +131,8 @@ async function attemptDeletedProfileReconcile(input: {
     if (response.complete !== true) {
       throw new Error("core_reconcile_incomplete");
     }
-
     await deleteDeletedProfileReconcileOutboxRecord({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       profileId: profile.profileId,
     });
     console.info("[auth.profile.deleted_reconciled]", {
@@ -167,7 +162,6 @@ async function attemptDeletedProfileReconcile(input: {
     return "failed";
   }
 }
-
 async function recordRetrySafely(input: {
   attemptCount?: number;
   env: AuthBindings;
@@ -179,7 +173,7 @@ async function recordRetrySafely(input: {
       ...(input.attemptCount === undefined
         ? {}
         : { attemptCount: input.attemptCount }),
-      db: input.env.OPENMELD_DB,
+      db: getPostgresDatabase(input.env),
       error: input.error,
       nowMs: Date.now(),
       profileId: input.profileId,
@@ -192,13 +186,11 @@ async function recordRetrySafely(input: {
     });
   }
 }
-
 function isSupportedDeletedProfile(
   profile: DeletedProfileLike
 ): profile is SupportedDeletedProfile {
   return profile.profileKind === "agent" || profile.profileKind === "human";
 }
-
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }

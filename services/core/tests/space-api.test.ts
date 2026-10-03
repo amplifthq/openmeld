@@ -1,6 +1,7 @@
 import { env, runInDurableObject, SELF } from "cloudflare:test";
 import { RpcStub, RpcTarget } from "cloudflare:workers";
 import { createHash, randomUUID } from "node:crypto";
+import { getPostgresDatabase, PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   applyOpenMeldRequestContextHeaders,
   OPENMELD_EXPECTED_FORWARDED_BY,
@@ -37,7 +38,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   recordAgentTaskTerminalOutcome,
   registerAgentTaskCompletionSubscription,
-} from "../src/agent-task-coordination/infrastructure/d1/agent-task-coordination-repo";
+} from "../src/agent-task-coordination/infrastructure/postgresql/agent-task-coordination-repo";
 import { writeDispatchResult } from "../src/dispatch/application/dispatch-result-service";
 import type { CoreBindings } from "../src/lib/bindings";
 import {
@@ -46,7 +47,7 @@ import {
   markRemoteAgentPreAdmissionFailurePublished,
   readRemoteAgentNativeDeliveryBySubmissionId,
   upsertRemoteAgentNativeDeliveryRecord,
-} from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+} from "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import {
   rpcAddSpaceMembers,
   rpcCenterAgentCreateSpace,
@@ -74,6 +75,7 @@ import { SpaceFileRepository } from "../src/space/infrastructure/sql/space-file-
 import { readSpaceMemberRecord } from "../src/space/infrastructure/sql/space-member-repo";
 import { insertSignalRecord } from "../src/space/infrastructure/sql/space-signal-repo";
 import { Space } from "../src/space/transport/do/space";
+import { postgresFixtureOperator } from "./postgresql.test-support";
 import { waitForJsonMessage } from "./test-support/ws-stream";
 
 const BASE_URL = "http://localhost";
@@ -100,7 +102,6 @@ const TEST_REPLY_TO = {
   profileName: "Test User",
   previewText: "Earlier message preview",
 };
-
 type TestAuthProfile = {
   profileId: string;
   profileKind: "human" | "agent" | "system";
@@ -110,14 +111,11 @@ type TestAuthProfile = {
   agentControllerConversationId?: string;
   agentControllerRef?: string;
 };
-
 type OpenMeldRequestOptions = {
   activeOrganizationId?: string;
   spacePassword?: string;
 };
-
 const DEFAULT_TEST_ORGANIZATION_ID = "org-test-default";
-
 const DEFAULT_TEST_AUTH_PROFILE: TestAuthProfile = {
   profileId: DEFAULT_HUMAN_PROFILE_ID,
   profileKind: "human",
@@ -125,7 +123,6 @@ const DEFAULT_TEST_AUTH_PROFILE: TestAuthProfile = {
   ownerUserId: "owner-test-default",
   openMeldProfileId: DEFAULT_HUMAN_PROFILE_ID,
 };
-
 function createRpcContext(input: {
   activeOrganizationId?: string;
   requestId: string;
@@ -159,7 +156,6 @@ function createRpcContext(input: {
       : {}),
   };
 }
-
 async function fetchWithOpenMeldAuth(
   input: string,
   init?: RequestInit,
@@ -177,16 +173,17 @@ async function fetchWithOpenMeldAuth(
     headers: buildOpenMeldAuthHeaders(input, init, authProfile, requestOptions),
   });
 }
-
 async function fetchSpaceDoWithOpenMeldAuth(
-  input: { path: string; spaceId: string },
+  input: {
+    path: string;
+    spaceId: string;
+  },
   init?: RequestInit,
   authProfile?: Partial<TestAuthProfile>,
   requestOptions?: OpenMeldRequestOptions
 ): Promise<Response> {
   const url = new URL(`https://openmeld-core.internal${input.path}`);
   url.searchParams.set("space", input.spaceId);
-
   const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
   const stub = namespace.get(namespace.idFromString(input.spaceId));
   return await stub.fetch(
@@ -201,10 +198,13 @@ async function fetchSpaceDoWithOpenMeldAuth(
     })
   );
 }
-
 async function readCenterAgentDirectMessageHttpForbidden(
   response: Response
-): Promise<{ code: unknown; message: unknown; status: number }> {
+): Promise<{
+  code: unknown;
+  message: unknown;
+  status: number;
+}> {
   const payload = (await response.json()) as {
     code?: unknown;
     error?: {
@@ -219,7 +219,6 @@ async function readCenterAgentDirectMessageHttpForbidden(
     status: response.status,
   };
 }
-
 function buildOpenMeldAuthHeaders(
   input: string,
   init?: RequestInit,
@@ -227,7 +226,6 @@ function buildOpenMeldAuthHeaders(
   requestOptions?: OpenMeldRequestOptions
 ): Headers {
   const resolvedProfile = resolveTestAuthProfile(input, init, authProfile);
-
   const headers = new Headers(init?.headers);
   const openMeldProfileId = toCanonicalOpenMeldProfileId(
     resolvedProfile.openMeldProfileId ?? resolvedProfile.profileId,
@@ -268,10 +266,8 @@ function buildOpenMeldAuthHeaders(
   if (requestOptions?.spacePassword !== undefined) {
     headers.set(OPENMELD_HEADER_SPACE_PASSWORD, requestOptions.spacePassword);
   }
-
   return headers;
 }
-
 function resolveTestAuthProfile(
   input: string,
   init?: RequestInit,
@@ -284,7 +280,6 @@ function resolveTestAuthProfile(
     ...(authProfile ?? {}),
   };
 }
-
 function resolveCallerPrincipalId(profile: TestAuthProfile): string {
   return (
     profile.ownerUserId ??
@@ -294,7 +289,6 @@ function resolveCallerPrincipalId(profile: TestAuthProfile): string {
     )
   );
 }
-
 async function ensureTestOrganizationMembership(input: {
   organizationId: string;
   userId: string;
@@ -302,9 +296,10 @@ async function ensureTestOrganizationMembership(input: {
   const nowMs = Date.now();
   const userSlug = input.userId.replace(/[^a-zA-Z0-9_-]/g, "_");
   const organizationSlug = input.organizationId.replace(/[^a-zA-Z0-9_-]/g, "_");
-  await env.OPENMELD_DB.prepare(
-    `
-      INSERT OR IGNORE INTO users (
+  await getPostgresDatabase(env).query({
+    ...{
+      text: `
+      INSERT INTO "openmeld"."users" (
         id,
         name,
         email,
@@ -312,56 +307,57 @@ async function ensureTestOrganizationMembership(input: {
         created_at,
         updated_at
       )
-      VALUES (?, ?, ?, 1, ?, ?)
-    `
-  )
-    .bind(
+      VALUES ($1, $2, $3, 1, $4, $5) ON CONFLICT DO NOTHING`,
+      values: [],
+    },
+    values: [
       input.userId,
       `Test User ${userSlug}`,
       `${userSlug}@openmeld.test`,
       nowMs,
-      nowMs
-    )
-    .run();
-  await env.OPENMELD_DB.prepare(
-    `
-      INSERT OR IGNORE INTO organizations (
+      nowMs,
+    ],
+  });
+  await getPostgresDatabase(env).query({
+    ...{
+      text: `
+      INSERT INTO "openmeld"."organizations" (
         id,
         name,
         slug,
         created_at
       )
-      VALUES (?, ?, ?, ?)
-    `
-  )
-    .bind(
+      VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
+      values: [],
+    },
+    values: [
       input.organizationId,
       `Test Organization ${organizationSlug}`,
       organizationSlug,
-      nowMs
-    )
-    .run();
-  await env.OPENMELD_DB.prepare(
-    `
-      INSERT OR IGNORE INTO members (
+      nowMs,
+    ],
+  });
+  await getPostgresDatabase(env).query({
+    ...{
+      text: `
+      INSERT INTO "openmeld"."members" (
         id,
         organization_id,
         user_id,
         role,
         created_at
       )
-      VALUES (?, ?, ?, 'member', ?)
-    `
-  )
-    .bind(
+      VALUES ($1, $2, $3, 'member', $4) ON CONFLICT DO NOTHING`,
+      values: [],
+    },
+    values: [
       `${input.organizationId}:${input.userId}`,
       input.organizationId,
       input.userId,
-      nowMs
-    )
-    .run();
+      nowMs,
+    ],
+  });
 }
-
 async function ensureTestCenterAgentDesignation(input: {
   agentProfileId: string;
   agentProfileName: string;
@@ -372,11 +368,11 @@ async function ensureTestCenterAgentDesignation(input: {
     organizationId: input.organizationId,
     userId: input.ownerUserId,
   });
-
   const nowMs = Date.now();
-  await env.OPENMELD_DB.prepare(
-    `
-      INSERT INTO openmeld_profiles (
+  await getPostgresDatabase(env).query({
+    ...{
+      text: `
+      INSERT INTO "openmeld"."openmeld_profiles" (
         profile_id,
         profile_name,
         profile_handle,
@@ -393,7 +389,7 @@ async function ensureTestCenterAgentDesignation(input: {
         created_at,
         updated_at
       )
-      VALUES (?, ?, ?, 'agent', 0, 'active', ?, NULL, ?, NULL, 'auth_bootstrap', 'center_agent', NULL, ?, ?)
+      VALUES ($1, $2, $3, 'agent', 0, 'active', $4, NULL, $5, NULL, 'auth_bootstrap', 'center_agent', NULL, $6, $7)
       ON CONFLICT(profile_id) DO UPDATE SET
         profile_name = excluded.profile_name,
         status = excluded.status,
@@ -401,39 +397,46 @@ async function ensureTestCenterAgentDesignation(input: {
         owner_user_id = excluded.owner_user_id,
         managed_role = excluded.managed_role,
         updated_at = excluded.updated_at
-    `
-  )
-    .bind(
+    `,
+      values: [],
+    },
+    values: [
       input.agentProfileId,
       input.agentProfileName,
       `center-agent-${randomUUID()}`,
       input.organizationId,
       input.ownerUserId,
       nowMs,
-      nowMs
-    )
-    .run();
-  await env.OPENMELD_DB.prepare(
-    `
-      INSERT INTO center_agent_designations (
+      nowMs,
+    ],
+  });
+  await getPostgresDatabase(env).query({
+    ...{
+      text: `
+      INSERT INTO "openmeld"."center_agent_designations" (
         organization_id,
         agent_profile_id,
         duty,
         designated_by,
         created_at
       )
-      VALUES (?, ?, NULL, ?, ?)
+      VALUES ($1, $2, NULL, $3, $4)
       ON CONFLICT(organization_id) DO UPDATE SET
         agent_profile_id = excluded.agent_profile_id,
         duty = NULL,
         designated_by = excluded.designated_by,
         created_at = excluded.created_at
-    `
-  )
-    .bind(input.organizationId, input.agentProfileId, input.ownerUserId, nowMs)
-    .run();
+    `,
+      values: [],
+    },
+    values: [
+      input.organizationId,
+      input.agentProfileId,
+      input.ownerUserId,
+      nowMs,
+    ],
+  });
 }
-
 describe("Delegated Space initialization", () => {
   it.each([
     false,
@@ -477,14 +480,18 @@ describe("Delegated Space initialization", () => {
     const state = await runInDurableObject(stub, (_instance, doState) => ({
       ownerStatus:
         [
-          ...doState.storage.sql.exec<{ status: string }>(
+          ...doState.storage.sql.exec<{
+            status: string;
+          }>(
             "SELECT status FROM space_members WHERE profile_id = ?",
             ownerProfileId
           ),
         ][0]?.status ?? null,
       creatorStatus:
         [
-          ...doState.storage.sql.exec<{ status: string }>(
+          ...doState.storage.sql.exec<{
+            status: string;
+          }>(
             "SELECT status FROM space_members WHERE profile_id = ?",
             creatorProfileId
           ),
@@ -511,11 +518,17 @@ describe("Delegated Space initialization", () => {
       passwordProtected ? "protected" : "members_only"
     );
     expect(
-      await env.OPENMELD_DB.prepare(
-        "SELECT COUNT(*) AS count FROM space_owner_member_references WHERE space_id = ?"
-      )
-        .bind(spaceId)
-        .first<{ count: number }>()
+      await getPostgresDatabase(env)
+        .query<{
+          count: number;
+        }>({
+          ...{
+            text: 'SELECT COUNT(*) AS count FROM "openmeld"."space_owner_member_references" WHERE space_id = $1',
+            values: [],
+          },
+          values: [spaceId],
+        })
+        .then((result) => result.rows[0] ?? null)
     ).toMatchObject({ count: 1 });
     const responseLostEnv = {
       ...env,
@@ -543,14 +556,19 @@ describe("Delegated Space initialization", () => {
       })
     ).rejects.toThrow("simulated response loss");
     expect(
-      await env.OPENMELD_DB.prepare(
-        "SELECT COUNT(*) AS count FROM space_owner_member_references WHERE space_id = ?"
-      )
-        .bind(spaceId)
-        .first<{ count: number }>()
+      await getPostgresDatabase(env)
+        .query<{
+          count: number;
+        }>({
+          ...{
+            text: 'SELECT COUNT(*) AS count FROM "openmeld"."space_owner_member_references" WHERE space_id = $1',
+            values: [],
+          },
+          values: [spaceId],
+        })
+        .then((result) => result.rows[0] ?? null)
     ).toMatchObject({ count: 1 });
   });
-
   it("rolls back metadata when the initial owner member write fails", async () => {
     const organizationId = randomUUID();
     const ownerUserId = randomUUID();
@@ -590,11 +608,9 @@ describe("Delegated Space initialization", () => {
     } as CoreBindings;
     // Fail the actual Space SQL insert, after metadata initialization begins.
     await runInDurableObject(stub, (_instance, doState) => {
-      doState.storage.sql.exec(
-        `CREATE TRIGGER fail_initial_owner BEFORE INSERT ON space_members
+      doState.storage.sql.exec(`CREATE TRIGGER fail_initial_owner BEFORE INSERT ON space_members
         WHEN NEW.profile_id = '${ownerProfileId}'
-        BEGIN SELECT RAISE(ABORT, 'injected initial owner failure'); END`
-      );
+        BEGIN SELECT RAISE(ABORT, 'injected initial owner failure'); END`);
     });
     const failure = await rpcCenterAgentCreateSpace(testEnv, {
       context,
@@ -613,15 +629,15 @@ describe("Delegated Space initialization", () => {
         const state = {
           metaCount:
             [
-              ...doState.storage.sql.exec<{ count: number }>(
-                "SELECT COUNT(*) AS count FROM space_meta"
-              ),
+              ...doState.storage.sql.exec<{
+                count: number;
+              }>("SELECT COUNT(*) AS count FROM space_meta"),
             ][0]?.count ?? 0,
           memberCount:
             [
-              ...doState.storage.sql.exec<{ count: number }>(
-                "SELECT COUNT(*) AS count FROM space_members"
-              ),
+              ...doState.storage.sql.exec<{
+                count: number;
+              }>("SELECT COUNT(*) AS count FROM space_members"),
             ][0]?.count ?? 0,
         };
         doState.storage.sql.exec("DROP TRIGGER fail_initial_owner");
@@ -630,11 +646,17 @@ describe("Delegated Space initialization", () => {
     );
     expect(failedState).toEqual({ metaCount: 0, memberCount: 0 });
     expect(
-      await env.OPENMELD_DB.prepare(
-        "SELECT COUNT(*) AS count FROM space_owner_member_references WHERE space_id = ?"
-      )
-        .bind(spaceId)
-        .first<{ count: number }>()
+      await getPostgresDatabase(env)
+        .query<{
+          count: number;
+        }>({
+          ...{
+            text: 'SELECT COUNT(*) AS count FROM "openmeld"."space_owner_member_references" WHERE space_id = $1',
+            values: [],
+          },
+          values: [spaceId],
+        })
+        .then((result) => result.rows[0] ?? null)
     ).toMatchObject({ count: 0 });
     await rpcCenterAgentCreateSpace(testEnv, {
       context,
@@ -647,13 +669,15 @@ describe("Delegated Space initialization", () => {
       (_instance, doState) => ({
         meta:
           [
-            ...doState.storage.sql.exec<{ count: number }>(
-              "SELECT COUNT(*) AS count FROM space_meta"
-            ),
+            ...doState.storage.sql.exec<{
+              count: number;
+            }>("SELECT COUNT(*) AS count FROM space_meta"),
           ][0]?.count ?? 0,
         ownerStatus:
           [
-            ...doState.storage.sql.exec<{ status: string }>(
+            ...doState.storage.sql.exec<{
+              status: string;
+            }>(
               "SELECT status FROM space_members WHERE profile_id = ?",
               ownerProfileId
             ),
@@ -662,24 +686,30 @@ describe("Delegated Space initialization", () => {
     );
     expect(retried).toEqual({ meta: 1, ownerStatus: "active" });
     expect(
-      await env.OPENMELD_DB.prepare(
-        "SELECT COUNT(*) AS count FROM space_owner_member_references WHERE space_id = ?"
-      )
-        .bind(spaceId)
-        .first<{ count: number }>()
+      await getPostgresDatabase(env)
+        .query<{
+          count: number;
+        }>({
+          ...{
+            text: 'SELECT COUNT(*) AS count FROM "openmeld"."space_owner_member_references" WHERE space_id = $1',
+            values: [],
+          },
+          values: [spaceId],
+        })
+        .then((result) => result.rows[0] ?? null)
     ).toMatchObject({ count: 1 });
   });
 });
-
 async function insertTestManagedCenterAgentProfile(input: {
   agentProfileId: string;
   organizationId: string;
   ownerUserId: string;
 }): Promise<void> {
   const nowMs = Date.now();
-  await env.OPENMELD_DB.prepare(
-    `
-      INSERT INTO openmeld_profiles (
+  await getPostgresDatabase(env).query({
+    ...{
+      text: `
+      INSERT INTO "openmeld"."openmeld_profiles" (
         profile_id,
         profile_name,
         profile_handle,
@@ -696,29 +726,30 @@ async function insertTestManagedCenterAgentProfile(input: {
         created_at,
         updated_at
       )
-      VALUES (?, 'Center Agent', ?, 'agent', 0, 'active', ?, NULL, ?, NULL, 'auth_bootstrap', 'center_agent', NULL, ?, ?)
-    `
-  )
-    .bind(
+      VALUES ($1, 'Center Agent', $2, 'agent', 0, 'active', $3, NULL, $4, NULL, 'auth_bootstrap', 'center_agent', NULL, $5, $6)
+    `,
+      values: [],
+    },
+    values: [
       input.agentProfileId,
       `center-agent-${randomUUID()}`,
       input.organizationId,
       input.ownerUserId,
       nowMs,
-      nowMs
-    )
-    .run();
+      nowMs,
+    ],
+  });
 }
-
 async function insertTestOrganizationAgentProfile(input: {
   agentProfileId: string;
   organizationId: string;
   ownerUserId: string;
 }): Promise<void> {
   const nowMs = Date.now();
-  await env.OPENMELD_DB.prepare(
-    `
-      INSERT INTO openmeld_profiles (
+  await getPostgresDatabase(env).query({
+    ...{
+      text: `
+      INSERT INTO "openmeld"."openmeld_profiles" (
         profile_id,
         profile_name,
         profile_handle,
@@ -735,29 +766,30 @@ async function insertTestOrganizationAgentProfile(input: {
         created_at,
         updated_at
       )
-      VALUES (?, 'Research Agent', ?, 'agent', 0, 'active', ?, ?, ?, NULL, 'web_create', NULL, NULL, ?, ?)
-    `
-  )
-    .bind(
+      VALUES ($1, 'Research Agent', $2, 'agent', 0, 'active', $3, $4, $5, NULL, 'web_create', NULL, NULL, $6, $7)
+    `,
+      values: [],
+    },
+    values: [
       input.agentProfileId,
       `research-agent-${randomUUID()}`,
       input.organizationId,
       input.ownerUserId,
       input.ownerUserId,
       nowMs,
-      nowMs
-    )
-    .run();
+      nowMs,
+    ],
+  });
 }
-
 async function insertTestPrimaryHumanProfile(input: {
   ownerUserId: string;
   profileId: string;
 }): Promise<void> {
   const nowMs = Date.now();
-  await env.OPENMELD_DB.prepare(
-    `
-      INSERT INTO openmeld_profiles (
+  await getPostgresDatabase(env).query({
+    ...{
+      text: `
+      INSERT INTO "openmeld"."openmeld_profiles" (
         profile_id,
         profile_name,
         profile_handle,
@@ -774,20 +806,20 @@ async function insertTestPrimaryHumanProfile(input: {
         created_at,
         updated_at
       )
-      VALUES (?, 'Fresh Owner', ?, 'human', 1, 'active', NULL, ?, ?, NULL, 'auth_bootstrap', NULL, NULL, ?, ?)
-    `
-  )
-    .bind(
+      VALUES ($1, 'Fresh Owner', $2, 'human', 1, 'active', NULL, $3, $4, NULL, 'auth_bootstrap', NULL, NULL, $5, $6)
+    `,
+      values: [],
+    },
+    values: [
       input.profileId,
       `fresh-owner-${randomUUID()}`,
       input.ownerUserId,
       input.ownerUserId,
       nowMs,
-      nowMs
-    )
-    .run();
+      nowMs,
+    ],
+  });
 }
-
 function inferAuthProfile(
   input: string,
   init?: RequestInit
@@ -796,7 +828,6 @@ function inferAuthProfile(
   const path = url.pathname;
   const method = String(init?.method ?? "GET").toUpperCase();
   const body = parseJsonObject(init?.body);
-
   const cursorMatch = CURSOR_PATH_RE.exec(path);
   if (cursorMatch?.[1]) {
     const profileId = decodeURIComponent(cursorMatch[1]).trim();
@@ -807,9 +838,12 @@ function inferAuthProfile(
       };
     }
   }
-
   if (method === "POST" && path === "/v1/spaces") {
-    const creator = (body as { creator?: unknown } | null)?.creator;
+    const creator = (
+      body as {
+        creator?: unknown;
+      } | null
+    )?.creator;
     if (creator && typeof creator === "object") {
       const creatorObj = creator as {
         profileId?: unknown;
@@ -841,9 +875,12 @@ function inferAuthProfile(
       }
     }
   }
-
   if (method === "POST" && SIGNALS_PATH_RE.test(path)) {
-    const profile = (body as { profile?: unknown } | null)?.profile;
+    const profile = (
+      body as {
+        profile?: unknown;
+      } | null
+    )?.profile;
     if (profile && typeof profile === "object") {
       const profileObj = profile as {
         profileId?: unknown;
@@ -892,10 +929,8 @@ function inferAuthProfile(
       }
     }
   }
-
   return {};
 }
-
 function parseJsonObject(body: RequestInit["body"]): object | null {
   if (typeof body !== "string") {
     return null;
@@ -907,7 +942,6 @@ function parseJsonObject(body: RequestInit["body"]): object | null {
     return null;
   }
 }
-
 function toCanonicalOpenMeldProfileId(
   profileId: string,
   profileKind: TestAuthProfile["profileKind"]
@@ -922,22 +956,18 @@ function toCanonicalOpenMeldProfileId(
   if (isAgentProfileId(normalized)) {
     return normalized;
   }
-
   const digest = createHash("sha256")
     .update(`${profileKind}:${normalized}`)
     .digest("hex");
   const uuid = `${digest.slice(0, 8)}-${digest.slice(8, 12)}-4${digest.slice(13, 16)}-8${digest.slice(17, 20)}-${digest.slice(20, 32)}`;
   return profileKind === "agent" ? `agt_${uuid}` : uuid;
 }
-
 function isUuid(value: string): boolean {
   return UUID_REGEX.test(value);
 }
-
 function isAgentProfileId(value: string): boolean {
   return AGENT_PROFILE_ID_REGEX.test(value);
 }
-
 async function createSpace(
   body?: Record<string, unknown>,
   authProfile?: Partial<TestAuthProfile>,
@@ -963,39 +993,43 @@ async function createSpace(
   if (response.status !== 200) {
     throw new Error(`Expected 200 from create space, got ${response.status}`);
   }
-
-  const data = (await response.json()) as { spaceId?: unknown };
+  const data = (await response.json()) as {
+    spaceId?: unknown;
+  };
   if (
     typeof data.spaceId !== "string" ||
     !SPACE_ID_HEX_REGEX.test(data.spaceId)
   ) {
     throw new Error("Expected response to include a 64-hex spaceId");
   }
-
   return data.spaceId;
 }
-
 async function readDrainedResponseStatus(response: Response): Promise<number> {
   const status = response.status;
   await response.text();
   return status;
 }
-
-async function readResponseStatusAndCode(
-  response: Response
-): Promise<{ code?: string; status: number }> {
+async function readResponseStatusAndCode(response: Response): Promise<{
+  code?: string;
+  status: number;
+}> {
   const status = response.status;
-  const payload = (await response.json()) as { code?: string };
+  const payload = (await response.json()) as {
+    code?: string;
+  };
   return {
     status,
     ...(payload.code === undefined ? {} : { code: payload.code }),
   };
 }
-
 async function postTextSignal(
   spaceId: string,
   text: string
-): Promise<SignalEnvelope & { type: "signal.text" }> {
+): Promise<
+  SignalEnvelope & {
+    type: "signal.text";
+  }
+> {
   const response = await fetchWithOpenMeldAuth(
     `${BASE_URL}/v1/spaces/${spaceId}/signals`,
     {
@@ -1025,7 +1059,6 @@ async function postTextSignal(
   }
   return payload;
 }
-
 async function openSpaceSocket(
   spaceId: string,
   profile: {
@@ -1046,7 +1079,6 @@ async function openSpaceSocket(
     requestOptions,
     authProfile
   );
-
   beforeHello?.(socket);
   const ack = waitForJsonMessage(
     socket,
@@ -1056,7 +1088,6 @@ async function openSpaceSocket(
   await ack;
   return socket;
 }
-
 async function openPendingSpaceSocket(
   spaceId: string,
   profile: {
@@ -1099,7 +1130,6 @@ async function openPendingSpaceSocket(
     },
     requestOptions
   );
-
   if (response.status !== 101) {
     throw new Error(
       `Expected 101 Switching Protocols from openSpaceSocket, got ${response.status}`
@@ -1109,11 +1139,9 @@ async function openPendingSpaceSocket(
   if (!socket) {
     throw new Error("Missing WebSocket on response");
   }
-
   socket.accept();
   return socket;
 }
-
 describe("OpenMeld Core", () => {
   it("authorizes manual summary recovery only for a current matching human member", async () => {
     const spaceId = await createSpace({
@@ -1145,22 +1173,18 @@ describe("OpenMeld Core", () => {
   });
   it("creates a new space", async () => {
     const spaceId = await createSpace({ accessMode: undefined });
-
     const metaResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/meta`
     );
-
     expect(metaResponse.status).toBe(200);
     await expect(metaResponse.json()).resolves.toMatchObject({
       accessMode: "members_only",
       visibility: "private",
     });
   });
-
   it("rejects unauthenticated HTTP requests with 401", async () => {
     const spaceId = await createSpace();
     const response = await SELF.fetch(`${BASE_URL}/v1/spaces/${spaceId}/meta`);
-
     expect(response.status).toBe(401);
     const payload = (await response.json()) as {
       code?: string;
@@ -1169,7 +1193,6 @@ describe("OpenMeld Core", () => {
     expect(payload.code).toBe("auth.unauthenticated");
     expect(payload.message).toBe("authentication required");
   });
-
   it("rejects unauthenticated websocket upgrades with 401", async () => {
     const spaceId = await createSpace();
     const response = await SELF.fetch(
@@ -1178,7 +1201,6 @@ describe("OpenMeld Core", () => {
         headers: { Upgrade: "websocket" },
       }
     );
-
     expect(response.status).toBe(401);
     expect(response.webSocket).toBeNull();
     const payload = (await response.json()) as {
@@ -1188,7 +1210,6 @@ describe("OpenMeld Core", () => {
     expect(payload.code).toBe("auth.unauthenticated");
     expect(payload.message).toBe("authentication required");
   });
-
   it.each([
     "human",
     "agent",
@@ -1412,7 +1433,6 @@ describe("OpenMeld Core", () => {
       expect(preAgentStop).not.toHaveBeenCalled();
     });
   });
-
   it.each([
     ["public", "allowed"],
     ["protected", "password_required"],
@@ -1437,7 +1457,6 @@ describe("OpenMeld Core", () => {
       expect(result.safeContext).toEqual({});
     }
   });
-
   it("routes Wake Stop POST requests to a typed response instead of 404", async () => {
     const spaceId = await createSpace();
     const response = await fetchWithOpenMeldAuth(
@@ -1454,7 +1473,6 @@ describe("OpenMeld Core", () => {
         }),
       }
     );
-
     expect(response.status).toBe(200);
     const payload = await response.json();
     const parsed = postSpaceWakeStopResponseSchema.safeParse(payload);
@@ -1473,23 +1491,27 @@ describe("OpenMeld Core", () => {
       },
     });
   });
-
   it("asks the user to retry when the agent interaction projection cannot be read", async () => {
     const spaceId = await createSpace();
     const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
     const stub = namespace.get(namespace.idFromString(spaceId));
-    const failingWakeEvidenceDb = {
-      prepare: () => ({
-        bind: () => ({
-          first: () => Promise.reject(new Error("d1 unavailable")),
-        }),
-      }),
-    } as unknown as D1Database;
-
+    const nativeQuery = PostgresDatabase.prototype.query;
+    const fault = vi
+      .spyOn(PostgresDatabase.prototype, "query")
+      .mockImplementation(async function (
+        this: PostgresDatabase,
+        query,
+        values
+      ) {
+        const text = typeof query === "string" ? query : query.text;
+        if (text.includes('"openMeldDaemon_runtime_coordinator_executions"')) {
+          throw new Error("PostgreSQL unavailable");
+        }
+        return await nativeQuery.call(this, query, values);
+      });
     const result = await runInDurableObject(stub, async (_instance, state) => {
       const restarted = new Space(state, {
         ...(env as unknown as CoreBindings),
-        OPENMELD_WAKE_EVIDENCE_DB: failingWakeEvidenceDb,
       });
       return await restarted.rpcRespondToAgentInteraction({
         body: {
@@ -1510,30 +1532,20 @@ describe("OpenMeld Core", () => {
         spaceId,
       });
     });
-
+    fault.mockRestore();
     expect(result).toEqual({
       message: "OpenMeld could not read this Wake right now. Please try again.",
       ok: false,
       status: "retry_later",
     });
   });
-
   it("reports not found only when the agent interaction projection is actually absent", async () => {
     const spaceId = await createSpace();
     const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
     const stub = namespace.get(namespace.idFromString(spaceId));
-    const emptyWakeEvidenceDb = {
-      prepare: () => ({
-        bind: () => ({
-          first: () => Promise.resolve(null),
-        }),
-      }),
-    } as unknown as D1Database;
-
     const result = await runInDurableObject(stub, async (_instance, state) => {
       const restarted = new Space(state, {
         ...(env as unknown as CoreBindings),
-        OPENMELD_WAKE_EVIDENCE_DB: emptyWakeEvidenceDb,
       });
       return await restarted.rpcRespondToAgentInteraction({
         body: {
@@ -1554,14 +1566,12 @@ describe("OpenMeld Core", () => {
         spaceId,
       });
     });
-
     expect(result).toEqual({
       message: "This local agent request is no longer available.",
       ok: false,
       status: "not_found",
     });
   });
-
   it("settles Core delivery state when Remote confirms the execution is already cancelled", async () => {
     const idempotencyKey = `space-stop-confirmed-${randomUUID()}`;
     const dispatchId = `dispatch-stop-confirmed-${randomUUID()}`;
@@ -1591,9 +1601,10 @@ describe("OpenMeld Core", () => {
       },
       status: "already_cancelled" as const,
     }));
-    await env.OPENMELD_DB.prepare(
-      `
-        INSERT INTO openMeldDaemon_dispatch_ledger (
+    await getPostgresDatabase(env).query({
+      ...{
+        text: `
+        INSERT INTO "openmeld"."openMeldDaemon_dispatch_ledger" (
           idempotency_key,
           dispatch_id,
           space_id,
@@ -1606,10 +1617,11 @@ describe("OpenMeld Core", () => {
           attempt_count,
           latest_attempt_id
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `
-    )
-      .bind(
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      `,
+        values: [],
+      },
+      values: [
         idempotencyKey,
         dispatchId,
         nativeDeliverySpaceId,
@@ -1620,12 +1632,13 @@ describe("OpenMeld Core", () => {
         1000,
         1100,
         1,
-        attemptId
-      )
-      .run();
-    await env.OPENMELD_DB.prepare(
-      `
-        INSERT INTO openMeldDaemon_dispatch_attempts (
+        attemptId,
+      ],
+    });
+    await getPostgresDatabase(env).query({
+      ...{
+        text: `
+        INSERT INTO "openmeld"."openMeldDaemon_dispatch_attempts" (
           attempt_id,
           dispatch_id,
           idempotency_key,
@@ -1636,10 +1649,11 @@ describe("OpenMeld Core", () => {
           created_at_ms,
           started_at_ms
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `
-    )
-      .bind(
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `,
+        values: [],
+      },
+      values: [
         attemptId,
         dispatchId,
         idempotencyKey,
@@ -1648,13 +1662,13 @@ describe("OpenMeld Core", () => {
         `task-stop-confirmed-${randomUUID()}`,
         targetProfileId,
         1000,
-        1100
-      )
-      .run();
+        1100,
+      ],
+    });
     await upsertRemoteAgentNativeDeliveryRecord({
       attemptId,
       bindingId: `binding-stop-confirmed-${randomUUID()}`,
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       dispatchId,
       idempotencyKey,
       nowMs: 1000,
@@ -1666,7 +1680,7 @@ describe("OpenMeld Core", () => {
     });
     await markRemoteAgentNativeDeliveryAck({
       accepted: true,
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       idempotencyKey,
       nowMs: 1100,
       submissionId,
@@ -1686,7 +1700,10 @@ describe("OpenMeld Core", () => {
               targetProfileId: string;
             };
           };
-          lookupMatch: { dispatchId: string; targetProfileId: string };
+          lookupMatch: {
+            dispatchId: string;
+            targetProfileId: string;
+          };
         }): Promise<unknown>;
       };
       const originalBindings = space.bindings;
@@ -1718,7 +1735,9 @@ describe("OpenMeld Core", () => {
         });
         expect(
           state.storage.sql
-            .exec<{ status: string }>(
+            .exec<{
+              status: string;
+            }>(
               "SELECT status FROM openMeldDaemon_outbox WHERE dispatch_id = ?",
               dispatchId
             )
@@ -1748,10 +1767,9 @@ describe("OpenMeld Core", () => {
         space.bindings = originalBindings;
       }
     });
-
     await expect(
       readRemoteAgentNativeDeliveryBySubmissionId({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         submissionId,
       })
     ).resolves.toMatchObject({
@@ -1759,27 +1777,30 @@ describe("OpenMeld Core", () => {
       status: "failed",
     });
     await expect(
-      env.OPENMELD_DB.prepare(
-        `
+      getPostgresDatabase(env)
+        .query({
+          ...{
+            text: `
           SELECT
             ledger.status,
             attempt.status AS attempt_status,
             attempt.error_code AS attempt_error_code
-          FROM openMeldDaemon_dispatch_ledger AS ledger
-          JOIN openMeldDaemon_dispatch_attempts AS attempt
+          FROM "openmeld"."openMeldDaemon_dispatch_ledger" AS ledger
+          JOIN "openmeld"."openMeldDaemon_dispatch_attempts" AS attempt
             ON attempt.attempt_id = ledger.latest_attempt_id
-          WHERE ledger.idempotency_key = ?
-        `
-      )
-        .bind(idempotencyKey)
-        .first()
+          WHERE ledger.idempotency_key = $1
+        `,
+            values: [],
+          },
+          values: [idempotencyKey],
+        })
+        .then((result) => result.rows[0] ?? null)
     ).resolves.toMatchObject({
       attempt_error_code: "runtime_coordinator.pre_agent_stop_requested",
       attempt_status: "superseded",
       status: "cancelled",
     });
   });
-
   it("returns websocket error frames with clientMessageId when text payload validation fails", async () => {
     const spaceId = await createSpace();
     const socket = await openSpaceSocket(spaceId, {
@@ -1787,7 +1808,6 @@ describe("OpenMeld Core", () => {
       profileId: DEFAULT_HUMAN_PROFILE_ID,
       profileName: "Test User",
     });
-
     const errorFrame = waitForJsonMessage(
       socket,
       (data) =>
@@ -1804,14 +1824,12 @@ describe("OpenMeld Core", () => {
         },
       })
     );
-
     await expect(errorFrame).resolves.toMatchObject({
       error: "Expected signal.text",
       clientMessageId: "client-send-1",
     });
     socket.close(1000, "done");
   });
-
   it("omits invalid non-string clientMessageId values from websocket error frames", async () => {
     const spaceId = await createSpace();
     const socket = await openSpaceSocket(spaceId, {
@@ -1819,7 +1837,6 @@ describe("OpenMeld Core", () => {
       profileId: DEFAULT_HUMAN_PROFILE_ID,
       profileName: "Test User",
     });
-
     const errorFrame = waitForJsonMessage(
       socket,
       (data) =>
@@ -1835,13 +1852,11 @@ describe("OpenMeld Core", () => {
         },
       })
     );
-
     await expect(errorFrame).resolves.toEqual({
       error: "Expected signal.text",
     });
     socket.close(1000, "done");
   });
-
   it("lists the creator in the space members snapshot", async () => {
     const creatorProfile: Partial<TestAuthProfile> = {
       profileId: SECOND_HUMAN_PROFILE_ID,
@@ -1851,13 +1866,11 @@ describe("OpenMeld Core", () => {
       openMeldProfileId: SECOND_HUMAN_PROFILE_ID,
     };
     const spaceId = await createSpace({ name: "members-room" }, creatorProfile);
-
     const response = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/members`,
       undefined,
       creatorProfile
     );
-
     expect(response.status).toBe(200);
     const payload = (await response.json()) as {
       summary?: {
@@ -1899,7 +1912,6 @@ describe("OpenMeld Core", () => {
     ]);
     expect(payload.agents).toEqual([]);
   });
-
   it("marks directly joined profiles live after foreground activity", async () => {
     const creatorProfile: Partial<TestAuthProfile> = {
       profileId: SECOND_HUMAN_PROFILE_ID,
@@ -1929,7 +1941,6 @@ describe("OpenMeld Core", () => {
       undefined,
       joinerProfile
     );
-
     const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
     const space = namespace.get(namespace.idFromString(spaceId));
     await space.rpcRecordMemberWebActivity({
@@ -1938,16 +1949,17 @@ describe("OpenMeld Core", () => {
       userId: "owner-members-joiner-1",
       lastActiveAt: new Date().toISOString(),
     });
-
     const response = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/members`,
       undefined,
       creatorProfile
     );
-
     expect(response.status).toBe(200);
     const payload = (await response.json()) as {
-      summary?: { totalCount?: number; liveNowCount?: number };
+      summary?: {
+        totalCount?: number;
+        liveNowCount?: number;
+      };
       humans?: Array<{
         profileId?: string;
         memberSource?: string;
@@ -1968,10 +1980,8 @@ describe("OpenMeld Core", () => {
         }),
       ])
     );
-
     socket.close(1000, "done");
   });
-
   it("adds resolved members through POST /members and keeps the add source", async () => {
     const creatorProfile: Partial<TestAuthProfile> = {
       profileId: SECOND_HUMAN_PROFILE_ID,
@@ -1984,7 +1994,6 @@ describe("OpenMeld Core", () => {
       { name: "members-add-room" },
       creatorProfile
     );
-
     const addResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/members`,
       {
@@ -2005,7 +2014,6 @@ describe("OpenMeld Core", () => {
       },
       creatorProfile
     );
-
     expect(addResponse.status).toBe(200);
     const addPayload = (await addResponse.json()) as {
       addedMemberIds?: string[];
@@ -2025,17 +2033,21 @@ describe("OpenMeld Core", () => {
         memberSourceLabel: "Added by Space Host",
       }),
     ]);
-
     const listResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/members`,
       undefined,
       creatorProfile
     );
     const listPayload = (await listResponse.json()) as {
-      summary?: { totalCount?: number; humanCount?: number };
-      humans?: Array<{ profileId?: string; memberSource?: string }>;
+      summary?: {
+        totalCount?: number;
+        humanCount?: number;
+      };
+      humans?: Array<{
+        profileId?: string;
+        memberSource?: string;
+      }>;
     };
-
     expect(listPayload.summary?.totalCount).toBe(2);
     expect(listPayload.summary?.humanCount).toBe(2);
     expect(listPayload.humans).toEqual(
@@ -2047,7 +2059,6 @@ describe("OpenMeld Core", () => {
       ])
     );
   });
-
   it("enforces invite-only link joining at the member admission boundary", async () => {
     const ownerProfile: Partial<TestAuthProfile> = {
       profileId: SECOND_HUMAN_PROFILE_ID,
@@ -2078,7 +2089,6 @@ describe("OpenMeld Core", () => {
     );
     expect(guestAccessResponse.status).toBe(200);
     await guestAccessResponse.json();
-
     const joinBody = JSON.stringify({
       members: [
         {
@@ -2104,7 +2114,6 @@ describe("OpenMeld Core", () => {
     await expect(blocked.json()).resolves.toMatchObject({
       code: "space.membership_required",
     });
-
     const enableLinkJoin = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/access-mode`,
       {
@@ -2119,7 +2128,6 @@ describe("OpenMeld Core", () => {
     );
     expect(enableLinkJoin.status).toBe(200);
     await enableLinkJoin.json();
-
     const admitted = await fetchSpaceDoWithOpenMeldAuth(
       { path: "/members", spaceId },
       {
@@ -2134,7 +2142,6 @@ describe("OpenMeld Core", () => {
       addedMemberIds: [THIRD_HUMAN_PROFILE_ID],
     });
   });
-
   it("atomically requires actor membership for protected member batches", async () => {
     const creatorProfile: Partial<TestAuthProfile> = {
       profileId: SECOND_HUMAN_PROFILE_ID,
@@ -2147,7 +2154,6 @@ describe("OpenMeld Core", () => {
       { name: "protected-members-room", visibility: "public" },
       creatorProfile
     );
-
     await expect(
       rpcAddSpaceMembers(env as CoreBindings, {
         context: createRpcContext({
@@ -2171,22 +2177,24 @@ describe("OpenMeld Core", () => {
         spaceId,
       })
     ).rejects.toThrow(MEMBERSHIP_REQUIRED_RPC_ERROR_REGEX);
-
     const listResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/members`,
       undefined,
       creatorProfile
     );
     const listPayload = (await listResponse.json()) as {
-      summary?: { totalCount?: number };
-      humans?: Array<{ profileId?: string }>;
+      summary?: {
+        totalCount?: number;
+      };
+      humans?: Array<{
+        profileId?: string;
+      }>;
     };
     expect(listPayload.summary?.totalCount).toBe(1);
     expect(listPayload.humans).toEqual([
       expect.objectContaining({ profileId: SECOND_HUMAN_PROFILE_ID }),
     ]);
   });
-
   it("rejects direct HTTP member adds for Center Agent Direct Messages", async () => {
     const organizationId = "org-center-agent-dm-http-members";
     const memberProfile: Partial<TestAuthProfile> = {
@@ -2220,7 +2228,6 @@ describe("OpenMeld Core", () => {
         }),
       }
     );
-
     const addResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${opened.spaceId}/members`,
       {
@@ -2242,7 +2249,6 @@ describe("OpenMeld Core", () => {
       memberProfile,
       { activeOrganizationId: organizationId }
     );
-
     expect(addResponse.status).toBe(403);
     await expect(addResponse.json()).resolves.toMatchObject({
       error: {
@@ -2251,7 +2257,6 @@ describe("OpenMeld Core", () => {
       },
     });
   });
-
   it.each([
     false,
     true,
@@ -2317,7 +2322,6 @@ describe("OpenMeld Core", () => {
       ],
       spaceId,
     });
-
     const outsiderStatusResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/status`,
       undefined,
@@ -2334,7 +2338,6 @@ describe("OpenMeld Core", () => {
     await expect(outsiderStatusResponse.json()).resolves.toMatchObject({
       code: "space.membership_required",
     });
-
     const unconfirmedAddResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/members`,
       {
@@ -2360,7 +2363,6 @@ describe("OpenMeld Core", () => {
     await expect(unconfirmedAddResponse.json()).resolves.toMatchObject({
       code: "direct_message.conversion_required",
     });
-
     const sameOwnerDifferentHumanContext = createRpcContext({
       activeOrganizationId: organizationId,
       profileId: FOURTH_HUMAN_PROFILE_ID,
@@ -2391,8 +2393,16 @@ describe("OpenMeld Core", () => {
           return null;
         } catch (error) {
           return {
-            code: (error as { code?: unknown }).code,
-            status: (error as { status?: unknown }).status,
+            code: (
+              error as {
+                code?: unknown;
+              }
+            ).code,
+            status: (
+              error as {
+                status?: unknown;
+              }
+            ).status,
           };
         }
       }
@@ -2401,7 +2411,6 @@ describe("OpenMeld Core", () => {
       code: "space.membership_required",
       status: 403,
     });
-
     const converted = await stub.rpcConvertDirectMessageToSpace({
       context,
       includeMemberSnapshots,
@@ -2424,7 +2433,6 @@ describe("OpenMeld Core", () => {
       name: "DM Creator, Test User, and Third Member",
       spaceId,
     });
-
     const status = await stub.rpcGetStatus({ context, spaceId });
     if (includeMemberSnapshots) {
       expect(converted.items).toEqual([
@@ -2457,8 +2465,16 @@ describe("OpenMeld Core", () => {
           return null;
         } catch (error) {
           return {
-            code: (error as { code?: unknown }).code,
-            status: (error as { status?: unknown }).status,
+            code: (
+              error as {
+                code?: unknown;
+              }
+            ).code,
+            status: (
+              error as {
+                status?: unknown;
+              }
+            ).status,
           };
         }
       }
@@ -2468,7 +2484,6 @@ describe("OpenMeld Core", () => {
       status: 409,
     });
   });
-
   it("requires confirmation when one Direct Message member adds two people at once", async () => {
     const organizationId = "org-direct-message-batch-conversion";
     const creatorProfile: Partial<TestAuthProfile> = {
@@ -2523,7 +2538,6 @@ describe("OpenMeld Core", () => {
       ],
       spaceId,
     });
-
     const response = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/members`,
       {
@@ -2553,7 +2567,6 @@ describe("OpenMeld Core", () => {
       creatorProfile,
       { activeOrganizationId: organizationId }
     );
-
     expect(response.status).toBe(409);
     await expect(response.json()).resolves.toMatchObject({
       code: "direct_message.conversion_required",
@@ -2562,7 +2575,6 @@ describe("OpenMeld Core", () => {
     expect(status).toMatchObject({ members: { totalCount: 1 } });
     expect(status.directMessageConvertedAt).toBeUndefined();
   });
-
   it("keeps an Agent owner read-only until they explicitly join and convert the Direct Message", async () => {
     const organizationId = "org-agent-owner-observer";
     await ensureTestOrganizationMembership({
@@ -2638,14 +2650,12 @@ describe("OpenMeld Core", () => {
       ],
       spaceId,
     });
-
     await expect(
       stub.rpcGetStatus({ context: ownerContext, spaceId })
     ).resolves.toMatchObject({
       members: { totalCount: 2 },
       spacePurpose: "openmeld_dm_space",
     });
-
     const ownerSpaceAccess = createAuthenticatedSpaceAccessContext({
       requestContext: ownerContext,
       spaceId,
@@ -2669,7 +2679,6 @@ describe("OpenMeld Core", () => {
     expect((readOnlyFileWriteError as Error).message).toContain(
       "space.access.read_only"
     );
-
     const readOnlyWriteError = await stub
       .rpcPostSignal({
         authoringPolicy: "user_authored",
@@ -2690,7 +2699,6 @@ describe("OpenMeld Core", () => {
     expect((readOnlyWriteError as Error).message).toContain(
       "space.access.read_only"
     );
-
     const invalidConversionError = await runInDurableObject(
       stub,
       async (instance) => {
@@ -2713,8 +2721,16 @@ describe("OpenMeld Core", () => {
           return null;
         } catch (error) {
           return {
-            code: (error as { code?: unknown }).code,
-            status: (error as { status?: unknown }).status,
+            code: (
+              error as {
+                code?: unknown;
+              }
+            ).code,
+            status: (
+              error as {
+                status?: unknown;
+              }
+            ).status,
           };
         }
       }
@@ -2723,7 +2739,6 @@ describe("OpenMeld Core", () => {
       code: "space.membership_required",
       status: 403,
     });
-
     const converted = await stub.rpcConvertDirectMessageToSpace({
       context: ownerContext,
       members: [
@@ -2755,7 +2770,6 @@ describe("OpenMeld Core", () => {
     ).resolves.toMatchObject({
       data: { text: "I can participate after joining" },
     });
-
     const blockedLeaveError = await stub
       .rpcLeaveSpace({ context: ownerContext, spaceId })
       .then(
@@ -2778,7 +2792,6 @@ describe("OpenMeld Core", () => {
     expect((blockedRemovalError as Error).message).toContain(
       "space.agent_owner_membership_required"
     );
-
     await expect(
       stub.rpcRemoveMembers({
         context: participantContext,
@@ -2802,7 +2815,6 @@ describe("OpenMeld Core", () => {
       stub.rpcLeaveSpace({ context: ownerContext, spaceId })
     ).resolves.toMatchObject({ leftProfileId: ownerHumanProfileId });
   });
-
   it("reconciles an existing Agent owner after another member converts the Direct Message", async () => {
     const organizationId = "org-agent-owner-member-conversion";
     await ensureTestOrganizationMembership({
@@ -2875,7 +2887,6 @@ describe("OpenMeld Core", () => {
       ],
       spaceId,
     });
-
     await stub.rpcGetStatus({ context: participantContext, spaceId });
     await stub.rpcConvertDirectMessageToSpace({
       context: participantContext,
@@ -2892,7 +2903,6 @@ describe("OpenMeld Core", () => {
       name: "Participant, Research Agent, and Added Member",
       spaceId,
     });
-
     const members = await stub.rpcGetMembers({
       context: participantContext,
       spaceId,
@@ -2911,7 +2921,6 @@ describe("OpenMeld Core", () => {
       totalCount: 4,
     });
   });
-
   it("reconciles ordinary Agent owners into existing Spaces without adding managed Agent owners", async () => {
     const organizationId = "org-agent-owner-reconciliation";
     const participantOwnerUserId = "owner-reconciliation-participant";
@@ -2959,7 +2968,6 @@ describe("OpenMeld Core", () => {
       organizationId,
       ownerUserId: managedAgentOwnerUserId,
     });
-
     const created = await rpcCreateSpace(env as unknown as CoreBindings, {
       context: participantContext,
       name: "Existing Agent Space",
@@ -2989,7 +2997,6 @@ describe("OpenMeld Core", () => {
       ],
       spaceId: created.spaceId,
     });
-
     const firstSnapshot = await stub.rpcGetMembers({
       context: ownerContext,
       spaceId: created.spaceId,
@@ -3008,7 +3015,6 @@ describe("OpenMeld Core", () => {
         expect.objectContaining({ ownerUserId: managedAgentOwnerUserId }),
       ])
     );
-
     await expect(
       stub.rpcPostSignal({
         authoringPolicy: "user_authored",
@@ -3036,7 +3042,6 @@ describe("OpenMeld Core", () => {
       )
     ).toHaveLength(1);
   });
-
   it("rejects direct HTTP and Space DO mutations for Center Agent Direct Messages", async () => {
     const organizationId = "org-center-agent-dm-http-locked";
     const memberProfile: Partial<TestAuthProfile> = {
@@ -3070,7 +3075,6 @@ describe("OpenMeld Core", () => {
         }),
       }
     );
-
     await expect(
       readCenterAgentDirectMessageHttpForbidden(
         await fetchWithOpenMeldAuth(
@@ -3263,7 +3267,6 @@ describe("OpenMeld Core", () => {
       status: 403,
     });
   });
-
   it("removes active members through POST /members/remove and hides them from snapshots", async () => {
     const creatorProfile: Partial<TestAuthProfile> = {
       profileId: SECOND_HUMAN_PROFILE_ID,
@@ -3276,7 +3279,6 @@ describe("OpenMeld Core", () => {
       { name: "members-remove-room" },
       creatorProfile
     );
-
     const addResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/members`,
       {
@@ -3299,7 +3301,6 @@ describe("OpenMeld Core", () => {
     );
     expect(addResponse.status).toBe(200);
     await addResponse.json();
-
     const removeResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/members/remove`,
       {
@@ -3311,7 +3312,6 @@ describe("OpenMeld Core", () => {
       },
       creatorProfile
     );
-
     expect(removeResponse.status).toBe(200);
     const removePayload = (await removeResponse.json()) as {
       removedMemberIds?: string[];
@@ -3321,23 +3321,22 @@ describe("OpenMeld Core", () => {
       removedMemberIds: [THIRD_HUMAN_PROFILE_ID],
       alreadyAbsentMemberIds: [],
     });
-
     const listResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/members`,
       undefined,
       creatorProfile
     );
     const listPayload = (await listResponse.json()) as {
-      humans?: Array<{ profileId?: string }>;
+      humans?: Array<{
+        profileId?: string;
+      }>;
     };
-
     expect(listPayload.humans).not.toEqual(
       expect.arrayContaining([
         expect.objectContaining({ profileId: THIRD_HUMAN_PROFILE_ID }),
       ])
     );
   });
-
   it("rejects member removal by a human who is not a Space owner", async () => {
     const creatorProfile: Partial<TestAuthProfile> = {
       profileId: SECOND_HUMAN_PROFILE_ID,
@@ -3351,7 +3350,6 @@ describe("OpenMeld Core", () => {
       { name: "members-remove-denied-room" },
       creatorProfile
     );
-
     const addResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/members`,
       {
@@ -3374,7 +3372,6 @@ describe("OpenMeld Core", () => {
     );
     expect(addResponse.status).toBe(200);
     await addResponse.json();
-
     const removeResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/members/remove`,
       {
@@ -3392,7 +3389,6 @@ describe("OpenMeld Core", () => {
         openMeldProfileId: "55555555-5555-4555-8555-555555555555",
       }
     );
-
     expect(removeResponse.status).toBe(403);
     const removePayload = (await removeResponse.json()) as {
       code?: string;
@@ -3403,7 +3399,6 @@ describe("OpenMeld Core", () => {
       "Only a Space owner can manage members."
     );
   });
-
   it("rejects removing an active owner through POST /members/remove", async () => {
     const creatorProfile: Partial<TestAuthProfile> = {
       profileId: SECOND_HUMAN_PROFILE_ID,
@@ -3423,7 +3418,6 @@ describe("OpenMeld Core", () => {
       ownerUserId: "owner-members-creator-5",
       openMeldProfileId: THIRD_HUMAN_PROFILE_ID,
     };
-
     const addOperatorResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/members`,
       {
@@ -3446,7 +3440,6 @@ describe("OpenMeld Core", () => {
     );
     expect(addOperatorResponse.status).toBe(200);
     await addOperatorResponse.json();
-
     const removeResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/members/remove`,
       {
@@ -3458,7 +3451,6 @@ describe("OpenMeld Core", () => {
       },
       operatorProfile
     );
-
     expect(removeResponse.status).toBe(400);
     const removePayload = (await removeResponse.json()) as {
       code?: string;
@@ -3467,7 +3459,6 @@ describe("OpenMeld Core", () => {
     expect(removePayload.code).toBe("space.members.owner_forbidden");
     expect(removePayload.message).toContain("owner");
   });
-
   it("enforces space password on http routes and websocket stream", async () => {
     const creatorProfile: Partial<TestAuthProfile> = {
       profileId: "hum-pass-owner-1",
@@ -3510,7 +3501,6 @@ describe("OpenMeld Core", () => {
       openMeldProfileId: "agt_33333333-3333-4333-8333-333333333333",
       agentControllerRef: "builtin:codex",
     };
-
     const createResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces`,
       {
@@ -3527,12 +3517,13 @@ describe("OpenMeld Core", () => {
     expect(createResponse.status).toBe(200);
     const createPayload = (await createResponse.json()) as {
       spaceId?: string;
-      meta?: { passwordProtected?: boolean };
+      meta?: {
+        passwordProtected?: boolean;
+      };
     };
     const spaceId = String(createPayload.spaceId ?? "");
     expect(SPACE_ID_HEX_REGEX.test(spaceId)).toBe(true);
     expect(createPayload.meta?.passwordProtected).toBe(true);
-
     const noPasswordMeta = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/meta`,
       undefined,
@@ -3540,7 +3531,6 @@ describe("OpenMeld Core", () => {
     );
     expect(noPasswordMeta.status).toBe(200);
     await noPasswordMeta.json();
-
     const wrongPasswordMeta = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/meta`,
       undefined,
@@ -3554,7 +3544,6 @@ describe("OpenMeld Core", () => {
     };
     expect(wrongPasswordPayload.code).toBe("space.password_invalid");
     expect(wrongPasswordPayload.message).toBe("space password invalid");
-
     const okMeta = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/meta`,
       undefined,
@@ -3566,7 +3555,6 @@ describe("OpenMeld Core", () => {
       passwordProtected?: boolean;
     };
     expect(okMetaPayload.passwordProtected).toBe(true);
-
     const noPasswordSignals = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals`,
       undefined,
@@ -3574,7 +3562,6 @@ describe("OpenMeld Core", () => {
     );
     expect(noPasswordSignals.status).toBe(200);
     await noPasswordSignals.json();
-
     const sameOwnerNoPasswordSignals = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals`,
       undefined,
@@ -3582,7 +3569,6 @@ describe("OpenMeld Core", () => {
     );
     expect(sameOwnerNoPasswordSignals.status).toBe(200);
     await sameOwnerNoPasswordSignals.json();
-
     const wrongPasswordSignals = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals`,
       undefined,
@@ -3594,7 +3580,6 @@ describe("OpenMeld Core", () => {
       code?: string;
     };
     expect(wrongPasswordSignalsPayload.code).toBe("space.password_invalid");
-
     const okSignals = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals`,
       undefined,
@@ -3603,7 +3588,6 @@ describe("OpenMeld Core", () => {
     );
     expect(okSignals.status).toBe(200);
     await okSignals.json();
-
     const noPasswordCursor = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/cursors/${creatorRuntimeProfileId}`,
       undefined,
@@ -3611,7 +3595,6 @@ describe("OpenMeld Core", () => {
     );
     expect(noPasswordCursor.status).toBe(200);
     await noPasswordCursor.json();
-
     const addProtectedAgentMember = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/members`,
       {
@@ -3634,7 +3617,6 @@ describe("OpenMeld Core", () => {
     );
     expect(addProtectedAgentMember.status).toBe(200);
     await addProtectedAgentMember.json();
-
     const activeMemberNoPasswordSignals = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals`,
       undefined,
@@ -3642,7 +3624,6 @@ describe("OpenMeld Core", () => {
     );
     expect(activeMemberNoPasswordSignals.status).toBe(200);
     await activeMemberNoPasswordSignals.json();
-
     const noPasswordDelete = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}`,
       { method: "DELETE" },
@@ -3653,7 +3634,6 @@ describe("OpenMeld Core", () => {
       code?: string;
     };
     expect(noPasswordDeletePayload.code).toBe("space.password_required");
-
     const noPasswordStream = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/stream`,
       { headers: { Upgrade: "websocket" } },
@@ -3665,7 +3645,6 @@ describe("OpenMeld Core", () => {
       code?: string;
     };
     expect(noPasswordStreamPayload.code).toBe("space.password_required");
-
     const wrongPasswordStream = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/stream`,
       { headers: { Upgrade: "websocket" } },
@@ -3679,7 +3658,6 @@ describe("OpenMeld Core", () => {
     };
     expect(wrongPasswordStreamPayload.code).toBe("space.password_invalid");
   });
-
   it("checks protected route passwords before unsupported method dispatch", async () => {
     const password = "route-pass-123";
     const spaceId = await createSpace({
@@ -3695,7 +3673,6 @@ describe("OpenMeld Core", () => {
       agentControllerRef: "builtin:codex",
     };
     const routes = ["/meta", "/result?dispatchId=missing-dispatch"];
-
     for (const route of routes) {
       await expect(
         readResponseStatusAndCode(
@@ -3718,7 +3695,6 @@ describe("OpenMeld Core", () => {
           )
         )
       ).resolves.toEqual({ code: "space.password_invalid", status: 403 });
-
       const authorizedUnsupportedMethod = await fetchSpaceDoWithOpenMeldAuth(
         { path: route, spaceId },
         { method: "POST" },
@@ -3729,7 +3705,6 @@ describe("OpenMeld Core", () => {
       await authorizedUnsupportedMethod.text();
     }
   });
-
   it("routes every password-protected read/update handler for allowed methods", async () => {
     const password = "route-pass-123";
     const spaceId = await createSpace({
@@ -3746,7 +3721,6 @@ describe("OpenMeld Core", () => {
       entryBrief: "default",
       dispatchBrief: "default",
     };
-
     await expect(
       readDrainedResponseStatus(
         await fetchWithOpenMeldAuth(
@@ -3870,14 +3844,12 @@ describe("OpenMeld Core", () => {
       )
     ).resolves.not.toBe(405);
   });
-
   it("routes protected member removal without method dispatch drift", async () => {
     const password = "route-pass-123";
     const spaceId = await createSpace({
       name: "protected-remove-route-wiring",
       password,
     });
-
     await expect(
       readDrainedResponseStatus(
         await fetchWithOpenMeldAuth(
@@ -3895,21 +3867,29 @@ describe("OpenMeld Core", () => {
       )
     ).resolves.not.toBe(405);
   });
-
   it("reads Message Details through the protected Space route", async () => {
     const spaceId = await createSpace({ name: "message-details-route" });
     const signal = await postTextSignal(spaceId, "Message Details route smoke");
-
     const response = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/message-details?signalId=${encodeURIComponent(signal.id)}`
     );
-
     expect(response.status).toBe(200);
     const payload = (await response.json()) as {
-      agentContext?: { state?: unknown };
-      diagnostics?: { signalId?: unknown };
-      message?: { actor?: { displayName?: unknown }; signalId?: unknown };
-      wakeContext?: { state?: unknown };
+      agentContext?: {
+        state?: unknown;
+      };
+      diagnostics?: {
+        signalId?: unknown;
+      };
+      message?: {
+        actor?: {
+          displayName?: unknown;
+        };
+        signalId?: unknown;
+      };
+      wakeContext?: {
+        state?: unknown;
+      };
     };
     expect(payload.message?.signalId).toBe(signal.id);
     expect(payload.message?.actor?.displayName).toBe("alice");
@@ -3917,14 +3897,12 @@ describe("OpenMeld Core", () => {
     expect(payload.wakeContext?.state).toBe("not_applicable");
     expect(payload.diagnostics?.signalId).toBe(signal.id);
   });
-
   it("routes protected leave without method dispatch drift", async () => {
     const password = "route-pass-123";
     const spaceId = await createSpace({
       name: "protected-leave-route-wiring",
       password,
     });
-
     await expect(
       readDrainedResponseStatus(
         await fetchWithOpenMeldAuth(
@@ -3936,14 +3914,12 @@ describe("OpenMeld Core", () => {
       )
     ).resolves.not.toBe(405);
   });
-
   it("routes protected space deletion without method dispatch drift", async () => {
     const password = "route-pass-123";
     const spaceId = await createSpace({
       name: "protected-delete-route-wiring",
       password,
     });
-
     await expect(
       readDrainedResponseStatus(
         await fetchWithOpenMeldAuth(
@@ -3955,7 +3931,6 @@ describe("OpenMeld Core", () => {
       )
     ).resolves.not.toBe(405);
   });
-
   it("supports password upsert/clear and enforces owner rules", async () => {
     const ownerProfile: Partial<TestAuthProfile> = {
       profileId: "hum-manage-owner-1",
@@ -3971,12 +3946,10 @@ describe("OpenMeld Core", () => {
       ownerUserId: "owner-manage-2",
       openMeldProfileId: "hum-manage-other-1",
     };
-
     const spaceId = await createSpace(
       { name: "manage-password-space" },
       ownerProfile
     );
-
     const tooShort = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/password`,
       {
@@ -3993,7 +3966,6 @@ describe("OpenMeld Core", () => {
     };
     expect(tooShortPayload.code).toBe("space.password_too_short");
     expect(tooShortPayload.message).toContain("at least");
-
     const upsert = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/password`,
       {
@@ -4008,7 +3980,6 @@ describe("OpenMeld Core", () => {
       passwordProtected?: boolean;
     };
     expect(upsertPayload.passwordProtected).toBe(true);
-
     const denied = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/password`,
       {
@@ -4019,18 +3990,20 @@ describe("OpenMeld Core", () => {
       otherProfile
     );
     expect(denied.status).toBe(403);
-    const deniedPayload = (await denied.json()) as { code?: string };
+    const deniedPayload = (await denied.json()) as {
+      code?: string;
+    };
     expect(deniedPayload.code).toBe("space.forbidden");
-
     const clearDenied = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/password`,
       { method: "DELETE" },
       otherProfile
     );
     expect(clearDenied.status).toBe(403);
-    const clearDeniedPayload = (await clearDenied.json()) as { code?: string };
+    const clearDeniedPayload = (await clearDenied.json()) as {
+      code?: string;
+    };
     expect(clearDeniedPayload.code).toBe("space.forbidden");
-
     const clear = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/password`,
       { method: "DELETE" },
@@ -4042,7 +4015,6 @@ describe("OpenMeld Core", () => {
     };
     expect(clearPayload.passwordProtected).toBe(false);
   });
-
   it("allows only owner human to manage password for agent-created spaces", async () => {
     const agentCreator: Partial<TestAuthProfile> = {
       profileId: "agt-space-owner-rule-1",
@@ -4065,7 +4037,6 @@ describe("OpenMeld Core", () => {
       ownerUserId: "owner-agent-space-2",
       openMeldProfileId: "hum-agent-owner-2",
     };
-
     const createResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces`,
       {
@@ -4079,10 +4050,11 @@ describe("OpenMeld Core", () => {
       agentCreator
     );
     expect(createResponse.status).toBe(200);
-    const createPayload = (await createResponse.json()) as { spaceId?: string };
+    const createPayload = (await createResponse.json()) as {
+      spaceId?: string;
+    };
     const spaceId = String(createPayload.spaceId ?? "");
     expect(SPACE_ID_HEX_REGEX.test(spaceId)).toBe(true);
-
     const otherDenied = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/password`,
       {
@@ -4093,9 +4065,10 @@ describe("OpenMeld Core", () => {
       otherHuman
     );
     expect(otherDenied.status).toBe(403);
-    const otherDeniedPayload = (await otherDenied.json()) as { code?: string };
+    const otherDeniedPayload = (await otherDenied.json()) as {
+      code?: string;
+    };
     expect(otherDeniedPayload.code).toBe("space.forbidden");
-
     const ownerAllowed = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/password`,
       {
@@ -4111,7 +4084,6 @@ describe("OpenMeld Core", () => {
     };
     expect(ownerAllowedPayload.passwordProtected).toBe(true);
   });
-
   it("keeps password protection after patch meta update", async () => {
     const ownerProfile: Partial<TestAuthProfile> = {
       profileId: "hum-meta-owner-1",
@@ -4120,7 +4092,6 @@ describe("OpenMeld Core", () => {
       ownerUserId: "owner-meta-1",
       openMeldProfileId: "hum-meta-owner-1",
     };
-
     const createResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces`,
       {
@@ -4137,11 +4108,12 @@ describe("OpenMeld Core", () => {
     expect(createResponse.status).toBe(200);
     const createPayload = (await createResponse.json()) as {
       spaceId?: string;
-      meta?: { passwordProtected?: boolean };
+      meta?: {
+        passwordProtected?: boolean;
+      };
     };
     const spaceId = String(createPayload.spaceId ?? "");
     expect(createPayload.meta?.passwordProtected).toBe(true);
-
     const patchResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/meta`,
       {
@@ -4157,7 +4129,6 @@ describe("OpenMeld Core", () => {
       passwordProtected?: boolean;
     };
     expect(patchPayload.passwordProtected).toBe(true);
-
     const metaResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/meta`,
       undefined,
@@ -4170,7 +4141,6 @@ describe("OpenMeld Core", () => {
     };
     expect(metaPayload.passwordProtected).toBe(true);
   });
-
   it("rejects create when password is shorter than minimum length", async () => {
     const ownerProfile: Partial<TestAuthProfile> = {
       profileId: "hum-create-short-password-1",
@@ -4179,7 +4149,6 @@ describe("OpenMeld Core", () => {
       ownerUserId: "owner-create-short-password-1",
       openMeldProfileId: "hum-create-short-password-1",
     };
-
     const response = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces`,
       {
@@ -4203,11 +4172,9 @@ describe("OpenMeld Core", () => {
     expect(payload.message).toContain("at least");
     expect(payload.spaceId).toBeUndefined();
   });
-
   it("returns 404 for non-existent spaces on join-related endpoints", async () => {
     const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
     const missingSpace = namespace.newUniqueId().toString();
-
     const metaResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${missingSpace}/meta`
     );
@@ -4218,7 +4185,6 @@ describe("OpenMeld Core", () => {
     };
     expect(metaPayload.code).toBe("space.not_found");
     expect(metaPayload.message).toBe("space not found");
-
     const signalsResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${missingSpace}/signals`
     );
@@ -4229,7 +4195,6 @@ describe("OpenMeld Core", () => {
     };
     expect(signalsPayload.code).toBe("space.not_found");
     expect(signalsPayload.message).toBe("space not found");
-
     const streamResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${missingSpace}/stream`,
       {
@@ -4245,7 +4210,6 @@ describe("OpenMeld Core", () => {
     expect(streamPayload.code).toBe("space.not_found");
     expect(streamPayload.message).toBe("space not found");
   });
-
   it("allows human creator to delete a space and makes it unavailable", async () => {
     const creatorProfile = {
       profileId: "hum-delete-creator",
@@ -4258,7 +4222,6 @@ describe("OpenMeld Core", () => {
       { name: "delete-target" },
       creatorProfile
     );
-
     const deleteResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}`,
       { method: "DELETE" },
@@ -4271,7 +4234,6 @@ describe("OpenMeld Core", () => {
     };
     expect(deletePayload.spaceId).toBe(spaceId);
     expect(deletePayload.deleted).toBe(true);
-
     const metaResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/meta`,
       undefined,
@@ -4285,7 +4247,6 @@ describe("OpenMeld Core", () => {
     expect(payload.code).toBe("space.not_found");
     expect(payload.message).toBe("space not found");
   });
-
   it("rejects deletion by a profile without Space ownership", async () => {
     const creatorProfileId = "hum-space-owner-1";
     const spaceId = await createSpace(
@@ -4298,7 +4259,6 @@ describe("OpenMeld Core", () => {
         ownerUserId: "owner-space-owner-1",
       }
     );
-
     const deleteResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}`,
       { method: "DELETE" },
@@ -4318,7 +4278,6 @@ describe("OpenMeld Core", () => {
     expect(payload.code).toBe("space.forbidden");
     expect(payload.message).toBe("Only a Space owner can delete this Space.");
   });
-
   it("requires human confirmation for agent-created space deletion", async () => {
     const agentProfileId = "agt-space-owner-agent";
     const spaceId = await createSpace(
@@ -4331,7 +4290,6 @@ describe("OpenMeld Core", () => {
         ownerUserId: "owner-space-agent",
       }
     );
-
     const deleteResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}`,
       { method: "DELETE" },
@@ -4351,7 +4309,6 @@ describe("OpenMeld Core", () => {
     expect(payload.code).toBe("space.human_confirmation_required");
     expect(payload.message).toBe("A Space owner must confirm deletion.");
   });
-
   it("allows owner human to delete agent-created space", async () => {
     const agentProfileId = "agt-space-owner-agent-allow";
     const ownerUserId = "owner-space-agent-allow";
@@ -4365,7 +4322,6 @@ describe("OpenMeld Core", () => {
         ownerUserId,
       }
     );
-
     const deleteResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}`,
       { method: "DELETE" },
@@ -4385,7 +4341,6 @@ describe("OpenMeld Core", () => {
     expect(payload.spaceId).toBe(spaceId);
     expect(payload.deleted).toBe(true);
   });
-
   it("rejects non-owner human deleting agent-created space", async () => {
     const agentProfileId = "agt-space-owner-agent-deny";
     const spaceId = await createSpace(
@@ -4398,7 +4353,6 @@ describe("OpenMeld Core", () => {
         ownerUserId: "owner-space-agent-allow",
       }
     );
-
     const deleteResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}`,
       { method: "DELETE" },
@@ -4418,10 +4372,8 @@ describe("OpenMeld Core", () => {
     expect(payload.code).toBe("space.forbidden");
     expect(payload.message).toBe("Only a Space owner can delete this Space.");
   });
-
   it("rejects unauthenticated signals requests with 401", async () => {
     const spaceId = await createSpace();
-
     const listResponse = await SELF.fetch(
       `${BASE_URL}/v1/spaces/${spaceId}/signals`
     );
@@ -4432,7 +4384,6 @@ describe("OpenMeld Core", () => {
     };
     expect(listPayload.code).toBe("auth.unauthenticated");
     expect(listPayload.message).toBe("authentication required");
-
     const postResponse = await SELF.fetch(
       `${BASE_URL}/v1/spaces/${spaceId}/signals`,
       {
@@ -4452,7 +4403,6 @@ describe("OpenMeld Core", () => {
     expect(postPayload.code).toBe("auth.unauthenticated");
     expect(postPayload.message).toBe("authentication required");
   });
-
   it("rejects unauthenticated meta updates with 401", async () => {
     const spaceId = await createSpace();
     const response = await SELF.fetch(`${BASE_URL}/v1/spaces/${spaceId}/meta`, {
@@ -4460,7 +4410,6 @@ describe("OpenMeld Core", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ guide: "unauthorized update" }),
     });
-
     expect(response.status).toBe(401);
     const payload = (await response.json()) as {
       code?: string;
@@ -4469,7 +4418,6 @@ describe("OpenMeld Core", () => {
     expect(payload.code).toBe("auth.unauthenticated");
     expect(payload.message).toBe("authentication required");
   });
-
   it("lets the creator change directory visibility without changing link access and rejects other actors", async () => {
     const creatorProfile: Partial<TestAuthProfile> = {
       profileId: SECOND_HUMAN_PROFILE_ID,
@@ -4522,7 +4470,6 @@ describe("OpenMeld Core", () => {
       accessMode: "members_only",
     });
   });
-
   it("lets the creator rename a Space, rejects other actors, and broadcasts metadata invalidation", async () => {
     const creatorProfile: Partial<TestAuthProfile> = {
       profileId: SECOND_HUMAN_PROFILE_ID,
@@ -4542,7 +4489,6 @@ describe("OpenMeld Core", () => {
       { name: "Original Room" },
       creatorProfile
     );
-
     const unauthorizedResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/meta`,
       {
@@ -4556,7 +4502,6 @@ describe("OpenMeld Core", () => {
     await expect(unauthorizedResponse.json()).resolves.toMatchObject({
       code: "space.forbidden",
     });
-
     const socket = await openSpaceSocket(
       spaceId,
       {
@@ -4571,7 +4516,6 @@ describe("OpenMeld Core", () => {
       socket,
       (data) => data.type === "space.meta.changed"
     );
-
     const renameResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/meta`,
       {
@@ -4590,7 +4534,6 @@ describe("OpenMeld Core", () => {
       spaceId,
       reason: "space.name.updated",
     });
-
     const statusResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/status`,
       undefined,
@@ -4601,11 +4544,9 @@ describe("OpenMeld Core", () => {
     });
     socket.close(1000, "done");
   });
-
   it("rejects unauthenticated cursor requests with 401", async () => {
     const spaceId = await createSpace();
     const profileId = "profile-cursor-test";
-
     const getResponse = await SELF.fetch(
       `${BASE_URL}/v1/spaces/${spaceId}/cursors/${profileId}`
     );
@@ -4616,7 +4557,6 @@ describe("OpenMeld Core", () => {
     };
     expect(getPayload.code).toBe("auth.unauthenticated");
     expect(getPayload.message).toBe("authentication required");
-
     const patchResponse = await SELF.fetch(
       `${BASE_URL}/v1/spaces/${spaceId}/cursors/${profileId}`,
       {
@@ -4633,7 +4573,6 @@ describe("OpenMeld Core", () => {
     expect(patchPayload.code).toBe("auth.unauthenticated");
     expect(patchPayload.message).toBe("authentication required");
   });
-
   it("returns structured JSON error for invalid create payload", async () => {
     const response = await fetchWithOpenMeldAuth(`${BASE_URL}/v1/spaces`, {
       method: "POST",
@@ -4645,16 +4584,17 @@ describe("OpenMeld Core", () => {
         visibility: "private",
       }),
     });
-
     expect(response.status).toBe(400);
     expect(response.headers.get("content-type")).toContain("application/json");
     const payload = (await response.json()) as {
-      error?: { code?: string; message?: string };
+      error?: {
+        code?: string;
+        message?: string;
+      };
     };
     expect(payload.error?.code).toBe("invalid_create_payload");
     expect(payload.error?.message).toContain("Invalid name: too long");
   });
-
   it("returns structured JSON error for malformed create JSON body", async () => {
     const response = await fetchWithOpenMeldAuth(`${BASE_URL}/v1/spaces`, {
       method: "POST",
@@ -4663,16 +4603,17 @@ describe("OpenMeld Core", () => {
       },
       body: '{"name":"broken"',
     });
-
     expect(response.status).toBe(400);
     expect(response.headers.get("content-type")).toContain("application/json");
     const payload = (await response.json()) as {
-      error?: { code?: string; message?: string };
+      error?: {
+        code?: string;
+        message?: string;
+      };
     };
     expect(payload.error?.code).toBe("invalid_create_payload");
     expect(payload.error?.message).toContain("malformed JSON");
   });
-
   it("keeps invalid password type mapping consistent between HTTP and RPC create", async () => {
     const httpResponse = await fetchWithOpenMeldAuth(`${BASE_URL}/v1/spaces`, {
       method: "POST",
@@ -4687,7 +4628,10 @@ describe("OpenMeld Core", () => {
     });
     expect(httpResponse.status).toBe(400);
     const httpPayload = (await httpResponse.json()) as {
-      error?: { code?: string; message?: string };
+      error?: {
+        code?: string;
+        message?: string;
+      };
     };
     expect(httpPayload.error?.code).toBe("invalid_create_payload");
     expect(httpPayload.error?.message).toContain("Invalid password");
@@ -4695,7 +4639,6 @@ describe("OpenMeld Core", () => {
       organizationId: DEFAULT_TEST_ORGANIZATION_ID,
       userId: "rpc-owner-invalid-password",
     });
-
     await expect(
       rpcCreateSpace(
         env as unknown as CoreBindings,
@@ -4720,7 +4663,6 @@ describe("OpenMeld Core", () => {
       },
     });
   });
-
   it("rejects create payload with unknown fields", async () => {
     const response = await fetchWithOpenMeldAuth(`${BASE_URL}/v1/spaces`, {
       method: "POST",
@@ -4734,20 +4676,20 @@ describe("OpenMeld Core", () => {
         },
       }),
     });
-
     expect(response.status).toBe(400);
     const payload = (await response.json()) as {
-      error?: { code?: string; message?: string };
+      error?: {
+        code?: string;
+        message?: string;
+      };
     };
     expect(payload.error?.code).toBe("invalid_create_payload");
     expect(payload.error?.message).toContain('unknown field "creator"');
   });
-
   it("rejects meta patch payload with unknown fields", async () => {
     const spaceId = await createSpace({
       name: "meta-unknown-field-space",
     });
-
     const response = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/meta`,
       {
@@ -4761,11 +4703,9 @@ describe("OpenMeld Core", () => {
         }),
       }
     );
-
     expect(response.status).toBe(400);
     expect(await response.text()).toContain("Unknown field: unknownField");
   });
-
   it("rejects password payload with unknown fields", async () => {
     const ownerProfile: Partial<TestAuthProfile> = {
       profileId: "hum-password-unknown-owner",
@@ -4778,7 +4718,6 @@ describe("OpenMeld Core", () => {
       { name: "password-unknown-field-space" },
       ownerProfile
     );
-
     const response = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/password`,
       {
@@ -4793,7 +4732,6 @@ describe("OpenMeld Core", () => {
       },
       ownerProfile
     );
-
     expect(response.status).toBe(400);
     const payload = (await response.json()) as {
       code?: string;
@@ -4802,7 +4740,6 @@ describe("OpenMeld Core", () => {
     expect(payload.code).toBe("invalid_password_payload");
     expect(payload.message).toContain("Unknown field: unknownField");
   });
-
   it("rejects password payload when password is missing", async () => {
     const ownerProfile: Partial<TestAuthProfile> = {
       profileId: "hum-password-missing-owner",
@@ -4815,7 +4752,6 @@ describe("OpenMeld Core", () => {
       { name: "password-missing-field-space" },
       ownerProfile
     );
-
     const response = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/password`,
       {
@@ -4827,7 +4763,6 @@ describe("OpenMeld Core", () => {
       },
       ownerProfile
     );
-
     expect(response.status).toBe(400);
     const payload = (await response.json()) as {
       code?: string;
@@ -4836,7 +4771,6 @@ describe("OpenMeld Core", () => {
     expect(payload.code).toBe("invalid_password_payload");
     expect(payload.message).toContain("expected password");
   });
-
   it("rejects password payload when password is not string", async () => {
     const ownerProfile: Partial<TestAuthProfile> = {
       profileId: "hum-password-type-owner",
@@ -4849,7 +4783,6 @@ describe("OpenMeld Core", () => {
       { name: "password-invalid-type-space" },
       ownerProfile
     );
-
     const response = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/password`,
       {
@@ -4861,7 +4794,6 @@ describe("OpenMeld Core", () => {
       },
       ownerProfile
     );
-
     expect(response.status).toBe(400);
     const payload = (await response.json()) as {
       code?: string;
@@ -4870,7 +4802,6 @@ describe("OpenMeld Core", () => {
     expect(payload.code).toBe("invalid_password_payload");
     expect(payload.message).toContain("password must be a string");
   });
-
   it("rejects create payload when guide exceeds max length", async () => {
     const response = await fetchWithOpenMeldAuth(`${BASE_URL}/v1/spaces`, {
       method: "POST",
@@ -4882,18 +4813,18 @@ describe("OpenMeld Core", () => {
         guide: "x".repeat(MAX_TEXT_LENGTH + 1),
       }),
     });
-
     expect(response.status).toBe(400);
     const payload = (await response.json()) as {
-      error?: { code?: string; message?: string };
+      error?: {
+        code?: string;
+        message?: string;
+      };
     };
     expect(payload.error?.code).toBe("invalid_create_payload");
     expect(payload.error?.message).toContain("Invalid guide");
   });
-
   it("rejects Space guide updates longer than 4,000 characters", async () => {
     const spaceId = await createSpace({ name: "guide-limit" });
-
     const response = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/meta`,
       {
@@ -4906,11 +4837,9 @@ describe("OpenMeld Core", () => {
         }),
       }
     );
-
     expect(response.status).toBe(400);
     await expect(response.text()).resolves.toContain("Guide too long");
   });
-
   it("stores space creator + guide on create and supports metadata updates", async () => {
     const creatorProfile: Partial<TestAuthProfile> = {
       profileId: "creator-1",
@@ -4930,7 +4859,6 @@ describe("OpenMeld Core", () => {
       },
       creatorProfile
     );
-
     const firstMetaResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/meta`,
       undefined,
@@ -4940,7 +4868,10 @@ describe("OpenMeld Core", () => {
     const firstMeta = (await firstMetaResponse.json()) as {
       spaceId?: string;
       name?: string;
-      creator?: { profileId?: string; profile?: string };
+      creator?: {
+        profileId?: string;
+        profile?: string;
+      };
       guide?: string;
       storageUsage?: {
         usedBytes?: number;
@@ -4948,7 +4879,6 @@ describe("OpenMeld Core", () => {
         usagePercent?: number;
       };
     };
-
     expect(firstMeta.spaceId).toBe(spaceId);
     expect(firstMeta.name).toBe("alpha-meta");
     expect(firstMeta.creator?.profileId).toBe(creatorRuntimeProfileId);
@@ -4957,7 +4887,6 @@ describe("OpenMeld Core", () => {
     expect(firstMeta.storageUsage?.softLimitBytes).toBe(9 * 1024 * 1024 * 1024);
     expect(typeof firstMeta.storageUsage?.usedBytes).toBe("number");
     expect(typeof firstMeta.storageUsage?.usagePercent).toBe("number");
-
     const signalsAfterMetaResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals`,
       undefined,
@@ -4970,7 +4899,6 @@ describe("OpenMeld Core", () => {
     };
     expect(signalsAfterMeta.signals).toEqual([]);
     expect(signalsAfterMeta.nextCursor).toBeNull();
-
     const catchupAfterMetaResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals?afterTs=0&limit=20`,
       undefined,
@@ -4981,7 +4909,6 @@ describe("OpenMeld Core", () => {
       signals?: unknown[];
     };
     expect(catchupAfterMeta.signals).toEqual([]);
-
     const patchMetaResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/meta`,
       {
@@ -4993,12 +4920,13 @@ describe("OpenMeld Core", () => {
       },
       creatorProfile
     );
-
     expect(patchMetaResponse.status).toBe(200);
     const patchedMeta = (await patchMetaResponse.json()) as {
       name?: string;
       guide?: string;
-      creator?: { profileId?: string };
+      creator?: {
+        profileId?: string;
+      };
       storageUsage?: {
         usedBytes?: number;
         softLimitBytes?: number;
@@ -5011,7 +4939,6 @@ describe("OpenMeld Core", () => {
     expect(patchedMeta.storageUsage?.softLimitBytes).toBe(
       9 * 1024 * 1024 * 1024
     );
-
     const clearGuideResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/meta`,
       {
@@ -5023,17 +4950,17 @@ describe("OpenMeld Core", () => {
       },
       creatorProfile
     );
-
     expect(clearGuideResponse.status).toBe(200);
     const clearedMeta = (await clearGuideResponse.json()) as {
       name?: string;
       guide?: string;
-      creator?: { profileId?: string };
+      creator?: {
+        profileId?: string;
+      };
     };
     expect(clearedMeta.name).toBe("alpha-meta");
     expect(clearedMeta.guide).toBeUndefined();
     expect(clearedMeta.creator?.profileId).toBe(creatorRuntimeProfileId);
-
     const patchPurposeResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/meta`,
       {
@@ -5045,7 +4972,6 @@ describe("OpenMeld Core", () => {
       },
       creatorProfile
     );
-
     expect(patchPurposeResponse.status).toBe(403);
     await expect(patchPurposeResponse.json()).resolves.toMatchObject({
       code: "space.forbidden",
@@ -5053,7 +4979,6 @@ describe("OpenMeld Core", () => {
         "Space purpose and creator attribution cannot be changed through metadata updates.",
     });
   });
-
   it("creates distinct spaces when reusing the same name", async () => {
     const firstCreatorProfile: Partial<TestAuthProfile> = {
       profileId: "creator-original",
@@ -5087,19 +5012,19 @@ describe("OpenMeld Core", () => {
     const firstCreate = (await firstCreateResponse.json()) as {
       spaceId?: string;
       meta?: {
-        creator?: { profileId?: string };
+        creator?: {
+          profileId?: string;
+        };
         guide?: string;
       };
     };
     if (!firstCreate.spaceId) {
       throw new Error("Missing spaceId in first create response");
     }
-
     expect(firstCreate.meta?.creator?.profileId).toBe(
       firstCreatorRuntimeProfileId
     );
     expect(firstCreate.meta?.guide).toBe("Original guideline.");
-
     const secondCreatorProfile: Partial<TestAuthProfile> = {
       profileId: "creator-overwrite-attempt",
       profileKind: "human",
@@ -5132,20 +5057,20 @@ describe("OpenMeld Core", () => {
     const secondCreate = (await secondCreateResponse.json()) as {
       spaceId?: string;
       meta?: {
-        creator?: { profileId?: string };
+        creator?: {
+          profileId?: string;
+        };
         guide?: string;
       };
     };
     if (!secondCreate.spaceId) {
       throw new Error("Missing spaceId in second create response");
     }
-
     expect(secondCreate.spaceId).not.toBe(firstCreate.spaceId);
     expect(secondCreate.meta?.creator?.profileId).toBe(
       secondCreatorRuntimeProfileId
     );
     expect(secondCreate.meta?.guide).toBe("Overwritten guideline.");
-
     const firstMetaResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${firstCreate.spaceId}/meta`,
       undefined,
@@ -5153,12 +5078,13 @@ describe("OpenMeld Core", () => {
     );
     expect(firstMetaResponse.status).toBe(200);
     const firstMeta = (await firstMetaResponse.json()) as {
-      creator?: { profileId?: string };
+      creator?: {
+        profileId?: string;
+      };
       guide?: string;
     };
     expect(firstMeta.creator?.profileId).toBe(firstCreatorRuntimeProfileId);
     expect(firstMeta.guide).toBe("Original guideline.");
-
     const secondMetaResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${secondCreate.spaceId}/meta`,
       undefined,
@@ -5166,14 +5092,14 @@ describe("OpenMeld Core", () => {
     );
     expect(secondMetaResponse.status).toBe(200);
     const secondMeta = (await secondMetaResponse.json()) as {
-      creator?: { profileId?: string };
+      creator?: {
+        profileId?: string;
+      };
       guide?: string;
     };
-
     expect(secondMeta.creator?.profileId).toBe(secondCreatorRuntimeProfileId);
     expect(secondMeta.guide).toBe("Overwritten guideline.");
   });
-
   it("returns unique space IDs for concurrent creates with the same name", async () => {
     const roomName = "concurrent-stable-room";
     const requests = Array.from({ length: 6 }, (_, index) => {
@@ -5198,7 +5124,6 @@ describe("OpenMeld Core", () => {
         expectedGuide: `Guideline ${index + 1}`,
       };
     });
-
     const responses = await Promise.all(
       requests.map((request) =>
         fetchWithOpenMeldAuth(
@@ -5217,13 +5142,14 @@ describe("OpenMeld Core", () => {
     for (const response of responses) {
       expect(response.status).toBe(200);
     }
-
     const payloads = await Promise.all(
       responses.map(async (response) => {
         return (await response.json()) as {
           spaceId?: string;
           meta?: {
-            creator?: { profileId?: string };
+            creator?: {
+              profileId?: string;
+            };
             guide?: string;
           };
           expectedCreatorProfileId?: string;
@@ -5238,13 +5164,11 @@ describe("OpenMeld Core", () => {
       expectedGuide: requests[index]?.expectedGuide,
       authProfile: requests[index]?.authProfile,
     }));
-
     const spaceIds = payloadsWithExpectation
       .map((payload) => payload.spaceId)
       .filter((id): id is string => typeof id === "string" && id.length > 0);
     expect(spaceIds).toHaveLength(payloadsWithExpectation.length);
     expect(new Set(spaceIds).size).toBe(payloadsWithExpectation.length);
-
     for (const payload of payloadsWithExpectation) {
       if (!payload.spaceId) {
         throw new Error("Missing spaceId in concurrent create response");
@@ -5256,14 +5180,15 @@ describe("OpenMeld Core", () => {
       );
       expect(metaResponse.status).toBe(200);
       const meta = (await metaResponse.json()) as {
-        creator?: { profileId?: string };
+        creator?: {
+          profileId?: string;
+        };
         guide?: string;
       };
       expect(meta.creator?.profileId).toBe(payload.expectedCreatorProfileId);
       expect(meta.guide).toBe(payload.expectedGuide);
     }
   });
-
   it("stores per-profile cursor and enforces monotonic lastSeenTs", async () => {
     const spaceId = await createSpace();
     const firstCursorProfileId = toCanonicalOpenMeldProfileId(
@@ -5274,7 +5199,6 @@ describe("OpenMeld Core", () => {
       "profile-2",
       "human"
     );
-
     const firstReadResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/cursors/${firstCursorProfileId}`
     );
@@ -5287,7 +5211,6 @@ describe("OpenMeld Core", () => {
     expect(firstRead.spaceId).toBe(spaceId);
     expect(firstRead.profileId).toBe(firstCursorProfileId);
     expect(firstRead.lastSeenTs).toBeUndefined();
-
     const firstPatchResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/cursors/${firstCursorProfileId}`,
       {
@@ -5303,7 +5226,6 @@ describe("OpenMeld Core", () => {
       lastSeenTs?: number;
     };
     expect(firstPatch.lastSeenTs).toBe(100);
-
     const secondPatchResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/cursors/${firstCursorProfileId}`,
       {
@@ -5319,7 +5241,6 @@ describe("OpenMeld Core", () => {
       lastSeenTs?: number;
     };
     expect(secondPatch.lastSeenTs).toBe(100);
-
     const rolePatchResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/cursors/${firstCursorProfileId}`,
       {
@@ -5341,7 +5262,6 @@ describe("OpenMeld Core", () => {
     expect(rolePatch.lastSeenTs).toBe(100);
     expect(rolePatch.role).toBe("Spaceship Engineer");
     expect(rolePatch.mentionAlias).toBeUndefined();
-
     const aliasPatchResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/cursors/${firstCursorProfileId}`,
       {
@@ -5361,7 +5281,6 @@ describe("OpenMeld Core", () => {
     };
     expect(aliasPatch.mentionAlias).toBe("ops-bot");
     expect(aliasPatch.lastSeenTs).toBe(100);
-
     const staleLastSeenWithRolePatchResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/cursors/${firstCursorProfileId}`,
       {
@@ -5383,7 +5302,6 @@ describe("OpenMeld Core", () => {
       };
     expect(staleLastSeenWithRolePatch.lastSeenTs).toBe(100);
     expect(staleLastSeenWithRolePatch.role).toBe("Lead Systems Engineer");
-
     const anotherActorPatchResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/cursors/${secondCursorProfileId}`,
       {
@@ -5401,7 +5319,6 @@ describe("OpenMeld Core", () => {
     };
     expect(anotherActorPatch.profileId).toBe(secondCursorProfileId);
     expect(anotherActorPatch.lastSeenTs).toBe(7);
-
     const aliasConflictResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/cursors/${secondCursorProfileId}`,
       {
@@ -5420,10 +5337,8 @@ describe("OpenMeld Core", () => {
     expect(aliasConflict.code).toBe("space.mention_alias_conflict");
     expect(aliasConflict.message).toContain("mentionAlias already exists");
   });
-
   it("stores and lists signals via HTTP", async () => {
     const spaceId = await createSpace();
-
     const postResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals`,
       {
@@ -5438,17 +5353,24 @@ describe("OpenMeld Core", () => {
         }),
       }
     );
-
     expect(postResponse.status).toBe(200);
     const posted = (await postResponse.json()) as Record<string, unknown>;
-
     expect(posted.type).toBe("signal.text");
-    expect((posted.profile as { profileName?: string }).profileName).toBe(
-      "Alice"
-    );
-    expect((posted.data as { text?: string }).text).toBe("hello");
+    expect(
+      (
+        posted.profile as {
+          profileName?: string;
+        }
+      ).profileName
+    ).toBe("Alice");
+    expect(
+      (
+        posted.data as {
+          text?: string;
+        }
+      ).text
+    ).toBe("hello");
     expect(typeof posted.ts).toBe("number");
-
     const listResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals`
     );
@@ -5456,23 +5378,22 @@ describe("OpenMeld Core", () => {
     const list = (await listResponse.json()) as {
       signals?: Array<{
         type: string;
-        data: { text?: string };
+        data: {
+          text?: string;
+        };
       }>;
       nextCursor?: string | null;
     };
-
     expect(list.signals).toHaveLength(1);
     expect(list.signals?.[0]?.type).toBe("signal.text");
     expect(list.signals?.[0]?.data.text).toBe("hello");
     expect(list.nextCursor).toBeNull();
   });
-
   it("seeds the signal clock from persisted history after a cold start", async () => {
     const spaceId = await createSpace();
     const futureTs = Date.now() + 60_000;
     const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
     const stub = namespace.get(namespace.idFromString(spaceId));
-
     const posted = await runInDurableObject(stub, async (_instance, state) => {
       const storedSignal: SignalEnvelope = {
         v: 1,
@@ -5508,7 +5429,6 @@ describe("OpenMeld Core", () => {
         null,
         JSON.stringify(storedSignal)
       );
-
       const restarted = new Space(state, env as unknown as CoreBindings);
       return await restarted.rpcPostSignal({
         spaceId,
@@ -5528,13 +5448,10 @@ describe("OpenMeld Core", () => {
         }),
       });
     });
-
     expect(posted.ts).toBeGreaterThan(futureTs);
   });
-
   it("rejects direct user-authored Wake HTTP posts before persisting signals", async () => {
     const spaceId = await createSpace();
-
     const postResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals`,
       {
@@ -5556,21 +5473,20 @@ describe("OpenMeld Core", () => {
         }),
       }
     );
-
     expect(postResponse.status).toBe(400);
     await expect(postResponse.json()).resolves.toMatchObject({
       ok: false,
       code: SPACE_WAKE_CLIENT_MESSAGE_ID_REQUIRED_ERROR_CODE,
     });
-
     const listResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals`
     );
     expect(listResponse.status).toBe(200);
-    const list = (await listResponse.json()) as { signals?: unknown[] };
+    const list = (await listResponse.json()) as {
+      signals?: unknown[];
+    };
     expect(list.signals).toEqual([]);
   });
-
   it("accepts Reference targets that are active Agent Space members", async () => {
     const spaceId = await createSpace();
     const agentProfileId = "agt_44444444-4444-4444-8444-444444444444";
@@ -5595,7 +5511,6 @@ describe("OpenMeld Core", () => {
     );
     expect(addResponse.status).toBe(200);
     const clientMessageId = `reference-active-member-${randomUUID()}`;
-
     const postResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals`,
       {
@@ -5622,7 +5537,6 @@ describe("OpenMeld Core", () => {
         }),
       }
     );
-
     expect(postResponse.status).toBe(200);
     await expect(postResponse.json()).resolves.toMatchObject({
       data: {
@@ -5635,11 +5549,9 @@ describe("OpenMeld Core", () => {
       type: "signal.text",
     });
   });
-
   it("rejects Reference targets that are not active Space members before persisting signals", async () => {
     const spaceId = await createSpace();
     const clientMessageId = `reference-non-member-${randomUUID()}`;
-
     const postResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals`,
       {
@@ -5666,7 +5578,6 @@ describe("OpenMeld Core", () => {
         }),
       }
     );
-
     expect(postResponse.status).toBe(422);
     await expect(postResponse.json()).resolves.toEqual({
       ok: false,
@@ -5674,15 +5585,15 @@ describe("OpenMeld Core", () => {
       message: `OpenMeld could not send this message because ${SECOND_HUMAN_PROFILE_ID} is not an active member of this Space. Choose a current Space member and try again.`,
       targetProfileId: SECOND_HUMAN_PROFILE_ID,
     });
-
     const listResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals`
     );
     expect(listResponse.status).toBe(200);
-    const list = (await listResponse.json()) as { signals?: unknown[] };
+    const list = (await listResponse.json()) as {
+      signals?: unknown[];
+    };
     expect(list.signals).toEqual([]);
   });
-
   it("rejects active Agent profiles used as Human Mention targets", async () => {
     const spaceId = await createSpace();
     const agentProfileId = "agt_55555555-5555-4555-8555-555555555555";
@@ -5706,7 +5617,6 @@ describe("OpenMeld Core", () => {
       }
     );
     expect(addResponse.status).toBe(200);
-
     const clientMessageId = `mention-agent-target-${randomUUID()}`;
     const postResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals`,
@@ -5733,7 +5643,6 @@ describe("OpenMeld Core", () => {
         }),
       }
     );
-
     expect(postResponse.status).toBe(422);
     await expect(postResponse.json()).resolves.toEqual({
       ok: false,
@@ -5741,19 +5650,18 @@ describe("OpenMeld Core", () => {
       message: `OpenMeld could not mention ${agentProfileId} because Human Mention only supports people. The message was not sent. Choose a person or use Wake or Reference for an agent.`,
       targetProfileId: agentProfileId,
     });
-
     const listResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals`
     );
     expect(listResponse.status).toBe(200);
-    const list = (await listResponse.json()) as { signals?: unknown[] };
+    const list = (await listResponse.json()) as {
+      signals?: unknown[];
+    };
     expect(list.signals).toEqual([]);
   });
-
   it("rejects active Human profiles used as Agent Reference targets", async () => {
     const spaceId = await createSpace();
     const humanProfileId = DEFAULT_HUMAN_PROFILE_ID;
-
     const clientMessageId = `reference-human-target-${randomUUID()}`;
     const postResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals`,
@@ -5783,7 +5691,6 @@ describe("OpenMeld Core", () => {
         }),
       }
     );
-
     expect(postResponse.status).toBe(422);
     await expect(postResponse.json()).resolves.toEqual({
       ok: false,
@@ -5791,15 +5698,15 @@ describe("OpenMeld Core", () => {
       message: `OpenMeld could not reference ${humanProfileId} because Agent Reference only supports agents. The message was not sent. Choose an agent or mention a person.`,
       targetProfileId: humanProfileId,
     });
-
     const listResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals`
     );
     expect(listResponse.status).toBe(200);
-    const list = (await listResponse.json()) as { signals?: unknown[] };
+    const list = (await listResponse.json()) as {
+      signals?: unknown[];
+    };
     expect(list.signals).toEqual([]);
   });
-
   it("translates legacy Human Reference targets into Human Mentions", async () => {
     const spaceId = await createSpace();
     const addResponse = await fetchWithOpenMeldAuth(
@@ -5822,7 +5729,6 @@ describe("OpenMeld Core", () => {
       }
     );
     expect(addResponse.status).toBe(200);
-
     const text = "@Legacy Mention Target please review";
     const clientMessageId = `legacy-human-reference-${randomUUID()}`;
     const postResponse = await fetchWithOpenMeldAuth(
@@ -5851,7 +5757,6 @@ describe("OpenMeld Core", () => {
     );
     const postResponseBody = await postResponse.clone().text();
     expect(postResponse.status, postResponseBody).toBe(200);
-
     const historyResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals?afterTs=0&limit=100`,
       { headers: { "x-openmeld-space-addressing-version": "1" } }
@@ -5876,7 +5781,6 @@ describe("OpenMeld Core", () => {
       referenceTargets: [],
     });
   });
-
   it("translates legacy Human References in Thread replies", async () => {
     const spaceId = await createSpace();
     const addResponse = await fetchWithOpenMeldAuth(
@@ -5899,7 +5803,6 @@ describe("OpenMeld Core", () => {
       }
     );
     expect(addResponse.status).toBe(200);
-
     const rootResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals`,
       {
@@ -5916,7 +5819,6 @@ describe("OpenMeld Core", () => {
     if (!rootSignal) {
       throw new Error("Expected a thread root signal");
     }
-
     const createThreadResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/threads`,
       {
@@ -5930,9 +5832,10 @@ describe("OpenMeld Core", () => {
     );
     expect(createThreadResponse.status).toBe(200);
     const createdThread = (await createThreadResponse.json()) as {
-      thread: { threadId: string };
+      thread: {
+        threadId: string;
+      };
     };
-
     const text = "@Legacy Thread Mention Target please review";
     const replyResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/threads/${createdThread.thread.threadId}/signals`,
@@ -5951,7 +5854,6 @@ describe("OpenMeld Core", () => {
       }
     );
     expect(replyResponse.status, await replyResponse.clone().text()).toBe(200);
-
     const historyResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/threads/${createdThread.thread.threadId}/signals`,
       { headers: { "x-openmeld-space-addressing-version": "1" } }
@@ -5976,7 +5878,6 @@ describe("OpenMeld Core", () => {
       referenceTargets: [],
     });
   });
-
   it("rejects Reference targets after their Space membership is removed", async () => {
     const spaceId = await createSpace();
     const addResponse = await fetchWithOpenMeldAuth(
@@ -6000,7 +5901,6 @@ describe("OpenMeld Core", () => {
     );
     expect(addResponse.status).toBe(200);
     await addResponse.json();
-
     const removeResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/members/remove`,
       {
@@ -6013,7 +5913,6 @@ describe("OpenMeld Core", () => {
     );
     expect(removeResponse.status).toBe(200);
     await removeResponse.json();
-
     const clientMessageId = `reference-removed-member-${randomUUID()}`;
     const postResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals`,
@@ -6041,77 +5940,76 @@ describe("OpenMeld Core", () => {
         }),
       }
     );
-
     expect(postResponse.status).toBe(422);
     await expect(postResponse.json()).resolves.toMatchObject({
       ok: false,
       code: "space.addressing.target_invalid",
       targetProfileId: THIRD_HUMAN_PROFILE_ID,
     });
-
     const listResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals`
     );
     expect(listResponse.status).toBe(200);
-    const list = (await listResponse.json()) as { signals?: unknown[] };
+    const list = (await listResponse.json()) as {
+      signals?: unknown[];
+    };
     expect(list.signals).toEqual([]);
   });
-
   it("returns structured JSON error for invalid space ids", async () => {
     const invalidSpaceId = "this-space-id-is-longer-than-thirty-two-characters";
-
     const response = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${invalidSpaceId}/signals`
     );
-
     expect(response.status).toBe(404);
     const body = (await response.json()) as {
-      error?: { code?: string; message?: string };
+      error?: {
+        code?: string;
+        message?: string;
+      };
     };
-
     expect(body.error?.code).toBe("invalid_space_id");
     expect(body.error?.message).toContain("64-char hex");
   });
-
   it("returns not found for unresolved 64-char hex space ids", async () => {
     const unresolvedSpaceId = "a".repeat(64);
-
     const response = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${unresolvedSpaceId}/signals`
     );
-
     expect(response.status).toBe(404);
     const body = (await response.json()) as {
-      error?: { code?: string; message?: string };
+      error?: {
+        code?: string;
+        message?: string;
+      };
     };
-
     expect(body.error?.code).toBe("space.not_found");
     expect(body.error?.message).toBe("space not found");
   });
-
   it("returns structured JSON error for invalid cursor profile ids", async () => {
     const spaceId = await createSpace();
     const response = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/cursors/%20`
     );
-
     expect(response.status).toBe(400);
     const body = (await response.json()) as {
-      error?: { code?: string; message?: string };
+      error?: {
+        code?: string;
+        message?: string;
+      };
     };
     expect(body.error?.code).toBe("invalid_profile_id");
     expect(body.error?.message).toBe("profile id is invalid");
   });
-
   it("supports catch-up query with afterTs and cursor pagination", async () => {
     const spaceId = await createSpace();
     const messages = ["m1", "m2", "m3", "m4", "m5"];
     const posted: Array<{
       ts: number;
-      data: { text?: string };
+      data: {
+        text?: string;
+      };
       type: "signal.text";
     }> = [];
-
     for (const text of messages) {
       const response = await fetchWithOpenMeldAuth(
         `${BASE_URL}/v1/spaces/${spaceId}/signals`,
@@ -6138,14 +6036,18 @@ describe("OpenMeld Core", () => {
       }
       posted.push(payload);
     }
-
     const afterTs = posted[0]?.ts ?? 0;
     const page1 = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals?afterTs=${afterTs}&limit=2`
     );
     expect(page1.status).toBe(200);
     const body1 = (await page1.json()) as {
-      signals?: Array<{ ts: number; data: { text?: string } }>;
+      signals?: Array<{
+        ts: number;
+        data: {
+          text?: string;
+        };
+      }>;
       nextCursor?: string | null;
     };
     expect(Array.isArray(body1.signals)).toBe(true);
@@ -6153,13 +6055,17 @@ describe("OpenMeld Core", () => {
     expect(body1.signals?.[0]?.data.text).toBe("m2");
     expect(body1.signals?.[1]?.data.text).toBe("m3");
     expect(typeof body1.nextCursor).toBe("string");
-
     const page2 = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals?afterTs=${afterTs}&limit=2&cursor=${encodeURIComponent(body1.nextCursor ?? "")}`
     );
     expect(page2.status).toBe(200);
     const body2 = (await page2.json()) as {
-      signals?: Array<{ ts: number; data: { text?: string } }>;
+      signals?: Array<{
+        ts: number;
+        data: {
+          text?: string;
+        };
+      }>;
       nextCursor?: string | null;
     };
     expect(body2.signals).toHaveLength(2);
@@ -6167,10 +6073,8 @@ describe("OpenMeld Core", () => {
     expect(body2.signals?.[1]?.data.text).toBe("m5");
     expect(body2.nextCursor).toBeNull();
   });
-
   it("rejects malformed numeric query values in signals listing", async () => {
     const spaceId = await createSpace();
-
     const invalidAfterTsResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals?afterTs=123abc`
     );
@@ -6178,18 +6082,15 @@ describe("OpenMeld Core", () => {
     await expect(invalidAfterTsResponse.text()).resolves.toBe(
       "Invalid afterTs"
     );
-
     const invalidLimitResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals?limit=10foo`
     );
     expect(invalidLimitResponse.status).toBe(400);
     await expect(invalidLimitResponse.text()).resolves.toBe("Invalid limit");
   });
-
   it("keeps list-signals query behavior aligned with shared schema", async () => {
     const spaceId = await createSpace();
     const endpoint = `${BASE_URL}/v1/spaces/${spaceId}/signals`;
-
     const scenarios = [
       {
         query: "",
@@ -6232,17 +6133,14 @@ describe("OpenMeld Core", () => {
         expectedStatus: 400,
       },
     ] as const;
-
     for (const scenario of scenarios) {
       const url = new URL(`${endpoint}${scenario.query}`);
       const schema = listSignalsQuerySchema.safeParse(
         readListSignalsQueryRawValues(url.searchParams)
       );
-
       const response = await fetchWithOpenMeldAuth(url.toString());
       expect(response.status).toBe(scenario.expectedStatus);
       expect(response.ok).toBe(schema.success);
-
       if (!schema.success) {
         const bodyText = await response.text();
         const issueMessages = schema.error.issues.map((issue) => issue.message);
@@ -6251,7 +6149,6 @@ describe("OpenMeld Core", () => {
         );
         continue;
       }
-
       const payload = await response.json();
       expect(payload).toMatchObject({
         signals: expect.any(Array),
@@ -6259,7 +6156,6 @@ describe("OpenMeld Core", () => {
       expect(Object.hasOwn(payload as object, "nextCursor")).toBe(true);
     }
   });
-
   it("reads history after one anchor signal with profile and type filters", async () => {
     const spaceId = await createSpace();
     const posted: SignalEnvelope[] = [];
@@ -6294,7 +6190,6 @@ describe("OpenMeld Core", () => {
       }
       posted.push(payload);
     }
-
     await rpcPostStatusSignal(env as CoreBindings, {
       spaceId,
       finalOutcomeAuthority: "runtime_coordinator_finalization",
@@ -6317,18 +6212,20 @@ describe("OpenMeld Core", () => {
         profileName: "alice",
       }),
     });
-
     const anchorSignalId = posted[0]?.id;
     expect(anchorSignalId).toBeTruthy();
-
     const response = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals?afterSignalId=${encodeURIComponent(anchorSignalId ?? "")}&limit=4&fromProfileId=${encodeURIComponent(DEFAULT_HUMAN_PROFILE_ID)}&signalType=signal.text`
     );
     expect(response.status).toBe(200);
     const body = (await response.json()) as {
       signals?: Array<{
-        data?: { text?: string };
-        profile?: { profileId?: string };
+        data?: {
+          text?: string;
+        };
+        profile?: {
+          profileId?: string;
+        };
       }>;
       nextCursor?: string | null;
     };
@@ -6343,7 +6240,6 @@ describe("OpenMeld Core", () => {
     ).toBe(true);
     expect(body.nextCursor).toBeNull();
   });
-
   it("keeps reading after an anchor until it collects enough filtered matches", async () => {
     const spaceId = await createSpace();
     const posted: SignalEnvelope[] = [];
@@ -6386,18 +6282,20 @@ describe("OpenMeld Core", () => {
       }
       posted.push(payload);
     }
-
     const anchorSignalId = posted[0]?.id;
     expect(anchorSignalId).toBeTruthy();
-
     const response = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals?afterSignalId=${encodeURIComponent(anchorSignalId ?? "")}&limit=2&fromProfileId=${encodeURIComponent(DEFAULT_HUMAN_PROFILE_ID)}&signalType=signal.text`
     );
     expect(response.status).toBe(200);
     const body = (await response.json()) as {
       signals?: Array<{
-        data?: { text?: string };
-        profile?: { profileId?: string };
+        data?: {
+          text?: string;
+        };
+        profile?: {
+          profileId?: string;
+        };
       }>;
       nextCursor?: string | null;
     };
@@ -6412,11 +6310,9 @@ describe("OpenMeld Core", () => {
     ).toBe(true);
     expect(body.nextCursor).toBeNull();
   });
-
   it("reads recent visible message history after presence noise", async () => {
     const spaceId = await createSpace();
     const noiseSockets: WebSocket[] = [];
-
     try {
       await postTextSignal(spaceId, "older-message");
       for (let index = 0; index < 9; index += 1) {
@@ -6429,16 +6325,18 @@ describe("OpenMeld Core", () => {
         );
       }
       await postTextSignal(spaceId, "latest-message");
-
       const response = await fetchWithOpenMeldAuth(
         `${BASE_URL}/v1/spaces/${spaceId}/signals?recent=1&limit=2&signalType=signal.text`
       );
       expect(response.status).toBe(200);
       const body = (await response.json()) as {
-        signals?: Array<{ data?: { text?: string } }>;
+        signals?: Array<{
+          data?: {
+            text?: string;
+          };
+        }>;
         nextCursor?: string | null;
       };
-
       expect(body.signals?.map((signal) => signal.data?.text)).toEqual([
         "older-message",
         "latest-message",
@@ -6450,7 +6348,6 @@ describe("OpenMeld Core", () => {
       }
     }
   });
-
   it("searches retained message text through the authorized Space endpoint", async () => {
     const spaceId = await createSpace({ accessMode: "members_only" });
     await postTextSignal(spaceId, "Searchable invoice older");
@@ -6551,7 +6448,6 @@ describe("OpenMeld Core", () => {
         cursor: "invalid-json",
       })
     ).rejects.toThrow("Invalid message search cursor");
-
     for (let index = 0; index < 31; index += 1) {
       await postTextSignal(spaceId, `Paging receipt ${index}`);
     }
@@ -6578,7 +6474,6 @@ describe("OpenMeld Core", () => {
       ).size
     ).toBe(31);
   });
-
   it("returns an empty anchored page when after-signal uses limit=0", async () => {
     const spaceId = await createSpace();
     const response = await fetchWithOpenMeldAuth(
@@ -6604,7 +6499,6 @@ describe("OpenMeld Core", () => {
     if (!payload) {
       throw new Error("Expected signal envelope from POST /signals");
     }
-
     const anchoredResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals?afterSignalId=${encodeURIComponent(payload.id)}&limit=0`
     );
@@ -6616,7 +6510,6 @@ describe("OpenMeld Core", () => {
     expect(body.signals).toEqual([]);
     expect(body.nextCursor).toBeNull();
   });
-
   it("reads a filtered window around one anchor signal and keeps the anchor", async () => {
     const spaceId = await createSpace();
     const posted: SignalEnvelope[] = [];
@@ -6652,16 +6545,19 @@ describe("OpenMeld Core", () => {
       }
       posted.push(payload);
     }
-
     const anchorSignalId = posted[1]?.id;
     expect(anchorSignalId).toBeTruthy();
-
     const response = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals?aroundSignalId=${encodeURIComponent(anchorSignalId ?? "")}&beforeCount=1&afterCount=2&fromProfileId=${encodeURIComponent(DEFAULT_HUMAN_PROFILE_ID)}`
     );
     expect(response.status).toBe(200);
     const body = (await response.json()) as {
-      signals?: Array<{ id?: string; data?: { text?: string } }>;
+      signals?: Array<{
+        id?: string;
+        data?: {
+          text?: string;
+        };
+      }>;
       nextCursor?: string | null;
     };
     expect(body.signals?.map((signal) => signal.data?.text)).toEqual([
@@ -6672,13 +6568,17 @@ describe("OpenMeld Core", () => {
     ]);
     expect(body.signals?.[1]?.id).toBe(anchorSignalId);
     expect(body.nextCursor).toBeNull();
-
     const exactResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals?aroundSignalId=${encodeURIComponent(anchorSignalId ?? "")}&beforeCount=0&afterCount=0`
     );
     expect(exactResponse.status).toBe(200);
     const exactBody = (await exactResponse.json()) as {
-      signals?: Array<{ id?: string; data?: { text?: string } }>;
+      signals?: Array<{
+        id?: string;
+        data?: {
+          text?: string;
+        };
+      }>;
       nextCursor?: string | null;
     };
     expect(exactBody.signals).toEqual([
@@ -6686,11 +6586,9 @@ describe("OpenMeld Core", () => {
     ]);
     expect(exactBody.nextCursor).toBeNull();
   });
-
   it("lazy-loads earlier visible message history before an anchor after presence noise", async () => {
     const spaceId = await createSpace();
     const noiseSockets: WebSocket[] = [];
-
     try {
       await postTextSignal(spaceId, "older-message");
       for (let index = 0; index < 9; index += 1) {
@@ -6703,16 +6601,18 @@ describe("OpenMeld Core", () => {
         );
       }
       const latest = await postTextSignal(spaceId, "latest-message");
-
       const response = await fetchWithOpenMeldAuth(
         `${BASE_URL}/v1/spaces/${spaceId}/signals?aroundSignalId=${encodeURIComponent(latest.id)}&beforeCount=1&afterCount=0&signalType=signal.text`
       );
       expect(response.status).toBe(200);
       const body = (await response.json()) as {
-        signals?: Array<{ data?: { text?: string } }>;
+        signals?: Array<{
+          data?: {
+            text?: string;
+          };
+        }>;
         nextCursor?: string | null;
       };
-
       expect(body.signals?.map((signal) => signal.data?.text)).toEqual([
         "older-message",
         "latest-message",
@@ -6724,10 +6624,8 @@ describe("OpenMeld Core", () => {
       }
     }
   });
-
   it("fails fast when an explicit history anchor does not exist", async () => {
     const spaceId = await createSpace();
-
     const response = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals?afterSignalId=missing-anchor`
     );
@@ -6740,7 +6638,6 @@ describe("OpenMeld Core", () => {
     };
     expect(body.error?.message).toContain("space history anchor not found");
   });
-
   it("returns an empty page when afterTs equals MAX_DATE_TIMESTAMP_MS", async () => {
     const spaceId = await createSpace();
     const signalResponse = await fetchWithOpenMeldAuth(
@@ -6759,7 +6656,6 @@ describe("OpenMeld Core", () => {
     );
     expect(signalResponse.status).toBe(200);
     await signalResponse.json();
-
     const response = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals?afterTs=8640000000000000&limit=2`
     );
@@ -6771,16 +6667,16 @@ describe("OpenMeld Core", () => {
     expect(body.signals).toEqual([]);
     expect(body.nextCursor).toBeNull();
   });
-
   it("keeps nextCursor when cursor page still has more data", async () => {
     const spaceId = await createSpace();
     const messages = ["m1", "m2", "m3", "m4", "m5", "m6"];
     const posted: Array<{
       ts: number;
-      data: { text?: string };
+      data: {
+        text?: string;
+      };
       type: "signal.text";
     }> = [];
-
     for (const text of messages) {
       const response = await fetchWithOpenMeldAuth(
         `${BASE_URL}/v1/spaces/${spaceId}/signals`,
@@ -6807,47 +6703,55 @@ describe("OpenMeld Core", () => {
       }
       posted.push(payload);
     }
-
     const afterTs = posted[0]?.ts ?? 0;
     const page1 = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals?afterTs=${afterTs}&limit=2`
     );
     expect(page1.status).toBe(200);
     const body1 = (await page1.json()) as {
-      signals?: Array<{ data: { text?: string } }>;
+      signals?: Array<{
+        data: {
+          text?: string;
+        };
+      }>;
       nextCursor?: string | null;
     };
     expect(body1.signals).toHaveLength(2);
     expect(body1.signals?.[0]?.data.text).toBe("m2");
     expect(body1.signals?.[1]?.data.text).toBe("m3");
     expect(typeof body1.nextCursor).toBe("string");
-
     const page2 = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals?afterTs=${afterTs}&limit=2&cursor=${encodeURIComponent(body1.nextCursor ?? "")}`
     );
     expect(page2.status).toBe(200);
     const body2 = (await page2.json()) as {
-      signals?: Array<{ data: { text?: string } }>;
+      signals?: Array<{
+        data: {
+          text?: string;
+        };
+      }>;
       nextCursor?: string | null;
     };
     expect(body2.signals).toHaveLength(2);
     expect(body2.signals?.[0]?.data.text).toBe("m4");
     expect(body2.signals?.[1]?.data.text).toBe("m5");
     expect(typeof body2.nextCursor).toBe("string");
-
     const page3 = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals?afterTs=${afterTs}&limit=2&cursor=${encodeURIComponent(body2.nextCursor ?? "")}`
     );
     expect(page3.status).toBe(200);
     const body3 = (await page3.json()) as {
-      signals?: Array<{ data: { text?: string } }>;
+      signals?: Array<{
+        data: {
+          text?: string;
+        };
+      }>;
       nextCursor?: string | null;
     };
     expect(body3.signals).toHaveLength(1);
     expect(body3.signals?.[0]?.data.text).toBe("m6");
     expect(body3.nextCursor).toBeNull();
   });
-
   it("broadcasts WebSocket signals to other clients", async () => {
     const spaceId = await createSpace();
     const aliceRuntimeProfileId = toCanonicalOpenMeldProfileId(
@@ -6864,32 +6768,44 @@ describe("OpenMeld Core", () => {
       profileId: "bob",
       profileName: "Bob",
     });
-
     const bobReceives = waitForJsonMessage(
       bob,
       (data) =>
         data.type === "signal.text" &&
-        (data.profile as { profileId?: string }).profileId ===
-          aliceRuntimeProfileId &&
-        (data.data as { text?: string }).text === "hi Bob"
+        (
+          data.profile as {
+            profileId?: string;
+          }
+        ).profileId === aliceRuntimeProfileId &&
+        (
+          data.data as {
+            text?: string;
+          }
+        ).text === "hi Bob"
     );
-
     alice.send(
       JSON.stringify({ type: "signal.text", data: { text: "hi Bob" } })
     );
-
     const message = await bobReceives;
     expect(message.type).toBe("signal.text");
-    expect((message.profile as { profileId?: string }).profileId).toBe(
-      aliceRuntimeProfileId
-    );
-    expect((message.data as { text?: string }).text).toBe("hi Bob");
+    expect(
+      (
+        message.profile as {
+          profileId?: string;
+        }
+      ).profileId
+    ).toBe(aliceRuntimeProfileId);
+    expect(
+      (
+        message.data as {
+          text?: string;
+        }
+      ).text
+    ).toBe("hi Bob");
     expect(typeof message.ts).toBe("number");
-
     alice.close(1000, "done");
     bob.close(1000, "done");
   });
-
   it("preserves image geometry negotiation across WebSocket hibernation", async () => {
     const spaceId = await createSpace({
       name: `websocket-image-geometry-${Date.now()}`,
@@ -6923,7 +6839,6 @@ describe("OpenMeld Core", () => {
       })
     );
     await Promise.all([legacyAck, currentAck]);
-
     const fileId = randomUUID();
     const signalText = "Image geometry after hibernation";
     const findBroadcast = (data: Record<string, unknown>) => {
@@ -6933,7 +6848,13 @@ describe("OpenMeld Core", () => {
           : data;
       return (
         signal?.type === "signal.text" &&
-        (signal.data as { text?: string } | undefined)?.text === signalText
+        (
+          signal.data as
+            | {
+                text?: string;
+              }
+            | undefined
+        )?.text === signalText
       );
     };
     const legacyReceives = waitForJsonMessage(legacy, findBroadcast);
@@ -6951,7 +6872,6 @@ describe("OpenMeld Core", () => {
       requestContext: context,
       spaceId,
     });
-
     await runInDurableObject(stub, async (_instance, state) => {
       const repository = new SpaceFileRepository(state.storage);
       repository.commitWrite({
@@ -6991,7 +6911,6 @@ describe("OpenMeld Core", () => {
           sizeBytes: 1024,
         },
       });
-
       // A fresh Durable Object instance restores both sessions exclusively
       // from their hibernation attachments before broadcasting this signal.
       const restarted = new Space(state, env as unknown as CoreBindings);
@@ -7017,7 +6936,6 @@ describe("OpenMeld Core", () => {
         text: signalText,
       });
     });
-
     const [legacyMessage, currentMessage] = await Promise.all([
       legacyReceives,
       currentReceives,
@@ -7038,7 +6956,6 @@ describe("OpenMeld Core", () => {
       },
       type: "signal.text",
     });
-
     const legacyHistoryResponse = await fetchSpaceDoWithOpenMeldAuth({
       path: "/signals",
       spaceId,
@@ -7073,11 +6990,9 @@ describe("OpenMeld Core", () => {
         }),
       ]),
     });
-
     legacy.close(1000, "done");
     current.close(1000, "done");
   });
-
   it("flushes one queued invalidation per topic after the client hello", async () => {
     const creatorProfile: Partial<TestAuthProfile> = {
       profileId: SECOND_HUMAN_PROFILE_ID,
@@ -7124,7 +7039,6 @@ describe("OpenMeld Core", () => {
     );
     expect(addMemberResponse.status).toBe(200);
     await addMemberResponse.json();
-
     const profile = {
       kind: "human",
       profileId: SECOND_HUMAN_PROFILE_ID,
@@ -7146,7 +7060,6 @@ describe("OpenMeld Core", () => {
         invalidations.push(frame);
       }
     });
-
     const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
     const stub = namespace.get(namespace.idFromString(spaceId));
     await stub.rpcBroadcastAgentReadinessInvalidated({
@@ -7159,14 +7072,12 @@ describe("OpenMeld Core", () => {
       reason: "test.pending.second",
       spaceId,
     });
-
     const ack = waitForJsonMessage(
       socket,
       (data) => data.type === "system.hello.ack"
     );
     socket.send(JSON.stringify({ type: "hello", profile }));
     await ack;
-
     expect(invalidations).toHaveLength(1);
     expect(invalidations[0]).toMatchObject({
       agentProfileIds,
@@ -7176,7 +7087,6 @@ describe("OpenMeld Core", () => {
     });
     socket.close(1000, "done");
   });
-
   it("does not replay cleared reasoning or local reasoning without an enabled owner preference", async () => {
     const spaceId = await createSpace();
     const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
@@ -7191,7 +7101,9 @@ describe("OpenMeld Core", () => {
     const hub = hubs.get(hubs.idFromName(ownerUserId));
     await hub.rpcReasoningPreferences({ enabled: false });
     await runInDurableObject(stub, (instance) => {
-      const internal = instance as unknown as { bindings: CoreBindings };
+      const internal = instance as unknown as {
+        bindings: CoreBindings;
+      };
       // This Workers environment has no Auth service binding. Supply the
       // public Auth profile contract without mutating the shared test env.
       const auth = {
@@ -7267,7 +7179,6 @@ describe("OpenMeld Core", () => {
     expect(received.join("\n")).not.toContain("Private disabled-owner");
     viewer.close(1000, "done");
   });
-
   it("emits one stopped terminal when Stop forwarding races with ACK cleanup", async () => {
     const spaceId = await createSpace({ name: `stop-cleanup-${Date.now()}` });
     const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
@@ -7329,7 +7240,6 @@ describe("OpenMeld Core", () => {
       reasonCode: "agent_stream.terminal",
     });
   });
-
   it("broadcasts Agent stream snapshots and restores them through bootstrap and WebSocket replay", async () => {
     const spaceId = await createSpace({ name: `agent-stream-${Date.now()}` });
     const viewer = await openSpaceSocket(spaceId, {
@@ -7374,7 +7284,9 @@ describe("OpenMeld Core", () => {
           textSnapshot: string;
           gapDetected: boolean;
         }>;
-        history: { signals: unknown[] };
+        history: {
+          signals: unknown[];
+        };
       }>;
       rpcGetConversationState(input: {
         spaceId: string;
@@ -7400,7 +7312,6 @@ describe("OpenMeld Core", () => {
       dispatchId: "dispatch_stream_1",
       textSnapshot: "Hello",
     };
-
     const firstLiveFrame = waitForJsonMessage(
       viewer,
       (data) =>
@@ -7433,7 +7344,6 @@ describe("OpenMeld Core", () => {
       lastSequence: 3,
       gapDetected: true,
     });
-
     const thinkingStreamId = `${delta.streamId}:thinking`;
     await namespace
       .get(namespace.idFromString(spaceId))
@@ -7472,7 +7382,6 @@ describe("OpenMeld Core", () => {
         gapDetected: true,
       },
     ]);
-
     let replayedThinkingFrame:
       | ReturnType<typeof waitForJsonMessage>
       | undefined;
@@ -7521,7 +7430,6 @@ describe("OpenMeld Core", () => {
         noticeText: "Closed",
       },
     });
-
     const readModel = await stub.rpcGetConversationState({
       spaceId,
       spaceAccess: createAnonymousViewerSpaceAccessContext({
@@ -7541,7 +7449,6 @@ describe("OpenMeld Core", () => {
         },
       ],
     });
-
     const terminalFrame = waitForJsonMessage(
       viewer,
       (data) =>
@@ -7583,11 +7490,9 @@ describe("OpenMeld Core", () => {
         }),
       })
     ).resolves.toMatchObject({ streams: [] });
-
     viewer.close(1000, "done");
     restoredViewer.close(1000, "done");
   });
-
   it("broadcasts tool-only Agent stream parts and closes their live projection", async () => {
     const spaceId = await createSpace({
       name: `agent-tool-stream-${Date.now()}`,
@@ -7617,11 +7522,17 @@ describe("OpenMeld Core", () => {
             key: "spaces.read";
           };
         };
-      }): Promise<{ status: string; lastSequence: number }>;
+      }): Promise<{
+        status: string;
+        lastSequence: number;
+      }>;
       rpcCloseAgentStream(input: {
         spaceId: string;
         streamId: string;
-        terminal: { kind: "final_message"; publishedSignalId: string };
+        terminal: {
+          kind: "final_message";
+          publishedSignalId: string;
+        };
       }): Promise<unknown>;
       rpcPostSignal(input: {
         spaceId: string;
@@ -7633,7 +7544,11 @@ describe("OpenMeld Core", () => {
         text: string;
         authoringPolicy: "system_emitted";
         context: ReturnType<typeof createRpcContext>;
-      }): Promise<SignalEnvelope & { type: "signal.text" }>;
+      }): Promise<
+        SignalEnvelope & {
+          type: "signal.text";
+        }
+      >;
     };
     const part = {
       v: 1 as const,
@@ -7654,7 +7569,6 @@ describe("OpenMeld Core", () => {
         },
       },
     };
-
     const livePart = waitForJsonMessage(
       viewer,
       (data) =>
@@ -7705,7 +7619,6 @@ describe("OpenMeld Core", () => {
         ownerUserId: "owner-agent-stream-working-details",
       }),
     });
-
     const terminalFrame = waitForJsonMessage(
       viewer,
       (data) =>
@@ -7757,10 +7670,8 @@ describe("OpenMeld Core", () => {
       reasonCode: "agent_stream.terminal",
       lastSequence: 2,
     });
-
     viewer.close(1000, "done");
   });
-
   it("preserves signal replyTo across WebSocket live and stored history", async () => {
     const spaceId = await createSpace();
     const aliceRuntimeProfileId = toCanonicalOpenMeldProfileId(
@@ -7777,18 +7688,29 @@ describe("OpenMeld Core", () => {
       profileId: "bob",
       profileName: "Bob",
     });
-
     const bobReceives = waitForJsonMessage(
       bob,
       (data) =>
         data.type === "signal.text" &&
-        (data.profile as { profileId?: string }).profileId ===
-          aliceRuntimeProfileId &&
-        (data.data as { text?: string; replyTo?: { signalId?: string } })
-          .replyTo?.signalId === TEST_REPLY_TO.signalId &&
-        (data.data as { text?: string }).text === "Reply from websocket"
+        (
+          data.profile as {
+            profileId?: string;
+          }
+        ).profileId === aliceRuntimeProfileId &&
+        (
+          data.data as {
+            text?: string;
+            replyTo?: {
+              signalId?: string;
+            };
+          }
+        ).replyTo?.signalId === TEST_REPLY_TO.signalId &&
+        (
+          data.data as {
+            text?: string;
+          }
+        ).text === "Reply from websocket"
     );
-
     alice.send(
       JSON.stringify({
         type: "signal.text",
@@ -7798,12 +7720,14 @@ describe("OpenMeld Core", () => {
         },
       })
     );
-
     const liveMessage = await bobReceives;
     expect(
-      (liveMessage.data as { replyTo?: Record<string, unknown> }).replyTo
+      (
+        liveMessage.data as {
+          replyTo?: Record<string, unknown>;
+        }
+      ).replyTo
     ).toEqual(TEST_REPLY_TO);
-
     const listResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals?afterTs=0&limit=100`
     );
@@ -7817,18 +7741,15 @@ describe("OpenMeld Core", () => {
         };
       }>;
     };
-
     const persistedReply = listed.signals?.find(
       (signal) =>
         signal.type === "signal.text" &&
         signal.data?.text === "Reply from websocket"
     );
     expect(persistedReply?.data?.replyTo).toEqual(TEST_REPLY_TO);
-
     alice.close(1000, "done");
     bob.close(1000, "done");
   });
-
   it("preserves signal meta across HTTP post, websocket live, and stored history", async () => {
     const spaceId = await createSpace();
     const observer = await openSpaceSocket(spaceId, {
@@ -7836,17 +7757,24 @@ describe("OpenMeld Core", () => {
       profileId: "observer",
       profileName: "Observer",
     });
-
     const liveNotice = waitForJsonMessage(
       observer,
       (data) =>
         data.type === "signal.text" &&
-        (data.data as { text?: string; meta?: { purpose?: string } }).meta
-          ?.purpose === "space_membership_join_notice" &&
-        (data.data as { text?: string }).text ===
-          "Mira added Demo Bot to this space."
+        (
+          data.data as {
+            text?: string;
+            meta?: {
+              purpose?: string;
+            };
+          }
+        ).meta?.purpose === "space_membership_join_notice" &&
+        (
+          data.data as {
+            text?: string;
+          }
+        ).text === "Mira added Demo Bot to this space."
     );
-
     const postResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals`,
       {
@@ -7883,10 +7811,13 @@ describe("OpenMeld Core", () => {
       addedByProfileId: "11111111-1111-4111-8111-111111111111",
       addedByDisplayName: "Mira",
     });
-
     const liveMessage = await liveNotice;
     expect(
-      (liveMessage.data as { meta?: Record<string, unknown> }).meta
+      (
+        liveMessage.data as {
+          meta?: Record<string, unknown>;
+        }
+      ).meta
     ).toEqual({
       purpose: "space_membership_join_notice",
       targetProfileId: "22222222-2222-4222-8222-222222222222",
@@ -7895,7 +7826,6 @@ describe("OpenMeld Core", () => {
       addedByProfileId: "11111111-1111-4111-8111-111111111111",
       addedByDisplayName: "Mira",
     });
-
     const listResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals?afterTs=0&limit=100`
     );
@@ -7903,10 +7833,12 @@ describe("OpenMeld Core", () => {
     const listed = (await listResponse.json()) as {
       signals?: Array<{
         type?: string;
-        data?: { text?: string; meta?: Record<string, unknown> };
+        data?: {
+          text?: string;
+          meta?: Record<string, unknown>;
+        };
       }>;
     };
-
     const persistedNotice = listed.signals?.find(
       (signal) =>
         signal.type === "signal.text" &&
@@ -7920,10 +7852,8 @@ describe("OpenMeld Core", () => {
       addedByProfileId: "11111111-1111-4111-8111-111111111111",
       addedByDisplayName: "Mira",
     });
-
     observer.close(1000, "done");
   });
-
   it("preserves Human Mention across current live and history transports", async () => {
     const spaceId = await createSpace();
     const observerProfile = {
@@ -7948,13 +7878,16 @@ describe("OpenMeld Core", () => {
       })
     );
     await helloAck;
-
     const text = "@Mention Observer please review";
     const liveMention = waitForJsonMessage(
       observer,
       (data) =>
         data.type === "signal.text" &&
-        (data.data as { text?: string }).text === text
+        (
+          data.data as {
+            text?: string;
+          }
+        ).text === text
     );
     const postResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals`,
@@ -7979,16 +7912,16 @@ describe("OpenMeld Core", () => {
       }
     );
     expect(postResponse.status).toBe(200);
-
     const liveMessage = await liveMention;
     expect(
       (
         liveMessage.data as {
-          messageEnvelope?: { mentionTargets?: string[] };
+          messageEnvelope?: {
+            mentionTargets?: string[];
+          };
         }
       ).messageEnvelope?.mentionTargets
     ).toEqual([observerProfileId]);
-
     const historyResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals?afterTs=0&limit=100`,
       { headers: { "x-openmeld-space-addressing-version": "1" } }
@@ -7998,7 +7931,9 @@ describe("OpenMeld Core", () => {
       signals?: Array<{
         data?: {
           text?: string;
-          messageEnvelope?: { mentionTargets?: string[] };
+          messageEnvelope?: {
+            mentionTargets?: string[];
+          };
         };
       }>;
     };
@@ -8008,10 +7943,8 @@ describe("OpenMeld Core", () => {
     expect(persisted?.data?.messageEnvelope?.mentionTargets).toEqual([
       observerProfileId,
     ]);
-
     observer.close(1000, "done");
   });
-
   it("preserves signal replyTo across HTTP post, websocket live, and stored history", async () => {
     const spaceId = await createSpace();
     const observer = await openSpaceSocket(spaceId, {
@@ -8019,16 +7952,24 @@ describe("OpenMeld Core", () => {
       profileId: "observer",
       profileName: "Observer",
     });
-
     const liveReply = waitForJsonMessage(
       observer,
       (data) =>
         data.type === "signal.text" &&
-        (data.data as { text?: string; replyTo?: { signalId?: string } })
-          .replyTo?.signalId === TEST_REPLY_TO.signalId &&
-        (data.data as { text?: string }).text === "Reply from HTTP"
+        (
+          data.data as {
+            text?: string;
+            replyTo?: {
+              signalId?: string;
+            };
+          }
+        ).replyTo?.signalId === TEST_REPLY_TO.signalId &&
+        (
+          data.data as {
+            text?: string;
+          }
+        ).text === "Reply from HTTP"
     );
-
     const postResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals`,
       {
@@ -8051,12 +7992,14 @@ describe("OpenMeld Core", () => {
       throw new Error("Expected signal.text envelope from POST /signals");
     }
     expect(posted.data.replyTo).toEqual(TEST_REPLY_TO);
-
     const liveMessage = await liveReply;
     expect(
-      (liveMessage.data as { replyTo?: Record<string, unknown> }).replyTo
+      (
+        liveMessage.data as {
+          replyTo?: Record<string, unknown>;
+        }
+      ).replyTo
     ).toEqual(TEST_REPLY_TO);
-
     const listResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals?afterTs=0&limit=100`
     );
@@ -8070,16 +8013,13 @@ describe("OpenMeld Core", () => {
         };
       }>;
     };
-
     const persistedReply = listed.signals?.find(
       (signal) =>
         signal.type === "signal.text" && signal.data?.text === "Reply from HTTP"
     );
     expect(persistedReply?.data?.replyTo).toEqual(TEST_REPLY_TO);
-
     observer.close(1000, "done");
   });
-
   it("preserves agent owner in live events and stored signals", async () => {
     const spaceId = await createSpace();
     const codexOwnerRuntimeProfileId = toCanonicalOpenMeldProfileId(
@@ -8091,44 +8031,70 @@ describe("OpenMeld Core", () => {
       profileId: "observer",
       profileName: "Observer",
     });
-
     const seesOwnerOnJoin = waitForJsonMessage(
       observer,
       (data) =>
         data.type === "presence.join" &&
-        (data.profile as { profileId?: string; owner?: string }).profileId ===
-          codexOwnerRuntimeProfileId &&
-        (data.profile as { profileId?: string; owner?: string }).owner ===
-          "Felix"
+        (
+          data.profile as {
+            profileId?: string;
+            owner?: string;
+          }
+        ).profileId === codexOwnerRuntimeProfileId &&
+        (
+          data.profile as {
+            profileId?: string;
+            owner?: string;
+          }
+        ).owner === "Felix"
     );
-
     const codex = await openSpaceSocket(spaceId, {
       kind: "agent",
       profileId: "codex-owner",
       profileName: "Codex",
       owner: "Felix",
     });
-
     const joinEvent = await seesOwnerOnJoin;
-    expect((joinEvent.profile as { owner?: string }).owner).toBe("Felix");
-
+    expect(
+      (
+        joinEvent.profile as {
+          owner?: string;
+        }
+      ).owner
+    ).toBe("Felix");
     const seesOwnerOnMessage = waitForJsonMessage(
       observer,
       (data) =>
         data.type === "signal.text" &&
-        (data.profile as { profileId?: string; owner?: string }).profileId ===
-          codexOwnerRuntimeProfileId &&
-        (data.profile as { profileId?: string; owner?: string }).owner ===
-          "Felix" &&
-        (data.data as { text?: string }).text === "owner synced"
+        (
+          data.profile as {
+            profileId?: string;
+            owner?: string;
+          }
+        ).profileId === codexOwnerRuntimeProfileId &&
+        (
+          data.profile as {
+            profileId?: string;
+            owner?: string;
+          }
+        ).owner === "Felix" &&
+        (
+          data.data as {
+            text?: string;
+          }
+        ).text === "owner synced"
     );
-
     codex.send(
       JSON.stringify({ type: "signal.text", data: { text: "owner synced" } })
     );
     const messageEvent = await seesOwnerOnMessage;
-    expect((messageEvent.profile as { owner?: string }).owner).toBe("Felix");
-
+    expect(
+      (
+        messageEvent.profile as {
+          owner?: string;
+        }
+      ).owner
+    ).toBe("Felix");
     const listResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals?afterTs=0&limit=100`
     );
@@ -8136,11 +8102,15 @@ describe("OpenMeld Core", () => {
     const listed = (await listResponse.json()) as {
       signals?: Array<{
         type?: string;
-        profile?: { profileId?: string; owner?: string };
-        data?: { text?: string };
+        profile?: {
+          profileId?: string;
+          owner?: string;
+        };
+        data?: {
+          text?: string;
+        };
       }>;
     };
-
     const persistedText = listed.signals?.find(
       (signal) =>
         signal.type === "signal.text" &&
@@ -8148,11 +8118,9 @@ describe("OpenMeld Core", () => {
         signal.data?.text === "owner synced"
     );
     expect(persistedText?.profile?.owner).toBe("Felix");
-
     codex.close(1000, "done");
     observer.close(1000, "done");
   });
-
   it("hides agent context from same-owner viewers outside the lineage in live events and signal history", async () => {
     const sharedOwnerUserId = "owner-ctx-visible";
     const otherOwnerUserId = "owner-ctx-hidden";
@@ -8165,7 +8133,6 @@ describe("OpenMeld Core", () => {
     const spaceId = await createSpace();
     const sameOwnerViewerProfileId = "owner-viewer-human";
     const otherViewerProfileId = "other-viewer-human";
-
     const sameOwnerViewer = await openSpaceSocket(
       spaceId,
       {
@@ -8192,30 +8159,46 @@ describe("OpenMeld Core", () => {
         openMeldProfileId: otherViewerProfileId,
       }
     );
-
     const sameOwnerSeesJoinWithoutContext = waitForJsonMessage(
       sameOwnerViewer,
       (data) =>
         data.type === "presence.join" &&
-        (data.profile as { profileId?: string }).profileId ===
-          codexContextRuntimeProfileId &&
-        (data.profile as { agentControllerConversationId?: string })
-          .agentControllerConversationId === undefined &&
-        (data.profile as { agentControllerRef?: string }).agentControllerRef ===
-          agentControllerRef
+        (
+          data.profile as {
+            profileId?: string;
+          }
+        ).profileId === codexContextRuntimeProfileId &&
+        (
+          data.profile as {
+            agentControllerConversationId?: string;
+          }
+        ).agentControllerConversationId === undefined &&
+        (
+          data.profile as {
+            agentControllerRef?: string;
+          }
+        ).agentControllerRef === agentControllerRef
     );
     const otherSeesJoinWithoutContext = waitForJsonMessage(
       otherViewer,
       (data) =>
         data.type === "presence.join" &&
-        (data.profile as { profileId?: string }).profileId ===
-          codexContextRuntimeProfileId &&
-        (data.profile as { agentControllerConversationId?: string })
-          .agentControllerConversationId === undefined &&
-        (data.profile as { agentControllerRef?: string }).agentControllerRef ===
-          agentControllerRef
+        (
+          data.profile as {
+            profileId?: string;
+          }
+        ).profileId === codexContextRuntimeProfileId &&
+        (
+          data.profile as {
+            agentControllerConversationId?: string;
+          }
+        ).agentControllerConversationId === undefined &&
+        (
+          data.profile as {
+            agentControllerRef?: string;
+          }
+        ).agentControllerRef === agentControllerRef
     );
-
     const codex = await openSpaceSocket(
       spaceId,
       {
@@ -8231,50 +8214,86 @@ describe("OpenMeld Core", () => {
         agentControllerRef,
       }
     );
-
     const sameOwnerJoin = await sameOwnerSeesJoinWithoutContext;
     const otherJoin = await otherSeesJoinWithoutContext;
     expect(
-      (sameOwnerJoin.profile as { agentControllerConversationId?: string })
-        .agentControllerConversationId
+      (
+        sameOwnerJoin.profile as {
+          agentControllerConversationId?: string;
+        }
+      ).agentControllerConversationId
     ).toBeUndefined();
     expect(
-      (sameOwnerJoin.profile as { agentControllerRef?: string })
-        .agentControllerRef
+      (
+        sameOwnerJoin.profile as {
+          agentControllerRef?: string;
+        }
+      ).agentControllerRef
     ).toBe(agentControllerRef);
     expect(
-      (otherJoin.profile as { agentControllerConversationId?: string })
-        .agentControllerConversationId
+      (
+        otherJoin.profile as {
+          agentControllerConversationId?: string;
+        }
+      ).agentControllerConversationId
     ).toBeUndefined();
     expect(
-      (otherJoin.profile as { agentControllerRef?: string }).agentControllerRef
+      (
+        otherJoin.profile as {
+          agentControllerRef?: string;
+        }
+      ).agentControllerRef
     ).toBe(agentControllerRef);
-
     const sameOwnerSeesTextWithoutContext = waitForJsonMessage(
       sameOwnerViewer,
       (data) =>
         data.type === "signal.text" &&
-        (data.profile as { profileId?: string }).profileId ===
-          codexContextRuntimeProfileId &&
-        (data.data as { text?: string }).text === "ctx visibility check" &&
-        (data.profile as { agentControllerConversationId?: string })
-          .agentControllerConversationId === undefined &&
-        (data.profile as { agentControllerRef?: string }).agentControllerRef ===
-          agentControllerRef
+        (
+          data.profile as {
+            profileId?: string;
+          }
+        ).profileId === codexContextRuntimeProfileId &&
+        (
+          data.data as {
+            text?: string;
+          }
+        ).text === "ctx visibility check" &&
+        (
+          data.profile as {
+            agentControllerConversationId?: string;
+          }
+        ).agentControllerConversationId === undefined &&
+        (
+          data.profile as {
+            agentControllerRef?: string;
+          }
+        ).agentControllerRef === agentControllerRef
     );
     const otherSeesTextWithoutContext = waitForJsonMessage(
       otherViewer,
       (data) =>
         data.type === "signal.text" &&
-        (data.profile as { profileId?: string }).profileId ===
-          codexContextRuntimeProfileId &&
-        (data.data as { text?: string }).text === "ctx visibility check" &&
-        (data.profile as { agentControllerConversationId?: string })
-          .agentControllerConversationId === undefined &&
-        (data.profile as { agentControllerRef?: string }).agentControllerRef ===
-          agentControllerRef
+        (
+          data.profile as {
+            profileId?: string;
+          }
+        ).profileId === codexContextRuntimeProfileId &&
+        (
+          data.data as {
+            text?: string;
+          }
+        ).text === "ctx visibility check" &&
+        (
+          data.profile as {
+            agentControllerConversationId?: string;
+          }
+        ).agentControllerConversationId === undefined &&
+        (
+          data.profile as {
+            agentControllerRef?: string;
+          }
+        ).agentControllerRef === agentControllerRef
     );
-
     codex.send(
       JSON.stringify({
         type: "signal.text",
@@ -8283,7 +8302,6 @@ describe("OpenMeld Core", () => {
     );
     await sameOwnerSeesTextWithoutContext;
     await otherSeesTextWithoutContext;
-
     const sameOwnerDefaultListResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals`,
       undefined,
@@ -8304,7 +8322,9 @@ describe("OpenMeld Core", () => {
             profileId?: string;
             agentControllerConversationId?: string;
           };
-          data?: { text?: string };
+          data?: {
+            text?: string;
+          };
         }>;
       };
     const sameOwnerStoredText = sameOwnerDefaultList.signals?.find(
@@ -8316,7 +8336,6 @@ describe("OpenMeld Core", () => {
     expect(
       sameOwnerStoredText?.profile?.agentControllerConversationId
     ).toBeUndefined();
-
     const otherRecentListResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals?recent=true&limit=100`,
       undefined,
@@ -8336,7 +8355,9 @@ describe("OpenMeld Core", () => {
           profileId?: string;
           agentControllerConversationId?: string;
         };
-        data?: { text?: string };
+        data?: {
+          text?: string;
+        };
       }>;
     };
     const otherStoredText = otherRecentList.signals?.find(
@@ -8348,7 +8369,6 @@ describe("OpenMeld Core", () => {
     expect(
       otherStoredText?.profile?.agentControllerConversationId
     ).toBeUndefined();
-
     const sameOwnerCursorListResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals?afterTs=0&limit=100`,
       undefined,
@@ -8368,7 +8388,9 @@ describe("OpenMeld Core", () => {
           profileId?: string;
           agentControllerConversationId?: string;
         };
-        data?: { text?: string };
+        data?: {
+          text?: string;
+        };
       }>;
     };
     const sameOwnerCursorText = sameOwnerCursorList.signals?.find(
@@ -8380,35 +8402,47 @@ describe("OpenMeld Core", () => {
     expect(
       sameOwnerCursorText?.profile?.agentControllerConversationId
     ).toBeUndefined();
-
     const otherSeesQuitWithoutContext = waitForJsonMessage(
       otherViewer,
       (data) =>
         data.type === "presence.quit" &&
-        (data.profile as { profileId?: string }).profileId ===
-          codexContextRuntimeProfileId &&
-        (data.profile as { agentControllerConversationId?: string })
-          .agentControllerConversationId === undefined
+        (
+          data.profile as {
+            profileId?: string;
+          }
+        ).profileId === codexContextRuntimeProfileId &&
+        (
+          data.profile as {
+            agentControllerConversationId?: string;
+          }
+        ).agentControllerConversationId === undefined
     );
     const sameOwnerSeesQuitWithoutContext = waitForJsonMessage(
       sameOwnerViewer,
       (data) =>
         data.type === "presence.quit" &&
-        (data.profile as { profileId?: string }).profileId ===
-          codexContextRuntimeProfileId &&
-        (data.profile as { agentControllerConversationId?: string })
-          .agentControllerConversationId === undefined &&
-        (data.profile as { agentControllerRef?: string }).agentControllerRef ===
-          agentControllerRef
+        (
+          data.profile as {
+            profileId?: string;
+          }
+        ).profileId === codexContextRuntimeProfileId &&
+        (
+          data.profile as {
+            agentControllerConversationId?: string;
+          }
+        ).agentControllerConversationId === undefined &&
+        (
+          data.profile as {
+            agentControllerRef?: string;
+          }
+        ).agentControllerRef === agentControllerRef
     );
-
     codex.close(1000, "done");
     await sameOwnerSeesQuitWithoutContext;
     await otherSeesQuitWithoutContext;
     sameOwnerViewer.close(1000, "done");
     otherViewer.close(1000, "done");
   });
-
   it("broadcasts presence.quit on disconnect but keeps it out of the visible timeline read", async () => {
     const spaceId = await createSpace();
     const alicePresenceRuntimeProfileId = toCanonicalOpenMeldProfileId(
@@ -8425,22 +8459,26 @@ describe("OpenMeld Core", () => {
       profileId: "bob-presence",
       profileName: "Bob Presence",
     });
-
     const bobReceivesQuit = waitForJsonMessage(
       bob,
       (data) =>
         data.type === "presence.quit" &&
-        (data.profile as { profileId?: string }).profileId ===
-          alicePresenceRuntimeProfileId
+        (
+          data.profile as {
+            profileId?: string;
+          }
+        ).profileId === alicePresenceRuntimeProfileId
     );
-
     alice.close(1000, "done");
     const quitEvent = await bobReceivesQuit;
     expect(quitEvent.type).toBe("presence.quit");
-    expect((quitEvent.profile as { profileId?: string }).profileId).toBe(
-      alicePresenceRuntimeProfileId
-    );
-
+    expect(
+      (
+        quitEvent.profile as {
+          profileId?: string;
+        }
+      ).profileId
+    ).toBe(alicePresenceRuntimeProfileId);
     // The HTTP timeline read is a visible read model: presence is operational
     // and must NOT appear there. If it did, heavy join/quit churn would fill the
     // recent/limit window and bury real messages, so the timeline would render
@@ -8451,17 +8489,19 @@ describe("OpenMeld Core", () => {
     );
     expect(listResponse.status).toBe(200);
     const listed = (await listResponse.json()) as {
-      signals?: Array<{ type?: string; profile?: { profileId?: string } }>;
+      signals?: Array<{
+        type?: string;
+        profile?: {
+          profileId?: string;
+        };
+      }>;
     };
-
     const hasPresence = listed.signals?.some((signal) =>
       signal.type?.startsWith("presence.")
     );
     expect(hasPresence).toBe(false);
-
     bob.close(1000, "done");
   });
-
   it("supports rpc methods on WorkerEntrypoint", async () => {
     const rpcContext = createRpcContext({
       requestId: "rpc-test-request",
@@ -8474,17 +8514,25 @@ describe("OpenMeld Core", () => {
       organizationId: DEFAULT_TEST_ORGANIZATION_ID,
       userId: "rpc-owner",
     });
-
     const rpc = SELF as unknown as {
-      ping: () => Promise<{ ok: boolean; service: string }>;
+      ping: () => Promise<{
+        ok: boolean;
+        service: string;
+      }>;
       createSpace: (input?: {
         name?: string;
         visibility?: "public" | "private";
         context?: typeof rpcContext;
-      }) => Promise<{ spaceId: string }>;
+      }) => Promise<{
+        spaceId: string;
+      }>;
       postSignal: (input: {
         spaceId: string;
-        profile: { kind: "agent"; profileId: string; profileName?: string };
+        profile: {
+          kind: "agent";
+          profileId: string;
+          profileName?: string;
+        };
         text: string;
         messageEnvelope?: {
           activationTargets: string[];
@@ -8531,18 +8579,15 @@ describe("OpenMeld Core", () => {
         messageEnvelope?: unknown;
       }>;
     };
-
     const health = await rpc.ping();
     expect(health.ok).toBe(true);
     expect(health.service).toBe("openmeld-core");
-
     const created = await rpc.createSpace({
       name: "rpc-smoke",
       visibility: "private",
       context: rpcContext,
     });
     expect(SPACE_ID_HEX_REGEX.test(created.spaceId)).toBe(true);
-
     const posted = await rpc.postSignal({
       spaceId: created.spaceId,
       profile: {
@@ -8560,7 +8605,6 @@ describe("OpenMeld Core", () => {
       context: rpcContext,
     });
     expect(posted.data?.messageEnvelope?.ccTargets).toEqual([]);
-
     const signalsPage = await rpc.listSignals({
       spaceId: created.spaceId,
       context: rpcContext,
@@ -8572,9 +8616,8 @@ describe("OpenMeld Core", () => {
       []
     );
     expect(signalsPage.nextCursor).toBeNull();
-
     await writeDispatchResult({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       result: {
         actorProfileId: rpcContext.actorContext.openMeldProfileId,
         createdAt: "2026-07-19T00:00:00.000Z",
@@ -8603,7 +8646,6 @@ describe("OpenMeld Core", () => {
       text: "RPC dispatch result.",
     });
   });
-
   it("translates legacy Human References through WorkerEntrypoint RPC", async () => {
     const spaceId = await createSpace();
     const addResponse = await fetchWithOpenMeldAuth(
@@ -8626,7 +8668,6 @@ describe("OpenMeld Core", () => {
       }
     );
     expect(addResponse.status).toBe(200);
-
     const rpcContext = createRpcContext({
       requestId: "legacy-human-reference-rpc",
       profileId: DEFAULT_HUMAN_PROFILE_ID,
@@ -8636,9 +8677,14 @@ describe("OpenMeld Core", () => {
     });
     const rpc = SELF as unknown as {
       listSignals: (
-        input: { context: typeof rpcContext; spaceId: string },
+        input: {
+          context: typeof rpcContext;
+          spaceId: string;
+        },
         spaceAddressingVersion?: string
-      ) => Promise<{ signals: SignalEnvelope[] }>;
+      ) => Promise<{
+        signals: SignalEnvelope[];
+      }>;
       postSignal: (
         input: {
           authoringPolicy: "user_authored";
@@ -8659,7 +8705,6 @@ describe("OpenMeld Core", () => {
         spaceAddressingVersion?: string
       ) => Promise<SignalEnvelope>;
     };
-
     const text = "@Legacy RPC Mention Target please review";
     await rpc.postSignal({
       authoringPolicy: "user_authored",
@@ -8677,7 +8722,6 @@ describe("OpenMeld Core", () => {
       spaceId,
       text,
     });
-
     const currentHistory = await rpc.listSignals(
       { context: rpcContext, spaceId },
       OPENMELD_SPACE_ADDRESSING_VERSION
@@ -8694,7 +8738,6 @@ describe("OpenMeld Core", () => {
       referenceTargets: [],
     });
   });
-
   it("translates legacy Human References from OpenMeld Service replies", async () => {
     const spaceId = await createSpace();
     await ensureTestOrganizationMembership({
@@ -8730,7 +8773,6 @@ describe("OpenMeld Core", () => {
       }
     );
     expect(addResponse.status).toBe(200);
-
     const rpcContext = createRpcContext({
       requestId: "legacy-service-human-reference-rpc",
       profileId: agentProfileId,
@@ -8740,9 +8782,14 @@ describe("OpenMeld Core", () => {
     });
     const rpc = SELF as unknown as {
       listSignals: (
-        input: { context: typeof rpcContext; spaceId: string },
+        input: {
+          context: typeof rpcContext;
+          spaceId: string;
+        },
         spaceAddressingVersion?: string
-      ) => Promise<{ signals: SignalEnvelope[] }>;
+      ) => Promise<{
+        signals: SignalEnvelope[];
+      }>;
       postSignal: (input: {
         authoringPolicy: "system_emitted";
         context: typeof rpcContext;
@@ -8760,7 +8807,6 @@ describe("OpenMeld Core", () => {
         text: string;
       }) => Promise<SignalEnvelope>;
     };
-
     const text = "@Legacy Service Mention Target please review";
     await rpc.postSignal({
       authoringPolicy: "system_emitted",
@@ -8778,7 +8824,6 @@ describe("OpenMeld Core", () => {
       spaceId,
       text,
     });
-
     const currentHistory = await rpc.listSignals(
       { context: rpcContext, spaceId },
       OPENMELD_SPACE_ADDRESSING_VERSION
@@ -8795,7 +8840,6 @@ describe("OpenMeld Core", () => {
       referenceTargets: [],
     });
   });
-
   it.each([
     false,
     true,
@@ -8845,7 +8889,9 @@ describe("OpenMeld Core", () => {
         .mockResolvedValue({ title: "Compare cloud hosting costs" })
         .mockImplementationOnce(async () => {
           started();
-          return await new Promise<{ title: string | null }>((resolve) => {
+          return await new Promise<{
+            title: string | null;
+          }>((resolve) => {
             resolveTitle = resolve;
           });
         });
@@ -8883,7 +8929,9 @@ describe("OpenMeld Core", () => {
       });
       await vi.waitFor(() => {
         const row = state.storage.sql
-          .exec<{ name: string }>("SELECT name FROM space_meta")
+          .exec<{
+            name: string;
+          }>("SELECT name FROM space_meta")
           .toArray()[0];
         expect(row?.name).toBe("Compare cloud hosting costs");
       });
@@ -8899,7 +8947,6 @@ describe("OpenMeld Core", () => {
       ).toBe("Compare cloud hosting costs");
     });
   });
-
   it.each([
     "unavailable",
     "no topic",
@@ -8976,7 +9023,9 @@ describe("OpenMeld Core", () => {
           expect(generate).toHaveBeenCalledTimes(3);
           expect(
             state.storage.sql
-              .exec<{ name: string }>("SELECT name FROM space_meta")
+              .exec<{
+                name: string;
+              }>("SELECT name FROM space_meta")
               .toArray()[0]?.name
           ).toBe("New chat");
         } finally {
@@ -8985,7 +9034,6 @@ describe("OpenMeld Core", () => {
       }
     );
   });
-
   it("opens the default Center chat and independent idempotent sessions through the real Space DO", async () => {
     const organizationId = `org-center-dm-${randomUUID()}`;
     const ownerUserId = `user-center-dm-${randomUUID()}`;
@@ -9024,14 +9072,22 @@ describe("OpenMeld Core", () => {
         context: typeof context;
         spaceId: string;
       }) => Promise<{
-        projection: { spaceId: string; memberProfileId: string } | null;
+        projection: {
+          spaceId: string;
+          memberProfileId: string;
+        } | null;
       }>;
       createCenterAgentContextManifest: (input: {
         context: typeof context;
         spaceId: string;
-        source: { kind: "local_agent"; client: string };
+        source: {
+          kind: "local_agent";
+          client: string;
+        };
       }) => Promise<{
-        subject: { conversationId: string };
+        subject: {
+          conversationId: string;
+        };
         entries: unknown[];
       }>;
       listCenterAgentSessions: (input: {
@@ -9039,14 +9095,15 @@ describe("OpenMeld Core", () => {
         limit?: number;
         cursor?: string;
       }) => Promise<{
-        sessions: Array<{ spaceId: string; memberProfileId: string }>;
+        sessions: Array<{
+          spaceId: string;
+          memberProfileId: string;
+        }>;
         nextCursor: string | null;
       }>;
     };
-
     const first = await rpc.openCenterAgentDirectMessageSpace({ context });
     const second = await rpc.openCenterAgentDirectMessageSpace({ context });
-
     expect(first).toMatchObject({
       centerAgentProfileId: agentProfileId,
       created: true,
@@ -9058,7 +9115,6 @@ describe("OpenMeld Core", () => {
       ...first,
       created: false,
     });
-
     const creationId = randomUUID();
     const [session, repeatedSession, anotherSession] = await Promise.all([
       rpc.openCenterAgentDirectMessageSpace({
@@ -9099,7 +9155,6 @@ describe("OpenMeld Core", () => {
         spaceId: "f".repeat(64),
       })
     ).resolves.toMatchObject({ projection: null });
-
     const otherMemberUserId = `user-other-session-${randomUUID()}`;
     const otherMemberProfileId = randomUUID();
     await ensureTestOrganizationMembership({
@@ -9124,7 +9179,6 @@ describe("OpenMeld Core", () => {
         spaceId: session.spaceId,
       })
     ).resolves.toMatchObject({ projection: null });
-
     const manifestInput = {
       context,
       source: { kind: "local_agent" as const, client: "codex" },
@@ -9179,7 +9233,6 @@ describe("OpenMeld Core", () => {
       status: 404,
       code: "center_agent.context_conversation_required",
     });
-
     const membersResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${first.spaceId}/members`,
       undefined,
@@ -9194,15 +9247,20 @@ describe("OpenMeld Core", () => {
     );
     expect(membersResponse.status).toBe(200);
     const members = (await membersResponse.json()) as {
-      agents?: Array<{ profileId?: string; memberSource?: string }>;
-      humans?: Array<{ profileId?: string; memberSource?: string }>;
+      agents?: Array<{
+        profileId?: string;
+        memberSource?: string;
+      }>;
+      humans?: Array<{
+        profileId?: string;
+        memberSource?: string;
+      }>;
       summary?: {
         agentCount?: number;
         humanCount?: number;
         totalCount?: number;
       };
     };
-
     expect(members.summary).toMatchObject({
       agentCount: 1,
       humanCount: 1,
@@ -9224,7 +9282,6 @@ describe("OpenMeld Core", () => {
         }),
       ])
     );
-
     const signalsResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${first.spaceId}/signals`,
       undefined,
@@ -9240,8 +9297,15 @@ describe("OpenMeld Core", () => {
     expect(signalsResponse.status).toBe(200);
     const signalsPage = (await signalsResponse.json()) as {
       signals?: Array<{
-        data?: { meta?: { purpose?: string }; text?: string };
-        profile?: { profileId?: string };
+        data?: {
+          meta?: {
+            purpose?: string;
+          };
+          text?: string;
+        };
+        profile?: {
+          profileId?: string;
+        };
         type?: string;
       }>;
     };
@@ -9260,7 +9324,6 @@ describe("OpenMeld Core", () => {
       "I'm the Center Agent for Test Organization"
     );
   });
-
   it("bootstraps a fresh organization and opens a usable Center Agent DM through the real Core path", async () => {
     const organizationId = `org-center-bootstrap-${randomUUID()}`;
     const ownerUserId = `user-ca-${randomUUID()}`;
@@ -9270,11 +9333,13 @@ describe("OpenMeld Core", () => {
       organizationId,
       userId: ownerUserId,
     });
-    await env.OPENMELD_DB.prepare(
-      "UPDATE members SET role = 'owner' WHERE organization_id = ? AND user_id = ?"
-    )
-      .bind(organizationId, ownerUserId)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'UPDATE "openmeld"."members" SET role = \'owner\' WHERE organization_id = $1 AND user_id = $2',
+        values: [],
+      },
+      values: [organizationId, ownerUserId],
+    });
     await insertTestPrimaryHumanProfile({
       ownerUserId,
       profileId: humanProfileId,
@@ -9327,7 +9392,7 @@ describe("OpenMeld Core", () => {
     } satisfies NonNullable<CoreBindings["OPENMELD_AUTH_WORKER"]>;
     const coreEnv: CoreBindings = {
       OPENMELD_AUTH_WORKER: authWorker,
-      OPENMELD_DB: env.OPENMELD_DB,
+      OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL,
       OPENMELD_REMOTE_AGENT_BLOCKED_ORGANIZATION_IDS: "",
       OPENMELD_REMOTE_AGENT_DESIGNATION_ENABLED: "true",
       OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED: "true",
@@ -9343,11 +9408,9 @@ describe("OpenMeld Core", () => {
       profileName: "Fresh Owner",
       requestId: "center-agent-fresh-bootstrap-real-path",
     });
-
     const opened = await rpcOpenCenterAgentDirectMessageSpace(coreEnv, {
       context,
     });
-
     expect(opened).toMatchObject({
       centerAgentProfileId: agentProfileId,
       created: true,
@@ -9359,7 +9422,6 @@ describe("OpenMeld Core", () => {
       organizationId,
       createdByUserId: ownerUserId,
     });
-
     const membersResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${opened.spaceId}/members`,
       undefined,
@@ -9374,8 +9436,12 @@ describe("OpenMeld Core", () => {
     );
     expect(membersResponse.status).toBe(200);
     const members = (await membersResponse.json()) as {
-      agents?: Array<{ profileId?: string }>;
-      humans?: Array<{ profileId?: string }>;
+      agents?: Array<{
+        profileId?: string;
+      }>;
+      humans?: Array<{
+        profileId?: string;
+      }>;
     };
     expect(members.agents).toEqual(
       expect.arrayContaining([
@@ -9387,7 +9453,6 @@ describe("OpenMeld Core", () => {
         expect.objectContaining({ profileId: humanProfileId }),
       ])
     );
-
     const signalsResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${opened.spaceId}/signals`,
       undefined,
@@ -9403,8 +9468,15 @@ describe("OpenMeld Core", () => {
     expect(signalsResponse.status).toBe(200);
     const signalsPage = (await signalsResponse.json()) as {
       signals?: Array<{
-        data?: { meta?: { purpose?: string }; text?: string };
-        profile?: { profileId?: string };
+        data?: {
+          meta?: {
+            purpose?: string;
+          };
+          text?: string;
+        };
+        profile?: {
+          profileId?: string;
+        };
         type?: string;
       }>;
     };
@@ -9423,7 +9495,6 @@ describe("OpenMeld Core", () => {
       "I'm the Center Agent for Test Organization"
     );
   });
-
   it("supports direct DO rpc methods and applies space ref per request", async () => {
     await ensureTestOrganizationMembership({
       organizationId: DEFAULT_TEST_ORGANIZATION_ID,
@@ -9440,7 +9511,6 @@ describe("OpenMeld Core", () => {
       profileName: "Direct RPC Agent",
       ownerUserId: "rpc-direct-owner",
     });
-
     const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
     const stub = namespace.get(namespace.idFromString(spaceId)) as unknown as {
       rpcListSignals: (input: {
@@ -9452,7 +9522,9 @@ describe("OpenMeld Core", () => {
           data?: {
             text?: string;
             meta?: {
-              centerAgentTaskReferences?: Array<{ taskId: string }>;
+              centerAgentTaskReferences?: Array<{
+                taskId: string;
+              }>;
             };
           };
           profile?: {
@@ -9476,7 +9548,9 @@ describe("OpenMeld Core", () => {
         text: string;
         authoringPolicy: "system_emitted" | "user_authored";
         meta?: {
-          centerAgentTaskReferences?: Array<{ taskId: string }>;
+          centerAgentTaskReferences?: Array<{
+            taskId: string;
+          }>;
         };
         context?: typeof rpcContext;
       }) => Promise<{
@@ -9490,19 +9564,27 @@ describe("OpenMeld Core", () => {
         data?: {
           text?: string;
           meta?: {
-            centerAgentTaskReferences?: Array<{ taskId: string }>;
+            centerAgentTaskReferences?: Array<{
+              taskId: string;
+            }>;
           };
         };
       }>;
       rpcGetMeta: (input: {
         spaceId: string;
         context?: typeof rpcContext;
-      }) => Promise<{ spaceId: string; guide?: string }>;
+      }) => Promise<{
+        spaceId: string;
+        guide?: string;
+      }>;
       rpcPatchMeta: (input: {
         spaceId: string;
         guide: string;
         context?: typeof rpcContext;
-      }) => Promise<{ spaceId: string; guide?: string }>;
+      }) => Promise<{
+        spaceId: string;
+        guide?: string;
+      }>;
       rpcGetCursor: (input: {
         spaceId: string;
         profileId: string;
@@ -9526,20 +9608,17 @@ describe("OpenMeld Core", () => {
         role?: string;
       }>;
     };
-
     const cursorFromId = await stub.rpcGetCursor({
       spaceId,
       profileId: rpcContext.actorContext.openMeldProfileId,
       context: rpcContext,
     });
     expect(cursorFromId.spaceId).toBe(spaceId);
-
     const metaFromId = await stub.rpcGetMeta({
       spaceId,
       context: rpcContext,
     });
     expect(metaFromId.guide).toBe("direct-rpc guideline");
-
     const patchedMeta = await stub.rpcPatchMeta({
       spaceId,
       guide: "direct-rpc guideline updated",
@@ -9551,7 +9630,6 @@ describe("OpenMeld Core", () => {
       }),
     });
     expect(patchedMeta.guide).toBe("direct-rpc guideline updated");
-
     const posted = await stub.rpcPostSignal({
       spaceId,
       profile: {
@@ -9571,19 +9649,16 @@ describe("OpenMeld Core", () => {
     expect(posted.profile?.profileId).toBe(
       rpcContext.actorContext.openMeldProfileId
     );
-
     const listed = await stub.rpcListSignals({
       spaceId,
       context: rpcContext,
     });
     expect(listed.nextCursor).toBeNull();
-
     const historyResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals?afterTs=0&limit=100`
     );
     expect(historyResponse.status).toBe(200);
     expect(await historyResponse.json()).toHaveProperty("signals");
-
     const patchedCursor = await stub.rpcPatchCursor({
       spaceId,
       profileId: rpcContext.actorContext.openMeldProfileId,
@@ -9597,7 +9672,6 @@ describe("OpenMeld Core", () => {
     expect(patchedCursor.lastSeenTs).toBe(123);
     expect(patchedCursor.role).toBe("assistant");
   });
-
   it("negotiates image geometry and origin on Core Space File HTTP reads", async () => {
     const spaceId = await createSpace({
       name: `file-http-compatibility-${Date.now()}`,
@@ -9645,7 +9719,6 @@ describe("OpenMeld Core", () => {
         },
       });
     });
-
     const url = `${BASE_URL}/v1/spaces/${spaceId}/files/${fileId}`;
     const [legacyResponse, geometryResponse, originResponse, currentResponse] =
       await Promise.all([
@@ -9701,7 +9774,6 @@ describe("OpenMeld Core", () => {
       },
     });
   });
-
   it("publishes a canonical Space File without requiring a text note", async () => {
     const spaceId = await createSpace({ name: `file-only-${Date.now()}` });
     const context = createRpcContext({
@@ -9731,7 +9803,6 @@ describe("OpenMeld Core", () => {
     };
     await stub.rpcPrepareSpaceFileWrite({ spaceAccess, write });
     const file = await stub.rpcCommitSpaceFileWrite({ spaceAccess, write });
-
     const posted = await rpcPostSignal(env as unknown as CoreBindings, {
       authoringPolicy: "user_authored",
       context,
@@ -9752,7 +9823,6 @@ describe("OpenMeld Core", () => {
       spaceId,
       text: "",
     });
-
     expect(posted).toMatchObject({
       type: "signal.text",
       data: {
@@ -9769,7 +9839,6 @@ describe("OpenMeld Core", () => {
       },
     });
   });
-
   it("keeps ten Space File writes in one request independently idempotent", async () => {
     const spaceId = await createSpace({
       name: `multi-file-write-${Date.now()}`,
@@ -9798,7 +9867,6 @@ describe("OpenMeld Core", () => {
       sizeBytes: index + 1,
       spaceId,
     }));
-
     for (const write of writes) {
       await stub.rpcPrepareSpaceFileWrite({ spaceAccess, write });
       await stub.rpcCommitSpaceFileWrite({ spaceAccess, write });
@@ -9806,7 +9874,6 @@ describe("OpenMeld Core", () => {
     await expect(
       stub.rpcCommitSpaceFileWrite({ spaceAccess, write: writes[1] })
     ).resolves.toMatchObject({ id: writes[1]?.fileId });
-
     const result = await stub.rpcListSpaceFiles({
       query: { view: "active", origin: "all" },
       spaceAccess,
@@ -9816,7 +9883,6 @@ describe("OpenMeld Core", () => {
     expect(result.entries.map((entry) => entry.id)).toEqual(
       expect.arrayContaining(writes.map((write) => write.fileId))
     );
-
     const auditEvents = await runInDurableObject(
       stub,
       async (_instance, state) =>
@@ -9825,14 +9891,12 @@ describe("OpenMeld Core", () => {
             event_id: string;
             operation_id: string;
             request_id: string;
-          }>(
-            `
+          }>(`
               SELECT event_id, operation_id, request_id
               FROM space_file_audit_events
               WHERE operation = 'content_write'
               ORDER BY event_id ASC
-            `
-          )
+            `)
           .toArray()
     );
     expect(auditEvents).toHaveLength(10);
@@ -9851,7 +9915,6 @@ describe("OpenMeld Core", () => {
     );
     expect(new Set(auditEvents.map((event) => event.event_id)).size).toBe(10);
   });
-
   it("keeps Space File audit identities distinct when correlation IDs contain colons", async () => {
     const spaceId = await createSpace({
       name: `colon-audit-identity-${Date.now()}`,
@@ -9868,7 +9931,6 @@ describe("OpenMeld Core", () => {
         requestId: "rpc",
       },
     ] as const;
-
     for (const [index, identity] of writes.entries()) {
       const context = createRpcContext({
         requestId: identity.requestId,
@@ -9892,31 +9954,28 @@ describe("OpenMeld Core", () => {
         sizeBytes: index + 1,
         spaceId,
       };
-
       await stub.rpcPrepareSpaceFileWrite({ spaceAccess, write });
       await expect(
         stub.rpcCommitSpaceFileWrite({ spaceAccess, write })
       ).resolves.toMatchObject({ id: write.fileId });
     }
-
     const auditEvents = await runInDurableObject(
       stub,
       async (_instance, state) =>
         state.storage.sql
-          .exec<{ event_id: string }>(
-            `
+          .exec<{
+            event_id: string;
+          }>(`
               SELECT event_id
               FROM space_file_audit_events
               WHERE operation = 'content_write'
               ORDER BY event_id ASC
-            `
-          )
+            `)
           .toArray()
     );
     expect(auditEvents).toHaveLength(2);
     expect(new Set(auditEvents.map((event) => event.event_id)).size).toBe(2);
   });
-
   it("reuses a legacy Space File audit event during an exact write replay", async () => {
     const spaceId = await createSpace({
       name: `legacy-audit-replay-${Date.now()}`,
@@ -9948,7 +10007,6 @@ describe("OpenMeld Core", () => {
     };
     await stub.rpcPrepareSpaceFileWrite({ spaceAccess, write });
     await stub.rpcCommitSpaceFileWrite({ spaceAccess, write });
-
     const legacyEventId = `content_write:${requestId}`;
     await runInDurableObject(stub, (_instance, state) => {
       state.storage.sql.exec(
@@ -9961,23 +10019,22 @@ describe("OpenMeld Core", () => {
         write.clientMutationId
       );
     });
-
     await expect(
       stub.rpcCommitSpaceFileWrite({ spaceAccess, write })
     ).resolves.toMatchObject({ id: write.fileId });
-
     const auditEvents = await runInDurableObject(
       stub,
       async (_instance, state) =>
         state.storage.sql
-          .exec<{ event_id: string; operation_id: string }>(
-            `
+          .exec<{
+            event_id: string;
+            operation_id: string;
+          }>(`
               SELECT event_id, operation_id
               FROM space_file_audit_events
               WHERE operation = 'content_write'
               ORDER BY event_id ASC
-            `
-          )
+            `)
           .toArray()
     );
     expect(auditEvents).toEqual([
@@ -9987,7 +10044,6 @@ describe("OpenMeld Core", () => {
       },
     ]);
   });
-
   it("durably audits Space file writes without storing file data", async () => {
     const spaceId = await createSpace({ name: `file-audit-${Date.now()}` });
     const context = createRpcContext({
@@ -10001,7 +10057,6 @@ describe("OpenMeld Core", () => {
     const fileId = randomUUID();
     const revisionId = randomUUID();
     const clientMutationId = randomUUID();
-
     const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
     const stub = namespace.get(namespace.idFromString(spaceId));
     const spaceAccess = createAuthenticatedSpaceAccessContext({
@@ -10098,7 +10153,6 @@ describe("OpenMeld Core", () => {
       }),
       spaceId,
     });
-
     const events = await runInDurableObject(stub, async (_instance, state) =>
       state.storage.sql
         .exec<{
@@ -10114,8 +10168,7 @@ describe("OpenMeld Core", () => {
           result: string;
           revision_id: string | null;
           space_id: string;
-        }>(
-          `
+        }>(`
             SELECT
               actor_kind,
               actor_profile_id,
@@ -10131,11 +10184,9 @@ describe("OpenMeld Core", () => {
               space_id
             FROM space_file_audit_events
             ORDER BY created_at_ms ASC, event_id ASC
-          `
-        )
+          `)
         .toArray()
     );
-
     expect(events).toHaveLength(6);
     expect(events).toEqual(
       expect.arrayContaining([
@@ -10188,7 +10239,6 @@ describe("OpenMeld Core", () => {
     expect(JSON.stringify(events)).not.toContain("audit-secret.txt");
     expect(JSON.stringify(events)).not.toContain("Confidential audit fixture");
   });
-
   it("persists the authenticated agent's Space member name instead of a requested profile display", async () => {
     await ensureTestOrganizationMembership({
       organizationId: DEFAULT_TEST_ORGANIZATION_ID,
@@ -10228,7 +10278,6 @@ describe("OpenMeld Core", () => {
       creatorProfile
     );
     expect(addResponse.status).toBe(200);
-
     const rpcContext = createRpcContext({
       requestId: "rpc-author-name-request",
       profileId: agentProfileId,
@@ -10241,7 +10290,9 @@ describe("OpenMeld Core", () => {
       rpcListSignals: (input: {
         context: typeof rpcContext;
         spaceId: string;
-      }) => Promise<{ signals: SignalEnvelope[] }>;
+      }) => Promise<{
+        signals: SignalEnvelope[];
+      }>;
       rpcPostSignal: (input: {
         authoringPolicy: "system_emitted";
         context: typeof rpcContext;
@@ -10254,7 +10305,6 @@ describe("OpenMeld Core", () => {
         text: string;
       }) => Promise<SignalEnvelope>;
     };
-
     const posted = await stub.rpcPostSignal({
       authoringPolicy: "system_emitted",
       context: rpcContext,
@@ -10266,7 +10316,6 @@ describe("OpenMeld Core", () => {
       spaceId,
       text: "hello from the Center Agent",
     });
-
     expect(posted.profile).toMatchObject({
       kind: "agent",
       profileId: agentProfileId,
@@ -10285,7 +10334,6 @@ describe("OpenMeld Core", () => {
       profileName: authoritativeProfileName,
     });
   });
-
   it("publishes new Center Agent tool messages with the Auth name while preserving history", async () => {
     const organizationId = "org-center-agent-author-name";
     const ownerUserId = "owner-center-agent-author-name";
@@ -10334,7 +10382,6 @@ describe("OpenMeld Core", () => {
       requestOptions
     );
     expect(addResponse.status).toBe(200);
-
     await rpcCenterAgentPostSpaceMessage(env as unknown as CoreBindings, {
       context: createRpcContext({
         activeOrganizationId: organizationId,
@@ -10387,7 +10434,6 @@ describe("OpenMeld Core", () => {
         }
       );
     });
-
     expect(result.signal.profile).toMatchObject({
       kind: "agent",
       profileId: agentProfileId,
@@ -10422,7 +10468,6 @@ describe("OpenMeld Core", () => {
       )?.profile.profileName
     ).toBe(authoritativeProfileName);
   });
-
   it("allows anonymous viewers to read direct RPC status, signals, and threads without write access", async () => {
     const spaceId = await createSpace({
       name: `rpc-anonymous-${Date.now()}`,
@@ -10441,7 +10486,10 @@ describe("OpenMeld Core", () => {
         spaceAccess?: ReturnType<
           typeof createAnonymousViewerSpaceAccessContext
         >;
-      }) => Promise<{ spaceId: string; name?: string }>;
+      }) => Promise<{
+        spaceId: string;
+        name?: string;
+      }>;
       rpcListSignals: (input: {
         spaceId: string;
         spaceAccess?: ReturnType<
@@ -10450,7 +10498,9 @@ describe("OpenMeld Core", () => {
       }) => Promise<{
         signals: Array<{
           type: string;
-          data?: { text?: string };
+          data?: {
+            text?: string;
+          };
         }>;
       }>;
       rpcListThreads: (input: {
@@ -10458,10 +10508,17 @@ describe("OpenMeld Core", () => {
         spaceAccess?: ReturnType<
           typeof createAnonymousViewerSpaceAccessContext
         >;
-      }) => Promise<{ threads: unknown[]; previews: unknown[] }>;
+      }) => Promise<{
+        threads: unknown[];
+        previews: unknown[];
+      }>;
       rpcPostSignal: (input: {
         spaceId: string;
-        profile: { kind: "human"; profileId: string; profileName: string };
+        profile: {
+          kind: "human";
+          profileId: string;
+          profileName: string;
+        };
         text: string;
         authoringPolicy: "system_emitted";
         context?: typeof rpcContext;
@@ -10470,7 +10527,6 @@ describe("OpenMeld Core", () => {
         >;
       }) => Promise<unknown>;
     };
-
     await stub.rpcPostSignal({
       spaceId,
       profile: {
@@ -10482,7 +10538,6 @@ describe("OpenMeld Core", () => {
       authoringPolicy: "system_emitted",
       context: rpcContext,
     });
-
     const anonymousAccess = createAnonymousViewerSpaceAccessContext({
       spaceId,
       requestId: "rpc-anonymous-reader",
@@ -10493,7 +10548,6 @@ describe("OpenMeld Core", () => {
     });
     expect(status.spaceId).toBe(spaceId);
     expect(status.name).toContain("rpc-anonymous");
-
     const listed = await stub.rpcListSignals({
       spaceId,
       spaceAccess: anonymousAccess,
@@ -10505,14 +10559,12 @@ describe("OpenMeld Core", () => {
           signal.data?.text === "visible to anonymous viewers"
       )
     ).toBe(true);
-
     const threads = await stub.rpcListThreads({
       spaceId,
       spaceAccess: anonymousAccess,
     });
     expect(threads.threads).toEqual([]);
     expect(threads.previews).toEqual([]);
-
     const reader = namespace.get(namespace.idFromString(spaceId));
     const readInput = { spaceId, spaceAccess: anonymousAccess };
     const readSharedContext = [
@@ -10525,7 +10577,6 @@ describe("OpenMeld Core", () => {
     for (const read of readSharedContext) {
       await expect(read()).resolves.toBeDefined();
     }
-
     const writeError = await rpcPostSignal(env as unknown as CoreBindings, {
       spaceId,
       profile: {
@@ -10559,7 +10610,6 @@ describe("OpenMeld Core", () => {
       expect(String(error)).toContain("space.membership_required");
     }
   });
-
   it("requires writable access before returning an idempotent direct RPC signal", async () => {
     const spaceId = await createSpace({
       name: `rpc-idempotent-${Date.now()}`,
@@ -10577,8 +10627,15 @@ describe("OpenMeld Core", () => {
         authoringPolicy: "system_emitted";
         clientMessageId: string;
         context?: typeof rpcContext;
-        meta: { clientMessageId: string; purpose: string };
-        profile: { kind: "human"; profileId: string; profileName: string };
+        meta: {
+          clientMessageId: string;
+          purpose: string;
+        };
+        profile: {
+          kind: "human";
+          profileId: string;
+          profileName: string;
+        };
         spaceAccess?: ReturnType<
           typeof createAnonymousViewerSpaceAccessContext
         >;
@@ -10590,10 +10647,17 @@ describe("OpenMeld Core", () => {
         spaceId: string;
       }) => Promise<
         | {
-            signal: Extract<SignalEnvelope, { type: "signal.text" }>;
+            signal: Extract<
+              SignalEnvelope,
+              {
+                type: "signal.text";
+              }
+            >;
             status: "accepted";
           }
-        | { status: "rejected" }
+        | {
+            status: "rejected";
+          }
       >;
     };
     const clientMessageId = `rpc-idempotent-${randomUUID()}`;
@@ -10602,7 +10666,6 @@ describe("OpenMeld Core", () => {
       profileId: rpcContext.actorContext.openMeldProfileId,
       profileName: "Idempotent Author",
     };
-
     const posted = await stub.rpcPostSignalOnceByClientMessageId({
       authoringPolicy: "system_emitted",
       clientMessageId,
@@ -10622,7 +10685,6 @@ describe("OpenMeld Core", () => {
       signal: { id: posted.id },
       status: "accepted",
     });
-
     const rejectedClientMessageId = `rpc-rejected-${randomUUID()}`;
     await expect(
       stub.rpcResolveOrRejectTextSignalByClientMessageId({
@@ -10651,7 +10713,6 @@ describe("OpenMeld Core", () => {
     expect((rejectedLatePostError as Error).message).toContain(
       "space.signal.client_message_id_rejected"
     );
-
     const anonymousAccess = createAnonymousViewerSpaceAccessContext({
       spaceId,
       requestId: "rpc-idempotent-read-only",
@@ -10670,14 +10731,12 @@ describe("OpenMeld Core", () => {
         () => null,
         (error: unknown) => error
       );
-
     expect(readOnlyError).toBeInstanceOf(Error);
     expect((readOnlyError as Error).message).toContain("HTTP 403");
     expect((readOnlyError as Error).message).toContain(
       '"code":"space.access.read_only"'
     );
   });
-
   it("returns an accepted idempotent Reference after later membership removal", async () => {
     const referenceAgentProfileId = "agt_22222222-2222-4222-8222-222222222222";
     const spaceId = await createSpace({
@@ -10704,7 +10763,6 @@ describe("OpenMeld Core", () => {
     );
     expect(addResponse.status).toBe(200);
     await addResponse.json();
-
     const rpcContext = createRpcContext({
       requestId: "rpc-idempotent-reference-author",
       profileId: DEFAULT_HUMAN_PROFILE_ID,
@@ -10723,8 +10781,14 @@ describe("OpenMeld Core", () => {
           referenceTargets: string[];
           text: string;
         };
-        meta: { clientMessageId: string };
-        profile: { kind: "human"; profileId: string; profileName: string };
+        meta: {
+          clientMessageId: string;
+        };
+        profile: {
+          kind: "human";
+          profileId: string;
+          profileName: string;
+        };
         spaceId: string;
         text: string;
       }) => Promise<SignalEnvelope>;
@@ -10749,7 +10813,6 @@ describe("OpenMeld Core", () => {
       text: "@Reference Target(reference) keep this context",
     };
     const accepted = await stub.rpcPostSignalOnceByClientMessageId(request);
-
     const removeResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/members/remove`,
       {
@@ -10762,11 +10825,9 @@ describe("OpenMeld Core", () => {
     );
     expect(removeResponse.status).toBe(200);
     await removeResponse.json();
-
     await expect(
       stub.rpcPostSignalOnceByClientMessageId(request)
     ).resolves.toMatchObject({ id: accepted.id });
-
     const historyResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals`
     );
@@ -10784,7 +10845,6 @@ describe("OpenMeld Core", () => {
         }),
       })
     );
-
     const unpublishedClientMessageId = `rpc-idempotent-reference-new-${randomUUID()}`;
     const unpublishedError = await stub
       .rpcPostSignalOnceByClientMessageId({
@@ -10801,7 +10861,6 @@ describe("OpenMeld Core", () => {
       "space.addressing.target_invalid"
     );
   });
-
   it("rejects late Remote Agent replies but publishes the confirmed stopped outcome", async () => {
     const spaceId = await createSpace({
       name: `rpc-stopped-final-reply-${Date.now()}`,
@@ -10822,7 +10881,6 @@ describe("OpenMeld Core", () => {
     if (!isTextSignalEnvelope(sourceSignal)) {
       throw new Error("Expected a source text signal");
     }
-
     const targetProfileId = "agt_99999999-9999-4999-8999-999999999999";
     const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
     const stub = namespace.get(namespace.idFromString(spaceId));
@@ -10897,7 +10955,6 @@ describe("OpenMeld Core", () => {
         () => null,
         (error: unknown) => error
       );
-
     expect(lateReplyError).toBeInstanceOf(Error);
     expect((lateReplyError as Error).message).toContain("HTTP 409");
     expect((lateReplyError as Error).message).toContain(
@@ -10991,7 +11048,6 @@ describe("OpenMeld Core", () => {
       "This request was stopped."
     );
   });
-
   it("requires Remote Agent authority before persisting and claiming a failure outcome", async () => {
     const spaceId = await createSpace({
       name: `rpc-remote-agent-failure-authority-${Date.now()}`,
@@ -11012,7 +11068,6 @@ describe("OpenMeld Core", () => {
     if (!isTextSignalEnvelope(sourceSignal)) {
       throw new Error("Expected a source text signal");
     }
-
     const targetProfileId = "agt_88888888-8888-4888-8888-888888888888";
     const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
     const stub = namespace.get(namespace.idFromString(spaceId));
@@ -11083,7 +11138,6 @@ describe("OpenMeld Core", () => {
       spaceId,
       text: "Center Agent could not complete this request.",
     };
-
     const rejected = await stub.rpcPostSignal(baseFailureInput).then(
       () => null,
       (error: unknown) => error
@@ -11093,7 +11147,6 @@ describe("OpenMeld Core", () => {
     expect((rejected as Error).message).toContain(
       '"code":"space.final_outcome_owner_required"'
     );
-
     const published = await stub.rpcPostSignal({
       ...baseFailureInput,
       finalOutcomeAuthority: "remote_agent_native_delivery",
@@ -11119,7 +11172,6 @@ describe("OpenMeld Core", () => {
       outcome: "failure",
       signalId: published.id,
     });
-
     const lateSuccess = await stub.rpcPostSignal({
       ...baseFailureInput,
       finalOutcomeAuthority: "remote_agent_native_delivery",
@@ -11152,7 +11204,6 @@ describe("OpenMeld Core", () => {
         expect.objectContaining({ id: lateSuccess.id }),
       ]),
     });
-
     await runInDurableObject(stub, (_instance, state) => {
       state.storage.sql.exec(
         `
@@ -11171,13 +11222,13 @@ describe("OpenMeld Core", () => {
         spaceId,
       })
     ).resolves.toEqual({ outcome: null, signalId: null });
-
     const clientMessageId = "client-remote-agent-failure-authority";
     const attemptId = `attempt-${randomUUID()}`;
     const nowMs = Date.now();
-    await env.OPENMELD_DB.prepare(
-      `
-        INSERT INTO openMeldDaemon_dispatch_ledger (
+    await getPostgresDatabase(env).query({
+      ...{
+        text: `
+        INSERT INTO "openmeld"."openMeldDaemon_dispatch_ledger" (
           idempotency_key,
           dispatch_id,
           space_id,
@@ -11192,10 +11243,11 @@ describe("OpenMeld Core", () => {
           attempt_count,
           latest_attempt_id
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `
-    )
-      .bind(
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+      `,
+        values: [],
+      },
+      values: [
         dispatchRecord.idempotencyKey,
         dispatchRecord.dispatchId,
         spaceId,
@@ -11208,12 +11260,13 @@ describe("OpenMeld Core", () => {
         nowMs - 2000,
         nowMs - 1000,
         1,
-        attemptId
-      )
-      .run();
-    await env.OPENMELD_DB.prepare(
-      `
-        INSERT INTO openMeldDaemon_dispatch_attempts (
+        attemptId,
+      ],
+    });
+    await getPostgresDatabase(env).query({
+      ...{
+        text: `
+        INSERT INTO "openmeld"."openMeldDaemon_dispatch_attempts" (
           attempt_id,
           dispatch_id,
           idempotency_key,
@@ -11227,10 +11280,11 @@ describe("OpenMeld Core", () => {
           error_code,
           error_message
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `
-    )
-      .bind(
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      `,
+        values: [],
+      },
+      values: [
         attemptId,
         dispatchRecord.dispatchId,
         dispatchRecord.idempotencyKey,
@@ -11242,13 +11296,13 @@ describe("OpenMeld Core", () => {
         nowMs - 1000,
         nowMs,
         "remote_agent.turn_not_completed",
-        "Remote Agent turn did not complete."
-      )
-      .run();
+        "Remote Agent turn did not complete.",
+      ],
+    });
     await upsertRemoteAgentNativeDeliveryRecord({
       attemptId,
       bindingId: `binding-${randomUUID()}`,
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       dispatchId: dispatchRecord.dispatchId,
       failureCode: "remote_agent.turn_not_completed",
       idempotencyKey: dispatchRecord.idempotencyKey,
@@ -11262,14 +11316,13 @@ describe("OpenMeld Core", () => {
     });
     await expect(
       markRemoteAgentPreAdmissionFailurePublished({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         failureCode: "remote_agent.turn_not_completed",
         idempotencyKey: dispatchRecord.idempotencyKey,
         nowMs: nowMs + 1,
         publishedSignalId: published.id,
       })
     ).resolves.toMatchObject({ publishedSignalId: published.id });
-
     const traceResponse = await fetchSpaceDoWithOpenMeldAuth(
       {
         path: `/dispatches/${dispatchRecord.dispatchId}/trace`,
@@ -11313,7 +11366,6 @@ describe("OpenMeld Core", () => {
         nativeDelivery: { status: "failed" },
       },
     });
-
     const wakeProgressResponse = await fetchSpaceDoWithOpenMeldAuth({
       path: `/wake-progress?clientMessageId=${encodeURIComponent(clientMessageId)}&targetProfileId=${encodeURIComponent(targetProfileId)}`,
       spaceId,
@@ -11337,7 +11389,6 @@ describe("OpenMeld Core", () => {
         }),
       ],
     });
-
     const historyResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals?afterTs=0&limit=20`
     );
@@ -11349,7 +11400,6 @@ describe("OpenMeld Core", () => {
       history.signals?.filter((signal) => signal.id === published.id)
     ).toHaveLength(1);
   });
-
   it("returns one signal for concurrent idempotent direct RPC writes", async () => {
     const spaceId = await createSpace({
       name: `rpc-idempotent-concurrent-${Date.now()}`,
@@ -11367,8 +11417,15 @@ describe("OpenMeld Core", () => {
         authoringPolicy: "system_emitted";
         clientMessageId: string;
         context: typeof rpcContext;
-        meta: { clientMessageId: string; purpose: string };
-        profile: { kind: "human"; profileId: string; profileName: string };
+        meta: {
+          clientMessageId: string;
+          purpose: string;
+        };
+        profile: {
+          kind: "human";
+          profileId: string;
+          profileName: string;
+        };
         spaceId: string;
         text: string;
       }) => Promise<SignalEnvelope>;
@@ -11387,12 +11444,10 @@ describe("OpenMeld Core", () => {
       spaceId,
       text: "one idempotent concurrent signal",
     };
-
     const [first, second] = await Promise.all([
       stub.rpcPostSignalOnceByClientMessageId(request),
       stub.rpcPostSignalOnceByClientMessageId(request),
     ]);
-
     expect(first.id).toBe(second.id);
     if (!(first.type === "signal.text" && second.type === "signal.text")) {
       throw new Error(
@@ -11402,7 +11457,6 @@ describe("OpenMeld Core", () => {
     expect(first.data.meta?.clientMessageId).toBe(clientMessageId);
     expect(second.data.meta?.clientMessageId).toBe(clientMessageId);
   });
-
   it("keeps protected Space password semantics for anonymous direct RPC reads", async () => {
     const spaceName = `rpc-anonymous-protected-${Date.now()}`;
     const spaceId = await createSpace({
@@ -11428,7 +11482,6 @@ describe("OpenMeld Core", () => {
         code: "space.password_required",
       },
     });
-
     const invalidPasswordError = await rpcGetSpaceStatus(
       env as unknown as CoreBindings,
       {
@@ -11449,7 +11502,6 @@ describe("OpenMeld Core", () => {
         code: "space.password_invalid",
       },
     });
-
     const invalidBoardPasswordError = await rpcGetSpaceBoard(
       env as unknown as CoreBindings,
       {
@@ -11470,7 +11522,6 @@ describe("OpenMeld Core", () => {
         code: "space.password_invalid",
       },
     });
-
     const status = await rpcGetSpaceStatus(env as unknown as CoreBindings, {
       spaceId,
       spaceAccess: createAnonymousViewerSpaceAccessContext({
@@ -11480,7 +11531,6 @@ describe("OpenMeld Core", () => {
       }),
     });
     expect(status.spaceId).toBe(spaceId);
-
     const board = await rpcGetSpaceBoard(env as unknown as CoreBindings, {
       spaceId,
       spaceAccess: createAnonymousViewerSpaceAccessContext({
@@ -11506,7 +11556,6 @@ describe("OpenMeld Core", () => {
       recentOutcomes: [],
     });
   });
-
   it("returns an empty Board projection for a Space with no members or executions", async () => {
     const spaceName = `rpc-empty-board-${Date.now()}`;
     const spaceId = await createSpace({ name: spaceName });
@@ -11521,7 +11570,6 @@ describe("OpenMeld Core", () => {
       state.storage.sql.exec("DELETE FROM space_cursors");
       state.storage.sql.exec("DELETE FROM space_signals");
     });
-
     await expect(
       rpcGetSpaceBoard(env as unknown as CoreBindings, {
         spaceId,
@@ -11549,7 +11597,6 @@ describe("OpenMeld Core", () => {
       recentOutcomes: [],
     });
   });
-
   it("projects viewer membership from active account member profiles", async () => {
     const humanSpaceId = await createSpace({
       name: `viewer-membership-human-${Date.now()}`,
@@ -11578,7 +11625,6 @@ describe("OpenMeld Core", () => {
         preferredOpenProfileId: string | null;
       }>;
     };
-
     const humanMembership = await humanStub.rpcGetViewerMembership({
       spaceId: humanSpaceId,
       context: humanContext,
@@ -11593,7 +11639,6 @@ describe("OpenMeld Core", () => {
     expect(humanMembership.preferredOpenProfileId).toBe(
       DEFAULT_HUMAN_PROFILE_ID
     );
-
     const agentSpaceId = await createSpace(
       {
         name: `viewer-membership-agent-${Date.now()}`,
@@ -11629,7 +11674,6 @@ describe("OpenMeld Core", () => {
         preferredOpenProfileId: string | null;
       }>;
     };
-
     const agentMembership = await agentStub.rpcGetViewerMembership({
       spaceId: agentSpaceId,
       context: agentContext,
@@ -11645,7 +11689,6 @@ describe("OpenMeld Core", () => {
       "agt_44444444-4444-4444-8444-444444444444"
     );
   });
-
   it.each(
     ["publication", "directory", "active progress"].flatMap((surface) =>
       [
@@ -11679,7 +11722,7 @@ describe("OpenMeld Core", () => {
       await upsertRemoteAgentNativeDeliveryRecord({
         attemptId: null,
         bindingId: `binding-${spaceId}`,
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         dispatchId: `dispatch-${spaceId}`,
         idempotencyKey: `name-${spaceId}`,
         nowMs: Date.now(),
@@ -11802,7 +11845,6 @@ describe("OpenMeld Core", () => {
     );
     expect(member?.status).toBe("active");
   });
-
   it("preserves origin facts on direct DO rpc signals when the posted profile matches the authenticated agent", async () => {
     const workingDirectory = " /tmp/rpc-origin ";
     const spaceId = await createSpace({
@@ -11817,7 +11859,6 @@ describe("OpenMeld Core", () => {
       agentControllerRef: "builtin:openclaw",
       agentControllerConversationId: "session-runtime-1",
     });
-
     const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
     const stub = namespace.get(namespace.idFromString(spaceId)) as unknown as {
       rpcPostSignal: (input: {
@@ -11841,7 +11882,9 @@ describe("OpenMeld Core", () => {
           agentControllerRef?: string;
           workingDirectory?: string;
         };
-        data?: { text?: string };
+        data?: {
+          text?: string;
+        };
       }>;
       rpcListSignals: (input: {
         spaceId: string;
@@ -11849,7 +11892,9 @@ describe("OpenMeld Core", () => {
       }) => Promise<{
         signals: Array<{
           type: string;
-          data?: { text?: string };
+          data?: {
+            text?: string;
+          };
           profile?: {
             agentControllerConversationId?: string;
             agentControllerRef?: string;
@@ -11859,7 +11904,6 @@ describe("OpenMeld Core", () => {
         nextCursor: string | null;
       }>;
     };
-
     const posted = await stub.rpcPostSignal({
       spaceId,
       profile: {
@@ -11875,7 +11919,6 @@ describe("OpenMeld Core", () => {
       authoringPolicy: "system_emitted",
       context: rpcContext,
     });
-
     expect(posted.type).toBe("signal.text");
     expect(posted.profile?.profileId).toBe(
       rpcContext.actorContext.openMeldProfileId
@@ -11885,7 +11928,6 @@ describe("OpenMeld Core", () => {
       "agent:openmeld-demo:openmeld-space:rpc-origin"
     );
     expect(posted.profile?.workingDirectory).toBe(workingDirectory);
-
     const listed = await stub.rpcListSignals({
       spaceId,
       context: rpcContext,
@@ -11902,13 +11944,11 @@ describe("OpenMeld Core", () => {
       )
     ).toBe(true);
   });
-
   it("returns password errors for direct status and system notices once auth context is valid", async () => {
     const spaceId = await createSpace({
       name: "rpc-signal-auth",
       password: "secret-rpc-signal",
     });
-
     const statusError = await rpcPostStatusSignal(
       env as unknown as CoreBindings,
       {
@@ -11944,7 +11984,6 @@ describe("OpenMeld Core", () => {
         message: "space password invalid",
       },
     });
-
     const systemNoticeError = await rpcPostSystemNoticeSignal(
       env as unknown as CoreBindings,
       {
@@ -11982,12 +12021,10 @@ describe("OpenMeld Core", () => {
       },
     });
   });
-
   it("returns only formal post-anchor updates", async () => {
     const spaceId = await createSpace({
       name: "updates-read",
     });
-
     const postTextSignal = async (body: Record<string, unknown>) => {
       const response = await fetchWithOpenMeldAuth(
         `${BASE_URL}/v1/spaces/${spaceId}/signals`,
@@ -12002,7 +12039,6 @@ describe("OpenMeld Core", () => {
       expect(response.status).toBe(200);
       return parseEnvelope(await response.json());
     };
-
     const anchorSignal = await postTextSignal({
       type: "signal.text",
       data: {
@@ -12012,7 +12048,6 @@ describe("OpenMeld Core", () => {
     if (!isTextSignalEnvelope(anchorSignal)) {
       throw new Error("Expected text anchor signal");
     }
-
     await postTextSignal({
       type: "signal.text",
       data: {
@@ -12044,7 +12079,6 @@ describe("OpenMeld Core", () => {
       text: "Legacy system text should not be a formal update.",
       authoringPolicy: "system_emitted",
     });
-
     const actorProfileId = "agt_77777777-7777-4777-8777-777777777777";
     await rpcPostStatusSignal(env as unknown as CoreBindings, {
       spaceId,
@@ -12096,7 +12130,6 @@ describe("OpenMeld Core", () => {
         text: "Updates Agent chose to stay silent: Handled privately.",
       },
     });
-
     const historyResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals?afterTs=0&limit=100`
     );
@@ -12112,7 +12145,6 @@ describe("OpenMeld Core", () => {
       "signal.status",
       "signal.system_notice",
     ]);
-
     const response = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/updates?afterSignalId=${encodeURIComponent(anchorSignal.id)}&limit=10`
     );
@@ -12129,24 +12161,29 @@ describe("OpenMeld Core", () => {
       payload.signals?.some(
         (signal) =>
           signal.type === "signal.text" &&
-          (signal.data as { text?: string }).text === "transient follow-up"
+          (
+            signal.data as {
+              text?: string;
+            }
+          ).text === "transient follow-up"
       )
     ).toBe(false);
     expect(
       payload.signals?.some(
         (signal) =>
           signal.type === "signal.text" &&
-          (signal.data as { text?: string }).text ===
-            "Legacy system text should not be a formal update."
+          (
+            signal.data as {
+              text?: string;
+            }
+          ).text === "Legacy system text should not be a formal update."
       )
     ).toBe(false);
   });
-
   it("persists system notices emitted with the internal OpenMeld system context", async () => {
     const spaceId = await createSpace({
       name: "system-notice-context",
     });
-
     await rpcPostSystemNoticeSignal(env as unknown as CoreBindings, {
       spaceId,
       finalOutcomeAuthority: "runtime_coordinator_failure_publication",
@@ -12172,7 +12209,6 @@ describe("OpenMeld Core", () => {
         text: "OpenClaw Demo couldn't reply: Authentication failed in OpenClaw. Run `openclaw logs --follow`, re-authenticate, then retry.",
       },
     });
-
     const historyResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals?afterTs=0&limit=20`
     );
@@ -12196,7 +12232,6 @@ describe("OpenMeld Core", () => {
       },
     });
   });
-
   it("keeps a pre-agent stop notice in the originating thread when its publisher lacks thread context", async () => {
     const spaceId = await createSpace({ name: "thread-stop-placement" });
     const postText = async (url: string, text: string) => {
@@ -12229,7 +12264,9 @@ describe("OpenMeld Core", () => {
     );
     expect(createThreadResponse.status).toBe(200);
     const createdThread = (await createThreadResponse.json()) as {
-      thread: { threadId: string };
+      thread: {
+        threadId: string;
+      };
     };
     const threadUrl = `${BASE_URL}/v1/spaces/${spaceId}/threads/${createdThread.thread.threadId}/signals`;
     const sourceResponse = await fetchWithOpenMeldAuth(threadUrl, {
@@ -12315,28 +12352,23 @@ describe("OpenMeld Core", () => {
       stopped.id
     );
   });
-
   it("returns not found for a missing updates anchor signal", async () => {
     const spaceId = await createSpace({
       name: "updates-anchor-not-found",
     });
-
     const response = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/updates?afterSignalId=missing-anchor&limit=10`
     );
-
     expect(response.status).toBe(404);
     await expect(response.json()).resolves.toMatchObject({
       code: "space.updates.anchor_not_found",
     });
   });
-
   it("drops retired status permission from a legacy PATCH /contract", async () => {
     const spaceId = await createSpace({
       name: "phase-5b-contract",
       password: "secret-0321",
     });
-
     const response = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/contract`,
       {
@@ -12358,7 +12390,6 @@ describe("OpenMeld Core", () => {
         spacePassword: "secret-0321",
       }
     );
-
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       publicationMode: "raw_context_sharing",
@@ -12372,12 +12403,10 @@ describe("OpenMeld Core", () => {
       updatedBy: DEFAULT_HUMAN_PROFILE_ID,
     });
   });
-
   it("treats a no-op PATCH /contract as idempotent and keeps the version unchanged", async () => {
     const spaceId = await createSpace({
       name: "phase-5b-contract-noop",
     });
-
     const response = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/contract`,
       {
@@ -12390,14 +12419,12 @@ describe("OpenMeld Core", () => {
         }),
       }
     );
-
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       version: 1,
       updatedBy: "system",
       allowedActions: ["post_message", "stay_silent"],
     });
-
     const contractRead = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/contract`
     );
@@ -12408,7 +12435,6 @@ describe("OpenMeld Core", () => {
       allowedActions: ["post_message", "stay_silent"],
     });
   });
-
   it("returns a canonical space status summary with the latest formal public update", async () => {
     const centerAgentProfileId = "agt_99999999-9999-4999-8999-999999999999";
     await ensureTestCenterAgentDesignation({
@@ -12421,7 +12447,6 @@ describe("OpenMeld Core", () => {
     const spaceId = await createSpace({
       name: "phase-5b-status",
     });
-
     const postResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals`,
       {
@@ -12437,14 +12462,11 @@ describe("OpenMeld Core", () => {
         }),
       }
     );
-
     expect(postResponse.status).toBe(200);
     await postResponse.text();
-
     const response = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/status`
     );
-
     expect(response.status).toBe(200);
     const summary = await response.json();
     expect(summary).toMatchObject({
@@ -12472,12 +12494,10 @@ describe("OpenMeld Core", () => {
       }),
     });
   });
-
   it("returns the latest formal update when the newest candidate is non-formal", async () => {
     const spaceId = await createSpace({
       name: "phase-5b-status-formal-fallback",
     });
-
     const formalResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals`,
       {
@@ -12495,7 +12515,6 @@ describe("OpenMeld Core", () => {
     );
     expect(formalResponse.status).toBe(200);
     await formalResponse.text();
-
     const transientResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals`,
       {
@@ -12516,11 +12535,9 @@ describe("OpenMeld Core", () => {
     );
     expect(transientResponse.status).toBe(200);
     await transientResponse.text();
-
     const response = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/status`
     );
-
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       latestVisibleUpdate: expect.objectContaining({
@@ -12530,12 +12547,10 @@ describe("OpenMeld Core", () => {
       }),
     });
   });
-
   it("returns the latest valid formal update when a newer system text signal uses an internal profile id", async () => {
     const spaceId = await createSpace({
       name: "phase-5b-status-system-text-fallback",
     });
-
     const formalResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals`,
       {
@@ -12553,7 +12568,6 @@ describe("OpenMeld Core", () => {
     );
     expect(formalResponse.status).toBe(200);
     await formalResponse.text();
-
     await new Promise((resolve) => setTimeout(resolve, 5));
     await rpcPostSignal(env as unknown as CoreBindings, {
       spaceId,
@@ -12571,11 +12585,9 @@ describe("OpenMeld Core", () => {
       text: "Internal routing failure should not break status.",
       authoringPolicy: "system_emitted",
     });
-
     const response = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/status`
     );
-
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       latestVisibleUpdate: expect.objectContaining({
@@ -12585,13 +12597,11 @@ describe("OpenMeld Core", () => {
       }),
     });
   });
-
   it("returns a system notice as the latest visible update using the notice actor", async () => {
     const spaceId = await createSpace({
       name: "phase-5b-status-system-notice",
     });
     const actorProfileId = "agt_88888888-8888-4888-8888-888888888888";
-
     await rpcPostSystemNoticeSignal(env as unknown as CoreBindings, {
       spaceId,
       finalOutcomeAuthority: "runtime_coordinator_failure_publication",
@@ -12616,11 +12626,9 @@ describe("OpenMeld Core", () => {
         text: "Notice Agent couldn't reply because its local agent connection could not be resolved.",
       },
     });
-
     const response = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/status`
     );
-
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       latestVisibleUpdate: expect.objectContaining({
@@ -12632,15 +12640,14 @@ describe("OpenMeld Core", () => {
       }),
     });
   });
-
   it("returns dispatch result unavailable when result storage is not ready", async () => {
     const spaceId = await createSpace({
       name: "result-read",
     });
-
-    await env.OPENMELD_DB.prepare(
-      "ALTER TABLE openMeldDaemon_dispatch_results RENAME TO openMeldDaemon_dispatch_results_offline"
-    ).run();
+    await postgresFixtureOperator(env).query({
+      text: 'ALTER TABLE "openmeld"."openMeldDaemon_dispatch_results" RENAME TO "openMeldDaemon_dispatch_results_offline"',
+      values: [],
+    });
     try {
       const byDispatch = await fetchWithOpenMeldAuth(
         `${BASE_URL}/v1/spaces/${spaceId}/result?dispatchId=dispatch-live-1`
@@ -12649,7 +12656,6 @@ describe("OpenMeld Core", () => {
       await expect(byDispatch.json()).resolves.toMatchObject({
         code: "space.dispatch_result.unavailable",
       });
-
       const byResultRef = await fetchWithOpenMeldAuth(
         `${BASE_URL}/v1/spaces/${spaceId}/result?resultRef=${encodeURIComponent("dispatch-result:result-live-1")}`
       );
@@ -12658,12 +12664,12 @@ describe("OpenMeld Core", () => {
         code: "space.dispatch_result.unavailable",
       });
     } finally {
-      await env.OPENMELD_DB.prepare(
-        "ALTER TABLE openMeldDaemon_dispatch_results_offline RENAME TO openMeldDaemon_dispatch_results"
-      ).run();
+      await postgresFixtureOperator(env).query({
+        text: 'ALTER TABLE "openmeld"."openMeldDaemon_dispatch_results_offline" RENAME TO "openMeldDaemon_dispatch_results"',
+        values: [],
+      });
     }
   });
-
   it.each([
     "same Space",
     "another Space",
@@ -12693,7 +12699,9 @@ describe("OpenMeld Core", () => {
       );
       expect(threadResponse.status).toBe(200);
       const thread = (await threadResponse.json()) as {
-        thread: { threadId: string };
+        thread: {
+          threadId: string;
+        };
       };
       threadId = thread.thread.threadId;
       const requestResponse = await fetchWithOpenMeldAuth(
@@ -12734,7 +12742,7 @@ describe("OpenMeld Core", () => {
       targetProfileId,
     };
     const subscription = await registerAgentTaskCompletionSubscription({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       nowMs,
       completionCondition: "terminal",
       continuation: {
@@ -12753,7 +12761,7 @@ describe("OpenMeld Core", () => {
       subscriptionId: `subscription-${parentRequest.id}`,
     });
     await recordAgentTaskTerminalOutcome({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       nowMs,
       task: watchedTask,
       outcome: {
@@ -12769,7 +12777,7 @@ describe("OpenMeld Core", () => {
       throw new Error("Expected a continuation dispatch identity");
     }
     await upsertRemoteAgentNativeDeliveryRecord({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       nowMs,
       organizationId: DEFAULT_TEST_ORGANIZATION_ID,
       conversationKind: "space",
@@ -12785,7 +12793,7 @@ describe("OpenMeld Core", () => {
       onBehalfOfProfileId: DEFAULT_HUMAN_PROFILE_ID,
     });
     await markRemoteAgentNativeDeliveryAck({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       nowMs,
       idempotencyKey: dispatchId,
       submissionId: `submission-${parentRequest.id}`,
@@ -12810,7 +12818,7 @@ describe("OpenMeld Core", () => {
         .toMatchObject({ threadId, profileId: DEFAULT_HUMAN_PROFILE_ID });
     }
     await markRemoteAgentNativeDeliveryCompleted({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       nowMs: nowMs + 1,
       submissionId: `submission-${parentRequest.id}`,
       publishedSignalId: null,
@@ -12821,56 +12829,56 @@ describe("OpenMeld Core", () => {
       );
       expect(response.status).toBe(200);
       const body = (await response.json()) as {
-        items: Array<{ dispatchId: string }>;
+        items: Array<{
+          dispatchId: string;
+        }>;
       };
       expect(body.items.some((item) => item.dispatchId === dispatchId)).toBe(
         false
       );
     }
   });
-
   it("returns active Wake progress unavailable when the progress store is not readable", async () => {
     const spaceId = await createSpace({
       name: "active-wake-progress-read",
     });
-
-    await env.OPENMELD_DB.prepare(
-      "ALTER TABLE openMeldDaemon_runtime_coordinator_executions RENAME TO openMeldDaemon_runtime_coordinator_executions_offline"
-    ).run();
+    await postgresFixtureOperator(env).query({
+      text: 'ALTER TABLE "openmeld"."openMeldDaemon_runtime_coordinator_executions" RENAME TO "openMeldDaemon_runtime_coordinator_executions_offline"',
+      values: [],
+    });
     try {
       const response = await fetchWithOpenMeldAuth(
         `${BASE_URL}/v1/spaces/${spaceId}/active-wake-progress`
       );
-
       expect(response.status).toBe(503);
       await expect(response.json()).resolves.toMatchObject({
         code: "space.wake_progress.store_unavailable",
       });
     } finally {
-      await env.OPENMELD_DB.prepare(
-        "ALTER TABLE openMeldDaemon_runtime_coordinator_executions_offline RENAME TO openMeldDaemon_runtime_coordinator_executions"
-      ).run();
+      await postgresFixtureOperator(env).query({
+        text: 'ALTER TABLE "openmeld"."openMeldDaemon_runtime_coordinator_executions_offline" RENAME TO "openMeldDaemon_runtime_coordinator_executions"',
+        values: [],
+      });
     }
   });
-
   describe("space index projection degradation", () => {
     const FOURTH_HUMAN_PROFILE_ID = "44444444-4444-4444-8444-444444444444";
-
     async function withBrokenSpaceIndexProjection(
       run: () => Promise<void>
     ): Promise<void> {
-      await env.OPENMELD_DB.prepare(
-        "ALTER TABLE space_index_spaces RENAME TO space_index_spaces_offline"
-      ).run();
+      await postgresFixtureOperator(env).query({
+        text: 'ALTER TABLE "openmeld"."space_index_spaces" RENAME TO "space_index_spaces_offline"',
+        values: [],
+      });
       try {
         await run();
       } finally {
-        await env.OPENMELD_DB.prepare(
-          "ALTER TABLE space_index_spaces_offline RENAME TO space_index_spaces"
-        ).run();
+        await postgresFixtureOperator(env).query({
+          text: 'ALTER TABLE "openmeld"."space_index_spaces_offline" RENAME TO "space_index_spaces"',
+          values: [],
+        });
       }
     }
-
     function buildResolvedHumanMember(input: {
       profileId: string;
       profileName: string;
@@ -12884,10 +12892,12 @@ describe("OpenMeld Core", () => {
         agentControllerRef: null,
       };
     }
-
     async function addResolvedMembers(
       spaceId: string,
-      members: Array<{ profileId: string; profileName: string }>,
+      members: Array<{
+        profileId: string;
+        profileName: string;
+      }>,
       authProfile: Partial<TestAuthProfile>
     ): Promise<Response> {
       return await fetchWithOpenMeldAuth(
@@ -12902,7 +12912,6 @@ describe("OpenMeld Core", () => {
         authProfile
       );
     }
-
     it("keeps member adds successful when the Space Index projection fails", async () => {
       const creatorProfile: Partial<TestAuthProfile> = {
         profileId: SECOND_HUMAN_PROFILE_ID,
@@ -12915,14 +12924,12 @@ describe("OpenMeld Core", () => {
         { name: "index-degraded-add-room" },
         creatorProfile
       );
-
       await withBrokenSpaceIndexProjection(async () => {
         const addResponse = await addResolvedMembers(
           spaceId,
           [{ profileId: THIRD_HUMAN_PROFILE_ID, profileName: "Added Human" }],
           creatorProfile
         );
-
         expect(addResponse.status).toBe(200);
         const addPayload = (await addResponse.json()) as {
           addedMemberIds?: string[];
@@ -12930,7 +12937,6 @@ describe("OpenMeld Core", () => {
         };
         expect(addPayload.addedMemberIds).toEqual([THIRD_HUMAN_PROFILE_ID]);
         expect(addPayload.alreadyMemberIds).toEqual([]);
-
         const listResponse = await fetchWithOpenMeldAuth(
           `${BASE_URL}/v1/spaces/${spaceId}/members`,
           undefined,
@@ -12938,7 +12944,9 @@ describe("OpenMeld Core", () => {
         );
         expect(listResponse.status).toBe(200);
         const listPayload = (await listResponse.json()) as {
-          humans?: Array<{ profileId?: string }>;
+          humans?: Array<{
+            profileId?: string;
+          }>;
         };
         expect(listPayload.humans).toEqual(
           expect.arrayContaining([
@@ -12946,7 +12954,6 @@ describe("OpenMeld Core", () => {
           ])
         );
       });
-
       const recoveryAddResponse = await addResolvedMembers(
         spaceId,
         [
@@ -12959,13 +12966,16 @@ describe("OpenMeld Core", () => {
       );
       expect(recoveryAddResponse.status).toBe(200);
       await recoveryAddResponse.json();
-
-      const indexedMembers = await env.OPENMELD_DB.prepare(
-        "SELECT profile_id FROM space_index_memberships WHERE space_id = ?1"
-      )
-        .bind(spaceId)
-        .all<{ profile_id: string }>();
-      const indexedProfileIds = (indexedMembers.results ?? []).map(
+      const indexedMembers = await getPostgresDatabase(env).query<{
+        profile_id: string;
+      }>({
+        ...{
+          text: 'SELECT profile_id FROM "openmeld"."space_index_memberships" WHERE space_id = $11',
+          values: [],
+        },
+        values: [spaceId],
+      });
+      const indexedProfileIds = (indexedMembers.rows ?? []).map(
         (row) => row.profile_id
       );
       expect(indexedProfileIds).toEqual(
@@ -12975,7 +12985,6 @@ describe("OpenMeld Core", () => {
         ])
       );
     });
-
     it("keeps member removal and leave successful when the Space Index projection fails", async () => {
       const creatorProfile: Partial<TestAuthProfile> = {
         profileId: SECOND_HUMAN_PROFILE_ID,
@@ -13008,7 +13017,6 @@ describe("OpenMeld Core", () => {
       );
       expect(seedResponse.status).toBe(200);
       await seedResponse.json();
-
       await withBrokenSpaceIndexProjection(async () => {
         const removeResponse = await fetchWithOpenMeldAuth(
           `${BASE_URL}/v1/spaces/${spaceId}/members/remove`,
@@ -13026,7 +13034,6 @@ describe("OpenMeld Core", () => {
           removedMemberIds: [THIRD_HUMAN_PROFILE_ID],
           alreadyAbsentMemberIds: [],
         });
-
         const leaveResponse = await fetchSpaceDoWithOpenMeldAuth(
           { path: "/leave", spaceId },
           { method: "POST" },
@@ -13039,7 +13046,6 @@ describe("OpenMeld Core", () => {
         });
       });
     });
-
     it("keeps space meta updates successful when the Space Index projection fails", async () => {
       const creatorProfile: Partial<TestAuthProfile> = {
         profileId: SECOND_HUMAN_PROFILE_ID,
@@ -13052,7 +13058,6 @@ describe("OpenMeld Core", () => {
         { name: "index-degraded-meta-room" },
         creatorProfile
       );
-
       await withBrokenSpaceIndexProjection(async () => {
         const patchResponse = await fetchWithOpenMeldAuth(
           `${BASE_URL}/v1/spaces/${spaceId}/meta`,
@@ -13065,7 +13070,6 @@ describe("OpenMeld Core", () => {
         );
         expect(patchResponse.status).toBe(200);
         await patchResponse.json();
-
         const metaResponse = await fetchWithOpenMeldAuth(
           `${BASE_URL}/v1/spaces/${spaceId}/meta`,
           undefined,
@@ -13073,7 +13077,9 @@ describe("OpenMeld Core", () => {
         );
         expect(metaResponse.status).toBe(200);
         const metaPayload = (await metaResponse.json()) as {
-          meta?: { name?: string };
+          meta?: {
+            name?: string;
+          };
           name?: string;
         };
         expect(metaPayload.meta?.name ?? metaPayload.name).toBe(
@@ -13083,10 +13089,11 @@ describe("OpenMeld Core", () => {
     });
   });
 });
-
 function isTextSignalEnvelope(
   value: SignalEnvelope | null
-): value is SignalEnvelope & { type: "signal.text" } {
+): value is SignalEnvelope & {
+  type: "signal.text";
+} {
   return value?.type === "signal.text";
 }
 it("enforces message pin ownership through the authorized Space RPC", async () => {

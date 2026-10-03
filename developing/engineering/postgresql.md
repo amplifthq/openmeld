@@ -24,9 +24,10 @@ Foundation resources use distinct `openmeld-postgresql-stg` and
 `openmeld-postgresql-prod` databases. The latter is an empty reserved destination,
 not a running product database. Do not attach the probe to production.
 
-The initial baseline contains an application schema, not a translation of the
-existing business tables. Preserve all D1 schema/migration files and current
-release commands until business adaptation and cutover are complete.
+The PostgreSQL journal now includes the shared product tables, Inbox's explicit
+sequence and native Auth UUID defaults. Auth and Core's candidate runtime uses
+native PostgreSQL SQL and one Hyperdrive binding. Preserve the immutable D1
+history and deployed D1 operations until the separately authorized cutover.
 
 ## Tools and local development
 
@@ -62,6 +63,14 @@ platforms. `pg:local run <command> ...` provides a shell or tool with the scoped
 connection variables for an interactive development session. There is no
 remote reset command. A reset is a new local run.
 
+`pnpm dev:postgresql` starts the registered worktree's complete local product
+with PostgreSQL 18. Its private cluster persists under that worktree's isolated
+Wrangler state, so stopping and restarting preserves synthetic accounts and
+product data. The Dev Supervisor owns the process; `pnpm dev:stop` stops only
+this worktree's stack and database. The local Web, Auth, Gateway, Core and Remote
+services use aligned worktree origins and the same runtime role. This command
+never reads or writes production D1 or `~/.openmeld`.
+
 Use `psql` with process-injected PG variables for SQL inspection. PlanetScale's
 database dashboard provides query insights, connections, metrics and backups;
 Cloudflare's Hyperdrive dashboard provides connection/query metrics. No extra
@@ -74,25 +83,53 @@ or PlanetScale's transaction pooler. `pg migrate staging` verifies the exact
 registered hostname and branch identity before connecting. Production apply is
 intentionally unavailable in the foundation CLI.
 
-Create consecutive `000N_description.sql` files in the PostgreSQL migrations
-directory. Review SQL explicitly; a future Drizzle PostgreSQL schema can generate
-these files when actual business models are ported. Do not derive a PostgreSQL
-baseline by replaying SQLite DDL or copying D1's migration ledger. SQL files must
+The current `db:generate`, `db:check` and `db:studio` commands use the native
+PostgreSQL configuration. Run local migration and acceptance inside `pg:local`
+with its explicit isolated connection variables. Production database commands
+fail closed. Historical D1 SQL, physical-requirement snapshots, and diagnostic
+tooling remain evidence for the deployed D1 revision; they cannot generate or
+apply the new PostgreSQL model. The candidate's guarded production/shared-staging
+release rejects `release/database-backend.json` until the separately reviewed
+cutover control plane is implemented. Isolated development and the foundation
+probe are the supported validation paths.
+
+`auth:generate` fails before writing: its historical Better Auth postprocessor
+contains D1 invariants and cannot regenerate the native model safely. Edit the
+canonical PostgreSQL Auth schema and use the native `db:generate` workflow for
+reviewed migrations. Reintroducing automatic Better Auth generation requires a
+native postprocessor that preserves epoch, boolean, schema, and ownership contracts.
+
+Drizzle Kit generates SQL and its journal in the PostgreSQL migrations directory.
+The official Drizzle migrator executes that journal and owns the only PostgreSQL
+history table, `drizzle.__drizzle_migrations`. Review generated SQL explicitly.
+Do not replay SQLite DDL at runtime or copy D1's migration ledger. SQL files must
 be transaction-compatible and must not contain their own BEGIN/COMMIT. Concurrent
 index builds require a separately reviewed execution step, not a silent exception.
 
-The runner acquires a PostgreSQL session advisory lock on the direct connection,
-compares the complete applied filename/checksum prefix, and commits each migration
-with its ledger entry in one transaction. A second executor fails without applying
+The thin owner acquires a PostgreSQL session advisory lock on the direct connection,
+compares the complete applied hash/time prefix against the official journal, then
+runs the official migrator on that same connection. Drizzle commits pending SQL
+and its history together in a transaction. A second executor fails without applying
 changes. A failed migration rolls back; changed or missing applied history blocks
-further work. Statement and lock timeouts bound schema operations, not active
+further work. A database with the earlier isolated foundation ledger is rejected
+until its adoption is explicitly reconciled; this candidate does not modify those
+cloud databases. Statement and lock timeouts bound schema operations, not active
 OpenMeld execution. Do not automatically retry an ambiguous committed write.
+
+Migration `0011` replays the bounded retired owner-awareness Inbox correction
+from D1 history. It preserves item IDs, member-private state, and sent delivery
+receipts, and introduces no additional schema objects. It is a local synthetic
+upgrade check, not authorization to rewrite deployed data.
 
 Review timestamp units and timezone, boolean conversion, JSON null vs SQL NULL,
 collation/order, case sensitivity, parameter syntax, conflict/upsert behavior,
 foreign keys, pagination, unique constraints, IDs and indexes at each business
 owner. Test the real queries and transaction boundaries. Preserve public IDs,
 DO identifiers, R2 keys and encrypted credential envelopes.
+
+The product candidate's final-schema inventory, native representation decisions,
+owner guards and retention boundary are recorded in
+[postgresql-schema-correspondence.md](postgresql-schema-correspondence.md).
 
 ## Runtime connections and permissions
 
@@ -108,6 +145,32 @@ settings. Never rely on session settings or session locks across transactions.
 Origin connection establishment is bounded; lost connections fail the operation.
 Reconcile uncertain commit outcomes by domain idempotency keys before retrying.
 
+Request-local `pg.Pool` scopes may be reused by nested calls in the same request.
+The request owner also supplies one stable database façade to its consumers.
+Readiness reads can share in-flight reads by database identity without retaining
+facts or failures in the next request. Separate request and protected-gate scopes
+receive separate façades; no environment-wide database cache is introduced.
+The pool supplies `node:net.Socket` through the driver's public `stream` option
+as a limited adaptation for a reproduced normal-close error in current stable
+`pg` 8.23.1 / `pg-cloudflare` 1.4.1. This combination is not Cloudflare's official
+pg example. The runtime owner accepts only loopback PostgreSQL and Hyperdrive's
+virtual endpoints without client TLS. It rejects remote direct connections,
+TLS URL options and a non-disabled `PGSSLMODE`; it never downgrades requested TLS.
+Hyperdrive owns origin TLS. Direct migration TLS remains with the tooling client.
+Every explicit transaction owns one checked-out client until COMMIT or ROLLBACK;
+independent sibling operations must never borrow that transaction's client.
+Background work after a request closes creates and closes its own scope.
+
+Durable Object input gates (`blockConcurrencyWhile`) also block completion
+events for sockets initiated before the gate. Any protected operation that
+uses PostgreSQL must create and close its pool inside that same gate, with
+`withPostgresRequest(..., { reuseConnection: false })`. Space's private
+`blockConcurrencyWithPostgres` owner applies this rule to its existing
+initialization, publication, thread, ownership and deletion boundaries.
+Pure local SQLite reconciliation keeps its ordinary input gate. Preserve these
+idempotency and ordering boundaries; do not expand a gate to an entire network
+request or move a protected write outside it to avoid connection deadlock.
+
 Keep the operator/default provider role for provisioning only. Create a distinct
 migration owner and a runtime role per environment. Runtime roles must have no
 administrative attributes or broad inherited roles; grant only USAGE plus
@@ -119,8 +182,11 @@ again when changing migration ownership or restoring with a different owner.
 Staging acceptance uses a separate synthetic `openmeld_probe.records` table.
 It is not a business table and must never be provisioned in production. No
 production data is copied to it. The probe requires a secret bearer token,
-an exact environment marker and a finite expiry; it accepts only POST
-`/acceptance`, no caller-supplied SQL. Remove the probe after cloud acceptance.
+an exact environment marker and a finite expiry. It accepts only POST
+`/acceptance` and `/runtime-transport`, with no caller-supplied SQL. The latter
+uses the actual shared product connection owner and only the synthetic probe
+table to verify commit, rollback, query errors and pool closure. Remove the
+probe after cloud acceptance.
 
 ## Secret and deployment boundary
 
@@ -139,6 +205,7 @@ pnpm --filter @openmeld/postgresql cf-typegen
 node tooling/postgresql/verify.mjs
 node tooling/postgresql/probe.mjs deploy
 node tooling/postgresql/probe.mjs check <returned-workers.dev-url>
+node tooling/postgresql/probe.mjs transport-check <returned-workers.dev-url>
 node tooling/postgresql/probe.mjs cleanup
 ```
 
@@ -179,6 +246,62 @@ the authorized uncommitted foundation source, separate from merged/released
 product evidence. Do not call the shared staging or production release to test it.
 
 ## CI and promotion
+
+## Candidate contract impact
+
+The persistence boundary changes from shared D1 bindings to one
+`OPENMELD_POSTGRESQL` Hyperdrive binding across Auth and Core. Gateway and Remote
+continue through their existing service/RPC owners. IDs, tenant and Profile
+authorization, public HTTP/RPC/WebSocket envelopes, encrypted credentials,
+CLI/Service setup and Wake payloads, and published reply references retain their
+existing contracts. Diagnostic binding names identify PostgreSQL; the retained
+nullable `d1LocalDbPath` field is null for this runtime. It is compatibility
+metadata, not an alternate D1 read path.
+
+Old cloud code can continue talking to the unchanged local CLI/Service protocol,
+and the candidate cloud can use the current local protocol. A database binding
+switch alone cannot make the mixed D1/PostgreSQL cloud revision window safe:
+each shared relational writer must switch together after the reviewed freeze,
+import, reconciliation and guarded component promotion. This candidate provides
+no dual reads or writes and does not claim a safe rolling product cutover.
+No local component contract bump is required by the persistence-only boundary;
+release artifact eligibility still follows the base-aware local-component gate.
+
+RuntimeCoordinator keeps in-flight execution authority. The PostgreSQL dispatch
+and task ledgers remain durable evidence and projections. The submission claim
+is a bounded duplicate-submission mutex: exact delivery key, expiring claim nonce,
+and release by that nonce only. Expiry allows a new claim; an old executor cannot
+clear its replacement. An ambiguous submission retries the same durable request
+and idempotency key. This mutex neither decides an execution outcome nor
+authorizes a Space reply.
+
+Scoped architecture acceptance: the candidate preserves the data ownership,
+shared contracts, RuntimeCoordinator, local Service trust, and Space publication
+rules. Private static class operations keep complex entrypoint bodies inside the
+same owner while the original public entrypoint holds the request connection;
+they do not add RPC methods. See
+[Cloudflare RPC visibility](https://developers.cloudflare.com/workers/runtime-apis/rpc/visibility/).
+
+## D1 residual inventory
+
+- `packages/db/drizzle/**`, older SQL journals, and
+  `packages/db/d1-history/physical-requirements.json` preserve immutable deployed
+  history and frozen physical diagnostics. They are not a current schema model.
+- D1 tooling and its captured fixtures preserve the deployed revision's
+  operational vocabulary. Current `db:*` commands use PostgreSQL or fail closed;
+  the candidate does not authorize historical production operations.
+- Production/shared-staging Wrangler configurations and generated D1 binding
+  declarations describe the deployed revision. The candidate product release
+  admission blocks their use with its PostgreSQL source until cutover support is
+  reviewed. They are not a runtime fallback.
+- Space, RuntimeTransportHub, and other Durable Objects retain private SQLite
+  storage for their own state. OpenMeld Service's isolated local storage and R2
+  file ownership also retain their existing boundaries.
+- Shared product Auth/Core/Gateway/Remote runtime code has no D1 driver,
+  `D1Database`, or legacy shared binding reads. The native runtime gate checks
+  these owners; native fixture harnesses execute the complete PostgreSQL journal.
+
+## CI validation
 
 The path-filtered `.github/workflows/postgresql-foundation.yml` installs PG18
 from the official PostgreSQL apt repository and runs the same isolated checks.

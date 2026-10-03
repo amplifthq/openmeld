@@ -20,7 +20,16 @@
       "migrationRole": "pscale_api_m7rr7fm14at8",
       "migrationRoleId": "m7rr7fm14at8",
       "runtimeRole": "pscale_api_0hf13zdprg79",
-      "runtimeRoleId": "0hf13zdprg79"
+      "runtimeRoleId": "0hf13zdprg79",
+      "probe": {
+        "url": "https://openmeld-postgresql-probe-stg.jingyueyusen.workers.dev",
+        "versionId": "09004040-6cc5-4b6b-a26b-58e456967b22",
+        "sourceSha256": "2239bbe520916450b37ca766d8cbe5160a47992021a281cbf48a8d24216f2681",
+        "status": "verified-and-removed",
+        "verifiedAt": "2026-10-02T21:51:12.415Z",
+        "productTransportVerifiedAt": "2026-10-02T21:51:12.415Z",
+        "removedAt": "2026-10-02T21:52:47.193Z"
+      }
     },
     "production": {
       "database": "openmeld-postgresql-prod",

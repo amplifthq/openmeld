@@ -129,12 +129,12 @@ if (action === "backup") {
     assert.deepEqual(
       (
         await restored.query(
-          "SELECT name, checksum FROM openmeld_meta.migrations ORDER BY name"
+          "SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY created_at"
         )
       ).rows,
       (
         await source.query(
-          "SELECT name, checksum FROM openmeld_meta.migrations ORDER BY name"
+          "SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY created_at"
         )
       ).rows
     );

@@ -1,22 +1,23 @@
 import { desc, sql } from "drizzle-orm";
 import {
+  bigint,
   check,
   index,
-  integer,
   primaryKey,
-  sqliteTable,
   text,
   uniqueIndex,
-} from "drizzle-orm/sqlite-core";
+} from "drizzle-orm/pg-core";
 import { organizations } from "../auth/auth.schema.ts";
+import { applicationTable } from "../postgresql/schema.ts";
+import { integerBoolean } from "../postgresql/schema-types.ts";
 import { projects } from "./project.schema.ts";
 
-export const agentActivityEvents = sqliteTable(
+export const agentActivityEvents = applicationTable(
   "agent_activity_events",
   {
-    acceptedSequence: integer("accepted_sequence").primaryKey({
-      autoIncrement: true,
-    }),
+    acceptedSequence: bigint("accepted_sequence", { mode: "number" })
+      .generatedByDefaultAsIdentity()
+      .primaryKey(),
     id: text("id").notNull(),
     eventId: text("event_id").notNull(),
     canonicalPayloadHash: text("canonical_payload_hash").notNull(),
@@ -37,13 +38,13 @@ export const agentActivityEvents = sqliteTable(
     gitBranch: text("git_branch"),
     gitCommit: text("git_commit"),
     repositoryFingerprint: text("repository_fingerprint"),
-    startedAtMs: integer("started_at_ms"),
-    observedAtMs: integer("observed_at_ms").notNull(),
-    expiresAtMs: integer("expires_at_ms").notNull(),
+    startedAtMs: bigint("started_at_ms", { mode: "number" }),
+    observedAtMs: bigint("observed_at_ms", { mode: "number" }).notNull(),
+    expiresAtMs: bigint("expires_at_ms", { mode: "number" }).notNull(),
     providerMetadataJson: text("provider_metadata_json").notNull(),
-    acceptedAtMs: integer("accepted_at_ms").notNull(),
+    acceptedAtMs: bigint("accepted_at_ms", { mode: "number" }).notNull(),
     dailySessionKey: text("daily_session_key").notNull(),
-    dailyAggregatedAtMs: integer("daily_aggregated_at_ms"),
+    dailyAggregatedAtMs: bigint("daily_aggregated_at_ms", { mode: "number" }),
   },
   (table) => [
     uniqueIndex("agent_activity_events_storage_id_unique").on(table.id),
@@ -70,7 +71,7 @@ export const agentActivityEvents = sqliteTable(
       "agent_activity_events_payload_hash_check",
       sql`length("canonical_payload_hash") = 71
         and substr("canonical_payload_hash", 1, 7) = 'sha256:'
-        and substr("canonical_payload_hash", 8) not glob '*[^0-9a-f]*'`
+        and substr("canonical_payload_hash", 8) !~ '^.*[^0-9a-f].*$'`
     ),
     check(
       "agent_activity_events_time_check",
@@ -81,7 +82,7 @@ export const agentActivityEvents = sqliteTable(
   ]
 );
 
-export const agentActivitySessions = sqliteTable(
+export const agentActivitySessions = applicationTable(
   "agent_activity_sessions",
   {
     id: text("id").primaryKey(),
@@ -101,14 +102,18 @@ export const agentActivitySessions = sqliteTable(
     gitBranch: text("git_branch"),
     gitCommit: text("git_commit"),
     repositoryFingerprint: text("repository_fingerprint"),
-    startedAtMs: integer("started_at_ms"),
-    lastObservedAtMs: integer("last_observed_at_ms").notNull(),
-    expiresAtMs: integer("expires_at_ms").notNull(),
+    startedAtMs: bigint("started_at_ms", { mode: "number" }),
+    lastObservedAtMs: bigint("last_observed_at_ms", {
+      mode: "number",
+    }).notNull(),
+    expiresAtMs: bigint("expires_at_ms", { mode: "number" }).notNull(),
     providerMetadataJson: text("provider_metadata_json").notNull(),
     lastEventId: text("last_event_id").notNull(),
-    lastAcceptedSequence: integer("last_accepted_sequence").notNull(),
-    createdAtMs: integer("created_at_ms").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    lastAcceptedSequence: bigint("last_accepted_sequence", {
+      mode: "number",
+    }).notNull(),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     uniqueIndex("agent_activity_sessions_identity_unique").on(
@@ -143,7 +148,7 @@ export const agentActivitySessions = sqliteTable(
  * agent_activity_events; this projection is replaced only after a complete
  * provider/Project/Computer reconciliation is accepted.
  */
-export const agentActivitySessionInventory = sqliteTable(
+export const agentActivitySessionInventory = applicationTable(
   "agent_activity_session_inventory",
   {
     id: text("id").primaryKey(),
@@ -163,16 +168,16 @@ export const agentActivitySessionInventory = sqliteTable(
     provider: text("provider").notNull(),
     nativeSessionTitle: text("native_session_title"),
     status: text("status").notNull(),
-    lastActiveAtMs: integer("last_active_at_ms").notNull(),
-    startedAtMs: integer("started_at_ms"),
+    lastActiveAtMs: bigint("last_active_at_ms", { mode: "number" }).notNull(),
+    startedAtMs: bigint("started_at_ms", { mode: "number" }),
     origin: text("origin").notNull(),
-    canResume: integer("can_resume", { mode: "boolean" }).notNull(),
-    canFork: integer("can_fork", { mode: "boolean" }).notNull(),
-    visible: integer("visible", { mode: "boolean" }).notNull(),
+    canResume: integerBoolean("can_resume").notNull(),
+    canFork: integerBoolean("can_fork").notNull(),
+    visible: integerBoolean("visible").notNull(),
     sourceReconciliationId: text("source_reconciliation_id").notNull(),
-    observedAtMs: integer("observed_at_ms").notNull(),
-    publishedAtMs: integer("published_at_ms").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    observedAtMs: bigint("observed_at_ms", { mode: "number" }).notNull(),
+    publishedAtMs: bigint("published_at_ms", { mode: "number" }).notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     uniqueIndex("agent_activity_session_inventory_identity_unique").on(
@@ -204,7 +209,7 @@ export const agentActivitySessionInventory = sqliteTable(
       "agent_activity_session_inventory_connection_hash_check",
       sql`length("local_connection_id") = 71
         and substr("local_connection_id", 1, 7) = 'sha256:'
-        and substr("local_connection_id", 8) not glob '*[^0-9a-f]*'`
+        and substr("local_connection_id", 8) !~ '^.*[^0-9a-f].*$'`
     ),
     check(
       "agent_activity_session_inventory_time_check",
@@ -225,13 +230,13 @@ export const agentActivitySessionInventory = sqliteTable(
 );
 
 /** Staging rows are never user-readable and are discarded after publication. */
-export const agentActivitySessionInventoryCandidates = sqliteTable(
+export const agentActivitySessionInventoryCandidates = applicationTable(
   "agent_activity_session_inventory_candidates",
   {
     id: text("id").primaryKey(),
     sourceScopeKey: text("source_scope_key").notNull(),
     reconciliationId: text("reconciliation_id").notNull(),
-    pageIndex: integer("page_index").notNull(),
+    pageIndex: bigint("page_index", { mode: "number" }).notNull(),
     organizationId: text("organization_id")
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
@@ -247,13 +252,13 @@ export const agentActivitySessionInventoryCandidates = sqliteTable(
     provider: text("provider").notNull(),
     nativeSessionTitle: text("native_session_title"),
     status: text("status").notNull(),
-    lastActiveAtMs: integer("last_active_at_ms").notNull(),
-    startedAtMs: integer("started_at_ms"),
+    lastActiveAtMs: bigint("last_active_at_ms", { mode: "number" }).notNull(),
+    startedAtMs: bigint("started_at_ms", { mode: "number" }),
     origin: text("origin").notNull(),
-    canResume: integer("can_resume", { mode: "boolean" }).notNull(),
-    canFork: integer("can_fork", { mode: "boolean" }).notNull(),
-    observedAtMs: integer("observed_at_ms").notNull(),
-    createdAtMs: integer("created_at_ms").notNull(),
+    canResume: integerBoolean("can_resume").notNull(),
+    canFork: integerBoolean("can_fork").notNull(),
+    observedAtMs: bigint("observed_at_ms", { mode: "number" }).notNull(),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     uniqueIndex("agent_activity_session_candidates_identity_unique").on(
@@ -278,7 +283,7 @@ export const agentActivitySessionInventoryCandidates = sqliteTable(
 );
 
 /** One reconciliation cursor and coverage fact per authorized local source. */
-export const agentActivitySessionInventorySources = sqliteTable(
+export const agentActivitySessionInventorySources = applicationTable(
   "agent_activity_session_inventory_sources",
   {
     sourceScopeKey: text("source_scope_key").primaryKey(),
@@ -296,11 +301,11 @@ export const agentActivitySessionInventorySources = sqliteTable(
     provider: text("provider").notNull(),
     state: text("state").notNull(),
     currentReconciliationId: text("current_reconciliation_id"),
-    nextPageIndex: integer("next_page_index").notNull(),
+    nextPageIndex: bigint("next_page_index", { mode: "number" }).notNull(),
     problemCode: text("problem_code"),
-    lastAttemptAtMs: integer("last_attempt_at_ms"),
-    lastCompleteAtMs: integer("last_complete_at_ms"),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    lastAttemptAtMs: bigint("last_attempt_at_ms", { mode: "number" }),
+    lastCompleteAtMs: bigint("last_complete_at_ms", { mode: "number" }),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     uniqueIndex("agent_activity_session_sources_scope_unique").on(
@@ -339,37 +344,40 @@ export const agentActivitySessionInventorySources = sqliteTable(
  * Core keeps the request until membership absence is observed and every
  * current/staged Session projection has been purged again after that boundary.
  */
-export const agentActivitySessionInventoryMemberCleanupRequests = sqliteTable(
-  "agent_activity_session_inventory_member_cleanup_requests",
-  {
-    organizationId: text("organization_id")
-      .notNull()
-      .references(() => organizations.id, { onDelete: "cascade" }),
-    ownerUserId: text("owner_user_id").notNull(),
-    requestedAtMs: integer("requested_at_ms").notNull(),
-    lastAttemptAtMs: integer("last_attempt_at_ms").notNull(),
-    attemptCount: integer("attempt_count").notNull(),
-    lastError: text("last_error"),
-  },
-  (table) => [
-    primaryKey({
-      columns: [table.organizationId, table.ownerUserId],
-      name: "agent_activity_session_inventory_member_cleanup_requests_pk",
-    }),
-    index("agent_activity_session_inventory_member_cleanup_due_idx").on(
-      table.lastAttemptAtMs,
-      table.requestedAtMs
-    ),
-    check(
-      "agent_activity_session_inventory_member_cleanup_time_check",
-      sql`"requested_at_ms" >= 0
+export const agentActivitySessionInventoryMemberCleanupRequests =
+  applicationTable(
+    "agent_activity_session_inventory_member_cleanup_requests",
+    {
+      organizationId: text("organization_id")
+        .notNull()
+        .references(() => organizations.id, { onDelete: "cascade" }),
+      ownerUserId: text("owner_user_id").notNull(),
+      requestedAtMs: bigint("requested_at_ms", { mode: "number" }).notNull(),
+      lastAttemptAtMs: bigint("last_attempt_at_ms", {
+        mode: "number",
+      }).notNull(),
+      attemptCount: bigint("attempt_count", { mode: "number" }).notNull(),
+      lastError: text("last_error"),
+    },
+    (table) => [
+      primaryKey({
+        columns: [table.organizationId, table.ownerUserId],
+        name: "agent_activity_session_inventory_member_cleanup_requests_pk",
+      }),
+      index("agent_activity_session_inventory_member_cleanup_due_idx").on(
+        table.lastAttemptAtMs,
+        table.requestedAtMs
+      ),
+      check(
+        "agent_activity_session_inventory_member_cleanup_time_check",
+        sql`"requested_at_ms" >= 0
         and "last_attempt_at_ms" >= "requested_at_ms"
         and "attempt_count" >= 0`
-    ),
-  ]
-);
+      ),
+    ]
+  );
 
-export const agentActivityDigests = sqliteTable(
+export const agentActivityDigests = applicationTable(
   "agent_activity_digests",
   {
     id: text("id").primaryKey(),
@@ -377,18 +385,20 @@ export const agentActivityDigests = sqliteTable(
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
     projectId: text("project_id").notNull(),
-    sourceCursorAcceptedSequence: integer(
-      "source_cursor_accepted_sequence"
-    ).notNull(),
-    windowStartedAtMs: integer("window_started_at_ms").notNull(),
-    windowEndedAtMs: integer("window_ended_at_ms").notNull(),
-    eventCount: integer("event_count").notNull(),
+    sourceCursorAcceptedSequence: bigint("source_cursor_accepted_sequence", {
+      mode: "number",
+    }).notNull(),
+    windowStartedAtMs: bigint("window_started_at_ms", {
+      mode: "number",
+    }).notNull(),
+    windowEndedAtMs: bigint("window_ended_at_ms", { mode: "number" }).notNull(),
+    eventCount: bigint("event_count", { mode: "number" }).notNull(),
     citationsJson: text("citations_json").notNull(),
     summary: text("summary"),
     status: text("status").notNull(),
     failureReason: text("failure_reason"),
-    createdAtMs: integer("created_at_ms").notNull(),
-    expiresAtMs: integer("expires_at_ms").notNull(),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    expiresAtMs: bigint("expires_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     uniqueIndex("agent_activity_digests_source_cursor_unique").on(
@@ -417,7 +427,7 @@ export const agentActivityDigests = sqliteTable(
   ]
 );
 
-export const agentActivityDailyAggregates = sqliteTable(
+export const agentActivityDailyAggregates = applicationTable(
   "agent_activity_daily_aggregates",
   {
     id: text("id").primaryKey(),
@@ -427,13 +437,19 @@ export const agentActivityDailyAggregates = sqliteTable(
     projectId: text("project_id").notNull(),
     memberUserId: text("member_user_id").notNull(),
     utcDate: text("utc_date").notNull(),
-    activeDurationMs: integer("active_duration_ms").notNull().default(0),
-    sessionCount: integer("session_count").notNull(),
-    eventCount: integer("event_count").notNull(),
-    firstObservedAtMs: integer("first_observed_at_ms").notNull(),
-    lastObservedAtMs: integer("last_observed_at_ms").notNull(),
+    activeDurationMs: bigint("active_duration_ms", { mode: "number" })
+      .notNull()
+      .default(0),
+    sessionCount: bigint("session_count", { mode: "number" }).notNull(),
+    eventCount: bigint("event_count", { mode: "number" }).notNull(),
+    firstObservedAtMs: bigint("first_observed_at_ms", {
+      mode: "number",
+    }).notNull(),
+    lastObservedAtMs: bigint("last_observed_at_ms", {
+      mode: "number",
+    }).notNull(),
     providerCountsJson: text("provider_counts_json").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     uniqueIndex("agent_activity_daily_scope_unique").on(
@@ -459,7 +475,7 @@ export const agentActivityDailyAggregates = sqliteTable(
   ]
 );
 
-export const agentActivityDailySessionKeys = sqliteTable(
+export const agentActivityDailySessionKeys = applicationTable(
   "agent_activity_daily_session_keys",
   {
     dailySessionKey: text("daily_session_key").primaryKey(),
@@ -470,8 +486,8 @@ export const agentActivityDailySessionKeys = sqliteTable(
     memberUserId: text("member_user_id").notNull(),
     utcDate: text("utc_date").notNull(),
     firstEventStorageId: text("first_event_storage_id").notNull(),
-    createdAtMs: integer("created_at_ms").notNull(),
-    expiresAtMs: integer("expires_at_ms").notNull(),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    expiresAtMs: bigint("expires_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     index("agent_activity_daily_session_keys_expiry_idx").on(table.expiresAtMs),
@@ -479,7 +495,7 @@ export const agentActivityDailySessionKeys = sqliteTable(
       "agent_activity_daily_session_key_hash_check",
       sql`length("daily_session_key") = 71
         and substr("daily_session_key", 1, 7) = 'sha256:'
-        and substr("daily_session_key", 8) not glob '*[^0-9a-f]*'
+        and substr("daily_session_key", 8) !~ '^.*[^0-9a-f].*$'
         and "expires_at_ms" >= "created_at_ms"`
     ),
   ]

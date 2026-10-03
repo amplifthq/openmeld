@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   buildPersonalRemoteAgentConversationId,
   buildRemoteAgentRuntimeConversationId,
@@ -10,10 +11,11 @@ import { createSubmitTurnRequestV2 } from "../../remote-agent/tests/fixtures";
 import {
   activateAgentDelegationChildren,
   createAgentDelegation,
-} from "../src/agent-task-coordination/infrastructure/d1/agent-delegation-repo";
+} from "../src/agent-task-coordination/infrastructure/postgresql/agent-delegation-repo";
 import type { CoreBindings } from "../src/lib/bindings";
 import { readRemoteAgentDelegatedRequester } from "../src/remote-agent/application/delegated-requester";
 import { rpcCenterAgentResolveConnectorConnection } from "../src/rpc/methods";
+import { postgresTestBinding } from "./helpers/postgresql-harness.test-support";
 
 const caller = vi.hoisted(() => vi.fn());
 vi.mock("../src/remote-agent/application/remote-agent-tool-caller", () => ({
@@ -25,11 +27,8 @@ import {
   persistRemoteAgentWorkerSubmitRequest,
   readRemoteAgentNativeDeliveryByIdempotencyKey,
   upsertRemoteAgentNativeDeliveryRecord,
-} from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
-import {
-  applyDrizzleMigrationForTable,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+} from "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 const CENTER = "agt_00000000-0000-4000-8000-000000000001";
 const CHILD = "agt_00000000-0000-4000-8000-000000000002";
@@ -48,38 +47,33 @@ describe("delegated requester is a current projection of exact owner records", (
     "unacknowledged_parent",
     "changed_parent_identity",
   ] as const)("checks the recorded chain: %s", async (scenario) => {
-    const harness = createSqliteD1Harness();
+    const harness = await createPostgresHarness();
     try {
-      for (const table of [
-        "openMeldRemoteAgent_native_delivery_ledger",
-        "agent_delegations",
-        "agent_delegation_children",
-      ]) {
-        applyDrizzleMigrationForTable(harness, table);
-      }
-      harness.run({
-        sql: "CREATE TABLE members (id TEXT, role TEXT, organization_id TEXT, user_id TEXT)",
+      await harness.query({
+        text: `INSERT INTO "openmeld"."users" (id,name,email) VALUES ('user_1','Felix','user1@example.test')`,
       });
-      harness.run({
-        sql: "CREATE TABLE openmeld_profiles (profile_id TEXT, organization_id TEXT, profile_kind TEXT, profile_name TEXT, owner_user_id TEXT, managed_role TEXT, status TEXT)",
+      await harness.query({
+        text: `INSERT INTO "openmeld"."organizations" (id,name,slug,created_at) VALUES ('org_123','Organization','org-123',1000)`,
       });
-      harness.run({
-        sql: "INSERT INTO members VALUES ('member_123', 'owner', 'org_123', 'user_1')",
+      await harness.query({
+        text: `INSERT INTO "openmeld"."openmeld_profiles" (profile_id,profile_name,profile_handle,profile_kind,organization_id,created_by_user_id,managed_role,source,status) VALUES ($1,'Center Agent','center-agent','agent','org_123','user_1','center_agent','auth_bootstrap','active')`,
+        values: [CENTER],
       });
-      harness.run({
-        sql: "INSERT INTO openmeld_profiles VALUES (?, 'org_123', 'human', 'Felix', 'user_1', NULL, 'active')",
-        params: [HUMAN],
+      await harness.query({
+        text: "INSERT INTO \"openmeld\".\"members\" (id, role, organization_id, user_id, \"created_at\") VALUES ('member_123', 'owner', 'org_123', 'user_1', 1700000000000)",
       });
-      harness.run({
-        sql: "INSERT INTO openmeld_profiles VALUES (?, 'org_123', 'agent', 'Opus', 'user_1', NULL, 'active')",
-        params: [CHILD],
+      await harness.query({
+        text: "INSERT INTO \"openmeld\".\"openmeld_profiles\" (profile_id, organization_id, profile_kind, profile_name, owner_user_id, managed_role, status, profile_handle, source) VALUES ($1, NULL, 'human', 'Felix', 'user_1', NULL, 'active', 'felix', 'auth_bootstrap')",
+        values: [HUMAN],
       });
-      harness.run({
-        sql: "CREATE TABLE center_agent_designations (organization_id TEXT, agent_profile_id TEXT, duty TEXT, designated_by TEXT, operating_state TEXT, paused_at INTEGER, paused_by_user_id TEXT, created_at INTEGER)",
+      await harness.query({
+        text: "INSERT INTO \"openmeld\".\"openmeld_profiles\" (profile_id, organization_id, profile_kind, profile_name, owner_user_id, managed_role, status, profile_handle, source) VALUES ($1, 'org_123', 'agent', 'Opus', 'user_1', NULL, 'active', 'opus', 'web_create')",
+        values: [CHILD],
       });
-      harness.run({
-        sql: "INSERT INTO center_agent_designations VALUES ('org_123', ?, NULL, NULL, 'active', NULL, NULL, 1)",
-        params: [CENTER],
+
+      await harness.query({
+        text: "INSERT INTO \"openmeld\".\"center_agent_designations\" (organization_id, agent_profile_id, duty, designated_by, operating_state, paused_at, paused_by_user_id, created_at) VALUES ('org_123', $1, NULL, NULL, 'active', NULL, NULL, 1)",
+        values: [CENTER],
       });
       const parentRequest = createSubmitTurnRequestV2({
         agentProfileId: CENTER,
@@ -190,14 +184,10 @@ describe("delegated requester is a current projection of exact owner records", (
         userId: "user_1",
         profileId: HUMAN,
       });
-      harness.run({ sql: "CREATE TABLE users (id TEXT PRIMARY KEY)" });
-      harness.run({ sql: "INSERT INTO users VALUES ('user_1')" });
-      harness.run({ sql: "CREATE TABLE organizations (id TEXT PRIMARY KEY)" });
-      harness.run({ sql: "INSERT INTO organizations VALUES ('org_123')" });
-      applyDrizzleMigrationForTable(harness, "connector_connections");
-      harness.run({
-        sql: "INSERT INTO connector_connections (connection_name, organization_id, user_id, scope, service, status, access_policy, created_at_ms, updated_at_ms) VALUES ('exact-github', 'org_123', 'user_1', 'member', 'github', 'active', ?, 1, 1)",
-        params: [
+
+      await harness.query({
+        text: "INSERT INTO \"openmeld\".\"connector_connections\" (connection_name, organization_id, user_id, scope, service, status, access_policy, created_at_ms, updated_at_ms) VALUES ('exact-github', 'org_123', 'user_1', 'member', 'github', 'active', $1, 1, 1)",
+        values: [
           JSON.stringify({
             center_agent: "none",
             remote_agent: "read",
@@ -211,7 +201,7 @@ describe("delegated requester is a current projection of exact owner records", (
         personalExecution: { delivery: input.delivery, request: input.request },
       }));
       const rpcEnv = {
-        OPENMELD_DB: harness.db,
+        OPENMELD_POSTGRESQL: postgresTestBinding(harness.db),
         OPENMELD_AUTH_WORKER: {
           resolveUserDisplayName: async () => ({
             ok: true,
@@ -253,9 +243,9 @@ describe("delegated requester is a current projection of exact owner records", (
         })
       ).rejects.toThrow("no longer authorizes");
       if (scenario === "allowed") {
-        harness.run({
-          sql: "INSERT INTO connector_connections (connection_name, organization_id, user_id, scope, service, status, access_policy, created_at_ms, updated_at_ms) VALUES ('other-shared-account', 'org_123', 'user_1', 'shared', 'github', 'active', ?, 1, 1)",
-          params: [
+        await harness.query({
+          text: "INSERT INTO \"openmeld\".\"connector_connections\" (connection_name, organization_id, user_id, scope, service, status, access_policy, created_at_ms, updated_at_ms) VALUES ('other-shared-account', 'org_123', 'user_1', 'shared', 'github', 'active', $1, 1, 1)",
+          values: [
             JSON.stringify({
               center_agent: "write",
               remote_agent: "read",
@@ -263,9 +253,9 @@ describe("delegated requester is a current projection of exact owner records", (
             }),
           ],
         });
-        harness.run({
-          sql: "UPDATE connector_connections SET access_policy = ? WHERE connection_name = 'exact-github'",
-          params: [
+        await harness.query({
+          text: 'UPDATE "openmeld"."connector_connections" SET access_policy = $1 WHERE connection_name = \'exact-github\'',
+          values: [
             JSON.stringify({
               center_agent: "write",
               remote_agent: "none",
@@ -277,9 +267,9 @@ describe("delegated requester is a current projection of exact owner records", (
           rpcCenterAgentResolveConnectorConnection(rpcEnv, selectionInput)
         ).resolves.toMatchObject({ connection: null, selection: null });
         // The parent's Center permission does not substitute for the target Agent's policy.
-        harness.run({
-          sql: "UPDATE connector_connections SET access_policy = ?, status = 'disconnected', disconnected_at_ms = 2 WHERE connection_name = 'exact-github'",
-          params: [
+        await harness.query({
+          text: "UPDATE \"openmeld\".\"connector_connections\" SET access_policy = $1, status = 'disconnected', disconnected_at_ms = 2 WHERE connection_name = 'exact-github'",
+          values: [
             JSON.stringify({
               center_agent: "none",
               remote_agent: "read",
@@ -293,7 +283,7 @@ describe("delegated requester is a current projection of exact owner records", (
         return;
       }
       if (scenario === "revoked") {
-        harness.run({ sql: "DELETE FROM members" });
+        await harness.query({ text: 'DELETE FROM "openmeld"."members"' });
       }
       if (scenario === "other_organization") {
         input.delivery = { ...delivery, organizationId: "other-org" };
@@ -314,26 +304,26 @@ describe("delegated requester is a current projection of exact owner records", (
         };
       }
       if (scenario === "cancelled") {
-        harness.run({
-          sql: "UPDATE agent_delegations SET state = 'cancelled'",
+        await harness.query({
+          text: 'UPDATE "openmeld"."agent_delegations" SET state = \'cancelled\'',
         });
       }
       if (scenario === "changed_center") {
-        harness.run({
-          sql: "UPDATE center_agent_designations SET agent_profile_id = ?",
-          params: [CHILD],
+        await harness.query({
+          text: 'UPDATE "openmeld"."center_agent_designations" SET agent_profile_id = $1',
+          values: [CHILD],
         });
       }
       if (scenario === "unacknowledged_parent") {
-        harness.run({
-          sql: "UPDATE openMeldRemoteAgent_native_delivery_ledger SET status = 'submitted' WHERE delivery_id = ?",
-          params: [parent.deliveryId],
+        await harness.query({
+          text: 'UPDATE "openmeld"."openMeldRemoteAgent_native_delivery_ledger" SET status = \'submitted\' WHERE delivery_id = $1',
+          values: [parent.deliveryId],
         });
       }
       if (scenario === "changed_parent_identity") {
-        harness.run({
-          sql: "UPDATE openMeldRemoteAgent_native_delivery_ledger SET binding_id = 'replaced-binding' WHERE delivery_id = ?",
-          params: [parent.deliveryId],
+        await harness.query({
+          text: 'UPDATE "openmeld"."openMeldRemoteAgent_native_delivery_ledger" SET binding_id = \'replaced-binding\' WHERE delivery_id = $1',
+          values: [parent.deliveryId],
         });
       }
       expect(await readRemoteAgentDelegatedRequester(input)).toBeNull();
@@ -341,13 +331,13 @@ describe("delegated requester is a current projection of exact owner records", (
         rpcCenterAgentResolveConnectorConnection(rpcEnv, selectionInput)
       ).rejects.toThrow("no longer authorizes");
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });
 
 async function insertDelivery(
-  db: D1Database,
+  db: PostgresDatabase,
   request: RemoteAgentWorkerSubmitTurnRequest
 ) {
   await upsertRemoteAgentNativeDeliveryRecord({

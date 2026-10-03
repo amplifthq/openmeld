@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createProjectionPostgresBinding } from "../../test-support/postgresql-query.test-support";
 import { Space } from "../space/transport/do/space";
 
 type SpaceMemberSqlRow = {
@@ -82,6 +83,9 @@ function buildSpaceTestDouble(rows: readonly SpaceMemberSqlRow[]) {
     rpcRecordMemberProfileNotFoundObservation: Space["rpcRecordMemberProfileNotFoundObservation"];
   };
   Object.defineProperties(space, {
+    bindings: {
+      value: { OPENMELD_POSTGRESQL: createProjectionPostgresBinding() },
+    },
     ctx: {
       value: {
         storage: { sql },

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { installPostgresWriteFailure } from "../../../tooling/postgresql/test-harness";
 import { createSubmitTurnRequest } from "../../remote-agent/tests/fixtures";
 import type { CoreBindings } from "../src/lib/bindings";
 import { acknowledgeRemoteAgentAdmission } from "../src/remote-agent/application/native-delivery-admission-acknowledgement";
@@ -8,22 +9,19 @@ import {
   persistRemoteAgentWorkerSubmitRequest,
   readRemoteAgentNativeDeliveryBySubmissionId,
   upsertRemoteAgentNativeDeliveryRecord,
-} from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+} from "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import {
-  applyDrizzleMigrationForTable,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+  createPostgresHarness,
+  postgresTestBinding,
+} from "./helpers/postgresql-harness.test-support";
 
 describe("native execution admission acknowledgement", () => {
   it.each([
     "start-before-response",
     "response-before-start",
   ])("persists one exact admission for %s", async (order) => {
-    const harness = createSqliteD1Harness();
-    applyDrizzleMigrationForTable(
-      harness,
-      "openMeldRemoteAgent_native_delivery_ledger"
-    );
+    const harness = await createPostgresHarness();
+
     const request = createSubmitTurnRequest({ spaceId: "a".repeat(64) });
     try {
       await upsertRemoteAgentNativeDeliveryRecord({
@@ -66,7 +64,7 @@ describe("native execution admission acknowledgement", () => {
       let stopRequested = true;
       const send = vi.fn(async () => undefined);
       const env = {
-        OPENMELD_DB: harness.db,
+        OPENMELD_POSTGRESQL: postgresTestBinding(harness.db),
         OPENMELD_DAEMON_DISPATCH_QUEUE: { send },
         OPENMELD_SPACES: {
           idFromString: (id: string) => id,
@@ -103,15 +101,18 @@ describe("native execution admission acknowledgement", () => {
       }
       stopRequested = false;
       if (order === "start-before-response") {
-        harness.run({
-          sql: `CREATE TRIGGER reject_ack BEFORE UPDATE ON openMeldRemoteAgent_native_delivery_ledger
-          WHEN NEW.status = 'accepted' BEGIN SELECT RAISE(FAIL, 'ACK storage unavailable'); END`,
+        const removeFailure = await installPostgresWriteFailure({
+          harness,
+          table: "openMeldRemoteAgent_native_delivery_ledger",
+          operation: "UPDATE",
+          condition: "NEW.status = 'accepted'",
+          message: "ACK storage unavailable",
         });
         await expect(
           acknowledgeRemoteAgentAdmission(env, callback)
         ).rejects.toThrow("ACK storage unavailable");
         expect(send).not.toHaveBeenCalled();
-        harness.run({ sql: "DROP TRIGGER reject_ack" });
+        await removeFailure();
       }
       send.mockRejectedValueOnce(new Error("Queue temporarily unavailable"));
       await expect(
@@ -156,12 +157,12 @@ describe("native execution admission acknowledgement", () => {
         })
       ).resolves.toMatchObject({ status: "rejected" });
       // A terminal write during a failed probe must not resurrect admission.
-      harness.run({
-        sql: "UPDATE openMeldRemoteAgent_native_delivery_ledger SET accepted_probe_next_due_at_ms = NULL",
+      await harness.query({
+        text: 'UPDATE "openmeld"."openMeldRemoteAgent_native_delivery_ledger" SET accepted_probe_next_due_at_ms = NULL',
       });
-      send.mockImplementationOnce(() => {
-        harness.run({
-          sql: "UPDATE openMeldRemoteAgent_native_delivery_ledger SET status = 'failed'",
+      send.mockImplementationOnce(async () => {
+        await harness.query({
+          text: 'UPDATE "openmeld"."openMeldRemoteAgent_native_delivery_ledger" SET status = \'failed\'',
         });
         return Promise.reject(
           new Error("Queue failed after terminal transition")
@@ -172,14 +173,14 @@ describe("native execution admission acknowledgement", () => {
       ).resolves.toMatchObject({
         status: "rejected",
       });
-      harness.run({
-        sql: "UPDATE openMeldRemoteAgent_native_delivery_ledger SET status = 'failed'",
+      await harness.query({
+        text: 'UPDATE "openmeld"."openMeldRemoteAgent_native_delivery_ledger" SET status = \'failed\'',
       });
       await expect(
         acknowledgeRemoteAgentAdmission(env, callback)
       ).resolves.toMatchObject({ status: "rejected" });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });

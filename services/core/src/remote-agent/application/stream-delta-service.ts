@@ -1,3 +1,4 @@
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import {
   remoteAgentStreamDeltaCallbackBodySchema,
   remoteAgentStreamDeltaCallbackResponseSchema,
@@ -8,10 +9,10 @@ import type {
   SpaceAgentStreamTerminal,
 } from "@openmeld/schemas/types";
 import type { CoreBindings } from "../../lib/bindings";
-import { localStateDb, wakeEvidenceDb } from "../../lib/bindings";
+
 import { resolveSpaceStub } from "../../rpc/space-ref";
 import { CORE_LOG_EVENTS } from "../../shared/observability/log-events";
-import type { RemoteAgentNativeDeliveryRecord } from "../infrastructure/d1/native-delivery-ledger-repo";
+import type { RemoteAgentNativeDeliveryRecord } from "../infrastructure/postgresql/native-delivery-ledger-repo";
 import { publishRemoteAgentMessageChannelCardStreamDelta } from "./message-channel-card-stream-service";
 import { createConfiguredMessageChannelProviderRegistry } from "./message-channel-provider-runtime";
 import { resolveNativeDeliveryReplyPlacement } from "./reply-placement";
@@ -114,8 +115,8 @@ async function publishMessageChannelStreamDelta(input: {
       status: "accepted",
     });
   }
-  const providerDb = localStateDb(input.env);
-  const evidenceDb = wakeEvidenceDb(input.env);
+  const providerDb = getPostgresDatabase(input.env);
+  const evidenceDb = getPostgresDatabase(input.env);
   const registry = providerDb
     ? createConfiguredMessageChannelProviderRegistry({
         db: providerDb,

@@ -40,9 +40,10 @@ outside this migration. Retention follows business owners, not physical storage.
 Cutover must establish one relational authority without prolonged dual writes,
 preserving IDs and DO/R2 references.
 
-Current per-domain D1 accessors and aliases remain necessary compatibility
-surfaces until their consumers migrate. Do not remove them during foundation
-setup. `dispatchRecoveryDb` is operational recovery state; the Auth-owned
+The PostgreSQL candidate's shared consumers use one native Hyperdrive binding;
+physical-domain D1 aliases are removed with their consumers. The deployed D1
+revision remains unchanged until the authorized cutover. Operational dispatch
+recovery is product state; the Auth-owned
 `openmeld_profile_deletion_outbox` and account notification preferences are
 product state. Neither becomes time-decaying evidence merely by sharing a database.
 Diagnostics-owned connection incidents retain their own bounded retention.

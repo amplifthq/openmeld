@@ -1,7 +1,8 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
+
 const DELETED_PROFILE_RECONCILE_RETRY_BASE_DELAY_MS = 15 * 60_000;
 const DELETED_PROFILE_RECONCILE_RETRY_MAX_DELAY_MS = 24 * 60 * 60_000;
 const DELETED_PROFILE_RECONCILE_ERROR_MAX_LENGTH = 500;
-
 export type DeletedProfileReconcileOutboxRecord = {
   attemptCount: number;
   ownerUserId: string | null;
@@ -9,7 +10,6 @@ export type DeletedProfileReconcileOutboxRecord = {
   profileId: string;
   profileKind: "agent" | "human";
 };
-
 type DeletedProfileReconcileOutboxRow = {
   attempt_count: number;
   owner_user_id: string | null;
@@ -17,31 +17,27 @@ type DeletedProfileReconcileOutboxRow = {
   profile_id: string;
   profile_kind: "agent" | "human";
 };
-
 export async function listDueDeletedProfileReconcileOutbox(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   limit: number;
   nowMs: number;
 }): Promise<DeletedProfileReconcileOutboxRecord[]> {
-  const result = await input.db
-    .prepare(
-      `
+  const result = await input.db.query<DeletedProfileReconcileOutboxRow>({
+    text: `
         SELECT
           profile_id,
           owner_user_id,
           organization_id,
           profile_kind,
           attempt_count
-        FROM openmeld_profile_deletion_outbox
-        WHERE next_attempt_at_ms <= ?
-        ORDER BY next_attempt_at_ms ASC, created_at_ms ASC, profile_id ASC
-        LIMIT ?
-      `
-    )
-    .bind(input.nowMs, input.limit)
-    .all<DeletedProfileReconcileOutboxRow>();
-
-  return (result.results ?? []).map((row) => ({
+        FROM "openmeld"."openmeld_profile_deletion_outbox"
+        WHERE next_attempt_at_ms <= $1
+        ORDER BY next_attempt_at_ms ASC NULLS FIRST, created_at_ms ASC NULLS FIRST, profile_id ASC NULLS FIRST
+        LIMIT $2
+      `,
+    values: [input.nowMs, input.limit],
+  });
+  return (result.rows ?? []).map((row) => ({
     attemptCount: row.attempt_count,
     ownerUserId: row.owner_user_id,
     organizationId: row.organization_id,
@@ -49,25 +45,21 @@ export async function listDueDeletedProfileReconcileOutbox(input: {
     profileKind: row.profile_kind,
   }));
 }
-
 export async function deleteDeletedProfileReconcileOutboxRecord(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   profileId: string;
 }): Promise<void> {
-  await input.db
-    .prepare(
-      `
-        DELETE FROM openmeld_profile_deletion_outbox
-        WHERE profile_id = ?
-      `
-    )
-    .bind(input.profileId)
-    .run();
+  await input.db.query({
+    text: `
+        DELETE FROM "openmeld"."openmeld_profile_deletion_outbox"
+        WHERE profile_id = $1
+      `,
+    values: [input.profileId],
+  });
 }
-
 export async function recordDeletedProfileReconcileFailure(input: {
   attemptCount?: number;
-  db: D1Database;
+  db: PostgresDatabase;
   error: string;
   nowMs: number;
   profileId: string;
@@ -80,46 +72,44 @@ export async function recordDeletedProfileReconcileFailure(input: {
     }));
   const nextAttemptAtMs =
     input.nowMs + resolveDeletedProfileReconcileRetryDelay(currentAttemptCount);
-  await input.db
-    .prepare(
-      `
-        UPDATE openmeld_profile_deletion_outbox
+  await input.db.query({
+    text: `
+        UPDATE "openmeld"."openmeld_profile_deletion_outbox"
         SET
           attempt_count = attempt_count + 1,
-          next_attempt_at_ms = ?,
-          last_attempt_at_ms = ?,
-          last_error = ?,
-          updated_at_ms = MAX(updated_at_ms, ?)
-        WHERE profile_id = ?
-      `
-    )
-    .bind(
+          next_attempt_at_ms = $1,
+          last_attempt_at_ms = $2,
+          last_error = $3,
+          updated_at_ms = GREATEST(updated_at_ms, $4)
+        WHERE profile_id = $5
+      `,
+    values: [
       nextAttemptAtMs,
       input.nowMs,
       normalizeOutboxError(input.error),
       input.nowMs,
-      input.profileId
-    )
-    .run();
+      input.profileId,
+    ],
+  });
 }
-
 async function readDeletedProfileReconcileAttemptCount(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   profileId: string;
 }): Promise<number> {
   const row = await input.db
-    .prepare(
-      `
+    .query<{
+      attempt_count: number;
+    }>({
+      text: `
         SELECT attempt_count
-        FROM openmeld_profile_deletion_outbox
-        WHERE profile_id = ?
-      `
-    )
-    .bind(input.profileId)
-    .first<{ attempt_count: number }>();
+        FROM "openmeld"."openmeld_profile_deletion_outbox"
+        WHERE profile_id = $1
+      `,
+      values: [input.profileId],
+    })
+    .then((result) => result.rows[0] ?? null);
   return Math.max(0, row?.attempt_count ?? 0);
 }
-
 function resolveDeletedProfileReconcileRetryDelay(
   attemptCount: number
 ): number {
@@ -129,7 +119,6 @@ function resolveDeletedProfileReconcileRetryDelay(
     DELETED_PROFILE_RECONCILE_RETRY_BASE_DELAY_MS * 2 ** exponent
   );
 }
-
 function normalizeOutboxError(error: string): string {
   const normalized = error.trim() || "deleted_profile_reconcile_failed";
   return normalized.slice(0, DELETED_PROFILE_RECONCILE_ERROR_MAX_LENGTH);

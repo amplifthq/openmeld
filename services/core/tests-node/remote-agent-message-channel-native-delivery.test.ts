@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   buildMessageChannelConversationId,
   buildSpaceAttachmentObjectKey,
@@ -8,6 +9,7 @@ import type {
   RemoteAgentTurnEnvelope,
 } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
+import { installPostgresWriteFailure } from "../../../tooling/postgresql/test-harness";
 import type { CoreBindings } from "../src/lib/bindings";
 import {
   createMessageChannelProviderRegistry,
@@ -24,15 +26,14 @@ import { buildPluginChannelSourceProof } from "../src/remote-agent/application/p
 import {
   claimRemoteAgentMessageChannelAdmissionFailurePublication,
   readRemoteAgentNativeDeliveryByIdempotencyKey,
-} from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
-import { readPluginChannelMetadata } from "../src/remote-agent/infrastructure/d1/plugin-channel-metadata-repo";
+} from "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
+import { readPluginChannelMetadata } from "../src/remote-agent/infrastructure/postgresql/plugin-channel-metadata-repo";
 import { REMOTE_AGENT_DAILY_QUOTA_EXCEEDED_REASON_CODE } from "../src/usage/ai-usage-policy";
 import { TEST_CENTER_AGENT_MODEL_ROUTE } from "./helpers/center-agent-model-route.test-support";
 import {
-  applyDrizzleMigrationForTable,
-  applyDrizzleMigrationsForTables,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+  createPostgresHarness,
+  postgresTestBinding,
+} from "./helpers/postgresql-harness.test-support";
 
 const AGENT_PROFILE_ID = "agt_11111111-1111-4111-8111-111111111111";
 const RFC_4122_VERSION_5_UUID =
@@ -40,8 +41,8 @@ const RFC_4122_VERSION_5_UUID =
 
 describe("Remote Agent Message Channel native delivery", () => {
   it("persists the explicit Plugin binding before the actual worker submission and replays through the existing delivery owner", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelNativeDeliveryMigrations(harness);
+    const harness = await createPostgresHarness();
+    await applyMessageChannelNativeDeliveryMigrations(harness);
     const proof = await buildPluginChannelSourceProof({
       provider: "lark",
       messageId: "message_original",
@@ -68,8 +69,8 @@ describe("Remote Agent Message Channel native delivery", () => {
       continuationTriggerId: request.triggerMessageId,
     };
     const workerSubmit = vi.fn(async () => {
-      const rows = harness.queryAll<{ delivery_id: string }>({
-        sql: "SELECT delivery_id FROM openMeldRemoteAgent_native_delivery_ledger",
+      const rows = await harness.queryAll<{ delivery_id: string }>({
+        text: 'SELECT delivery_id FROM "openmeld"."openMeldRemoteAgent_native_delivery_ledger"',
       });
       expect(rows).toHaveLength(1);
       const recorded = rows[0];
@@ -94,6 +95,7 @@ describe("Remote Agent Message Channel native delivery", () => {
     const input = {
       db: harness.db,
       env: buildEnv({
+        db: harness.db,
         remoteAgentWorker: { submitConversationTurn: workerSubmit },
       }),
       nowMs: 1000,
@@ -124,13 +126,13 @@ describe("Remote Agent Message Channel native delivery", () => {
       ).rejects.toThrow("execution_binding_conflict");
       expect(workerSubmit).toHaveBeenCalledOnce();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("publishes one durable receipt before slow input preparation and skips preparation on accepted replay", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelNativeDeliveryMigrations(harness);
+    const harness = await createPostgresHarness();
+    await applyMessageChannelNativeDeliveryMigrations(harness);
     const order: string[] = [];
     const request = createMessageChannelDeliveryInput();
     const workerSubmit = vi.fn(() => {
@@ -161,6 +163,7 @@ describe("Remote Agent Message Channel native delivery", () => {
       const input = {
         db: harness.db,
         env: buildEnv({
+          db: harness.db,
           remoteAgentWorker: { submitConversationTurn: workerSubmit },
         }),
         memoryService: null,
@@ -178,12 +181,12 @@ describe("Remote Agent Message Channel native delivery", () => {
       expect(prepareInput).toHaveBeenCalledOnce();
       expect(workerSubmit).toHaveBeenCalledOnce();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
   it("keeps a receipt recoverable when input preparation fails before worker submission", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelNativeDeliveryMigrations(harness);
+    const harness = await createPostgresHarness();
+    await applyMessageChannelNativeDeliveryMigrations(harness);
     const queueSend = vi.fn(() => Promise.resolve());
     const workerSubmit = vi.fn();
     const registry = createWorkingCardRegistry();
@@ -192,6 +195,7 @@ describe("Remote Agent Message Channel native delivery", () => {
         submitRemoteAgentMessageChannelNativeDelivery({
           db: harness.db,
           env: buildEnv({
+            db: harness.db,
             queueSend,
             remoteAgentWorker: { submitConversationTurn: workerSubmit },
           }),
@@ -214,14 +218,14 @@ describe("Remote Agent Message Channel native delivery", () => {
       ).rejects.toThrow("Attachment temporarily unavailable");
       expect(workerSubmit).not.toHaveBeenCalled();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("uses the shared worker, ledger, quota, and admission watchdog", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelNativeDeliveryMigrations(harness);
-    seedEnabledOrganizationSkill(harness);
+    const harness = await createPostgresHarness();
+    await applyMessageChannelNativeDeliveryMigrations(harness);
+    await seedEnabledOrganizationSkill(harness);
     const workerSubmit = vi.fn(async (_input: unknown) => ({
       accepted: true,
       createdAt: 1001,
@@ -235,6 +239,7 @@ describe("Remote Agent Message Channel native delivery", () => {
       const result = await submitRemoteAgentMessageChannelNativeDelivery({
         db: harness.db,
         env: buildEnv({
+          db: harness.db,
           queueSend,
           remoteAgentWorker: { submitConversationTurn: workerSubmit },
         }),
@@ -317,6 +322,7 @@ describe("Remote Agent Message Channel native delivery", () => {
         submitRemoteAgentMessageChannelNativeDelivery({
           db: harness.db,
           env: buildEnv({
+            db: harness.db,
             queueSend,
             remoteAgentWorker: { submitConversationTurn: workerSubmit },
           }),
@@ -333,13 +339,13 @@ describe("Remote Agent Message Channel native delivery", () => {
       });
       expect(workerSubmit).toHaveBeenCalledTimes(1);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("submits an anonymous member without OpenMeld identity authority", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelNativeDeliveryMigrations(harness);
+    const harness = await createPostgresHarness();
+    await applyMessageChannelNativeDeliveryMigrations(harness);
     const workerSubmit = vi.fn(async () => ({
       accepted: true,
       createdAt: 1001,
@@ -352,6 +358,7 @@ describe("Remote Agent Message Channel native delivery", () => {
       const result = await submitRemoteAgentMessageChannelNativeDelivery({
         db: harness.db,
         env: buildEnv({
+          db: harness.db,
           remoteAgentWorker: { submitConversationTurn: workerSubmit },
         }),
         memoryService: null,
@@ -386,13 +393,13 @@ describe("Remote Agent Message Channel native delivery", () => {
         onBehalfOfUserId: null,
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("persists provider images in the exact durable worker request", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelNativeDeliveryMigrations(harness);
+    const harness = await createPostgresHarness();
+    await applyMessageChannelNativeDeliveryMigrations(harness);
     const workerSubmit = vi.fn(async (_input: unknown) => ({
       accepted: true,
       createdAt: 1001,
@@ -404,6 +411,7 @@ describe("Remote Agent Message Channel native delivery", () => {
       await submitRemoteAgentMessageChannelNativeDelivery({
         db: harness.db,
         env: buildEnv({
+          db: harness.db,
           remoteAgentWorker: { submitConversationTurn: workerSubmit },
         }),
         memoryService: null,
@@ -442,13 +450,13 @@ describe("Remote Agent Message Channel native delivery", () => {
         })
       );
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("deletes provider images when no Remote Agent worker can receive them", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelNativeDeliveryMigrations(harness);
+    const harness = await createPostgresHarness();
+    await applyMessageChannelNativeDeliveryMigrations(harness);
     const attachmentDelete = vi.fn(async () => undefined);
     const request = createMessageChannelDeliveryInput({
       attachments: [
@@ -466,6 +474,7 @@ describe("Remote Agent Message Channel native delivery", () => {
         submitRemoteAgentMessageChannelNativeDelivery({
           db: harness.db,
           env: buildEnv({
+            db: harness.db,
             attachmentDelete,
             remoteAgentWorker: undefined,
           }),
@@ -487,13 +496,13 @@ describe("Remote Agent Message Channel native delivery", () => {
         })
       );
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("keeps provider images when the delivery ledger state is unavailable", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelNativeDeliveryMigrations(harness);
+    const harness = await createPostgresHarness();
+    await applyMessageChannelNativeDeliveryMigrations(harness);
     const attachmentDelete = vi.fn(async () => undefined);
     const request = createMessageChannelDeliveryInput({
       attachments: [
@@ -506,12 +515,13 @@ describe("Remote Agent Message Channel native delivery", () => {
         },
       ],
     });
-    harness.close();
+    await harness.close();
 
     await expect(
       submitRemoteAgentMessageChannelNativeDelivery({
         db: harness.db,
         env: buildEnv({
+          db: harness.db,
           attachmentDelete,
           remoteAgentWorker: { submitConversationTurn: vi.fn() },
         }),
@@ -526,16 +536,13 @@ describe("Remote Agent Message Channel native delivery", () => {
   });
 
   it("deletes provider images when the delivery ledger cannot be created", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelNativeDeliveryMigrations(harness);
-    harness.run({
-      sql: `
-        CREATE TRIGGER reject_message_channel_delivery_insert
-        BEFORE INSERT ON openMeldRemoteAgent_native_delivery_ledger
-        BEGIN
-          SELECT RAISE(FAIL, 'D1 delivery insert unavailable');
-        END
-      `,
+    const harness = await createPostgresHarness();
+    await applyMessageChannelNativeDeliveryMigrations(harness);
+    await installPostgresWriteFailure({
+      harness,
+      table: "openMeldRemoteAgent_native_delivery_ledger",
+      operation: "INSERT",
+      message: "PostgreSQL delivery insert unavailable",
     });
     const attachmentDelete = vi.fn(async () => undefined);
     const request = createMessageChannelDeliveryInput({
@@ -554,6 +561,7 @@ describe("Remote Agent Message Channel native delivery", () => {
         submitRemoteAgentMessageChannelNativeDelivery({
           db: harness.db,
           env: buildEnv({
+            db: harness.db,
             attachmentDelete,
             remoteAgentWorker: { submitConversationTurn: vi.fn() },
           }),
@@ -562,7 +570,7 @@ describe("Remote Agent Message Channel native delivery", () => {
           registry: createWorkingCardRegistry(),
           request,
         })
-      ).rejects.toThrow("D1 delivery insert unavailable");
+      ).rejects.toThrow("PostgreSQL delivery insert unavailable");
 
       expect(attachmentDelete).toHaveBeenCalledWith(
         buildSpaceAttachmentObjectKey({
@@ -572,13 +580,13 @@ describe("Remote Agent Message Channel native delivery", () => {
         })
       );
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("deletes provider images when Working Card preparation throws", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelNativeDeliveryMigrations(harness);
+    const harness = await createPostgresHarness();
+    await applyMessageChannelNativeDeliveryMigrations(harness);
     const attachmentDelete = vi.fn(async () => undefined);
     const request = createMessageChannelDeliveryInput({
       attachments: [
@@ -596,6 +604,7 @@ describe("Remote Agent Message Channel native delivery", () => {
         submitRemoteAgentMessageChannelNativeDelivery({
           db: harness.db,
           env: buildEnv({
+            db: harness.db,
             attachmentDelete,
             remoteAgentWorker: { submitConversationTurn: vi.fn() },
           }),
@@ -618,13 +627,13 @@ describe("Remote Agent Message Channel native delivery", () => {
         })
       );
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("keeps worker admission available when CardKit creation is unavailable", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelNativeDeliveryMigrations(harness);
+    const harness = await createPostgresHarness();
+    await applyMessageChannelNativeDeliveryMigrations(harness);
     const workerSubmit = vi.fn(async () => ({
       accepted: true,
       createdAt: 1001,
@@ -636,6 +645,7 @@ describe("Remote Agent Message Channel native delivery", () => {
       const result = await submitRemoteAgentMessageChannelNativeDelivery({
         db: harness.db,
         env: buildEnv({
+          db: harness.db,
           remoteAgentWorker: { submitConversationTurn: workerSubmit },
         }),
         memoryService: null,
@@ -662,18 +672,19 @@ describe("Remote Agent Message Channel native delivery", () => {
         status: "accepted",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("records an authorized input failure without calling the worker", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelNativeDeliveryMigrations(harness);
+    const harness = await createPostgresHarness();
+    await applyMessageChannelNativeDeliveryMigrations(harness);
     const workerSubmit = vi.fn();
     try {
       const result = await submitRemoteAgentMessageChannelNativeDelivery({
         db: harness.db,
         env: buildEnv({
+          db: harness.db,
           remoteAgentWorker: { submitConversationTurn: workerSubmit },
         }),
         memoryService: null,
@@ -703,13 +714,13 @@ describe("Remote Agent Message Channel native delivery", () => {
         status: "failed",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("replays the exact durable request after an ambiguous worker outcome", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelNativeDeliveryMigrations(harness);
+    const harness = await createPostgresHarness();
+    await applyMessageChannelNativeDeliveryMigrations(harness);
     const submittedRequests: unknown[] = [];
     const workerSubmit = vi
       .fn()
@@ -740,6 +751,7 @@ describe("Remote Agent Message Channel native delivery", () => {
       ],
     });
     const env = buildEnv({
+      db: harness.db,
       attachmentDelete,
       remoteAgentWorker: { submitConversationTurn: workerSubmit },
     });
@@ -772,18 +784,18 @@ describe("Remote Agent Message Channel native delivery", () => {
       expect(submittedRequests[1]).toEqual(submittedRequests[0]);
       expect(attachmentDelete).not.toHaveBeenCalled();
       expect(
-        harness.queryAll<{ count: number }>({
-          sql: "SELECT COUNT(*) AS count FROM ai_usage_records",
+        await harness.queryAll<{ count: number }>({
+          text: 'SELECT COUNT(*) AS count FROM "openmeld"."ai_usage_records"',
         })
       ).toEqual([{ count: 0 }]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("rejects a conflicting frozen Lark origin before card or worker effects", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelNativeDeliveryMigrations(harness);
+    const harness = await createPostgresHarness();
+    await applyMessageChannelNativeDeliveryMigrations(harness);
     const workerSubmit = vi.fn(async () => ({
       accepted: true,
       createdAt: 1001,
@@ -801,6 +813,7 @@ describe("Remote Agent Message Channel native delivery", () => {
     }));
     const request = createMessageChannelDeliveryInput();
     const env = buildEnv({
+      db: harness.db,
       remoteAgentWorker: { submitConversationTurn: workerSubmit },
     });
     try {
@@ -850,13 +863,13 @@ describe("Remote Agent Message Channel native delivery", () => {
         })
       ).resolves.toEqual(frozenDelivery);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("deletes a newly prepared provider image when an accepted delivery is replayed", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelNativeDeliveryMigrations(harness);
+    const harness = await createPostgresHarness();
+    await applyMessageChannelNativeDeliveryMigrations(harness);
     const workerSubmit = vi.fn(async () => ({
       accepted: true,
       createdAt: 1001,
@@ -877,6 +890,7 @@ describe("Remote Agent Message Channel native delivery", () => {
       ],
     });
     const env = buildEnv({
+      db: harness.db,
       attachmentDelete,
       remoteAgentWorker: { submitConversationTurn: workerSubmit },
     });
@@ -913,13 +927,13 @@ describe("Remote Agent Message Channel native delivery", () => {
         })
       );
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("preserves an accepted delivery when replay attachment cleanup fails", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelNativeDeliveryMigrations(harness);
+    const harness = await createPostgresHarness();
+    await applyMessageChannelNativeDeliveryMigrations(harness);
     const workerSubmit = vi.fn(async () => ({
       accepted: true,
       createdAt: 1001,
@@ -941,6 +955,7 @@ describe("Remote Agent Message Channel native delivery", () => {
       ],
     });
     const env = buildEnv({
+      db: harness.db,
       attachmentDelete,
       remoteAgentWorker: { submitConversationTurn: workerSubmit },
     });
@@ -985,13 +1000,13 @@ describe("Remote Agent Message Channel native delivery", () => {
       );
     } finally {
       warn.mockRestore();
-      harness.close();
+      await harness.close();
     }
   });
 
   it("shares one Organization quota across Message Channel connections", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelNativeDeliveryMigrations(harness);
+    const harness = await createPostgresHarness();
+    await applyMessageChannelNativeDeliveryMigrations(harness);
     const workerSubmit = vi.fn(async () => ({
       accepted: true,
       createdAt: 1001,
@@ -1001,6 +1016,7 @@ describe("Remote Agent Message Channel native delivery", () => {
     }));
     const attachmentDelete = vi.fn(async () => undefined);
     const env = buildEnv({
+      db: harness.db,
       attachmentDelete,
       remoteAgentWorker: { submitConversationTurn: workerSubmit },
     });
@@ -1016,9 +1032,9 @@ describe("Remote Agent Message Channel native delivery", () => {
         })
       ).resolves.toMatchObject({ status: "submitted" });
 
-      harness.run({
-        sql: "INSERT INTO organization_ai_usage_policies VALUES (?, ?, ?)",
-        params: ["org_1", 0, 1000],
+      await harness.query({
+        text: 'INSERT INTO "openmeld"."organization_ai_usage_policies" VALUES ($1, $2, $3)',
+        values: ["org_1", 0, 1000],
       });
       const secondRequest = createMessageChannelDeliveryInput({
         locator: createLocator({
@@ -1059,13 +1075,13 @@ describe("Remote Agent Message Channel native delivery", () => {
         })
       );
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("maps a structured worker rejection to Core-owned public copy", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelNativeDeliveryMigrations(harness);
+    const harness = await createPostgresHarness();
+    await applyMessageChannelNativeDeliveryMigrations(harness);
     const request = createMessageChannelDeliveryInput();
     const channelContext = request.turnEnvelope.channelContext;
     if (!channelContext) {
@@ -1097,6 +1113,7 @@ describe("Remote Agent Message Channel native delivery", () => {
       const result = await submitRemoteAgentMessageChannelNativeDelivery({
         db: harness.db,
         env: buildEnv({
+          db: harness.db,
           remoteAgentWorker: {
             submitConversationTurn: vi.fn(async () => ({
               idempotencyKey: "ignored_by_fixture",
@@ -1149,13 +1166,13 @@ describe("Remote Agent Message Channel native delivery", () => {
       });
       expect(spaceGet).not.toHaveBeenCalled();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("rejects locator and turn-envelope drift before writing a delivery", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelNativeDeliveryMigrations(harness);
+    const harness = await createPostgresHarness();
+    await applyMessageChannelNativeDeliveryMigrations(harness);
     const request = createMessageChannelDeliveryInput();
     const channelContext = request.turnEnvelope.channelContext;
     if (!channelContext) {
@@ -1166,6 +1183,7 @@ describe("Remote Agent Message Channel native delivery", () => {
         submitRemoteAgentMessageChannelNativeDelivery({
           db: harness.db,
           env: buildEnv({
+            db: harness.db,
             remoteAgentWorker: {
               submitConversationTurn: vi.fn(),
             },
@@ -1194,18 +1212,18 @@ describe("Remote Agent Message Channel native delivery", () => {
         "Message Channel locator does not match its turn envelope"
       );
       expect(
-        harness.queryAll<{ count: number }>({
-          sql: "SELECT COUNT(*) AS count FROM openMeldRemoteAgent_native_delivery_ledger",
+        await harness.queryAll<{ count: number }>({
+          text: 'SELECT COUNT(*) AS count FROM "openmeld"."openMeldRemoteAgent_native_delivery_ledger"',
         })
       ).toEqual([{ count: 0 }]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("rejects target identity and turn-envelope drift before writing a delivery", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelNativeDeliveryMigrations(harness);
+    const harness = await createPostgresHarness();
+    await applyMessageChannelNativeDeliveryMigrations(harness);
     const request = createMessageChannelDeliveryInput();
     const sender = request.turnEnvelope.sender;
     if (sender.kind !== "member") {
@@ -1216,6 +1234,7 @@ describe("Remote Agent Message Channel native delivery", () => {
         submitRemoteAgentMessageChannelNativeDelivery({
           db: harness.db,
           env: buildEnv({
+            db: harness.db,
             remoteAgentWorker: {
               submitConversationTurn: vi.fn(),
             },
@@ -1238,53 +1257,33 @@ describe("Remote Agent Message Channel native delivery", () => {
         "Message Channel target does not match its turn envelope"
       );
       expect(
-        harness.queryAll<{ count: number }>({
-          sql: "SELECT COUNT(*) AS count FROM openMeldRemoteAgent_native_delivery_ledger",
+        await harness.queryAll<{ count: number }>({
+          text: 'SELECT COUNT(*) AS count FROM "openmeld"."openMeldRemoteAgent_native_delivery_ledger"',
         })
       ).toEqual([{ count: 0 }]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });
 
-function applyMessageChannelNativeDeliveryMigrations(
-  harness: Parameters<typeof applyDrizzleMigrationForTable>[0]
-): void {
-  harness.run({ sql: "CREATE TABLE organizations (id TEXT PRIMARY KEY)" });
-  harness.run({ sql: "INSERT INTO organizations VALUES ('org_1')" });
-  applyDrizzleMigrationsForTables(harness, [
-    "organization_skill_releases",
-    "organization_skills",
-  ]);
-  applyDrizzleMigrationForTable(
-    harness,
-    "openMeldRemoteAgent_native_delivery_ledger"
-  );
-  applyDrizzleMigrationForTable(
-    harness,
-    "openMeldRemoteAgent_daily_admissions"
-  );
-  applyDrizzleMigrationForTable(harness, "ai_usage_records");
-  applyDrizzleMigrationForTable(harness, "organization_ai_usage_policies");
-  applyDrizzleMigrationForTable(
-    harness,
-    "openMeldRemoteAgent_conversation_generations"
-  );
+async function applyMessageChannelNativeDeliveryMigrations(
+  harness: Awaited<ReturnType<typeof createPostgresHarness>>
+): Promise<void> {
+  await harness.query({
+    text: 'INSERT INTO "openmeld"."organizations" (id, "name", "slug", "created_at") VALUES (\'org_1\', \'Test Organization\', (\'org_1\')::text, 1700000000000)',
+  });
 }
 
-function seedEnabledOrganizationSkill(
-  harness: ReturnType<typeof createSqliteD1Harness>
-): void {
-  harness.run({
-    sql: "CREATE TABLE users (id TEXT PRIMARY KEY)",
+async function seedEnabledOrganizationSkill(
+  harness: Awaited<ReturnType<typeof createPostgresHarness>>
+): Promise<void> {
+  await harness.query({
+    text: "INSERT INTO \"openmeld\".\"users\" (id, \"name\", \"email\") VALUES ('user_1', 'Test User', ('user_1')::text || '@example.com')",
   });
-  harness.run({
-    sql: "INSERT INTO users (id) VALUES ('user_1')",
-  });
-  harness.run({
-    sql: `
-      INSERT INTO organization_skills (
+  await harness.query({
+    text: `
+      INSERT INTO "openmeld"."organization_skills" (
         active_release_id,
         created_at,
         created_by_user_id,
@@ -1311,10 +1310,10 @@ function seedEnabledOrganizationSkill(
       )
     `,
   });
-  harness.run({
-    params: ["a".repeat(64)],
-    sql: `
-      INSERT INTO organization_skill_releases (
+  await harness.query({
+    values: ["a".repeat(64)],
+    text: `
+      INSERT INTO "openmeld"."organization_skill_releases" (
         created_at,
         created_by_user_id,
         digest,
@@ -1327,7 +1326,7 @@ function seedEnabledOrganizationSkill(
       ) VALUES (
         900,
         'user_1',
-        ?,
+        $1,
         'release_1',
         '{"runtimeBytes":0}',
         'organizations/org_1/skills/skill_1/releases/release_1.json',
@@ -1367,12 +1366,14 @@ function createWorkingCardRegistry(
 }
 
 function buildEnv(input: {
+  db: PostgresDatabase;
   attachmentDelete?: ReturnType<typeof vi.fn>;
   queueSend?: ReturnType<typeof vi.fn>;
   remoteAgentWorker: CoreBindings["OPENMELD_REMOTE_AGENT_WORKER"];
   spaceGet?: ReturnType<typeof vi.fn>;
 }): CoreBindings {
   return {
+    OPENMELD_POSTGRESQL: postgresTestBinding(input.db),
     OPENMELD_DAEMON_DISPATCH_QUEUE: {
       send: input.queueSend ?? vi.fn(async () => undefined),
     } as unknown as CoreBindings["OPENMELD_DAEMON_DISPATCH_QUEUE"],
