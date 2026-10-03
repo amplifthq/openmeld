@@ -1122,7 +1122,7 @@ const writeFakeCodexAppServerFixture = async (fixturePath) => {
       "  if (message.method === 'config/read') { write({ id: message.id, result: { config: { mcp_servers: { openmeld_internal_dispatch_space_action: JSON.parse(process.env.OPENMELD_FAKE_CODEX_SPACE_POLICY ?? '{}') } }, origins: {}, layers: null } }); return; }",
       "  if (message.method === 'configRequirements/read') { write({ id: message.id, result: { requirements: JSON.parse(process.env.OPENMELD_FAKE_CODEX_MANAGED_REQUIREMENTS ?? 'null') } }); return; }",
       "  if (message.method === 'command/exec') { write({ jsonrpc: '2.0', id: message.id, result: { exitCode: 0, stdout: 'denied:denied:allowed:denied', stderr: '' } }); return; }",
-      "  if (message.method === 'mcpServerStatus/list') { write({ jsonrpc: '2.0', id: message.id, result: { data: [], nextCursor: null } }); return; }",
+      "  if (message.method === 'mcpServerStatus/list') { write({ jsonrpc: '2.0', id: message.id, result: JSON.parse(process.env.OPENMELD_FAKE_CODEX_MCP_INVENTORY ?? '{\"data\":[],\"nextCursor\":null}') }); return; }",
       "  if (message.method === 'collaborationMode/list') {",
       "    write({ jsonrpc: '2.0', id: message.id, result: { data: [",
       "      { name: 'Plan', mode: 'plan', model: null, reasoning_effort: 'medium' },",
@@ -1254,6 +1254,41 @@ const writeFakeCodexAppServerFixture = async (fixturePath) => {
 
 for (const scenario of [
   { name: "new native thread", version: "0.150.1", native: true },
+  {
+    name: "current controller queries only the alternate carrier",
+    version: "0.160.0",
+    native: true,
+  },
+  {
+    name: "an active alternate carrier prevents a native turn",
+    version: "0.160.0",
+    native: true,
+    // Fields from the native ListMcpServerStatusResponse capture in scoped-mcp.
+    inventory: {
+      data: [
+        {
+          name: "openmeld_internal_dispatch_space_action",
+          runtimeStatus: "connected",
+          pluginId: null,
+          serverInfo: null,
+          tools: {},
+          toolsError: null,
+          resources: [],
+          resourceTemplates: [],
+          authStatus: "unsupported",
+        },
+      ],
+      nextCursor: null,
+    },
+    error: "context.space_tool_carrier_unverified",
+  },
+  {
+    name: "an incomplete carrier inventory prevents a native turn",
+    version: "0.160.0",
+    native: true,
+    inventory: { data: [], nextCursor: "1" },
+    error: "context.space_tool_carrier_unverified",
+  },
   {
     name: "bundled prerelease resumes the native conversation",
     version: "0.159.0-alpha.12.1",
@@ -1476,6 +1511,9 @@ for (const scenario of [
           OPENMELD_USER_FACING_CLI_COMMAND: "openmeld",
           OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath,
           OPENMELD_FAKE_CODEX_NATIVE_VERSION: scenario.version,
+          OPENMELD_FAKE_CODEX_MCP_INVENTORY: scenario.inventory
+            ? JSON.stringify(scenario.inventory)
+            : undefined,
           OPENMELD_FAKE_CODEX_MISSING_METHOD: scenario.missingMethod,
           ...(scenario.deliveryOnly
             ? { OPENMELD_SPACE_ACTION_DELIVERY_ONLY: "1" }
@@ -1530,6 +1568,17 @@ for (const scenario of [
         scenario.native && !scenario.existing
       );
       if (scenario.native) {
+        const inventory = messages.find(
+          (message) => message.method === "mcpServerStatus/list"
+        );
+        assert.deepEqual(inventory.params, {
+          threadId: executionThreadId,
+          detail: scenario.deliveryOnly ? "full" : "toolsAndAuthOnly",
+          ...(scenario.version === "0.160.0" && !scenario.deliveryOnly
+            ? { serverName: "openmeld_internal_dispatch_space_action" }
+            : {}),
+          limit: 100,
+        });
         assert.equal(
           scenario.deliveryOnly
             ? thread.params.config.mcp_servers

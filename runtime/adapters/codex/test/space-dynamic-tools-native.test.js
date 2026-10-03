@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,7 +13,7 @@ import {
 } from "../dist/index.js";
 
 test(
-  "native Codex delivers through the public adapter on start, cold resume and both fork paths",
+  "native Codex delivers on start, cold resume and forks despite unrelated MCP resource stalls and startup failures",
   { skip: !process.env.OPENMELD_TEST_CODEX_BIN, timeout: 90_000 },
   async (t) => {
     // Actual executable, temporary homes, dummy credentials and a loopback-only
@@ -21,6 +21,23 @@ test(
     const home = await mkdtemp(join(tmpdir(), "openmeld-native-space-"));
     const workdir = join(home, "workspace");
     await mkdir(workdir);
+    const mcpLog = join(home, "mcp-requests.jsonl");
+    const mcpScript = join(home, "ambient-mcp.cjs");
+    // A real MCP peer: tool discovery succeeds, resource discovery never
+    // responds. Admission needs neither its resources nor a second connection.
+    await writeFile(
+      mcpScript,
+      `const {appendFileSync}=require('node:fs');
+const lines=require('node:readline').createInterface({input:process.stdin});
+lines.on('line',line=>{
+ const request=JSON.parse(line);
+ appendFileSync(${JSON.stringify(mcpLog)},JSON.stringify({method:request.method,pid:process.pid})+'\\n');
+ let result;
+ if(request.method==='initialize') result={protocolVersion:'2024-11-05',capabilities:{tools:{},resources:{}},serverInfo:{name:'ambient-fixture',version:'1'}};
+ if(request.method==='tools/list') result={tools:[{name:'read_fixture',description:'Synthetic read-only tool.',inputSchema:{type:'object'}}]};
+ if(result) process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:request.id,result})+'\\n');
+});`
+    );
     const calls = [];
     const catalogs = [];
     let phase = "start";
@@ -37,7 +54,13 @@ test(
           return;
         }
         const body = JSON.parse(text);
-        catalogs.push({ phase, tools: body.tools ?? [] });
+        catalogs.push({
+          phase,
+          tools: body.tools ?? [],
+          // Older controllers advertise MCP namespaces in the world state and
+          // defer their individual tool schemas to native tool_search.
+          ambientVisible: JSON.stringify(body).includes("ambient"),
+        });
         const id = `native_${++sequence}`;
         const first = step++ === 0;
         const item = first
@@ -133,6 +156,12 @@ test(
         `base_url = "http://127.0.0.1:${server.address().port}/v1"`,
         'wire_api = "responses"',
         "requires_openai_auth = false",
+        "[mcp_servers.ambient]",
+        `command = ${JSON.stringify(process.execPath)}`,
+        `args = [${JSON.stringify(mcpScript)}]`,
+        "tool_timeout_sec = 60",
+        "[mcp_servers.unavailable]",
+        `command = ${JSON.stringify(join(home, "missing-mcp-executable"))}`,
         "",
       ].join("\n")
     );
@@ -257,6 +286,16 @@ test(
       assert.equal(source.completedTurnId, resumed.turnId);
     }
     await run("delivery-only", resumed.conversationId, "repair", true);
+    const mcpRequests = (await readFile(mcpLog, "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    assert.ok(mcpRequests.some((request) => request.method === "tools/list"));
+    assert.equal(
+      mcpRequests.some((request) => request.method.startsWith("resources/")),
+      false,
+      "Space carrier admission must not enumerate unrelated resources"
+    );
     assert.equal(catalogs.length, 12);
     for (const entry of catalogs.filter(
       (entry) => entry.phase === "delivery-only"
@@ -294,5 +333,14 @@ test(
         false
       );
     }
+    assert.ok(
+      catalogs.some(
+        (entry) =>
+          entry.phase !== "delivery-only" &&
+          (JSON.stringify(entry.tools).includes("read_fixture") ||
+            entry.ambientVisible)
+      ),
+      "the ordinary task retains its configured ambient tool or deferred namespace"
+    );
   }
 );
