@@ -15,6 +15,7 @@ import {
 } from "../protocol/constants";
 import { targetWakeLifecycleIdentitySchema } from "../protocol/target-wake-lifecycle";
 import { remoteAgentWorkerRuntimeDiagnosticsResponseSchema } from "../runtime/remote-agent-worker";
+import { centerAgentTurnDiagnosticSchema } from "./center-agent-turn-diagnostics";
 import { observabilityWakeCorrelationSchema } from "./observability-correlation";
 import { spaceMentionLabelSchema } from "./space-mention-label";
 
@@ -23,9 +24,9 @@ const trimmedNonEmptyStringSchema = z.string().trim().min(1);
 const SPACE_DISPATCH_TRACE_TIMEOUT_POLICY_MAX_MS = 604_800_000;
 const SPACE_DISPATCH_TRACE_PROMPT_LENGTH_MAX = 1_000_000 as const;
 export const SPACE_DISPATCH_TRACE_PROMPT_PREVIEW_MAX_CHARS = 1200 as const;
-export const SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION = 5 as const;
+export const SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION = 6 as const;
 export const SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_PREVIOUS =
-  4 as const;
+  5 as const;
 export const SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_HEADER =
   "x-openmeld-space-dispatch-trace-response-version";
 const SPACE_DISPATCH_TRACE_INVALID_OUTPUT_PREVIEW_MAX_CHARS = 180 as const;
@@ -33,6 +34,7 @@ const SPACE_DISPATCH_TRACE_INVALID_OUTPUT_PREVIEW_MAX_CHARS = 180 as const;
 export const spaceDispatchTraceResponseContractVersionSchema = z.union([
   z.literal(2),
   z.literal(3),
+  z.literal(4),
   z.literal(SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_PREVIOUS),
   z.literal(SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION),
 ]);
@@ -40,6 +42,7 @@ export const spaceDispatchTraceResponseContractVersionHeaderSchema = z
   .enum([
     "2",
     "3",
+    "4",
     String(SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_PREVIOUS),
     String(SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION),
   ])
@@ -949,6 +952,162 @@ export const spaceDispatchTraceSnapshotV2Schema =
     ]),
   });
 
+export const spaceNativeDeliveryTraceSchema = z.strictObject({
+  factSource: z.literal("remote_agent_native_delivery_ledger"),
+  bindingId: trimmedNonEmptyStringSchema,
+  destination: spaceDispatchTraceNativeDeliverySchema.shape.destination.extend({
+    conversationKind: z.literal("space"),
+  }),
+  turn: centerAgentTurnDiagnosticSchema.partial({
+    runtimeEvidence: true,
+    runtimeEvidenceStatus: true,
+  }),
+  finalVisibleMessage: spaceDispatchTraceFinalVisibleMessageSchema.nullable(),
+  finalVisibleMessageLinkage:
+    spaceDispatchTraceFinalVisibleMessageLinkageSchema.nullable(),
+  finalVisibleOutcome: spaceDispatchTraceFinalVisibleOutcomeSchema,
+});
+
+function validateSpaceNativeDeliveryTraceResponse(
+  value: {
+    correlation: zod.infer<typeof observabilityWakeCorrelationSchema>;
+    query: zod.infer<typeof spaceDispatchTraceQuerySchema>;
+    trace: SpaceDispatchTraceSnapshotValue | null;
+    nativeDeliveryTrace?: zod.infer<typeof spaceNativeDeliveryTraceSchema>;
+  },
+  context: zod.RefinementCtx
+): void {
+  const native = value.nativeDeliveryTrace;
+  if (!native) {
+    return;
+  }
+  if (value.trace !== null) {
+    context.addIssue({
+      code: "custom",
+      path: ["trace"],
+      message: "native-only trace must not contain a workstation dispatch",
+    });
+  }
+  expectTraceEvidence(
+    context,
+    native.turn.dispatchId,
+    value.query.dispatchId,
+    ["nativeDeliveryTrace", "turn", "dispatchId"],
+    "native dispatch must match the selector"
+  );
+  expectTraceEvidence(
+    context,
+    native.destination.spaceId,
+    value.query.spaceId,
+    ["nativeDeliveryTrace", "destination", "spaceId"],
+    "native destination must match the queried Space"
+  );
+  expectTraceEvidence(
+    context,
+    value.correlation.targetProfileId,
+    native.destination.targetProfileId,
+    ["correlation", "targetProfileId"],
+    "native target must match correlation"
+  );
+  expectTraceEvidence(
+    context,
+    value.correlation.bindingId,
+    native.bindingId,
+    ["correlation", "bindingId"],
+    "native Binding must match correlation"
+  );
+  expectTraceEvidence(
+    context,
+    value.correlation.agentControllerRef,
+    "hosted:center-agent",
+    ["correlation", "agentControllerRef"],
+    "native controller must match its runtime family"
+  );
+  expectTraceEvidence(
+    context,
+    value.correlation.publishedSignalId,
+    native.turn.publishedResultId,
+    ["correlation", "publishedSignalId"],
+    "published signal must match native publication evidence"
+  );
+  expectTraceEvidence(
+    context,
+    value.correlation.replySignalId,
+    native.finalVisibleMessage?.signalId ?? null,
+    ["correlation", "replySignalId"],
+    "visible signal must match native publication evidence"
+  );
+  for (const key of [
+    "clientMessageId",
+    "sourceSignalId",
+    "latestAttemptId",
+    "runtimeCoordinatorExecutionId",
+    "claimLeaseId",
+    "openMeldServiceRuntimeId",
+    "resultRef",
+  ] as const) {
+    expectNullTraceEvidence(context, value.correlation[key], [
+      "correlation",
+      key,
+    ]);
+  }
+  if (
+    native.turn.conversationSource?.kind !== "space" ||
+    native.turn.conversationSource.spaceId !== value.query.spaceId
+  ) {
+    context.addIssue({
+      code: "custom",
+      path: ["nativeDeliveryTrace", "turn", "conversationSource"],
+      message: "native turn must belong to the queried Space",
+    });
+  }
+  if (
+    (native.turn.runtimeEvidenceStatus === undefined) !==
+    (native.turn.runtimeEvidence === undefined)
+  ) {
+    context.addIssue({
+      code: "custom",
+      path: ["nativeDeliveryTrace", "turn", "runtimeEvidenceStatus"],
+      message: "runtime evidence and read status must be provided together",
+    });
+  }
+  if (native.finalVisibleMessage) {
+    expectTraceEvidence(
+      context,
+      native.finalVisibleMessage.dispatchId,
+      value.query.dispatchId,
+      ["nativeDeliveryTrace", "finalVisibleMessage", "dispatchId"],
+      "visible message must match native dispatch"
+    );
+    expectTraceEvidence(
+      context,
+      native.finalVisibleMessage.targetProfileId,
+      native.destination.targetProfileId,
+      ["nativeDeliveryTrace", "finalVisibleMessage", "targetProfileId"],
+      "visible message must match native target"
+    );
+  }
+  if (native.finalVisibleMessageLinkage) {
+    expectTraceEvidence(
+      context,
+      native.finalVisibleMessageLinkage.selectedSignalId,
+      native.finalVisibleMessage?.signalId ?? null,
+      ["nativeDeliveryTrace", "finalVisibleMessageLinkage", "selectedSignalId"],
+      "native linkage must identify the visible message"
+    );
+  }
+  const outcome = projectSpaceNativeDeliveryTraceFinalVisibleOutcome(native);
+  for (const key of Object.keys(outcome) as Array<keyof typeof outcome>) {
+    if (native.finalVisibleOutcome[key] !== outcome[key]) {
+      context.addIssue({
+        code: "custom",
+        path: ["nativeDeliveryTrace", "finalVisibleOutcome", key],
+        message: "native visible outcome must come from the visible message",
+      });
+    }
+  }
+}
+
 export const spaceDispatchTraceResponseSchema = z
   .strictObject({
     correlation: observabilityWakeCorrelationSchema,
@@ -957,6 +1116,7 @@ export const spaceDispatchTraceResponseSchema = z
       serviceConnectionTraceDiagnosticsSchema.optional(),
     remoteAgentRuntimeDiagnostics:
       remoteAgentWorkerRuntimeDiagnosticsResponseSchema.optional(),
+    nativeDeliveryTrace: spaceNativeDeliveryTraceSchema.optional(),
     trace: z.union([spaceDispatchTraceSnapshotSchema, z.null()]),
   })
   .superRefine((value, context) => {
@@ -982,6 +1142,10 @@ export const spaceDispatchTraceResponseSchema = z
       "correlation.dispatchId must match query.dispatchId"
     );
 
+    if (value.nativeDeliveryTrace) {
+      validateSpaceNativeDeliveryTraceResponse(value, context);
+      return;
+    }
     if (value.trace === null) {
       expectNullTraceEvidence(context, value.correlation.clientMessageId, [
         "correlation",
@@ -1143,15 +1307,7 @@ export const spaceDispatchTraceResponseSchema = z
     );
     expectFinalVisibleMessageTraceEvidence(context, value.trace);
 
-    if (value.trace.latestAttempt) {
-      expectTraceEvidence(
-        context,
-        value.trace.latestAttempt.dispatchId,
-        value.trace.dispatch.dispatchId,
-        ["trace", "latestAttempt", "dispatchId"],
-        "trace.latestAttempt.dispatchId must match trace.dispatch.dispatchId"
-      );
-    }
+    expectLatestAttemptTraceEvidence(context, value.trace);
     expectNativeDeliveryTraceEvidence(context, {
       query: value.query,
       trace: value.trace,
@@ -1426,8 +1582,17 @@ export function projectSpaceDispatchTraceFinalVisibleOutcome(
   );
 }
 
+export function projectSpaceNativeDeliveryTraceFinalVisibleOutcome(
+  trace: Pick<SpaceDispatchTraceSnapshotValue, "finalVisibleMessage">
+): SpaceDispatchTraceFinalVisibleOutcomeValue {
+  return (
+    resolveFinalVisibleMessageOutcome(trace) ??
+    createNotApplicableFinalVisibleOutcome()
+  );
+}
+
 function resolveFinalVisibleMessageOutcome(
-  trace: SpaceDispatchTraceSnapshotValue
+  trace: Pick<SpaceDispatchTraceSnapshotValue, "finalVisibleMessage">
 ): SpaceDispatchTraceFinalVisibleOutcomeValue | null {
   const finalVisibleMessage = trace.finalVisibleMessage ?? null;
   if (!finalVisibleMessage) {
@@ -2389,6 +2554,21 @@ function expectFinalVisibleMessageTraceEvidence(
         "trace.finalVisibleMessage.signalId must match a canonical final visible publication signal",
       path: ["trace", "finalVisibleMessage", "signalId"],
     });
+  }
+}
+
+function expectLatestAttemptTraceEvidence(
+  context: zod.RefinementCtx,
+  trace: SpaceDispatchTraceSnapshotValue
+): void {
+  if (trace.latestAttempt) {
+    expectTraceEvidence(
+      context,
+      trace.latestAttempt.dispatchId,
+      trace.dispatch.dispatchId,
+      ["trace", "latestAttempt", "dispatchId"],
+      "trace.latestAttempt.dispatchId must match trace.dispatch.dispatchId"
+    );
   }
 }
 
