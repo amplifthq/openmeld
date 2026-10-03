@@ -1177,6 +1177,12 @@ Examples:
   projection must reproduce the Space-owned marker rather than deriving it from
   member count.
 - Dispatch Ledger is a ledger/query projection for Wake execution.
+- RuntimeCoordinator execution projection writes atomically compare accepted
+  evidence with the stored lifecycle rank and, within the same rank, observation
+  time. Concurrent creation and progress writes must converge without discarding
+  newer evidence. Locked terminal outcomes cannot be replaced by another outcome
+  or reopened by progress. These writes record RuntimeCoordinator decisions;
+  they never grant execution authority.
 - Wake trace read models compose existing facts for diagnosis.
 - Wake progress composes each execution owner's current lifecycle with
   Space-owned public source context at read time. Space remains the only owner
@@ -3590,6 +3596,17 @@ Detailed CLI trace is the supported handoff to local agents and operators. A
 caller supplies the normal Space and dispatch selectors; Core resolves the
 frozen runtime conversation identity and returns the bounded runtime diagnostic
 projection. Callers must not query D1 or supply a runtime generation identity.
+
+Native continuations can have a native-delivery ledger record without a
+workstation Dispatch Ledger row. Negotiated trace response v6 reads the unique
+native record for the exact dispatch and Space and exposes `nativeDeliveryTrace`
+with `trace: null`. It never synthesizes a workstation dispatch or parses
+identity from a dispatch string. Non-Space conversations and ambiguous matches
+fail closed. Final visible messages still come from Space publication facts;
+native execution completion alone does not prove delivery. Detailed runtime
+evidence uses the frozen request identity, and an unavailable runtime read must
+preserve the durable delivery and publication facts. Default compact reads omit
+runtime evidence fields when that source has not been queried.
 
 When a controller exposes official context telemetry, task-result and local
 runtime observation may retain only bounded numeric token counters, the reported

@@ -5,6 +5,7 @@ import {
 } from "@openmeld/agent-runtime";
 import { CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
+import publishedManifest from "../../../release/local-components.json";
 import { createAgentExecutionReadinessReads } from "../src/agent-execution/application/agent-execution-readiness-reads";
 import { resolveCoreAgentExecutionReadinessForProfile } from "../src/agent-execution/application/agent-execution-readiness-service";
 import { writeAcceptedAgentExecutionReadinessImpact } from "../src/agent-execution/infrastructure/d1/agent-execution-readiness-impact-repo";
@@ -26,10 +27,10 @@ const GENERATED_AT = "2026-05-10T00:00:00.000Z";
 const GENERATED_AT_MS = Date.parse(GENERATED_AT);
 const AVAILABLE_CODEX_AGENT_CONTROLLER_INTERFACE =
   createAvailableCodexAgentControllerInterface({ observedAt: GENERATED_AT });
-// These readiness fixtures represent a supported Service. Keep the version
-// explicit so a release manifest that still describes the previous public
-// version cannot silently turn unrelated readiness tests into update tests.
-const CURRENT_SERVICE_VERSION = "0.3.218";
+// Read-model scenarios use the matching supported release; outdated-Service
+// behavior is covered separately by the local-component update tests.
+const CURRENT_SERVICE_VERSION =
+  publishedManifest.components.service.bundleVersion;
 const COMPATIBLE_DAEMON_EXECUTION_CONTRACT = {
   expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
   observedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
@@ -228,11 +229,10 @@ describe.each([
             readiness: readiness.agentExecutionReadiness,
           })
         ).toMatchObject({
-          category: "unavailable",
+          category: "checking",
           reasonCode: "local_service.not_accepting_wakes",
-          status: "unavailable_for_wake",
-          summary: "This computer isn't accepting new tasks.",
-          isRefreshing: false,
+          status: "checking_connection",
+          isRefreshing: true,
         });
         return;
       }

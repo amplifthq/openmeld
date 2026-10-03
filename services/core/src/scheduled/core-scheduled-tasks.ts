@@ -13,7 +13,7 @@ import { shouldWriteDestinationNeutralTaskContinuations } from "../center-agent/
 import { runCenterAgentMemberResearchTick } from "../center-agent-member-research/member-research-service";
 import { deleteExpiredServiceConnectionIncidents } from "../computers/service-connection-evidence-repo";
 import { retryPendingPreHeadFailurePublications } from "../dispatch/application/dispatch-queue-service";
-import { runWakeEvidenceRetentionIfSplitActive } from "../dispatch/infrastructure/d1/wake-evidence-retention";
+import { runWakeEvidenceRetention } from "../dispatch/infrastructure/d1/wake-evidence-retention";
 import {
   EVAL_WEEKLY_REPORT_CRON,
   runWeeklyEvalReport,
@@ -79,7 +79,7 @@ export async function runCoreScheduledTasks(input: {
   retryRoutineFailurePublications?: typeof retryRemoteAgentRoutineFailurePublications;
   retryRoutineWorkflowStarts?: typeof retryPendingRoutineRunWorkflowStarts;
   retryRoutineSubmissions?: typeof retryRemoteAgentRoutineSubmissions;
-  runWakeEvidenceRetention?: typeof runWakeEvidenceRetentionIfSplitActive;
+  runWakeEvidenceRetention?: typeof runWakeEvidenceRetention;
   runAgentActivityDigest?: typeof runAgentActivityDigestTick;
   runAgentActivityDailyAggregation?: typeof runAgentActivityDailyAggregation;
   runAgentActivityRetention?: typeof runAgentActivityRetention;
@@ -235,10 +235,10 @@ export async function runCoreScheduledTasks(input: {
   await runSpaceComposerUploadCleanup(input);
   const scheduledRetentionFailures = await runScheduledRetention(input);
 
-  const runWakeEvidenceRetention =
-    input.runWakeEvidenceRetention ?? runWakeEvidenceRetentionIfSplitActive;
+  const sweepWakeEvidence =
+    input.runWakeEvidenceRetention ?? runWakeEvidenceRetention;
   try {
-    await runWakeEvidenceRetention({
+    await sweepWakeEvidence({
       cron: input.cron,
       env: input.env,
       nowMs: input.nowMs,

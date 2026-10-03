@@ -53,12 +53,10 @@ observability-only split. Do not clean them up as dead code:
 - `dispatchRecoveryDb`, which deliberately resolves only `OPENMELD_DB`.
   Pre-head failure-publication commands, claims, retry schedules, and completion
   gates are operational recovery state and must not follow `wakeEvidenceDb`
-into a time-decaying observability database.
-
-The bounded `openmeld_service_connection_incidents` table is Diagnostics-owned
-evidence accessed through `wakeEvidenceDb`, currently on the shared database.
-Its own daily retention only deletes that table; it does not activate the old
-split-gated sweep or change any database binding.
+  into a time-decaying observability database.
+- The bounded `openmeld_service_connection_incidents` table is Diagnostics-owned
+  evidence accessed through `wakeEvidenceDb`, currently on the shared database.
+  Its own daily retention only deletes that table and changes no database binding.
 - The dispatch hot-path cross-domain fix (commit `ca9680d8a`) that routes
   ledger↔binding correctly — the one boundary an observability split still
   needs.
@@ -71,6 +69,33 @@ The old 4-way split copy/backfill tool was removed during the OpenMeld
 greenfield reset. It copied data from an existing shared database into the
 superseded 4-database layout and must not be recreated unless Felix explicitly
 reopens a new physical split plan from current production facts.
+
+## Current evidence retention
+
+Retention is independent of physical database placement. The daily Core task
+uses `wakeEvidenceDb`; no split-active flag is required. Each allowed table gets
+at most five batches of 1,000 deletions per invocation. Logs report deleted rows
+and budget exhaustion; another invocation continues remaining eligible work.
+These bounds cap deletions and statements, not rows examined: protected old
+events can still be scanned while looking for eligible evidence. Monitor D1
+rows read and scheduled-task duration before widening this policy.
+
+Creation diagnostics expire after 30 days. Execution-event cleanup is narrower:
+only the explicit historical lifecycle/publication event allowlist is eligible,
+and only when the retained execution projection and a retained result receipt
+both establish `reply_published` more than 30 days ago. Any unpublished or recent
+result receipt excludes that execution. Eligibility is checked in the deletion
+statement, not from an earlier candidate list. Missing evidence preserves rows.
+
+Cancellation requests remain a late-finalization fence. Token, unknown event
+types, failed/in-flight executions, execution projections, dispatch ledgers,
+attempts, DLQ, results, result inboxes, ops decisions and recovery outboxes are
+not subject to this sweep. Their retained identity and recovery records prevent
+diagnostic expiry from becoming execution or replay authority. Do not restore
+the superseded nine-table age-only sweep. Diagnostic rows may reappear on an
+old diagnostic replay; retained execution and result receipts still own outcome
+and deduplication. A future physical split must preserve these joins or redesign
+the retention eligibility contract before moving those tables.
 
 ## Future Direction (Not Built Now)
 

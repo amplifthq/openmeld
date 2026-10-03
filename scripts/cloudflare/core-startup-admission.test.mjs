@@ -9,6 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { buildProductionDeployStepSpecs } from "../release/production-release.mjs";
 
 import {
   buildCoreBundleEvidenceStepSpec,
@@ -28,6 +29,9 @@ Worker Version ID: 603c2f42-8eb6-48aa-b3be-bae44e6c61d2
 `;
 const MISSING_STARTUP_TIME_RE = /did not report Worker Startup Time/u;
 const MISSING_VERSION_UPLOAD_RE = /did not record a version-upload event/u;
+// Same no-pending Wrangler output captured by the existing CLI release guard.
+const CURRENT_DATABASE = { status: 0, stdout: "No migrations to apply.\n" };
+const PENDING_DATABASE_ERROR = /Production database is behind/u;
 
 test("verifies the final Core bundle module graph before startup admission", () => {
   assert.deepEqual(buildCoreBundleEvidenceStepSpec(), {
@@ -139,6 +143,9 @@ test("continues a guarded release after Cloudflare accepts an above-target versi
       output: "startup-evidence.json",
       releaseSha: "552812d05f1398f791fc327ec8247b24166193ee",
       runCommand(commandInput) {
+        if (commandInput.args.includes("d1")) {
+          return CURRENT_DATABASE;
+        }
         writeFileSync(
           commandInput.env.WRANGLER_OUTPUT_FILE_PATH,
           CAPTURED_WRANGLER_OUTPUT_FILE
@@ -199,6 +206,9 @@ test("applies only the platform-required migration atomically and records actual
       tag: "release-target",
       defines: ['MANIFEST:"exact"'],
       runCommand(input) {
+        if (input.args.includes("d1")) {
+          return CURRENT_DATABASE;
+        }
         calls.push(input);
         if (calls.length === 1) {
           return { status: 1, stderr: MIGRATION_REFUSAL };
@@ -242,7 +252,10 @@ test("does not turn a startup or authentication failure into a production deploy
     assert.throws(() =>
       runCoreStartupAdmission({
         releaseSha: "a".repeat(40),
-        runCommand() {
+        runCommand(input) {
+          if (input.args.includes("d1")) {
+            return CURRENT_DATABASE;
+          }
           calls++;
           return { status: 1, stderr };
         },
@@ -262,7 +275,10 @@ test("stops when the required atomic migration fails without retrying it", () =>
       runCoreStartupAdmission({
         cwd,
         releaseSha: "a".repeat(40),
-        runCommand() {
+        runCommand(input) {
+          if (input.args.includes("d1")) {
+            return CURRENT_DATABASE;
+          }
           calls++;
           return {
             status: 1,
@@ -275,6 +291,50 @@ test("stops when the required atomic migration fails without retrying it", () =>
       })
     );
     assert.equal(calls, 2);
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("Core refuses a pending database but the ordered database-then-Core stage can proceed", () => {
+  const cwd = mkdtempSync(path.join(tmpdir(), "core-database-admission-"));
+  let pending = true;
+  const uploads = [];
+  const runCommand = (input) => {
+    if (input.args.includes("d1")) {
+      assert.equal(input.cwd, cwd);
+      assert.ok(input.args.includes("--remote"));
+      return pending
+        ? {
+            status: 0,
+            stdout: "Migrations to be applied:\n0187_large_omega_flight.sql\n",
+          }
+        : CURRENT_DATABASE;
+    }
+    uploads.push(input);
+    writeFileSync(
+      input.env.WRANGLER_OUTPUT_FILE_PATH,
+      CAPTURED_WRANGLER_OUTPUT_FILE
+    );
+    return { status: 0, stdout: CAPTURED_WRANGLER_UPLOAD_OUTPUT };
+  };
+  const admit = () =>
+    runCoreStartupAdmission({ cwd, releaseSha: "a".repeat(40), runCommand });
+  try {
+    assert.throws(admit, PENDING_DATABASE_ERROR);
+    assert.equal(uploads.length, 0);
+    const steps = buildProductionDeployStepSpecs(["db", "core"], {
+      releaseSha: "a".repeat(40),
+    });
+    for (const step of steps) {
+      if (step.args.includes("db:release:prod")) {
+        // The external migration command succeeds before the Core owner is entered.
+        pending = false;
+      } else if (step.args.includes("scripts/release/deploy-core-worker.mjs")) {
+        assert.equal(admit().decision, "accepted");
+      }
+    }
+    assert.equal(uploads.length, 1);
   } finally {
     rmSync(cwd, { recursive: true, force: true });
   }

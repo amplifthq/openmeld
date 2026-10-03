@@ -45,6 +45,7 @@ import {
 	FluidDropdownMenuContent,
 	FluidDropdownMenuItem,
 } from "@openmeld/ui/fluid/dropdown-menu";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import {
 	Select,
 	SelectContent,
@@ -184,11 +185,12 @@ export function TeamKnowledgeFilesPage(input: {
 	return (
 		<section className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
 			{input.documentId || input.create ? tabs : null}
-			<div
-				className={
+			<ScrollArea
+				className="min-h-0 flex-1"
+				contentClassName={
 					input.documentId || input.create
-						? "min-h-0 flex-1 overflow-auto px-[var(--app-page-inline-padding)] py-5"
-						: "min-h-0 flex-1 overflow-auto px-[calc(var(--app-page-inline-padding)-0.5rem)] py-5"
+						? "px-[var(--app-page-inline-padding)] py-5"
+						: "px-[calc(var(--app-page-inline-padding)-0.5rem)] py-5"
 				}
 			>
 				{input.documentId ? (
@@ -207,7 +209,7 @@ export function TeamKnowledgeFilesPage(input: {
 						toolbarTabs={tabs}
 					/>
 				)}
-			</div>
+			</ScrollArea>
 		</section>
 	);
 }
@@ -1203,57 +1205,59 @@ function FileRootVersionHistory(input: {
 					</div>
 				) : null}
 				{history.data ? (
-					<ul className="max-h-80 divide-y overflow-y-auto">
-						{history.data.revisions.map((revision) => (
-							<li
-								className="flex items-center justify-between gap-3 py-3"
-								key={revision.id}
-							>
-								<div className="min-w-0 text-sm">
-									<p className="font-medium">
-										Version {revision.revision}
-										{revision.revision ===
-										history.data.file.latestRevision.revision
-											? " · Current"
-											: ""}
-									</p>
-									<p className="text-muted-foreground text-xs">
-										{formatFileDateTime(revision.createdAt)} ·{" "}
-										{formatFileSize(revision.sizeBytes)}
-									</p>
-								</div>
-								<Button
-									aria-label={`Download version ${revision.revision}`}
-									disabled={downloadingRevision !== null}
-									onClick={async () => {
-										setDownloadingRevision(revision.revision);
-										setDownloadError(null);
-										try {
-											const content = await input.api.download({
-												location: input.location,
-												fileId: input.entry.id,
-												revision: revision.revision,
-											});
-											downloadContent(input.entry.name, content);
-										} catch (error) {
-											setDownloadError(
-												error instanceof Error
-													? error.message
-													: "This version couldn’t be downloaded."
-											);
-										} finally {
-											setDownloadingRevision(null);
-										}
-									}}
-									size="sm"
-									variant="outline"
+					<ScrollArea className="max-h-80">
+						<ul className="divide-y">
+							{history.data.revisions.map((revision) => (
+								<li
+									className="flex items-center justify-between gap-3 py-3"
+									key={revision.id}
 								>
-									<DownloadSimpleIcon aria-hidden="true" />
-									Download
-								</Button>
-							</li>
-						))}
-					</ul>
+									<div className="min-w-0 text-sm">
+										<p className="font-medium">
+											Version {revision.revision}
+											{revision.revision ===
+											history.data.file.latestRevision.revision
+												? " · Current"
+												: ""}
+										</p>
+										<p className="text-muted-foreground text-xs">
+											{formatFileDateTime(revision.createdAt)} ·{" "}
+											{formatFileSize(revision.sizeBytes)}
+										</p>
+									</div>
+									<Button
+										aria-label={`Download version ${revision.revision}`}
+										disabled={downloadingRevision !== null}
+										onClick={async () => {
+											setDownloadingRevision(revision.revision);
+											setDownloadError(null);
+											try {
+												const content = await input.api.download({
+													location: input.location,
+													fileId: input.entry.id,
+													revision: revision.revision,
+												});
+												downloadContent(input.entry.name, content);
+											} catch (error) {
+												setDownloadError(
+													error instanceof Error
+														? error.message
+														: "This version couldn’t be downloaded."
+												);
+											} finally {
+												setDownloadingRevision(null);
+											}
+										}}
+										size="sm"
+										variant="outline"
+									>
+										<DownloadSimpleIcon aria-hidden="true" />
+										Download
+									</Button>
+								</li>
+							))}
+						</ul>
+					</ScrollArea>
 				) : null}
 				{downloadError ? (
 					<p className="text-destructive text-sm" role="alert">

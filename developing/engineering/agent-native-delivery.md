@@ -160,6 +160,14 @@ commands run sequentially, Node test files run serially,
 and selected Vitest tests use at most two workers without file parallelism.
 Every run uses a disposable `OPENMELD_HOME`.
 
+Focused Vitest execution discovers the selected files through the changed
+workspace's existing `vitest*.config` contracts, including unit and integration
+configs. It preserves the unit script's CLI environment override and runs only
+the selected specifications. A selected file excluded by every config, or
+missing from the completed results, fails feedback even when a config allows
+no tests. Explicit test/platform skips and intentional multi-project ownership
+retain their package-defined meaning; they are not omitted-file failures.
+
 Workers pools need their own runtime limits. Gateway tests share one runtime
 and module cache, clear global/environment stubs, and retain per-test storage
 isolation; Vitest's worker count alone does not bound that pool.
@@ -539,29 +547,66 @@ they help the actual work. Follow
 for Space naming, CLI-only handoffs, optional membership and Wake, and native
 environment callbacks. The occurrence log below has a different purpose.
 
-Record every firsthand problem an Agent encounters while using or developing
-any OpenMeld product surface, App, client, Service, runtime, integration, or
-delivery path. This includes Web, Desktop, CLI, Spaces, Agents, Center Agent,
-Inbox, Projects, Documents, Agent Activity, Remote Agent, connected Apps,
-Staging, developer workflows, CI/CD, Wake testing, release, validation, and
-agent-worker behavior. Use the non-interactive Space:
+Record firsthand problems an Agent actually encounters while using released,
+supported OpenMeld products in production. This includes production cloud
+surfaces and officially released Desktop, CLI, and Service installations running
+locally. The Agent may be developing software or doing other business work;
+eligibility depends on the product behavior it used, not the task it was doing.
+Use the non-interactive Space:
 
 ```text
 [Agent Experience] OpenMeld CLI, Service & Workflow Feedback
 https://openmeld.ai/o/amplift/spaces/5020df25e3a4a1ae0e292b664ca0f3726eaa0ec1cc1ceacc5cd18d7eaa6cb378
 ```
 
-Use Felix's authorized Human Profile directly; no Service, Wake, history read,
-duplicate search, or Agent membership is required. Every Agent records what it
-personally encountered even when another Agent may have reported the same
-symptom. Repeated reports are frequency evidence. Recording does not authorize
-or require an immediate fix.
+### What belongs here
 
-Start with `[bug]`, `[friction]`, `[gap]`, `[feature]`, or `[shared-pattern]`.
-Identify the actual Agent, model when known, session or thread ID, UTC time,
-context, expected and observed behavior, impact, non-sensitive evidence, and
-current status. Keep the report brief and continue the main task unless the
-problem is a real blocker. Never include credentials, secrets, private
+- Include bugs, usability problems, missing capabilities, and avoidable work
+  when a real use of the released product shows a concrete impact on the task,
+  correctness, reliability, time, tokens, or user experience. An abstract
+  preference for a different design or "best practice" is not enough.
+- Exclude findings confined to unmerged or merged-but-unreleased changes,
+  development/canary builds, staging, test fixtures, and internal build, CI/CD,
+  release, or validation tooling. Keep them in the owning task, PR, or issue.
+  For example, a new PostgreSQL branch's cache bug belongs in that PR; a
+  released CLI omitting real Space messages during development belongs here.
+- Expected permission, input, quota, and upstream failures are not product
+  defects when OpenMeld handles them correctly. Report concrete OpenMeld
+  mishandling, such as endless retries, lost results, or a false success state.
+  A temporary local tool failure or machine resource shortage alone is not
+  evidence of a general product defect.
+- Judge the version where the problem occurred, not the repair's status. A
+  production occurrence still belongs here when its fix is unmerged, unreleased,
+  or already shipped. An isolated reproduction or code review of released
+  source alone does not establish a production occurrence; keep that finding
+  in the task, PR, or issue, even when it merits an urgent fix. Never reproduce
+  a dangerous fault in production just to qualify for this log.
+
+Identify the affected product surface and environment, with the installed
+version or release evidence when available. If released production use is not
+established, keep the finding with its task until that basic fact is confirmed.
+Reporting an observed symptom does not require a root-cause investigation or a
+deployment SHA for every cloud report.
+
+### One report per occurrence
+
+Use Felix's authorized Human Profile directly; no Service, Wake, history read,
+duplicate search, or Agent membership is required. Report each independent
+production occurrence once, even when the same symptom has happened before.
+Another Agent inspecting the same failure, a diagnostic reproduction, a repair
+update, or an acceptance rerun is not another occurrence. Keep those details
+in a reply to the known report or in the owning task/PR. Link an existing report
+or incident ID when already known; do not add a mandatory history search.
+
+Frequency means independent production occurrences, not message count or the
+number of Agents involved. Recording does not authorize or require an immediate
+fix, and development findings do not need another feedback Space.
+
+Start with `[bug]`, `[friction]`, or `[gap]`. Identify the actual Agent, model
+when known, session or thread ID, UTC time, product environment/version, task,
+expected and observed behavior, concrete impact, brief non-sensitive evidence,
+and current status. Keep the report brief and continue the main task unless
+the problem is a real blocker. Never include credentials, secrets, private
 transcripts, or unrelated user content.
 
 Use this direct command template:
@@ -574,7 +619,8 @@ openmeld space send 5020df25e3a4a1ae0e292b664ca0f3726eaa0ec1cc1ceacc5cd18d7eaa6c
 Reporter: <agent and model>
 Session: <session or thread ID>
 Observed: <UTC timestamp>
-Context: <command or workflow>
+Product: <production surface or official local product; version when available>
+Context: <real task and command or workflow>
 Expected: <expected result>
 Observed behavior: <what happened>
 Impact: <time, tokens, correctness, or user impact>
@@ -584,7 +630,7 @@ EOF
 ```
 
 The former `OpenMeld CI/CD & Agent Workflow Feedback` Space remains historical;
-use this occurrence log for new reports so Agents have one current destination.
+use this occurrence log only for new reports that meet the production-use scope.
 
 ## Change Checklist
 

@@ -381,6 +381,7 @@ import {
   resolveOrganizationMembershipById,
 } from "../../../organizations/organization-context";
 import { recordOrganizationMemberActivity } from "../../../organizations/organization-member-activity-repository";
+import { attachCenterAgentTurnRuntimeEvidence } from "../../../remote-agent/application/center-agent-turn-diagnostics";
 import { ensureRemoteAgentAcceptedDeliveryProbe } from "../../../remote-agent/application/native-delivery-accepted-probe";
 import {
   buildRemoteAgentExecutionRecoveryIdentity,
@@ -21524,6 +21525,22 @@ export class Space extends DurableObject<CoreBindings> {
         }),
       readFinalVisibleMessageTrace: (input) =>
         this.readFinalVisibleMessageTrace(input),
+      ...(options.includeRemoteAgentRuntimeDiagnostics === true
+        ? {
+            readNativeDeliveryTurnDiagnostic: async (delivery) => {
+              const [turn] = await attachCenterAgentTurnRuntimeEvidence({
+                deliveries: [delivery],
+                remoteAgentWorker: this.bindings.OPENMELD_REMOTE_AGENT_WORKER,
+              });
+              if (!turn) {
+                throw new Error(
+                  "Native delivery diagnostics are missing their requested turn."
+                );
+              }
+              return turn;
+            },
+          }
+        : {}),
       readReplySignalTrace: (input) => this.readReplySignalTrace(input),
       ...(options.responseContractVersion === undefined
         ? {}
