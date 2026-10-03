@@ -18,7 +18,7 @@ import {
 	createWakeProgressItem,
 	doWakeProgressItemsMatch,
 	filterVisibleWakeProgressItems,
-	isAgentDirectConversationSpace,
+	isAutomaticWakeSpace,
 	isSpaceComposerSubmissionError,
 	isWakeProgressSourceSignalRecoverable,
 	mergeWakeProgressItems,
@@ -112,6 +112,7 @@ export function buildLocalWakeProgressItems(input: {
 }
 
 export function resolveComposerWakeProgressTargetProfileIds(input: {
+	isThreadMessage?: boolean;
 	explicitActivationTargets: readonly string[];
 	explicitReferenceTargets?: readonly string[];
 	membersSnapshot: SpaceMembersSnapshot | null;
@@ -128,11 +129,13 @@ export function resolveComposerWakeProgressTargetProfileIds(input: {
 		return [];
 	}
 	if (
-		!isAgentDirectConversationSpace({
+		!isAutomaticWakeSpace({
 			activeMemberCount: input.status.members.totalCount,
 			agentMemberCount: input.status.members.agentCount,
 			humanMemberCount: input.status.members.humanCount,
 			purpose: input.status.spacePurpose,
+			isThreadMessage: input.isThreadMessage,
+			directMessageConvertedAt: input.status.directMessageConvertedAt,
 		})
 	) {
 		return [];
@@ -163,6 +166,7 @@ export function readPublishedWakeTargetProfileIds(
 }
 
 export function resolveComposerAddressingTargets(input: {
+	isThreadMessage?: boolean;
 	addressingTargets: readonly SpaceComposerAddressingTarget[];
 	membersSnapshot: SpaceMembersSnapshot | null;
 	senderProfileId: string;

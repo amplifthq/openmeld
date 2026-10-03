@@ -849,9 +849,9 @@ import {
 import { authorizeSpaceDeletion } from "../../rules/access/space-deletion-policy";
 import { authorizeSpaceMemberRemoval } from "../../rules/access/space-member-management-policy";
 import {
-  applyDirectMessageDispatchPromptContext,
-  buildDirectMessageDispatchReadyDecisions,
-} from "../../rules/dispatch/direct-message-dispatch";
+  applyAutomaticWakeDispatchPromptContext,
+  buildAutomaticWakeDispatchReadyDecisions,
+} from "../../rules/dispatch/automatic-wake-dispatch";
 import { resolveDispatchContinuitySnapshotForDecision } from "../../rules/dispatch/dispatch-continuity";
 import { isFinalOutcomeTextPurpose } from "../../rules/dispatch/space-final-outcome";
 import {
@@ -1278,11 +1278,11 @@ function createPreparedDispatchOutboxRecordForDecision(input: {
   sourceProfileNameSnapshot: string | null;
   nowMs: number;
 }): ReturnType<typeof createDispatchOutboxRecord> {
-  const directMessageSourceText = applyDirectMessageDispatchPromptContext({
+  const addressedSourceText = applyAutomaticWakeDispatchPromptContext({
     decision: input.decision,
     sourceText: input.sourceText,
   });
-  const normalizedSourceText = directMessageSourceText.trim();
+  const normalizedSourceText = addressedSourceText.trim();
   const continuitySnapshot = resolveDispatchOutboxContinuitySnapshotForTarget({
     targetProfileId: input.decision.targetProfileId,
     continuitySnapshotByTargetProfileId:
@@ -1329,7 +1329,7 @@ function createPreparedDispatchOutboxRecordForDecision(input: {
       contextMessages: input.contextMessages,
       pinnedFiles: input.pinnedFiles,
       signal: input.signal,
-      sourceText: directMessageSourceText,
+      sourceText: addressedSourceText,
       normalizedSourceText,
       senderProfileId: input.senderProfileId,
       effectiveMentionLabelByProfileId: input.effectiveMentionLabelByProfileId,
@@ -2165,6 +2165,8 @@ const readDispatchPlannerContextForSignal = (input: {
 };
 
 const evaluateDispatchPlannerDecisionsForSignal = (input: {
+  isThreadMessage?: boolean;
+  directMessageConvertedAt?: string | null;
   senderProfileId: string;
   sessions: Iterable<Session> | null;
   shouldLog?: boolean;
@@ -2183,13 +2185,14 @@ const evaluateDispatchPlannerDecisionsForSignal = (input: {
   const activeMemberRecords = listSpaceMemberRecords(input.sql, {
     status: "active",
   });
-  const agentDirectConversationDecisions =
-    buildDirectMessageDispatchReadyDecisions({
-      activeMemberRecords,
-      senderProfileId: input.senderProfileId,
-      signal: input.signal,
-      spacePurpose: input.spacePurpose,
-    });
+  const automaticWakeDecisions = buildAutomaticWakeDispatchReadyDecisions({
+    activeMemberRecords,
+    senderProfileId: input.senderProfileId,
+    signal: input.signal,
+    spacePurpose: input.spacePurpose,
+    isThreadMessage: input.isThreadMessage,
+    directMessageConvertedAt: input.directMessageConvertedAt,
+  });
   const listenAllDecisions =
     input.spaceContract.dispatchPolicy.mode === "listen_all"
       ? buildListenAllDispatchReadyDecisions({
@@ -2198,36 +2201,31 @@ const evaluateDispatchPlannerDecisionsForSignal = (input: {
           signal: input.signal,
         })
       : [];
-  const readyAndAgentDirectConversationDecisions =
-    agentDirectConversationDecisions.length > 0
-      ? mergeDispatchReadyDecisions(
-          readyDecisions,
-          agentDirectConversationDecisions
-        )
+  const readyAndAutomaticWakeDecisions =
+    automaticWakeDecisions.length > 0
+      ? mergeDispatchReadyDecisions(readyDecisions, automaticWakeDecisions)
       : readyDecisions;
   const mergedReadyDecisions =
     listenAllDecisions.length > 0
       ? mergeDispatchReadyDecisions(
-          readyAndAgentDirectConversationDecisions,
+          readyAndAutomaticWakeDecisions,
           listenAllDecisions
         )
-      : readyAndAgentDirectConversationDecisions;
+      : readyAndAutomaticWakeDecisions;
   const plannerSummary = readDispatchPlannerSignalEnvelopeSummary(input.signal);
 
   if (input.shouldLog !== false) {
     console.info("[core.openmeld.space.dispatch_planner_evaluated]", {
       plannerSource: resolveDispatchPlannerSource({
         activationTargetCount: plannerSummary.activationTargetCount,
-        agentDirectConversationApplied:
-          agentDirectConversationDecisions.length > 0,
+        automaticWakeApplied: automaticWakeDecisions.length > 0,
         listenAllApplied: listenAllDecisions.length > 0,
       }),
       messageEnvelopePresent: plannerSummary.messageEnvelopePresent,
       activationTargetCount: plannerSummary.activationTargetCount,
       referenceTargetCount: plannerSummary.referenceTargetCount,
       queuedTargetCount: mergedReadyDecisions.length,
-      agentDirectConversationTargetCount:
-        agentDirectConversationDecisions.length,
+      automaticWakeTargetCount: automaticWakeDecisions.length,
       queuedTargetProfileIdSample:
         readDispatchPlannerTargetProfileIdSample(mergedReadyDecisions),
       sourceEventId: String(input.signal.id ?? "").trim(),
@@ -20248,6 +20246,8 @@ export class Space extends DurableObject<CoreBindings> {
     const { senderProfileId, sourceEventId, spaceContract } = plannerContext;
     const { mergedReadyDecisions, nonReadyDecisions } =
       evaluateDispatchPlannerDecisionsForSignal({
+        isThreadMessage: Boolean(signalContext?.threadContext),
+        directMessageConvertedAt: spaceMeta?.directMessage?.convertedAt,
         senderProfileId,
         sessions: this.sessions?.values?.() ?? null,
         signal,
@@ -26221,14 +26221,14 @@ function readDispatchPlannerSignalEnvelopeSummary(signal: SignalEnvelope): {
 
 function resolveDispatchPlannerSource(input: {
   activationTargetCount: number;
-  agentDirectConversationApplied: boolean;
+  automaticWakeApplied: boolean;
   listenAllApplied: boolean;
-}): "agent_direct_conversation" | "listen_all" | "message_envelope" | "none" {
+}): "automatic_wake" | "listen_all" | "message_envelope" | "none" {
   if (input.activationTargetCount > 0) {
     return "message_envelope";
   }
-  if (input.agentDirectConversationApplied) {
-    return "agent_direct_conversation";
+  if (input.automaticWakeApplied) {
+    return "automatic_wake";
   }
   if (input.listenAllApplied) {
     return "listen_all";

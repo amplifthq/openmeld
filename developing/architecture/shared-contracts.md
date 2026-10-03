@@ -555,6 +555,13 @@ Direct messages stay direct; Routines and external channels retain their
 contracts. Source `threadContext` continues to govern authorization and
 continuity independently of output placement.
 
+Thinking and transient progress callbacks do not resolve or allocate output
+placement. They retain execution/source identity without creating a Thread.
+Explicit placement selection and the first answer text still use the existing
+Space-owned locking operation; subsequent output and recovery reuse that choice.
+This is a Core behavior correction using the existing optional stream destination
+field, not a new wire shape or local Service contract.
+
 Agent stream identities add optional `replyThreadRootSignalId`: a root means
 Thread output, `null` means main output, and absence preserves legacy source
 alignment. Current HTTP readers advertise `x-openmeld-agent-reply-placement: 1`;

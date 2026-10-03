@@ -5525,9 +5525,12 @@ input-waiting Orbs are paused.
 
 Unfinished Agent replies follow the latest message in their owning conversation.
 The server-selected `replyThreadRootSignalId` takes precedence over the trigger
-message's location once reply placement is known. Before selection, progress
-keeps its source context, except a shared-Space Center Agent Wake waits for its
-selected destination instead of showing a provisional main-conversation status.
+message's location once reply placement is known. Before selection, execution
+progress keeps its source context, including shared-Space Center Agent Wakes.
+Only the provisional Center Agent reply bubble waits for its selected destination;
+the triggering message immediately shows the same authoritative progress as the
+sidebar. Transient thinking and progress never allocate a reply Thread. Existing
+Thread work can use its source Thread context before an answer stream arrives.
 For a Thread-bound reply, the main message's **Open thread** entrance shows the
 compact current phase and authorized Stop control in place. The Thread shows the
 complete progress and its Stop control. The main message does not show a second

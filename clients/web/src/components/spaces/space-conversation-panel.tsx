@@ -135,7 +135,7 @@ import {
 } from "./space-composer";
 import {
 	resolveSpaceComposerConversationKind,
-	type SpaceAgentDirectConversationComposerHintKind,
+	type SpaceAutomaticWakeComposerHintKind,
 	type SpaceComposerConversationKind,
 } from "./space-composer-copy";
 import type { SpaceComposerSendOptions } from "./space-composer-device-wait";
@@ -314,7 +314,7 @@ type SpaceConversationPanelResolvedProps = {
 	initialFocusRequestId?: string;
 	initialFocusSignalId?: string;
 	initialFocusThreadRootSignalId?: string;
-	agentDirectConversationKind?: SpaceAgentDirectConversationComposerHintKind | null;
+	automaticWakeConversationKind?: SpaceAutomaticWakeComposerHintKind | null;
 	isCenterAgentDirectMessage: boolean;
 	isDirectMessage: boolean;
 	isPersonalContext?: boolean;
@@ -472,12 +472,12 @@ function shouldRenderSpaceComposer(input: {
 }
 
 function resolveConversationComposerContext(input: {
-	agentDirectConversationKind?: SpaceAgentDirectConversationComposerHintKind | null;
+	automaticWakeConversationKind?: SpaceAutomaticWakeComposerHintKind | null;
 	isCenterAgentDirectMessage: boolean;
 	isDirectMessage: boolean;
 }): SpaceComposerConversationKind {
 	return resolveSpaceComposerConversationKind({
-		isAgentDirectMessage: Boolean(input.agentDirectConversationKind),
+		hasAutomaticWakeTarget: Boolean(input.automaticWakeConversationKind),
 		isCenterAgentDirectMessage: input.isCenterAgentDirectMessage,
 		isDirectMessage: input.isDirectMessage,
 	});
@@ -1191,19 +1191,6 @@ function useSpaceConversationPresentationController(
 			if (!isActiveWakeProgressItem(progress)) {
 				return true;
 			}
-			const selectedThreadRoot = resolveWakeReplyThreadRoot({
-				progress,
-				agentStreams: input.agentStreams,
-			});
-			// A shared-Space Center Agent defaults to a Thread, but may explicitly
-			// choose the main conversation. Wait for Space's selected destination.
-			if (
-				!input.isDirectMessage &&
-				progress.targetProfileId === input.centerAgentProfileId &&
-				selectedThreadRoot === undefined
-			) {
-				return false;
-			}
 			return isWakeProgressInConversation({
 				progress,
 				agentStreams: input.agentStreams,
@@ -1219,20 +1206,36 @@ function useSpaceConversationPresentationController(
 				),
 			});
 		},
-		[
-			input.agentStreams,
-			input.centerAgentProfileId,
-			input.isDirectMessage,
-			baseMainTimelineItems,
-		]
+		[input.agentStreams, baseMainTimelineItems]
 	);
 	const mainActivityItems = useMemo(
 		() => input.ephemeralActivityItems.filter(belongsInMainConversation),
 		[input.ephemeralActivityItems, belongsInMainConversation]
 	);
 	const presentedMainWakeProgressItems = useMemo(
-		() => input.presentedWakeProgressItems.filter(belongsInMainConversation),
-		[input.presentedWakeProgressItems, belongsInMainConversation]
+		() =>
+			input.presentedWakeProgressItems.filter((progress) => {
+				// Execution progress belongs at its source immediately. Only the reply
+				// bubble waits for the Center Agent's authoritative destination.
+				if (
+					!input.isDirectMessage &&
+					progress.targetProfileId === input.centerAgentProfileId &&
+					resolveWakeReplyThreadRoot({
+						progress,
+						agentStreams: input.agentStreams,
+					}) === undefined
+				) {
+					return false;
+				}
+				return belongsInMainConversation(progress);
+			}),
+		[
+			input.presentedWakeProgressItems,
+			belongsInMainConversation,
+			input.isDirectMessage,
+			input.centerAgentProfileId,
+			input.agentStreams,
+		]
 	);
 	const profileEntriesById = useMemo(
 		() => buildSpaceMemberDirectoryEntryByProfileId(input.membersSnapshot),
@@ -1349,10 +1352,16 @@ function useSpaceConversationPresentationController(
 			if (!isActiveWakeProgressItem(progress)) {
 				continue;
 			}
-			const rootSignalId = resolveWakeReplyThreadRoot({
+			const selectedRoot = resolveWakeReplyThreadRoot({
 				progress,
 				agentStreams: input.agentStreams,
 			});
+			const rootSignalId =
+				selectedRoot === undefined
+					? input.threads.find(
+							(thread) => thread.threadId === progress.sourceContext?.threadId
+						)?.rootSignalId
+					: selectedRoot;
 			if (!rootSignalId) {
 				continue;
 			}
@@ -1361,7 +1370,7 @@ function useSpaceConversationPresentationController(
 			byRoot.set(rootSignalId, items);
 		}
 		return byRoot;
-	}, [input.ephemeralActivityItems, input.agentStreams]);
+	}, [input.ephemeralActivityItems, input.agentStreams, input.threads]);
 	const threadPreviewByThreadId = useMemo(
 		() => buildThreadPreviewByThreadId(input.threadPreviews),
 		[input.threadPreviews]
@@ -4327,7 +4336,7 @@ function renderAnchoredSpaceOutcomeRows(input: {
 function resolveDirectMessageTargetName(
 	input: Pick<
 		SpaceConversationPanelResolvedProps,
-		| "agentDirectConversationKind"
+		| "automaticWakeConversationKind"
 		| "isCenterAgentDirectMessage"
 		| "isDirectMessage"
 		| "membersSnapshot"
@@ -4337,7 +4346,7 @@ function resolveDirectMessageTargetName(
 	if (input.isCenterAgentDirectMessage) {
 		return "Center Agent";
 	}
-	if (input.agentDirectConversationKind) {
+	if (input.automaticWakeConversationKind) {
 		return (
 			input.membersSnapshot?.agents.find((member) => member.status === "active")
 				?.profileName ?? null
