@@ -1,9 +1,11 @@
+import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { from as copyFrom } from "pg-copy-streams";
+import { postgresqlImportCompletionSchema } from "../../packages/schemas/src/schemas/release/postgresql-import.ts";
 import {
   createHistoricalD1Database,
   fileSha256,
@@ -129,7 +131,41 @@ async function verifyNativeTarget(client, catalog) {
     catalog.map(({ name }) => name).sort(),
     "Native table inventory mismatch"
   );
-  return { migrations, columns };
+  const identities = (
+    await client.query(
+      "SELECT c.relname AS table_name,a.attname AS column_name,pg_get_serial_sequence(format('%I.%I',n.nspname,c.relname),a.attname) AS sequence FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='openmeld' AND a.attidentity<>'' ORDER BY c.relname,a.attname"
+    )
+  ).rows;
+  return { migrations, columns, directory, identities };
+}
+
+async function importTargetIdentity(client, directory) {
+  const identity = (
+    await client.query(
+      'SELECT system_identifier::text AS "systemIdentifier",d.oid::text AS "databaseOid",current_database() AS database FROM pg_control_system(),pg_database d WHERE d.datname=current_database()'
+    )
+  ).rows[0];
+  return { ...identity, dataDirectory: directory };
+}
+
+async function readCompletion(client, expected) {
+  const { rows } = await client.query(
+    "SELECT record FROM openmeld_migration.d1_import_completion"
+  );
+  if (!rows.length) {
+    return null;
+  }
+  const parsed = postgresqlImportCompletionSchema.safeParse(rows[0].record);
+  if (rows.length !== 1 || !parsed.success) {
+    throw new Error("Invalid D1 import completion record; preserve the target");
+  }
+  const { importId: _importId, ...binding } = parsed.data;
+  requireEqual(
+    binding,
+    expected,
+    "D1 import completion binding mismatch; preserve the target"
+  );
+  return parsed.data;
 }
 
 async function lockMigrationTarget(client) {
@@ -240,12 +276,7 @@ function* copyRows(database, table, columns) {
   }
 }
 
-async function reconcileIdentities(client, manifest, importData) {
-  const identities = (
-    await client.query(
-      "SELECT c.relname AS table_name,a.attname AS column_name,pg_get_serial_sequence(format('%I.%I',n.nspname,c.relname),a.attname) AS sequence FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='openmeld' AND a.attidentity<>'' ORDER BY c.relname,a.attname"
-    )
-  ).rows;
+async function reconcileIdentities(client, manifest, importData, identities) {
   for (const identity of identities) {
     const max = BigInt(
       (
@@ -301,12 +332,17 @@ async function reconcileIdentities(client, manifest, importData) {
 
 /** Direct connection, one transaction, existing native constraints, empty local target. */
 export function importD1Snapshot(input) {
-  return processD1Snapshot(input, true);
+  return processD1Snapshot(input, "import");
 }
 
 /** Inspect actual target equality. This never reconstructs an import receipt or opens admission. */
 export function reconcileD1Snapshot(input) {
-  return processD1Snapshot(input, false);
+  return processD1Snapshot(input, "reconcile");
+}
+
+/** Read committed evidence only; never infer completion from current business rows. */
+export function readD1ImportCompletion(input) {
+  return processD1Snapshot(input, "completion");
 }
 
 async function reconcileTables({
@@ -343,7 +379,8 @@ async function reconcileTables({
   return tables;
 }
 
-async function processD1Snapshot({ snapshot, connectionString }, importData) {
+async function processD1Snapshot({ snapshot, connectionString }, mode) {
+  const importData = mode === "import";
   if (process.env.OPENMELD_PG_ISOLATED !== "1") {
     throw new Error("Only isolated local D1 import is enabled");
   }
@@ -390,6 +427,33 @@ async function processD1Snapshot({ snapshot, connectionString }, importData) {
     } else {
       await lockMigrationTarget(client);
     }
+    const binding = {
+      version: 1,
+      status: "committed_and_reconciled",
+      snapshotSha256: manifest.snapshotSha256,
+      captureReceiptSha256: await fileSha256(`${snapshot}.json`),
+      sourceSchemaSha256: manifest.sourceSchemaSha256,
+      historySha256: manifest.historySha256,
+      target: await importTargetIdentity(client, target.directory),
+      nativeJournal: target.migrations.map(({ name, checksum }) => ({
+        name,
+        checksum,
+      })),
+      tables: orderD1Tables(catalog).map(({ name }) => ({
+        table: name,
+        rows: Number(manifest.tables.find((entry) => entry.name === name).rows),
+      })),
+      identities: target.identities.map(({ table_name, column_name }) => ({
+        table: table_name,
+        column: column_name,
+      })),
+    };
+    if (mode === "completion") {
+      const record = await readCompletion(client, binding);
+      await client.query("COMMIT");
+      transaction = false;
+      return record;
+    }
     const imported = await reconcileTables({
       client,
       database,
@@ -398,29 +462,35 @@ async function processD1Snapshot({ snapshot, connectionString }, importData) {
       manifest,
       importData,
     });
-    const identities = await reconcileIdentities(client, manifest, importData);
+    await reconcileIdentities(client, manifest, importData, target.identities);
+    const receipt = {
+      ...binding,
+      tables: imported,
+      ...(importData
+        ? { importId: randomUUID() }
+        : {
+            status: "snapshot_reconciled",
+            inspectionOnly: true,
+            promotionAllowed: false,
+            businessWriteHistory: "not_proven",
+            retainedDoR2Effects: "not_inspected",
+          }),
+    };
+    if (importData) {
+      const parsed = postgresqlImportCompletionSchema.safeParse(receipt);
+      if (!parsed.success) {
+        throw new Error("Invalid D1 import completion evidence");
+      }
+      // Unique commit truth: COPY, reconciliation, transactional sequence restart
+      // and this record succeed together. External JSON is only its projection.
+      await client.query(
+        "INSERT INTO openmeld_migration.d1_import_completion(record) VALUES($1::jsonb)",
+        [JSON.stringify(parsed.data)]
+      );
+    }
     await client.query("COMMIT");
     transaction = false;
-    return {
-      snapshotSha256: manifest.snapshotSha256,
-      sourceSchemaSha256: manifest.sourceSchemaSha256,
-      nativeJournal: target.migrations.map(({ name, checksum }) => ({
-        name,
-        checksum,
-      })),
-      tables: imported,
-      identities: identities.map(({ table_name, column_name }) => ({
-        table: table_name,
-        column: column_name,
-      })),
-      status: importData ? "committed_and_reconciled" : "snapshot_reconciled",
-      ...(!importData && {
-        inspectionOnly: true,
-        promotionAllowed: false,
-        businessWriteHistory: "not_proven",
-        retainedDoR2Effects: "not_inspected",
-      }),
-    };
+    return receipt;
   } catch (error) {
     if (transaction) {
       await client.query("ROLLBACK");

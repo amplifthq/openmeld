@@ -79,18 +79,21 @@ pnpm dev:postgresql --d1-snapshot=/absolute/private/path/snapshot.sqlite
 
 The launcher imports into a separate `postgresql-d1-rehearsal/openmeld-pg-<sha256>`
 cluster beneath the existing lane state. It preserves the original PostgreSQL
-cluster and the lane's DO/R2 state. A successful import receipt must match the
-snapshot before Workers start. Restart with the same argument to retain later
-product writes without reimporting. A missing or invalid receipt does not permit
-an automatic reset or reuse of a populated target. Import remains restricted to
+cluster and the lane's DO/R2 state. A transactionally stored import completion
+record must match the source, native journal and actual target before Workers
+start. Restart with the same argument to retain later product writes without
+reimporting. Startup can regenerate a missing external JSON projection from that
+record; missing database evidence or mismatches keep startup closed without an
+automatic reset or adoption of populated data. Import remains restricted to
 the capture owner's local synthetic format; this command cannot export D1 or
 admit a production target. See [the product rehearsal](postgresql-cutover.md#local-product-rehearsal)
 for what has been verified and what remains blocked.
 
 For an uncertain local import, `pnpm pg reconcile-d1 local <snapshot>` compares
 the target's fields and identity positions in a read-only transaction. It never
-reconstructs an import receipt or permits reopening; a missing original receipt
-keeps product startup closed. Follow the [interrupted-recovery procedure](postgresql-cutover.md#local-interrupted-recovery-procedure),
+reconstructs commit evidence or permits reopening. `pnpm pg read-d1-import local
+<snapshot>` reads the verified database completion record used by normal startup.
+Follow the [interrupted-recovery procedure](postgresql-cutover.md#local-interrupted-recovery-procedure),
 including native backup/restore after PG has accepted new writes.
 
 Use `psql` with process-injected PG variables for SQL inspection. PlanetScale's
@@ -201,7 +204,8 @@ Keep the operator/default provider role for provisioning only. Create a distinct
 migration owner and a runtime role per environment. Runtime roles must have no
 administrative attributes or broad inherited roles; grant only USAGE plus
 SELECT/INSERT/UPDATE/DELETE on explicitly owned schemas/tables and required
-sequence access. The migration ledger schema is inaccessible to runtime.
+sequence access. The migration ledger and `openmeld_migration` tool-metadata
+schemas are inaccessible to runtime; neither belongs in application grants.
 Default privileges belong to the actual object-creating role. Verify grants
 again when changing migration ownership or restoring with a different owner.
 

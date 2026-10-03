@@ -62,22 +62,22 @@ async function tableCounts(connectionString, tables) {
   }
 }
 
-async function waitForCopy(admin, database, child) {
+async function waitForImportWrite(admin, database, child, query) {
   const deadline = performance.now() + 10_000;
   while (performance.now() < deadline) {
     const { rows } = await admin.query(
-      "SELECT pid FROM pg_stat_activity WHERE datname=$1 AND state='active' AND query LIKE 'COPY openmeld.%users%'",
-      [database]
+      "SELECT pid FROM pg_stat_activity WHERE datname=$1 AND state='active' AND wait_event='PgSleep' AND query LIKE $2",
+      [database, query]
     );
     if (rows.length) {
       return;
     }
     if (child.exitCode !== null) {
-      throw new Error("Import exited before COPY interruption");
+      throw new Error("Import exited before write interruption");
     }
     await delay(20);
   }
-  throw new Error("COPY interruption deadline exceeded");
+  throw new Error("Import write interruption deadline exceeded");
 }
 
 // biome-ignore lint/style/noDoneCallback: node:test supplies TestContext, not a completion callback; the async body returns a Promise.
@@ -410,65 +410,92 @@ test("historical D1 capture to native PG18 preserves business data and rolls bac
     );
 
     await t.test(
-      "process interruption during real COPY leaves the target empty and retryable",
+      "process interruption during COPY and before COMMIT rolls back data and completion evidence",
       async () => {
         const connectionString = await freshTarget(admin, targetIndex++);
-        const client = await connect(connectionString, true);
-        try {
-          await client.query(
-            "CREATE FUNCTION openmeld.migration_test_slow() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_sleep(0.02); RETURN NEW; END $$; CREATE TRIGGER migration_test_slow BEFORE INSERT ON openmeld.users FOR EACH ROW EXECUTE FUNCTION openmeld.migration_test_slow()"
-          );
-        } finally {
-          await client.end();
-        }
-        const script = `import {importD1Snapshot} from ${JSON.stringify(new URL("./d1-import.mjs", import.meta.url).href)}; await importD1Snapshot({snapshot:process.env.SNAPSHOT,connectionString:process.env.TARGET});`;
-        const child = spawn(
-          process.execPath,
-          ["--input-type=module", "-e", script],
-          {
-            stdio: "ignore",
-            env: {
-              ...process.env,
-              SNAPSHOT: snapshot,
-              TARGET: connectionString,
-            },
+        for (const [relation, timing, query] of [
+          ["openmeld.users", "BEFORE", "COPY openmeld.%users%"],
+          [
+            "openmeld_migration.d1_import_completion",
+            "AFTER",
+            "INSERT INTO openmeld_migration.d1_import_completion%",
+          ],
+        ]) {
+          const client = await connect(connectionString, true);
+          try {
+            await client.query(
+              `CREATE FUNCTION openmeld.migration_test_slow() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_sleep(${timing === "BEFORE" ? "0.02" : "0.2"}); RETURN NEW; END $$; CREATE TRIGGER migration_test_slow ${timing} INSERT ON ${relation} FOR EACH ROW EXECUTE FUNCTION openmeld.migration_test_slow()`
+            );
+          } finally {
+            await client.end();
           }
-        );
-        const closed = new Promise((resolve, reject) => {
-          child.once("error", reject);
-          child.once("close", (code, signal) => resolve({ code, signal }));
-        });
-        try {
-          await waitForCopy(
-            admin,
-            new URL(connectionString).pathname.slice(1),
-            child
+          const script = `import {importD1Snapshot} from ${JSON.stringify(new URL("./d1-import.mjs", import.meta.url).href)}; await importD1Snapshot({snapshot:process.env.SNAPSHOT,connectionString:process.env.TARGET});`;
+          const child = spawn(
+            process.execPath,
+            ["--input-type=module", "-e", script],
+            {
+              stdio: "ignore",
+              env: {
+                ...process.env,
+                SNAPSHOT: snapshot,
+                TARGET: connectionString,
+              },
+            }
           );
-          child.kill("SIGTERM");
-          assert.equal((await closed).signal, "SIGTERM");
-        } finally {
-          if (child.exitCode === null && child.signalCode === null) {
+          const closed = new Promise((resolve, reject) => {
+            child.once("error", reject);
+            child.once("close", (code, signal) => resolve({ code, signal }));
+          });
+          try {
+            await waitForImportWrite(
+              admin,
+              new URL(connectionString).pathname.slice(1),
+              child,
+              query
+            );
             child.kill("SIGTERM");
-            await closed;
+            assert.equal((await closed).signal, "SIGTERM");
+          } finally {
+            if (child.exitCode === null && child.signalCode === null) {
+              child.kill("SIGTERM");
+              await closed;
+            }
           }
-        }
-        assert.deepEqual(
-          await tableCounts(connectionString, manifest.tables),
-          manifest.tables.map(() => "0")
-        );
-        const resumed = await connect(connectionString, true);
-        try {
-          await resumed.query(
-            "DROP TRIGGER migration_test_slow ON openmeld.users; DROP FUNCTION openmeld.migration_test_slow()"
+          assert.deepEqual(
+            await tableCounts(connectionString, manifest.tables),
+            manifest.tables.map(() => "0")
           );
-        } finally {
-          await resumed.end();
+          const resumed = await connect(connectionString, true);
+          try {
+            assert.equal(
+              (
+                await resumed.query(
+                  "SELECT count(*)::text AS count FROM openmeld_migration.d1_import_completion"
+                )
+              ).rows[0].count,
+              "0"
+            );
+            await resumed.query(
+              `DROP TRIGGER migration_test_slow ON ${relation}; DROP FUNCTION openmeld.migration_test_slow()`
+            );
+            const sequence = (
+              await resumed.query(
+                "SELECT last_value::text,is_called FROM openmeld.agent_activity_events_accepted_sequence_seq"
+              )
+            ).rows[0];
+            assert.deepEqual(sequence, { last_value: "1", is_called: false });
+          } finally {
+            await resumed.end();
+          }
         }
         assert.equal(
           (await importD1Snapshot({ snapshot, connectionString })).status,
           "committed_and_reconciled"
         );
         evidence.cases.push("interrupted_copy_full_rollback_and_clean_retry");
+        evidence.cases.push(
+          "completion_insert_before_commit_kill_rolls_back_data_and_record"
+        );
       }
     );
     await t.test(
@@ -482,7 +509,7 @@ test("historical D1 capture to native PG18 preserves business data and rolls bac
         evidence.cases.push(...evidence.recovery.cases);
       }
     );
-    if (evidence.cases.length !== 19) {
+    if (evidence.cases.length !== 24) {
       throw new Error(
         "Migration cases failed; no successful rehearsal receipt written"
       );

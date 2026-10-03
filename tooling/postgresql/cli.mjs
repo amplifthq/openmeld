@@ -1,12 +1,21 @@
 import { readFile } from "node:fs/promises";
 import { acceptRuntime } from "./acceptance.mjs";
-import { importD1Snapshot, reconcileD1Snapshot } from "./d1-import.mjs";
+import {
+  importD1Snapshot,
+  readD1ImportCompletion,
+  reconcileD1Snapshot,
+} from "./d1-import.mjs";
 import { connect, grantRuntime, migrate, readMigrations } from "./database.mjs";
 
 const [command, target, ...extra] = process.argv.slice(2);
 const resources = JSON.parse(
   await readFile(new URL("./resources.json", import.meta.url), "utf8")
 );
+const snapshotCommands = {
+  "import-d1": importD1Snapshot,
+  "reconcile-d1": reconcileD1Snapshot,
+  "read-d1-import": readD1ImportCompletion,
+};
 
 try {
   if (command === "plan" && !target) {
@@ -24,15 +33,13 @@ try {
       )
     );
   } else if (
-    ["import-d1", "reconcile-d1"].includes(command) &&
+    Object.hasOwn(snapshotCommands, command) &&
     target === "local" &&
     extra.length === 1
   ) {
     console.log(
       JSON.stringify(
-        await (command === "import-d1"
-          ? importD1Snapshot
-          : reconcileD1Snapshot)({
+        await snapshotCommands[command]({
           snapshot: extra[0],
           connectionString: process.env.POSTGRESQL_OPENMELD_MIGRATION_URL,
         })
@@ -93,7 +100,7 @@ try {
     }
   } else {
     throw new Error(
-      "Usage: pg plan | pg <migrate|grant-runtime|accept|inspect> <local|staging> | pg <import-d1|reconcile-d1> local <snapshot>. Production operations and automatic optimization are unavailable before the reviewed cutover."
+      "Usage: pg plan | pg <migrate|grant-runtime|accept|inspect> <local|staging> | pg <import-d1|reconcile-d1|read-d1-import> local <snapshot>. Production operations and automatic optimization are unavailable before the reviewed cutover."
     );
   }
 } catch (error) {

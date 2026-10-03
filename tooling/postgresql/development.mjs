@@ -6,6 +6,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  rename,
   rm,
   writeFile,
 } from "node:fs/promises";
@@ -13,7 +14,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { fileSha256 } from "./d1-snapshot.mjs";
+import { fileSha256, requireEqual } from "./d1-snapshot.mjs";
 import { connect, grantRuntime, migrate } from "./database.mjs";
 
 const PG18_VERSION_PATTERN = /\b18\./u;
@@ -171,7 +172,6 @@ export async function startDevelopmentPostgres(stateDirectory, options = {}) {
         root,
         owner,
         snapshot: options.snapshot,
-        snapshotSha256,
       });
     }
     console.log(
@@ -196,32 +196,52 @@ export async function startDevelopmentPostgres(stateDirectory, options = {}) {
   }
 }
 
-async function importDevelopmentSnapshot({
-  root,
-  owner,
-  snapshot,
-  snapshotSha256,
-}) {
+async function importDevelopmentSnapshot({ root, owner, snapshot }) {
   const receiptPath = path.join(root, "d1-import.json");
+  let receipt = runSnapshotCommand("read-d1-import", owner, snapshot);
   if (existsSync(receiptPath)) {
-    const receipt = JSON.parse(await readFile(receiptPath, "utf8"));
-    if (
-      receipt.status !== "committed_and_reconciled" ||
-      receipt.snapshotSha256 !== snapshotSha256
-    ) {
+    requireEqual(
+      JSON.parse(await readFile(receiptPath, "utf8")),
+      receipt,
+      "The local D1 import receipt does not match the committed record. Preserve the database for diagnosis."
+    );
+    if (!receipt) {
       throw new Error(
-        "The local D1 import receipt does not match this snapshot. Preserve the database for diagnosis."
+        "Missing D1 import completion record; preserve the target"
       );
     }
     return;
   }
+  if (!receipt) {
+    const imported = runSnapshotCommand("import-d1", owner, snapshot);
+    receipt = runSnapshotCommand("read-d1-import", owner, snapshot);
+    requireEqual(
+      imported,
+      receipt,
+      "D1 import did not return its committed record"
+    );
+  }
+  // Projection only. An interrupted write must not leave a partial final file.
+  const pending = `${receiptPath}.${randomBytes(12).toString("hex")}.pending`;
+  try {
+    await writeFile(pending, `${JSON.stringify(receipt, null, 2)}\n`, {
+      flag: "wx",
+      mode: 0o600,
+    });
+    await rename(pending, receiptPath);
+  } finally {
+    await rm(pending, { force: true });
+  }
+}
+
+function runSnapshotCommand(command, owner, snapshot) {
   // Reuse the local-only migration owner in a child with an explicit isolated
   // environment. Credentials are never command arguments or receipt contents.
   const result = spawnSync(
     process.execPath,
     [
       fileURLToPath(new URL("./cli.mjs", import.meta.url)),
-      "import-d1",
+      command,
       "local",
       snapshot,
     ],
@@ -237,20 +257,8 @@ async function importDevelopmentSnapshot({
   );
   if (result.status !== 0) {
     throw new Error(
-      `D1 snapshot import failed. The product was not started. ${result.stderr.trim()}`
+      `D1 snapshot ${command} failed${result.signal ? ` (${result.signal})` : ""}. The product was not started. ${result.stderr.trim()}`
     );
   }
-  const receipt = JSON.parse(result.stdout);
-  if (
-    receipt.status !== "committed_and_reconciled" ||
-    receipt.snapshotSha256 !== snapshotSha256
-  ) {
-    throw new Error(
-      "D1 snapshot import did not return a matching receipt. Preserve the database for diagnosis."
-    );
-  }
-  await writeFile(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, {
-    flag: "wx",
-    mode: 0o600,
-  });
+  return JSON.parse(result.stdout);
 }

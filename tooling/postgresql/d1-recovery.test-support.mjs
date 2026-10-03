@@ -1,9 +1,10 @@
 // biome-ignore-all lint/suspicious/noMisplacedAssertion: Called by the native D1 rehearsal's node:test recovery case; assertions inspect real isolated storage.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmod, readFile, rename, writeFile } from "node:fs/promises";
+import { chmod, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { readD1ImportCompletion } from "./d1-import.mjs";
 import { fileSha256 } from "./d1-snapshot.mjs";
 import {
   connect,
@@ -12,16 +13,19 @@ import {
 } from "./database.mjs";
 import { startDevelopmentPostgres } from "./development.mjs";
 
-const missingReceiptError = /Import target is not empty/u;
 const invalidReceiptError = /receipt does not match/u;
 const changedTargetError = /Imported (value mismatch|identity differs)/u;
+const killedImportError = /import-d1 failed \(SIGKILL\)/u;
+const completionBindingError = /completion binding mismatch/u;
+const invalidCompletionError = /Invalid D1 import completion record/u;
+const populatedTargetError = /Import target is not empty/u;
 
-function reconcile(snapshot, connectionString) {
+function snapshotCommand(snapshot, connectionString, command = "reconcile-d1") {
   const result = spawnSync(
     process.execPath,
     [
       fileURLToPath(new URL("./cli.mjs", import.meta.url)),
-      "reconcile-d1",
+      command,
       "local",
       snapshot,
     ],
@@ -85,7 +89,46 @@ async function databaseEvidence(client, tables) {
       "SELECT hash,created_at::text FROM drizzle.__drizzle_migrations ORDER BY created_at,id"
     )
   ).rows;
-  return { hashes, identities, journal };
+  const completion = (
+    await client.query(
+      "SELECT record FROM openmeld_migration.d1_import_completion"
+    )
+  ).rows;
+  return { hashes, identities, journal, completion };
+}
+
+async function interruptCommittedImport(state, snapshot, root) {
+  // Interrupt the real import CLI at its output boundary, after the owner has
+  // committed. No application hook and no pre-existing receipt to restore.
+  const preload = path.join(root, "interrupt-import-output.mjs");
+  await writeFile(
+    preload,
+    `
+if (process.argv[2] === "import-d1") {
+  process.stdout.write = (chunk) => {
+    if (JSON.parse(String(chunk)).status === "committed_and_reconciled") {
+      process.kill(process.pid, "SIGKILL");
+    }
+    throw new Error("Unexpected import output");
+  };
+}
+`,
+    { mode: 0o600, flag: "wx" }
+  );
+  const prior = process.env.NODE_OPTIONS;
+  try {
+    process.env.NODE_OPTIONS = `${prior ?? ""} --import=${JSON.stringify(preload)}`;
+    await assert.rejects(
+      startDevelopmentPostgres(state, { snapshot }),
+      killedImportError
+    );
+  } finally {
+    if (prior === undefined) {
+      process.env.NODE_OPTIONS = undefined;
+    } else {
+      process.env.NODE_OPTIONS = prior;
+    }
+  }
 }
 
 export async function rehearseD1Recovery({ snapshot, root, manifest }) {
@@ -117,11 +160,19 @@ export async function rehearseD1Recovery({ snapshot, root, manifest }) {
     owner = await connect(cluster.env.POSTGRESQL_OPENMELD_MIGRATION_URL, true);
   };
   try {
+    await interruptCommittedImport(state, snapshot, root);
+    await assert.rejects(readFile(receiptPath), { code: "ENOENT" });
     await start();
     const receipt = await readFile(receiptPath, "utf8");
+    assert.deepEqual(
+      JSON.parse(receipt),
+      await readD1ImportCompletion({
+        snapshot,
+        connectionString: cluster.env.POSTGRESQL_OPENMELD_MIGRATION_URL,
+      })
+    );
     const beforeInspection = await databaseEvidence(owner, manifest.tables);
-    await rename(receiptPath, `${receiptPath}.preserved`);
-    const inspection = reconcile(
+    const inspection = snapshotCommand(
       snapshot,
       cluster.env.POSTGRESQL_OPENMELD_MIGRATION_URL
     );
@@ -136,21 +187,15 @@ export async function rehearseD1Recovery({ snapshot, root, manifest }) {
       beforeInspection
     );
     await stop();
-    await assert.rejects(
-      startDevelopmentPostgres(state, { snapshot }),
-      missingReceiptError
-    );
     // A read-only observation is not an import commit receipt.
     await writeFile(receiptPath, `${JSON.stringify(evidence.inspection)}\n`, {
       mode: 0o600,
-      flag: "wx",
     });
     await assert.rejects(
       startDevelopmentPostgres(state, { snapshot }),
       invalidReceiptError
     );
-    // Restore the preserved original receipt, never synthesize one from equality.
-    await rename(`${receiptPath}.preserved`, receiptPath);
+    await rm(receiptPath);
     await start();
     assert.equal(await readFile(receiptPath, "utf8"), receipt);
     assert.deepEqual(
@@ -158,16 +203,57 @@ export async function rehearseD1Recovery({ snapshot, root, manifest }) {
       beforeInspection
     );
     evidence.cases.push(
-      "lost_commit_receipt_preserved_and_startup_closed",
+      "commit_before_output_sigkill_recovers_from_atomic_record",
       "inspection_cannot_replace_commit_receipt",
       "pre_write_restart_preserves_exact_import"
+    );
+
+    const record = JSON.parse(receipt);
+    for (const changed of [
+      { ...record, snapshotSha256: "0".repeat(64) },
+      { ...record, captureReceiptSha256: "0".repeat(64) },
+      { ...record, target: { ...record.target, databaseOid: "0" } },
+      { ...record, nativeJournal: record.nativeJournal.slice(1) },
+      { ...record, importId: null },
+    ]) {
+      await owner.query(
+        "UPDATE openmeld_migration.d1_import_completion SET record=$1::jsonb",
+        [JSON.stringify(changed)]
+      );
+      // Exercise the exact child command that normal startup must accept before
+      // admitting the product; rejection must not repair the intentional fault.
+      const result = snapshotCommand(
+        snapshot,
+        cluster.env.POSTGRESQL_OPENMELD_MIGRATION_URL,
+        "read-d1-import"
+      );
+      assert.equal(result.status, 1);
+      assert.match(
+        result.stderr,
+        changed.importId ? completionBindingError : invalidCompletionError
+      );
+      assert.deepEqual(
+        (
+          await owner.query(
+            "SELECT record FROM openmeld_migration.d1_import_completion"
+          )
+        ).rows[0].record,
+        changed
+      );
+      await owner.query(
+        "UPDATE openmeld_migration.d1_import_completion SET record=$1::jsonb",
+        [JSON.stringify(record)]
+      );
+    }
+    evidence.cases.push(
+      "source_target_journal_and_malformed_record_keep_startup_closed"
     );
 
     // Non-transactional identity advancement is observable even with unchanged rows.
     await owner.query(
       "SELECT nextval(pg_get_serial_sequence('openmeld.agent_activity_events','accepted_sequence'))"
     );
-    const changedSequence = reconcile(
+    const changedSequence = snapshotCommand(
       snapshot,
       cluster.env.POSTGRESQL_OPENMELD_MIGRATION_URL
     );
@@ -177,7 +263,7 @@ export async function rehearseD1Recovery({ snapshot, root, manifest }) {
       "UPDATE openmeld.users SET name='Post-import recovery write' WHERE id='page-000' RETURNING id"
     );
     assert.equal(updated.rowCount, 1);
-    const changedRows = reconcile(
+    const changedRows = snapshotCommand(
       snapshot,
       cluster.env.POSTGRESQL_OPENMELD_MIGRATION_URL
     );
@@ -215,6 +301,13 @@ export async function rehearseD1Recovery({ snapshot, root, manifest }) {
       await databaseEvidence(restored, manifest.tables),
       afterWrite
     );
+    await assert.rejects(
+      readD1ImportCompletion({
+        snapshot,
+        connectionString: restoredUrl.toString(),
+      }),
+      completionBindingError
+    );
     await grantRuntime(restored, "openmeld_pg_runtime");
     await restored.end();
     restored = undefined;
@@ -237,6 +330,14 @@ export async function rehearseD1Recovery({ snapshot, root, manifest }) {
         runtime.query("SELECT * FROM drizzle.__drizzle_migrations"),
         { code: "42501" }
       );
+      for (const sql of [
+        "SELECT * FROM openmeld_migration.d1_import_completion",
+        "UPDATE openmeld_migration.d1_import_completion SET record='{}'::jsonb",
+        "DELETE FROM openmeld_migration.d1_import_completion",
+        "INSERT INTO openmeld_migration.d1_import_completion(record) VALUES('{}'::jsonb)",
+      ]) {
+        await assert.rejects(runtime.query(sql), { code: "42501" });
+      }
     } finally {
       await runtime.end();
     }
@@ -244,6 +345,7 @@ export async function rehearseD1Recovery({ snapshot, root, manifest }) {
     evidence.restoredDatabase = "openmeld_pg_recovery";
     evidence.restoredTables = afterWrite.hashes.length;
     await stop();
+    await rm(receiptPath);
     await start();
     assert.deepEqual(
       await databaseEvidence(owner, manifest.tables),
@@ -254,7 +356,28 @@ export async function rehearseD1Recovery({ snapshot, root, manifest }) {
     evidence.cases.push(
       "new_pg_rows_and_sequences_reject_old_snapshot",
       "native_backup_restores_new_writes_and_grants",
-      "post_write_restart_keeps_pg_authority"
+      "post_write_restart_keeps_pg_authority",
+      "backup_clone_cannot_reuse_original_completion_identity",
+      "runtime_cannot_read_or_mutate_completion"
+    );
+    // A privileged deletion is an intentional fault, not an automatic repair
+    // route. Neither retained JSON nor populated rows can recreate authority.
+    await owner.query("DELETE FROM openmeld_migration.d1_import_completion");
+    await stop();
+    await assert.rejects(
+      startDevelopmentPostgres(state, { snapshot }),
+      invalidReceiptError
+    );
+    assert.equal(await readFile(receiptPath, "utf8"), receipt);
+    await rm(receiptPath);
+    await assert.rejects(
+      startDevelopmentPostgres(state, { snapshot }),
+      populatedTargetError
+    );
+    evidence.finalTargetState =
+      "stopped_with_intentionally_removed_completion_record";
+    evidence.cases.push(
+      "missing_database_record_cannot_be_recreated_from_json_or_rows"
     );
     return evidence;
   } finally {

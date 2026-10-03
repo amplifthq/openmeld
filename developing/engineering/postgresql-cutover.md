@@ -31,7 +31,9 @@ The rehearsal passes unknown-table, unsupported stored-type, invalid UTF-8,
 NUL-text, unsafe-integer, native-constraint, value-mismatch and process-kill
 cases. Failed imports leave every application table empty; a late identity
 failure also rolls back an earlier sequence restart. Killing the importer
-during real COPY leaves a clean target that accepts a complete retry.
+during real COPY or after inserting completion evidence but before COMMIT leaves
+a clean target that accepts a complete retry. A SIGKILL after COMMIT but before
+the import child emits JSON is recovered by the normal development lifecycle.
 
 Run from the repository root with PostgreSQL 18 installed:
 
@@ -121,8 +123,23 @@ application rows and the unconsumed identity positions with the source snapshot;
 it does not COPY, reset a sequence, repair a row or regenerate a commit receipt.
 The result is `snapshot_reconciled`, explicitly `inspectionOnly: true` and
 `promotionAllowed: false`. Equality does not prove that no business write ever
-occurred or that DO/R2 effects are unchanged. A concurrent writer would also make
-this only a point-in-time observation, never a writer-freeze certificate.
+occurred or that DO/R2 effects are unchanged. PostgreSQL sequences are not
+ordinary MVCC data: a concurrent row/sequence comparison is not a single-instant
+whole-database snapshot and never certifies a writer freeze.
+
+The importer writes one `openmeld_migration.d1_import_completion` record in the
+same transaction as COPY, reconciliation and sequence restart. This tool-owned
+table is separate from application grants and Drizzle's DDL ledger. It contains
+no business plaintext or credentials: an import UUID, source snapshot/capture
+hashes, historical and native migration identity, table counts, identity mapping,
+and the actual local cluster system identifier, data directory, database name
+and database OID. The runtime role cannot read or modify it. Its shared schema
+belongs to `packages/schemas`; it is not a runtime or cloud admission contract.
+
+`pnpm pg read-d1-import local <snapshot>` validates and reads this committed
+record without comparing current business rows. Normal startup uses this same
+owner. The external `d1-import.json` is only a checked projection, written by an
+atomic rename; it is never independent proof of a successful commit.
 
 Use the existing development lifecycle and the following recovery boundaries:
 
@@ -130,21 +147,27 @@ Use the existing development lifecycle and the following recovery boundaries:
    manifest. Preserve the source, resolve its actual rejection and capture to a
    new private path; partial artifacts are not import evidence.
 2. If import did not commit, PostgreSQL rolls back all rows and transactional
-   identity restarts. Inspect the empty target before retrying the same verified
+   identity restarts and completion record. Inspect the empty target before retrying the same verified
    snapshot. The real COPY interruption case exercises this boundary.
-3. If import committed but its external receipt is missing, startup stays closed
-   and refuses to import over the populated target. Read-only reconciliation can
-   inspect equality, but its result cannot replace a commit receipt. The local
-   rehearsal restores the preserved original receipt and then restarts with the
-   same snapshot; it never fabricates one from matching counts or hashes. Without
-   the original evidence, retain the target for diagnosis rather than resetting
-   it or opening the product.
+3. If import committed but its external receipt was never written, normal
+   startup verifies the database completion record against the exact source,
+   target and native journal, then reconstructs only the external projection.
+   The rehearsal kills the real import child before stdout; no earlier external
+   receipt exists. A malformed or mismatched record or external projection keeps
+   startup closed and preserves the target. A missing database record never
+   permits adopting populated data from equality or an old JSON receipt. Earlier
+   synthetic rehearsal databases without this record require diagnosis; tooling
+   does not backfill completion evidence.
 4. Once PG contains new writes, preserve that PG state. The rehearsal advances a
    real identity and changes a row; reconciliation rejects both against the old
    snapshot. Native `pg_dump`/`pg_restore` restores the resulting full database
    into a separate empty database, then compares all 159 tables, identity states
-   and migration history. Reapply and verify runtime grants. Restarting the
-   original development database retains the new writes and original receipt.
+   and migration history, including the tool record. Reapply and verify runtime
+   grants. A restored clone cannot reuse the original target's import identity;
+   its product admission remains closed. Restarting the original development
+   database retains new writes and can reconstruct a missing external projection
+   from the unchanged completion record. This proves the past import committed,
+   not that the current database still equals the old D1 snapshot.
 
 The repeatable `test:d1-migration` entrypoint includes these real storage and
 development-lifecycle checks. It does not start product traffic, restore DO/R2,

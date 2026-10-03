@@ -2,6 +2,11 @@ import { schema as authSchema } from "./auth/schema.ts";
 import { coreSchema } from "./core/dispatch.schema.ts";
 import { diagnosticsSchema } from "./diagnostics/schema.ts";
 
+// biome-ignore lint/performance/noBarrelFile: Drizzle owns tool metadata DDL; application consumers do not export it.
+export {
+  d1ImportCompletion,
+  migrationSchema,
+} from "./postgresql/import.schema.ts";
 // Drizzle must discover the schema owner as well as its tables.
 // biome-ignore lint/performance/noBarrelFile: The canonical Drizzle entrypoint must export its schema owner.
 export { applicationSchema } from "./postgresql/schema.ts";
