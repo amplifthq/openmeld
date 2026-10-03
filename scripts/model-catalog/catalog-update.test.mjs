@@ -122,6 +122,91 @@ test("retirement handoff rechecks old cataloged models without changing policy",
     scan("Existing model supports extended context.").changed,
     false
   );
+  const at = (observedAt, previous) =>
+    prepareUpdate({
+      catalog: current,
+      controller: "codex",
+      sources: evidence.sources,
+      observedAt,
+      previous,
+    });
+  const beforeDate = at("2026-10-14T23:59:59.000Z");
+  const due = at("2026-10-15T00:00:00.000Z", beforeDate.evidence);
+  assert.equal(
+    due.changed,
+    true,
+    "a not-before date requests verification, not withdrawal"
+  );
+  assert.deepEqual(due.catalog, current);
+  assert.equal(at("2026-10-16T00:00:00.000Z", due.evidence).changed, false);
+  const dueBrief = renderBatchReview(
+    [due.evidence],
+    { codex: { verification: "Verify scoped availability." } },
+    current,
+    [beforeDate.evidence]
+  );
+  assert.ok(dueBrief.includes("Retirement recheck due"));
+  assert.ok(dueBrief.includes("not_before: 2026-10-15"));
+  current.agentControllers.codex.models[0].retirement.verifiedAt =
+    "2026-10-15T12:00:00Z";
+  assert.equal(
+    at("2026-10-16T00:00:00.000Z", beforeDate.evidence).changed,
+    false
+  );
+});
+
+test("discovery recommendations exclude media models and lead with only new review facts", async () => {
+  // Exact models.dev entries captured by hosted run 37084785006 / PR #1463.
+  const discovery = JSON.parse(
+    await readFile(
+      new URL("./fixtures/discovery-2026-10-03.json", import.meta.url),
+      "utf8"
+    )
+  );
+  const scan = (data, previous) =>
+    prepareUpdate({
+      ...input,
+      codexModels: [],
+      previous,
+      sources: [
+        { kind: "discovery-only", url: "https://models.dev/api.json", data },
+      ],
+    });
+  const media = {
+    xai: {
+      "grok-imagine-video-1.5-lite":
+        discovery.xai["grok-imagine-video-1.5-lite"],
+    },
+  };
+  assert.equal(scan(media).changed, false);
+  const relevant = { ...media, opencode: discovery.opencode };
+  const first = scan(relevant);
+  assert.equal(first.changed, true);
+  const repeated = scan(relevant, first.evidence);
+  assert.equal(repeated.changed, false);
+  const config = {
+    codex: { verification: "Verify exact harness ID and account access." },
+  };
+  const brief = renderBatchReview([first.evidence], config, catalog, []);
+  const summary = brief.split("## Reviewer decisions")[0];
+  assert.ok(summary.includes("ling-3.1-flash-free"));
+  assert.ok(summary.includes("New discovery candidate"));
+  assert.ok(!brief.includes("grok-imagine-video-1.5-lite"));
+  const unchanged = renderBatchReview([repeated.evidence], config, catalog, [
+    first.evidence,
+  ]);
+  assert.ok(
+    unchanged.split("## Reviewer decisions")[0].includes("No new review items")
+  );
+  assert.ok(
+    !unchanged.split("## Reviewer decisions")[0].includes("ling-3.1-flash-free")
+  );
+  const incomplete = structuredClone(relevant);
+  Reflect.deleteProperty(
+    incomplete.opencode["ling-3.1-flash-free"],
+    "tool_call"
+  );
+  assert.equal(scan(incomplete).changed, false);
 });
 
 test("a real upstream addition becomes a reviewable catalog change without moving either default", () => {
@@ -439,15 +524,22 @@ test("one handoff names discovery-only candidates and flags actual source disagr
   );
 });
 
-test("review classification preserves exact routes while identifying cataloged Cursor bases", () => {
+test("review classification preserves exact routes and detects changed reasoning for cataloged Cursor bases", async () => {
+  const discovery = JSON.parse(
+    await readFile(
+      new URL("./fixtures/discovery-2026-10-03.json", import.meta.url),
+      "utf8"
+    )
+  );
   const cursorIds = [
     "claude-fable-5-1[thinking=true,context=300k,effort=high]",
     "gemini-3.8-flash[reasoning_effort=high]",
   ];
   const current = {
+    ...catalog,
     agentControllers: {
       cursor: {
-        defaultModelId: "default[]",
+        defaultModelId: cursorIds[0],
         models: cursorIds.map((id) => ({ ...existing, id })),
       },
       opencode: {
@@ -466,17 +558,9 @@ test("review classification preserves exact routes while identifying cataloged C
         kind: "discovery-only",
         url: "https://models.dev/api.json",
         data: {
-          cursor: {
-            "claude-fable-5-1": {
-              id: "claude-fable-5-1",
-              name: "Claude Fable 5.1",
-            },
-            "gemini-3.8-flash": {
-              id: "gemini-3.8-flash",
-              name: "Gemini 3.8 Flash",
-            },
-            "grok-4.6": { id: "grok-4.6", name: "Grok 4.6" },
-          },
+          anthropic: discovery.anthropic,
+          google: discovery.google,
+          xai: { "grok-4.7": discovery.xai["grok-4.7"] },
         },
       },
     ],
@@ -496,7 +580,7 @@ test("review classification preserves exact routes while identifying cataloged C
         id: "gemini-3.8-flash",
         matchingExistingIds: [cursorIds[1]],
       },
-      { id: "grok-4.6", matchingExistingIds: [] },
+      { id: "grok-4.7", matchingExistingIds: [] },
     ]
   );
   const review = renderBatchReview(
@@ -511,7 +595,9 @@ test("review classification preserves exact routes while identifying cataloged C
     assert.ok(review.includes(id));
   }
   assert.ok(
-    review.includes("cursor/grok-4.6 | unknown | not declared | Discovery only")
+    review.includes(
+      "xai/grok-4.7 | 2026-09-21 | low, medium, high, xhigh | Discovery only"
+    )
   );
   assert.deepEqual(
     current.agentControllers.cursor.models.map((model) => model.id),
@@ -528,7 +614,15 @@ test("review classification preserves exact routes while identifying cataloged C
           url: "https://models.dev/api.json",
           data: {
             opencode: {
-              "gpt-6-astra": { id: "gpt-6-astra", name: "GPT-6 Astra" },
+              "gpt-6-astra": JSON.parse(
+                await readFile(
+                  new URL(
+                    "./fixtures/discovery-2026-09-05.json",
+                    import.meta.url
+                  ),
+                  "utf8"
+                )
+              ).openai["gpt-6-astra"],
             },
           },
         },
@@ -538,4 +632,48 @@ test("review classification preserves exact routes while identifying cataloged C
   );
   assert.equal(openCodeCandidate.candidateId, "opencode/gpt-6-astra");
   assert.deepEqual(openCodeCandidate.matchingExistingIds, []);
+  const scan = (scanSources, previous) =>
+    prepareUpdate({
+      ...input,
+      catalog: current,
+      controller: "cursor",
+      codexModels: [],
+      sources: scanSources,
+      previous,
+      discoverySince: "2026-10-01",
+    });
+  const baseline = scan(cursorEvidence.sources);
+  assert.equal(
+    baseline.changed,
+    false,
+    "initial known-model metadata is not a new discrepancy"
+  );
+  const changedSources = structuredClone(cursorEvidence.sources);
+  changedSources[0].data.anthropic[
+    "claude-fable-5-1"
+  ].reasoning_options[0].values.pop();
+  const changed = scan(changedSources, baseline.evidence);
+  assert.equal(
+    changed.changed,
+    true,
+    "reasoning changes still surface for a cataloged model older than the discovery cutoff"
+  );
+  assert.equal(scan(changedSources, changed.evidence).changed, false);
+  const brief = renderBatchReview(
+    [changed.evidence],
+    {
+      cursor: {
+        discoverySince: "2026-10-01",
+        verification: "Check exact ACP options.",
+      },
+    },
+    current,
+    [baseline.evidence]
+  );
+  assert.ok(
+    brief
+      .split("## Reviewer decisions")[0]
+      .includes("Discovery reasoning changed")
+  );
+  assert.deepEqual(changed.catalog, current);
 });

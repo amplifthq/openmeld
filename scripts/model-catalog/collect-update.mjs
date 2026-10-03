@@ -32,6 +32,7 @@ export function combineUpdates(current, results, config = {}) {
   return {
     catalog,
     evidence,
+    previousEvidence: results.map((result) => result.previous),
     fingerprint: batchReviewFingerprint(evidence, current, config),
     changed: results.some((result) => result.changed),
   };
@@ -87,7 +88,7 @@ export async function collectUpdate(output, root = process.cwd()) {
   );
   await writeFile(
     resolve(output, "review.md"),
-    renderBatchReview(result.evidence, config, current)
+    renderBatchReview(result.evidence, config, current, result.previousEvidence)
   );
   return result;
 }

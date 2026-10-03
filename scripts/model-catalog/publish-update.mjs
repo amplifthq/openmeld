@@ -174,10 +174,17 @@ export function assertAdditionsOnly(current, catalog, evidences) {
   }
 }
 
-async function createDraft(branch, evidence, output, config, current) {
+async function createDraft(
+  branch,
+  evidence,
+  output,
+  config,
+  current,
+  previousEvidence
+) {
   await writeFile(
     resolve(output, "review.md"),
-    renderBatchReview(evidence, config, current)
+    renderBatchReview(evidence, config, current, previousEvidence)
   );
   console.log(
     command("gh", [
@@ -235,6 +242,20 @@ async function recoverPushedProposal(
       JSON.parse(command("git", ["show", `${sha}:${path}`]))
     )
   );
+  const previousEvidence = evidencePaths.map((path) => {
+    const exists = command("git", [
+      "ls-tree",
+      "--name-only",
+      `${sha}^`,
+      "--",
+      path,
+    ]);
+    return exists
+      ? modelCatalogUpdateEvidenceSchema.parse(
+          JSON.parse(command("git", ["show", `${sha}^:${path}`]))
+        )
+      : undefined;
+  });
   const before = modelCatalogSchema.parse(
     JSON.parse(command("git", ["show", `${sha}^:release/vendor-models.json`]))
   );
@@ -250,7 +271,7 @@ async function recoverPushedProposal(
     throw new Error("Existing proposal review facts differ");
   }
   assertAdditionsOnly(before, after, recorded);
-  await createDraft(branch, recorded, output, config, before);
+  await createDraft(branch, recorded, output, config, before, previousEvidence);
   return true;
 }
 
@@ -273,19 +294,17 @@ export async function publishUpdate(output) {
     JSON.parse(await readFile("release/vendor-models.json", "utf8"))
   );
   const fingerprint = batchReviewFingerprint(evidence, current, config);
-  const reviewChanges = await Promise.all(
-    evidence.map(async (item) => {
-      const previous = await readPreviousEvidence(
-        process.cwd(),
-        item.controller
-      );
-      const since = config[item.controller]?.discoverySince;
-      return hasNewReviewFacts(
-        modelReviewFacts(item, current, since),
-        previous ? modelReviewFacts(previous, current, since) : undefined
-      );
-    })
+  const previousEvidence = await Promise.all(
+    evidence.map((item) => readPreviousEvidence(process.cwd(), item.controller))
   );
+  const reviewChanges = evidence.map((item, index) => {
+    const previous = previousEvidence[index];
+    const since = config[item.controller]?.discoverySince;
+    return hasNewReviewFacts(
+      modelReviewFacts(item, current, since),
+      previous ? modelReviewFacts(previous, current, since) : undefined
+    );
+  });
   if (
     JSON.stringify(evidence.map((item) => item.controller)) !==
       JSON.stringify(Object.keys(config)) ||
@@ -380,7 +399,14 @@ export async function publishUpdate(output) {
     "chore(models): prepare local model catalog updates",
   ]);
   command("git", ["push", "origin", `HEAD:refs/heads/${branch}`]);
-  await createDraft(branch, evidence, output, config, current);
+  await createDraft(
+    branch,
+    evidence,
+    output,
+    config,
+    current,
+    previousEvidence
+  );
 }
 
 if (
