@@ -1685,6 +1685,9 @@ an optional supported reasoning effort. Center Agent settings use the same
 reasoning selector. New personal Remote Agents initially select GPT-6 Sol with
 `medium` effort; Center Agent OpenMeld default is Claude Opus 5.5 with `medium`.
 Default reasoning follows the selected model's catalog effort.
+An explicit effort under **OpenMeld default** saves the current default as a
+concrete model selection. Before Save, Web explains that this model will remain
+selected when OpenMeld defaults change; Core owns materializing the model ID.
 Changing to another provider clears an incompatible draft and requires a new
 model choice before Create or Save; an empty draft must not silently select
 the system default. Local Agent model controls keep their controller-owned
