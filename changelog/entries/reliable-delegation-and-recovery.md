@@ -9,6 +9,8 @@ audiences: ["members", "admins"]
 The Center Agent can arrange one task across several Spaces, retain successful
 work if another destination fails, and collect all results in the original
 conversation. Stop targets the current continuation of the selected request.
+Messages queued while a Local Agent is starting now wait for its current turn
+and run afterward through the existing queue.
 
 Interrupted Skill imports can continue through the Center Agent using the same
 saved batch as Web and CLI. Opening a final-message attachment preserves its

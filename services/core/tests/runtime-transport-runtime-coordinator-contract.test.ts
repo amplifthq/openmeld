@@ -834,6 +834,22 @@ const createRecordingD1 = (input?: {
                   "runtime coordinator reply projection unavailable"
                 );
               }
+              const existing = projectionRows.get(
+                String(runtimeCoordinatorExecutionId)
+              );
+              // The projection writer now uses a guarded upsert. Preserve the
+              // same terminal and newer-evidence fences as a real SQLite row.
+              if (
+                existing &&
+                ((["cancelled", "failed_terminal", "reply_published"].includes(
+                  String(existing.status)
+                ) &&
+                  existing.status !== status) ||
+                  (existing.status === status &&
+                    Number(existing.updated_at_ms) > Number(updatedAtMs)))
+              ) {
+                return { meta: { changes: 0 } };
+              }
               projectionRows.set(String(runtimeCoordinatorExecutionId), {
                 attempt_id: attemptId,
                 binding_id: bindingId,
@@ -1324,7 +1340,9 @@ const createHarness = (input?: {
               : Date.now(),
         });
         if (input.exhaustionProjectionRereadError) {
-          recordingD1.failProjectionReadAfter(1);
+          // A guarded upsert has no optimistic pre-read; the next read is the
+          // conflict reread this failure exercises.
+          recordingD1.failProjectionReadAfter(0);
         }
       }
       storageRecords.set(key, value);
