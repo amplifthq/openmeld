@@ -168,6 +168,7 @@ export const createDispatchOutboxRecord = (input: {
     attachments: input.sourceSignalSnapshot.attachments,
     files: input.sourceSignalSnapshot.files,
     workHandoff: input.sourceSignalSnapshot.workHandoff,
+    evidenceRefs: input.sourceSignalSnapshot.evidenceRefs,
     centerAgentInteractionSource:
       input.sourceSignalSnapshot.centerAgentInteractionSource,
     profileId: input.sourceSignalSnapshot.profileId,
@@ -291,6 +292,7 @@ const resolveDispatchChainContextForOutbox = (input: {
 };
 
 const buildSourceSignalSnapshot = (input: {
+  evidenceRefs?: DispatchSourceSignalSnapshotInput["evidenceRefs"];
   workHandoff?: DispatchSourceSignalSnapshotInput["workHandoff"];
   contextMessages?: DispatchSourceSignalSnapshotInput["contextMessages"];
   callerContext?: NonNullable<
@@ -327,6 +329,7 @@ const buildSourceSignalSnapshot = (input: {
       : {}),
     ...(input.files && input.files.length > 0 ? { files: input.files } : {}),
     ...(input.workHandoff ? { workHandoff: input.workHandoff } : {}),
+    ...(input.evidenceRefs ? { evidenceRefs: input.evidenceRefs } : {}),
     ...(input.centerAgentInteractionSource
       ? { centerAgentInteractionSource: input.centerAgentInteractionSource }
       : {}),

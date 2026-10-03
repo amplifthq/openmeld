@@ -768,6 +768,7 @@ function buildRemoteAgentSourceText(
   const rawText = normalizeOptionalText(message.sourceSignalSnapshot?.text);
   const text = rawText
     ? renderDispatchSourceText({
+        evidenceRefs: message.sourceSignalSnapshot?.evidenceRefs,
         workHandoff: message.sourceSignalSnapshot?.workHandoff,
         text: rawText,
         quotedMessage: message.sourceSignalSnapshot?.quotedMessage,

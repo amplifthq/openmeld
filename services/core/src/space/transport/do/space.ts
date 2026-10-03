@@ -1428,6 +1428,10 @@ function buildDispatchSourceSignalSnapshot(input: {
     input.signal.type === "signal.text"
       ? input.signal.data.meta?.workHandoff
       : undefined;
+  const evidenceRefs =
+    input.signal.type === "signal.text"
+      ? input.signal.data.meta?.evidenceRefs
+      : undefined;
   const centerAgentInteractionSource =
     input.signal.type === "signal.text"
       ? input.signal.data.meta?.centerAgentInteractionSource
@@ -1454,6 +1458,7 @@ function buildDispatchSourceSignalSnapshot(input: {
     ...(attachments && attachments.length > 0 ? { attachments } : {}),
     ...(files && files.length > 0 ? { files } : {}),
     ...(workHandoff ? { workHandoff } : {}),
+    ...(evidenceRefs ? { evidenceRefs } : {}),
   };
 }
 
@@ -5298,6 +5303,7 @@ export class Space extends DurableObject<CoreBindings> {
             existing: existingSignal,
             authorProfileId: input.profile.profileId,
             handoff: input.meta?.workHandoff,
+            evidenceRefs: input.meta?.evidenceRefs,
             text: input.text,
             targetProfileIds: input.messageEnvelope?.activationTargets ?? [],
           });
@@ -12134,6 +12140,7 @@ export class Space extends DurableObject<CoreBindings> {
           existing: existingRetry.signal,
           authorProfileId: input.context.actorContext.openMeldProfileId,
           handoff: parsed.data.workHandoff,
+          evidenceRefs: parsed.data.evidenceRefs,
           text: parsed.data.text,
           targetProfileIds:
             parsed.data.messageEnvelope?.activationTargets ?? [],
@@ -12165,6 +12172,7 @@ export class Space extends DurableObject<CoreBindings> {
             threadWakeContinuation: parsed.data.threadWakeContinuation,
             restoredFromSignalId: parsed.data.restoredFromSignalId,
             workHandoff: parsed.data.workHandoff,
+            evidenceRefs: parsed.data.evidenceRefs,
             ...(parsed.data.authorHasRead
               ? { authorHasRead: true as const }
               : {}),

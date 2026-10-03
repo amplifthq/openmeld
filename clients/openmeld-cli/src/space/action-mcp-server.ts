@@ -20,6 +20,7 @@ import {
   spaceMessageFileReferenceSchema,
   spaceTaskIdSchema,
   spaceTaskMutationReceiptSchema,
+  spaceThreadEvidenceRequestSchema,
 } from "@openmeld/schemas";
 import { z } from "zod/v4";
 import { runExecutionContextWorkspaceProjectShell } from "../local-service/dispatch/execution-context-workspace";
@@ -40,6 +41,7 @@ import { readDispatchSpaceFile } from "./dispatch-file-read";
 import {
   readDispatchSpaceEvidence,
   readDispatchSpaceHistory,
+  readDispatchSpaceThreadEvidence,
 } from "./dispatch-history-read";
 import { DispatchReadResults } from "./dispatch-read-result";
 import {
@@ -99,6 +101,7 @@ class DispatchSpaceTools implements AdapterDispatchSpaceTools {
     const pagedRead = [
       "read_history",
       "read_evidence",
+      "read_thread",
       "read_file",
       "list_tasks",
     ].includes(name);
@@ -156,6 +159,7 @@ class DispatchSpaceTools implements AdapterDispatchSpaceTools {
     const pagedRead = [
       "read_history",
       "read_evidence",
+      "read_thread",
       "read_file",
       "list_tasks",
     ].includes(name);
@@ -389,6 +393,29 @@ export function createDispatchSpaceTools(
     },
     async (input) => {
       const result = await readDispatchSpaceEvidence(input, env);
+      return {
+        structuredContent: result,
+        content: [{ type: "text", text: JSON.stringify(result) }],
+      };
+    }
+  );
+
+  server.registerTool(
+    "read_thread",
+    {
+      title: "Read an exact Space thread version",
+      description:
+        "Read up to 20 messages and 4,000 characters from a named thread in this Space. Continue with nextOffset and the same sourceRef.version; changed or inaccessible versions fail explicitly. Read truncated messages with read_evidence using their exact sourceRef. Every page checks current access.",
+      inputSchema: spaceThreadEvidenceRequestSchema,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (input) => {
+      const result = await readDispatchSpaceThreadEvidence(input, env);
       return {
         structuredContent: result,
         content: [{ type: "text", text: JSON.stringify(result) }],

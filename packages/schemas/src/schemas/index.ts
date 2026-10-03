@@ -88,6 +88,11 @@ export { messageChannelCardHistorySchema } from "./runtime/message-channel-card-
 
 export const OPENMELD_SCHEMA_VERSION = 1 as const;
 
+export {
+  spaceEvidenceReferenceSchema,
+  spaceEvidenceReferencesSchema,
+  spaceThreadEvidenceRequestSchema,
+} from "../space-evidence";
 export { agentControllerCollaborationModeSchema } from "./agent-controller-collaboration-mode";
 export { agentControllerPermissionModeSchema } from "./agent-controller-permission-mode";
 export { agentProfileWorkRecoveryActionKindSchema } from "./agent-profile-work-recovery";
@@ -2317,6 +2322,7 @@ export {
   spaceEntryTargetSchema,
   spaceEntryViewSchema,
 } from "./http/space-entry";
+export { spaceThreadEvidenceResponseSchema } from "./http/space-evidence";
 export {
   spaceFileUpdateSettingsCommandSchema,
   spaceFileUpdateSettingsSchema,

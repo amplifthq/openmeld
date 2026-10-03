@@ -2,6 +2,7 @@ import {
   buildCenterAgentContextMessageProjection,
   buildProfileDisplay,
   buildSpaceMessageEvidence,
+  buildSpaceThreadEvidence,
 } from "@openmeld/protocol";
 import {
   HOSTED_REMOTE_AGENT_CONTROLLER_REF,
@@ -18,6 +19,7 @@ import {
   wakeEvidenceDb,
 } from "../../lib/bindings";
 import {
+  rpcCenterAgentReadSpaceFile,
   rpcGetSpaceBoard,
   rpcGetSpaceMemberDirectory,
   rpcGetSpaceThread,
@@ -266,29 +268,35 @@ export async function runPersonalRemoteAgentSpaceTool(
     });
   }
   if (input.operation.kind === "evidence") {
-    const { sourceSignalId } = input.operation;
-    const page = await rpcListSignals(env, {
+    return await readPersonalMessageEvidence({
+      env,
       context,
       spaceId: delivery.spaceId,
-      aroundSignalId: sourceSignalId,
-      beforeCount: 0,
-      afterCount: 0,
-      signalTypes: ["signal.text"],
+      operation: input.operation,
     });
-    const signal = page.signals.find(
-      (candidate) => candidate.id === sourceSignalId
-    );
-    if (!signal || signal.type !== "signal.text") {
-      throw new Error(
-        "space.evidence_unavailable: The requested message is unavailable."
-      );
-    }
+  }
+  if (input.operation.kind === "file_evidence") {
+    return await readPersonalFileEvidence({
+      env,
+      context,
+      spaceId: delivery.spaceId,
+      operation: input.operation,
+    });
+  }
+  if (input.operation.kind === "thread_evidence") {
+    const selection = {
+      context,
+      spaceId: delivery.spaceId,
+      threadId: input.operation.threadId,
+    };
+    const thread = await rpcGetSpaceThread(env, selection);
+    const page = await rpcListSpaceThreadSignals(env, selection);
     return personalRemoteAgentSpaceToolResponseSchema.parse({
-      kind: "evidence",
-      ...(await buildSpaceMessageEvidence({
+      kind: "thread_evidence",
+      ...(await buildSpaceThreadEvidence({
         ...input.operation,
-        signal,
-        spaceId: delivery.spaceId,
+        thread: thread.thread,
+        signals: page.signals,
       })),
     });
   }
@@ -363,6 +371,79 @@ export async function runPersonalRemoteAgentSpaceTool(
     kind: "wake",
     signalId: signal.id,
     agentProfileId: target.profileId,
+  });
+}
+
+type PersonalEvidenceInput<Kind extends "evidence" | "file_evidence"> = {
+  env: CoreBindings;
+  context: Awaited<
+    ReturnType<typeof requirePersonalRemoteAgentExecution>
+  >["context"];
+  spaceId: string;
+  operation: Extract<
+    ReturnType<
+      typeof personalRemoteAgentSpaceToolRequestSchema.parse
+    >["operation"],
+    { kind: Kind }
+  >;
+};
+
+async function readPersonalMessageEvidence({
+  env,
+  context,
+  spaceId,
+  operation,
+}: PersonalEvidenceInput<"evidence">) {
+  const page = await rpcListSignals(env, {
+    context,
+    spaceId,
+    aroundSignalId: operation.sourceSignalId,
+    beforeCount: 0,
+    afterCount: 0,
+    signalTypes: ["signal.text"],
+  });
+  const signal = page.signals.find(
+    (candidate) => candidate.id === operation.sourceSignalId
+  );
+  if (!signal || signal.type !== "signal.text") {
+    throw new Error(
+      "space.evidence_unavailable: The requested message is unavailable."
+    );
+  }
+  return personalRemoteAgentSpaceToolResponseSchema.parse({
+    kind: "evidence",
+    ...(await buildSpaceMessageEvidence({ ...operation, signal, spaceId })),
+  });
+}
+
+async function readPersonalFileEvidence({
+  env,
+  context,
+  spaceId,
+  operation,
+}: PersonalEvidenceInput<"file_evidence">) {
+  const { fileId, revision, offset = 0 } = operation;
+  const result = await rpcCenterAgentReadSpaceFile(env, {
+    context,
+    spaceId,
+    fileId,
+    revision,
+  });
+  if (result.revision.revision !== revision || result.file.id !== fileId) {
+    throw new Error("space.evidence_version_unavailable");
+  }
+  const characters = Array.from(result.content);
+  if (offset > characters.length) {
+    throw new Error("space.evidence_offset_invalid");
+  }
+  const end = Math.min(characters.length, offset + 4000);
+  return personalRemoteAgentSpaceToolResponseSchema.parse({
+    kind: "file_evidence",
+    fileId,
+    revision,
+    offset,
+    nextOffset: end < characters.length ? end : null,
+    text: characters.slice(offset, end).join(""),
   });
 }
 

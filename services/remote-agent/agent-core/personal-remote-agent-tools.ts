@@ -109,16 +109,32 @@ export function getPersonalRemoteAgentTools(input: {
         await execute({ ...operation, kind: "evidence" }),
     },
     {
-      name: "openmeld_read_space_thread",
+      name: "openmeld_read_space_file_evidence",
       description:
-        "Read a bounded page of one thread in this Space in order. Use a verified threadId; omit afterSignalId to start at the root, then follow nextAfterSignalId until null. Each message includes its sourceRef.version. If a message's content is truncated, read that exact message with openmeld_read_space_evidence. Every page rechecks current access; a reference does not grant access to another conversation.",
+        "Read up to 4,000 characters from an exact Files revision in this Space. File ID and revision are required. Continue with nextOffset and the same revision. Every page checks current source access and an unavailable revision fails; never substitute latest content.",
       input: object({
-        threadId: string(),
-        afterSignalId: optional(string()),
-        limit: optional(pipe(number(), integer(), minValue(1), maxValue(30))),
+        fileId: string(),
+        revision: pipe(number(), integer(), minValue(1)),
+        offset: optional(
+          pipe(number(), integer(), minValue(0), maxValue(1_048_576))
+        ),
       }),
       execute: async (operation) =>
-        await execute({ ...operation, kind: "thread" }),
+        await execute({ ...operation, kind: "file_evidence" }),
+    },
+    {
+      name: "openmeld_read_space_thread",
+      description:
+        "Read up to 20 messages and 4,000 characters from one exact thread version in this Space. Continue with nextOffset and the same sourceRef.version; changed or inaccessible versions fail explicitly. Read truncated messages with openmeld_read_space_evidence using their exact sourceRef. Every page checks current access.",
+      input: object({
+        threadId: string(),
+        version: optional(string()),
+        offset: optional(
+          pipe(number(), integer(), minValue(0), maxValue(10_000))
+        ),
+      }),
+      execute: async (operation) =>
+        await execute({ ...operation, kind: "thread_evidence" }),
     },
     {
       name: "openmeld_read_space_members",

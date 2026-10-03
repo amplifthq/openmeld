@@ -16343,6 +16343,7 @@ function parseCenterAgentWakeAgentProfilesInSpaceInput(
   }
   const parsed = centerAgentWakeAgentProfilesInSpaceBodySchema.safeParse({
     pluginActions: input.pluginActions,
+    evidenceRefs: input.evidenceRefs,
     agentProfileIds: input.agentProfileIds,
     ...(input.completionMode === undefined
       ? {}
@@ -16422,6 +16423,7 @@ export async function rpcCenterAgentWakeAgentProfilesInSpace(
 
   const clientMessageId = buildCenterAgentWakeClientMessageId({
     pluginActions: parsed.pluginActions,
+    evidenceRefs: parsed.evidenceRefs,
     activationTargets: targetProfileIds,
     completionMode: parsed.completionMode,
     context: authorization.context,
@@ -16455,6 +16457,7 @@ export async function rpcCenterAgentWakeAgentProfilesInSpace(
   if (parsed.completionMode) {
     const delegatedWake = await executeCenterAgentDelegatedWake({
       pluginActions: parsed.pluginActions,
+      evidenceRefs: parsed.evidenceRefs,
       authorization,
       clientMessageId,
       completionMode: parsed.completionMode,
@@ -16501,7 +16504,10 @@ export async function rpcCenterAgentWakeAgentProfilesInSpace(
         referenceTargets: referenceProfileIds,
         text: parsed.text,
       },
-      meta: { clientMessageId },
+      meta: {
+        clientMessageId,
+        evidenceRefs: parsed.evidenceRefs,
+      },
       profile,
       spaceAddressingVersion,
       spaceId: parsed.spaceId,
@@ -17042,6 +17048,7 @@ async function requireCenterAgentWakeMembers(input: {
 }
 
 async function executeCenterAgentDelegatedWake(input: {
+  evidenceRefs?: CenterAgentWakeAgentProfilesInSpaceInput["evidenceRefs"];
   pluginActions?: CenterAgentWakeAgentProfilesInSpaceInput["pluginActions"];
   authorization: CurrentDesignatedCenterAgentAuthorization;
   clientMessageId: string;
@@ -17108,6 +17115,7 @@ async function executeCenterAgentDelegatedWake(input: {
         targetProfileIds: input.targetProfileIds,
         requests: input.pluginActions,
       }),
+      evidenceRefs: input.evidenceRefs,
       activationTargets: input.targetProfileIds,
       attribution,
       clientMessageId: input.clientMessageId,
@@ -17188,7 +17196,10 @@ export async function rpcPostCenterAgentWakePublicationSignal(
       referenceTargets: command.referenceTargets,
       text: command.text,
     },
-    meta: { clientMessageId: command.clientMessageId },
+    meta: {
+      clientMessageId: command.clientMessageId,
+      ...(command.evidenceRefs ? { evidenceRefs: command.evidenceRefs } : {}),
+    },
     profile: command.profile,
     spaceAddressingVersion: command.spaceAddressingVersion,
     spaceId: command.spaceId,
@@ -17209,6 +17220,7 @@ export async function rpcResolveCenterAgentWakePublicationSignal(
 }
 
 function buildCenterAgentWakeClientMessageId(input: {
+  evidenceRefs?: CenterAgentWakeAgentProfilesInSpaceInput["evidenceRefs"];
   pluginActions?: CenterAgentWakeAgentProfilesInSpaceInput["pluginActions"];
   activationTargets: readonly string[];
   completionMode?: CenterAgentDelegationCompletionMode;
@@ -17224,6 +17236,7 @@ function buildCenterAgentWakeClientMessageId(input: {
   const actorContext = input.context.actorContext;
   const material = JSON.stringify({
     ...(input.pluginActions ? { pluginActions: input.pluginActions } : {}),
+    ...(input.evidenceRefs ? { evidenceRefs: input.evidenceRefs } : {}),
     actorRequestId: actorContext.requestId ?? null,
     agentControllerConversationId:
       input.context.agentControllerConversationId ?? null,

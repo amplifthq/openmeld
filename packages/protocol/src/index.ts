@@ -13,6 +13,7 @@ export type { CenterAgentContextMessageProjection } from "./context-manifest";
 export {
   buildCenterAgentContextMessageProjection,
   buildSpaceMessageEvidence,
+  buildSpaceThreadEvidence,
   CenterAgentContextTokenBudgetTooSmallError,
   decodeCenterAgentContextCursor,
   encodeCenterAgentContextCursor,

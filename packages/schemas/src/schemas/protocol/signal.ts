@@ -1,5 +1,6 @@
 import * as z from "zod/v4";
 import { isLegacyAgentActivityWorkCompatible } from "../../agent-work-activity";
+import { spaceEvidenceReferencesSchema } from "../../space-evidence";
 import { spaceWorkHandoffSchema } from "../../space-work-handoff";
 import { spaceMessageFileReferencesSchema } from "../http/space-files";
 import { spaceMentionLabelSchema } from "../http/space-mention-label";
@@ -104,6 +105,7 @@ const legacySpaceAgentActivitySchema = spaceAgentActivitySchema.superRefine(
 );
 
 const signalTextMetaSchema = z.object({
+  evidenceRefs: spaceEvidenceReferencesSchema.optional(),
   workHandoff: spaceWorkHandoffSchema.optional(),
   // The human accepted a suggested thread recipient, rather than selecting a new one.
   threadWakeContinuation: z.literal(true).optional(),

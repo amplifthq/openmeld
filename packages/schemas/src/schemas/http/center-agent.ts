@@ -1,6 +1,7 @@
 import * as z from "../../lazy-zod";
 import { computerSetupModeSchema } from "../../navigation-action";
 import { DISPATCH_ERROR_SUMMARY_MAX_LENGTH } from "../../public-agent-failure-reason";
+import { spaceEvidenceReferencesSchema } from "../../space-evidence";
 import { hostedModelReasoningLevelSchema } from "../config/model-catalog";
 import { agentControllerRefSchema } from "../daemon/agent-controller-ref";
 import { computerCareObservationSchema } from "../daemon/computer-care";
@@ -901,6 +902,7 @@ export const centerAgentDelegationCompletionModeSchema = z.enum(
 
 export const centerAgentWakeAgentProfilesInSpaceBodySchema = z
   .strictObject({
+    evidenceRefs: spaceEvidenceReferencesSchema.optional(),
     pluginActions: z
       .array(pluginDelegationRequestSchema)
       .min(1)
@@ -993,6 +995,7 @@ export const centerAgentWakeAgentProfilesInSpaceBodySchema = z
 
 export const centerAgentWakePublicationCommandSchema = z
   .strictObject({
+    evidenceRefs: spaceEvidenceReferencesSchema.optional(),
     pluginActions: z
       .array(pluginDelegationAuthorizationSchema)
       .min(1)

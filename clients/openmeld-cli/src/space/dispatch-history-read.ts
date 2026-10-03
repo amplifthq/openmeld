@@ -2,6 +2,8 @@ import {
   dispatchSpaceHistoryResultSchema,
   signalTextEnvelopeSchema,
   spaceMessageEvidenceRequestSchema,
+  spaceThreadEvidenceRequestSchema,
+  spaceThreadEvidenceResponseSchema,
 } from "@openmeld/schemas";
 import { resolveBaseUrl } from "../config/base-url";
 import { buildOpenMeldRequestContextFromProfile } from "../config/openmeld-request-context";
@@ -72,6 +74,73 @@ async function readDispatchSignals(
     sourceSignalId: string
   ) => Parameters<SpaceApi["listSignals"]>[0]["query"]
 ) {
+  return await readDispatchSource(
+    env,
+    async ({ api, context, requestContext }) => {
+      const result = await api.listSignals({
+        spaceId: context.spaceId,
+        requestContext,
+        query: query(context.sourceEventId),
+      });
+      const signals = result.signals.map((signal) =>
+        signalTextEnvelopeSchema.parse(signal)
+      );
+      if (signals.some((signal) => signal.spaceId !== context.spaceId)) {
+        throw new Error(
+          "The Space history response does not match the current Space."
+        );
+      }
+      return { ...result, signals };
+    }
+  );
+}
+
+export async function readDispatchSpaceThreadEvidence(
+  value: ReturnType<typeof spaceThreadEvidenceRequestSchema.parse>,
+  env: NodeJS.ProcessEnv = process.env
+) {
+  const input = spaceThreadEvidenceRequestSchema.parse(value);
+  const { result } = await readDispatchSource(
+    env,
+    async ({ api, context, requestContext }) => {
+      const selection = {
+        spaceId: context.spaceId,
+        requestContext,
+        threadId: input.threadId,
+      };
+      const thread = await api.getThread(selection);
+      if (
+        thread.thread.spaceId !== context.spaceId ||
+        thread.thread.threadId !== input.threadId
+      ) {
+        throw new Error("space.evidence_source_mismatch");
+      }
+      const page = await api.listThreadSignals(selection);
+      if (
+        page.placements.some(
+          (placement) => placement.threadId !== input.threadId
+        )
+      ) {
+        throw new Error("space.evidence_source_mismatch");
+      }
+      return await buildSpaceThreadEvidence({
+        ...input,
+        thread: thread.thread,
+        signals: page.signals,
+      });
+    }
+  );
+  return spaceThreadEvidenceResponseSchema.parse(result);
+}
+
+async function readDispatchSource<T>(
+  env: NodeJS.ProcessEnv,
+  read: (input: {
+    api: SpaceApi;
+    context: ReturnType<typeof readDispatchSpaceActionContextFromEnv>;
+    requestContext: ReturnType<typeof buildOpenMeldRequestContextFromProfile>;
+  }) => Promise<T>
+) {
   if (env[OPENMELD_DISPATCH_RUNTIME_MODE_ENV] !== DISPATCH_OWNED_RUNTIME_MODE) {
     throw new Error(
       "Space history tools require an active OpenMeld dispatch runtime."
@@ -91,12 +160,12 @@ async function readDispatchSignals(
       "The Space history reader does not match the current Agent."
     );
   }
-  const result = await createCliSpaceApi(await resolveBaseUrl()).listSignals({
-    spaceId: context.spaceId,
+  const result = await read({
+    api: createCliSpaceApi(await resolveBaseUrl()),
+    context,
     requestContext: buildOpenMeldRequestContextFromProfile({
       openMeldProfile: profile,
     }),
-    query: query(context.sourceEventId),
   });
   const current = readDispatchSpaceActionContextFromEnv(env);
   if (
@@ -110,16 +179,11 @@ async function readDispatchSignals(
       "The dispatch context changed during the Space history read."
     );
   }
-  const signals = result.signals.map((signal) =>
-    signalTextEnvelopeSchema.parse(signal)
-  );
-  if (signals.some((signal) => signal.spaceId !== context.spaceId)) {
-    throw new Error(
-      "The Space history response does not match the current Space."
-    );
-  }
-  return { context, result: { ...result, signals } };
+  return { context, result };
 }
 
 import type { SpaceApi } from "@openmeld/api-client";
-import { buildSpaceMessageEvidence } from "@openmeld/protocol";
+import {
+  buildSpaceMessageEvidence,
+  buildSpaceThreadEvidence,
+} from "@openmeld/protocol";

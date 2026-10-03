@@ -12,6 +12,7 @@ describe("personal Remote Agent capabilities", () => {
     expect(tools.map((tool) => tool.name)).toEqual([
       "openmeld_read_space_messages",
       "openmeld_read_space_evidence",
+      "openmeld_read_space_file_evidence",
       "openmeld_read_space_thread",
       "openmeld_read_space_members",
       "openmeld_wake_agent_in_space",
@@ -35,12 +36,24 @@ describe("personal Remote Agent capabilities", () => {
       "openmeld_read_space_updates",
       "openmeld_read_space_messages",
       "openmeld_read_space_evidence",
+      "openmeld_read_space_file_evidence",
       "openmeld_read_space_thread",
       "openmeld_read_space_members",
       "openmeld_wake_agent_in_space",
       "openmeld_set_reply_placement",
     ]);
-    const [, , messages, , , members, wake, placement] = tools;
+    const messages = tools.find(
+      (tool) => tool.name === "openmeld_read_space_messages"
+    );
+    const members = tools.find(
+      (tool) => tool.name === "openmeld_read_space_members"
+    );
+    const wake = tools.find(
+      (tool) => tool.name === "openmeld_wake_agent_in_space"
+    );
+    const placement = tools.find(
+      (tool) => tool.name === "openmeld_set_reply_placement"
+    );
     if (!(messages && members && wake && placement)) {
       throw new Error("expected personal collaboration tools");
     }

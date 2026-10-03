@@ -665,6 +665,37 @@ const wakeAgentProfilesInSpaceToolInputSchema = object({
       )
     )
   ),
+  evidenceRefs: optional(
+    pipe(
+      array(
+        union([
+          object({
+            kind: literal("message"),
+            spaceId: nonEmptyStringSchema,
+            sourceSignalId: nonEmptyStringSchema,
+            version: nonEmptyStringSchema,
+          }),
+          object({
+            kind: literal("thread"),
+            spaceId: nonEmptyStringSchema,
+            threadId: nonEmptyStringSchema,
+            version: nonEmptyStringSchema,
+          }),
+          object({
+            kind: literal("file"),
+            spaceId: nonEmptyStringSchema,
+            fileId: nonEmptyStringSchema,
+            revision: pipe(number(), integer(), minValue(1)),
+          }),
+        ])
+      ),
+      minLength(1),
+      maxLength(20),
+      description(
+        "Exact evidence references returned by the source reader. They select versions and never grant access. Use an explicit Files copy for a selected private excerpt intended for a different audience."
+      )
+    )
+  ),
   agentProfileIds: pipe(
     array(nonEmptyStringSchema),
     minLength(1),

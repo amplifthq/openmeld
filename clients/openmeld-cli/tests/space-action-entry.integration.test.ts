@@ -65,6 +65,7 @@ it("discovers every packaged Wake tool before recording a reply", async () => {
       "read_history",
       "read_receipt",
       "read_result",
+      "read_thread",
       "reply",
       "review_task",
       "start_task",

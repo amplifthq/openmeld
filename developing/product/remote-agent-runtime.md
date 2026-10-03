@@ -551,11 +551,29 @@ Personal Remote Agents can read one current-Space message through
 through `openmeld_read_space_thread`. Exact reads reuse the existing
 `sourceRef.version`; an unavailable version or recalled message fails instead
 of substituting newer text. Long text uses bounded character pages with the
-same version on each continuation. Thread pages are live, ordered reads rather
-than an immutable thread snapshot. Each call rechecks the active execution and
+same version on each continuation. Thread evidence pages fingerprint the complete
+current ordered source set; edits, recall, additions, or a different thread
+reject the old version. Up to 10,000 messages and 8 MiB of source envelopes are
+supported; larger sources fail explicitly. A page exposes at most 20 messages
+and 4,000 Unicode characters. Truncated messages retain exact message references
+for their remaining text. `openmeld_read_space_file_evidence` similarly reads
+4,000 characters at a time from a required Files revision and reopens that
+revision through the Files owner for every page. Each call rechecks the active execution and
 current Space membership, then reads through the ordinary Space owner. These
 tools do not authorize another Space, confer delegated Plugin permission, or
 publish private excerpts.
+
+Wake `evidenceRefs` name message/thread versions and Files revisions. The existing
+Signal metadata and dispatch outbox retain this selection. The shared source-text
+renderer carries its structured JSON to Local and Remote executions. Local
+`read_evidence`, `read_thread`, and `read_file` use the same source owners and
+version semantics. References do not widen access beyond the current Space;
+selected private material for another audience requires an explicit Files copy.
+Local transport keeps the existing wire shape by rendering references into the
+source text and removing the new snapshot field before sending to older Services.
+An older reader cannot claim exact evidence support merely because it sees the
+reference. The older live-thread RPC remains available for old callers, while
+new exact-thread calls use a distinct operation that older Core rejects.
 
 The first M2 increment provides an opt-in Core read projection through
 `authorizeRemoteAgentExecutionAccess(includeDelegatedRequester=true)`. It follows

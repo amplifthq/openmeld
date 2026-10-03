@@ -7,6 +7,7 @@ import type { SpaceApi } from "@openmeld/api-client";
 import {
   dispatchSpaceReadResultPageSchema,
   dispatchSpaceReadResultSchema,
+  signalTextEnvelopeSchema,
 } from "@openmeld/schemas";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenMeldProfile } from "../src/config/openmeld-profiles-api";
@@ -22,14 +23,18 @@ import {
 import {
   readDispatchSpaceEvidence,
   readDispatchSpaceHistory,
+  readDispatchSpaceThreadEvidence,
 } from "../src/space/dispatch-history-read";
 
-const { listSignals, requireProfile } = vi.hoisted(() => ({
-  listSignals: vi.fn<SpaceApi["listSignals"]>(),
-  requireProfile: vi.fn(),
-}));
+const { listSignals, requireProfile, getThread, listThreadSignals } =
+  vi.hoisted(() => ({
+    getThread: vi.fn<SpaceApi["getThread"]>(),
+    listThreadSignals: vi.fn<SpaceApi["listThreadSignals"]>(),
+    listSignals: vi.fn<SpaceApi["listSignals"]>(),
+    requireProfile: vi.fn(),
+  }));
 vi.mock("../src/space/cli-space-api", () => ({
-  createCliSpaceApi: () => ({ listSignals }),
+  createCliSpaceApi: () => ({ listSignals, getThread, listThreadSignals }),
 }));
 vi.mock("../src/config/resolve-openmeld-profile", () => ({
   requireOpenMeldProfile: requireProfile,
@@ -122,6 +127,53 @@ function setup(ttlMs = 60_000) {
 }
 
 describe("dispatch Space history reader", () => {
+  it("pins a named thread and reauthorizes a continuation before disclosing any bytes", async () => {
+    setup();
+    const threadSignal = signalTextEnvelopeSchema.parse(signal);
+    const thread = {
+      threadId: "thr_11111111-1111-4111-8111-111111111111",
+      spaceId: signal.spaceId,
+      rootSignalId: signal.id,
+      createdByProfileId: signal.profile.profileId,
+      createdAt: new Date(1).toISOString(),
+      updatedAt: new Date(2).toISOString(),
+    };
+    getThread
+      .mockReset()
+      .mockResolvedValue({ thread, rootSignal: threadSignal });
+    listThreadSignals.mockReset().mockResolvedValue({
+      signals: [threadSignal],
+      placements: [
+        {
+          threadId: thread.threadId,
+          signalId: signal.id,
+          placement: "root",
+          createdAt: thread.createdAt,
+        },
+      ],
+    });
+    const result = await readDispatchSpaceThreadEvidence({
+      threadId: thread.threadId,
+    });
+    expect(result.messages[0]?.content.text).toBe(signal.data.text);
+    getThread.mockRejectedValueOnce(new Error("space.access_revoked"));
+    await expect(
+      readDispatchSpaceThreadEvidence({
+        threadId: thread.threadId,
+        version: result.sourceRef.version,
+        offset: 1,
+      })
+    ).rejects.toThrow("access_revoked");
+    expect(listThreadSignals).toHaveBeenCalledTimes(1);
+    getThread.mockResolvedValueOnce({
+      thread: { ...thread, spaceId: "other-space" },
+      rootSignal: threadSignal,
+    });
+    await expect(
+      readDispatchSpaceThreadEvidence({ threadId: thread.threadId })
+    ).rejects.toThrow("source_mismatch");
+  });
+
   it("reads a fixed current-Wake window through MCP as the current Agent without finalizing", async () => {
     const { context } = setup();
     const [clientTransport, serverTransport] =
