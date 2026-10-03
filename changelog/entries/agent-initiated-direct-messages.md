@@ -1,5 +1,8 @@
 ---
 id: agent-initiated-direct-messages
+publishedAt: 2026-10-03
+release: v0.3.238
+evidence: ["pr:1474","pr:1477","workflow:37111856220","workflow:37112285051","workflow:37112710810","workflow:37113245618"]
 title: Agents can start Direct Messages
 kind: new
 areas: ["agents", "messages", "inbox"]

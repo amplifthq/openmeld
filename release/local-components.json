@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-03T09:10:28.163Z",
+  "updatedAt": "2026-10-03T10:37:01.604Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
       "packageVersion": "0.3.239",
       "updatePolicy": "available",
-      "reason": "Task knowledge and direct-message tools match the strict controller catalog; retain current-main rollout prerequisites"
+      "reason": "Task knowledge readers with current main App origins"
     },
     "service": {
-      "bundleHash": "2cc1c247ed989fa214309dcfdca75a126b0a62869423f3b109c3dca53decbe7b",
-      "portableBundleHash": "931fe8e83ae505bcde49ce6287570d81bb1123810f0710578ce2ce3d1aea45e7",
+      "bundleHash": "1e7d7b8895f0e19ae81da06613d41c1ec77c88ff69e3c1f48e71338e7371cfcf",
+      "portableBundleHash": "e8a573ef4a7820b4fe154a56e4ef117dc79c0eae685a80004770a5cecac3b058",
       "bundleVersion": "0.3.239",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
       "serviceContractVersion": "openmeld-service-contract-2026-09-local-install-recovery-v1",
       "updatePolicy": "available",
-      "reason": "Preserve current-main controller behavior with task knowledge readers"
+      "reason": "Task-scoped knowledge readers with current main integration"
     },
     "skills": {
       "bundleHash": "74569de82e8b0aa6803bd418ae8eab60063a4bda19e0173a66628b4d93d9fa98",

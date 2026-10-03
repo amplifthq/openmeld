@@ -1,9 +1,9 @@
 "use client";
 
+import type { PluginDefinition } from "@openmeld/product-catalog/plugins";
 import type { ReactNode } from "react";
 import { CenterAgentGitHubConnectionCard } from "./center-agent-github-connection-card";
 import { PluginAgentAccess } from "./plugin-agent-access";
-import type { PluginDefinition } from "./plugin-catalog";
 import { PluginConnectionCard } from "./plugin-connection-card";
 
 type PluginConnectionSurfaceProps = {

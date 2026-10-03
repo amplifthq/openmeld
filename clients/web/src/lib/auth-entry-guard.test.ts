@@ -90,7 +90,11 @@ describe("auth entry guard", () => {
 		expect(redirectMock).not.toHaveBeenCalled();
 	});
 
-	it("sends authenticated users to the default entry when no explicit redirect exists", async () => {
+	it.each([
+		"/login",
+		"/login?token=reset-token",
+		"/reset-password",
+	])("sends authenticated users at %s to the default entry when no account action exists", async (path) => {
 		getSessionMock.mockResolvedValue({
 			user: {
 				id: "user-123",
@@ -98,16 +102,19 @@ describe("auth entry guard", () => {
 		});
 
 		await expect(
-			guardAnonymousOnlyRoute("http://localhost:3000/login")
+			guardAnonymousOnlyRoute(`http://localhost:3000${path}`)
 		).rejects.toMatchObject({
 			to: "/o/acme/new-space",
 		});
 		expect(resolveActiveOrganizationEntryPathMock).toHaveBeenCalledWith({
-			data: { routeFamily: "/login" },
+			data: { routeFamily: new URL(path, "http://localhost:3000").pathname },
 		});
 	});
 
-	it("allows an authenticated user to add another account", async () => {
+	it.each([
+		"/login?intent=add-account&redirect=%2F",
+		"/reset-password?token=reset-token",
+	])("allows an authenticated user to complete the account action at %s", async (path) => {
 		getSessionMock.mockResolvedValue({
 			user: {
 				id: "user-123",
@@ -115,9 +122,7 @@ describe("auth entry guard", () => {
 		});
 
 		await expect(
-			guardAnonymousOnlyRoute(
-				"http://localhost:3000/login?intent=add-account&redirect=%2F"
-			)
+			guardAnonymousOnlyRoute(`http://localhost:3000${path}`)
 		).resolves.toBeUndefined();
 		expect(redirectMock).not.toHaveBeenCalled();
 	});

@@ -1,7 +1,7 @@
 export type DesktopEnvPreset = "prod" | "dev-local" | "canary";
 
 const DEFAULT_WEB_URL_BY_PRESET = {
-  prod: "https://openmeld.ai",
+  prod: "https://app.openmeld.ai",
   "dev-local": "http://localhost:3000",
   canary: "http://localhost:3000",
 } as const satisfies Record<DesktopEnvPreset, string>;

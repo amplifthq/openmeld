@@ -11,29 +11,34 @@ const OPENMELD_ZONE_ID = "722d0107341d0b03c5bb6294c2dc97ec";
 
 test("reconciles every static resource and active Worker version", async () => {
   const client = createFakeCloudflareClient();
+  const workerNames = OPENMELD_RESOURCES.filter(
+    (resource) => resource.kind === "Worker"
+  ).map((resource) => resource.name);
 
   const summary = await provisionOpenMeldResources({ apply: true, client });
 
   assert.equal(summary.ok, true, JSON.stringify(summary, null, 2));
-  assert.equal(summary.resources.length, OPENMELD_RESOURCES.length + 6);
+  assert.equal(
+    summary.resources.length,
+    OPENMELD_RESOURCES.length + workerNames.length
+  );
   assert.ok(
     summary.resources.every((resource) => resource.tagStatus === "verified")
   );
-  assert.equal(client.tagWrites.length, OPENMELD_RESOURCES.length + 6);
+  assert.equal(
+    client.tagWrites.length,
+    OPENMELD_RESOURCES.length + workerNames.length
+  );
   assert.equal(
     client.tagWrites.filter((write) => write.apiScope === "global").length,
     5
   );
-  assert.equal(
-    client.tagWrites.filter(
-      (write) => write.body.resource_type === "worker_version"
-    ).length,
-    6
-  );
-  assert.ok(
+  assert.deepEqual(
     client.tagWrites
       .filter((write) => write.body.resource_type === "worker_version")
-      .every((write) => write.body.worker_id?.startsWith("openmeld-"))
+      .map((write) => write.body.worker_id)
+      .sort(),
+    workerNames.sort()
   );
 });
 

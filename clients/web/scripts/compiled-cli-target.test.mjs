@@ -145,13 +145,39 @@ test("production and staging builds preserve their actual Worker endpoints", asy
 			async () => {
 				const commands = await compiledCommands(environment);
 				const setup = commands.buildWebSetupCommand(handoff);
-				assert.ok(setup.includes(environment.VITE_OPENMELD_WEB_URL));
+				const setupOrigin =
+					name === "prod"
+						? "https://openmeld.ai"
+						: environment.VITE_OPENMELD_WEB_URL;
+				assert.ok(setup.includes(`${setupOrigin}/setup`));
 				if (name === "prod") {
+					const defaultCommands = await compiledCommands({
+						...environment,
+						VITE_OPENMELD_SETUP_USER_FACING_COMMAND: undefined,
+					});
+					assert.equal(
+						defaultCommands.resolveWebStartCommand(),
+						"npx -y openmeld@latest start"
+					);
 					assert.equal(
 						commands.resolveWebStartCommand(),
 						"npx -y openmeld@latest start"
 					);
 					assert.ok(!setup.includes("lane="));
+					for (const authUrl of [
+						"https://app.openmeld.ai",
+						"https://openmeld.ai",
+					]) {
+						assert.ok(
+							defaultCommands
+								.buildWebSetupCommand({
+									startSession: "fixture-session",
+									oneTimeToken: "fixture-ott",
+									authUrl,
+								})
+								.includes("https://openmeld.ai/setup")
+						);
+					}
 				} else {
 					assert.ok(setup.includes("dist=binary&lane=canary"));
 					const followUp = commands.resolveWebSetupFollowUpCliCommandPrefix();
@@ -163,12 +189,8 @@ test("production and staging builds preserve their actual Worker endpoints", asy
 					...handoff,
 					setupPlatform: "windows",
 				});
-				const decoded = Buffer.from(
-					windows.split(" ").at(-1),
-					"base64"
-				).toString("utf16le");
-				assert.ok(decoded.includes(environment.VITE_OPENMELD_WEB_URL));
-				assert.ok(decoded.includes("platform=windows&dist=npm"));
+				assert.ok(windows.includes(`${setupOrigin}/setup`));
+				assert.ok(windows.includes("platform=windows&dist=binary"));
 			}
 		);
 	}

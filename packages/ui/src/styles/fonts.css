@@ -1,0 +1,75 @@
+@font-face {
+  font-family: "Geist";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/Geist-Variable.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Geist Fallback";
+  src: local("Arial");
+  ascent-override: 95.94%;
+  descent-override: 28.16%;
+  line-gap-override: 0%;
+  size-adjust: 104.76%;
+}
+
+@font-face {
+  font-family: "Geist Mono";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/GeistMono-Variable.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Geist Mono Fallback";
+  src: local("Arial");
+  ascent-override: 74.67%;
+  descent-override: 21.92%;
+  line-gap-override: 0%;
+  size-adjust: 134.59%;
+}
+
+@font-face {
+  font-family: "GeistPixelSquare";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/GeistPixel-Square.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "GeistPixelLine";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/GeistPixel-Line.woff2") format("woff2");
+}
+
+.font-geist-pixel-square {
+  font-family:
+    "GeistPixelSquare", "Geist Mono", ui-monospace, SFMono-Regular,
+    "Roboto Mono", Menlo, Monaco, "Liberation Mono", "DejaVu Sans Mono",
+    "Courier New", monospace;
+  font-style: normal;
+  font-weight: 500;
+}
+
+.font-geist-pixel-line {
+  font-family:
+    "GeistPixelLine", "Geist Mono", ui-monospace, SFMono-Regular, "Roboto Mono",
+    Menlo, Monaco, "Liberation Mono", "DejaVu Sans Mono", "Courier New",
+    monospace;
+  font-style: normal;
+  font-weight: 500;
+}
+
+.font-geist-vars {
+  --font-ui-mono:
+    "Geist Mono", "Geist Mono Fallback", ui-monospace, SFMono-Regular, Menlo,
+    Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --font-ui-sans:
+    "Geist", "Geist Fallback", ui-sans-serif, system-ui, sans-serif;
+}

@@ -16,6 +16,16 @@
 - Source of truth: This file owns the shared UI package boundary. Individual
   product surfaces remain owned by their client/product documents.
 
+## Shared brand presentation
+
+Web, packaged Desktop, and Website share `AppLogo`, `OpenMeldWordmark`,
+`AppBrandStatusLabel`, `TextShimmer`, `PublicPageHeader`, and page-frame spacing.
+Callers supply navigation destinations and slots; primitives read no sessions
+or Organization state. `packages/ui/public` owns fonts, logos, icons, and favicon
+outputs. `scripts/vite/shared-public-assets.mjs` materializes ignored client
+copies when Vite loads. Edit shared sources, not generated copies. Shared font
+declarations live in `packages/ui/src/styles/fonts.css`.
+
 ## Boundary
 
 `packages/ui` is the shared home for reusable client UI primitives:

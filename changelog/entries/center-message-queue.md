@@ -1,5 +1,8 @@
 ---
 id: center-message-queue
+publishedAt: 2026-10-03
+release: v0.3.238
+evidence: ["pr:1447","pr:1477","workflow:37111856220","workflow:37112285051","workflow:37112710810","workflow:37113245618"]
 title: Queue messages while an Agent is working
 kind: new
 areas: ["spaces", "center-agent"]

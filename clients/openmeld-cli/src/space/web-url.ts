@@ -42,7 +42,7 @@ export function resolveGatewayWebOrigin(baseUrl: string): string {
 export function resolveSpaceWebGatewayOrigin(spaceUrl: URL): string {
   const url = new URL(spaceUrl.toString());
   const pair = OPENMELD_ORIGIN_HOST_PAIRS.find(
-    ({ web }) => web === url.hostname
+    ({ web, legacyWeb }) => web === url.hostname || legacyWeb === url.hostname
   );
   if (pair) {
     if (url.protocol !== "https:" || url.port.length > 0) {
@@ -79,12 +79,21 @@ function requireOrganizationSlug(value: unknown): string {
   return normalized;
 }
 const OPENMELD_ORIGIN_HOST_PAIRS = [
-  { gateway: "gateway.openmeld.ai", web: "openmeld.ai" },
+  {
+    gateway: "gateway.openmeld.ai",
+    web: "app.openmeld.ai",
+    legacyWeb: "openmeld.ai",
+  },
   {
     gateway: "gateway.staging.openmeld.ai",
-    web: "staging.openmeld.ai",
+    web: "app.staging.openmeld.ai",
+    legacyWeb: "staging.openmeld.ai",
   },
-  { gateway: "gateway.openmeld.invalid", web: "openmeld.invalid" },
+  {
+    gateway: "gateway.openmeld.invalid",
+    web: "openmeld.invalid",
+    legacyWeb: "openmeld.invalid",
+  },
 ] as const;
 
 const LOCAL_GATEWAY_PORT = "8080";

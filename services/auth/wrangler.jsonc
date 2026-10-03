@@ -163,7 +163,8 @@
       "vars": {
         "OPENMELD_WORKER_ENVIRONMENT": "stg",
         "BETTER_AUTH_URL": "https://auth.staging.openmeld.ai",
-        "WEB_APP_URL": "https://staging.openmeld.ai",
+        "WEB_APP_URL": "https://app.staging.openmeld.ai",
+        "AUTH_LEGACY_APP_ORIGIN": "https://staging.openmeld.ai",
         "AUTH_WORKER_NODE_ENV": "production",
         "AUTH_DESKTOP_DEVELOPMENT_TARGET": "",
         "AUTH_DEVICE_ALLOWED_CLIENT_IDS": "openmeld-cli,openmeld-cli-dev",
@@ -248,7 +249,8 @@
       "vars": {
         "OPENMELD_WORKER_ENVIRONMENT": "prod",
         "BETTER_AUTH_URL": "https://auth.openmeld.ai",
-        "WEB_APP_URL": "https://openmeld.ai",
+        "WEB_APP_URL": "https://app.openmeld.ai",
+        "AUTH_LEGACY_APP_ORIGIN": "https://openmeld.ai",
         "AUTH_WORKER_NODE_ENV": "production",
         "AUTH_DESKTOP_DEVELOPMENT_TARGET": "",
         "AUTH_DEVICE_ALLOWED_CLIENT_IDS": "openmeld-cli,openmeld-cli-dev",
