@@ -2190,10 +2190,11 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_open_direct_message",
       description:
-        "Open or reuse your Direct Message with an active Human or Agent Profile in this organization. Use an exact profile ID from the organization directory. To send a message, include message with a fresh UUID clientMessageId and an explicit wake boolean; reuse that UUID when retrying the same message. Set wake=true only to assign concrete work to an Agent; it replies in the new conversation. Sending is not proof of completion. Ordinary messages never start Agent work. Agent owners can read the conversation and join, which turns it into a Space. To create a separate chat between yourself as Center Agent and a Human, pass a fresh UUID creationId; keep it on retries. Omit creationId for all other pairs. Return the conversation link so the user can open it. Do not forward unrelated private context or wake another Agent just to acknowledge its reply.",
+        "Open or reuse your Direct Message with an active Human or Agent Profile in this organization. Use an exact profile ID from the organization directory. To assign work, first open without message, then send message with wake=true, the returned spaceId, and a fresh UUID clientMessageId. Keep that spaceId and UUID on retries and use them with openmeld_stop_space_wake even before sending finishes. Never reopen a converted conversation to retry work. Set wake=true only to assign concrete work to an Agent; it replies in that conversation. Sending is not proof of completion. Ordinary messages use wake=false and never start Agent work. Agent owners can read the conversation and join, which turns it into a Space. To create a separate chat between yourself as Center Agent and a Human, pass a fresh UUID creationId only when opening; keep it on opening retries. Omit creationId for all other pairs and when sending with spaceId. Return the conversation link so the user can open it. Do not forward unrelated private context or wake another Agent just to acknowledge its reply.",
       input: strictObject({
         targetProfileId: string(),
         creationId: optional(string()),
+        spaceId: optional(string()),
         message: optional(
           strictObject({
             clientMessageId: string(),
@@ -3283,7 +3284,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
           readSpaceWakeProgressToolInputSchema,
           payload
         );
-        const toolContext = await buildOrganizationMemberToolContext({
+        const toolContext = await buildWakeControlToolContext({
           storage: input.storage,
           submissionId: input.submissionId,
           toolName: "openmeld_read_space_wake_progress",
@@ -3300,11 +3301,11 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_stop_space_wake",
       description:
-        "Stop one exact request in a Space, including while it is being sent or waiting to start. Use clientMessageId and targetProfileId from the send receipt; sourceSignalId also works after publication. A progress read is not required. OpenMeld checks the verified current requester's permission. cancellation_requested means stopping, not confirmed stopped. Completed actions are not undone.",
+        "Stop one exact request in a Space, including while it is being sent or waiting to start. Use its spaceId, clientMessageId, and targetProfileId; sourceSignalId also works after publication. A progress read is not required. You can stop your own Agent Direct Message requests. Other requests require the verified current requester's permission. cancellation_requested means stopping, not confirmed stopped. Completed actions are not undone.",
       input: stopSpaceWakeToolInputSchema,
       execute: async (payload) => {
         const request = parseValibot(stopSpaceWakeToolInputSchema, payload);
-        const toolContext = await buildOrganizationMemberToolContext({
+        const toolContext = await buildWakeControlToolContext({
           storage: input.storage,
           submissionId: input.submissionId,
           toolName: "openmeld_stop_space_wake",
@@ -6595,6 +6596,24 @@ async function buildRepresentedMemberAttributionToolContext(input: {
   return {
     context: toolContext.context,
     onBehalfOf: { profileId },
+  };
+}
+
+async function buildWakeControlToolContext(input: {
+  storage: RemoteAgentReadableStorage;
+  submissionId: string;
+  toolName: RemoteAgentOpenMeldToolName;
+}): Promise<{
+  context: OpenMeldRequestContext;
+  speakerMember?: CenterAgentToolSpeaker;
+}> {
+  const toolContext = await buildOpenMeldToolContext(input);
+  const speakerMember = resolveOrganizationMemberTurnEnvelopeSpeaker(
+    toolContext.turnEnvelope
+  );
+  return {
+    context: toolContext.context,
+    ...(speakerMember ? { speakerMember } : {}),
   };
 }
 

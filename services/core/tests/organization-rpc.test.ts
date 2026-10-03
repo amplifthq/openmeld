@@ -12,6 +12,7 @@ import type {
   ListSpaceThreadsResponse,
   LocalRuntimesResponse,
   OpenMeldRequestContext,
+  PostSpaceWakeStopResponse,
   SignalTextEnvelope,
 } from "@openmeld/schemas/types";
 import { OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE } from "@openmeld/space";
@@ -11267,27 +11268,31 @@ describe("Center Agent Wake Stop delegation", () => {
       ],
     });
     const spaceStub = createSpaceStub({ spaces: db.spaces });
-    const stop = vi.fn((input: { context: OpenMeldRequestContext }) => {
-      if (input.context.actorContext.profileKind === "agent") {
-        return Promise.reject(
-          Object.assign(new Error("Only the requester can stop this Wake"), {
-            status: 403,
-          })
-        );
-      }
-      return Promise.resolve({
-        cancellationState: {
-          observedAtMs: TEST_NOW_MS,
-          reasonCode: "runtime_coordinator.pre_agent_stop_requested",
+    const stop = vi.fn(
+      (input: {
+        context: OpenMeldRequestContext;
+      }): Promise<PostSpaceWakeStopResponse> => {
+        if (input.context.actorContext.profileKind === "agent") {
+          return Promise.reject(
+            Object.assign(new Error("Only the requester can stop this Wake"), {
+              status: 403,
+            })
+          );
+        }
+        return Promise.resolve({
+          cancellationState: {
+            observedAtMs: TEST_NOW_MS,
+            reasonCode: "runtime_coordinator.pre_agent_stop_requested",
+            status: "cancelled" as const,
+          },
+          ok: true as const,
+          runtimeCoordinatorExecutionId: null,
           status: "cancelled" as const,
-        },
-        ok: true as const,
-        runtimeCoordinatorExecutionId: null,
-        status: "cancelled" as const,
-        stopMode: "openmeld_owned_pre_agent" as const,
-        targetProfileId: SECOND_AGENT_PROFILE_ID,
-      });
-    });
+          stopMode: "openmeld_owned_pre_agent" as const,
+          targetProfileId: SECOND_AGENT_PROFILE_ID,
+        });
+      }
+    );
     Object.assign(spaceStub, { rpcPostWakeStop: stop });
     return { env: buildEnv({ db, spaceStub }), spaceStub, stop };
   };
@@ -11302,10 +11307,14 @@ describe("Center Agent Wake Stop delegation", () => {
         speakerMember: { memberId: "member-a", userId: "user-a" },
       })
     ).resolves.toMatchObject({ status: "cancelled" });
-    expect(stop).toHaveBeenCalledOnce();
+    expect(stop).toHaveBeenCalledTimes(2);
     expect(
       stop.mock.calls.map(([request]) => request.context.actorContext)
     ).toEqual([
+      expect.objectContaining({
+        openMeldProfileId: AGENT_PROFILE_ID,
+        profileKind: "agent",
+      }),
       expect.objectContaining({
         openMeldProfileId: HUMAN_PROFILE_ID,
         ownerUserId: "user-a",
@@ -11324,7 +11333,13 @@ describe("Center Agent Wake Stop delegation", () => {
         speakerMember: { memberId: "member-a", userId: "user-a" },
       })
     ).rejects.toMatchObject({ status: 403 });
-    expect(stop).not.toHaveBeenCalled();
+    expect(stop).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        context: expect.objectContaining({
+          actorContext: expect.objectContaining({ profileKind: "agent" }),
+        }),
+      })
+    );
   });
 
   it("does not call Space Stop across Organizations", async () => {
@@ -11340,7 +11355,125 @@ describe("Center Agent Wake Stop delegation", () => {
     expect(stop).not.toHaveBeenCalled();
   });
 
-  it("keeps Center progress available when the requester cannot read that Space", async () => {
+  it("keeps a Space-authorized self-Stop without requiring a Human requester", async () => {
+    const { env, stop } = setup(false);
+    stop.mockResolvedValueOnce({
+      ok: true,
+      runtimeCoordinatorExecutionId: null,
+      status: "cancelled",
+      stopMode: "openmeld_owned_pre_agent",
+      targetProfileId: SECOND_AGENT_PROFILE_ID,
+      cancellationState: {
+        observedAtMs: TEST_NOW_MS,
+        reasonCode: "space.wake_stopped_before_send",
+        status: "cancelled",
+      },
+    });
+    await expect(
+      rpcCenterAgentStopSpaceWake(env, {
+        body: stopBody,
+        context: centerContext(),
+        spaceId: JOINED_PUBLIC_SPACE_ID,
+      })
+    ).resolves.toMatchObject({ status: "cancelled" });
+    expect(stop).toHaveBeenCalledOnce();
+    expect(stop.mock.calls[0]?.[0].context.actorContext.profileKind).toBe(
+      "agent"
+    );
+  });
+
+  it("does not retry an uncertain self-Stop as a Human", async () => {
+    const { env, stop } = setup(true);
+    stop.mockRejectedValueOnce(
+      Object.assign(new Error("Cancellation unavailable"), { status: 503 })
+    );
+    await expect(
+      rpcCenterAgentStopSpaceWake(env, {
+        body: stopBody,
+        context: centerContext("submission-center-stop"),
+        spaceId: JOINED_PUBLIC_SPACE_ID,
+        speakerMember: { memberId: "member-a", userId: "user-a" },
+      })
+    ).rejects.toMatchObject({ status: 503 });
+    expect(stop).toHaveBeenCalledOnce();
+  });
+
+  it("does not replace a missing Center UUID with a Human early-Stop fence", async () => {
+    const { env, stop } = setup(true);
+    stop.mockResolvedValueOnce({
+      ok: false,
+      status: "not_found",
+      runtimeCoordinatorExecutionId: null,
+      targetProfileId: SECOND_AGENT_PROFILE_ID,
+      reasonCode: "space.wake_stop_target_not_found",
+      cancellationState: {
+        observedAtMs: TEST_NOW_MS,
+        reasonCode: "space.wake_stop_target_not_found",
+        status: "not_requested",
+      },
+    });
+    await expect(
+      rpcCenterAgentStopSpaceWake(env, {
+        body: {
+          target: {
+            by: "client_message",
+            clientMessageId: "00000000-0000-4000-8000-000000000094",
+            targetProfileId: SECOND_AGENT_PROFILE_ID,
+          },
+        },
+        context: centerContext("submission-center-stop"),
+        spaceId: JOINED_PUBLIC_SPACE_ID,
+        speakerMember: { memberId: "member-a", userId: "user-a" },
+      })
+    ).resolves.toMatchObject({ status: "not_found" });
+    expect(stop).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    false,
+    true,
+  ])("delegates a UUID only after resolving an existing source (found: %s)", async (found) => {
+    const { env, stop, spaceStub } = setup(true);
+    const lookup = vi.fn(async () => ({
+      matches: found
+        ? [
+            {
+              sourceSignalId: stopBody.target.sourceSignalId,
+              targetProfileId: SECOND_AGENT_PROFILE_ID,
+            },
+          ]
+        : [],
+    }));
+    Object.assign(spaceStub, { rpcGetDispatchLookup: lookup });
+    const result = rpcCenterAgentStopSpaceWake(env, {
+      body: {
+        target: {
+          by: "client_message",
+          clientMessageId: "00000000-0000-4000-8000-000000000094",
+          targetProfileId: SECOND_AGENT_PROFILE_ID,
+        },
+      },
+      context: centerContext("submission-center-stop"),
+      spaceId: JOINED_PUBLIC_SPACE_ID,
+      speakerMember: { memberId: "member-a", userId: "user-a" },
+    });
+    if (found) {
+      await expect(result).resolves.toMatchObject({ status: "cancelled" });
+      expect(stop).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          body: stopBody,
+          context: expect.objectContaining({
+            actorContext: expect.objectContaining({ profileKind: "human" }),
+          }),
+        })
+      );
+    } else {
+      await expect(result).rejects.toMatchObject({ status: 403 });
+      expect(stop).toHaveBeenCalledOnce();
+    }
+  });
+
+  it("keeps the Center's own authorized Stop eligibility when the requester cannot read that Space", async () => {
     const { env, spaceStub } = setup(true);
     const progress = {
       items: [
@@ -11369,7 +11502,7 @@ describe("Center Agent Wake Stop delegation", () => {
         speakerMember: { memberId: "member-a", userId: "user-a" },
       })
     ).resolves.toMatchObject({
-      items: [{ wakeStopEligibility: null }],
+      items: [{ wakeStopEligibility: { status: "eligible" } }],
     });
     expect(read).toHaveBeenCalledTimes(2);
   });

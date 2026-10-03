@@ -26,10 +26,12 @@ export const personalRemoteAgentSpaceToolRequestSchema = z.strictObject({
     z.strictObject({ kind: z.literal("board") }),
     z.strictObject({
       kind: z.literal("wake_progress"),
+      spaceId: identifier.optional(),
       query: getSpaceWakeProgressInputSchema.omit({ spaceId: true }),
     }),
     z.strictObject({
       kind: z.literal("wake_stop"),
+      spaceId: identifier.optional(),
       body: postSpaceWakeStopBodySchema,
     }),
     z.strictObject({

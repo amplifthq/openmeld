@@ -82,18 +82,25 @@ export function getPersonalRemoteAgentTools(input: {
     {
       name: "openmeld_read_space_wake_progress",
       description:
-        "Read the current state of an exact request in this conversation. Use its clientMessageId and optionally targetProfileId. Do not infer completion from message delivery or poll continuously.",
+        "Read the current state of an exact request. Use its clientMessageId and optionally targetProfileId. Omit spaceId for this conversation, or pass the Space ID returned when you opened another Direct Message. Your current access applies. Do not infer completion from message delivery or poll continuously.",
       input: object({
+        spaceId: optional(string()),
         clientMessageId: string(),
         targetProfileId: optional(string()),
       }),
-      execute: async (query) => await execute({ kind: "wake_progress", query }),
+      execute: async ({ spaceId, ...query }) =>
+        await execute({
+          kind: "wake_progress",
+          ...(spaceId === undefined ? {} : { spaceId }),
+          query,
+        }),
     },
     {
       name: "openmeld_stop_space_wake",
       description:
-        "Stop one exact request in this conversation, including before it starts. Use its clientMessageId or sourceSignalId and targetProfileId. Your own Agent's permissions apply. cancellation_requested means stopping, not confirmed stopped. Completed actions are not undone.",
+        "Stop one exact request, including before it starts. Use its clientMessageId or sourceSignalId and targetProfileId. Omit spaceId for this conversation, or pass the Space ID returned when you opened another Direct Message. Your own Agent's permissions apply. cancellation_requested means stopping, not confirmed stopped. Completed actions are not undone.",
       input: object({
+        spaceId: optional(string()),
         target: variant("by", [
           object({
             by: literal("client_message"),
@@ -107,7 +114,12 @@ export function getPersonalRemoteAgentTools(input: {
           }),
         ]),
       }),
-      execute: async (body) => await execute({ kind: "wake_stop", body }),
+      execute: async ({ spaceId, ...body }) =>
+        await execute({
+          kind: "wake_stop",
+          ...(spaceId === undefined ? {} : { spaceId }),
+          body,
+        }),
     },
     {
       name: "openmeld_read_space_messages",

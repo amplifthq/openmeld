@@ -3104,11 +3104,99 @@ describe("remote agent OpenMeld tool catalog", () => {
       })
     );
     expect(response).toMatchObject({ spaceId: SPACE_ID, created: true });
+    const message = {
+      clientMessageId: "00000000-0000-4000-8000-000000000081",
+      text: "Here is the plan.",
+      wake: false,
+    };
+    await executeTool(tools, "openmeld_open_direct_message", {
+      targetProfileId: HUMAN_PROFILE_ID,
+      spaceId: SPACE_ID,
+      message,
+    });
+    expect(remoteAgentOpenDirectMessageSpace).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        targetProfileId: HUMAN_PROFILE_ID,
+        spaceId: SPACE_ID,
+        message,
+      })
+    );
     await expect(
       readRemoteAgentCallbackContext(storage, ACK.submissionId)
     ).resolves.toMatchObject({
       navigationTarget: { kind: "space", spaceId: SPACE_ID },
     });
+  });
+
+  it("lets an Agent-origin Center turn control its own DM work without a Human speaker", async () => {
+    const base = createSubmitTurnRequest();
+    const request = createSubmitTurnRequest({
+      turnEnvelope: {
+        ...base.turnEnvelope,
+        sender: {
+          kind: "agent_profile",
+          id: "peer-agent",
+          displayName: "Peer Agent",
+          profileId: "peer-agent",
+          verified: true,
+        },
+      },
+    });
+    const progress = {
+      query: { spaceId: SPACE_ID, targetProfileId: null },
+      items: [],
+    };
+    const stopped = {
+      ok: true,
+      runtimeCoordinatorExecutionId: null,
+      status: "cancelled",
+      stopMode: "openmeld_owned_pre_agent",
+      targetProfileId: AGENT_PROFILE_ID,
+      cancellationState: {
+        observedAtMs: TEST_NOW_MS,
+        reasonCode: "space.wake_stopped_before_send",
+        status: "cancelled",
+      },
+    };
+    const read = vi.fn(async (_request: unknown) => progress);
+    const stop = vi.fn(async (_request: unknown) => stopped);
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: {
+        centerAgentReadSpaceWakeProgress: read,
+        centerAgentStopSpaceWake: stop,
+      },
+      storage: await createStorageWithPendingContext(request),
+      turnEnvelope: request.turnEnvelope,
+    });
+    await expect(
+      executeTool(tools, "openmeld_read_space_wake_progress", {
+        spaceId: SPACE_ID,
+      })
+    ).resolves.toEqual(progress);
+    await expect(
+      executeTool(tools, "openmeld_stop_space_wake", {
+        spaceId: SPACE_ID,
+        target: {
+          by: "client_message",
+          clientMessageId: "00000000-0000-4000-8000-000000000093",
+          targetProfileId: AGENT_PROFILE_ID,
+        },
+      })
+    ).resolves.toEqual(stopped);
+    for (const call of [read, stop]) {
+      expect(call).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({
+          spaceId: SPACE_ID,
+          context: expect.objectContaining({
+            actorContext: expect.objectContaining({
+              openMeldProfileId: request.agentProfileId,
+              agentControllerRef: "hosted:center-agent",
+            }),
+          }),
+        })
+      );
+      expect(call.mock.calls[0]?.[0]).not.toHaveProperty("speakerMember");
+    }
   });
 
   it("creates a private Space with members-only access when access settings are omitted", async () => {

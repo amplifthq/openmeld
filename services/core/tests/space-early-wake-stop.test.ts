@@ -18,13 +18,19 @@ import { ensureSpaceSqlSchema } from "../src/space/infrastructure/sql/space-sche
 import type { Space } from "../src/space/transport/do/space";
 
 const targetProfileId = "agt_11111111-1111-4111-8111-111111111111";
-const clientMessageId = "early-stop-request";
 
 it.each([
-  "builtin:codex",
-  "hosted:center-agent",
-  "hosted:remote-agent",
-])("fences a late %s send and persists exactly one stopped outcome", async (agentControllerRef) => {
+  { agentControllerRef: "builtin:codex", centerSender: false },
+  { agentControllerRef: "hosted:center-agent", centerSender: false },
+  { agentControllerRef: "hosted:remote-agent", centerSender: false },
+  { agentControllerRef: "builtin:codex", centerSender: true },
+])("fences a late $agentControllerRef send (Center DM: $centerSender) and persists exactly one stopped outcome", async ({
+  agentControllerRef,
+  centerSender,
+}) => {
+  const clientMessageId = centerSender
+    ? "00000000-0000-4000-8000-000000000091"
+    : "early-stop-request";
   const namespace = (
     env as unknown as { OPENMELD_SPACES: DurableObjectNamespace<Space> }
   ).OPENMELD_SPACES;
@@ -44,15 +50,41 @@ it.each([
       );
       ensureSpaceSqlSchema(state.storage.sql);
       const now = new Date().toISOString();
-      upsertSpaceMetaRecord(state.storage.sql, {
+      const organizationId = `org-${state.id}`;
+      const senderProfileId = centerSender
+        ? "agt_22222222-2222-4222-8222-222222222222"
+        : "human";
+      const meta = {
         v: 1,
         spaceId: state.id.toString(),
-        organizationId: "org",
+        organizationId,
         visibility: "private",
         accessMode: "public",
         createdAt: now,
         updatedAt: now,
-      });
+        ...(centerSender
+          ? {
+              purpose: "openmeld_dm_space",
+              directMessage: {
+                pairKey: [senderProfileId, targetProfileId].sort().join(":"),
+              },
+            }
+          : {}),
+      } as const;
+      upsertSpaceMetaRecord(state.storage.sql, meta);
+      if (centerSender) {
+        await env.OPENMELD_DB.batch([
+          env.OPENMELD_DB.prepare(
+            "INSERT INTO organizations (id, name, slug, created_at) VALUES (?, 'Stop test', ?, 1)"
+          ).bind(organizationId, organizationId),
+          env.OPENMELD_DB.prepare(
+            "INSERT INTO openmeld_profiles (profile_id, profile_name, profile_handle, profile_kind, is_default, status, organization_id, owner_user_id, source, managed_role, created_at, updated_at) VALUES (?, 'Center Agent', ?, 'agent', 0, 'active', ?, NULL, 'cli_create', 'center_agent', 1, 1)"
+          ).bind(senderProfileId, senderProfileId, organizationId),
+          env.OPENMELD_DB.prepare(
+            "INSERT INTO center_agent_designations (organization_id, agent_profile_id, duty, created_at) VALUES (?, ?, NULL, 1)"
+          ).bind(organizationId, senderProfileId),
+        ]);
+      }
       upsertSpaceMemberRecord(state.storage.sql, {
         spaceId: state.id.toString(),
         profileId: targetProfileId,
@@ -93,12 +125,14 @@ it.each([
         ) => void;
       };
       const context: OpenMeldRequestContext = {
-        activeOrganizationId: "org",
+        activeOrganizationId: organizationId,
         actorContext: {
-          openMeldProfileId: "human",
-          ownerUserId: "owner",
-          callerPrincipalId: "owner",
-          profileKind: "human",
+          openMeldProfileId: senderProfileId,
+          ...(centerSender
+            ? { agentControllerRef: "hosted:center-agent" }
+            : { ownerUserId: "owner" }),
+          callerPrincipalId: centerSender ? senderProfileId : "owner",
+          profileKind: centerSender ? "agent" : "human",
           requestId: "stop",
         },
       };
@@ -123,7 +157,7 @@ it.each([
           ruleSource: "system",
           sourceSignalSnapshot: {
             profileId: senderProfileId,
-            profileKind: "human",
+            profileKind: centerSender ? "agent" : "human",
             profileMentionLabel: senderProfileId,
             text: "Please investigate",
           },
@@ -134,7 +168,7 @@ it.each([
           targetProfileId: target,
           nowMs: Date.now(),
         });
-      const record = makeRecord("human");
+      const record = makeRecord(senderProfileId);
       const dispatches: unknown[] = [];
       const notices: SignalEnvelope[] = [];
       state.storage.transactionSync(() =>
@@ -180,7 +214,10 @@ it.each([
       });
       // A guessed client ID must not cancel another author or another target.
       internal.collectInsertedDispatchMessages(
-        [makeRecord("another-human"), makeRecord("human", "another-agent")],
+        [
+          makeRecord("another-human"),
+          makeRecord(senderProfileId, "another-agent"),
+        ],
         dispatches,
         notices
       );
@@ -197,6 +234,33 @@ it.each([
           context
         )
       ).toBeNull();
+      if (centerSender && meta.directMessage) {
+        upsertSpaceMetaRecord(state.storage.sql, {
+          ...meta,
+          directMessage: { ...meta.directMessage, convertedAt: now },
+        });
+        const newClientMessageId = "00000000-0000-4000-8000-000000000092";
+        expect(
+          await internal.handlePostWakeStop(
+            {
+              target: {
+                by: "client_message",
+                clientMessageId: newClientMessageId,
+                targetProfileId,
+              },
+            },
+            context
+          )
+        ).toMatchObject({ status: "not_found" });
+        expect(
+          state.storage.sql
+            .exec(
+              "SELECT * FROM space_pending_wake_stops WHERE client_message_id = ?",
+              newClientMessageId
+            )
+            .toArray()
+        ).toEqual([]);
+      }
     }
   );
 });

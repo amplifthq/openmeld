@@ -70,6 +70,7 @@ import {
   nativeReplyPlacementSchema,
   normalizeMessageEnvelope,
   normalizeSpaceCursorPatch,
+  openDirectMessageSpaceBodySchema,
   openMeldDaemonTaskResultEnvelopeSchema,
   type PluginConnectionContinuationBinding,
   type PluginConnectionLocalSourceRequest,
@@ -297,6 +298,7 @@ import {
 import type { AuthProfileFacts } from "../../../auth/application/profile-facts-reader";
 import { readAgentProfileOrganizationContext } from "../../../center-agent/center-agent-organization-scope";
 import {
+  isCenterAgentDesignationActive,
   readCenterAgentDesignationRecord,
   readCenterAgentWakeAuditAttribution,
   readResolvedOrganizationOwnerHumanSpaceMember,
@@ -14115,20 +14117,41 @@ export class Space extends DurableObject<CoreBindings> {
         targetProfileId: body.target.targetProfileId,
       });
     }
-    // No external read between inspecting the Space source/outbox and its fence.
-    return this.stopUnreceivedWake(body, context);
+    const centerDirectMessageAuthor =
+      !context.actorContext.ownerUserId &&
+      (await this.isCenterAgentDirectMessageWakeAuthor({
+        clientMessageId: body.target.clientMessageId,
+        context,
+        targetProfileId: body.target.targetProfileId,
+      }));
+    // Identity reads precede the synchronous source/outbox and conversion check.
+    return this.stopUnreceivedWake(
+      body,
+      context,
+      context.actorContext.openMeldProfileId,
+      centerDirectMessageAuthor
+    );
   }
 
   private stopUnreceivedWake(
     body: PostSpaceWakeStopBody,
     context: OpenMeldRequestContext,
-    sourceProfileId = context.actorContext.openMeldProfileId
+    sourceProfileId = context.actorContext.openMeldProfileId,
+    centerDirectMessageAuthor = false
   ): PostSpaceWakeStopResponse | null {
     const actor = context.actorContext;
     if (
       body.target.by !== "client_message" ||
       actor.profileKind === "system" ||
-      !actor.ownerUserId ||
+      !(
+        actor.ownerUserId ||
+        (centerDirectMessageAuthor &&
+          this.isCenterAgentDirectMessageWake({
+            clientMessageId: body.target.clientMessageId,
+            context,
+            targetProfileId: body.target.targetProfileId,
+          }))
+      ) ||
       this.readSourceTextSignalByClientMessageId(body.target.clientMessageId) ||
       this.readWakeStopOutboxDispatchLookup(body.target).matches.length > 0
     ) {
@@ -14168,8 +14191,20 @@ export class Space extends DurableObject<CoreBindings> {
     const source = input.sourceSignalId
       ? this.readSignalById(input.sourceSignalId)
       : null;
-    if (!ownerUserId || actor.profileKind === "system") {
+    if (actor.profileKind === "system") {
       return false;
+    }
+    if (!ownerUserId) {
+      return (
+        source?.type === "signal.text" &&
+        source.profile.profileId === actor.openMeldProfileId &&
+        (await this.isCenterAgentDirectMessageWakeAuthor({
+          clientMessageId: source.data.meta?.clientMessageId,
+          context: input.context,
+          sourceTimestamp: source.ts,
+          targetProfileId: input.targetProfileId,
+        }))
+      );
     }
     if (source?.profile.profileId === actor.openMeldProfileId) {
       return true;
@@ -14218,6 +14253,64 @@ export class Space extends DurableObject<CoreBindings> {
       }
     }
     return false;
+  }
+
+  private isCenterAgentDirectMessageWake(input: {
+    clientMessageId: unknown;
+    context: OpenMeldRequestContext;
+    sourceTimestamp?: number;
+    targetProfileId: string;
+  }): boolean {
+    const actor = input.context.actorContext;
+    if (
+      actor.profileKind !== "agent" ||
+      actor.ownerUserId ||
+      actor.agentControllerRef !== HOSTED_CENTER_AGENT_CONTROLLER_REF ||
+      actor.callerPrincipalId !== actor.openMeldProfileId ||
+      !openDirectMessageSpaceBodySchema.shape.message
+        .unwrap()
+        .shape.clientMessageId.safeParse(input.clientMessageId).success
+    ) {
+      return false;
+    }
+    const meta = this.readSpaceMetaRecord();
+    return Boolean(
+      meta?.purpose === "openmeld_dm_space" &&
+        meta.organizationId === input.context.activeOrganizationId &&
+        meta.directMessage?.pairKey ===
+          [actor.openMeldProfileId, input.targetProfileId].sort().join(":") &&
+        (!meta.directMessage.convertedAt ||
+          (input.sourceTimestamp !== undefined &&
+            input.sourceTimestamp <=
+              Date.parse(meta.directMessage.convertedAt)))
+    );
+  }
+
+  private async isCenterAgentDirectMessageWakeAuthor(input: {
+    clientMessageId: unknown;
+    context: OpenMeldRequestContext;
+    sourceTimestamp?: number;
+    targetProfileId: string;
+  }): Promise<boolean> {
+    const organizationId = input.context.activeOrganizationId;
+    if (!(organizationId && this.isCenterAgentDirectMessageWake(input))) {
+      return false;
+    }
+    const db = identityDb(this.bindings);
+    if (!db) {
+      return false;
+    }
+    const designation = await readCenterAgentDesignationRecord({
+      db,
+      organizationId,
+    });
+    return Boolean(
+      designation &&
+        isCenterAgentDesignationActive(designation) &&
+        designation.agentProfileId ===
+          input.context.actorContext.openMeldProfileId &&
+        this.isCenterAgentDirectMessageWake(input)
+    );
   }
 
   private async isRepresentedCenterAgentWakeRequester(input: {

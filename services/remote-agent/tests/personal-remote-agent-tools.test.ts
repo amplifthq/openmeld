@@ -4,7 +4,10 @@ import { buildRemoteAgentSystemPrompt } from "../agent-core/prompt";
 import { createSubmitTurnRequest } from "./fixtures";
 
 describe("personal Remote Agent capabilities", () => {
-  it("forwards an exact early Stop without granting access to another Space", async () => {
+  it.each([
+    undefined,
+    "new-agent-dm",
+  ])("routes an exact early Stop with Space %s for Core authorization", async (spaceId) => {
     // Shape captured from Core's RuntimeCoordinator Stop contract fixture.
     const response = {
       ok: true,
@@ -30,18 +33,52 @@ describe("personal Remote Agent capabilities", () => {
       clientMessageId: "not-yet-published",
       targetProfileId: response.targetProfileId,
     };
-    expect(await stop.execute({ target })).toEqual({
+    const scope = spaceId ? { spaceId } : {};
+    expect(await stop.execute({ target, ...scope })).toEqual({
       kind: "wake_stop",
       response,
     });
     expect(call).toHaveBeenCalledExactlyOnceWith({
       submissionId: "accepted-submission",
-      operation: { kind: "wake_stop", body: { target } },
+      operation: { kind: "wake_stop", body: { target }, ...scope },
     });
     await expect(
-      stop.execute({ target, spaceId: "another-space" })
+      stop.execute({ target, ...scope, profileId: "another-agent" })
     ).rejects.toThrow();
     expect(call).toHaveBeenCalledTimes(1);
+  });
+  it.each([
+    undefined,
+    "new-agent-dm",
+  ])("routes Wake progress with Space %s for Core authorization", async (spaceId) => {
+    const progress = {
+      query: {
+        spaceId: spaceId ?? "source-space",
+        clientMessageId: "message-1",
+        targetProfileId: null,
+      },
+      items: [],
+    };
+    const call = vi.fn(async () => ({ kind: "wake_progress", progress }));
+    const read = getPersonalRemoteAgentTools({
+      coreWorker: { personalRemoteAgentSpaceTool: call },
+      submissionId: "accepted-submission",
+    }).find((tool) => tool.name === "openmeld_read_space_wake_progress");
+    if (!read) {
+      throw new Error("Wake progress tool missing");
+    }
+    const scope = spaceId ? { spaceId } : {};
+    expect(
+      await read.execute({ clientMessageId: "message-1", ...scope })
+    ).toEqual({ kind: "wake_progress", progress });
+    expect(call).toHaveBeenCalledExactlyOnceWith({
+      submissionId: "accepted-submission",
+      operation: {
+        kind: "wake_progress",
+        query: { clientMessageId: "message-1" },
+        ...scope,
+      },
+    });
   });
   it("retains conversation tools without optional shared-context tools", () => {
     const tools = getPersonalRemoteAgentTools({

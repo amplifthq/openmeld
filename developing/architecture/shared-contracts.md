@@ -45,13 +45,11 @@ participant pair and unconverted DM status before publication. The CLI exposes
 same message ID. Native tools open first, then send using that receipt. There
 is no second cancellation store: the existing Space Stop fence owns late sends.
 
-Personal Remote progress and Stop operations accept optional `spaceId`, defaulting
-to the current delivery's Space. Core bounds an explicit destination to the
-delivery's Organization, then Space checks current access and exact request
-authority. Center Agent self-authored DM Stop uses its canonical identity and
+Center Agent self-authored DM Stop uses its canonical identity and
 current designation; represented-member fallback for UUID messages requires an
 existing source signal. It never creates a pre-send fence under a different
-author. These optional native tool fields require Core before Remote deployment.
+author. Personal Remote Agent routing follows the
+[Direct Message Conversion Contract](#direct-message-conversion-contract).
 
 Core resolves both participants canonically; Gateway, native Agent tools, CLI
 and dispatch tools share this contract. The Space owner serializes DM
@@ -2578,6 +2576,18 @@ additions do not change CLI, OpenMeld Service, daemon, Prepare, Wake dispatch,
 Space action, or diagnostic semantics.
 
 ### Direct Message Conversion Contract
+
+Personal Remote Agent `wake_progress` and `wake_stop` operations accept an
+optional `spaceId` in `personalRemoteAgentSpaceToolRequestSchema`. Omission
+preserves the admitted conversation; an explicit target is checked against
+the admitted Organization and then authorized by the ordinary Space owner.
+Responses, source identity, reply placement, and other conversation tools do
+not change. Contract impact: deploy Core before Remote Agent so the receiver
+accepts the new optional selector. An old Core rejects that selector explicitly;
+it must not silently route the request to the original conversation. Roll back
+the Remote Agent caller before Core. No CLI, Service, Gateway, Web, Prepare,
+RuntimeCoordinator, database, or execution-contract change is required by this
+selector.
 
 `packages/schemas/src/schemas/http/space-direct-message.ts` owns both Direct
 Message open and explicit conversion contracts. Conversion uses

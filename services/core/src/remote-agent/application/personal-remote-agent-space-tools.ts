@@ -12,8 +12,10 @@ import {
 import {
   type CoreBindings,
   identityDb,
+  localStateDb,
   wakeEvidenceDb,
 } from "../../lib/bindings";
+import { createCoreRpcHttpError } from "../../rpc/errors";
 import {
   rpcGetSpaceBoard,
   rpcGetSpaceMemberDirectory,
@@ -28,6 +30,7 @@ import {
   resolveFormalSpaceUpdateActorName,
   resolveFormalSpaceUpdateActorProfileId,
 } from "../../space/rules/formal-space-update";
+import { readSpaceIndexOrganizationJoinTarget } from "../../space-index/space-index-repository";
 import {
   readRemoteAgentNativeDeliveryByIdempotencyKey,
   readRemoteAgentNativeDeliveryBySubmissionId,
@@ -144,8 +147,8 @@ export async function requirePersonalRemoteAgentExecution(
  * The author of a Wake is the requester whose authority the Agent runs under.
  * It is either a Profile owned by an active member (a human, or a member's own
  * Agent), or the Organization's designated Center Agent. The Center Agent has
- * no owner: it delegates on behalf of the verified member who asked it to, and
- * Core already authorized that delegation before publishing the Wake.
+ * no owner: Core authorizes its verified member delegation or its own Agent
+ * Direct Message before publishing the Wake.
  */
 export async function isActiveRemoteAgentRequesterProfile(input: {
   db: D1Database;
@@ -184,6 +187,39 @@ export async function isActiveRemoteAgentRequesterProfile(input: {
   return Boolean(centerAgentProfile);
 }
 
+async function resolvePersonalAgentWakeControlSpace(
+  env: CoreBindings,
+  input: {
+    currentSpaceId: string;
+    organizationId: string;
+    requestedSpaceId?: string;
+  }
+): Promise<string> {
+  const spaceId = input.requestedSpaceId ?? input.currentSpaceId;
+  if (spaceId === input.currentSpaceId) {
+    return spaceId;
+  }
+  const db = localStateDb(env);
+  if (!db) {
+    throw createCoreRpcHttpError({
+      code: "space_index.store_unavailable",
+      reason: "Space access cannot be checked right now. Try again.",
+      status: 503,
+    });
+  }
+  const target = await readSpaceIndexOrganizationJoinTarget({ db, spaceId });
+  if (target?.organizationId !== input.organizationId) {
+    throw createCoreRpcHttpError({
+      code: "space.not_found",
+      reason: "This Space isn't available in the current organization.",
+      status: 404,
+    });
+  }
+  // Organization scope is only a routing bound. The ordinary Space RPC still
+  // checks access and the authenticated Agent's Stop authority on every call.
+  return spaceId;
+}
+
 export async function runPersonalRemoteAgentSpaceTool(
   env: CoreBindings,
   value: unknown
@@ -202,7 +238,11 @@ export async function runPersonalRemoteAgentSpaceTool(
       progress: await rpcGetSpaceWakeProgress(env, {
         ...input.operation.query,
         context,
-        spaceId: delivery.spaceId,
+        spaceId: await resolvePersonalAgentWakeControlSpace(env, {
+          currentSpaceId: delivery.spaceId,
+          organizationId: delivery.organizationId,
+          requestedSpaceId: input.operation.spaceId,
+        }),
       }),
     });
   }
@@ -212,7 +252,11 @@ export async function runPersonalRemoteAgentSpaceTool(
       response: await rpcPostSpaceWakeStop(env, {
         body: input.operation.body,
         context,
-        spaceId: delivery.spaceId,
+        spaceId: await resolvePersonalAgentWakeControlSpace(env, {
+          currentSpaceId: delivery.spaceId,
+          organizationId: delivery.organizationId,
+          requestedSpaceId: input.operation.spaceId,
+        }),
       }),
     });
   }

@@ -14678,6 +14678,7 @@ export async function rpcCenterAgentReadSpaceWakeProgress(
     items: response.items.map((item) => ({
       ...item,
       wakeStopEligibility:
+        item.wakeStopEligibility ??
         representedEligibility.get(
           JSON.stringify([
             item.dispatchId,
@@ -14685,7 +14686,8 @@ export async function rpcCenterAgentReadSpaceWakeProgress(
             item.clientMessageId,
             item.targetProfileId,
           ])
-        ) ?? null,
+        ) ??
+        null,
     })),
   };
   await writeCenterAgentAuditEntry({
@@ -14708,6 +14710,53 @@ export async function rpcCenterAgentStopSpaceWake(
     env,
     spaceId: input.spaceId,
   });
+  // Space alone decides whether this is the Center Agent's own DM request.
+  // A pre-send fence is only valid in its still-unconverted two-Agent DM.
+  // Other requests retain the separately verified Human authority below.
+  let representedBody = input.body;
+  if (
+    input.body.target.by !== "client_message" ||
+    !input.body.target.clientMessageId.startsWith("ca-wake:")
+  ) {
+    try {
+      return await rpcPostSpaceWakeStop(env, {
+        body: input.body,
+        context: prepared.authorization.context,
+        spaceId: input.spaceId,
+      });
+    } catch (error) {
+      if (
+        readCoreRpcHttpStatus(error) !== 403 ||
+        !prepared.representedContext
+      ) {
+        throw error;
+      }
+      if (input.body.target.by === "client_message") {
+        // Changing the caller must never turn an unknown UUID into a different
+        // author's pre-send fence. Delegate only an existing exact source.
+        const lookup = await rpcGetSpaceDispatchLookup(env, {
+          clientMessageId: input.body.target.clientMessageId,
+          targetProfileId: input.body.target.targetProfileId,
+          context: prepared.representedContext,
+          spaceId: input.spaceId,
+        });
+        const sourceSignalId = lookup.matches.find(
+          (match) => match.targetProfileId === input.body.target.targetProfileId
+        )?.sourceSignalId;
+        if (!sourceSignalId) {
+          throw error;
+        }
+        representedBody = {
+          ...input.body,
+          target: {
+            by: "source_signal",
+            sourceSignalId,
+            targetProfileId: input.body.target.targetProfileId,
+          },
+        };
+      }
+    }
+  }
   if (!prepared.representedContext) {
     throw createCoreRpcHttpError({
       code: "center_agent.wake_stop_requester_required",
@@ -14717,7 +14766,7 @@ export async function rpcCenterAgentStopSpaceWake(
     });
   }
   return await rpcPostSpaceWakeStop(env, {
-    body: input.body,
+    body: representedBody,
     context: prepared.representedContext,
     spaceId: input.spaceId,
   });
