@@ -160,7 +160,12 @@ then by main timeline or Thread when expanded. A Thread has one latest-reply
 preview and a quick mark-as-read action. Open requests, urgent outcomes and
 first-contact attention remain separate rows above ordinary updates; they cannot
 be absorbed by a Space or Thread bulk action. Ordinary desktop, connection and
-system notices share a System updates collection. Completed desktop installation
+system notices share a System updates collection. Resolved system requests,
+including restored or stopped Computer connection incidents, join that collection
+even when their original importance was urgent. Reading an urgent informational
+outcome alone does not make it eligible, and open requests remain separate.
+This is read-time grouping of existing items; it does not rewrite source facts,
+read state or resolution. Completed desktop installation
 notices mark read in place instead of navigating to a selected-update panel.
 
 Grouping shares canonical items and read state. Category and other filters run
