@@ -907,6 +907,7 @@ import {
   type CenterAgentConnectorActionRequester,
   readCenterAgentConnectorActionOperationForRecovery,
   readCenterAgentConnectorActionOperationForRequest,
+  readConnectorActionReplayPermission,
   recordCenterAgentConnectorActionOperation,
   resolveConnectorActionReplayWindowRemainingMs,
 } from "../center-agent/connector-action-operation-repository";
@@ -15903,6 +15904,7 @@ export async function rpcCenterAgentReadConnectorActionOperation(
   input: CenterAgentReadConnectorActionOperationInput
 ): Promise<CenterAgentReadConnectorActionOperationResponse> {
   const parsed = centerAgentReadConnectorActionOperationBodySchema.safeParse({
+    includeExecutionPermit: input.includeExecutionPermit,
     includeRecoveryWindow: input.includeRecoveryWindow,
     actionId: input.actionId,
     operationId: input.operationId,
@@ -15939,6 +15941,15 @@ export async function rpcCenterAgentReadConnectorActionOperation(
   return centerAgentReadConnectorActionOperationResponseSchema.parse({
     operation: existing
       ? {
+          ...(parsed.data.includeExecutionPermit
+            ? {
+                replay: await readConnectorActionReplayPermission({
+                  db: prepared.authorization.db,
+                  operation: existing,
+                  nowMs: Date.now(),
+                }),
+              }
+            : {}),
           ...(parsed.data.includeRecoveryWindow
             ? {
                 replayWindowRemainingMs:
@@ -15964,6 +15975,7 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
   input: CenterAgentRecordConnectorActionOperationInput
 ): Promise<CenterAgentRecordConnectorActionOperationResponse> {
   const parsed = centerAgentRecordConnectorActionOperationBodySchema.safeParse({
+    includeExecutionPermit: input.includeExecutionPermit,
     includeRecoveryWindow: input.includeRecoveryWindow,
     actionId: input.actionId,
     effect: input.effect,
@@ -16085,9 +16097,49 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
     service: parsed.data.service,
     sourceNativeDeliveryId: member.sourceNativeDeliveryId,
     sourceSpaceId: member.sourceSpaceId,
+    sourceRequestKey: member.sourceNativeDeliveryId ?? undefined,
+    effectSignature: parsed.data.requestSignature,
+    effect: parsed.data.effect,
+    allowReplay: parsed.data.includeExecutionPermit === true,
   });
+  return await presentConnectorOperationResult({
+    result,
+    db: authorization.db,
+    request: parsed.data,
+  });
+}
+
+async function presentConnectorOperationResult(input: {
+  db: D1Database;
+  request: ReturnType<
+    typeof centerAgentRecordConnectorActionOperationBodySchema.parse
+  >;
+  result: Awaited<ReturnType<typeof recordCenterAgentConnectorActionOperation>>;
+}) {
+  const { result, request } = input;
+  if (
+    request.outcome === "attempted" &&
+    !result.executionAllowed &&
+    !request.includeExecutionPermit
+  ) {
+    throw createCoreRpcHttpError({
+      code: "plugin.operation_recovery_required",
+      reason: `Operation ${result.operation.operationId} is ${result.operation.status}. Use a current runtime to read its recovery receipt; do not repeat the write with another ID.`,
+      status: 409,
+    });
+  }
   return centerAgentRecordConnectorActionOperationResponseSchema.parse({
-    ...(parsed.data.includeRecoveryWindow
+    ...(request.includeExecutionPermit
+      ? {
+          executionAllowed: result.executionAllowed,
+          replay: await readConnectorActionReplayPermission({
+            db: input.db,
+            operation: result.operation,
+            nowMs: Date.now(),
+          }),
+        }
+      : {}),
+    ...(request.includeRecoveryWindow
       ? {
           replayWindowRemainingMs:
             resolveConnectorActionReplayWindowRemainingMs(

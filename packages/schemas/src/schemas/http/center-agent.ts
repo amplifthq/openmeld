@@ -47,6 +47,7 @@ import {
   listAgentProfileCreationDefaultsResponseSchema,
 } from "./agent-profile-binding";
 import { centerAgentToolSpeakerSchema } from "./center-agent-speaker";
+import { connectorActionReplayPermissionSchema } from "./connector-action-replay";
 import {
   connectorConnectionNameSchema,
   connectorConnectionScopeSchema,
@@ -263,6 +264,7 @@ export const centerAgentConnectorActionExecutionConnectionSchema =
 
 export const centerAgentReadConnectorActionOperationBodySchema = z.strictObject(
   {
+    includeExecutionPermit: z.literal(true).optional(),
     includeRecoveryWindow: z.boolean().optional(),
     actionId: trimmedNonEmptyStringSchema.max(160),
     operationId: trimmedNonEmptyStringSchema.max(256),
@@ -273,6 +275,7 @@ export const centerAgentReadConnectorActionOperationBodySchema = z.strictObject(
 
 const centerAgentConnectorActionOperationSchema = z
   .strictObject({
+    replay: connectorActionReplayPermissionSchema.optional(),
     replayWindowRemainingMs: z.int().nonnegative().optional(),
     actionId: trimmedNonEmptyStringSchema.max(160),
     connectionName: connectorConnectionNameSchema,
@@ -305,6 +308,7 @@ export const centerAgentReadConnectorActionOperationResponseSchema =
 
 export const centerAgentRecordConnectorActionOperationBodySchema = z
   .strictObject({
+    includeExecutionPermit: z.literal(true).optional(),
     includeRecoveryWindow: z.boolean().optional(),
     actionId: trimmedNonEmptyStringSchema.max(160),
     effect: z.enum(["read", "write", "destructive", "unspecified"]).optional(),
@@ -329,6 +333,8 @@ export const centerAgentRecordConnectorActionOperationBodySchema = z
 
 export const centerAgentRecordConnectorActionOperationResponseSchema =
   z.strictObject({
+    executionAllowed: z.boolean().optional(),
+    replay: connectorActionReplayPermissionSchema.optional(),
     replayWindowRemainingMs: z.int().nonnegative().optional(),
     attribution: centerAgentAttributionSchema,
     executionConnection: centerAgentConnectorActionExecutionConnectionSchema

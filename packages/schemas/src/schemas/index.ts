@@ -1459,6 +1459,7 @@ export {
   OPENMELD_MACOS_CLI_SIGNING_REQUIREMENT,
   resolveCliBinaryPlatform,
 } from "./http/cli-binary-manifest";
+export { connectorActionReplayPermissionSchema } from "./http/connector-action-replay";
 export {
   buildConnectorAppRequestProviderKey,
   CENTER_AGENT_APP_CONNECTOR_SERVICES,

@@ -599,6 +599,23 @@ schema changes still require normal local artifact verification before delivery.
 
 ## Shared Agent Plugins
 
+Connector execution admission uses the existing operation record and audit
+journal. For a Core-derived task identity, the operation row identity includes
+the exact effect signature rather than the model's chosen operation ID. A
+duplicate ID for that same task/effect resolves to the original operation and
+cannot issue another provider request. Read effects do not use this fence.
+A later explicit request has a different task identity.
+
+`includeExecutionPermit` opts Remote consumers into a per-call execution permit
+and the shared `connectorActionReplayPermissionSchema`. Only a durably recorded
+unknown outcome can permit replay. The operation owner atomically inserts one
+unique replay-attempt journal row, conditional on the original 24-hour window,
+before permitting provider execution. Concurrent requests and process recovery
+cannot renew that allowance. A lost claim response consumes the attempt rather
+than permitting an unrecorded retry. Old consumers may initiate new operations;
+recovery without the explicit permit capability fails closed. Core must precede
+the new consumer. No second quota store or database migration is introduced.
+
 `packages/schemas` owns `plugin-access`, `plugin-actions`, and `plugin-runtime`.
 The Gateway exposes connection access reads/updates and the Local Agent plugin
 action endpoint. Core authenticates organization membership, the acting Profile,
