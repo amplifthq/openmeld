@@ -447,6 +447,9 @@ live target as part of routine verification.
 
 ## Pre-cutover preparation status
 
+The continuing data-migration route, writer inventory and remaining maintenance
+acceptance are tracked in [PostgreSQL cutover preparation](postgresql-cutover.md).
+
 The local product milestone at fixed main baseline
 `6981ec654fa9c2454bdad6d370eabde738a648e7` has passed native journal 0012
 acceptance: ordinary owner/member Web sign-in, organization permission denial,
@@ -465,7 +468,9 @@ DO/R2 reference, selects official or mature export/import tooling, rehearses
 historical D1 data conversion and reconciliation using isolated synthetic
 data, and prepares the existing guarded release owner's dry-run and recovery
 contract. A PostgreSQL-to-PostgreSQL restore does not cover D1 data migration.
-No complete D1 business-data mover or cutover executor is delivered yet.
+The local D1 capture/COPY rehearsal now preserves and reconciles representative
+business records and verifies rollback, including sequence generators. Real
+migrated Web/Wake acceptance and the production cutover executor remain open.
 
 Production Spaces remain active on D1. This preparation does not authorize a
 main merge, main-product deployment, production export, shared-staging mutation,
