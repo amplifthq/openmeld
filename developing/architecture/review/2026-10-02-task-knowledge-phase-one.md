@@ -729,3 +729,202 @@ Only evidence documentation changed. Strict documentation validation and
 `git diff --check -- developing` passed. Existing architecture owners remain
 unchanged; no permission, identity, lifecycle or publication rule is bypassed.
 No dev ports 30240–30243 were listening when checked. The PR remains draft.
+
+## Resumed Closeout And Current-Main Integration (2026-10-03 UTC)
+
+The resumed Wake started from clean local/GitHub head
+`578a4acd00d19e85fd0f2fb7f24973199de7fdb5`. The checked-out branch remained
+`codex/knowledge-phase-one` in the worktree named above. GitHub reported the
+draft PR as conflicting with current main. The implementation branch therefore
+merges fixed main `456799ecb9da3a0c1306019b581769a790dfb6a7`; this is not a merge
+of the PR into main. No other worktree was changed and no history was rewritten.
+
+The current dispatch-owned CLI reports `0.3.237`, and this resumed conversation
+can execute tools. PR #1452 is confirmed merged at `2026-10-02T16:27:41Z`
+(`d911ccf16d514367712c0e88e7eef61200f34d80`). These observations do not certify
+which production services were deployed. A read-only query of the retained dev
+home reports installed Service `0.3.234`, `dev-local`, the expected isolated
+endpoints, and `runtime.state=not_running`. It is not current Wake readiness.
+No dev Service, Worker stack, browser, or binary server was started this round.
+
+### Integration Corrections And Review Surface
+
+Five merge conflicts were resolved. Setup uses main's shared local/production
+OAuth-client constants and parameterized precedence tests; those two files now
+have no diff against the fixed main. The Remote materializer keeps both this
+PR's ordinary task-document directory and main's `summaryOnly` continuation
+behavior. Package/release conflicts were resolved by rebuilding and stamping,
+not by retaining an old source hash.
+
+Current main also adds `open_direct_message` to the real CLI MCP server without
+adding it to the strict shared adapter catalog. Extending the existing connected
+MCP client test to compare `listTools()` with the shared catalog reproduced the
+extra-tool failure before the fix (`knowledge-main-catalog-baseline.log`).
+The shared owner now includes that existing tool alongside `read_documents` and
+`read_skills`. The real packaged catalog and adapter expectations agree;
+delivery-only remains exactly `reply`, `stay_silent`, and `read_receipt`.
+No arbitrary-tool allowance or new collaboration permission was added.
+
+Bounded source excerpt for Remote reviewers:
+
+```ts
+// runtime/adapters/core/src/dispatch-space-action-mcp.ts:14
+// Other existing tools remain in this same exact owner list.
+"read_documents",
+"read_skills",
+"read_result",
+"open_direct_message",
+```
+
+The affected check also exposed a pre-existing main test-layout failure from
+`08fd164a7b9ae9b0fcdadb5f18491afb15d0a914`: a real D1/Durable Object case imported
+`cloudflare:test` inside the unit-only directory. That one case was moved,
+without changing its assertions, from
+`services/core/src/__tests__/space-dispatch-final-visible-message-trace.test.ts`
+to `services/core/tests/space-dispatch-final-visible-message-trace.integration.test.ts`.
+The eleven pure cases stay in the original file. No trace product code changed.
+This small layout repair restores the existing check instead of weakening it.
+
+### Current Validation, Not Historical Certification
+
+All commands below ran in this worktree. `BASE` in the descriptions is the fixed
+main SHA above; shell commands used the full SHA, not a moving main ref.
+
+| Check | Actual result | Local log in `dev-tmp/` |
+| --- | --- | --- |
+| `pnpm install --frozen-lockfile` | Passed | `knowledge-main-install.log` |
+| `pnpm exec turbo run build --filter=openmeld` | 22 tasks passed | `knowledge-main-build.log` |
+| CLI Vitest: `space-action-command`, `auth-computer-handoff`, `computer-auth-handoff` | 83 passed | `knowledge-main-cli-tests.log` |
+| Remote Vitest: tools, materialization, document context | 215 passed | `knowledge-main-remote-final.log` |
+| Core workerd document integration | 39 passed, including genuine persisted Agent-source admission fixtures; not live model Wakes | `knowledge-main-core-docs.log` |
+| Packaged stdio `space-action-entry.integration.test.ts` | 4 passed | `knowledge-main-packaged-mcp.log` |
+| Core/Codex/OpenClaw adapter tests | 17 passed; 5 existing opt-in native-install cases skipped | `knowledge-main-adapter-final.log` |
+| Moved D1 trace case / remaining pure trace cases | 1 integration / 11 pure cases passed; assertions retained | `knowledge-main-trace-integration.log`, `knowledge-main-trace-unit-final.log` |
+| `OPENMELD_AFFECTED_BASE=BASE pnpm check:affected -- --concurrency=2` | 53/53 passed, 49 cached, after layout repair | `knowledge-main-affected-repaired.log` |
+| Base-aware `release:local-components stamp --next` | Rebuilt and verified CLI/Service 0.3.238, both available; required floors remain CLI 0.3.224 / Service 0.3.226 | `knowledge-main-stamp.log` |
+| `OPENMELD_AFFECTED_BASE=BASE pnpm verify:release-ready` | 65 contracts and manifest verification passed | `knowledge-main-release-ready.log` |
+
+The first direct adapter/Remote attempts used old built workspace dependencies;
+the dependency-aware build above resolved missing newly merged schema exports.
+The first affected run failed on the inherited test placement; a continued run
+proved the other 52 tasks passed before repair. An attempted pure-test selection
+with `vitest.boundary.config.ts` selected no files; the recorded final run uses
+the repository's `vitest.config.ts`. None of those initial attempts is counted
+as a passing test. Earlier model/Live Zep evidence retains its original SHA and
+scope; this integration does not turn it into current-main model certification.
+
+### Current Admission Boundary And Executable External Handoff
+
+The ordinary send guard in `runtime/dispatch-owned-runtime.ts:235` is unchanged
+from the historical base; `space/send.ts:43` still invokes it before profile
+resolution or network I/O. Main's new direct-message path is not a dev grant:
+`space/direct-message.ts:101` binds the sender to the admitted receiving Agent,
+then resolves the original source Space and organization under that identity
+and rechecks the context before writes. The production Agent/source do not
+identify the retained synthetic dev account/Space. This path was inspected,
+not attempted as an alternative to the denied send.
+
+The supported `openmeld:dev` launcher (`scripts/dev/openmeld-dev.mjs:92`) forwards
+its existing environment and checks stack availability; it does not create a
+new caller grant. Thus no current repository entry was found that can confer an
+independent dev invocation on this production dispatch. A new test broker would
+need a new authority contract; implementing one is not a small knowledge fix.
+No guard, environment marker, context, or sender was changed to manufacture it.
+
+The precise next owner action is to **start one independent invocation on this
+Mac, explicitly authorized for the retained synthetic dev account, organization,
+Space, Project and worktree**. It must be created by the execution/controller
+owner outside this production Wake, not by a child here dropping dispatch
+markers. Center can hand that owner the following bounded job. This document
+does not itself grant execution permission and the commands were not executed.
+
+1. In the retained worktree, use `pnpm dev:worktree`, then
+   `pnpm dev:web:worktree` and `pnpm cli:binary:serve:worktree` in their normal
+   owned terminals. Confirm the printed lane is `wt-e7ed328ad1a0`. Use its
+   normal Web-generated Connect Computer command to update the retained dev
+   installation to the candidate package. Do not reuse an expired setup grant.
+2. Through normal dev controls, confirm the synthetic account's membership,
+   both target Profiles' Space membership, Project connection to this worktree,
+   and Local controller readiness. The historical installed `0.3.234` binary is
+   not evidence that this new candidate is executing. Keep the fixture document
+   and Skill; do not reseed or change their content.
+3. Only in that independently authorized invocation, run the ordinary CLI
+   command below. The explicit Profile is the synthetic fixture Human, never
+   Felix's production Human or this production Agent.
+
+```sh
+cd /Users/felix/Desktop/work/openmeld-worktrees/knowledge-phase-one
+env \
+  OPENMELD_HOME="$PWD/.turbo/dev/isolated/wt-e7ed328ad1a0/openmeld-home" \
+  OPENMELD_ENV_PRESET=dev-local \
+  OPENMELD_GATEWAY_URL=http://wt-e7ed328ad1a0.localhost:30241 \
+  OPENMELD_AUTH_URL=http://wt-e7ed328ad1a0.localhost:30242 \
+  "$PWD/.turbo/dev/isolated/wt-e7ed328ad1a0/openmeld-home/bin/openmeld" \
+  space send ce723534e003094c2040c7b19e27d9ac8609485808f66d855ae420178d19dc84 \
+  --profile edece9a2-42d6-4ff6-a7d5-b797bb56fce3 \
+  --wake agt_1fe138e9-4557-4f28-8863-92b364c86515 \
+  --reference agt_119359a4-3a94-4a08-b1ce-0d5274fa1583 \
+  --client-message knowledge-phase-one-local-20261003-v1 \
+  --new-task --task-access read_only --task-workspace current --view agent --stdin <<'TASK'
+Use the normal task knowledge tools to find the omitted Maple Lantern Reporting
+Rule and actually read its approved body. Discover and activate maple-status-check
+at this task's selected release, then read references/example.md. Use those
+sources to report these new fictional facts: eight icon checks passed; the
+Thursday glossary review is planned but has not started; the supplier batch ETA
+is unknown. Report the document update/revision and selected release/digest from
+the tools. Do not change documents, Skills, memory, code, or account configuration.
+
+After completing your result, use normal Reply + Wake to the referenced personal
+Remote Agent agt_119359a4-3a94-4a08-b1ce-0d5274fa1583. Ask it to independently find
+and read the approved rule through its own tools and report different facts:
+offline help was tested; a migration was drafted but has not run; translation
+review ETA is unknown. It must report the actual document identity/version and
+publish its own result. Forward only this synthetic task and necessary source
+references, not private memory or unrelated history.
+TASK
+```
+
+4. Retain the send receipt and use the existing `service trace --space ...
+   --client-message knowledge-phase-one-local-20261003-v1 --target-profile
+   agt_1fe138e9-4557-4f28-8863-92b364c86515 --view agent` in the same dev lane.
+   Record Local dispatch/source/time, actual omitted-document body and exact
+   release resource read, model result and published reply. For the handoff,
+   record its source/dispatch/submission and persisted `agent_profile` sender,
+   receiving Remote directory/body tools and public result. Compare new facts
+   against the retained approved B (State/Detail, Completed/Next/Risk), including
+   the distinction between a plan and completed work. Stop on an owner denial
+   without switching transport or changing identity. Stop only the job's dev
+   processes afterwards.
+
+Core remains the account/Profile, membership, audience, target and admission
+owner. RuntimeCoordinator/dev Service owns the Local execution; native delivery
+owns the receiving Remote execution. No raw RPC, D1 insertion or prebuilt fake
+dispatch is required. This is one external admission followed by one ordinary
+Agent handoff, not a new testing platform or a running background promise.
+
+### Scope And Contract Audit
+
+The only added product correction in this round is catalog agreement for a
+tool already present on main. The trace change is test placement only. The
+Remote merge preserves summary-only behavior and personal-Agent approved reads;
+protected Center context and document writes are unchanged. The existing
+optional-speaker document RPC still requires **Core before Remote** rollout;
+matching local bundles carry the exact MCP catalog. No schema/version owner,
+privacy boundary, public-write guard, or lifecycle authority was relaxed. The
+scoped architecture owner documents are consistent with these changes.
+
+Both remaining live model paths are still unverified for lack of the independent
+dev invocation. They are not replaced by the passing Core or packaged tests.
+The new integration/corrections need independent incremental review. Keep PR
+#1429 draft; no Ready transition, merge into main, deployment, binary publication,
+or production login change occurred.
+
+The integration commit is `13acd581e11befbc11cd7d4afa330339b9f5ba7f`, with parents
+`578a4acd00d19e85fd0f2fb7f24973199de7fdb5` and the fixed main above. Incremental
+review can use `git show --remerge-diff 13acd581e11befbc11cd7d4afa330339b9f5ba7f`
+to isolate manual merge resolutions and repairs from main's unrelated history.
+The following commit records this evidence only. Strict documentation checks,
+Changelog build/check, exact-base `git diff --check`, commit hooks, and manifest
+verification after the integration commit passed. The previous independent
+approval was reported by Center for source `e5cdc6be`; it does not approve this
+new integration automatically.
