@@ -1062,6 +1062,16 @@ describe("dispatch-owned native Space tools", () => {
       message: { clientMessageId: "not-a-uuid", text: "Hello", wake: false },
     });
     expect(result.isError).toBe(true);
+    const unpinnedWake = await tools.call("open_direct_message", {
+      targetProfileId: AGENT_PROFILE_ID_TWO,
+      message: {
+        clientMessageId: "22222222-2222-4222-8222-222222222222",
+        text: "Please review this.",
+        wake: true,
+      },
+    });
+    expect(unpinnedWake.isError).toBe(true);
+    expect(JSON.stringify(unpinnedWake.content)).toContain("spaceId");
     expect(readDispatchSpaceActionRecord({ context }).status).toBe("missing");
     await tools.call("reply", { message: "The current task is complete." });
     expect(readLoadedActionRecord(context).action).toMatchObject({

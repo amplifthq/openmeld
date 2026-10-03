@@ -524,9 +524,9 @@ If a pathological name leaves no room for one stem character plus the numbered
 suffix while preserving the complete extension inside the shared name limit,
 Core fails explicitly instead of silently truncating or changing that
 extension.
-Explicit folder creation, rename, move, and Trash restore remain organization
-actions: when their requested destination name is occupied, they return the
-explicit name conflict instead of silently changing the user's request.
+Creating a folder also keeps both items with the next available numbered name,
+as specified by the shared Files contract. Explicit rename, move, and Trash
+restore return a name conflict when their requested destination is occupied.
 
 Space access owns file access. A viewer who may read the Space may list active
 folders, read active metadata, and download active files. Trash is visible only
@@ -864,6 +864,12 @@ An optional message carries a stable client message ID and an explicit
 publication and dispatch owners. A normal message does not start Agent work.
 The message is rejected if the DM converted before publication; it must not
 silently publish into a wider audience. Retrying the same message is idempotent.
+Before starting work, callers open the DM without a message, then send using
+its exact `spaceId` and a stable client message ID. This lets Stop identify the
+request before publication finishes. A pinned send verifies the Organization
+and participant pair and never opens a replacement conversation. The CLI does
+these steps within one command and emits an early request receipt; native tools
+perform two explicit calls. A retry uses that same Space and message identity.
 Local dispatch collaboration is non-final and retains the calling Agent and
 source Organization; its final reply still belongs to the original Wake.
 

@@ -396,9 +396,10 @@ Name and description appear once, above Instructions, as document-style labeled
 inputs for editors and ordinary text for readers. There is no Overview landing
 page, View/Edit switch, raw Markdown preview mode, or second navigation sidebar.
 A sticky action row keeps **All Skills**, the exact save state, **Save**, and
-**More actions** reachable. Only Skills with supporting files show the local
-**Instructions / Files (n)** tabs; switching them neither saves nor leaves the
-Skill. The outer document owns one draft for every surface.
+**More actions** reachable. Editors always see the local **Instructions / Files
+(n)** tabs, including **Files (0)** so they can add the first supporting file.
+Readers see the tabs only when supporting files exist. Switching tabs neither
+saves nor leaves the Skill. The outer document owns one draft for every surface.
 
 **More actions** exposes **Copy link**, **How agents use this skill**,
 **Properties**, and **Version history**. Managers additionally see maintainers,
@@ -422,8 +423,9 @@ mount Plate. Once opened, a reference editor is retained hidden when collapsed,
 so queued input and Undo history are not lost during file switches. File paths
 own presentation identity; accepted content generations still control safe
 external reloads. Other text is read-only, binary assets are downloadable, and
-scripts remain explicitly non-executable. This UI does not add upload or removal
-of bundle files.
+scripts remain explicitly non-executable. Editors can add or remove supporting
+files in the same draft; the next Save publishes those changes as a new Skill
+version. Readers cannot add or remove files.
 
 Instructions and references reuse the shared Plate/CommonMark + GFM editor. Its
 opt-in page presentation supplies a quiet, accessible toolbar and document

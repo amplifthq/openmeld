@@ -438,7 +438,7 @@ export function createDispatchSpaceTools(
     {
       title: "Open or send a Direct Message",
       description:
-        "Open or reuse your private conversation with a Human or Agent in this organization. Use an exact Profile ID. Include message with a stable UUID clientMessageId and wake=true to assign concrete work to an Agent; wake=false sends context only. Keep the same ID on retries. Agent owners can read and join. This is non-final: still return your final action to the current Space. A sent message does not prove work completed. Do not send acknowledgements that wake another Agent or forward unrelated private context.",
+        "Open or reuse your private conversation with a Human or Agent in this organization. Open without message first to obtain spaceId. Then include that spaceId and a message with a stable UUID clientMessageId and wake=true to assign work; wake=false sends context only. Those IDs let you stop the request immediately with space wake-stop. Keep both IDs on retries. Agent owners can read and join. This is non-final: still return your final action to the current Space. A sent message does not prove work completed. Do not send acknowledgements that wake another Agent or forward unrelated private context.",
       inputSchema: openDirectMessageSpaceBodySchema.shape,
       annotations: {
         readOnlyHint: false,
@@ -448,7 +448,14 @@ export function createDispatchSpaceTools(
       },
     },
     async (request) =>
-      executeTaskAction(() => openDirectMessage({ request, env }))
+      executeTaskAction(() => {
+        if (request.message?.wake && !request.spaceId) {
+          throw new Error(
+            "Open the Direct Message first, then include its spaceId when assigning work."
+          );
+        }
+        return openDirectMessage({ request, env });
+      })
   );
 
   server.registerTool(

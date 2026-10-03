@@ -28,13 +28,22 @@
 ## Direct Message opening and publication
 
 The shared `openDirectMessageSpaceBodySchema` accepts an optional idempotent
-Human–Center session `creationId` and an optional message
+Human–Center session `creationId`, an exact DM `spaceId`, and an optional message
 (`clientMessageId`, `text`, explicit `wake`). The response retains
 `memberProfileId` as the initiating Profile, echoes a requested `creationId`,
 and includes a published text signal when requested. These response additions
 are optional and omitted from legacy requests. The API client requires the
 matching creation/message receipt before reporting a requested effect, because
 older Core RPC receivers can ignore newly added arguments during rollout.
+
+Wake publication requires the `spaceId` returned by an earlier open-only call.
+Opening a session and publishing work are separate requests so the caller has
+the Space, author, target and client message ID before work can start. A pinned
+send cannot include `creationId`; the Space transaction verifies its Organization,
+participant pair and unconverted DM status before publication. The CLI exposes
+`space.send.request` before submitting work and retries with `--space` and the
+same message ID. Native tools open first, then send using that receipt. There
+is no second cancellation store: the existing Space Stop fence owns late sends.
 
 Core resolves both participants canonically; Gateway, native Agent tools, CLI
 and dispatch tools share this contract. The Space owner serializes DM

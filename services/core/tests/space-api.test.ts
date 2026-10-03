@@ -56,10 +56,12 @@ import {
   rpcGetSpaceBoard,
   rpcGetSpaceEntryResolution,
   rpcGetSpaceStatus,
+  rpcGetSpaceWakeProgress,
   rpcListCenterAgentSessions,
   rpcOpenCenterAgentDirectMessageSpace,
   rpcOpenDirectMessageSpace,
   rpcPostSignal,
+  rpcPostSpaceWakeStop,
   rpcPostStatusSignal,
   rpcPostSystemNoticeSignal,
 } from "../src/rpc/methods";
@@ -2628,6 +2630,7 @@ describe("OpenMeld Core", () => {
     const stub = namespace.get(namespace.idFromString(spaceId));
     const message = {
       spaceId,
+      organizationId,
       pairKey,
       context,
       authoringPolicy: "user_authored" as const,
@@ -2674,6 +2677,51 @@ describe("OpenMeld Core", () => {
         (error: Error) => error.message
       );
     expect(readOnlyError).toContain("space.access.read_only");
+    const clientMessageId = "00000000-0000-4000-8000-000000000078";
+    await expect(
+      rpcPostSpaceWakeStop(env as CoreBindings, {
+        context,
+        spaceId,
+        body: {
+          target: {
+            by: "client_message",
+            clientMessageId,
+            targetProfileId: secondAgent,
+          },
+        },
+      })
+    ).resolves.toMatchObject({ status: "cancelled" });
+    const pinnedRequest = {
+      context,
+      spaceId,
+      targetProfileId: secondAgent,
+      message: { clientMessageId, text: "Please review this.", wake: true },
+    };
+    const stoppedSend = await rpcOpenDirectMessageSpace(
+      env as CoreBindings,
+      pinnedRequest
+    );
+    expect(stoppedSend.spaceId).toBe(spaceId);
+    expect(stoppedSend.signal?.profile.profileId).toBe(firstAgent);
+    await expect(
+      rpcGetSpaceWakeProgress(env as CoreBindings, {
+        context,
+        spaceId,
+        clientMessageId,
+      })
+    ).resolves.toMatchObject({
+      items: [{ targetProfileId: secondAgent, phase: "stopped" }],
+    });
+    const wrongOrganization = await stub
+      .rpcPostDirectMessageSignal({
+        ...message,
+        organizationId: "another-org",
+      })
+      .then(
+        () => null,
+        (error: Error) => error.message
+      );
+    expect(wrongOrganization).toContain("direct_message.conversation_changed");
     const converted = await stub.rpcConvertDirectMessageToSpace({
       context: ownerContext,
       spaceId,
@@ -2705,6 +2753,9 @@ describe("OpenMeld Core", () => {
       (error: Error) => error.message
     );
     expect(convertedError).toContain("direct_message.conversion_required");
+    await expect(
+      rpcOpenDirectMessageSpace(env as CoreBindings, pinnedRequest)
+    ).rejects.toThrow("direct_message.conversion_required");
   });
 
   it("keeps an Agent owner read-only until they explicitly join and convert the Direct Message", async () => {
@@ -10178,20 +10229,21 @@ describe("OpenMeld Core", () => {
       }),
       spaceId,
     });
-    const failedFolderRequestId = "rpc-space-file-audit-folder-failed";
+    const failedRenameRequestId = "rpc-space-file-audit-rename-failed";
     await runInDurableObject(stub, async (instance) => {
       await expect(
-        instance.rpcCreateSpaceFolder({
+        instance.rpcUpdateSpaceFileEntry({
           body: {
             clientMutationId: randomUUID(),
             name: "Private Audit Folder",
           },
+          entryId: fileId,
           spaceAccess: createAuthenticatedSpaceAccessContext({
             requestContext: {
               ...context,
               actorContext: {
                 ...context.actorContext,
-                requestId: failedFolderRequestId,
+                requestId: failedRenameRequestId,
               },
             },
             spaceId,
@@ -10305,8 +10357,8 @@ describe("OpenMeld Core", () => {
         }),
         expect.objectContaining({
           error_code: "space_file.name_conflict",
-          operation: "folder_create",
-          request_id: failedFolderRequestId,
+          operation: "entry_update",
+          request_id: failedRenameRequestId,
           result: "failed",
         }),
         expect.objectContaining({

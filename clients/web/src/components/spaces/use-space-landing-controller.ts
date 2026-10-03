@@ -2936,6 +2936,7 @@ export function useSpaceLandingController(input: {
 		let postedMessage = false;
 		let publishedLocalIds: readonly string[] = [];
 		let pendingSubmission: PendingComposerSubmission | null = null;
+		let submissionClaimed = options?.retrySubmission !== undefined;
 		let submittedFiles: readonly SpaceComposerFile[] =
 			options?.retryFiles ?? pendingFiles ?? composerFilesController.files;
 		try {
@@ -3016,6 +3017,7 @@ export function useSpaceLandingController(input: {
 					fileIds: pendingFiles?.map((file) => file.localId),
 					submittedAtMs: messageSeed.createdAtMs,
 				});
+			submissionClaimed = true;
 			markSpaceSendPending(messageSeed.clientMessageId, () => {
 				composerFilesController.consumePublishedFiles(
 					submittedFiles.map((file) => file.localId)
@@ -3088,6 +3090,14 @@ export function useSpaceLandingController(input: {
 				}
 			);
 		} catch (error) {
+			if (!submissionClaimed) {
+				removeRejectedWakeProgress(messageSeed.clientMessageId);
+				removePendingOutgoingSignal(
+					setPendingOutgoingSignals,
+					messageSeed.clientMessageId
+				);
+				pendingSubmission = null;
+			}
 			await handleSubmissionFailure(error);
 		} finally {
 			request.complete();
@@ -4228,6 +4238,7 @@ function useSpaceThreadController(input: {
 		const clientMessageId = retry?.clientMessageId ?? createClientMessageId();
 		const submittedAtMs = Date.now();
 		let posted = false;
+		let submissionClaimed = retry !== undefined;
 		let localAdmissionReleased = false;
 		let pendingSubmission: PendingComposerSubmission | null = null;
 		let publishedLocalIds: readonly string[] = [];
@@ -4253,13 +4264,14 @@ function useSpaceThreadController(input: {
 				onMessageStaged: (stagedClientMessageId) => {
 					options?.onMessageStaged?.(stagedClientMessageId);
 				},
-				prepareFiles: async () => {
+				claimFiles: async () => {
 					if (!retry) {
 						await composerFilesController.waitForDiscovery();
 						submittedFiles = composerSession.recordPendingSubmission({
 							submittedAtMs,
 						});
 					}
+					submissionClaimed = true;
 					composerSession.send.finish();
 					localAdmissionReleased = true;
 					markSpaceSendPending(clientMessageId, () => {
@@ -4268,6 +4280,8 @@ function useSpaceThreadController(input: {
 						);
 						composerFilesController.finishSubmission(submittedFiles);
 					});
+				},
+				prepareFiles: async () => {
 					const publishedFiles =
 						await composerFilesController.publishReadyFiles(submittedFiles);
 					publishedLocalIds = publishedFiles.publishedLocalIds;
@@ -4302,6 +4316,11 @@ function useSpaceThreadController(input: {
 			}
 		}
 		async function handleSubmissionFailure(error: unknown) {
+			if (!submissionClaimed) {
+				removePendingOutgoingSignal(setPendingOutgoingSignals, clientMessageId);
+				completeSpaceSend(clientMessageId);
+				pendingSubmission = null;
+			}
 			if (pendingSubmission && !posted) {
 				const submission = pendingSubmission;
 				markPendingOutgoingSignalFailed(
@@ -4458,6 +4477,7 @@ function useSpaceThreadController(input: {
 		onMessageStaged?: SpaceComposerSendOptions["onMessageStaged"];
 		composerFiles?: readonly SpaceComposerFile[];
 		clientMessageId?: string;
+		claimFiles?: () => Promise<void>;
 		prepareFiles?: () => Promise<{
 			messageFiles: SpaceMessageFileReference[];
 			previewUrlsByFileId: Map<string, string>;
@@ -4512,6 +4532,7 @@ function useSpaceThreadController(input: {
 		let postedMessage = false;
 		let publicationStarted = false;
 		try {
+			await sendInput.claimFiles?.();
 			await request.ready;
 			await requireThreadWakeAdmission(sendInput.preparedSubmission);
 			const publishedFiles = await sendInput.prepareFiles?.();

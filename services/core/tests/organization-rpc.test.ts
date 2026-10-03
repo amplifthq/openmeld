@@ -9915,8 +9915,13 @@ describe("organization Core RPC", () => {
     });
     expect(retry.spaceId).toBe(first.spaceId);
     expect(next.spaceId).not.toBe(first.spaceId);
+    const agentDm = await rpcRemoteAgentOpenDirectMessageSpace(env, {
+      context,
+      targetProfileId: SECOND_AGENT_PROFILE_ID,
+    });
     const request = {
       context,
+      spaceId: agentDm.spaceId,
       targetProfileId: SECOND_AGENT_PROFILE_ID,
       message: {
         clientMessageId: "00000000-0000-4000-8000-000000000043",
@@ -9940,10 +9945,20 @@ describe("organization Core RPC", () => {
       expect.objectContaining({ ownerUserIds: ["user-a"] })
     );
     await expect(
-      rpcRemoteAgentOpenDirectMessageSpace(env, { ...request, creationId })
+      rpcRemoteAgentOpenDirectMessageSpace(env, {
+        context,
+        targetProfileId: SECOND_AGENT_PROFILE_ID,
+        creationId,
+      })
     ).rejects.toMatchObject({
       code: "direct_message.new_session_requires_center",
     });
+    await expect(
+      rpcRemoteAgentOpenDirectMessageSpace(env, {
+        ...request,
+        spaceId: undefined,
+      })
+    ).rejects.toMatchObject({ code: "direct_message.wake_requires_space" });
     await expect(
       rpcRemoteAgentOpenDirectMessageSpace(env, {
         ...request,

@@ -53,6 +53,14 @@ state, process health, route state, setup completion, or local inventory.
 
 ## Client Responsibilities
 
+`openmeld space dm <target-profile-id>` opens a Direct Message as the acting
+Profile. With text, it opens first, emits `space.send.request` with the exact
+Space, sender, client message ID and Wake targets, then publishes to that DM.
+`--space <space-id> --message-id <uuid>` retries the pinned request without
+opening another conversation. `--wake` is explicit; a plain message does not
+start Agent work. Local dispatch tools open first and require `spaceId` when
+starting work, so callers can immediately use the existing `space wake-stop`.
+
 The CLI owns terminal-facing surfaces for:
 
 - service status, lifecycle guidance, and service diagnostics

@@ -8,7 +8,10 @@ import { buildOpenMeldRequestContextFromProfile } from "../config/openmeld-reque
 import { requireOpenMeldProfile } from "../config/resolve-openmeld-profile";
 import { resolveRuntimeContext } from "../runtime/context";
 import { readDispatchOwnedRuntimeGuard } from "../runtime/dispatch-owned-runtime";
-import { readDispatchSpaceActionContextFromEnv } from "../runtime/dispatch-space-action-context";
+import {
+  type DispatchSpaceActionContext,
+  readDispatchSpaceActionContextFromEnv,
+} from "../runtime/dispatch-space-action-context";
 import { createPresenter } from "../runtime/presenter/index";
 import { createCliApiClientFoundation } from "./api-client-foundation";
 import { createCliSpaceApi } from "./cli-space-api";
@@ -20,9 +23,72 @@ export async function openDirectMessage(input: {
   profile?: string;
   baseUrl?: string;
   env?: NodeJS.ProcessEnv;
+  onRequest?: (receipt: {
+    spaceId: string;
+    profileId: string;
+    clientMessageId: string;
+    targetProfileIds: string[];
+  }) => void;
 }) {
   const request = openDirectMessageSpaceBodySchema.parse(input.request);
   const env = input.env ?? process.env;
+  const baseUrl = await resolveBaseUrl(input.baseUrl);
+  const { profile, dispatch, requestContext, organizationId } =
+    await resolveDirectMessageCaller({ profile: input.profile, baseUrl, env });
+  const api = createDirectMessageApi(
+    createCliApiClientFoundation(baseUrl, {
+      expectedOwnerUserId: profile.ownerUserId,
+      organizationId,
+    })
+  );
+  assertCurrentDispatch(dispatch, env);
+  const opened =
+    request.message && !request.spaceId
+      ? await api.openSpace({
+          targetProfileId: request.targetProfileId,
+          creationId: request.creationId,
+          requestContext,
+        })
+      : null;
+  const spaceId = request.spaceId ?? opened?.spaceId;
+  if (request.message && spaceId) {
+    // No work is submitted until the caller has an exact, stoppable identity.
+    input.onRequest?.({
+      spaceId,
+      profileId: profile.openMeldProfileId,
+      clientMessageId: request.message.clientMessageId,
+      targetProfileIds: request.message.wake ? [request.targetProfileId] : [],
+    });
+    assertCurrentDispatch(dispatch, env);
+  }
+  const sendApi = opened
+    ? createDirectMessageApi(
+        createCliApiClientFoundation(baseUrl, {
+          expectedOwnerUserId: profile.ownerUserId,
+          organizationId: opened.organizationId,
+        })
+      )
+    : api;
+  const response = await sendApi.openSpace({
+    ...request,
+    ...(opened ? { creationId: undefined, spaceId: opened.spaceId } : {}),
+    requestContext,
+  });
+  return {
+    ...response,
+    ...(opened
+      ? { created: opened.created, creationId: opened.creationId }
+      : {}),
+    path: buildPublicSpaceEntryPath({ spaceId: response.spaceId }),
+  };
+}
+
+async function resolveDirectMessageCaller(input: {
+  profile?: string;
+  baseUrl: string;
+  env: NodeJS.ProcessEnv;
+}) {
+  const { env, baseUrl } = input;
   const dispatch = readDispatchOwnedRuntimeGuard(env).active
     ? readDispatchSpaceActionContextFromEnv(env)
     : null;
@@ -43,7 +109,6 @@ export async function openDirectMessage(input: {
       "The Direct Message sender does not match this Wake’s Local Agent."
     );
   }
-  const baseUrl = await resolveBaseUrl(input.baseUrl);
   const requestContext = buildOpenMeldRequestContextFromProfile({
     openMeldProfile: profile,
   });
@@ -65,12 +130,18 @@ export async function openDirectMessage(input: {
       "This Agent no longer has access to the Wake’s source conversation."
     );
   }
-  const api = createDirectMessageApi(
-    createCliApiClientFoundation(baseUrl, {
-      expectedOwnerUserId: profile.ownerUserId,
-      ...(source ? { organizationId: source.safeContext.organizationId } : {}),
-    })
-  );
+  return {
+    profile,
+    dispatch,
+    requestContext,
+    organizationId: source?.safeContext.organizationId ?? undefined,
+  };
+}
+
+function assertCurrentDispatch(
+  dispatch: DispatchSpaceActionContext | null,
+  env: NodeJS.ProcessEnv
+) {
   if (dispatch) {
     const current = readDispatchSpaceActionContextFromEnv(env);
     if (
@@ -82,11 +153,6 @@ export async function openDirectMessage(input: {
       );
     }
   }
-  const response = await api.openSpace({ ...request, requestContext });
-  return {
-    ...response,
-    path: buildPublicSpaceEntryPath({ spaceId: response.spaceId }),
-  };
 }
 
 export async function runDirectMessage(input: {
@@ -97,6 +163,7 @@ export async function runDirectMessage(input: {
   profile?: string;
   baseUrl?: string;
   creationId?: string;
+  spaceId?: string;
   clientMessageId?: string;
   wake?: boolean;
   view?: string;
@@ -110,11 +177,21 @@ export async function runDirectMessage(input: {
   if (input.wake && !text.trim()) {
     throw new Error("Include a message describing the work to start.");
   }
+  const presenter = createPresenter(
+    await resolveRuntimeContext({ view: input.view })
+  );
   const response = await openDirectMessage({
     profile: input.profile,
     baseUrl: input.baseUrl,
+    onRequest: (receipt) =>
+      presenter.line({
+        code: "space.send.request",
+        text: `Request: ${receipt.clientMessageId}`,
+        data: receipt,
+      }),
     request: {
       targetProfileId: input.targetProfileId,
+      ...(input.spaceId ? { spaceId: input.spaceId } : {}),
       ...(input.creationId ? { creationId: input.creationId } : {}),
       ...(text.trim()
         ? {
@@ -127,8 +204,5 @@ export async function runDirectMessage(input: {
         : {}),
     },
   });
-  const presenter = createPresenter(
-    await resolveRuntimeContext({ view: input.view })
-  );
   presenter.data({ code: "direct_message.opened", payload: response });
 }

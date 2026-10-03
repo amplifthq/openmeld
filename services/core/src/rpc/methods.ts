@@ -1948,6 +1948,7 @@ type SpaceRpcStub = DurableObjectStub<Space> & {
   rpcPostDirectMessageSignal(
     input: PostSignalOnceByClientMessageIdInput & {
       pairKey: string;
+      organizationId: string;
     }
   ): Promise<SignalEnvelope>;
   rpcPostSignalOnceByClientMessageId(
@@ -17986,6 +17987,35 @@ export async function rpcRemoteAgentGetOrganizationDirectory(
   });
 }
 
+function validateDirectMessagePublication(
+  request: OpenDirectMessageSpaceBody,
+  targetMember: ResolvedSpaceMemberProfile
+): void {
+  if (request.message?.wake && targetMember.profileKind !== "agent") {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "direct_message.wake_requires_agent",
+      reason: "Only an Agent can be asked to start work.",
+    });
+  }
+  if (request.message?.wake && !request.spaceId) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "direct_message.wake_requires_space",
+      reason:
+        "Open the Direct Message first, then send work using its spaceId so it can be stopped immediately.",
+    });
+  }
+  if (request.spaceId && (!request.message || request.creationId)) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason:
+        "Use spaceId with a message in an existing Direct Message. Open new sessions separately.",
+    });
+  }
+}
+
 async function openDirectMessageForCaller(
   env: CoreBindings,
   input: OpenDirectMessageSpaceInput & { context: CoreRpcContextInput },
@@ -17994,6 +18024,7 @@ async function openDirectMessageForCaller(
 ): Promise<OpenDirectMessageSpaceResponse> {
   const parsed = openDirectMessageSpaceBodySchema.safeParse({
     targetProfileId: input.targetProfileId,
+    spaceId: input.spaceId,
     creationId: input.creationId,
     message: input.message,
   });
@@ -18028,13 +18059,7 @@ async function openDirectMessageForCaller(
     });
   }
 
-  if (parsed.data.message?.wake && targetMember.profileKind !== "agent") {
-    throw createCoreRpcHttpError({
-      status: 400,
-      code: "direct_message.wake_requires_agent",
-      reason: "Only an Agent can be asked to start work.",
-    });
-  }
+  validateDirectMessagePublication(parsed.data, targetMember);
   if (parsed.data.creationId) {
     const designation = await readCenterAgentDesignationRecord({
       db,
@@ -18055,12 +18080,17 @@ async function openDirectMessageForCaller(
     }
   }
   const participants = { context, member, organizationId, targetMember };
-  const opened = parsed.data.creationId
-    ? await createCenterAgentSessionSpace(env, {
-        ...participants,
-        creationId: parsed.data.creationId,
-      })
-    : await openDirectMessageSpaceInternal(env, participants);
+  let opened: { spaceId: string; created: boolean };
+  if (parsed.data.spaceId) {
+    opened = { spaceId: parsed.data.spaceId, created: false };
+  } else if (parsed.data.creationId) {
+    opened = await createCenterAgentSessionSpace(env, {
+      ...participants,
+      creationId: parsed.data.creationId,
+    });
+  } else {
+    opened = await openDirectMessageSpaceInternal(env, participants);
+  }
   const message = parsed.data.message;
   const signal = message
     ? await resolveRpcSpaceStubOrThrow(
@@ -18068,6 +18098,7 @@ async function openDirectMessageForCaller(
         opened.spaceId
       ).stub.rpcPostDirectMessageSignal({
         spaceId: opened.spaceId,
+        organizationId,
         pairKey: buildDirectMessagePairKey(
           member.profileId,
           targetMember.profileId

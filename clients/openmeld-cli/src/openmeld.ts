@@ -3871,6 +3871,10 @@ withSpaceProfileOption(
     .option("--text-file <path>", "Read message text from a UTF-8 file")
     .option("--wake", "Ask the recipient Agent to start work")
     .option(
+      "--space <space-id>",
+      "Send to the exact Direct Message from an earlier receipt"
+    )
+    .option(
       "--message-id <uuid>",
       "Stable message ID; reuse it when retrying a send"
     )
@@ -3888,6 +3892,7 @@ withSpaceProfileOption(
     profile: cliOptions.profile,
     baseUrl: cliOptions.gatewayUrl,
     clientMessageId: opts.messageId,
+    spaceId: opts.space,
     creationId: opts.newChat,
     wake: opts.wake === true,
     view: getGlobalViewOption(),

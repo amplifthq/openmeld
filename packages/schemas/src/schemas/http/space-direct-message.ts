@@ -9,6 +9,8 @@ const trimmedNonEmptyStringSchema = z.string().trim().min(1);
 
 export const openDirectMessageSpaceBodySchema = z.strictObject({
   targetProfileId: openMeldRuntimeProfileIdSchema,
+  // Pin publication to the exact DM returned by an earlier open request.
+  spaceId: trimmedNonEmptyStringSchema.optional(),
   // A new Human–Center Agent session. Other pairs reuse their current DM.
   creationId: z.uuid().optional(),
   message: z

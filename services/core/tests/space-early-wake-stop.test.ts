@@ -14,6 +14,7 @@ import {
 } from "../src/space/infrastructure/outbox/dispatch-outbox-repo";
 import { upsertSpaceMemberRecord } from "../src/space/infrastructure/sql/space-member-repo";
 import { upsertSpaceMetaRecord } from "../src/space/infrastructure/sql/space-meta-repo";
+import { ensureSpaceSqlSchema } from "../src/space/infrastructure/sql/space-schema-repo";
 import type { Space } from "../src/space/transport/do/space";
 
 const targetProfileId = "agt_11111111-1111-4111-8111-111111111111";
@@ -30,6 +31,18 @@ it.each([
   await runInDurableObject(
     namespace.get(namespace.newUniqueId()),
     async (instance, state) => {
+      // Existing v50 Spaces already have the input queue, but neither Stop table.
+      // Re-run the real migration before exercising the late-send fence below.
+      state.storage.sql.exec("DROP TABLE space_pending_wake_stops");
+      state.storage.sql.exec("DROP TABLE space_wake_stop_outcome_outbox");
+      state.storage.sql.exec(
+        "DELETE FROM schema_migrations WHERE version >= 50"
+      );
+      state.storage.sql.exec(
+        "INSERT INTO schema_migrations (version, checksum, applied_at) VALUES (50, 'space-sql-schema-v50', ?)",
+        Date.now()
+      );
+      ensureSpaceSqlSchema(state.storage.sql);
       const now = new Date().toISOString();
       upsertSpaceMetaRecord(state.storage.sql, {
         v: 1,

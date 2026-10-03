@@ -53,6 +53,16 @@ describe("Direct Message conversion membership response", () => {
         creationId: "55555555-5555-4555-8555-555555555555",
       })
     ).rejects.toThrow("did not confirm the new chat");
+    await expect(
+      api.openSpace({
+        targetProfileId: request.targetProfileId,
+        spaceId: "another-dm",
+        message: request.message,
+      })
+    ).rejects.toThrow("did not confirm the selected Direct Message");
+    expect(
+      JSON.parse(transport.mock.calls.at(-1)?.[0]?.init?.body as string)
+    ).toMatchObject({ spaceId: "another-dm", message: request.message });
   });
   it.each([
     false,

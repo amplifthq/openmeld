@@ -5111,7 +5111,10 @@ export class Space extends DurableObject<CoreBindings> {
   }
 
   async rpcPostDirectMessageSignal(
-    input: PostSignalOnceByClientMessageIdInput & { pairKey: string }
+    input: PostSignalOnceByClientMessageIdInput & {
+      pairKey: string;
+      organizationId: string;
+    }
   ): Promise<SignalEnvelope> {
     this.applySpaceRef(input.spaceId);
     const result = await this.ctx.blockConcurrencyWhile(async () => {
@@ -5121,6 +5124,7 @@ export class Space extends DurableObject<CoreBindings> {
           status: "active",
         });
         if (
+          meta.organizationId !== input.organizationId ||
           meta.directMessage?.pairKey !== input.pairKey ||
           members.length !== 2 ||
           members

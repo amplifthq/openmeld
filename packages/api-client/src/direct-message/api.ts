@@ -48,6 +48,7 @@ export const createDirectMessageApi: CreateDirectMessageApi = (client) => ({
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         targetProfileId: request.targetProfileId,
+        spaceId: request.spaceId,
         creationId: request.creationId,
         message: request.message,
       }),
@@ -56,6 +57,11 @@ export const createDirectMessageApi: CreateDirectMessageApi = (client) => ({
     });
     // Older Core receivers can ignore new RPC arguments during cloud rollout.
     // Require evidence for each requested effect before reporting success.
+    if (request.spaceId && response.spaceId !== request.spaceId) {
+      throw new Error(
+        "The server did not confirm the selected Direct Message."
+      );
+    }
     if (request.creationId && response.creationId !== request.creationId) {
       throw new Error(
         "The server did not confirm the new chat. Update OpenMeld and retry with the same creation ID."
@@ -109,6 +115,7 @@ function validateOpenDirectMessageSpaceInput(
 ): OpenDirectMessageSpaceInput {
   const parsed = openDirectMessageSpaceBodySchema.safeParse({
     targetProfileId: input.targetProfileId,
+    spaceId: input.spaceId,
     creationId: input.creationId,
     message: input.message,
   });
