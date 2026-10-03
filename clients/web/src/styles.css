@@ -184,10 +184,9 @@ html[data-space-conversation-layout="centered"]
   padding-inline: var(--space-conversation-inline-padding);
 }
 
-/* Keep the underlying columns laid out, but out of the focus and reading order,
-   while a narrow container presents Thread as a full-width reading panel. */
+/* Thread covers only the main conversation. Other side panels stay available. */
 [data-space-inline-panels]:has(> [data-space-panel-overlay="true"])
-  > :not([data-space-panel-overlay="true"]) {
+  > :not([data-slot="sidebar-wrapper"]) {
   visibility: hidden;
 }
 

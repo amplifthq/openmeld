@@ -1,4 +1,5 @@
 "use client";
+
 import {
 	ContextMenu,
 	ContextMenuTrigger,
@@ -12,6 +13,7 @@ import {
 	FluidDropdownMenuContent,
 	FluidDropdownMenuRadioItem,
 } from "@openmeld/ui/fluid/dropdown-menu";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { SIDEBAR_ICON_WIDTH } from "@openmeld/ui/fluid/sidebar-state";
 import { cn } from "@openmeld/ui/lib/utils";
 import { useQuery } from "@tanstack/react-query";
@@ -101,8 +103,9 @@ export function AppOuterRail({ account }: { account: AppOuterRailAccount }) {
 					humanProfileAvatar={humanProfileAvatar}
 					mode={mode}
 				/>
-				<div
-					className="min-h-0 flex-1 overflow-y-auto px-1 pt-1.5"
+				<ScrollArea
+					className="min-h-0 flex-1"
+					contentClassName="px-1 pt-1.5"
 					data-slot="main-sidebar-navigation"
 				>
 					{buildAppRailGroups({
@@ -128,7 +131,7 @@ export function AppOuterRail({ account }: { account: AppOuterRailAccount }) {
 							tier={mode}
 						/>
 					))}
-				</div>
+				</ScrollArea>
 				<AppSidebarFooter
 					account={{ ...account, image: accountAvatarImage }}
 					humanProfileAvatar={humanProfileAvatar}

@@ -139,9 +139,14 @@ function ResolvedComputerConnectionHistory(input: {
 												? " · Some repeated events were omitted."
 												: ""}
 										</p>
-										<pre className="max-h-64 overflow-auto rounded border p-3 text-xs">
-											{JSON.stringify(incident, null, 2)}
-										</pre>
+										<ScrollArea
+											className="max-h-64 rounded-md border"
+											orientation="both"
+										>
+											<pre className="rounded p-3 text-xs">
+												{JSON.stringify(incident, null, 2)}
+											</pre>
+										</ScrollArea>
 									</details>
 								</div>
 							))}

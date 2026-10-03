@@ -42,7 +42,7 @@ export function SpaceInlineSidePanel(input: {
 			const reserved = input.minRemainingWidth ?? 0;
 			const overlay = remaining < reserved + widthToPx(input.minWidth);
 			setIsOverlay(overlay);
-			setAvailableWidth(overlay ? parent.clientWidth : remaining - reserved);
+			setAvailableWidth(overlay ? remaining : remaining - reserved);
 		};
 		measure();
 		const observer = new ResizeObserver(measure);
@@ -70,7 +70,7 @@ export function SpaceInlineSidePanel(input: {
 			className={cn(
 				"h-full",
 				input.className,
-				isOverlay && input.open && "absolute inset-0 z-30"
+				isOverlay && input.open && "absolute inset-y-0 left-0 z-30"
 			)}
 			collapsedWidth="0rem"
 			data-space-panel-overlay={isOverlay && input.open ? "true" : undefined}

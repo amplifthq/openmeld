@@ -14,6 +14,7 @@ import {
 	useComboboxStore,
 } from "@ariakit/react";
 import { TooltipHint } from "@openmeld/ui/components/tooltip";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import {
 	SharedLayoutGroup,
 	SharedLayoutItem,
@@ -344,19 +345,21 @@ const InlineComboboxContent: typeof ComboboxPopover = ({
 		<Portal>
 			<ComboboxPopover
 				className={cn(
-					"z-500 max-h-[288px] w-[300px] overflow-y-auto rounded-md bg-popover shadow-md ring-1 ring-foreground/10",
+					"z-500 max-h-[288px] w-[300px] overflow-hidden rounded-md bg-popover shadow-md ring-1 ring-foreground/10",
 					className
 				)}
 				onKeyDownCapture={handleKeyDown}
 				{...props}
 			>
-				<SharedLayoutGroup
-					activeItemId={activeItemId}
-					className="flex flex-col p-1.5"
-					onActiveItemIdChange={(itemId) => store.setActiveId(itemId)}
-				>
-					{children}
-				</SharedLayoutGroup>
+				<ScrollArea className="max-h-[inherit]">
+					<SharedLayoutGroup
+						activeItemId={activeItemId}
+						className="flex flex-col p-1.5"
+						onActiveItemIdChange={(itemId) => store.setActiveId(itemId)}
+					>
+						{children}
+					</SharedLayoutGroup>
+				</ScrollArea>
 			</ComboboxPopover>
 		</Portal>
 	);
