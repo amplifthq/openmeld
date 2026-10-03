@@ -106,5 +106,15 @@ describe("Inbox attention feed on D1", () => {
     expect(
       (await service.list(identity, { category: "needs_action" })).rows
     ).toEqual([]);
+    if (grouping) {
+      const history = await service.list(identity, { grouping });
+      expect(history.rows).toHaveLength(1);
+      expect(history.rows[0]).toMatchObject({
+        group: { kind: "system" },
+        itemCount: 3,
+        unreadCount: 1,
+        section: "activity",
+      });
+    }
   });
 });
