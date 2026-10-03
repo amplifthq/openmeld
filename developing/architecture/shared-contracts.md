@@ -852,6 +852,21 @@ components retain their existing history commands. Scoped bootstrap guidance
 uses the MCP reader because native file isolation can prevent loading a local
 CLI and its dependencies.
 
+`read_evidence` accepts `spaceMessageEvidenceRequestSchema` and reads exactly
+one message through that same current-Agent Space API. Local and Remote readers
+share the context-manifest materializer in `@openmeld/protocol`: source version,
+materialized hash, Unicode offsets, and the 4,000-character bound have one
+implementation. Continuing a source page requires its original version. Missing,
+recalled, or changed evidence fails explicitly; it never selects the latest
+version in place of a requested version. This adds a local tool, without adding
+a cloud route or granting access to another Space.
+
+Large local tool results remain transport snapshots. Before `read_result`
+discloses each cached page, it reruns the original source read with the original
+arguments and compares the result with the snapshot. Revocation, source changes,
+or an inaccessible old Files revision invalidate the page. The active Wake is
+also checked after the read. A cached result is never an authorization grant.
+
 ### Thread continuation and file working context
 
 Space owns retained quoted-message lookup and the last explicit human thread

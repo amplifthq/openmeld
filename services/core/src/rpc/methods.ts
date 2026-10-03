@@ -26,7 +26,15 @@ import type {
   SpaceCursor,
   SpaceMeta,
 } from "@openmeld/protocol";
-import { buildProfileDisplay, MAX_TEXT_LENGTH } from "@openmeld/protocol";
+import {
+  buildCenterAgentContextMessageProjection,
+  buildProfileDisplay,
+  type CenterAgentContextMessageProjection,
+  CenterAgentContextTokenBudgetTooSmallError,
+  decodeCenterAgentContextCursor,
+  MAX_TEXT_LENGTH,
+  validateCenterAgentContextManifestResponse,
+} from "@openmeld/protocol";
 import {
   accountSpaceActiveWakeSummaryRpcInputSchema,
   addCenterAgentToSpaceBodySchema,
@@ -822,13 +830,6 @@ import {
   CenterAgentContextLoadReceiptError,
   resolveCenterAgentContextLoadSelection,
 } from "../center-agent/application/center-agent-context-load-receipt-service";
-import {
-  buildCenterAgentContextMessageProjection,
-  type CenterAgentContextMessageProjection,
-  CenterAgentContextTokenBudgetTooSmallError,
-  decodeCenterAgentContextCursor,
-  validateCenterAgentContextManifestResponse,
-} from "../center-agent/application/center-agent-context-manifest-service";
 import {
   CenterAgentDelegationPreparationError,
   planCenterAgentWakeDelegation,

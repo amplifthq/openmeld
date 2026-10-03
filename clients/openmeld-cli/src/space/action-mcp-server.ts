@@ -16,6 +16,7 @@ import {
   openMeldRuntimeProfileIdSchema,
   spaceFileEntryIdSchema,
   spaceFileRevisionNumberSchema,
+  spaceMessageEvidenceRequestSchema,
   spaceMessageFileReferenceSchema,
   spaceTaskIdSchema,
   spaceTaskMutationReceiptSchema,
@@ -36,7 +37,10 @@ import {
   recordDispatchSpaceSilent,
 } from "./action-command";
 import { readDispatchSpaceFile } from "./dispatch-file-read";
-import { readDispatchSpaceHistory } from "./dispatch-history-read";
+import {
+  readDispatchSpaceEvidence,
+  readDispatchSpaceHistory,
+} from "./dispatch-history-read";
 import { DispatchReadResults } from "./dispatch-read-result";
 import {
   createDispatchSpaceTask,
@@ -92,9 +96,12 @@ class DispatchSpaceTools implements AdapterDispatchSpaceTools {
       config.inputSchema instanceof z.ZodObject
         ? config.inputSchema
         : z.strictObject(config.inputSchema);
-    const pagedRead = ["read_history", "read_file", "list_tasks"].includes(
-      name
-    );
+    const pagedRead = [
+      "read_history",
+      "read_evidence",
+      "read_file",
+      "list_tasks",
+    ].includes(name);
     this.tools.push({
       ...config,
       name,
@@ -146,9 +153,12 @@ class DispatchSpaceTools implements AdapterDispatchSpaceTools {
         );
       }, this.#env);
     }
-    const pagedRead = ["read_history", "read_file", "list_tasks"].includes(
-      name
-    );
+    const pagedRead = [
+      "read_history",
+      "read_evidence",
+      "read_file",
+      "list_tasks",
+    ].includes(name);
     if (pagedRead || name === "read_result") {
       try {
         readDispatchSpaceActionContextFromEnv(this.#env);
@@ -163,7 +173,9 @@ class DispatchSpaceTools implements AdapterDispatchSpaceTools {
             "The Wake changed or closed during this read. No result is available."
           );
         }
-        return pagedRead ? this.#readResults.wrap(result) : result;
+        return pagedRead
+          ? this.#readResults.wrap(result, () => handler(args))
+          : result;
       } catch (error) {
         return {
           isError: true,
@@ -358,6 +370,29 @@ export function createDispatchSpaceTools(
           ],
         };
       }
+    }
+  );
+
+  server.registerTool(
+    "read_evidence",
+    {
+      title: "Read an exact Space message version",
+      description:
+        "Read one selected message in the current Space, up to 4,000 characters per source page. Use its sourceSignalId and version; continue with the returned nextOffset and the same version. Every read checks current source access. An unavailable version fails explicitly.",
+      inputSchema: spaceMessageEvidenceRequestSchema,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (input) => {
+      const result = await readDispatchSpaceEvidence(input, env);
+      return {
+        structuredContent: result,
+        content: [{ type: "text", text: JSON.stringify(result) }],
+      };
     }
   );
 

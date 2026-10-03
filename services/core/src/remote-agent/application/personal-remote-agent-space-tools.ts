@@ -1,13 +1,13 @@
-import { buildProfileDisplay } from "@openmeld/protocol";
+import {
+  buildCenterAgentContextMessageProjection,
+  buildProfileDisplay,
+  buildSpaceMessageEvidence,
+} from "@openmeld/protocol";
 import {
   HOSTED_REMOTE_AGENT_CONTROLLER_REF,
   personalRemoteAgentSpaceToolRequestSchema,
   personalRemoteAgentSpaceToolResponseSchema,
 } from "@openmeld/schemas";
-import {
-  buildCenterAgentContextMessageProjection,
-  buildSpaceMessageEvidence,
-} from "../../center-agent/application/center-agent-context-manifest-service";
 import {
   isCenterAgentDesignationActive,
   readCenterAgentDesignationRecord,

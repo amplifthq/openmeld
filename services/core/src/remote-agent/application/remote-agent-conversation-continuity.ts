@@ -1,4 +1,5 @@
 import { HOSTED_CENTER_AGENT_CONTROLLER_REF } from "@openmeld/agent-runtime";
+import { buildCenterAgentContextMessageProjection } from "@openmeld/protocol";
 import {
   buildRemoteAgentRoutineRunConversationId,
   buildRemoteAgentRuntimeConversationId,
@@ -16,7 +17,6 @@ import type {
   RemoteAgentWorkerSubmitTurnRequestV4,
 } from "@openmeld/schemas/types";
 import { createDispatchContinuationSpaceAccessContext } from "@openmeld/space";
-import { buildCenterAgentContextMessageProjection } from "../../center-agent/application/center-agent-context-manifest-service";
 import type { CoreBindings } from "../../lib/bindings";
 import type { ListSignalsInput, ListSignalsResult } from "../../rpc/methods";
 import { resolveSpaceStub } from "../../rpc/space-ref";

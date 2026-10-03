@@ -9,6 +9,15 @@ export {
   SPACE_STREAM_KEEPALIVE_PING,
   SPACE_STREAM_KEEPALIVE_PONG,
 } from "./constants";
+export type { CenterAgentContextMessageProjection } from "./context-manifest";
+export {
+  buildCenterAgentContextMessageProjection,
+  buildSpaceMessageEvidence,
+  CenterAgentContextTokenBudgetTooSmallError,
+  decodeCenterAgentContextCursor,
+  encodeCenterAgentContextCursor,
+  validateCenterAgentContextManifestResponse,
+} from "./context-manifest";
 export type { MessageLink } from "./message-links";
 export {
   collectMessageLinks,

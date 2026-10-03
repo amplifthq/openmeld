@@ -3210,6 +3210,7 @@ export {
   spaceContractFieldsSchema,
   spaceContractSchema,
 } from "./space-mesh/space-contract";
+export { spaceMessageEvidenceRequestSchema } from "./space-mesh/space-message-evidence";
 export { spaceNoteSchema } from "./space-mesh/space-note";
 export {
   spaceThreadActionRefSchema,

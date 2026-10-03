@@ -5,6 +5,7 @@ import {
   agentReplyPlacementSchema,
   nativeReplyPlacementSchema,
 } from "../space-mesh/agent-reply-placement";
+import { spaceMessageEvidenceRequestSchema } from "../space-mesh/space-message-evidence";
 
 const identifier = z.string().trim().min(1).max(256);
 
@@ -14,19 +15,9 @@ export const personalRemoteAgentSpaceToolRequestSchema = z.strictObject({
     z.strictObject({ kind: z.literal("authorize") }),
     z.strictObject({ kind: z.literal("members") }),
     z.strictObject({ kind: z.literal("messages") }),
-    z
-      .strictObject({
-        kind: z.literal("evidence"),
-        sourceSignalId: identifier,
-        version: z
-          .string()
-          .regex(/^sha256:[a-f0-9]{64}$/u)
-          .optional(),
-        offset: z.int().nonnegative().max(1_000_000).optional(),
-      })
-      .refine((value) => !value.offset || value.version !== undefined, {
-        message: "A continuation must retain the source version.",
-      }),
+    spaceMessageEvidenceRequestSchema.safeExtend({
+      kind: z.literal("evidence"),
+    }),
     z.strictObject({
       kind: z.literal("thread"),
       threadId: identifier,

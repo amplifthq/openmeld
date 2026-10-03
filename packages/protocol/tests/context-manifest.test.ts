@@ -5,7 +5,7 @@ import {
   buildSpaceMessageEvidence,
   decodeCenterAgentContextCursor,
   encodeCenterAgentContextCursor,
-} from "../src/center-agent/application/center-agent-context-manifest-service";
+} from "../src/context-manifest";
 
 const SHA_256_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 
