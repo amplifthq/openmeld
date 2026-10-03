@@ -184,7 +184,7 @@ describe("SpaceMessageWakeThinkingIndicator", () => {
 
 		expect(
 			screen.getByTestId("space-wake-thinking-indicator").textContent
-		).toBe("Agent is working · 45s");
+		).toBe("Agent · Thinking… · 45s");
 		expect(
 			resolveOrbState(screen.getByTestId("space-wake-thinking-indicator"))
 		).toBe("solving");

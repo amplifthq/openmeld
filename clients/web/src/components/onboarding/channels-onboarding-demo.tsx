@@ -1,11 +1,11 @@
 "use client";
 
-import { CheckIcon, GitPullRequestIcon } from "@phosphor-icons/react";
-import { AppLogo } from "#/components/organizations/app-logo";
 import {
 	GITHUB_PLUGIN,
 	SLACK_CHANNEL_IDENTITY,
-} from "#/components/organizations/plugin-catalog";
+} from "@openmeld/product-catalog/plugins";
+import { AppLogo } from "@openmeld/ui/components/app-logo";
+import { CheckIcon, GitPullRequestIcon } from "@phosphor-icons/react";
 import {
 	CenterAgentMark,
 	OnboardingDemoLayout,

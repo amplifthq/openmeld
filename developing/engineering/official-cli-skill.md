@@ -23,6 +23,15 @@ Increment `release.json.revision` for every published change. Increase
 An incompatible Skill contract requires a bridge CLI release, not just a
 content update.
 
+The guide should route from a concrete user need to a public workflow. Keep
+ordinary self-contained work local, preserve existing authorization, and ask
+only for material unresolved scope, identity, audience, or timing. Document
+normal local sessions separately from dispatch-owned Wakes. Include public
+command examples, required context, and the evidence that proves an outcome;
+submission, local proposal storage, and visible publication are distinct.
+Describe shipped capabilities at the declared CLI floor. Keep planned PR
+capabilities out of the installed guide until their public contracts exist.
+
 Run `node scripts/release/cli-skill.mjs build` with the repository's Node.js
 toolchain and installed schema runtime dependencies; no schema build is needed.
 It signs the exact payload with Ed25519 and generates
@@ -108,6 +117,14 @@ path plus the public fallback in native/fallback instructions. A failed repair
 does not grant execution authority or bypass dispatch-scoped publication.
 Installation proves files exist; native discovery and actual guide use must
 be tested separately. Already loaded Agent context may need a new turn/session.
+
+For substantial content rewrites, compare the previous signed revision and
+candidate on the same small set of realistic tasks in fresh native sessions.
+Include unrelated local tasks, material ambiguity, and relevant resource
+workflows. Freeze cases before running, hold runtime/model/permissions and
+inputs constant, and retain failures. Report native discovery, offline
+decision tests, CLI validation, and live product smoke as separate evidence.
+An unavailable or unauthenticated native client remains unverified.
 
 ## Compatibility and release order
 

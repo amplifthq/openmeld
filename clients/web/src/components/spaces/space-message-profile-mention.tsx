@@ -144,10 +144,6 @@ export function renderSpaceMessageProfileMentionInternalLink(input: {
 	);
 }
 
-// Keep component-owned avatars out of Typeset's prose image spacing rules.
-export const SPACE_MESSAGE_PROFILE_MENTION_TOKEN_CLASS_NAME =
-	"not-typeset inline-flex h-6 max-w-full items-center gap-1 rounded-md bg-muted px-1.5 align-baseline text-foreground ring-1 ring-border/70";
-
 export function splitSpaceMessageProfileMentionText(
 	text: string,
 	profilesById: SpaceMessageProfileMentionProfilesById,

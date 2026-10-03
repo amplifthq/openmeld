@@ -1,4 +1,5 @@
 import { Button } from "@openmeld/ui/components/button";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { OrganizationComputerPickerCard } from "#/components/computers/organization-computer-card";
@@ -29,13 +30,13 @@ export function DeskWidgetContent(input: {
 	const { currentOrganization } = useAppOrganization();
 	if (input.widget.kind === "people" && input.widget.targetProfileId) {
 		return (
-			<div className="@container/profile min-h-0 overflow-auto p-4">
+			<ScrollArea className="@container/profile min-h-0" contentClassName="p-4">
 				<DeskProfileCard
 					onCenter={input.onCenter}
 					onChat={input.onChat}
 					profileId={input.widget.targetProfileId}
 				/>
-			</div>
+			</ScrollArea>
 		);
 	}
 	if (input.widget.kind === "center") {
@@ -44,7 +45,7 @@ export function DeskWidgetContent(input: {
 		);
 	}
 	return (
-		<div className="min-h-0 overflow-auto">
+		<ScrollArea className="min-h-0">
 			<div className="p-4">
 				{input.widget.kind === "inbox" && (
 					<OrganizationInboxRecentItems
@@ -56,7 +57,7 @@ export function DeskWidgetContent(input: {
 					<DeskWorkUpdates onSpace={input.onSpace} spaces={input.spaces} />
 				)}
 			</div>
-		</div>
+		</ScrollArea>
 	);
 }
 

@@ -95,6 +95,7 @@ Use these owner documents:
 | Current D1 binding topology and future observability-only split direction | `developing/architecture/physical-db-split.md` |
 | Shared schemas, Opportunity RPC contracts, live invalidation frames, Agent Controller Interface snapshots, Agent Task Coordination, Message Channel and App connection contracts, Prepare `setupBootstrap.facts`, shared packages, cross-client reuse, Space password contract | `developing/architecture/shared-contracts.md` |
 | Shared UI primitives, design tokens, Fluid components, and cross-client UI package ownership | `developing/clients/shared-ui.md` |
+| Public website, shared brand assets, website/App origins and retained root protocols | `developing/clients/website.md` |
 | Cross-client app shell, unified Settings IA, shell/sidebar terminology, Settings capability gating | `developing/clients/shell-and-settings.md` |
 | OpenMeld Web navigation topology and route placement, Organization-switch preservation, browser read-cache persistence, Center Agent Channels/Apps, Space UX, Wake details, setup handoff, and diagnostic surfaces | `developing/clients/web.md` |
 | OpenMeld CLI command boundaries, Human View / Agent View, setup handoff, trace, lane safety | `developing/clients/cli.md` |
@@ -206,14 +207,11 @@ change must leave those signals cleaner and less ambiguous.
   then follow the linked lifecycle and component-specific release rules. Do not
   infer a second delivery process from workflow YAML, tool output, or old task
   history.
-- When an Agent personally encounters a problem in any OpenMeld product
-  surface, App, client, Service, runtime, integration, developer workflow,
-  CI/CD, release, or validation path, record that occurrence through
+- Record firsthand problems from released, supported OpenMeld product use through
   [Agent Experience Occurrence Feedback](developing/engineering/agent-native-delivery.md#agent-experience-occurrence-feedback).
-  Use the authorized Felix Human Profile path, identify the actual
-  Agent/model/session and context, and continue the main task unless the issue
-  is a real blocker. Do not search for duplicates; recording is evidence
-  capture, not authorization to fix.
+  Apply its production-use eligibility, occurrence, and authorized Profile rules.
+  Keep unreleased development and validation findings in the owning task or PR;
+  a normal failure is not automatically a product defect.
 - Use focused checks while implementation or blocker-capable review can still
   change the code. Treat broad affected, integration, release-ready, and Final
   Candidate runs as closeout evidence after the practical scope is stable, not

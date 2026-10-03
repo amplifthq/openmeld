@@ -41,7 +41,8 @@ const SUCCESSFUL_JOB_SCOPES = [
     ],
     scope: "db",
   },
-  { patterns: [/Deploy Web/u], scope: "web" },
+  { patterns: [/Deploy Website/u], scope: "website" },
+  { patterns: [/Deploy Web(?:\s|$)/u], scope: "web" },
   { patterns: [/Deploy Gateway Worker/u], scope: "gateway" },
   { patterns: [/Deploy Auth Worker/u], scope: "auth" },
   { patterns: [/Publish CLI And Release Core/u], scope: "cli" },
@@ -186,6 +187,13 @@ export async function collectProductionReleaseStatus(input = {}) {
   const missingSources = [];
   const pendingScopes = [];
   for (const scope of RELEASE_SCOPES) {
+    // Historical source revisions before the split have no Website component.
+    if (
+      scope === "website" &&
+      adapters.hasWebsitePackage(sourceSha) === false
+    ) {
+      continue;
+    }
     const releaseSource = sources.get(scope);
     const component = describeReleaseComponent({
       releaseSource,
@@ -194,6 +202,7 @@ export async function collectProductionReleaseStatus(input = {}) {
       plansByBase,
       adapters,
       sourceSha,
+      webReleaseSource: sources.get("web"),
     });
     if (component.state === "unknown") {
       missingSources.push(scope);
@@ -392,6 +401,28 @@ async function readHostedReleaseState(adapters, repo, sourceSha) {
   return { sources, history };
 }
 
+function describeInitialWebsitePublication(input) {
+  if (
+    !(
+      input.scope === "website" &&
+      input.webReleaseSource?.sha &&
+      input.adapters.hasWebsitePackage(input.webReleaseSource.sha) === false &&
+      input.adapters.hasWebsitePackage(input.sourceSha) === true
+    )
+  ) {
+    return null;
+  }
+  return {
+    scope: "website",
+    state: "pending",
+    evidence: describeComponentEvidence(undefined),
+    changedPaths: ["clients/website/package.json"],
+    compatibilityDependencies: [],
+    reason:
+      "First Website publication. The guarded domain admission must verify the existing Web owner and current App smoke before root cutover.",
+  };
+}
+
 function describeReleaseComponent(input) {
   const { releaseSource, scope, history, plansByBase, adapters, sourceSha } =
     input;
@@ -416,7 +447,10 @@ function describeReleaseComponent(input) {
     return unknown(unresolved.detail);
   }
   if (!releaseSource) {
-    return unknown("No successful deployment history was found.");
+    return (
+      describeInitialWebsitePublication(input) ??
+      unknown("No successful deployment history was found.")
+    );
   }
   if (releaseSource.conflict) {
     return unknown(
@@ -987,6 +1021,16 @@ function defaultAdapters() {
     return checkoutRepository;
   };
   return {
+    hasWebsitePackage: (sha) => {
+      try {
+        return (
+          runGit(["ls-tree", sha, "--", "clients/website/package.json"]).trim()
+            .length > 0
+        );
+      } catch {
+        return null;
+      }
+    },
     buildPlan: ({ base, sourceSha }) =>
       buildProductionReleasePlan({
         base,
@@ -1172,11 +1216,28 @@ function releaseWorkflowMapping(pendingScopes) {
 
 function scopedReleaseWorkflowMapping(scopes) {
   if (
-    hasExactly(scopes, ["db", "web", "gateway", "auth", "core", "remote-agent"])
+    hasExactly(scopes, [
+      "db",
+      "web",
+      "gateway",
+      "auth",
+      "core",
+      "remote-agent",
+      "website",
+    ])
   ) {
     return "Scoped Production Release input: full.";
   }
-  if (hasExactly(scopes, ["web", "gateway", "auth", "core", "remote-agent"])) {
+  if (
+    hasExactly(scopes, [
+      "web",
+      "gateway",
+      "auth",
+      "core",
+      "remote-agent",
+      "website",
+    ])
+  ) {
     return "Scoped Production Release input: cloud.";
   }
   if (hasExactly(scopes, ["db", "auth"])) {

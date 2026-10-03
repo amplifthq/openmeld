@@ -37,6 +37,8 @@ export type RuntimeTransportApiPath =
   | "/runtime-coordinator/head/waiting"
   | "/runtime-coordinator/head/trace"
   | "/runtime-coordinator/interaction/read"
+  | "/runtime-coordinator/execution-input/resolve"
+  | "/runtime-coordinator/execution-input"
   | "/runtime-coordinator/interaction/respond"
   | "/runtime-coordinator/pre-execution-handoff"
   | "/runtime-coordinator/wake-stop"

@@ -50,7 +50,12 @@ export async function guardAnonymousOnlyRoute(
 	if (!session) {
 		return;
 	}
-	if (hasAddAccountAuthIntent(locationHref)) {
+	// The reset API validates the token and selects its account. An existing
+	// browser session must not prevent the user from opening that form.
+	const hasPasswordResetToken =
+		parsedLocation.pathname === "/reset-password" &&
+		Boolean(parsedLocation.searchParams.get("token"));
+	if (hasAddAccountAuthIntent(locationHref) || hasPasswordResetToken) {
 		return;
 	}
 

@@ -18,11 +18,13 @@ export function createD1CenterAgentMemoryRepository(
   return {
     async readActiveSubjects(input) {
       const policy = await this.readPolicy(input.organizationId);
-      const member = buildCenterAgentMemberMemoryRef({
-        organizationId: input.organizationId,
-        memberId: input.speakerMember.memberId,
-        userId: input.speakerMember.userId,
-      });
+      const member = input.speakerMember
+        ? buildCenterAgentMemberMemoryRef({
+            organizationId: input.organizationId,
+            memberId: input.speakerMember.memberId,
+            userId: input.speakerMember.userId,
+          })
+        : null;
       const organization = buildCenterAgentOrganizationMemoryRef(input);
       const rows = await db
         .prepare(`
@@ -36,8 +38,8 @@ export function createD1CenterAgentMemoryRepository(
       `)
         .bind(
           input.organizationId,
-          input.speakerMember.memberId,
-          input.speakerMember.userId,
+          input.speakerMember?.memberId ?? null,
+          input.speakerMember?.userId ?? null,
           policy.organizationMemoryOptIn ? 1 : 0
         )
         .all<{
@@ -48,7 +50,7 @@ export function createD1CenterAgentMemoryRepository(
         }>();
       // Use existing active subjects only. A read never creates/revives a graph
       // or trusts a provider selector that differs from its canonical owner.
-      return [member, organization].flatMap((ref) => {
+      return [...(member ? [member] : []), organization].flatMap((ref) => {
         const row = rows.results.find(
           (row) =>
             row.subject_id === ref.subjectId &&

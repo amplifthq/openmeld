@@ -6,6 +6,7 @@ import {
   openMeldDaemonTaskResultEnvelopeSchema,
   projectObservabilityWakeCorrelation,
   projectSpaceDispatchTraceFinalVisibleOutcome,
+  projectSpaceNativeDeliveryTraceFinalVisibleOutcome,
   projectTargetWakeLifecycleIdentity,
   RUNTIME_EXECUTION_IDENTITY_MODEL_VERSION,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
@@ -17,6 +18,7 @@ import {
   spaceDispatchTraceRuntimeCoordinatorHeadPublicationIntentV2Schema,
 } from "@openmeld/schemas";
 import type {
+  CenterAgentTurnDiagnostic,
   DispatchResult,
   GetSpaceDispatchLookupResponse,
   RuntimeTransportRuntimeCoordinatorHeadLifecycleTraceRequest,
@@ -37,6 +39,11 @@ import {
   listRecentOpenMeldDaemonOpsDecisions,
   type OpenMeldDaemonOpsDecisionRecord,
 } from "../../../dispatch/infrastructure/d1/dispatch-ledger-d1";
+import {
+  projectRemoteAgentNativeDeliveryTurnDiagnostic,
+  type RemoteAgentNativeDeliveryRecord,
+  readRemoteAgentNativeDeliveryByDispatchAndConversation,
+} from "../../../remote-agent/infrastructure/d1/native-delivery-ledger-repo";
 import {
   listRuntimeCoordinatorCreationDiagnosticsByDispatch,
   listRuntimeCoordinatorExecutionEventsByExecutionId,
@@ -259,6 +266,9 @@ export const readSpaceDispatchTrace = async (input: {
   db?: D1Database | null;
   dispatchId: string;
   readFinalVisibleMessageTrace?: FinalVisibleMessageTraceReader;
+  readNativeDeliveryTurnDiagnostic?: (
+    delivery: RemoteAgentNativeDeliveryRecord
+  ) => Promise<CenterAgentTurnDiagnostic>;
   readRuntimeCoordinatorHeadLifecycleTrace?: RuntimeCoordinatorHeadLifecycleTraceReader;
   readReplySignalTrace: ReplySignalTraceReader;
   responseContractVersion?: SpaceDispatchTraceResponseContractVersion;
@@ -275,20 +285,25 @@ export const readSpaceDispatchTrace = async (input: {
     spaceId: input.spaceId,
   });
   if (!dispatch) {
-    return {
-      correlation: projectObservabilityWakeCorrelation({
-        selector: {
-          kind: "dispatch",
+    return (
+      (await readSpaceNativeDeliveryTrace({
+        ...input,
+        dispatchId: normalizedDispatchId,
+      })) ?? {
+        correlation: projectObservabilityWakeCorrelation({
+          selector: {
+            kind: "dispatch",
+            spaceId: input.spaceId,
+            dispatchId: normalizedDispatchId,
+          },
+        }),
+        query: {
           spaceId: input.spaceId,
           dispatchId: normalizedDispatchId,
         },
-      }),
-      query: {
-        spaceId: input.spaceId,
-        dispatchId: normalizedDispatchId,
-      },
-      trace: null,
-    };
+        trace: null,
+      }
+    );
   }
 
   const latestAttempt = await readDispatchAttemptTrace({
@@ -1156,6 +1171,79 @@ function projectSpaceDispatchTraceResponseV1(
   };
 }
 
+async function readSpaceNativeDeliveryTrace(
+  input: Parameters<typeof readSpaceDispatchTrace>[0]
+): Promise<SpaceDispatchTraceResponse | null> {
+  if (
+    input.db &&
+    input.responseContractVersion ===
+      SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION
+  ) {
+    const delivery =
+      await readRemoteAgentNativeDeliveryByDispatchAndConversation({
+        db: input.db,
+        dispatchId: input.dispatchId,
+        conversationId: input.spaceId,
+      });
+    if (delivery?.conversationKind === "space") {
+      const projectedTurn =
+        projectRemoteAgentNativeDeliveryTurnDiagnostic(delivery);
+      const {
+        runtimeEvidence: _runtimeEvidence,
+        runtimeEvidenceStatus: _runtimeEvidenceStatus,
+        ...compactTurn
+      } = projectedTurn;
+      const turn = input.readNativeDeliveryTurnDiagnostic
+        ? await input.readNativeDeliveryTurnDiagnostic(delivery)
+        : compactTurn;
+      const visible = await input.readFinalVisibleMessageTrace?.({
+        dispatchId: delivery.dispatchId,
+        publishedSignalIdCandidates: delivery.publishedSignalId
+          ? [delivery.publishedSignalId]
+          : [],
+        targetProfileId: delivery.profileId,
+      });
+      const nativeDeliveryTrace = {
+        factSource: "remote_agent_native_delivery_ledger" as const,
+        bindingId: delivery.bindingId,
+        destination: {
+          conversationKind: "space" as const,
+          organizationId: delivery.organizationId,
+          spaceId: delivery.spaceId,
+          targetProfileId: delivery.profileId,
+        },
+        turn,
+        finalVisibleMessage: visible?.finalVisibleMessage ?? null,
+        finalVisibleMessageLinkage: visible?.finalVisibleMessageLinkage ?? null,
+        finalVisibleOutcome: projectSpaceNativeDeliveryTraceFinalVisibleOutcome(
+          {
+            finalVisibleMessage: visible?.finalVisibleMessage ?? null,
+          }
+        ),
+      };
+      return {
+        correlation: projectObservabilityWakeCorrelation({
+          selector: {
+            kind: "dispatch",
+            spaceId: input.spaceId,
+            dispatchId: input.dispatchId,
+          },
+          targetProfileId: delivery.profileId,
+          bindingId: delivery.bindingId,
+          agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+          publishedSignalId: delivery.publishedSignalId,
+          replySignalId:
+            nativeDeliveryTrace.finalVisibleMessage?.signalId ?? null,
+        }),
+        query: { spaceId: input.spaceId, dispatchId: input.dispatchId },
+        nativeDeliveryTrace,
+        trace: null,
+      };
+    }
+  }
+  return null;
+}
+
 function projectSpaceDispatchTraceResponseForContractVersion(input: {
   response: SpaceDispatchTraceResponse;
   responseContractVersion?: SpaceDispatchTraceResponseContractVersion;
@@ -1167,6 +1255,12 @@ function projectSpaceDispatchTraceResponseForContractVersion(input: {
     return input.response;
   }
   let response = input.response;
+  if (
+    input.responseContractVersion ===
+    SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_PREVIOUS
+  ) {
+    return response;
+  }
   const head = response.trace?.runtimeCoordinatorHeadLifecycle;
   if (
     response.trace &&
@@ -1204,8 +1298,7 @@ function projectSpaceDispatchTraceResponseForContractVersion(input: {
     };
   }
   if (
-    input.responseContractVersion ===
-      SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_PREVIOUS ||
+    input.responseContractVersion === 4 ||
     input.responseContractVersion === 3
   ) {
     return response;

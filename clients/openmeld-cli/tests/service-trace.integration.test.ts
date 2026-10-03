@@ -1,8 +1,11 @@
 import {
   CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
   OBSERVABILITY_WAKE_CORRELATION_MODEL_VERSION,
+  projectObservabilityWakeCorrelation,
+  projectSpaceNativeDeliveryTraceFinalVisibleOutcome,
   RUNTIME_COORDINATOR_CREATION_DIAGNOSTIC_MODEL_VERSION,
   RUNTIME_EXECUTION_IDENTITY_MODEL_VERSION,
+  spaceDispatchTraceResponseSchema,
   TARGET_WAKE_LIFECYCLE_IDENTITY_MODEL_VERSION,
 } from "@openmeld/schemas";
 import type { SpaceDispatchTraceResponse } from "@openmeld/schemas/types";
@@ -3617,6 +3620,143 @@ describe("service trace command", () => {
         `reason=${boundary.reasonCode} waiting_for=${boundary.waitingFor} waiting_deadline=2026-03-09T00:05:00.000Z recovery_action=${boundary.userRecoveryAction}`
       );
       expect(summary?.data).not.toHaveProperty("trace");
+    });
+  });
+
+  it.each([
+    { view: "agent", details: false, failed: false, delivered: false },
+    { view: "agent", details: true, failed: true, delivered: false },
+    { view: "human", details: true, failed: false, delivered: false },
+    { view: "agent", details: false, failed: false, delivered: true },
+  ] as const)("reports a native-only continuation in $view view (details=$details, delivered=$delivered)", async ({
+    view,
+    details,
+    failed,
+    delivered,
+  }) => {
+    await withTempHome(async () => {
+      resolveRuntimeContextMock.mockResolvedValue({
+        viewMode: view,
+        resolvedView: view,
+        interactive: false,
+      });
+      resolveCurrentReplyReadinessSnapshotMock.mockResolvedValue(null);
+      const finalVisibleMessage = delivered
+        ? {
+            factSource: "space_final_reply_claim" as const,
+            signalId: "signal-native",
+            signalType: "signal.text" as const,
+            dispatchId: "dispatch-demo",
+            targetProfileId: "agt-target",
+            profileId: "agt-target",
+            profileKind: "agent" as const,
+            profileName: "Center Agent",
+            text: "The follow-up task is complete.",
+            reasonCode: null,
+            noticeType: null,
+            statusType: null,
+            createdAt: "2026-10-02T00:00:00.000Z",
+          }
+        : null;
+      const traceResponse = spaceDispatchTraceResponseSchema.parse({
+        query: { spaceId: "space-demo", dispatchId: "dispatch-demo" },
+        correlation: projectObservabilityWakeCorrelation({
+          selector: {
+            kind: "dispatch",
+            spaceId: "space-demo",
+            dispatchId: "dispatch-demo",
+          },
+          targetProfileId: "agt-target",
+          bindingId: "binding-native",
+          agentControllerRef: "hosted:center-agent",
+          replySignalId: finalVisibleMessage?.signalId ?? null,
+        }),
+        trace: null,
+        nativeDeliveryTrace: {
+          factSource: "remote_agent_native_delivery_ledger",
+          bindingId: "binding-native",
+          destination: {
+            conversationKind: "space",
+            organizationId: "org-1",
+            spaceId: "space-demo",
+            targetProfileId: "agt-target",
+          },
+          turn: {
+            acceptedAtMs: 1000,
+            callbackReceivedAtMs: 2000,
+            completedAtMs: 2000,
+            conversationSource: {
+              kind: "space",
+              spaceId: "space-demo",
+              isCurrentConversation: true,
+            },
+            createdAtMs: 1000,
+            deliveryId: "delivery-native",
+            dispatchId: "dispatch-demo",
+            failureCode: failed ? "remote_agent.execution_failed" : null,
+            failureDetail: null,
+            failureDetailTruncated: false,
+            publicationState: "outcome_unknown",
+            publishedResultId: null,
+            ...(details
+              ? { runtimeEvidence: null, runtimeEvidenceStatus: "unavailable" }
+              : {}),
+            status: failed ? "failed" : "completed",
+            submissionId: "submission-native",
+            submittedAtMs: 1000,
+            triggerMessageId: "trigger-native",
+            updatedAtMs: 2000,
+          },
+          finalVisibleMessage,
+          finalVisibleMessageLinkage: null,
+          finalVisibleOutcome:
+            projectSpaceNativeDeliveryTraceFinalVisibleOutcome({
+              finalVisibleMessage,
+            }),
+        },
+      });
+      const { stdout } = await withCapturedStdio(async () => {
+        await runServiceTrace(
+          {
+            baseUrl: "https://gateway.openmeld.invalid",
+            dispatchId: "dispatch-demo",
+            space: "space-demo",
+            view,
+            details,
+          },
+          createReadOnlyTraceDependencies(traceResponse)
+        );
+      });
+      expect(stdout).not.toContain("not_found");
+      expect(stdout).not.toContain("No dispatch ledger record");
+      expect(stdout).toContain(failed ? "failed" : "completed");
+      expect(stdout).toContain("outcome_unknown");
+      if (view === "agent") {
+        const summary = stdout
+          .trim()
+          .split("\n")
+          .filter((line) => line.startsWith("{"))
+          .map((line) => JSON.parse(line))
+          .find((line) => line.code === "service.trace.summary");
+        const executionState = failed ? "failed" : "completed";
+        expect(summary.data.agentSummary).toMatchObject({
+          currentState: delivered ? "delivered" : executionState,
+          delivered,
+          nativeDeliveryId: "delivery-native",
+          publicationState: "outcome_unknown",
+        });
+        if (failed) {
+          expect(summary.data.agentSummary.reasonCode).toBe(
+            "remote_agent.execution_failed"
+          );
+        }
+        if (details) {
+          expect(stdout).toContain("nativeDeliveryTrace");
+        }
+      } else {
+        expect(stdout).toContain("Native Delivery ID");
+        expect(stdout).toContain("unavailable");
+      }
     });
   });
 

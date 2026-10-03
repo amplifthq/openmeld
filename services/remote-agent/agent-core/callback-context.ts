@@ -487,6 +487,8 @@ export type RemoteAgentCoreWorkerBinding = {
   centerAgentConnectAgentProfileToLocalAgent?(input: unknown): Promise<unknown>;
   centerAgentRemoveAgentProfilesFromSpace?(input: unknown): Promise<unknown>;
   centerAgentCreateSpace?(input: unknown): Promise<unknown>;
+  remoteAgentOpenDirectMessageSpace?(input: unknown): Promise<unknown>;
+  remoteAgentGetOrganizationDirectory?(input: unknown): Promise<unknown>;
   centerAgentResolveConnectorConnection?(input: unknown): Promise<unknown>;
   centerAgentEnableAgentProfile?(input: unknown): Promise<unknown>;
   centerAgentGetOrganizationDirectory?(input: unknown): Promise<unknown>;
@@ -608,6 +610,7 @@ export type RemoteAgentCoreWorkerBinding = {
   centerAgentReadSpaceContext?(input: unknown): Promise<unknown>;
   centerAgentReadSpaceWakeProgress?(input: unknown): Promise<unknown>;
   centerAgentStopSpaceWake?(input: unknown): Promise<unknown>;
+  centerAgentSpaceInputQueue?(input: unknown): Promise<unknown>;
   centerAgentRecordConnectorActionAudit?(
     input: CenterAgentRecordConnectorActionAuditBody & {
       context: OpenMeldRequestContext;

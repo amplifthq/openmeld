@@ -3377,10 +3377,21 @@ but not trigger.
    Space Stop targets one logical Wake, including its automatic work-loop
    submissions; it must not abort unrelated queued work in the conversation.
    The Center Agent's Stop tool accepts one exact Wake selector and uses the
-   same Core and Space Stop mutation as Web. It can Stop its own authored Wake
-   only when that Wake's persisted `onBehalfOf` matches the member verified by
-   the current delivery. Other Wakes require that member's ordinary Web Stop
-   permission. Progress exposes
+   same Core and Space Stop mutation as Web. For ordinary Space delegation,
+   that Wake's persisted `onBehalfOf` must match the member verified by the
+   current delivery. The current designated Center Agent may also Stop its own
+   UUID-addressed request in its exact Agent Direct Message. Before publication,
+   that DM must still be unconverted; after conversion, the actual source must
+   have been authored by the Center before conversion. This grants no authority
+   over another author's work. Other Wakes require the verified member's ordinary
+   Web Stop permission. Delegating a UUID Stop to that member requires an existing
+   source signal, so an unknown Center request never becomes a Human-authored
+   early-Stop fence. The reserved `ca-wake:` provenance path remains unchanged.
+   Personal Remote Agent Stop and progress tools accept an optional target
+   `spaceId`, defaulting to their admitted conversation. Core requires the same
+   Organization; Space still checks access and the Agent's ordinary authority.
+   Other conversation-scoped tools remain in the admitted conversation.
+   Progress exposes
    Stop eligibility only to an authorized viewer. A requested cancellation is
    reported as requested until the execution owner confirms it stopped.
    Space records Stop in its existing dispatch outbox before contacting the
@@ -3693,13 +3704,13 @@ tooling, not a user surface and not availability truth.
   cannot override OpenMeld system or tool safety rules. Draft content is never
   projected into the prompt. The knowledge section may list available approved
   document titles, but it does not inject their bodies.
-- The Remote Agent keeps the validated Organization Brief and approved document
-  titles in a 60-second, organization-keyed memory cache. Flue's materialization
-  factory has no execution context, so it never starts or awaits the Core RPC
-  during admission. The fiber-side factory returns a fresh cache hit immediately
-  or awaits one organization-keyed, deduplicated refresh before model execution.
-  A refresh failure fails explicitly instead of running with missing or stale
-  organization context.
+- Each turn reads Organization prompt context through its current Core
+  authorization. There is no organization-keyed Brief/title cache or old-body
+  fallback after a denial or refresh failure. Unavailable context is marked
+  unavailable; ordinary conversation can continue, but work requiring unread
+  rules must report the gap. Personal Remote Agents keep the Center-only prompt
+  and Computer projection disabled and discover ordinary approved documents
+  through their own admitted read identity.
 - `openmeld_read_org_documents` lists folders plus the approved document catalog
   or reads one approved body. `openmeld_draft_org_document` creates or replaces
   reviewable draft content. `openmeld_manage_org_documents` creates and renames
@@ -3707,9 +3718,11 @@ tooling, not a user surface and not availability truth.
   an owner/admin request or durable Routine instruction authorizes publication.
   The management tool has no delete action, rejects direct saves over pending
   drafts, and requires a stable operation id so exact retries do not duplicate
-  content. These tools call Core under represented-member authorization, write
-  the Center Agent audit journal, and remain available in the shared interactive
-  and Routine catalog.
+  content. Center reads and document writes use represented-member authorization.
+  Personal Remote reads use the receiving Agent's active delivery, owner/member,
+  Profile, and frozen audience checks, including Agent-source Wakes; no sender
+  human impersonation or writing authority is inherited. The tools write the
+  existing audit journal and remain in their authorized interactive/Routine catalogs.
 
 ### Center Agent memory (shipped 2026-07-10)
 

@@ -53,6 +53,14 @@ state, process health, route state, setup completion, or local inventory.
 
 ## Client Responsibilities
 
+`openmeld space dm <target-profile-id>` opens a Direct Message as the acting
+Profile. With text, it opens first, emits `space.send.request` with the exact
+Space, sender, client message ID and Wake targets, then publishes to that DM.
+`--space <space-id> --message-id <uuid>` retries the pinned request without
+opening another conversation. `--wake` is explicit; a plain message does not
+start Agent work. Local dispatch tools open first and require `spaceId` when
+starting work, so callers can immediately use the existing `space wake-stop`.
+
 The CLI owns terminal-facing surfaces for:
 
 - service status, lifecycle guidance, and service diagnostics
@@ -1692,10 +1700,13 @@ chain.
 `space wake-stop <space-id>` requires one Space-visible selector and an exact
 target profile: either `--source-signal <id> --target-profile <id>` or
 `--client-message <id> --target-profile <id>`. It must never expose
-`dispatchId` as a public Stop selector. Before POST, the CLI explicitly reads
-Wake Stop eligibility and fails closed when the selected active Wake or its
-eligibility is missing. The server remains the access and cancellation
-authority. Agent View exits zero only for the server-confirmed `cancelled` and
+`dispatchId` as a public Stop selector. POST the exact selector directly: a
+progress projection may not exist yet, so a preflight read must not block Stop.
+The server remains the access and cancellation authority. `space send` accepts
+`--client-message <id>` and emits a `space.send.request` receipt before file
+upload or network admission. Callers can retain or supply that ID and stop the
+same request while send is still pending. Agent View exits zero only for the
+server-confirmed `cancelled` and
 `already_cancelled` responses, exits two for `cancellation_requested`, and
 exits one for permission, eligibility, transport, or semantic failure. A
 pending request is not presented as a stopped Wake; Core and
@@ -1900,6 +1911,14 @@ The shared trace schema must also verify that the native delivery's dispatch,
 Space destination, and target Agent Profile match the traced Wake. CLI consumes
 that shared projection; it must not require workstation-only identity fields or
 relax hosted identity drift checks locally.
+
+Exact-dispatch trace also reads native continuations that have no workstation
+Dispatch Ledger row. The negotiated v6 `nativeDeliveryTrace` projection reports
+the recorded native execution status, publication state, and verified final
+visible outcome separately. A completed turn without a visible Space message
+does not become `delivered` or `not_found`. `--details` preserves durable facts
+when frozen runtime evidence is unavailable. Source-signal and client-message
+lookup do not infer continuation identity without an owning durable mapping.
 
 `openmeld doctor` also reads the local Runtime Reporting Health record for both
 Runtime Agent Controller reporting and provider conversation proof reporting.

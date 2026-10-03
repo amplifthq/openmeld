@@ -79,7 +79,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
-      NODE_OPTIONS: "--max-old-space-size=4096"
       OPENMELD_PRODUCTION_TRAIN_SCOPES: ${{ inputs.production_train_scopes }}
       OPENMELD_PARENT_TRAIN_ADMISSION: ${{ inputs.parent_admission_evidence }}
       OPENMELD_PARENT_WEB_ARTIFACT_ID: ${{ inputs.parent_web_artifact_id }}
@@ -146,7 +145,7 @@ jobs:
           node ../release-control/scripts/release/production-train-artifact-admission.mjs \
             --source-sha "$RELEASE_SHA" \
             --scope web \
-            --restore-web-artifact
+            --restore-renderer-artifact
 
       - name: Acquire shared Web release lease
         id: scope_lease
@@ -189,7 +188,7 @@ jobs:
       - name: Verify Web health
         env:
           RELEASE_SHA: ${{ inputs.release_sha }}
-        run: node ../release-control/scripts/release/production-web-health.mjs --url https://openmeld.ai --source-sha "$RELEASE_SHA" --artifact-receipt dev-tmp/release-artifact-check/web.json
+        run: node ../release-control/scripts/release/production-web-health.mjs --scope web --url https://app.openmeld.ai --source-sha "$RELEASE_SHA" --artifact-receipt dev-tmp/release-artifact-check/web.json
 
       - name: Retain private browser source maps
         if: always()

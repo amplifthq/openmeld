@@ -517,6 +517,25 @@ export async function listActiveSpaceIdsForProfileFromSpaceIndex(input: {
   return (rows.results ?? []).map((row) => row.space_id);
 }
 
+/** Candidate discovery only. The Space owner rechecks scope and source access. */
+export async function listAgentWorkloadSpaceIds(input: {
+  db: D1Database;
+  organizationId: string;
+  profileId: string;
+}): Promise<string[]> {
+  const rows = await input.db
+    .prepare(`
+    SELECT membership.space_id
+    FROM space_index_memberships AS membership
+    JOIN space_index_spaces AS space ON space.space_id = membership.space_id
+    WHERE membership.profile_id = ? AND space.organization_id = ? AND space.status = 'active'
+    ORDER BY membership.source_updated_at_ms DESC
+  `)
+    .bind(input.profileId, input.organizationId)
+    .all<{ space_id: string }>();
+  return rows.results.map((row) => row.space_id);
+}
+
 export type HumanSpaceMembershipAccess = "active" | "missing" | "removed";
 
 export async function readHumanSpaceMembershipAccessForOwner(input: {

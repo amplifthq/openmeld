@@ -36,14 +36,16 @@ test("explicitly keeps existing containers only for Remote Agent deployments", (
   assert.throws(() =>
     parseStagingReleaseArgs(["verify", "--containers-rollout=none"])
   );
-  assert.throws(() =>
-    parseStagingReleaseArgs([
-      "deploy",
-      "--scope",
-      "web",
-      "--containers-rollout=none",
-    ])
-  );
+  for (const scope of ["auth", "web", "website"]) {
+    assert.throws(() =>
+      parseStagingReleaseArgs([
+        "deploy",
+        "--scope",
+        scope,
+        "--containers-rollout=none",
+      ])
+    );
+  }
   assert.throws(() =>
     parseStagingReleaseArgs(["deploy", "--containers-rollout=immediate"])
   );
@@ -96,6 +98,7 @@ test("deploys isolated prerequisites, database, secrets, and Workers in order", 
       "Deploy staging Gateway",
       "Deploy staging Web",
       "Deploy staging Remote Agent",
+      "Deploy staging Website",
       "Verify staging resources",
       "Verify staging user entry points",
     ]

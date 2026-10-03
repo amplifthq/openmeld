@@ -15,6 +15,7 @@ const LOCAL_DEV_ORIGINS = [
 export type ResolveTrustedOriginsInput = {
   baseAuthUrl: string;
   appUrl: string;
+  legacyAppOrigin?: string;
   env: AuthWorkerNodeEnv;
   request?: Request;
   developmentTarget?: string;
@@ -27,6 +28,13 @@ export function resolveTrustedOrigins(
 
   addOrigin(origins, input.baseAuthUrl);
   addOrigin(origins, input.appUrl);
+  const legacyAppOrigin = parseLegacyAppOrigin(
+    input.legacyAppOrigin,
+    input.env
+  );
+  if (legacyAppOrigin) {
+    origins.add(legacyAppOrigin);
+  }
   const desktop = desktopAuthIdentity(
     input.env === "production",
     input.developmentTarget,
@@ -48,6 +56,32 @@ export function resolveTrustedOrigins(
   }
 
   return Array.from(origins);
+}
+
+export function parseLegacyAppOrigin(
+  value: string | undefined,
+  env: AuthWorkerNodeEnv
+): string | undefined {
+  const raw = value?.trim();
+  if (!raw) {
+    return undefined;
+  }
+  try {
+    const url = new URL(raw);
+    if (
+      raw === url.origin &&
+      !url.hostname.includes("*") &&
+      (url.protocol === "https:" ||
+        (env === "development" && url.protocol === "http:"))
+    ) {
+      return url.origin;
+    }
+  } catch {
+    // Reject the configuration, rather than silently changing its trust scope.
+  }
+  throw new Error(
+    "AUTH_LEGACY_APP_ORIGIN must be one exact HTTPS origin (HTTP is allowed only in development)"
+  );
 }
 
 function addConfiguredLoopbackAliases(

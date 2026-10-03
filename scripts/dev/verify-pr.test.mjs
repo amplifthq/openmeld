@@ -66,7 +66,11 @@ test("focused PR validation keeps checks for changed workspaces with adjacent te
   );
   assert.ok(commands.some((args) => args.includes("--filter=openmeld^...")));
   assert.deepEqual(
-    commands.filter((args) => args.includes("vitest")).map((args) => args[1]),
+    commands
+      .filter((args) =>
+        args.includes("scripts/dev/run-focused-workspace-tests.mjs")
+      )
+      .map((args) => args[3]),
     ["clients/web", "clients/openmeld-cli"]
   );
   assert.ok(commands.every((args) => !args.includes("related")));
@@ -75,7 +79,7 @@ test("focused PR validation keeps checks for changed workspaces with adjacent te
   );
 });
 
-test("Core feedback selects the runner that actually contains each changed test", () => {
+test("Core feedback delegates every selected file to the package-owned runner contracts", () => {
   const paths = [
     "services/core/tests-node/local-contract.test.ts",
     "services/core/tests-split-gate/dispatch-queue-hot-path.split-routing.test.ts",
@@ -94,25 +98,11 @@ test("Core feedback selects the runner that actually contains each changed test"
   });
   assert.deepEqual(
     commands
-      .filter((args) => args.includes("vitest"))
-      .map((args) => ({
-        config: args[args.indexOf("--config") + 1],
-        test: args.at(-1),
-      })),
-    [
-      {
-        config: "vitest.boundary.config.ts",
-        test: "tests-node/local-contract.test.ts",
-      },
-      {
-        config: "vitest.split-gate.config.ts",
-        test: "tests-split-gate/dispatch-queue-hot-path.split-routing.test.ts",
-      },
-      {
-        config: "vitest.config.ts",
-        test: "tests/remote-agent-routine-delivery.integration.test.ts",
-      },
-    ]
+      .find((args) =>
+        args.includes("scripts/dev/run-focused-workspace-tests.mjs")
+      )
+      .slice(5),
+    paths.map((file) => file.slice("services/core/".length))
   );
 });
 test("Worker changes select the existing Zod contract guard before expensive tests", () => {
@@ -160,15 +150,11 @@ test("focused checks changed files and adjacent tests without package builds", (
   assert.deepEqual(commands, [
     ["exec", "biome", "check", "--no-errors-on-unmatched", "--", ...sources],
     [
-      "--dir",
-      "clients/web",
       "exec",
-      "vitest",
-      "run",
-      "--config",
-      "vitest.config.ts",
-      "--maxWorkers=2",
-      "--no-file-parallelism",
+      "node",
+      "scripts/dev/run-focused-workspace-tests.mjs",
+      "clients/web",
+      "vitest run --config vitest.config.ts",
       "src/sidebar.test.tsx",
     ],
   ]);

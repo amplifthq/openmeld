@@ -73,6 +73,31 @@ export function buildRemoteAgentCoreContext(
   };
 }
 
+/** Ordinary personal Agent reads use the receiver's admitted identity. */
+export function buildOrganizationDocumentReadContext(input: {
+  context: OpenMeldRequestContext;
+  turnEnvelope: RemoteAgentCallbackContext["turnEnvelope"];
+}): {
+  context: OpenMeldRequestContext;
+  speakerMember?: CenterAgentToolSpeaker;
+} {
+  if (
+    input.context.actorContext.agentControllerRef ===
+    HOSTED_REMOTE_AGENT_CONTROLLER_REF
+  ) {
+    return { context: input.context };
+  }
+  const speakerMember = resolveOrganizationMemberTurnEnvelopeSpeaker(
+    input.turnEnvelope
+  );
+  if (!speakerMember) {
+    throw new Error(
+      "Center document reads require a current Organization member."
+    );
+  }
+  return { context: input.context, speakerMember };
+}
+
 export function resolveVerifiedTurnEnvelopeSpeaker(
   envelope: RemoteAgentCallbackContext["turnEnvelope"]
 ): { memberId: string; userId: string } | undefined {

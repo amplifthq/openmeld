@@ -1,6 +1,7 @@
 "use client";
 
 import { Collapsible } from "@base-ui/react/collapsible";
+import { LOCAL_AGENT_INSTALL_GUIDE_IDS } from "@openmeld/product-catalog/local-agent-install-guides";
 import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
 import { SettingsLocalAgentUsageSummary } from "@openmeld/ui/components/settings-computers";
@@ -24,7 +25,6 @@ import {
 } from "@phosphor-icons/react";
 import { useId, useRef, useState } from "react";
 import { SpinnerButton } from "#/components/spinner-button";
-import { LOCAL_AGENT_INSTALL_GUIDE_IDS } from "#/lib/local-agent-install-guides";
 import type { AgentProfileBindingChoice } from "./agent-binding-choice-list";
 import { AgentNameEditor } from "./agent-name-editor";
 import {
