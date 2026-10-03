@@ -149,18 +149,25 @@ def seed_plugin_requests(context):
                    organization_id=org, user_id=user, scope="member", service="github",
                    status="active", access_policy=json.dumps({"center_agent": "none", "local_agent": "write", "remote_agent": "none"}),
                    access_revision=1, created_at_ms=now, updated_at_ms=now)
-    version = context.db.execute("SELECT updated_at_ms FROM connector_connections WHERE connection_name=?", (connection,)).fetchone()[0]
-    for scenario in ["approve", "decline", "expired"]:
+    for scenario in ["approve", "decline", "expired", "dashboard"]:
+        service = "posthog" if scenario == "dashboard" else "github"
+        selected_connection = connection.removesuffix("github") + service
+        if scenario == "dashboard":
+            context.insert("connector_connections", connection_name=selected_connection,
+                           organization_id=org, user_id=user, scope="member", service=service,
+                           status="active", access_policy=json.dumps({"center_agent": "none", "local_agent": "write", "remote_agent": "none"}),
+                           access_revision=1, created_at_ms=now, updated_at_ms=now)
+        selected_version = context.db.execute("SELECT updated_at_ms FROM connector_connections WHERE connection_name=?", (selected_connection,)).fetchone()[0]
         request = context.ident("plugin-request:" + scenario)
         intent = {
             "organizationId": org, "userId": user,
             "actorProfileId": "agt_" + context.ident("agent:0"),
             "operationId": "local-ui-fixture-" + scenario, "sourceRequestKey": None,
-            "connection": {"connectionName": connection, "ownerDisplayName": context.viewer["name"],
-                           "ownerUserId": user, "scope": "member", "service": "github"},
-            "connectionUpdatedAtMs": version, "accessRevision": 1,
-            "service": "github", "actionId": "issues-create", "effect": "write",
-            "input": {"repository": "northstar-example/" + scenario, "title": "Synthetic private fixture"},
+            "connection": {"connectionName": selected_connection, "ownerDisplayName": context.viewer["name"],
+                           "ownerUserId": user, "scope": "member", "service": service},
+            "connectionUpdatedAtMs": selected_version, "accessRevision": 1,
+            "service": service, "actionId": "posthog.create_dashboard" if scenario == "dashboard" else "issues-create", "effect": "write",
+            "input": {"name": "Northstar activation dashboard", "body": "PRIVATE-CANARY-not-for-display"} if scenario == "dashboard" else {"repository": "northstar-example/" + scenario, "title": "Synthetic private fixture"},
         }
         bound = {key: value for key, value in intent.items() if key != "sourceRequestKey"}
         digest = hashlib.sha256(json.dumps(bound, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
