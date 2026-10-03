@@ -103,6 +103,10 @@ describe("Remote Agent tool execution", () => {
                   ? undefined
                   : performance.now() + (window === "expired" ? -1 : 60_000),
               operationReplayed: window === "replayed",
+              replay:
+                window === "active" || window === "expired"
+                  ? { allowed: true, remainingWindowMs: 60_000, maxAttempts: 1 }
+                  : undefined,
             })
           ),
       },

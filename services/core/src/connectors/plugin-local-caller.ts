@@ -109,6 +109,9 @@ export async function requireLocalPluginCaller(
     representedUserId,
     sourceSpaceId: provenance?.spaceId ?? null,
     sourceSignalId: provenance?.sourceSignalId ?? null,
+    sourceRequestKey: input.request.dispatchId
+      ? `dispatch:${input.request.dispatchId}`
+      : undefined,
     human: identity.account.defaultHumanProfile,
     personalAllowed: representedUserId === member.userId,
   };

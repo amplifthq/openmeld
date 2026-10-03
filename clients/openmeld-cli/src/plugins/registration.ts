@@ -101,6 +101,10 @@ export function registerPluginCommands(
     )
     .option("--input <json>", "Action input as a JSON object.", "{}")
     .option("--confirm <token>", "Confirmation returned for this exact action.")
+    .option(
+      "--replay",
+      "Use the original operation's explicitly permitted, single replay."
+    )
     .action(
       async (
         service: string,
@@ -111,6 +115,7 @@ export function registerPluginCommands(
           operation: string;
           input: string;
           confirm?: string;
+          replay?: boolean;
         }
       ) => {
         const request = pluginActionRequestSchema.parse({
@@ -122,6 +127,7 @@ export function registerPluginCommands(
             operationId: flags.operation,
             input: JSON.parse(flags.input),
             confirmationToken: flags.confirm,
+            replay: flags.replay,
           },
         });
         await options.run(["plugins", "call"], () =>

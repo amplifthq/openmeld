@@ -411,11 +411,15 @@ async function readClaimedOperation(
 
 async function claimConnectorReplay(input: {
   allowReplay?: boolean;
+  effect?: "read" | "write" | "destructive" | "unspecified";
   db: D1Database;
   nowMs: number;
   operation: CenterAgentConnectorActionOperationRecord;
   provenance: CenterAgentConnectorActionOperationProvenance | null;
 }) {
+  if (input.effect === "read") {
+    return true;
+  }
   if (!(input.allowReplay && input.provenance)) {
     return false;
   }

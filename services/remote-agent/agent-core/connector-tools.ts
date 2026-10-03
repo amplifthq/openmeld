@@ -561,6 +561,9 @@ export class ConnectorActionOutcomeUnknownError extends OpenConnectorActionError
     operationReplayExpiresAtMs?: number;
     operationReplayed?: boolean;
     providerExecutionId?: string;
+    replay?: ReturnType<
+      typeof connectorActionOutcomeUnknownSchema.parse
+    >["replay"];
   }) {
     const outcome = input.providerExecutionId
       ? "The provider confirmed this action, but OpenMeld could not save its completion."
@@ -577,6 +580,14 @@ export class ConnectorActionOutcomeUnknownError extends OpenConnectorActionError
       if (input.operationReplayed) {
         return { allowed: false as const, reason: "already_replayed" as const };
       }
+      if (!input.replay?.allowed) {
+        return (
+          input.replay ?? {
+            allowed: false as const,
+            reason: "window_unverified" as const,
+          }
+        );
+      }
       if (remainingMs === null) {
         return {
           allowed: false as const,
@@ -588,13 +599,16 @@ export class ConnectorActionOutcomeUnknownError extends OpenConnectorActionError
       }
       return {
         allowed: true as const,
-        remainingWindowMs: remainingMs,
+        remainingWindowMs: Math.min(
+          remainingMs,
+          input.replay.remainingWindowMs
+        ),
         maxAttempts: 1 as const,
       };
     })();
     let replay = replayPermission.allowed
       ? "You may retry exactly once with the original operationId, account, and unchanged input inside the verified original provider window; the provider reserved this request before executing it."
-      : "Do not retry this write: its original deduplication window could not be verified or has expired.";
+      : "Do not retry this write: Core has not granted an available replay allowance for this operation.";
     if (input.operationReplayed) {
       replay =
         "Do not retry this write again: the exact replay has already been attempted.";
@@ -695,39 +709,24 @@ export async function runAndFinalizeConnectorAction(input: {
       input: input.request.input,
     });
   } catch (error) {
-    if (error instanceof OpenConnectorOperationPendingError) {
-      if (input.effect === "read") {
-        throw error;
-      }
-      // Keep the Core operation pending. Provider keys are transport identity;
-      // only the caller's operationId belongs in a model-visible receipt.
-      throw new ConnectorActionOutcomeUnknownError({
-        ...input.request,
-        operationReplayExpiresAtMs: input.operationReplayExpiresAtMs,
-        operationReplayed: input.operationReplayed,
-        cause: error,
-      });
+    if (
+      error instanceof OpenConnectorOperationPendingError &&
+      input.effect === "read"
+    ) {
+      throw error;
     }
+    // Pending is an unknown final provider outcome. Persist that evidence
+    // before exposing permission to consume the single replay allowance.
     try {
       await finalizeFailedConnectorAction({ ...input, error });
     } catch (finalizationError) {
-      throw new ConnectorActionOutcomeUnknownError({
-        ...input.request,
-        operationReplayExpiresAtMs: input.operationReplayExpiresAtMs,
-        operationReplayed: input.operationReplayed,
-        cause: finalizationError,
-      });
+      throw await buildUnknownConnectorReceipt(input, finalizationError);
     }
     if (
       !(error instanceof OpenConnectorActionError) ||
       error.outcome === "outcome_unknown"
     ) {
-      throw new ConnectorActionOutcomeUnknownError({
-        ...input.request,
-        operationReplayExpiresAtMs: input.operationReplayExpiresAtMs,
-        operationReplayed: input.operationReplayed,
-        cause: error,
-      });
+      throw await buildUnknownConnectorReceipt(input, error);
     }
     throw error;
   }
@@ -744,15 +743,34 @@ export async function runAndFinalizeConnectorAction(input: {
       toolContext: input.toolContext,
     });
   } catch (finalizationError) {
-    throw new ConnectorActionOutcomeUnknownError({
-      ...input.request,
-      operationReplayExpiresAtMs: input.operationReplayExpiresAtMs,
-      operationReplayed: input.operationReplayed,
-      cause: finalizationError,
-      providerExecutionId: run.providerExecutionId,
-    });
+    throw await buildUnknownConnectorReceipt(
+      input,
+      finalizationError,
+      run.providerExecutionId
+    );
   }
   return run;
+}
+
+async function buildUnknownConnectorReceipt(
+  input: Parameters<typeof runAndFinalizeConnectorAction>[0],
+  cause: unknown,
+  providerExecutionId?: string
+) {
+  // A failed receipt read grants no replay; a local timer is not permission.
+  const receipt = await readConnectorActionOperation({
+    ...input.request,
+    coreWorker: input.dependencies.coreWorker,
+    toolContext: input.toolContext,
+  }).catch(() => null);
+  return new ConnectorActionOutcomeUnknownError({
+    ...input.request,
+    cause,
+    providerExecutionId,
+    operationReplayed: input.operationReplayed,
+    operationReplayExpiresAtMs: receipt?.operationReplayExpiresAtMs,
+    replay: receipt?.replay,
+  });
 }
 
 async function finalizeFailedConnectorAction(input: {
@@ -980,6 +998,7 @@ export async function readConnectorActionOperation(input: {
       {
         actionId: input.actionId,
         includeRecoveryWindow: true,
+        includeExecutionPermit: true as const,
         context: input.toolContext.context,
         operationId: input.operationId,
         service: input.service,
@@ -1022,6 +1041,7 @@ export async function recordConnectorActionOperation(input: {
         {
           actionId: input.actionId,
           includeRecoveryWindow: true,
+          includeExecutionPermit: true as const,
           effect: input.effect,
           connectionName: input.connectionName,
           context: input.toolContext.context,
@@ -1036,7 +1056,7 @@ export async function recordConnectorActionOperation(input: {
           binding.centerAgentRecordConnectorActionOperation?.(payload)
       )
     );
-  return {
+  const result = {
     ...response,
     // Anchor at request start, so time spent obtaining the receipt consumes
     // the window. Use a monotonic local clock, not cross-service timestamps.
@@ -1045,6 +1065,21 @@ export async function recordConnectorActionOperation(input: {
         ? undefined
         : startedAtMs + response.replayWindowRemainingMs,
   };
+  if (
+    input.outcome === "attempted" &&
+    input.effect !== "read" &&
+    response.executionAllowed !== true
+  ) {
+    throw new ConnectorActionOutcomeUnknownError({
+      ...result,
+      actionId: input.actionId,
+      cause: new Error(
+        `Core did not admit another execution of operation ${response.operationId}.`
+      ),
+      providerExecutionId: response.providerExecutionId ?? undefined,
+    });
+  }
+  return result;
 }
 
 function requireConnectorActionSpeaker(

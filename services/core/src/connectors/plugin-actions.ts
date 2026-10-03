@@ -13,6 +13,7 @@ import {
   buildCenterAgentConnectorActionOperationScope,
   readCenterAgentConnectorActionOperationForRecovery,
   readCenterAgentConnectorActionOperationForRequest,
+  readConnectorActionReplayPermission,
   recordCenterAgentConnectorActionOperation,
 } from "../center-agent/connector-action-operation-repository";
 import type { CoreBindings } from "../lib/bindings";
@@ -21,6 +22,7 @@ import { createCoreRpcHttpError } from "../rpc/errors";
 import {
   type ConnectorConnectionRecord,
   listConnectorConnections,
+  requireConnectorConnectionForExecution,
 } from "./connector-connection-repository";
 import {
   pluginPermissionAllows,
@@ -69,7 +71,12 @@ export async function rpcPluginAction(
     return await listAvailableConnections(env, caller);
   }
   if (action.operation === "execute") {
-    const recovered = await recoverOperation(caller, action);
+    const recovered = await recoverOperation(
+      env,
+      caller,
+      action,
+      input.request.includeRecoveryReceipt === true
+    );
     if (recovered) {
       return recovered;
     }
@@ -181,7 +188,8 @@ export async function rpcPluginAction(
     action,
     connection,
     signature,
-    effect
+    effect,
+    input.request.includeRecoveryReceipt === true
   );
 }
 
@@ -305,8 +313,10 @@ async function requestSignature(
 }
 
 async function recoverOperation(
+  env: CoreBindings,
   caller: Caller,
-  action: Execution
+  action: Execution,
+  includeRecoveryReceipt: boolean
 ): Promise<PluginActionResponse | null> {
   const scope = operationScope(caller, action);
   const existing = await readCenterAgentConnectorActionOperationForRecovery({
@@ -316,6 +326,12 @@ async function recoverOperation(
     service: action.service,
   });
   if (!existing) {
+    if (action.replay) {
+      throw failure(
+        "plugin.replay_receipt_unavailable",
+        "Read the original operation receipt before requesting a replay."
+      );
+    }
     return null;
   }
   await readCenterAgentConnectorActionOperationForRequest({
@@ -336,6 +352,30 @@ async function recoverOperation(
       503
     );
   }
+  const current = await requireConnectorConnectionForExecution({
+    ...caller,
+    connectionName: existing.executionConnection.connectionName,
+  });
+  if (
+    current.status !== "active" ||
+    current.userId !== existing.executionConnection.ownerUserId ||
+    current.scope !== existing.executionConnection.scope ||
+    current.service !== action.service
+  ) {
+    throw failure(
+      "plugin.operation_identity_changed",
+      "The original operation account is no longer available."
+    );
+  }
+  await presentConnection(env, caller, current);
+  const replay = await readConnectorActionReplayPermission({
+    db: caller.db,
+    operation: existing,
+    nowMs: Date.now(),
+  });
+  if (action.replay && includeRecoveryReceipt && replay.allowed) {
+    return null;
+  }
   return {
     kind: "execution",
     actionId: action.actionId,
@@ -344,6 +384,7 @@ async function recoverOperation(
     replayed: true,
     connection: existing.executionConnection,
     providerExecutionId: existing.providerExecutionId,
+    ...(includeRecoveryReceipt ? { replay } : {}),
   };
 }
 
@@ -353,7 +394,8 @@ async function executeAction(
   action: Execution,
   connection: Connection,
   signature: string,
-  effect: "read" | "write" | "destructive" | "unspecified"
+  effect: "read" | "write" | "destructive" | "unspecified",
+  includeRecoveryReceipt: boolean
 ): Promise<PluginActionResponse> {
   await requirePluginPermission({
     ...caller,
@@ -385,23 +427,48 @@ async function executeAction(
     connectionName: connection.connectionName,
     executionConnection,
     requestSignature: signature,
+    effect,
+    sourceRequestKey: caller.sourceRequestKey,
+    effectSignature: await digestCanonicalJson({
+      actionId: action.actionId,
+      service: action.service,
+      input: action.input,
+      connectionName: connection.connectionName,
+    }),
   };
   const claim = await recordCenterAgentConnectorActionOperation({
     ...operation,
     outcome: "attempted",
     nowMs: Date.now(),
     providerExecutionId: null,
+    allowReplay: action.replay === true && includeRecoveryReceipt,
   });
-  if (claim.replayed) {
-    const recovered = await recoverOperation(caller, action);
-    if (!recovered) {
+  if (!claim.executionAllowed) {
+    if (!claim.operation.executionConnection) {
       throw failure(
-        "plugin.operation_unavailable",
-        "The operation could not be recovered.",
+        "plugin.operation_identity_unavailable",
+        "The original operation account is unavailable.",
         503
       );
     }
-    return recovered;
+    return {
+      kind: "execution",
+      actionId: claim.operation.actionId,
+      operationId: claim.operation.operationId,
+      connection: claim.operation.executionConnection,
+      replayed: true,
+      status: claim.operation.status,
+      providerExecutionId: claim.operation.providerExecutionId,
+      ...(includeRecoveryReceipt
+        ? {
+            replay: await readConnectorActionReplayPermission({
+              db: caller.db,
+              operation: claim.operation,
+              nowMs: Date.now(),
+            }),
+          }
+        : {}),
+    };
   }
   const result = await callRuntime(env, {
     operation: "execute",
@@ -429,22 +496,58 @@ async function executeAction(
       503
     );
   }
-  if (result.status !== "pending") {
-    await recordCenterAgentConnectorActionOperation({
+  let persisted:
+    | Awaited<ReturnType<typeof recordCenterAgentConnectorActionOperation>>
+    | undefined;
+  try {
+    persisted = await recordCenterAgentConnectorActionOperation({
       ...operation,
-      outcome: result.status,
+      outcome: result.status === "pending" ? "outcome_unknown" : result.status,
       nowMs: Date.now(),
       providerExecutionId: result.providerExecutionId,
     });
+  } catch {
+    return {
+      kind: "execution",
+      actionId: action.actionId,
+      operationId: action.operationId,
+      connection: executionConnection,
+      replayed: claim.replayed,
+      status: "outcome_unknown",
+      providerExecutionId: result.providerExecutionId,
+      error:
+        "The provider result could not be durably recorded. Check the original target; do not issue a new write.",
+      ...(includeRecoveryReceipt
+        ? {
+            executionConfirmation:
+              result.status === "completed"
+                ? ("executed" as const)
+                : ("unknown" as const),
+            replay: {
+              allowed: false as const,
+              reason: "window_unverified" as const,
+            },
+          }
+        : {}),
+    };
   }
   return {
     kind: "execution",
     actionId: action.actionId,
     operationId: action.operationId,
     connection: executionConnection,
-    replayed: false,
+    replayed: claim.replayed,
     status: result.status,
     providerExecutionId: result.providerExecutionId,
+    ...(includeRecoveryReceipt
+      ? {
+          replay: await readConnectorActionReplayPermission({
+            db: caller.db,
+            operation: persisted.operation,
+            nowMs: Date.now(),
+          }),
+        }
+      : {}),
     ...(result.status === "completed"
       ? { data: result.data }
       : { error: result.error }),

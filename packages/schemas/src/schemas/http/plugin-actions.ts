@@ -5,6 +5,7 @@ import {
   centerAgentConnectorActionExecutionConnectionSchema,
   centerAgentConnectorActionOperationStatusSchema,
 } from "./center-agent";
+import { connectorActionReplayPermissionSchema } from "./connector-action-replay";
 import { connectorServiceSchema } from "./connector-connections";
 
 const selectedAccountSchema =
@@ -16,6 +17,7 @@ const selection = {
   account: z.enum(["personal", "shared"]),
 };
 export const pluginActionRequestSchema = z.strictObject({
+  includeRecoveryReceipt: z.literal(true).optional(),
   dispatchId: z.string().trim().min(1).max(256).optional(),
   action: z.discriminatedUnion("operation", [
     z.strictObject({ operation: z.literal("list") }),
@@ -32,6 +34,7 @@ export const pluginActionRequestSchema = z.strictObject({
       input: z.record(z.string(), z.unknown()),
       operationId: z.string().trim().min(1).max(256),
       confirmationToken: z.string().uuid().optional(),
+      replay: z.boolean().optional(),
     }),
   ]),
 });
@@ -77,6 +80,10 @@ export const pluginActionResponseSchema = z.discriminatedUnion("kind", [
     operationId: z.string(),
     status: centerAgentConnectorActionOperationStatusSchema,
     replayed: z.boolean(),
+    replay: connectorActionReplayPermissionSchema.optional(),
+    executionConfirmation: z
+      .enum(["executed", "not_executed", "unknown"])
+      .optional(),
     data: z.unknown().optional(),
     error: z.string().optional(),
     providerExecutionId: z.string().nullable(),

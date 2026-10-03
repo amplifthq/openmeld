@@ -887,6 +887,7 @@ describe("Remote Agent generic App tools", () => {
         centerAgentRecordConnectorActionOperation: vi.fn(
           async (input: { outcome: string }) => ({
             attribution: CONNECTOR_OPERATION_ATTRIBUTION,
+            executionAllowed: input.outcome === "attempted",
             operationId: "identity-operation",
             providerExecutionId:
               input.outcome === "attempted" ? null : "provider-identity-test",
@@ -971,6 +972,7 @@ describe("Remote Agent generic App tools", () => {
     const centerAgentRecordConnectorActionOperation = vi.fn(
       async (entry: { outcome: string }) => ({
         attribution: CONNECTOR_OPERATION_ATTRIBUTION,
+        executionAllowed: entry.outcome === "attempted",
         operationId,
         providerExecutionId:
           entry.outcome === "attempted" ? null : providerExecutionId,
@@ -1208,6 +1210,7 @@ describe("Remote Agent generic App tools", () => {
     const centerAgentRecordConnectorActionOperation = vi.fn(
       async (entry: { outcome: string }) => ({
         replayWindowRemainingMs,
+        executionAllowed: entry.outcome === "attempted",
         attribution: CONNECTOR_OPERATION_ATTRIBUTION,
         executionConnection: {
           connectionName,
@@ -1479,6 +1482,7 @@ describe("Remote Agent generic App tools", () => {
       async (entry: { outcome: string }) => ({
         attribution: CONNECTOR_OPERATION_ATTRIBUTION,
         operationId,
+        executionAllowed: entry.outcome === "attempted",
         providerExecutionId:
           entry.outcome === "attempted" ? null : providerExecutionId,
         recorded: true,
@@ -1575,6 +1579,7 @@ describe("Remote Agent generic App tools", () => {
     const centerAgentRecordConnectorActionOperation = vi.fn(
       async (entry: { outcome: string }) => ({
         attribution: CONNECTOR_OPERATION_ATTRIBUTION,
+        executionAllowed: entry.outcome === "attempted",
         operationId,
         providerExecutionId:
           entry.outcome === "attempted" ? null : providerExecutionId,
@@ -1679,7 +1684,7 @@ describe("Remote Agent generic App tools", () => {
     const centerAgentReadConnectorActionOperation = vi
       .fn()
       .mockResolvedValueOnce({ operation: null })
-      .mockResolvedValueOnce({
+      .mockResolvedValue({
         operation: {
           actionId: action.id,
           connectionName,
@@ -1784,7 +1789,7 @@ describe("Remote Agent generic App tools", () => {
         })
       );
     }
-    expect(centerAgentReadConnectorActionOperation).toHaveBeenCalledTimes(2);
+    expect(centerAgentReadConnectorActionOperation).toHaveBeenCalledTimes(3);
     expect(centerAgentResolveConnectorConnection).toHaveBeenCalledTimes(1);
     expect(centerAgentRecordConnectorActionOperation).toHaveBeenCalledTimes(4);
     expect(

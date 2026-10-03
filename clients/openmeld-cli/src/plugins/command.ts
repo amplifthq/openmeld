@@ -50,6 +50,9 @@ export async function runPluginCommand(input: {
   });
   const request = pluginActionRequestSchema.parse({
     action: input.action,
+    ...(input.action.operation === "execute"
+      ? { includeRecoveryReceipt: true }
+      : {}),
     ...(dispatch ? { dispatchId: dispatch.dispatchId } : {}),
   });
   const api = createPluginsApi(
@@ -121,12 +124,24 @@ function renderPluginExecution(
   response: Extract<PluginActionResponse, { kind: "execution" }>
 ) {
   outLine(
-    `${response.status}${response.replayed ? " (previously recorded; not executed again)" : ""} · ${response.operationId}`
+    `${response.status}${response.replayed ? " (original operation)" : ""} · ${response.operationId}`
   );
   if (response.error) {
     outLine(response.error);
   }
   if (response.data !== undefined) {
     outLine(JSON.stringify(response.data, null, 2));
+  }
+  if (response.replay?.allowed) {
+    outLine(
+      "One replay is permitted within the original 24-hour window. Keep this operation ID, account, and input, and add --replay. Then check the exact target with a read action."
+    );
+  } else if (
+    response.status === "outcome_unknown" ||
+    response.status === "pending"
+  ) {
+    outLine(
+      "No write replay is permitted. Check the original target with a read action; a missing result does not prove the write failed."
+    );
   }
 }
