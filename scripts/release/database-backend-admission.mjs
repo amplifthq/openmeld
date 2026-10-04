@@ -5,7 +5,10 @@ import { isDeepStrictEqual } from "node:util";
 import { parseJsoncObject } from "../../packages/db/src/tooling/parse-jsonc.ts";
 import { readCutoverTarget } from "../../tooling/postgresql/remote-target.mjs";
 import { readGuardedLocalReleaseSources } from "./production-release-evidence.mjs";
+import { describeGuardedReceiptRecoveryCandidate } from "./production-release-receipts.mjs";
 import { verifyWorkerDeployment } from "./worker-deployment-evidence.mjs";
+
+const EXACT_SHA_PATTERN = /^[a-f0-9]{40}$/u;
 
 function readBackendManifest(root) {
   return JSON.parse(
@@ -13,11 +16,11 @@ function readBackendManifest(root) {
   );
 }
 
-// Hosted entrypoints do not carry the private snapshot or the local maintenance
-// admission. Keep them closed until that existing lane supports the same proof.
+// Hosted Workers cannot perform the private maintenance-window cutover. The
+// CLI publisher separately proves that PostgreSQL is already deployed.
 export function assertHostedProductDatabaseReleaseSupported(root, scopes) {
   if (
-    scopes.some((scope) => ["db", "auth", "core", "cli"].includes(scope)) &&
+    scopes.some((scope) => ["db", "auth", "core"].includes(scope)) &&
     existsSync(path.join(root, "release/database-backend.json")) &&
     readBackendManifest(root).backend === "postgresql"
   ) {
@@ -61,8 +64,21 @@ export function assertPostgresqlProductBinding(config, registered) {
   }
 }
 
-export async function verifyProductHyperdrive(registered, request = fetch) {
-  const token = process.env.CLOUDFLARE_OPENMELD_RELEASE_API_TOKEN;
+function requireCandidatePostgresqlBindings(root, registered) {
+  for (const scope of ["auth", "core"]) {
+    const config = parseJsoncObject(
+      readFileSync(path.join(root, `services/${scope}/wrangler.jsonc`), "utf8")
+    );
+    assertPostgresqlProductBinding(config, registered);
+  }
+}
+
+export async function verifyProductHyperdrive(
+  registered,
+  request = fetch,
+  env = process.env
+) {
+  const token = env.CLOUDFLARE_OPENMELD_RELEASE_API_TOKEN;
   if (!token) {
     throw new Error(
       "Missing scoped Cloudflare release token for Hyperdrive inspection"
@@ -99,7 +115,7 @@ export async function verifyProductHyperdrive(registered, request = fetch) {
 
 async function requireActivePostgresqlReceipts(input, registered) {
   const receipts = await (input.readReceipts ?? readGuardedLocalReleaseSources)(
-    { cwd: input.root }
+    { cwd: input.root, gitEnvironment: input.gitEnvironment }
   );
   for (const scope of ["auth", "core"]) {
     const source = receipts.get(scope);
@@ -110,7 +126,12 @@ async function requireActivePostgresqlReceipts(input, registered) {
       );
     }
     if (
-      source?.receipt?.status !== "verified" ||
+      !(
+        source?.receipt?.status === "verified" ||
+        (input.hostedCli &&
+          scope === "core" &&
+          isHostedCoreRecovery(source, input.sourceSha))
+      ) ||
       identity?.kind !== "worker-deployment" ||
       identity.sourceSha !== source.sha ||
       identity.workerName !== `openmeld-${scope}-prod`
@@ -137,6 +158,7 @@ async function requireActivePostgresqlReceipts(input, registered) {
         workerName: identity.workerName,
         args: ["--config", file, "--env", "prod"],
       },
+      env: input.env,
       runCommand: (command) =>
         spawnSync(command.command, command.args, {
           cwd: command.cwd,
@@ -147,17 +169,123 @@ async function requireActivePostgresqlReceipts(input, registered) {
   }
 }
 
+// Existing verified receipts prove which native database contract was applied.
+// Hosted CLI publication can reuse that contract, but cannot migrate it or read
+// private import data. Active Worker/Hyperdrive checks still run for every call.
+export async function verifyHostedPostgresqlCliDatabase(input) {
+  const root = input.root ?? process.cwd();
+  if (readBackendManifest(root).backend !== "postgresql") {
+    throw new Error(
+      "Hosted PostgreSQL verification requires the PostgreSQL backend"
+    );
+  }
+  const readObject = (sha, name) =>
+    execFileSync("git", ["rev-parse", "--verify", `${sha}:${name}`], {
+      cwd: root,
+      encoding: "utf8",
+    }).trim();
+  const sourceSha = input.sourceSha;
+  if (!EXACT_SHA_PATTERN.test(sourceSha ?? "")) {
+    throw new Error(
+      "Hosted CLI database verification requires an exact source SHA"
+    );
+  }
+  const receipts = await (input.readReceipts ?? readGuardedLocalReleaseSources)(
+    {
+      cwd: root,
+      gitEnvironment: input.gitEnvironment,
+    }
+  );
+  requireMatchingPostgresqlContract(receipts, sourceSha, readObject);
+  const registered = await (input.readTarget ?? readCutoverTarget)();
+  requireCandidatePostgresqlBindings(root, registered);
+  const env = { ...(input.env ?? process.env) };
+  for (const name of [
+    "GH_TOKEN",
+    "OPENMELD_TRUSTED_GIT_GITHUB_TOKEN",
+    "OPENMELD_TRUSTED_GIT_GITHUB_SERVER_URL",
+    "OPENMELD_PRODUCTION_LEASE_GITHUB_TOKEN",
+    "OPENMELD_PRODUCTION_LEASE_GITHUB_SERVER_URL",
+    "OPENMELD_PRODUCTION_LEASE_GITHUB_REPOSITORY",
+  ]) {
+    Reflect.deleteProperty(env, name);
+  }
+  await requireActivePostgresqlReceipts(
+    { ...input, root, env, hostedCli: true, readReceipts: () => receipts },
+    registered
+  );
+  await (input.verifyHyperdrive ?? verifyProductHyperdrive)(
+    registered,
+    fetch,
+    env
+  );
+  await (input.verifyCrons ?? verifyProductCrons)({
+    root,
+    registered,
+    paused: false,
+    env,
+  });
+  return {
+    status: "current",
+    reason:
+      "verified PostgreSQL database and active Worker releases match the CLI database contract",
+  };
+}
+
+function requireMatchingPostgresqlContract(receipts, sourceSha, readObject) {
+  const database = receipts.get("db");
+  if (
+    database?.receipt?.status !== "verified" ||
+    database.receipt.identity?.kind !== "release-source"
+  ) {
+    throw new Error(
+      "Hosted CLI requires a verified PostgreSQL database release. Complete the guarded local database release first."
+    );
+  }
+  const contractPaths = [
+    "release/database-backend.json",
+    "packages/db/postgresql",
+    "tooling/postgresql/resources.json",
+    "tooling/postgresql/database.mjs",
+    "tooling/postgresql/remote-target.mjs",
+    "tooling/postgresql/cutover.mjs",
+  ];
+  for (const scope of ["db", "auth", "core"]) {
+    const deployed = receipts.get(scope);
+    if (
+      !(
+        deployed?.sha &&
+        (deployed.receipt?.status === "verified" ||
+          (scope === "core" && isHostedCoreRecovery(deployed, sourceSha)))
+      )
+    ) {
+      throw new Error(
+        `Hosted CLI requires a verified PostgreSQL ${scope} release. Complete the guarded local release first.`
+      );
+    }
+    for (const name of contractPaths) {
+      if (readObject(deployed.sha, name) !== readObject(sourceSha, name)) {
+        throw new Error(
+          `Hosted CLI requires the deployed PostgreSQL contract: ${scope} differs at ${name}. Complete the guarded local database/Worker release first.`
+        );
+      }
+    }
+  }
+}
+
+function isHostedCoreRecovery(source, sourceSha) {
+  return (
+    source?.sha === sourceSha &&
+    describeGuardedReceiptRecoveryCandidate(source) !== null
+  );
+}
+
 // Called under the existing production scope leases. The committed import row
 // and existing Worker receipts remain the only completion/publication records.
 export async function admitPostgresqlProductRelease(input) {
   const root = input.root ?? process.cwd();
   const registered = await (input.readTarget ?? readCutoverTarget)();
-  for (const scope of ["auth", "core"]) {
-    const config = parseJsoncObject(
-      readFileSync(path.join(root, `services/${scope}/wrangler.jsonc`), "utf8")
-    );
-    assertPostgresqlProductBinding(config, registered);
-  }
+  requireCandidatePostgresqlBindings(root, registered);
   const runData = input.runData ?? runCutoverDataCommand;
   if (!input.snapshot) {
     await requireActivePostgresqlReceipts({ ...input, root }, registered);
@@ -210,8 +338,9 @@ export async function verifyProductCrons({
   registered,
   paused,
   request = fetch,
+  env = process.env,
 }) {
-  const token = process.env.CLOUDFLARE_OPENMELD_RELEASE_API_TOKEN;
+  const token = env.CLOUDFLARE_OPENMELD_RELEASE_API_TOKEN;
   if (!token) {
     throw new Error(
       "Missing scoped Cloudflare release token for Cron inspection"

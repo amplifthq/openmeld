@@ -3,7 +3,10 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { productionReleaseEvidenceSchema } from "../../packages/schemas/src/schemas/release/production-release-evidence.ts";
 import { productionReleaseScopeSchema } from "../../packages/schemas/src/schemas/release/production-scope-lease.ts";
-import { createProductionScopeLeaseGitEnvironment } from "./production-scope-lease.mjs";
+import {
+  createProductionScopeLeaseGitEnvironment,
+  resolveHostedLeaseRemote,
+} from "./production-scope-lease.mjs";
 
 const EXACT_SHA_PATTERN = /^[0-9a-f]{40}$/u;
 const EVIDENCE_REF_PREFIX = "refs/heads/openmeld-production-release-evidence";
@@ -317,11 +320,12 @@ function readReconciliationProof(context, evidenceSha, metadata) {
 }
 
 function resolveContext(input) {
+  const environment = input.environment ?? process.env;
   const context = {
     cwd: path.resolve(input.cwd ?? process.cwd()),
-    environment: input.environment ?? process.env,
+    environment,
     now: input.now ? new Date(input.now) : new Date(),
-    remote: input.remote ?? "origin",
+    remote: input.remote ?? resolveHostedLeaseRemote(environment) ?? "origin",
     gitEnvironment: input.gitEnvironment,
   };
   if (Number.isNaN(context.now.getTime())) {

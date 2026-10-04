@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -62,6 +68,71 @@ test("publishes exact guarded local release sources for later status checks", ()
         },
       }
     );
+  } finally {
+    rmSync(fixture.root, { force: true, recursive: true });
+  }
+});
+
+test("reads hosted receipts with repository-scoped auth when checkout origin omits .git", () => {
+  const fixture = createGitFixture();
+  const token = "fixture-receipt-token";
+  const repositoryUrl = "https://github.com/amplifthq/openmeld.git";
+  const realGit = execFileSync("which", ["git"], { encoding: "utf8" }).trim();
+  try {
+    publishGuardedLocalReleaseEvidence({
+      cwd: fixture.repository,
+      remote: fixture.remote,
+      scopes: ["core"],
+      sourceSha: fixture.sourceSha,
+    });
+    execFileSync(
+      "git",
+      ["remote", "set-url", "origin", repositoryUrl.slice(0, -4)],
+      {
+        cwd: fixture.repository,
+      }
+    );
+    const configPath = path.join(fixture.repository, ".git/config");
+    const originalConfig = readFileSync(configPath, "utf8");
+    const bin = path.join(fixture.root, "bin");
+    mkdirSync(bin);
+    // Keep real Git URL matching and receipt parsing; replace only the network.
+    writeFileSync(
+      path.join(bin, "git"),
+      [
+        `#!${process.execPath}`,
+        "const { execFileSync, spawnSync } = require('node:child_process');",
+        "const assert = require('node:assert/strict');",
+        `const realGit = ${JSON.stringify(realGit)};`,
+        "const args = process.argv.slice(2);",
+        "const index = args[0] === 'ls-remote' ? 2 : args[0] === 'fetch' ? 3 : null;",
+        "if (index !== null) {",
+        "  const url = args[index] === 'origin' ? execFileSync(realGit, ['remote', 'get-url', 'origin'], { encoding: 'utf8' }).trim() : args[index];",
+        "  const auth = spawnSync(realGit, ['config', '--get-urlmatch', 'http.extraheader', url], { encoding: 'utf8' });",
+        "  assert.equal(auth.status, 0, 'matching repository-scoped credential missing');",
+        `  assert.ok(auth.stdout.includes(${JSON.stringify(`AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`)}));`,
+        "  assert.equal(process.env.OPENMELD_PRODUCTION_LEASE_GITHUB_TOKEN, undefined);",
+        `  args[index] = ${JSON.stringify(fixture.remote)};`,
+        "}",
+        "const result = spawnSync(realGit, args, { encoding: 'utf8' });",
+        "process.stdout.write(result.stdout ?? '');",
+        "process.stderr.write(result.stderr ?? '');",
+        "process.exit(result.status ?? 1);",
+      ].join("\n"),
+      { mode: 0o755 }
+    );
+    const sources = readGuardedLocalReleaseSources({
+      cwd: fixture.repository,
+      environment: {
+        ...process.env,
+        PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+        OPENMELD_PRODUCTION_LEASE_GITHUB_REPOSITORY: "amplifthq/openmeld",
+        OPENMELD_PRODUCTION_LEASE_GITHUB_SERVER_URL: "https://github.com",
+        OPENMELD_PRODUCTION_LEASE_GITHUB_TOKEN: token,
+      },
+    });
+    assert.equal(sources.get("core")?.sha, fixture.sourceSha);
+    assert.equal(readFileSync(configPath, "utf8"), originalConfig);
   } finally {
     rmSync(fixture.root, { force: true, recursive: true });
   }

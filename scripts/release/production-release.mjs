@@ -1048,6 +1048,11 @@ export function buildProductionPreflightStepSpecs(input) {
       "Production preflight requires the exact release SHA for receipt-based train admission."
     );
   }
+  // Trigger restoration publishes no application or CLI bytes. Admission under
+  // the Auth/Core leases still proves the exact active receipts and database.
+  if (input.databaseCutoverRestoreCrons) {
+    return steps;
+  }
   steps.unshift({
     args: [
       "scripts/release/production-stage-admission.mjs",
@@ -2471,6 +2476,7 @@ export function buildProductionReleasePlan(input) {
       releaseSha: sourceSha,
     }),
     preflightSteps: buildProductionPreflightStepSpecs({
+      databaseCutoverRestoreCrons: input.databaseCutoverRestoreCrons,
       changedPaths,
       releaseSha: sourceSha,
       scopes,
