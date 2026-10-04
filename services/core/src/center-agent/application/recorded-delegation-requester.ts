@@ -32,7 +32,6 @@ export async function readRecordedDelegationRequester(input: {
   if (
     !delegation ||
     delegation.organizationId !== input.organizationId ||
-    delegation.spaceId !== input.spaceId ||
     delegation.state !== "active" ||
     delegation.parentTask.kind !== "native_delivery" ||
     !delegation.children.some(

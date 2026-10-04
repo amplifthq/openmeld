@@ -1,27 +1,5 @@
 # Shared Contracts
 
-## Task permission inheritance
-
-Core alone derives `ExecutionContextRequest.ownerRequested` from current owner
-identity or the recorded Center delegation. Message content cannot provide it.
-An assignment may carry `permissionSource: agent_settings` only with workspace
-access. Absence preserves the previous bounded-task contract. The Service uses
-its current Computer policy and Profile-native permission intent; this field is
-not a full-access grant. `executionContextPermissionInheritance` is an explicit
-adapter capability, separate from workspace protocol versions. Core checks it
-before delivering such an assignment and revalidates the original requester.
-
-Ordinary Plugin delegation is an additive constraint on the existing recorded
-Wake publication command (`pluginActions`). Core alone resolves the original
-human and one-hop task chain. Local clients privately forward the admitted
-`executionTokenEcho`; RuntimeCoordinator's read-only authorization RPC validates
-that proof without transferring execution truth to the dispatch ledger. Remote
-clients opt into `includePluginDelegations`; responses omit the projection for
-old callers. Missing proof or an older receiver rejects the new delegated path.
-These additions require a new packaged CLI/Service for delegated Local use and
-Core before the new Remote caller; they do not alter ordinary human-source
-calls, token issuance, token retirement, or finalization ownership.
-
 ## Agent Context
 
 - Purpose: Define cross-client and cross-service shared contract ownership for
@@ -46,6 +24,28 @@ calls, token issuance, token retirement, or finalization ownership.
   one-off implementation notes.
 - Source of truth: This file owns the durable boundary for shared OpenMeld contracts
   and reusable policy.
+
+## Task permission inheritance
+
+Core alone derives `ExecutionContextRequest.ownerRequested` from current owner
+identity or the recorded Center delegation. Message content cannot provide it.
+An assignment may carry `permissionSource: agent_settings` only with workspace
+access. Absence preserves the previous bounded-task contract. The Service uses
+its current Computer policy and Profile-native permission intent; this field is
+not a full-access grant. `executionContextPermissionInheritance` is an explicit
+adapter capability, separate from workspace protocol versions. Core checks it
+before delivering such an assignment and revalidates the original requester.
+
+Ordinary Plugin delegation is an additive constraint on the existing recorded
+Wake publication command (`pluginActions`). Core alone resolves the original
+human and one-hop task chain. Local clients privately forward the admitted
+`executionTokenEcho`; RuntimeCoordinator's read-only authorization RPC validates
+that proof without transferring execution truth to the dispatch ledger. Remote
+clients opt into `includePluginDelegations`; responses omit the projection for
+old callers. Missing proof or an older receiver rejects the new delegated path.
+These additions require a new packaged CLI/Service for delegated Local use and
+Core before the new Remote caller; they do not alter ordinary human-source
+calls, token issuance, token retirement, or finalization ownership.
 
 ## Direct Message opening and publication
 
