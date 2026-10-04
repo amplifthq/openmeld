@@ -1013,6 +1013,7 @@ export function buildProductionVerifyStepSpecs(input) {
       scope === "core" &&
       !input.scopes.includes("cli") &&
       !input.taskInboxRetired &&
+      !isInboxSourceTargetReceiverFirstDiff(input.changedPaths) &&
       !isDeviceWaitReceiverFirstDiff(input.changedPaths) &&
       !isLocalServiceRuntimeReceiverFirstDiff(input.changedPaths) &&
       !isWorkingFolderRecoveryDiff(input.changedPaths) &&
@@ -1108,6 +1109,7 @@ export function buildProductionPreflightStepSpecs(input) {
     input.scopes.includes("core") &&
     !input.scopes.includes("cli") &&
     !input.taskInboxRetired &&
+    !isInboxSourceTargetReceiverFirstDiff(input.changedPaths) &&
     !isDeviceWaitReceiverFirstDiff(input.changedPaths) &&
     !isLocalServiceRuntimeReceiverFirstDiff(input.changedPaths) &&
     !isWorkingFolderRecoveryDiff(input.changedPaths) &&
@@ -1252,7 +1254,9 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
     appendProductionDeployScopeSteps({
       databaseBackend: input.databaseBackend,
       databaseCutoverSnapshot: input.databaseCutoverSnapshot,
-      coreReceiverFirst: isWorkingFolderRecoveryDiff(changedPaths),
+      coreReceiverFirst:
+        isWorkingFolderRecoveryDiff(changedPaths) ||
+        isInboxSourceTargetReceiverFirstDiff(changedPaths),
       deployOrderProfile,
       releaseSha: input.releaseSha,
       scope,

@@ -871,6 +871,13 @@ artifacts and updates Core's release projection through the normal guarded path.
 
 The planner selects `inbox-source-target-receiver-first` when a diff changes the
 strict Inbox source-target schema together with a Core writer for those targets.
+Its cloud stage, including the combined Remote receiver profile, deploys Core
+through the existing current-published-CLI projection owner. That owner verifies
+the immutable published npm/R2 identity and required floor before activation,
+then verifies Core alignment before completing its receipt. The candidate's
+unpublished CLI manifest is not exposed to installed clients. CLI publication
+can follow as a separate guarded stage; source, artifact, lease, and receipt
+admission still apply to each stage.
 The writer inventory includes Message Channel terminal-delivery projection and
 RuntimeCoordinator Agent Interaction projection. It automatically includes Web,
 Gateway, and Core, and rejects a manually narrowed scope that omits any of those
