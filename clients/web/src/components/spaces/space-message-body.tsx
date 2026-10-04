@@ -23,7 +23,10 @@ import {
 	createOrganizationScopedWebSpaceApi,
 	createUnscopedWebSpaceApi,
 } from "#/lib/spaces/api";
-import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
+import {
+	isStoppedSpaceReply,
+	type SpaceTimelineItem,
+} from "#/lib/spaces/timeline";
 import { resolveSpaceMessageStopFeedback } from "#/lib/spaces/wake-progress-presentation";
 import {
 	CenterAgentComputerSetupCard,
@@ -90,6 +93,8 @@ type SpaceMessageBodyProps = {
 			Pick<
 				SpaceTimelineItem,
 				| "actorProfileKind"
+				| "systemNoticeType"
+				| "signalType"
 				| "id"
 				| "messageRevision"
 				| "deliveryState"
@@ -127,6 +132,7 @@ function useSpaceMessageTextPresentation(input: SpaceMessageBodyProps) {
 	const pluginReply = usePluginConnectionReply({
 		final:
 			input.item.isAgentFinalReply === true &&
+			!isStoppedSpaceReply(input.item) &&
 			input.item.agentStreamState?.status !== "streaming",
 		organizationSlug: input.orgSlug,
 		text: input.item.text,
@@ -492,6 +498,7 @@ const SpaceMessageBodyDisplay = memo(function SpaceMessageBodyDisplay(
 		body
 	);
 	const hasVisibleContent =
+		isStoppedSpaceReply(input.item) ||
 		addressedBody !== null ||
 		Boolean(navigationActionContent) ||
 		attachments.length > 0 ||
@@ -504,7 +511,19 @@ const SpaceMessageBodyDisplay = memo(function SpaceMessageBodyDisplay(
 	return (
 		<SpaceMessageBodyContent
 			attachments={attachments}
-			body={addressedBody}
+			body={
+				<>
+					{addressedBody}
+					{isStoppedSpaceReply(input.item) ? (
+						<p
+							className="text-muted-foreground text-xs leading-5"
+							data-slot="stopped-reply-status"
+						>
+							Stopped
+						</p>
+					) : null}
+				</>
+			}
 			bodyRef={input.bodyRef}
 			containerClassName={input.containerClassName}
 			edited={
@@ -513,6 +532,8 @@ const SpaceMessageBodyDisplay = memo(function SpaceMessageBodyDisplay(
 			files={files}
 			isExpanded={text.isExpanded}
 			linkPreviews={
+				input.item.signalType === "signal.text" &&
+				!isStoppedSpaceReply(input.item) &&
 				input.item.id &&
 				input.item.spaceId &&
 				input.item.deliveryState === "sent" &&

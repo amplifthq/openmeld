@@ -5,6 +5,7 @@ import {
   spaceThreadSignalPlacementSchema,
 } from "../space-mesh/space-thread";
 import {
+  AGENT_STREAM_SNAPSHOT_MAX_CHARS,
   spaceAgentStreamDeltaFrameSchema,
   spaceAgentStreamPartFrameSchema,
   spaceAgentStreamTerminalFrameSchema,
@@ -55,6 +56,9 @@ export const signalSystemNoticeEnvelopeSchema = z.object({
   ...baseEnvelopeShape,
   type: z.literal("signal.system_notice"),
   data: signalSystemNoticeDataSchema,
+  // Space-owned public text accepted before Stop. Older envelope readers omit
+  // this additive presentation field while retaining the stopped outcome.
+  stoppedReplyText: z.string().max(AGENT_STREAM_SNAPSHOT_MAX_CHARS).optional(),
 });
 
 export const signalEnvelopeSchema = z.union([

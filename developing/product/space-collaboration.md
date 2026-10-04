@@ -1560,6 +1560,15 @@ If OpenMeld stops a Wake before it reaches the agent, the visible outcome is sti
 explicit stopped Space system notice. It is not an Agent reply, and it must not
 be rendered as silent disappearance from progress.
 
+Web presents a stopped outcome in the target Agent's reply position with the
+label `Stopped` and the original request context, not as a conversation-wide
+notice. This presentation does not change the system notice's authorship or
+claim a successful Agent reply. Each target of a multi-Agent request retains
+its own outcome. Public reply text already accepted by Space stays visible,
+including after refresh; private thinking and transient work are not retained.
+An empty stopped response shows the target identity and `Stopped` alone. Stop
+does not imply that earlier actions were undone.
+
 For ordinary account-owned Profiles, only the account that authored the Wake's
 source message or the target Agent Profile's owner may stop that Wake, and they
 must still have writable Space access. Space membership, Space creation, or

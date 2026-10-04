@@ -1076,7 +1076,7 @@ describe("SpaceThreadPanel", () => {
 		expect(sourceMessage?.getAttribute("data-align")).toBe("start");
 	});
 
-	it("gives a stopped Wake a muted outcome row in the thread instead of a destructive one", () => {
+	it("shows Stopped in the Agent reply surface inside a thread", () => {
 		renderThreadPanel({
 			signals: [
 				createSystemNoticeSignal({
@@ -1087,11 +1087,8 @@ describe("SpaceThreadPanel", () => {
 			],
 		});
 
-		const marker = screen
-			.getByText("Wake was stopped for Runner.")
-			.closest("[data-slot='marker']");
-		expect(marker?.className).toContain("text-muted-foreground");
-		expect(marker?.className).not.toContain("text-destructive");
+		expect(screen.getByText("Stopped")).toBeTruthy();
+		expect(screen.queryByTestId("space-outcome-row")).toBeNull();
 	});
 
 	it("shows the outcome row text but hides the Message details action for a read-only thread viewer", () => {

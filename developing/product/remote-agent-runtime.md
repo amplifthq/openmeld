@@ -2290,6 +2290,11 @@ final-outcome authority.
   outcome. Finalization closes the projection, a successful terminal points to
   the published Space signal, and late deltas are rejected. Web must replace the
   temporary text with the durable outcome even when their text differs.
+  For a stopped outcome, Space attaches the last accepted public response text
+  to the stopped system notice. Its existing terminal guard retains the bounded
+  text snapshot until publication or expiry, including when close precedes
+  publication. Only response text is retained; this does not retain thinking,
+  public-progress drafts, or tool payloads, or convert Stop into success.
 
 This additive stream rollout is consumer first: deploy Web, then Core, then the
 Remote Agent producer. New Core accepts the legacy text callback and the typed
