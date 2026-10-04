@@ -1,4 +1,5 @@
-import { type CoreBindings, projectionsDb } from "../lib/bindings";
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
+import type { CoreBindings } from "../lib/bindings";
 import { resolveSpaceStub } from "../rpc/space-ref";
 import {
   type WriteSpaceIndexMembershipOverlayInput,
@@ -30,10 +31,10 @@ export async function rpcProjectSpaceIndexMembershipOverlay(
   env: CoreBindings,
   input: ProjectSpaceIndexMembershipOverlayRpcInput
 ): Promise<ProjectSpaceIndexMembershipOverlayRpcResult> {
-  const db = projectionsDb(env);
+  const db = getPostgresDatabase(env);
   if (!db) {
     throw new Error(
-      "space index overlay projection requires the OPENMELD_DB binding"
+      "space index overlay projection requires the OPENMELD_POSTGRESQL binding"
     );
   }
   const normalized: WriteSpaceIndexMembershipOverlayInput = {

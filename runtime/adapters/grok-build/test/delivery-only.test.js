@@ -24,8 +24,16 @@ const emptyInspection = {
 
 test("delivery inspection rejects unavailable policy and ambient execution before native startup", () => {
   assert.doesNotThrow(() => assertGrokBuildDeliveryInspection(emptyInspection));
+  assert.doesNotThrow(() =>
+    assertGrokBuildDeliveryInspection({
+      ...emptyInspection,
+      grokVersion: "1.0.41-beta.1",
+    })
+  );
   for (const change of [
     { grokVersion: "1.0.39" },
+    { grokVersion: "1.0.40-rc.1" },
+    { grokVersion: "1.1.0-alpha.1" },
     { projectTrusted: false },
     { hooks: [{ event: "SessionStart" }] },
     { plugins: [{ name: "external" }] },

@@ -33,7 +33,7 @@ import {
 } from "../../people-computers/identity";
 import { resolvePeopleComputerTarget } from "../../people-computers/projection";
 import { selectCurrentOwnerServiceSessionsByDeviceLane } from "../../runtime-transport/application/current-owner-service-sessions";
-import type { ForgetCurrentComputerRecordResult } from "../infrastructure/d1/current-device-forget-repo";
+import type { ForgetCurrentComputerRecordResult } from "../infrastructure/postgresql/current-device-forget-repo";
 import {
   localRuntimeComputerContainsDevice,
   resolveCurrentLocalRuntimeTarget,

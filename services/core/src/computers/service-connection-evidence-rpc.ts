@@ -1,3 +1,4 @@
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import {
   serviceConnectionIncidentReportRpcInputSchema,
   serviceConnectionIncidentsReadRpcInputSchema,
@@ -6,7 +7,7 @@ import type {
   ServiceConnectionIncidentReportRpcInput,
   ServiceConnectionIncidentsReadRpcInput,
 } from "@openmeld/schemas/types";
-import { type CoreBindings, wakeEvidenceDb } from "../lib/bindings";
+import type { CoreBindings } from "../lib/bindings";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import {
   readServiceConnectionIncidents,
@@ -88,7 +89,7 @@ function invalidIncident() {
 }
 
 function requireEvidenceDb(env: CoreBindings) {
-  const db = wakeEvidenceDb(env);
+  const db = getPostgresDatabase(env);
   if (!db) {
     throw createCoreRpcHttpError({
       status: 503,

@@ -1,5 +1,4 @@
-import type { D1ReadBatch } from "../lib/d1-read-batch";
-
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 export type AgentProfileOrganizationContext = {
   managedRole: string | null;
   organizationId: string | null;
@@ -7,7 +6,6 @@ export type AgentProfileOrganizationContext = {
   profileKind: "human" | "agent" | "system";
   profileName: string;
 };
-
 export function isAgentProfileEligibleForOrganization(input: {
   managedRole: string | null;
   profileOrganizationId: string | null;
@@ -15,27 +13,24 @@ export function isAgentProfileEligibleForOrganization(input: {
 }): boolean {
   return input.profileOrganizationId === input.targetOrganizationId;
 }
-
 export async function readAgentProfileOrganizationContext(input: {
   agentProfileId: string;
-  db: D1Database;
-  readBatch?: D1ReadBatch;
+  db: PostgresDatabase;
 }): Promise<AgentProfileOrganizationContext | null> {
-  const statement = input.db
-    .prepare(
-      `
+  const statement = {
+    text: `
         SELECT
           organization_id,
           owner_user_id,
           profile_kind,
           profile_name,
           managed_role
-        FROM openmeld_profiles
-        WHERE profile_id = ?
+        FROM "openmeld"."openmeld_profiles"
+        WHERE profile_id = $1
         LIMIT 1
-      `
-    )
-    .bind(input.agentProfileId);
+      `,
+    values: [input.agentProfileId],
+  };
   type Row = {
     managed_role: string | null;
     organization_id: string | null;
@@ -43,9 +38,9 @@ export async function readAgentProfileOrganizationContext(input: {
     profile_kind: "human" | "agent" | "system";
     profile_name: string;
   };
-  const row = input.readBatch
-    ? await input.readBatch.first<Row>(input.db, statement)
-    : await statement.first<Row>();
+  const row = await input.db
+    .query<Row>(statement)
+    .then((result) => result.rows[0] ?? null);
   if (!row) {
     return null;
   }
@@ -66,7 +61,6 @@ export async function readAgentProfileOrganizationContext(input: {
     profileName: row.profile_name,
   };
 }
-
 function normalizeNullableText(value: string | null): string | null {
   const normalized = value?.trim() ?? "";
   return normalized.length > 0 ? normalized : null;

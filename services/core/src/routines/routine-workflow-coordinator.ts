@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import type { CoreBindings } from "../lib/bindings";
 import { claimRoutineWorkflowCheckBatch } from "./routine-repository";
 import {
@@ -11,7 +12,6 @@ const ROUTINE_WORKFLOW_RETENTION = {
   errorRetention: "30 days",
   successRetention: "1 day",
 } as const satisfies NonNullable<WorkflowInstanceCreateOptions["retention"]>;
-
 export async function ensureRoutineRunWorkflowStarted(input: {
   env: CoreBindings;
   runId: string;
@@ -138,10 +138,9 @@ export async function ensureRoutineRunWorkflowStarted(input: {
     );
   }
 }
-
-function resolveRoutineWorkflowRestart(
-  errorName: string | undefined
-): { options?: WorkflowInstanceRestartOptions } | null {
+function resolveRoutineWorkflowRestart(errorName: string | undefined): {
+  options?: WorkflowInstanceRestartOptions;
+} | null {
   switch (errorName) {
     case ROUTINE_WORKFLOW_ERROR_NAMES.submission:
       return {};
@@ -165,17 +164,19 @@ function resolveRoutineWorkflowRestart(
       return null;
   }
 }
-
 function restartFromStep(name: string): WorkflowInstanceRestartOptions {
   return { from: { name, type: "do" } };
 }
-
 export async function retryPendingRoutineRunWorkflowStarts(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   limit?: number;
   nowMs?: number;
-}): Promise<{ checked: number; errors: number; scanned: number }> {
+}): Promise<{
+  checked: number;
+  errors: number;
+  scanned: number;
+}> {
   const runIds = await claimRoutineWorkflowCheckBatch({
     db: input.db,
     limit: input.limit ?? 50,
@@ -197,11 +198,9 @@ export async function retryPendingRoutineRunWorkflowStarts(input: {
   console.info("[core.routine.workflow.start_retry_completed]", summary);
   return summary;
 }
-
 function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
-
 function toErrorName(error: unknown): string {
   return error instanceof Error ? error.name : typeof error;
 }

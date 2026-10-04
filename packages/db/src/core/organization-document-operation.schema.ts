@@ -1,16 +1,10 @@
 import { desc, sql } from "drizzle-orm";
-import {
-  check,
-  index,
-  integer,
-  sqliteTable,
-  text,
-  uniqueIndex,
-} from "drizzle-orm/sqlite-core";
+import { bigint, check, index, text, uniqueIndex } from "drizzle-orm/pg-core";
 import { organizations, users } from "../auth/auth.schema.ts";
 import { openMeldProfiles } from "../auth/openmeld-profile.schema.ts";
+import { applicationTable } from "../postgresql/schema.ts";
 
-export const centerAgentOrganizationDocumentOperations = sqliteTable(
+export const centerAgentOrganizationDocumentOperations = applicationTable(
   "center_agent_organization_document_operations",
   {
     id: text("id").primaryKey(),
@@ -33,9 +27,9 @@ export const centerAgentOrganizationDocumentOperations = sqliteTable(
     // previous Core writes neither field and may complete a claimed row without
     // clearing it. Current Core treats pending rows without a claim as recoverable.
     claimId: text("claim_id"),
-    claimExpiresAtMs: integer("claim_expires_at_ms"),
-    createdAtMs: integer("created_at_ms").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    claimExpiresAtMs: bigint("claim_expires_at_ms", { mode: "number" }),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     uniqueIndex("center_agent_org_document_operations_scope_unique").on(
@@ -64,7 +58,7 @@ export const centerAgentOrganizationDocumentOperations = sqliteTable(
     check(
       "center_agent_org_document_operations_signature_shape_check",
       sql`length("request_signature") = 64
-        and "request_signature" not glob '*[^0-9a-f]*'`
+        and "request_signature" !~ '^.*[^0-9a-f].*$'`
     ),
     check(
       "center_agent_org_document_operations_target_non_empty_check",

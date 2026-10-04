@@ -39,9 +39,49 @@ const SUBMISSION_ID = "submission-turn-end";
 
 describe("Remote Agent tool execution", () => {
   it.each([
-    "direct",
-    "code_mode",
-  ] as const)("returns an uncertain write receipt to %s without exposing provider details", async (source) => {
+    {
+      source: "direct",
+      window: "unverified",
+      replay: { allowed: false, reason: "window_unverified" },
+    },
+    {
+      source: "code_mode",
+      window: "unverified",
+      replay: { allowed: false, reason: "window_unverified" },
+    },
+    {
+      source: "direct",
+      window: "active",
+      replay: {
+        allowed: true,
+        maxAttempts: 1,
+        remainingWindowMs: expect.any(Number),
+      },
+    },
+    {
+      source: "code_mode",
+      window: "active",
+      replay: {
+        allowed: true,
+        maxAttempts: 1,
+        remainingWindowMs: expect.any(Number),
+      },
+    },
+    {
+      source: "direct",
+      window: "expired",
+      replay: { allowed: false, reason: "window_expired" },
+    },
+    {
+      source: "code_mode",
+      window: "replayed",
+      replay: { allowed: false, reason: "already_replayed" },
+    },
+  ] as const)("preserves $window replay permission through $source without exposing provider details", async ({
+    source,
+    window,
+    replay,
+  }) => {
     const { storage } = await createToolExecutionTestContext();
     const result = await executeRemoteAgentToolDefinition({
       source,
@@ -58,6 +98,15 @@ describe("Remote Agent tool execution", () => {
               actionId: "github.create_issue_comment",
               operationId: "comment-1",
               cause: new Error("synthetic-private-provider-detail"),
+              operationReplayExpiresAtMs:
+                window === "unverified"
+                  ? undefined
+                  : performance.now() + (window === "expired" ? -1 : 60_000),
+              operationReplayed: window === "replayed",
+              replay:
+                window === "active" || window === "expired"
+                  ? { allowed: true, remainingWindowMs: 60_000, maxAttempts: 1 }
+                  : undefined,
             })
           ),
       },
@@ -66,12 +115,16 @@ describe("Remote Agent tool execution", () => {
       status: "outcome_unknown",
       operationId: "comment-1",
       executionConfirmation: "unknown",
+      replay,
     });
     const text = JSON.stringify(result);
     expect(text).toContain("write may already have succeeded");
     expect(text).toContain(
-      "Do not retry this write or repeat it with a new operationId"
+      window === "active"
+        ? "You may retry exactly once"
+        : "Do not retry this write"
     );
+    expect(text).toContain("Never repeat the write with a new operationId");
     expect(text).toContain("Original operationId: comment-1");
     expect(text).not.toContain("synthetic-private-provider-detail");
   });

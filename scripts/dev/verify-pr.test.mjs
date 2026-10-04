@@ -1,12 +1,56 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import path from "node:path";
 import { test } from "node:test";
 import {
+  buildValidationEnvironment,
   planPrChecks,
   resolveUnitTestScript,
   runPrChecks,
 } from "./verify-pr.mjs";
 
 const CIRCULAR_ALIAS = /Circular test script alias/u;
+
+test("validation subprocesses cannot inherit a live dispatch's authority", () => {
+  const source = {
+    ...process.env,
+    OPENMELD_HOME: "/synthetic/live-home",
+    OPENMELD_DISPATCH_RUNTIME_MODE: "dispatch-owned-runtime",
+    OPENMELD_DISPATCH_RUNTIME_DISPATCH_ID: "live-dispatch",
+    OPENMELD_SPACE_ACTION_CONTEXT_PATH: "/synthetic/live-context.json",
+    OPENMELD_SPACE_ACTION_DELIVERY_ONLY: "1",
+    OPENMELD_USER_FACING_CLI_COMMAND: "live-cli",
+    GIT_INDEX_FILE: "/synthetic/live-index",
+    VALIDATION_FIXTURE_SECRET: "keep-test-configuration",
+    PATH: [
+      "/synthetic/live-home/runtime/daemon/dispatch-space-actions/dispatch-1/bin",
+      "/synthetic/toolchain/bin",
+    ].join(path.delimiter),
+  };
+  const output = execFileSync(
+    process.execPath,
+    [
+      "-e",
+      "console.log(JSON.stringify({home:process.env.OPENMELD_HOME, authority:Object.keys(process.env).filter(k=>k.startsWith('OPENMELD_DISPATCH_')||k.startsWith('OPENMELD_SPACE_ACTION_')||k==='OPENMELD_USER_FACING_CLI_COMMAND'||k==='GIT_INDEX_FILE'), configuration:process.env.VALIDATION_FIXTURE_SECRET}))",
+    ],
+    {
+      env: buildValidationEnvironment(source, "/synthetic/test-home", [
+        "GIT_INDEX_FILE",
+      ]),
+      encoding: "utf8",
+    }
+  );
+  assert.deepEqual(JSON.parse(output), {
+    home: "/synthetic/test-home",
+    authority: [],
+    configuration: "keep-test-configuration",
+  });
+  assert.equal(source.OPENMELD_DISPATCH_RUNTIME_MODE, "dispatch-owned-runtime");
+  assert.equal(
+    buildValidationEnvironment(source, "/synthetic/test-home", []).PATH,
+    "/synthetic/toolchain/bin"
+  );
+});
 
 test("checks signed Skill inputs in feedback and PR validation without checking unrelated edits", () => {
   for (const feedback of [true, false]) {
@@ -66,7 +110,11 @@ test("focused PR validation keeps checks for changed workspaces with adjacent te
   );
   assert.ok(commands.some((args) => args.includes("--filter=openmeld^...")));
   assert.deepEqual(
-    commands.filter((args) => args.includes("vitest")).map((args) => args[1]),
+    commands
+      .filter((args) =>
+        args.includes("scripts/dev/run-focused-workspace-tests.mjs")
+      )
+      .map((args) => args[3]),
     ["clients/web", "clients/openmeld-cli"]
   );
   assert.ok(commands.every((args) => !args.includes("related")));
@@ -75,10 +123,10 @@ test("focused PR validation keeps checks for changed workspaces with adjacent te
   );
 });
 
-test("Core feedback selects the runner that actually contains each changed test", () => {
+test("Core feedback delegates every selected file to the package-owned runner contracts", () => {
   const paths = [
     "services/core/tests-node/local-contract.test.ts",
-    "services/core/tests-split-gate/dispatch-queue-hot-path.split-routing.test.ts",
+    "services/core/tests-postgresql-owner/dispatch-queue.test.ts",
     "services/core/tests/remote-agent-routine-delivery.integration.test.ts",
   ];
   const commands = planPrChecks(paths, {
@@ -88,31 +136,17 @@ test("Core feedback selects the runner that actually contains each changed test"
       {
         directory: "services/core",
         name: "@openmeld/core",
-        test: "vitest run --config vitest.boundary.config.ts",
+        test: "node ../../tooling/postgresql/local.mjs run pnpm exec vitest run --config vitest.boundary.config.ts",
       },
     ],
   });
   assert.deepEqual(
     commands
-      .filter((args) => args.includes("vitest"))
-      .map((args) => ({
-        config: args[args.indexOf("--config") + 1],
-        test: args.at(-1),
-      })),
-    [
-      {
-        config: "vitest.boundary.config.ts",
-        test: "tests-node/local-contract.test.ts",
-      },
-      {
-        config: "vitest.split-gate.config.ts",
-        test: "tests-split-gate/dispatch-queue-hot-path.split-routing.test.ts",
-      },
-      {
-        config: "vitest.config.ts",
-        test: "tests/remote-agent-routine-delivery.integration.test.ts",
-      },
-    ]
+      .find((args) =>
+        args.includes("scripts/dev/run-focused-workspace-tests.mjs")
+      )
+      .slice(10),
+    paths.map((file) => file.slice("services/core/".length))
   );
 });
 test("Worker changes select the existing Zod contract guard before expensive tests", () => {
@@ -160,15 +194,11 @@ test("focused checks changed files and adjacent tests without package builds", (
   assert.deepEqual(commands, [
     ["exec", "biome", "check", "--no-errors-on-unmatched", "--", ...sources],
     [
-      "--dir",
-      "clients/web",
       "exec",
-      "vitest",
-      "run",
-      "--config",
-      "vitest.config.ts",
-      "--maxWorkers=2",
-      "--no-file-parallelism",
+      "node",
+      "scripts/dev/run-focused-workspace-tests.mjs",
+      "clients/web",
+      "vitest run --config vitest.config.ts",
       "src/sidebar.test.tsx",
     ],
   ]);

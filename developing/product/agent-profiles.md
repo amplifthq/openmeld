@@ -81,22 +81,26 @@ local process. Those objects may help the Agent Profile reply, but they are
 local execution infrastructure, not the teammate identity users collaborate
 with.
 
-Ordinary Agent Profile avatars intentionally use the bound Agent Controller's
+Local Agent Profile avatars intentionally use the bound Agent Controller's
 brand mark, such as Codex, Claude Code, Grok Build, Cursor, or OpenCode, because the mark helps users
-recognize how that profile runs. Rebinding an ordinary Agent Profile updates
+recognize how that profile runs. Rebinding a Local Agent Profile updates
 that mark. An unbound or unknown controller uses the generic agent fallback;
 it must not invent Controller branding.
 Local Agent message headers show the owner's name after a middle dot, without
 an owner avatar or prefix. Profile popovers place availability beside the Agent
 name and show `Owned by` with the owner's small Human Profile avatar and name.
 Hosted Agents retain the `Hosted by OpenMeld` message attribution.
-Hosted Remote Agent avatars use the generic Agent mark by default. They do not
-borrow model vendor branding: a model choice is not the teammate's identity.
-The owner may instead confirm the abstract fluid avatar, which stays in place
-across model changes. Avatar choice belongs to the Agent Profile, not to its
-Binding or a cached model selection. Every Web entrance resolves style, shape,
-and icon from the Organization Profile Directory. Missing `avatarStyle` means
-the automatic Agent/controller mark, never an invented saved Bot selection.
+Hosted Remote Agent default avatars use the selected model provider's logo,
+resolved from the exact provider namespace in the current `avatarModelId`.
+OpenRouter is the calling channel, not the model provider; Remote Agents never
+borrow Local Agent Controller product marks such as Codex or Claude Code.
+Unknown providers or providers without a supported logo use the generic Agent
+mark. A saved custom image or explicitly selected fluid avatar takes precedence
+and stays in place across model changes. Avatar choice belongs to the Agent
+Profile, not to its Binding. Every Web entrance resolves saved style, shape,
+image, and current model identity from the Organization Profile Directory.
+Missing `avatarStyle` means the automatic provider/controller mark, never an
+invented saved Bot selection. Center Agent defaults remain the generic Agent mark.
 Center Agents use circles; other Agents use rounded squares.
 
 OpenMeld also has Human Profiles. A default Human Profile is created for the
@@ -714,6 +718,15 @@ Profile UI must not copy the Computer policy or offer a profile-level override;
 the current Computer detail is its one management home. Direct user-launched
 controller sessions remain governed by the controller's own settings.
 
+Starting a new Codex task for its owner does not add a single-folder restriction.
+The same rule applies to a currently verified Center delegation from that owner.
+With no explicit task access choice, the new task uses the current Profile
+permission mode and Computer policy. The Task menu's **New task** starts a
+separate conversation without choosing a narrower file scope. Explicit project,
+read-only, and Space-only tasks keep their selected restrictions. Continuing or
+forking an older restricted task does not reinterpret that restriction as a
+default; the owner can start a new task to use their current settings.
+
 Grok Build's current controller sandbox is too coarse to prove
 `only_selected_folders` or `block_selected_folders`. Its adapter therefore
 reports the Computer file access boundary as unsupported and uses the existing
@@ -1063,10 +1076,11 @@ the local Service verifies their resource isolation. Legacy work without a
 context drains exclusively. Waiting order is the owner-shard transaction
 acceptance order; a blocked context does not prevent eligible independent work
 from using a free reservation. There is no priority system in this version.
-A source message is visible in its conversation immediately; its Wake
-may show that it is queued, but Web does not hide or stack the message above the
-Composer until execution starts. Different Agent Profiles remain independently
-admissible and may work in parallel.
+A published source message stays visible in its conversation; its admitted Wake
+may show that it is queued. Pending plain-text follow-ups in the Composer Queue
+have not been published or admitted as Wakes yet. They remain editable pending
+Space input until ordinary publication or an explicit Steer consumes them.
+Different Agent Profiles remain independently admissible and may work in parallel.
 
 For migrated Profiles this replaces the former one-slot FIFO and Profile-wide
 native conversation model. The primary Binding still owns the connection and
@@ -1091,13 +1105,15 @@ them; a thread alone does not opt an unsupported harness into the new protocol.
 This compatibility rule does not enable suspended controllers or bypass current
 connection, permissions, or readiness requirements.
 
-In parallel mode, an ordinary Claude Code Wake starts a new isolated Space-only
-context when no retained context has been selected. It does not require a Git
-repository or container engine. A Wake continuing a retained context keeps that
-context's access; select a new project task to work in a repository. Space-only
-tasks have no local code tools. Forks inherit the source context's access unless an
-explicit supported choice changes it. An ordinary Codex Wake with no retained
-context uses the Profile's effective working folder. Explicit task choices may
+New Codex and Claude tasks keep the Agent's native tools and permission mode,
+whether requested by the owner, a teammate, or another Agent. Projects select
+the starting folder; they do not restrict the Agent to that folder. In parallel
+mode, an ordinary Claude Wake starts an independent native context when no
+retained context has been selected. It needs neither Git nor a container engine.
+A Wake continuing a retained context keeps its existing access. Forks preserve
+the source restriction unless an explicit supported choice changes it.
+The Task menu makes New task the default choice and groups optional restrictions
+under Limit task access. Explicit task choices may
 instead select Space-only access, an independent project worktree, or read-only
 current-folder access. Codex App Server also supports independent
 project worktrees or read-only/current-folder access. The CLI options
@@ -1115,7 +1131,7 @@ commit; it does not discover a source by searching the computer.
 
 The task boundary confines project files and Git metadata. Codex retains its
 native runtime's platform temporary-directory rules; that is not a promise of
-complete temporary-directory isolation. Claude Code project tasks require a
+complete temporary-directory isolation. Explicit isolated Claude project tasks require a
 running Docker or Podman Linux-container engine on macOS, Linux, or Windows.
 The Service mounts only the task-owned repository and worktree, disables
 container networking, runs as a non-root user, and gives Claude restricted file
@@ -1259,12 +1275,19 @@ projection first. Non-owners see the neutral workload state without this action
 or the interrupted request details.
 
 Owners and other Organization members see the same compact workload summary,
-such as `Working · 3 queued`. Profile Details may show the owner where the
-current Wake is running and which tasks are queued. Other members see only
-neutral workload state and count; they do not receive Space names, task text,
-controller conversation identifiers, local paths, or other owner diagnostics.
-This projection belongs in the existing Profile Details surface, not a separate
-status product.
+such as `1 active · 3 queued`, in existing Profile Details. The read-only workload
+combines existing Space Wake progress and pending Space inputs across the Agent's
+Organization conversations; it does not create another execution queue. A queued
+input and the Wake that consumes it are successive states, not two tasks.
+
+Conversation access controls each row's message preview, Space name and link for
+owners and other members alike. Inaccessible conversations contribute only neutral
+counts. Owning the Agent alone does not reveal private conversations. An unavailable
+or incomplete source makes the workload unavailable rather than claiming an exact
+zero or partial total. This default Organization visibility does not grant Queue,
+Steer, recovery, stop, or settings mutation authority. Controller conversations,
+local paths, Computer details and owner diagnostics keep their existing boundaries.
+Privacy settings are separate future scope, not per-surface switches added here.
 
 Organization-member Agent details may also include one explicit public display
 configuration: the friendly Agent Controller, model, reasoning level,

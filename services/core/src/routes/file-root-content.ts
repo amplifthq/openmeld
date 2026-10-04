@@ -38,6 +38,7 @@ import {
   toFileRootEntry,
 } from "./file-roots";
 import { mapRpcHttpError } from "./rpc-http-error";
+import { registerSpaceFileExcerptRoutes } from "./space-file-excerpts";
 
 const ROOT_ROUTE = "/v1/organizations/current/files/:location";
 const CONTENT_ROUTE = `${ROOT_ROUTE}/:entryId/content`;
@@ -45,6 +46,7 @@ const MULTIPART_ROUTE = `${ROOT_ROUTE}/file-uploads/:uploadId`;
 const COPY_TO_SPACE_ROUTE = "/v1/spaces/:spaceId/files/copies";
 
 export function registerFileRootContentRoutes(app: Hono<HonoBindings>): void {
+  registerSpaceFileExcerptRoutes(app);
   app.post(ROOT_ROUTE, (c) => upload(c));
   app.post(`${ROOT_ROUTE}/copies`, (c) => copyRevision(c));
   app.post(COPY_TO_SPACE_ROUTE, (c) => copyToSpace(c));

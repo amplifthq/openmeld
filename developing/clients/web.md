@@ -23,6 +23,16 @@
 - Source of truth: This file owns the durable product boundary for the OpenMeld Web
   client as a browser client.
 
+## App and public website boundary
+
+`clients/web` is the App at `app.openmeld.ai` (Staging:
+`app.staging.openmeld.ai`). Its root enters the authenticated Organization
+resolver or sends anonymous visitors to `/login`. Public marketing, legal,
+Changelog, and local-agent guides belong to `clients/website`; Web keeps only
+redirects for those pages. See [Public Website](website.md) for presentation and
+root-domain forwarding. Web remains the sole owner of Auth proxies, application
+APIs, installers, downloads, and native authorization entry points.
+
 ## Conversational Plugin setup
 
 A Plugin setup intent opens the current Organization's existing connection
@@ -136,6 +146,17 @@ browser Web has no updater controls.
 
 ### Shared Profile and Organization actions
 
+The Team Agent directory and person Agent directory default to Fluid group cards by local
+Controller and remote model provider. Group disclosure is local presentation
+state; it does not mutate the page or section filters. Filtering precedes grouping,
+and the current sort determines the Agents and first three avatar previews within
+each card. A borderless two-by-two preview shows up to three avatars and the
+remaining count. The section's Expand all control hides group holders and restores
+the original flat Agent cards without changing filters or sorting; Show groups
+restores grouping. Existing view settings also offer Controller, Provider, Model, and
+ungrouped presentation. Bulk selection shows all filtered cards so its visible
+selection scope remains explicit. Center Agent presentation stays separate.
+
 Web and the packaged Desktop renderer use the same fixed `/v1/` business routes.
 `lib/auth-business.server.ts` validates public inputs and safe response projections
 while retaining Auth's original HTTP handlers, permissions, middleware, cookies,
@@ -174,6 +195,11 @@ identity. It retains the existing pair-based open/reuse behavior. Once a
 conversation is displayed, view navigation pins its resolved Space ID in the
 URL so Files/Messages cannot reselect a different conversation. Explicit
 session links always select their exact identity, including after reload.
+
+The resolved conversation's component identity uses its canonical Space ID.
+Pinning that same ID into the URL must not remount the conversation and discard
+an attachment-open request. Opening a final-message attachment therefore retains
+its selected file revision while switching from Messages to Files.
 
 Web uses three navigation levels: a 76px application rail (52px in Icons only), a contextual
 list inside the inset surface, and the current work area. Inbox, Spaces, and
@@ -475,6 +501,14 @@ caret at the end only while that editor owns focus. Network completion and
 incoming messages do not refocus the Composer, and deferred editor focus is
 canceled when another surface takes focus. Existing mention clearing and
 message-history navigation rules remain unchanged.
+
+The shared Plate editor must preserve a valid native selection across an
+unchanged React render while Slate's deferred selection handler catches up.
+Selection synchronization belongs to Slate, not a second Composer listener or
+draft writer. The pinned dependency repair and its removal criteria live in
+[`patches/slate-react-selection.md`](../../patches/slate-react-selection.md).
+Run `pnpm --filter openmeld-web test:editor:browser` for the native selection,
+draft, mention, composition, and document-decoration regression matrix.
 
 OpenMeld Web is the primary browser surface for the user-visible collaboration loop:
 
@@ -1261,6 +1295,11 @@ owner for earlier/newer context and return-to-latest behavior, rather than
 searching a fixed number of pages from the live tail. A newer navigation cancels
 the previous lookup. Main-message links take precedence over a previously open
 Thread; explicit Thread links still open the Thread shell before replies load.
+If an explicit main-message anchor is unavailable, the same history owner reads
+the latest messages from that Space through the authorized API and explains the
+fallback in plain language. It never searches another Space for the message.
+Access and transport failures do not become successful fallback navigation, and
+server diagnostic text is not rendered as the navigation error.
 Inside a Thread, the root message's details offer **Show message in Messages**.
 This in-page action closes the details drawer and focuses the root in the main
 conversation while retaining the open Thread. It reuses the same bounded
@@ -1518,6 +1557,12 @@ speaker's avatar beside the name and bubble, with the name aligned to the avatar
 top and the bubble below it. Names use regular-weight, muted, extra-small text;
 the name line compensates for the font's ascent inset to align its visible ink
 slightly above the avatar top.
+Speaker avatars use the transcript viewport's available width: 24px below 640px,
+28px from 640px, and 32px from 1024px. Their column keeps an 8px gap before the
+message content, including grouped messages and either self-message placement.
+Narrow Threads keep the compact size even on a wide desktop. Human, Agent,
+system, and pending first-message avatars share this presentation; inline
+mentions, reaction lists, profile popovers, and sidebar sizes are independent.
 Direct Messages, including Center
 Agent chats, use content-sized bubbles up to the available conversation width
 with a dedicated avatar column. The first
@@ -1645,6 +1690,9 @@ an optional supported reasoning effort. Center Agent settings use the same
 reasoning selector. New personal Remote Agents initially select GPT-6 Sol with
 `medium` effort; Center Agent OpenMeld default is Claude Opus 5.5 with `medium`.
 Default reasoning follows the selected model's catalog effort.
+An explicit effort under **OpenMeld default** saves the current default as a
+concrete model selection. Before Save, Web explains that this model will remain
+selected when OpenMeld defaults change; Core owns materializing the model ID.
 Changing to another provider clears an incompatible draft and requires a new
 model choice before Create or Save; an empty draft must not silently select
 the system default. Local Agent model controls keep their controller-owned
@@ -2966,13 +3014,15 @@ open the exact same Agent.
 The selected Agent’s right-hand detail uses the same Profile Details section
 model, permissions, queries, mutations, execution-target locks, and diagnostic
 facts as the existing About and edit surfaces. Read-only detail is the default.
-Its Agent Profile Operational Context includes one **Activity** section. Owners
-and other members see the same compact workload copy, for example
-**Active task · 3 queued**. A Work Coordinator slot is not proof that the
-provider is generating. Selecting a disclosed work location opens its Space:
-the owner may see the current Space and queued task references, while another
-member sees only neutral working and queue-count facts. Neither view infers work
-from Agent Activity, browser timers, or message age.
+Its existing **Current activity** section combines Space-owned Wake progress and
+pending input across that Agent's Organization conversations. Owners and other
+members see the same compact counts, for example **1 active · 3 queued**.
+Each viewer sees source text and navigation only for conversations they can
+access; other conversations contribute neutral counts. Owning an Agent alone
+does not reveal its private conversations. A Work Coordinator slot is not proof
+that the provider is generating. This read-only presentation does not add a
+second execution queue or grant mutation access. Neither view infers work from
+Agent Activity, browser timers, or message age.
 If interrupted work needs attention, only the owner sees **Skip interrupted
 work** in this Activity section. The action resolves the exact current recovery
 gate and lets the oldest queued Wake continue; repeating it is harmless. Web
@@ -3502,11 +3552,15 @@ prerendered or placed in a shared server cache; intent prefetch, request-scoped
 SSR data, the account-scoped browser cache, and live invalidation are the
 allowed acceleration layers.
 
-TanStack Router owns the browser's coarse scroll-coordinate fallback. Its
-restoration key is the route pathname rather than the individual
-browser-history entry, and the Space message viewport has a stable id derived
-from the Space id. The conversation records a persisted signal and its viewport
-offset during scrolling and on departure. Reading-position restore and the
+TanStack Router restores ordinary pages by route pathname rather than the
+individual browser-history entry. Space, Chat, public Space, and Desk routes
+opt out through its public `scrollRestoration` option, including server-rendered
+restoration. Their conversation/canvas owners restore their own positions;
+the module sidebar retains its independent scoped scroll memory. The router
+must not replay old pixel coordinates over a restored message or explicit jump.
+The conversation records a persisted signal, its viewport offset, and whether
+the reader is at the live bottom during scrolling and on departure.
+Reading-position restore and the
 history rail's Back action share this anchor selection. Optimistic sends, live
 reply projections, and transient activity rows retain their display identities
 but cannot become history anchors. Prefer the first visible recorded signal;
@@ -3522,13 +3576,18 @@ mounts, before painting the default start position, loading earlier pages if
 needed. Subsequent resize corrections run directly in ResizeObserver's
 before-paint delivery; an extra animation-frame delay would expose the wrong
 position as deferred message layout resolves. The callback adjusts scrolling,
-not observed element sizes. A remembered position disables the MessageScroller's initial
-end jump and automatic following. Resize observation preserves the same message
+not observed element sizes. A remembered historical position disables the
+MessageScroller's initial end jump and automatic following. A saved live-bottom
+position opens the live tail and follows it using the MessageScroller, even when
+new messages have arrived since the previous visit. Older saved records without
+the bottom flag keep their existing message-anchor meaning.
+Resize observation preserves the same message
 as images and deferred layout settle, until deliberate user scrolling takes
 ownership. Reaching the bottom resumes normal following. Different Spaces
 remain independent; explicit message-focus navigation takes priority over the
 remembered position.
-The coarse fallback uses session storage. The semantic anchor keeps each tab's
+The conversation no longer reads a separate coarse-coordinate fallback.
+Its semantic position keeps each tab's
 session position and also saves a seven-day local-storage copy for a new tab or
 browser restart. An existing tab's position wins over another tab's last saved
 position. Auth cleanup removes both copies. This view-local presentation state does not
@@ -4144,6 +4203,11 @@ without discarding older cached history. An older saved reading anchor opens a
 bounded cached neighborhood; missing anchors use the existing server history
 navigation. Explicit older-history loads expand the visible window, while new
 live messages do not move its start. Space, DM, and Desk readers share this rule.
+If an explicit message anchor is missing, a successful authorized latest-window
+read is a latest-navigation result, not a loading error. The conversation scroll
+owner positions that window after rendering and shows one explanatory notice.
+Permission and network failures retain their failure semantics; no cross-Space
+anchor search is allowed.
 Direct-message previews reuse the Account Space Index projection when provided,
 including its explicit empty value. Only conversations without that projection
 retain the per-conversation preview read.
@@ -4448,8 +4512,10 @@ minimum and maximum widths, and reduced-motion behavior. Thread can grow to
 60rem, constrained by the available conversation area after other inline panels,
 with 512px reserved for the main conversation. When the available area cannot
 fit that width alongside Thread's minimum reading width, Thread covers the
-conversation area until closed instead of crushing either column. Covered
-content is hidden from interaction and the accessibility tree. A smaller viewport
+main conversation area until closed instead of crushing either column. Its
+overlay width excludes other inline panels, so opening Members keeps Members
+visible and interactive beside Thread. Only the covered main conversation is
+hidden from interaction and the accessibility tree. A smaller viewport
 constrains the displayed width without overwriting the saved wider preference.
 Members and Thread widths are persisted as separate browser presentation preferences. The
 Members open/closed state and width are scoped to the current Space id, so
@@ -4704,9 +4770,9 @@ state; a success and failure are always separate, exact rows. Web retains at
 most the latest 50 admitted live calls. New work follows the bottom while the
 user remains there; scrolling up pauses following and shows one
 `new step · Jump to latest` control instead of pulling the user away.
-Reduced-motion preferences disable smooth following. The summary does not
-create an empty message bubble before text arrives in ordinary Spaces or
-threads.
+Reduced-motion preferences disable smooth following. Known active execution
+occupies an unfinished Agent reply before text arrives, in both ordinary Spaces
+and threads. Public work fills that same reply without waiting for answer text.
 
 Space messages and Thread messages do not render a separate `woke Agent Name`
 receipt. Instead, the inline Agent token shows its exact Wake or Reference
@@ -5467,9 +5533,14 @@ input-waiting Orbs are paused.
 
 Unfinished Agent replies follow the latest message in their owning conversation.
 The server-selected `replyThreadRootSignalId` takes precedence over the trigger
-message's location once reply placement is known. Before selection, progress
-keeps its source context, except a shared-Space Center Agent Wake waits for its
-selected destination instead of showing a provisional main-conversation status.
+message's location once reply placement is known. Before selection, execution
+progress keeps its source context, including shared-Space Center Agent Wakes.
+The unfinished reply immediately shows the same authoritative progress as the
+sidebar and admits public work even before its final destination is selected.
+Native execution timing survives both outbox and dispatch-ledger projections,
+so the reply's elapsed time comes from its runtime's accepted execution evidence.
+Transient thinking and progress never allocate a reply Thread. Existing
+Thread work can use its source Thread context before an answer stream arrives.
 For a Thread-bound reply, the main message's **Open thread** entrance shows the
 compact current phase and authorized Stop control in place. The Thread shows the
 complete progress and its Stop control. The main message does not show a second
@@ -5500,6 +5571,10 @@ and stopped outcomes keep their original request context. Active rows expose a r
 and reuse the shared status, Orb, preview, and Stop controls, without message
 timestamps or publication actions. Missing source history does not hide a Wake
 whose authoritative source context proves its conversation scope.
+Stopped outcomes use the target Agent's reply surface with the original request
+preview and a quiet `(Request stopped)` label below any retained public reply text. An
+empty response still shows `(Request stopped)`. They are not grouped across Agents or
+rendered as full-width system separators; partial text survives history reload.
 Core-published native failure and cancellation text (`remote_agent_failure`)
 replaces its exact submission's temporary stream, just as a successful final
 reply does. A late or stale stream must not retain a working or failed bubble

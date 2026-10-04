@@ -1,39 +1,36 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import { ORGANIZATION_JOIN_LINK_WEB_PATH } from "@openmeld/schemas";
-
 export type ActiveOrganizationJoinLink = {
   organizationName: string;
   token: string;
 };
-
 type ActiveOrganizationJoinLinkRow = {
   organization_name: string;
   token: string;
 };
-
 export async function readActiveOrganizationJoinLink(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
 }): Promise<ActiveOrganizationJoinLink | null> {
   const row = await input.db
-    .prepare(
-      `
+    .query<ActiveOrganizationJoinLinkRow>({
+      text: `
         SELECT
           organization_join_links.token AS token,
           organizations.name AS organization_name
-        FROM organization_join_links
-        INNER JOIN organizations
+        FROM "openmeld"."organization_join_links"
+        INNER JOIN "openmeld"."organizations"
           ON organizations.id = organization_join_links.organization_id
-        WHERE organization_join_links.organization_id = ?
+        WHERE organization_join_links.organization_id = $1
           AND organization_join_links.revoked_at IS NULL
           AND organization_join_links.space_id IS NULL
           AND organization_join_links.mode = 'request'
-          AND (organization_join_links.expires_at IS NULL OR organization_join_links.expires_at > ?)
+          AND (organization_join_links.expires_at IS NULL OR organization_join_links.expires_at > $2)
         LIMIT 1
-      `
-    )
-    .bind(input.organizationId, Date.now())
-    .first<ActiveOrganizationJoinLinkRow>();
-
+      `,
+      values: [input.organizationId, Date.now()],
+    })
+    .then((result) => result.rows[0] ?? null);
   return row
     ? {
         organizationName: row.organization_name,
@@ -41,7 +38,6 @@ export async function readActiveOrganizationJoinLink(input: {
       }
     : null;
 }
-
 export function buildOrganizationJoinLinkUrl(input: {
   token: string;
   webAppUrl: string;

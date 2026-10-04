@@ -1,14 +1,15 @@
 import {
-  createD1Db,
+  createAuthDatabase,
   createDrizzleAccountAvatarMutationRepository,
 } from "@openmeld/auth/server";
+import { withPostgresRequest } from "@openmeld/db/postgresql";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AuthRpcEntrypoint } from "../src/lib/rpc/entrypoint";
 import {
-  applyDrizzleMigrations,
-  createSqliteD1Harness,
-  type SqliteD1Harness,
-} from "./support/sqlite-d1-harness";
+  createPostgresHarness,
+  type PostgresHarness,
+  postgresTestBinding,
+} from "../../../tooling/postgresql/test-harness";
+import { AuthRpcEntrypoint } from "../src/lib/rpc/entrypoint";
 
 const executionContext = {
   exports: {},
@@ -21,16 +22,16 @@ const PROFILE_ID = "11111111-1111-4111-8111-111111111111";
 const ASSET_ID = "22222222-2222-4222-8222-222222222222";
 const AVATAR_URL = `https://gateway.openmeld.ai/v1/profile-avatars/${PROFILE_ID}/${ASSET_ID}.webp`;
 
-let harness: SqliteD1Harness;
+let harness: PostgresHarness;
 
-beforeEach(() => {
-  harness = createSqliteD1Harness();
-  applyDrizzleMigrations(harness.database);
-  seedAccount();
+beforeEach(async () => {
+  harness = await createPostgresHarness();
+
+  await seedAccount();
 });
 
-afterEach(() => {
-  harness.close();
+afterEach(async () => {
+  await harness.close();
   vi.restoreAllMocks();
 });
 
@@ -62,39 +63,41 @@ describe("account avatar RPC", () => {
       ok: true,
     });
     expect(
-      harness.queryFirst({
-        params: [USER_ID],
-        sql: "select image from users where id = ?",
+      await harness.queryFirst({
+        values: [USER_ID],
+        text: 'select image from "openmeld"."users" where id = $1',
       })
     ).toEqual({ image: AVATAR_URL });
   });
 
   it("prevents a default Human Profile identity race from winning the write", async () => {
-    const repository = createDrizzleAccountAvatarMutationRepository(
-      createD1Db(harness.db)
-    );
-    const prepared = await repository.readForActor({ actorUserId: USER_ID });
-    expect(prepared?.defaultHumanProfileId).toBe(PROFILE_ID);
+    return await withPostgresRequest(harness.binding, async () => {
+      const repository = createDrizzleAccountAvatarMutationRepository(
+        createAuthDatabase()
+      );
+      const prepared = await repository.readForActor({ actorUserId: USER_ID });
+      expect(prepared?.defaultHumanProfileId).toBe(PROFILE_ID);
 
-    harness.run({
-      params: [PROFILE_ID],
-      sql: "update openmeld_profiles set status = 'disabled' where profile_id = ?",
+      await harness.query({
+        values: [PROFILE_ID],
+        text: 'update "openmeld"."openmeld_profiles" set status = \'disabled\' where profile_id = $1',
+      });
+
+      await expect(
+        repository.compareAndSetAvatar({
+          actorUserId: USER_ID,
+          expectedAvatar: null,
+          expectedDefaultHumanProfileId: PROFILE_ID,
+          nextAvatar: AVATAR_URL,
+        })
+      ).resolves.toBe(false);
+      expect(
+        await harness.queryFirst({
+          values: [USER_ID],
+          text: 'select image from "openmeld"."users" where id = $1',
+        })
+      ).toEqual({ image: null });
     });
-
-    await expect(
-      repository.compareAndSetAvatar({
-        actorUserId: USER_ID,
-        expectedAvatar: null,
-        expectedDefaultHumanProfileId: PROFILE_ID,
-        nextAvatar: AVATAR_URL,
-      })
-    ).resolves.toBe(false);
-    expect(
-      harness.queryFirst({
-        params: [USER_ID],
-        sql: "select image from users where id = ?",
-      })
-    ).toEqual({ image: null });
   });
 
   it("refreshes the signed session cookie after a successful commit", async () => {
@@ -173,17 +176,17 @@ describe("account avatar RPC", () => {
       ok: true,
     });
     expect(
-      harness.queryFirst({
-        params: [USER_ID],
-        sql: "select image from users where id = ?",
+      await harness.queryFirst({
+        values: [USER_ID],
+        text: 'select image from "openmeld"."users" where id = $1',
       })
     ).toEqual({ image: AVATAR_URL });
   });
 
   it("returns structured failures for missing profiles and invalid input", async () => {
-    harness.run({
-      params: [PROFILE_ID],
-      sql: "delete from openmeld_profiles where profile_id = ?",
+    await harness.query({
+      values: [PROFILE_ID],
+      text: 'delete from "openmeld"."openmeld_profiles" where profile_id = $1',
     });
     const rpc = createRpc();
 
@@ -205,21 +208,21 @@ describe("account avatar RPC", () => {
 function createRpc(): AuthRpcEntrypoint {
   return new AuthRpcEntrypoint(executionContext, {
     AUTH_WORKER_NODE_ENV: "test",
-    OPENMELD_DB: harness.db,
+    OPENMELD_POSTGRESQL: postgresTestBinding(harness.db),
   } as unknown as CloudflareBindings);
 }
 
-function seedAccount(): void {
+async function seedAccount(): Promise<void> {
   const now = Date.now();
-  harness.run({
-    params: [USER_ID, "Owner", "owner@example.com", 1, now, now],
-    sql: `
-      insert into users (id, name, email, email_verified, created_at, updated_at)
-      values (?, ?, ?, ?, ?, ?)
+  await harness.query({
+    values: [USER_ID, "Owner", "owner@example.com", 1, now, now],
+    text: `
+      insert into "openmeld"."users" (id, name, email, email_verified, created_at, updated_at)
+      values ($1, $2, $3, $4, $5, $6)
     `,
   });
-  harness.run({
-    params: [
+  await harness.query({
+    values: [
       PROFILE_ID,
       "Owner",
       "owner",
@@ -231,8 +234,8 @@ function seedAccount(): void {
       now,
       now,
     ],
-    sql: `
-      insert into openmeld_profiles (
+    text: `
+      insert into "openmeld"."openmeld_profiles" (
         profile_id,
         profile_name,
         profile_handle,
@@ -244,7 +247,7 @@ function seedAccount(): void {
         created_at,
         updated_at
       )
-      values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
     `,
   });
 }

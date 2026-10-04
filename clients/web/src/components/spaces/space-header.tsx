@@ -26,6 +26,7 @@ import {
 import { MessageSearchButton } from "#/components/search/message-search";
 import type { SpaceLiveState } from "#/lib/spaces/timeline";
 import { ChatHeaderMenu } from "./chat-header-menu";
+import { useConversationNames } from "./conversation-names";
 import { PUBLIC_SPACE_ACCESS_WARNING_TOOLTIP } from "./space-access-editor";
 import { SpaceHeaderNavigationMenu } from "./space-header-navigation-menu";
 import { SpacePinsRecallAction } from "./space-pins";
@@ -67,6 +68,8 @@ export function SpaceWindowHeader(input: {
 					: "grid-rows-1",
 				input.contentClassName
 			)}
+			data-has-leading-control={Boolean(input.leadingControl)}
+			data-slot="space-window-header"
 			ref={readingHeader?.setHeader}
 		>
 			{input.leadingControl || hasModuleSidebar ? (
@@ -80,10 +83,11 @@ export function SpaceWindowHeader(input: {
 			) : null}
 			<div
 				className={cn(
-					"col-start-2 row-start-1 flex min-h-0 min-w-0 items-center gap-2 overflow-hidden group-data-[compact=true]/space-header:col-span-1 group-data-[compact=true]/space-header:col-start-3 group-data-[compact=true]/space-header:my-auto group-data-[compact=true]/space-header:border-l group-data-[compact=true]/space-header:pl-3",
+					"col-start-2 row-start-1 flex min-h-0 min-w-0 items-center gap-2 overflow-hidden data-[has-title-control=true]:overflow-visible group-data-[compact=true]/space-header:col-span-1 group-data-[compact=true]/space-header:col-start-3 group-data-[compact=true]/space-header:my-auto group-data-[compact=true]/space-header:border-l group-data-[compact=true]/space-header:pl-3",
 					!(input.leadingControl || hasModuleSidebar) &&
 						"col-span-2 col-start-1"
 				)}
+				data-has-title-control={Boolean(input.titleControl)}
 				data-slot="space-window-header-title"
 			>
 				{input.titleControl ?? (
@@ -247,10 +251,7 @@ export function SpaceHeader(input: {
 		"main"
 	);
 	const [isConfirmingDraftClose, setIsConfirmingDraftClose] = useState(false);
-	const spaceName = resolveHeaderTitle(
-		input.conversationTitle,
-		input.status.name
-	);
+	const conversationNames = useConversationNames();
 	const sharingDraft = useSpaceSharingDraft({
 		accessMode: input.status.accessMode,
 		allowGuests: input.status.allowGuests,
@@ -263,6 +264,13 @@ export function SpaceHeader(input: {
 		directMessageConvertedAt: input.status.directMessageConvertedAt,
 		purpose: input.status.spacePurpose,
 	});
+	const spaceName = resolveHeaderTitle(
+		input.conversationTitle ??
+			(isDirectMessage
+				? conversationNames?.names.get(input.status.spaceId)?.name
+				: undefined),
+		input.status.name
+	);
 	const showChatMenu = input.showChatSettingsMenu || isDirectMessage;
 	const handleDialogOpenChange = (
 		dialog: "settings" | "share",

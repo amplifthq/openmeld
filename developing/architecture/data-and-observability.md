@@ -289,6 +289,12 @@ message text the only way to understand what happened.
 
 ## Data Ownership Rule
 
+The shared relational target is Hyperdrive + PlanetScale PostgreSQL in the
+Amplift organization, as decided in [physical-db-split.md](physical-db-split.md).
+Current product storage remains D1 until controlled cutover. Physical migration
+does not transfer logical ownership, move Space Durable Object/R2 state, or
+make a relational projection a second execution authority.
+
 Every persistent state needs one authority owner.
 
 Before adding or changing a table, database, projection, Durable Object state, or
@@ -326,6 +332,47 @@ durable receipt; Flue owns canonical conversation application and acknowledges
 it only after the input is recorded there. Core retries pending forwarding
 through the existing Space alarm and retains terminal receipts for replay.
 Deleting the Space removes its input outbox with the rest of Space data.
+
+The pending-input receiver retains editable inputs in that same outbox, not a
+second browser queue. A queued row has no forwarding deadline. Its Space-owned
+position is also the ordinary-consumption claim order. Synchronous conditional
+claims fence delete, reorder, ordinary consumption, and explicit Steer; claimed
+or uncertain input cannot be claimed again. Reordering compares the complete
+pending order before changing it in one storage transaction. Deleted and consumed
+rows remain as idempotency records and cannot be resurrected by enqueue replay.
+These are input-delivery states, never execution states.
+
+The current `spaceInputQueue` receiver supports only the original Human
+Profile of one native Center DM execution. It does not grant another Space member
+or Agent the original execution's frozen authority. Queue Steer sends once, then
+uses the existing Remote receipt reader. A missing or rejected receipt query is
+not proof that an earlier send was rejected. Unknown application retains and
+holds the input; an explicit intake rejection retains it as blocked Queue work.
+Only exact-target application removes it and publishes its original Signal,
+atomically, without creating a Wake. Queue receipt deadlines use a separate
+column so an older Core's forwarding query cannot resend uncertain Queue input.
+Old outbox rows retain their existing forwarding behavior.
+
+The Human/Center Web path uses the Gateway receiver and the same queue read
+projection. Ordinary consumption is driven by the existing persisted final reply
+claim for the preceding dispatch, not by client progress or elapsed time. The
+Space alarm promotes only the first eligible item after a successful reply or
+explicit silent outcome. Stop, failure, missing outcome content, revoked author,
+or an unavailable target retains blocked Queue work. Unknown Steer holds later
+claims as well.
+
+SQL schema 50 adds the preceding-dispatch dependency to the existing row. The
+normal publication owner prepares the usual unresolved handoff seed, then
+atomically claims the queued input, inserts its original Signal and single
+dispatch outbox record, retires the input, and moves remaining inputs behind
+that dispatch. A failed transaction leaves all inputs pending. After a crash,
+the existing durable dispatch outbox resumes the same identity; it does not
+claim or publish that queued input again. The dependency is input ordering,
+not a second execution state machine. Native execution and admission remain
+with Remote/Flue. Agent tools and Local Service callers remain unimplemented.
+The seed deliberately has no resolved controller yet: Core admission owns that
+selection. Queue validates its supported Center member and exact target rather
+than treating the seed's empty controller snapshot as unavailable execution.
 
 OpenMeld separates durable truth from query projections.
 
@@ -650,13 +697,16 @@ Local, and personal Remote Agent consumers.
 Local plugin calls reuse `center_agent_connector_action_operations` and the
 existing audit journal; its historical physical name does not restrict its
 consumer. A claim freezes the authenticated Agent, represented member, selected
-connection, input signature, and operation ID. An exact replay returns that
-record, including after revocation, and never starts a second provider call.
+connection, input signature, and operation ID. Recovery retains that
+record; current connection permission still controls disclosure. An unknown write can execute one exact
+replay only when current authorization and the original frozen account are
+verified and the operation journal atomically grants its unused allowance in
+the original 24-hour window. Missing account provenance never grants execution.
 New operations recheck access immediately before claiming. A revocation blocks
 new admission; it does not cancel a provider action already admitted.
-Unknown provider outcomes remain unknown and require investigation rather than
-automatic resubmission. Provider response data is returned to the caller but
-is not copied into the operation ledger.
+Known completed or failed claims retain their outcome without another provider
+write. Provider response data is returned to the caller but is not copied into
+the operation ledger; a recovered terminal receipt must not invent that data.
 
 `plugin_action_confirmations` stores short-lived, exact-request confirmations
 bound to the organization, Agent, signature (including operation ID), and access
@@ -666,6 +716,33 @@ worker hosts the credential-bearing executor through an internal service
 binding, independently of any conversation or LLM. It rechecks provider action
 metadata against the admitted effect before execution. No broad runtime token
 or provider credential is returned to a CLI.
+
+`plugin_action_requests` retains an exact Local write without verified task
+provenance. Core's Plugin request owner is its sole writer. The row
+binds requester, Organization, executor, operation ID, frozen connection/access
+revisions, action, effect and input for one hour. Input stays in that protected
+owner record; Inbox receives only an opaque reference and generic private
+recipient text. The detail projection exposes bounded resource identifiers,
+not arbitrary input or credentials. Core permits approval only when the
+authenticated account principal matches the request owner and the acting Profile
+is human. An Agent delegation/execution credential or a selected Human Profile
+alone cannot approve. This is the existing account credential boundary, not a
+human-presence guarantee when an Agent has the owner's full account credentials.
+No email code or separate factor enrollment is required.
+
+The decision and Inbox resolution share a conditional D1 batch. Repeated or
+lost responses return the same decision and root. The operation owner rechecks
+that approved root and current revisions in its atomic execution/replay claim.
+Changing IDs cannot authorize an old unknown replacement. An independently
+approved new request may intentionally repeat content without resolving the old
+unknown. Existing precise destructive confirmations remain an additional gate;
+they are not proof of a new human request.
+
+New non-read claims from native Remote/Center Agents require a verified task
+root before execution permission is issued. Missing or unreadable provenance
+must not fall back to a caller-selected operation ID. Existing receipt reads
+and outcome recording remain available; a read failure does not erase the
+original operation or prevent its outcome from being recorded.
 
 The `connector_app_requests` D1 table is Core's internal demand ledger for Apps
 that a member asks OpenMeld to support. A request is scoped by Organization,
@@ -1079,6 +1156,10 @@ not become a second in-flight execution state machine beside Remote Agent.
 `routine_runs.continuation_delegation_id` is the atomic one-continuation fence:
 the same delegation id may replay, while a different second id conflicts before
 child work is created.
+Multi-Space Wake acceptance persists the complete publication manifest and its
+continuation subscriptions before returning `queued`. Space publication remains
+asynchronous; an immediate initial-delivery callback must already see the
+continuation and leave the Run open for its final result.
 
 Each successful human- or Center-Agent-initiated Routine create, update, pause,
 resume, or delete appends one audit row in the same D1 batch as the mutation.
@@ -1136,6 +1217,12 @@ Examples:
   projection must reproduce the Space-owned marker rather than deriving it from
   member count.
 - Dispatch Ledger is a ledger/query projection for Wake execution.
+- RuntimeCoordinator execution projection writes atomically compare accepted
+  evidence with the stored lifecycle rank and, within the same rank, observation
+  time. Concurrent creation and progress writes must converge without discarding
+  newer evidence. Locked terminal outcomes cannot be replaced by another outcome
+  or reopened by progress. These writes record RuntimeCoordinator decisions;
+  they never grant execution authority.
 - Wake trace read models compose existing facts for diagnosis.
 - Wake progress composes each execution owner's current lifecycle with
   Space-owned public source context at read time. Space remains the only owner
@@ -1961,6 +2048,12 @@ continuation JSON. Readers retain bounded compatibility for historical rows
 that contain the former Space destination fields, but those fields do not
 override the observer ledger.
 
+Space Wake progress preserves that native delivery's parent source signal in
+both summary and Stop-enabled reads. A child's published result is causal
+evidence, not a replacement source: it may belong to another Space or thread.
+Source context is resolved within the parent Space, while the existing reply
+stream owns the selected reply placement.
+
 The Center Agent's manual summary tool can create one fresh continuation for
 the original requester after a delegated summary has confirmed native failure
 or cancellation. It checks current requester membership and Space write access,
@@ -2000,6 +2093,20 @@ Space posting, delegation preparation, child activation, and audit writes are
 individually idempotent, so an interruption at any boundary converges without
 duplicating the Wake or spending another Agent turn. The outbox records
 coordination progress; it is not Space message truth or execution authority.
+
+Multi-Space delegation saves every destination command atomically before the
+first publication. The root publication retains the complete ordered manifest;
+each destination references that root and shares one Agent Task Coordination
+delegation and completion barrier. Recovery reads this frozen plan, including
+after the originating model turn finishes. It does not reconstruct the batch
+from whichever child publications happened to succeed. Each publication activates
+or rejects only its own children. A definite rejection retains accepted siblings
+and their results; parent synthesis waits for every planned child to settle.
+Routine continuation ownership is claimed only after the durable intent exists.
+The original semantic reply-language fact is also included in each delegated
+brief, so Local and Remote children preserve it when the brief is in another
+language. This adds no language detector or parallel execution authority.
+
 Once Space accepts the publication, the outbox retains the validated returned
 signal envelope. Completed command replays therefore return the original Space
 acceptance evidence without another network read or post. Every external post
@@ -2184,6 +2291,16 @@ generation writes, Stop forwarding or pause cancellation. Postprocessing has
 separate start/end evidence, elapsed time and outcome; its failure cannot erase
 the received ACK. Overall admission completion is not Worker response time.
 Timeout and retry due times come from the existing owner.
+Native resource preparation can begin before that submit response returns.
+Its exact-identity admission callback therefore uses the same conditional ACK
+writer and accepted-execution probe before Computer or other execution-scoped
+resources query Core. Both response orders converge on the existing ledger row;
+terminal transitions win, and neither callback creates another execution state
+or relaxes the accepted-execution authorization predicate.
+The durable ACK is the preparation barrier. A later probe scheduling failure
+retains diagnostic evidence and the existing missing/expired-probe recovery;
+it does not reject an already accepted execution. ACK persistence/read failures
+still fail preparation, and a terminal transition during failed scheduling wins.
 Correlated continuation stage events include the existing subscription creation
 and Queue enqueue timestamps at receipt, successful claim, and start/end timings
 for authorization/replay preflight, turn context, memory, Skills, watchdog enqueue
@@ -2999,6 +3116,12 @@ contain numeric usage and correlation identifiers, never prompts, completions,
 reasoning content, credentials, or local paths. Missing provider evidence is
 null and appears in missing-evidence counts; it is never fabricated as zero.
 
+The ledger distinguishes model `agent`, `compaction`, and `compaction_prefix`
+requests. Existing public Usage groups and issue receipts classify all three
+as `agent`; this preserves supported strict older clients while operator ledger
+queries retain exact purpose. Core accepts new record purposes before Remote
+Agent emits them. No local-component contract floor changes.
+
 Input includes cached input and output includes reasoning, so detail counters
 must not be added to the total again. Costs use integer nano-USD and distinguish
 provider-reported charges from provider estimates. Local consumption is
@@ -3053,6 +3176,22 @@ observed native usage. Requests interrupted before reporting usage remain
 explicitly incomplete; no extra provider polling is introduced to invent or
 recover unknown charges.
 No supplier polling or extra inference request is added.
+
+Every new Remote provider call requires an accepted `recordRemoteAiUsage`
+begin response from Core. A missing receiver fails visibly with
+`core.rpc.unavailable`; missing configuration, transport errors, malformed
+responses, exhausted allowances, and failed admission writes never authorize
+inference. There is no legacy admission exception, including for new owners or
+after an earlier successful admission. Deploy and verify Core before Remote.
+
+Preserve any historical `openmeld:ai-usage:deferred:<eventId>` audit receipts
+unchanged. They record unchecked historical admissions, not current permission,
+public usage totals, or a second consumption ledger. The ordinary settlement
+outbox and callback retry owner continue delivering real provider receipts.
+Core accepts a settlement without an earlier begin and deduplicates its exact
+event identity, including a committed write whose ACK was lost. Settlement
+failures after an admitted, paid call must not trigger another inference.
+An audit without final usage stays explicitly incomplete; never invent charges.
 
 Codex uses changed current-turn token events and native request counters,
 ignoring resume history and rate-limit-only repeats. Claude uses unique native
@@ -3512,6 +3651,17 @@ caller supplies the normal Space and dispatch selectors; Core resolves the
 frozen runtime conversation identity and returns the bounded runtime diagnostic
 projection. Callers must not query D1 or supply a runtime generation identity.
 
+Native continuations can have a native-delivery ledger record without a
+workstation Dispatch Ledger row. Negotiated trace response v6 reads the unique
+native record for the exact dispatch and Space and exposes `nativeDeliveryTrace`
+with `trace: null`. It never synthesizes a workstation dispatch or parses
+identity from a dispatch string. Non-Space conversations and ambiguous matches
+fail closed. Final visible messages still come from Space publication facts;
+native execution completion alone does not prove delivery. Detailed runtime
+evidence uses the frozen request identity, and an unavailable runtime read must
+preserve the durable delivery and publication facts. Default compact reads omit
+runtime evidence fields when that source has not been queried.
+
 When a controller exposes official context telemetry, task-result and local
 runtime observation may retain only bounded numeric token counters, the reported
 model context window, and a compaction-observed flag. They must not retain prompt
@@ -3955,3 +4105,28 @@ Use scoped owner documents for related rules:
 - Analytics Engine is a compact historical projection; it must not drift from
   the shared runtime evidence contract or exceed Cloudflare physical limits.
 - Sensitive data must not be logged or persisted for diagnostics.
+
+### Native PostgreSQL Slack initial submission
+
+The native delivery ledger holds an exact, short submission claim alongside
+the frozen worker request. A guarded update grants one concurrent caller the
+initial worker RPC. An overlapping request returns the existing submitted
+intent and leaves acknowledgement to that caller or the admission watchdog.
+The claim is released by its exact nonce after the attempt, including an
+ambiguous response, so a later retry can replay the same frozen request and
+worker idempotency key. A crashed caller's claim expires for recovery.
+
+The claim excludes overlapping admission operations only. Expiry neither
+finalizes nor fails an execution; the worker acknowledgement/callback and
+RuntimeCoordinator keep their established authority. Network calls hold no
+PostgreSQL transaction or row lock.
+
+### RuntimeCoordinator execution projection writes
+
+The shared PostgreSQL execution projection advances in one atomic write.
+PostgreSQL evaluates the existing status and observation time while holding the
+row lock, so a concurrent earlier delivery projection cannot discard accepted
+running evidence. Equal-rank observations retain their timestamp ordering;
+locked terminal outcomes cannot be replaced by another outcome or nonterminal
+progress. The repository owns the status ordering. This projection remains a
+read model; RuntimeCoordinator retains execution and finalization authority.

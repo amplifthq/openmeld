@@ -24,8 +24,7 @@ export function isSpaceMessageAgentWorking(
 }
 
 export const SPACE_LOCAL_PENDING_MESSAGE_DELAY_MS = 8000;
-export const SPACE_WAKE_PROGRESS_STALE_WAITING_MS = 45_000;
-export const SPACE_AGENT_WORKING_STATUS_TEXT = "Agent is working";
+export const SPACE_AGENT_WORKING_STATUS_TEXT = "Thinking…";
 
 export type SpaceMessageDeliveryPresentation =
 	| "delivered"
@@ -90,7 +89,7 @@ export function resolveSpaceMessageDeliveryStatusText(
 		case "sending_delayed":
 			return "Still sending...";
 		case "agent_sending":
-			return "Sending to Agent…";
+			return "Thinking…";
 		case "agent_streaming":
 			return SPACE_AGENT_WORKING_STATUS_TEXT;
 		case "agent_stream_failed":
@@ -104,14 +103,4 @@ export function resolveSpaceMessageDeliveryStatusText(
 			return _exhaustive;
 		}
 	}
-}
-
-export function isSpaceWakeProgressWaitingForFinalStatus(input: {
-	lastEvidenceAtMs: number | null;
-	nowMs: number;
-}): boolean {
-	return (
-		input.lastEvidenceAtMs !== null &&
-		input.nowMs - input.lastEvidenceAtMs >= SPACE_WAKE_PROGRESS_STALE_WAITING_MS
-	);
 }

@@ -1,3 +1,4 @@
+import { createAuthDatabase } from "@openmeld/db/auth";
 import {
   ACCOUNT_ORGANIZATION_CONTEXT_PATH,
   ACCOUNT_SESSION_PATH,
@@ -18,7 +19,7 @@ export const authInstanceMiddleware = createMiddleware<AppContext>(
   async (c, next) => {
     const { createAuth, runWithAuthRequestState } =
       await loadBetterAuthRuntime();
-    c.set("betterAuth", createAuth(c.env));
+    c.set("betterAuth", createAuth(c.env, createAuthDatabase()));
     c.set("user", null);
     c.set("session", null);
     await runWithAuthRequestState(next);

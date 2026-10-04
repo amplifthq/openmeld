@@ -1225,9 +1225,11 @@ function OriginalErrorsSection(input: {
 								target.targetLabel ??
 								"Agent"}
 						</p>
-						<pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/50 p-3 font-mono text-foreground text-xs leading-5">
-							{target.originalError}
-						</pre>
+						<ScrollArea className="max-h-72 rounded-md bg-muted/50">
+							<pre className="whitespace-pre-wrap break-words p-3 font-mono text-foreground text-xs leading-5">
+								{target.originalError}
+							</pre>
+						</ScrollArea>
 					</div>
 				))}
 			</div>

@@ -1,3 +1,4 @@
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import {
   computerFileAccessPolicyResultSchema,
   localFolderPickerResultSchema,
@@ -85,8 +86,8 @@ import type {
   RuntimeTransportSetLocalAgentEnabledResponse,
   RuntimeTransportSetProfileWorkspaceResponse,
 } from "@openmeld/schemas/types";
-import { type CoreBindings, localStateDb } from "../../../lib/bindings";
-import { readForgottenDeviceRecord } from "../../../start/infrastructure/d1/forgotten-device-repo";
+import type { CoreBindings } from "../../../lib/bindings";
+import { readForgottenDeviceRecord } from "../../../start/infrastructure/postgresql/forgotten-device-repo";
 import { callRuntimeTransportApi } from "./runtime-transport-api-client";
 import { resolveRuntimeTransportOwnerShard } from "./runtime-transport-shard";
 
@@ -1117,7 +1118,7 @@ async function readForgottenDeviceFlagFailOpen(input: {
   deviceId: string;
   source: string;
 }): Promise<boolean> {
-  const db = localStateDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (!db) {
     return false;
   }

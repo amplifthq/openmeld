@@ -130,6 +130,7 @@ describe("Remote Agent Code Mode", () => {
         {
           status: "outcome_unknown",
           operationId: "comment-2",
+          replay: { allowed: false, reason: "window_unverified" },
           message: expect.stringContaining("Do not retry this write"),
         },
         { status: "completed", operationId: "comment-3" },
@@ -237,7 +238,9 @@ describe("Remote Agent Code Mode", () => {
     }
   });
 
-  it("reads the middle of a large inner result without running the original write again", async () => {
+  it.each([
+    3000, 30_000,
+  ])("reads a %i-line inner result without repeating the write", async (lines) => {
     const storage = await createStorage(createSubmitTurnRequest());
     const context = await readRemoteAgentCallbackContext(
       storage,
@@ -252,7 +255,7 @@ describe("Remote Agent Code Mode", () => {
     const write = vi.fn(async () => ({
       status: "completed",
       operationId: "write-once",
-      log: `${"before\n".repeat(30_000)}UNIQUE_CODEMODE_MIDDLE_FAILURE${"after\n".repeat(30_000)}`,
+      log: `${"before\n".repeat(lines)}UNIQUE_CODEMODE_MIDDLE_FAILURE${"after\n".repeat(lines)}`,
     }));
     const runtime = createRuntime({
       executorOptions: [],
@@ -260,7 +263,21 @@ describe("Remote Agent Code Mode", () => {
         const displayed = (await tools.example_write?.execute?.(
           {},
           TOOL_OPTIONS
-        )) as { presentation: { continuation: { resultId: string } } };
+        )) as {
+          log?: string;
+          presentation: { continuation: { resultId: string } };
+        };
+        if (lines === 3000) {
+          // Internal computation selects the evidence before model display.
+          expect(displayed.log).toContain("UNIQUE_CODEMODE_MIDDLE_FAILURE");
+          return {
+            result: displayed.log?.slice(
+              displayed.log.indexOf("UNIQUE_CODEMODE_MIDDLE_FAILURE"),
+              displayed.log.indexOf("UNIQUE_CODEMODE_MIDDLE_FAILURE") +
+                "UNIQUE_CODEMODE_MIDDLE_FAILURE".length
+            ),
+          };
+        }
         const resultId = displayed.presentation.continuation.resultId;
         return {
           result: await tools.openmeld_read_tool_result?.execute?.(

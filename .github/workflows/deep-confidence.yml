@@ -15,7 +15,7 @@ on:
         description: "Client artifacts to verify when scope is release-artifacts"
         type: choice
         default: web,desktop
-        options: ["web,desktop", web, desktop]
+        options: ["web,desktop", web, desktop, website]
 
 concurrency:
   group: deep-confidence-${{ github.ref }}
@@ -68,7 +68,7 @@ jobs:
   workers-integration:
     if: inputs.scope == 'full'
     name: Deep Confidence / Workers Integration ${{ matrix.shard }}/8
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -83,12 +83,14 @@ jobs:
       - name: Setup Node.js, pnpm, and dependencies
         uses: ./.github/actions/setup-node-pnpm
 
+      - uses: ./.github/actions/setup-postgresql
+
       - name: Build Core Worker integration dependencies
         run: pnpm exec turbo run build --filter=@openmeld/core^...
 
       - name: Run Workers Integration ${{ matrix.shard }}/8
         working-directory: services/core
-        run: pnpm exec vitest run --config vitest.config.ts --shard=${{ matrix.shard }}/8
+        run: node ../../tooling/postgresql/local.mjs run pnpm exec vitest run --config vitest.config.ts --shard=${{ matrix.shard }}/8
 
   cli-integration:
     if: inputs.scope == 'full'
@@ -161,14 +163,17 @@ jobs:
         run: |
           set -euo pipefail
           case "$OPENMELD_ARTIFACT_SCOPES" in
-            web|desktop|web,desktop) ;;
+            web|desktop|web,desktop|website) ;;
             *) echo "Unsupported client artifact scope" >&2; exit 1 ;;
           esac
           if [[ "$OPENMELD_ARTIFACT_SCOPES" == *desktop* ]]; then
             node scripts/release/production-artifact-check.mjs --scope desktop --source-sha "$GITHUB_SHA"
           fi
-          if [[ "$OPENMELD_ARTIFACT_SCOPES" == *web* ]]; then
+          if [[ ",$OPENMELD_ARTIFACT_SCOPES," == *,web,* ]]; then
             node scripts/release/production-artifact-check.mjs --scope web --source-sha "$GITHUB_SHA"
+          fi
+          if [[ "$OPENMELD_ARTIFACT_SCOPES" == website ]]; then
+            node scripts/release/production-artifact-check.mjs --scope website --source-sha "$GITHUB_SHA"
           fi
       - name: Retain source and artifact receipts
         if: always()

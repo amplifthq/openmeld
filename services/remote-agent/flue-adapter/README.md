@@ -12,7 +12,7 @@ is not a future release strategy.
 
 ## Retained package adaptations
 
-`patches/@flue__runtime@2.1.0.patch` retains eight explicit contracts:
+`patches/@flue__runtime@2.1.0.patch` retains nine explicit contracts:
 
 1. A zero durability timeout disables total wall-clock expiration. Recovery
    attempts remain bounded; the five-attempt policy includes the initial run.
@@ -70,6 +70,25 @@ is not a future release strategy.
    remain in its one authorized catalog for discovery and Code Mode. Skill
    activation and supporting-file reads remain framework-owned and usable.
 
+9. Optional `workingContextTokens` checks the full active model context before
+   every inference through Pi's public `transformContext` seam. Flue alone
+   commits the normal summary checkpoint and updates both its own projection
+   and the loop snapshot. Supplier usage does not trigger a redundant summary
+   afterward. `maxSummaryTokens` bounds each completion independently; incomplete
+   or empty summaries fail without replacing history. `recall_conversation`
+   reads bounded pages of original user/assistant text from the same canonical
+   lineage, excludes hidden reasoning, and cannot cross conversation generations.
+   Unused string arguments accept null for strict provider schemas. The
+   checkpoint prompt retains active facts and source pointers without growing
+   an exhaustive archive. Mid-tool-loop cuts retain the issuing assistant and
+   its paired results, including when the latest entry is a tool result. The
+   public Node-runtime boundary tests are in `working-context.test.ts`; paid supplier
+   comparisons are opt-in in `live-context-cost.test.ts`. No transcript or
+   search index is copied into an application-owned store.
+   Working-context and recent-tail estimates share the native 1,200-token
+   image heuristic; Base64 bytes are not text tokens. Original image bytes
+   remain intact and the provider's physical-capacity guard still runs.
+
 Beta registry initialization, async defineAgent, implicit sandbox discovery,
 global provider registration, and permissive orphan-record reduction are not
 ported. Flue 2 repairs partial streams at its execution ownership boundary.
@@ -112,7 +131,7 @@ additional boundary.
 Upstream 0.2.1 still uses the same unacknowledged unread-handle path; upgrading
 alone does not establish this contract.
 
-These eight Flue adaptations are maintained integration code, not a completed
+These nine Flue adaptations are maintained integration code, not a completed
 escape from upstream internals. On each Flue upgrade, compare the patch with
 the new package, remove an adaptation only when the upstream behavior fulfills
 its contract, and exercise the affected cancellation, observation, compaction,

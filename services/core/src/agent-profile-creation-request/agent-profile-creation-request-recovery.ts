@@ -1,10 +1,10 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import type { CoreBindings } from "../lib/bindings";
 import { scheduleAgentProfileCreation } from "./agent-profile-creation-execution";
-import { createD1AgentProfileCreationRequestRepository } from "./agent-profile-creation-request-repository";
+import { createPostgresAgentProfileCreationRequestRepository } from "./agent-profile-creation-request-repository";
 import { failStaleAgentProfileCreationRequests } from "./agent-profile-creation-request-service";
-
 export async function recoverAgentProfileCreationRequests(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   nowMs: number;
 }): Promise<{
@@ -13,7 +13,9 @@ export async function recoverAgentProfileCreationRequests(input: {
   superseded: number;
   redelivered: number;
 }> {
-  const repository = createD1AgentProfileCreationRequestRepository(input.db);
+  const repository = createPostgresAgentProfileCreationRequestRepository(
+    input.db
+  );
   const pending = await repository.listUnclaimedProfileCreations({ limit: 25 });
   let redelivered = 0;
   for (const request of pending) {

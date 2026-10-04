@@ -23,7 +23,11 @@ import {
 	createOrganizationScopedWebSpaceApi,
 	createUnscopedWebSpaceApi,
 } from "#/lib/spaces/api";
-import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
+import {
+	isStoppedSpaceReply,
+	type SpaceTimelineItem,
+} from "#/lib/spaces/timeline";
+import { resolveSpaceMessageStopFeedback } from "#/lib/spaces/wake-progress-presentation";
 import {
 	CenterAgentComputerSetupCard,
 	type CenterAgentComputerSetupContext,
@@ -56,6 +60,7 @@ import {
 	type SpaceMessageReferencesById,
 	SpaceMessageReferenceText,
 } from "./space-message-reference";
+import { useSpaceWakeStopRequestStatuses } from "./space-wake-stop-control";
 import { usePluginConnectionReply } from "./use-plugin-connection-reply";
 import { useSpaceStreamDisplayText } from "./use-space-stream-display-text";
 
@@ -88,6 +93,8 @@ type SpaceMessageBodyProps = {
 			Pick<
 				SpaceTimelineItem,
 				| "actorProfileKind"
+				| "systemNoticeType"
+				| "signalType"
 				| "id"
 				| "messageRevision"
 				| "deliveryState"
@@ -102,6 +109,10 @@ type SpaceMessageBodyProps = {
 				| "mentionTargetProfileIds"
 				| "spaceId"
 				| "wakeTargetProfileIds"
+				| "activeWakeProgress"
+				| "wakeClientMessageId"
+				| "clientMessageId"
+				| "wakeSourceSignalId"
 			>
 		>;
 	onOpenProfile?: (profileId: string) => void;
@@ -121,6 +132,7 @@ function useSpaceMessageTextPresentation(input: SpaceMessageBodyProps) {
 	const pluginReply = usePluginConnectionReply({
 		final:
 			input.item.isAgentFinalReply === true &&
+			!isStoppedSpaceReply(input.item) &&
 			input.item.agentStreamState?.status !== "streaming",
 		organizationSlug: input.orgSlug,
 		text: input.item.text,
@@ -274,7 +286,26 @@ export const SpaceMessageBody = memo(function SpaceMessageBody(
 	input: SpaceMessageBodyProps
 ) {
 	const editing = useSpaceMessageEditing();
-	const textPresentation = useSpaceMessageTextPresentation(input);
+	const nextTextPresentation = useSpaceMessageTextPresentation(input);
+	const lastPresentation = useRef({
+		id: input.item.id,
+		value: nextTextPresentation,
+	});
+	const stopRequested =
+		resolveSpaceMessageStopFeedback(
+			input.item,
+			useSpaceWakeStopRequestStatuses()
+		).length > 0;
+	const holdPartialReply =
+		input.item.agentStreamState &&
+		(stopRequested || input.item.agentStreamState.status === "stopped");
+	if (!holdPartialReply || lastPresentation.current.id !== input.item.id) {
+		lastPresentation.current = {
+			id: input.item.id,
+			value: nextTextPresentation,
+		};
+	}
+	const textPresentation = lastPresentation.current.value;
 	const bodyRef = useRef<HTMLDivElement | null>(null);
 	const [bodySize, setBodySize] = useState<{
 		width: number;
@@ -467,6 +498,7 @@ const SpaceMessageBodyDisplay = memo(function SpaceMessageBodyDisplay(
 		body
 	);
 	const hasVisibleContent =
+		isStoppedSpaceReply(input.item) ||
 		addressedBody !== null ||
 		Boolean(navigationActionContent) ||
 		attachments.length > 0 ||
@@ -479,7 +511,19 @@ const SpaceMessageBodyDisplay = memo(function SpaceMessageBodyDisplay(
 	return (
 		<SpaceMessageBodyContent
 			attachments={attachments}
-			body={addressedBody}
+			body={
+				<>
+					{addressedBody}
+					{isStoppedSpaceReply(input.item) ? (
+						<p
+							className="text-muted-foreground text-xs leading-5"
+							data-slot="stopped-reply-status"
+						>
+							(Request stopped)
+						</p>
+					) : null}
+				</>
+			}
 			bodyRef={input.bodyRef}
 			containerClassName={input.containerClassName}
 			edited={
@@ -488,6 +532,8 @@ const SpaceMessageBodyDisplay = memo(function SpaceMessageBodyDisplay(
 			files={files}
 			isExpanded={text.isExpanded}
 			linkPreviews={
+				input.item.signalType === "signal.text" &&
+				!isStoppedSpaceReply(input.item) &&
 				input.item.id &&
 				input.item.spaceId &&
 				input.item.deliveryState === "sent" &&

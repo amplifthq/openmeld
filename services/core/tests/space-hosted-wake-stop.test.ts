@@ -15,6 +15,7 @@ import {
 } from "../src/space/infrastructure/outbox/dispatch-outbox-repo";
 import { upsertSpaceMetaRecord } from "../src/space/infrastructure/sql/space-meta-repo";
 import type { Space } from "../src/space/transport/do/space";
+import { createWorkerPostgresFixture } from "./postgresql.test-support";
 
 it.each([
   ["hosted:remote-agent", "new"],
@@ -82,11 +83,8 @@ it.each([
     const ownerRead = vi.fn(() => {
       throw new Error("Local owner must not be read");
     });
-    // D1 external read says no Worker admission is registered yet. Space SQL is
-    // real, so a dropped Stop intent or a mismatched selector fails this test.
-    const db = {
-      prepare: () => ({ bind: () => ({ first: () => Promise.resolve(null) }) }),
-    } as unknown as D1Database;
+    // Native shared read has no admitted Worker row; Space SQLite owns retained Stop intent.
+    const fixture = await createWorkerPostgresFixture(env);
     const internal = instance as unknown as {
       bindings: CoreBindings;
       requestRemoteAgentNativeDeliveryStop: (input: {
@@ -103,8 +101,7 @@ it.each([
     Object.defineProperty(instance, "bindings", {
       value: {
         ...internal.bindings,
-        OPENMELD_LOCAL_STATE_DB: db,
-        OPENMELD_DB: db,
+        OPENMELD_POSTGRESQL: fixture.binding,
         OPENMELD_AUTH_WORKER: { resolveProfileById: ownerRead },
       },
       configurable: true,

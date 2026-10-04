@@ -12,7 +12,6 @@ export {
   remoteAiUsageWriteResponseSchema,
   remoteAiUsageWriteSchema,
 } from "./ai-usage";
-
 export {
   SERVICE_CONNECTION_ID_QUERY_PARAMETER,
   serviceConnectionDiagnosticIdSchema,
@@ -28,6 +27,10 @@ export {
   serviceConnectionIncidentsResponseSchema,
 } from "./daemon/service-connection-evidence";
 export { agentActivityOverviewResponseSchema } from "./http/agent-activity-overview";
+export {
+  agentWorkloadSnapshotSchema,
+  spaceAgentWorkloadInputSchema,
+} from "./http/agent-workload";
 export {
   centerAgentEvidenceSourceSpaceSchema,
   centerAgentReadAuditJournalResponseSchema,
@@ -59,6 +62,12 @@ export {
   organizationMemberPresenceWriteResponseSchema,
 } from "./http/organization-member-presence";
 export {
+  pluginActionRequestCommandRpcSchema,
+  pluginActionRequestCommandSchema,
+  pluginActionRequestIntentSchema,
+  pluginActionRequestViewSchema,
+} from "./http/plugin-action-requests";
+export {
   resolveSpaceFileStreamMetadata,
   spaceFileStreamMetadataSchema,
   spaceFileStreamOptionsSchema,
@@ -88,6 +97,11 @@ export { messageChannelCardHistorySchema } from "./runtime/message-channel-card-
 
 export const OPENMELD_SCHEMA_VERSION = 1 as const;
 
+export {
+  spaceEvidenceReferenceSchema,
+  spaceEvidenceReferencesSchema,
+  spaceThreadEvidenceRequestSchema,
+} from "../space-evidence";
 export { agentControllerCollaborationModeSchema } from "./agent-controller-collaboration-mode";
 export { agentControllerPermissionModeSchema } from "./agent-controller-permission-mode";
 export { agentProfileWorkRecoveryActionKindSchema } from "./agent-profile-work-recovery";
@@ -190,6 +204,7 @@ export {
   cliJsonSpaceListOrganizationEnvelopeSchema,
   cliJsonSpaceMembersEnvelopeSchema,
 } from "./cli/json-output";
+export { spaceSendRequestReceiptSchema } from "./cli/space-send";
 export {
   commonErrorSchema,
   errorResponseSchema,
@@ -551,6 +566,8 @@ export {
   RUNTIME_COORDINATOR_TOKEN_AUTHORITY_MODEL_VERSION,
   RUNTIME_COORDINATOR_TOKEN_DIAGNOSTIC_MODEL_VERSION,
   RUNTIME_COORDINATOR_TOKEN_SECRET_FIELD_NAMES,
+  runtimeCoordinatorExecutionAccessRequestSchema,
+  runtimeCoordinatorExecutionAccessResponseSchema,
   runtimeCoordinatorExecutionTokenAuthorityRecordSchema,
   runtimeCoordinatorExecutionTokenEchoSchema,
   runtimeCoordinatorExecutionTokenEnvelopeSchema,
@@ -1188,9 +1205,14 @@ export {
   centerAgentUpdateSpaceSettingsResponseSchema,
   centerAgentWakeAgentProfilesInSpaceBodySchema,
   centerAgentWakeAgentProfilesInSpaceResponseSchema,
+  centerAgentWakeAgentProfilesInSpacesBodySchema,
+  centerAgentWakeAgentProfilesInSpacesResponseSchema,
   centerAgentWakePublicationCommandSchema,
   centerAgentWatchAgentTaskBodySchema,
   centerAgentWatchAgentTaskResponseSchema,
+  connectorActionTerminalReceiptSchema,
+  connectorActionVerificationEvidenceSchema,
+  connectorActionVerificationReferenceSchema,
   designateCenterAgentBodySchema,
   designateCenterAgentResponseSchema,
   ensureMessageChannelMemberOrganizationMembershipRpcInputSchema,
@@ -1459,6 +1481,7 @@ export {
   OPENMELD_MACOS_CLI_SIGNING_REQUIREMENT,
   resolveCliBinaryPlatform,
 } from "./http/cli-binary-manifest";
+export { connectorActionReplayPermissionSchema } from "./http/connector-action-replay";
 export {
   buildConnectorAppRequestProviderKey,
   CENTER_AGENT_APP_CONNECTOR_SERVICES,
@@ -1568,6 +1591,7 @@ export {
   copyFileRootRevisionBodySchema,
   copyFileRootRevisionResponseSchema,
   copyFileRootToSpaceBodySchema,
+  copyOwnMessageExcerptBodySchema,
   fileRootEntryResponseSchema,
   fileRootEntrySchema,
   fileRootFileDescriptorSchema,
@@ -2003,6 +2027,10 @@ export {
   pluginActionRpcInputSchema,
 } from "./http/plugin-actions";
 export {
+  pluginDelegationAuthorizationSchema,
+  pluginDelegationRequestSchema,
+} from "./http/plugin-delegation";
+export {
   connectorActionOutcomeUnknownSchema,
   pluginActionEffectSchema,
   pluginRuntimeRequestSchema,
@@ -2252,6 +2280,7 @@ export {
   listSpaceDispatchTraceFinalVisibleSignalCandidates,
   projectSpaceDispatchTraceFinalVisibleOutcome,
   projectSpaceDispatchTraceRootCause,
+  projectSpaceNativeDeliveryTraceFinalVisibleOutcome,
   resolveRuntimeCoordinatorHeadStatusRootCause,
   resolveSpaceDispatchTraceRootCause,
   SPACE_DISPATCH_TRACE_PROMPT_PREVIEW_MAX_CHARS,
@@ -2310,6 +2339,7 @@ export {
   spaceEntryTargetSchema,
   spaceEntryViewSchema,
 } from "./http/space-entry";
+export { spaceThreadEvidenceResponseSchema } from "./http/space-evidence";
 export {
   spaceFileUpdateSettingsCommandSchema,
   spaceFileUpdateSettingsSchema,
@@ -2392,6 +2422,10 @@ export {
   updateSpaceFileEntryResponseSchema,
   uploadSpaceFileResponseSchema,
 } from "./http/space-files";
+export {
+  spaceInputQueueMutationSchema,
+  spaceInputQueueResponseSchema,
+} from "./http/space-input-queue";
 export {
   addCenterAgentToSpaceBodySchema,
   addOrganizationDirectoryProfilesToSpaceBodySchema,
@@ -2932,6 +2966,10 @@ export {
   agentControllerUsageLimitsSchema,
 } from "./runtime/agent-controller-interface";
 export {
+  agentExecutionSteerRequestSchema,
+  agentExecutionSteerResponseSchema,
+} from "./runtime/agent-execution-steer";
+export {
   AGENT_TASK_COORDINATION_SCHEMA_VERSION,
   agentDelegationBarrierSchema,
   agentDelegationChildSnapshotSchema,
@@ -3038,6 +3076,7 @@ export {
   remoteAgentConversationContinuityContextSchema,
   remoteAgentConversationContinuityEntrySchema,
   remoteAgentConversationContinuityEntrySourceSchema,
+  remoteAgentCoreAdmissionCallbackSchema,
   remoteAgentCoreCallbackBodySchema,
   remoteAgentCoreCallbackEventSchema,
   remoteAgentCoreCallbackResponseSchema,
@@ -3089,6 +3128,8 @@ export {
   remoteAgentWorkerRuntimeDiagnosticsRequestSchema,
   remoteAgentWorkerRuntimeDiagnosticsResponseSchema,
   remoteAgentWorkerSubmissionStatusSchema,
+  remoteAgentWorkerSubmitCapabilitiesRequestSchema,
+  remoteAgentWorkerSubmitCapabilitiesSchema,
   remoteAgentWorkerSubmitMessagesResultSchema,
   remoteAgentWorkerSubmitTurnRequestSchema,
   remoteAgentWorkerSubmitTurnRequestV1Schema,
@@ -3206,6 +3247,7 @@ export {
   spaceContractFieldsSchema,
   spaceContractSchema,
 } from "./space-mesh/space-contract";
+export { spaceMessageEvidenceRequestSchema } from "./space-mesh/space-message-evidence";
 export { spaceNoteSchema } from "./space-mesh/space-note";
 export {
   spaceThreadActionRefSchema,

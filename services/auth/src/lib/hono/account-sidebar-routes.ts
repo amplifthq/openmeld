@@ -1,6 +1,6 @@
 import {
   createAccountSidebarRepository,
-  createD1Db,
+  createAuthDatabase,
 } from "@openmeld/auth/server";
 import {
   accountSidebarErrorResponseSchema,
@@ -11,7 +11,6 @@ import { bodyLimit } from "hono/body-limit";
 import type { AppContext } from "../context";
 import { requireTrustedCookieOrigin } from "../middlewares/trusted-origin";
 import { requireAuthenticatedUser } from "./authenticated-user";
-
 export function registerAccountSidebarRoutes(app: Hono<AppContext>) {
   app.get("/v1/account/sidebar", async (c) => {
     const auth = requireAuthenticatedUser(c);
@@ -40,9 +39,7 @@ export function registerAccountSidebarRoutes(app: Hono<AppContext>) {
         400
       );
     }
-    const repository = createAccountSidebarRepository(
-      createD1Db(c.env.OPENMELD_DB)
-    );
+    const repository = createAccountSidebarRepository(createAuthDatabase());
     const userId = String(auth.user.id);
     if (!(await repository.isMember(userId, organizationId))) {
       return c.json(
@@ -96,9 +93,7 @@ export function registerAccountSidebarRoutes(app: Hono<AppContext>) {
           400
         );
       }
-      const repository = createAccountSidebarRepository(
-        createD1Db(c.env.OPENMELD_DB)
-      );
+      const repository = createAccountSidebarRepository(createAuthDatabase());
       const userId = String(auth.user.id);
       if (!(await repository.isMember(userId, parsed.data.organizationId))) {
         return c.json(

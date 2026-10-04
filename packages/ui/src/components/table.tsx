@@ -18,6 +18,7 @@ import {
 } from "react";
 
 import { FluidContextMenuScope } from "#fluid/context-menu";
+import { ScrollArea } from "#fluid/scroll-area";
 import { useProximityHover } from "#hooks/use-proximity-hover";
 import { fontWeights } from "#lib/font-weight";
 import { springs } from "#lib/springs";
@@ -82,10 +83,12 @@ function Table({
 
   return (
     <TableContext.Provider value={contextValue}>
-      <div
-        className="relative w-full overflow-x-auto"
+      <ScrollArea
+        className="w-full"
+        contentClassName="relative"
         data-slot="table-container"
-        ref={containerRef}
+        orientation="horizontal"
+        viewportRef={containerRef}
       >
         <LazyMotion features={domAnimation}>
           <AnimatePresence>
@@ -132,7 +135,7 @@ function Table({
         >
           {children}
         </table>
-      </div>
+      </ScrollArea>
     </TableContext.Provider>
   );
 }

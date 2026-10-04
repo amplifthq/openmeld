@@ -4,6 +4,7 @@ import { openMeldRequestContextSchema } from "../daemon/profile-identity";
 import { agentProfileIdSchema, uuidProfileIdSchema } from "../protocol/profile";
 import { getAgentExecutionReadinessResponseSchema } from "./agent-execution-readiness";
 import { agentProfileBindingModelSelectionSchema } from "./agent-profile-binding";
+import { agentWorkloadSnapshotSchema } from "./agent-workload";
 import { centerAgentToolSpeakerSchema } from "./center-agent-speaker";
 import {
   agentAvatarStyleSchema,
@@ -144,6 +145,7 @@ export const organizationProfileDirectoryResponseSchema = z.strictObject({
 
 export const organizationAgentRuntimeOverviewItemSchema = z.strictObject({
   profileId: agentProfileIdSchema,
+  workload: agentWorkloadSnapshotSchema.optional(),
   lastTaskActivityAt: ISO_DATE_TIME_SCHEMA.nullable().optional(),
   operationalContext:
     organizationDirectoryAgentProfileOperationalContextSchema.optional(),

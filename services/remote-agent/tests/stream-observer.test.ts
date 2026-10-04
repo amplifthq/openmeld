@@ -1,10 +1,11 @@
+import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import type { FlueObservation } from "@flue/runtime";
 import {
   OBSERVABILITY_CLOUDFLARE_ANALYTICS_BLOBS,
   OBSERVABILITY_CLOUDFLARE_ANALYTICS_DOUBLES,
   REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES,
 } from "@openmeld/schemas";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createRemoteAgentCallbackContext,
   putRemoteAgentCallbackContext as putRemoteAgentCallbackContextProjection,
@@ -16,6 +17,7 @@ import {
 import {
   buildRemoteAgentExecutionStateKey,
   initializeRemoteAgentExecutionState,
+  requestRemoteAgentExecutionCancellation,
 } from "../agent-core/execution-state";
 import { readRemoteAgentTurnObservability } from "../agent-core/turn-observability";
 import { createRemoteAgentConversationCompactionObserver } from "../flue-adapter/conversation-compaction";
@@ -31,6 +33,112 @@ import { InMemoryDurableObjectStorage } from "./storage";
 const SUBMISSION_ID = "flue_submission_123";
 
 describe("Center Agent stream observation", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it.each([
+    false,
+    true,
+  ])("publishes a short answer before compaction and respects Stop at the message boundary (stopped: %s)", async (stopped) => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(TEST_NOW_MS + 30);
+    const storage = new InMemoryDurableObjectStorage();
+    const request = createSubmitTurnRequest();
+    await putRemoteAgentCallbackContext(
+      storage,
+      createRemoteAgentCallbackContext({
+        ack: {
+          accepted: true,
+          createdAt: TEST_NOW_MS,
+          idempotencyKey: request.idempotencyKey,
+          requestId: SUBMISSION_ID,
+          status: "pending",
+          submissionId: SUBMISSION_ID,
+        },
+        nowMs: TEST_NOW_MS,
+        request,
+      })
+    );
+    const submitRemoteAgentStreamDelta = vi.fn(
+      async (body: { sequence: number }) => ({
+        status: "accepted" as const,
+        lastSequence: body.sequence,
+      })
+    );
+    const completeRemoteAgentSubmission = vi.fn();
+    const publisher = createRemoteAgentStreamPublisher();
+    const observe = (event: FlueObservation) =>
+      handleCenterAgentObservation({
+        event,
+        resolveDependencies: () => ({
+          coreWorker: {
+            submitRemoteAgentStreamDelta,
+            completeRemoteAgentSubmission,
+          },
+          env: {} as CloudflareBindings,
+          storage,
+        }),
+        streamPublisher: publisher,
+      });
+
+    await observe(textDeltaObservation("在"));
+    expect(submitRemoteAgentStreamDelta).toHaveBeenLastCalledWith(
+      expect.objectContaining({ snapshot: "在", sequence: 1 })
+    );
+    await observe(textDeltaObservation("。"));
+    expect(submitRemoteAgentStreamDelta).toHaveBeenCalledTimes(1);
+    for (const stopReason of ["error", "aborted"] as const) {
+      await observe({
+        ...textDeltaObservation(""),
+        type: "message_end",
+        message: fauxAssistantMessage("在。", { stopReason }),
+        turnId: "failed_turn",
+      });
+    }
+    expect(submitRemoteAgentStreamDelta).toHaveBeenCalledTimes(1);
+    if (stopped) {
+      await requestRemoteAgentExecutionCancellation({
+        identity: {
+          idempotencyKey: request.idempotencyKey,
+          organizationId: request.organizationId,
+          spaceId: request.spaceId,
+          submissionId: SUBMISSION_ID,
+          v: 1,
+        },
+        nowMs: TEST_NOW_MS + 15,
+        storage,
+      });
+    }
+    await observe({
+      agentName: "center-agent-v2",
+      eventIndex: 3,
+      submissionId: SUBMISSION_ID,
+      timestamp: new Date(TEST_NOW_MS + 20).toISOString(),
+      type: "message_end",
+      message: fauxAssistantMessage("在。"),
+      turnId: "answer_turn",
+      v: 3,
+    });
+    expect(submitRemoteAgentStreamDelta).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        snapshot: stopped ? "在" : "在。",
+        sequence: stopped ? 1 : 2,
+      })
+    );
+    await observe(conversationCompactionStartObservation());
+    expect(completeRemoteAgentSubmission).not.toHaveBeenCalled();
+    await expect(
+      readRemoteAgentCallbackContext(storage, SUBMISSION_ID)
+    ).resolves.toMatchObject({
+      callbackStatus: "pending",
+    });
+    await expect(
+      readRemoteAgentTurnObservability({ storage, submissionId: SUBMISSION_ID })
+    ).resolves.toMatchObject({
+      firstVisibleContentAtMs: expect.any(Number),
+      lastModelCompletedAtMs: null,
+    });
+  });
+
   it.each([
     "feishu",
     "lark",
@@ -113,8 +221,35 @@ describe("Center Agent stream observation", () => {
     expect(submitRemoteAgentStreamPart).not.toHaveBeenCalled();
   });
 
-  it("publishes real Flue tool lifecycle events without their arguments", async () => {
+  it.each([
+    "space_wake",
+    "task_continuation",
+    "task_watch_continuation",
+  ] as const)("publishes %s tool progress and answer text without private reasoning or arguments", async (source) => {
     const storage = new InMemoryDurableObjectStorage();
+    const request = createSubmitTurnRequest();
+    if (source !== "space_wake") {
+      request.turnEnvelope.interactionEnvironment = "organization_shared";
+      const continuation = {
+        subscriptionId: "subscription-1",
+        watchedTask: {
+          v: 1 as const,
+          kind: "native_delivery" as const,
+          deliveryId: "parent-1",
+        },
+        outcome: {
+          status: "completed" as const,
+          errorCode: null,
+          eventId: "completed-1",
+          occurredAtMs: TEST_NOW_MS,
+          publishedSignalId: "reply-1",
+        },
+      };
+      request.turnEnvelope.trigger =
+        source === "task_continuation"
+          ? { ...continuation, source, delegationId: "delegation-1" }
+          : { ...continuation, source, watchId: "watch-1" };
+    }
     await putRemoteAgentCallbackContext(
       storage,
       createRemoteAgentCallbackContext({
@@ -127,7 +262,7 @@ describe("Center Agent stream observation", () => {
           submissionId: SUBMISSION_ID,
         },
         nowMs: TEST_NOW_MS,
-        request: createSubmitTurnRequest(),
+        request,
       })
     );
     const submitRemoteAgentStreamPart = vi.fn(
@@ -137,10 +272,17 @@ describe("Center Agent stream observation", () => {
       })
     );
     const resolveDependencies = () => ({
-      coreWorker: { submitRemoteAgentStreamPart },
+      coreWorker: { submitRemoteAgentStreamPart, submitRemoteAgentStreamDelta },
       env: {} as CloudflareBindings,
       storage,
     });
+    const submitRemoteAgentStreamDelta = vi.fn(
+      async (body: { sequence: number }) => ({
+        status: "accepted" as const,
+        lastSequence: body.sequence,
+      })
+    );
+    const publisher = createRemoteAgentStreamPublisher();
     const { submissionId: _omittedSubmissionId, ...productionShapedToolStart } =
       toolStartObservation();
 
@@ -148,7 +290,7 @@ describe("Center Agent stream observation", () => {
       handleCenterAgentObservation({
         event: productionShapedToolStart as FlueObservation,
         resolveDependencies,
-        streamPublisher: createRemoteAgentStreamPublisher(),
+        streamPublisher: publisher,
       })
     );
 
@@ -182,6 +324,61 @@ describe("Center Agent stream observation", () => {
     ).resolves.toMatchObject({
       firstVisibleContentAtMs: expect.any(Number),
     });
+    await handleCenterAgentObservation({
+      event: thinkingDeltaObservation("Private reasoning"),
+      resolveDependencies,
+      streamPublisher: publisher,
+    });
+    expect(submitRemoteAgentStreamDelta).not.toHaveBeenCalled();
+    await handleCenterAgentObservation({
+      event: {
+        ...textDeltaObservation("The plan is ready."),
+        timestamp: new Date(TEST_NOW_MS + 1000).toISOString(),
+      } as FlueObservation,
+      resolveDependencies,
+      streamPublisher: publisher,
+    });
+    expect(submitRemoteAgentStreamDelta).toHaveBeenCalledWith(
+      expect.objectContaining({
+        snapshot: "The plan is ready.",
+        sequence: 2,
+        triggerMessageId: request.triggerMessageId,
+        spaceId: request.spaceId,
+      })
+    );
+    await handleCenterAgentObservation({
+      event: {
+        ...textDeltaObservation(" Done."),
+        timestamp: new Date(TEST_NOW_MS + 1010).toISOString(),
+      },
+      resolveDependencies,
+      streamPublisher: publisher,
+    });
+    // A completed assistant message precedes prompt completion and any
+    // post-response compaction. Its buffered tail must already be visible.
+    await handleCenterAgentObservation({
+      event: {
+        agentName: "center-agent-v2",
+        eventIndex: 4,
+        submissionId: SUBMISSION_ID,
+        timestamp: new Date(TEST_NOW_MS + 1020).toISOString(),
+        type: "message_end",
+        turnId: "turn-1",
+        message: fauxAssistantMessage("The plan is ready. Done."),
+        v: 3,
+      },
+      resolveDependencies,
+      streamPublisher: publisher,
+    });
+    expect(submitRemoteAgentStreamDelta).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        snapshot: "The plan is ready. Done.",
+        sequence: 3,
+      })
+    );
+    await expect(
+      readRemoteAgentCallbackContext(storage, SUBMISSION_ID)
+    ).resolves.toMatchObject({ callbackStatus: "pending" });
   });
 
   it("keeps the GitHub repository label when the tool completion omits arguments", async () => {

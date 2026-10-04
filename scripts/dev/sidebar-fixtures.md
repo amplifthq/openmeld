@@ -18,7 +18,14 @@ On a new browser, choose **Not now** for notifications and **Skip setup** to go
 straight to the fixture organization; these browser-local choices remain real UI.
 
 Use `pnpm dev:seed --only people`, `--only spaces`, or `--only messages` to seed
-one area and its directory dependencies. Repeat the command to restore unread
+one area and its directory dependencies. Use `pnpm dev:seed --only inbox` for
+three Spaces with nine Threads each, 426 replies, twelve completed desktop
+updates, eight restored/stopped connection incidents, one resolved system request,
+and two pending setup notices. Connection and system history retains its original
+urgent importance to exercise grouping after resolution. This opt-in scenario prepares real local
+message and Inbox records; it does not prove notification generation or simulate
+Agent execution. The setup notices link to real settings, but have no automated
+source-resolution workflow. Repeat the command to restore unread
 and preview scenarios. Existing sidebar arrangements are preserved; empty People
 and Agents directories receive starter stars and custom groups. The fixtures are
 shared source code, while each worktree owns its database and generated manifest.

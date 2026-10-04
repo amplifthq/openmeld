@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   accountSpaceIndexItemSchema,
   isCenterAgentDirectMessageSpaceProjection,
@@ -17,7 +18,6 @@ import { OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE } from "@openmeld/space";
 import { normalizeSpaceMemberNameSnapshot } from "../space/rules/member-name";
 
 const LEGACY_WELCOMING_SPACE_PURPOSE = "openmeld_welcoming_space";
-
 export type SpaceIndexSpaceProjection = {
   spaceId: string;
   status: "active" | "deleted";
@@ -43,7 +43,6 @@ export type SpaceIndexSpaceProjection = {
   sourceUpdatedAt: string;
   projectionEventId: string;
 };
-
 export type SpaceIndexMembershipProjection = {
   spaceId: string;
   profileId: string;
@@ -67,7 +66,6 @@ export type SpaceIndexMembershipProjection = {
   sourceUpdatedAt: string;
   projectionEventId: string;
 };
-
 export type SpaceIndexProjectionEvent = {
   projectionEventId: string;
   spaceId: string;
@@ -75,7 +73,6 @@ export type SpaceIndexProjectionEvent = {
   sourceUpdatedAt: string;
   payload: unknown;
 };
-
 export type SpaceIndexOrganizationJoinTarget = {
   creatorProfileId: string | null;
   creatorProfileName: string | null;
@@ -84,9 +81,8 @@ export type SpaceIndexOrganizationJoinTarget = {
   spaceName: string | null;
   visibility: SpaceOrganizationVisibility;
 };
-
 export type ListAccountSpacesFromSpaceIndexInput = {
-  db: D1Database;
+  db: PostgresDatabase;
   gatewayHost: string;
   ownerUserId: string;
   scope: AccountSpaceIndexQuery["scope"];
@@ -98,13 +94,11 @@ export type ListAccountSpacesFromSpaceIndexInput = {
   includeMemberPreviews?: boolean;
   includeMessagePreviews?: boolean;
 };
-
 export type SpaceIndexProjectionDriftIssueCode =
   | "space_index_space_missing_completed_event"
   | "space_index_membership_missing_completed_event"
   | "space_index_space_behind_completed_event"
   | "space_index_projection_event_membership_count_mismatch";
-
 export type SpaceIndexProjectionDriftIssue = {
   code: SpaceIndexProjectionDriftIssueCode;
   message: string;
@@ -112,13 +106,11 @@ export type SpaceIndexProjectionDriftIssue = {
   profileId?: string;
   spaceId: string;
 };
-
 export type SpaceIndexProjectionDriftDiagnostic = {
   issues: SpaceIndexProjectionDriftIssue[];
   ok: boolean;
   spaceId: string;
 };
-
 type SpaceIndexJoinedRow = {
   center_agent_profile_id: string | null;
   message_preview_revision: number | null;
@@ -152,13 +144,11 @@ type SpaceIndexJoinedRow = {
   source_updated_at_ms: number;
   projected_at_ms: number;
 };
-
 type AccountSpaceIndexItemDraft = AccountSpaceIndexItem & {
   directMessagePairKey: string | null;
   openProfileRankMs: number;
   spaceNameSnapshot: string | null;
 };
-
 type OrganizationSpaceDirectoryRow = {
   active_member_count: number | null;
   center_agent_profile_id: string | null;
@@ -173,12 +163,10 @@ type OrganizationSpaceDirectoryRow = {
   source_updated_at_ms: number;
   latest_joined_at_ms: number | null;
 };
-
 type SpaceIndexNameRow = {
   space_id: string;
   space_name: string | null;
 };
-
 type RoutineTargetSpaceRow = {
   center_agent_can_publish: number | boolean;
   is_active: number | boolean;
@@ -191,7 +179,6 @@ type RoutineTargetSpaceRow = {
   space_purpose: string | null;
   target_shape_allowed: number | boolean;
 };
-
 export type RoutineTargetSpaceEligibilityProjection = {
   active: boolean;
   centerAgentCanPublish: boolean;
@@ -202,33 +189,35 @@ export type RoutineTargetSpaceEligibilityProjection = {
   shapeAllowed: boolean;
   spaceId: string;
 };
-
 type RoutineTargetSpaceEligibilityQueryInput = {
   centerAgentDirectMessagePairKey: string | null;
   centerAgentProfileId: string | null;
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   representedHumanProfileId: string;
   representedHumanUserId: string;
 } & (
-  | { limit: number; scope: "list" }
-  | { scope: "target"; targetSpaceId: string }
+  | {
+      limit: number;
+      scope: "list";
+    }
+  | {
+      scope: "target";
+      targetSpaceId: string;
+    }
 );
-
 export type SpaceIndexCenterAgentDirectMessageProjectionCandidate = {
   directMessagePairKey: string | null;
   organizationId: string;
   spaceId: string;
   spacePurpose: string | null;
 };
-
 type SpaceIndexCenterAgentDirectMessageProjectionCandidateRow = {
   direct_message_pair_key: string | null;
   organization_id: string;
   space_id: string;
   space_purpose: string | null;
 };
-
 type SpaceIndexOrganizationJoinTargetRow = {
   creator_profile_id: string | null;
   creator_profile_name: string | null;
@@ -237,7 +226,6 @@ type SpaceIndexOrganizationJoinTargetRow = {
   space_id: string;
   space_name: string | null;
 };
-
 export type SpaceIndexDirectMessageCandidate = {
   activeAgentCount: number | null;
   activeHumanCount: number | null;
@@ -246,7 +234,6 @@ export type SpaceIndexDirectMessageCandidate = {
   spaceId: string;
   visibility: SpaceOrganizationVisibility;
 };
-
 type SpaceIndexDirectMessageCandidateRow = {
   active_agent_count: number | null;
   active_human_count: number | null;
@@ -255,15 +242,13 @@ type SpaceIndexDirectMessageCandidateRow = {
   organization_visibility: SpaceOrganizationVisibility;
   space_id: string;
 };
-
 export async function writeSpaceIndexProjectionEvent(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   event: SpaceIndexProjectionEvent;
 }): Promise<void> {
-  await input.db
-    .prepare(
-      `
-        INSERT INTO space_index_projection_events (
+  await input.db.query({
+    text: `
+        INSERT INTO "openmeld"."space_index_projection_events" (
           projection_event_id,
           space_id,
           event_type,
@@ -271,23 +256,21 @@ export async function writeSpaceIndexProjectionEvent(input: {
           projected_at_ms,
           payload_json
         )
-        VALUES (?, ?, ?, ?, ?, ?)
+        VALUES ($1, $2, $3, $4, $5, $6)
         ON CONFLICT(projection_event_id) DO NOTHING
-      `
-    )
-    .bind(
+      `,
+    values: [
       input.event.projectionEventId,
       input.event.spaceId,
       input.event.eventType,
       parseIsoTimestampMs(input.event.sourceUpdatedAt, "sourceUpdatedAt"),
       Date.now(),
-      JSON.stringify(input.event.payload)
-    )
-    .run();
+      JSON.stringify(input.event.payload),
+    ],
+  });
 }
-
 export async function upsertSpaceIndexSpace(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   space: SpaceIndexSpaceProjection;
 }): Promise<void> {
   const sourceUpdatedAtMs = parseIsoTimestampMs(
@@ -295,17 +278,15 @@ export async function upsertSpaceIndexSpace(input: {
     "sourceUpdatedAt"
   );
   const projectedAtMs = Date.now();
-
   // Monotonic + terminal-state guard, enforced ATOMICALLY inside the ON CONFLICT
   // WHERE clause below. A prior JS "SELECT current, decide, then write" guard
   // raced against the projection's own out-of-order / redriven event delivery
   // (e.g. a stale members_updated applied just after space.deleted), reading a
   // pre-delete row and reviving a deleted space. Evaluating the guard against the
   // live row at write time closes that window.
-  await input.db
-    .prepare(
-      `
-        INSERT INTO space_index_spaces (
+  await input.db.query({
+    text: `
+        INSERT INTO "openmeld"."space_index_spaces" (
           space_id,
           status,
           organization_id,
@@ -331,7 +312,7 @@ export async function upsertSpaceIndexSpace(input: {
           projected_at_ms,
           projection_event_id
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
         ON CONFLICT(space_id) DO UPDATE SET
           status = excluded.status,
           organization_id = excluded.organization_id,
@@ -363,9 +344,8 @@ export async function upsertSpaceIndexSpace(input: {
             AND excluded.status = 'active'
             AND space_index_spaces.source_updated_at_ms >= excluded.source_updated_at_ms
           )
-      `
-    )
-    .bind(
+      `,
+    values: [
       input.space.spaceId,
       input.space.status,
       normalizeRequiredText(input.space.organizationId, "organizationId"),
@@ -389,13 +369,12 @@ export async function upsertSpaceIndexSpace(input: {
       normalizeOptionalText(input.space.deletedByProfileName),
       sourceUpdatedAtMs,
       projectedAtMs,
-      input.space.projectionEventId
-    )
-    .run();
+      input.space.projectionEventId,
+    ],
+  });
 }
-
 export async function upsertSpaceIndexMembership(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   membership: SpaceIndexMembershipProjection;
 }): Promise<void> {
   const sourceUpdatedAtMs = parseIsoTimestampMs(
@@ -403,15 +382,13 @@ export async function upsertSpaceIndexMembership(input: {
     "sourceUpdatedAt"
   );
   const projectedAtMs = Date.now();
-
   // Monotonic + terminal-state guard, enforced ATOMICALLY in the ON CONFLICT
   // WHERE below (same race fix as upsertSpaceIndexSpace): a JS read-then-write
   // guard loses to out-of-order / redriven projection events and can re-activate
   // a removed membership. "removed" is terminal against an equal/older "active".
-  await input.db
-    .prepare(
-      `
-        INSERT INTO space_index_memberships (
+  await input.db.query({
+    text: `
+        INSERT INTO "openmeld"."space_index_memberships" (
           space_id,
           profile_id,
           profile_kind_snapshot,
@@ -435,7 +412,7 @@ export async function upsertSpaceIndexMembership(input: {
           projected_at_ms,
           projection_event_id
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
         ON CONFLICT(space_id, profile_id) DO UPDATE SET
           profile_kind_snapshot = excluded.profile_kind_snapshot,
           profile_name_snapshot = excluded.profile_name_snapshot,
@@ -464,9 +441,8 @@ export async function upsertSpaceIndexMembership(input: {
             AND excluded.status = 'active'
             AND space_index_memberships.source_updated_at_ms >= excluded.source_updated_at_ms
           )
-      `
-    )
-    .bind(
+      `,
+    values: [
       input.membership.spaceId,
       input.membership.profileId,
       input.membership.profileKindSnapshot,
@@ -488,67 +464,84 @@ export async function upsertSpaceIndexMembership(input: {
       parseOptionalIsoTimestampMs(input.membership.lastEnteredAt),
       sourceUpdatedAtMs,
       projectedAtMs,
-      input.membership.projectionEventId
-    )
-    .run();
+      input.membership.projectionEventId,
+    ],
+  });
 }
-
 // Narrow lookup used by the deleted-profile reconcile fan-out: the
 // membership projection is the Space-truth source for "which Spaces does
 // this profile belong to" and covers owner-added members, unlike the
 // auth-owned join history.
 export async function listActiveSpaceIdsForProfileFromSpaceIndex(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   limit: number;
   profileId: string;
 }): Promise<string[]> {
-  const rows = await input.db
-    .prepare(
-      `
+  const rows = await input.db.query<{
+    space_id: string;
+  }>({
+    text: `
         SELECT space_id
-        FROM space_index_memberships
-        WHERE profile_id = ? AND status = 'active'
-        ORDER BY source_updated_at_ms DESC
-        LIMIT ?
-      `
-    )
-    .bind(input.profileId, input.limit)
-    .all<{ space_id: string }>();
-  return (rows.results ?? []).map((row) => row.space_id);
+        FROM "openmeld"."space_index_memberships"
+        WHERE profile_id = $1 AND status = 'active'
+        ORDER BY source_updated_at_ms DESC NULLS LAST
+        LIMIT $2
+      `,
+    values: [input.profileId, input.limit],
+  });
+  return (rows.rows ?? []).map((row) => row.space_id);
+}
+
+/** Candidate discovery only. The Space owner rechecks scope and source access. */
+export async function listAgentWorkloadSpaceIds(input: {
+  db: PostgresDatabase;
+  organizationId: string;
+  profileId: string;
+}): Promise<string[]> {
+  const rows = await input.db.query<{ space_id: string }>({
+    text: `
+      SELECT membership.space_id
+      FROM "openmeld"."space_index_memberships" AS membership
+      JOIN "openmeld"."space_index_spaces" AS space ON space.space_id = membership.space_id
+      WHERE membership.profile_id = $1 AND space.organization_id = $2 AND space.status = 'active'
+      ORDER BY membership.source_updated_at_ms DESC NULLS LAST
+    `,
+    values: [input.profileId, input.organizationId],
+  });
+  return rows.rows.map((row) => row.space_id);
 }
 
 export type HumanSpaceMembershipAccess = "active" | "missing" | "removed";
-
 export async function readHumanSpaceMembershipAccessForOwner(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   ownerUserId: string;
   spaceId: string;
 }): Promise<HumanSpaceMembershipAccess> {
   const row = await input.db
-    .prepare(
-      `
+    .query<{
+      has_active_membership: number | null;
+      membership_count: number;
+      space_status: string;
+    }>({
+      text: `
         SELECT
           space.status AS space_status,
           count(membership.profile_id) AS membership_count,
           max(CASE WHEN membership.status = 'active' THEN 1 ELSE 0 END)
             AS has_active_membership
-        FROM space_index_spaces AS space
-        LEFT JOIN space_index_memberships AS membership
+        FROM "openmeld"."space_index_spaces" AS space
+        LEFT JOIN "openmeld"."space_index_memberships" AS membership
           ON membership.space_id = space.space_id
-          AND membership.owner_user_id_snapshot = ?
+          AND membership.owner_user_id_snapshot = $1
           AND membership.profile_kind_snapshot = 'human'
-        WHERE space.space_id = ?
-          AND space.organization_id = ?
+        WHERE space.space_id = $2
+          AND space.organization_id = $3
         GROUP BY space.status
-      `
-    )
-    .bind(input.ownerUserId, input.spaceId, input.organizationId)
-    .first<{
-      has_active_membership: number | null;
-      membership_count: number;
-      space_status: string;
-    }>();
+      `,
+      values: [input.ownerUserId, input.spaceId, input.organizationId],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (row?.space_status !== "active") {
     return row ? "removed" : "missing";
   }
@@ -557,37 +550,33 @@ export async function readHumanSpaceMembershipAccessForOwner(input: {
   }
   return Number(row?.membership_count ?? 0) > 0 ? "removed" : "missing";
 }
-
 // Space authorization read for the auth worker (Knife 1 split-brain fix): auth
 // must not read this core-owned projections table directly — after cutover the
 // writer is openmeld-projections while auth still binds openmeld-db. Auth calls this via
 // the OPENMELD_CORE_WORKER RPC so the read always lands on whatever DB core writes.
 // Pure data read; the union/fallback authorization decision stays in auth.
 export async function listMembershipSpaceIdsForProfilesFromSpaceIndex(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   profileIds: readonly string[];
   spaceIds: readonly string[];
 }): Promise<string[]> {
   if (input.profileIds.length === 0 || input.spaceIds.length === 0) {
     return [];
   }
-  const profilePlaceholders = input.profileIds.map(() => "?").join(", ");
-  const spacePlaceholders = input.spaceIds.map(() => "?").join(", ");
-  const rows = await input.db
-    .prepare(
-      `
+  const rows = await input.db.query<{
+    space_id: string;
+  }>({
+    text: `
         SELECT DISTINCT space_id
-        FROM space_index_memberships
+        FROM "openmeld"."space_index_memberships"
         WHERE status = 'active'
-          AND profile_id IN (${profilePlaceholders})
-          AND space_id IN (${spacePlaceholders})
-      `
-    )
-    .bind(...input.profileIds, ...input.spaceIds)
-    .all<{ space_id: string }>();
-  return (rows.results ?? []).map((row) => row.space_id);
+          AND profile_id = ANY($1::text[])
+          AND space_id = ANY($2::text[])
+      `,
+    values: [input.profileIds, input.spaceIds],
+  });
+  return (rows.rows ?? []).map((row) => row.space_id);
 }
-
 const ACCOUNT_SCOPED_CANDIDATE_SPACES_CTE = `
   candidate_spaces AS (
     SELECT
@@ -595,61 +584,60 @@ const ACCOUNT_SCOPED_CANDIDATE_SPACES_CTE = `
       MAX(COALESCE(CASE WHEN m.overlay_gateway_host = hs.gateway_host THEN m.overlay_pinned_at_ms END, 0)) AS latest_pinned_at_ms,
       MAX(COALESCE(CASE WHEN m.overlay_gateway_host = hs.gateway_host THEN m.overlay_last_joined_at_ms END, m.added_at_ms)) AS latest_joined_at_ms,
       COALESCE(s.space_name, 'Untitled space') AS ordered_space_name
-    FROM space_index_memberships m
+    FROM "openmeld"."space_index_memberships" m
     CROSS JOIN host_scope hs
-    INNER JOIN space_index_spaces s ON s.space_id = m.space_id
-    WHERE m.owner_user_id_snapshot = ?
+    INNER JOIN "openmeld"."space_index_spaces" s ON s.space_id = m.space_id
+    WHERE m.owner_user_id_snapshot = $2
       AND m.status = 'active'
       AND s.status = 'active'
     GROUP BY s.space_id
     ORDER BY
-      latest_pinned_at_ms DESC,
-      latest_joined_at_ms DESC,
-      ordered_space_name ASC,
-      s.space_id ASC
-    LIMIT ?
+      latest_pinned_at_ms DESC NULLS LAST,
+      latest_joined_at_ms DESC NULLS LAST,
+      ordered_space_name ASC NULLS FIRST,
+      s.space_id ASC NULLS FIRST
+    LIMIT $3
   )
 `;
-
 // Lightweight account-level fan-out candidates (e.g. the active-wake
 // summary). The CTE is shared with the full Account Space Index read so both
 // surfaces keep the exact same bounded selection and ordering.
 export async function listAccountSpaceIdsFromSpaceIndex(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   gatewayHost: string;
   limit: number;
   ownerUserId: string;
 }): Promise<string[]> {
-  const rows = await input.db
-    .prepare(
-      `
-        WITH host_scope AS (SELECT ? AS gateway_host),
+  const rows = await input.db.query<{
+    space_id: string;
+  }>({
+    text: `
+        WITH host_scope AS (SELECT $1 AS gateway_host),
         ${ACCOUNT_SCOPED_CANDIDATE_SPACES_CTE}
         SELECT space_id
         FROM candidate_spaces
         ORDER BY
-          latest_pinned_at_ms DESC,
-          latest_joined_at_ms DESC,
-          ordered_space_name ASC,
-          space_id ASC
-      `
-    )
-    .bind(input.gatewayHost, input.ownerUserId, input.limit)
-    .all<{ space_id: string }>();
-  return (rows.results ?? []).map((row) => row.space_id);
+          latest_pinned_at_ms DESC NULLS LAST,
+          latest_joined_at_ms DESC NULLS LAST,
+          ordered_space_name ASC NULLS FIRST,
+          space_id ASC NULLS FIRST
+      `,
+    values: [input.gatewayHost, input.ownerUserId, input.limit],
+  });
+  return (rows.rows ?? []).map((row) => row.space_id);
 }
-
 const TARGET_PROFILE_NAME_SNAPSHOT_CHUNK_SIZE = 40;
-
 export type SpaceIndexTargetProfileNameSnapshot = {
   profileId: string;
   profileName: string;
   spaceId: string;
 };
-
 export async function listSpaceIndexTargetProfileNameSnapshots(input: {
-  db: D1Database;
-  targets: readonly { profileId: string; spaceId: string }[];
+  db: PostgresDatabase;
+  targets: readonly {
+    profileId: string;
+    spaceId: string;
+  }[];
 }): Promise<SpaceIndexTargetProfileNameSnapshot[]> {
   const uniqueTargets = [
     ...new Map(
@@ -670,7 +658,10 @@ export async function listSpaceIndexTargetProfileNameSnapshots(input: {
       continue;
     }
     const predicates = chunk
-      .map(() => "(space_id = ? AND profile_id = ?)")
+      .map(
+        (_target, index) =>
+          `(space_id = $${index * 2 + 1} AND profile_id = $${index * 2 + 2})`
+      )
       .join(" OR ");
     const bindings = chunk.flatMap((target) => [
       target.spaceId,
@@ -679,21 +670,19 @@ export async function listSpaceIndexTargetProfileNameSnapshots(input: {
     // Deliberately include removed membership projections. They preserve the
     // frozen target identity needed to explain a still-active Wake after its
     // Agent Profile has been deleted.
-    const rows = await input.db
-      .prepare(
-        `
+    const rows = await input.db.query<{
+      profile_id?: unknown;
+      profile_name_snapshot?: unknown;
+      space_id?: unknown;
+    }>({
+      text: `
           SELECT space_id, profile_id, profile_name_snapshot
-          FROM space_index_memberships
+          FROM "openmeld"."space_index_memberships"
           WHERE ${predicates}
-        `
-      )
-      .bind(...bindings)
-      .all<{
-        profile_id?: unknown;
-        profile_name_snapshot?: unknown;
-        space_id?: unknown;
-      }>();
-    for (const row of rows.results ?? []) {
+        `,
+      values: [...bindings],
+    });
+    for (const row of rows.rows ?? []) {
       const profileId = normalizeOptionalText(row.profile_id);
       const profileName = profileId
         ? normalizeSpaceMemberNameSnapshot(
@@ -711,14 +700,12 @@ export async function listSpaceIndexTargetProfileNameSnapshots(input: {
     buildSpaceProfileKey(left).localeCompare(buildSpaceProfileKey(right))
   );
 }
-
 function buildSpaceProfileKey(input: {
   profileId: string;
   spaceId: string;
 }): string {
-  return `${input.spaceId}\u0000${input.profileId}`;
+  return `${input.spaceId}\0${input.profileId}`;
 }
-
 export async function listAccountSpacesFromSpaceIndex(
   input: ListAccountSpacesFromSpaceIndexInput
 ): Promise<AccountSpaceIndexResponse> {
@@ -748,17 +735,22 @@ export async function listAccountSpacesFromSpaceIndex(
   }
   return { ...sections, recentlyDeletedItems };
 }
-
 // Only enrich the already authorized candidate list. Read at most three active
 // members per Space, in stable membership order; never fan out to Space DOs.
 async function attachSpaceMemberPreviews(
-  db: D1Database,
+  db: PostgresDatabase,
   items: AccountSpaceIndexResponse["spaceItems"]
 ): Promise<void> {
   for (let offset = 0; offset < items.length; offset += 90) {
     const chunk = items.slice(offset, offset + 90);
-    const rows = await db
-      .prepare(`
+    const rows = await db.query<{
+      space_id: string;
+      profile_id: string;
+      profile_name_snapshot: string;
+      profile_kind_snapshot: "human" | "agent";
+      controller_ref_snapshot: string | null;
+    }>({
+      text: `
       SELECT space_id, profile_id, profile_name_snapshot,
         profile_kind_snapshot, controller_ref_snapshot
       FROM (
@@ -767,28 +759,22 @@ async function attachSpaceMemberPreviews(
           ROW_NUMBER() OVER (
             PARTITION BY space_id ORDER BY added_at_ms, profile_id
           ) AS member_rank
-        FROM space_index_memberships
+        FROM "openmeld"."space_index_memberships"
         WHERE status = 'active'
-          AND space_id IN (${chunk.map(() => "?").join(",")})
+          AND space_id = ANY($1::text[])
       )
       WHERE member_rank <= 3
       ORDER BY space_id, member_rank
-    `)
-      .bind(...chunk.map((item) => item.spaceId))
-      .all<{
-        space_id: string;
-        profile_id: string;
-        profile_name_snapshot: string;
-        profile_kind_snapshot: "human" | "agent";
-        controller_ref_snapshot: string | null;
-      }>();
+    `,
+      values: [chunk.map((item) => item.spaceId)],
+    });
     const byId = new Map(
       chunk.map((item) => {
         item.memberPreviews = [];
         return [item.spaceId, item] as const;
       })
     );
-    for (const row of rows.results ?? []) {
+    for (const row of rows.rows ?? []) {
       byId.get(row.space_id)?.memberPreviews?.push({
         profileId: row.profile_id,
         profileName: row.profile_name_snapshot,
@@ -798,18 +784,17 @@ async function attachSpaceMemberPreviews(
     }
   }
 }
-
 export async function listOrganizationSpacesFromSpaceIndex(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   generatedAt: string;
   limit: number;
   organizationId: string;
   ownerUserId: string | null;
   profileId?: string;
 }): Promise<OrganizationSpaceDirectoryWithMemberCountsResponse> {
-  const { results } = await input.db
-    .prepare(
-      `
+  const { rows: results } = await input.db.query<OrganizationSpaceDirectoryRow>(
+    {
+      text: `
         SELECT
           s.active_member_count,
           cad.agent_profile_id AS center_agent_profile_id,
@@ -824,14 +809,14 @@ export async function listOrganizationSpacesFromSpaceIndex(input: {
           s.space_updated_at_ms,
           s.source_updated_at_ms,
           MAX(m.added_at_ms) AS latest_joined_at_ms
-        FROM space_index_spaces s
-        LEFT JOIN center_agent_designations cad
+        FROM "openmeld"."space_index_spaces" s
+        LEFT JOIN "openmeld"."center_agent_designations" cad
           ON cad.organization_id = s.organization_id
-        LEFT JOIN space_index_memberships m
+        LEFT JOIN "openmeld"."space_index_memberships" m
           ON m.space_id = s.space_id
-          AND (m.owner_user_id_snapshot = ? OR m.profile_id = ?)
+          AND (m.owner_user_id_snapshot = $1 OR m.profile_id = $2)
           AND m.status = 'active'
-        WHERE s.organization_id = ?
+        WHERE s.organization_id = $3
           AND s.status = 'active'
           AND (
             s.organization_visibility = 'public'
@@ -851,22 +836,21 @@ export async function listOrganizationSpacesFromSpaceIndex(input: {
           s.space_updated_at_ms,
           s.source_updated_at_ms
         ORDER BY
-          CASE WHEN latest_joined_at_ms IS NULL THEN 1 ELSE 0 END ASC,
-          latest_joined_at_ms DESC,
-          COALESCE(s.space_updated_at_ms, s.source_updated_at_ms) DESC,
-          COALESCE(s.space_name, 'Untitled space') ASC,
-          s.space_id ASC
-        LIMIT ?
-      `
-    )
-    .bind(
-      input.ownerUserId,
-      input.profileId ?? null,
-      input.organizationId,
-      input.limit
-    )
-    .all<OrganizationSpaceDirectoryRow>();
-
+          CASE WHEN MAX(m.added_at_ms) IS NULL THEN 1 ELSE 0 END ASC NULLS FIRST,
+          latest_joined_at_ms DESC NULLS LAST,
+          COALESCE(s.space_updated_at_ms, s.source_updated_at_ms) DESC NULLS LAST,
+          COALESCE(s.space_name, 'Untitled space') ASC NULLS FIRST,
+          s.space_id ASC NULLS FIRST
+        LIMIT $4
+      `,
+      values: [
+        input.ownerUserId,
+        input.profileId ?? null,
+        input.organizationId,
+        input.limit,
+      ],
+    }
+  );
   return {
     organizationId: input.organizationId,
     generatedAt: input.generatedAt,
@@ -886,9 +870,8 @@ export async function listOrganizationSpacesFromSpaceIndex(input: {
       })),
   };
 }
-
 export async function readSpaceIndexNamesByIds(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   spaceIds: readonly string[];
 }): Promise<Map<string, string>> {
@@ -896,18 +879,16 @@ export async function readSpaceIndexNamesByIds(input: {
   if (spaceIds.length === 0) {
     return new Map();
   }
-  const { results } = await input.db
-    .prepare(
-      `
+  const { rows: results } = await input.db.query<SpaceIndexNameRow>({
+    text: `
         SELECT space_id, space_name
-        FROM space_index_spaces
-        WHERE organization_id = ?
+        FROM "openmeld"."space_index_spaces"
+        WHERE organization_id = $1
           AND status = 'active'
-          AND space_id IN (SELECT value FROM json_each(?))
-      `
-    )
-    .bind(input.organizationId, JSON.stringify(spaceIds))
-    .all<SpaceIndexNameRow>();
+          AND space_id IN (SELECT value FROM jsonb_array_elements_text($2::jsonb) AS json_elements(value))
+      `,
+    values: [input.organizationId, JSON.stringify(spaceIds)],
+  });
   return new Map(
     (results ?? []).map((row) => [
       row.space_id,
@@ -915,11 +896,10 @@ export async function readSpaceIndexNamesByIds(input: {
     ])
   );
 }
-
 export async function listRoutineTargetSpacesFromSpaceIndex(input: {
   centerAgentDirectMessagePairKey: string;
   centerAgentProfileId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   limit: number;
   organizationId: string;
   representedHumanProfileId: string;
@@ -931,11 +911,10 @@ export async function listRoutineTargetSpacesFromSpaceIndex(input: {
   });
   return rows.map(toRoutineTargetSpace);
 }
-
 export async function readRoutineTargetSpaceEligibilityFromSpaceIndex(input: {
   centerAgentDirectMessagePairKey: string | null;
   centerAgentProfileId: string | null;
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   representedHumanProfileId: string;
   representedHumanUserId: string;
@@ -960,7 +939,6 @@ export async function readRoutineTargetSpaceEligibilityFromSpaceIndex(input: {
     spaceId: row.space_id,
   };
 }
-
 async function queryRoutineTargetSpaceEligibilityFromSpaceIndex(
   input: RoutineTargetSpaceEligibilityQueryInput
 ): Promise<RoutineTargetSpaceRow[]> {
@@ -985,16 +963,16 @@ async function queryRoutineTargetSpaceEligibilityFromSpaceIndex(
   const scopePredicate =
     input.scope === "list"
       ? "s.organization_id = context.organization_id AND s.status = 'active'"
-      : "s.space_id = ?";
+      : "s.space_id = $8";
   const resultFilter = input.scope === "list" ? "WHERE is_eligible = 1" : "";
   const resultOrder =
     input.scope === "list"
       ? `
           ORDER BY
-            CASE WHEN space_purpose = ? THEN 0 ELSE 1 END ASC,
-            COALESCE(NULLIF(TRIM(space_name), ''), 'Untitled space') COLLATE NOCASE ASC,
-            space_id ASC
-          LIMIT ?
+            CASE WHEN space_purpose = $8 THEN 0 ELSE 1 END ASC NULLS FIRST,
+            COALESCE(NULLIF(TRIM(space_name), ''), 'Untitled space') COLLATE "C" ASC NULLS FIRST,
+            space_id ASC NULLS FIRST
+          LIMIT $9
         `
       : "LIMIT 1";
   const scopeBindings =
@@ -1005,18 +983,17 @@ async function queryRoutineTargetSpaceEligibilityFromSpaceIndex(
     input.scope === "list"
       ? [OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE, input.limit]
       : [];
-  const { results } = await input.db
-    .prepare(
-      `
+  const { rows: results } = await input.db.query<RoutineTargetSpaceRow>({
+    text: `
         WITH routine_target_context AS (
           SELECT
-            ? AS organization_id,
-            ? AS represented_human_profile_id,
-            ? AS represented_human_user_id,
-            ? AS center_agent_profile_id,
-            ? AS center_agent_direct_message_pair_key,
-            ? AS direct_message_purpose,
-            ? AS legacy_welcoming_purpose
+            $1 AS organization_id,
+            $2 AS represented_human_profile_id,
+            $3 AS represented_human_user_id,
+            $4 AS center_agent_profile_id,
+            $5 AS center_agent_direct_message_pair_key,
+            $6 AS direct_message_purpose,
+            $7 AS legacy_welcoming_purpose
         ),
         routine_target_facts AS (
           SELECT
@@ -1031,7 +1008,7 @@ async function queryRoutineTargetSpaceEligibilityFromSpaceIndex(
             CASE
               WHEN EXISTS (
                 SELECT 1
-                FROM space_index_memberships center_agent_membership
+                FROM "openmeld"."space_index_memberships" center_agent_membership
                 WHERE center_agent_membership.space_id = s.space_id
                   AND center_agent_membership.profile_id = context.center_agent_profile_id
                   AND center_agent_membership.profile_kind_snapshot = 'agent'
@@ -1043,7 +1020,7 @@ async function queryRoutineTargetSpaceEligibilityFromSpaceIndex(
               WHEN s.organization_visibility = 'public' THEN 1
               WHEN EXISTS (
                 SELECT 1
-                FROM space_index_memberships represented_human_membership
+                FROM "openmeld"."space_index_memberships" represented_human_membership
                 WHERE represented_human_membership.space_id = s.space_id
                   AND represented_human_membership.status = 'active'
                   AND represented_human_membership.profile_kind_snapshot = 'human'
@@ -1057,7 +1034,7 @@ async function queryRoutineTargetSpaceEligibilityFromSpaceIndex(
             CASE
               WHEN s.space_purpose = context.direct_message_purpose THEN (
                 SELECT COUNT(*)
-                FROM space_index_memberships active_dm_member
+                FROM "openmeld"."space_index_memberships" active_dm_member
                 WHERE active_dm_member.space_id = s.space_id
                   AND active_dm_member.status = 'active'
               )
@@ -1067,7 +1044,7 @@ async function queryRoutineTargetSpaceEligibilityFromSpaceIndex(
               WHEN s.space_purpose = context.direct_message_purpose
                 AND EXISTS (
                   SELECT 1
-                  FROM space_index_memberships represented_dm_member
+                  FROM "openmeld"."space_index_memberships" represented_dm_member
                   WHERE represented_dm_member.space_id = s.space_id
                     AND represented_dm_member.profile_id = context.represented_human_profile_id
                     AND represented_dm_member.profile_kind_snapshot = 'human'
@@ -1078,12 +1055,12 @@ async function queryRoutineTargetSpaceEligibilityFromSpaceIndex(
             CASE
               WHEN s.space_purpose = context.direct_message_purpose THEN (
                 SELECT current_dm.space_id
-                FROM space_index_spaces current_dm
+                FROM "openmeld"."space_index_spaces" current_dm
                 WHERE current_dm.organization_id = context.organization_id
                   AND current_dm.direct_message_pair_key = context.center_agent_direct_message_pair_key
                   AND current_dm.space_purpose = context.direct_message_purpose
                   AND current_dm.status = 'active'
-                ORDER BY current_dm.space_created_at_ms DESC, current_dm.space_id DESC
+                ORDER BY current_dm.space_created_at_ms DESC NULLS LAST, current_dm.space_id DESC NULLS LAST
                 LIMIT 1
               )
               ELSE NULL
@@ -1092,7 +1069,7 @@ async function queryRoutineTargetSpaceEligibilityFromSpaceIndex(
             context.direct_message_purpose,
             context.legacy_welcoming_purpose
           FROM routine_target_context context
-          CROSS JOIN space_index_spaces s
+          CROSS JOIN "openmeld"."space_index_spaces" s
           WHERE ${scopePredicate}
         ),
         routine_target_shapes AS (
@@ -1142,9 +1119,8 @@ async function queryRoutineTargetSpaceEligibilityFromSpaceIndex(
         FROM routine_target_eligibility
         ${resultFilter}
         ${resultOrder}
-      `
-    )
-    .bind(
+      `,
+    values: [
       organizationId,
       representedHumanProfileId,
       representedHumanUserId,
@@ -1153,12 +1129,11 @@ async function queryRoutineTargetSpaceEligibilityFromSpaceIndex(
       OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
       LEGACY_WELCOMING_SPACE_PURPOSE,
       ...scopeBindings,
-      ...resultBindings
-    )
-    .all<RoutineTargetSpaceRow>();
+      ...resultBindings,
+    ],
+  });
   return results ?? [];
 }
-
 function toRoutineTargetSpace(
   row: RoutineTargetSpaceRow
 ): CenterAgentRoutineTargetSpace {
@@ -1171,75 +1146,72 @@ function toRoutineTargetSpace(
     spaceId: row.space_id,
   };
 }
-
 function isSqlTrue(value: number | boolean): boolean {
   return value === true || value === 1;
 }
-
 export async function readCenterAgentDirectMessageProjectionCandidateByPairKey(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   pairKey: string;
 }): Promise<SpaceIndexCenterAgentDirectMessageProjectionCandidate | null> {
   const row = await input.db
-    .prepare(
-      `
+    .query<SpaceIndexCenterAgentDirectMessageProjectionCandidateRow>({
+      text: `
         SELECT
           s.space_id,
           s.organization_id,
           s.space_purpose,
           s.direct_message_pair_key
-        FROM space_index_spaces s
-        WHERE s.organization_id = ?
-          AND s.direct_message_pair_key = ?
-          AND s.space_purpose = ?
+        FROM "openmeld"."space_index_spaces" s
+        WHERE s.organization_id = $1
+          AND s.direct_message_pair_key = $2
+          AND s.space_purpose = $3
           AND s.direct_message_converted_at_ms IS NULL
           AND s.status = 'active'
-        ORDER BY s.space_created_at_ms DESC, s.space_id DESC
+        ORDER BY s.space_created_at_ms DESC NULLS LAST, s.space_id DESC NULLS LAST
         LIMIT 1
-      `
-    )
-    .bind(
-      normalizeRequiredText(input.organizationId, "organizationId"),
-      normalizeRequiredText(input.pairKey, "pairKey"),
-      OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE
-    )
-    .first<SpaceIndexCenterAgentDirectMessageProjectionCandidateRow>();
-
+      `,
+      values: [
+        normalizeRequiredText(input.organizationId, "organizationId"),
+        normalizeRequiredText(input.pairKey, "pairKey"),
+        OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
+      ],
+    })
+    .then((result) => result.rows[0] ?? null);
   return row ? toCenterAgentDirectMessageProjectionCandidate(row) : null;
 }
-
 export async function readCenterAgentDirectMessageProjectionCandidateBySpaceId(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   spaceId: string;
 }): Promise<SpaceIndexCenterAgentDirectMessageProjectionCandidate | null> {
   const row = await input.db
-    .prepare(
-      `
+    .query<SpaceIndexCenterAgentDirectMessageProjectionCandidateRow>({
+      text: `
         SELECT
           s.space_id,
           s.organization_id,
           s.space_purpose,
           s.direct_message_pair_key
-        FROM space_index_spaces s
-        WHERE s.space_id = ?
+        FROM "openmeld"."space_index_spaces" s
+        WHERE s.space_id = $1
           AND s.status = 'active'
           AND s.direct_message_converted_at_ms IS NULL
         LIMIT 1
-      `
-    )
-    .bind(normalizeRequiredText(input.spaceId, "spaceId"))
-    .first<SpaceIndexCenterAgentDirectMessageProjectionCandidateRow>();
-
+      `,
+      values: [normalizeRequiredText(input.spaceId, "spaceId")],
+    })
+    .then((result) => result.rows[0] ?? null);
   return row ? toCenterAgentDirectMessageProjectionCandidate(row) : null;
 }
-
 export async function listCenterAgentSessionIndexRows(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   pairKey: string;
   limit: number;
-  before?: { createdAtMs: number; spaceId: string };
+  before?: {
+    createdAtMs: number;
+    spaceId: string;
+  };
 }): Promise<
   Array<{
     spaceId: string;
@@ -1249,41 +1221,35 @@ export async function listCenterAgentSessionIndexRows(input: {
   }>
 > {
   const beforeClause = input.before
-    ? "AND (COALESCE(s.space_created_at_ms, 0) < ? OR (COALESCE(s.space_created_at_ms, 0) = ? AND s.space_id < ?))"
+    ? "AND (COALESCE(s.space_created_at_ms, 0), s.space_id) < ($5, $6)"
     : "";
-  const rows = await input.db
-    .prepare(`
+  const rows = await input.db.query<{
+    space_id: string;
+    space_name: string | null;
+    space_created_at_ms: number | null;
+    message_preview_revision: number | null;
+    message_preview_json: string | null;
+  }>({
+    text: `
     SELECT s.space_id, s.space_name, s.space_created_at_ms,
       s.message_preview_revision, s.message_preview_json
-    FROM space_index_spaces s
-    WHERE s.organization_id = ? AND s.direct_message_pair_key = ?
-      AND s.space_purpose = ? AND s.direct_message_converted_at_ms IS NULL
+    FROM "openmeld"."space_index_spaces" s
+    WHERE s.organization_id = $1 AND s.direct_message_pair_key = $2
+      AND s.space_purpose = $3 AND s.direct_message_converted_at_ms IS NULL
       AND s.status = 'active'
       ${beforeClause}
-    ORDER BY COALESCE(s.space_created_at_ms, 0) DESC, s.space_id DESC
-    LIMIT ?
-  `)
-    .bind(
+    ORDER BY COALESCE(s.space_created_at_ms, 0) DESC NULLS LAST, s.space_id DESC NULLS LAST
+    LIMIT $4
+  `,
+    values: [
       input.organizationId,
       input.pairKey,
       OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
-      ...(input.before
-        ? [
-            input.before.createdAtMs,
-            input.before.createdAtMs,
-            input.before.spaceId,
-          ]
-        : []),
-      input.limit
-    )
-    .all<{
-      space_id: string;
-      space_name: string | null;
-      space_created_at_ms: number | null;
-      message_preview_revision: number | null;
-      message_preview_json: string | null;
-    }>();
-  return rows.results.map((row) => ({
+      input.limit,
+      ...(input.before ? [input.before.createdAtMs, input.before.spaceId] : []),
+    ],
+  });
+  return rows.rows.map((row) => ({
     spaceId: row.space_id,
     name: row.space_name,
     createdAtMs: row.space_created_at_ms,
@@ -1299,14 +1265,13 @@ export async function listCenterAgentSessionIndexRows(input: {
         }),
   }));
 }
-
 export async function readSpaceIndexOrganizationJoinTarget(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   spaceId: string;
 }): Promise<SpaceIndexOrganizationJoinTarget | null> {
   const row = await input.db
-    .prepare(
-      `
+    .query<SpaceIndexOrganizationJoinTargetRow>({
+      text: `
         SELECT
           creator_profile_id,
           creator_profile_name,
@@ -1314,15 +1279,14 @@ export async function readSpaceIndexOrganizationJoinTarget(input: {
           organization_id,
           organization_visibility,
           space_name
-        FROM space_index_spaces
-        WHERE space_id = ?
+        FROM "openmeld"."space_index_spaces"
+        WHERE space_id = $1
           AND status = 'active'
         LIMIT 1
-      `
-    )
-    .bind(input.spaceId)
-    .first<SpaceIndexOrganizationJoinTargetRow>();
-
+      `,
+      values: [input.spaceId],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!row) {
     return null;
   }
@@ -1335,15 +1299,14 @@ export async function readSpaceIndexOrganizationJoinTarget(input: {
     visibility: row.organization_visibility,
   };
 }
-
 export async function readReusableDirectMessageSpaceIndexCandidate(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   pairKey: string;
 }): Promise<SpaceIndexDirectMessageCandidate | null> {
   const row = await input.db
-    .prepare(
-      `
+    .query<SpaceIndexDirectMessageCandidateRow>({
+      text: `
         SELECT
           s.space_id,
           s.organization_id,
@@ -1352,7 +1315,7 @@ export async function readReusableDirectMessageSpaceIndexCandidate(input: {
             s.active_member_count,
             (
               SELECT COUNT(*)
-              FROM space_index_memberships m
+              FROM "openmeld"."space_index_memberships" m
               WHERE m.space_id = s.space_id
                 AND m.status = 'active'
             )
@@ -1361,7 +1324,7 @@ export async function readReusableDirectMessageSpaceIndexCandidate(input: {
             s.active_human_count,
             (
               SELECT COUNT(*)
-              FROM space_index_memberships m
+              FROM "openmeld"."space_index_memberships" m
               WHERE m.space_id = s.space_id
                 AND m.status = 'active'
                 AND m.profile_kind_snapshot = 'human'
@@ -1371,48 +1334,46 @@ export async function readReusableDirectMessageSpaceIndexCandidate(input: {
             s.active_agent_count,
             (
               SELECT COUNT(*)
-              FROM space_index_memberships m
+              FROM "openmeld"."space_index_memberships" m
               WHERE m.space_id = s.space_id
                 AND m.status = 'active'
                 AND m.profile_kind_snapshot = 'agent'
             )
           ) AS active_agent_count
-        FROM space_index_spaces s
-        WHERE s.organization_id = ?
-          AND s.direct_message_pair_key = ?
-          AND s.space_purpose = ?
+        FROM "openmeld"."space_index_spaces" s
+        WHERE s.organization_id = $1
+          AND s.direct_message_pair_key = $2
+          AND s.space_purpose = $3
           AND s.status = 'active'
           AND s.direct_message_converted_at_ms IS NULL
           AND COALESCE(
             s.active_member_count,
             (
               SELECT COUNT(*)
-              FROM space_index_memberships m
+              FROM "openmeld"."space_index_memberships" m
               WHERE m.space_id = s.space_id
                 AND m.status = 'active'
             )
           ) <= 2
-        ORDER BY s.space_created_at_ms DESC, s.space_id DESC
+        ORDER BY s.space_created_at_ms DESC NULLS LAST, s.space_id DESC NULLS LAST
         LIMIT 1
-      `
-    )
-    .bind(
-      normalizeRequiredText(input.organizationId, "organizationId"),
-      normalizeRequiredText(input.pairKey, "pairKey"),
-      OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE
-    )
-    .first<SpaceIndexDirectMessageCandidateRow>();
-
+      `,
+      values: [
+        normalizeRequiredText(input.organizationId, "organizationId"),
+        normalizeRequiredText(input.pairKey, "pairKey"),
+        OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
+      ],
+    })
+    .then((result) => result.rows[0] ?? null);
   return row ? toDirectMessageCandidate(row) : null;
 }
-
 export async function readDirectMessageSpaceIndexCandidateBySpaceId(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   spaceId: string;
 }): Promise<SpaceIndexDirectMessageCandidate | null> {
   const row = await input.db
-    .prepare(
-      `
+    .query<SpaceIndexDirectMessageCandidateRow>({
+      text: `
         SELECT
           s.space_id,
           s.organization_id,
@@ -1421,7 +1382,7 @@ export async function readDirectMessageSpaceIndexCandidateBySpaceId(input: {
             s.active_member_count,
             (
               SELECT COUNT(*)
-              FROM space_index_memberships m
+              FROM "openmeld"."space_index_memberships" m
               WHERE m.space_id = s.space_id
                 AND m.status = 'active'
             )
@@ -1430,7 +1391,7 @@ export async function readDirectMessageSpaceIndexCandidateBySpaceId(input: {
             s.active_human_count,
             (
               SELECT COUNT(*)
-              FROM space_index_memberships m
+              FROM "openmeld"."space_index_memberships" m
               WHERE m.space_id = s.space_id
                 AND m.status = 'active'
                 AND m.profile_kind_snapshot = 'human'
@@ -1440,49 +1401,48 @@ export async function readDirectMessageSpaceIndexCandidateBySpaceId(input: {
             s.active_agent_count,
             (
               SELECT COUNT(*)
-              FROM space_index_memberships m
+              FROM "openmeld"."space_index_memberships" m
               WHERE m.space_id = s.space_id
                 AND m.status = 'active'
                 AND m.profile_kind_snapshot = 'agent'
             )
           ) AS active_agent_count
-        FROM space_index_spaces s
-        WHERE s.space_id = ?
+        FROM "openmeld"."space_index_spaces" s
+        WHERE s.space_id = $1
           AND s.status = 'active'
           AND s.direct_message_converted_at_ms IS NULL
         LIMIT 1
-      `
-    )
-    .bind(normalizeRequiredText(input.spaceId, "spaceId"))
-    .first<SpaceIndexDirectMessageCandidateRow>();
-
+      `,
+      values: [normalizeRequiredText(input.spaceId, "spaceId")],
+    })
+    .then((result) => result.rows[0] ?? null);
   return row ? toDirectMessageCandidate(row) : null;
 }
-
 export async function countDirectMessageSpacesForPair(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   pairKey: string;
 }): Promise<number> {
   const row = await input.db
-    .prepare(
-      `
+    .query<{
+      count: number | null;
+    }>({
+      text: `
         SELECT COUNT(*) AS count
-        FROM space_index_spaces
-        WHERE organization_id = ?
-          AND direct_message_pair_key = ?
-          AND space_purpose = ?
-      `
-    )
-    .bind(
-      normalizeRequiredText(input.organizationId, "organizationId"),
-      normalizeRequiredText(input.pairKey, "pairKey"),
-      OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE
-    )
-    .first<{ count: number | null }>();
+        FROM "openmeld"."space_index_spaces"
+        WHERE organization_id = $1
+          AND direct_message_pair_key = $2
+          AND space_purpose = $3
+      `,
+      values: [
+        normalizeRequiredText(input.organizationId, "organizationId"),
+        normalizeRequiredText(input.pairKey, "pairKey"),
+        OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
+      ],
+    })
+    .then((result) => result.rows[0] ?? null);
   return Math.max(0, Number(row?.count ?? 0));
 }
-
 function toDirectMessageCandidate(
   row: SpaceIndexDirectMessageCandidateRow
 ): SpaceIndexDirectMessageCandidate {
@@ -1495,7 +1455,6 @@ function toDirectMessageCandidate(
     visibility: row.organization_visibility,
   };
 }
-
 function toCenterAgentDirectMessageProjectionCandidate(
   row: SpaceIndexCenterAgentDirectMessageProjectionCandidateRow
 ): SpaceIndexCenterAgentDirectMessageProjectionCandidate {
@@ -1506,7 +1465,6 @@ function toCenterAgentDirectMessageProjectionCandidate(
     spacePurpose: row.space_purpose,
   };
 }
-
 function isCenterAgentDirectMessageSpaceIndexRow(row: {
   center_agent_profile_id: string | null;
   direct_message_pair_key: string | null;
@@ -1518,7 +1476,6 @@ function isCenterAgentDirectMessageSpaceIndexRow(row: {
     spacePurpose: row.space_purpose,
   });
 }
-
 function isHiddenCurrentSpaceIndexRow(row: {
   center_agent_profile_id: string | null;
   direct_message_pair_key: string | null;
@@ -1529,7 +1486,6 @@ function isHiddenCurrentSpaceIndexRow(row: {
     row.space_purpose === LEGACY_WELCOMING_SPACE_PURPOSE
   );
 }
-
 // Bounded window for surfacing a whole-space deletion to its former members as a
 // one-time client notice. The per-Space signal channel dies with the deleted DO,
 // so the durable Space Index projection (deletedAt/deletedBy) is the only place a
@@ -1537,7 +1493,6 @@ function isHiddenCurrentSpaceIndexRow(row: {
 // this bound just keeps the read from carrying long-gone deletions forever (the
 // Space Index is a rebuildable projection by charter).
 const RECENTLY_DELETED_SPACE_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
-
 async function listRecentlyDeletedSpacesForAccount(
   input: ListAccountSpacesFromSpaceIndexInput
 ): Promise<AccountSpaceIndexDeletedItem[]> {
@@ -1547,33 +1502,31 @@ async function listRecentlyDeletedSpacesForAccount(
     input.scope === "profile" ? "m.profile_id" : "m.owner_user_id_snapshot";
   const scopeValue =
     input.scope === "profile" ? input.selectedProfileId : input.ownerUserId;
-  const { results } = await input.db
-    .prepare(
-      `
+  const { rows: results } = await input.db.query<{
+    deleted_at_ms: number;
+    deleted_by_profile_name: string | null;
+    space_id: string;
+    space_name: string | null;
+  }>({
+    text: `
         SELECT
           s.space_id,
           s.space_name,
           s.deleted_by_profile_name,
           s.deleted_at_ms
-        FROM space_index_spaces s
-        INNER JOIN space_index_memberships m ON m.space_id = s.space_id
+        FROM "openmeld"."space_index_spaces" s
+        INNER JOIN "openmeld"."space_index_memberships" m ON m.space_id = s.space_id
         WHERE s.status = 'deleted'
           AND s.deleted_at_ms IS NOT NULL
-          AND s.deleted_at_ms >= ?
-          AND ${scopeColumn} = ?
+          AND s.deleted_at_ms >= $1
+          AND ${scopeColumn} = $2
           AND m.removal_reason = 'space_deleted'
         GROUP BY s.space_id
-        ORDER BY s.deleted_at_ms DESC
-        LIMIT ?
-      `
-    )
-    .bind(cutoffMs, scopeValue, input.limit)
-    .all<{
-      deleted_at_ms: number;
-      deleted_by_profile_name: string | null;
-      space_id: string;
-      space_name: string | null;
-    }>();
+        ORDER BY s.deleted_at_ms DESC NULLS LAST
+        LIMIT $3
+      `,
+    values: [cutoffMs, scopeValue, input.limit],
+  });
   return (results ?? []).map((row) => ({
     deletedAt: timestampMsToIso(row.deleted_at_ms),
     deletedByProfileName: row.deleted_by_profile_name,
@@ -1581,35 +1534,33 @@ async function listRecentlyDeletedSpacesForAccount(
     spaceName: row.space_name,
   }));
 }
-
 export async function diagnoseSpaceIndexProjectionDrift(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   spaceId: string;
 }): Promise<SpaceIndexProjectionDriftDiagnostic> {
   const issues: SpaceIndexProjectionDriftIssue[] = [];
   const spaceRow = await input.db
-    .prepare(
-      `
+    .query<{
+      completed_projection_event_id: string | null;
+      projection_event_id: string;
+      source_updated_at_ms: number;
+      space_id: string;
+    }>({
+      text: `
         SELECT
           s.space_id,
           s.source_updated_at_ms,
           s.projection_event_id,
           e.projection_event_id AS completed_projection_event_id
-        FROM space_index_spaces s
-        LEFT JOIN space_index_projection_events e
+        FROM "openmeld"."space_index_spaces" s
+        LEFT JOIN "openmeld"."space_index_projection_events" e
           ON e.projection_event_id = s.projection_event_id
-        WHERE s.space_id = ?
+        WHERE s.space_id = $1
         LIMIT 1
-      `
-    )
-    .bind(input.spaceId)
-    .first<{
-      completed_projection_event_id: string | null;
-      projection_event_id: string;
-      source_updated_at_ms: number;
-      space_id: string;
-    }>();
-
+      `,
+      values: [input.spaceId],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (spaceRow && !spaceRow.completed_projection_event_id) {
     issues.push({
       code: "space_index_space_missing_completed_event",
@@ -1619,29 +1570,25 @@ export async function diagnoseSpaceIndexProjectionDrift(input: {
       spaceId: input.spaceId,
     });
   }
-
-  const { results: membershipRows } = await input.db
-    .prepare(
-      `
+  const { rows: membershipRows } = await input.db.query<{
+    completed_projection_event_id: string | null;
+    profile_id: string;
+    projection_event_id: string;
+  }>({
+    text: `
         SELECT
           m.profile_id,
           m.projection_event_id,
           e.projection_event_id AS completed_projection_event_id
-        FROM space_index_memberships m
-        LEFT JOIN space_index_projection_events e
+        FROM "openmeld"."space_index_memberships" m
+        LEFT JOIN "openmeld"."space_index_projection_events" e
           ON e.projection_event_id = m.projection_event_id
-        WHERE m.space_id = ?
+        WHERE m.space_id = $1
           AND e.projection_event_id IS NULL
-        ORDER BY m.profile_id ASC
-      `
-    )
-    .bind(input.spaceId)
-    .all<{
-      completed_projection_event_id: string | null;
-      profile_id: string;
-      projection_event_id: string;
-    }>();
-
+        ORDER BY m.profile_id ASC NULLS FIRST
+      `,
+    values: [input.spaceId],
+  });
   for (const row of membershipRows ?? []) {
     issues.push({
       code: "space_index_membership_missing_completed_event",
@@ -1652,27 +1599,25 @@ export async function diagnoseSpaceIndexProjectionDrift(input: {
       spaceId: input.spaceId,
     });
   }
-
   const latestEvent = await input.db
-    .prepare(
-      `
+    .query<{
+      payload_json: string;
+      projection_event_id: string;
+      source_updated_at_ms: number;
+    }>({
+      text: `
         SELECT
           projection_event_id,
           source_updated_at_ms,
           payload_json
-        FROM space_index_projection_events
-        WHERE space_id = ?
-        ORDER BY source_updated_at_ms DESC, projected_at_ms DESC
+        FROM "openmeld"."space_index_projection_events"
+        WHERE space_id = $1
+        ORDER BY source_updated_at_ms DESC NULLS LAST, projected_at_ms DESC NULLS LAST
         LIMIT 1
-      `
-    )
-    .bind(input.spaceId)
-    .first<{
-      payload_json: string;
-      projection_event_id: string;
-      source_updated_at_ms: number;
-    }>();
-
+      `,
+      values: [input.spaceId],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (latestEvent && spaceRow) {
     if (spaceRow.source_updated_at_ms < latestEvent.source_updated_at_ms) {
       issues.push({
@@ -1683,23 +1628,22 @@ export async function diagnoseSpaceIndexProjectionDrift(input: {
         spaceId: input.spaceId,
       });
     }
-
     const expectedMemberCount = readProjectionEventMemberCount(
       latestEvent.payload_json
     );
     if (typeof expectedMemberCount === "number") {
       const projectedMemberCount = await input.db
-        .prepare(
-          `
+        .query<{ count: number }>({
+          text: `
             SELECT COUNT(*) AS count
-            FROM space_index_memberships
-            WHERE space_id = ?
-              AND projection_event_id = ?
-          `
-        )
-        .bind(input.spaceId, latestEvent.projection_event_id)
-        .first<number>("count");
-      if (Number(projectedMemberCount ?? 0) !== expectedMemberCount) {
+            FROM "openmeld"."space_index_memberships"
+            WHERE space_id = $1
+              AND projection_event_id = $2
+          `,
+          values: [input.spaceId, latestEvent.projection_event_id],
+        })
+        .then((result) => result.rows[0] ?? null);
+      if (Number(projectedMemberCount?.count ?? 0) !== expectedMemberCount) {
         issues.push({
           code: "space_index_projection_event_membership_count_mismatch",
           message:
@@ -1710,21 +1654,18 @@ export async function diagnoseSpaceIndexProjectionDrift(input: {
       }
     }
   }
-
   return {
     issues,
     ok: issues.length === 0,
     spaceId: input.spaceId,
   };
 }
-
 async function listAccountScopedRows(
   input: ListAccountSpacesFromSpaceIndexInput
 ): Promise<SpaceIndexJoinedRow[]> {
-  const { results } = await input.db
-    .prepare(
-      `
-        WITH host_scope AS (SELECT ? AS gateway_host),
+  const { rows: results } = await input.db.query<SpaceIndexJoinedRow>({
+    text: `
+        WITH host_scope AS (SELECT $1 AS gateway_host),
         ${ACCOUNT_SCOPED_CANDIDATE_SPACES_CTE}
         SELECT
           cad.agent_profile_id AS center_agent_profile_id,
@@ -1760,54 +1701,56 @@ async function listAccountScopedRows(
           m.projected_at_ms
         FROM candidate_spaces c
         CROSS JOIN host_scope hs
-        INNER JOIN space_index_spaces s ON s.space_id = c.space_id
-        LEFT JOIN center_agent_designations cad
+        INNER JOIN "openmeld"."space_index_spaces" s ON s.space_id = c.space_id
+        LEFT JOIN "openmeld"."center_agent_designations" cad
           ON cad.organization_id = s.organization_id
-        INNER JOIN space_index_memberships m ON m.space_id = c.space_id
-        WHERE m.owner_user_id_snapshot = ?
+        INNER JOIN "openmeld"."space_index_memberships" m ON m.space_id = c.space_id
+        WHERE m.owner_user_id_snapshot = $4
           AND m.status = 'active'
           AND s.status = 'active'
         ORDER BY
-          c.latest_pinned_at_ms DESC,
-          c.latest_joined_at_ms DESC,
-          COALESCE(s.space_name, 'Untitled space') ASC,
-          s.space_id ASC,
-          COALESCE(CASE WHEN m.overlay_gateway_host = hs.gateway_host THEN m.overlay_pinned_at_ms END, 0) DESC,
-          COALESCE(CASE WHEN m.overlay_gateway_host = hs.gateway_host THEN m.overlay_last_joined_at_ms END, m.added_at_ms) DESC,
-          m.profile_name_snapshot ASC,
-          m.profile_id ASC
-      `
-    )
-    .bind(input.gatewayHost, input.ownerUserId, input.limit, input.ownerUserId)
-    .all<SpaceIndexJoinedRow>();
+          c.latest_pinned_at_ms DESC NULLS LAST,
+          c.latest_joined_at_ms DESC NULLS LAST,
+          COALESCE(s.space_name, 'Untitled space') ASC NULLS FIRST,
+          s.space_id ASC NULLS FIRST,
+          COALESCE(CASE WHEN m.overlay_gateway_host = hs.gateway_host THEN m.overlay_pinned_at_ms END, 0) DESC NULLS LAST,
+          COALESCE(CASE WHEN m.overlay_gateway_host = hs.gateway_host THEN m.overlay_last_joined_at_ms END, m.added_at_ms) DESC NULLS LAST,
+          m.profile_name_snapshot ASC NULLS FIRST,
+          m.profile_id ASC NULLS FIRST
+      `,
+    values: [
+      input.gatewayHost,
+      input.ownerUserId,
+      input.limit,
+      input.ownerUserId,
+    ],
+  });
   return results ?? [];
 }
-
 async function listProfileScopedRows(
   input: ListAccountSpacesFromSpaceIndexInput
 ): Promise<SpaceIndexJoinedRow[]> {
-  const { results } = await input.db
-    .prepare(
-      `
-        WITH host_scope AS (SELECT ? AS gateway_host),
+  const { rows: results } = await input.db.query<SpaceIndexJoinedRow>({
+    text: `
+        WITH host_scope AS (SELECT $1 AS gateway_host),
         candidate_spaces AS (
           SELECT
             s.space_id,
             MAX(COALESCE(CASE WHEN m.overlay_gateway_host = hs.gateway_host THEN m.overlay_pinned_at_ms END, 0)) AS latest_pinned_at_ms,
             MAX(COALESCE(CASE WHEN m.overlay_gateway_host = hs.gateway_host THEN m.overlay_last_joined_at_ms END, m.added_at_ms)) AS latest_joined_at_ms
-          FROM space_index_memberships m
+          FROM "openmeld"."space_index_memberships" m
           CROSS JOIN host_scope hs
-          INNER JOIN space_index_spaces s ON s.space_id = m.space_id
-          WHERE m.profile_id = ?
+          INNER JOIN "openmeld"."space_index_spaces" s ON s.space_id = m.space_id
+          WHERE m.profile_id = $2
             AND m.status = 'active'
             AND s.status = 'active'
           GROUP BY s.space_id
           ORDER BY
-            latest_pinned_at_ms DESC,
-            latest_joined_at_ms DESC,
-            COALESCE(s.space_name, 'Untitled space') ASC,
-            s.space_id ASC
-          LIMIT ?
+            latest_pinned_at_ms DESC NULLS LAST,
+            latest_joined_at_ms DESC NULLS LAST,
+            COALESCE(s.space_name, 'Untitled space') ASC NULLS FIRST,
+            s.space_id ASC NULLS FIRST
+          LIMIT $3
         )
         SELECT
           cad.agent_profile_id AS center_agent_profile_id,
@@ -1843,45 +1786,41 @@ async function listProfileScopedRows(
           m.projected_at_ms
         FROM candidate_spaces c
         CROSS JOIN host_scope hs
-        INNER JOIN space_index_spaces s ON s.space_id = c.space_id
-        LEFT JOIN center_agent_designations cad
+        INNER JOIN "openmeld"."space_index_spaces" s ON s.space_id = c.space_id
+        LEFT JOIN "openmeld"."center_agent_designations" cad
           ON cad.organization_id = s.organization_id
-        INNER JOIN space_index_memberships m ON m.space_id = c.space_id
-        WHERE m.profile_id = ?
+        INNER JOIN "openmeld"."space_index_memberships" m ON m.space_id = c.space_id
+        WHERE m.profile_id = $4
           AND m.status = 'active'
           AND s.status = 'active'
         ORDER BY
-          c.latest_pinned_at_ms DESC,
-          c.latest_joined_at_ms DESC,
-          COALESCE(s.space_name, 'Untitled space') ASC,
-          s.space_id ASC,
-          COALESCE(CASE WHEN m.overlay_gateway_host = hs.gateway_host THEN m.overlay_pinned_at_ms END, 0) DESC,
-          COALESCE(CASE WHEN m.overlay_gateway_host = hs.gateway_host THEN m.overlay_last_joined_at_ms END, m.added_at_ms) DESC,
-          m.profile_name_snapshot ASC,
-          m.profile_id ASC
-      `
-    )
-    .bind(
+          c.latest_pinned_at_ms DESC NULLS LAST,
+          c.latest_joined_at_ms DESC NULLS LAST,
+          COALESCE(s.space_name, 'Untitled space') ASC NULLS FIRST,
+          s.space_id ASC NULLS FIRST,
+          COALESCE(CASE WHEN m.overlay_gateway_host = hs.gateway_host THEN m.overlay_pinned_at_ms END, 0) DESC NULLS LAST,
+          COALESCE(CASE WHEN m.overlay_gateway_host = hs.gateway_host THEN m.overlay_last_joined_at_ms END, m.added_at_ms) DESC NULLS LAST,
+          m.profile_name_snapshot ASC NULLS FIRST,
+          m.profile_id ASC NULLS FIRST
+      `,
+    values: [
       input.gatewayHost,
       input.selectedProfileId,
       input.limit,
-      input.selectedProfileId
-    )
-    .all<SpaceIndexJoinedRow>();
+      input.selectedProfileId,
+    ],
+  });
   return results ?? [];
 }
-
 function buildAccountSpaceItems(
   input: ListAccountSpacesFromSpaceIndexInput,
   rows: readonly SpaceIndexJoinedRow[]
 ): AccountSpaceIndexItem[] {
   const bySpaceId = new Map<string, AccountSpaceIndexItemDraft>();
-
   for (const row of rows) {
     if (isHiddenCurrentSpaceIndexRow(row)) {
       continue;
     }
-
     const joinedAtMs = row.overlay_last_joined_at_ms ?? row.added_at_ms;
     const openProfileRankMs = resolveOpenProfileRankMs(row, joinedAtMs);
     const updatedAtMs = Math.max(
@@ -1912,7 +1851,6 @@ function buildAccountSpaceItems(
       );
       continue;
     }
-
     bySpaceId.set(
       row.space_id,
       mergeAccountSpaceItemDraft({
@@ -1924,7 +1862,6 @@ function buildAccountSpaceItems(
       })
     );
   }
-
   return Array.from(bySpaceId.values())
     .map(
       ({
@@ -1937,7 +1874,6 @@ function buildAccountSpaceItems(
     .sort(compareAccountSpaceIndexItems)
     .slice(0, input.limit);
 }
-
 function createAccountSpaceItemDraft(input: {
   gatewayHost: string;
   includeDirectMessageProfileIds: boolean;
@@ -2007,7 +1943,6 @@ function createAccountSpaceItemDraft(input: {
     visibility: input.row.organization_visibility,
   };
 }
-
 function mergeAccountSpaceItemDraft(input: {
   existing: AccountSpaceIndexItemDraft;
   joinedProfile: AccountSpaceIndexJoinedProfile;
@@ -2062,7 +1997,6 @@ function mergeAccountSpaceItemDraft(input: {
     ),
   };
 }
-
 function resolveDirectMessageProfileIds(input: {
   directMessagePairKey: string | null;
   spacePurpose: string | null;
@@ -2079,7 +2013,6 @@ function resolveDirectMessageProfileIds(input: {
   }
   return [pair[0], pair[1]];
 }
-
 function resolveLatestNullableTimestamp(
   left: number | null,
   right: number | null
@@ -2089,7 +2022,6 @@ function resolveLatestNullableTimestamp(
   }
   return Math.max(left, right);
 }
-
 function partitionAccountSpaceIndexItems(
   items: readonly AccountSpaceIndexItem[]
 ): Omit<AccountSpaceIndexResponse, "recentlyDeletedItems"> {
@@ -2098,14 +2030,12 @@ function partitionAccountSpaceIndexItems(
     spaceItems: items.filter((item) => item.pinnedAt === null),
   };
 }
-
 function resolveOpenProfileRankMs(
   row: SpaceIndexJoinedRow,
   joinedAtMs: number
 ): number {
   return row.overlay_last_seen_ts ?? row.last_entered_at_ms ?? joinedAtMs;
 }
-
 function mergeJoinedProfiles(
   profiles: readonly AccountSpaceIndexJoinedProfile[]
 ): AccountSpaceIndexJoinedProfile[] {
@@ -2118,7 +2048,6 @@ function mergeJoinedProfiles(
   }
   return Array.from(byProfileId.values()).sort(compareJoinedProfiles);
 }
-
 function compareJoinedProfiles(
   left: AccountSpaceIndexJoinedProfile,
   right: AccountSpaceIndexJoinedProfile
@@ -2134,7 +2063,6 @@ function compareJoinedProfiles(
   }
   return left.profileId.localeCompare(right.profileId, "en-US");
 }
-
 function compareAccountSpaceIndexItems(
   left: AccountSpaceIndexItem,
   right: AccountSpaceIndexItem
@@ -2156,7 +2084,6 @@ function compareAccountSpaceIndexItems(
   }
   return left.spaceId.localeCompare(right.spaceId, "en-US");
 }
-
 function resolveLatestNullableIso(
   left: string | null,
   right: string | null
@@ -2169,7 +2096,6 @@ function resolveLatestNullableIso(
   }
   return resolveLatestIso(left, right);
 }
-
 function resolveTimestampOrZero(value: string | null): number {
   if (value === null) {
     return 0;
@@ -2177,14 +2103,14 @@ function resolveTimestampOrZero(value: string | null): number {
   const timestamp = Date.parse(value);
   return Number.isFinite(timestamp) ? timestamp : 0;
 }
-
 function uniqueStrings(values: readonly string[]): string[] {
   return Array.from(new Set(values));
 }
-
 function readProjectionEventMemberCount(payloadJson: string): number | null {
   try {
-    const payload = JSON.parse(payloadJson) as { memberCount?: unknown };
+    const payload = JSON.parse(payloadJson) as {
+      memberCount?: unknown;
+    };
     return typeof payload.memberCount === "number" &&
       Number.isFinite(payload.memberCount)
       ? payload.memberCount
@@ -2193,7 +2119,6 @@ function readProjectionEventMemberCount(payloadJson: string): number | null {
     return null;
   }
 }
-
 function parseIsoTimestampMs(value: string, field: string): number {
   const timestamp = Date.parse(value);
   if (!Number.isFinite(timestamp)) {
@@ -2201,7 +2126,6 @@ function parseIsoTimestampMs(value: string, field: string): number {
   }
   return Math.trunc(timestamp);
 }
-
 function parseOptionalIsoTimestampMs(
   value: string | null | undefined
 ): number | null {
@@ -2210,25 +2134,20 @@ function parseOptionalIsoTimestampMs(
   }
   return parseIsoTimestampMs(value, "timestamp");
 }
-
 function timestampMsToIso(value: number): string {
   return new Date(value).toISOString();
 }
-
 function timestampMsToIsoOrNull(value: number | null): string | null {
   return typeof value === "number" ? timestampMsToIso(value) : null;
 }
-
 function normalizeOptionalText(value: unknown): string | null {
   const normalized =
     typeof value === "string" ? value.trim() : String(value ?? "").trim();
   return normalized.length > 0 ? normalized : null;
 }
-
 function normalizeSpaceName(value: unknown): string {
   return normalizeOptionalText(value) ?? "Untitled space";
 }
-
 function normalizeOptionalNonNegativeInteger(value: unknown): number | null {
   if (value === undefined || value === null) {
     return null;
@@ -2238,7 +2157,6 @@ function normalizeOptionalNonNegativeInteger(value: unknown): number | null {
   }
   return value;
 }
-
 function normalizeRequiredText(value: unknown, field: string): string {
   const normalized =
     typeof value === "string" ? value.trim() : String(value ?? "").trim();
@@ -2247,7 +2165,6 @@ function normalizeRequiredText(value: unknown, field: string): string {
   }
   return normalized;
 }
-
 function normalizeOrganizationVisibility(
   value: unknown
 ): SpaceOrganizationVisibility {
@@ -2256,13 +2173,11 @@ function normalizeOrganizationVisibility(
   }
   throw new Error("organizationVisibility invalid");
 }
-
 function resolveLatestIso(left: string, right: string): string {
   return Date.parse(right) > Date.parse(left) ? right : left;
 }
-
 export type WriteSpaceIndexMembershipOverlayInput = {
-  db: D1Database;
+  db: PostgresDatabase;
   spaceId: string;
   profileId: string;
   gatewayHost: string;
@@ -2274,50 +2189,47 @@ export type WriteSpaceIndexMembershipOverlayInput = {
   lastSeenTs: number | null;
   updatedAtMs: number | null;
 };
-
 // Projects one profile-history overlay change onto its membership row
 // (physical-db-split.md P0.3). The overlay is projection data: when the
 // membership row does not exist yet (projection lag on first join), the
 // write is dropped and the next overlay event or index rebuild converges it.
 export async function writeSpaceIndexMembershipOverlay(
   input: WriteSpaceIndexMembershipOverlayInput
-): Promise<{ updated: boolean }> {
+): Promise<{
+  updated: boolean;
+}> {
   const result = input.active
-    ? await input.db
-        .prepare(
-          `
-            UPDATE space_index_memberships SET
-              overlay_gateway_host = ?,
-              overlay_pinned_at_ms = ?,
-              overlay_last_joined_at_ms = ?,
-              overlay_last_seen_ts = ?,
-              overlay_updated_at_ms = ?
-            WHERE space_id = ? AND profile_id = ?
-          `
-        )
-        .bind(
+    ? await input.db.query({
+        text: `
+            UPDATE "openmeld"."space_index_memberships" SET
+              overlay_gateway_host = $1,
+              overlay_pinned_at_ms = $2,
+              overlay_last_joined_at_ms = $3,
+              overlay_last_seen_ts = $4,
+              overlay_updated_at_ms = $5
+            WHERE space_id = $6 AND profile_id = $7
+          `,
+        values: [
           input.gatewayHost,
           input.pinnedAtMs,
           input.lastJoinedAtMs,
           input.lastSeenTs,
           input.updatedAtMs,
           input.spaceId,
-          input.profileId
-        )
-        .run()
-    : await input.db
-        .prepare(
-          `
-            UPDATE space_index_memberships SET
+          input.profileId,
+        ],
+      })
+    : await input.db.query({
+        text: `
+            UPDATE "openmeld"."space_index_memberships" SET
               overlay_gateway_host = NULL,
               overlay_pinned_at_ms = NULL,
               overlay_last_joined_at_ms = NULL,
               overlay_last_seen_ts = NULL,
               overlay_updated_at_ms = NULL
-            WHERE space_id = ? AND profile_id = ?
-          `
-        )
-        .bind(input.spaceId, input.profileId)
-        .run();
-  return { updated: Number(result.meta?.changes ?? 0) > 0 };
+            WHERE space_id = $1 AND profile_id = $2
+          `,
+        values: [input.spaceId, input.profileId],
+      });
+  return { updated: Number(result.rowCount ?? 0) > 0 };
 }

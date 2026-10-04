@@ -6,6 +6,7 @@ import {
 	getAgentControllerVersionAdvisoryPresentation,
 	resolveAgentControllerInterfaceDescription,
 } from "@openmeld/agent-runtime";
+import { LOCAL_AGENTS_GUIDE_PATH } from "@openmeld/product-catalog/local-agent-install-guides";
 import {
 	compareAgentControllerRefsForDisplay,
 	formatLocalSetupActionLabel,
@@ -94,7 +95,6 @@ import {
 	readPeopleComputerLocalAgentInstallations,
 	selectPeopleComputerLocalAgentInstallation,
 } from "#/lib/connect/local-runtimes";
-import { LOCAL_AGENTS_GUIDE_PATH } from "#/lib/local-agent-install-guides";
 import { useCurrentOrganizationSlug } from "#/lib/organizations/organization-context";
 import { resolveCurrentExecutionTarget } from "./agents-page-computer";
 import {

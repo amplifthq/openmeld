@@ -14,6 +14,8 @@ export type InflightTaskControlRecord = {
   adapterId: string;
   agentControllerPermissionMode: AgentControllerPermissionMode | null;
   dispatchId: string;
+  attemptId?: string | null;
+  runtimeCoordinatorRunId?: string | null;
   processId: number | null;
   runtimeCoordinatorExecutionId: string | null;
   signalTarget: AgentControllerProcessSignalTarget | null;

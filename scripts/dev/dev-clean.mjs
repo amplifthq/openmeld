@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
-import { rmSync } from "node:fs";
-import { dirname, resolve, sep } from "node:path";
+import { realpathSync, rmSync } from "node:fs";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   assertNoSymlinkAncestors,
@@ -10,9 +10,37 @@ import {
 } from "./dev-service.mjs";
 
 const entry = fileURLToPath(import.meta.url);
-const WORKTREE_PATH = /^worktree (.+)$/mu;
-const WORKTREE_BRANCH = /^branch (.+)$/mu;
-const WORKTREE_LOCKED = /^locked(?: |$)/mu;
+function canonicalPath(path) {
+  try {
+    return realpathSync.native(path);
+  } catch (error) {
+    if (error.code !== "ENOENT") {
+      throw error;
+    }
+    const parent = dirname(path);
+    return join(canonicalPath(parent), relative(parent, path));
+  }
+}
+
+export function assertNoNestedWorktrees({ paths, worktrees, target }) {
+  const root = canonicalPath(resolve(target));
+  const deletionRoots = paths.map((path) => canonicalPath(resolve(path)));
+  const nested = worktrees.filter((worktree) => {
+    const path = canonicalPath(resolve(worktree.path));
+    return (
+      path !== root &&
+      deletionRoots.some(
+        (deletionRoot) =>
+          path === deletionRoot || path.startsWith(deletionRoot + sep)
+      )
+    );
+  });
+  if (nested.length) {
+    throw new Error(
+      `Cleanup would delete registered nested worktrees: ${nested.map((worktree) => worktree.path).join(", ")}. Preserve them and resolve their ownership separately.`
+    );
+  }
+}
 
 export function assertWorktreeRemovable({
   target,
@@ -21,6 +49,7 @@ export function assertWorktreeRemovable({
   merged,
   cwdOwners,
 }) {
+  assertNoNestedWorktrees({ paths: [target], target, worktrees });
   const worktree = worktrees.find((item) => item.path === target);
   if (
     !worktree ||
@@ -53,14 +82,24 @@ function git(root, args) {
   return execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
 }
 
+function readWorktrees(target) {
+  return git(target, ["worktree", "list", "--porcelain", "-z"])
+    .split("\0\0")
+    .filter(Boolean)
+    .map((block) => {
+      const fields = block.split("\0");
+      return {
+        path: fields.find((field) => field.startsWith("worktree ")).slice(9),
+        branch: fields.find((field) => field.startsWith("branch "))?.slice(7),
+        locked: fields.some(
+          (field) => field === "locked" || field.startsWith("locked ")
+        ),
+      };
+    });
+}
+
 function inspectRemoval(target) {
-  const worktrees = git(target, ["worktree", "list", "--porcelain"])
-    .split("\n\n")
-    .map((block) => ({
-      path: block.match(WORKTREE_PATH)?.[1],
-      branch: block.match(WORKTREE_BRANCH)?.[1],
-      locked: WORKTREE_LOCKED.test(block),
-    }));
+  const worktrees = readWorktrees(target);
   let merged = false;
   try {
     git(target, ["merge-base", "--is-ancestor", "HEAD", "origin/main"]);
@@ -133,6 +172,14 @@ function main() {
   for (const path of paths) {
     assertNoSymlinkAncestors(path, target);
   }
+  const assertCleanupSafe = () =>
+    assertNoNestedWorktrees({
+      paths: removeWorktree ? [target] : paths,
+      target,
+      worktrees: readWorktrees(target),
+    });
+  // Refuse before uninstalling a Service or touching any data in another checkout.
+  assertCleanupSafe();
   console.log(
     `[dev-clean] Worktree: ${target}\n[dev-clean] Disposable data: ${paths.join(", ")}`
   );
@@ -157,6 +204,7 @@ function main() {
   }
   for (const path of paths) {
     assertNoSymlinkAncestors(path, target);
+    assertCleanupSafe();
     rmSync(path, { recursive: true, force: true });
   }
   if (removeWorktree) {

@@ -524,9 +524,9 @@ If a pathological name leaves no room for one stem character plus the numbered
 suffix while preserving the complete extension inside the shared name limit,
 Core fails explicitly instead of silently truncating or changing that
 extension.
-Explicit folder creation, rename, move, and Trash restore remain organization
-actions: when their requested destination name is occupied, they return the
-explicit name conflict instead of silently changing the user's request.
+Creating a folder also keeps both items with the next available numbered name,
+as specified by the shared Files contract. Explicit rename, move, and Trash
+restore return a name conflict when their requested destination is occupied.
 
 Space access owns file access. A viewer who may read the Space may list active
 folders, read active metadata, and download active files. Trash is visible only
@@ -750,7 +750,8 @@ isDirectMessage = purpose is openmeld_dm_space
 
 Active member count uses the same active membership semantics as the normal
 Space member directory. This derived predicate is the single product meaning
-used by navigation, headers, and dispatch planning. Do not reimplement local
+used by navigation and headers. Automatic Wake addressing is derived separately
+from active membership. Do not reimplement local
 "looks like a DM" checks from name, visibility, member types, or route shape.
 
 Every DM is created with `members_only` access. Only its creator, an active
@@ -792,6 +793,12 @@ server enforcement.
 Center Agent chats reuse the ordinary Members panel for viewing the Human and
 Center Agent profiles. This read-only entry does not expose addition,
 conversion, removal, or invitation actions.
+
+Center Agent chat introductions and suggested starting points are presentation,
+not authored messages. Creating, opening, reusing, or preparing a private chat
+must not publish a welcome greeting or backfill one into an existing transcript.
+Clients reuse the shared introduction surface. Historical welcome messages remain
+ordinary retained history; opening a chat neither rewrites nor removes them.
 
 ### Center Agent session foundation (Flue 2 candidate)
 
@@ -851,6 +858,42 @@ Space. No automatic historical title rewrite or periodic regeneration occurs.
 
 ### Ordinary Direct Message opening
 
+Humans, Local Agents, personal Remote Agents, and the Center Agent use the same
+open-or-reuse contract. The caller and recipient must be active Profiles in the
+same Organization; account callers may act only as their own Profile. Native
+Agent callers use the existing admitted execution/Center identity boundary.
+Self-DMs are rejected. Opening never adds an Agent's Human owner as a member.
+
+`openmeld_open_direct_message` (native Agents), `open_direct_message` (Local
+Agent dispatch tools), and `openmeld space dm` share the public DM contract.
+An optional message carries a stable client message ID and an explicit
+`wake` boolean. Messages and Wake assignments go through the existing Space
+publication and dispatch owners. A normal message does not start Agent work.
+The message is rejected if the DM converted before publication; it must not
+silently publish into a wider audience. Retrying the same message is idempotent.
+Before starting work, callers open the DM without a message, then send using
+its exact `spaceId` and a stable client message ID. This lets Stop identify the
+request before publication finishes. A pinned send verifies the Organization
+and participant pair and never opens a replacement conversation. The CLI does
+these steps within one command and emits an early request receipt; native tools
+perform two explicit calls. A retry uses that same Space and message identity.
+Local dispatch collaboration is non-final and retains the calling Agent and
+source Organization; its final reply still belongs to the original Wake.
+
+An optional `creationId` creates a separate Human–Center Agent session using the
+same session identity as the Web New chat action. Reusing that ID retries the
+same session. Other pairs reuse their current DM. Center–Agent DMs are ordinary
+Agent DMs, not the Human–Center specialization.
+
+Both participants' personal Agent owners may observe an Agent–Agent DM. When an
+owner explicitly joins, the existing conversion transaction also includes the
+other personal Agent's Human owner, as required for ordinary Spaces. Managed
+Agent administrators do not gain observer access. Inbox records use ordinary
+Agent-owner activity for these observers, never pretend the message was
+addressed directly to the Human, and deduplicate a shared owner.
+Read-only observers see the published failure explanation in both Messages and
+Threads. They do not receive message mutation, recovery, or Stop controls.
+
 Opening a Direct Message is idempotent within a generation. OpenMeld first
 looks for an unconverted DM-origin Space for the same organization and pair key
 whose active member count is at most two. If found, it reuses that Space. If
@@ -874,18 +917,29 @@ classification and owns its pending shell; it must not render or briefly pass
 through the Spaces sidebar. Clients do not offer a Direct Message to the
 signed-in Human Profile or to a member without an active Human Profile identity.
 
-In current DM state with exactly one active Human Profile and one active Agent
-Profile, a text message authored by the human automatically triggers the agent
+In a current DM or the main conversation of an ordinary Space with exactly one
+active Human Profile and one active Agent Profile, a text message authored by
+that human automatically triggers the agent
 through the same dispatch decision as an explicit Wake. After the target is
 selected, Binding kind chooses exactly one execution family: workstation
 Bindings use outbox, Queue, RuntimeCoordinator, and readiness; the
 `hosted:center-agent` Binding uses the Remote Agent native-delivery contract.
 Neither path may fall back to or also run the other. The dispatch prompt
-receives dynamic DM context telling the agent that the message is addressed
-directly to it and no mention is needed. Agent-authored messages never
-auto-trigger, even in a DM, to prevent agent-to-agent ping-pong. Human-human
-DMs, converted DM-origin Spaces, ordinary two-member Spaces without DM origin,
-and group Spaces keep the normal explicit Wake / mention behavior.
+receives one-human/one-agent context telling the agent that the message is addressed
+directly to it and no mention is needed. Under this automatic addressing rule,
+Agent-authored messages never auto-trigger, even in a DM, to prevent agent-to-agent ping-pong. Human-human and Agent-Agent
+conversations do not automatically Wake an Agent. Ordinary group Spaces require
+explicit Wake / mention addressing under the default mention-only policy.
+Adding a third active member disables membership-based automatic Wake; returning
+to one human and one Agent restores it for new messages. Online presence does
+not change membership. Converted DM-origin Spaces follow this ordinary Space
+addressing rule without regaining DM identity, privacy or mutation restrictions.
+Explicit Reference remains an opt-out. Existing explicit listen-all Space policy
+is separate from this default and is not enabled by membership changes.
+Agents use structured Wake targets to request another Agent's work; a plain reply
+never implies another Agent-to-Agent Wake under the default policy.
+Ordinary Space Threads retain their independent participant-based addressing;
+the containing Space's member count does not restrict a one-human/one-agent Thread.
 
 ## Legacy Welcoming Spaces
 
@@ -900,9 +954,8 @@ conversation mode. Current lists hide them, they do not auto-dispatch like Direc
 Messages, and the composer must not present them as an `@`-optional agent direct
 conversation. First-touch onboarding now belongs to the Center Agent DM.
 
-Do not generalize legacy welcoming behavior to ordinary Spaces. An ordinary
-Space with exactly one Human Profile and one Agent Profile keeps normal explicit
-Wake / mention behavior unless it has DM origin.
+Legacy Welcoming Spaces remain excluded from membership-based automatic Wake.
+Ordinary Spaces use the one-human/one-agent addressing rule above.
 
 ## Weekly Quality Reports
 
@@ -1444,10 +1497,13 @@ reject that Wake action instead of silently posting it to the main Space.
 A reply should appear where the user expects the conversation to continue.
 
 For Local Agents, personal Remote Agents, and interactive Center Agent turns in
-shared Spaces, the final answer belongs in the Thread under the triggering
-message by default. Existing Thread conversations continue there; direct
-messages remain direct. A user may request the main conversation, or an Agent
-may put a conclusion, decision, or blocker there when the whole Space needs it.
+shared Spaces, existing Thread conversations continue there by default. A main
+conversation request in a Direct Message or an ordinary Space with exactly one
+active human and one active Agent defaults to main. Other main-conversation
+requests default to the Thread under the triggering message. These defaults
+are recommendations: explicit user instructions take precedence, and an Agent
+may choose the location that fits the task, including a main-conversation
+announcement or a focused Thread exchange.
 That choice must be structured: Local Agents select `placement=conversation`
 on their final reply, while hosted Agents use `openmeld_set_reply_placement`.
 Answer text alone never changes placement. Do not also publish a copy in the
@@ -1461,17 +1517,27 @@ observation scope or RuntimeCoordinator execution authority.
 For interactive Center Agent turns, follow an explicit user preference for the
 main conversation, including a continuing preference while it remains relevant.
 The Center Agent selects that destination with `openmeld_set_reply_placement`
-before composing its answer.
-While the destination is unresolved, Web does not present a shared-Space Center
-Agent as working in the main conversation. Once Space selects a Thread, the
+as early as possible, preferably before public progress. Center and personal
+Remote Agents can change their selection until final publication begins.
+Reconsider each request using current instructions and relevant conversation
+preferences; a per-dispatch selection is not a permanent Space setting.
+While the destination is unresolved, Web presents the unfinished Agent reply in
+the source conversation, using the same progress projection as the sidebar and
+conversation controls. Public work and answer deltas appear in that reply as
+they arrive. This provisional presentation does not choose durable placement.
+Thinking and transient progress must not
+select a reply destination or create a Thread. Once Space selects a Thread, the
 triggering message's **Open thread** entrance shows the compact current status
 and an authorized Stop control; the complete progress and final answer appear
 in that Thread. A final reply preview replaces the interim entrance status.
 
 Space owns one durable output placement per dispatch, separate from source
-context and conversation continuity. Explicit selection or the first answer
-text locks the destination. Streaming, final publication, callback failures,
-and result recovery reuse it. Pre-execution system notices still follow the
+context and conversation continuity. Explicit selection and the first answer
+text resolve an editable destination. Public work, reply drafts, and active
+status follow the current selection, including changes with no new text delta.
+Final publication locks the destination for callbacks and result recovery.
+An abandoned empty Thread does not retain an active preview entrance; existing
+Thread content is never deleted when placement changes. Pre-execution system notices still follow the
 source message. Routines and external Message Channels keep their own policies.
 
 Guide answer detail positively: prioritize useful new information, make outcomes
@@ -1494,13 +1560,30 @@ If OpenMeld stops a Wake before it reaches the agent, the visible outcome is sti
 explicit stopped Space system notice. It is not an Agent reply, and it must not
 be rendered as silent disappearance from progress.
 
-Only the account that authored the Wake's source message or the target Agent
-Profile's owner may stop that Wake, and they must still have writable Space
-access. Space membership, Space creation, or Organization administration alone
+Web presents a stopped outcome in the target Agent's reply position with the
+label `(Request stopped)` and the original request context, not as a conversation-wide
+notice. This presentation does not change the system notice's authorship or
+claim a successful Agent reply. Each target of a multi-Agent request retains
+its own outcome. Public reply text already accepted by Space stays visible,
+including after refresh; private thinking and transient work are not retained.
+An empty stopped response shows the target identity and `(Request stopped)` alone. Stop
+does not imply that earlier actions were undone.
+
+For ordinary account-owned Profiles, only the account that authored the Wake's
+source message or the target Agent Profile's owner may stop that Wake, and they
+must still have writable Space access. Space membership, Space creation, or
+Organization administration alone
 does not grant this permission. Other members can follow progress but cannot
 interrupt the work. Signing in to several accounts on one computer does not
 combine their permissions. This rule covers queued, running, and native-delivery
 Wakes; each target of a multi-Agent Wake is authorized separately.
+
+The currently designated Center Agent may also stop its own request in an
+Agent Direct Message. Before publication, it must still be the exact private
+pair; after conversion, this permission covers only its existing messages from
+before conversion. Other Center Agent Stop requests retain the verified member
+and source-attribution rules. A missing message never authorizes creating a
+Stop fence as a different author.
 
 If a Wake reaches the local agent but the controller or upstream model provider
 fails, the explicit failure notice should expose the safest actionable public
@@ -1602,14 +1685,26 @@ claim that a final reply exists.
 Only a one-to-one Center Agent Direct Message may show an optimistic reply shell
 before the first authoritative Agent stream event. The shell is derived from
 the current active Wake presentation and shows the known Center Agent identity.
-It starts with compact animated `Sending to Agent…` copy while the handoff is
-pending, then updates that same status row in place to `Agent is working`. The
-row reserves one stable Stop-control slot so Stop eligibility can change without
-moving the conversation. The shell makes no tool, reasoning, or final outcome
+It starts with compact `Thinking…` copy and an immediately available Stop
+control on the first optimistic message. Transport preparation, Wake delivery,
+connection, and retry steps stay in diagnostics. Meaningful queue, offline,
+approval, failure, and live tool progress remain visible. The row keeps one
+stable Stop-control slot without moving the conversation. The shell makes no
+tool, reasoning, or final outcome
 claim and is not independent execution authority.
 It must not be persisted, recovered as conversation history, or reused in an
 ordinary Space or thread. An authoritative stream projection, durable reply,
 stopped notice, failure notice, or ended Wake presentation removes it.
+
+Stop is one click for one target. Multiple targets use the shared picker with
+per-Agent Stop and Stop all. Clicking immediately shows `Stopping…` and freezes
+the current partial answer; only a confirmed terminal outcome says `(Request stopped)`.
+Completed work remains visible and Stop does not imply rollback. A completed
+reply wins a race with a later Stop acknowledgement. A failed connection keeps
+the command intent with an explicit retry action. Receipts survive navigation
+and are isolated by acting Profile and Space; an interrupted request restored
+after reload is unconfirmed, never reported as stopped. New-chat preparation
+can be withdrawn locally before a Space exists and retains the unsent draft.
 
 Agent reply work summaries follow the same rule for hosted Center Agents and
 workstation Local Agents. A Space may show one compact live **Work summary**

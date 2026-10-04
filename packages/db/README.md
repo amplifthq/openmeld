@@ -162,5 +162,5 @@ Auth-owned runtime paths changed.
 4. `packages/db/src/core/dispatch.schema.ts`
 5. `packages/db/drizzle.config.ts`
 6. `services/auth/src/lib/rpc/entrypoint.ts`
-7. `services/core/src/space/infrastructure/d1/space-dispatch-read-repo.ts`
+7. `services/core/src/space/infrastructure/postgresql/space-dispatch-read-repo.ts`
 8. `services/gateway/src/routes/rpc-http.diagnostics.ts`

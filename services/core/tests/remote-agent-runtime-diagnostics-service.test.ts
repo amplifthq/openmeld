@@ -1,5 +1,6 @@
 import { env } from "cloudflare:test";
 import { randomUUID } from "node:crypto";
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { describe, expect, it, vi } from "vitest";
 import { createSubmitTurnRequestV2 } from "../../remote-agent/tests/fixtures";
 import { buildRemoteAgentWorkerSubmitTurnRequestV4 } from "../src/remote-agent/application/remote-agent-conversation-continuity";
@@ -7,7 +8,7 @@ import { readRemoteAgentRuntimeDiagnosticsForDispatch } from "../src/remote-agen
 import {
   persistRemoteAgentWorkerSubmitRequest,
   upsertRemoteAgentNativeDeliveryRecord,
-} from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+} from "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 
 describe("Remote Agent runtime diagnostics service", () => {
   it("keeps pre-admission dispatch details readable before runtime identity exists", async () => {
@@ -19,7 +20,7 @@ describe("Remote Agent runtime diagnostics service", () => {
     await upsertRemoteAgentNativeDeliveryRecord({
       attemptId: `attempt-${suffix}`,
       bindingId: `binding-${suffix}`,
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       dispatchId,
       idempotencyKey,
       nowMs: Date.now(),
@@ -33,7 +34,7 @@ describe("Remote Agent runtime diagnostics service", () => {
 
     await expect(
       readRemoteAgentRuntimeDiagnosticsForDispatch({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         dispatchId,
         remoteAgentWorker: { readRuntimeDiagnostics },
         spaceId,
@@ -68,7 +69,7 @@ describe("Remote Agent runtime diagnostics service", () => {
     await upsertRemoteAgentNativeDeliveryRecord({
       attemptId: null,
       bindingId: workerSubmitRequest.bindingId,
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       dispatchId,
       idempotencyKey,
       nowMs: Date.now(),
@@ -79,7 +80,7 @@ describe("Remote Agent runtime diagnostics service", () => {
       triggerMessageId: workerSubmitRequest.triggerMessageId,
     });
     await persistRemoteAgentWorkerSubmitRequest({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       idempotencyKey,
       nowMs: Date.now(),
       workerSubmitRequest,
@@ -100,7 +101,7 @@ describe("Remote Agent runtime diagnostics service", () => {
 
     await expect(
       readRemoteAgentRuntimeDiagnosticsForDispatch({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         dispatchId,
         remoteAgentWorker: { readRuntimeDiagnostics },
         spaceId,

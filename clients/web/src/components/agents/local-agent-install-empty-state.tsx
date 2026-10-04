@@ -1,3 +1,4 @@
+import { getLocalAgentInstallGuide } from "@openmeld/product-catalog/local-agent-install-guides";
 import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
 import {
 	MagnifyingDock,
@@ -5,7 +6,6 @@ import {
 } from "@openmeld/ui/components/magnifying-dock";
 import type { ReactNode } from "react";
 import { LOCAL_AGENT_EXAMPLE_IDS } from "#/components/profiles/local-agent-logo-stack";
-import { getLocalAgentInstallGuide } from "#/lib/local-agent-install-guides";
 
 export function LocalAgentInstallEmptyState(input: {
 	description?: string;

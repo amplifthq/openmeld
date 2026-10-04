@@ -1,0 +1,19 @@
+name: Setup PostgreSQL 18
+description: Install PostgreSQL 18 tools for isolated synthetic database tests on Ubuntu 24.04.
+
+runs:
+  using: composite
+  steps:
+    - name: Install PostgreSQL 18 from the official repository
+      shell: bash
+      run: |
+        set -euo pipefail
+        . /etc/os-release
+        test "$VERSION_CODENAME" = noble
+        sudo install -d /usr/share/postgresql-common/pgdg
+        sudo curl --fail --silent --show-error -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+        echo 'deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main' | sudo tee /etc/apt/sources.list.d/pgdg.list
+        sudo apt-get update -qq
+        sudo apt-get install -y postgresql-18 postgresql-client-18
+        /usr/lib/postgresql/18/bin/initdb --version
+        echo 'OPENMELD_PG_BIN=/usr/lib/postgresql/18/bin' >> "$GITHUB_ENV"

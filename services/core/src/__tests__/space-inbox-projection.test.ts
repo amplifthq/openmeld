@@ -1,3 +1,4 @@
+import { PostgresDatabase } from "@openmeld/db/postgresql";
 import type { SignalEnvelope } from "@openmeld/protocol";
 import {
   AGENT_REPLY_FINAL_PURPOSE,
@@ -171,6 +172,20 @@ describe("Space Inbox projection", () => {
           signalId: "signal-1",
         }),
       }),
+      ...(directMessage
+        ? [
+            expect.objectContaining({
+              recipientUserId: "other-owner",
+              sourceFacts: expect.objectContaining({
+                recipientReasons: ["agent_owner"],
+              }),
+              sourceTarget: expect.objectContaining({
+                agentOwnerActivity: true,
+                directMessage: true,
+              }),
+            }),
+          ]
+        : []),
     ]);
     expect(
       await selectSpaceInboxRecipients(
@@ -822,7 +837,10 @@ describe("Space Inbox projection", () => {
 
     await expect(
       attemptSpaceInboxProjectionOutboxRecord({
-        db: {} as D1Database,
+        db: new PostgresDatabase({
+          connectionString:
+            "postgresql://127.0.0.1:1/unexpected_test_database_access",
+        }),
         ensureItem,
         isRecipientEligible: vi.fn().mockResolvedValue(true),
         nowMs: 2000,
@@ -831,7 +849,10 @@ describe("Space Inbox projection", () => {
       })
     ).resolves.toMatchObject({ status: "failed", nextRetryAtMs: 4000 });
     const replay = await attemptSpaceInboxProjectionOutboxRecord({
-      db: {} as D1Database,
+      db: new PostgresDatabase({
+        connectionString:
+          "postgresql://127.0.0.1:1/unexpected_test_database_access",
+      }),
       ensureItem,
       isRecipientEligible: vi.fn().mockResolvedValue(true),
       nowMs: 4000,
@@ -880,7 +901,10 @@ describe("Space Inbox projection", () => {
 
     await expect(
       attemptSpaceInboxProjectionOutboxRecord({
-        db: {} as D1Database,
+        db: new PostgresDatabase({
+          connectionString:
+            "postgresql://127.0.0.1:1/unexpected_test_database_access",
+        }),
         ensureItem,
         isRecipientEligible: vi.fn().mockResolvedValue(true),
         nowMs: 2000,
@@ -899,7 +923,7 @@ describe("Space Inbox projection", () => {
           spaceId: "space-1",
         },
       }),
-      db: {},
+      db: expect.any(PostgresDatabase),
       nowMs: 2000,
     });
   });
@@ -934,7 +958,10 @@ describe("Space Inbox projection", () => {
 
     await expect(
       attemptSpaceInboxProjectionOutboxRecord({
-        db: {} as D1Database,
+        db: new PostgresDatabase({
+          connectionString:
+            "postgresql://127.0.0.1:1/unexpected_test_database_access",
+        }),
         ensureItem,
         isRecipientEligible: vi.fn().mockResolvedValue(true),
         nowMs: 2000,
@@ -955,7 +982,7 @@ describe("Space Inbox projection", () => {
           spaceId: "space-1",
         },
       }),
-      db: {},
+      db: expect.any(PostgresDatabase),
       nowMs: 2000,
     });
   });
@@ -988,7 +1015,10 @@ describe("Space Inbox projection", () => {
     });
 
     const result = await attemptSpaceInboxProjectionOutboxRecord({
-      db: {} as D1Database,
+      db: new PostgresDatabase({
+        connectionString:
+          "postgresql://127.0.0.1:1/unexpected_test_database_access",
+      }),
       ensureItem,
       isRecipientEligible: vi.fn().mockResolvedValue(true),
       nowMs: 2000,
@@ -1070,7 +1100,10 @@ describe("Space Inbox projection", () => {
 
     await expect(
       attemptSpaceInboxProjectionOutboxRecord({
-        db: {} as D1Database,
+        db: new PostgresDatabase({
+          connectionString:
+            "postgresql://127.0.0.1:1/unexpected_test_database_access",
+        }),
         ensureItem,
         isRecipientEligible: ({ recipientUserId }) =>
           Promise.resolve(recipientUserId === "user-active"),

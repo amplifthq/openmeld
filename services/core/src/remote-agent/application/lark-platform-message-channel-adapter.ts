@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import type {
   ChannelContext,
   MessageChannelConversationLocator,
@@ -5,7 +6,7 @@ import type {
 import {
   type RemoteAgentLarkPlatformChannelConnectionRecord,
   readRemoteAgentLarkPlatformChannelCredentials,
-} from "../infrastructure/d1/lark-platform-channel-connection-repo";
+} from "../infrastructure/postgresql/lark-platform-channel-connection-repo";
 import {
   decryptLarkPlatformCredential,
   LARK_PLATFORM_CREDENTIAL_FORMAT_VERSION,
@@ -31,12 +32,13 @@ import type {
 
 type LarkPlatformConversationLocator = Extract<
   MessageChannelConversationLocator,
-  { provider: "feishu" | "lark" }
+  {
+    provider: "feishu" | "lark";
+  }
 >;
-
 export function createLarkPlatformMessageChannelAdapter(input: {
   cryptoKey?: string;
-  db: D1Database;
+  db: PostgresDatabase;
   fetchImpl?: typeof fetch;
   provider: LarkPlatformMessageChannelProvider;
 }): MessageChannelProviderAdapter {
@@ -110,7 +112,6 @@ export function createLarkPlatformMessageChannelAdapter(input: {
       text: publication.text,
     });
   };
-
   return {
     provider: input.provider,
     async readPluginSourceProof(request) {
@@ -432,13 +433,11 @@ export function createLarkPlatformMessageChannelAdapter(input: {
     },
   };
 }
-
 function toErrorMessage(error: unknown): string {
   return error instanceof Error
     ? `${error.name}: ${error.message}`
     : String(error);
 }
-
 function requireMatchingLocator(input: {
   connection: RemoteAgentLarkPlatformChannelConnectionRecord;
   locator: MessageChannelConversationLocator;

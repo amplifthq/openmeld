@@ -7,7 +7,7 @@ import type {
   LocalRuntimeExpectedRoute,
   LocalRuntimeExpectedRouteExclusion,
 } from "@openmeld/schemas/types";
-import type { AgentProfileBindingRecord } from "../infrastructure/d1/agent-profile-binding-repo";
+import type { AgentProfileBindingRecord } from "../infrastructure/postgresql/agent-profile-binding-repo";
 
 // Contract: developing/architecture/agent-transport-contract.md ("Expected Routes Projection")
 // Pure assembly of the owner + runtime scoped expected-routes projection.

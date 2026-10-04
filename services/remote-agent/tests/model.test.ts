@@ -88,6 +88,8 @@ describe("remote agent model routing", () => {
       })
     ).resolves.toEqual({
       compaction: {
+        workingContextTokens: 48_000,
+        maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
         reserveTokens: 40_000,
       },
@@ -118,6 +120,8 @@ describe("remote agent model routing", () => {
       })
     ).resolves.toEqual({
       compaction: {
+        workingContextTokens: 48_000,
+        maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
         reserveTokens: 340_000,
       },
@@ -277,6 +281,42 @@ describe("remote agent model routing", () => {
         ),
         stopReason: "error",
       });
+    } finally {
+      resetProviderRuntime();
+    }
+  });
+
+  it("allows a summarizer above the economic threshold through the physical preflight", async () => {
+    resetProviderRuntime();
+    const providerFetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ error: { message: "provider reached" } }), {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      })
+    );
+    try {
+      const runtime = await registerRemoteAgentCloudflareProvider({
+        env: {
+          ...CONFIGURED_AI_GATEWAY_ENV,
+          CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN: "test-token",
+        },
+        modelRoute: {
+          ...TEST_CENTER_AGENT_MODEL_ROUTE,
+          modelId: "openai/gpt-6.1-sol-pro",
+          contextWindow: 1_050_000,
+        },
+      });
+      const result = await streamRegisteredModel(
+        resolveModel(runtime.modelSpecifier),
+        {
+          messages: [
+            { role: "user", timestamp: 1, content: "x".repeat(900_000) },
+          ],
+        },
+        { apiKey: "unused" }
+      ).result();
+      expect(providerFetch).toHaveBeenCalled();
+      expect(result.errorMessage).toContain("provider reached");
     } finally {
       resetProviderRuntime();
     }
@@ -570,6 +610,33 @@ describe("remote agent model routing", () => {
     }
   });
 
+  it.each([
+    ["openai/gpt-6.1-sol-pro", 1_050_000, 217_600],
+    ["openai/gpt-6.1-sol", 1_050_000, 217_600],
+    ["x-ai/grok-4.5", 500_000, 160_000],
+    ["openai/gpt-6.1-sol-pro", 100_000, 90_000],
+  ])("compacts the frozen %s route before its price band within a %i window", async (modelId, contextWindow, threshold) => {
+    const fetchModelMetadata = vi.fn();
+    const config = await resolveRemoteAgentModelRuntimeConfigForRegistration({
+      env: {},
+      fetchModelMetadata,
+      modelRoute: {
+        ...TEST_CENTER_AGENT_MODEL_ROUTE,
+        modelId,
+        contextWindow,
+      },
+    });
+    expect(config.contextWindow - config.compaction.reserveTokens).toBe(
+      threshold
+    );
+    expect(config.contextWindow).toBe(contextWindow);
+    expect(config.modelId).toBe(modelId);
+    expect(config.maxTokens).toBe(
+      TEST_CENTER_AGENT_MODEL_ROUTE.maxOutputTokens
+    );
+    expect(fetchModelMetadata).not.toHaveBeenCalled();
+  });
+
   it("uses the frozen per-turn DeepSeek route without reading mutable model metadata", async () => {
     const fetchModelMetadata = vi.fn();
 
@@ -581,6 +648,8 @@ describe("remote agent model routing", () => {
       })
     ).resolves.toEqual({
       compaction: {
+        workingContextTokens: 48_000,
+        maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
         reserveTokens: 64_000,
       },
@@ -609,6 +678,8 @@ describe("remote agent model routing", () => {
       })
     ).resolves.toEqual({
       compaction: {
+        workingContextTokens: 48_000,
+        maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
         reserveTokens: 64_000,
       },
@@ -897,6 +968,8 @@ describe("remote agent model routing", () => {
       })
     ).resolves.toEqual({
       compaction: {
+        workingContextTokens: 48_000,
+        maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
         reserveTokens: 340_000,
       },
@@ -923,6 +996,8 @@ describe("remote agent model routing", () => {
       })
     ).resolves.toEqual({
       compaction: {
+        workingContextTokens: 48_000,
+        maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
         reserveTokens: 340_000,
       },
@@ -951,6 +1026,8 @@ describe("remote agent model routing", () => {
       })
     ).resolves.toEqual({
       compaction: {
+        workingContextTokens: 48_000,
+        maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
         // Compacts before the top provider's 1,048,576-token limit, not the
         // larger catalog context length.
@@ -996,6 +1073,8 @@ describe("remote agent model routing", () => {
       })
     ).resolves.toMatchObject({
       compaction: {
+        workingContextTokens: 48_000,
+        maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
         reserveTokens: 50_000,
       },
@@ -1029,6 +1108,8 @@ describe("remote agent model routing", () => {
       })
     ).resolves.toMatchObject({
       compaction: {
+        workingContextTokens: 48_000,
+        maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
         reserveTokens: 340_000,
       },
@@ -1063,6 +1144,8 @@ describe("remote agent model routing", () => {
       })
     ).resolves.toMatchObject({
       compaction: {
+        workingContextTokens: 48_000,
+        maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
         reserveTokens: 50_000,
       },
@@ -1146,6 +1229,8 @@ describe("remote agent model routing", () => {
       })
     ).resolves.toEqual({
       compaction: {
+        workingContextTokens: 48_000,
+        maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
         reserveTokens: 40_000,
       },

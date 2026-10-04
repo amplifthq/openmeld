@@ -5,6 +5,11 @@ import {
   resolveWakeStopEligibility,
 } from "@openmeld/agent-runtime";
 import {
+  getPostgresDatabase,
+  type PostgresDatabase,
+  withPostgresRequest,
+} from "@openmeld/db/postgresql";
+import {
   DAEMON_STREAM_KEEPALIVE_PING,
   DAEMON_STREAM_KEEPALIVE_PONG,
 } from "@openmeld/protocol";
@@ -22,8 +27,14 @@ import {
   computerFileAccessDaemonFrameSchema,
   computerFileAccessPolicyResultSchema,
   daemonStreamFrameSchema,
+  LOCAL_EXECUTION_INPUT_CAPABILITY_HEADER,
   LOCAL_FOLDER_PICKER_RUNTIME_CAPABILITY,
   localAgentReasoningPreferencesSchema,
+  localExecutionInputBindingSchema,
+  localExecutionInputOperationSchema,
+  localExecutionInputResolveSchema,
+  localExecutionInputResponseSchema,
+  localExecutionInputResultFrameSchema,
   localFolderPickerDaemonFrameSchema,
   localFolderPickerResultSchema,
   localProjectControlConnectResultSchema,
@@ -289,13 +300,13 @@ import { linkAcceptedAgentActivityExecutions } from "../../../agent-activity/act
 import {
   clearAgentExecutionReadinessImpactForExecutionRunning,
   writeAgentExecutionReadinessImpact,
-} from "../../../agent-execution/infrastructure/d1/agent-execution-readiness-impact-repo";
+} from "../../../agent-execution/infrastructure/postgresql/agent-execution-readiness-impact-repo";
 import { resolveAgentProfileWorkRecoveryAuthScope } from "../../../agent-profile/application/agent-profile-work-recovery-auth-scope";
 import { readLocalRuntimeExpectedRoutes } from "../../../agent-profile-binding/application/local-runtime-expected-routes-service";
 import {
   readPrimaryAgentProfileBindingRecord,
   readPrimaryAgentProfileBindingRecordByControllerConversation,
-} from "../../../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
+} from "../../../agent-profile-binding/infrastructure/postgresql/agent-profile-binding-repo";
 import { recordAndEnqueueAgentTaskNeedsAttentionObservation } from "../../../agent-task-coordination/application/agent-task-needs-attention-observation-service";
 import { recordAndEnqueueAgentTaskTerminalOutcome } from "../../../agent-task-coordination/application/agent-task-terminal-outcome-service";
 import {
@@ -308,7 +319,7 @@ import {
   readDispatchAttemptExecutionOwnershipFact,
   readDispatchAttemptResultAcceptanceFact,
   writeOpenMeldDaemonOpsDecision,
-} from "../../../dispatch/infrastructure/d1/dispatch-ledger-d1";
+} from "../../../dispatch/infrastructure/postgresql/dispatch-ledger-postgresql";
 import {
   DISPATCH_HINT_SYSTEM_PROFILE_ID,
   DISPATCH_HINT_SYSTEM_PROFILE_NAME,
@@ -319,14 +330,7 @@ import {
   type HostedExecutionRecoveryInspectRequest,
   inspectHostedExecutionRecovery,
 } from "../../../execution-recovery/application/hosted-execution-recovery-coordinator";
-import {
-  agentTaskCoordinationDb,
-  type CoreBindings,
-  inboxDb,
-  localStateDb,
-  projectionsDb,
-  wakeEvidenceDb,
-} from "../../../lib/bindings";
+import type { CoreBindings } from "../../../lib/bindings";
 import { resolveReleaseTriggeredOpenMeldToolsUpdateDecision } from "../../../local-components/automatic-update-trigger";
 import {
   isLocalComponentVersionAtLeast,
@@ -338,10 +342,10 @@ import {
   emitSpaceSystemNoticeSignal,
   emitSpaceTextSignal,
 } from "../../../rpc/space-signal-emitter";
-import { readCurrentRuntimeAgentControllerReport } from "../../../runtime-registry/infrastructure/d1/runtime-agent-controller-report-repo";
+import { readCurrentRuntimeAgentControllerReport } from "../../../runtime-registry/infrastructure/postgresql/runtime-agent-controller-report-repo";
 import { emitCoreFinalVisibleOutcomeRuntimeEvidence } from "../../../shared/observability/final-visible-outcome-evidence";
 import { CORE_LOG_EVENTS } from "../../../shared/observability/log-events";
-import { readAcceptedDispatchFinalizationFact } from "../../../space/infrastructure/d1/accepted-dispatch-finalization-repo";
+import { readAcceptedDispatchFinalizationFact } from "../../../space/infrastructure/postgresql/accepted-dispatch-finalization-repo";
 import { listActiveSpaceIdsForProfileFromSpaceIndex } from "../../../space-index/space-index-repository";
 import { legacyContextAssociationFromBinding } from "../../application/agent-profile-context-migration";
 import {
@@ -413,6 +417,7 @@ import {
   recordExecutionContextCompletionInTransaction,
   resolveExecutionContextTask,
 } from "../../application/execution-context-authority";
+import { interactionResponseFingerprint } from "../../application/interaction-response-fingerprint";
 import {
   buildFailedLocalAgentStreamTerminal,
   buildLocalAgentStreamId,
@@ -671,7 +676,7 @@ import {
   buildDispatchResultInboxKey,
   readDispatchResultInboxRecord,
   updateDispatchResultInboxPublishState,
-} from "../../infrastructure/d1/dispatch-result-inbox-repo";
+} from "../../infrastructure/postgresql/dispatch-result-inbox-repo";
 import {
   hasRuntimeCoordinatorWakeStopRequestedEvent,
   readRuntimeCoordinatorExecutionProjectionByDispatch,
@@ -679,7 +684,7 @@ import {
   writeRuntimeCoordinatorExecutionEventFromParts,
   writeRuntimeCoordinatorExecutionProjection,
   writeRuntimeCoordinatorTerminalExecutionProjectionWithoutRead,
-} from "../../infrastructure/d1/runtime-coordinator-execution-repo";
+} from "../../infrastructure/postgresql/runtime-coordinator-execution-repo";
 import {
   adoptHibernatedSockets,
   persistServiceRuntimeRecords,
@@ -696,7 +701,6 @@ import {
 type AcceptableWebSocket = WebSocket & {
   accept(): void;
 };
-
 type AcceptableWebSocketPair = [WebSocket, AcceptableWebSocket];
 const createWebSocketPair = (): AcceptableWebSocketPair => {
   const WebSocketPairConstructor = (
@@ -706,7 +710,6 @@ const createWebSocketPair = (): AcceptableWebSocketPair => {
   ).WebSocketPair;
   return new WebSocketPairConstructor();
 };
-
 const RUNTIME_TRANSPORT_HUB_HOUSEKEEPING_ALARM_MAX_WORK_UNITS = 25;
 const RUNTIME_TRANSPORT_HUB_HOUSEKEEPING_ALARM_MAX_RUN_MS = 5000;
 const RUNTIME_TRANSPORT_HUB_HOUSEKEEPING_ALARM_CONTINUATION_DELAY_MS = 1000;
@@ -752,7 +755,6 @@ const SOCKET_DISCONNECT_SESSION_STORAGE_CURSOR_KEY = `${SOCKET_DISCONNECT_SESSIO
 const SOCKET_DISCONNECT_SESSION_STORAGE_SLOT_PREFIX = `${SOCKET_DISCONNECT_SESSION_STORAGE_PREFIX}slot.`;
 const RUNTIME_COORDINATOR_STOPPED_TASK_PROJECTION_INDEX_STORAGE_KEY =
   "runtime-coordinator:stopped-task-projection:index";
-
 type SocketDisconnectSessionStorageCursor = {
   nextSequence: number;
 };
@@ -765,7 +767,6 @@ export type LocalAgentControlResultPayloadKind =
   | "refresh_catalog"
   | "set_profile_workspace"
   | "set_enabled";
-
 export function resolveLocalAgentControlResponseTimeoutMs(
   expectedPayload: LocalAgentControlResultPayloadKind
 ): number {
@@ -780,7 +781,6 @@ export function resolveLocalAgentControlResponseTimeoutMs(
   }
   return LOCAL_AGENT_CONTROL_SET_ENABLED_RESPONSE_TIMEOUT_MS;
 }
-
 function parseRuntimeTransportDispatchLiveActivity(
   payload: unknown,
   kind: "progress" | "reasoning" | "tool"
@@ -803,7 +803,6 @@ function parseRuntimeTransportDispatchLiveActivity(
     runtimeTransportDispatchToolActivityRequestSchema.safeParse(payload);
   return parsed.success ? parsed.data : null;
 }
-
 type RuntimeTransportHubHousekeepingAlarmPhase =
   | "local_agent_stream_closure_retry"
   | "runtime_coordinator_agent_profile_work_recovery_inbox"
@@ -818,14 +817,12 @@ type RuntimeTransportHubHousekeepingAlarmPhase =
   | "runtime_coordinator_agent_task_observation_delivery"
   | "runtime_coordinator_interaction_inbox_projection"
   | "runtime_coordinator_stopped_task_projection";
-
 type RuntimeTransportHubHousekeepingAlarmRun = {
   continuationReasonCode: string | null;
   continuationRequired: boolean;
   deadlineAtMs: number;
   processedWorkUnits: number;
 };
-
 type RuntimeCoordinatorInteractionInboxRepairRecord = {
   attemptCount: number;
   desiredStatus: "open" | "resolved";
@@ -848,7 +845,6 @@ type RuntimeCoordinatorInteractionInboxRepairRecord = {
   updatedAtMs: number;
   v: 1;
 };
-
 type FinalizationRetryParkExhaustedResult =
   | "already_published"
   | "already_terminal"
@@ -866,7 +862,6 @@ type FinalizationRetryParkExhaustedResult =
   | "terminal_projection_read_failed"
   | "terminal_projection_written"
   | "terminal_projection_write_failed";
-
 type CurrentDeviceOperationWaiter = {
   daemonSessionId: string;
   expectedResponseCode: string;
@@ -876,10 +871,8 @@ type CurrentDeviceOperationWaiter = {
   socket: WebSocket;
   timeoutId: ReturnType<typeof setTimeout>;
 };
-
 class CurrentDeviceOperationError extends Error {
   readonly kind: "invalid_response" | "send_failed" | "timeout";
-
   constructor(
     kind: "invalid_response" | "send_failed" | "timeout",
     message: string
@@ -889,7 +882,6 @@ class CurrentDeviceOperationError extends Error {
     this.kind = kind;
   }
 }
-
 function resolveCurrentDeviceOperationHttpStatus(code: string): number {
   if (code === "computer.file_access.service_offline") {
     return 503;
@@ -899,7 +891,6 @@ function resolveCurrentDeviceOperationHttpStatus(code: string): number {
   }
   return 502;
 }
-
 function resolveComputerFileAccessOperationErrorCode(
   error: unknown
 ): ComputerFileAccessErrorResponse["code"] {
@@ -914,7 +905,6 @@ function resolveComputerFileAccessOperationErrorCode(
   }
   return "computer.file_access.invalid_response";
 }
-
 function resolveLocalFolderPickerOperationErrorCode(
   error: unknown
 ):
@@ -933,7 +923,6 @@ function resolveLocalFolderPickerOperationErrorCode(
   }
   return "local.folder_picker.invalid_response";
 }
-
 type LocalProjectControlCapability =
   | "connectCandidate"
   | "connectDeclaredPath"
@@ -941,9 +930,7 @@ type LocalProjectControlCapability =
   | "removeConnection"
   | "removeMissingConnections"
   | "setDefaultConnection";
-
 type ComputerFileAccessCapability = "readPolicy" | "updatePolicy";
-
 type ComputerFileAccessOperation = {
   capability: ComputerFileAccessCapability;
   requestCode:
@@ -951,12 +938,10 @@ type ComputerFileAccessOperation = {
     | "daemon.computer_file_access.update_policy";
   requestSchema: RuntimeSchema<unknown>;
 };
-
 type LocalFolderPickerOperation = {
   requestCode: "daemon.local_folder_picker.select_folders";
   requestSchema: RuntimeSchema<unknown>;
 };
-
 type LocalProjectControlOperation = {
   capability: LocalProjectControlCapability;
   requestCode:
@@ -969,7 +954,6 @@ type LocalProjectControlOperation = {
   requestSchema: RuntimeSchema<unknown>;
   resultSchema: RuntimeSchema<unknown>;
 };
-
 function projectControlRequestForSession(
   operation: LocalProjectControlOperation,
   request: unknown,
@@ -987,16 +971,21 @@ function projectControlRequestForSession(
   legacyRequest.includeCandidates = undefined;
   return legacyRequest;
 }
-
 type RuntimeSchema<T> = {
   safeParse: (value: unknown) =>
-    | { data: T; success: true }
     | {
-        error: { issues: Array<{ message?: string }> };
+        data: T;
+        success: true;
+      }
+    | {
+        error: {
+          issues: Array<{
+            message?: string;
+          }>;
+        };
         success: false;
       };
 };
-
 const COMPUTER_FILE_ACCESS_OPERATIONS_BY_PATH: Readonly<
   Record<string, ComputerFileAccessOperation>
 > = {
@@ -1011,7 +1000,6 @@ const COMPUTER_FILE_ACCESS_OPERATIONS_BY_PATH: Readonly<
     requestSchema: runtimeTransportComputerFileAccessUpdateRequestSchema,
   },
 };
-
 const LOCAL_FOLDER_PICKER_OPERATIONS_BY_PATH: Readonly<
   Record<string, LocalFolderPickerOperation>
 > = {
@@ -1020,7 +1008,6 @@ const LOCAL_FOLDER_PICKER_OPERATIONS_BY_PATH: Readonly<
     requestSchema: runtimeTransportLocalFolderPickerRequestSchema,
   },
 };
-
 const LOCAL_PROJECT_CONTROL_OPERATIONS_BY_PATH: Readonly<
   Record<string, LocalProjectControlOperation>
 > = {
@@ -1067,10 +1054,10 @@ const LOCAL_PROJECT_CONTROL_OPERATIONS_BY_PATH: Readonly<
     resultSchema: localProjectControlRemoveMissingConnectionsResultSchema,
   },
 };
-
-function isRejectedLocalProjectControlResult(
-  value: unknown
-): value is { code: string; status: "rejected" } {
+function isRejectedLocalProjectControlResult(value: unknown): value is {
+  code: string;
+  status: "rejected";
+} {
   return Boolean(
     value &&
       typeof value === "object" &&
@@ -1080,28 +1067,23 @@ function isRejectedLocalProjectControlResult(
       typeof value.code === "string"
   );
 }
-
 type RouteCatalogReconciliationTrigger =
   | "daemon_session_heartbeat"
   | "daemon_session_registered";
-
 type AgentProfileWorkPromotionRedriveTrigger =
   | "admission_reconciliation"
   | "alarm_recovery"
   | "terminal_transaction";
-
 type RouteCatalogReconciliationSignalState = {
   backoffLevel: number;
   missingProfileIdsKey: string;
   notifiedAtMs: number;
   reportFingerprint: string;
 };
-
 type ExpectedRouteReconciliationReadCacheState = {
   completedAtMs: number;
   leaseSetKey: string;
 };
-
 type RuntimeCoordinatorWakeStopControlMode = "cancel" | "interrupt";
 type RuntimeCoordinatorWakeStopControlReliability =
   | "native_cancel"
@@ -1114,7 +1096,6 @@ type RuntimeCoordinatorLostRunTerminalReasonCode =
   | typeof RUNTIME_COORDINATOR_DELIVERY_EXPIRED_REASON_CODE
   | typeof RUNTIME_COORDINATOR_LOCAL_RUNTIME_LOST_REASON_CODE
   | typeof RUNTIME_COORDINATOR_PROGRESS_STALE_TERMINAL_REASON_CODE;
-
 const resolveRuntimeCoordinatorLostRunTerminalPlan = (
   expiryCause: RuntimeCoordinatorRunExpiryCause
 ): RuntimeCoordinatorTerminalDecisionPlan => {
@@ -1129,7 +1110,6 @@ const resolveRuntimeCoordinatorLostRunTerminalPlan = (
   }
   return buildRuntimeCoordinatorDeliveryExpiredTerminalPlan();
 };
-
 const resolveRuntimeCoordinatorLostRunReasonCode = (
   expiryCause: RuntimeCoordinatorRunExpiryCause
 ): RuntimeCoordinatorLostRunTerminalReasonCode => {
@@ -1144,7 +1124,6 @@ const resolveRuntimeCoordinatorLostRunReasonCode = (
   }
   return RUNTIME_COORDINATOR_DELIVERY_EXPIRED_REASON_CODE;
 };
-
 const resolveRuntimeCoordinatorLostRunPublicationPresentation = (
   reasonCode: RuntimeCoordinatorLostRunTerminalReasonCode
 ): {
@@ -1181,7 +1160,6 @@ const resolveRuntimeCoordinatorLostRunPublicationPresentation = (
     noticeVariant: "delivery_expired",
   };
 };
-
 const didRuntimeSessionCompleteStartupReconciliation = (input: {
   nextAcceptingDispatches: boolean | undefined;
   nextHasStopCause: boolean;
@@ -1193,7 +1171,6 @@ const didRuntimeSessionCompleteStartupReconciliation = (input: {
     !input.nextHasStopCause
   );
 };
-
 type RuntimeCoordinatorWakeStoppedNoticePublicationResult =
   | {
       ok: true;
@@ -1205,11 +1182,14 @@ type RuntimeCoordinatorWakeStoppedNoticePublicationResult =
       reasonCode: "runtime_coordinator.stopped_publication_unavailable";
       status: "unavailable";
     };
-
 type SerializedRuntimeCoordinatorFinalizationResult<T> =
-  | { status: "completed"; value: T }
-  | { status: "in_flight" };
-
+  | {
+      status: "completed";
+      value: T;
+    }
+  | {
+      status: "in_flight";
+    };
 type RuntimeCoordinatorFinalizationRecoveryResult =
   | {
       ok: true;
@@ -1221,30 +1201,49 @@ type RuntimeCoordinatorFinalizationRecoveryResult =
       status: "suppressed";
     }
   | null;
-
 type RuntimeCoordinatorFinalizationOutcomeWriteResult = {
   outcome: RuntimeCoordinatorFinalizationOutcome;
   recoveryPending: boolean;
 };
-
 type RuntimeCoordinatorFinalizationOutcomeReplayResult =
-  | { ok: true; outcome: RuntimeCoordinatorFinalizationOutcome }
+  | {
+      ok: true;
+      outcome: RuntimeCoordinatorFinalizationOutcome;
+    }
   | RuntimeCoordinatorFinalizationReplayFailure;
-
 const runtimeCoordinatorFinalizationOutcomeMatchesVisibleClaim = (
   outcome: RuntimeCoordinatorFinalizationOutcome,
-  expected: Extract<RuntimeCoordinatorFinalizationOutcome, { ok: true }>
+  expected: Extract<
+    RuntimeCoordinatorFinalizationOutcome,
+    {
+      ok: true;
+    }
+  >
 ): boolean =>
   outcome.ok &&
   outcome.finalizationCommandId === expected.finalizationCommandId &&
   outcome.finalMessageKind === expected.finalMessageKind &&
   outcome.publishState === expected.publishState &&
   outcome.publishedSignalId === expected.publishedSignalId;
-
 const upgradeLegacyRuntimeCoordinatorFinalizationOutcomeFromVisibleClaim = (
-  outcome: Extract<RuntimeCoordinatorFinalizationOutcome, { ok: true }>,
-  visibleClaim: Extract<RuntimeCoordinatorFinalizationOutcome, { ok: true }>
-): Extract<RuntimeCoordinatorFinalizationOutcome, { ok: true }> | null => {
+  outcome: Extract<
+    RuntimeCoordinatorFinalizationOutcome,
+    {
+      ok: true;
+    }
+  >,
+  visibleClaim: Extract<
+    RuntimeCoordinatorFinalizationOutcome,
+    {
+      ok: true;
+    }
+  >
+): Extract<
+  RuntimeCoordinatorFinalizationOutcome,
+  {
+    ok: true;
+  }
+> | null => {
   if (outcome.finalMessageKind !== undefined) {
     return outcome;
   }
@@ -1261,7 +1260,6 @@ const upgradeLegacyRuntimeCoordinatorFinalizationOutcomeFromVisibleClaim = (
     finalMessageKind: visibleClaim.finalMessageKind,
   };
 };
-
 const resolveRuntimeCoordinatorFinalVisibleReasonCode = (input: {
   executionSemantic: RuntimeCoordinatorFinalizationSemantic | null;
   outcome: RuntimeCoordinatorFinalizationOutcome;
@@ -1278,7 +1276,6 @@ const resolveRuntimeCoordinatorFinalVisibleReasonCode = (input: {
   }
   return input.outcome.publishState;
 };
-
 function resolveRuntimeCoordinatorHeadAdmissionResponse(input: {
   admission: AgentProfileWorkCoordinatorHeadWriteResult;
   request: RuntimeTransportRuntimeCoordinatorHeadAcceptRequest;
@@ -1394,7 +1391,6 @@ function resolveRuntimeCoordinatorHeadAdmissionResponse(input: {
       throw new Error("Unsupported RuntimeCoordinator head admission status");
   }
 }
-
 function resolveExistingRuntimeCoordinatorHeadAdmissionResponse(input: {
   existing: RuntimeCoordinatorHeadLifecycleRecord;
   request: RuntimeTransportRuntimeCoordinatorHeadAcceptRequest;
@@ -1453,7 +1449,6 @@ function resolveExistingRuntimeCoordinatorHeadAdmissionResponse(input: {
     targetWakeLifecycleId: existing.targetWakeLifecycleId,
   };
 }
-
 function resolveHandledOpenMeldToolsUpdateTargetVersion(
   result: OpenMeldToolsControlResult
 ): string | null {
@@ -1471,26 +1466,22 @@ function resolveHandledOpenMeldToolsUpdateTargetVersion(
   }
   return null;
 }
-
 type AutomaticToolsUpdateUnavailableRetry = {
   attempts: number;
   daemonSessionId: string;
   retryAtMs: number;
   targetVersion: string;
 };
-
 type StoredAutomaticToolsUpdateUnavailableRetry =
   AutomaticToolsUpdateUnavailableRetry & {
     computerKey: string;
     v: 1;
   };
-
 type AutomaticToolsUpdateCoalescingMarker = {
   daemonSessionId: string;
   requestId: string;
   targetVersion: string;
 };
-
 function resolveAutomaticToolsUpdateUnavailableRetryDelayMs(
   attempts: number
 ): number {
@@ -1500,7 +1491,6 @@ function resolveAutomaticToolsUpdateUnavailableRetryDelayMs(
   );
   return AUTOMATIC_TOOLS_UPDATE_UNAVAILABLE_RETRY_DELAYS_MS[index] ?? 0;
 }
-
 function buildAutomaticToolsUpdateUnavailableRetryStorageKey(
   computerKey: string,
   retry: Pick<
@@ -1510,7 +1500,6 @@ function buildAutomaticToolsUpdateUnavailableRetryStorageKey(
 ): string {
   return `${AUTOMATIC_TOOLS_UPDATE_UNAVAILABLE_RETRY_STORAGE_PREFIX}${encodeURIComponent(computerKey)}:${encodeURIComponent(retry.daemonSessionId)}:${encodeURIComponent(retry.targetVersion)}`;
 }
-
 function parseStoredAutomaticToolsUpdateUnavailableRetry(
   value: unknown
 ): StoredAutomaticToolsUpdateUnavailableRetry | null {
@@ -1535,7 +1524,6 @@ function parseStoredAutomaticToolsUpdateUnavailableRetry(
   }
   return candidate as StoredAutomaticToolsUpdateUnavailableRetry;
 }
-
 export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   private readonly state = createRuntimeTransportHubMutableState();
   private readonly currentDeviceOperationWaiters = new Map<
@@ -1586,32 +1574,32 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   >();
   private scheduledHousekeepingAlarmAtMs: number | null | undefined;
   private reasoningStreamEnabled = true;
-
   async rpcReasoningPreferences(
     input: Omit<LocalAgentReasoningPreferencesRpc, "context">
   ): Promise<LocalAgentReasoningPreferences> {
-    if (input.enabled !== undefined) {
-      const preference = localAgentReasoningPreferencesSchema.parse(input);
-      if (preference.enabled) {
-        await this.clearPendingReasoningReplay();
-      }
-      await this.ctx.storage.put(
-        "local-agent-reasoning-preferences",
-        preference
-      );
-      this.reasoningStreamEnabled = preference.enabled;
-      for (const session of this.state.sessionsById.values()) {
-        if (session.socket) {
-          this.sendReasoningPreference(session.socket);
+    return await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
+      if (input.enabled !== undefined) {
+        const preference = localAgentReasoningPreferencesSchema.parse(input);
+        if (preference.enabled) {
+          await this.clearPendingReasoningReplay();
+        }
+        await this.ctx.storage.put(
+          "local-agent-reasoning-preferences",
+          preference
+        );
+        this.reasoningStreamEnabled = preference.enabled;
+        for (const session of this.state.sessionsById.values()) {
+          if (session.socket) {
+            this.sendReasoningPreference(session.socket);
+          }
+        }
+        if (!preference.enabled) {
+          await this.clearPendingReasoningReplay();
         }
       }
-      if (!preference.enabled) {
-        await this.clearPendingReasoningReplay();
-      }
-    }
-    return { enabled: this.reasoningStreamEnabled };
+      return { enabled: this.reasoningStreamEnabled };
+    });
   }
-
   private sendReasoningPreference(socket: WebSocket): void {
     if (readRuntimeTransportSocketAttachment(socket).reasoningStream) {
       this.sendFrame(socket, {
@@ -1620,9 +1608,14 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
     }
   }
-
   private async clearPendingReasoningReplay(): Promise<void> {
-    const targets = new Map<string, { spaceId: string; profileId: string }>();
+    const targets = new Map<
+      string,
+      {
+        spaceId: string;
+        profileId: string;
+      }
+    >();
     for (const pending of this.state.pendingDispatches.values()) {
       targets.set(JSON.stringify([pending.spaceId, pending.profileId]), {
         spaceId: pending.spaceId,
@@ -1642,7 +1635,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       })
     );
   }
-
   constructor(ctx: DurableObjectState, env: CoreBindings) {
     super(ctx, env);
     this.ctx.blockConcurrencyWhile(async () => {
@@ -1669,7 +1661,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       }
       await this.syncHousekeepingAlarm();
     });
-
     // Hibernation-safe transport keepalive: auto-answer the daemon-stream PING
     // with PONG without waking the DO, so the gateway-pass-through connection
     // chain never goes idle and gets evicted. Idle eviction surfaced as
@@ -1686,313 +1677,353 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     );
     this.ctx.setWebSocketAutoResponse(keepalivePair);
   }
-
   async alarm(): Promise<void> {
-    const nowMs = Date.now();
-    const run = this.createHousekeepingAlarmRun(nowMs);
-    this.scheduledHousekeepingAlarmAtMs = null;
-    try {
-      await this.observeComputerConnectionIncidents();
-      this.reapExpiredLeases(nowMs);
-      await this.runHousekeepingAlarmPhase(
-        run,
-        "runtime_coordinator_finalization_retry",
-        () => this.processRuntimeCoordinatorFinalizationRetryAlarm(nowMs, run)
-      );
-      await this.runHousekeepingAlarmPhase(
-        run,
-        "runtime_coordinator_agent_profile_work_promotion",
-        () => this.processAgentProfileWorkPromotionAlarm(nowMs, run)
-      );
-      await this.runHousekeepingAlarmPhase(
-        run,
-        "runtime_coordinator_agent_profile_work_recovery_inbox",
-        () => this.processAgentProfileWorkRecoveryInboxAlarm(run)
-      );
-      await this.runHousekeepingAlarmPhase(
-        run,
-        "runtime_coordinator_watchdog",
-        () => this.processRuntimeCoordinatorWatchdogAlarm(nowMs, run)
-      );
-      await this.runHousekeepingAlarmPhase(
-        run,
-        "runtime_coordinator_head_accepted_handoff",
-        () => this.processRuntimeCoordinatorHeadAcceptedHandoffAlarm(nowMs, run)
-      );
-      await this.runHousekeepingAlarmPhase(
-        run,
-        "runtime_coordinator_head_waiting",
-        () => this.processRuntimeCoordinatorHeadWaitingAlarm(nowMs, run)
-      );
-      await this.runHousekeepingAlarmPhase(
-        run,
-        "runtime_coordinator_head_failure_publication",
-        () =>
-          this.processRuntimeCoordinatorHeadFailurePublicationRetryAlarm(
-            nowMs,
-            run
-          )
-      );
-      await this.runHousekeepingAlarmPhase(
-        run,
-        "runtime_coordinator_pre_execution_handoff",
-        () => this.processRuntimeCoordinatorPreExecutionHandoffAlarm(nowMs, run)
-      );
-      await this.runHousekeepingAlarmPhase(
-        run,
-        "local_agent_stream_closure_retry",
-        () => this.processLocalAgentStreamClosureRetryAlarm(nowMs, run)
-      );
-      await this.runHousekeepingAlarmPhase(
-        run,
-        "runtime_coordinator_agent_task_observation_delivery",
-        () =>
-          this.processRuntimeCoordinatorAgentTaskObservationDeliveryAlarm(
-            nowMs,
-            run
-          )
-      );
-      await this.runHousekeepingAlarmPhase(
-        run,
-        "runtime_coordinator_stopped_task_projection",
-        () =>
-          this.processRuntimeCoordinatorStoppedTaskProjectionAlarm(nowMs, run)
-      );
-      await this.runHousekeepingAlarmPhase(
-        run,
-        "runtime_coordinator_interaction_inbox_projection",
-        () =>
-          this.processRuntimeCoordinatorInteractionInboxRepairAlarm(nowMs, run)
-      );
-      await this.runHousekeepingAlarmPhase(
-        run,
-        "runtime_coordinator_agent_profile_execution_index",
-        () =>
-          this.processRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarm(
-            nowMs,
-            run
-          )
-      );
-    } catch (error) {
-      this.requestHousekeepingAlarmContinuation(
-        run,
-        "runtime_coordinator.housekeeping_alarm_failed"
-      );
-      console.warn("[core.runtime_transport.housekeeping_alarm_failed]", {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    } finally {
-      await this.settleHousekeepingAlarmRun(run);
-    }
+    return await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
+      const nowMs = Date.now();
+      const run = this.createHousekeepingAlarmRun(nowMs);
+      this.scheduledHousekeepingAlarmAtMs = null;
+      try {
+        await this.observeComputerConnectionIncidents();
+        this.reapExpiredLeases(nowMs);
+        await this.runHousekeepingAlarmPhase(
+          run,
+          "runtime_coordinator_finalization_retry",
+          () => this.processRuntimeCoordinatorFinalizationRetryAlarm(nowMs, run)
+        );
+        await this.runHousekeepingAlarmPhase(
+          run,
+          "runtime_coordinator_agent_profile_work_promotion",
+          () => this.processAgentProfileWorkPromotionAlarm(nowMs, run)
+        );
+        await this.runHousekeepingAlarmPhase(
+          run,
+          "runtime_coordinator_agent_profile_work_recovery_inbox",
+          () => this.processAgentProfileWorkRecoveryInboxAlarm(run)
+        );
+        await this.runHousekeepingAlarmPhase(
+          run,
+          "runtime_coordinator_watchdog",
+          () => this.processRuntimeCoordinatorWatchdogAlarm(nowMs, run)
+        );
+        await this.runHousekeepingAlarmPhase(
+          run,
+          "runtime_coordinator_head_accepted_handoff",
+          () =>
+            this.processRuntimeCoordinatorHeadAcceptedHandoffAlarm(nowMs, run)
+        );
+        await this.runHousekeepingAlarmPhase(
+          run,
+          "runtime_coordinator_head_waiting",
+          () => this.processRuntimeCoordinatorHeadWaitingAlarm(nowMs, run)
+        );
+        await this.runHousekeepingAlarmPhase(
+          run,
+          "runtime_coordinator_head_failure_publication",
+          () =>
+            this.processRuntimeCoordinatorHeadFailurePublicationRetryAlarm(
+              nowMs,
+              run
+            )
+        );
+        await this.runHousekeepingAlarmPhase(
+          run,
+          "runtime_coordinator_pre_execution_handoff",
+          () =>
+            this.processRuntimeCoordinatorPreExecutionHandoffAlarm(nowMs, run)
+        );
+        await this.runHousekeepingAlarmPhase(
+          run,
+          "local_agent_stream_closure_retry",
+          () => this.processLocalAgentStreamClosureRetryAlarm(nowMs, run)
+        );
+        await this.runHousekeepingAlarmPhase(
+          run,
+          "runtime_coordinator_agent_task_observation_delivery",
+          () =>
+            this.processRuntimeCoordinatorAgentTaskObservationDeliveryAlarm(
+              nowMs,
+              run
+            )
+        );
+        await this.runHousekeepingAlarmPhase(
+          run,
+          "runtime_coordinator_stopped_task_projection",
+          () =>
+            this.processRuntimeCoordinatorStoppedTaskProjectionAlarm(nowMs, run)
+        );
+        await this.runHousekeepingAlarmPhase(
+          run,
+          "runtime_coordinator_interaction_inbox_projection",
+          () =>
+            this.processRuntimeCoordinatorInteractionInboxRepairAlarm(
+              nowMs,
+              run
+            )
+        );
+        await this.runHousekeepingAlarmPhase(
+          run,
+          "runtime_coordinator_agent_profile_execution_index",
+          () =>
+            this.processRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarm(
+              nowMs,
+              run
+            )
+        );
+      } catch (error) {
+        this.requestHousekeepingAlarmContinuation(
+          run,
+          "runtime_coordinator.housekeeping_alarm_failed"
+        );
+        console.warn("[core.runtime_transport.housekeeping_alarm_failed]", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      } finally {
+        await this.settleHousekeepingAlarmRun(run);
+      }
+    });
   }
-
   async rpcReplayRuntimeCoordinatorFinalizationCommand(
     input: ReplayRuntimeCoordinatorFinalizationCommandInput
   ): Promise<ReplayRuntimeCoordinatorFinalizationCommandResponse> {
-    const result =
-      await this.replayRuntimeCoordinatorFinalizationCommand(input);
-    if (result.ok) {
-      return "outcome" in result
-        ? { ok: true, outcome: result.outcome }
-        : {
-            ok: true,
-            reasonCode: "runtime_coordinator.wake_stop_requested",
-            status: "suppressed",
-          };
-    }
-    return {
-      ok: false,
-      reasonCode: "daemon.result.finalization_unavailable",
-      status: "retry_later",
-    };
+    return await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
+      const result =
+        await this.replayRuntimeCoordinatorFinalizationCommand(input);
+      if (result.ok) {
+        return "outcome" in result
+          ? { ok: true, outcome: result.outcome }
+          : {
+              ok: true,
+              reasonCode: "runtime_coordinator.wake_stop_requested",
+              status: "suppressed",
+            };
+      }
+      return {
+        ok: false,
+        reasonCode: "daemon.result.finalization_unavailable",
+        status: "retry_later",
+      };
+    });
+  }
+
+  async rpcAuthorizeExecutionAccess(
+    input: ReturnType<
+      typeof runtimeCoordinatorExecutionAccessRequestSchema.parse
+    >
+  ) {
+    const request = runtimeCoordinatorExecutionAccessRequestSchema.parse(input);
+    const authority = await this.readRuntimeCoordinatorTokenAuthority(
+      request.executionTokenEcho.runtimeCoordinatorExecutionId
+    );
+    const validation =
+      await validateRuntimeCoordinatorExecutionTokenAgainstAuthority({
+        ...request,
+        authority,
+        nowMs: Date.now(),
+      });
+    return runtimeCoordinatorExecutionAccessResponseSchema.parse(
+      validation.ok
+        ? { allowed: true }
+        : { allowed: false, reasonCode: validation.reasonCode }
+    );
   }
 
   async rpcReadAgentProfileExecutionState(
     input: RuntimeTransportAgentProfileExecutionStateRequest
   ): Promise<RuntimeTransportAgentProfileExecutionStateResponse> {
-    const parsed =
-      runtimeTransportAgentProfileExecutionStateRequestSchema.safeParse(input);
-    if (!parsed.success) {
-      return {
-        reasonCode: "runtime_coordinator.execution_state_request_invalid",
-        status: "unavailable",
-      };
-    }
-    const response =
-      await readRuntimeCoordinatorAgentProfileExecutionStateFromAdmission({
-        nowMs: Date.now(),
-        ownerUserId: parsed.data.ownerUserId,
-        storage: this.ctx.storage,
-        targetProfileId: parsed.data.targetProfileId,
-      });
-    if (
-      response.status === "unavailable" &&
-      (response.reasonCode ===
-        "runtime_coordinator.execution_state_rebuilding" ||
-        response.reasonCode ===
-          "runtime_coordinator.execution_state_repair_failed")
-    ) {
-      this.queueRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarm();
-    }
-    return runtimeTransportAgentProfileExecutionStateResponseSchema.parse(
-      response
-    );
+    return await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
+      const parsed =
+        runtimeTransportAgentProfileExecutionStateRequestSchema.safeParse(
+          input
+        );
+      if (!parsed.success) {
+        return {
+          reasonCode: "runtime_coordinator.execution_state_request_invalid",
+          status: "unavailable",
+        };
+      }
+      const response =
+        await readRuntimeCoordinatorAgentProfileExecutionStateFromAdmission({
+          nowMs: Date.now(),
+          ownerUserId: parsed.data.ownerUserId,
+          storage: this.ctx.storage,
+          targetProfileId: parsed.data.targetProfileId,
+        });
+      if (
+        response.status === "unavailable" &&
+        (response.reasonCode ===
+          "runtime_coordinator.execution_state_rebuilding" ||
+          response.reasonCode ===
+            "runtime_coordinator.execution_state_repair_failed")
+      ) {
+        this.queueRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarm();
+      }
+      return runtimeTransportAgentProfileExecutionStateResponseSchema.parse(
+        response
+      );
+    });
   }
-
   async rpcReadAgentProfileOperationalContexts(
     input: RuntimeTransportAgentProfileOperationalContextsRequest
   ): Promise<RuntimeTransportAgentProfileOperationalContextsResponse> {
-    const parsed =
-      runtimeTransportAgentProfileOperationalContextsRequestSchema.safeParse(
-        input
+    return await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
+      const parsed =
+        runtimeTransportAgentProfileOperationalContextsRequestSchema.safeParse(
+          input
+        );
+      if (!parsed.success) {
+        return { contexts: [] };
+      }
+      const response =
+        await readRuntimeCoordinatorAgentProfileOperationalContextsFromAdmission(
+          {
+            includeWorkReferences: parsed.data.includeWorkReferences,
+            nowMs: Date.now(),
+            ownerUserId: parsed.data.ownerUserId,
+            storage: this.ctx.storage,
+            targetProfileIds: parsed.data.targetProfileIds,
+          }
+        );
+      if (
+        response.contexts.some(
+          ({ operationalContext }) =>
+            operationalContext.status === "checking" &&
+            (operationalContext.reasonCode ===
+              "runtime_coordinator.execution_state_rebuilding" ||
+              operationalContext.reasonCode ===
+                "runtime_coordinator.execution_state_repair_failed")
+        )
+      ) {
+        this.queueRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarm();
+      }
+      return runtimeTransportAgentProfileOperationalContextsResponseSchema.parse(
+        response
       );
-    if (!parsed.success) {
-      return { contexts: [] };
-    }
-    const response =
-      await readRuntimeCoordinatorAgentProfileOperationalContextsFromAdmission({
-        includeWorkReferences: parsed.data.includeWorkReferences,
-        nowMs: Date.now(),
-        ownerUserId: parsed.data.ownerUserId,
-        storage: this.ctx.storage,
-        targetProfileIds: parsed.data.targetProfileIds,
-      });
-    if (
-      response.contexts.some(
-        ({ operationalContext }) =>
-          operationalContext.status === "checking" &&
-          (operationalContext.reasonCode ===
-            "runtime_coordinator.execution_state_rebuilding" ||
-            operationalContext.reasonCode ===
-              "runtime_coordinator.execution_state_repair_failed")
-      )
-    ) {
-      this.queueRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarm();
-    }
-    return runtimeTransportAgentProfileOperationalContextsResponseSchema.parse(
-      response
-    );
+    });
   }
-
   async rpcMarkAgentProfileWorkUsageAvailable(
     input: RuntimeTransportAgentProfileWorkUsageAvailableRequest
   ): Promise<RuntimeTransportAgentProfileWorkUsageAvailableResponse> {
-    const parsed =
-      runtimeTransportAgentProfileWorkUsageAvailableRequestSchema.safeParse(
-        input
-      );
-    if (!parsed.success) {
-      return {
-        changedProfileIds: [],
-        continuationProfileIds: [],
-        status: "unavailable",
-      };
-    }
-    const nowMs = Date.now();
-    const response = await markRuntimeCoordinatorAgentProfileWorkUsageAvailable(
-      {
-        nowMs,
-        ownerUserId: parsed.data.ownerUserId,
-        storage: this.ctx.storage,
-        targetProfileIds: parsed.data.targetProfileIds,
+    return await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
+      const parsed =
+        runtimeTransportAgentProfileWorkUsageAvailableRequestSchema.safeParse(
+          input
+        );
+      if (!parsed.success) {
+        return {
+          changedProfileIds: [],
+          continuationProfileIds: [],
+          status: "unavailable",
+        };
       }
-    );
-    if (response.status === "unavailable") {
-      this.queueRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarm();
-    }
-    if (response.changedProfileIds.length > 0) {
-      this.publishAgentReadinessInvalidated({
-        profileIds: response.changedProfileIds,
-        reason: "agent_profile_work_coordinator.changed",
-      });
-    }
-    return runtimeTransportAgentProfileWorkUsageAvailableResponseSchema.parse({
-      changedProfileIds: response.changedProfileIds,
-      continuationProfileIds: response.continuationProfileIds,
-      status: response.status,
+      const nowMs = Date.now();
+      const response =
+        await markRuntimeCoordinatorAgentProfileWorkUsageAvailable({
+          nowMs,
+          ownerUserId: parsed.data.ownerUserId,
+          storage: this.ctx.storage,
+          targetProfileIds: parsed.data.targetProfileIds,
+        });
+      if (response.status === "unavailable") {
+        this.queueRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarm();
+      }
+      if (response.changedProfileIds.length > 0) {
+        this.publishAgentReadinessInvalidated({
+          profileIds: response.changedProfileIds,
+          reason: "agent_profile_work_coordinator.changed",
+        });
+      }
+      return runtimeTransportAgentProfileWorkUsageAvailableResponseSchema.parse(
+        {
+          changedProfileIds: response.changedProfileIds,
+          continuationProfileIds: response.continuationProfileIds,
+          status: response.status,
+        }
+      );
     });
   }
-
   async rpcReadAgentProfileWorkRecovery(
     input: RuntimeTransportAgentProfileWorkRecoveryReadRequest
   ): Promise<RuntimeTransportAgentProfileWorkRecoveryReadResponse> {
-    const parsed =
-      runtimeTransportAgentProfileWorkRecoveryReadRequestSchema.safeParse(
-        input
+    return await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
+      const parsed =
+        runtimeTransportAgentProfileWorkRecoveryReadRequestSchema.safeParse(
+          input
+        );
+      if (!parsed.success) {
+        return { status: "unavailable" };
+      }
+      const response =
+        await readRuntimeCoordinatorAgentProfileWorkRecoveryFromAdmission({
+          nowMs: Date.now(),
+          ownerUserId: parsed.data.ownerUserId,
+          storage: this.ctx.storage,
+          targetProfileId: parsed.data.targetProfileId,
+        });
+      if (response.status === "unavailable") {
+        this.queueRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarm();
+      }
+      return runtimeTransportAgentProfileWorkRecoveryReadResponseSchema.parse(
+        response
       );
-    if (!parsed.success) {
-      return { status: "unavailable" };
-    }
-    const response =
-      await readRuntimeCoordinatorAgentProfileWorkRecoveryFromAdmission({
-        nowMs: Date.now(),
-        ownerUserId: parsed.data.ownerUserId,
-        storage: this.ctx.storage,
-        targetProfileId: parsed.data.targetProfileId,
-      });
-    if (response.status === "unavailable") {
-      this.queueRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarm();
-    }
-    return runtimeTransportAgentProfileWorkRecoveryReadResponseSchema.parse(
-      response
-    );
+    });
   }
-
   async rpcAuthorizeAgentProfileWorkContinuation(
     input: RuntimeTransportAgentProfileWorkContinuationAuthorizeRequest
   ): Promise<RuntimeTransportAgentProfileWorkContinuationAuthorizeResponse> {
-    const parsed =
-      runtimeTransportAgentProfileWorkContinuationAuthorizeRequestSchema.safeParse(
-        input
-      );
-    if (!parsed.success) {
-      return { status: "unavailable" };
-    }
-    const response =
-      await authorizeRuntimeCoordinatorAgentProfileWorkContinuation({
-        continuationClientMessageId: parsed.data.continuationClientMessageId,
-        currentAgentControllerRef: parsed.data.currentAgentControllerRef,
-        currentBindingId: parsed.data.currentBindingId,
-        currentConfigurationRevision: parsed.data.currentConfigurationRevision,
-        currentDefaultProjectId: parsed.data.currentDefaultProjectId,
-        expectedInterruptedTargetWakeLifecycleId:
-          parsed.data.expectedInterruptedTargetWakeLifecycleId,
-        forkInterruptedConversation: parsed.data.forkInterruptedConversation,
-        nowMs: Date.now(),
-        ownerUserId: parsed.data.ownerUserId,
-        storage: this.ctx.storage,
-        targetProfileId: parsed.data.targetProfileId,
-      });
-    if (response.status === "unavailable") {
-      this.queueRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarm();
-    }
-    if (
-      response.status === "authorized" ||
-      response.status === "needs_attention"
-    ) {
-      this.publishAgentReadinessInvalidated({
-        profileIds: [parsed.data.targetProfileId],
-        reason: "agent_profile_work_coordinator.changed",
-      });
-      if (response.status === "needs_attention") {
-        this.scheduledHousekeepingAlarmAtMs = undefined;
+    return await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
+      const parsed =
+        runtimeTransportAgentProfileWorkContinuationAuthorizeRequestSchema.safeParse(
+          input
+        );
+      if (!parsed.success) {
+        return { status: "unavailable" };
       }
-      if (response.status === "authorized" && response.interruptedExecution) {
-        await this.stopSupersededInterruptedExecution({
-          interruptedExecution: response.interruptedExecution,
+      const response =
+        await authorizeRuntimeCoordinatorAgentProfileWorkContinuation({
+          continuationClientMessageId: parsed.data.continuationClientMessageId,
+          currentAgentControllerRef: parsed.data.currentAgentControllerRef,
+          currentBindingId: parsed.data.currentBindingId,
+          currentConfigurationRevision:
+            parsed.data.currentConfigurationRevision,
+          currentDefaultProjectId: parsed.data.currentDefaultProjectId,
+          expectedInterruptedTargetWakeLifecycleId:
+            parsed.data.expectedInterruptedTargetWakeLifecycleId,
+          forkInterruptedConversation: parsed.data.forkInterruptedConversation,
+          nowMs: Date.now(),
           ownerUserId: parsed.data.ownerUserId,
+          storage: this.ctx.storage,
           targetProfileId: parsed.data.targetProfileId,
         });
+      if (response.status === "unavailable") {
+        this.queueRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarm();
       }
-    }
-    // The stop target is Coordinator control state, not part of the public
-    // answer. Returning the whole internal result would fail this strict
-    // contract after the authorization has already been committed.
-    return runtimeTransportAgentProfileWorkContinuationAuthorizeResponseSchema.parse(
-      { status: response.status }
-    );
+      if (
+        response.status === "authorized" ||
+        response.status === "needs_attention"
+      ) {
+        this.publishAgentReadinessInvalidated({
+          profileIds: [parsed.data.targetProfileId],
+          reason: "agent_profile_work_coordinator.changed",
+        });
+        if (response.status === "needs_attention") {
+          this.scheduledHousekeepingAlarmAtMs = undefined;
+        }
+        if (response.status === "authorized" && response.interruptedExecution) {
+          await this.stopSupersededInterruptedExecution({
+            interruptedExecution: response.interruptedExecution,
+            ownerUserId: parsed.data.ownerUserId,
+            targetProfileId: parsed.data.targetProfileId,
+          });
+        }
+      }
+      // The stop target is Coordinator control state, not part of the public
+      // answer. Returning the whole internal result would fail this strict
+      // contract after the authorization has already been committed.
+      return runtimeTransportAgentProfileWorkContinuationAuthorizeResponseSchema.parse(
+        { status: response.status }
+      );
+    });
   }
-
   private async stopSupersededInterruptedExecution(input: {
     interruptedExecution: {
       dispatchId: string;
@@ -2027,7 +2058,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         RUNTIME_COORDINATOR_LOCAL_ATTEMPT_WITHDRAWAL_SUPERSEDED_REASON_CODE,
     });
   }
-
   /**
    * Asks the computer to withdraw one attempt and records that it was asked.
    *
@@ -2101,53 +2131,88 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
     }
   }
-
   async rpcHandOffOccupiedAgentProfileWork(
     input: RuntimeTransportAgentProfileWorkHandoffRequest
   ): Promise<RuntimeTransportAgentProfileWorkHandoffResponse> {
-    const parsed =
-      runtimeTransportAgentProfileWorkHandoffRequestSchema.safeParse(input);
-    if (!parsed.success) {
-      return { status: "unavailable" };
-    }
-    const response = await handOffRuntimeCoordinatorOccupiedAgentProfileWork({
-      nowMs: Date.now(),
-      ownerUserId: parsed.data.ownerUserId,
-      sourceDispatchId: parsed.data.sourceDispatchId,
-      sourceTargetWakeLifecycleId: parsed.data.sourceTargetWakeLifecycleId,
-      storage: this.ctx.storage,
-      successorDispatchId: parsed.data.successorDispatchId,
-      successorExecutionContextId: parsed.data.successorExecutionContextId,
-      successorTargetWakeLifecycleId:
-        parsed.data.successorTargetWakeLifecycleId,
-      targetProfileId: parsed.data.targetProfileId,
-    });
-    if (response.status === "unavailable") {
-      this.queueRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarm();
-    }
-    if (response.status === "handed_off") {
-      this.publishAgentReadinessInvalidated({
-        profileIds: [parsed.data.targetProfileId],
-        reason: "agent_profile_work_coordinator.changed",
+    return await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
+      const parsed =
+        runtimeTransportAgentProfileWorkHandoffRequestSchema.safeParse(input);
+      if (!parsed.success) {
+        return { status: "unavailable" };
+      }
+      const response = await handOffRuntimeCoordinatorOccupiedAgentProfileWork({
+        nowMs: Date.now(),
+        ownerUserId: parsed.data.ownerUserId,
+        sourceDispatchId: parsed.data.sourceDispatchId,
+        sourceTargetWakeLifecycleId: parsed.data.sourceTargetWakeLifecycleId,
+        storage: this.ctx.storage,
+        successorDispatchId: parsed.data.successorDispatchId,
+        successorExecutionContextId: parsed.data.successorExecutionContextId,
+        successorTargetWakeLifecycleId:
+          parsed.data.successorTargetWakeLifecycleId,
+        targetProfileId: parsed.data.targetProfileId,
       });
-    }
-    return runtimeTransportAgentProfileWorkHandoffResponseSchema.parse(
-      response
-    );
+      if (response.status === "unavailable") {
+        this.queueRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarm();
+      }
+      if (response.status === "handed_off") {
+        this.publishAgentReadinessInvalidated({
+          profileIds: [parsed.data.targetProfileId],
+          reason: "agent_profile_work_coordinator.changed",
+        });
+      }
+      return runtimeTransportAgentProfileWorkHandoffResponseSchema.parse(
+        response
+      );
+    });
   }
-
   async rpcMarkAgentProfileWorkContinuationNeedsAttention(
     input: RuntimeTransportAgentProfileWorkContinuationNeedsAttentionRequest
   ): Promise<RuntimeTransportAgentProfileWorkContinuationNeedsAttentionResponse> {
-    const parsed =
-      runtimeTransportAgentProfileWorkContinuationNeedsAttentionRequestSchema.safeParse(
-        input
+    return await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
+      const parsed =
+        runtimeTransportAgentProfileWorkContinuationNeedsAttentionRequestSchema.safeParse(
+          input
+        );
+      if (!parsed.success) {
+        return { status: "unavailable" };
+      }
+      const response =
+        await markRuntimeCoordinatorAgentProfileWorkContinuationNeedsAttention({
+          expectedInterruptedTargetWakeLifecycleId:
+            parsed.data.expectedInterruptedTargetWakeLifecycleId,
+          nowMs: Date.now(),
+          ownerUserId: parsed.data.ownerUserId,
+          storage: this.ctx.storage,
+          targetProfileId: parsed.data.targetProfileId,
+        });
+      if (response.status === "unavailable") {
+        this.queueRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarm();
+      }
+      if (response.status === "marked") {
+        this.publishAgentReadinessInvalidated({
+          profileIds: [parsed.data.targetProfileId],
+          reason: "agent_profile_work_coordinator.changed",
+        });
+        this.scheduledHousekeepingAlarmAtMs = undefined;
+      }
+      return runtimeTransportAgentProfileWorkContinuationNeedsAttentionResponseSchema.parse(
+        response
       );
-    if (!parsed.success) {
-      return { status: "unavailable" };
-    }
-    const response =
-      await markRuntimeCoordinatorAgentProfileWorkContinuationNeedsAttention({
+    });
+  }
+  async rpcApproveAgentProfileWorkQueue(
+    input: RuntimeTransportAgentProfileWorkQueueApproveRequest
+  ): Promise<RuntimeTransportAgentProfileWorkQueueApproveResponse> {
+    return await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
+      const parsed =
+        runtimeTransportAgentProfileWorkQueueApproveRequestSchema.safeParse(
+          input
+        );
+      if (!parsed.success) {
+        return { status: "unavailable" };
+      }
+      const response = await approveRuntimeCoordinatorAgentProfileWorkQueue({
         expectedInterruptedTargetWakeLifecycleId:
           parsed.data.expectedInterruptedTargetWakeLifecycleId,
         nowMs: Date.now(),
@@ -2155,60 +2220,27 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         storage: this.ctx.storage,
         targetProfileId: parsed.data.targetProfileId,
       });
-    if (response.status === "unavailable") {
-      this.queueRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarm();
-    }
-    if (response.status === "marked") {
-      this.publishAgentReadinessInvalidated({
-        profileIds: [parsed.data.targetProfileId],
-        reason: "agent_profile_work_coordinator.changed",
+      if (response.status === "unavailable") {
+        this.queueRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarm();
+      }
+      if (response.status === "approved") {
+        this.publishAgentReadinessInvalidated({
+          profileIds: [parsed.data.targetProfileId],
+          reason: "agent_profile_work_coordinator.changed",
+        });
+        this.scheduledHousekeepingAlarmAtMs = undefined;
+      }
+      if (response.pendingPromotion) {
+        await this.requestSpaceDispatchOutboxRedriveForPromotion(
+          response.pendingPromotion,
+          "terminal_transaction"
+        );
+      }
+      return runtimeTransportAgentProfileWorkQueueApproveResponseSchema.parse({
+        status: response.status,
       });
-      this.scheduledHousekeepingAlarmAtMs = undefined;
-    }
-    return runtimeTransportAgentProfileWorkContinuationNeedsAttentionResponseSchema.parse(
-      response
-    );
-  }
-
-  async rpcApproveAgentProfileWorkQueue(
-    input: RuntimeTransportAgentProfileWorkQueueApproveRequest
-  ): Promise<RuntimeTransportAgentProfileWorkQueueApproveResponse> {
-    const parsed =
-      runtimeTransportAgentProfileWorkQueueApproveRequestSchema.safeParse(
-        input
-      );
-    if (!parsed.success) {
-      return { status: "unavailable" };
-    }
-    const response = await approveRuntimeCoordinatorAgentProfileWorkQueue({
-      expectedInterruptedTargetWakeLifecycleId:
-        parsed.data.expectedInterruptedTargetWakeLifecycleId,
-      nowMs: Date.now(),
-      ownerUserId: parsed.data.ownerUserId,
-      storage: this.ctx.storage,
-      targetProfileId: parsed.data.targetProfileId,
-    });
-    if (response.status === "unavailable") {
-      this.queueRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarm();
-    }
-    if (response.status === "approved") {
-      this.publishAgentReadinessInvalidated({
-        profileIds: [parsed.data.targetProfileId],
-        reason: "agent_profile_work_coordinator.changed",
-      });
-      this.scheduledHousekeepingAlarmAtMs = undefined;
-    }
-    if (response.pendingPromotion) {
-      await this.requestSpaceDispatchOutboxRedriveForPromotion(
-        response.pendingPromotion,
-        "terminal_transaction"
-      );
-    }
-    return runtimeTransportAgentProfileWorkQueueApproveResponseSchema.parse({
-      status: response.status,
     });
   }
-
   /**
    * Asks the computer again to withdraw the attempt a continuation replaces.
    *
@@ -2218,6 +2250,17 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
    * `requested`, never a silent permission to start replacement work.
    */
   async rpcRequestAgentProfileWorkLocalAttemptWithdrawal(
+    input: RuntimeTransportAgentProfileWorkLocalAttemptWithdrawalRequest
+  ): Promise<RuntimeTransportAgentProfileWorkLocalAttemptWithdrawalResponse> {
+    return await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      RuntimeTransportHub.#executeRpcRequestAgentProfileWorkLocalAttemptWithdrawal(
+        this,
+        input
+      )
+    );
+  }
+  static async #executeRpcRequestAgentProfileWorkLocalAttemptWithdrawal(
+    owner: RuntimeTransportHub,
     input: RuntimeTransportAgentProfileWorkLocalAttemptWithdrawalRequest
   ): Promise<RuntimeTransportAgentProfileWorkLocalAttemptWithdrawalResponse> {
     const parsed =
@@ -2231,11 +2274,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       await readRuntimeCoordinatorAgentProfileWorkRecoveryFromAdmission({
         nowMs: Date.now(),
         ownerUserId: parsed.data.ownerUserId,
-        storage: this.ctx.storage,
+        storage: owner.ctx.storage,
         targetProfileId: parsed.data.targetProfileId,
       });
     if (recovery.status === "unavailable") {
-      this.queueRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarm();
+      owner.queueRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarm();
       return { status: "unavailable" };
     }
     const interruptedTargetWakeLifecycleId =
@@ -2260,15 +2303,17 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         return { status: "not_started" };
       }
     }
-    const head = await this.readRuntimeCoordinatorHeadLifecycleRecord(
-      interruptedTargetWakeLifecycleId
-    ).catch((error: unknown) => {
-      console.warn(
-        "[core.runtime_transport.local_attempt_withdrawal_head_unreadable]",
-        { error, targetWakeLifecycleId: interruptedTargetWakeLifecycleId }
-      );
-      return null;
-    });
+    const head = await owner
+      .readRuntimeCoordinatorHeadLifecycleRecord(
+        interruptedTargetWakeLifecycleId
+      )
+      .catch((error: unknown) => {
+        console.warn(
+          "[core.runtime_transport.local_attempt_withdrawal_head_unreadable]",
+          { error, targetWakeLifecycleId: interruptedTargetWakeLifecycleId }
+        );
+        return null;
+      });
     const executionId = head?.runtimeCoordinatorExecutionId;
     if (!executionId) {
       // A head that cannot be read is not a head that never started work.
@@ -2276,15 +2321,15 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       // to run the same instruction again.
       return { status: "unavailable" };
     }
-    const commandState = await this.readRuntimeCoordinatorRunCommandState(
-      executionId
-    ).catch(() => null);
+    const commandState = await owner
+      .readRuntimeCoordinatorRunCommandState(executionId)
+      .catch(() => null);
     if (!commandState) {
       // Without the delivery record Core cannot address the attempt, so it
       // reports the withdrawal as outstanding rather than assuming either way.
       return { status: "requested" };
     }
-    await this.requestRuntimeCoordinatorLocalAttemptWithdrawal({
+    await owner.requestRuntimeCoordinatorLocalAttemptWithdrawal({
       commandState,
       controlReason: "superseded_by_continuation",
       nowMs: Date.now(),
@@ -2299,74 +2344,75 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       }
     );
   }
-
   async rpcSkipAgentProfileInterruptedWork(
     input: RuntimeTransportAgentProfileWorkSkipRequest
   ): Promise<RuntimeTransportAgentProfileWorkSkipResponse> {
-    const parsed =
-      runtimeTransportAgentProfileWorkSkipRequestSchema.safeParse(input);
-    if (!parsed.success) {
-      return { status: "unavailable" };
-    }
-    const response = await skipRuntimeCoordinatorAgentProfileInterruptedWork({
-      expectedInterruptedTargetWakeLifecycleId:
-        parsed.data.expectedInterruptedTargetWakeLifecycleId,
-      nowMs: Date.now(),
-      ownerUserId: parsed.data.ownerUserId,
-      storage: this.ctx.storage,
-      targetProfileId: parsed.data.targetProfileId,
-    });
-    if (response.status === "unavailable") {
-      this.queueRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarm();
-    }
-    if (response.status === "skipped") {
-      this.publishAgentReadinessInvalidated({
-        profileIds: [parsed.data.targetProfileId],
-        reason: "agent_profile_work_coordinator.changed",
+    return await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
+      const parsed =
+        runtimeTransportAgentProfileWorkSkipRequestSchema.safeParse(input);
+      if (!parsed.success) {
+        return { status: "unavailable" };
+      }
+      const response = await skipRuntimeCoordinatorAgentProfileInterruptedWork({
+        expectedInterruptedTargetWakeLifecycleId:
+          parsed.data.expectedInterruptedTargetWakeLifecycleId,
+        nowMs: Date.now(),
+        ownerUserId: parsed.data.ownerUserId,
+        storage: this.ctx.storage,
+        targetProfileId: parsed.data.targetProfileId,
       });
-      this.scheduledHousekeepingAlarmAtMs = undefined;
-    }
-    if (response.pendingPromotion) {
-      await this.requestSpaceDispatchOutboxRedriveForPromotion(
-        response.pendingPromotion,
-        "terminal_transaction"
-      );
-    }
-    return runtimeTransportAgentProfileWorkSkipResponseSchema.parse({
-      status: response.status,
+      if (response.status === "unavailable") {
+        this.queueRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarm();
+      }
+      if (response.status === "skipped") {
+        this.publishAgentReadinessInvalidated({
+          profileIds: [parsed.data.targetProfileId],
+          reason: "agent_profile_work_coordinator.changed",
+        });
+        this.scheduledHousekeepingAlarmAtMs = undefined;
+      }
+      if (response.pendingPromotion) {
+        await this.requestSpaceDispatchOutboxRedriveForPromotion(
+          response.pendingPromotion,
+          "terminal_transaction"
+        );
+      }
+      return runtimeTransportAgentProfileWorkSkipResponseSchema.parse({
+        status: response.status,
+      });
     });
   }
-
   async rpcCancelDeletedAgentProfileWakes(
     input: RuntimeTransportDeletedAgentProfileWakeCancellationRequest
   ): Promise<RuntimeTransportDeletedAgentProfileWakeCancellationResponse> {
-    const parsed =
-      runtimeTransportDeletedAgentProfileWakeCancellationRequestSchema.safeParse(
-        input
+    return await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
+      const parsed =
+        runtimeTransportDeletedAgentProfileWakeCancellationRequestSchema.safeParse(
+          input
+        );
+      if (!parsed.success) {
+        throw new Error(
+          "runtime_coordinator.deleted_profile_wake_cancellation_request_invalid"
+        );
+      }
+      const response = await cancelDeletedAgentProfileWakesWithPorts({
+        request: parsed.data,
+        ports: {
+          readHeadLifecycleRecords: () =>
+            this.readRuntimeCoordinatorHeadLifecycleRecordsFromIndex(),
+          readRunCommandStates: () =>
+            this.readRuntimeCoordinatorRunCommandStatesFromIndex(),
+          stopHeadBeforeExecution: (request) =>
+            this.recordRuntimeCoordinatorHeadPreAgentStop(request),
+          stopRuntimeExecution: (request) =>
+            this.requestRuntimeCoordinatorWakeStop(request),
+        },
+      });
+      return runtimeTransportDeletedAgentProfileWakeCancellationResponseSchema.parse(
+        response
       );
-    if (!parsed.success) {
-      throw new Error(
-        "runtime_coordinator.deleted_profile_wake_cancellation_request_invalid"
-      );
-    }
-    const response = await cancelDeletedAgentProfileWakesWithPorts({
-      request: parsed.data,
-      ports: {
-        readHeadLifecycleRecords: () =>
-          this.readRuntimeCoordinatorHeadLifecycleRecordsFromIndex(),
-        readRunCommandStates: () =>
-          this.readRuntimeCoordinatorRunCommandStatesFromIndex(),
-        stopHeadBeforeExecution: (request) =>
-          this.recordRuntimeCoordinatorHeadPreAgentStop(request),
-        stopRuntimeExecution: (request) =>
-          this.requestRuntimeCoordinatorWakeStop(request),
-      },
     });
-    return runtimeTransportDeletedAgentProfileWakeCancellationResponseSchema.parse(
-      response
-    );
   }
-
   // Keep the original ControllerMutation wire names during the broader
   // execution-target rollout. Durable Object code propagates eventually, so a
   // newly deployed Worker must remain callable against an older live shard and
@@ -2374,44 +2420,50 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   async rpcAcquireAgentProfileControllerMutation(
     input: RuntimeTransportAgentProfileExecutionTargetMutationRequest
   ): Promise<RuntimeTransportAgentProfileExecutionTargetMutationAcquireResponse> {
-    return await this.acquireAgentProfileMutation({
-      acquire: acquireRuntimeCoordinatorAgentProfileExecutionTargetMutation,
-      input,
+    return await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
+      return await this.acquireAgentProfileMutation({
+        acquire: acquireRuntimeCoordinatorAgentProfileExecutionTargetMutation,
+        input,
+      });
     });
   }
-
   async rpcAcquireAgentProfileFutureWorkSettingsMutation(
     input: RuntimeTransportAgentProfileExecutionTargetMutationRequest
   ): Promise<RuntimeTransportAgentProfileExecutionTargetMutationAcquireResponse> {
-    return await this.acquireAgentProfileMutation({
-      acquire: acquireRuntimeCoordinatorAgentProfileFutureWorkSettingsMutation,
-      input,
+    return await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
+      return await this.acquireAgentProfileMutation({
+        acquire:
+          acquireRuntimeCoordinatorAgentProfileFutureWorkSettingsMutation,
+        input,
+      });
     });
   }
-
   async rpcAgentProfileExecutionMode(
     input: RuntimeTransportAgentProfileExecutionModeRequest
   ): Promise<AgentProfileExecutionModeResponse> {
-    const request =
-      runtimeTransportAgentProfileExecutionModeRequestSchema.parse(input);
-    const response = await readOrUpdateAgentProfileExecutionMode({
-      ...request,
-      nowMs: Date.now(),
-      storage: this.ctx.storage,
+    return await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
+      const request =
+        runtimeTransportAgentProfileExecutionModeRequestSchema.parse(input);
+      const response = await readOrUpdateAgentProfileExecutionMode({
+        ...request,
+        nowMs: Date.now(),
+        storage: this.ctx.storage,
+      });
+      this.queueHousekeepingAlarmSync();
+      return agentProfileExecutionModeResponseSchema.parse(response);
     });
-    this.queueHousekeepingAlarmSync();
-    return agentProfileExecutionModeResponseSchema.parse(response);
   }
-
   async rpcAcquireAgentProfileLegacyConversationMutation(
     input: RuntimeTransportAgentProfileExecutionTargetMutationRequest
   ): Promise<RuntimeTransportAgentProfileExecutionTargetMutationAcquireResponse> {
-    return await this.acquireAgentProfileMutation({
-      input,
-      acquire: acquireRuntimeCoordinatorAgentProfileLegacyConversationMutation,
+    return await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
+      return await this.acquireAgentProfileMutation({
+        input,
+        acquire:
+          acquireRuntimeCoordinatorAgentProfileLegacyConversationMutation,
+      });
     });
   }
-
   private async reconcileAgentProfileContextMigration(input: {
     ownerUserId: string;
     targetProfileId: string;
@@ -2428,7 +2480,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       return false;
     }
     try {
-      const db = localStateDb(this.env);
+      const db = getPostgresDatabase(this.env);
       if (!db) {
         throw new Error("execution_context.migration_binding_unavailable");
       }
@@ -2486,13 +2538,13 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
     }
   }
-
   private resolveContextMigrationCapability(input: {
     allowPendingRoute?: boolean;
     ownerUserId: string;
     targetProfileId: string;
     agentControllerRef: string;
     requiredContextVersion?: 2 | 3;
+    requirePermissionInheritance?: boolean;
   }): string | null {
     const route = lookupRoute(
       this.state,
@@ -2516,13 +2568,15 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     return route.capabilities.runtimeAdapters?.some(
       (adapter) =>
         adapter.adapterId === adapterId &&
+        (!input.requirePermissionInheritance ||
+          adapter.capabilityDeclaration
+            .executionContextPermissionInheritance === true) &&
         (adapter.capabilityDeclaration.executionContextVersion ?? 0) >=
           (input.requiredContextVersion ?? 2)
     )
       ? null
       : "service.update_required";
   }
-
   private async acquireAgentProfileMutation(input: {
     acquire: typeof acquireRuntimeCoordinatorAgentProfileExecutionTargetMutation;
     input: RuntimeTransportAgentProfileExecutionTargetMutationRequest;
@@ -2558,203 +2612,213 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       response
     );
   }
-
   async rpcReleaseAgentProfileControllerMutation(
     input: RuntimeTransportAgentProfileExecutionTargetMutationRequest
   ): Promise<RuntimeTransportAgentProfileExecutionTargetMutationReleaseResponse> {
-    const parsed =
-      runtimeTransportAgentProfileExecutionTargetMutationRequestSchema.safeParse(
-        input
+    return await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
+      const parsed =
+        runtimeTransportAgentProfileExecutionTargetMutationRequestSchema.safeParse(
+          input
+        );
+      if (!parsed.success) {
+        return { status: "not_owner" };
+      }
+      const response =
+        await releaseRuntimeCoordinatorAgentProfileExecutionTargetMutation({
+          nowMs: Date.now(),
+          operationId: parsed.data.operationId,
+          ownerUserId: parsed.data.ownerUserId,
+          storage: this.ctx.storage,
+          targetProfileId: parsed.data.targetProfileId,
+        });
+      return runtimeTransportAgentProfileExecutionTargetMutationReleaseResponseSchema.parse(
+        response
       );
-    if (!parsed.success) {
-      return { status: "not_owner" };
-    }
-    const response =
-      await releaseRuntimeCoordinatorAgentProfileExecutionTargetMutation({
-        nowMs: Date.now(),
-        operationId: parsed.data.operationId,
-        ownerUserId: parsed.data.ownerUserId,
-        storage: this.ctx.storage,
-        targetProfileId: parsed.data.targetProfileId,
-      });
-    return runtimeTransportAgentProfileExecutionTargetMutationReleaseResponseSchema.parse(
-      response
-    );
+    });
   }
-
   async rpcInspectHostedExecutionRecovery(
     input: HostedExecutionRecoveryInspectRequest
   ) {
-    const db = wakeEvidenceDb(this.env);
-    if (!db) {
-      throw new Error("execution_recovery.storage_unavailable");
-    }
-    return await inspectHostedExecutionRecovery({
-      db,
-      env: this.env,
-      request: input,
+    return await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
+      const db = getPostgresDatabase(this.env);
+      if (!db) {
+        throw new Error("execution_recovery.storage_unavailable");
+      }
+      return await inspectHostedExecutionRecovery({
+        db,
+        env: this.env,
+        request: input,
+      });
     });
   }
-
   async rpcExecuteHostedExecutionRecovery(
     input: HostedExecutionRecoveryExecuteRequest
   ) {
-    const db = wakeEvidenceDb(this.env);
-    if (!db) {
-      throw new Error("execution_recovery.storage_unavailable");
-    }
-    return await executeHostedExecutionRecovery({
-      db,
-      env: this.env,
-      request: input,
-      storage: this.ctx.storage,
+    return await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
+      const db = getPostgresDatabase(this.env);
+      if (!db) {
+        throw new Error("execution_recovery.storage_unavailable");
+      }
+      return await executeHostedExecutionRecovery({
+        db,
+        env: this.env,
+        request: input,
+        storage: this.ctx.storage,
+      });
     });
   }
-
   async rpcInspectExecutionRecovery(
     input: RuntimeTransportInspectExecutionRecoveryRequest
   ): Promise<RuntimeTransportInspectExecutionRecoveryResponse> {
-    const parsed =
-      runtimeTransportInspectExecutionRecoveryRequestSchema.safeParse(input);
-    if (!parsed.success) {
-      return {
-        exactAssociationVerified: false,
-        identity: null,
-        reasonCode: "execution_recovery.invalid_request",
-        serviceSupportsResume: false,
-        status: "unavailable",
-      };
-    }
-    const association = await this.resolveExecutionRecoveryAssociation(
-      parsed.data
-    );
-    const response: RuntimeTransportInspectExecutionRecoveryResponse =
-      association.ok
-        ? {
-            exactAssociationVerified: true,
-            identity: association.identity,
-            reasonCode:
-              "execution_recovery.exact_controller_conversation_available",
-            serviceSupportsResume: true,
-            status: "available",
-          }
-        : {
-            exactAssociationVerified: association.exactAssociationVerified,
-            identity: association.identity,
-            reasonCode: association.reasonCode,
-            serviceSupportsResume: association.serviceSupportsResume,
-            status: "unavailable",
-          };
-    return runtimeTransportInspectExecutionRecoveryResponseSchema.parse(
-      response
-    );
+    return await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
+      const parsed =
+        runtimeTransportInspectExecutionRecoveryRequestSchema.safeParse(input);
+      if (!parsed.success) {
+        return {
+          exactAssociationVerified: false,
+          identity: null,
+          reasonCode: "execution_recovery.invalid_request",
+          serviceSupportsResume: false,
+          status: "unavailable",
+        };
+      }
+      const association = await this.resolveExecutionRecoveryAssociation(
+        parsed.data
+      );
+      const response: RuntimeTransportInspectExecutionRecoveryResponse =
+        association.ok
+          ? {
+              exactAssociationVerified: true,
+              identity: association.identity,
+              reasonCode:
+                "execution_recovery.exact_controller_conversation_available",
+              serviceSupportsResume: true,
+              status: "available",
+            }
+          : {
+              exactAssociationVerified: association.exactAssociationVerified,
+              identity: association.identity,
+              reasonCode: association.reasonCode,
+              serviceSupportsResume: association.serviceSupportsResume,
+              status: "unavailable",
+            };
+      return runtimeTransportInspectExecutionRecoveryResponseSchema.parse(
+        response
+      );
+    });
   }
-
   async rpcRedriveAgentTaskObservation(
     input: AgentTaskObservationRedriveQueueMessage
-  ): Promise<{ status: "already_projected" | "projected" }> {
-    const parsed = agentTaskObservationRedriveQueueMessageSchema.parse(input);
-    const delivery = await upsertRuntimeCoordinatorAgentTaskObservationDelivery(
-      this.ctx.storage,
-      {
-        nowMs: parsed.enqueuedAtMs,
-        observation: parsed.observation,
-        runtimeCoordinatorExecutionId: parsed.runtimeCoordinatorExecutionId,
-        task: parsed.task,
+  ): Promise<{
+    status: "already_projected" | "projected";
+  }> {
+    return await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
+      const parsed = agentTaskObservationRedriveQueueMessageSchema.parse(input);
+      const delivery =
+        await upsertRuntimeCoordinatorAgentTaskObservationDelivery(
+          this.ctx.storage,
+          {
+            nowMs: parsed.enqueuedAtMs,
+            observation: parsed.observation,
+            runtimeCoordinatorExecutionId: parsed.runtimeCoordinatorExecutionId,
+            task: parsed.task,
+          }
+        );
+      if (delivery.deliveryId !== parsed.deliveryId) {
+        throw new Error(
+          "runtime_coordinator.agent_task_observation_delivery_conflict"
+        );
       }
-    );
-    if (delivery.deliveryId !== parsed.deliveryId) {
-      throw new Error(
-        "runtime_coordinator.agent_task_observation_delivery_conflict"
+      if (delivery.status === "projected") {
+        return { status: "already_projected" };
+      }
+      await this.projectRuntimeCoordinatorAgentTaskObservationDelivery(
+        delivery
       );
-    }
-    if (delivery.status === "projected") {
-      return { status: "already_projected" };
-    }
-    await this.projectRuntimeCoordinatorAgentTaskObservationDelivery(delivery);
-    return { status: "projected" };
+      return { status: "projected" };
+    });
   }
-
   async rpcResumeControllerConversation(
     input: RuntimeTransportResumeControllerConversationRequest
   ): Promise<RuntimeTransportResumeControllerConversationResponse> {
-    const parsed =
-      runtimeTransportResumeControllerConversationRequestSchema.safeParse(
-        input
-      );
-    if (!parsed.success) {
-      throw new Error("execution_recovery.invalid_request");
-    }
-    const association = await this.resolveExecutionRecoveryAssociation(
-      parsed.data
-    );
-    if (!association.ok) {
-      return {
-        destination: parsed.data.destination,
-        identity: parsed.data.identity,
-        message: association.reasonCode,
-        operationId: parsed.data.operationId,
-        reasonCode: association.reasonCode,
-        status: "rejected",
-      };
-    }
-    const requestId = `execution-recovery:${parsed.data.operationId}`;
-    const payload =
-      runtimeTransportResumeControllerConversationFramePayloadSchema.parse({
-        destination: parsed.data.destination,
-        identity: association.identity,
-        operationId: parsed.data.operationId,
-        providerRuntimeWorkingDirectory:
-          parsed.data.providerRuntimeWorkingDirectory,
-        requestId,
-        sourceEventId:
-          association.commandState.sanitizedDeliveryRequest.payload
-            .sourceEventId,
-        transportMode:
-          association.commandState.sanitizedDeliveryRequest.payload
-            .transportMode ?? "local-cli",
-      });
-    try {
-      const result =
-        await this.sendCurrentDeviceOperationAndWait<RuntimeTransportResumeControllerConversationResponse>(
-          {
-            code: "daemon.execution_recovery.resume_controller_conversation",
-            expectedResponseCode:
-              "daemon.execution_recovery.resume_controller_conversation_result",
-            isExpectedPayload: (value) =>
-              runtimeTransportResumeControllerConversationResponseSchema.safeParse(
-                value
-              ).success,
-            payload,
-            requestId,
-            session: association.session,
-            timeoutMs: 10 * 60 * 1000,
-          }
+    return await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
+      const parsed =
+        runtimeTransportResumeControllerConversationRequestSchema.safeParse(
+          input
         );
-      if (
-        result.operationId !== parsed.data.operationId ||
-        JSON.stringify(result.identity) !==
-          JSON.stringify(association.identity) ||
-        JSON.stringify(result.destination) !==
-          JSON.stringify(parsed.data.destination)
-      ) {
-        throw new Error("execution_recovery.result_identity_mismatch");
+      if (!parsed.success) {
+        throw new Error("execution_recovery.invalid_request");
       }
-      return runtimeTransportResumeControllerConversationResponseSchema.parse(
-        result
+      const association = await this.resolveExecutionRecoveryAssociation(
+        parsed.data
       );
-    } catch (error) {
-      return {
-        destination: parsed.data.destination,
-        identity: association.identity,
-        message: error instanceof Error ? error.message : String(error),
-        operationId: parsed.data.operationId,
-        reasonCode: "execution_recovery.service_response_unavailable",
-        status: "outcome_unknown",
-      };
-    }
+      if (!association.ok) {
+        return {
+          destination: parsed.data.destination,
+          identity: parsed.data.identity,
+          message: association.reasonCode,
+          operationId: parsed.data.operationId,
+          reasonCode: association.reasonCode,
+          status: "rejected",
+        };
+      }
+      const requestId = `execution-recovery:${parsed.data.operationId}`;
+      const payload =
+        runtimeTransportResumeControllerConversationFramePayloadSchema.parse({
+          destination: parsed.data.destination,
+          identity: association.identity,
+          operationId: parsed.data.operationId,
+          providerRuntimeWorkingDirectory:
+            parsed.data.providerRuntimeWorkingDirectory,
+          requestId,
+          sourceEventId:
+            association.commandState.sanitizedDeliveryRequest.payload
+              .sourceEventId,
+          transportMode:
+            association.commandState.sanitizedDeliveryRequest.payload
+              .transportMode ?? "local-cli",
+        });
+      try {
+        const result =
+          await this.sendCurrentDeviceOperationAndWait<RuntimeTransportResumeControllerConversationResponse>(
+            {
+              code: "daemon.execution_recovery.resume_controller_conversation",
+              expectedResponseCode:
+                "daemon.execution_recovery.resume_controller_conversation_result",
+              isExpectedPayload: (value) =>
+                runtimeTransportResumeControllerConversationResponseSchema.safeParse(
+                  value
+                ).success,
+              payload,
+              requestId,
+              session: association.session,
+              timeoutMs: 10 * 60 * 1000,
+            }
+          );
+        if (
+          result.operationId !== parsed.data.operationId ||
+          JSON.stringify(result.identity) !==
+            JSON.stringify(association.identity) ||
+          JSON.stringify(result.destination) !==
+            JSON.stringify(parsed.data.destination)
+        ) {
+          throw new Error("execution_recovery.result_identity_mismatch");
+        }
+        return runtimeTransportResumeControllerConversationResponseSchema.parse(
+          result
+        );
+      } catch (error) {
+        return {
+          destination: parsed.data.destination,
+          identity: association.identity,
+          message: error instanceof Error ? error.message : String(error),
+          operationId: parsed.data.operationId,
+          reasonCode: "execution_recovery.service_response_unavailable",
+          status: "outcome_unknown",
+        };
+      }
+    });
   }
-
   private async resolveExecutionRecoveryAssociation(
     input: Pick<
       RuntimeTransportInspectExecutionRecoveryRequest,
@@ -2765,7 +2829,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         ok: true;
         commandState: RuntimeCoordinatorRunCommandState;
         identity: RuntimeTransportInspectExecutionRecoveryRequest["identity"];
-        session: RuntimeTransportSessionState & { socket: WebSocket };
+        session: RuntimeTransportSessionState & {
+          socket: WebSocket;
+        };
       }
     | {
         ok: false;
@@ -2868,10 +2934,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         taskId: delivery.payload.taskId,
       },
       ok: true,
-      session: session as RuntimeTransportSessionState & { socket: WebSocket },
+      session: session as RuntimeTransportSessionState & {
+        socket: WebSocket;
+      },
     };
   }
-
   private async runSerializedRuntimeCoordinatorFinalization<T>(input: {
     run: () => Promise<T>;
     runtimeCoordinatorExecutionId: string;
@@ -2890,7 +2957,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     const run = this.beginSerializedRuntimeCoordinatorFinalization(input);
     return await this.waitForRuntimeCoordinatorFinalizationWork(run);
   }
-
   private async runSerializedRuntimeCoordinatorFinalizationToCompletion<
     T,
   >(input: {
@@ -2908,7 +2974,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     return await this.beginSerializedRuntimeCoordinatorFinalization(input);
   }
-
   private beginSerializedRuntimeCoordinatorFinalization<T>(input: {
     run: () => Promise<T>;
     runtimeCoordinatorExecutionId: string;
@@ -2932,7 +2997,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     );
     return run;
   }
-
   private async waitForRuntimeCoordinatorFinalizationWork<T>(
     work: Promise<T>
   ): Promise<SerializedRuntimeCoordinatorFinalizationResult<T>> {
@@ -2965,7 +3029,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
     });
   }
-
   private async runBoundedRuntimeCoordinatorFinalizationRecovery(input: {
     attemptId: string;
     dispatchId: string;
@@ -3015,7 +3078,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     return await this.waitForRuntimeCoordinatorFinalizationWork(recovery);
   }
-
   // biome-ignore lint/correctness/noUnusedPrivateClassMembers: contract tests exercise this diagnostic helper through the DO instance without exposing an operator route.
   private async classifyRuntimeCoordinatorPublicationClosureDiagnostics(
     input: RuntimeCoordinatorPublicationClosureDiagnosticInput
@@ -3034,7 +3096,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       input
     );
   }
-
   private async classifyRuntimeCoordinatorSuccessReplyClosureDiagnostics(
     input: RuntimeCoordinatorPublicationClosureDiagnosticInput
   ): Promise<RuntimeCoordinatorPublicationClosureDiagnostics> {
@@ -3051,7 +3112,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
               "runtime_coordinator.finalization_command_selector_missing",
           });
     }
-
     const command = await this.readRuntimeCoordinatorFinalizationCommand(
       finalizationCommandId
     );
@@ -3079,7 +3139,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         reasonCode: "runtime_coordinator.finalization_command_mismatch",
       });
     }
-
     const storedOutcome = await this.readRuntimeCoordinatorFinalizationOutcome(
       finalizationCommandId
     );
@@ -3091,7 +3150,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         status: "already_visible",
       };
     }
-
     return {
       finalizationCommandId,
       publicationKind: "success_reply",
@@ -3099,7 +3157,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       status: "retryable",
     };
   }
-
   private async classifyRuntimeCoordinatorFailureNoticeClosureDiagnostics(
     input: RuntimeCoordinatorPublicationClosureDiagnosticInput
   ): Promise<RuntimeCoordinatorPublicationClosureDiagnostics> {
@@ -3113,7 +3170,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
               "runtime_coordinator.failure_publication_selector_missing",
           });
     }
-
     const record = await this.readRuntimeCoordinatorHeadLifecycleRecord(
       targetWakeLifecycleId
     );
@@ -3144,7 +3200,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         reasonCode: "runtime_coordinator.failure_publication_command_mismatch",
       });
     }
-
     const command = buildRuntimeCoordinatorHeadFailurePublicationCommand({
       nowMs: Date.now(),
       record,
@@ -3170,7 +3225,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         targetWakeLifecycleId,
       };
     }
-
     return {
       failurePublicationCommandId: command.failurePublicationCommandId,
       publicationKind: "failure_notice",
@@ -3179,7 +3233,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       targetWakeLifecycleId,
     };
   }
-
   private async classifyRuntimeCoordinatorStoppedNoticeClosureDiagnostics(
     input: RuntimeCoordinatorPublicationClosureDiagnosticInput
   ): Promise<RuntimeCoordinatorPublicationClosureDiagnostics> {
@@ -3203,7 +3256,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         }
       );
     }
-
     const publicationId = buildRuntimeCoordinatorWakeStoppedNoticePublicationId(
       runtimeCoordinatorExecutionId
     );
@@ -3219,8 +3271,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         status: "already_visible",
       };
     }
-
-    const db = wakeEvidenceDb(this.env);
+    const db = getPostgresDatabase(this.env);
     const projection = db
       ? await readRuntimeCoordinatorExecutionProjectionById({
           db,
@@ -3254,7 +3305,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           "runtime_coordinator.stopped_publication_execution_not_cancelled",
       });
     }
-
     return {
       publicationId,
       publicationKind: "stopped_notice",
@@ -3262,7 +3312,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       status: "retryable",
     };
   }
-
   private async classifyRuntimeCoordinatorHeadStoppedNoticeClosureDiagnostics(input: {
     diagnosticInput: RuntimeCoordinatorPublicationClosureDiagnosticInput;
     targetWakeLifecycleId: string;
@@ -3283,7 +3332,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         status: "already_visible",
       };
     }
-
     const record = await this.readRuntimeCoordinatorHeadLifecycleRecord(
       input.targetWakeLifecycleId
     );
@@ -3318,7 +3366,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           "runtime_coordinator.stopped_publication_lifecycle_not_stopped",
       });
     }
-
     return {
       publicationId,
       publicationKind: "stopped_notice",
@@ -3326,11 +3373,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       status: "retryable",
     };
   }
-
   fetch(request: Request): Promise<Response> {
     return Promise.resolve(this.handleFetch(request));
   }
-
   webSocketMessage(
     webSocket: WebSocket,
     rawMessage: string | ArrayBuffer
@@ -3353,7 +3398,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     this.handleParsedStreamFrame(webSocket, frame);
   }
-
   private handleParsedStreamFrame(
     webSocket: WebSocket,
     frame: DaemonStreamFrame
@@ -3573,6 +3617,32 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         this.handleLocalAgentControlResultFrame(webSocket, frame.payload);
         return;
       }
+      case "daemon.execution_input.result": {
+        const parsed = localExecutionInputResultFrameSchema.safeParse(
+          frame.payload
+        );
+        if (!parsed.success) {
+          return;
+        }
+        const waiter = this.currentDeviceOperationWaiters.get(
+          parsed.data.requestId
+        );
+        if (
+          !waiter ||
+          waiter.socket !== webSocket ||
+          waiter.expectedResponseCode !== "daemon.execution_input.result"
+        ) {
+          return;
+        }
+        clearTimeout(waiter.timeoutId);
+        this.currentDeviceOperationWaiters.delete(parsed.data.requestId);
+        if (waiter.isExpectedPayload(parsed.data.result)) {
+          waiter.resolve(parsed.data.result);
+        } else {
+          waiter.reject(new Error("Execution input receipt target mismatch."));
+        }
+        return;
+      }
       case "daemon.openmeld_tools_control.result": {
         this.handleOpenMeldToolsControlResultFrame(webSocket, frame.payload);
         return;
@@ -3631,7 +3701,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       }
     }
   }
-
   private enqueueOrderedDispatchFrame(input: {
     onError: (error: unknown) => void;
     payload: unknown;
@@ -3642,7 +3711,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       this.ctx.waitUntil(input.run().catch(input.onError));
       return;
     }
-
     const previous = this.orderedDispatchFrameTails.get(dispatchId);
     const run = (previous ?? Promise.resolve())
       .catch(() => undefined)
@@ -3660,7 +3728,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     this.orderedDispatchFrameTails.set(dispatchId, tail);
     this.ctx.waitUntil(tail);
   }
-
   private handleRegisterSessionFrame(
     webSocket: WebSocket,
     payload: unknown
@@ -3825,7 +3892,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     });
     this.queueHousekeepingAlarmSync();
   }
-
   private queueReplacementSessionReconciliation(input: {
     daemonSessionId: string;
     shouldReconcile: boolean;
@@ -3847,7 +3913,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       })
     );
   }
-
   private handleHeartbeatFrame(webSocket: WebSocket, payload: unknown): void {
     const parsed = runtimeTransportHeartbeatRequestSchema.safeParse(payload);
     if (!parsed.success) {
@@ -4001,7 +4066,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     this.queueHousekeepingAlarmSync();
   }
-
   private async handleDispatchResultFrame(
     webSocket: WebSocket,
     payload: unknown
@@ -4145,7 +4209,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       this.queueHousekeepingAlarmSync();
       return;
     }
-    const db = wakeEvidenceDb(this.env);
+    const db = getPostgresDatabase(this.env);
     const contextRejection = await this.resolveExecutionContextResultRejection(
       parsed.data,
       tokenValidationContext
@@ -4210,7 +4274,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     this.queueHousekeepingAlarmSync();
   }
-
   private async resolveExecutionContextResultRejection(
     request: RuntimeTransportSubmitTaskResultRequest,
     context: RuntimeCoordinatorTokenValidationContext
@@ -4263,13 +4326,14 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           };
     }
   }
-
   private async tryAcceptRuntimeCoordinatorLateResult(input: {
     request: RuntimeTransportSubmitTaskResultRequest;
     runtimeCoordinatorExecution: RuntimeCoordinatorExecutionRecord | null;
     tokenValidation: Extract<
       RuntimeCoordinatorExecutionTokenValidationResult,
-      { ok: false }
+      {
+        ok: false;
+      }
     >;
     tokenValidationContext: RuntimeCoordinatorTokenValidationContext;
     webSocket: WebSocket;
@@ -4297,8 +4361,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
       return true;
     }
-
-    const db = wakeEvidenceDb(this.env);
+    const db = getPostgresDatabase(this.env);
     const attemptId = resolveSubmitResultAttemptId(input.request);
     const targetProfileId = normalizeOptionalText(
       input.request.taskResult.payload.agentId
@@ -4376,10 +4439,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     this.queueHousekeepingAlarmSync();
     return true;
   }
-
   private async publishRuntimeCoordinatorLateResultAvailable(input: {
     attemptId: string;
-    db: D1Database;
+    db: PostgresDatabase;
     dispatchId: string;
     runtimeCoordinatorExecutionId: string;
   }): Promise<boolean> {
@@ -4466,7 +4528,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     });
     return update.status === "updated";
   }
-
   private sendSubmitTaskResultResponseFrame(
     webSocket: WebSocket,
     request: RuntimeTransportSubmitTaskResultRequest,
@@ -4485,7 +4546,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       },
     });
   }
-
   private async finalizeDurableDispatchResult(result: {
     acceptedAtMs: number;
     acceptedResultStatus: "accepted" | "already_accepted";
@@ -4507,14 +4567,16 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     taskId: string;
     taskResult: OpenMeldDaemonTaskResultEnvelope;
   }): Promise<
-    | { ok: true }
+    | {
+        ok: true;
+      }
     | {
         ok: false;
         reasonCode: "daemon.result.finalization_unavailable";
         status: "retry_later";
       }
   > {
-    const db = wakeEvidenceDb(this.env);
+    const db = getPostgresDatabase(this.env);
     if (!db) {
       return {
         ok: false,
@@ -4549,7 +4611,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         status: "retry_later",
       };
     }
-
     if (result.settledFinalization) {
       return await this.finalizeSettledDurableDispatchResult({
         ...result,
@@ -4560,7 +4621,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         spaceId,
       });
     }
-
     let command: RuntimeCoordinatorFinalizationCommand | null;
     try {
       command = await this.prepareRuntimeCoordinatorFinalizationCommand({
@@ -4596,12 +4656,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         status: "retry_later",
       };
     }
-
     await this.retireAcceptedRuntimeCoordinatorTokenRun({
       runId: executionTokenRunId,
       runtimeCoordinatorExecutionId,
     });
-
     // The daemon receipt needs durable cloud acceptance only: the command is
     // persisted and its retry entry is seeded (inside prepare… above), so the
     // finalization retry alarm replays this command even if the DO is evicted
@@ -4632,12 +4690,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     );
     return { ok: true };
   }
-
   private async finalizeSettledDurableDispatchResult(input: {
     acceptedAtMs: number;
     attemptId: string;
     daemonSessionId: string;
-    db: D1Database;
+    db: PostgresDatabase;
     dispatchId: string;
     executionTokenFingerprint?: string | null;
     executionTokenRunId: string;
@@ -4654,7 +4711,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     taskId: string;
     taskResult: OpenMeldDaemonTaskResultEnvelope;
   }): Promise<
-    | { ok: true }
+    | {
+        ok: true;
+      }
     | {
         ok: false;
         reasonCode: "daemon.result.finalization_unavailable";
@@ -4675,7 +4734,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         status: "retry_later",
       };
     }
-
     try {
       await this.persistRuntimeCoordinatorFinalizationCommand({
         command,
@@ -4705,7 +4763,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         status: "retry_later",
       };
     }
-
     await this.retireAcceptedRuntimeCoordinatorTokenRun({
       runId: input.executionTokenRunId,
       runtimeCoordinatorExecutionId: input.runtimeCoordinatorExecutionId,
@@ -4733,7 +4790,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     );
     return { ok: true };
   }
-
   private async settleDurableDispatchResult(result: {
     acceptedAtMs: number;
     attemptId: string;
@@ -4768,7 +4824,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         status: "retry_later";
       }
   > {
-    const db = wakeEvidenceDb(this.env);
+    const db = getPostgresDatabase(this.env);
     const spaceId = normalizeOptionalText(result.spaceId);
     const runtimeCoordinatorExecutionId = normalizeOptionalText(
       result.runtimeCoordinatorExecutionId
@@ -4785,7 +4841,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         status: "retry_later",
       };
     }
-
     const command = await this.prepareRuntimeCoordinatorFinalizationCommand({
       ...result,
       db,
@@ -4801,7 +4856,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         status: "retry_later",
       };
     }
-
     if (
       await this.suppressRuntimeCoordinatorFinalizationAfterWakeStop({
         command,
@@ -4818,7 +4872,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         status: "retry_later",
       };
     }
-
     let rawOutcome: unknown;
     try {
       rawOutcome =
@@ -4873,7 +4926,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           status: "retry_later",
         };
   }
-
   private async replayRuntimeCoordinatorFinalizationCommand(input: {
     attemptId: string;
     dispatchId: string;
@@ -4885,7 +4937,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     runtimeCoordinatorExecutionId: string;
     spaceId: string;
   }): Promise<
-    | { ok: true; outcome: RuntimeCoordinatorFinalizationOutcome }
+    | {
+        ok: true;
+        outcome: RuntimeCoordinatorFinalizationOutcome;
+      }
     | {
         ok: true;
         reasonCode: "runtime_coordinator.wake_stop_requested";
@@ -4929,7 +4984,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       })
     );
   }
-
   private async recoverRuntimeCoordinatorFinalizationFromSpaceClaim(input: {
     attemptId: string;
     dispatchId: string;
@@ -4939,7 +4993,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     runtimeCoordinatorExecutionId: string;
     spaceId: string;
   }): Promise<RuntimeCoordinatorFinalizationRecoveryResult> {
-    const db = wakeEvidenceDb(this.env);
+    const db = getPostgresDatabase(this.env);
     if (!db) {
       return null;
     }
@@ -5007,13 +5061,14 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     return replayed;
   }
-
   private async confirmRuntimeCoordinatorFinalizationTaskOutcome(input: {
     command: RuntimeCoordinatorFinalizationCommand;
-    coordinationDb: D1Database;
+    coordinationDb: PostgresDatabase;
     finalMessageKind?: Extract<
       RuntimeCoordinatorFinalizationOutcome,
-      { ok: true }
+      {
+        ok: true;
+      }
     >["finalMessageKind"];
     publishedSignalId: string | null;
     publishState: "invalid_space_action" | "reply_published";
@@ -5061,7 +5116,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       return false;
     }
   }
-
   private async readRuntimeCoordinatorFinalizationClaim(
     command: RuntimeCoordinatorFinalizationCommand
   ): Promise<RuntimeCoordinatorFinalizationClaimRead | null> {
@@ -5110,7 +5164,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     return claimRead.data;
   }
-
   private async applyRuntimeCoordinatorPublicationExhaustion(
     command: RuntimeCoordinatorFinalizationCommand
   ): Promise<RuntimeCoordinatorFinalizationClaimRead | null> {
@@ -5159,20 +5212,24 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     return claimRead.data;
   }
-
   private async replayRuntimeCoordinatorFinalizationCommandUnserialized(input: {
     attemptId: string;
     dispatchId: string;
     executionTokenRunId: string;
     expectedVisibleOutcome?: Extract<
       RuntimeCoordinatorFinalizationOutcome,
-      { ok: true }
+      {
+        ok: true;
+      }
     >;
     preloadedCommand?: RuntimeCoordinatorFinalizationCommand;
     runtimeCoordinatorExecutionId: string;
     spaceId: string;
   }): Promise<
-    | { ok: true; outcome: RuntimeCoordinatorFinalizationOutcome }
+    | {
+        ok: true;
+        outcome: RuntimeCoordinatorFinalizationOutcome;
+      }
     | {
         ok: true;
         reasonCode: "runtime_coordinator.wake_stop_requested";
@@ -5180,7 +5237,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       }
     | RuntimeCoordinatorFinalizationReplayFailure
   > {
-    const db = wakeEvidenceDb(this.env);
+    const db = getPostgresDatabase(this.env);
     if (!db) {
       return rejectRuntimeCoordinatorFinalizationReplay();
     }
@@ -5228,7 +5285,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         status: "suppressed",
       };
     }
-
     const spaceStub = resolveSpaceStub(
       this.env.OPENMELD_SPACES,
       command.spaceId
@@ -5240,7 +5296,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         preserveVisibleClaim: Boolean(input.expectedVisibleOutcome),
       });
     }
-
     let rawOutcome: unknown;
     try {
       rawOutcome =
@@ -5308,12 +5363,13 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       outcome: resolvedOutcome.outcome,
     });
   }
-
   private async resolveAppliedRuntimeCoordinatorFinalizationOutcome(input: {
     command: RuntimeCoordinatorFinalizationCommand;
     expectedVisibleOutcome?: Extract<
       RuntimeCoordinatorFinalizationOutcome,
-      { ok: true }
+      {
+        ok: true;
+      }
     >;
     rawOutcome: unknown;
   }): Promise<RuntimeCoordinatorFinalizationOutcomeReplayResult> {
@@ -5369,10 +5425,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     return { ok: true, outcome };
   }
-
   private async resolveMissingRuntimeCoordinatorFinalizationSpace(input: {
     command: RuntimeCoordinatorFinalizationCommand;
-    db: D1Database;
+    db: PostgresDatabase;
     preserveVisibleClaim: boolean;
   }): Promise<RuntimeCoordinatorFinalizationOutcomeReplayResult> {
     if (input.preserveVisibleClaim) {
@@ -5387,10 +5442,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     });
     return { ok: true, outcome };
   }
-
   private async completeRuntimeCoordinatorFinalizationReplay(input: {
     command: RuntimeCoordinatorFinalizationCommand;
-    db: D1Database;
+    db: PostgresDatabase;
     outcome: RuntimeCoordinatorFinalizationOutcome;
   }): Promise<
     | RuntimeCoordinatorFinalizationOutcomeReplayResult
@@ -5450,7 +5504,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         status: "suppressed",
       };
     }
-    const coordinationDb = agentTaskCoordinationDb(this.env);
+    const coordinationDb = getPostgresDatabase(this.env);
     if (
       outcome.ok &&
       !(
@@ -5484,7 +5538,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       streamSettled,
     });
   }
-
   private resolveRuntimeCoordinatorFinalizationOutcomeReplay(input: {
     outcomeWrite: RuntimeCoordinatorFinalizationOutcomeWriteResult;
     streamSettled: boolean;
@@ -5496,15 +5549,21 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     return { ok: true, outcome: input.outcomeWrite.outcome };
   }
-
   private async repairStoredRuntimeCoordinatorFinalizationSuccess(input: {
     command: RuntimeCoordinatorFinalizationCommand;
-    db: D1Database;
+    db: PostgresDatabase;
     expectedVisibleOutcome?: Extract<
       RuntimeCoordinatorFinalizationOutcome,
-      { ok: true }
+      {
+        ok: true;
+      }
     >;
-    outcome: Extract<RuntimeCoordinatorFinalizationOutcome, { ok: true }>;
+    outcome: Extract<
+      RuntimeCoordinatorFinalizationOutcome,
+      {
+        ok: true;
+      }
+    >;
   }): Promise<RuntimeCoordinatorFinalizationOutcomeReplayResult> {
     let expectedVisibleOutcome = input.expectedVisibleOutcome;
     if (
@@ -5539,7 +5598,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         publicationUncertain: true,
       });
     }
-    const coordinationDb = agentTaskCoordinationDb(this.env);
+    const coordinationDb = getPostgresDatabase(this.env);
     if (
       !(
         coordinationDb &&
@@ -5572,7 +5631,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       streamSettled,
     });
   }
-
   private async settleLocalAgentStreamForFinalization(input: {
     command: RuntimeCoordinatorFinalizationCommand;
     outcome: RuntimeCoordinatorFinalizationOutcome;
@@ -5590,7 +5648,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     });
     return true;
   }
-
   private async closeLocalAgentStreamOrScheduleRetry(input: {
     attemptId: string;
     dispatchId: string;
@@ -5612,7 +5669,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
       return;
     }
-
     const nowMs = Date.now();
     const existing = await readLocalAgentStreamClosureRetryEntry({
       storage: this.ctx.storage,
@@ -5627,7 +5683,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     });
     this.queueHousekeepingAlarmSync();
   }
-
   private async tryCloseLocalAgentStream(input: {
     runtimeCoordinatorExecutionId: string;
     spaceId: string;
@@ -5662,7 +5717,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       return false;
     }
   }
-
   private async closeStoppedLocalAgentStreamAfterTerminalLateResult(input: {
     reasonCode: string;
     request: RuntimeTransportSubmitTaskResultRequest;
@@ -5707,11 +5761,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       ),
     });
   }
-
   private async claimAcceptedRuntimeCoordinatorWakeStop(input: {
     command: RuntimeCoordinatorFinalizationCommand;
     commandState: RuntimeCoordinatorRunCommandState;
-    db: D1Database;
+    db: PostgresDatabase;
     nowMs: number;
   }): Promise<boolean> {
     const { commandState, nowMs } = input;
@@ -5781,7 +5834,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     });
     return true;
   }
-
   private async reconcileAcceptedResultFinalClaim(input: {
     claim: Extract<
       RuntimeCoordinatorFinalizationClaimRead,
@@ -5790,7 +5842,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       }
     >;
     command: RuntimeCoordinatorFinalizationCommand;
-    db: D1Database;
+    db: PostgresDatabase;
     nowMs: number;
   }): Promise<void> {
     if (input.claim.status === "finalization_visible") {
@@ -5814,11 +5866,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       }),
     });
   }
-
   private async verifyLocalExecutionOwnerCancellation(input: {
     command: RuntimeCoordinatorFinalizationCommand;
     commandState: RuntimeCoordinatorRunCommandState | null;
-    db: D1Database;
+    db: PostgresDatabase;
     projection: RuntimeCoordinatorExecutionRecord | null;
   }): Promise<boolean> {
     if (
@@ -5870,10 +5921,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     return true;
   }
-
   private async readRuntimeCoordinatorFinalizationStopContext(input: {
     command: RuntimeCoordinatorFinalizationCommand;
-    db: D1Database;
+    db: PostgresDatabase;
   }) {
     const projection = await readRuntimeCoordinatorExecutionProjectionById({
       db: input.db,
@@ -5916,10 +5966,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     return { projection, commandState, ownerCancellation, stopReasonCode };
   }
-
   private async suppressRuntimeCoordinatorFinalizationAfterWakeStop(input: {
     command: RuntimeCoordinatorFinalizationCommand;
-    db: D1Database;
+    db: PostgresDatabase;
   }): Promise<boolean> {
     const context =
       await this.readRuntimeCoordinatorFinalizationStopContext(input);
@@ -6018,7 +6067,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         }
       );
     }
-
     await updateDispatchResultInboxPublishState(input.db, {
       attemptId: input.command.acceptedResult.attemptId,
       dispatchId: input.command.dispatchId,
@@ -6061,7 +6109,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
             status: stoppedNoticePublication.status,
           };
     }
-
     await writeRuntimeCoordinatorExecutionEventFromParts({
       db: input.db,
       eventType: "runtime_coordinator_decision_recorded",
@@ -6112,12 +6159,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     return true;
   }
-
   private async prepareRuntimeCoordinatorFinalizationCommand(input: {
     acceptedAtMs: number;
     attemptId: string;
     daemonSessionId: string;
-    db: D1Database;
+    db: PostgresDatabase;
     dispatchId: string;
     executionTokenFingerprint?: string | null;
     executionTokenRunId: string;
@@ -6145,7 +6191,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         ? existing
         : null;
     }
-
     const ownerUserId = normalizeOptionalText(this.state.ownerUserId);
     const executionTokenFingerprint = normalizeOptionalText(
       input.executionTokenFingerprint
@@ -6153,7 +6198,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     if (!(ownerUserId && executionTokenFingerprint)) {
       return null;
     }
-
     const dispatchFact = await readAcceptedDispatchFinalizationFact({
       attemptId: input.attemptId,
       db: input.db,
@@ -6163,7 +6207,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     if (!dispatchFact) {
       return null;
     }
-
     const createdAtMs = Date.now();
     const commandCandidate: RuntimeCoordinatorFinalizationCommand = {
       acceptedResult: {
@@ -6212,10 +6255,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     });
     return parsed.data;
   }
-
   private async persistRuntimeCoordinatorFinalizationCommand(input: {
     command: RuntimeCoordinatorFinalizationCommand;
-    db: D1Database;
+    db: PostgresDatabase;
   }): Promise<void> {
     await this.ctx.storage.transaction(async (storage) => {
       const key = buildRuntimeCoordinatorFinalizationCommandStorageKey(
@@ -6277,10 +6319,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       db: input.db,
     });
   }
-
   private async readRuntimeCoordinatorFinalizationCommandForReplay(input: {
     attemptId: string;
-    db: D1Database;
+    db: PostgresDatabase;
     dispatchId: string;
     executionTokenRunId: string;
     runtimeCoordinatorExecutionId: string;
@@ -6304,7 +6345,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     });
     return null;
   }
-
   private isRuntimeCoordinatorFinalizationCommandForDispatch(
     command: RuntimeCoordinatorFinalizationCommand,
     input: {
@@ -6324,7 +6364,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       command.spaceId === input.spaceId
     );
   }
-
   private async readRuntimeCoordinatorFinalizationCommand(
     commandId: string
   ): Promise<RuntimeCoordinatorFinalizationCommand | null> {
@@ -6333,7 +6372,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       commandId
     );
   }
-
   private async readRuntimeCoordinatorFinalizationOutcome(
     commandId: string
   ): Promise<RuntimeCoordinatorFinalizationOutcome | null> {
@@ -6342,10 +6380,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       commandId
     );
   }
-
   private async writeRuntimeCoordinatorFinalizationOutcome(input: {
     command: RuntimeCoordinatorFinalizationCommand;
-    db: D1Database;
+    db: PostgresDatabase;
     keepRetryOnSuccess?: boolean;
     outcome: RuntimeCoordinatorFinalizationOutcome;
     taskOutcomeConfirmed?: boolean;
@@ -6434,10 +6471,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     });
     return { outcome, recoveryPending: false };
   }
-
   private async writeRuntimeCoordinatorFinalizationFailure(input: {
     command: RuntimeCoordinatorFinalizationCommand;
-    db: D1Database;
+    db: PostgresDatabase;
     reasonCode: string;
   }): Promise<RuntimeCoordinatorFinalizationOutcome> {
     const outcome = this.buildRuntimeCoordinatorFinalizationFailureOutcome({
@@ -6451,7 +6487,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     });
     return outcomeWrite.outcome;
   }
-
   private buildRuntimeCoordinatorFinalizationFailureOutcome(input: {
     command: RuntimeCoordinatorFinalizationCommand;
     reasonCode: string;
@@ -6465,7 +6500,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       status: "retry_later",
     };
   }
-
   private async buildRuntimeCoordinatorFinalizationRetry(input: {
     command: RuntimeCoordinatorFinalizationCommand;
     nowMs: number;
@@ -6492,7 +6526,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       updatedAtMs: input.nowMs,
     };
   }
-
   private async upsertRuntimeCoordinatorFinalizationRetryEntry(
     entry: RuntimeCoordinatorFinalizationRetryEntry
   ): Promise<void> {
@@ -6501,7 +6534,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       entry
     );
   }
-
   private async removeRuntimeCoordinatorFinalizationRetry(
     finalizationCommandId: string
   ): Promise<void> {
@@ -6510,9 +6542,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       finalizationCommandId
     );
   }
-
   private async storeRuntimeCoordinatorFinalizationRetryOrPark(input: {
-    db?: D1Database | null;
+    db?: PostgresDatabase | null;
     publicationCannotContinue?: boolean;
     queueAlarm?: boolean;
     retryEntry: RuntimeCoordinatorFinalizationRetryEntry;
@@ -6531,14 +6562,12 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       }
       return;
     }
-
     // Preserve the recovery obligation before crossing into Space. A crash or
     // failed terminal write must not leave only an accepted result behind.
     await this.upsertRuntimeCoordinatorFinalizationRetryEntry(input.retryEntry);
     if (input.queueAlarm) {
       this.queueHousekeepingAlarmSync();
     }
-
     await this.writeRuntimeCoordinatorPublicationBlocker({
       blockerId: `finalization:${input.retryEntry.finalizationCommandId}`,
       blockerKind: "publication_unavailable",
@@ -6553,7 +6582,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       targetProfileId: input.retryEntry.targetProfileId,
       targetWakeLifecycleId: null,
     });
-
     if (
       input.publicationCannotContinue ||
       isRuntimeCoordinatorFinalizationRetryParkLimitReached({
@@ -6563,7 +6591,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     ) {
       const terminalStatus =
         await this.failRuntimeCoordinatorFinalizationRetryParkExhausted({
-          coordinationDb: agentTaskCoordinationDb(this.env),
+          coordinationDb: getPostgresDatabase(this.env),
           evidenceDb: input.db,
           retryEntry: input.retryEntry,
         });
@@ -6626,7 +6654,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
       return;
     }
-
     const parkedRetryEntry = parkRuntimeCoordinatorFinalizationRetryEntry({
       nowMs: input.retryEntry.updatedAtMs,
       retryEntry: input.retryEntry,
@@ -6650,7 +6677,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       this.queueHousekeepingAlarmSync();
     }
   }
-
   private async closeLocalAgentStreamAfterFinalizationRetryParkExhausted(
     retryEntry: RuntimeCoordinatorFinalizationRetryEntry
   ): Promise<void> {
@@ -6684,7 +6710,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           ),
     });
   }
-
   private warnFinalizationRetryParkFailure(input: {
     error: unknown;
     event: string;
@@ -6701,9 +6726,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         input.retryEntry.runtimeCoordinatorExecutionId,
     });
   }
-
   private async readFinalizationRetryParkState(input: {
-    db: D1Database;
+    db: PostgresDatabase;
     retryEntry: RuntimeCoordinatorFinalizationRetryEntry;
   }): Promise<{
     authority: RuntimeCoordinatorExecutionTokenAuthorityRecord | null;
@@ -6735,7 +6759,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         terminalResult: "projection_unavailable",
       };
     }
-
     let authority: RuntimeCoordinatorExecutionTokenAuthorityRecord | null;
     try {
       authority = await this.readRuntimeCoordinatorTokenAuthority(
@@ -6754,7 +6777,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         terminalResult: "authority_unavailable",
       };
     }
-
     if (authority?.terminalOutcome?.status === "reply_published") {
       return { authority, projection, terminalResult: "already_published" };
     }
@@ -6771,7 +6793,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         : null,
     };
   }
-
   private async readValidatedFinalizationRetryParkCommand(
     retryEntry: RuntimeCoordinatorFinalizationRetryEntry
   ): Promise<RuntimeCoordinatorFinalizationCommand | null> {
@@ -6800,7 +6821,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
     return matchesRetry ? command : null;
   }
-
   private hasFinalizationRetryParkTerminalDecision(input: {
     authority: RuntimeCoordinatorExecutionTokenAuthorityRecord | null;
   }): boolean {
@@ -6810,7 +6830,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         RUNTIME_COORDINATOR_PUBLICATION_RETRY_EXHAUSTED_REASON_CODE
     );
   }
-
   private hasFinalizationRetryParkProjectionConflict(input: {
     authority: RuntimeCoordinatorExecutionTokenAuthorityRecord | null;
     projection: RuntimeCoordinatorExecutionRecord | null;
@@ -6830,7 +6849,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       this.hasFinalizationRetryParkTerminalDecision(input)
     );
   }
-
   private async ensureFinalizationRetryParkTerminalAuthority(input: {
     authority: RuntimeCoordinatorExecutionTokenAuthorityRecord | null;
     nowMs: number;
@@ -6876,11 +6894,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       return { result: "authority_write_failed" };
     }
   }
-
   private async writeFinalizationRetryParkTerminalProjection(input: {
     authority: RuntimeCoordinatorExecutionTokenAuthorityRecord;
     command: RuntimeCoordinatorFinalizationCommand;
-    db: D1Database;
+    db: PostgresDatabase;
     nowMs: number;
     projection: RuntimeCoordinatorExecutionRecord | null;
     retryEntry: RuntimeCoordinatorFinalizationRetryEntry;
@@ -6911,7 +6928,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       },
       updatedAtMs: input.nowMs,
     };
-    let projectionWrite: "created" | "skipped_stale" | "updated";
+    let projectionWrite: "skipped_stale" | "written";
     try {
       projectionWrite = await writeRuntimeCoordinatorExecutionProjection({
         db: input.db,
@@ -6958,9 +6975,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       ? "projection_conflict"
       : "terminal_projection_write_failed";
   }
-
   private async recordFinalizationRetryParkTerminalEvent(input: {
-    db: D1Database;
+    db: PostgresDatabase;
     nowMs: number;
     retryEntry: RuntimeCoordinatorFinalizationRetryEntry;
   }): Promise<void> {
@@ -6992,10 +7008,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
     });
   }
-
   private async recordFinalizationRetryParkTaskOutcome(input: {
     command: RuntimeCoordinatorFinalizationCommand;
-    coordinationDb: D1Database | undefined;
+    coordinationDb: PostgresDatabase | undefined;
     publishedSignalId: string;
     retryEntry: RuntimeCoordinatorFinalizationRetryEntry;
   }): Promise<
@@ -7045,10 +7060,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       return "task_outcome_write_failed";
     }
   }
-
   private async inspectFinalizationRetryParkTaskOutcome(input: {
     command: RuntimeCoordinatorFinalizationCommand;
-    coordinationDb: D1Database | undefined;
+    coordinationDb: PostgresDatabase | undefined;
     publishedSignalId: string;
     retryEntry: RuntimeCoordinatorFinalizationRetryEntry;
   }): Promise<
@@ -7098,13 +7112,15 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       return "task_outcome_inspection_failed";
     }
   }
-
   private async reconcileFinalizationRetryParkSpaceClaim(input: {
     command: RuntimeCoordinatorFinalizationCommand;
     retryEntry: RuntimeCoordinatorFinalizationRetryEntry;
   }): Promise<
     | FinalizationRetryParkExhaustedResult
-    | { publishedSignalId: string; status: "publication_failed_visible" }
+    | {
+        publishedSignalId: string;
+        status: "publication_failed_visible";
+      }
   > {
     const claimRead = await this.applyRuntimeCoordinatorPublicationExhaustion(
       input.command
@@ -7136,10 +7152,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       ? "already_terminal"
       : "already_published";
   }
-
   private async failRuntimeCoordinatorFinalizationRetryParkExhausted(input: {
-    coordinationDb: D1Database | undefined;
-    evidenceDb?: D1Database | null;
+    coordinationDb: PostgresDatabase | undefined;
+    evidenceDb?: PostgresDatabase | null;
     retryEntry: RuntimeCoordinatorFinalizationRetryEntry;
   }): Promise<FinalizationRetryParkExhaustedResult> {
     if (!input.evidenceDb) {
@@ -7234,7 +7249,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     return "terminal_projection_written";
   }
-
   private async readRuntimeCoordinatorFinalizationRetries(): Promise<
     RuntimeCoordinatorFinalizationRetryEntry[]
   > {
@@ -7242,11 +7256,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       this.ctx.storage
     );
   }
-
   private async recordRuntimeCoordinatorFinalizationCommandMissing(input: {
     attemptId: string;
     commandId: string;
-    db: D1Database;
+    db: PostgresDatabase;
     dispatchId: string;
     executionTokenRunId: string;
     runtimeCoordinatorExecutionId: string;
@@ -7291,10 +7304,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
     });
   }
-
   private async recordRuntimeCoordinatorFinalizationCommandCreated(input: {
     command: RuntimeCoordinatorFinalizationCommand;
-    db: D1Database;
+    db: PostgresDatabase;
   }): Promise<void> {
     await writeRuntimeCoordinatorExecutionEventFromParts({
       db: input.db,
@@ -7323,11 +7335,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
     });
   }
-
   private async writeRuntimeCoordinatorPublicationBlocker(input: {
     blockerId: string;
     blockerKind: RuntimeCoordinatorPublicationBlockerRecord["blockerKind"];
-    db?: D1Database | null;
+    db?: PostgresDatabase | null;
     dispatchId: string;
     nowMs: number;
     publicationKind: RuntimeCoordinatorPublicationBlockerRecord["publicationKind"];
@@ -7390,7 +7401,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
     });
   }
-
   private async readRuntimeCoordinatorWakeStoppedNoticePublicationRecord(
     publicationId: string
   ): Promise<RuntimeCoordinatorWakeStoppedNoticePublicationRecord | null> {
@@ -7402,7 +7412,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
     return record ?? null;
   }
-
   private async writeRuntimeCoordinatorWakeStoppedNoticePublicationRecord(
     record: RuntimeCoordinatorWakeStoppedNoticePublicationRecord
   ): Promise<void> {
@@ -7441,7 +7450,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       this.scheduledHousekeepingAlarmAtMs = nowMs;
     }
   }
-
   private async readRuntimeCoordinatorStoppedTaskProjectionPublicationIds(): Promise<
     string[]
   > {
@@ -7451,7 +7459,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       )
     );
   }
-
   private async removeRuntimeCoordinatorStoppedTaskProjectionPublicationId(
     publicationId: string
   ): Promise<void> {
@@ -7472,10 +7479,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
     });
   }
-
   private async writeRuntimeCoordinatorPublicationProjection(input: {
     command: RuntimeCoordinatorFinalizationCommand;
-    db: D1Database;
+    db: PostgresDatabase;
     outcome: RuntimeCoordinatorFinalizationOutcome;
   }): Promise<boolean> {
     const nowMs = Date.now();
@@ -7563,7 +7569,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           : "failed",
       targetProfileId: input.command.targetProfileId,
     });
-
     if (!(input.outcome.ok && executionSemantic)) {
       return true;
     }
@@ -7576,10 +7581,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
     return executionProjectionSettled && authoritySettled;
   }
-
   private async writeRuntimeCoordinatorExecutionPublicationProjection(input: {
     command: RuntimeCoordinatorFinalizationCommand;
-    db: D1Database;
+    db: PostgresDatabase;
     nowMs: number;
     reasonCode: string | null;
     status: RuntimeCoordinatorExecutionStatus;
@@ -7656,7 +7660,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       return false;
     }
   }
-
   private warnRuntimeCoordinatorPublicationRepairFailure(input: {
     command: RuntimeCoordinatorFinalizationCommand;
     error: unknown;
@@ -7673,7 +7676,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         input.command.runtimeCoordinatorExecutionId,
     });
   }
-
   private async setRuntimeCoordinatorFinalizationTerminalOutcome(input: {
     command: RuntimeCoordinatorFinalizationCommand;
     executionSemantic: RuntimeCoordinatorFinalizationSemantic;
@@ -7768,7 +7770,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       return false;
     }
   }
-
   private readKnownRuntimeCoordinatorResultState(input: {
     attemptId: string;
     dispatchId: string;
@@ -7783,7 +7784,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       null
     );
   }
-
   private async resolveRuntimeCoordinatorResultContract(
     request: RuntimeTransportSubmitTaskResultRequest
   ): Promise<
@@ -7826,7 +7826,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         verifiedRuntimeCoordinatorExecution: null,
       };
     }
-
     const requestRuntimeCoordinatorExecutionId = normalizeOptionalText(
       request.runtimeCoordinatorExecutionId
     );
@@ -7836,7 +7835,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         reasonCode: "runtime_coordinator.execution_id_missing",
       };
     }
-    const db = wakeEvidenceDb(this.env);
+    const db = getPostgresDatabase(this.env);
     if (!db) {
       return {
         ok: true,
@@ -7844,7 +7843,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         verifiedRuntimeCoordinatorExecution: null,
       };
     }
-
     const projection = await readRuntimeCoordinatorExecutionProjectionById({
       db,
       runtimeCoordinatorExecutionId: requestRuntimeCoordinatorExecutionId,
@@ -7875,7 +7873,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         reasonCode: "runtime_coordinator.execution_id_mismatch",
       };
     }
-
     return {
       ok: true,
       diagnosticRuntimeCoordinatorExecutionId:
@@ -7883,7 +7880,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       verifiedRuntimeCoordinatorExecution: projection,
     };
   }
-
   private resolveRuntimeCoordinatorResultTokenValidationContext(input: {
     request: RuntimeTransportSubmitTaskResultRequest;
     verifiedRuntimeCoordinatorExecution: RuntimeCoordinatorExecutionRecord | null;
@@ -7912,7 +7908,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     return null;
   }
-
   private async resolveRuntimeCoordinatorResultTokenValidationContextForRequest(input: {
     request: RuntimeTransportSubmitTaskResultRequest;
     verifiedRuntimeCoordinatorExecution: RuntimeCoordinatorExecutionRecord | null;
@@ -7931,7 +7926,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     if (context) {
       return { context, ok: true };
     }
-
     let authorityContext:
       | {
           ok: true;
@@ -7997,7 +7991,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       ok: true,
     };
   }
-
   private async resolveRuntimeCoordinatorResultTokenValidationContextFromAuthority(
     request: RuntimeTransportSubmitTaskResultRequest
   ): Promise<
@@ -8041,7 +8034,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       ok: true,
     };
   }
-
   private async validateRuntimeCoordinatorProgressToken(input: {
     context: RuntimeCoordinatorTokenValidationContext;
     executionTokenEcho: RuntimeCoordinatorExecutionTokenEcho | null;
@@ -8073,7 +8065,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     return validation;
   }
-
   private async rejectResultWithoutTokenValidationContext(
     webSocket: WebSocket,
     request: RuntimeTransportSubmitTaskResultRequest
@@ -8133,7 +8124,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       },
     });
   }
-
   private async validateLateRuntimeCoordinatorProgressToken(input: {
     executionTokenEcho: RuntimeCoordinatorExecutionTokenEcho | null;
     frameKind: RuntimeCoordinatorTokenValidationFrameKind;
@@ -8168,7 +8158,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     return validation;
   }
-
   private async retireAcceptedRuntimeCoordinatorTokenRun(input: {
     runId: string;
     runtimeCoordinatorExecutionId: string;
@@ -8192,7 +8181,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       })
     );
   }
-
   private validateRuntimeCoordinatorExecutionIdEcho(input: {
     attemptId: string;
     authoritativeRuntimeCoordinatorExecutionId: string | null;
@@ -8200,7 +8188,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     frameKind: RuntimeCoordinatorTokenValidationFrameKind;
     requestRuntimeCoordinatorExecutionId?: string | null;
   }):
-    | { ok: true }
+    | {
+        ok: true;
+      }
     | {
         ok: false;
         reasonCode:
@@ -8229,7 +8219,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         reasonCode: "runtime_coordinator.execution_id_missing",
       };
     }
-
     if (
       input.authoritativeRuntimeCoordinatorExecutionId &&
       requestRuntimeCoordinatorExecutionId !==
@@ -8254,17 +8243,15 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         reasonCode: "runtime_coordinator.execution_id_mismatch",
       };
     }
-
     return { ok: true };
   }
-
   private async recordRuntimeCoordinatorResultProjection(input: {
     diagnosticRuntimeCoordinatorExecutionId?: string | null;
     request: RuntimeTransportSubmitTaskResultRequest;
     response: Awaited<ReturnType<typeof handleSubmitTaskResult>>;
     verifiedRuntimeCoordinatorExecution?: RuntimeCoordinatorExecutionRecord | null;
   }): Promise<void> {
-    const db = wakeEvidenceDb(this.env);
+    const db = getPostgresDatabase(this.env);
     if (!db) {
       return;
     }
@@ -8284,7 +8271,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     if (!runtimeCoordinatorExecutionId) {
       return;
     }
-
     const nowMs = Date.now();
     try {
       if (input.response.ok && completed) {
@@ -8387,7 +8373,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         });
         return;
       }
-
       await writeRuntimeCoordinatorExecutionEventFromParts({
         db,
         eventType: mapResultRejectionToCoordinatorEventType(input.response),
@@ -8412,9 +8397,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
     }
   }
-
   private async linkAcceptedAgentActivityExecution(input: {
-    db: D1Database;
+    db: PostgresDatabase;
     nowMs: number;
     runtimeCoordinatorExecutionId: string;
   }) {
@@ -8425,9 +8409,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
     });
   }
-
   private async writeRuntimeCoordinatorResultAcceptedProjection(input: {
-    db: D1Database;
+    db: PostgresDatabase;
     record: RuntimeCoordinatorExecutionRecord;
     runtimeCoordinatorExecutionId: string;
   }): Promise<void> {
@@ -8444,9 +8427,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       record: input.record,
     });
   }
-
   private async resolveDurableDispatchResultAcceptance(
-    db: D1Database,
+    db: PostgresDatabase,
     result: {
       attemptId: string;
       connectionGeneration: number;
@@ -8547,7 +8529,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         },
       };
     }
-
     if (!hasAcceptedResultRuntimeCoordinatorPointer(result)) {
       return {
         ok: false as const,
@@ -8555,7 +8536,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         status: "rejected_terminal" as const,
       };
     }
-
     let attemptFact: Awaited<
       ReturnType<typeof readDispatchAttemptResultAcceptanceFact>
     >;
@@ -8606,7 +8586,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         status: "rejected_terminal" as const,
       };
     }
-
     return {
       ok: true as const,
       result: {
@@ -8627,23 +8606,24 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       },
     };
   }
-
   private async readDispatchSpaceId(
-    db: D1Database,
+    db: PostgresDatabase,
     dispatchId: string
   ): Promise<string | null> {
     try {
       const row = await db
-        .prepare(
-          `
-            SELECT space_id AS spaceId
-            FROM openMeldDaemon_dispatch_ledger
-            WHERE dispatch_id = ?
+        .query<{
+          spaceId?: unknown;
+        }>({
+          text: `
+            SELECT space_id AS "spaceId"
+            FROM "openmeld"."openMeldDaemon_dispatch_ledger"
+            WHERE dispatch_id = $1
             LIMIT 1
-          `
-        )
-        .bind(dispatchId)
-        .first<{ spaceId?: unknown }>();
+          `,
+          values: [dispatchId],
+        })
+        .then((result) => result.rows[0] ?? null);
       return normalizeOptionalText(row?.spaceId);
     } catch (error) {
       console.warn("[core.runtime_transport.dispatch_space_read_failed]", {
@@ -8653,7 +8633,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       return null;
     }
   }
-
   private async handleDispatchLifecycleFrame(
     webSocket: WebSocket,
     payload: unknown
@@ -8839,7 +8818,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     this.queueHousekeepingAlarmSync();
     await acknowledge(true, null);
   }
-
   private async clearReadinessImpactFromRunningLifecycle(input: {
     executionAuthorizedAtMs: number;
     request: RuntimeTransportDispatchLifecycleRequest;
@@ -8848,7 +8826,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     if (input.request.phase !== "running") {
       return;
     }
-    const db = localStateDb(this.env);
+    const db = getPostgresDatabase(this.env);
     if (!db) {
       return;
     }
@@ -8889,12 +8867,13 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       reason: "matching_execution_running",
     });
   }
-
   private async syncAgentProfileWorkControllerConversationOccupancy(input: {
     currentPhase: RuntimeCoordinatorRunLocalProgressState["phase"] | undefined;
     request: RuntimeTransportDispatchLifecycleRequest;
     tokenValidationContext: RuntimeCoordinatorTokenValidationContext;
-  }): Promise<{ isOccupiedKeepalive: boolean }> {
+  }): Promise<{
+    isOccupiedKeepalive: boolean;
+  }> {
     const advancesPhase =
       input.currentPhase !== undefined &&
       resolveNextRuntimeCoordinatorRunProgressPhase({
@@ -8948,7 +8927,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     return { isOccupiedKeepalive };
   }
-
   private async readRuntimeCoordinatorRunCommandStateForProgress(input: {
     pending: PendingDispatchState | undefined;
     request: Pick<
@@ -8977,7 +8955,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     return commandState;
   }
-
   private async readDispatchProgressProjection(
     request: Pick<
       RuntimeTransportDispatchLifecycleRequest,
@@ -9013,7 +8990,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         commandState.createdAtMs,
     };
   }
-
   private resolveRuntimeCoordinatorLifecycleTokenContext(input: {
     commandState: RuntimeCoordinatorRunCommandState | null;
     pending: PendingDispatchState | undefined;
@@ -9030,7 +9006,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     return null;
   }
-
   private async rejectDispatchLifecycleWithoutTokenContext(
     webSocket: WebSocket,
     request: RuntimeTransportDispatchLifecycleRequest
@@ -9063,7 +9038,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     });
     return "daemon.session.not_found";
   }
-
   private async handleDispatchRuntimeEvidenceFrame(
     webSocket: WebSocket,
     payload: unknown
@@ -9166,7 +9140,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     });
     this.recordRuntimeCoordinatorRuntimeEvidenceEvent(parsed.data, pending);
   }
-
   private async handleDispatchToolActivityFrame(
     webSocket: WebSocket,
     payload: unknown,
@@ -9197,7 +9170,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
       return;
     }
-
     const tokenValidationContext = pending
       ? buildRuntimeCoordinatorTokenValidationContextFromPending(pending)
       : null;
@@ -9257,10 +9229,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
       return;
     }
-
     await this.publishDispatchLiveActivity(webSocket, pending, activity);
   }
-
   private async publishDispatchLiveActivity(
     webSocket: WebSocket,
     pending: PendingDispatchState,
@@ -9358,7 +9328,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       toolName: activity.part.toolName,
     });
   }
-
   private async handleDispatchInteractionRequestFrame(
     webSocket: WebSocket,
     payload: unknown
@@ -9391,8 +9360,20 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
       return;
     }
-
     const existing = authority.commandState.pendingInteraction ?? null;
+    if (
+      isCompletedInteractionReplay(
+        authority.commandState,
+        parsed.data.interaction.interactionId
+      )
+    ) {
+      this.sendErrorFrame(webSocket, {
+        code: "schema.invalid",
+        message:
+          "This interaction was already handled. A new request needs a new interaction ID.",
+      });
+      return;
+    }
     if (existing) {
       const incomingWithAuthoritativeTimestamps = {
         ...parsed.data.interaction,
@@ -9435,7 +9416,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       }
       return;
     }
-
     const interaction = {
       ...parsed.data.interaction,
       expiresAtMs: Math.min(
@@ -9520,7 +9500,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       this.queueHousekeepingAlarmSync();
     }
   }
-
   private async handleDispatchInteractionDeliveredFrame(
     webSocket: WebSocket,
     payload: unknown
@@ -9560,27 +9539,69 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       return;
     }
     const deliveredAtMs = Date.now();
-    const nextCommandState: RuntimeCoordinatorRunCommandState = {
-      ...authority.commandState,
-      lastCommandReasonCode: "runtime_coordinator.interaction_delivered",
-      lastDeliveryProvenance: {
-        ...authority.commandState.lastDeliveryProvenance,
-        connectionGeneration: parsed.data.connectionGeneration,
-        daemonSessionId: parsed.data.daemonSessionId,
-        leaseEpoch: parsed.data.leaseEpoch,
-      },
-      lastWatchdogCheckAtMs: null,
-      localProgress: {
-        ...authority.commandState.localProgress,
-        lastLifecycleAtMs: Math.max(
-          authority.commandState.localProgress.lastLifecycleAtMs ?? 0,
-          deliveredAtMs
-        ),
-      },
-      pendingInteraction: null,
-      updatedAtMs: deliveredAtMs,
-    };
-    await this.writeRuntimeCoordinatorRunCommandState(nextCommandState);
+    const responseFingerprint = await interactionResponseFingerprint(
+      pendingInteraction.response
+    );
+    const nextCommandState = await this.ctx.storage.transaction(
+      async (transaction) => {
+        const current = await readRuntimeCoordinatorRunCommandStateFromStorage(
+          transaction,
+          parsed.data.runtimeCoordinatorExecutionId
+        );
+        if (
+          !current ||
+          current.activeRunId !== authority.commandState.activeRunId ||
+          current.pendingInteraction?.request.interactionId !==
+            pendingInteraction.request.interactionId ||
+          !hasSameSerializedValue(
+            current.pendingInteraction.response,
+            pendingInteraction.response
+          )
+        ) {
+          return null;
+        }
+        const next: RuntimeCoordinatorRunCommandState = {
+          ...current,
+          lastCommandReasonCode: "runtime_coordinator.interaction_delivered",
+          interactionResponseReceipts: {
+            ...current.interactionResponseReceipts,
+            [pendingInteraction.request.interactionId]: {
+              responseFingerprint,
+              respondedAtMs: pendingInteraction.respondedAtMs ?? deliveredAtMs,
+            },
+          },
+          lastDeliveryProvenance: {
+            ...current.lastDeliveryProvenance,
+            connectionGeneration: parsed.data.connectionGeneration,
+            daemonSessionId: parsed.data.daemonSessionId,
+            leaseEpoch: parsed.data.leaseEpoch,
+          },
+          lastWatchdogCheckAtMs: null,
+          localProgress: {
+            ...current.localProgress,
+            lastLifecycleAtMs: Math.max(
+              current.localProgress.lastLifecycleAtMs ?? 0,
+              deliveredAtMs
+            ),
+          },
+          pendingInteraction: null,
+          updatedAtMs: deliveredAtMs,
+        };
+        await writeRuntimeCoordinatorRunCommandStateInTransaction(
+          transaction,
+          next
+        );
+        return next;
+      }
+    );
+    if (!nextCommandState) {
+      return;
+    }
+    this.publishWakeProgressChanged({
+      agentProfileId: nextCommandState.targetProfileId,
+      clientMessageId: nextCommandState.sourceClientMessageId,
+      spaceId: nextCommandState.sanitizedDeliveryRequest.payload.spaceId,
+    });
     await this.tryResolveRuntimeCoordinatorInteractionInboxItem({
       commandState: nextCommandState,
       interaction: pendingInteraction.request,
@@ -9588,7 +9609,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     });
     this.queueHousekeepingAlarmSync();
   }
-
   private async resolveDispatchInteractionFrameAuthority(input: {
     frameKind: "interaction_delivered" | "interaction_request";
     request:
@@ -9597,7 +9617,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     webSocket: WebSocket;
   }): Promise<{
     commandState: RuntimeCoordinatorRunCommandState;
-    session: RuntimeTransportSessionState & { socket: WebSocket };
+    session: RuntimeTransportSessionState & {
+      socket: WebSocket;
+    };
   } | null> {
     const verifiedOwnerUserId = this.requireVerifiedOwnerUserId(
       input.webSocket
@@ -9668,10 +9690,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     return {
       commandState,
-      session: session as RuntimeTransportSessionState & { socket: WebSocket },
+      session: session as RuntimeTransportSessionState & {
+        socket: WebSocket;
+      },
     };
   }
-
   private recordRuntimeCoordinatorLifecycleProjection(
     request: RuntimeTransportDispatchLifecycleRequest
   ): void {
@@ -9687,7 +9710,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
       return;
     }
-    const db = wakeEvidenceDb(this.env);
+    const db = getPostgresDatabase(this.env);
     if (!db) {
       return;
     }
@@ -9732,14 +9755,13 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
     });
   }
-
   private recordRuntimeCoordinatorRuntimeEvidenceEvent(
     request: RuntimeTransportDispatchRuntimeEvidenceRequest,
     pending: PendingDispatchState | null
   ): void {
     const runtimeCoordinatorExecutionId =
       pending?.runtimeCoordinatorExecutionId ?? null;
-    const db = wakeEvidenceDb(this.env);
+    const db = getPostgresDatabase(this.env);
     if (!(runtimeCoordinatorExecutionId && db)) {
       return;
     }
@@ -9773,7 +9795,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
     });
   }
-
   private recordRuntimeCoordinatorDiagnosticEvent(input: {
     attemptId: string;
     eventType:
@@ -9785,7 +9806,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     runtimeCoordinatorExecutionId: string | null;
     payload?: Record<string, unknown>;
   }): void {
-    const db = wakeEvidenceDb(this.env);
+    const db = getPostgresDatabase(this.env);
     const runtimeCoordinatorExecutionId = input.runtimeCoordinatorExecutionId;
     if (!(db && runtimeCoordinatorExecutionId)) {
       return;
@@ -9815,7 +9836,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
     });
   }
-
   private recordRuntimeCoordinatorTokenDiagnosticEvent(input: {
     frameKind: RuntimeCoordinatorTokenValidationFrameKind;
     ignoredEventSummary: string;
@@ -9825,7 +9845,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     tokenFingerprint: string | null;
     tokenStatus: RuntimeCoordinatorTokenStatus | null;
   }): void {
-    const db = wakeEvidenceDb(this.env);
+    const db = getPostgresDatabase(this.env);
     if (!db) {
       return;
     }
@@ -9863,14 +9883,13 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
     });
   }
-
   private recordRuntimeCoordinatorTokenAuthorityUnavailableEvent(input: {
     error: unknown;
     frameKind: RuntimeCoordinatorTokenValidationFrameKind;
     ignoredEventSummary: string;
     runtimeCoordinatorExecutionId: string;
   }): void {
-    const db = wakeEvidenceDb(this.env);
+    const db = getPostgresDatabase(this.env);
     if (!db) {
       return;
     }
@@ -9909,7 +9928,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       })
     );
   }
-
   private recordRuntimeCoordinatorOwnerConflictWithoutValidationContext(input: {
     enabled: boolean;
     request: RuntimeTransportSubmitTaskResultRequest;
@@ -9930,7 +9948,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       tokenClass: "missing",
     });
   }
-
   private recordRuntimeCoordinatorOwnerConflictForRejectedToken(input: {
     enabled: boolean;
     request: RuntimeTransportSubmitTaskResultRequest;
@@ -9938,7 +9955,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     sourceClientMessageId: string | null;
     tokenValidation: Extract<
       RuntimeCoordinatorExecutionTokenValidationResult,
-      { ok: false }
+      {
+        ok: false;
+      }
     >;
   }): void {
     if (!input.enabled) {
@@ -9964,7 +9983,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           : "stale",
     });
   }
-
   private recordRuntimeCoordinatorOwnerConflictForAcceptedToken(input: {
     enabled: boolean;
     request: RuntimeTransportSubmitTaskResultRequest;
@@ -9972,7 +9990,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     sourceClientMessageId: string | null;
     tokenValidation: Extract<
       RuntimeCoordinatorExecutionTokenValidationResult,
-      { ok: true }
+      {
+        ok: true;
+      }
     >;
   }): void {
     if (!input.enabled) {
@@ -9991,7 +10011,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       tokenClass: "current",
     });
   }
-
   private recordRuntimeCoordinatorOwnerConflictDiagnostic(input: {
     attemptId: string | null;
     dispatchId: string;
@@ -10005,7 +10024,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     targetProfileId: string;
     tokenClass: "current" | "missing" | "stale";
   }): void {
-    const db = wakeEvidenceDb(this.env);
+    const db = getPostgresDatabase(this.env);
     const runtimeCoordinatorExecutionId = input.runtimeCoordinatorExecutionId;
     if (!(db && runtimeCoordinatorExecutionId)) {
       return;
@@ -10092,7 +10111,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
     }
   }
-
   private handleDispatchPreviewFrame(
     webSocket: WebSocket,
     payload: unknown
@@ -10108,7 +10126,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     this.emitPreviewSignal(parsed.data).catch(() => undefined);
   }
-
   private handleDispatchPreviewEndFrame(
     webSocket: WebSocket,
     payload: unknown
@@ -10124,7 +10141,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     this.emitPreviewEndSignal(parsed.data).catch(() => undefined);
   }
-
   webSocketClose(
     webSocket: WebSocket,
     code: number,
@@ -10170,7 +10186,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     });
     this.queueHousekeepingAlarmSync();
   }
-
   webSocketError(webSocket: WebSocket, _error: unknown): void {
     this.logSocketDisconnectObservation(webSocket, {
       closeCode: 1011,
@@ -10211,7 +10226,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     });
     this.queueHousekeepingAlarmSync();
   }
-
   private logSocketDisconnectObservation(
     webSocket: WebSocket,
     input: {
@@ -10299,7 +10313,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       wasClean: input.wasClean,
     });
   }
-
   private async handleDisconnectRatesDiagnosticRequest(): Promise<Response> {
     const nowMs = Date.now();
     await this.restoreSocketDisconnectRateBucketsFromStorage();
@@ -10334,7 +10347,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     return Response.json(parsedResponse.data);
   }
-
   private recordSocketDisconnectSession(
     diagnostic: RuntimeTransportSessionDisconnectDiagnostic
   ): void {
@@ -10371,7 +10383,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       })
     );
   }
-
   private async readRecentSocketDisconnectSessions(
     nowMs: number
   ): Promise<RuntimeTransportSessionDisconnectDiagnostic[]> {
@@ -10400,7 +10411,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       })
       .slice(0, SOCKET_DISCONNECT_SESSION_LIMIT);
   }
-
   private recordSocketDisconnectRate(input: {
     deployAdjacentReason: string | null;
     disconnectClass: RuntimeTransportSocketDisconnectClass;
@@ -10438,7 +10448,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     this.pruneSocketDisconnectRateBuckets(input.observedAtMs);
   }
-
   private pruneSocketDisconnectRateBuckets(nowMs: number): void {
     const oldestRetainedHourStartMs =
       Math.floor(
@@ -10453,7 +10462,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       }
     }
   }
-
   private async restoreSocketDisconnectRateBucketsFromStorage(): Promise<void> {
     const storedBuckets =
       await this.ctx.storage.list<RuntimeTransportSocketDisconnectRateBucket>({
@@ -10467,13 +10475,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       }
     }
   }
-
   private listSocketDisconnectRateBuckets(): RuntimeTransportSocketDisconnectRateBucket[] {
     return [...this.state.socketDisconnectRateBucketsByKey.values()].sort(
       compareSocketDisconnectRateBuckets
     );
   }
-
   private async emitPreviewSignal(
     request: RuntimeTransportDispatchPreviewRequest
   ): Promise<void> {
@@ -10487,7 +10493,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     if (!pending) {
       return;
     }
-
     await emitSpaceTextSignal({
       env: this.env,
       spaceId: pending.spaceId,
@@ -10511,7 +10516,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       },
     });
   }
-
   private async emitPreviewEndSignal(
     request: RuntimeTransportDispatchPreviewEndRequest
   ): Promise<void> {
@@ -10525,7 +10529,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     if (!pending) {
       return;
     }
-
     const targetProfileLabel =
       pending.targetProfileName ??
       request.targetProfileName ??
@@ -10553,7 +10556,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       },
     });
   }
-
   private resolvePendingPreviewState(input: {
     attemptId: string;
     connectionGeneration: number;
@@ -10578,14 +10580,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     return pending;
   }
-
   private handleFetch(request: Request): Response | Promise<Response> {
     const url = new URL(request.url);
-
     if (url.pathname === "/stream") {
       return this.handleStreamUpgrade(request);
     }
-
     if (request.method !== "POST") {
       return Response.json(
         {
@@ -10596,23 +10595,18 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         { status: 405 }
       );
     }
-
     if (url.pathname === "/lookup-route") {
       return this.handleLookupRouteRequest(request);
     }
-
     if (url.pathname === "/lookup-routes-batch") {
       return this.handleLookupRoutesBatchRequest(request);
     }
-
     if (url.pathname === "/lookup-owner-service") {
       return this.handleLookupOwnerServiceRequest(request);
     }
-
     if (url.pathname === "/diagnostics/disconnect-rates") {
       return this.handleDisconnectRatesDiagnosticRequest();
     }
-
     const localAgentControlHandler:
       | ((request: Request) => Promise<Response>)
       | undefined = {
@@ -10632,58 +10626,50 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     if (localAgentControlHandler) {
       return localAgentControlHandler(request);
     }
-
     const currentComputerControlResponse =
       this.handleCurrentComputerControlRequest(request, url.pathname);
     if (currentComputerControlResponse) {
       return currentComputerControlResponse;
     }
-
     if (url.pathname === "/deliver-dispatch") {
       return this.handleDeliverDispatchRequest(request);
     }
-
     if (url.pathname === "/wait-dispatch-result") {
       return this.handleWaitDispatchResultRequest(request);
     }
-
     if (url.pathname === "/route-catalog-changed") {
       return this.handleRouteCatalogChangedRequest(request);
     }
-
     if (url.pathname === "/runtime-coordinator/decide") {
       return this.handleRuntimeCoordinatorDecisionRequest(request);
     }
-
     if (url.pathname === "/runtime-coordinator/head/accept") {
       return this.handleRuntimeCoordinatorHeadAcceptRequest(request);
     }
-
     if (url.pathname === "/runtime-coordinator/head/no-execution") {
       return this.handleRuntimeCoordinatorHeadNoExecutionRequest(request);
     }
-
     if (url.pathname === "/runtime-coordinator/head/pre-agent-stop") {
       return this.handleRuntimeCoordinatorHeadPreAgentStopRequest(request);
     }
-
     if (url.pathname === "/runtime-coordinator/head/waiting") {
       return this.handleRuntimeCoordinatorHeadWaitingRequest(request);
     }
-
     if (url.pathname === "/runtime-coordinator/head/trace") {
       return this.handleRuntimeCoordinatorHeadLifecycleTraceRequest(request);
     }
-
     if (url.pathname === "/runtime-coordinator/pre-execution-handoff") {
       return this.handleRuntimeCoordinatorPreExecutionHandoffRequest(request);
     }
-
     const runtimeCoordinatorRequestHandler:
       | ((input: Request) => Promise<Response>)
       | undefined = {
       "/runtime-coordinator/interaction/read": (input: Request) =>
         this.handleRuntimeCoordinatorReadInteractionRequest(input),
+      "/runtime-coordinator/execution-input/resolve": (input: Request) =>
+        this.handleExecutionInput(input, true),
+      "/runtime-coordinator/execution-input": (input: Request) =>
+        this.handleExecutionInput(input, false),
       "/runtime-coordinator/interaction/respond": (input: Request) =>
         this.handleRuntimeCoordinatorRespondInteractionRequest(input),
       "/runtime-coordinator/wake-stop/publication-eligibility": (
@@ -10696,11 +10682,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     if (runtimeCoordinatorRequestHandler) {
       return runtimeCoordinatorRequestHandler(request);
     }
-
     if (url.pathname === "/runtime-coordinator/wake-stop") {
       return this.handleRuntimeCoordinatorWakeStopRequest(request);
     }
-
     return Response.json(
       {
         ok: false,
@@ -10710,7 +10694,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       { status: 404 }
     );
   }
-
   private handleStreamUpgrade(request: Request): Response {
     if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
       return new Response("expected websocket", {
@@ -10725,7 +10708,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         status: 401,
       });
     }
-
     const [client, server] = createWebSocketPair();
     this.ctx.acceptWebSocket(server);
     this.state.sessionIdBySocket.set(server, null);
@@ -10737,6 +10719,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       computerCare: request.headers.get(OPENMELD_COMPUTER_CARE_HEADER) === "1",
       spaceWorkHandoff:
         request.headers.get(SPACE_WORK_HANDOFF_CAPABILITY_HEADER) === "1",
+      localExecutionInput:
+        request.headers.get(LOCAL_EXECUTION_INPUT_CAPABILITY_HEADER) === "1",
       connectionDiagnosticId: serviceConnectionDiagnosticIdSchema.safeParse(
         new URL(request.url).searchParams.get(
           SERVICE_CONNECTION_ID_QUERY_PARAMETER
@@ -10761,12 +10745,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       webSocket: client,
     });
   }
-
   private resolveVerifiedOwnerUserId(webSocket: WebSocket): string | null {
     const attachment = readRuntimeTransportSocketAttachment(webSocket);
     return attachment.verifiedOwnerUserId;
   }
-
   private requireVerifiedOwnerUserId(webSocket: WebSocket): string | null {
     const verifiedOwnerUserId = this.resolveVerifiedOwnerUserId(webSocket);
     if (verifiedOwnerUserId) {
@@ -10779,7 +10761,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     safeCloseSocket(webSocket, 1008, "session_owner_unverified");
     return null;
   }
-
   private async handleLookupRouteRequest(request: Request): Promise<Response> {
     const parsed = runtimeTransportLookupRouteRequestSchema.safeParse(
       await readJsonBody(request)
@@ -10793,7 +10774,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         { status: 400 }
       );
     }
-
     const response = lookupRoute(this.state, parsed.data, {
       persistRuntimeRecords: this.persistRuntimeRecords,
       cleanupExpiredPendingDispatches: this.cleanupExpiredPendingDispatches,
@@ -10802,7 +10782,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     const status = response.online ? 200 : 404;
     return Response.json(response, { status });
   }
-
   private async handleLookupRoutesBatchRequest(
     request: Request
   ): Promise<Response> {
@@ -10812,7 +10791,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     if (!parsed.success) {
       return Response.json({ routes: {} }, { status: 400 });
     }
-
     const response = lookupRoutesBatch(this.state, parsed.data, {
       persistRuntimeRecords: this.persistRuntimeRecords,
       cleanupExpiredPendingDispatches: this.cleanupExpiredPendingDispatches,
@@ -10820,7 +10798,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     });
     return Response.json(response, { status: 200 });
   }
-
   private async handleLookupOwnerServiceRequest(
     request: Request
   ): Promise<Response> {
@@ -10836,7 +10813,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         { status: 400 }
       );
     }
-
     const response = lookupOwnerService(this.state, parsed.data, {
       persistRuntimeRecords: this.persistRuntimeRecords,
       cleanupExpiredPendingDispatches: this.cleanupExpiredPendingDispatches,
@@ -10853,11 +10829,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         { status: 500 }
       );
     }
-
     const status = validated.data.online ? 200 : 404;
     return Response.json(validated.data, { status });
   }
-
   private async handleSetLocalAgentEnabledRequest(
     request: Request
   ): Promise<Response> {
@@ -10876,7 +10850,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         { status: 400 }
       );
     }
-
     this.reapExpiredLeases(Date.now());
     const session = this.resolveLocalAgentControlSession({
       ...parsed.data,
@@ -10896,7 +10869,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         { status: 409 }
       );
     }
-
     const requestId = crypto.randomUUID();
     const framePayload =
       runtimeTransportLocalAgentControlSetEnabledFramePayloadSchema.safeParse({
@@ -10918,7 +10890,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         { status: 500 }
       );
     }
-
     try {
       const payload = await this.sendLocalAgentControlSetEnabledAndWait({
         requestId,
@@ -10961,7 +10932,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
     }
   }
-
   private async handleForkAgentSessionRequest(
     request: Request
   ): Promise<Response> {
@@ -11046,7 +11016,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
     }
   }
-
   private async handleManageLocalAgentInstallationRequest(
     request: Request
   ): Promise<Response> {
@@ -11066,7 +11035,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         { status: 400 }
       );
     }
-
     this.reapExpiredLeases(Date.now());
     const session = this.resolveLocalAgentControlSession({
       ...parsed.data,
@@ -11086,7 +11054,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         { status: 409 }
       );
     }
-
     const requestId = crypto.randomUUID();
     const framePayload =
       runtimeTransportLocalAgentControlManageInstallationFramePayloadSchema.safeParse(
@@ -11107,7 +11074,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         { status: 500 }
       );
     }
-
     try {
       const payload = await this.sendLocalAgentControlManageInstallationAndWait(
         {
@@ -11154,7 +11120,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
     }
   }
-
   private async handleSetProfileWorkspaceRequest(
     request: Request
   ): Promise<Response> {
@@ -11173,7 +11138,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         { status: 400 }
       );
     }
-
     this.reapExpiredLeases(Date.now());
     const session = this.resolveLocalAgentControlSession({
       ...parsed.data,
@@ -11193,7 +11157,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         { status: 409 }
       );
     }
-
     const requestId = crypto.randomUUID();
     const framePayload =
       runtimeTransportLocalAgentControlSetProfileWorkspaceFramePayloadSchema.safeParse(
@@ -11220,7 +11183,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         { status: 500 }
       );
     }
-
     try {
       const payload =
         await this.sendLocalAgentControlSetProfileWorkspaceAndWait({
@@ -11264,7 +11226,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
     }
   }
-
   private async handleRefreshLocalAgentCatalogRequest(
     request: Request
   ): Promise<Response> {
@@ -11284,7 +11245,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         { status: 400 }
       );
     }
-
     this.reapExpiredLeases(Date.now());
     const session = this.resolveLocalAgentControlSession({
       ...parsed.data,
@@ -11304,7 +11264,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         { status: 409 }
       );
     }
-
     const requestId = crypto.randomUUID();
     const framePayload =
       runtimeTransportLocalAgentControlRefreshCatalogFramePayloadSchema.safeParse(
@@ -11327,7 +11286,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         { status: 500 }
       );
     }
-
     try {
       const payload = await this.sendLocalAgentControlRefreshCatalogAndWait({
         requestId,
@@ -11372,7 +11330,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
     }
   }
-
   private async handleDeliverDispatchRequest(
     request: Request
   ): Promise<Response> {
@@ -11387,7 +11344,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       };
       return Response.json(response, { status: 400 });
     }
-
     const existingPreExecutionHandoff =
       await this.readRuntimeCoordinatorPreExecutionHandoffRecord(
         parsed.data.dispatchId
@@ -11400,7 +11356,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       };
       return Response.json(response, { status: 409 });
     }
-
     let preparedDeliveryRequest: RuntimeTransportDeliverDispatchRequest | null =
       null;
     const acceptedDeliveryRequests: RuntimeTransportDeliverDispatchRequest[] =
@@ -11473,13 +11428,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         { status: 500 }
       );
     }
-
     await this.syncHousekeepingAlarm();
     return Response.json(validated.data, {
       status: validated.data.accepted ? 200 : 409,
     });
   }
-
   private async prepareRuntimeCoordinatorAcceptedDelivery(
     request: RuntimeTransportDeliverDispatchRequest
   ): Promise<
@@ -11611,7 +11564,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       };
     }
   }
-
   private async readRuntimeCoordinatorTokenAuthority(
     runtimeCoordinatorExecutionId: string
   ): Promise<RuntimeCoordinatorExecutionTokenAuthorityRecord | null> {
@@ -11620,7 +11572,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       runtimeCoordinatorExecutionId
     );
   }
-
   private async readMatchingRuntimeCoordinatorTerminalAuthorityForHead(
     request: RuntimeTransportRuntimeCoordinatorHeadNoExecutionRequest
   ): Promise<RuntimeCoordinatorExecutionTokenAuthorityRecord | null> {
@@ -11647,7 +11598,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     return authority;
   }
-
   private async readRuntimeCoordinatorTokenAuthorityForDecision(
     runtimeCoordinatorExecutionId: string
   ): Promise<RuntimeCoordinatorDecisionAuthorityRead> {
@@ -11679,7 +11629,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       };
     }
   }
-
   private async writeRuntimeCoordinatorTokenAuthority(
     authority: RuntimeCoordinatorExecutionTokenAuthorityRecord
   ): Promise<void> {
@@ -11704,7 +11653,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
     }
   }
-
   private async processAgentProfileWorkRecoveryInboxAlarm(
     run: RuntimeTransportHubHousekeepingAlarmRun
   ): Promise<void> {
@@ -11726,12 +11674,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       await this.tryApplyAgentProfileWorkRecoveryInboxProjection(intent);
     }
   }
-
   private async tryApplyAgentProfileWorkRecoveryInboxProjection(
     intent: AgentProfileWorkRecoveryInboxProjectionIntent
   ): Promise<void> {
     try {
-      const targetInboxDb = inboxDb(this.env);
+      const targetInboxDb = getPostgresDatabase(this.env);
       if (!targetInboxDb) {
         throw new Error(
           "runtime_coordinator.agent_profile_work_recovery_inbox.db_unavailable"
@@ -11845,7 +11792,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
     }
   }
-
   private async readRuntimeCoordinatorRunCommandState(
     runtimeCoordinatorExecutionId: string
   ): Promise<RuntimeCoordinatorRunCommandState | null> {
@@ -11854,7 +11800,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       runtimeCoordinatorExecutionId
     );
   }
-
   private async writeRuntimeCoordinatorRunCommandState(
     state: RuntimeCoordinatorRunCommandState
   ): Promise<void> {
@@ -11868,7 +11813,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       spaceId: state.sanitizedDeliveryRequest.payload.spaceId,
     });
   }
-
   private async rollbackRuntimeCoordinatorUnsentDelivery(
     request: RuntimeTransportDeliverDispatchRequest
   ): Promise<void> {
@@ -11898,7 +11842,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
     }
   }
-
   private async handleRuntimeCoordinatorHeadAcceptRequest(
     request: Request
   ): Promise<Response> {
@@ -11916,7 +11859,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       };
       return Response.json(response, { status: 400 });
     }
-
     const response = await this.acceptRuntimeCoordinatorHeadLifecycle(
       parsed.data
     ).catch((error) => {
@@ -11940,7 +11882,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           parsed.data.targetWakeLifecycleIdentity.targetWakeLifecycleId,
       } satisfies RuntimeTransportRuntimeCoordinatorHeadAcceptResponse;
     });
-
     const validated =
       runtimeTransportRuntimeCoordinatorHeadAcceptResponseSchema.safeParse(
         response
@@ -11958,7 +11899,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         { status: 500 }
       );
     }
-
     let statusCode = 503;
     if (validated.data.ok) {
       statusCode = 200;
@@ -11968,7 +11908,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     return Response.json(validated.data, { status: statusCode });
   }
-
   private async handleRuntimeCoordinatorHeadNoExecutionRequest(
     request: Request
   ): Promise<Response> {
@@ -11989,7 +11928,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         };
       return Response.json(response, { status: 400 });
     }
-
     const response = await this.recordRuntimeCoordinatorHeadNoExecution(
       parsed.data
     ).catch((error) => {
@@ -12016,7 +11954,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           parsed.data.targetWakeLifecycleIdentity.targetWakeLifecycleId,
       } satisfies RuntimeTransportRuntimeCoordinatorHeadNoExecutionResponse;
     });
-
     const validated =
       runtimeTransportRuntimeCoordinatorHeadNoExecutionResponseSchema.safeParse(
         response
@@ -12036,7 +11973,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         { status: 500 }
       );
     }
-
     let statusCode = 503;
     if (validated.data.ok) {
       statusCode = 200;
@@ -12045,7 +11981,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     return Response.json(validated.data, { status: statusCode });
   }
-
   private async handleRuntimeCoordinatorHeadPreAgentStopRequest(
     request: Request
   ): Promise<Response> {
@@ -12066,7 +12001,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         };
       return Response.json(response, { status: 400 });
     }
-
     const response = await this.recordRuntimeCoordinatorHeadPreAgentStop(
       parsed.data
     ).catch((error) => {
@@ -12092,7 +12026,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           parsed.data.targetWakeLifecycleIdentity.targetWakeLifecycleId,
       } satisfies RuntimeTransportRuntimeCoordinatorHeadPreAgentStopResponse;
     });
-
     const validated =
       runtimeTransportRuntimeCoordinatorHeadPreAgentStopResponseSchema.safeParse(
         response
@@ -12112,7 +12045,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         { status: 500 }
       );
     }
-
     let statusCode = 503;
     if (validated.data.ok) {
       statusCode = 200;
@@ -12124,7 +12056,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     return Response.json(validated.data, { status: statusCode });
   }
-
   private async handleRuntimeCoordinatorHeadWaitingRequest(
     request: Request
   ): Promise<Response> {
@@ -12143,7 +12074,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       };
       return Response.json(response, { status: 400 });
     }
-
     const response = await this.recordRuntimeCoordinatorHeadWaiting(
       parsed.data
     ).catch((error) => {
@@ -12169,7 +12099,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           parsed.data.targetWakeLifecycleIdentity.targetWakeLifecycleId,
       } satisfies RuntimeTransportRuntimeCoordinatorHeadWaitingResponse;
     });
-
     const validated =
       runtimeTransportRuntimeCoordinatorHeadWaitingResponseSchema.safeParse(
         response
@@ -12188,7 +12117,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         { status: 500 }
       );
     }
-
     let statusCode = 503;
     if (validated.data.ok) {
       statusCode = 200;
@@ -12197,7 +12125,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     return Response.json(validated.data, { status: statusCode });
   }
-
   private async handleRuntimeCoordinatorHeadLifecycleTraceRequest(
     request: Request
   ): Promise<Response> {
@@ -12216,7 +12143,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         };
       return Response.json(response, { status: 400 });
     }
-
     const response = await this.readRuntimeCoordinatorHeadLifecycleTrace(
       parsed.data.targetWakeLifecycleIdentity.targetWakeLifecycleId
     ).catch((error) => {
@@ -12238,7 +12164,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           parsed.data.targetWakeLifecycleIdentity.targetWakeLifecycleId,
       } satisfies RuntimeTransportRuntimeCoordinatorHeadLifecycleTraceResponse;
     });
-
     const validated =
       runtimeTransportRuntimeCoordinatorHeadLifecycleTraceResponseSchema.safeParse(
         response
@@ -12255,12 +12180,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         { status: 500 }
       );
     }
-
     return Response.json(validated.data, {
       status: validated.data.ok ? 200 : 503,
     });
   }
-
   private async acceptRuntimeCoordinatorHeadLifecycle(
     request: RuntimeTransportRuntimeCoordinatorHeadAcceptRequest
   ): Promise<RuntimeTransportRuntimeCoordinatorHeadAcceptResponse> {
@@ -12304,6 +12227,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
               "workspace"
               ? 3
               : 2,
+          requirePermissionInheritance:
+            record.acceptedDispatchSnapshot?.executionContext
+              ?.permissionSource === "agent_settings",
         }),
       blockForExecutionTargetMutation: true,
       nowMs,
@@ -12393,7 +12319,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     return response;
   }
-
   private async recordRuntimeCoordinatorHeadNoExecution(
     request: RuntimeTransportRuntimeCoordinatorHeadNoExecutionRequest
   ): Promise<RuntimeTransportRuntimeCoordinatorHeadNoExecutionResponse> {
@@ -12405,7 +12330,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     const publicationIntentId = buildRuntimeCoordinatorHeadPublicationIntentId(
       identity.targetWakeLifecycleId
     );
-
     if (!existing) {
       const terminalAuthority =
         await this.readMatchingRuntimeCoordinatorTerminalAuthorityForHead(
@@ -12447,7 +12371,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         targetWakeLifecycleId: identity.targetWakeLifecycleId,
       };
     }
-
     if (!isSameRuntimeCoordinatorHeadAuthority(existing, request)) {
       return {
         ok: false,
@@ -12459,7 +12382,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         targetWakeLifecycleId: identity.targetWakeLifecycleId,
       };
     }
-
     if (existing.primaryDispatchId !== request.dispatchId) {
       return {
         ok: false,
@@ -12471,7 +12393,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         targetWakeLifecycleId: identity.targetWakeLifecycleId,
       };
     }
-
     if (existing.status === "execution_linked") {
       return {
         ok: false,
@@ -12483,7 +12404,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         targetWakeLifecycleId: identity.targetWakeLifecycleId,
       };
     }
-
     if (existing.status === "stopped_before_execution") {
       return {
         ok: false,
@@ -12496,7 +12416,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         targetWakeLifecycleId: identity.targetWakeLifecycleId,
       };
     }
-
     if (existing.status === "publication_intent_ready") {
       await this.publishRuntimeCoordinatorHeadFailureNotice(existing);
       return {
@@ -12511,7 +12430,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         targetWakeLifecycleId: identity.targetWakeLifecycleId,
       };
     }
-
     const nextRecord: RuntimeCoordinatorHeadLifecycleRecord = {
       ...existing,
       noExecutionDecision: {
@@ -12549,7 +12467,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       };
     }
     await this.publishRuntimeCoordinatorHeadFailureNotice(stored);
-
     return {
       ok: true,
       primaryDispatchId: existing.primaryDispatchId,
@@ -12560,7 +12477,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       targetWakeLifecycleId: identity.targetWakeLifecycleId,
     };
   }
-
   private async recordRuntimeCoordinatorHeadPreAgentStop(
     request: RuntimeTransportRuntimeCoordinatorHeadPreAgentStopRequest
   ): Promise<RuntimeTransportRuntimeCoordinatorHeadPreAgentStopResponse> {
@@ -12573,7 +12489,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       buildRuntimeCoordinatorHeadStoppedPublicationIntentId(
         identity.targetWakeLifecycleId
       );
-
     if (!existing) {
       const nextRecord: RuntimeCoordinatorHeadLifecycleRecord = {
         createdAtMs: nowMs,
@@ -12603,7 +12518,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         nowMs,
       });
     }
-
     if (!isSameRuntimeCoordinatorHeadAuthority(existing, request)) {
       return {
         ok: false,
@@ -12616,7 +12530,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         targetWakeLifecycleId: identity.targetWakeLifecycleId,
       };
     }
-
     if (
       existing.status === "execution_linked" ||
       existing.runtimeCoordinatorExecutionId
@@ -12632,7 +12545,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         targetWakeLifecycleId: identity.targetWakeLifecycleId,
       };
     }
-
     if (existing.status === "stopped_before_execution") {
       const stoppedRecord = await this.retainRuntimeCoordinatorHeadStopReason({
         nowMs,
@@ -12654,7 +12566,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         targetWakeLifecycleId: identity.targetWakeLifecycleId,
       };
     }
-
     if (existing.status === "publication_intent_ready") {
       return {
         ok: false,
@@ -12667,7 +12578,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         targetWakeLifecycleId: identity.targetWakeLifecycleId,
       };
     }
-
     const duplicateReasonCode =
       existing.primaryDispatchId === request.dispatchId
         ? null
@@ -12706,7 +12616,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       nowMs,
     });
   }
-
   private async commitRuntimeCoordinatorHeadStop(input: {
     record: RuntimeCoordinatorHeadLifecycleRecord;
     nowMs: number;
@@ -12737,7 +12646,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       nowMs,
       record: stored,
     });
-
     return {
       ok: true,
       primaryDispatchId: stored.primaryDispatchId,
@@ -12748,7 +12656,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       targetWakeLifecycleId: identity.targetWakeLifecycleId,
     };
   }
-
   private async retainRuntimeCoordinatorHeadStopReason(input: {
     nowMs: number;
     reason: string | null;
@@ -12765,7 +12672,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     await this.writeRuntimeCoordinatorHeadLifecycleRecord(record);
     return record;
   }
-
   private async resolveRuntimeCoordinatorHeadWaitingTiming(
     existing: RuntimeCoordinatorHeadLifecycleRecord
   ) {
@@ -12804,7 +12710,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       deadlineAtMs,
     };
   }
-
   private async recordRuntimeCoordinatorHeadWaiting(
     request: RuntimeTransportRuntimeCoordinatorHeadWaitingRequest
   ): Promise<RuntimeTransportRuntimeCoordinatorHeadWaitingResponse> {
@@ -12823,7 +12728,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         targetWakeLifecycleId: identity.targetWakeLifecycleId,
       };
     }
-
     if (!isSameRuntimeCoordinatorHeadAuthority(existing, request)) {
       return {
         ok: false,
@@ -12834,7 +12738,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         targetWakeLifecycleId: identity.targetWakeLifecycleId,
       };
     }
-
     if (existing.primaryDispatchId !== request.dispatchId) {
       return {
         ok: false,
@@ -12845,7 +12748,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         targetWakeLifecycleId: identity.targetWakeLifecycleId,
       };
     }
-
     if (existing.status === "execution_linked") {
       return {
         ok: false,
@@ -12856,7 +12758,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         targetWakeLifecycleId: identity.targetWakeLifecycleId,
       };
     }
-
     if (existing.status === "stopped_before_execution") {
       return {
         ok: false,
@@ -12867,7 +12768,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         targetWakeLifecycleId: identity.targetWakeLifecycleId,
       };
     }
-
     if (existing.status === "publication_intent_ready") {
       await this.publishRuntimeCoordinatorHeadFailureNotice(existing);
       const failureIntent =
@@ -12888,7 +12788,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         targetWakeLifecycleId: identity.targetWakeLifecycleId,
       };
     }
-
     const waitingPolicy = resolveRuntimeCoordinatorHeadWaitingPolicy(
       request.reasonCode
     );
@@ -12941,7 +12840,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         targetWakeLifecycleId: identity.targetWakeLifecycleId,
       };
     }
-
     const waitingBoundary: RuntimeCoordinatorHeadWaitingBoundary = {
       deadlineAtMs,
       deadlineOutcome: "publication_intent_ready",
@@ -12969,7 +12867,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       };
     }
     await this.syncHousekeepingAlarm();
-
     return {
       deadlineAtMs,
       nextTriggerAtMs:
@@ -12983,7 +12880,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       ...waitingDecision,
     };
   }
-
   private async publishRuntimeCoordinatorHeadFailureNotice(
     record: RuntimeCoordinatorHeadLifecycleRecord
   ): Promise<RuntimeCoordinatorHeadLifecycleRecord> {
@@ -13001,7 +12897,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     ) {
       return record;
     }
-
     const nowMs = Date.now();
     const command = buildRuntimeCoordinatorHeadFailurePublicationCommand({
       nowMs,
@@ -13038,13 +12933,12 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     return nextRecord;
   }
-
   private async recordRuntimeCoordinatorHeadFailureReadinessImpact(input: {
     nowMs: number;
     record: RuntimeCoordinatorHeadLifecycleRecord;
   }): Promise<void> {
-    const db = wakeEvidenceDb(this.env);
-    const readinessImpactDb = localStateDb(this.env);
+    const db = getPostgresDatabase(this.env);
+    const readinessImpactDb = getPostgresDatabase(this.env);
     if (!(db && readinessImpactDb && input.record.noExecutionDecision)) {
       return;
     }
@@ -13105,9 +12999,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
     }
   }
-
   private async readRuntimeCoordinatorHeadFailureExecutionIdentity(input: {
-    db: D1Database;
+    db: PostgresDatabase;
     dispatchId: string;
   }): Promise<{
     attemptId: string;
@@ -13115,19 +13008,23 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     agentControllerRef: string;
     openMeldServiceRuntimeId: string;
   } | null> {
-    let row: { latestAttemptId?: unknown } | null = null;
+    let row: {
+      latestAttemptId?: unknown;
+    } | null = null;
     try {
       row = await input.db
-        .prepare(
-          `
-            SELECT latest_attempt_id AS latestAttemptId
-            FROM openMeldDaemon_dispatch_ledger
-            WHERE dispatch_id = ?
+        .query<{
+          latestAttemptId?: unknown;
+        }>({
+          text: `
+            SELECT latest_attempt_id AS "latestAttemptId"
+            FROM "openmeld"."openMeldDaemon_dispatch_ledger"
+            WHERE dispatch_id = $1
             LIMIT 1
-          `
-        )
-        .bind(input.dispatchId)
-        .first<{ latestAttemptId?: unknown }>();
+          `,
+          values: [input.dispatchId],
+        })
+        .then((result) => result.rows[0] ?? null);
     } catch {
       row = null;
     }
@@ -13150,13 +13047,14 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       openMeldServiceRuntimeId: ownership.openMeldServiceRuntimeId,
     };
   }
-
   private async buildRuntimeCoordinatorHeadPublicationFailureRecord(input: {
     nextRecordBase: RuntimeCoordinatorHeadLifecycleRecord;
     nowMs: number;
     outcome: Extract<
       RuntimeCoordinatorFailurePublicationOutcome,
-      { status: "failure_publication_failed" }
+      {
+        status: "failure_publication_failed";
+      }
     >;
     previousRetry?: RuntimeCoordinatorHeadPublicationRetryState;
   }): Promise<RuntimeCoordinatorHeadLifecycleRecord> {
@@ -13171,13 +13069,12 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         publicationRetry,
       };
     }
-
     const publicationExhaustion =
       buildRuntimeCoordinatorHeadPublicationExhaustion(publicationRetry);
     await this.writeRuntimeCoordinatorPublicationBlocker({
       blockerId: `head-failure:${input.nextRecordBase.targetWakeLifecycleId}`,
       blockerKind: "publication_unavailable",
-      db: wakeEvidenceDb(this.env),
+      db: getPostgresDatabase(this.env),
       dispatchId: input.nextRecordBase.primaryDispatchId,
       nowMs: input.nowMs,
       publicationKind: "failure_notice",
@@ -13194,7 +13091,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       publicationExhaustion,
     });
   }
-
   private async applyRuntimeCoordinatorFailurePublicationCommand(
     command: RuntimeCoordinatorFailurePublicationCommand
   ): Promise<RuntimeCoordinatorFailurePublicationOutcome> {
@@ -13240,7 +13136,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
     }
   }
-
   private async readRuntimeCoordinatorHeadLifecycleTrace(
     targetWakeLifecycleId: string
   ): Promise<RuntimeTransportRuntimeCoordinatorHeadLifecycleTraceResponse> {
@@ -13287,7 +13182,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       readStatus: "found",
     };
   }
-
   private async readRuntimeCoordinatorHeadLifecycleRecord(
     targetWakeLifecycleId: string
   ): Promise<RuntimeCoordinatorHeadLifecycleRecord | null> {
@@ -13296,7 +13190,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       targetWakeLifecycleId
     );
   }
-
   private async writeRuntimeCoordinatorHeadLifecycleRecord(
     proposedRecord: RuntimeCoordinatorHeadLifecycleRecord
   ): Promise<RuntimeCoordinatorHeadLifecycleRecord> {
@@ -13331,7 +13224,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     return record;
   }
-
   private async escalateRuntimeCoordinatorHeadWaitingDeadline(input: {
     nowMs: number;
     record: RuntimeCoordinatorHeadWaitingAlarmWorkItem;
@@ -13378,7 +13270,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       await this.writeRuntimeCoordinatorHeadLifecycleRecord(nextRecord);
     await this.publishRuntimeCoordinatorHeadFailureNotice(stored);
   }
-
   private async processRuntimeCoordinatorHeadWaitingAlarm(
     nowMs: number,
     run?: RuntimeTransportHubHousekeepingAlarmRun
@@ -13399,7 +13290,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       },
     });
   }
-
   private async readRuntimeCoordinatorHeadLifecycleRecordsForWaitingAlarm(): Promise<
     RuntimeCoordinatorHeadLifecycleRecord[]
   > {
@@ -13442,7 +13332,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     return normalizedRecords;
   }
-
   private async processRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarm(
     nowMs: number,
     run: RuntimeTransportHubHousekeepingAlarmRun
@@ -13467,7 +13356,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
     }
   }
-
   private async processRuntimeCoordinatorHeadAcceptedHandoffAlarm(
     nowMs: number,
     run?: RuntimeTransportHubHousekeepingAlarmRun
@@ -13488,7 +13376,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       },
     });
   }
-
   private async processRuntimeCoordinatorHeadFailurePublicationRetryAlarm(
     nowMs: number,
     run?: RuntimeTransportHubHousekeepingAlarmRun
@@ -13510,7 +13397,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       },
     });
   }
-
   private async readRuntimeCoordinatorHeadLifecycleRecordsFromIndex(): Promise<
     RuntimeCoordinatorHeadLifecycleRecord[]
   > {
@@ -13518,7 +13404,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       this.ctx.storage
     );
   }
-
   private async resolveNextRuntimeCoordinatorHeadWaitingAlarmAtMs(): Promise<
     number | null
   > {
@@ -13529,7 +13414,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       records,
     });
   }
-
   private async resolveNextRuntimeCoordinatorHeadAcceptedHandoffAlarmAtMs(): Promise<
     number | null
   > {
@@ -13542,7 +13426,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       }
     );
   }
-
   private async resolveNextRuntimeCoordinatorHeadFailurePublicationRetryAlarmAtMs(): Promise<
     number | null
   > {
@@ -13555,7 +13438,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       }
     );
   }
-
   private async buildRuntimeCoordinatorRunCommandStateFromDelivery(input: {
     nowMs: number;
     reasonCode: string;
@@ -13618,7 +13500,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       updatedAtMs: input.nowMs,
     };
   }
-
   private async updateRuntimeCoordinatorRunCommandStateFromPending(input: {
     pending: PendingDispatchState;
   }): Promise<void> {
@@ -13637,7 +13518,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       updatedAtMs: Date.now(),
     });
   }
-
   private async markRuntimeCoordinatorRunCommandStateResultReceived(input: {
     attemptId: string | null;
     dispatchId: string;
@@ -13674,12 +13554,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       updatedAtMs: input.receivedAtMs,
     });
   }
-
   private recordRuntimeCoordinatorLifecycleProjectionFromCommandState(input: {
     commandState: RuntimeCoordinatorRunCommandState;
     request: RuntimeTransportDispatchLifecycleRequest;
   }): void {
-    const db = wakeEvidenceDb(this.env);
+    const db = getPostgresDatabase(this.env);
     if (!db) {
       return;
     }
@@ -13727,7 +13606,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
     });
   }
-
   private async readRuntimeCoordinatorDecisionByKey(input: {
     idempotencyKey: string;
     runtimeCoordinatorExecutionId: string;
@@ -13737,7 +13615,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       input
     );
   }
-
   private async appendRuntimeCoordinatorDecisionRecord(input: {
     decision: RuntimeCoordinatorDurableDecisionRecord;
     runtimeCoordinatorExecutionId: string;
@@ -13747,7 +13624,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       input
     );
   }
-
   private async readRuntimeCoordinatorDecisionRecords(
     runtimeCoordinatorExecutionId: string
   ): Promise<RuntimeCoordinatorDurableDecisionRecord[]> {
@@ -13756,7 +13632,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       runtimeCoordinatorExecutionId
     );
   }
-
   private async recordRuntimeCoordinatorDeliveryProjection(input: {
     deliveryRouteAssessment: {
       evidence: RuntimeCoordinatorDeliveryRouteEvidence;
@@ -13765,7 +13640,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     request: Parameters<typeof deliverDispatch>[1];
     response: RuntimeTransportDeliverDispatchResponse;
   }): Promise<void> {
-    const db = wakeEvidenceDb(this.env);
+    const db = getPostgresDatabase(this.env);
     if (!db) {
       return;
     }
@@ -13849,7 +13724,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
     }
   }
-
   private async handleWaitDispatchResultRequest(
     request: Request
   ): Promise<Response> {
@@ -13864,23 +13738,20 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         { status: 400 }
       );
     }
-
     const durableResult = await this.readAcceptedResultInbox(parsed);
     if (durableResult) {
       return Response.json(durableResult, { status: 200 });
     }
-
     const response = await waitDispatchResult(this.state, parsed);
     await this.syncHousekeepingAlarm();
     return Response.json(response, {
       status: response.state === "failed" ? 409 : 200,
     });
   }
-
   private async readAcceptedResultInbox(
     request: WaitDispatchResultRequest
   ): Promise<WaitDispatchResultResponse | null> {
-    const db = wakeEvidenceDb(this.env);
+    const db = getPostgresDatabase(this.env);
     if (!db) {
       return null;
     }
@@ -13904,6 +13775,163 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       state: "completed",
       taskResult: record.taskResult,
     };
+  }
+
+  private async handleExecutionInput(
+    request: Request,
+    resolveOnly: boolean
+  ): Promise<Response> {
+    const body = await readJsonBody(request);
+    const operation = localExecutionInputOperationSchema.safeParse(body);
+    let selectorBody = body;
+    if (!resolveOnly) {
+      selectorBody = operation.success
+        ? {
+            ownerUserId: operation.data.request.ownerUserId,
+            runtimeCoordinatorExecutionId:
+              operation.data.request.runtimeCoordinatorExecutionId,
+            dispatchId: operation.data.request.dispatchId,
+            targetProfileId: operation.data.request.targetProfileId,
+            spaceId: operation.data.request.source.spaceId,
+            authorProfileId: operation.data.request.source.authorProfileId,
+          }
+        : null;
+    }
+    const selector = localExecutionInputResolveSchema.safeParse(selectorBody);
+    if (!(selector.success && (resolveOnly || operation.success))) {
+      return Response.json(null, { status: 400 });
+    }
+    const scope = selector.data;
+    const state = await this.ctx.storage.transaction(async (transaction) => {
+      const [command, authority] = await Promise.all([
+        readRuntimeCoordinatorRunCommandStateFromStorage(
+          transaction,
+          scope.runtimeCoordinatorExecutionId
+        ),
+        readRuntimeCoordinatorTokenAuthorityFromStorage(
+          transaction,
+          scope.runtimeCoordinatorExecutionId
+        ),
+      ]);
+      const delivery = command?.sanitizedDeliveryRequest.payload;
+      if (
+        !(command && delivery) ||
+        command.ownerUserId !== scope.ownerUserId ||
+        command.dispatchId !== scope.dispatchId ||
+        command.targetProfileId !== scope.targetProfileId ||
+        delivery.spaceId !== scope.spaceId ||
+        delivery.sourceSignal.profileId !== scope.authorProfileId ||
+        delivery.executionIdentity.core.agentControllerRef !== "builtin:codex"
+      ) {
+        return null;
+      }
+      if (
+        operation.success &&
+        (command.attemptId !== operation.data.request.attemptId ||
+          command.activeRunId !==
+            operation.data.request.runtimeCoordinatorRunId)
+      ) {
+        return null;
+      }
+      if (
+        resolveOnly ||
+        (operation.success && operation.data.operation === "apply")
+      ) {
+        const run = authority?.runsById[command.activeRunId];
+        // Resolving reserves the next input in Space; apply delivers to the
+        // current controller turn. Startup must not reject a queue.
+        const inputPhases = resolveOnly
+          ? ["starting", "accepted_local", "running"]
+          : ["running"];
+        if (
+          !authority ||
+          authority.terminalOutcome ||
+          authority.currentRunId !== command.activeRunId ||
+          run?.tokenStatus !== "active" ||
+          !inputPhases.includes(command.localProgress.phase) ||
+          command.localAttemptWithdrawal ||
+          command.lastCommandReasonCode?.includes("wake_stop")
+        ) {
+          return null;
+        }
+      }
+      return command;
+    });
+    if (!state) {
+      // Even a known terminal state says nothing about an earlier application's receipt.
+      return Response.json(null);
+    }
+    const provenance = state.lastDeliveryProvenance;
+    const session = this.state.sessionsById.get(provenance.daemonSessionId);
+    const lease = this.state.profileLeasesByProfileId.get(
+      scope.targetProfileId
+    );
+    if (
+      !session?.socket ||
+      session.ownerUserId !== scope.ownerUserId ||
+      session.connectionGeneration !== provenance.connectionGeneration ||
+      !session.profileIds.has(scope.targetProfileId) ||
+      session.capabilities.localExecutionInput !== true ||
+      !isDaemonExecutionCompatible(session.executionCompatibility) ||
+      !lease ||
+      lease.daemonSessionId !== session.daemonSessionId ||
+      lease.deviceId !== session.deviceId ||
+      lease.lane !== session.lane ||
+      lease.leaseEpoch !== provenance.leaseEpoch
+    ) {
+      return Response.json(null);
+    }
+    if (resolveOnly) {
+      return Response.json(
+        localExecutionInputBindingSchema.parse({
+          ownerUserId: state.ownerUserId,
+          runtimeCoordinatorExecutionId: state.runtimeCoordinatorExecutionId,
+          dispatchId: state.dispatchId,
+          targetProfileId: state.targetProfileId,
+          attemptId: state.attemptId,
+          runtimeCoordinatorRunId: state.activeRunId,
+        })
+      );
+    }
+    if (!operation.success) {
+      return Response.json(null);
+    }
+    const requestId = crypto.randomUUID();
+    try {
+      const result = await this.sendCurrentDeviceOperationAndWait({
+        code: "daemon.execution_input.request",
+        expectedResponseCode: "daemon.execution_input.result",
+        requestId,
+        session: session as RuntimeTransportSessionState & {
+          socket: WebSocket;
+        },
+        payload: {
+          ...operation.data,
+          requestId,
+          connectionGeneration: session.connectionGeneration,
+          leaseEpoch: lease.leaseEpoch,
+        },
+        isExpectedPayload: (value) => {
+          const parsed = localExecutionInputResponseSchema.safeParse(value);
+          return (
+            parsed.success &&
+            parsed.data.inputId === operation.data.request.inputId
+          );
+        },
+        timeoutMs: 10_000,
+      });
+      return Response.json(result);
+    } catch (error) {
+      // Space owns the durable claim. Neither a lost response nor a transport
+      // error authorizes a second apply; only a read may reconcile it.
+      console.warn("[core.runtime_transport.execution_input_unconfirmed]", {
+        inputId: operation.data.request.inputId,
+        runtimeCoordinatorExecutionId: scope.runtimeCoordinatorExecutionId,
+        operation: operation.data.operation,
+        errorName: error instanceof Error ? error.name : "unknown",
+      });
+      return Response.json(null);
+    }
   }
 
   private async handleRuntimeCoordinatorReadInteractionRequest(
@@ -13952,7 +13980,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
     return Response.json(response);
   }
-
   private async handleRuntimeCoordinatorRespondInteractionRequest(
     request: Request
   ): Promise<Response> {
@@ -13978,11 +14005,50 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       response.ok ? 200 : 409
     );
   }
-
   private async respondToRuntimeCoordinatorInteraction(
     input: RuntimeTransportRuntimeCoordinatorRespondInteractionRequest
   ): Promise<RuntimeTransportRuntimeCoordinatorRespondInteractionResponse> {
-    const commandState = await this.readRuntimeCoordinatorRunCommandState(
+    const fingerprint = await interactionResponseFingerprint(input.response);
+    const response = await this.ctx.storage.transaction((transaction) =>
+      this.persistRuntimeCoordinatorInteractionResponse(
+        input,
+        transaction,
+        fingerprint
+      )
+    );
+    if (response.ok) {
+      const commandState = await this.readRuntimeCoordinatorRunCommandState(
+        input.runtimeCoordinatorExecutionId
+      );
+      const pending = commandState?.pendingInteraction;
+      if (
+        commandState &&
+        pending?.request.interactionId === input.interactionId
+      ) {
+        this.publishWakeProgressChanged({
+          agentProfileId: commandState.targetProfileId,
+          clientMessageId: commandState.sourceClientMessageId,
+          spaceId: commandState.sanitizedDeliveryRequest.payload.spaceId,
+        });
+        await this.tryResolveRuntimeCoordinatorInteractionInboxItem({
+          commandState,
+          interaction: pending.request,
+          resolvedAtMs: response.respondedAtMs,
+        });
+        this.tryDeliverRuntimeCoordinatorInteractionResponse(commandState);
+      }
+      this.queueHousekeepingAlarmSync();
+    }
+    return response;
+  }
+
+  private async persistRuntimeCoordinatorInteractionResponse(
+    input: RuntimeTransportRuntimeCoordinatorRespondInteractionRequest,
+    transaction: DurableObjectTransaction,
+    fingerprint: string
+  ): Promise<RuntimeTransportRuntimeCoordinatorRespondInteractionResponse> {
+    const commandState = await readRuntimeCoordinatorRunCommandStateFromStorage(
+      transaction,
       input.runtimeCoordinatorExecutionId
     );
     if (!commandState) {
@@ -13999,6 +14065,24 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         status: "owner_mismatch",
       };
     }
+    const receipts = commandState.interactionResponseReceipts ?? {};
+    const receipt = Object.hasOwn(receipts, input.interactionId)
+      ? receipts[input.interactionId]
+      : undefined;
+    if (receipt) {
+      return receipt.responseFingerprint === fingerprint
+        ? {
+            ok: true,
+            respondedAtMs: receipt.respondedAtMs,
+            status: "already_resolved",
+          }
+        : {
+            ok: false,
+            status: "response_invalid",
+            message:
+              "A different response was already recorded. Refresh to see the current status.",
+          };
+    }
     const pending = commandState.pendingInteraction ?? null;
     if (!pending || pending.request.interactionId !== input.interactionId) {
       return {
@@ -14007,18 +14091,26 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         status: "interaction_mismatch",
       };
     }
+    if (pending.response && pending.respondedAtMs !== null) {
+      if (JSON.stringify(pending.response) !== JSON.stringify(input.response)) {
+        return {
+          message:
+            "A different response was already recorded. Refresh to see the current status.",
+          ok: false,
+          status: "response_invalid",
+        };
+      }
+      return {
+        ok: true,
+        respondedAtMs: pending.respondedAtMs,
+        status: "already_resolved",
+      };
+    }
     if (pending.request.expiresAtMs <= Date.now()) {
       return {
         message: "This request expired. Send the task again when you’re ready.",
         ok: false,
         status: "expired",
-      };
-    }
-    if (pending.response && pending.respondedAtMs !== null) {
-      return {
-        ok: true,
-        respondedAtMs: pending.respondedAtMs,
-        status: "already_resolved",
       };
     }
     const resolution = agentInteractionResolutionSchema.safeParse({
@@ -14041,24 +14133,26 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     const nextCommandState: RuntimeCoordinatorRunCommandState = {
       ...commandState,
       lastCommandReasonCode: "runtime_coordinator.interaction_responded",
+      interactionResponseReceipts: {
+        ...commandState.interactionResponseReceipts,
+        [input.interactionId]: {
+          responseFingerprint: fingerprint,
+          respondedAtMs,
+        },
+      },
       pendingInteraction: nextPending,
       updatedAtMs: respondedAtMs,
     };
-    await this.writeRuntimeCoordinatorRunCommandState(nextCommandState);
-    await this.tryResolveRuntimeCoordinatorInteractionInboxItem({
-      commandState: nextCommandState,
-      interaction: pending.request,
-      resolvedAtMs: respondedAtMs,
-    });
-    this.tryDeliverRuntimeCoordinatorInteractionResponse(nextCommandState);
-    this.queueHousekeepingAlarmSync();
+    await writeRuntimeCoordinatorRunCommandStateInTransaction(
+      transaction,
+      nextCommandState
+    );
     return {
       ok: true,
       respondedAtMs,
       status: "accepted",
     };
   }
-
   private buildRuntimeCoordinatorRespondInteractionHttpResponse(
     response: RuntimeTransportRuntimeCoordinatorRespondInteractionResponse,
     status: number
@@ -14079,7 +14173,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     return Response.json(parsed.data, { status });
   }
-
   private async replayRuntimeCoordinatorInteractionResponsesForSession(
     daemonSessionId: string
   ): Promise<void> {
@@ -14102,7 +14195,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       this.tryDeliverRuntimeCoordinatorInteractionResponse(commandState);
     }
   }
-
   private async reconcileRuntimeCoordinatorExecutionsAfterSessionDisconnect(input: {
     daemonSessionId: string;
   }): Promise<void> {
@@ -14130,14 +14222,13 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
     }
   }
-
   private async reconcileRuntimeCoordinatorExecutionsForReplacementSession(input: {
     daemonSessionId: string;
   }): Promise<void> {
     const replacementSession = this.state.sessionsById.get(
       input.daemonSessionId
     );
-    const db = wakeEvidenceDb(this.env);
+    const db = getPostgresDatabase(this.env);
     if (
       !(
         replacementSession?.socket &&
@@ -14184,7 +14275,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
     }
   }
-
   private async reconcileRuntimeCoordinatorExecutionForReplacementSession(input: {
     daemonSessionId: string;
     runtimeCoordinatorExecutionId: string;
@@ -14192,7 +14282,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     const currentReplacementSession = this.state.sessionsById.get(
       input.daemonSessionId
     );
-    const db = wakeEvidenceDb(this.env);
+    const db = getPostgresDatabase(this.env);
     if (
       !(
         currentReplacementSession?.socket &&
@@ -14334,7 +14424,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       projection,
     });
   }
-
   private tryDeliverRuntimeCoordinatorInteractionResponse(
     commandState: RuntimeCoordinatorRunCommandState
   ): boolean {
@@ -14367,7 +14456,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     });
     return true;
   }
-
   private sendRuntimeCoordinatorInteractionResponse(input: {
     commandState: RuntimeCoordinatorRunCommandState;
     interactionId: string;
@@ -14392,7 +14480,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       payload,
     });
   }
-
   private async tryProjectRuntimeCoordinatorInteractionInboxItem(input: {
     commandState: RuntimeCoordinatorRunCommandState;
     interaction: RuntimeTransportDispatchInteractionRequest["interaction"];
@@ -14426,7 +14513,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       v: 1,
     });
   }
-
   private async tryResolveRuntimeCoordinatorInteractionInboxItem(input: {
     commandState: RuntimeCoordinatorRunCommandState;
     interaction: RuntimeTransportDispatchInteractionRequest["interaction"];
@@ -14460,13 +14546,12 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       v: 1,
     });
   }
-
   private async tryApplyRuntimeCoordinatorInteractionInboxRepair(
     record: RuntimeCoordinatorInteractionInboxRepairRecord
   ): Promise<void> {
     await this.claimRuntimeCoordinatorInteractionInboxRepair(record);
-    const targetInboxDb = inboxDb(this.env);
-    const spaceIndexDb = projectionsDb(this.env);
+    const targetInboxDb = getPostgresDatabase(this.env);
+    const spaceIndexDb = getPostgresDatabase(this.env);
     if (!(targetInboxDb && spaceIndexDb)) {
       await this.deferRuntimeCoordinatorInteractionInboxRepair(record);
       console.warn(
@@ -14523,7 +14608,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
     }
   }
-
   private async claimRuntimeCoordinatorInteractionInboxRepair(
     record: RuntimeCoordinatorInteractionInboxRepairRecord
   ): Promise<void> {
@@ -14547,7 +14631,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
     }
   }
-
   private async deferRuntimeCoordinatorInteractionInboxRepair(
     record: RuntimeCoordinatorInteractionInboxRepairRecord
   ): Promise<void> {
@@ -14610,7 +14693,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
     }
   }
-
   private async removeRuntimeCoordinatorInteractionInboxRepair(
     record: Pick<
       RuntimeCoordinatorInteractionInboxRepairRecord,
@@ -14650,7 +14732,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
     }
   }
-
   private isSameRuntimeCoordinatorInteractionInboxRepairGeneration(
     left: RuntimeCoordinatorInteractionInboxRepairRecord,
     right: Pick<
@@ -14665,13 +14746,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       left.attemptCount === right.attemptCount
     );
   }
-
   private runtimeCoordinatorInteractionInboxRepairStorageKey(
     runtimeCoordinatorExecutionId: string
   ): string {
     return `${RUNTIME_COORDINATOR_INTERACTION_INBOX_REPAIR_STORAGE_PREFIX}${runtimeCoordinatorExecutionId}`;
   }
-
   private async handleRuntimeCoordinatorWakeStopRequest(
     request: Request
   ): Promise<Response> {
@@ -14690,7 +14769,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         { status: 400 }
       );
     }
-
     const response = await this.requestRuntimeCoordinatorWakeStop(parsed.data);
     const validated =
       runtimeTransportRuntimeCoordinatorWakeStopResponseSchema.safeParse(
@@ -14708,10 +14786,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         { status: 500 }
       );
     }
-
     return Response.json(validated.data);
   }
-
   private async handleRuntimeCoordinatorPublicationWakeStopEligibilityRequest(
     request: Request
   ): Promise<Response> {
@@ -14754,12 +14830,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       })
     );
   }
-
   private async requestRuntimeCoordinatorWakeStop(
     input: RuntimeTransportRuntimeCoordinatorWakeStopRequest
   ): Promise<RuntimeTransportRuntimeCoordinatorWakeStopResponse> {
     const nowMs = Date.now();
-    const db = wakeEvidenceDb(this.env);
+    const db = getPostgresDatabase(this.env);
     if (!db) {
       return buildWakeStopFailureResponse({
         reasonCode: "runtime_coordinator.wake_stop_store_unavailable",
@@ -14808,7 +14883,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       db,
       runtimeCoordinatorExecutionId: input.runtimeCoordinatorExecutionId,
     }).catch(() => null);
-
     if (
       !(
         projection &&
@@ -14826,7 +14900,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         targetProfileId: input.targetProfileId,
       });
     }
-
     if (projection.status === "cancelled") {
       return buildWakeStopSuccessResponse({
         runtimeCoordinatorExecutionId: input.runtimeCoordinatorExecutionId,
@@ -14834,7 +14907,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         targetProfileId: input.targetProfileId,
       });
     }
-
     if (
       projection.status === "reply_published" ||
       projection.status === "failed_terminal" ||
@@ -14847,8 +14919,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         targetProfileId: input.targetProfileId,
       });
     }
-
-    const reportDb = localStateDb(this.env);
+    const reportDb = getPostgresDatabase(this.env);
     if (!reportDb) {
       return buildWakeStopFailureResponse({
         reasonCode: "runtime_coordinator.runtime_report_store_unavailable",
@@ -14882,7 +14953,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         targetProfileId: input.targetProfileId,
       });
     }
-
     const deliveryPreparation =
       await this.prepareRuntimeCoordinatorWakeStopDelivery({
         commandState: currentCommandState,
@@ -14895,7 +14965,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     if (deliveryPreparation.status === "response") {
       return deliveryPreparation.response;
     }
-
     const delivery = await this.deliverRuntimeCoordinatorWakeStopControlFrame({
       commandState: deliveryPreparation.commandState,
       controlMode: wakeStopEligibility.controlMode,
@@ -14911,7 +14980,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         targetProfileId: input.targetProfileId,
       });
     }
-
     return buildWakeStopSuccessResponse({
       cancellationStateStatus: "delivery_pending",
       reasonCode: delivery.reasonCode,
@@ -14920,9 +14988,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       targetProfileId: input.targetProfileId,
     });
   }
-
   private async stopAcceptedRuntimeCoordinatorResult(input: {
-    db: D1Database;
+    db: PostgresDatabase;
     input: RuntimeTransportRuntimeCoordinatorWakeStopRequest;
     nowMs: number;
   }): Promise<RuntimeTransportRuntimeCoordinatorWakeStopResponse | null> {
@@ -15090,16 +15157,18 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       targetProfileId: request.targetProfileId,
     });
   }
-
   private async prepareRuntimeCoordinatorWakeStopDelivery(input: {
     commandState: RuntimeCoordinatorRunCommandState;
     controlMode: RuntimeCoordinatorWakeStopControlMode;
-    db: D1Database;
+    db: PostgresDatabase;
     input: RuntimeTransportRuntimeCoordinatorWakeStopRequest;
     nowMs: number;
     reliability: RuntimeCoordinatorWakeStopControlReliability;
   }): Promise<
-    | { commandState: RuntimeCoordinatorRunCommandState; status: "ready" }
+    | {
+        commandState: RuntimeCoordinatorRunCommandState;
+        status: "ready";
+      }
     | {
         response: RuntimeTransportRuntimeCoordinatorWakeStopResponse;
         status: "response";
@@ -15182,9 +15251,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           status: "response",
         };
   }
-
   private async resolveRacedRuntimeCoordinatorWakeStopResponse(input: {
-    db: D1Database;
+    db: PostgresDatabase;
     input: RuntimeTransportRuntimeCoordinatorWakeStopRequest;
   }): Promise<RuntimeTransportRuntimeCoordinatorWakeStopResponse> {
     const racedProjection = await readRuntimeCoordinatorExecutionProjectionById(
@@ -15209,7 +15277,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           targetProfileId: input.input.targetProfileId,
         });
   }
-
   private async prepareRuntimeCoordinatorWakeStopCommandState(input: {
     input: RuntimeTransportRuntimeCoordinatorWakeStopRequest;
     nowMs: number;
@@ -15219,7 +15286,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         pendingInteraction: RuntimeCoordinatorPendingAgentInteractionState | null;
         status: "ready";
       }
-    | { status: "scope_missing" | "terminal" }
+    | {
+        status: "scope_missing" | "terminal";
+      }
   > {
     const prepared = await this.ctx.storage.transaction(async (transaction) => {
       const [commandState, authority] = await Promise.all([
@@ -15259,7 +15328,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       ) {
         return { status: "terminal" as const };
       }
-
       const stopReason = commandState.stopReason ?? input.input.reason ?? null;
       const pendingInteraction = commandState.pendingInteraction ?? null;
       const nextCommandState: RuntimeCoordinatorRunCommandState = {
@@ -15305,13 +15373,17 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     return prepared;
   }
-
   private async readCurrentRuntimeCoordinatorWakeStopCommandState(input: {
     commandState: RuntimeCoordinatorRunCommandState;
     input: RuntimeTransportRuntimeCoordinatorWakeStopRequest;
   }): Promise<
-    | { commandState: RuntimeCoordinatorRunCommandState; status: "ready" }
-    | { status: "scope_missing" | "terminal" }
+    | {
+        commandState: RuntimeCoordinatorRunCommandState;
+        status: "ready";
+      }
+    | {
+        status: "scope_missing" | "terminal";
+      }
   > {
     return await this.ctx.storage.transaction(async (transaction) => {
       const [commandState, authority] = await Promise.all([
@@ -15356,7 +15428,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       return { commandState, status: "ready" as const };
     });
   }
-
   private async markRuntimeCoordinatorWakeStopDeliveryReason(input: {
     commandState: RuntimeCoordinatorRunCommandState;
     nowMs: number;
@@ -15383,7 +15454,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
     });
   }
-
   private async deliverRuntimeCoordinatorWakeStopControlFrame(input: {
     commandState: RuntimeCoordinatorRunCommandState;
     controlMode: RuntimeCoordinatorWakeStopControlMode;
@@ -15391,8 +15461,16 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     nowMs: number;
     reliability: RuntimeCoordinatorWakeStopControlReliability;
   }): Promise<
-    | { ok: true; reasonCode: string; requestId: string }
-    | { ok: false; reasonCode: string; requestId: string | null }
+    | {
+        ok: true;
+        reasonCode: string;
+        requestId: string;
+      }
+    | {
+        ok: false;
+        reasonCode: string;
+        requestId: string | null;
+      }
   > {
     const requestId = buildRuntimeCoordinatorWakeStopControlRequestId(
       input.input.runtimeCoordinatorExecutionId
@@ -15418,7 +15496,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         requestId,
       };
     }
-
     const payload = buildRuntimeCoordinatorWakeStopControlFramePayload({
       commandState: input.commandState,
       controlMode: input.controlMode,
@@ -15447,7 +15524,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
       return { ok: false, reasonCode, requestId };
     }
-
     const reasonCode = "runtime_coordinator.wake_stop_delivery_pending";
     await this.recordRuntimeCoordinatorWakeStopDeliveryEvent({
       commandState: input.commandState,
@@ -15465,7 +15541,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     });
     return { ok: true, reasonCode, requestId };
   }
-
   private async handleRuntimeCoordinatorDecisionRequest(
     request: Request
   ): Promise<Response> {
@@ -15484,7 +15559,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         { status: 400 }
       );
     }
-
     const response = await this.decideRuntimeCoordinatorExecutionProgress(
       parsed.data
     );
@@ -15508,7 +15582,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       status: validated.data.ok ? 200 : 409,
     });
   }
-
   private async decideRuntimeCoordinatorExecutionProgress(
     input: RuntimeTransportRuntimeCoordinatorDecisionRequest,
     options?: {
@@ -15531,7 +15604,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         status: "already_recorded",
       };
     }
-
     const nowMs = Date.now();
     const { authorityRead, projection } =
       await this.readRuntimeCoordinatorDecisionInputs(input, options);
@@ -15567,7 +15639,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         statusAfter: null,
       });
     }
-
     const diagnosticDecision =
       resolveRuntimeCoordinatorTokenAwareExecutionDecision({
         authority,
@@ -15596,7 +15667,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         statusAfter: projection?.status ?? null,
       });
     }
-
     if (
       input.eventKind === "retry" ||
       input.eventKind === "reclaim" ||
@@ -15610,7 +15680,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         projection,
       });
     }
-
     return await this.recordRuntimeCoordinatorTerminalDecision({
       authority,
       input,
@@ -15618,7 +15687,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       projection,
     });
   }
-
   private async readRuntimeCoordinatorDecisionInputs(
     input: RuntimeTransportRuntimeCoordinatorDecisionRequest,
     options?: {
@@ -15628,7 +15696,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     authorityRead: RuntimeCoordinatorDecisionAuthorityRead;
     projection: RuntimeCoordinatorExecutionRecord | null;
   }> {
-    const decisionInputsDb = wakeEvidenceDb(this.env);
+    const decisionInputsDb = getPostgresDatabase(this.env);
     const [authorityRead, projection] = await Promise.all([
       this.readRuntimeCoordinatorTokenAuthorityForDecision(
         input.runtimeCoordinatorExecutionId
@@ -15642,7 +15710,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     ]);
     return { authorityRead, projection };
   }
-
   private async recordRuntimeCoordinatorDiagnosticDecision(input: {
     authority: RuntimeCoordinatorExecutionTokenAuthorityRecord | null;
     input: RuntimeTransportRuntimeCoordinatorDecisionRequest;
@@ -15662,7 +15729,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       statusAfter: input.statusAfter,
     });
   }
-
   private async recordRuntimeCoordinatorRedeliveryDecision(input: {
     authority: RuntimeCoordinatorExecutionTokenAuthorityRecord;
     diagnosticReasonCode: string;
@@ -15699,7 +15765,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       statusAfter: input.projection?.status ?? null,
     });
   }
-
   private async recordRuntimeCoordinatorDeliveryExpiredDecision(input: {
     authority: RuntimeCoordinatorExecutionTokenAuthorityRecord;
     commandState: RuntimeCoordinatorRunCommandState;
@@ -15735,7 +15800,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       nowMs: input.nowMs,
       reasonCode: terminalPlan.reasonCode,
     });
-
     if (input.expiryCause === "controller_conversation_occupied") {
       await this.requestRuntimeCoordinatorLocalAttemptWithdrawal({
         commandState: input.commandState,
@@ -15745,7 +15809,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           RUNTIME_COORDINATOR_LOCAL_ATTEMPT_WITHDRAWAL_OCCUPANCY_TERMINAL_REASON_CODE,
       });
     }
-
     const stopCause = this.state.sessionsById.get(
       input.commandState.sanitizedDeliveryRequest.daemonSessionId
     )?.stopCause;
@@ -15767,13 +15830,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     if (!publication.ok) {
       await this.writeRuntimeCoordinatorPublicationBlocker({
-        blockerId: `${
-          resolveRuntimeCoordinatorLostRunPublicationPresentation(
-            lostRunReasonCode
-          ).blockerSlug
-        }:${input.commandState.runtimeCoordinatorExecutionId}`,
+        blockerId: `${resolveRuntimeCoordinatorLostRunPublicationPresentation(lostRunReasonCode).blockerSlug}:${input.commandState.runtimeCoordinatorExecutionId}`,
         blockerKind: "publication_unavailable",
-        db: wakeEvidenceDb(this.env),
+        db: getPostgresDatabase(this.env),
         dispatchId: input.commandState.dispatchId,
         nowMs: input.nowMs,
         publicationKind: "failure_notice",
@@ -15804,21 +15863,19 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       statusAfter: "failed_terminal",
     });
   }
-
   private async recordRuntimeCoordinatorDeliveryExpiredReadinessImpact(input: {
     commandState: RuntimeCoordinatorRunCommandState;
     nowMs: number;
     reasonCode: RuntimeCoordinatorTerminalDecisionPlan["reasonCode"];
   }): Promise<void> {
-    const db = wakeEvidenceDb(this.env);
-    const readinessImpactDb = localStateDb(this.env);
+    const db = getPostgresDatabase(this.env);
+    const readinessImpactDb = getPostgresDatabase(this.env);
     if (!(db && readinessImpactDb)) {
       return;
     }
     const executionIdentity =
       input.commandState.sanitizedDeliveryRequest.payload.executionIdentity
         .core;
-
     try {
       const result = await writeAgentExecutionReadinessImpact({
         agentProfileId: input.commandState.targetProfileId,
@@ -15875,7 +15932,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
     }
   }
-
   private async publishRuntimeCoordinatorDeliveryExpiredFailure(input: {
     commandState: RuntimeCoordinatorRunCommandState;
     nowMs: number;
@@ -16023,7 +16079,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       };
     }
   }
-
   private async projectRuntimeCoordinatorStoppedTaskOutcome(input: {
     record: RuntimeCoordinatorWakeStoppedNoticePublicationRecord;
     sourceClientMessageId: string | null;
@@ -16044,7 +16099,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       return;
     }
     await recordRuntimeCoordinatorStoppedTaskOutcome({
-      db: agentTaskCoordinationDb(this.env),
+      db: getPostgresDatabase(this.env),
       env: this.env,
       eventId: input.record.publicationId,
       occurredAtMs: input.record.updatedAtMs,
@@ -16060,7 +16115,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       taskOutcomeSourceClientMessageId: sourceClientMessageId,
     });
   }
-
   private async publishRuntimeCoordinatorWakeStoppedNotice(input: {
     commandState: RuntimeCoordinatorRunCommandState;
     nowMs: number;
@@ -16085,7 +16139,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         status: "already_visible",
       };
     }
-
     const request = input.commandState.sanitizedDeliveryRequest;
     const payload = request.payload;
     const targetWakeLifecycleIdentity = projectTargetWakeLifecycleIdentity({
@@ -16234,7 +16287,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       status: "published",
     };
   }
-
   private async publishRuntimeCoordinatorHeadPreAgentStoppedOutcome(input: {
     nowMs: number;
     record: RuntimeCoordinatorHeadLifecycleRecord;
@@ -16255,14 +16307,13 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
       return publication;
     }
-
     const identity = input.record.targetWakeLifecycleIdentity;
     await this.writeRuntimeCoordinatorPublicationBlocker({
       blockerId: buildRuntimeCoordinatorHeadWakeStoppedNoticePublicationId(
         input.record.targetWakeLifecycleId
       ),
       blockerKind: "publication_unavailable",
-      db: wakeEvidenceDb(this.env),
+      db: getPostgresDatabase(this.env),
       dispatchId: input.record.primaryDispatchId,
       nowMs: input.nowMs,
       publicationKind: "stopped_notice",
@@ -16274,7 +16325,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     });
     return publication;
   }
-
   private async publishRuntimeCoordinatorHeadWakeStoppedNotice(input: {
     nowMs: number;
     reasonCode: string;
@@ -16300,7 +16350,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         status: "already_visible",
       };
     }
-
     const identity = input.record.targetWakeLifecycleIdentity;
     const actorName = input.record.targetDisplay?.targetProfileName?.trim();
     const text = buildSystemNoticeText({
@@ -16314,7 +16363,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           ? "agent_profile_deleted"
           : "stopped_before_execution",
     });
-
     let publicationRecord: RuntimeCoordinatorWakeStoppedNoticePublicationRecord;
     let publishedSignalId: string;
     try {
@@ -16416,7 +16464,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       status: "published",
     };
   }
-
   private async recordRuntimeCoordinatorTerminalDecision(input: {
     authority: RuntimeCoordinatorExecutionTokenAuthorityRecord;
     eventPayload?: Record<string, unknown>;
@@ -16435,7 +16482,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       replySignalId: input.replySignalId ?? null,
     });
     await this.writeRuntimeCoordinatorTokenAuthority(nextAuthority);
-
     await this.writeRuntimeCoordinatorTerminalProjection({
       authority: nextAuthority,
       input: input.input,
@@ -16444,7 +16490,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       reasonCode: terminalPlan.reasonCode,
       terminalOutcomeKind: terminalPlan.terminalOutcomeKind,
     });
-
     return await this.recordRuntimeCoordinatorDurableDecision({
       action: terminalPlan.action,
       authority: nextAuthority,
@@ -16457,7 +16502,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       statusAfter: "failed_terminal",
     });
   }
-
   private async writeRuntimeCoordinatorTerminalProjection(input: {
     authority: RuntimeCoordinatorExecutionTokenAuthorityRecord | null;
     input: RuntimeTransportRuntimeCoordinatorDecisionRequest;
@@ -16466,7 +16510,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     reasonCode: string;
     terminalOutcomeKind: RuntimeCoordinatorTerminalOutcome["kind"];
   }): Promise<void> {
-    const db = wakeEvidenceDb(this.env);
+    const db = getPostgresDatabase(this.env);
     if (!db) {
       return;
     }
@@ -16512,11 +16556,12 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
     });
   }
-
   private async recordRuntimeCoordinatorDurableDecision(input: {
     action: Extract<
       RuntimeTransportRuntimeCoordinatorDecisionResponse,
-      { ok: true }
+      {
+        ok: true;
+      }
     >["action"];
     authority: RuntimeCoordinatorExecutionTokenAuthorityRecord | null;
     eventPayload?: Record<string, unknown>;
@@ -16558,7 +16603,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       decision,
       runtimeCoordinatorExecutionId: input.input.runtimeCoordinatorExecutionId,
     });
-    const eventDb = wakeEvidenceDb(this.env);
+    const eventDb = getPostgresDatabase(this.env);
     if (eventDb) {
       await writeRuntimeCoordinatorExecutionEventFromParts({
         db: eventDb,
@@ -16605,7 +16650,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       status: "recorded",
     };
   }
-
   private async retainCommunicationRecoveryIfUnavailable(
     commandState: RuntimeCoordinatorRunCommandState,
     nowMs: number
@@ -16628,7 +16672,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       commandState
     );
   }
-
   /**
    * Names the cause behind a stale-progress terminal.
    *
@@ -16686,7 +16729,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           reasonCode: RUNTIME_COORDINATOR_PROGRESS_STALE_TERMINAL_REASON_CODE,
         };
   }
-
   private async redeliverRuntimeCoordinatorCurrentRun(input: {
     authority: RuntimeCoordinatorExecutionTokenAuthorityRecord;
     decision: RuntimeTransportRuntimeCoordinatorDecisionRequest;
@@ -16742,7 +16784,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         reasonCode: "runtime_coordinator.active_token_secret_unavailable",
       };
     }
-
     let commandState = await this.readRuntimeCoordinatorRunCommandState(
       input.decision.runtimeCoordinatorExecutionId
     );
@@ -16821,7 +16862,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         reasonCode: RUNTIME_COORDINATOR_DELIVERY_EXPIRED_REASON_CODE,
       };
     }
-
     const lease = this.state.profileLeasesByProfileId.get(
       commandState.profileId
     );
@@ -16840,7 +16880,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         reasonCode: "runtime_coordinator.redelivery_route_unavailable",
       };
     }
-
     const hasCapability = hasRuntimeAdapterCapabilityForRef({
       agentControllerRef: input.authority.authorityScope.agentControllerRef,
       runtimeAdapters: redeliveryRoute.lease.capabilities.runtimeAdapters,
@@ -16852,7 +16891,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         reasonCode: "runtime_coordinator.redelivery_capability_unavailable",
       };
     }
-
     const deliveryProvenance = {
       connectionGeneration: redeliveryRoute.session.connectionGeneration,
       daemonSessionId: redeliveryRoute.session.daemonSessionId,
@@ -16879,7 +16917,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         executionToken: redeliveryExecutionToken,
       },
     };
-
     try {
       this.sendFrame(redeliveryRoute.session.socket, {
         code: "daemon.dispatch.deliver",
@@ -16902,7 +16939,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         nowMs: input.nowMs,
       })
     );
-
     const nextCommandState: RuntimeCoordinatorRunCommandState = {
       ...commandState,
       activeRunId: redeliveryExecutionToken.runId,
@@ -16929,7 +16965,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       reasonCode: "runtime_coordinator.current_run_redelivered",
     };
   }
-
   private async handleRouteCatalogChangedRequest(
     request: Request
   ): Promise<Response> {
@@ -16946,7 +16981,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         { status: 400 }
       );
     }
-
     const response = {
       ok: true,
       notifiedSessions: this.notifyRouteCatalogChanged(parsed.data),
@@ -16964,7 +16998,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         { status: 500 }
       );
     }
-
     this.ctx.waitUntil(
       this.triggerRuntimeCoordinatorHeadWaitingRecovery({
         ownerUserId: parsed.data.ownerUserId,
@@ -16975,7 +17008,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     await this.syncHousekeepingAlarm();
     return Response.json(validated.data, { status: 200 });
   }
-
   private async handleRuntimeCoordinatorPreExecutionHandoffRequest(
     request: Request
   ): Promise<Response> {
@@ -16990,7 +17022,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       };
       return Response.json(response, { status: 400 });
     }
-
     const nowMs = Date.now();
     let record = await this.upsertRuntimeCoordinatorPreExecutionHandoffRecord({
       nowMs,
@@ -17043,7 +17074,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       };
       return Response.json(response, { status: 200 });
     }
-
     await this.recordRuntimeCoordinatorPreExecutionHandoffOpsDecision({
       decisionCode: "runtime_coordinator.pre_execution_handoff_waiting",
       expectedRecoveryCriteria:
@@ -17061,7 +17091,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     };
     return Response.json(response, { status: 200 });
   }
-
   private async processRuntimeCoordinatorWatchdogAlarm(
     nowMs: number,
     run?: RuntimeTransportHubHousekeepingAlarmRun
@@ -17083,7 +17112,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       },
     });
   }
-
   private async processRuntimeCoordinatorWatchdogDue(input: {
     commandState: RuntimeCoordinatorRunCommandState;
     nextCheckAtMs: number;
@@ -17159,7 +17187,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
     }
   }
-
   private async processRuntimeCoordinatorPreExecutionHandoffAlarm(
     nowMs: number,
     run?: RuntimeTransportHubHousekeepingAlarmRun
@@ -17184,7 +17211,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       },
     });
   }
-
   private async processRuntimeCoordinatorFinalizationRetryAlarm(
     nowMs: number,
     run?: RuntimeTransportHubHousekeepingAlarmRun
@@ -17205,7 +17231,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       },
     });
   }
-
   private buildRuntimeCoordinatorInteractionAgentTaskObservationDelivery(input: {
     commandState: RuntimeCoordinatorRunCommandState;
     interaction: RuntimeTransportDispatchInteractionRequest["interaction"];
@@ -17243,7 +17268,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       task,
     };
   }
-
   private buildRuntimeCoordinatorSpaceWakeAgentTaskHandle(
     commandState: RuntimeCoordinatorRunCommandState
   ): {
@@ -17264,7 +17288,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       v: 1,
     };
   }
-
   private async tryProjectRuntimeCoordinatorAgentTaskObservationDelivery(
     delivery: RuntimeCoordinatorAgentTaskObservationDeliveryRecord
   ): Promise<boolean> {
@@ -17286,7 +17309,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       return false;
     }
   }
-
   private async enqueueRuntimeCoordinatorAgentTaskObservationRedrive(input: {
     delivery: RuntimeCoordinatorAgentTaskObservationDeliveryRecord;
     ownerUserId: string;
@@ -17312,7 +17334,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     });
     await queue.send(message);
   }
-
   private async projectRuntimeCoordinatorAgentTaskObservationDelivery(
     delivery: RuntimeCoordinatorAgentTaskObservationDeliveryRecord
   ): Promise<void> {
@@ -17323,7 +17344,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
       return;
     }
-    const db = agentTaskCoordinationDb(this.env);
+    const db = getPostgresDatabase(this.env);
     if (!db) {
       throw new Error("agent_task_coordination.db_unavailable");
     }
@@ -17352,7 +17373,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       }
     );
   }
-
   private async processRuntimeCoordinatorAgentTaskObservationDeliveryAlarm(
     _nowMs: number,
     run?: RuntimeTransportHubHousekeepingAlarmRun
@@ -17376,7 +17396,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
     }
   }
-
   private async processRuntimeCoordinatorStoppedTaskProjectionAlarm(
     _nowMs: number,
     run?: RuntimeTransportHubHousekeepingAlarmRun
@@ -17415,7 +17434,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
     }
   }
-
   private async processRuntimeCoordinatorInteractionInboxRepairAlarm(
     nowMs: number,
     run?: RuntimeTransportHubHousekeepingAlarmRun
@@ -17483,7 +17501,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
     }
   }
-
   private async processLocalAgentStreamClosureRetryAlarm(
     nowMs: number,
     run?: RuntimeTransportHubHousekeepingAlarmRun
@@ -17520,7 +17537,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
     }
   }
-
   private async processRuntimeCoordinatorFinalizationRetry(input: {
     nowMs: number;
     retryEntry: RuntimeCoordinatorFinalizationRetryEntry;
@@ -17540,7 +17556,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           );
         } catch {
           await this.storeRuntimeCoordinatorFinalizationRetryOrPark({
-            db: wakeEvidenceDb(this.env),
+            db: getPostgresDatabase(this.env),
             queueAlarm: true,
             retryEntry: {
               ...retryEntry,
@@ -17555,7 +17571,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
             RUNTIME_COORDINATOR_PUBLICATION_RETRY_EXHAUSTED_REASON_CODE
         ) {
           await this.storeRuntimeCoordinatorFinalizationRetryOrPark({
-            db: wakeEvidenceDb(this.env),
+            db: getPostgresDatabase(this.env),
             queueAlarm: true,
             retryEntry: {
               ...retryEntry,
@@ -17592,7 +17608,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         await this.writeRuntimeCoordinatorPublicationBlocker({
           blockerId: `finalization:${retryEntry.finalizationCommandId}`,
           blockerKind: "unreplayable",
-          db: wakeEvidenceDb(this.env),
+          db: getPostgresDatabase(this.env),
           dispatchId: retryEntry.dispatchId,
           nowMs,
           publicationKind: "success_reply",
@@ -17626,7 +17642,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
     }
   }
-
   private async rescheduleOrExhaustRuntimeCoordinatorFinalizationRetry(input: {
     nowMs: number;
     retryEntry: RuntimeCoordinatorFinalizationRetryEntry;
@@ -17636,11 +17651,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       retryEntry: input.retryEntry,
     });
     await this.storeRuntimeCoordinatorFinalizationRetryOrPark({
-      db: wakeEvidenceDb(this.env),
+      db: getPostgresDatabase(this.env),
       retryEntry: nextRetryEntry,
     });
   }
-
   private async markRuntimeCoordinatorProgressWatchdogChecked(input: {
     commandState: RuntimeCoordinatorRunCommandState;
     nowMs: number;
@@ -17664,7 +17678,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       updatedAtMs: input.nowMs,
     });
   }
-
   private async readRuntimeCoordinatorRunCommandStatesFromIndex(): Promise<
     RuntimeCoordinatorRunCommandState[]
   > {
@@ -17672,7 +17685,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       this.ctx.storage
     );
   }
-
   private notifyRouteCatalogChanged(input: {
     affectedProfileIds?: readonly string[];
     ownerUserId: string;
@@ -17688,7 +17700,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     if (!payload.success) {
       return 0;
     }
-
     // The frame always goes to every owner session: it is a pull signal
     // ("re-sync your catalog"), not a readiness verdict, and any daemon may
     // hold routes the change displaces. Only the readiness invalidation
@@ -17720,7 +17731,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     });
     return notifiedSessions;
   }
-
   private async reconcileExpectedRoutesForSession(input: {
     connectionGeneration: number;
     daemonSessionId: string;
@@ -17745,7 +17755,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
     }
   }
-
   private async reconcileExpectedRoutesForSessionUnsafe(input: {
     connectionGeneration: number;
     daemonSessionId: string;
@@ -17769,7 +17778,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     ) {
       return;
     }
-
     const sessionKey = this.resolveRouteCatalogReconciliationSessionKey(input);
     const leaseSetKey = this.resolveExpectedRouteReconciliationLeaseSetKey({
       nowMs,
@@ -17785,8 +17793,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     ) {
       return;
     }
-
-    const db = localStateDb(this.env);
+    const db = getPostgresDatabase(this.env);
     if (!db) {
       console.warn("[core.runtime_transport.route_reconciliation_skipped]", {
         connectionGeneration: input.connectionGeneration,
@@ -17801,7 +17808,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
       return;
     }
-
     const routesResult = await readLocalRuntimeExpectedRoutes({
       authWorker: this.env.OPENMELD_AUTH_WORKER,
       db,
@@ -17829,7 +17835,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     if (routesResult.response.runtimeResolution !== "resolved") {
       return;
     }
-
     const expectedProfileIds = normalizeRuntimeTransportProfileIds(
       routesResult.response.expectedRoutes
         .filter((route) => route.routable)
@@ -17871,7 +17876,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     ) {
       return;
     }
-
     const payload =
       runtimeTransportRouteCatalogChangedFramePayloadSchema.safeParse({
         reason: SERVER_ROUTE_RECONCILIATION_REASON,
@@ -17912,7 +17916,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       }
     );
   }
-
   private hasFreshRouteLeaseForSession(input: {
     nowMs: number;
     profileId: string;
@@ -17930,7 +17933,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       isDaemonExecutionCompatible(lease.executionCompatibility)
     );
   }
-
   private collectRouteCatalogReportAccountedProfileIds(
     session: RuntimeTransportSessionState
   ): Set<string> {
@@ -17943,7 +17945,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       ])
     );
   }
-
   private resolveExpectedRouteReconciliationLeaseSetKey(input: {
     nowMs: number;
     session: RuntimeTransportSessionState;
@@ -17964,7 +17965,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     return entries.sort((left, right) => left.localeCompare(right)).join("\0");
   }
-
   private isExpectedRouteReconciliationReadCacheFresh(input: {
     leaseSetKey: string;
     nowMs: number;
@@ -17979,7 +17979,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         EXPECTED_ROUTE_RECONCILIATION_READ_CACHE_MAX_AGE_MS
     );
   }
-
   private recordExpectedRouteReconciliationReadCache(input: {
     leaseSetKey: string;
     nowMs: number;
@@ -17993,7 +17992,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       }
     );
   }
-
   private invalidateExpectedRouteReconciliationReadCacheForSession(input: {
     connectionGeneration: number;
     daemonSessionId: string;
@@ -18005,7 +18003,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       this.resolveRouteCatalogReconciliationSessionKey(input)
     );
   }
-
   private invalidateExpectedRouteReconciliationReadCachesForOwner(
     ownerUserId: string
   ): void {
@@ -18022,7 +18019,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
     }
   }
-
   private resolveRouteCatalogReconciliationReportFingerprint(
     session: RuntimeTransportSessionState
   ): string {
@@ -18051,7 +18047,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       skippedProfiles,
     });
   }
-
   private isRouteCatalogReconciliationSignalThrottled(input: {
     missingProfileIds: readonly string[];
     nowMs: number;
@@ -18080,7 +18075,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     return false;
   }
-
   private recordRouteCatalogReconciliationSignal(input: {
     missingProfileIds: readonly string[];
     nowMs: number;
@@ -18105,7 +18099,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       reportFingerprint: input.reportFingerprint,
     });
   }
-
   private pruneRouteCatalogReconciliationSignals(nowMs: number): void {
     const currentSessionKeys = new Set(
       [...this.state.sessionsById.values()].map((session) =>
@@ -18129,7 +18122,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       }
     }
   }
-
   private resolveRouteCatalogReconciliationSessionKey(input: {
     connectionGeneration: number;
     daemonSessionId: string;
@@ -18145,7 +18137,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       input.lane,
     ].join("\0");
   }
-
   private publishAgentReadinessInvalidated(input: {
     profileIds: readonly string[];
     reason: string;
@@ -18168,7 +18159,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     this.pendingAgentReadinessInvalidationsByReason.set(reason, pending);
     this.scheduleLiveInvalidationFlush();
   }
-
   private scheduleLiveInvalidationFlush(): void {
     if (this.liveInvalidationFlushTimer) {
       return;
@@ -18192,7 +18182,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       ]).finally(resolveFlush);
     }, LIVE_INVALIDATION_COALESCE_WINDOW_MS);
   }
-
   private async flushAgentReadinessInvalidations(): Promise<void> {
     const pending = this.pendingAgentReadinessInvalidationsByReason;
     this.pendingAgentReadinessInvalidationsByReason = new Map();
@@ -18205,12 +18194,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       )
     );
   }
-
   private async publishAgentReadinessInvalidations(input: {
     profileIds: readonly string[];
     reason: string;
   }): Promise<void> {
-    const db = projectionsDb(this.env);
+    const db = getPostgresDatabase(this.env);
     if (!db) {
       console.warn("[core.agent_readiness.invalidation_skipped]", {
         event: "core.agent_readiness.invalidation_skipped",
@@ -18220,7 +18208,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
       return;
     }
-
     await publishAgentReadinessInvalidationToSpaces({
       profileIds: input.profileIds,
       reason: input.reason,
@@ -18262,7 +18249,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       },
     });
   }
-
   private publishWakeProgressChanged(input: {
     agentProfileId: string;
     clientMessageId: string | null;
@@ -18289,7 +18275,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     this.pendingWakeProgressInvalidationsBySpaceId.set(spaceId, pending);
     this.scheduleLiveInvalidationFlush();
   }
-
   private async flushWakeProgressInvalidations(): Promise<void> {
     const pending = this.pendingWakeProgressInvalidationsBySpaceId;
     this.pendingWakeProgressInvalidationsBySpaceId = new Map();
@@ -18318,7 +18303,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       })
     );
   }
-
   private async processAgentProfileWorkPromotionAlarm(
     nowMs: number,
     run?: RuntimeTransportHubHousekeepingAlarmRun
@@ -18370,7 +18354,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
     }
   }
-
   private async requestSpaceDispatchOutboxRedriveForPromotion(
     pendingPromotion: PendingAgentProfileWorkPromotion,
     trigger: AgentProfileWorkPromotionRedriveTrigger
@@ -18403,7 +18386,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         await this.syncHousekeepingAlarm();
         return;
       }
-
       const parsedBody = postSpaceDispatchOutboxRedriveBodySchema.safeParse({
         reason: AGENT_PROFILE_WORK_COORDINATOR_PROMOTION_REDRIVE_REASON,
         targetProfileId: pendingPromotion.targetProfileId,
@@ -18425,9 +18407,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         );
       }
       const redriveUrl = new URL(
-        `https://openmeld.internal/internal/dispatches/${encodeURIComponent(
-          pendingPromotion.dispatchId
-        )}/redrive`
+        `https://openmeld.internal/internal/dispatches/${encodeURIComponent(pendingPromotion.dispatchId)}/redrive`
       );
       redriveUrl.searchParams.set("space", identity.spaceId);
       const response = await spaceStub.fetch(
@@ -18481,7 +18461,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     await this.syncHousekeepingAlarm();
   }
-
   private async settleAcceptedAgentProfileWorkPromotionRedrive(input: {
     head: RuntimeCoordinatorHeadLifecycleRecord;
     nowMs: number;
@@ -18536,7 +18515,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       }
     );
   }
-
   private async triggerRuntimeCoordinatorHeadWaitingRecovery(input: {
     ownerUserId: string;
     profileIds: readonly string[] | null;
@@ -18547,7 +18525,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   }): Promise<void> {
     const nowMs = Date.now();
     await this.processRuntimeCoordinatorHeadWaitingAlarm(nowMs);
-
     const profileIdSet =
       input.profileIds === null
         ? null
@@ -18559,7 +18536,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     if (profileIdSet && profileIdSet.size === 0) {
       return;
     }
-
     const records =
       await this.readRuntimeCoordinatorHeadLifecycleRecordsFromIndex();
     for (const record of records) {
@@ -18580,7 +18556,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
     }
   }
-
   private async requestSpaceDispatchOutboxRedriveForWaitingHead(input: {
     nowMs: number;
     record: RuntimeCoordinatorHeadLifecycleRecord;
@@ -18608,7 +18583,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
       return;
     }
-
     const spaceStub = resolveSpaceStub(
       this.env.OPENMELD_SPACES,
       identity.spaceId
@@ -18627,14 +18601,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
       return;
     }
-
     const redriveUrl = new URL(
-      `https://openmeld.internal/internal/dispatches/${encodeURIComponent(
-        input.record.primaryDispatchId
-      )}/redrive`
+      `https://openmeld.internal/internal/dispatches/${encodeURIComponent(input.record.primaryDispatchId)}/redrive`
     );
     redriveUrl.searchParams.set("space", identity.spaceId);
-
     let parsedResponse: PostSpaceDispatchOutboxRedriveResponse | null = null;
     try {
       const response = await spaceStub.fetch(
@@ -18688,7 +18658,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
       return;
     }
-
     console.info(
       "[core.runtime_transport.runtime_coordinator_head_waiting_recovery_triggered]",
       {
@@ -18705,7 +18674,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       }
     );
   }
-
   private async upsertRuntimeCoordinatorPreExecutionHandoffRecord(input: {
     nowMs: number;
     request: RuntimeTransportPreExecutionHandoffRequest;
@@ -18719,7 +18687,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     ) {
       return existing;
     }
-
     const firstSeenAtMs = existing
       ? existing.firstSeenAtMs
       : input.request.firstSeenAtMs;
@@ -18779,7 +18746,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     await this.writeRuntimeCoordinatorPreExecutionHandoffRecord(record);
     return record;
   }
-
   private async markRuntimeCoordinatorPreExecutionHandoffRecovered(
     dispatchId: string
   ): Promise<void> {
@@ -18794,7 +18760,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       updatedAtMs: Date.now(),
     });
   }
-
   private async markRuntimeCoordinatorPreExecutionHandoffLegacyEvidenceOnly(input: {
     nowMs: number;
     record: RuntimeCoordinatorPreExecutionHandoffRecord;
@@ -18818,14 +18783,13 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     });
     return record;
   }
-
   private async recordRuntimeCoordinatorPreExecutionHandoffOpsDecision(input: {
     decisionCode: string;
     expectedRecoveryCriteria: string;
     nowMs: number;
     record: RuntimeCoordinatorPreExecutionHandoffRecord;
   }): Promise<void> {
-    const db = wakeEvidenceDb(this.env);
+    const db = getPostgresDatabase(this.env);
     if (!db) {
       return;
     }
@@ -18863,7 +18827,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
     });
   }
-
   private async writeRuntimeCoordinatorPreExecutionHandoffRecord(
     record: RuntimeCoordinatorPreExecutionHandoffRecord
   ): Promise<void> {
@@ -18872,7 +18835,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       record
     );
   }
-
   private async readRuntimeCoordinatorPreExecutionHandoffRecord(
     dispatchId: string
   ): Promise<RuntimeCoordinatorPreExecutionHandoffRecord | null> {
@@ -18881,7 +18843,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       dispatchId
     );
   }
-
   private async deleteRuntimeCoordinatorPreExecutionHandoffRecord(
     dispatchId: string
   ): Promise<void> {
@@ -18890,7 +18851,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       dispatchId
     );
   }
-
   private async readRuntimeCoordinatorPreExecutionHandoffRecordsFromIndex(): Promise<
     RuntimeCoordinatorPreExecutionHandoffRecord[]
   > {
@@ -18898,7 +18858,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       this.ctx.storage
     );
   }
-
   private async resolveNextRuntimeCoordinatorPreExecutionHandoffAlarmAtMs(): Promise<
     number | null
   > {
@@ -18911,7 +18870,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       }
     );
   }
-
   private createHousekeepingAlarmRun(
     nowMs: number
   ): RuntimeTransportHubHousekeepingAlarmRun {
@@ -18922,7 +18880,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       processedWorkUnits: 0,
     };
   }
-
   private async runHousekeepingAlarmPhase(
     run: RuntimeTransportHubHousekeepingAlarmRun,
     phase: RuntimeTransportHubHousekeepingAlarmPhase,
@@ -18944,7 +18901,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
     }
   }
-
   private reserveHousekeepingAlarmWorkUnit(
     run: RuntimeTransportHubHousekeepingAlarmRun,
     phase: RuntimeTransportHubHousekeepingAlarmPhase
@@ -18988,7 +18944,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     run.processedWorkUnits += 1;
     return true;
   }
-
   private requestHousekeepingAlarmContinuation(
     run: RuntimeTransportHubHousekeepingAlarmRun,
     reasonCode: string
@@ -18999,7 +18954,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     run.continuationRequired = true;
     run.continuationReasonCode = reasonCode;
   }
-
   private async settleHousekeepingAlarmRun(
     run: RuntimeTransportHubHousekeepingAlarmRun
   ): Promise<void> {
@@ -19020,7 +18974,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       await this.scheduleHousekeepingAlarmContinuation(run);
     }
   }
-
   private async scheduleHousekeepingAlarmContinuation(
     run: RuntimeTransportHubHousekeepingAlarmRun
   ): Promise<void> {
@@ -19040,7 +18993,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       }
     );
   }
-
   private async syncHousekeepingAlarm(): Promise<void> {
     const nowMs = Date.now();
     const retryAlarmAtMs = minNullableTimestamp(
@@ -19106,7 +19058,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       nextRequiredAlarmAtMs: nextAlarmAtMs,
       scheduledAlarmAtMs,
     });
-
     if (nextMutation.kind === "keep") {
       this.scheduledHousekeepingAlarmAtMs = nextMutation.alarmAtMs;
       return;
@@ -19119,11 +19070,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     await this.ctx.storage.setAlarm(nextMutation.alarmAtMs);
     this.scheduledHousekeepingAlarmAtMs = nextMutation.alarmAtMs;
   }
-
   private queueHousekeepingAlarmSync(): void {
     this.ctx.waitUntil(this.syncHousekeepingAlarm());
   }
-
   private queueRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarm(): void {
     const alarmAtMs =
       Date.now() +
@@ -19140,7 +19089,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       })()
     );
   }
-
   private async readScheduledHousekeepingAlarmAtMs(): Promise<number | null> {
     if (this.scheduledHousekeepingAlarmAtMs !== undefined) {
       return this.scheduledHousekeepingAlarmAtMs;
@@ -19149,7 +19097,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     this.scheduledHousekeepingAlarmAtMs = scheduledAlarmAtMs;
     return scheduledAlarmAtMs;
   }
-
   private async resolveNextRuntimeCoordinatorStoppedTaskProjectionAlarmAtMs(): Promise<
     number | null
   > {
@@ -19157,7 +19104,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       await this.readRuntimeCoordinatorStoppedTaskProjectionPublicationIds();
     return publicationIds.length > 0 ? Date.now() : null;
   }
-
   private async resolveNextRuntimeCoordinatorAgentTaskObservationDeliveryAlarmAtMs(): Promise<
     number | null
   > {
@@ -19167,7 +19113,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
     return deliveries.length > 0 ? Date.now() : null;
   }
-
   private async resolveNextRuntimeCoordinatorInteractionInboxRepairAlarmAtMs(): Promise<
     number | null
   > {
@@ -19189,7 +19134,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     return nextAlarmAtMs;
   }
-
   private async resolveNextRuntimeCoordinatorWatchdogAlarmAtMs(): Promise<
     number | null
   > {
@@ -19198,7 +19142,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       Date.now()
     );
   }
-
   private async resolveNextRuntimeCoordinatorFinalizationRetryAlarmAtMs(): Promise<
     number | null
   > {
@@ -19208,13 +19151,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       retryEntries,
     });
   }
-
   private async resolveNextLocalAgentStreamClosureRetryAlarmAtMs(): Promise<
     number | null
   > {
     return await readNextLocalAgentStreamClosureRetryAtMs(this.ctx.storage);
   }
-
   private readonly persistRuntimeRecords = (): void => {
     persistServiceRuntimeRecords(this.ctx, this.state);
     this.ctx.waitUntil(
@@ -19223,13 +19164,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       )
     );
   };
-
   private computerConnectionIncidents:
     | ReturnType<typeof createComputerConnectionIncidents>
     | undefined;
-
   private getComputerConnectionIncidents() {
-    const db = inboxDb(this.env);
+    const db = getPostgresDatabase(this.env);
     if (!db) {
       return undefined;
     }
@@ -19239,7 +19178,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     });
     return this.computerConnectionIncidents;
   }
-
   private async observeComputerConnectionIncidents(): Promise<void> {
     try {
       await this.getComputerConnectionIncidents()?.observe(
@@ -19251,11 +19189,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
     }
   }
-
   private readonly cleanupExpiredPendingDispatches = (nowMs: number): void => {
     cleanupExpiredPendingDispatches(this.state, nowMs);
   };
-
   private readonly publishReapedReadinessProfiles = (result: {
     expiredProfileIds: readonly string[];
     removedSessionProfileIds: readonly string[];
@@ -19268,18 +19204,15 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       reason: "daemon.route_lease.expired",
     });
   };
-
   private readonly cleanupCompletedResults = (nowMs: number): void => {
     cleanupCompletedResults(this.state, nowMs);
   };
-
   private readonly resolvePendingResultWaiters = (
     dispatchAttemptKey: string,
     response: WaitDispatchResultResponse
   ): void => {
     resolvePendingResultWaiters(this.state, dispatchAttemptKey, response);
   };
-
   private readonly failPendingDispatchResultWaitersForConnectionGeneration = (
     daemonSessionId: string,
     connectionGeneration: number,
@@ -19292,7 +19225,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       response
     );
   };
-
   private readonly reapExpiredLeases = (nowMs: number): void => {
     reapExpiredLeases(this.state, nowMs, {
       persistRuntimeRecords: this.persistRuntimeRecords,
@@ -19300,14 +19232,15 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       recordReapedReadinessProfiles: this.publishReapedReadinessProfiles,
     });
   };
-
   private resolveRuntimeCoordinatorWakeStopControlSession(input: {
     commandState: RuntimeCoordinatorRunCommandState;
     controlMode: RuntimeCoordinatorWakeStopControlMode;
   }):
     | {
         ok: true;
-        session: RuntimeTransportSessionState & { socket: WebSocket };
+        session: RuntimeTransportSessionState & {
+          socket: WebSocket;
+        };
       }
     | {
         ok: false;
@@ -19331,7 +19264,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         reasonCode: "runtime_coordinator.wake_stop_route_mismatch",
       };
     }
-
     const lease = this.state.profileLeasesByProfileId.get(
       input.commandState.profileId
     );
@@ -19361,10 +19293,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     return {
       ok: true,
-      session: session as RuntimeTransportSessionState & { socket: WebSocket },
+      session: session as RuntimeTransportSessionState & {
+        socket: WebSocket;
+      },
     };
   }
-
   private async recordRuntimeCoordinatorWakeStopDeliveryEvent(input: {
     commandState: RuntimeCoordinatorRunCommandState;
     controlMode: RuntimeCoordinatorWakeStopControlMode;
@@ -19377,7 +19310,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     reliability: RuntimeCoordinatorWakeStopControlReliability;
     requestId: string;
   }): Promise<void> {
-    const db = wakeEvidenceDb(this.env);
+    const db = getPostgresDatabase(this.env);
     if (!db) {
       return;
     }
@@ -19414,7 +19347,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
     });
   }
-
   private async settleRuntimeCoordinatorWakeStopLocalControlResult(input: {
     daemonSessionId: string;
     payload: RuntimeCoordinatorWakeStopControlPayload;
@@ -19425,11 +19357,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     if (!runtimeCoordinatorExecutionId) {
       return;
     }
-    const db = wakeEvidenceDb(this.env);
+    const db = getPostgresDatabase(this.env);
     if (!db) {
       return;
     }
-
     const [commandState, projection, authority] = await Promise.all([
       this.readRuntimeCoordinatorRunCommandState(runtimeCoordinatorExecutionId),
       readRuntimeCoordinatorExecutionProjectionById({
@@ -19447,7 +19378,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
       return;
     }
-
     const nowMs = Date.now();
     const effectivePayload = resolveEffectiveRuntimeCoordinatorWakeStopPayload({
       commandState,
@@ -19470,7 +19400,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
       return;
     }
-
     // A truthful withdrawal acknowledgement is worth keeping even when the Wake
     // Stop lifecycle cannot advance. Core may have already closed this
     // execution on stale evidence, and discarding the one fact that proves the
@@ -19507,7 +19436,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     if (!(commandState && projection && authority)) {
       return;
     }
-
     const reasonCode =
       effectivePayload.reasonCode ??
       RUNTIME_COORDINATOR_WAKE_STOP_LOCAL_CONTROL_ACCEPTED_REASON_CODE;
@@ -19592,7 +19520,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       statusAfter: "cancelled",
     });
   }
-
   /**
    * Keeps the Service's acknowledgement that one exact attempt is gone.
    *
@@ -19653,7 +19580,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
     }
   }
-
   private async publishAlreadyCancelledRuntimeCoordinatorWakeStopNotice(input: {
     commandState: RuntimeCoordinatorRunCommandState | null;
     payload: RuntimeCoordinatorWakeStopControlPayload;
@@ -19670,7 +19596,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       stopReason: input.commandState.stopReason ?? null,
     });
   }
-
   private async settleRuntimeCoordinatorWakeStopAuthorityAndCommand(input: {
     authority: RuntimeCoordinatorExecutionTokenAuthorityRecord;
     commandState: RuntimeCoordinatorRunCommandState;
@@ -19682,7 +19607,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         pendingPromotion: PendingAgentProfileWorkPromotion | null;
         status: "settled";
       }
-    | { status: "stale" }
+    | {
+        status: "stale";
+      }
   > {
     return await this.ctx.storage.transaction(async (transaction) => {
       const [currentCommandState, currentAuthority] = await Promise.all([
@@ -19742,10 +19669,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       };
     });
   }
-
   private async recordRuntimeCoordinatorWakeStopControlResultEvent(input: {
     daemonSessionId: string;
-    db: D1Database;
+    db: PostgresDatabase;
     eventType:
       | "cancellation_control_accepted"
       | "cancellation_control_rejected";
@@ -19801,7 +19727,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
     });
   }
-
   private handleCurrentComputerControlRequest(
     request: Request,
     pathname: string
@@ -19832,7 +19757,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     return undefined;
   }
-
   private async handleOpenMeldToolsControlRequest(
     request: Request
   ): Promise<Response> {
@@ -19851,7 +19775,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         { status: 400 }
       );
     }
-
     this.reapExpiredLeases(Date.now());
     const capability: keyof OpenMeldToolsControlCapability =
       parsed.data.request.operation === "request_update"
@@ -19873,7 +19796,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         { status: session.reasonCode.endsWith("service_offline") ? 503 : 409 }
       );
     }
-
     try {
       const result = await this.sendCurrentDeviceOperationAndWait({
         code: "daemon.openmeld_tools_control.request",
@@ -19915,7 +19837,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
     }
   }
-
   private async restoreAutomaticToolsUpdateUnavailableRetries(): Promise<void> {
     const entries = await this.ctx.storage
       .list<unknown>({
@@ -19949,7 +19870,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
     }
   }
-
   private async persistAutomaticToolsUpdateUnavailableRetry(input: {
     computerKey: string;
     retry: AutomaticToolsUpdateUnavailableRetry;
@@ -19966,7 +19886,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       } satisfies StoredAutomaticToolsUpdateUnavailableRetry
     );
   }
-
   private async deleteAutomaticToolsUpdateUnavailableRetry(
     computerKey: string,
     retry: Pick<
@@ -19978,7 +19897,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       buildAutomaticToolsUpdateUnavailableRetryStorageKey(computerKey, retry)
     );
   }
-
   private queueReleaseTriggeredOpenMeldToolsUpdate(input: {
     connection: Pick<
       RuntimeTransportSessionState,
@@ -20200,7 +20118,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         })
     );
   }
-
   private recordReleaseTriggeredOpenMeldToolsUpdateSkip(input: {
     connection: Pick<
       RuntimeTransportSessionState,
@@ -20209,7 +20126,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     reasonCode:
       | Extract<
           ReturnType<typeof resolveReleaseTriggeredOpenMeldToolsUpdateDecision>,
-          { status: "skipped" }
+          {
+            status: "skipped";
+          }
         >["reasonCode"]
       | "automatic_update.session_socket_mismatch"
       | "automatic_update.target_already_coalesced"
@@ -20261,7 +20180,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       trigger: input.trigger,
     });
   }
-
   private resolveOpenMeldToolsControlSession(input: {
     capability: keyof OpenMeldToolsControlCapability;
     deviceId: string;
@@ -20270,9 +20188,15 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   }):
     | {
         ok: true;
-        session: RuntimeTransportSessionState & { socket: WebSocket };
+        session: RuntimeTransportSessionState & {
+          socket: WebSocket;
+        };
       }
-    | { ok: false; message: string; reasonCode: string } {
+    | {
+        ok: false;
+        message: string;
+        reasonCode: string;
+      } {
     const latestSession = [...this.state.sessionsById.values()]
       .filter(
         (session) =>
@@ -20306,7 +20230,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       },
     };
   }
-
   private handleOpenMeldToolsControlResultFrame(
     webSocket: WebSocket,
     payload: unknown
@@ -20329,7 +20252,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       webSocket,
     });
   }
-
   private async handleLocalFolderPickerRequest(
     request: Request,
     operation: LocalFolderPickerOperation
@@ -20393,7 +20315,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
     }
   }
-
   private resolveLocalFolderPickerSession(input: {
     deviceId: string;
     lane: string;
@@ -20401,7 +20322,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   }):
     | {
         ok: true;
-        session: RuntimeTransportSessionState & { socket: WebSocket };
+        session: RuntimeTransportSessionState & {
+          socket: WebSocket;
+        };
       }
     | {
         code:
@@ -20443,7 +20366,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       },
     };
   }
-
   private handleLocalFolderPickerResultFrame(
     webSocket: WebSocket,
     frame: unknown
@@ -20473,7 +20395,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       webSocket,
     });
   }
-
   private async handleComputerFileAccessRequest(
     request: Request,
     operation: ComputerFileAccessOperation
@@ -20557,7 +20478,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
     }
   }
-
   private resolveComputerFileAccessSession(input: {
     capability: ComputerFileAccessCapability;
     deviceId: string;
@@ -20566,7 +20486,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   }):
     | {
         ok: true;
-        session: RuntimeTransportSessionState & { socket: WebSocket };
+        session: RuntimeTransportSessionState & {
+          socket: WebSocket;
+        };
       }
     | {
         ok: false;
@@ -20617,7 +20539,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       },
     };
   }
-
   private handleComputerFileAccessResultFrame(
     webSocket: WebSocket,
     frame: unknown
@@ -20649,7 +20570,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       webSocket,
     });
   }
-
   private async handleLocalProjectControlRequest(
     request: Request,
     operation: LocalProjectControlOperation
@@ -20745,7 +20665,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
     }
   }
-
   private resolveLocalProjectControlSession(input: {
     capability: LocalProjectControlCapability;
     ownerUserId: string;
@@ -20754,7 +20673,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   }):
     | {
         ok: true;
-        session: RuntimeTransportSessionState & { socket: WebSocket };
+        session: RuntimeTransportSessionState & {
+          socket: WebSocket;
+        };
       }
     | {
         ok: false;
@@ -20803,14 +20724,15 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       },
     };
   }
-
   private async sendCurrentDeviceOperationAndWait<T>(input: {
     code: string;
     expectedResponseCode: string;
     isExpectedPayload: (payload: unknown) => boolean;
     payload: Record<string, unknown>;
     requestId: string;
-    session: RuntimeTransportSessionState & { socket: WebSocket };
+    session: RuntimeTransportSessionState & {
+      socket: WebSocket;
+    };
     timeoutMs: number;
   }): Promise<T> {
     return await new Promise<T>((resolve, reject) => {
@@ -20851,7 +20773,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       }
     });
   }
-
   private failCurrentDeviceOperationWaitersForSocket(socket: WebSocket): void {
     for (const [requestId, waiter] of this.currentDeviceOperationWaiters) {
       if (waiter.socket !== socket) {
@@ -20867,7 +20788,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
     }
   }
-
   private handleLocalProjectControlResultFrame(
     webSocket: WebSocket,
     frame: unknown
@@ -20916,11 +20836,13 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     waiter.resolve(parsed.data.payload.result);
   }
-
   private resolveCurrentDeviceOperationResultFrame(input: {
     code: string;
     invalidMessage: string;
-    payload: { requestId: string; result: unknown };
+    payload: {
+      requestId: string;
+      result: unknown;
+    };
     webSocket: WebSocket;
   }): void {
     const daemonSessionId = this.state.sessionIdBySocket.get(input.webSocket);
@@ -20946,7 +20868,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     waiter.resolve(input.payload.result);
   }
-
   private rejectInvalidCurrentDeviceOperationResultFrame(input: {
     frame: unknown;
     message: string;
@@ -20988,7 +20909,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       new CurrentDeviceOperationError("invalid_response", input.message)
     );
   }
-
   private handleExecutionRecoveryResultFrame(
     webSocket: WebSocket,
     payload: unknown
@@ -21028,7 +20948,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     waiter.resolve(parsed.data.result);
   }
-
   private rejectInvalidLocalProjectControlResultFrame(
     webSocket: WebSocket,
     frame: unknown
@@ -21071,7 +20990,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       )
     );
   }
-
   private resolveLocalAgentControlSession(input: {
     capability:
       | "forkSession"
@@ -21088,7 +21006,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   }):
     | {
         ok: true;
-        session: RuntimeTransportSessionState & { socket: WebSocket };
+        session: RuntimeTransportSessionState & {
+          socket: WebSocket;
+        };
       }
     | {
         ok: false;
@@ -21134,10 +21054,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       },
     };
   }
-
   private async sendLocalAgentControlSetEnabledAndWait(input: {
     requestId: string;
-    session: RuntimeTransportSessionState & { socket: WebSocket };
+    session: RuntimeTransportSessionState & {
+      socket: WebSocket;
+    };
     payload: RuntimeTransportLocalAgentControlSetEnabledFramePayload;
   }): Promise<OpenMeldDaemonSetLocalAgentEnabledPayload> {
     return await this.sendCurrentDeviceOperationAndWait({
@@ -21150,10 +21071,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       timeoutMs: resolveLocalAgentControlResponseTimeoutMs("set_enabled"),
     });
   }
-
   private async sendLocalAgentControlForkSessionAndWait(input: {
     requestId: string;
-    session: RuntimeTransportSessionState & { socket: WebSocket };
+    session: RuntimeTransportSessionState & {
+      socket: WebSocket;
+    };
     payload: RuntimeTransportLocalAgentControlForkSessionFramePayload;
   }): Promise<RuntimeTransportForkAgentSessionResult> {
     return await this.sendCurrentDeviceOperationAndWait({
@@ -21167,10 +21089,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       timeoutMs: resolveLocalAgentControlResponseTimeoutMs("fork_session"),
     });
   }
-
   private async sendLocalAgentControlManageInstallationAndWait(input: {
     requestId: string;
-    session: RuntimeTransportSessionState & { socket: WebSocket };
+    session: RuntimeTransportSessionState & {
+      socket: WebSocket;
+    };
     payload: RuntimeTransportLocalAgentControlManageInstallationFramePayload;
   }): Promise<OpenMeldDaemonManageLocalAgentInstallationPayload> {
     return await this.sendCurrentDeviceOperationAndWait({
@@ -21185,10 +21108,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       ),
     });
   }
-
   private async sendLocalAgentControlSetProfileWorkspaceAndWait(input: {
     requestId: string;
-    session: RuntimeTransportSessionState & { socket: WebSocket };
+    session: RuntimeTransportSessionState & {
+      socket: WebSocket;
+    };
     payload: RuntimeTransportLocalAgentControlSetProfileWorkspaceFramePayload;
   }): Promise<OpenMeldDaemonSetProfileWorkspacePayload> {
     return await this.sendCurrentDeviceOperationAndWait({
@@ -21203,10 +21127,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       ),
     });
   }
-
   private async sendLocalAgentControlRefreshCatalogAndWait(input: {
     requestId: string;
-    session: RuntimeTransportSessionState & { socket: WebSocket };
+    session: RuntimeTransportSessionState & {
+      socket: WebSocket;
+    };
     payload: RuntimeTransportLocalAgentControlRefreshCatalogFramePayload;
   }): Promise<OpenMeldDaemonSyncRouteCatalogPayload> {
     return await this.sendCurrentDeviceOperationAndWait({
@@ -21219,7 +21144,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       timeoutMs: resolveLocalAgentControlResponseTimeoutMs("refresh_catalog"),
     });
   }
-
   private handleLocalAgentControlResultFrame(
     webSocket: WebSocket,
     payload: unknown
@@ -21282,7 +21206,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     waiter.resolve(parsed.data.payload);
   }
-
   private readonly sendFrame = (
     webSocket: WebSocket,
     input: {
@@ -21300,7 +21223,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       )
     );
   };
-
   private sendErrorFrame(
     webSocket: WebSocket,
     input: {
@@ -21317,7 +21239,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     });
   }
 }
-
 const buildRuntimeCoordinatorRunLocalProgressFromPending = (
   pending: PendingDispatchState
 ): RuntimeCoordinatorRunLocalProgressState => ({
@@ -21328,7 +21249,6 @@ const buildRuntimeCoordinatorRunLocalProgressFromPending = (
   resultReceivedAtMs: pending.phase === "result_received" ? Date.now() : null,
   runningAtMs: pending.runningAtMs,
 });
-
 const hasRuntimeCoordinatorLocalProgress = (
   pending: PendingDispatchState
 ): boolean =>
@@ -21339,7 +21259,6 @@ const hasRuntimeCoordinatorLocalProgress = (
   pending.phase === "running" ||
   pending.phase === "completed_local" ||
   pending.phase === "result_received";
-
 const buildRuntimeCoordinatorTokenValidationContextFromPending = (
   pending: PendingDispatchState
 ): RuntimeCoordinatorTokenValidationContext => ({
@@ -21358,7 +21277,6 @@ const buildRuntimeCoordinatorTokenValidationContextFromPending = (
   },
   runtimeCoordinatorExecutionId: pending.runtimeCoordinatorExecutionId,
 });
-
 const buildRuntimeCoordinatorTokenValidationContextFromCompleted = (
   completed: CompletedDispatchResultState
 ): RuntimeCoordinatorTokenValidationContext => ({
@@ -21377,7 +21295,6 @@ const buildRuntimeCoordinatorTokenValidationContextFromCompleted = (
   },
   runtimeCoordinatorExecutionId: completed.runtimeCoordinatorExecutionId,
 });
-
 const buildRuntimeCoordinatorExecutionRecordFromPending = (input: {
   nowMs: number;
   pending: PendingDispatchState;
@@ -21407,7 +21324,6 @@ const buildRuntimeCoordinatorExecutionRecordFromPending = (input: {
     updatedAtMs: input.nowMs,
   };
 };
-
 const buildRuntimeCoordinatorExecutionRecordFromCompleted = (input: {
   completed: CompletedDispatchResultState;
   nowMs: number;
@@ -21439,7 +21355,6 @@ const buildRuntimeCoordinatorExecutionRecordFromCompleted = (input: {
     updatedAtMs: input.nowMs,
   };
 };
-
 const buildRuntimeCoordinatorExecutionRecordFromDelivery = (input: {
   nowMs: number;
   request: Parameters<typeof deliverDispatch>[1];
@@ -21471,13 +21386,13 @@ const buildRuntimeCoordinatorExecutionRecordFromDelivery = (input: {
     updatedAtMs: input.nowMs,
   };
 };
-
 type RuntimeCoordinatorRedeliveryRoute = {
   commandState: RuntimeCoordinatorRunCommandState;
   lease: RuntimeTransportProfileLeaseState;
-  session: RuntimeTransportSessionState & { socket: WebSocket };
+  session: RuntimeTransportSessionState & {
+    socket: WebSocket;
+  };
 };
-
 const resolveRuntimeCoordinatorRedeliveryRoute = (input: {
   commandState: RuntimeCoordinatorRunCommandState;
   lease: RuntimeTransportProfileLeaseState | null | undefined;
@@ -21502,7 +21417,6 @@ const resolveRuntimeCoordinatorRedeliveryRoute = (input: {
   }
   return null;
 };
-
 const collectReadinessProfileIdsForSession = (
   session: RuntimeTransportSessionState | null | undefined
 ): string[] => {
@@ -21515,7 +21429,6 @@ const collectReadinessProfileIdsForSession = (
     ...session.rejectedProfileRegistrationsByProfileId.keys(),
   ]);
 };
-
 const collectLocalWakeRouteReportProfileIds = (
   report: LocalWakeRouteReport | null | undefined
 ): string[] => {
@@ -21532,7 +21445,6 @@ const collectLocalWakeRouteReportProfileIds = (
       : []),
   ]);
 };
-
 const normalizeRuntimeTransportProfileIds = (
   values: Iterable<string>
 ): string[] => {
@@ -21545,7 +21457,6 @@ const normalizeRuntimeTransportProfileIds = (
   }
   return [...normalized];
 };
-
 const normalizeAgentReadinessInvalidationError = (
   error: unknown
 ): string | undefined => {
@@ -21557,14 +21468,12 @@ const normalizeAgentReadinessInvalidationError = (
   }
   return undefined;
 };
-
 const readDispatchIdForFrameOrdering = (payload: unknown): string | null => {
   if (!(payload && typeof payload === "object" && "dispatchId" in payload)) {
     return null;
   }
   return normalizeOptionalText(payload.dispatchId);
 };
-
 const isRuntimeCoordinatorWakeStopScopeMatch = (input: {
   input: RuntimeTransportRuntimeCoordinatorWakeStopRequest;
   commandState: RuntimeCoordinatorRunCommandState;
@@ -21583,7 +21492,6 @@ const isRuntimeCoordinatorWakeStopScopeMatch = (input: {
       input.commandState.sourceClientMessageId
   );
 };
-
 const resolveRuntimeCoordinatorWakeStopProjectionResponse = (input: {
   commandState: RuntimeCoordinatorRunCommandState;
   input: RuntimeTransportRuntimeCoordinatorWakeStopRequest;
@@ -21625,7 +21533,6 @@ const resolveRuntimeCoordinatorWakeStopProjectionResponse = (input: {
       })
     : null;
 };
-
 const resolveEffectiveRuntimeCoordinatorWakeStopPayload = (input: {
   commandState: RuntimeCoordinatorRunCommandState | null;
   payload: RuntimeCoordinatorWakeStopControlPayload;
@@ -21651,7 +21558,6 @@ const resolveEffectiveRuntimeCoordinatorWakeStopPayload = (input: {
     resolvedTaskId: input.commandState.sanitizedDeliveryRequest.payload.taskId,
   };
 };
-
 const isRuntimeCoordinatorWakeStopCommandScopeMatch = (input: {
   input: RuntimeTransportRuntimeCoordinatorWakeStopRequest;
   commandState: RuntimeCoordinatorRunCommandState;
@@ -21665,7 +21571,6 @@ const isRuntimeCoordinatorWakeStopCommandScopeMatch = (input: {
     input.input.spaceId &&
   input.commandState.sourceClientMessageId ===
     input.input.sourceClientMessageId;
-
 const isRuntimeCoordinatorWakeStopTokenAuthorityScopeMatch = (input: {
   authority: RuntimeCoordinatorExecutionTokenAuthorityRecord;
   input: RuntimeTransportRuntimeCoordinatorWakeStopRequest;
@@ -21677,11 +21582,9 @@ const isRuntimeCoordinatorWakeStopTokenAuthorityScopeMatch = (input: {
   input.authority.executionScope.dispatchId === input.input.dispatchId &&
   input.authority.executionScope.targetProfileId ===
     input.input.targetProfileId;
-
 const buildRuntimeCoordinatorWakeStopControlRequestId = (
   runtimeCoordinatorExecutionId: string
 ): string => `wake-stop:${runtimeCoordinatorExecutionId}`;
-
 const buildRuntimeCoordinatorWakeStopPreparationFailureResponse = (input: {
   input: RuntimeTransportRuntimeCoordinatorWakeStopRequest;
   status: "scope_missing" | "terminal";
@@ -21695,7 +21598,6 @@ const buildRuntimeCoordinatorWakeStopPreparationFailureResponse = (input: {
     status: input.status === "terminal" ? "not_stoppable" : "retry_later",
     targetProfileId: input.input.targetProfileId,
   });
-
 const parseRuntimeCoordinatorWakeStopControlRequestId = (
   requestId: string
 ): string | null => {
@@ -21708,7 +21610,6 @@ const parseRuntimeCoordinatorWakeStopControlRequestId = (
     ? runtimeCoordinatorExecutionId
     : null;
 };
-
 const buildRuntimeCoordinatorWakeStopControlFramePayload = (input: {
   commandState: RuntimeCoordinatorRunCommandState;
   controlMode: RuntimeCoordinatorWakeStopControlMode;
@@ -21726,7 +21627,6 @@ const buildRuntimeCoordinatorWakeStopControlFramePayload = (input: {
     },
     ...(input.reason ? { reason: input.reason } : {}),
   };
-
   if (input.controlMode === "interrupt") {
     return {
       requestId: input.requestId,
@@ -21736,13 +21636,11 @@ const buildRuntimeCoordinatorWakeStopControlFramePayload = (input: {
       },
     };
   }
-
   return {
     requestId: input.requestId,
     payload: commonPayload,
   };
 };
-
 const resolveRuntimeCoordinatorWakeStopAcceptedControlRejectionReason =
   (input: {
     authority: RuntimeCoordinatorExecutionTokenAuthorityRecord | null;
@@ -21800,7 +21698,6 @@ const resolveRuntimeCoordinatorWakeStopAcceptedControlRejectionReason =
       runtimeCoordinatorExecutionId: input.runtimeCoordinatorExecutionId,
     });
   };
-
 const resolveRuntimeCoordinatorWakeStopAuthorityMismatchReason = (input: {
   authority: RuntimeCoordinatorExecutionTokenAuthorityRecord;
   commandState: RuntimeCoordinatorRunCommandState;
@@ -21848,7 +21745,6 @@ const resolveRuntimeCoordinatorWakeStopAuthorityMismatchReason = (input: {
   }
   return null;
 };
-
 function hasNonCancelledFinalOutcome(
   projection: RuntimeCoordinatorExecutionRecord
 ): boolean {
@@ -21860,7 +21756,6 @@ function hasNonCancelledFinalOutcome(
       projection.status !== "failed_retryable")
   );
 }
-
 const buildWakeStopSuccessResponse = (input: {
   cancellationStateStatus?: "delivery_pending" | "requested";
   reasonCode?: string;
@@ -21897,7 +21792,6 @@ const buildWakeStopSuccessResponse = (input: {
     },
   });
 };
-
 const buildWakeStopFailureResponse = (input: {
   reasonCode: string;
   runtimeCoordinatorExecutionId: string | null;
@@ -21916,7 +21810,6 @@ const buildWakeStopFailureResponse = (input: {
       status: resolveWakeStopFailureCancellationStatus(input.status),
     },
   });
-
 const parseWakeStopTransportResponse = (
   response: unknown
 ): RuntimeTransportRuntimeCoordinatorWakeStopResponse => {
@@ -21929,7 +21822,6 @@ const parseWakeStopTransportResponse = (
   }
   return parsed.data;
 };
-
 const classifyRuntimeTransportSocketDisconnect = (input: {
   closeCode: number;
   closeReason: string;
@@ -21942,7 +21834,6 @@ const classifyRuntimeTransportSocketDisconnect = (input: {
   }
   return "abnormal_socket_close";
 };
-
 const resolveRuntimeTransportSocketCloseReasonCode = (input: {
   closeCode: number;
   event:
@@ -21963,7 +21854,6 @@ const resolveRuntimeTransportSocketCloseReasonCode = (input: {
   }
   return "other";
 };
-
 const compareSocketDisconnectRateBuckets = (
   left: RuntimeTransportSocketDisconnectRateBucket,
   right: RuntimeTransportSocketDisconnectRateBucket
@@ -21981,7 +21871,6 @@ const compareSocketDisconnectRateBuckets = (
     right.deployAdjacentReason ?? ""
   );
 };
-
 const buildSocketDisconnectRateBucketKey = (input: {
   deployAdjacentReason: string | null;
   disconnectClass: RuntimeTransportSocketDisconnectClass;
@@ -21994,16 +21883,18 @@ const buildSocketDisconnectRateBucketKey = (input: {
     input.deployAdjacentReason ?? "none",
   ].join(":");
 };
-
 const buildSocketDisconnectSessionStorageSlotKey = (slot: number): string => {
   return `${SOCKET_DISCONNECT_SESSION_STORAGE_SLOT_PREFIX}${String(slot).padStart(2, "0")}`;
 };
-
 const readSocketDisconnectSessionStorageSequence = (value: unknown): number => {
   if (!value || typeof value !== "object") {
     return 0;
   }
-  const nextSequence = (value as { nextSequence?: unknown }).nextSequence;
+  const nextSequence = (
+    value as {
+      nextSequence?: unknown;
+    }
+  ).nextSequence;
   if (
     typeof nextSequence !== "number" ||
     !Number.isSafeInteger(nextSequence) ||
@@ -22013,7 +21904,6 @@ const readSocketDisconnectSessionStorageSequence = (value: unknown): number => {
   }
   return nextSequence;
 };
-
 const resolveWakeStopFailureCancellationStatus = (
   status: "not_found" | "not_stoppable" | "retry_later" | "unsupported"
 ): "delivery_rejected" | "not_requested" | "unsupported" => {
@@ -22025,7 +21915,6 @@ const resolveWakeStopFailureCancellationStatus = (
   }
   return "not_requested";
 };
-
 const isOpenMeldDaemonSetLocalAgentEnabledPayload = (
   payload: unknown
 ): payload is OpenMeldDaemonSetLocalAgentEnabledPayload =>
@@ -22033,7 +21922,6 @@ const isOpenMeldDaemonSetLocalAgentEnabledPayload = (
   payload !== null &&
   "agentId" in payload &&
   "enabled" in payload;
-
 const isOpenMeldDaemonManageLocalAgentInstallationPayload = (
   payload: unknown
 ): payload is OpenMeldDaemonManageLocalAgentInstallationPayload =>
@@ -22042,7 +21930,6 @@ const isOpenMeldDaemonManageLocalAgentInstallationPayload = (
   "agentId" in payload &&
   "installations" in payload &&
   "selectedInstallationId" in payload;
-
 const isOpenMeldDaemonSetProfileWorkspacePayload = (
   payload: unknown
 ): payload is OpenMeldDaemonSetProfileWorkspacePayload =>
@@ -22050,7 +21937,6 @@ const isOpenMeldDaemonSetProfileWorkspacePayload = (
   payload !== null &&
   "targetProfileId" in payload &&
   "status" in payload;
-
 const isOpenMeldDaemonSyncRouteCatalogPayload = (
   payload: unknown
 ): payload is OpenMeldDaemonSyncRouteCatalogPayload =>
@@ -22058,7 +21944,6 @@ const isOpenMeldDaemonSyncRouteCatalogPayload = (
   payload !== null &&
   "profileIds" in payload &&
   "syncStatus" in payload;
-
 const isRuntimeCoordinatorWakeStopControlPayload = (
   payload: unknown
 ): payload is RuntimeCoordinatorWakeStopControlPayload =>
@@ -22066,23 +21951,22 @@ const isRuntimeCoordinatorWakeStopControlPayload = (
   payload !== null &&
   "accepted" in payload &&
   "target" in payload;
-
 const isRuntimeCoordinatorWakeStopControlRequestId = (
   requestId: string
 ): boolean =>
   parseRuntimeCoordinatorWakeStopControlRequestId(requestId) !== null;
-
 const resolveSubmitResultAttemptId = (
   request: RuntimeTransportSubmitTaskResultRequest
 ): string | null => {
   const requestAttemptId =
     typeof request.attemptId === "string" ? request.attemptId.trim() : "";
-  const payload = request.taskResult.payload as { attemptId?: unknown };
+  const payload = request.taskResult.payload as {
+    attemptId?: unknown;
+  };
   const payloadAttemptId =
     typeof payload.attemptId === "string" ? payload.attemptId.trim() : "";
   return requestAttemptId || payloadAttemptId || null;
 };
-
 const mapResultRejectionToCoordinatorEventType = (
   response: Awaited<ReturnType<typeof handleSubmitTaskResult>>
 ): RuntimeCoordinatorExecutionEventType => {
@@ -22102,7 +21986,6 @@ const mapResultRejectionToCoordinatorEventType = (
       return "result_late_diagnostic";
   }
 };
-
 const mapTokenValidationReasonToCoordinatorEventType = (
   reasonCode: RuntimeCoordinatorTokenReasonCode
 ): RuntimeCoordinatorExecutionEventType => {
@@ -22119,7 +22002,6 @@ const mapTokenValidationReasonToCoordinatorEventType = (
       return "execution_token_validation_failed";
   }
 };
-
 const mapOwnerConflictTokenClassToCoordinatorEventType = (
   tokenClass: "current" | "missing" | "stale"
 ): RuntimeCoordinatorExecutionEventType => {
@@ -22134,7 +22016,6 @@ const mapOwnerConflictTokenClassToCoordinatorEventType = (
       throw new Error("runtime_coordinator.owner_conflict_token_class_invalid");
   }
 };
-
 const isRuntimeCoordinatorOwnerConflictResult = (
   request: RuntimeTransportSubmitTaskResultRequest
 ): boolean => {
@@ -22144,12 +22025,10 @@ const isRuntimeCoordinatorOwnerConflictResult = (
     payload.errorCode === "runtime.task.local_owner_conflict"
   );
 };
-
 const buildOwnerConflictIgnoredEventSummary = (
   request: RuntimeTransportSubmitTaskResultRequest
 ): string =>
   `owner_conflict:${request.dispatchId}:${request.attemptId ?? "unknown"}`;
-
 const extractRuntimeCoordinatorLocalOwnerConflictEvidence = (input: {
   attemptId: string | null;
   dispatchId: string;
@@ -22180,7 +22059,6 @@ const extractRuntimeCoordinatorLocalOwnerConflictEvidence = (input: {
     rejectedTaskId: null,
   };
 };
-
 const resolveCoordinatorLifecycleEventType = (
   phase: RuntimeTransportDispatchLifecycleRequest["phase"]
 ): RuntimeCoordinatorExecutionEventType => {
@@ -22192,7 +22070,6 @@ const resolveCoordinatorLifecycleEventType = (
   }
   return "lifecycle_completed_local";
 };
-
 const resolveResultIdentityEchoMismatch = (input: {
   authoritative: CompletedDispatchResultState["executionIdentity"];
   echoed: RuntimeTransportSubmitTaskResultRequest["executionIdentityEcho"];
@@ -22229,7 +22106,6 @@ const resolveResultIdentityEchoMismatch = (input: {
   }
   return null;
 };
-
 const parseRuntimeCoordinatorStoppedTaskProjectionIndex = (
   value: unknown
 ): string[] => {
@@ -22251,7 +22127,6 @@ const parseRuntimeCoordinatorStoppedTaskProjectionIndex = (
     ),
   ].sort();
 };
-
 const readJsonBody = async (request: Request): Promise<unknown> => {
   try {
     return await request.json();
@@ -22259,9 +22134,15 @@ const readJsonBody = async (request: Request): Promise<unknown> => {
     return null;
   }
 };
-
 const hasSameSerializedValue = (left: unknown, right: unknown): boolean =>
   JSON.stringify(left) === JSON.stringify(right);
+
+const isCompletedInteractionReplay = (
+  state: RuntimeCoordinatorRunCommandState,
+  interactionId: string
+): boolean =>
+  !state.pendingInteraction &&
+  Object.hasOwn(state.interactionResponseReceipts ?? {}, interactionId);
 
 const parseDaemonStreamFrame = (
   rawMessage: string | ArrayBuffer
@@ -22276,7 +22157,6 @@ const parseDaemonStreamFrame = (
   const parsedFrame = daemonStreamFrameSchema.safeParse(rawFrame);
   return parsedFrame.success ? parsedFrame.data : null;
 };
-
 const parseWaitDispatchResultRequest = (
   value: unknown
 ): WaitDispatchResultRequest | null => {
@@ -22310,14 +22190,12 @@ const parseWaitDispatchResultRequest = (
   });
   return parsed.success ? parsed.data : null;
 };
-
 const decodeWebSocketMessage = (message: string | ArrayBuffer): string => {
   if (typeof message === "string") {
     return message;
   }
   return new TextDecoder().decode(message);
 };
-
 const safeCloseSocket = (
   socket: WebSocket,
   code: number,
@@ -22329,3 +22207,8 @@ const safeCloseSocket = (
     // ignore
   }
 };
+
+import {
+  runtimeCoordinatorExecutionAccessRequestSchema,
+  runtimeCoordinatorExecutionAccessResponseSchema,
+} from "@openmeld/schemas";

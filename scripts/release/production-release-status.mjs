@@ -11,8 +11,8 @@ import {
   createTrustedGitEnvironment,
 } from "../ci/trusted-git-network.mjs";
 import {
+  buildProductionReleaseImpact,
   buildProductionReleasePlan,
-  resolveAutomaticReleaseScopes,
 } from "./production-release.mjs";
 import { readGuardedLocalReleaseSources } from "./production-release-evidence.mjs";
 import {
@@ -41,7 +41,8 @@ const SUCCESSFUL_JOB_SCOPES = [
     ],
     scope: "db",
   },
-  { patterns: [/Deploy Web/u], scope: "web" },
+  { patterns: [/Deploy Website/u], scope: "website" },
+  { patterns: [/Deploy Web(?:\s|$)/u], scope: "web" },
   { patterns: [/Deploy Gateway Worker/u], scope: "gateway" },
   { patterns: [/Deploy Auth Worker/u], scope: "auth" },
   { patterns: [/Publish CLI And Release Core/u], scope: "cli" },
@@ -186,6 +187,13 @@ export async function collectProductionReleaseStatus(input = {}) {
   const missingSources = [];
   const pendingScopes = [];
   for (const scope of RELEASE_SCOPES) {
+    // Historical source revisions before the split have no Website component.
+    if (
+      scope === "website" &&
+      adapters.hasWebsitePackage(sourceSha) === false
+    ) {
+      continue;
+    }
     const releaseSource = sources.get(scope);
     const component = describeReleaseComponent({
       releaseSource,
@@ -194,6 +202,7 @@ export async function collectProductionReleaseStatus(input = {}) {
       plansByBase,
       adapters,
       sourceSha,
+      webReleaseSource: sources.get("web"),
     });
     if (component.state === "unknown") {
       missingSources.push(scope);
@@ -392,6 +401,28 @@ async function readHostedReleaseState(adapters, repo, sourceSha) {
   return { sources, history };
 }
 
+function describeInitialWebsitePublication(input) {
+  if (
+    !(
+      input.scope === "website" &&
+      input.webReleaseSource?.sha &&
+      input.adapters.hasWebsitePackage(input.webReleaseSource.sha) === false &&
+      input.adapters.hasWebsitePackage(input.sourceSha) === true
+    )
+  ) {
+    return null;
+  }
+  return {
+    scope: "website",
+    state: "pending",
+    evidence: describeComponentEvidence(undefined),
+    changedPaths: ["clients/website/package.json"],
+    compatibilityDependencies: [],
+    reason:
+      "First Website publication. The guarded domain admission must verify the existing Web owner and current App smoke before root cutover.",
+  };
+}
+
 function describeReleaseComponent(input) {
   const { releaseSource, scope, history, plansByBase, adapters, sourceSha } =
     input;
@@ -416,7 +447,10 @@ function describeReleaseComponent(input) {
     return unknown(unresolved.detail);
   }
   if (!releaseSource) {
-    return unknown("No successful deployment history was found.");
+    return (
+      describeInitialWebsitePublication(input) ??
+      unknown("No successful deployment history was found.")
+    );
   }
   if (releaseSource.conflict) {
     return unknown(
@@ -444,22 +478,15 @@ function describeReleaseComponent(input) {
   if (!entry) {
     try {
       entry = {
-        plan: adapters.buildPlan({ base: releaseSource.sha, sourceSha }),
+        plan: adapters.buildImpact({ base: releaseSource.sha, sourceSha }),
       };
     } catch (error) {
       entry = {
-        error: `Historical plan from ${releaseSource.sha} failed: ${error.message}`,
+        error: `Source impact from ${releaseSource.sha} failed: ${error.message}`,
       };
     }
     plansByBase.set(releaseSource.sha, entry);
   }
-  entry = resolveDatabaseHistoricalPlan({
-    adapters,
-    entry,
-    releaseSource,
-    scope,
-    sourceSha,
-  });
   if (entry.error) {
     return unknown(
       `${entry.error} Current release contracts rejected this historical baseline. Use current-main guarded tooling for an evidence-backed forward fix, or the documented same-source recovery path when its retained receipt qualifies; never run older release guards or bypass the receipt.`
@@ -469,6 +496,7 @@ function describeReleaseComponent(input) {
     ...releaseSource,
     changedPaths: entry.plan.changedPaths,
     compatibilityDependencies: entry.plan.compatibilityDependencies ?? [],
+    compatibilityBridges: entry.plan.compatibilityBridges ?? [],
     compatibilityReceiverWitnesses: (
       entry.plan.compatibilityReceiverWitnesses ?? []
     ).map((witness) => ({
@@ -479,26 +507,6 @@ function describeReleaseComponent(input) {
     scope,
     state: entry.plan.scopes.includes(scope) ? "pending" : "current",
   };
-}
-
-function resolveDatabaseHistoricalPlan(input) {
-  if (!(input.entry.error && input.scope === "db")) {
-    return input.entry;
-  }
-  try {
-    // A successful Database receipt does not depend on whether unrelated
-    // historical Worker contracts can still compose into one release plan.
-    return {
-      plan: input.adapters.buildDatabaseStatusPlan({
-        base: input.releaseSource.sha,
-        sourceSha: input.sourceSha,
-      }),
-    };
-  } catch {
-    // Preserve the original historical planning error when even the
-    // Database-specific diff cannot be established.
-    return input.entry;
-  }
 }
 
 function resolveCompatibilityReceiverWitnessEvidence(input) {
@@ -1013,6 +1021,16 @@ function defaultAdapters() {
     return checkoutRepository;
   };
   return {
+    hasWebsitePackage: (sha) => {
+      try {
+        return (
+          runGit(["ls-tree", sha, "--", "clients/website/package.json"]).trim()
+            .length > 0
+        );
+      } catch {
+        return null;
+      }
+    },
     buildPlan: ({ base, sourceSha }) =>
       buildProductionReleasePlan({
         base,
@@ -1022,20 +1040,15 @@ function defaultAdapters() {
         scope: "auto",
         sourceSha,
       }),
-    buildDatabaseStatusPlan: ({ base, sourceSha }) => {
-      const changedPaths = splitLines(
-        runGit(["diff", "--name-only", `${base}...${sourceSha}`])
-      );
-      return {
-        changedPaths,
-        compatibilityDependencies: [],
-        compatibilityReceiverWitnesses: [],
-        scopes: resolveAutomaticReleaseScopes({
-          affectedPackages: [],
-          changedPaths,
-        }).filter((scope) => scope === "db"),
-      };
-    },
+    buildImpact: ({ base, sourceSha }) =>
+      buildProductionReleaseImpact({
+        base,
+        changedPaths: splitLines(
+          runGit(["diff", "--name-only", `${base}...${sourceSha}`])
+        ),
+        scope: "auto",
+        sourceSha,
+      }),
     compareGitPathContents,
     readPushChecks: async (repo, sourceSha) =>
       (
@@ -1203,11 +1216,28 @@ function releaseWorkflowMapping(pendingScopes) {
 
 function scopedReleaseWorkflowMapping(scopes) {
   if (
-    hasExactly(scopes, ["db", "web", "gateway", "auth", "core", "remote-agent"])
+    hasExactly(scopes, [
+      "db",
+      "web",
+      "gateway",
+      "auth",
+      "core",
+      "remote-agent",
+      "website",
+    ])
   ) {
     return "Scoped Production Release input: full.";
   }
-  if (hasExactly(scopes, ["web", "gateway", "auth", "core", "remote-agent"])) {
+  if (
+    hasExactly(scopes, [
+      "web",
+      "gateway",
+      "auth",
+      "core",
+      "remote-agent",
+      "website",
+    ])
+  ) {
     return "Scoped Production Release input: cloud.";
   }
   if (hasExactly(scopes, ["db", "auth"])) {

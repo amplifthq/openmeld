@@ -307,13 +307,36 @@ keeps unrelated catalog formatting out of the diff.
 
 A new draft requires a model addition, a newly observed discovery candidate or
 reasoning option, a new existing-model parameter/visibility discrepancy, or a
-changed retirement passage about a cataloged model. Compare these review facts
+changed retirement passage about a cataloged model. Discovery recommendations
+require declared text output and tool calling; media-only models and incomplete
+capability metadata remain in raw evidence without opening a PR. Changes to the
+discovery reasoning options of an already cataloged model are review hints only,
+compared with the previous observation, never guessed harness parameters.
+Compare these review facts
 with the last committed evidence snapshot. Repeated candidates and discrepancies,
 collection timestamps, harness releases, unrelated documentation and marketplace
 metadata changes do not create proposals. Every scan still preserves its raw
 evidence and review brief in the Actions artifact, including scans with no
 substantive changes. A changed or removed retirement passage requires review;
 the collector never treats it as an automatic retirement or withdrawal decision.
+
+An announced retirement with a reviewed date also requests one recheck when a
+successful scan reaches that UTC date and the notice has not been verified on or
+after it. This applies to both `on` and `not_before`: neither is proof of actual
+withdrawal. The due fact is stable across later scans, so the existing merged
+snapshot / declined fingerprint rules suppress repeated proposals. A reviewer
+records the observed outcome and updates the notice's date, status or
+`verifiedAt`; confirmed withdrawn notices need no date reminder.
+
+The PR and Actions summary lead with only new review items relative to the last
+committed evidence, their source facts and a concrete verification action.
+Unchanged candidates and notices are folded into the full scan reference.
+The same comparison controls publication and the summary, including publication
+recovery from an already-pushed branch. The proposal fingerprint hashes that
+same actionable delta, not all observed metadata, so first observations of
+already cataloged model metadata cannot reopen a declined candidate.
+No new facts means no new PR; evidence
+artifacts and an existing review's latest-scan comment remain available.
 
 Actions uses its existing token only for `api.github.com` requests to avoid
 shared anonymous rate limits. Local collectors may supply `GH_TOKEN`; the token
@@ -498,6 +521,11 @@ is a hosted-runtime policy catalog, not a local Agent Profile controller:
   Agent tools use this same selection contract. The catalog default is `medium`
   where the provider supports it; GLM 5.3 Flash and the two DeepSeek Flash
   models retain `high` because they do not offer `medium`.
+  Saving an explicit effort with the Center Agent **OpenMeld default** preference
+  materializes the current default's concrete model ID in Core. The saved
+  preference then names that model, so a later system-default change cannot
+  silently apply the effort to a different model. Selecting **OpenMeld default**
+  with no explicit effort restores catalog-following behavior.
 - `hostedRuntimePolicy.imageUnderstandingModelId` names the image-capable
   auxiliary model used for every current-version image turn before persistent
   primary-model admission. The auxiliary returns an untrusted text
@@ -679,6 +707,19 @@ local inventory are not assumed usable by every member's account; a real
 OpenMeld Wake remains deployment acceptance evidence.
 For a client without a reported ACI model inventory, the new routes require
 at least the observed OpenCode 1.18.33 version.
+
+#### October 2 provider follow-up
+
+OpenCode 1.18.34's exact provider inventory adds
+`opencode/fledge-alpha-free` with `low`, `high`, and `max` variants. The observed
+version is a conservative compatibility floor, not a claim that earlier releases
+cannot expose the model through their live inventory. The same capture corrects
+`opencode-go/qwen3.8-max` to expose `low`, `medium`, and `xhigh`. Go subscription
+access remains a separate runtime requirement. The provider-shaped capture is
+retained in `packages/schemas/tests/fixtures/opencode-model-catalog-1.18.34.json`.
+These changes use the existing online catalog, model ID, and variant contracts;
+the offline snapshot, adapters, defaults, and local-component release remain
+unchanged.
 
 ---
 
@@ -964,6 +1005,11 @@ free):
 - **Controller rebind invalidates the model:** when a binding is rebound to a
   different `agentControllerRef`, clear `model_id` / `reasoning_level` (they
   reset to the new controller's default).
+
+When a Local Agent has no saved model selection, its configuration summary says
+`Controller default`. The catalog default describes new chats, not an observed
+model in an existing chat. The configuration explanation makes this distinction
+explicit. Only execution evidence may identify the model actually used by a turn.
 
 These are **optional, additive** fields. Because the catalog is a separate file
 and `conversationPolicy` already has the `model`/`reasoningLevel` slots, this

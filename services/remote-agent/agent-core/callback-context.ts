@@ -343,6 +343,7 @@ export type RemoteAgentCoreWorkerBinding = {
     input: CenterAgentAiUsageRpcInput
   ): Promise<AiUsageQueryResponse>;
   authorizeRemoteAgentExecutionAccess?(input: unknown): Promise<unknown>;
+  acknowledgeRemoteAgentAdmission?(input: unknown): Promise<unknown>;
   getModelCatalog?(
     options?: ModelCatalogReadOptions
   ): Promise<ModelCatalog> | ModelCatalog;
@@ -486,6 +487,8 @@ export type RemoteAgentCoreWorkerBinding = {
   centerAgentConnectAgentProfileToLocalAgent?(input: unknown): Promise<unknown>;
   centerAgentRemoveAgentProfilesFromSpace?(input: unknown): Promise<unknown>;
   centerAgentCreateSpace?(input: unknown): Promise<unknown>;
+  remoteAgentOpenDirectMessageSpace?(input: unknown): Promise<unknown>;
+  remoteAgentGetOrganizationDirectory?(input: unknown): Promise<unknown>;
   centerAgentResolveConnectorConnection?(input: unknown): Promise<unknown>;
   centerAgentEnableAgentProfile?(input: unknown): Promise<unknown>;
   centerAgentGetOrganizationDirectory?(input: unknown): Promise<unknown>;
@@ -607,6 +610,7 @@ export type RemoteAgentCoreWorkerBinding = {
   centerAgentReadSpaceContext?(input: unknown): Promise<unknown>;
   centerAgentReadSpaceWakeProgress?(input: unknown): Promise<unknown>;
   centerAgentStopSpaceWake?(input: unknown): Promise<unknown>;
+  centerAgentSpaceInputQueue?(input: unknown): Promise<unknown>;
   centerAgentRecordConnectorActionAudit?(
     input: CenterAgentRecordConnectorActionAuditBody & {
       context: OpenMeldRequestContext;
@@ -631,6 +635,7 @@ export type RemoteAgentCoreWorkerBinding = {
   ): Promise<unknown>;
   centerAgentUpdateSpaceSettings?(input: unknown): Promise<unknown>;
   centerAgentWakeAgentProfilesInSpace?(input: unknown): Promise<unknown>;
+  centerAgentWakeAgentProfilesInSpaces?(input: unknown): Promise<unknown>;
   personalRemoteAgentSpaceTool?(input: unknown): Promise<unknown>;
   centerAgentListAgentTasks?(input: unknown): Promise<unknown>;
   centerAgentWatchAgentTask?(input: unknown): Promise<unknown>;

@@ -43,7 +43,6 @@ import {
   recordRemoteAgentNavigationTarget,
 } from "./callback-context";
 import {
-  CONNECTOR_WRITE_RECOVERY_GUIDANCE,
   listConnectorActionCatalog,
   readConnectorActionOperation,
   recordConnectorActionOperation,
@@ -53,6 +52,7 @@ import {
   resolveConnectorActionOutputSchema,
   runAndFinalizeConnectorAction,
 } from "./connector-tools";
+import { CONNECTOR_WRITE_RECOVERY_GUIDANCE } from "./connector-write-recovery";
 import { callCoreRpc, requireCoreRpc } from "./core-rpc";
 import {
   resolveRemoteAgentDestructiveAuthorization,

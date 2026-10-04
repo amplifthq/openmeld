@@ -62,6 +62,40 @@ describe("Wake progress projection", () => {
       updatedAtMs: 100,
     });
     const b = { ...a, dispatchId: "B", updatedAtMs: 200 };
+    const selected = {
+      ...a,
+      replyThreadRootSignalId: null,
+      replyPlacementRevision: 2,
+    };
+    const stale = {
+      ...a,
+      replyThreadRootSignalId: "source",
+      replyPlacementRevision: 1,
+    };
+    for (const [current, incoming] of [
+      [selected, stale],
+      [stale, selected],
+    ]) {
+      expect(
+        mergeWakeProgressItems({
+          currentItems: [current],
+          incomingItems: [incoming],
+        })[0]
+      ).toMatchObject({
+        replyThreadRootSignalId: null,
+        replyPlacementRevision: 2,
+      });
+    }
+    expect(
+      mergeWakeProgressItems({
+        currentItems: [selected],
+        incomingItems: [{ ...a, updatedAtMs: 300 }],
+      })[0]
+    ).toMatchObject({
+      updatedAtMs: 300,
+      replyThreadRootSignalId: null,
+      replyPlacementRevision: 2,
+    });
     const merged = mergeWakeProgressItems({
       currentItems: [a],
       incomingItems: [b],

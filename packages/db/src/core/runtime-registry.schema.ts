@@ -1,13 +1,8 @@
 import { sql } from "drizzle-orm";
-import {
-  check,
-  integer,
-  sqliteTable,
-  text,
-  uniqueIndex,
-} from "drizzle-orm/sqlite-core";
+import { bigint, check, text, uniqueIndex } from "drizzle-orm/pg-core";
+import { applicationTable } from "../postgresql/schema.ts";
 
-export const openMeldDaemonRuntimeRegistryRecords = sqliteTable(
+export const openMeldDaemonRuntimeRegistryRecords = applicationTable(
   "openMeldDaemon_runtime_registry_records",
   {
     openMeldServiceRuntimeId: text("openmeld_service_runtime_id").primaryKey(),
@@ -15,9 +10,11 @@ export const openMeldDaemonRuntimeRegistryRecords = sqliteTable(
     ownerId: text("owner_id").notNull(),
     deviceId: text("device_id").notNull(),
     lane: text("lane").notNull(),
-    createdAtMs: integer("created_at_ms").notNull(),
-    lastRegisteredAtMs: integer("last_registered_at_ms").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    lastRegisteredAtMs: bigint("last_registered_at_ms", {
+      mode: "number",
+    }).notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     uniqueIndex(

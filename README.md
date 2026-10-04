@@ -190,3 +190,8 @@ Known limitations worth calling out up front:
 ## License
 
 See [LICENSE](./LICENSE).
+
+## UI credits
+
+The folder artwork and primitive are adapted from [Rare UI](https://rareui.com)
+by Swami Malode, under its MIT + Commons Clause + Attribution license.

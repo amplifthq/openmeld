@@ -1,9 +1,18 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  copyFile,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { parseCodexModels, prepareUpdate } from "./catalog-update.mjs";
 import { combineUpdates } from "./collect-update.mjs";
 import { publishUpdate } from "./publish-update.mjs";
@@ -60,22 +69,57 @@ test("publication skips evidence-only scans and recovers meaningful proposals wi
       "scripts/model-catalog/sources.json",
       JSON.stringify({ codex: { verification: "Verify account access." } })
     );
-    await writeFile(".gitignore", "dev-tmp/\n");
+    await writeFile(".gitignore", "dev-tmp/\nnode_modules/\n");
+    await writeFile(
+      "package.json",
+      JSON.stringify({
+        name: "catalog-publisher-fixture",
+        private: true,
+        packageManager: "pnpm@10.30.0",
+      })
+    );
+    await copyFile(
+      new URL("../../biome.jsonc", import.meta.url),
+      "biome.jsonc"
+    );
+    await mkdir("node_modules");
+    for (const name of [".bin", "@biomejs", "ultracite"]) {
+      await symlink(
+        fileURLToPath(new URL(`../../node_modules/${name}`, import.meta.url)),
+        join(repo, "node_modules", name),
+        "junction"
+      );
+    }
     git("add", ".");
     git("commit", "-m", "test: establish catalog baseline");
     git("remote", "add", "origin", remote);
     git("push", "-u", "origin", "main");
-    const quiet = prepareUpdate({
+    const baseline = prepareUpdate({
       catalog,
       controller: "codex",
       sources: [
         {
           url: "https://example.invalid/catalog",
           kind: "official-document",
-          data: "Captured evidence",
+          data: "Existing will retire on October 15.",
         },
       ],
       observedAt: "2026-09-05T00:00:00.000Z",
+    });
+    await mkdir("release/model-catalog-evidence");
+    await writeFile(
+      "release/model-catalog-evidence/codex.json",
+      JSON.stringify(baseline.evidence)
+    );
+    git("add", "--", "release/model-catalog-evidence/codex.json");
+    git("commit", "-m", "test: acknowledge retirement evidence");
+    git("push", "origin", "main");
+    const quiet = prepareUpdate({
+      catalog,
+      controller: "codex",
+      sources: baseline.evidence.sources,
+      observedAt: baseline.evidence.observedAt,
+      previous: baseline.evidence,
     });
     const output = join(repo, "dev-tmp");
     const writeResult = async (result) => {
@@ -114,6 +158,7 @@ if (args[0] === 'pr' && args[1] === 'list') {
 } else if (args[0] === 'pr' && args[1] === 'create') {
   if (!fs.existsSync('dev-tmp/retry')) { fs.writeFileSync('dev-tmp/retry', '1'); process.exit(1); }
   const head = args[args.indexOf('--head') + 1];
+  fs.copyFileSync(args[args.indexOf('--body-file') + 1], 'dev-tmp/created-review.md');
   const url = 'https://github.com/example/openmeld/pull/1';
   fs.writeFileSync('dev-tmp/pr.json', JSON.stringify([{ state: 'OPEN', headRefName: head, url }]));
   console.log(url);
@@ -163,19 +208,33 @@ if (args[0] === 'pr' && args[1] === 'list') {
     const result = prepareUpdate({
       catalog,
       controller: "codex",
-      sources: [source],
+      sources: [source, ...baseline.evidence.sources],
+      previous: baseline.evidence,
       codexModels: parseCodexModels(raw),
       observedAt: quiet.evidence.observedAt,
     });
     await writeResult(result);
     await assert.rejects(() => publishUpdate(output));
     const pushed = git("rev-parse", "HEAD");
+    execFileSync(
+      "pnpm",
+      [
+        "exec",
+        "biome",
+        "format",
+        "release/model-catalog-evidence/codex.json",
+        "release/vendor-models.json",
+      ],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }
+    );
     git("checkout", "main");
     const refreshed = prepareUpdate({
       catalog,
       controller: "codex",
+      previous: baseline.evidence,
       sources: [
         source,
+        ...baseline.evidence.sources,
         {
           kind: "official-document",
           url: "https://example.com/docs",
@@ -191,6 +250,14 @@ if (args[0] === 'pr' && args[1] === 'list') {
     );
     await writeResult(refreshed);
     await publishUpdate(output);
+    const createdReview = await readFile("dev-tmp/created-review.md", "utf8");
+    const newItems = createdReview.split("## Reviewer decisions")[0];
+    assert.ok(newItems.includes("Catalog addition"));
+    assert.ok(
+      !newItems.includes("Retirement notice added / changed"),
+      "recovered PR compares against the original parent evidence"
+    );
+    assert.ok(!newItems.includes("Retirement passage removed"));
     const pulls = JSON.parse(await readFile("dev-tmp/pr.json", "utf8"));
     assert.equal(
       git("ls-remote", "--heads", "origin", pulls[0].headRefName).split(

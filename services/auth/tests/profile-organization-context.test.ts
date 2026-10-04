@@ -1,17 +1,23 @@
+import { PostgresDatabase } from "@openmeld/db/postgresql";
 import { describe, expect, it, vi } from "vitest";
 import { resolveAgentProfileOrganizationId } from "../src/lib/hono/profile-routes";
 
 describe("Agent Profile Organization context", () => {
   it("uses the explicitly requested Organization instead of a stale Session selection", async () => {
-    const first = vi.fn().mockResolvedValue({
-      organization_id: "organization-amplift",
+    const db = new PostgresDatabase({
+      connectionString: "postgresql://projection@127.0.0.1:1/projection",
     });
-    const bind = vi.fn(() => ({ first }));
-    const prepare = vi.fn(() => ({ bind }));
+    const query = vi.spyOn(db, "query").mockResolvedValue({
+      rows: [{ organization_id: "organization-amplift" }],
+      rowCount: 1,
+      fields: [],
+      command: "SELECT",
+      oid: 0,
+    });
 
     await expect(
       resolveAgentProfileOrganizationId({
-        db: { prepare } as unknown as D1Database,
+        db,
         headers: new Headers({
           "x-openmeld-requested-organization-id": "organization-amplift",
         }),
@@ -19,29 +25,39 @@ describe("Agent Profile Organization context", () => {
         userId: "user-felix",
       })
     ).resolves.toBe("organization-amplift");
-    expect(bind).toHaveBeenCalledWith("user-felix", "organization-amplift");
+    expect(query).toHaveBeenCalledWith(
+      expect.objectContaining({
+        values: ["user-felix", "organization-amplift"],
+      })
+    );
   });
 
   it("preserves Session fallback for older unscoped callers", async () => {
-    const prepare = vi.fn();
+    const db = new PostgresDatabase({
+      connectionString: "postgresql://projection@127.0.0.1:1/projection",
+    });
+    const query = vi.spyOn(db, "query");
 
     await expect(
       resolveAgentProfileOrganizationId({
-        db: { prepare } as unknown as D1Database,
+        db,
         headers: new Headers(),
         sessionActiveOrganizationId: "organization-session",
         userId: "user-felix",
       })
     ).resolves.toBe("organization-session");
-    expect(prepare).not.toHaveBeenCalled();
+    expect(query).not.toHaveBeenCalled();
   });
 
   it("rejects ambiguous Organization selectors before reading membership", async () => {
-    const prepare = vi.fn();
+    const db = new PostgresDatabase({
+      connectionString: "postgresql://projection@127.0.0.1:1/projection",
+    });
+    const query = vi.spyOn(db, "query");
 
     await expect(
       resolveAgentProfileOrganizationId({
-        db: { prepare } as unknown as D1Database,
+        db,
         headers: new Headers({
           "x-openmeld-requested-organization-id": "organization-amplift",
           "x-openmeld-requested-organization-slug": "amplift",
@@ -52,6 +68,6 @@ describe("Agent Profile Organization context", () => {
     ).rejects.toMatchObject({
       code: "organization.context_invalid",
     });
-    expect(prepare).not.toHaveBeenCalled();
+    expect(query).not.toHaveBeenCalled();
   });
 });

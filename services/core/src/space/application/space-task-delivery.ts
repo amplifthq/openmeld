@@ -10,7 +10,6 @@ import type {
 } from "../infrastructure/sql/space-task-delivery-repo";
 import type { SpaceTaskRepository } from "../infrastructure/sql/space-task-repo";
 import type { SourceDispatchChainContext } from "./types";
-
 export function taskMutationMayNeedDelivery(
   action: MutateSpaceTaskBody["action"]
 ): boolean {
@@ -24,7 +23,6 @@ export function taskMutationMayNeedDelivery(
     action === "observe_external_work_item"
   );
 }
-
 export function resolveSpaceTaskHumanDecisionTarget(
   task: SpaceTask,
   activeMembers: readonly SpaceTaskActor[],
@@ -51,7 +49,6 @@ export function resolveSpaceTaskHumanDecisionTarget(
       )[0] ?? null
   );
 }
-
 export function enqueueSpaceTaskDeliveries(input: {
   repository: SpaceTaskDeliveryRepository;
   receipt: SpaceTaskMutationReceipt;
@@ -103,7 +100,6 @@ export function enqueueSpaceTaskDeliveries(input: {
     enqueue("stop");
   }
 }
-
 /** Rechecked inside Signal persistence, after asynchronous admission reads. */
 export function isSpaceTaskDeliveryCurrent(
   delivery: SpaceTaskDelivery,
@@ -145,7 +141,6 @@ export function isSpaceTaskDeliveryCurrent(
     (current.phase === "in_progress" || current.needsHumanDecision)
   );
 }
-
 export function isSpaceTaskStopSuperseded(
   delivery: SpaceTaskDelivery,
   repository: Pick<SpaceTaskRepository, "listEvents">
@@ -158,13 +153,15 @@ export function isSpaceTaskStopSuperseded(
         event.taskRevision > delivery.receipt.event.taskRevision
     );
 }
-
 /** Only an exact retained cancellation and Task Wake reference can extend Stop authority. */
 export function isAuthorizedSpaceTaskStop(input: {
   actorOwnerUserId: string | null | undefined;
   actorProfileId: string;
   delivery?: SpaceTaskDelivery;
-  wake: { sourceSignalId: string | null; targetProfileId: string };
+  wake: {
+    sourceSignalId: string | null;
+    targetProfileId: string;
+  };
   taskRepository: Pick<SpaceTaskRepository, "listEvents" | "readOperation">;
   deliveryRepository: Pick<SpaceTaskDeliveryRepository, "hasWake">;
 }): boolean {
@@ -196,7 +193,6 @@ export function isAuthorizedSpaceTaskStop(input: {
     )
   );
 }
-
 export class SpaceTaskDeliveryError extends Error {
   readonly terminal: boolean;
   constructor(message: string, terminal = false) {
@@ -204,7 +200,6 @@ export class SpaceTaskDeliveryError extends Error {
     this.terminal = terminal;
   }
 }
-
 export async function flushSpaceTaskDeliveries(input: {
   repository: SpaceTaskDeliveryRepository;
   deliver: (delivery: SpaceTaskDelivery) => Promise<void>;

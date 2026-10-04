@@ -1,87 +1,81 @@
-# OpenMeld Physical DB Split
+# Shared Relational Database Direction
 
 ## Agent Context
 
-- Purpose: Define the current physical database direction and the boundaries
-  for any future split, without letting agents execute the superseded 4-way
-  split as a live plan.
-- Read this when: You are creating or renaming D1 databases or bindings,
-  writing per-DB migrations, changing `ops_decisions` persistence, or planning
-  evidence-growth control.
-- Update this when: Felix changes the physical database direction, the future
-  observability-only split becomes active, or a new durable table affects the
-  physical storage owner model.
-- Do not use this for: Product semantics (see `product-model.md`), execution
-  authority (see `agent-transport-contract.md`), logical data ownership rules
-  (see `data-and-observability.md` — this file inherits and never overrides
-  them), or Cloudflare operations how-tos.
-- Source of truth: This file owns physical D1 split direction. The live
-  direction is a single `openmeld-db`; the 4-way split is superseded history.
+- Purpose: Own the physical relational database target and current compatibility boundary.
+- Read this when: Planning PostgreSQL persistence, migrations, bindings, or data cutover.
+- Update this when: The physical target, current product bindings, or cutover boundary changes.
+- Do not use this for: Execution authority, product semantics, or operational commands.
+- Source of truth: This document owns direction; [the PostgreSQL workflow](../engineering/postgresql.md)
+  owns commands and acceptance; `tooling/postgresql/resources.json` records provisioned targets.
+- Logical ownership remains in [data and observability](data-and-observability.md).
+  This document does not authorize production changes or resource deletion.
 
-## Current Status
+## Decided Target — 2026-10-03
 
-As of 2026-06-14, Felix reverted the 4-way physical D1 split direction. The
-live production direction is a single `openmeld-db` binding (core rollback commit
-`593e71dd`, production-smoked). Do not resume the 4-way split, its Stage A-F
-runbook, or the 4-database target layout. The full 4-way design, decision
-record, migration runbook, and dated execution log live in this file's git
-history (revisions before 2026-07) and are not an executable plan.
+Felix selected **Cloudflare Hyperdrive + PlanetScale PostgreSQL** for OpenMeld's
+shared business relational database. All databases belong to the **Amplift**
+PlanetScale organization (`amplift`), with separate staging and production
+resources and credentials. This supersedes D1-first planning, the 6 GB migration
+trigger, and the observability-only split as the future target.
 
-Why the split is not urgent: the bloat root cause was fixed independently of
-any split — the `openMeldDaemon_ops_decisions` upsert (latest row per correlation) plus
-a one-off cleanup took `openmeld-db` from 587 MB / 512K rows to 19 MB / ~890 rows.
-The 10 GB D1 cap is not in sight. Logical data ownership continues to follow
-`developing/architecture/data-and-observability.md` unchanged.
+Current product production and shared staging still use D1. Production's
+`OPENMELD_DB` resolves to `openmeld-db-prod`
+(`15f16284-5240-4675-b626-3b7144e1d684`); staging uses `openmeld-db-stg`
+(`10da3483-0644-459a-8523-381a2a17ac39`). PostgreSQL foundation resources are
+isolated and contain no production user data. Provisioning is not product cutover.
 
-`openmeld_profile_deletion_outbox` is Auth-owned identity-lifecycle recovery
-state and is currently co-located in the shared `openmeld-db`. It is not
-retained Wake evidence and must not move into a future time-decaying
-observability database.
+Use standard PostgreSQL drivers through cache-disabled Hyperdrive for Workers
+and direct TLS connections for migration and backup owners. Do not build a
+permanent D1 API emulator. Preserve D1 history and create independent PostgreSQL
+migrations. Commands, grants, backup/restore and the controlled maintenance-window
+cutover belong to the PostgreSQL workflow.
 
-## Groundwork Kept On Purpose
+## Ownership And Compatibility
 
-Account message notification defaults and per-conversation overrides are
-Core-owned product preferences in the shared `OPENMELD_DB`. They are not
-time-decaying observability data and remain with product state in any future
-observability-only split.
+RuntimeCoordinator owns execution; the relational Dispatch Ledger remains
+evidence and a projection. Space Durable Objects retain realtime state and
+outboxes, R2 retains file bodies, and OpenConnector's upstream database is
+outside this migration. Retention follows business owners, not physical storage.
+Cutover must establish one relational authority without prolonged dual writes,
+preserving IDs and DO/R2 references.
 
-These remain as harmless no-ops on the single DB and are reusable by a future
-observability-only split. Do not clean them up as dead code:
+The PostgreSQL candidate's shared consumers use one native Hyperdrive binding;
+physical-domain D1 aliases are removed with their consumers. The deployed D1
+revision remains unchanged until the authorized cutover. Operational dispatch
+recovery is product state; the Auth-owned
+`openmeld_profile_deletion_outbox` and account notification preferences are
+product state. Neither becomes time-decaying evidence merely by sharing a database.
+Diagnostics-owned connection incidents retain their own bounded retention.
 
-- Per-domain accessors `localStateDb` / `wakeEvidenceDb` / `projectionsDb`,
-  all falling back to `OPENMELD_DB`.
-- `dispatchRecoveryDb`, which deliberately resolves only `OPENMELD_DB`.
-  Pre-head failure-publication commands, claims, retry schedules, and completion
-  gates are operational recovery state and must not follow `wakeEvidenceDb`
-into a time-decaying observability database.
+The former four-way D1 split and observability-only split are historical,
+superseded plans. Their detailed runbooks remain in Git history. Existing
+unused resources are not permission to delete anything. Inventory and authorize
+cleanup separately from PostgreSQL preparation.
 
-The bounded `openmeld_service_connection_incidents` table is Diagnostics-owned
-evidence accessed through `wakeEvidenceDb`, currently on the shared database.
-Its own daily retention only deletes that table; it does not activate the old
-split-gated sweep or change any database binding.
-- The dispatch hot-path cross-domain fix (commit `ca9680d8a`) that routes
-  ledger↔binding correctly — the one boundary an observability split still
-  needs.
-- The split-gate verification net.
-- The provisioned but unused `openmeld-wake-evidence` database, kept for the future
-  observability split. The other three provisioned databases
-  (`openmeld-local-state`, `openmeld-projections`, `openmeld-identity`) are disposable.
+## Current evidence retention
 
-The old 4-way split copy/backfill tool was removed during the OpenMeld
-greenfield reset. It copied data from an existing shared database into the
-superseded 4-database layout and must not be recreated unless Felix explicitly
-reopens a new physical split plan from current production facts.
+Retention is independent of physical database placement. The daily Core task
+uses the native `getPostgresDatabase` owner; no split-active flag is required. Each allowed table gets
+at most five batches of 1,000 deletions per invocation. Logs report deleted rows
+and budget exhaustion; another invocation continues remaining eligible work.
+These bounds cap deletions and statements, not rows examined: protected old
+events can still be scanned while looking for eligible evidence. Monitor PostgreSQL
+query plans and scheduled-task duration before widening this policy.
 
-## Future Direction (Not Built Now)
+Creation diagnostics expire after 30 days. Execution-event cleanup is narrower:
+only the explicit historical lifecycle/publication event allowlist is eligible,
+and only when the retained execution projection and a retained result receipt
+both establish `reply_published` more than 30 days ago. Any unpublished or recent
+result receipt excludes that execution. Eligibility is checked in the deletion
+statement, not from an earlier candidate list. Missing evidence preserves rows.
 
-If a physical split ever becomes necessary, split observability only: isolate
-Wake evidence into `openmeld-wake-evidence` when post-retention growth approaches
-the D1 size cap again.
-
-Per-domain levers before reaching for a split: projections → rebuild or shard
-per account; evidence → shorten retention or archive to R2; identity/config →
-shard per tenant, or move that single domain behind Hyperdrive → PostgreSQL.
-The Hyperdrive/PG trigger is any database at or above 6 GB post-retention, or
-a query shape D1 cannot serve. Until then stay D1-first, and keep
-identity/config schemas free of SQLite-only features so portability stays
-free.
+Cancellation requests remain a late-finalization fence. Token, unknown event
+types, failed/in-flight executions, execution projections, dispatch ledgers,
+attempts, DLQ, results, result inboxes, ops decisions and recovery outboxes are
+not subject to this sweep. Their retained identity and recovery records prevent
+diagnostic expiry from becoming execution or replay authority. Do not restore
+the superseded nine-table age-only sweep. Diagnostic rows may reappear on an
+old diagnostic replay; retained execution and result receipts still own outcome
+and deduplication. A future physical split must preserve these joins or redesign
+the retention eligibility contract before moving those tables.

@@ -38,7 +38,7 @@ export const createDirectMessageApi: CreateDirectMessageApi = (client) => ({
   },
   openSpace: async (input) => {
     const request = validateOpenDirectMessageSpaceInput(input);
-    return await client.requestJson({
+    const response = await client.requestJson({
       url: buildDirectMessageSpacePath(),
       operation: "direct_message.space.open",
       method: "POST",
@@ -46,10 +46,37 @@ export const createDirectMessageApi: CreateDirectMessageApi = (client) => ({
       signal: request.signal,
       timeoutMs: request.timeoutMs,
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ targetProfileId: request.targetProfileId }),
+      body: JSON.stringify({
+        targetProfileId: request.targetProfileId,
+        spaceId: request.spaceId,
+        creationId: request.creationId,
+        message: request.message,
+      }),
       schema: openDirectMessageSpaceResponseSchema,
       invalidMessage: "Invalid Direct Message Space response.",
     });
+    // Older Core receivers can ignore new RPC arguments during cloud rollout.
+    // Require evidence for each requested effect before reporting success.
+    if (request.spaceId && response.spaceId !== request.spaceId) {
+      throw new Error(
+        "The server did not confirm the selected Direct Message."
+      );
+    }
+    if (request.creationId && response.creationId !== request.creationId) {
+      throw new Error(
+        "The server did not confirm the new chat. Update OpenMeld and retry with the same creation ID."
+      );
+    }
+    if (
+      request.message &&
+      response.signal?.data.meta?.clientMessageId !==
+        request.message.clientMessageId
+    ) {
+      throw new Error(
+        "The server did not confirm the Direct Message. Update OpenMeld and retry with the same message ID."
+      );
+    }
+    return response;
   },
 });
 
@@ -88,6 +115,9 @@ function validateOpenDirectMessageSpaceInput(
 ): OpenDirectMessageSpaceInput {
   const parsed = openDirectMessageSpaceBodySchema.safeParse({
     targetProfileId: input.targetProfileId,
+    spaceId: input.spaceId,
+    creationId: input.creationId,
+    message: input.message,
   });
   if (!parsed.success) {
     throw new Error(

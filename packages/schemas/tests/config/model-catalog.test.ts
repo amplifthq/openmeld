@@ -11,6 +11,7 @@ import localModelCatalogCapture from "../fixtures/local-model-catalog-2026.09.22
 import octoberModelCatalogCapture from "../fixtures/local-model-catalog-2026.10.01.json";
 import openCodeGoQwen38Flash from "../fixtures/opencode-go-qwen3.8-flash-1.18.25.json";
 import openCodeModelCatalogCapture from "../fixtures/opencode-model-catalog-1.18.31.json";
+import openCodeOctoberCapture from "../fixtures/opencode-model-catalog-1.18.34.json";
 
 describe("model catalog schema", () => {
   it.each([
@@ -101,7 +102,11 @@ describe("model catalog schema", () => {
         model._meta.reasoningEfforts.map((effort) => effort.id).toSorted()
       );
     }
-    for (const model of [...opencode, ...octoberModelCatalogCapture.opencode]) {
+    for (const model of [
+      ...opencode,
+      ...octoberModelCatalogCapture.opencode,
+      ...openCodeOctoberCapture.models,
+    ]) {
       expect(agentControllers.opencode?.models).toContainEqual(
         expect.objectContaining({
           id: `${model.providerID}/${model.id}`,

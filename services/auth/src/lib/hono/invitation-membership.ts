@@ -1,8 +1,9 @@
 import {
-  createD1Db,
+  createAuthDatabase,
   createDrizzleOrganizationJoinLinkRepository,
   createOrganizationJoinLinkService,
 } from "@openmeld/auth/server";
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import {
   type SpaceInvitationRpcInput,
   spaceInvitationRpcResultSchema,
@@ -10,16 +11,20 @@ import {
 import type { Context } from "hono";
 import { getOrganizationServerApi } from "../better-auth/organization-server-api";
 import type { AppContext } from "../context";
-
 export async function readInvitationAccount(
   c: Context<AppContext>,
   userId: string
 ) {
-  const user = await c.env.OPENMELD_DB.prepare(
-    "SELECT id, email, email_verified FROM users WHERE id = ?"
-  )
-    .bind(userId)
-    .first<{ id: string; email: string; email_verified: number }>();
+  const user = await getPostgresDatabase(c.env)
+    .query<{
+      id: string;
+      email: string;
+      email_verified: number;
+    }>({
+      text: 'SELECT id, email, email_verified FROM "openmeld"."users" WHERE id = $1',
+      values: [userId],
+    })
+    .then((result) => result.rows[0] ?? null);
   return user
     ? {
         id: user.id,
@@ -28,16 +33,23 @@ export async function readInvitationAccount(
       }
     : null;
 }
-
 // Auth fulfills an already authorized invitation. The caller must establish the
 // direct-link or approved-request authority before using this membership writer.
 export async function fulfillInvitationMembership(
   c: Context<AppContext>,
   input: {
     organizationId: string;
-    applicant: { id: string; email: string; emailVerified: boolean };
+    applicant: {
+      id: string;
+      email: string;
+      emailVerified: boolean;
+    };
     spaceInvitation?: {
-      actor: { id: string; email: string; emailVerified: boolean };
+      actor: {
+        id: string;
+        email: string;
+        emailVerified: boolean;
+      };
       request: SpaceInvitationRpcInput["request"];
     };
   }
@@ -81,7 +93,7 @@ export async function fulfillInvitationMembership(
   }
   const result = await createOrganizationJoinLinkService({
     repository: createDrizzleOrganizationJoinLinkRepository(
-      createD1Db(c.env.OPENMELD_DB)
+      createAuthDatabase()
     ),
     webAppUrl: c.env.WEB_APP_URL ?? c.req.url,
   }).enrollVerifiedWorkspaceMember({

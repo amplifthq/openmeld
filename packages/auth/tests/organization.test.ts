@@ -1,22 +1,17 @@
-import fs from "node:fs";
-import path from "node:path";
-import { DatabaseSync, type StatementSync } from "node:sqlite";
-import { fileURLToPath } from "node:url";
+import { PostgresDatabase, withPostgresRequest } from "@openmeld/db/postgresql";
 import { betterAuth } from "better-auth";
 import { hashPassword } from "better-auth/crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createPostgresHarness } from "../../../tooling/postgresql/test-harness";
 import {
   type AuthConfigEnv,
   createAuthConfig,
 } from "../src/configs/auth.config";
 import { organizationRoles } from "../src/organization/access-control";
+import { assertCenterAgentIdentityBeforeMemberRemoval } from "../src/organization/center-agent-member-removal-guard";
 import type { CloudflareEmailSender } from "../src/utils/email";
 
-type SqliteBindValue = number | string | null;
-type AuthInstance = ReturnType<typeof betterAuth>;
-type TestPreparedStatement = D1PreparedStatement & {
-  __runInTransaction: () => unknown;
-};
+type AuthInstance = Pick<ReturnType<typeof betterAuth>, "handler">;
 type SentEmail = {
   from: string | EmailAddress;
   html?: string;
@@ -25,10 +20,6 @@ type SentEmail = {
   to: string | EmailAddress | (string | EmailAddress)[];
 };
 
-const repoRootDirectoryPath = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "../../.."
-);
 const AUTH_BASE_URL = "http://localhost:8788";
 const WEB_APP_URL = "http://localhost:3000";
 const validSecret = "12345678901234567890123456789012345678901234";
@@ -45,24 +36,97 @@ const LEGACY_PERSONAL_ORGANIZATION_SLUG_PATTERN =
 const CENTER_AGENT_MEMBER_REMOVAL_GUARD_FAILED_MESSAGE =
   "OpenMeld couldn't verify that this member can be removed. The member was not removed.";
 
-const harnesses: { close(): void }[] = [];
+const harnesses: { close(): Promise<void> }[] = [];
 
-afterEach(() => {
+afterEach(async () => {
   for (const harness of harnesses.splice(0)) {
-    harness.close();
+    await harness.close();
   }
   vi.restoreAllMocks();
 });
 
 describe("organization identity foundation", () => {
-  it("rejects cookieless cross-origin magic-link email requests", async () => {
-    const { auth, sentEmails } = createTestAuth({ enforceOriginCheck: true });
+  it.each([
+    WEB_APP_URL,
+    "https://legacy.openmeld.invalid",
+  ])("sends a usable password reset email from trusted App origin %s", async (appOrigin) => {
+    const { auth, harness, sentEmails } = await createTestAuth({
+      enforceOriginCheck: true,
+      legacyAppOrigin: "https://legacy.openmeld.invalid",
+    });
+    const email = "reset-password@example.com";
+    await signUp(auth, { email, name: "Password Reset", password });
+    await verifyUserEmail(harness, email);
+    sentEmails.length = 0;
+
     const response = await auth.handler(
-      new Request(`${AUTH_BASE_URL}/api/auth/sign-in/magic-link`, {
+      new Request(`${AUTH_BASE_URL}/api/auth/request-password-reset`, {
+        body: JSON.stringify({
+          email,
+          redirectTo: `${appOrigin}/reset-password`,
+        }),
+        headers: { "content-type": "application/json", origin: appOrigin },
+        method: "POST",
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect(sentEmails).toHaveLength(1);
+    expect(sentEmails[0]).toMatchObject({
+      to: email,
+      subject: "Reset your OpenMeld password",
+    });
+    const urls = sentEmails[0]?.text?.match(EMAIL_URL_PATTERN) ?? [];
+    expect(urls).toHaveLength(1);
+    const resetLink = urls[0];
+    if (!resetLink) {
+      throw new Error("Expected a password reset link in the email");
+    }
+    const resetUrl = new URL(resetLink);
+    expect(resetUrl.origin).toBe(WEB_APP_URL);
+    expect(resetUrl.pathname).toBe("/reset-password");
+    const token = resetUrl.searchParams.get("token");
+    expect(token).toBeTruthy();
+    const newPassword = "a-new-correct-horse-battery-staple";
+    const resetResponse = await postAuth(auth, "/reset-password", {
+      token,
+      newPassword,
+    });
+    expect(resetResponse.status).toBe(200);
+    const oldSignIn = await postAuth(auth, "/sign-in/email", {
+      email,
+      password,
+    });
+    expect(oldSignIn.status).toBe(401);
+    const newSignIn = await postAuth(auth, "/sign-in/email", {
+      email,
+      password: newPassword,
+    });
+    expect(newSignIn.status).toBe(200);
+    const replay = await postAuth(auth, "/reset-password", {
+      token,
+      newPassword,
+    });
+    expect(replay.status).toBe(400);
+  });
+
+  it.each([
+    { endpoint: "/sign-in/magic-link", cookie: false },
+    { endpoint: "/request-password-reset", cookie: true },
+  ])("rejects untrusted-origin email requests at $endpoint with cookie=$cookie", async ({
+    endpoint,
+    cookie,
+  }) => {
+    const { auth, sentEmails } = await createTestAuth({
+      enforceOriginCheck: true,
+    });
+    const response = await auth.handler(
+      new Request(`${AUTH_BASE_URL}/api/auth${endpoint}`, {
         body: JSON.stringify({ email: "attacker@example.com" }),
         headers: {
           "content-type": "application/json",
           origin: "https://attacker.invalid",
+          ...(cookie ? { cookie: "session=untrusted" } : {}),
         },
         method: "POST",
       })
@@ -72,17 +136,29 @@ describe("organization identity foundation", () => {
     expect(sentEmails).toEqual([]);
   });
 
-  it("keeps the exact add-account intent in the final magic-link email URL", async () => {
-    const { auth, sentEmails } = createTestAuth();
-    const callbackUrl = new URL("/magic-link", WEB_APP_URL);
+  it.each([
+    WEB_APP_URL,
+    "https://legacy.openmeld.invalid",
+  ])("keeps the exact add-account intent from trusted App origin %s in the final magic-link email URL", async (appOrigin) => {
+    const { auth, sentEmails } = await createTestAuth({
+      enforceOriginCheck: true,
+      legacyAppOrigin: "https://legacy.openmeld.invalid",
+    });
+    const callbackUrl = new URL("/magic-link", appOrigin);
     callbackUrl.searchParams.set("intent", "add-account");
     callbackUrl.searchParams.set("redirect", "/o/acme/settings/account");
     callbackUrl.searchParams.set("untrusted", "https://attacker.invalid");
 
-    const response = await postAuth(auth, "/sign-in/magic-link", {
-      callbackURL: callbackUrl.toString(),
-      email: "add-account@example.com",
-    });
+    const response = await auth.handler(
+      new Request(`${AUTH_BASE_URL}/api/auth/sign-in/magic-link`, {
+        body: JSON.stringify({
+          callbackURL: callbackUrl.toString(),
+          email: "add-account@example.com",
+        }),
+        headers: { "content-type": "application/json", origin: appOrigin },
+        method: "POST",
+      })
+    );
 
     expect(response.status).toBe(200);
     const emailUrl = requireMagicLinkEmailUrl(
@@ -100,7 +176,7 @@ describe("organization identity foundation", () => {
   });
 
   it("does not mark an ordinary final magic-link email URL as add-account", async () => {
-    const { auth, sentEmails } = createTestAuth();
+    const { auth, sentEmails } = await createTestAuth();
     const callbackUrl = new URL("/magic-link", WEB_APP_URL);
     callbackUrl.searchParams.set("redirect", "/o/acme/new-space");
 
@@ -122,7 +198,7 @@ describe("organization identity foundation", () => {
   });
 
   it("drops untrusted magic-link callback parameters from the final email URL", async () => {
-    const { auth, sentEmails } = createTestAuth();
+    const { auth, sentEmails } = await createTestAuth();
     const callbackUrl = new URL("/magic-link", WEB_APP_URL);
     callbackUrl.searchParams.set("intent", "add-account-later");
     callbackUrl.searchParams.set("redirect", "https://attacker.invalid");
@@ -145,7 +221,7 @@ describe("organization identity foundation", () => {
   });
 
   it("creates a personal organization and stores it as the active session organization", async () => {
-    const { auth, harness, sentEmails } = createTestAuth();
+    const { auth, harness, sentEmails } = await createTestAuth();
 
     await signUp(auth, {
       email: "owner@example.com",
@@ -162,12 +238,12 @@ describe("organization identity foundation", () => {
     ).toBe(true);
 
     const user = requireRow<{ id: string; normalizedEmail: string }>(
-      harness.queryFirst({
-        params: ["owner@example.com"],
-        sql: `
-          select id, normalized_email as normalizedEmail
-          from users
-          where email = ?
+      await harness.queryFirst({
+        values: ["owner@example.com"],
+        text: `
+          select id, normalized_email as "normalizedEmail"
+          from "openmeld"."users"
+          where email = $1
         `,
       }),
       "Expected signed-up user"
@@ -178,17 +254,17 @@ describe("organization identity foundation", () => {
       name: string;
       slug: string;
     }>(
-      harness.queryFirst({
-        params: [user.id],
-        sql: `
+      await harness.queryFirst({
+        values: [user.id],
+        text: `
           select
             organizations.id,
             organizations.metadata,
             organizations.name,
             organizations.slug
-          from organizations
-          inner join members on members.organization_id = organizations.id
-          where members.user_id = ?
+          from "openmeld"."organizations"
+          inner join "openmeld"."members" on members.organization_id = organizations.id
+          where members.user_id = $1
         `,
       }),
       "Expected personal organization"
@@ -201,39 +277,39 @@ describe("organization identity foundation", () => {
       personal: true,
     });
     expect(
-      harness.queryAll({
-        params: [organization.id],
-        sql: "select user_id as userId, role from members where organization_id = ?",
+      await harness.queryAll({
+        values: [organization.id],
+        text: 'select user_id as "userId", role from "openmeld"."members" where organization_id = $1',
       })
     ).toEqual([{ role: "owner", userId: user.id }]);
 
-    verifyUserEmail(harness, "owner@example.com");
+    await verifyUserEmail(harness, "owner@example.com");
     await signIn(auth, {
       email: "owner@example.com",
       password,
     });
 
     expect(
-      harness.queryFirst({
-        params: [user.id],
-        sql: `
-          select active_organization_id as activeOrganizationId
-          from sessions
-          where user_id = ?
+      await harness.queryFirst({
+        values: [user.id],
+        text: `
+          select active_organization_id as "activeOrganizationId"
+          from "openmeld"."sessions"
+          where user_id = $1
         `,
       })
     ).toEqual({ activeOrganizationId: organization.id });
   });
 
   it("rejects creating a sixth organization without changing existing memberships", async () => {
-    const { auth, harness } = createTestAuth();
+    const { auth, harness } = await createTestAuth();
 
     await signUp(auth, {
       email: "limit-owner@example.com",
       name: "Limit Owner",
       password,
     });
-    verifyUserEmail(harness, "limit-owner@example.com");
+    await verifyUserEmail(harness, "limit-owner@example.com");
     const headers = await signIn(auth, {
       email: "limit-owner@example.com",
       password,
@@ -268,21 +344,21 @@ describe("organization identity foundation", () => {
       message: "You have reached the maximum number of organizations",
     });
     expect(
-      harness.queryFirst<{ count: number }>({
-        params: ["limit-owner@example.com"],
-        sql: `
+      await harness.queryFirst<{ count: number }>({
+        values: ["limit-owner@example.com"],
+        text: `
           select count(*) as count
-          from organizations
-          inner join members on members.organization_id = organizations.id
-          inner join users on users.id = members.user_id
-          where users.email = ?
+          from "openmeld"."organizations"
+          inner join "openmeld"."members" on members.organization_id = organizations.id
+          inner join "openmeld"."users" on users.id = members.user_id
+          where users.email = $1
         `,
       })
     ).toEqual({ count: 5 });
   });
 
   it("derives the personal organization name from the email local-part when the user name is empty", async () => {
-    const { auth, harness } = createTestAuth();
+    const { auth, harness } = await createTestAuth();
 
     await signUp(auth, {
       email: "github-owner@example.com",
@@ -291,9 +367,9 @@ describe("organization identity foundation", () => {
     });
 
     const user = requireRow<{ id: string }>(
-      harness.queryFirst({
-        params: ["github-owner@example.com"],
-        sql: "select id from users where email = ?",
+      await harness.queryFirst({
+        values: ["github-owner@example.com"],
+        text: 'select id from "openmeld"."users" where email = $1',
       }),
       "Expected signed-up user"
     );
@@ -301,15 +377,15 @@ describe("organization identity foundation", () => {
       name: string;
       slug: string;
     }>(
-      harness.queryFirst({
-        params: [user.id],
-        sql: `
+      await harness.queryFirst({
+        values: [user.id],
+        text: `
           select
             organizations.name,
             organizations.slug
-          from organizations
-          inner join members on members.organization_id = organizations.id
-          where members.user_id = ?
+          from "openmeld"."organizations"
+          inner join "openmeld"."members" on members.organization_id = organizations.id
+          where members.user_id = $1
         `,
       }),
       "Expected personal organization"
@@ -322,7 +398,7 @@ describe("organization identity foundation", () => {
   });
 
   it("creates a personal organization lazily for existing users without organization membership", async () => {
-    const { auth, harness } = createTestAuth();
+    const { auth, harness } = await createTestAuth();
     const legacyUserId = "legacy-user";
 
     await insertLegacyCredentialUser(harness, {
@@ -343,17 +419,17 @@ describe("organization identity foundation", () => {
       name: string;
       slug: string;
     }>(
-      harness.queryFirst({
-        params: [legacyUserId],
-        sql: `
+      await harness.queryFirst({
+        values: [legacyUserId],
+        text: `
           select
             organizations.id,
             organizations.metadata,
             organizations.name,
             organizations.slug
-          from organizations
-          inner join members on members.organization_id = organizations.id
-          where members.user_id = ?
+          from "openmeld"."organizations"
+          inner join "openmeld"."members" on members.organization_id = organizations.id
+          where members.user_id = $1
         `,
       }),
       "Expected lazy personal organization"
@@ -371,25 +447,25 @@ describe("organization identity foundation", () => {
       personal: true,
     });
     expect(
-      harness.queryAll({
-        params: [organization.id],
-        sql: "select user_id as userId, role from members where organization_id = ?",
+      await harness.queryAll({
+        values: [organization.id],
+        text: 'select user_id as "userId", role from "openmeld"."members" where organization_id = $1',
       })
     ).toEqual([{ role: "owner", userId: legacyUserId }]);
     expect(
-      harness.queryFirst({
-        params: [legacyUserId],
-        sql: `
-          select active_organization_id as activeOrganizationId
-          from sessions
-          where user_id = ?
+      await harness.queryFirst({
+        values: [legacyUserId],
+        text: `
+          select active_organization_id as "activeOrganizationId"
+          from "openmeld"."sessions"
+          where user_id = $1
         `,
       })
     ).toEqual({ activeOrganizationId: organization.id });
   });
 
   it("converges concurrent legacy-user sessions on one personal organization", async () => {
-    const { auth, harness } = createTestAuth();
+    const { auth, harness } = await createTestAuth();
     const legacyUserId = "concurrent-legacy-user";
 
     await insertLegacyCredentialUser(harness, {
@@ -400,36 +476,36 @@ describe("organization identity foundation", () => {
     });
 
     const [firstHeaders, secondHeaders] = await Promise.all([
-      signIn(auth, {
+      await signIn(auth, {
         email: "concurrent-legacy@example.com",
         password,
       }),
-      signIn(auth, {
+      await signIn(auth, {
         email: "concurrent-legacy@example.com",
         password,
       }),
     ]);
 
-    const organizations = harness.queryAll<{ id: string }>({
-      params: [legacyUserId],
-      sql: `
+    const organizations = await harness.queryAll<{ id: string }>({
+      values: [legacyUserId],
+      text: `
         select organizations.id
-        from organizations
-        where organizations.created_by_user_id = ?
-          and json_extract(organizations.metadata, '$.personal') = 1
+        from "openmeld"."organizations"
+        where organizations.created_by_user_id = $1
+          and ((organizations.metadata)::jsonb #>> '{personal}') = 'true'
       `,
     });
-    const sessionOrganizationIds = harness
-      .queryAll<{ activeOrganizationId: string }>({
-        params: [legacyUserId],
-        sql: `
-          select active_organization_id as activeOrganizationId
-          from sessions
-          where user_id = ?
+    const sessionOrganizationIds = (
+      await harness.queryAll<{ activeOrganizationId: string }>({
+        values: [legacyUserId],
+        text: `
+          select active_organization_id as "activeOrganizationId"
+          from "openmeld"."sessions"
+          where user_id = $1
           order by id
         `,
       })
-      .map((session) => session.activeOrganizationId);
+    ).map((session) => session.activeOrganizationId);
 
     expect(firstHeaders.get("cookie")).toBeTruthy();
     expect(secondHeaders.get("cookie")).toBeTruthy();
@@ -440,7 +516,7 @@ describe("organization identity foundation", () => {
   });
 
   it("repairs the winning personal Organization after losing its creation race", async () => {
-    const { auth, harness } = createTestAuth();
+    const { auth, harness } = await createTestAuth();
     const legacyUserId = "race-loser-legacy-user";
     const winningOrganizationId = "11111111-1111-4111-8111-111111111111";
 
@@ -450,17 +526,17 @@ describe("organization identity foundation", () => {
       name: "Race Loser",
       password,
     });
-    harness.run({
-      params: [winningOrganizationId, legacyUserId],
-      sql: `
-        insert into organizations (
+    await harness.query({
+      values: [winningOrganizationId, legacyUserId],
+      text: `
+        insert into "openmeld"."organizations" (
           id,
           name,
           slug,
           created_at,
           metadata,
           created_by_user_id
-        ) values (?, 'Race Winner', 'race-winner-k7m3qx', 1000, '{"personal":true}', ?)
+        ) values ($1, 'Race Winner', 'race-winner-k7m3qx', 1000, '{"personal":true}', $2)
       `,
     });
 
@@ -471,23 +547,23 @@ describe("organization identity foundation", () => {
 
     expect(headers.get("cookie")).toBeTruthy();
     expect(
-      harness.queryAll({
-        params: [legacyUserId],
-        sql: `
+      await harness.queryAll({
+        values: [legacyUserId],
+        text: `
           select id
-          from organizations
-          where created_by_user_id = ?
-            and json_extract(metadata, '$.personal') = 1
+          from "openmeld"."organizations"
+          where created_by_user_id = $1
+            and ((metadata)::jsonb #>> '{personal}') = 'true'
         `,
       })
     ).toEqual([{ id: winningOrganizationId }]);
     expect(
-      harness.queryAll({
-        params: [winningOrganizationId],
-        sql: `
-          select organization_id as organizationId, user_id as userId, role
-          from members
-          where organization_id = ?
+      await harness.queryAll({
+        values: [winningOrganizationId],
+        text: `
+          select organization_id as "organizationId", user_id as "userId", role
+          from "openmeld"."members"
+          where organization_id = $1
         `,
       })
     ).toEqual([
@@ -498,19 +574,19 @@ describe("organization identity foundation", () => {
       },
     ]);
     expect(
-      harness.queryFirst({
-        params: [legacyUserId],
-        sql: `
-          select active_organization_id as activeOrganizationId
-          from sessions
-          where user_id = ?
+      await harness.queryFirst({
+        values: [legacyUserId],
+        text: `
+          select active_organization_id as "activeOrganizationId"
+          from "openmeld"."sessions"
+          where user_id = $1
         `,
       })
     ).toEqual({ activeOrganizationId: winningOrganizationId });
   });
 
   it("derives personal organization slugs from the user identity and avoids reserved words and collisions", async () => {
-    const { auth, harness } = createTestAuth();
+    const { auth, harness } = await createTestAuth();
 
     await signUp(auth, {
       email: "api@example.com",
@@ -528,12 +604,15 @@ describe("organization identity foundation", () => {
       password,
     });
 
-    const apiSlug = readPersonalOrganizationSlug(harness, "api@example.com");
-    const firstOwnerSlug = readPersonalOrganizationSlug(
+    const apiSlug = await readPersonalOrganizationSlug(
+      harness,
+      "api@example.com"
+    );
+    const firstOwnerSlug = await readPersonalOrganizationSlug(
       harness,
       "owner-a@example.com"
     );
-    const secondOwnerSlug = readPersonalOrganizationSlug(
+    const secondOwnerSlug = await readPersonalOrganizationSlug(
       harness,
       "owner-b@example.com"
     );
@@ -548,28 +627,28 @@ describe("organization identity foundation", () => {
   });
 
   it("rejects personal organization invitations fail closed", async () => {
-    const { auth, harness, sentEmails } = createTestAuth();
+    const { auth, harness, sentEmails } = await createTestAuth();
 
     await signUp(auth, {
       email: "owner@example.com",
       name: "Owner Example",
       password,
     });
-    verifyUserEmail(harness, "owner@example.com");
+    await verifyUserEmail(harness, "owner@example.com");
     const ownerHeaders = await signIn(auth, {
       email: "owner@example.com",
       password,
     });
     const personalOrganization = requireRow<{ id: string }>(
-      harness.queryFirst({
-        params: ["owner@example.com"],
-        sql: `
+      await harness.queryFirst({
+        values: ["owner@example.com"],
+        text: `
           select organizations.id
-          from organizations
-          inner join members on members.organization_id = organizations.id
-          inner join users on users.id = members.user_id
-          where users.email = ?
-            and json_extract(organizations.metadata, '$.personal') = 1
+          from "openmeld"."organizations"
+          inner join "openmeld"."members" on members.organization_id = organizations.id
+          inner join "openmeld"."users" on users.id = members.user_id
+          where users.email = $1
+            and ((organizations.metadata)::jsonb #>> '{personal}') = 'true'
         `,
       }),
       "Expected personal organization"
@@ -591,9 +670,9 @@ describe("organization identity foundation", () => {
       "organization.personal_no_members"
     );
     expect(
-      harness.queryFirst({
-        params: [personalOrganization.id],
-        sql: "select id from invitations where organization_id = ?",
+      await harness.queryFirst({
+        values: [personalOrganization.id],
+        text: 'select id from "openmeld"."invitations" where organization_id = $1',
       })
     ).toBeNull();
     expect(sentEmails.some((email) => email.to === "member@example.com")).toBe(
@@ -602,14 +681,14 @@ describe("organization identity foundation", () => {
   });
 
   it("allows the OpenMeld organization slug while rejecting reserved route slugs", async () => {
-    const { auth, harness } = createTestAuth();
+    const { auth, harness } = await createTestAuth();
 
     await signUp(auth, {
       email: "owner@example.com",
       name: "Owner Example",
       password,
     });
-    verifyUserEmail(harness, "owner@example.com");
+    await verifyUserEmail(harness, "owner@example.com");
     const ownerHeaders = await signIn(auth, {
       email: "owner@example.com",
       password,
@@ -696,14 +775,14 @@ describe("organization identity foundation", () => {
   });
 
   it("reserves organization logo writes for the managed logo endpoint", async () => {
-    const { auth, harness } = createTestAuth();
+    const { auth, harness } = await createTestAuth();
 
     await signUp(auth, {
       email: "owner@example.com",
       name: "Owner Example",
       password,
     });
-    verifyUserEmail(harness, "owner@example.com");
+    await verifyUserEmail(harness, "owner@example.com");
     const ownerHeaders = await signIn(auth, {
       email: "owner@example.com",
       password,
@@ -750,22 +829,22 @@ describe("organization identity foundation", () => {
       "organization.logo_managed"
     );
     expect(
-      harness.queryFirst({
-        params: [organization.id],
-        sql: "select logo from organizations where id = ?",
+      await harness.queryFirst({
+        values: [organization.id],
+        text: 'select logo from "openmeld"."organizations" where id = $1',
       })
     ).toEqual({ logo: null });
   });
 
   it("keeps personal classification under OpenMeld's managed metadata boundary", async () => {
-    const { auth, harness } = createTestAuth();
+    const { auth, harness } = await createTestAuth();
 
     await signUp(auth, {
       email: "owner@example.com",
       name: "Owner Example",
       password,
     });
-    verifyUserEmail(harness, "owner@example.com");
+    await verifyUserEmail(harness, "owner@example.com");
     const ownerHeaders = await signIn(auth, {
       email: "owner@example.com",
       password,
@@ -787,14 +866,14 @@ describe("organization identity foundation", () => {
     );
 
     const personalOrganization = requireRow<{ id: string }>(
-      harness.queryFirst({
-        params: ["owner@example.com"],
-        sql: `
+      await harness.queryFirst({
+        values: ["owner@example.com"],
+        text: `
           select organizations.id
-          from organizations
-          inner join members on members.organization_id = organizations.id
-          inner join users on users.id = members.user_id
-          where users.email = ?
+          from "openmeld"."organizations"
+          inner join "openmeld"."members" on members.organization_id = organizations.id
+          inner join "openmeld"."users" on users.id = members.user_id
+          where users.email = $1
         `,
       }),
       "Expected personal organization"
@@ -824,9 +903,9 @@ describe("organization identity foundation", () => {
     );
     expect(updateSlugResponse.status).toBe(200);
     const stored = requireRow<{ metadata: string | null; slug: string }>(
-      harness.queryFirst({
-        params: [personalOrganization.id],
-        sql: "select metadata, slug from organizations where id = ?",
+      await harness.queryFirst({
+        values: [personalOrganization.id],
+        text: 'select metadata, slug from "openmeld"."organizations" where id = $1',
       }),
       "Expected updated personal organization"
     );
@@ -837,14 +916,14 @@ describe("organization identity foundation", () => {
   });
 
   it("rejects invitation acceptance for the wrong email and accepts it for the verified recipient", async () => {
-    const { auth, harness, sentEmails } = createTestAuth();
+    const { auth, harness, sentEmails } = await createTestAuth();
 
     await signUp(auth, {
       email: "owner@example.com",
       name: "Owner Example",
       password,
     });
-    verifyUserEmail(harness, "owner@example.com");
+    await verifyUserEmail(harness, "owner@example.com");
     const ownerHeaders = await signIn(auth, {
       email: "owner@example.com",
       password,
@@ -888,7 +967,7 @@ describe("organization identity foundation", () => {
       name: "Wrong Recipient",
       password,
     });
-    verifyUserEmail(harness, "wrong@example.com");
+    await verifyUserEmail(harness, "wrong@example.com");
     const wrongRecipientHeaders = await signIn(auth, {
       email: "wrong@example.com",
       password,
@@ -902,13 +981,13 @@ describe("organization identity foundation", () => {
 
     expect(wrongAcceptResponse.status).toBe(403);
     expect(
-      harness.queryFirst({
-        params: [ownerOrganization.id, "wrong@example.com"],
-        sql: `
+      await harness.queryFirst({
+        values: [ownerOrganization.id, "wrong@example.com"],
+        text: `
           select members.id
-          from members
-          inner join users on users.id = members.user_id
-          where members.organization_id = ? and users.email = ?
+          from "openmeld"."members"
+          inner join "openmeld"."users" on users.id = members.user_id
+          where members.organization_id = $1 and users.email = $2
         `,
       })
     ).toBeNull();
@@ -918,7 +997,7 @@ describe("organization identity foundation", () => {
       name: "Member Example",
       password,
     });
-    verifyUserEmail(harness, "member@example.com");
+    await verifyUserEmail(harness, "member@example.com");
     const memberHeaders = await signIn(auth, {
       email: "member@example.com",
       password,
@@ -936,18 +1015,18 @@ describe("organization identity foundation", () => {
       invitationStatus: string;
       role: string;
     }>(
-      harness.queryFirst({
-        params: [invitation.id, "member@example.com"],
-        sql: `
+      await harness.queryFirst({
+        values: [invitation.id, "member@example.com"],
+        text: `
           select
-            invitations.status as invitationStatus,
+            invitations.status as "invitationStatus",
             members.role as role,
-            sessions.active_organization_id as activeOrganizationId
-          from invitations
-          inner join members on members.organization_id = invitations.organization_id
-          inner join users on users.id = members.user_id
-          inner join sessions on sessions.user_id = users.id
-          where invitations.id = ? and users.email = ?
+            sessions.active_organization_id as "activeOrganizationId"
+          from "openmeld"."invitations"
+          inner join "openmeld"."members" on members.organization_id = invitations.organization_id
+          inner join "openmeld"."users" on users.id = members.user_id
+          inner join "openmeld"."sessions" on sessions.user_id = users.id
+          where invitations.id = $1 and users.email = $2
         `,
       }),
       "Expected accepted member"
@@ -961,14 +1040,14 @@ describe("organization identity foundation", () => {
   });
 
   it("falls back to the inviter email local-part when the inviter name is empty", async () => {
-    const { auth, harness, sentEmails } = createTestAuth();
+    const { auth, harness, sentEmails } = await createTestAuth();
 
     await signUp(auth, {
       email: "github-owner@example.com",
       name: "",
       password,
     });
-    verifyUserEmail(harness, "github-owner@example.com");
+    await verifyUserEmail(harness, "github-owner@example.com");
     const ownerHeaders = await signIn(auth, {
       email: "github-owner@example.com",
       password,
@@ -1023,14 +1102,14 @@ describe("organization identity foundation", () => {
         return Promise.resolve({ messageId: "sent" });
       },
     };
-    const { auth, harness } = createTestAuth({ sender: emailSender });
+    const { auth, harness } = await createTestAuth({ sender: emailSender });
 
     await signUp(auth, {
       email: "owner@example.com",
       name: "Owner Example",
       password,
     });
-    verifyUserEmail(harness, "owner@example.com");
+    await verifyUserEmail(harness, "owner@example.com");
     const ownerHeaders = await signIn(auth, {
       email: "owner@example.com",
       password,
@@ -1074,40 +1153,47 @@ describe("organization identity foundation", () => {
   });
 
   it("fails closed when the member removal guard database is unbound", async () => {
-    vi.spyOn(console, "error").mockImplementation(() => undefined);
-    const { auth, harness } = createTestAuth({
-      centerAgentRemovalGuardDatabase: "unbound",
-    });
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const { auth, harness } = await createTestAuth();
     const membership = await createOrganizationWithAcceptedMember({
       auth,
       harness,
     });
-
-    const outcome = await readMemberRemovalGuardOutcome({
-      auth,
-      harness,
-      membership,
+    await expect(
+      assertCenterAgentIdentityBeforeMemberRemoval({
+        organizationId: membership.organizationId,
+        userId: membership.memberUserId,
+      })
+    ).rejects.toMatchObject({
+      status: "SERVICE_UNAVAILABLE",
+      body: {
+        code: "organization.center_agent_member_removal_guard_failed",
+        message: CENTER_AGENT_MEMBER_REMOVAL_GUARD_FAILED_MESSAGE,
+      },
     });
-
-    expect(outcome).toMatchObject({
-      guardLog: [
-        "[auth.center_agent_member_removal_guard_failed]",
-        {
-          event: "auth.center_agent_member_removal_guard_failed",
-          organizationId: membership.organizationId,
-          reason: "openmeld_db_unbound",
-          userId: membership.memberUserId,
-        },
-      ],
-      memberId: membership.memberId,
-      message: CENTER_AGENT_MEMBER_REMOVAL_GUARD_FAILED_MESSAGE,
-      status: 503,
-    });
+    expect(log).toHaveBeenCalledWith(
+      "[auth.center_agent_member_removal_guard_failed]",
+      expect.objectContaining({
+        organizationId: membership.organizationId,
+        reason: "openmeld_db_unbound",
+        userId: membership.memberUserId,
+      })
+    );
+    expect(
+      await harness.queryFirst({
+        text: 'SELECT id FROM "openmeld"."members" WHERE id=$1 AND organization_id=$2 AND user_id=$3',
+        values: [
+          membership.memberId,
+          membership.organizationId,
+          membership.memberUserId,
+        ],
+      })
+    ).toEqual({ id: membership.memberId });
   });
 
   it("fails closed when the Center Agent identity query fails", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
-    const { auth, harness } = createTestAuth({
+    const { auth, harness } = await createTestAuth({
       centerAgentRemovalGuardDatabase: "query_failure",
     });
     const membership = await createOrganizationWithAcceptedMember({
@@ -1140,16 +1226,18 @@ describe("organization identity foundation", () => {
 
   it("fails closed when the designated Center Agent profile is missing", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
-    const { auth, harness } = createTestAuth();
+    const { auth, harness } = await createTestAuth();
     const membership = await createOrganizationWithAcceptedMember({
       auth,
       harness,
     });
-    insertCenterAgentDesignationWithoutProfile(harness, {
+    await insertCenterAgentDesignation(harness, {
+      createdByUserId: membership.ownerUserId,
       designatedByUserId: membership.ownerUserId,
       organizationId: membership.organizationId,
       profileId: "agt_00000000-0000-4000-8000-000000000003",
     });
+    injectCenterAgentIdentityReadFault((row) => ({ ...row, profile_id: null }));
 
     const outcome = await readMemberRemovalGuardOutcome({
       auth,
@@ -1174,39 +1262,29 @@ describe("organization identity foundation", () => {
   });
 
   it.each([
-    "organization_id = 'another-organization'",
-    "profile_kind = 'human'",
-    "managed_role = NULL",
-    "owner_user_id = created_by_user_id",
-  ])("fails closed for a mismatched Center Agent identity (%s)", async (mutation) => {
+    { field: "organization_id", value: "another-organization" },
+    { field: "profile_kind", value: "human" },
+    { field: "managed_role", value: null },
+    { field: "owner_user_id", value: "unexpected-owner" },
+  ])("fails closed for a mismatched Center Agent identity ($field)", async ({
+    field,
+    value,
+  }) => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
-    const { auth, harness } = createTestAuth();
+    const { auth, harness } = await createTestAuth();
     const membership = await createOrganizationWithAcceptedMember({
       auth,
       harness,
     });
-    const profileId = "agt_00000000-0000-4000-8000-000000000004";
-    insertCenterAgentDesignation(harness, {
+    await insertCenterAgentDesignation(harness, {
       designatedByUserId: membership.ownerUserId,
       createdByUserId: membership.ownerUserId,
       organizationId: membership.organizationId,
-      profileId,
+      profileId: "agt_00000000-0000-4000-8000-000000000004",
     });
-    harness.run({
-      params: [Date.now()],
-      sql: "insert into organizations (id, name, slug, created_at) values ('another-organization', 'Another Organization', 'another-organization', ?)",
-    });
-    // Model inconsistent legacy data to prove the API guard independently of
-    // current schema checks. Normal fixtures use the complete current schema.
-    harness.database.exec("PRAGMA ignore_check_constraints = ON");
-    try {
-      harness.run({
-        params: [profileId],
-        sql: `update openmeld_profiles set ${mutation} where profile_id = ?`,
-      });
-    } finally {
-      harness.database.exec("PRAGMA ignore_check_constraints = OFF");
-    }
+    // Corrupt the captured native read result to exercise the API guard while
+    // preserving the current database's foreign keys and identity constraints.
+    injectCenterAgentIdentityReadFault((row) => ({ ...row, [field]: value }));
     expect(
       await readMemberRemovalGuardOutcome({ auth, harness, membership })
     ).toMatchObject({
@@ -1230,7 +1308,9 @@ describe("organization identity foundation", () => {
     const checkSpaceOwnerDeparture = vi.fn(async () => ({
       spaces: [{ spaceId: "handoff-space", name: "Engineering" }],
     }));
-    const { auth, harness } = createTestAuth({ checkSpaceOwnerDeparture });
+    const { auth, harness } = await createTestAuth({
+      checkSpaceOwnerDeparture,
+    });
     const membership = await createOrganizationWithAcceptedMember({
       auth,
       harness,
@@ -1262,9 +1342,9 @@ describe("organization identity foundation", () => {
       userId: membership.memberUserId,
     });
     expect(
-      harness.queryFirst({
-        sql: "select id from members where id = ?",
-        params: [membership.memberId],
+      await harness.queryFirst({
+        text: 'select id from "openmeld"."members" where id = $1',
+        values: [membership.memberId],
       })
     ).toBeTruthy();
   });
@@ -1308,7 +1388,7 @@ describe("organization identity foundation", () => {
         .fn()
         .mockResolvedValue({ ok: true, status: "not_found" }),
     } satisfies NonNullable<AuthConfigEnv["OPENMELD_CORE_WORKER"]>;
-    const { auth, harness } = createTestAuth({ coreWorker });
+    const { auth, harness } = await createTestAuth({ coreWorker });
     const membership = await createOrganizationWithAcceptedMember({
       auth,
       harness,
@@ -1318,7 +1398,7 @@ describe("organization identity foundation", () => {
         ? membership.memberUserId
         : membership.ownerUserId;
     const profileId = "agt_00000000-0000-4000-8000-000000000002";
-    insertCenterAgentDesignation(harness, {
+    await insertCenterAgentDesignation(harness, {
       designatedByUserId: attributionUserId,
       organizationId: membership.organizationId,
       createdByUserId: attributionUserId,
@@ -1337,16 +1417,16 @@ describe("organization identity foundation", () => {
 
     expect(response.status).toBe(200);
     expect(
-      harness.queryFirst({
-        params: [membership.memberId],
-        sql: "select id from members where id = ?",
+      await harness.queryFirst({
+        values: [membership.memberId],
+        text: 'select id from "openmeld"."members" where id = $1',
       })
     ).toBeNull();
     expect(requestSessionInventoryCleanup).toHaveBeenCalledTimes(2);
     expect(
-      harness.queryFirst({
-        params: [profileId],
-        sql: "select organization_id, owner_user_id, created_by_user_id from openmeld_profiles where profile_id = ?",
+      await harness.queryFirst({
+        values: [profileId],
+        text: 'select organization_id, owner_user_id, created_by_user_id from "openmeld"."openmeld_profiles" where profile_id = $1',
       })
     ).toEqual({
       organization_id: membership.organizationId,
@@ -1354,9 +1434,9 @@ describe("organization identity foundation", () => {
       created_by_user_id: attributionUserId,
     });
     expect(
-      harness.queryFirst({
-        params: [membership.organizationId],
-        sql: "select agent_profile_id, designated_by from center_agent_designations where organization_id = ?",
+      await harness.queryFirst({
+        values: [membership.organizationId],
+        text: 'select agent_profile_id, designated_by from "openmeld"."center_agent_designations" where organization_id = $1',
       })
     ).toEqual({
       agent_profile_id: profileId,
@@ -1426,24 +1506,24 @@ describe("organization identity foundation", () => {
   });
 });
 
-function createTestAuth(
+async function createTestAuth(
   input: {
-    centerAgentRemovalGuardDatabase?: "bound" | "query_failure" | "unbound";
+    centerAgentRemovalGuardDatabase?: "bound" | "query_failure";
     coreWorker?: AuthConfigEnv["OPENMELD_CORE_WORKER"];
     checkSpaceOwnerDeparture?: NonNullable<
       AuthConfigEnv["OPENMELD_CORE_WORKER"]
     >["checkSpaceOwnerDeparture"];
     enforceOriginCheck?: boolean;
+    legacyAppOrigin?: string;
     sender?: CloudflareEmailSender;
   } = {}
-): {
+): Promise<{
   auth: AuthInstance;
-  harness: ReturnType<typeof createSqliteD1Harness>;
+  harness: Awaited<ReturnType<typeof createPostgresHarness>>;
   sentEmails: SentEmail[];
-} {
-  const harness = createSqliteD1Harness();
+}> {
+  const harness = await createPostgresHarness();
   harnesses.push(harness);
-  applyDrizzleMigrations(harness.database);
   const fakeEmailSender = createFakeEmailSender();
   const sender = input.sender ?? fakeEmailSender.sender;
   const unexpectedCoreCall = () => {
@@ -1469,6 +1549,7 @@ function createTestAuth(
     AUTH_EMAIL: sender,
     AUTH_FROM_EMAIL: "OpenMeld <noreply@openmeld.invalid>",
     AUTH_MAGIC_LINK_EXPIRES_IN_SECONDS: "300",
+    AUTH_LEGACY_APP_ORIGIN: input.legacyAppOrigin,
     AUTH_WORKER_NODE_ENV: input.enforceOriginCheck
       ? "production"
       : "development",
@@ -1477,39 +1558,46 @@ function createTestAuth(
     PASSKEY_RP_ID: "localhost",
     WEB_APP_URL,
   } as const;
-  const guardDatabase =
-    input.centerAgentRemovalGuardDatabase === "query_failure"
-      ? createCenterAgentIdentityQueryFailingD1Database(harness.db)
-      : harness.db;
-  const databaseConfig = createAuthConfig({
-    ...authConfigInput,
-    OPENMELD_CORE_WORKER: coreWorker,
-    OPENMELD_DB: guardDatabase,
-  });
-  const baseAuthConfig =
-    input.centerAgentRemovalGuardDatabase === "unbound"
-      ? {
-          ...createAuthConfig(authConfigInput),
-          database: databaseConfig.database,
-        }
-      : databaseConfig;
-  const authConfig = input.enforceOriginCheck
-    ? {
-        ...baseAuthConfig,
-        advanced: {
-          ...baseAuthConfig.advanced,
-          disableOriginCheck: false,
-        },
+  if (input.centerAgentRemovalGuardDatabase === "query_failure") {
+    const native = PostgresDatabase.prototype.query;
+    vi.spyOn(PostgresDatabase.prototype, "query").mockImplementation(function (
+      this: PostgresDatabase,
+      query,
+      values
+    ) {
+      const text = typeof query === "string" ? query : query.text;
+      if (text.includes('"center_agent_designations"')) {
+        throw new Error("Center Agent identity query unavailable");
       }
-    : baseAuthConfig;
-  const auth = betterAuth(authConfig);
+      return native.call(this, query, values);
+    });
+  }
+  const auth: AuthInstance = {
+    handler: (request) =>
+      withPostgresRequest(harness.binding, async () => {
+        const baseAuthConfig = createAuthConfig({
+          ...authConfigInput,
+          OPENMELD_POSTGRESQL: harness.binding,
+        });
+        const authConfig = input.enforceOriginCheck
+          ? {
+              ...baseAuthConfig,
+              advanced: {
+                ...baseAuthConfig.advanced,
+                disableOriginCheck: false,
+              },
+            }
+          : baseAuthConfig;
+        return await betterAuth(authConfig).handler(request);
+      }),
+  };
 
   return { auth, harness, sentEmails: fakeEmailSender.sentEmails };
 }
 
 async function createOrganizationWithAcceptedMember(input: {
   auth: AuthInstance;
-  harness: ReturnType<typeof createSqliteD1Harness>;
+  harness: Awaited<ReturnType<typeof createPostgresHarness>>;
 }): Promise<{
   memberId: string;
   memberUserId: string;
@@ -1522,7 +1610,7 @@ async function createOrganizationWithAcceptedMember(input: {
     name: "Owner Example",
     password,
   });
-  verifyUserEmail(input.harness, "owner@example.com");
+  await verifyUserEmail(input.harness, "owner@example.com");
   const ownerHeaders = await signIn(input.auth, {
     email: "owner@example.com",
     password,
@@ -1558,7 +1646,7 @@ async function createOrganizationWithAcceptedMember(input: {
     name: "Member Example",
     password,
   });
-  verifyUserEmail(input.harness, "member@example.com");
+  await verifyUserEmail(input.harness, "member@example.com");
   const memberHeaders = await signIn(input.auth, {
     email: "member@example.com",
     password,
@@ -1575,20 +1663,20 @@ async function createOrganizationWithAcceptedMember(input: {
     );
   }
   const owner = requireRow<{ id: string }>(
-    input.harness.queryFirst({
-      params: ["owner@example.com"],
-      sql: "select id from users where email = ?",
+    await input.harness.queryFirst({
+      values: ["owner@example.com"],
+      text: 'select id from "openmeld"."users" where email = $1',
     }),
     "Expected organization owner"
   );
   const member = requireRow<{ id: string; userId: string }>(
-    input.harness.queryFirst({
-      params: [organization.id, "member@example.com"],
-      sql: `
-        select members.id, members.user_id as userId
-        from members
-        inner join users on users.id = members.user_id
-        where members.organization_id = ? and users.email = ?
+    await input.harness.queryFirst({
+      values: [organization.id, "member@example.com"],
+      text: `
+        select members.id, members.user_id as "userId"
+        from "openmeld"."members"
+        inner join "openmeld"."users" on users.id = members.user_id
+        where members.organization_id = $1 and users.email = $2
       `,
     }),
     "Expected accepted organization member"
@@ -1604,7 +1692,7 @@ async function createOrganizationWithAcceptedMember(input: {
 
 async function readMemberRemovalGuardOutcome(input: {
   auth: AuthInstance;
-  harness: ReturnType<typeof createSqliteD1Harness>;
+  harness: Awaited<ReturnType<typeof createPostgresHarness>>;
   membership: Awaited<ReturnType<typeof createOrganizationWithAcceptedMember>>;
 }): Promise<{
   guardLog: unknown[] | undefined;
@@ -1622,9 +1710,9 @@ async function readMemberRemovalGuardOutcome(input: {
     input.membership.ownerHeaders
   );
   const body = (await response.json()) as { message?: unknown };
-  const member = input.harness.queryFirst<{ id: string }>({
-    params: [input.membership.memberId],
-    sql: "select id from members where id = ?",
+  const member = await input.harness.queryFirst<{ id: string }>({
+    values: [input.membership.memberId],
+    text: 'select id from "openmeld"."members" where id = $1',
   });
   const guardLog = vi
     .mocked(console.error)
@@ -1640,18 +1728,18 @@ async function readMemberRemovalGuardOutcome(input: {
   };
 }
 
-function insertCenterAgentDesignation(
-  harness: ReturnType<typeof createSqliteD1Harness>,
+async function insertCenterAgentDesignation(
+  harness: Awaited<ReturnType<typeof createPostgresHarness>>,
   input: {
     designatedByUserId: string;
     organizationId: string;
     createdByUserId: string;
     profileId: string;
   }
-): void {
+): Promise<void> {
   const now = Date.now();
-  harness.run({
-    params: [
+  await harness.query({
+    values: [
       input.profileId,
       "Acme Center Agent",
       "acme-center-agent",
@@ -1660,8 +1748,8 @@ function insertCenterAgentDesignation(
       now,
       now,
     ],
-    sql: `
-      insert into openmeld_profiles (
+    text: `
+      insert into "openmeld"."openmeld_profiles" (
         profile_id,
         profile_name,
         profile_handle,
@@ -1675,58 +1763,45 @@ function insertCenterAgentDesignation(
         managed_role,
         created_at,
         updated_at
-      ) values (?, ?, ?, 'agent', 0, 'active', ?, null, ?, 'auth_bootstrap', 'center_agent', ?, ?)
+      ) values ($1, $2, $3, 'agent', 0, 'active', $4, null, $5, 'auth_bootstrap', 'center_agent', $6, $7)
     `,
   });
-  harness.run({
-    params: [
+  await harness.query({
+    values: [
       input.organizationId,
       input.profileId,
       input.designatedByUserId,
       now,
     ],
-    sql: `
-      insert into center_agent_designations (
+    text: `
+      insert into "openmeld"."center_agent_designations" (
         organization_id,
         agent_profile_id,
         duty,
         designated_by,
         created_at
-      ) values (?, ?, null, ?, ?)
+      ) values ($1, $2, null, $3, $4)
     `,
   });
 }
 
-function insertCenterAgentDesignationWithoutProfile(
-  harness: ReturnType<typeof createSqliteD1Harness>,
-  input: {
-    designatedByUserId: string;
-    organizationId: string;
-    profileId: string;
-  }
+function injectCenterAgentIdentityReadFault(
+  mutate: (row: Record<string, unknown>) => Record<string, unknown>
 ): void {
-  harness.database.exec("PRAGMA foreign_keys = OFF");
-  try {
-    harness.run({
-      params: [
-        input.organizationId,
-        input.profileId,
-        input.designatedByUserId,
-        Date.now(),
-      ],
-      sql: `
-        insert into center_agent_designations (
-          organization_id,
-          agent_profile_id,
-          duty,
-          designated_by,
-          created_at
-        ) values (?, ?, null, ?, ?)
-      `,
-    });
-  } finally {
-    harness.database.exec("PRAGMA foreign_keys = ON");
-  }
+  const nativeQuery = PostgresDatabase.prototype.query;
+  vi.spyOn(PostgresDatabase.prototype, "query").mockImplementation(
+    async function (this: PostgresDatabase, query, values) {
+      const result = await nativeQuery.call(this, query, values);
+      const text = typeof query === "string" ? query : query.text;
+      if (
+        text.includes('"center_agent_designations" AS designations') &&
+        text.includes("profiles.managed_role")
+      ) {
+        return { ...result, rows: result.rows.map(mutate) };
+      }
+      return result;
+    }
+  );
 }
 
 async function signUp(
@@ -1775,14 +1850,14 @@ function postAuth(
 }
 
 async function insertLegacyCredentialUser(
-  harness: ReturnType<typeof createSqliteD1Harness>,
+  harness: Awaited<ReturnType<typeof createPostgresHarness>>,
   input: { email: string; id: string; name: string; password: string }
 ): Promise<void> {
   const now = Date.now();
   const passwordHash = await hashPassword(input.password);
 
-  harness.run({
-    params: [
+  await harness.query({
+    values: [
       input.id,
       input.name,
       input.email,
@@ -1791,8 +1866,8 @@ async function insertLegacyCredentialUser(
       now,
       input.email.toLowerCase(),
     ],
-    sql: `
-      insert into users (
+    text: `
+      insert into "openmeld"."users" (
         id,
         name,
         email,
@@ -1801,11 +1876,11 @@ async function insertLegacyCredentialUser(
         updated_at,
         normalized_email
       )
-      values (?, ?, ?, ?, ?, ?, ?)
+      values ($1, $2, $3, $4, $5, $6, $7)
     `,
   });
-  harness.run({
-    params: [
+  await harness.query({
+    values: [
       `account-${input.id}`,
       input.id,
       "credential",
@@ -1814,8 +1889,8 @@ async function insertLegacyCredentialUser(
       now,
       now,
     ],
-    sql: `
-      insert into accounts (
+    text: `
+      insert into "openmeld"."accounts" (
         id,
         account_id,
         provider_id,
@@ -1824,18 +1899,18 @@ async function insertLegacyCredentialUser(
         created_at,
         updated_at
       )
-      values (?, ?, ?, ?, ?, ?, ?)
+      values ($1, $2, $3, $4, $5, $6, $7)
     `,
   });
 }
 
-function verifyUserEmail(
-  harness: ReturnType<typeof createSqliteD1Harness>,
+async function verifyUserEmail(
+  harness: Awaited<ReturnType<typeof createPostgresHarness>>,
   email: string
-): void {
-  harness.run({
-    params: [email],
-    sql: "update users set email_verified = 1 where email = ?",
+): Promise<void> {
+  await harness.query({
+    values: [email],
+    text: 'update "openmeld"."users" set email_verified = 1 where email = $1',
   });
 }
 
@@ -1848,20 +1923,20 @@ function parseOrganizationMetadata(
   return JSON.parse(value) as Record<string, unknown>;
 }
 
-function readPersonalOrganizationSlug(
-  harness: ReturnType<typeof createSqliteD1Harness>,
+async function readPersonalOrganizationSlug(
+  harness: Awaited<ReturnType<typeof createPostgresHarness>>,
   email: string
-): string {
+): Promise<string> {
   const organization = requireRow<{ slug: string }>(
-    harness.queryFirst({
-      params: [email],
-      sql: `
+    await harness.queryFirst({
+      values: [email],
+      text: `
         select organizations.slug
-        from organizations
-        inner join members on members.organization_id = organizations.id
-        inner join users on users.id = members.user_id
-        where users.email = ?
-          and json_extract(organizations.metadata, '$.personal') = 1
+        from "openmeld"."organizations"
+        inner join "openmeld"."members" on members.organization_id = organizations.id
+        inner join "openmeld"."users" on users.id = members.user_id
+        where users.email = $1
+          and ((organizations.metadata)::jsonb #>> '{personal}') = 'true'
       `,
     }),
     "Expected personal organization"
@@ -1947,163 +2022,4 @@ function requireRow<TRow>(
   }
 
   return row;
-}
-
-function createSqliteD1Harness(): {
-  close(): void;
-  database: DatabaseSync;
-  db: D1Database;
-  queryAll<TRow extends Record<string, unknown>>(input: {
-    params?: readonly SqliteBindValue[];
-    sql: string;
-  }): TRow[];
-  queryFirst<TRow extends Record<string, unknown>>(input: {
-    params?: readonly SqliteBindValue[];
-    sql: string;
-  }): TRow | null;
-  run(input: { params?: readonly SqliteBindValue[]; sql: string }): void;
-} {
-  const database = new DatabaseSync(":memory:");
-  return {
-    close: () => {
-      database.close();
-    },
-    database,
-    db: createD1Database(database),
-    queryAll: <TRow extends Record<string, unknown>>(input: {
-      params?: readonly SqliteBindValue[];
-      sql: string;
-    }) => database.prepare(input.sql).all(...(input.params ?? [])) as TRow[],
-    queryFirst: <TRow extends Record<string, unknown>>(input: {
-      params?: readonly SqliteBindValue[];
-      sql: string;
-    }) =>
-      (database.prepare(input.sql).get(...(input.params ?? [])) as
-        | TRow
-        | undefined) ?? null,
-    run: (input) => {
-      database.prepare(input.sql).run(...(input.params ?? []));
-    },
-  };
-}
-
-function applyDrizzleMigrations(database: DatabaseSync): void {
-  const migrationDirectoryPath = path.resolve(
-    repoRootDirectoryPath,
-    "packages/db/drizzle"
-  );
-  for (const entry of fs
-    .readdirSync(migrationDirectoryPath)
-    .filter((name) => name.endsWith(".sql"))
-    .sort((left, right) => left.localeCompare(right))) {
-    const source = fs.readFileSync(
-      path.resolve(migrationDirectoryPath, entry),
-      "utf8"
-    );
-    for (const statement of source
-      .split("--> statement-breakpoint")
-      .map((value) => value.trim())
-      .filter((value) => value.length > 0)) {
-      database.exec(statement);
-    }
-  }
-}
-
-function createD1Database(database: DatabaseSync): D1Database {
-  return {
-    batch: (statements: D1PreparedStatement[]) => {
-      database.exec("BEGIN");
-      try {
-        const results = statements.map((statement) =>
-          runPreparedStatementInTransaction(statement)
-        );
-        database.exec("COMMIT");
-        return Promise.resolve(results as D1Result[]);
-      } catch (error) {
-        database.exec("ROLLBACK");
-        return Promise.reject(error);
-      }
-    },
-    exec: (sql: string) => {
-      database.exec(sql);
-      return Promise.resolve({
-        count: 0,
-        duration: 0,
-      } as D1ExecResult);
-    },
-    prepare: (sql: string) =>
-      createPreparedStatement(database.prepare(sql), []) as D1PreparedStatement,
-  } as D1Database;
-}
-
-function createCenterAgentIdentityQueryFailingD1Database(
-  database: D1Database
-): D1Database {
-  return {
-    ...database,
-    prepare: (sql: string) => {
-      if (sql.includes("FROM center_agent_designations AS designations")) {
-        throw new Error("Center Agent identity query unavailable");
-      }
-      return database.prepare(sql);
-    },
-  } as D1Database;
-}
-
-function createPreparedStatement(
-  statement: StatementSync,
-  params: readonly SqliteBindValue[]
-): TestPreparedStatement {
-  return {
-    __runInTransaction: () => toD1RunResult(statement.run(...params)),
-    all: <TRow>() =>
-      Promise.resolve({
-        results: statement.all(...params) as TRow[],
-        success: true,
-      }),
-    bind: (...nextParams: unknown[]) =>
-      createPreparedStatement(
-        statement,
-        nextParams as readonly SqliteBindValue[]
-      ) as D1PreparedStatement,
-    first: <TRow>(columnName?: string) => {
-      const row = statement.get(...params) as
-        | Record<string, unknown>
-        | undefined;
-      if (!row) {
-        return Promise.resolve(null as TRow | null);
-      }
-      if (columnName) {
-        return Promise.resolve((row[columnName] as TRow | undefined) ?? null);
-      }
-      return Promise.resolve(row as TRow);
-    },
-    raw: <TRow = unknown[]>() => {
-      const rows = statement.all(...params) as Record<string, unknown>[];
-      return Promise.resolve(rows.map((row) => Object.values(row)) as TRow[]);
-    },
-    run: async () => toD1RunResult(statement.run(...params)),
-  } as TestPreparedStatement;
-}
-
-function runPreparedStatementInTransaction(
-  statement: D1PreparedStatement
-): unknown {
-  const candidate = statement as Partial<TestPreparedStatement>;
-  if (typeof candidate.__runInTransaction !== "function") {
-    throw new Error("sqlite D1 harness received an unknown prepared statement");
-  }
-
-  return candidate.__runInTransaction();
-}
-
-function toD1RunResult(
-  result: Pick<{ changes: number | bigint }, "changes">
-): D1Result {
-  return {
-    meta: {
-      changes: Number(result.changes),
-    },
-    success: true,
-  } as D1Result;
 }

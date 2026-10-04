@@ -1,16 +1,14 @@
 import { sql } from "drizzle-orm";
-import {
-  check,
-  index,
-  integer,
-  sqliteTable,
-  text,
-  uniqueIndex,
-} from "drizzle-orm/sqlite-core";
+import { check, index, text, uniqueIndex } from "drizzle-orm/pg-core";
 import { organizations, users } from "../auth/auth.schema.ts";
+import {
+  applicationTable,
+  currentTimestampMilliseconds,
+} from "../postgresql/schema.ts";
+import { epochMilliseconds } from "../postgresql/schema-types.ts";
 import { openMeldDaemonAgentProfileBindings } from "./agent-profile-binding.schema.ts";
 
-export const organizationBindingAuthorizations = sqliteTable(
+export const organizationBindingAuthorizations = applicationTable(
   "organization_binding_authorizations",
   {
     id: text("id").primaryKey(),
@@ -25,8 +23,8 @@ export const organizationBindingAuthorizations = sqliteTable(
     authorizedBy: text("authorized_by")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    createdAt: integer("created_at", { mode: "timestamp_ms" })
-      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+    createdAt: epochMilliseconds("created_at")
+      .default(currentTimestampMilliseconds)
       .notNull(),
   },
   (table) => [

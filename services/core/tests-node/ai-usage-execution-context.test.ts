@@ -1,3 +1,4 @@
+import { PostgresDatabase } from "@openmeld/db/postgresql";
 import type { AiUsageQueryResponse } from "@openmeld/schemas/types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { enrichAiUsageExecutions } from "../src/usage/ai-usage-execution-context";
@@ -8,15 +9,15 @@ const owner = vi.hoisted(() => ({
   terminal: vi.fn(),
 }));
 vi.mock(
-  "../src/runtime-transport/infrastructure/d1/runtime-coordinator-execution-repo",
+  "../src/runtime-transport/infrastructure/postgresql/runtime-coordinator-execution-repo",
   () => ({ readRuntimeCoordinatorExecutionProjectionByDispatch: owner.local })
 );
 vi.mock(
-  "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo",
+  "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo",
   () => ({ readRemoteAgentNativeDeliveryByExecution: owner.remote })
 );
 vi.mock(
-  "../src/agent-task-coordination/infrastructure/d1/agent-task-coordination-repo",
+  "../src/agent-task-coordination/infrastructure/postgresql/agent-task-coordination-repo",
   () => ({ readAgentTaskTerminalOutcome: owner.terminal })
 );
 
@@ -74,7 +75,10 @@ describe("AI usage execution context", () => {
       updatedAtMs: 300,
     });
     const result = await enrichAiUsageExecutions({
-      db: {} as D1Database,
+      db: new PostgresDatabase({
+        connectionString:
+          "postgresql://127.0.0.1:1/unexpected_test_database_access",
+      }),
       organizationId: "org-1",
       usage: usage("local"),
     });
@@ -91,7 +95,7 @@ describe("AI usage execution context", () => {
       ],
     });
     expect(owner.local).toHaveBeenCalledWith({
-      db: {},
+      db: expect.any(PostgresDatabase),
       dispatchId: "dispatch-1",
       spaceId: "space-1",
       targetProfileId: "agent-1",
@@ -107,7 +111,10 @@ describe("AI usage execution context", () => {
     });
     owner.terminal.mockResolvedValue({ outcome: { status: "stopped" } });
     const result = await enrichAiUsageExecutions({
-      db: {} as D1Database,
+      db: new PostgresDatabase({
+        connectionString:
+          "postgresql://127.0.0.1:1/unexpected_test_database_access",
+      }),
       organizationId: "org-1",
       usage: usage("remote"),
     });
@@ -117,7 +124,10 @@ describe("AI usage execution context", () => {
     owner.remote.mockResolvedValue({ organizationId: "org-other" });
     await expect(
       enrichAiUsageExecutions({
-        db: {} as D1Database,
+        db: new PostgresDatabase({
+          connectionString:
+            "postgresql://127.0.0.1:1/unexpected_test_database_access",
+        }),
         organizationId: "org-1",
         usage: usage("remote"),
       })
@@ -127,7 +137,10 @@ describe("AI usage execution context", () => {
   it("reports missing execution evidence without inferring success from usage", async () => {
     owner.local.mockResolvedValue(null);
     const result = await enrichAiUsageExecutions({
-      db: {} as D1Database,
+      db: new PostgresDatabase({
+        connectionString:
+          "postgresql://127.0.0.1:1/unexpected_test_database_access",
+      }),
       organizationId: "org-1",
       usage: usage("local"),
     });

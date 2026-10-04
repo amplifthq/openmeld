@@ -2551,6 +2551,7 @@ describe("gateway http forwarding", () => {
     "3",
     "4",
     "5",
+    "6",
   ])("negotiates dispatch trace response version %s without changing the public route", async (version) => {
     const { env, rpc } = makeEnv();
     const response = await app.fetch(
@@ -2603,7 +2604,7 @@ describe("gateway http forwarding", () => {
     const response = await app.fetch(
       new Request("http://local/v1/spaces/demo/dispatches/dispatch-1/trace", {
         headers: {
-          "x-openmeld-space-dispatch-trace-response-version": "6",
+          "x-openmeld-space-dispatch-trace-response-version": "7",
         },
       }),
       env,
@@ -5971,7 +5972,7 @@ describe("gateway http forwarding", () => {
     });
   });
 
-  it("forwards PATCH /contract to core RPC", async () => {
+  it("narrows legacy status permissions before forwarding PATCH /contract", async () => {
     const { env, rpc } = makeEnv();
     const contractPatch = {
       publicationMode: "raw_context_sharing",
@@ -6005,7 +6006,7 @@ describe("gateway http forwarding", () => {
     });
     expect(rpc.patchSpaceContract).toHaveBeenCalledWith({
       spaceId: "demo",
-      contractPatch,
+      contractPatch: { ...contractPatch, allowedActions: ["stay_silent"] },
       password: "secret-contract",
       context: EXPECTED_CORE_CONTEXT,
     });
@@ -6158,7 +6159,7 @@ describe("gateway http forwarding", () => {
     expect(rpc.getSpaceDispatchResult).not.toHaveBeenCalled();
   });
 
-  it("forwards PUT /contract to core RPC", async () => {
+  it("narrows legacy status permissions before forwarding PUT /contract", async () => {
     const { env, rpc } = makeEnv();
     const contract = {
       dispatchPolicy: { mode: "mention_only" },
@@ -6188,7 +6189,10 @@ describe("gateway http forwarding", () => {
     });
     expect(rpc.putSpaceContract).toHaveBeenCalledWith({
       spaceId: "demo",
-      contract,
+      contract: {
+        ...contract,
+        allowedActions: ["post_message", "stay_silent"],
+      },
       context: EXPECTED_CORE_CONTEXT,
     });
   });

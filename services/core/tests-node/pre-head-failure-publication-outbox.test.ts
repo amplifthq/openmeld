@@ -1,7 +1,3 @@
-import fs from "node:fs";
-import path from "node:path";
-import { DatabaseSync, type SQLInputValue } from "node:sqlite";
-import { fileURLToPath } from "node:url";
 import type { OpenMeldDaemonDispatchQueueMessage } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 import { retryPendingPreHeadFailurePublications } from "../src/dispatch/application/dispatch-queue-service";
@@ -18,7 +14,7 @@ import {
   markPreHeadFailurePublicationCompleted,
   readPreHeadFailurePublicationState,
   reschedulePreHeadFailurePublicationIntent,
-} from "../src/dispatch/infrastructure/d1/pre-head-failure-publication-outbox-repository";
+} from "../src/dispatch/infrastructure/postgresql/pre-head-failure-publication-outbox-repository";
 import {
   DISPATCH_HINT_SYSTEM_PROFILE_ID,
   DISPATCH_HINT_SYSTEM_PROFILE_NAME,
@@ -26,33 +22,7 @@ import {
 import { OPENMELD_DAEMON_DISPATCH_STATE } from "../src/dispatch/rules/dispatch-lifecycle-contract";
 import type { CoreBindings } from "../src/lib/bindings";
 
-const migrationPath = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "../../../packages/db/drizzle/0066_fine_leo.sql"
-);
-
-const createSqliteD1Database = (database: DatabaseSync): D1Database =>
-  ({
-    prepare: (sql: string) => ({
-      bind: (...values: unknown[]) => {
-        const statement = database.prepare(sql);
-        const sqlValues = values as SQLInputValue[];
-        return {
-          all: () => Promise.resolve({ results: statement.all(...sqlValues) }),
-          first: () => Promise.resolve(statement.get(...sqlValues) ?? null),
-          run: () => {
-            const result = statement.run(...sqlValues);
-            return Promise.resolve({
-              meta: {
-                changes: result.changes,
-              },
-              success: true,
-            });
-          },
-        };
-      },
-    }),
-  }) as unknown as D1Database;
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 const createDispatchMessage = (): OpenMeldDaemonDispatchQueueMessage => ({
   v: 2,
@@ -97,16 +67,9 @@ const createDispatchMessage = (): OpenMeldDaemonDispatchQueueMessage => ({
 
 describe("pre-head failure publication operational outbox", () => {
   it("recovers an overdue frozen command with versioned claim and completion fencing", async () => {
-    const database = new DatabaseSync(":memory:");
+    const harness = await createPostgresHarness();
+    const db = harness.db;
     try {
-      for (const statement of fs
-        .readFileSync(migrationPath, "utf8")
-        .split("--> statement-breakpoint")
-        .map((value) => value.trim())
-        .filter(Boolean)) {
-        database.exec(statement);
-      }
-      const db = createSqliteD1Database(database);
       const redriveMessage = createPreHeadFailureRedriveMessage(
         createDispatchMessage()
       );
@@ -229,7 +192,7 @@ describe("pre-head failure publication operational outbox", () => {
         })
       ).resolves.toEqual({ status: "completed" });
     } finally {
-      database.close();
+      await harness.close();
     }
   });
 });

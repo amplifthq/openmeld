@@ -1,7 +1,9 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import { formatPublicAgentFailureFacts } from "@openmeld/schemas";
 import type {
   AgentTaskTerminalOutcome,
   InboxSourceCandidate,
+  InboxSourceTarget,
 } from "@openmeld/schemas/types";
 import {
   ensureInboxItem,
@@ -11,20 +13,59 @@ import {
   readInboxItemBySource,
   repairLegacyTaskContinuationInboxItem,
   replaceInboxSourceTargetsIfCurrent,
-} from "../../inbox/infrastructure/d1/inbox-item-repo";
-import type { RemoteAgentNativeDeliveryRecord } from "../infrastructure/d1/native-delivery-ledger-repo";
+} from "../../inbox/infrastructure/postgresql/inbox-item-repo";
+import type { RemoteAgentNativeDeliveryRecord } from "../infrastructure/postgresql/native-delivery-ledger-repo";
 import { buildTaskContinuationAdmissionFailureFacts } from "./native-delivery-failure-facts";
 import type { SlackInboxSourceTarget } from "./slack-inbox-source-target";
 
 type SlackTerminalStatus = AgentTaskTerminalOutcome["status"];
 
-export async function projectTaskContinuationAdmissionExhaustedInboxItem(input: {
+type TaskContinuationInboxInput = {
   attempts: number;
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   occurredAtMs: number;
   languageTag?: string;
-}): Promise<void> {
+};
+
+export async function projectTaskContinuationAdmissionExhaustedInboxItem(
+  input: TaskContinuationInboxInput
+): Promise<void> {
+  const projection = buildTaskContinuationInboxProjection(input);
+  if (!projection) {
+    return;
+  }
+  await repairLegacyTaskContinuationInboxItem({
+    ...projection,
+    db: input.db,
+    nowMs: input.occurredAtMs,
+  });
+  await ensureInboxItem({
+    candidate: projection.candidate,
+    db: input.db,
+    nowMs: input.occurredAtMs,
+  });
+}
+
+export async function repairTaskContinuationAdmissionExhaustedInboxItem(
+  input: TaskContinuationInboxInput
+): Promise<void> {
+  const projection = buildTaskContinuationInboxProjection(input);
+  if (projection) {
+    await repairLegacyTaskContinuationInboxItem({
+      ...projection,
+      db: input.db,
+      nowMs: input.occurredAtMs,
+    });
+  }
+}
+
+function buildTaskContinuationInboxProjection(
+  input: TaskContinuationInboxInput
+): {
+  candidate: InboxSourceCandidate;
+  legacySourceTarget: InboxSourceTarget;
+} | null {
   const recipientUserId = input.delivery.onBehalfOfUserId?.trim() ?? "";
   const trigger = input.delivery.workerSubmitRequest?.turnEnvelope.trigger;
   if (
@@ -34,7 +75,7 @@ export async function projectTaskContinuationAdmissionExhaustedInboxItem(input: 
     (trigger?.source !== "task_continuation" &&
       trigger?.source !== "task_watch_continuation")
   ) {
-    return;
+    return null;
   }
   // The trigger's result belongs to the watched task, possibly in another
   // Space. Only this delivery's own publication or thread is a local target.
@@ -79,9 +120,8 @@ export async function projectTaskContinuationAdmissionExhaustedInboxItem(input: 
     "publishedSignalId" in trigger.outcome
       ? trigger.outcome.publishedSignalId?.trim()
       : null;
-  await repairLegacyTaskContinuationInboxItem({
+  return {
     candidate,
-    db: input.db,
     legacySourceTarget: {
       kind: "space",
       signalId: legacySignalId || input.delivery.triggerMessageId,
@@ -90,17 +130,10 @@ export async function projectTaskContinuationAdmissionExhaustedInboxItem(input: 
         ? { threadRootSignalId: input.delivery.threadContext.rootSignalId }
         : {}),
     },
-    nowMs: input.occurredAtMs,
-  });
-  await ensureInboxItem({
-    candidate,
-    db: input.db,
-    nowMs: input.occurredAtMs,
-  });
+  };
 }
-
 export async function projectLinkedSlackNativeDeliveryInboxItem(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: {
     conversationKind: string;
     deliveryId: string;
@@ -181,14 +214,12 @@ export async function projectLinkedSlackNativeDeliveryInboxItem(input: {
     nowMs: input.occurredAtMs,
   });
 }
-
 export function buildSlackNativeDeliveryInboxSourceKey(
   deliveryId: string,
   event: "publication_unknown" | "terminal"
 ): string {
   return `${deliveryId}:${event}`;
 }
-
 function resolveSlackTerminalPresentation(status: SlackTerminalStatus): {
   attention: "action_required" | "update";
   preview: string;

@@ -285,6 +285,13 @@ and synchronization rules remain owned by `docs/cloudflare-workers-env.md`.
 
 ## Adding Or Moving A Secret
 
+PostgreSQL infrastructure credentials belong to `openmeld-release`, selected
+explicitly as `stg` or `prd`. [postgresql.md](postgresql.md) owns exact-name
+injection of `POSTGRESQL_OPENMELD_MIGRATION_URL`,
+`POSTGRESQL_OPENMELD_RUNTIME_URL`, and `POSTGRESQL_OPENMELD_PROBE_TOKEN`.
+They are not in ordinary `dev` component allowlists. Application Workers receive
+Hyperdrive runtime roles, never migration credentials.
+
 ### OpenMeld Credential Naming
 
 Every newly created OpenMeld credential uses this canonical code-key shape:

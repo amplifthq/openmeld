@@ -5,6 +5,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { ArrowLeftIcon } from "@phosphor-icons/react";
 import type { ConnectRouteIntent } from "#/lib/connect/connect-route";
 import { BringAgentsSetupProvider } from "./bring-agents-setup-context";
@@ -36,7 +37,7 @@ export function AgentCreationComputerSetup(input: {
 				<DialogTitle>{copy.pageTitle}</DialogTitle>
 				<DialogDescription>{copy.pageDescription}</DialogDescription>
 			</DialogHeader>
-			<div className="min-h-0 overflow-y-auto">
+			<ScrollArea className="min-h-0">
 				<BringAgentsSetupProvider routeIntent={AGENT_CREATION_SETUP_INTENT}>
 					<ComputerSetupFlow
 						autoReturnOnCompletion={false}
@@ -46,7 +47,7 @@ export function AgentCreationComputerSetup(input: {
 						showBackControl={false}
 					/>
 				</BringAgentsSetupProvider>
-			</div>
+			</ScrollArea>
 		</>
 	);
 }

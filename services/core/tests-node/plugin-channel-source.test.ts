@@ -20,28 +20,23 @@ const owners = vi.hoisted(() => ({
   user: vi.fn(),
   message: vi.fn(),
 }));
-vi.mock("../src/lib/bindings", () => ({
-  identityDb: () => ({}),
-  localStateDb: () => ({}),
-  wakeEvidenceDb: () => ({}),
-}));
 vi.mock("../src/organizations/organization-context", () => ({
   resolveActiveOrganizationMembership: owners.member,
 }));
 vi.mock(
-  "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo",
+  "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo",
   () => ({ readRemoteAgentNativeDeliveryByDeliveryId: owners.delivery })
 );
 vi.mock(
-  "../src/remote-agent/infrastructure/d1/plugin-channel-metadata-repo",
+  "../src/remote-agent/infrastructure/postgresql/plugin-channel-metadata-repo",
   () => ({ readPluginChannelMetadata: owners.metadata })
 );
 vi.mock(
-  "../src/remote-agent/infrastructure/d1/slack-workspace-binding-repo",
+  "../src/remote-agent/infrastructure/postgresql/slack-workspace-binding-repo",
   () => ({ readRemoteAgentSlackWorkspaceBinding: owners.workspace })
 );
 vi.mock(
-  "../src/remote-agent/infrastructure/d1/slack-user-identity-link-repo",
+  "../src/remote-agent/infrastructure/postgresql/slack-user-identity-link-repo",
   () => ({ readSlackUserIdentityLink: owners.link })
 );
 vi.mock(
@@ -109,7 +104,12 @@ const input = {
     },
   },
 };
-const env = {} as CoreBindings;
+const env = {
+  OPENMELD_POSTGRESQL: {
+    connectionString:
+      "postgresql://projection_fixture@127.0.0.1:1/projection_fixture",
+  },
+} as CoreBindings;
 let metadata: {
   v: number;
   kind: string;

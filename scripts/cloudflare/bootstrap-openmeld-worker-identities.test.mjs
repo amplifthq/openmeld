@@ -63,6 +63,28 @@ test("requires explicit Cloudflare credentials", () => {
   assert.throws(() => parseArgs([], {}), MISSING_CREDENTIALS_REGEX);
 });
 
+test("prepares only the requested Website identity without changing existing Workers", async () => {
+  const names = new Set(["openmeld-web-prod", "openmeld-auth-prod"]);
+  const uploads = [];
+  const input = {
+    apply: true,
+    workerNames: ["openmeld-website-prod"],
+    client: {
+      listWorkerNames: async () => [...names],
+      uploadBootstrapWorker: (name) => {
+        names.add(name);
+        uploads.push(name);
+      },
+    },
+  };
+  assert.equal((await bootstrapOpenMeldWorkerIdentities(input)).ok, true);
+  assert.equal((await bootstrapOpenMeldWorkerIdentities(input)).ok, true);
+  assert.deepEqual(uploads, ["openmeld-website-prod"]);
+  await assert.rejects(
+    bootstrapOpenMeldWorkerIdentities({ ...input, environment: "staging" })
+  );
+});
+
 test("accepts pnpm's option separator before apply", () => {
   assert.equal(
     parseArgs(["--", "--apply"], {

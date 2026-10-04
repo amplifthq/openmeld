@@ -1,3 +1,4 @@
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import type { Profile } from "@openmeld/protocol";
 import { getSpaceStatusResponseSchema } from "@openmeld/schemas";
 import type {
@@ -8,7 +9,7 @@ import type {
 } from "@openmeld/schemas/types";
 import type { AuthProfileFacts } from "../../auth/application/profile-facts-reader";
 import { readCenterAgentDesignationRecord } from "../../center-agent/center-agent-repository";
-import { type CoreBindings, identityDb } from "../../lib/bindings";
+import type { CoreBindings } from "../../lib/bindings";
 import {
   resolveSpaceMetaLinkJoinPolicy,
   type SpaceMetaRecord,
@@ -228,7 +229,7 @@ async function readCenterAgentProfileId(input: {
   env: CoreBindings;
   organizationId: string;
 }): Promise<GetSpaceStatusResponse["centerAgentProfileId"]> {
-  const db = identityDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (!db) {
     return undefined;
   }

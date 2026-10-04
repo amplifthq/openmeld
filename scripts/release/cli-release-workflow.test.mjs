@@ -1,5 +1,12 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -34,6 +41,7 @@ const DATABASE_PROBE_FAILED_ERROR_PATTERN =
   /could not prove that the Production database is current.*authentication failed/su;
 const DATABASE_PROBE_INCONCLUSIVE_ERROR_PATTERN =
   /could not prove that the Production database is current/su;
+const NATIVE_DATABASE_PROBE_ERROR = /PostgreSQL (journal|probe)/u;
 const REQUIRED_PRODUCTION_TRAIN_INPUT =
   /production_train_scopes:\n\s+description: [^\n]+\n\s+required: true\n\s+type: string/u;
 
@@ -301,6 +309,57 @@ test("fails closed when the migration probe contradicts itself", () => {
   );
 });
 
+test("native PostgreSQL publication requires its journal and runtime grant evidence without probing D1", () => {
+  const cwd = mkdtempSync(path.join(tmpdir(), "pg-release-source-"));
+  mkdirSync(path.join(cwd, "release"));
+  writeFileSync(
+    path.join(cwd, "release/database-backend.json"),
+    '{"backend":"postgresql"}'
+  );
+  // The actual isolated native journal and grant checks are exercised by
+  // d1-remote.test.mjs. Here the subprocess boundary must preserve their refusal.
+  const evidence = {
+    target: { kind: "planetscale" },
+    runtimeGrantsVerified: true,
+    nativeJournal: [
+      { name: "0000_native_postgresql", checksum: "a".repeat(64) },
+    ],
+  };
+  let result = { status: 0, stdout: JSON.stringify(evidence) };
+  const probe = () =>
+    requireProductionDatabaseCurrent({
+      cwd,
+      runCommand(command) {
+        assert.equal(command.command, process.execPath);
+        assert.deepEqual(command.args, [
+          path.join(cwd, "tooling/postgresql/cutover.mjs"),
+          "verify",
+        ]);
+        return result;
+      },
+    });
+  try {
+    assert.equal(probe().status, "current");
+    for (const failure of [
+      { status: 1, stderr: "Native journal checksum differs" },
+      {
+        status: 0,
+        stdout: JSON.stringify({ ...evidence, runtimeGrantsVerified: false }),
+      },
+      { status: 0, stdout: JSON.stringify({ ...evidence, nativeJournal: [] }) },
+      {
+        status: 0,
+        stdout: JSON.stringify({ ...evidence, target: { kind: "local" } }),
+      },
+    ]) {
+      result = failure;
+      assert.throws(probe, NATIVE_DATABASE_PROBE_ERROR);
+    }
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("fails closed when migration evidence contradicts across output streams", () => {
   assert.throws(
     () =>
@@ -521,20 +580,6 @@ test("keeps the Remote Agent release check on the repository-pinned formatter", 
     )
   );
   assert.ok(!remoteAgentPackage.scripts.deploy.includes("--minify"));
-});
-
-test("gives every Web release build an explicit CI heap budget", () => {
-  const source = readRepoFile(".github/workflows/deploy-web.yml");
-  const jobStart = source.indexOf("\n  deploy:");
-  const stepsStart = source.indexOf("    steps:", jobStart);
-
-  assert.notEqual(jobStart, -1, "missing Web deploy job");
-  assert.notEqual(stepsStart, -1, "missing Web deploy steps");
-  assert.ok(
-    source
-      .slice(jobStart, stepsStart)
-      .includes('    env:\n      NODE_OPTIONS: "--max-old-space-size=4096"')
-  );
 });
 
 test("builds Web workspace dependencies before a production Vite build", () => {

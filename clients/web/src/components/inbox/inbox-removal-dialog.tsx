@@ -68,8 +68,8 @@ export function InboxRemovalDialog(input: {
 					<AlertDialogTitle>Remove from Inbox?</AlertDialogTitle>
 					<AlertDialogDescription>
 						{removal && "item" in removal.target
-							? "This item will be removed from your Inbox and its unread count."
-							: "These updates will be removed from your Inbox and its unread count. New updates won’t be affected."}{" "}
+							? "This item and its reminder will be removed from your Inbox, including unread and attention counts."
+							: "These updates and their reminders will be removed from your Inbox, including unread and attention counts. New updates won’t be affected."}{" "}
 						Original messages and documents won’t be deleted. Pending requests
 						stay open. You can’t restore removed items to your Inbox.
 					</AlertDialogDescription>

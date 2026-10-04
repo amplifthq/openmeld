@@ -39,3 +39,16 @@ def seed(context):
                 db.execute("INSERT OR REPLACE INTO space_signals (id,ts,type,profile_id,profile_kind,client_message_id,payload_json) VALUES (?,?,?,?,?,?,?)",
                            (mid, ts, "signal.text", sender, kind, mid, json.dumps(envelope)))
         message_previews.refresh(context, sid)
+
+    # Actual owning DM API: no synthetic membership, inbox or execution state.
+    sender = "agt_" + context.ident("agent:0")
+    for index, target_index in enumerate([1, 9, 2]):
+        target = "agt_" + context.ident(f"agent:{target_index}")
+        message = None if index == 2 else {
+            "clientMessageId": str(uuid.uuid5(uuid.NAMESPACE_URL, f"agent-dm:{sender}:{target}")),
+            "text": "The accessibility review is ready. Please review the keyboard navigation notes before the next release." if index == 0 else "I have the release notes ready. The remaining question is whether the onboarding copy explains who can view this conversation.",
+            "wake": False,
+        }
+        context.request("gateway", "/v1/organizations/current/dm-space",
+                        {"targetProfileId": target, **({"message": message} if message else {})},
+                        profile_id=sender)

@@ -98,32 +98,10 @@
       "ZEP_OPENMELD_API_KEY"
     ]
   },
-  "d1_databases": [
+  "hyperdrive": [
     {
-      "binding": "OPENMELD_DB",
-      "database_name": "openmeld-db-prod",
-      "database_id": "15f16284-5240-4675-b626-3b7144e1d684",
-      "migrations_dir": "../../packages/db/drizzle"
-    },
-    // Per-domain bindings, ALIASED to the OpenMeld production DB (single physical DB). The
-    // 4-way physical split was attempted and REVERTED 2026-06-14 (Felix); see
-    // physical-db-split.md "DIRECTION CHANGE". These stay aliased; do NOT flip them.
-    // Kept so the code stays split-ready: a future observability-only split would
-    // flip ONLY OPENMELD_WAKE_EVIDENCE_DB, not these.
-    {
-      "binding": "OPENMELD_LOCAL_STATE_DB",
-      "database_name": "openmeld-db-prod",
-      "database_id": "15f16284-5240-4675-b626-3b7144e1d684"
-    },
-    {
-      "binding": "OPENMELD_WAKE_EVIDENCE_DB",
-      "database_name": "openmeld-db-prod",
-      "database_id": "15f16284-5240-4675-b626-3b7144e1d684"
-    },
-    {
-      "binding": "OPENMELD_PROJECTIONS_DB",
-      "database_name": "openmeld-db-prod",
-      "database_id": "15f16284-5240-4675-b626-3b7144e1d684"
+      "binding": "OPENMELD_POSTGRESQL",
+      "id": "dba7d43fe644409c8e1cc24c5260f289"
     }
   ],
   "durable_objects": {
@@ -277,7 +255,7 @@
         "OPENMELD_AGENT_ACTIVITY_DIGEST_ENABLED": "false",
         "OPENMELD_ROUTINE_ENGINE_DEFAULT": "workflow",
         "OPENMELD_ROUTINE_LEGACY_ORGANIZATION_IDS": "",
-        "WEB_APP_URL": "https://staging.openmeld.ai",
+        "WEB_APP_URL": "https://app.staging.openmeld.ai",
         "CORS_ORIGINS": "https://gateway.staging.openmeld.ai"
       },
       "d1_databases": [
@@ -426,7 +404,7 @@
         "OPENMELD_AGENT_ACTIVITY_DIGEST_ENABLED": "false",
         "OPENMELD_ROUTINE_ENGINE_DEFAULT": "workflow",
         "OPENMELD_ROUTINE_LEGACY_ORGANIZATION_IDS": "",
-        "WEB_APP_URL": "https://openmeld.ai",
+        "WEB_APP_URL": "https://app.openmeld.ai",
         "CORS_ORIGINS": "https://gateway.openmeld.ai"
       },
       "secrets": {
@@ -439,32 +417,10 @@
           "ZEP_OPENMELD_API_KEY"
         ]
       },
-      "d1_databases": [
+      "hyperdrive": [
         {
-          "binding": "OPENMELD_DB",
-          "database_name": "openmeld-db-prod",
-          "database_id": "15f16284-5240-4675-b626-3b7144e1d684",
-          "migrations_dir": "../../packages/db/drizzle"
-        },
-        // Per-domain bindings, ALIASED to the OpenMeld production DB (single physical DB). The
-        // 4-way physical split was attempted and REVERTED 2026-06-14 (Felix); see
-        // physical-db-split.md "DIRECTION CHANGE". These stay aliased; do NOT flip.
-        // Kept so the code stays split-ready: a future observability-only split
-        // would flip ONLY OPENMELD_WAKE_EVIDENCE_DB, not these.
-        {
-          "binding": "OPENMELD_LOCAL_STATE_DB",
-          "database_name": "openmeld-db-prod",
-          "database_id": "15f16284-5240-4675-b626-3b7144e1d684"
-        },
-        {
-          "binding": "OPENMELD_WAKE_EVIDENCE_DB",
-          "database_name": "openmeld-db-prod",
-          "database_id": "15f16284-5240-4675-b626-3b7144e1d684"
-        },
-        {
-          "binding": "OPENMELD_PROJECTIONS_DB",
-          "database_name": "openmeld-db-prod",
-          "database_id": "15f16284-5240-4675-b626-3b7144e1d684"
+          "binding": "OPENMELD_POSTGRESQL",
+          "id": "dba7d43fe644409c8e1cc24c5260f289"
         }
       ],
       "durable_objects": {

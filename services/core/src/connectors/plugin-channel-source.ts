@@ -1,10 +1,6 @@
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { pluginChannelRequestRpcInputSchema } from "@openmeld/schemas";
-import {
-  type CoreBindings,
-  identityDb,
-  localStateDb,
-  wakeEvidenceDb,
-} from "../lib/bindings";
+import type { CoreBindings } from "../lib/bindings";
 import { resolveActiveOrganizationMembership } from "../organizations/organization-context";
 import { createConfiguredMessageChannelProviderRegistry } from "../remote-agent/application/message-channel-provider-runtime";
 import {
@@ -21,10 +17,10 @@ import {
   readSlackMessageByTimestamp,
   readSlackUserIdentity,
 } from "../remote-agent/application/slack-client";
-import { readRemoteAgentNativeDeliveryByDeliveryId } from "../remote-agent/infrastructure/d1/native-delivery-ledger-repo";
-import { readPluginChannelMetadata } from "../remote-agent/infrastructure/d1/plugin-channel-metadata-repo";
-import { readSlackUserIdentityLink } from "../remote-agent/infrastructure/d1/slack-user-identity-link-repo";
-import { readRemoteAgentSlackWorkspaceBinding } from "../remote-agent/infrastructure/d1/slack-workspace-binding-repo";
+import { readRemoteAgentNativeDeliveryByDeliveryId } from "../remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
+import { readPluginChannelMetadata } from "../remote-agent/infrastructure/postgresql/plugin-channel-metadata-repo";
+import { readSlackUserIdentityLink } from "../remote-agent/infrastructure/postgresql/slack-user-identity-link-repo";
+import { readRemoteAgentSlackWorkspaceBinding } from "../remote-agent/infrastructure/postgresql/slack-workspace-binding-repo";
 import { createCoreRpcHttpError } from "../rpc/errors";
 
 export function channelContinuationDenied(reason: string, status = 409) {
@@ -56,9 +52,9 @@ export async function readPluginChannelRequestSource(
       403
     );
   }
-  const db = wakeEvidenceDb(env);
-  const identities = identityDb(env);
-  const state = localStateDb(env);
+  const db = getPostgresDatabase(env);
+  const identities = getPostgresDatabase(env);
+  const state = getPostgresDatabase(env);
   if (!(db && identities && state)) {
     throw channelContinuationDenied(
       "The original task cannot be checked right now.",

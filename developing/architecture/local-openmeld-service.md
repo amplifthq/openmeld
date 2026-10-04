@@ -663,8 +663,13 @@ instruction channel.
 For a supported controller, the Service may inject an ephemeral first-party
 Space Action tool configuration into the controller process for the active
 dispatch. That configuration is not written into user settings. It exposes only
-the allowed `reply`, `status`, and `stay_silent` operations, plus the read-only
-`read_file` context operation. File reads accept only a file ID and optional
+the exact shared adapter catalog of final actions, context readers, Task
+operations, progress, and ordinary Direct Message collaboration. The CLI server
+and `OPENMELD_SPACE_ACTION_MCP_TOOL_NAMES` must agree; controllers still reject
+missing or unexpected tools. Delivery-only recovery exposes exactly `reply`,
+`stay_silent`, and `read_receipt`. Direct Messages retain the admitted Agent and
+source organization checks; tool discovery does not authorize a different lane
+or identity. File reads accept only a file ID and optional
 revision; the active dispatch supplies the Space and acting Agent identity.
 The trusted tool process invokes the dispatch-owned CLI's existing public file
 read command outside the controller sandbox, preserving normal authentication,
@@ -677,6 +682,13 @@ boundary. Codex, Claude Code, Cursor, Grok Build, OpenCode, and OpenClaw use
 their controller-native tool extension point and the same
 dispatch-owned action writer. Controllers without a proven structured-tool
 surface continue to use the exact dispatch-scoped CLI fallback.
+
+Codex native-tool admission reads MCP tools and authentication status when it
+only needs to exclude an alternate OpenMeld carrier. Unrelated resource discovery
+must not block that turn. Scoped MCP carriers still request the full inventory
+and verify tools, resources and resource templates, including delivery-only
+recovery. Narrowing ordinary inventory does not weaken the scoped isolation
+contract or increase initialization timeouts.
 
 Antigravity CLI does not currently expose a proven per-invocation structured-
 tool configuration surface. During an action-enabled dispatch, the adapter
@@ -782,6 +794,51 @@ unchanged. A new thread receives the catalog default. An explicit Binding
 selection is user intent and remains authoritative on resume and turn start.
 The Service must not inspect private Codex rollout files or global config to
 infer a substitute selection.
+
+The Codex adapter exposes optional, text-only exact-task steering through the
+active App Server session's native `turn/steer` method. It uses that session's
+accepted `threadId` and `expectedTurnId`; it must not resume a different thread,
+start a new turn, retarget a newer turn, or change execution policy. Stop and
+settled tasks reject further input. The caller's stable `inputId` is forwarded
+as `clientUserMessageId` for correlation, not as an idempotency guarantee.
+A matching native receipt means the input was admitted to that turn, not that
+the model finished acting on it. Native
+method/precondition rejection proves non-application; an internal error,
+missing acknowledgement, or mismatched receipt does not. A steering receipt
+timeout leaves the original execution running and never retries the input.
+Unconfirmed receipts retain a bounded diagnostic code and the native numeric
+error code when present, without forwarding provider error text as product copy.
+The native contract is documented in the
+[Codex App Server reference](https://learn.chatgpt.com/docs/app-server#steer-an-active-turn).
+
+The Execution Host's private inherited IPC `executionInput` method accepts an
+exact owner account, Profile, dispatch, attempt and RuntimeCoordinator execution
+and run. The registry receives these identifiers from the existing admitted
+delivery, never from a new input; a replacement attempt cannot inherit old input.
+The current connector generation and Profile lease must match; draining admission
+rejects new application. Only the existing inflight registry resolves a local
+task. The frozen source retains Space, Signal, author, original requester and
+the `steer` effect; it is correlation, not a grant from the Agent's owner.
+The Host joins concurrent identical inputs and retains bounded receipts across
+socket replacement, including uncertain native outcomes. It never starts a
+turn or cancels the task. A receipt query cannot resend. A missing receipt after
+Host replacement or retired-execution receipt eviction is unknown, not proof
+of non-application; Space must keep that input held.
+
+The Service advertises this receiver through the optional
+`x-openmeld-local-execution-input: 1` handshake header, never a new field in old
+strict registration payloads. Core authorizes the original requester and effect
+in the Space queue owner, resolves the exact active attempt/run in the existing
+Coordinator, and sends apply/read over that execution's current socket and
+Profile lease. The connector forwards to this private receiver; it does not
+select an execution or grant authority. A read after Host replacement can only
+return missing evidence, never permission to apply again. RuntimeCoordinator
+execution and Stop ownership are unchanged; the adapter and receipt cache do
+not own a second execution or pending-message state machine. The private IPC
+extension ships with its matching connector/Host bundle. Installed-candidate
+and real Local model acceptance are separate from protocol fixtures; no old
+published bundle is certified by deferred feature checks. There is no new public
+Service command or general Local Agent tool in this slice.
 
 After an occupancy transition, the Service includes the current occupancy value
 on the first keepalive in its current lifecycle phase, the first keepalive after
@@ -1151,6 +1208,13 @@ use a context-specific local lane and ledger key. The Service must not search
 the Profile's other contexts as a fallback or heal a missing scoped conversation
 by silently starting another one. Ledger v2 reads valid v1 state without resetting
 its native conversation mappings. Corrupt scoped evidence fails closed.
+
+New Codex and Claude contexts with `permissionSource: agent_settings` use the
+ordinary native tool, settings, hooks, MCP, and permission-mode path. The starting
+Project folder does not create a filesystem boundary. Computer File Access still
+applies when configured. Only explicit or retained bounded Claude project tasks
+prepare a container and replace native shell tools; creating a new conversation
+alone must not do either. Delivery-only correction retains its narrow purpose.
 
 The existing local slot owner enforces the five-context Profile cap and local
 resource exclusions. Isolated task folders have distinct canonical roots and

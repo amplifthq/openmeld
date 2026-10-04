@@ -1,4 +1,5 @@
 import { createRuntimeLookupInput } from "@openmeld/agent-runtime";
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import type {
   DaemonServiceLane,
   GetLocalRuntimeExpectedRoutesQuery,
@@ -7,14 +8,13 @@ import type {
 import { readAuthProfileFacts } from "../../auth/application/profile-facts-reader";
 import type { CoreBindings } from "../../lib/bindings";
 import { lookupRuntime } from "../../runtime-registry/application/runtime-lookup-service";
-import { readRuntimeRegistryRecord } from "../../runtime-registry/infrastructure/d1/runtime-registry-repo";
-import { listEnabledPrimaryAgentProfileBindingRecords } from "../infrastructure/d1/agent-profile-binding-repo";
+import { readRuntimeRegistryRecord } from "../../runtime-registry/infrastructure/postgresql/runtime-registry-repo";
+import { listEnabledPrimaryAgentProfileBindingRecords } from "../infrastructure/postgresql/agent-profile-binding-repo";
 import {
   buildExpectedRoutesProjection,
   buildUnresolvedExpectedRoutesResponse,
   type ExpectedRouteProfileFact,
 } from "./expected-routes-projection";
-
 export type ReadLocalRuntimeExpectedRoutesResult =
   | {
       response: GetLocalRuntimeExpectedRoutesResponse;
@@ -26,11 +26,10 @@ export type ReadLocalRuntimeExpectedRoutesResult =
   | {
       status: "profile_facts_unavailable";
     };
-
 export async function readLocalRuntimeExpectedRoutes(input: {
   authWorker: CoreBindings["OPENMELD_AUTH_WORKER"] | undefined;
   contractVersion?: GetLocalRuntimeExpectedRoutesQuery["contractVersion"];
-  db: D1Database;
+  db: PostgresDatabase;
   deviceId: string;
   generatedAt?: string;
   lane: DaemonServiceLane;
@@ -65,7 +64,6 @@ export async function readLocalRuntimeExpectedRoutes(input: {
       status: "ok",
     };
   }
-
   const openMeldServiceRuntimeId = lookupResult.openMeldServiceRuntimeId.value;
   const bindings = await listEnabledPrimaryAgentProfileBindingRecords({
     db: input.db,
@@ -115,7 +113,6 @@ export async function readLocalRuntimeExpectedRoutes(input: {
     includeDefaultProjectId: input.contractVersion === "v4",
     profileFactByProfileId,
   });
-
   return {
     response: {
       openMeldServiceRuntimeId,
@@ -127,7 +124,6 @@ export async function readLocalRuntimeExpectedRoutes(input: {
     status: "ok",
   };
 }
-
 function normalizeOptionalText(
   value: string | null | undefined
 ): string | null {

@@ -1,7 +1,7 @@
+import { GITHUB_PLUGIN } from "@openmeld/product-catalog/plugins";
+import { AppLogo } from "@openmeld/ui/components/app-logo";
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { AppLogo } from "./app-logo";
-import { GITHUB_PLUGIN } from "./plugin-catalog";
 
 describe("AppLogo", () => {
 	it("keeps the GitHub identity when the catalog order changes", () => {

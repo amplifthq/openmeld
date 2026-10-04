@@ -534,6 +534,16 @@ test("parses the local production release command", () => {
       scope: "web,core",
     }
   );
+  assert.equal(
+    parseProductionReleaseArgs(["plan", "--database-cutover"]).databaseCutover,
+    true
+  );
+  for (const command of ["deploy", "preflight", "verify"]) {
+    assert.throws(
+      () => parseProductionReleaseArgs([command, "--database-cutover"]),
+      { message: "Unknown production release option: --database-cutover" }
+    );
+  }
 });
 
 test("identifies a local release owner across computers", () => {
@@ -566,6 +576,7 @@ test("keeps full cloud release separate from immutable CLI publishing", () => {
     "gateway",
     "core",
     "remote-agent",
+    "website",
   ]);
   assert.deepEqual(expandRequestedReleaseScopes("full"), [
     "db",
@@ -574,6 +585,7 @@ test("keeps full cloud release separate from immutable CLI publishing", () => {
     "gateway",
     "core",
     "remote-agent",
+    "website",
   ]);
   assert.deepEqual(expandRequestedReleaseScopes("cli"), ["cli"]);
 });
@@ -1659,13 +1671,38 @@ test("binds Web health to the exact preflight artifact receipt", () => {
 
   assert.deepEqual(health.args, [
     "scripts/release/production-web-health.mjs",
+    "--scope",
+    "web",
     "--url",
-    "https://openmeld.ai",
+    "https://app.openmeld.ai",
     "--source-sha",
     sourceSha,
     "--artifact-receipt",
     "dev-tmp/release-artifact-check/web.json",
   ]);
+});
+
+test("a Website-only source change deploys and verifies Website without touching the App", () => {
+  const plan = buildProductionReleasePlan({
+    affectedPackages: ["openmeld-website"],
+    changedPaths: ["clients/website/src/routes/index.tsx"],
+    sourceSha: REMOTE_SOURCE_SHA,
+    scope: "auto",
+    base: "previous-release",
+  });
+  assert.deepEqual(plan.scopes, ["website"]);
+  assert.deepEqual(
+    plan.deploySteps.map((step) => step.label),
+    ["Deploy Website", "Verify Website health"]
+  );
+  assert.equal(plan.deploySteps[0].args.includes("openmeld-website"), true);
+  assert.equal(plan.deploySteps[1].args.includes("https://openmeld.ai"), true);
+  assert.equal(
+    plan.deploySteps[1].args.includes(
+      "dev-tmp/release-artifact-check/website.json"
+    ),
+    true
+  );
 });
 
 test("keeps the Center Agent Task CLI behind every cloud receiver", () => {
@@ -2357,8 +2394,8 @@ test("composes Remote Agent and Inbox receiver-first constraints before Core", (
       "Verify Web health",
       "Deploy Gateway Worker",
       "Verify Gateway Worker health",
-      "Deploy Core Worker",
-      "Verify Core deployment is visible",
+      "Deploy Core with the current published CLI projection",
+      "Verify Core receiver stable identity alignment",
     ]
   );
 });
@@ -2588,8 +2625,8 @@ test("keeps Core before a response producer while retaining Inbox receiver-first
       "Verify Web health",
       "Deploy Gateway Worker",
       "Verify Gateway Worker health",
-      "Deploy Core Worker",
-      "Verify Core deployment is visible",
+      "Deploy Core with the current published CLI projection",
+      "Verify Core receiver stable identity alignment",
       "Deploy Remote Agent Worker",
       "Verify Remote Agent deployment is visible",
     ]

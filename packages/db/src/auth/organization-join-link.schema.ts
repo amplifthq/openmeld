@@ -1,18 +1,17 @@
 import { relations, sql } from "drizzle-orm";
+import { index, text, uniqueIndex } from "drizzle-orm/pg-core";
 import {
-  index,
-  integer,
-  sqliteTable,
-  text,
-  uniqueIndex,
-} from "drizzle-orm/sqlite-core";
+  applicationTable,
+  currentTimestampMilliseconds,
+} from "../postgresql/schema.ts";
+import { epochMilliseconds } from "../postgresql/schema-types.ts";
 import { organizations, users } from "./auth.schema.ts";
 
 export const ORGANIZATION_JOIN_LINK_ROLES = ["member"] as const;
 export type OrganizationJoinLinkRole =
   (typeof ORGANIZATION_JOIN_LINK_ROLES)[number];
 
-export const organizationJoinLinks = sqliteTable(
+export const organizationJoinLinks = applicationTable(
   "organization_join_links",
   {
     id: text("id").primaryKey(),
@@ -23,7 +22,7 @@ export const organizationJoinLinks = sqliteTable(
     mode: text("mode", { enum: ["direct", "request"] })
       .notNull()
       .default("request"),
-    expiresAt: integer("expires_at", { mode: "timestamp_ms" }),
+    expiresAt: epochMilliseconds("expires_at"),
     spaceId: text("space_id"),
     role: text("role")
       .$type<OrganizationJoinLinkRole>()
@@ -32,10 +31,10 @@ export const organizationJoinLinks = sqliteTable(
     createdBy: text("created_by")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    createdAt: integer("created_at", { mode: "timestamp_ms" })
-      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+    createdAt: epochMilliseconds("created_at")
+      .default(currentTimestampMilliseconds)
       .notNull(),
-    revokedAt: integer("revoked_at", { mode: "timestamp_ms" }),
+    revokedAt: epochMilliseconds("revoked_at"),
   },
   (table) => [
     uniqueIndex("organization_join_links_token_uidx").on(table.token),

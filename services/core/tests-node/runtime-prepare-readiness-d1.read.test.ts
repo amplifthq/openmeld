@@ -4,22 +4,20 @@ import {
   createRuntimeLookupInput,
   type RuntimeLookupInput,
 } from "@openmeld/agent-runtime";
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import { describe, expect, it } from "vitest";
-import { acceptRuntimeAgentControllerReportRecord } from "../src/runtime-registry/infrastructure/d1/runtime-agent-controller-report-repo";
-import { resolveRuntimePrepareReadinessFromD1 } from "../src/runtime-registry/infrastructure/d1/runtime-prepare-readiness-d1";
-import { registerRuntimeRegistryRecord } from "../src/runtime-registry/infrastructure/d1/runtime-registry-repo";
-import {
-  applyDrizzleMigrationForTable as applyMigrationForTable,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+import { acceptRuntimeAgentControllerReportRecord } from "../src/runtime-registry/infrastructure/postgresql/runtime-agent-controller-report-repo";
+import { resolveRuntimePrepareReadinessFromPostgres } from "../src/runtime-registry/infrastructure/postgresql/runtime-prepare-readiness-postgresql";
+import { registerRuntimeRegistryRecord } from "../src/runtime-registry/infrastructure/postgresql/runtime-registry-repo";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 describe("runtime prepare readiness D1 read model", () => {
   it("returns missing Runtime evidence from D1 without reading agent controller report storage", async () => {
-    const harness = createSqliteD1Harness();
-    applyMigrationForTable(harness, "openMeldDaemon_runtime_registry_records");
+    const harness = await createPostgresHarness();
+
     try {
       await expect(
-        resolveRuntimePrepareReadinessFromD1({
+        resolveRuntimePrepareReadinessFromPostgres({
           agentControllerRefsToEvaluate: ["builtin:codex"],
           db: harness.db,
           nowMs: 2000,
@@ -35,13 +33,13 @@ describe("runtime prepare readiness D1 read model", () => {
         },
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("rejects a supplied openMeldServiceRuntimeId that does not match Runtime Registry lookup", async () => {
-    const harness = createSqliteD1Harness();
-    applyMigrationForTable(harness, "openMeldDaemon_runtime_registry_records");
+    const harness = await createPostgresHarness();
+
     try {
       const runtimeLookupInput = lookupInput("owner-1", "device-1");
       const registeredRuntimeId = openMeldServiceRuntimeId(
@@ -55,7 +53,7 @@ describe("runtime prepare readiness D1 read model", () => {
       );
 
       await expect(
-        resolveRuntimePrepareReadinessFromD1({
+        resolveRuntimePrepareReadinessFromPostgres({
           agentControllerRefsToEvaluate: ["builtin:codex"],
           db: harness.db,
           nowMs: 2000,
@@ -75,13 +73,13 @@ describe("runtime prepare readiness D1 read model", () => {
         },
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("returns invalid capability evidence without reading agent controller report storage", async () => {
-    const harness = createSqliteD1Harness();
-    applyMigrationForTable(harness, "openMeldDaemon_runtime_registry_records");
+    const harness = await createPostgresHarness();
+
     try {
       const runtimeLookupInput = lookupInput("owner-1", "device-1");
       const registeredRuntimeId = openMeldServiceRuntimeId(
@@ -95,7 +93,7 @@ describe("runtime prepare readiness D1 read model", () => {
       );
 
       await expect(
-        resolveRuntimePrepareReadinessFromD1({
+        resolveRuntimePrepareReadinessFromPostgres({
           agentControllerRefsToEvaluate: ["codex"],
           db: harness.db,
           nowMs: 2000,
@@ -117,13 +115,13 @@ describe("runtime prepare readiness D1 read model", () => {
         },
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("uses Runtime Registry and current agent controller report facts without marking stale facts ready", async () => {
-    const harness = createSqliteD1Harness();
-    applyRuntimeReadinessMigrations(harness);
+    const harness = await createPostgresHarness();
+
     try {
       const runtimeLookupInput = lookupInput("owner-1", "device-1");
       const registeredRuntimeId = openMeldServiceRuntimeId(
@@ -145,7 +143,7 @@ describe("runtime prepare readiness D1 read model", () => {
       });
 
       await expect(
-        resolveRuntimePrepareReadinessFromD1({
+        resolveRuntimePrepareReadinessFromPostgres({
           agentControllerRefsToEvaluate: ["builtin:codex"],
           db: harness.db,
           nowMs: 2000,
@@ -164,13 +162,13 @@ describe("runtime prepare readiness D1 read model", () => {
         status: "not_ready",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("uses fresh current agent controller report facts as runnable Prepare readiness evidence only", async () => {
-    const harness = createSqliteD1Harness();
-    applyRuntimeReadinessMigrations(harness);
+    const harness = await createPostgresHarness();
+
     try {
       const runtimeLookupInput = lookupInput("owner-1", "device-1");
       const registeredRuntimeId = openMeldServiceRuntimeId(
@@ -190,7 +188,7 @@ describe("runtime prepare readiness D1 read model", () => {
         status: "ready",
       });
 
-      const result = await resolveRuntimePrepareReadinessFromD1({
+      const result = await resolveRuntimePrepareReadinessFromPostgres({
         agentControllerRefsToEvaluate: ["builtin:codex"],
         db: harness.db,
         nowMs: 2000,
@@ -218,13 +216,13 @@ describe("runtime prepare readiness D1 read model", () => {
         "summary",
       ]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("keeps non-runnable current agent controller report facts from becoming ready", async () => {
-    const harness = createSqliteD1Harness();
-    applyRuntimeReadinessMigrations(harness);
+    const harness = await createPostgresHarness();
+
     try {
       const runtimeLookupInput = lookupInput("owner-1", "device-1");
       const registeredRuntimeId = openMeldServiceRuntimeId(
@@ -245,7 +243,7 @@ describe("runtime prepare readiness D1 read model", () => {
       });
 
       await expect(
-        resolveRuntimePrepareReadinessFromD1({
+        resolveRuntimePrepareReadinessFromPostgres({
           agentControllerRefsToEvaluate: ["builtin:codex"],
           db: harness.db,
           nowMs: 2000,
@@ -264,20 +262,10 @@ describe("runtime prepare readiness D1 read model", () => {
         status: "not_ready",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });
-
-function applyRuntimeReadinessMigrations(
-  harness: ReturnType<typeof createSqliteD1Harness>
-): void {
-  applyMigrationForTable(harness, "openMeldDaemon_runtime_registry_records");
-  applyMigrationForTable(
-    harness,
-    "openMeldDaemon_runtime_agent_controller_reports"
-  );
-}
 
 function lookupInput(ownerId: string, deviceId: string): RuntimeLookupInput {
   return createRuntimeLookupInput({
@@ -302,7 +290,7 @@ function openMeldServiceRuntimeId(
 }
 
 async function registerRuntime(
-  db: D1Database,
+  db: PostgresDatabase,
   runtimeLookupInput: RuntimeLookupInput,
   openMeldServiceRuntimeIdValue: AuthorityOpenMeldServiceRuntimeId
 ): Promise<void> {
@@ -318,7 +306,7 @@ async function registerRuntime(
 
 async function writeReport(input: {
   agentControllerRef: string;
-  db: D1Database;
+  db: PostgresDatabase;
   expiresAtMs: number;
   openMeldServiceRuntimeId: AuthorityOpenMeldServiceRuntimeId;
   status: "disabled" | "ready";

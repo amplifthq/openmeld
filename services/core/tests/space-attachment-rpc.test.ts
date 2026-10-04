@@ -1,5 +1,6 @@
 import { env } from "cloudflare:test";
 import { randomUUID } from "node:crypto";
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import type { OpenMeldRequestContext } from "@openmeld/schemas/types";
 import { createAuthenticatedSpaceAccessContext } from "@openmeld/space";
 import { describe, expect, it } from "vitest";
@@ -19,7 +20,6 @@ const UUID_V4_PATTERN =
 const MEMBERSHIP_REQUIRED_RPC_ERROR_PATTERN =
   /HTTP 403.*space\.membership_required/;
 const SPACE_FORBIDDEN_RPC_ERROR_PATTERN = /HTTP 403.*space\.forbidden/;
-
 describe("Space attachment Core RPC", () => {
   it("records and resolves an attachment for an active Space member", async () => {
     const fixture = await createFixture();
@@ -28,7 +28,6 @@ describe("Space attachment Core RPC", () => {
       requestContext: fixture.memberContext,
       spaceId,
     });
-
     const attachment = await rpcRecordSpaceAttachment(coreEnv, {
       fileName: "photo.png",
       height: 600,
@@ -38,7 +37,6 @@ describe("Space attachment Core RPC", () => {
       spaceId,
       width: 800,
     });
-
     expect(attachment).toMatchObject({
       fileName: "photo.png",
       height: 600,
@@ -50,7 +48,6 @@ describe("Space attachment Core RPC", () => {
     });
     expect(attachment.id).toMatch(UUID_V4_PATTERN);
     expect(Number.isNaN(Date.parse(attachment.createdAt))).toBe(false);
-
     await expect(
       rpcResolveSpaceAttachmentForDownload(coreEnv, {
         attachmentId: attachment.id,
@@ -59,7 +56,6 @@ describe("Space attachment Core RPC", () => {
       })
     ).resolves.toEqual(attachment);
   });
-
   it("rejects an authenticated Organization member who is not a Space member", async () => {
     const fixture = await createFixture();
     const nonMemberContext = await addOrganizationMember({
@@ -75,7 +71,6 @@ describe("Space attachment Core RPC", () => {
         spaceId: await createProtectedSpace(fixture.memberContext),
       },
     ];
-
     for (const { errorPattern, spaceId } of spaces) {
       await expect(
         rpcRecordSpaceAttachment(coreEnv, {
@@ -87,7 +82,6 @@ describe("Space attachment Core RPC", () => {
       ).rejects.toThrow(errorPattern);
     }
   });
-
   it("does not resolve an attachment through another Space", async () => {
     const fixture = await createFixture();
     const sourceSpaceId = await createPublicSpace(fixture.memberContext);
@@ -98,7 +92,6 @@ describe("Space attachment Core RPC", () => {
       sizeBytes: 3,
       spaceId: sourceSpaceId,
     });
-
     await expect(
       rpcResolveSpaceAttachmentForDownload(coreEnv, {
         attachmentId: attachment.id,
@@ -110,11 +103,9 @@ describe("Space attachment Core RPC", () => {
       status: 404,
     });
   });
-
   it("rejects a message that references a missing attachment", async () => {
     const fixture = await createFixture();
     const spaceId = await createPublicSpace(fixture.memberContext);
-
     await expect(
       postAttachmentMessage({
         attachments: [
@@ -131,7 +122,6 @@ describe("Space attachment Core RPC", () => {
       code: "attachment_reference_invalid",
       status: 422,
     });
-
     const history = await rpcListSignals(coreEnv, {
       context: fixture.memberContext,
       recent: true,
@@ -139,7 +129,6 @@ describe("Space attachment Core RPC", () => {
     });
     expect(history.signals).toHaveLength(0);
   });
-
   it("rejects a message that references an attachment from another Space", async () => {
     const fixture = await createFixture();
     const sourceSpaceId = await createPublicSpace(fixture.memberContext);
@@ -150,7 +139,6 @@ describe("Space attachment Core RPC", () => {
       sizeBytes: 2048,
       spaceId: sourceSpaceId,
     });
-
     await expect(
       postAttachmentMessage({
         attachments: [toMessageAttachment(attachment)],
@@ -161,7 +149,6 @@ describe("Space attachment Core RPC", () => {
       code: "attachment_reference_invalid",
       status: 422,
     });
-
     const history = await rpcListSignals(coreEnv, {
       context: fixture.memberContext,
       recent: true,
@@ -169,7 +156,6 @@ describe("Space attachment Core RPC", () => {
     });
     expect(history.signals).toHaveLength(0);
   });
-
   it("persists canonical attachment metadata and returns it in history", async () => {
     const fixture = await createFixture();
     const spaceId = await createPublicSpace(fixture.memberContext);
@@ -183,7 +169,6 @@ describe("Space attachment Core RPC", () => {
       width: 800,
     });
     const canonicalReference = toMessageAttachment(attachment);
-
     const posted = await postAttachmentMessage({
       attachments: [
         {
@@ -195,7 +180,6 @@ describe("Space attachment Core RPC", () => {
       context: fixture.memberContext,
       spaceId,
     });
-
     expect(posted).toMatchObject({
       type: "signal.text",
       data: {
@@ -203,7 +187,6 @@ describe("Space attachment Core RPC", () => {
         attachments: [canonicalReference],
       },
     });
-
     const history = await rpcListSignals(coreEnv, {
       context: fixture.memberContext,
       recent: true,
@@ -218,7 +201,6 @@ describe("Space attachment Core RPC", () => {
       }),
     ]);
   });
-
   it("rejects attachment access when the Space belongs to another active Organization", async () => {
     const fixture = await createFixture();
     const spaceId = await createPublicSpace(fixture.memberContext);
@@ -231,7 +213,6 @@ describe("Space attachment Core RPC", () => {
       organizationId: otherOrganizationId,
       userId,
     });
-
     await expect(
       rpcRecordSpaceAttachment(coreEnv, {
         context: {
@@ -247,7 +228,6 @@ describe("Space attachment Core RPC", () => {
       status: 403,
     });
   });
-
   it("deletes the metadata row used to compensate a failed R2 write", async () => {
     const fixture = await createFixture();
     const spaceId = await createPublicSpace(fixture.memberContext);
@@ -257,7 +237,6 @@ describe("Space attachment Core RPC", () => {
       sizeBytes: 8,
       spaceId,
     });
-
     await expect(
       rpcDeleteSpaceAttachmentRecord(coreEnv, {
         attachmentId: attachment.id,
@@ -275,7 +254,6 @@ describe("Space attachment Core RPC", () => {
     });
   });
 });
-
 function toMessageAttachment(attachment: {
   fileName?: string;
   height?: number;
@@ -295,7 +273,6 @@ function toMessageAttachment(attachment: {
       : { fileName: attachment.fileName }),
   };
 }
-
 async function postAttachmentMessage(input: {
   attachments: ReturnType<typeof toMessageAttachment>[];
   context: OpenMeldRequestContext;
@@ -314,7 +291,6 @@ async function postAttachmentMessage(input: {
     text: "Here is the latest diagram.",
   });
 }
-
 async function createFixture(): Promise<{
   memberContext: OpenMeldRequestContext;
   organizationId: string;
@@ -323,16 +299,16 @@ async function createFixture(): Promise<{
   const memberContext = await addOrganizationMember({ organizationId });
   return { memberContext, organizationId };
 }
-
 async function addOrganizationMember(input: {
   organizationId: string;
 }): Promise<OpenMeldRequestContext> {
   const nowMs = Date.now();
   const userId = `user-${randomUUID()}`;
   const profileId = randomUUID();
-  await env.OPENMELD_DB.prepare(
-    `
-      INSERT INTO users (
+  await getPostgresDatabase(env).query({
+    ...{
+      text: `
+      INSERT INTO "openmeld"."users" (
         id,
         name,
         email,
@@ -340,22 +316,22 @@ async function addOrganizationMember(input: {
         created_at,
         updated_at
       )
-      VALUES (?, ?, ?, 1, ?, ?)
-    `
-  )
-    .bind(
+      VALUES ($1, $2, $3, 1, $4, $5)
+    `,
+      values: [],
+    },
+    values: [
       userId,
       "Attachment Test User",
       `${userId}@openmeld.test`,
       nowMs,
-      nowMs
-    )
-    .run();
+      nowMs,
+    ],
+  });
   await ensureOrganizationMembership({
     organizationId: input.organizationId,
     userId,
   });
-
   return {
     activeOrganizationId: input.organizationId,
     actorContext: {
@@ -368,36 +344,37 @@ async function addOrganizationMember(input: {
     },
   };
 }
-
 async function ensureOrganizationMembership(input: {
   organizationId: string;
   userId: string;
 }): Promise<void> {
   const nowMs = Date.now();
   const organizationSlug = input.organizationId.replace(/[^a-zA-Z0-9_-]/g, "_");
-  await env.OPENMELD_DB.prepare(
-    `
-      INSERT OR IGNORE INTO organizations (id, name, slug, created_at)
-      VALUES (?, ?, ?, ?)
-    `
-  )
-    .bind(
+  await getPostgresDatabase(env).query({
+    ...{
+      text: `
+      INSERT INTO "openmeld"."organizations" (id, name, slug, created_at)
+      VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
+      values: [],
+    },
+    values: [
       input.organizationId,
       "Space Attachment Test Organization",
       organizationSlug,
-      nowMs
-    )
-    .run();
-  await env.OPENMELD_DB.prepare(
-    `
-      INSERT INTO members (id, organization_id, user_id, role, created_at)
-      VALUES (?, ?, ?, 'member', ?)
-    `
-  )
-    .bind(randomUUID(), input.organizationId, input.userId, nowMs)
-    .run();
+      nowMs,
+    ],
+  });
+  await getPostgresDatabase(env).query({
+    ...{
+      text: `
+      INSERT INTO "openmeld"."members" (id, organization_id, user_id, role, created_at)
+      VALUES ($1, $2, $3, 'member', $4)
+    `,
+      values: [],
+    },
+    values: [randomUUID(), input.organizationId, input.userId, nowMs],
+  });
 }
-
 async function createPublicSpace(
   context: OpenMeldRequestContext
 ): Promise<string> {
@@ -408,7 +385,6 @@ async function createPublicSpace(
   });
   return created.spaceId;
 }
-
 async function createProtectedSpace(
   context: OpenMeldRequestContext
 ): Promise<string> {

@@ -8,7 +8,7 @@ import type {
   MessageChannelResourceDescriptor,
   NormalizedMessageChannelEvent,
 } from "@openmeld/schemas/types";
-import type { RemoteAgentLarkPlatformChannelConnectionRecord } from "../infrastructure/d1/lark-platform-channel-connection-repo";
+import type { RemoteAgentLarkPlatformChannelConnectionRecord } from "../infrastructure/postgresql/lark-platform-channel-connection-repo";
 import { readLarkPlatformPostContent } from "./lark-platform-post-content";
 
 type JsonObject = Record<string, unknown>;

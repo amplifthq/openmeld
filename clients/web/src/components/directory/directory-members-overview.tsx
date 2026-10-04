@@ -24,6 +24,7 @@ import {
 } from "@openmeld/ui/components/dialog";
 import { Input } from "@openmeld/ui/components/input";
 import { Label } from "@openmeld/ui/components/label";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import {
 	Select,
 	SelectContent,
@@ -653,26 +654,31 @@ function DirectoryInviteDialog(input: {
 }) {
 	return (
 		<Dialog onOpenChange={input.onOpenChange} open={input.isOpen}>
-			<DialogContent className="max-h-[min(50rem,calc(100dvh-2rem))] overflow-y-auto sm:max-w-4xl">
-				<DialogHeader>
-					<DialogTitle>Invite Members</DialogTitle>
-					<DialogDescription>
-						Invite teammates by email or share an organization invite link.
-					</DialogDescription>
-				</DialogHeader>
-				{input.access.kind === "personal" ? (
-					<PersonalWorkspaceInvitationGuidance
-						createOrganizationPath={buildOrganizationNewOrganizationPath(
-							input.organization.slug
-						)}
-						title="Create an organization to invite members"
-					/>
-				) : (
-					<DirectoryInvitePanel
-						access={input.access}
-						organizationId={input.organization.id}
-					/>
-				)}
+			<DialogContent className="max-h-[min(50rem,calc(100dvh-2rem))] overflow-hidden p-0 sm:max-w-4xl">
+				<ScrollArea
+					className="max-h-[inherit]"
+					contentClassName="grid gap-4 p-4"
+				>
+					<DialogHeader>
+						<DialogTitle>Invite Members</DialogTitle>
+						<DialogDescription>
+							Invite teammates by email or share an organization invite link.
+						</DialogDescription>
+					</DialogHeader>
+					{input.access.kind === "personal" ? (
+						<PersonalWorkspaceInvitationGuidance
+							createOrganizationPath={buildOrganizationNewOrganizationPath(
+								input.organization.slug
+							)}
+							title="Create an organization to invite members"
+						/>
+					) : (
+						<DirectoryInvitePanel
+							access={input.access}
+							organizationId={input.organization.id}
+						/>
+					)}
+				</ScrollArea>
 			</DialogContent>
 		</Dialog>
 	);

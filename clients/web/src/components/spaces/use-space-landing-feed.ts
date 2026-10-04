@@ -921,6 +921,7 @@ export function useSpaceLandingFeed(input: {
 					.invalidateQueries({
 						predicate: (query) =>
 							(query.queryKey[0] === "space-message-pins" ||
+								query.queryKey[0] === "space-input-queue" ||
 								query.queryKey[0] === "space-file-pins") &&
 							query.queryKey[1] === input.spaceId,
 					})
@@ -1247,6 +1248,11 @@ function handleLiveInvalidationMessage(
 			);
 	}
 	if (frame.type === "space.meta.changed") {
+		input.queryClient
+			.invalidateQueries({ queryKey: ["space-input-queue", input.spaceId] })
+			.catch((error) =>
+				console.warn("Failed to refresh queued messages.", error)
+			);
 		input.queryClient
 			.invalidateQueries({
 				predicate: (query) =>
