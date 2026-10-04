@@ -228,7 +228,7 @@ index 507b275fd464dd8d40411cb294bd41f6c6e16ced..17c441c0845d8eecf795f4df5ea8fcc1
  		* `queue` callbacks to methods on this class — including
 diff --git a/dist/conversation-recall.mjs b/dist/conversation-recall.mjs
 new file mode 100644
-index 0000000000000000000000000000000000000000..0fff734e563e32365f852e1ce611077f5e5a7b26
+index 0000000000000000000000000000000000000000..3abc3bc6a00d2fd717fb9093182fc444adf1bf78
 --- /dev/null
 +++ b/dist/conversation-recall.mjs
 @@ -0,0 +1,54 @@
@@ -242,9 +242,9 @@ index 0000000000000000000000000000000000000000..0fff734e563e32365f852e1ce611077f
 +    parameters: {
 +      type: "object",
 +      properties: {
-+        query: { type: "string", minLength: 2, maxLength: 200 },
-+        entryId: { type: "string", minLength: 1, maxLength: 256 },
-+        beforeEntryId: { type: "string", minLength: 1, maxLength: 256, description: "Search older matches using nextBeforeEntryId from the previous search page." },
++        query: { type: ["string", "null"], minLength: 2, maxLength: 200, description: "Literal search phrase, or null when reading an entry." },
++        entryId: { type: ["string", "null"], minLength: 1, maxLength: 256, description: "Exact returned entry ID, or null when searching." },
++        beforeEntryId: { type: ["string", "null"], minLength: 1, maxLength: 256, description: "Search older matches using nextBeforeEntryId, or null for the newest search page or an entry read." },
 +        offset: { type: "integer", minimum: 0, maximum: 10000000 }
 +      },
 +      additionalProperties: false
@@ -287,7 +287,7 @@ index 0000000000000000000000000000000000000000..0fff734e563e32365f852e1ce611077f
 +  };
 +}
 diff --git a/dist/conversation-stream-store-B2RVviYM.mjs b/dist/conversation-stream-store-B2RVviYM.mjs
-index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..451b9780ff614c88e1cb69618c5dfd3178a7dcf7 100644
+index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..637e14f0408fdfc916f574f7d029e9703028c92d 100644
 --- a/dist/conversation-stream-store-B2RVviYM.mjs
 +++ b/dist/conversation-stream-store-B2RVviYM.mjs
 @@ -1,4 +1,5 @@
@@ -407,13 +407,14 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..451b9780ff614c88e1cb69618c5dfd31
  						}));
  					} else if (assistant && aEvent.type === "text_end") {
  						const block = assistant.blocks.get(aEvent.contentIndex);
-@@ -2546,9 +2559,30 @@ var Session = class {
+@@ -2546,9 +2559,32 @@ var Session = class {
  		return {
  			enabled: true,
  			reserveTokens: cc.reserveTokens ?? defaults.reserveTokens,
 -			keepRecentTokens: cc.keepRecentTokens ?? defaults.keepRecentTokens
 +			keepRecentTokens: cc.keepRecentTokens ?? defaults.keepRecentTokens,
-+			maxSummaryTokens: cc.maxSummaryTokens
++			maxSummaryTokens: cc.maxSummaryTokens,
++			recallAvailable: Boolean(cc.workingContextTokens)
  		};
  	}
 +	/** The canonical owner replaces history before inference, including tool-loop turns. */
@@ -428,6 +429,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..451b9780ff614c88e1cb69618c5dfd31
 +		if (measure() <= config.workingContextTokens) return messages;
 +		if (signal?.aborted) throw abortErrorFor(signal);
 +		await this.flushCanonical();
++		if (signal?.aborted) throw abortErrorFor(signal);
 +		if (!await this.runCompaction("threshold")) throw new Error("[flue] Working context could not be compacted within its configured budget.");
 +		if (signal?.aborted) throw abortErrorFor(signal);
 +		// Pi owns its loop snapshot, Flue owns the durable projection. Update both
@@ -439,7 +441,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..451b9780ff614c88e1cb69618c5dfd31
  	async initializeCanonicalContext() {
  		await this.rebuildCanonicalContext();
  	}
-@@ -2574,7 +2608,7 @@ var Session = class {
+@@ -2574,7 +2610,7 @@ var Session = class {
  	}
  	processSubmissionInput(input, options) {
  		return createCallHandle(void 0, async (signal) => {
@@ -448,7 +450,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..451b9780ff614c88e1cb69618c5dfd31
  		});
  	}
  	/**
-@@ -3544,7 +3578,8 @@ var Session = class {
+@@ -3544,7 +3580,8 @@ var Session = class {
  		const activateSkillTool = Object.keys(this.liveSkills).length > 0 ? createActivateSkillTool((name) => this.activateSkillForTool(name)) : void 0;
  		const packagedRead = Object.values(packagedSkills).some((skill) => Object.keys(skill.files).some((path) => path !== "SKILL.md")) ? createPackagedSkillReadTool(packagedSkills) : void 0;
  		const frameworkTools = () => [
@@ -458,7 +460,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..451b9780ff614c88e1cb69618c5dfd31
  			...activateSkillTool ? [activateSkillTool] : [],
  			...packagedRead ? [packagedRead] : []
  		];
-@@ -3747,7 +3782,7 @@ var Session = class {
+@@ -3747,7 +3784,7 @@ var Session = class {
  			}
  		}
  	}
@@ -467,7 +469,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..451b9780ff614c88e1cb69618c5dfd31
  		const operationSignal = signal && this.scopeSignal ? AbortSignal.any([signal, this.scopeSignal]) : signal ?? this.scopeSignal;
  		return this.runExclusive(operation, async () => {
  			if (operationSignal?.aborted) throw abortErrorFor(operationSignal);
-@@ -3783,12 +3818,25 @@ var Session = class {
+@@ -3783,12 +3820,25 @@ var Session = class {
  				return result;
  			} catch (error) {
  				const surfaced = operationSignal?.aborted ? abortErrorFor(operationSignal) : error;
@@ -493,7 +495,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..451b9780ff614c88e1cb69618c5dfd31
  					error: serializeEventError(surfaced)
  				}, operation === "prompt" || operation === "skill" ? {
  					agentInput: this.activeAgentInput,
-@@ -4015,7 +4063,7 @@ var Session = class {
+@@ -4015,7 +4065,7 @@ var Session = class {
  	async rebuildCanonicalContext() {
  		const conversation = await this.requireConversation();
  		const resolved = await this.resolveCanonicalContextAttachments(conversation);
@@ -502,7 +504,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..451b9780ff614c88e1cb69618c5dfd31
  			const image = resolved.get(attachment.id);
  			if (!image) throw new AttachmentNotAvailableError({ attachmentId: attachment.id });
  			return image;
-@@ -4050,7 +4098,7 @@ var Session = class {
+@@ -4050,7 +4100,7 @@ var Session = class {
  		};
  		const throwIfHalted = () => {
  			if (options.signal.aborted) throw abortErrorFor(options.signal);
@@ -511,7 +513,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..451b9780ff614c88e1cb69618c5dfd31
  		};
  		while (true) {
  			const overflow = assistant !== void 0 && isAssistantContextOverflow(assistant, this.agentLoop.state.model.contextWindow ?? 0);
-@@ -4133,6 +4181,10 @@ var Session = class {
+@@ -4133,6 +4183,10 @@ var Session = class {
  	}
  	async checkCompaction(assistantMessage) {
  		if (assistantMessage.stopReason === "aborted" || assistantMessage.stopReason === "error") return;
@@ -522,7 +524,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..451b9780ff614c88e1cb69618c5dfd31
  		const model = this.agentLoop.state.model;
  		const settings = this.resolveCompactionSettings(model);
  		if (!settings.enabled) return;
-@@ -4162,7 +4214,7 @@ var Session = class {
+@@ -4162,7 +4216,7 @@ var Session = class {
  			const summarizationModel = compactionConfig?.model ? this.resolveModelForCall(compactionConfig.model) : sessionModel;
  			const canonicalConversation = await this.requireConversation();
  			const resolvedAttachments = await this.resolveCanonicalContextAttachments(canonicalConversation);
@@ -531,7 +533,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..451b9780ff614c88e1cb69618c5dfd31
  				const image = resolvedAttachments.get(attachment.id);
  				if (!image) throw new AttachmentNotAvailableError({ attachmentId: attachment.id });
  				return image;
-@@ -4183,6 +4235,7 @@ var Session = class {
+@@ -4183,6 +4237,7 @@ var Session = class {
  				this.internalLog("info", "[flue:compaction] Nothing to compact (first kept message has no entry)");
  				return false;
  			}
@@ -539,7 +541,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..451b9780ff614c88e1cb69618c5dfd31
  			this.internalLog("info", `[flue:compaction] Summarizing ${preparation.messagesToSummarize.length} messages` + (preparation.isSplitTurn ? ` (split turn: ${preparation.turnPrefixMessages.length} prefix messages)` : "") + `, keeping messages from index ${preparation.firstKeptIndex}`);
  			const estimatedTokens = preparation.tokensBefore;
  			this.emit({
-@@ -4536,7 +4589,7 @@ var Session = class {
+@@ -4536,7 +4591,7 @@ var Session = class {
  	resolveSubmissionDurability(startedAt, timeoutAt) {
  		return {
  			maxAttempts: this.config.durability?.maxAttempts ?? 10,
@@ -548,7 +550,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..451b9780ff614c88e1cb69618c5dfd31
  		};
  	}
  	async runPersistedContextInput(options) {
-@@ -4578,12 +4631,19 @@ var Session = class {
+@@ -4578,12 +4633,19 @@ var Session = class {
  					signal: options.signal
  				});
  				await this.flushResponseOutput();
@@ -569,7 +571,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..451b9780ff614c88e1cb69618c5dfd31
  				this.activeSubmissionAttemptId = void 0;
  				this.activeJoinSource = void 0;
  				this.activeJoinSignal = void 0;
-@@ -4976,7 +5036,18 @@ async function materializeSubmissionAttachments(input, conversationId, attachmen
+@@ -4976,7 +5038,18 @@ async function materializeSubmissionAttachments(input, conversationId, attachmen
  }
  function createAgentSubmissionSessionHandler(agent, input, execute) {
  	return async (ctx) => {
@@ -589,7 +591,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..451b9780ff614c88e1cb69618c5dfd31
  	};
  }
  /**
-@@ -4997,10 +5068,26 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
+@@ -4997,10 +5070,26 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
  	const { input } = submission;
  	const attempt = submissionAttemptRef(submission);
  	if (!attempt) return void 0;
@@ -617,7 +619,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..451b9780ff614c88e1cb69618c5dfd31
  	} catch (renderError) {
  		if (submission.timeoutAt > 0 && Date.now() >= submission.timeoutAt) {
  			await failInterruptedSubmission(submissions, submission, attempt, agent, "exceeded_timeout", () => new SubmissionTimeoutError(), createContext, conversationWriter, emitCoordinatorEvent);
-@@ -5014,7 +5101,7 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
+@@ -5014,7 +5103,7 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
  		return;
  	}
  	if (submission.abortRequestedAt !== void 0) {
@@ -626,7 +628,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..451b9780ff614c88e1cb69618c5dfd31
  		return;
  	}
  	if (submission.attemptCount >= submission.maxAttempts) {
-@@ -5040,6 +5127,16 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
+@@ -5040,6 +5129,16 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
  	}
  	await submissions.requeueSubmission(attempt);
  }
@@ -643,7 +645,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..451b9780ff614c88e1cb69618c5dfd31
  /**
  * The wall-clock deadline after which a queued submission that never became
  * claimable (materialization permanently failing, agent definition
-@@ -5056,7 +5153,7 @@ function unreadySubmissionDeadline(submission, agent) {
+@@ -5056,7 +5155,7 @@ function unreadySubmissionDeadline(submission, agent) {
  		assertDurability(agent.durability, `[agent "${submission.input.agent}"]`);
  		timeoutMs = agent.durability?.timeoutMs ?? 36e5;
  	} catch {}
@@ -652,7 +654,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..451b9780ff614c88e1cb69618c5dfd31
  }
  /**
  * Settle a queued submission that can never be claimed — a durable abort on
-@@ -5071,6 +5168,10 @@ function unreadySubmissionDeadline(submission, agent) {
+@@ -5071,6 +5170,10 @@ function unreadySubmissionDeadline(submission, agent) {
  */
  async function settleUnclaimableSubmission(submissions, submission, outcome, error, emitCoordinatorEvent) {
  	if (!await submissions.settleQueuedSubmission(submission.submissionId, outcome, error)) return false;
@@ -663,7 +665,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..451b9780ff614c88e1cb69618c5dfd31
  	const errorInfo = { errorInfo: classifyError(error) };
  	emitCoordinatorEvent({
  		type: "submission_settled",
-@@ -5084,8 +5185,30 @@ async function settleUnclaimableSubmission(submissions, submission, outcome, err
+@@ -5084,8 +5187,30 @@ async function settleUnclaimableSubmission(submissions, submission, outcome, err
  		kind: submission.kind,
  		operation: "materialize_submission",
  		outcome: "terminated",
@@ -694,7 +696,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..451b9780ff614c88e1cb69618c5dfd31
  	return true;
  }
  /** Synthetic request for the submission's kind: an agent route for direct prompts, the dispatch path for dispatches. */
-@@ -5117,11 +5240,32 @@ async function processSubmission(opts) {
+@@ -5117,11 +5242,32 @@ async function processSubmission(opts) {
  		attemptCount: submission.attemptCount,
  		maxAttempts: submission.maxAttempts
  	});
@@ -731,7 +733,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..451b9780ff614c88e1cb69618c5dfd31
  	};
  	const execute = () => createAgentSubmissionSessionHandler(agent, input, (session) => {
  		const handle = session.processSubmissionInput(input, {
-@@ -5151,17 +5295,7 @@ async function processSubmission(opts) {
+@@ -5151,17 +5297,7 @@ async function processSubmission(opts) {
  		return;
  	}
  	try {
@@ -750,7 +752,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..451b9780ff614c88e1cb69618c5dfd31
  	} catch (error) {
  		if (opts.isShutdownAbort?.(error)) throw error;
  		if (opts.signal?.reason instanceof SubmissionAbortedError) {
-@@ -5181,7 +5315,11 @@ async function failInterruptedSubmission(submissions, submission, attempt, agent
+@@ -5181,7 +5317,11 @@ async function failInterruptedSubmission(submissions, submission, attempt, agent
  	const ctx = createContext(input.submissionId);
  	let interruptedTools;
  	try {
@@ -763,7 +765,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..451b9780ff614c88e1cb69618c5dfd31
  			submissionId: submission.submissionId,
  			kind: submission.kind,
  			reason,
-@@ -5215,10 +5353,10 @@ async function failInterruptedSubmission(submissions, submission, attempt, agent
+@@ -5215,10 +5355,10 @@ async function failInterruptedSubmission(submissions, submission, attempt, agent
  * through the two-phase outbox with `outcome: 'aborted'` — the durable
  * terminal record a reconnecting waiter observes.
  */
@@ -777,7 +779,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..451b9780ff614c88e1cb69618c5dfd31
  			kind: submission.kind,
  			reason: "aborted",
 diff --git a/dist/dispatch-Dohpn4Ea.mjs b/dist/dispatch-Dohpn4Ea.mjs
-index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..9fa6916e631f28d19c6d36ad8292ca941b202261 100644
+index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..d609f72e6149a9d7ec1e193bd6840bbc42036e97 100644
 --- a/dist/dispatch-Dohpn4Ea.mjs
 +++ b/dist/dispatch-Dohpn4Ea.mjs
 @@ -4,6 +4,7 @@ import { n as isValibotSchema } from "./schema-DIDpvZZa.mjs";
@@ -994,7 +996,22 @@ index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..9fa6916e631f28d19c6d36ad8292ca94
  /** Valid cut points: user or assistant messages. Never cut at toolResult. */
  function findValidCutPoints(messages, start, end) {
  	const cutPoints = [];
-@@ -1833,26 +1906,29 @@ async function runSummarizationCall(purpose, promptText, maxTokens, model, signa
+@@ -1757,10 +1830,10 @@ function findCutPoint(messages, start, end, keepRecentTokens) {
+ 		const messageTokens = estimateTokens(message);
+ 		accumulatedTokens += messageTokens;
+ 		if (accumulatedTokens >= keepRecentTokens) {
+-			for (const cutPoint of cutPoints) if (cutPoint >= i) {
+-				cutIndex = cutPoint;
+-				break;
+-			}
++			// Pre-inference compaction can end on a large tool result. If there
++			// is no later message boundary, retain its issuing assistant and all
++			// paired results instead of falling back to the start of history.
++			cutIndex = cutPoints.find((cutPoint) => cutPoint >= i) ?? cutPoints.at(-1) ?? start;
+ 			break;
+ 		}
+ 	}
+@@ -1833,26 +1906,34 @@ async function runSummarizationCall(purpose, promptText, maxTokens, model, signa
  		observer.end(purpose, handle, void 0, error);
  		throw error;
  	}
@@ -1010,9 +1027,15 @@ index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..9fa6916e631f28d19c6d36ad8292ca94
  }
 -async function generateSummary(currentMessages, model, reserveTokens, signal, previousSummary, observer) {
 -	const maxTokens = Math.min(Math.floor(.8 * reserveTokens), 16e3);
-+async function generateSummary(currentMessages, model, reserveTokens, signal, previousSummary, canonicalActionEvidence, observer, maxSummaryTokens = 16e3) {
+-	const basePrompt = previousSummary ? UPDATE_SUMMARIZATION_PROMPT : SUMMARIZATION_PROMPT;
++const WORKING_CONTEXT_SUMMARIZATION_PROMPT = `Create a concise working checkpoint for continuing the current task, incorporating the previous checkpoint if present.
++Use headings: Goal, Constraints & Preferences, Observed Facts, Current Status, Pending Plan, Key Decisions, Critical Context.
++Preserve active requirements, explicit limits on authority, unresolved work, corrections, and exact identifiers needed for the next action. Keep observed actions separate from current status and future plans. A later state must not turn "not since checkpoint X" into "never happened", nor turn a pending action into a completed one. Preserve the time and scope of corrections or conflicts.
++Do not copy the entire archive into the checkpoint. Older user and assistant messages remain in the canonical conversation and can be searched with recall_conversation. For large historical collections, retain distinctive literal search phrases or identifiers and explain what records exist, instead of enumerating every record. Keep task-critical facts directly in the checkpoint. For tool artifacts, retain the owning source reference or path and the authorized way to read it again; never imply recall_conversation returns tool payloads.
++Use <canonical-action-evidence> to check recorded tool work, but do not reproduce its heading; the runtime appends that bounded evidence section. Be brief enough to leave room for recent messages and new work.`;
++async function generateSummary(currentMessages, model, reserveTokens, signal, previousSummary, canonicalActionEvidence, observer, maxSummaryTokens = 16e3, recallAvailable = false) {
 +	const maxTokens = Math.min(Math.floor(.8 * reserveTokens), maxSummaryTokens);
- 	const basePrompt = previousSummary ? UPDATE_SUMMARIZATION_PROMPT : SUMMARIZATION_PROMPT;
++	const basePrompt = recallAvailable ? WORKING_CONTEXT_SUMMARIZATION_PROMPT : previousSummary ? UPDATE_SUMMARIZATION_PROMPT : SUMMARIZATION_PROMPT;
  	let promptText = `<conversation>\n${serializeConversation(currentMessages)}\n</conversation>\n\n`;
 -	if (previousSummary) promptText += `<previous-summary>\n${previousSummary}\n</previous-summary>\n\n`;
 +	if (previousSummary) promptText += `<previous-summary>\n${stripCanonicalActionEvidence(previousSummary)}\n</previous-summary>\n\n`;
@@ -1032,12 +1055,12 @@ index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..9fa6916e631f28d19c6d36ad8292ca94
  	let summary;
  	let aggregateUsage;
  	const addCallUsage = (usage) => {
-@@ -1861,18 +1937,20 @@ async function compact(preparation, model, signal, observer) {
+@@ -1861,18 +1942,20 @@ async function compact(preparation, model, signal, observer) {
  		aggregateUsage = aggregateUsage ? addUsage(aggregateUsage, normalized) : normalized;
  	};
  	if (isSplitTurn && turnPrefixMessages.length > 0) {
 -		const [historyResult, turnPrefixResult] = await Promise.all([messagesToSummarize.length > 0 ? generateSummary(messagesToSummarize, model, settings.reserveTokens, signal, previousSummary, observer) : Promise.resolve({
-+		const [historyResult, turnPrefixResult] = await Promise.all([messagesToSummarize.length > 0 ? generateSummary(messagesToSummarize, model, settings.reserveTokens, signal, previousSummary, canonicalActionEvidence, observer, settings.maxSummaryTokens) : Promise.resolve({
++		const [historyResult, turnPrefixResult] = await Promise.all([messagesToSummarize.length > 0 ? generateSummary(messagesToSummarize, model, settings.reserveTokens, signal, previousSummary, canonicalActionEvidence, observer, settings.maxSummaryTokens, settings.recallAvailable) : Promise.resolve({
  			text: "No prior history.",
  			usage: void 0
 -		}), generateTurnPrefixSummary(turnPrefixMessages, model, settings.reserveTokens, signal, observer)]);
@@ -1047,7 +1070,7 @@ index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..9fa6916e631f28d19c6d36ad8292ca94
  		summary = `${historyResult.text}\n\n---\n\n**Turn Context (split turn):**\n\n${turnPrefixResult.text}`;
  	} else {
 -		const historyResult = await generateSummary(messagesToSummarize, model, settings.reserveTokens, signal, previousSummary, observer);
-+		const historyResult = await generateSummary(messagesToSummarize, model, settings.reserveTokens, signal, previousSummary, canonicalActionEvidence, observer, settings.maxSummaryTokens);
++		const historyResult = await generateSummary(messagesToSummarize, model, settings.reserveTokens, signal, previousSummary, canonicalActionEvidence, observer, settings.maxSummaryTokens, settings.recallAvailable);
  		addCallUsage(historyResult.usage);
  		summary = historyResult.text;
  	}
@@ -1056,7 +1079,7 @@ index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..9fa6916e631f28d19c6d36ad8292ca94
  	const { readFiles, modifiedFiles } = computeFileLists(fileOps);
  	summary += formatFileOperations(readFiles, modifiedFiles);
  	return {
-@@ -2220,6 +2298,17 @@ function supersededAssistantErrorEntryIds(conversation) {
+@@ -2220,6 +2303,17 @@ function supersededAssistantErrorEntryIds(conversation) {
  	}
  	return superseded;
  }
@@ -1074,7 +1097,7 @@ index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..9fa6916e631f28d19c6d36ad8292ca94
  function projectConversationUi(conversation, streamOffset) {
  	const messages = [];
  	const byId = /* @__PURE__ */ new Map();
-@@ -2879,6 +2968,44 @@ async function readSubmissionReply(options) {
+@@ -2879,6 +2973,44 @@ async function readSubmissionReply(options) {
  	};
  	return replyFromSnapshot(snapshot, options.submissionId);
  }
@@ -1119,7 +1142,7 @@ index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..9fa6916e631f28d19c6d36ad8292ca94
  /**
  * Extract a submission's reply from a materialized conversation snapshot.
  * Shared by {@link readSubmissionReply} and the Cloudflare client, which reads
-@@ -2932,9 +3059,11 @@ function assertThinkingLevel(value, label) {
+@@ -2932,9 +3064,11 @@ function assertThinkingLevel(value, label) {
  function assertCompaction(definition, label) {
  	if (definition === void 0 || definition === false) return;
  	if (typeof definition !== "object" || definition === null || Array.isArray(definition)) throw new Error(`[flue] ${label} compaction must be a configuration object or \`false\`.`);
@@ -1132,7 +1155,7 @@ index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..9fa6916e631f28d19c6d36ad8292ca94
  	if (definition.model !== void 0 && typeof definition.model !== "string") throw new Error(`[flue] ${label} compaction.model must be a string.`);
  }
  function assertDurability(definition, label) {
-@@ -2942,7 +3071,7 @@ function assertDurability(definition, label) {
+@@ -2942,7 +3076,7 @@ function assertDurability(definition, label) {
  	if (typeof definition !== "object" || definition === null || Array.isArray(definition)) throw new Error(`[flue] ${label} durability must be a configuration object.`);
  	for (const key of Object.keys(definition)) if (key !== "maxAttempts" && key !== "timeoutMs") throw new Error(`[flue] ${label} durability received unknown field "${key}".`);
  	assertPositiveInteger(definition.maxAttempts, `${label} durability.maxAttempts`);

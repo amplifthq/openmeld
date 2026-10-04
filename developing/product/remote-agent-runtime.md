@@ -2115,6 +2115,10 @@ The working-context budget uses the shared four-bytes-per-token estimate, not
 an exact vendor tokenizer. Flue commits its normal compaction checkpoint and
 rebuilds its active projection before inference. The original canonical entries
 remain intact. An incomplete or empty summary cannot replace that projection.
+The working checkpoint preserves active constraints, corrections, unresolved
+work and source pointers instead of repeatedly copying every historical fact.
+The summary must not describe omitted evidence as nonexistent. During a tool
+loop, the cut retains the issuing assistant message with its tool results.
 If compaction cannot fit the current request, inference fails explicitly rather
 than silently removing the current message or sending an unbounded request.
 The final provider payload still has its separate physical-capacity guard.
@@ -2124,8 +2128,8 @@ assembled conversation. Overflow recovery remains available.
 
 Flue's `recall_conversation` tool searches original user/assistant text in the
 same canonical active lineage, including entries omitted from the summary.
-It returns at most eight source-attributed excerpts and supports bounded entry
-pages. It exposes neither hidden reasoning nor tool payloads, other runtime
+It returns at most eight source-attributed excerpts, a cursor for older search
+matches, and bounded entry pages. It exposes neither hidden reasoning nor tool payloads, other runtime
 conversations, or previous generations. Historical content is evidence, not
 current authorization. Product-owned history, Files, and memory tools remain
 the authorized sources across generations and for external artifacts. There
@@ -2142,9 +2146,10 @@ These are economic triggers, not provider admission limits. The final payload
 guard uses the physical window with its ordinary safety reserve, so a summary
 request can read history that crossed the cheaper band. Compaction and the
 subsequent cache rebuild both count toward actual task cost.
-The trigger is not a promise to stay below a billing tier: Flue needs a safe
-message cut point while preserving the recent tail, and a single very large
-message may defer compaction. Provider usage may aggregate internal work (for
+The trigger is not a promise to stay below a billing tier: the summary itself
+must read the older history and may enter a higher band. Flue needs a safe
+message cut point while preserving the recent tail. A single irreducible large
+current input fails the working-context admission check explicitly. Provider usage may aggregate internal work (for
 example Pro inference); it is not proof of physical prompt length. Evaluate
 actual total charges, summary overhead, cache writes/reads, and retained task
 constraints together before changing these reviewed policy values.

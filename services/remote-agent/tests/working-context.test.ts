@@ -7,8 +7,9 @@ import {
   fauxProvider,
   fauxToolCall,
 } from "@earendil-works/pi-ai";
-import { init, useModel } from "@flue/runtime";
+import { defineTool, init, useModel, useTool } from "@flue/runtime";
 import { sqlite, start } from "@flue/runtime/node";
+import { object } from "valibot";
 import { expect, it } from "vitest";
 
 function recalledResult(context: Context) {
@@ -24,6 +25,119 @@ function recalledResult(context: Context) {
   }
   return JSON.parse(text.text);
 }
+
+it("refuses an irreducible oversized current input before any supplier call", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "flue-current-input-"));
+  const provider = fauxProvider({
+    provider: "current-input",
+    tokensPerSecond: Number.POSITIVE_INFINITY,
+  });
+  const model = provider.getModel();
+  function CurrentInput() {
+    useModel(`${model.provider}/${model.id}`, {
+      compaction: { workingContextTokens: 2000, keepRecentTokens: 512 },
+    });
+    return "Do not silently discard the current request.";
+  }
+  const runtime = await start({
+    agents: [CurrentInput],
+    providers: [provider.provider],
+    db: sqlite(join(directory, "history.sqlite")),
+  });
+  try {
+    const agent = init(CurrentInput, { id: "history" });
+    await expect(
+      agent.read(await agent.dispatch("Current evidence. ".repeat(1200)))
+    ).rejects.toThrow("Agent run failed");
+    expect(provider.state.callCount).toBe(0);
+  } finally {
+    await runtime.stop();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+it("checks the next tool-loop call and ignores inflated supplier usage afterward", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "flue-tool-preflight-"));
+  const provider = fauxProvider({
+    provider: "tool-preflight",
+    tokensPerSecond: Number.POSITIVE_INFINITY,
+  });
+  const model = provider.getModel();
+  const lookup = defineTool({
+    name: "lookup",
+    description: "Read current evidence.",
+    input: object({}),
+    run: () => ({
+      output: `Current result: EXACT-734. ${"Evidence text. ".repeat(700)}`,
+    }),
+  });
+  function ToolPreflight() {
+    useModel(`${model.provider}/${model.id}`, {
+      compaction: {
+        workingContextTokens: 6000,
+        reserveTokens: 8192,
+        keepRecentTokens: 512,
+        maxSummaryTokens: 512,
+      },
+    });
+    useTool(lookup);
+    return "Report current original evidence.";
+  }
+  const runtime = await start({
+    agents: [ToolPreflight],
+    providers: [provider.provider],
+    db: sqlite(join(directory, "history.sqlite")),
+  });
+  try {
+    const agent = init(ToolPreflight, { id: "history" });
+    provider.setResponses(
+      Array.from({ length: 4 }, () => fauxAssistantMessage("Recorded."))
+    );
+    for (let i = 0; i < 4; i++) {
+      await agent.read(
+        await agent.dispatch(`Older record ${i}. ${"Unchanged. ".repeat(380)}`)
+      );
+    }
+    provider.setResponses([
+      fauxAssistantMessage(fauxToolCall("lookup", {}), {
+        stopReason: "toolUse",
+      }),
+      (context) => {
+        expect(JSON.stringify(context.messages)).toContain("Older record 0");
+        return fauxAssistantMessage(
+          "Old records unchanged. Current lookup is pending a report."
+        );
+      },
+      (context) => {
+        expect(JSON.stringify(context.messages)).toContain(
+          "Look up the current result."
+        );
+        return fauxAssistantMessage(
+          "Report the current lookup result exactly."
+        );
+      },
+      (context) => {
+        expect(JSON.stringify(context.messages)).toContain("EXACT-734");
+        expect(JSON.stringify(context.messages)).not.toContain(
+          "Older record 0"
+        );
+        expect(JSON.stringify(context.messages).length).toBeLessThan(24_000);
+        const answer = fauxAssistantMessage("Current result: EXACT-734.");
+        answer.usage.input = 500_000;
+        answer.usage.totalTokens = 500_000;
+        return answer;
+      },
+    ]);
+    expect(
+      (await agent.read(await agent.dispatch("Look up the current result.")))
+        .text
+    ).toContain("EXACT-734");
+    expect(provider.state.callCount).toBe(8);
+  } finally {
+    await runtime.stop();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 
 it("pages original evidence and refuses an entry from another conversation", async () => {
   const directory = await mkdtemp(join(tmpdir(), "flue-recall-boundary-"));
