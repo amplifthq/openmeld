@@ -503,6 +503,10 @@ pnpm release:deploy:local -- --scope auth,core --database-cutover-restore-crons
 
 The snapshot is created exclusively with mode `0600`. Its adjacent JSON manifest
 binds source identity, frozen barrier, history, typed cells and hashes.
+Barrier inspection recognizes exact captured local and production D1 platform
+definitions (`_cf_METADATA`, `_cf_KV`) and SQLite's `sqlite_stat1` statistics
+table. These are preserved without application write guards or PG import;
+unknown objects and changed definitions still stop admission.
 `OPENMELD_PG_RECEIPT_PATH=<new-private-file>` optionally saves command output with
 the same exclusive permissions. External output is a projection: only the import
 completion row committed with COPY is completion truth. `completion` reads that

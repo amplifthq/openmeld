@@ -77,6 +77,13 @@ function controlCatalog() {
         key INTEGER PRIMARY KEY,
         value BLOB
       )`);
+    // Captured from production D1 after db:release:prod on 2026-10-04.
+    // Production uses _cf_KV; PRAGMA optimize can create sqlite_stat1.
+    database.exec(`CREATE TABLE _cf_KV (
+        key TEXT PRIMARY KEY,
+        value BLOB
+      ) WITHOUT ROWID`);
+    database.exec("ANALYZE");
     return sqliteCatalog(database).filter(
       ({ name }) => name !== "sqlite_sequence"
     );
