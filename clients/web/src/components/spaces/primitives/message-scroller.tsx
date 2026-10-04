@@ -87,12 +87,11 @@ function MessageScrollerItem({
 	scrollAnchor = false,
 	...props
 }: ComponentProps<typeof MessageScrollerPrimitive.Item>) {
+	// Floating message actions can extend above this item. Keep paint containment
+	// on the viewport; content-visibility on an item would clip those actions.
 	return (
 		<MessageScrollerPrimitive.Item
-			className={cn(
-				"min-w-0 shrink-0 [contain-intrinsic-size:auto_10rem] [content-visibility:auto]",
-				className
-			)}
+			className={cn("min-w-0 shrink-0", className)}
 			data-slot="message-scroller-item"
 			scrollAnchor={scrollAnchor}
 			{...props}
