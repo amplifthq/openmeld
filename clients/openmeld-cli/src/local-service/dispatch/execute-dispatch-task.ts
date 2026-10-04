@@ -2943,6 +2943,7 @@ function buildDispatchRuntimePrompt(input: {
   return buildDispatchPromptPlan({
     executionContextAccess: input.parsedTask.executionContext?.access,
     callerContext: input.parsedTask.callerContext,
+    requesterIsAgentOwner: input.parsedTask.requesterIsAgentOwner,
     shouldInjectBootstrap: input.shouldInjectBootstrap,
     shouldInjectCenterAgentRoleTemplate:
       input.parsedTask.targetProfileIsCenterAgent,
@@ -3028,6 +3029,7 @@ async function prepareDispatchClaudeProjectContainer(input: {
   const context = input.parsedTask.executionContext;
   if (
     input.parsedTask.agentControllerRef !== "builtin:claude-code" ||
+    context?.permissionSource === "agent_settings" ||
     context?.access !== "workspace" ||
     context.workspace !== "isolated"
   ) {

@@ -40,9 +40,6 @@ export async function buildAcceptedDispatchSnapshot(input: {
     input.message.sourceSignalSnapshot?.profileId
       ? {
           contextRequest: {
-            ...((await isExecutionContextOwnerRequested(input))
-              ? { ownerRequested: true as const }
-              : {}),
             // Explicit intent must never fall back to a Binding conversation.
             // Core chooses implicit thread isolation only for supported harnesses.
             required: Boolean(input.message.contextSelection),
@@ -75,7 +72,7 @@ export async function buildAcceptedDispatchSnapshot(input: {
   };
 }
 
-export async function isExecutionContextOwnerRequested(input: {
+export async function isDispatchRequestedByAgentOwner(input: {
   env?: CoreBindings;
   targetOwnerUserId?: string;
   message: OpenMeldDaemonDispatchQueueMessage;

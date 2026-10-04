@@ -913,6 +913,7 @@ function buildClaudeAgentSdkOptions(input: {
   Object.assign(options, buildClaudeSpaceToolOptions(input));
   if (
     input.executionContext?.access === "workspace" &&
+    input.executionContext.permissionSource !== "agent_settings" &&
     input.executionMode !== "repair" &&
     !deliveryOnly
   ) {
@@ -954,7 +955,9 @@ function isSupportedClaudeExecutionContext(
   return (
     !context ||
     context.access === "space_context" ||
-    (context.access === "workspace" && context.workspace === "isolated")
+    (context.access === "workspace" &&
+      (context.permissionSource === "agent_settings" ||
+        context.workspace === "isolated"))
   );
 }
 

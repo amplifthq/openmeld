@@ -27,14 +27,24 @@
 
 ## Task permission inheritance
 
-Core alone derives `ExecutionContextRequest.ownerRequested` from current owner
-identity or the recorded Center delegation. Message content cannot provide it.
+Native permission inheritance is the default for new Codex and Claude tasks
+without explicit access preferences, regardless of requester ownership.
+`ExecutionContextRequest.ownerRequested` is accepted only for compatibility with
+persisted older snapshots; new snapshots do not write or use it.
 An assignment may carry `permissionSource: agent_settings` only with workspace
 access. Absence preserves the previous bounded-task contract. The Service uses
 its current Computer policy and Profile-native permission intent; this field is
 not a full-access grant. `executionContextPermissionInheritance` is an explicit
 adapter capability, separate from workspace protocol versions. Core checks it
-before delivering such an assignment and revalidates the original requester.
+before delivering such an assignment.
+
+Core derives the per-Wake `requesterIsAgentOwner` delivery projection from current
+identity or recorded Center delegation. It is prompt context, not authorization.
+It is sent only to a Service advertising `verifiedRequesterContext`; older
+services receive the existing payload. The Service combines this fact with the
+existing caller, owner, and Space audience context on every turn, including resume.
+An unverified original requester remains unknown; names or message text never
+establish ownership. This does not alter Plugin or account-access authorization.
 
 Ordinary Plugin delegation is an additive constraint on the existing recorded
 Wake publication command (`pluginActions`). Core alone resolves the original
