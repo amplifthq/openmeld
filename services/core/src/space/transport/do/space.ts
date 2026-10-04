@@ -20507,10 +20507,17 @@ export class Space extends DurableObject<CoreBindings> {
       this.ctx.storage.sql,
       dispatchId
     );
-    if (!dispatchRecord) {
+    // Native delivery has no workstation outbox. Its published reply relation
+    // identifies the source in this Space; read the author from that source.
+    const sourceSignalId =
+      dispatchRecord?.sourceEventId ??
+      (isMessageDetailsSignal(input.signal)
+        ? readMessageDetailsReplyToSignalId(input.signal)
+        : null);
+    if (!sourceSignalId) {
       return null;
     }
-    const sourceSignal = this.readSignalById(dispatchRecord.sourceEventId);
+    const sourceSignal = this.readSignalById(sourceSignalId);
     if (sourceSignal?.profile.kind !== "human") {
       return null;
     }

@@ -78,19 +78,6 @@ export async function runHostedCliRelease(input = {}) {
     }
   );
   const remoteUrl = buildTrustedGitHubRepositoryUrl({ repository, serverUrl });
-  const requireDatabaseCurrent = (probe = {}) =>
-    (
-      input.adapters?.requireDatabaseCurrent ?? requireProductionDatabaseCurrent
-    )({
-      ...probe,
-      cwd,
-      env: releaseEnvironment,
-      hostedCli: true,
-      sourceSha,
-      gitEnvironment: authenticatedGitEnvironment,
-    });
-  await requireDatabaseCurrent();
-
   const readEvidence = (options) =>
     (input.adapters?.readEvidence ?? readGuardedLocalReleaseSources)({
       ...options,
@@ -98,6 +85,18 @@ export async function runHostedCliRelease(input = {}) {
       remote: remoteUrl,
       gitEnvironment: authenticatedGitEnvironment,
     });
+  const requireDatabaseCurrent = (probe = {}) =>
+    (
+      input.adapters?.requireDatabaseCurrent ?? requireProductionDatabaseCurrent
+    )({
+      readReceipts: () => readEvidence({}),
+      ...probe,
+      cwd,
+      env: releaseEnvironment,
+      hostedCli: true,
+      sourceSha,
+    });
+  await requireDatabaseCurrent();
   const deployCore = (coreInput) =>
     deployRecordedHostedCliCore({
       ...coreInput,
