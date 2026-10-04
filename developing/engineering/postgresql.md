@@ -3,7 +3,7 @@
 ## Agent Context
 
 - Purpose: Own the executable PostgreSQL development, migration, isolated cloud
-  acceptance, backup/restore and future cutover workflow.
+  acceptance, backup/restore and controlled cutover workflow.
 - Read this when: Implementing shared PostgreSQL persistence or operating its
   infrastructure. Architecture belongs to
   [physical-db-split.md](../architecture/physical-db-split.md); logical ownership
@@ -18,24 +18,30 @@
 
 ## Current boundary
 
-The 2026-10-03 decision is Hyperdrive + PlanetScale PostgreSQL for the shared
-relational database. Existing production and shared staging continue on D1.
-Foundation resources use distinct `openmeld-postgresql-stg` and
-`openmeld-postgresql-prod` databases. The latter is an empty reserved destination,
-not a running product database. Do not attach the probe to production.
+Production completed the authorized Hyperdrive + PlanetScale PostgreSQL cutover
+on 2026-10-04. `openmeld-postgresql-prod` is the live shared relational authority,
+with Hyperdrive query caching disabled. Shared staging remains on its deployed
+D1 revision; the isolated `openmeld-postgresql-stg` foundation is separate.
+Do not attach the foundation probe to production. Exact migration and delivery
+evidence is in the [production cutover record](postgresql-cutover.md#current-production-state).
+The production `status: ready-empty` field in `resources.json` is the historical
+provisioning snapshot included in the certified database contract. It is not a
+live database-state projection. Current production state comes from the verified
+cutover and deployment receipts plus explicit resource readbacks. Changing that
+file requires the normal database-contract release assessment, even for metadata.
 
 The PostgreSQL journal now includes the shared product tables, Inbox's explicit
-sequence and native Auth UUID defaults. Auth and Core's candidate runtime uses
-native PostgreSQL SQL and one Hyperdrive binding. Preserve the immutable D1
-history and deployed D1 operations until the separately authorized cutover.
+sequence and native Auth UUID defaults. Production Auth and Core use native
+PostgreSQL SQL and one Hyperdrive binding. Preserve immutable D1 history and the
+frozen source. New production writes belong only to PostgreSQL.
 
 ## Tools and local development
 
-The staging, reserved production, and local/CI baseline is PostgreSQL 18. Use the current
+The isolated staging, production, and local/CI baseline is PostgreSQL 18. Use the current
 provider-supported stable minor version; do not choose an older major merely
-as a precaution without a concrete compatibility reason. The reserved production
-destination is empty; its minimum machine is not a production capacity decision.
-Choose production capacity and availability before any real business promotion.
+as a precaution without a concrete compatibility reason. The authorized cutover
+uses the recorded production capacity; future capacity and availability changes
+require measured demand and their own scoped review.
 
 PlanetScale's documented 17→18 path creates a new database rather than performing
 an automated in-place major upgrade. An isolated synthetic foundation can replay
@@ -115,11 +121,11 @@ The current `db:generate`, `db:check` and `db:studio` commands use the native
 PostgreSQL configuration. Run local migration and acceptance inside `pg:local`
 with its explicit isolated connection variables. Legacy production D1 commands
 fail closed. Historical D1 SQL, physical-requirement snapshots, and diagnostic
-tooling remain evidence for the deployed D1 revision; they cannot generate or
-apply the new PostgreSQL model. First production release requires verified
-frozen capture and native import through the existing release owner. Shared
-staging stays blocked. Isolated development and the foundation probe remain the
-validation paths; an implemented command is not production authorization.
+tooling remain evidence for the historical D1 revision; they cannot generate or
+apply the PostgreSQL model. The first production release verified frozen capture
+and native import through the existing release owner. Shared-staging deployment
+stays blocked pending its own migration. Isolated development and the foundation
+probe remain validation paths; an implemented command is not production authorization.
 
 `pnpm --filter @openmeld/db auth:generate` runs the official CLI at the installed
 Better Auth 1.6 patch version after building the actual Auth config. Generation
@@ -438,10 +444,10 @@ they do not add RPC methods. See
 - D1 tooling and its captured fixtures preserve the deployed revision's
   operational vocabulary. Current `db:*` commands use PostgreSQL or fail closed;
   the candidate does not authorize historical production operations.
-- Candidate production Auth/Core configurations and generated types declare
+- Production Auth/Core configurations and generated types declare
   the same native Hyperdrive binding and no D1 aliases. Shared-staging D1 config
   stays historical and guarded against candidate deployment, not a runtime
-  fallback. Live production retains its deployed revision until cutover.
+  fallback. Production now uses PostgreSQL as its sole relational authority.
 - Space, RuntimeTransportHub, and other Durable Objects retain private SQLite
   storage for their own state. OpenMeld Service's isolated local storage and R2
   file ownership also retain their existing boundaries.
@@ -598,8 +604,9 @@ live target as part of routine verification.
 
 ## Pre-cutover preparation status
 
-The continuing data-migration route, writer inventory and remaining maintenance
-acceptance are tracked in [PostgreSQL cutover preparation](postgresql-cutover.md).
+The following records preserve historical rehearsal scope and revisions. They
+are not the current production boundary. The completed maintenance window is
+recorded in [the cutover owner](postgresql-cutover.md#current-production-state).
 
 The local product milestone at fixed main baseline
 `6981ec654fa9c2454bdad6d370eabde738a648e7` has passed native journal 0012
@@ -613,7 +620,7 @@ in-flight head reads. The ordinary long-lived Worker pool limitation above
 remains unresolved. This is Draft local-product evidence, not production
 readiness or a successful ordinary full-suite run.
 
-Preparation now continues locally before a separately coordinated maintenance
+Preparation continued locally before a separately coordinated maintenance
 window for a small internal test group. The fixed integration candidate and
 short manual sequence live in the cutover owner above. Longer downtime, normal
 Stop and signing in again are acceptable; data, permissions and one relational
@@ -637,18 +644,16 @@ identical import receipt. A transient Web startup stall and one recovered Inbox
 projection warning are recorded in the cutover owner; neither is claimed fixed.
 In-flight head reads, task mutations and external integrations are not proved by
 this sample. The existing release path implements snapshot admission and native
-bindings. Its live maintenance actions and product acceptance remain for the
-authorized window.
+bindings. Live maintenance actions and production acceptance were subsequently
+completed in the authorized window recorded above.
 
-Production Spaces remain active on D1. This preparation does not authorize a
-main merge, main-product deployment, production export, shared-staging mutation,
-writer freeze, task interruption, or real-data cutover. Cloud product acceptance
-and any paid resources beyond the approved foundation require concrete scoped
-review before execution. Measure a complete rehearsal before estimating the
-maintenance window; preserve the before/after-first-PostgreSQL-write recovery
-boundary below.
+At the time of these preparation receipts, production Spaces remained on D1.
+Those receipts did not authorize production mutation; the later cutover had
+separate explicit maintenance-window authorization. Shared-staging mutation and
+additional paid resources remain outside that delivery. Preserve the
+before/after-first-PostgreSQL-write recovery boundary below.
 
-## Future short-maintenance-window cutover
+## Controlled maintenance-window cutover
 
 The title does not promise a duration. Follow the current
 [manual cutover sequence](postgresql-cutover.md#remaining-release-and-maintenance-acceptance)
