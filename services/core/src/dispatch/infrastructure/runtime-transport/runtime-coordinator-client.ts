@@ -198,6 +198,7 @@ export const buildRuntimeTransportDeliverDispatchRequest = (input: {
   defaultProjectId?: string | null;
   organizationProtectedInformation?: string | null;
   workingLanguage?: WorkingLanguageGuidance | null;
+  requesterIsAgentOwner?: boolean;
 }): RuntimeTransportDeliverDispatchRequest => {
   const sourceProfileHandle = normalizeOptionalText(
     input.sourceSignal.profileHandle
@@ -214,6 +215,9 @@ export const buildRuntimeTransportDeliverDispatchRequest = (input: {
     input.message.deliveryRecoveryReason
   );
   const payloadCandidate: RuntimeTransportDeliverDispatchPayload = {
+    ...(input.requesterIsAgentOwner !== undefined
+      ? { requesterIsAgentOwner: input.requesterIsAgentOwner }
+      : {}),
     executionContext: input.message.executionContext,
     runtimeCoordinatorExecutionId: buildRuntimeCoordinatorExecutionId({
       dispatchId: input.message.dispatchId,

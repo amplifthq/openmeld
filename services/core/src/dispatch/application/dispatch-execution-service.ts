@@ -155,7 +155,7 @@ import {
   isRuntimeTaskResultStatusSuccessLike,
   isSuccessfulRuntimeTaskResultPayload,
 } from "../rules/runtime-task-result-transition-contract";
-import { isExecutionContextOwnerRequested } from "./accepted-dispatch-snapshot";
+import { isDispatchRequestedByAgentOwner } from "./accepted-dispatch-snapshot";
 import { emitDispatchActivitySignal } from "./dispatch-activity-signal";
 import {
   buildDispatchResultRecord,
@@ -669,7 +669,7 @@ export const deliverDispatchMessageToDaemon = async (input: {
     await measureDispatchTiming({
       description: "Validate RuntimeTransport route execution compatibility",
       name: "openmeld_dispatch_deliver_route_guards",
-      read: async () => {
+      read: () => {
         assertDaemonRouteExecutionCompatible({
           executionContext: routeExecutionContext,
           executionLogBase,
@@ -685,23 +685,6 @@ export const deliverDispatchMessageToDaemon = async (input: {
           route,
           executionContext: routeExecutionContext,
         });
-        if (
-          input.message.executionContext?.permissionSource ===
-            "agent_settings" &&
-          !(await isExecutionContextOwnerRequested({
-            env: input.env,
-            message: input.message,
-            targetOwnerUserId: input.targetOwnerUserId,
-          }))
-        ) {
-          throw buildDispatchExecutionValidationError({
-            code: "execution_context.owner_request_unavailable",
-            message:
-              "The Agent owner's request can no longer be verified. Ask the owner to send this task again.",
-            executionContext: routeExecutionContext,
-            waitReasonCode: "execution_context.owner_request_unavailable",
-          });
-        }
       },
       timing: input.timing,
     });
@@ -871,7 +854,7 @@ export const deliverDispatchMessageToDaemon = async (input: {
   const deliverRequest = await measureDispatchTiming({
     description: "Build the RuntimeTransport delivery request",
     name: "openmeld_dispatch_deliver_request_build",
-    read: () =>
+    read: async () =>
       buildRuntimeTransportDeliverDispatchRequest({
         attemptId: input.attemptId,
         agentControllerConversationId:
@@ -884,6 +867,13 @@ export const deliverDispatchMessageToDaemon = async (input: {
         message: input.message,
         organizationProtectedInformation,
         workingLanguage,
+        requesterIsAgentOwner: route.capabilities.verifiedRequesterContext
+          ? await isDispatchRequestedByAgentOwner({
+              env: input.env,
+              message: input.message,
+              targetOwnerUserId: input.targetOwnerUserId,
+            })
+          : undefined,
         sourceSignal,
         targetProfileIsCenterAgent,
         targetProfileMentionLabel,

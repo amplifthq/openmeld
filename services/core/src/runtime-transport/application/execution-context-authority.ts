@@ -643,16 +643,19 @@ function createContext(
 ): ContextRecord {
   const selection = request.selection;
   const inheritsAgentSettings =
-    request.ownerRequested === true &&
-    snapshot.controllerSnapshot.agentControllerRef === "builtin:codex" &&
+    (snapshot.controllerSnapshot.agentControllerRef === "builtin:codex" ||
+      snapshot.controllerSnapshot.agentControllerRef ===
+        "builtin:claude-code") &&
     selection.mode !== "resume" &&
     !selection.access &&
-    (!source ||
+    (selection.mode === "new" ||
+      !source ||
       source.context.assignment.permissionSource === "agent_settings");
   const implicitPreferences =
-    (selection.mode === "auto" || inheritsAgentSettings) &&
-    !source &&
-    snapshot.controllerSnapshot.agentControllerRef === "builtin:codex"
+    inheritsAgentSettings ||
+    (selection.mode === "auto" &&
+      !source &&
+      snapshot.controllerSnapshot.agentControllerRef === "builtin:codex")
       ? ({ access: "workspace", workspace: "current" } as const)
       : {};
   const preferences: Partial<
@@ -716,6 +719,7 @@ function assertContextPreferences(
   }
   if (
     context.agentControllerRef === "builtin:claude-code" &&
+    assignment.permissionSource !== "agent_settings" &&
     assignment.access === "workspace" &&
     assignment.workspace !== "isolated"
   ) {

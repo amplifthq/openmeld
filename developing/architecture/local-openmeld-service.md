@@ -1209,6 +1209,13 @@ the Profile's other contexts as a fallback or heal a missing scoped conversation
 by silently starting another one. Ledger v2 reads valid v1 state without resetting
 its native conversation mappings. Corrupt scoped evidence fails closed.
 
+New Codex and Claude contexts with `permissionSource: agent_settings` use the
+ordinary native tool, settings, hooks, MCP, and permission-mode path. The starting
+Project folder does not create a filesystem boundary. Computer File Access still
+applies when configured. Only explicit or retained bounded Claude project tasks
+prepare a container and replace native shell tools; creating a new conversation
+alone must not do either. Delivery-only correction retains its narrow purpose.
+
 The existing local slot owner enforces the five-context Profile cap and local
 resource exclusions. Isolated task folders have distinct canonical roots and
 must not be symlinks. Shared current-folder writers run exclusively; current-folder
