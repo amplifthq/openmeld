@@ -2099,12 +2099,37 @@ ordinary turns. Core owns only the logical-conversation-to-active-generation
 pointer. That pointer is routing metadata, not transcript, memory, execution,
 or publication truth.
 
-OpenMeld configures compaction with two explicit budgets:
+OpenMeld configures compaction with four explicit budgets:
 
 - model-specific `reserveTokens` starts compaction before the provider context
-  limit or a known higher prompt-price band; and
+  limit or a known higher prompt-price band;
 - `keepRecentTokens = 8,000` preserves the latest verbatim conversation tail
-  after older messages are summarized.
+  after older messages are summarized;
+- `workingContextTokens = 48,000`, capped by usable model capacity, checks the
+  assembled system prompt, tool definitions, and messages before every model
+  call, including tool-loop calls; and
+- `maxSummaryTokens = 4,096` caps each summary completion independently of the
+  physical model reserve. Reasoning tokens count toward this limit.
+
+The working-context budget uses the shared four-bytes-per-token estimate, not
+an exact vendor tokenizer. Flue commits its normal compaction checkpoint and
+rebuilds its active projection before inference. The original canonical entries
+remain intact. An incomplete or empty summary cannot replace that projection.
+If compaction cannot fit the current request, inference fails explicitly rather
+than silently removing the current message or sending an unbounded request.
+The final provider payload still has its separate physical-capacity guard.
+With preflight enabled, provider usage does not also trigger post-response
+compaction: internal Pro inference can inflate that usage without growing the
+assembled conversation. Overflow recovery remains available.
+
+Flue's `recall_conversation` tool searches original user/assistant text in the
+same canonical active lineage, including entries omitted from the summary.
+It returns at most eight source-attributed excerpts and supports bounded entry
+pages. It exposes neither hidden reasoning nor tool payloads, other runtime
+conversations, or previous generations. Historical content is evidence, not
+current authorization. Product-owned history, Files, and memory tools remain
+the authorized sources across generations and for external artifacts. There
+is no copied transcript, separate search database, or second summarizer.
 
 Frozen model routes use the worker's reviewed exact-model prompt-price bands
 as well as the capacity reserve. The route's model, reasoning, modalities and
