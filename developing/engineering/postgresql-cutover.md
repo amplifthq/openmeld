@@ -49,7 +49,7 @@ access. The earlier local product and isolated cloud receipts remain scoped to
 their recorded revisions; this source integration does not repeat or broaden
 those deployment claims.
 
-The final source integration uses the subsequently reviewed fixed main
+The final database integration uses the subsequently reviewed fixed main
 `edcaf1a00ba30a13b447e9dda28fd08383c1f69e`. D1 `0192_lush_rick_jones` adds
 `plugin_action_requests` and the action-operation connection version; native
 `0015_plugin_action_requests` preserves both. Plugin approval, Inbox resolution,
@@ -61,6 +61,15 @@ and all 160 current historical tables with 480 write guards. Capture must still
 match the schema and history actually deployed at the maintenance window; a
 main commit is not evidence that its D1 migration ran. Do not chase additional
 main changes during this candidate's closeout.
+
+Final Candidate preparation subsequently integrated reviewed main
+`114866ca9fdce7d9c7c2167b0eea30acc0ba0587`. Its Remote Agent context and
+dependency-patch increment changes no database schema or migration. The native
+database receipts above retain their original revisions; this final dependency
+integration does not repeat cloud or migrated-product acceptance. The reviewed
+validation-control diff remains unchanged and uses the existing explicit local
+bootstrap, with the final exact head and live main identity checked by the
+trusted controller.
 
 The Queue/Steer integration fixture initially passed all 26 assertions but
 exited with `ECONNRESET` while the Worker runtime shut down. It now waits for
