@@ -734,11 +734,13 @@ describe("Team and member Files roots", () => {
       headers: requestHeaders(),
     });
     expect(first.status).toBe(200);
+    expect(first.headers.get("cache-control")).toContain("no-transform");
     expect(await first.text()).toBe("first plan");
     const rangedHeaders = requestHeaders();
     rangedHeaders.set("range", "bytes=0-5");
     const ranged = await SELF.fetch(contentUrl, { headers: rangedHeaders });
     expect(ranged.status).toBe(206);
+    expect(ranged.headers.get("cache-control")).toContain("no-transform");
     expect(ranged.headers.get("content-range")).toBe("bytes 0-5/11");
     expect(await ranged.text()).toBe("second");
     const head = await SELF.fetch(contentUrl, {

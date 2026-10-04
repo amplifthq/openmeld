@@ -1,3 +1,4 @@
+import { env, runInDurableObject } from "cloudflare:test";
 import { PostgresDatabase } from "@openmeld/db/postgresql";
 import type { SignalEnvelope } from "@openmeld/protocol";
 import {
@@ -16,10 +17,19 @@ import {
   selectSpaceInboxRecipients,
 } from "../space/application/space-inbox-projection-outbox-service";
 import {
+  createDispatchOutboxRecord,
+  insertDispatchOutboxRecord,
+} from "../space/infrastructure/outbox/dispatch-outbox-repo";
+import {
   listDueSpaceInboxProjectionOutboxRecords,
   type SpaceInboxProjectionOutboxRecord,
 } from "../space/infrastructure/sql/space-inbox-projection-outbox-repo";
-import type { SpaceMemberRecord } from "../space/infrastructure/sql/space-member-repo";
+import {
+  type SpaceMemberRecord,
+  upsertSpaceMemberRecord,
+} from "../space/infrastructure/sql/space-member-repo";
+import { upsertSpaceMetaRecord } from "../space/infrastructure/sql/space-meta-repo";
+import { insertSignalRecord } from "../space/infrastructure/sql/space-signal-repo";
 import { Space } from "../space/transport/do/space";
 
 const publishTextSignal = (
@@ -53,6 +63,157 @@ const publishTextSignal = (
 ).publishTextSignal;
 
 describe("Space Inbox projection", () => {
+  it.each([
+    "native-reply",
+    "native-failure",
+    "workstation-reply",
+    "removed-requester",
+    "missing-source",
+  ])("persists only the current Human requester's Inbox candidate for %s", async (scenario) => {
+    const spaces = (
+      env as unknown as {
+        OPENMELD_SPACES: DurableObjectNamespace<Space>;
+      }
+    ).OPENMELD_SPACES;
+    const id = spaces.newUniqueId();
+    const recipients = await runInDurableObject(
+      spaces.get(id),
+      (instance, state) => {
+        const spaceId = id.toString();
+        const requesterProfileId = "11111111-1111-4111-8111-111111111111";
+        const agentProfileId = "agt_22222222-2222-4222-8222-222222222222";
+        upsertSpaceMetaRecord(state.storage.sql, {
+          v: 1,
+          spaceId,
+          organizationId: "org-1",
+          visibility: "private",
+          accessMode: "public",
+          name: "Release verification",
+          createdAt: new Date(1000).toISOString(),
+          updatedAt: new Date(1000).toISOString(),
+        });
+        for (const record of [
+          member(requesterProfileId, "user-requester", "human"),
+          member("profile-observer", "user-observer", "human"),
+          {
+            ...member(agentProfileId, "", "agent"),
+            ownerUserIdSnapshot: null,
+            controllerRefSnapshot: "hosted:center-agent",
+          },
+        ]) {
+          upsertSpaceMemberRecord(state.storage.sql, {
+            ...record,
+            spaceId,
+            status:
+              scenario === "removed-requester" &&
+              record.profileId === requesterProfileId
+                ? "removed"
+                : "active",
+          });
+        }
+        const source = {
+          ...textSignal({
+            authorKind: "human",
+            authorName: "Requester",
+            authorProfileId: requesterProfileId,
+            text: "Please check the release.",
+          }),
+          id: "wake-source",
+          spaceId,
+        };
+        if (scenario !== "missing-source") {
+          insertSignalRecord(state.storage.sql, source);
+        }
+        const dispatch = createDispatchOutboxRecord({
+          bindingEnabled: true,
+          bindingState: "bound",
+          dispatchPolicy: "mention_only",
+          spaceId,
+          sourceEventId: source.id,
+          senderProfileId: requesterProfileId,
+          sourceSignalSnapshot: {
+            text: "Please check the release.",
+            profileId: requesterProfileId,
+            profileKind: "human",
+          },
+          targetProfileId: agentProfileId,
+          ruleSource: "registry",
+          ruleId: "registry.default.all_members.v1",
+          ruleReason: "default allow all members mention",
+          nowMs: 1000,
+        });
+        if (scenario === "workstation-reply") {
+          insertDispatchOutboxRecord(state.storage.sql, dispatch);
+        }
+        const signal =
+          scenario === "native-failure"
+            ? systemNoticeSignal({
+                noticeType: "terminal_failure",
+                replyToSignalId: source.id,
+                text: "The request failed.",
+              })
+            : textSignal({
+                authorKind: "agent",
+                authorName: "Center Agent",
+                authorProfileId: agentProfileId,
+                purpose: AGENT_REPLY_FINAL_PURPOSE,
+                // Captured native replies carry this relation without a replyTo snapshot.
+                replyToSignalId:
+                  scenario === "workstation-reply" ? undefined : source.id,
+                text: "The release is ready.",
+              });
+        signal.spaceId = spaceId;
+        signal.id = "result";
+        if (signal.type === "signal.text") {
+          signal.data.meta = {
+            ...signal.data.meta,
+            dispatchId: dispatch.dispatchId,
+          };
+        } else if (signal.type === "signal.system_notice") {
+          signal.data.dispatchId = dispatch.dispatchId;
+          signal.data.actorProfileId = agentProfileId;
+          if (signal.data.replyTo) {
+            signal.data.replyTo.profileId = requesterProfileId;
+          }
+        }
+        state.storage.transactionSync(() => {
+          insertSignalRecord(state.storage.sql, signal);
+          (
+            instance as unknown as {
+              insertSpaceInboxProjectionForPublishedSignal(input: {
+                nowMs: number;
+                signal: SignalEnvelope;
+              }): void;
+            }
+          ).insertSpaceInboxProjectionForPublishedSignal({
+            nowMs: 2000,
+            signal,
+          });
+        });
+        return listDueSpaceInboxProjectionOutboxRecords(state.storage.sql, {
+          nowMs: 2000,
+          limit: 10,
+        }).flatMap((record) =>
+          record.candidates.map((candidate) => ({
+            userId: candidate.recipientUserId,
+            kind: candidate.kind,
+          }))
+        );
+      }
+    );
+    expect(recipients).toEqual(
+      scenario === "removed-requester" || scenario === "missing-source"
+        ? []
+        : [
+            {
+              userId: "user-requester",
+              kind:
+                scenario === "native-failure" ? "wake_outcome" : "agent_reply",
+            },
+          ]
+    );
+  });
+
   it("limits thread updates to participants, including replies to an older root", () => {
     const record = buildSpaceInboxProjectionOutboxRecord({
       activeMemberRecords: [
@@ -1351,6 +1512,7 @@ function textSignal(input: {
   purpose?: string;
   mentionTargets?: string[];
   referenceTargets?: string[];
+  replyToSignalId?: string;
   text: string;
 }): SignalEnvelope {
   return {
@@ -1363,6 +1525,9 @@ function textSignal(input: {
         activationTargets: [],
         mentionTargets: input.mentionTargets ?? [],
         referenceTargets: input.referenceTargets ?? [],
+        ...(input.replyToSignalId
+          ? { replyToSignalId: input.replyToSignalId }
+          : {}),
         text: input.text,
       },
       text: input.text,

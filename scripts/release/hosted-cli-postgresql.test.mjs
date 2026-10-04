@@ -100,7 +100,23 @@ test("hosted PostgreSQL publication records Core and recovers its applied releas
     );
     let deployments = 0;
     let failHealth = false;
-    const readEvidence = () => new Map(receipts);
+    const readEvidence = (options) => {
+      const auth = execFileSync(
+        "git",
+        ["config", "--get-urlmatch", "http.extraheader", options.remote],
+        { cwd, env: options.gitEnvironment, encoding: "utf8" }
+      );
+      assert.ok(
+        auth.includes(
+          `AUTHORIZATION: basic ${Buffer.from("x-access-token:trusted-token").toString("base64")}`
+        )
+      );
+      assert.equal(
+        options.gitEnvironment.OPENMELD_TRUSTED_GIT_GITHUB_TOKEN,
+        undefined
+      );
+      return new Map(receipts);
+    };
     const runCommand = (input) => {
       if (input.label === "Verify Core deployment is visible") {
         return {
@@ -113,16 +129,20 @@ test("hosted PostgreSQL publication records Core and recovers its applied releas
         : "core";
       return workerDeploymentResponse({ deployments: [live.get(scope)] });
     };
-    const gate = (probe = {}) =>
-      verifyHostedPostgresqlCliDatabase({
+    const gate = (probe) => {
+      assert.equal(typeof probe.readReceipts, "function");
+      return verifyHostedPostgresqlCliDatabase({
         root: cwd,
         sourceSha,
-        readReceipts: probe.readReceipts ?? readEvidence,
+        readReceipts: probe.readReceipts,
+        env: probe.env,
         verifyDeployment: (input) =>
           verifyWorkerDeployment({ ...input, runCommand }),
         verifyHyperdrive: () => Promise.resolve(),
         verifyCrons: () => Promise.resolve(),
       });
+    };
+    const preflight = () => gate({ readReceipts: () => new Map(receipts) });
     const run = () =>
       runHostedCliRelease({
         cwd,
@@ -190,14 +210,14 @@ test("hosted PostgreSQL publication records Core and recovers its applied releas
         },
       });
 
-    await gate(); // The workflow's early database admission.
+    await preflight(); // The workflow's early database admission.
     await run();
     assert.equal(receipts.get("core").receipt.status, "verified");
     assert.equal(
       receipts.get("core").receipt.identity.versionId,
       live.get("core").versions[0].version_id
     );
-    await gate();
+    await preflight();
     await run();
     assert.equal(deployments, 1);
 
@@ -208,14 +228,14 @@ test("hosted PostgreSQL publication records Core and recovers its applied releas
     assert.equal(receipts.get("core").receipt.application, "applied");
     const retainedAttempt = receipts.get("core").receipt.attemptId;
     failHealth = false;
-    await gate();
+    await preflight();
     await run();
     assert.equal(receipts.get("core").receipt.status, "verified");
     assert.equal(receipts.get("core").receipt.attemptId, retainedAttempt);
     assert.equal(deployments, 2);
 
     live.get("core").id = randomUUID();
-    await assert.rejects(gate(), UNKNOWN_DEPLOYMENT);
+    await assert.rejects(preflight(), UNKNOWN_DEPLOYMENT);
     await assert.rejects(run(), UNKNOWN_DEPLOYMENT);
     assert.equal(deployments, 2);
   } finally {

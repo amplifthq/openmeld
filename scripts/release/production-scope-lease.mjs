@@ -511,7 +511,7 @@ export function createProductionScopeLeaseGitEnvironment(
   });
 }
 
-function resolveHostedLeaseRemote(environment) {
+export function resolveHostedLeaseRemote(environment) {
   const repository = environment.OPENMELD_PRODUCTION_LEASE_GITHUB_REPOSITORY;
   const serverUrl = environment.OPENMELD_PRODUCTION_LEASE_GITHUB_SERVER_URL;
   if (!(repository || serverUrl)) {
