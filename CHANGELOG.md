@@ -12,6 +12,16 @@ CLI reads and downloads preserve the original bytes of My Files, Team Files, and
 
 Evidence: pr:1500, commit:6a63bd5a001137eed6f01248b01f402e2380f714, commit:0d8867a3e491b82450e2803f866ba799cd12b5d4, workflow:37203295108
 
+### Keep message actions fully visible
+
+Fixed · spaces · web · desktop
+
+Message actions remain fully visible above wide message bubbles, including
+consecutive messages with an error. The error details and other actions are
+no longer cut off at the top of the message.
+
+Evidence: pr:1503, pr:1507, commit:88b0a3114b9894af5b748da492c62759bd4a2a81, commit:a956440cb31b9388c9f6469d5b6b7162eb9bf458, desktop-candidate:5b005262390436c05458e67a87b2051d99835eae687f3412d2fe78b6c2c20eab
+
 ### Keep remote Agent replies visible in Inbox
 
 Fixed · v0.3.241 · inbox · agents
