@@ -117,7 +117,7 @@ fail closed. Historical D1 SQL, physical-requirement snapshots, and diagnostic
 tooling remain evidence for the deployed D1 revision; they cannot generate or
 apply the new PostgreSQL model. The candidate's guarded production/shared-staging
 release rejects `release/database-backend.json` until the separately reviewed
-cutover control plane is implemented. Isolated development and the foundation
+cutover admission and binding changes are implemented. Isolated development and the foundation
 probe are the supported validation paths.
 
 `pnpm --filter @openmeld/db auth:generate` runs the official CLI at the installed
@@ -491,20 +491,23 @@ remains unresolved. This is Draft local-product evidence, not production
 readiness or a successful ordinary full-suite run.
 
 Preparation now continues locally before a separately coordinated maintenance
-window. The next deliverable inventories every relational writer and retained
-DO/R2 reference, selects official or mature export/import tooling, rehearses
-historical D1 data conversion and reconciliation using isolated synthetic
-data, and prepares the existing guarded release owner's dry-run and recovery
-contract. A PostgreSQL-to-PostgreSQL restore does not cover D1 data migration.
+window for a small internal test group. The fixed integration candidate and
+short manual sequence live in the cutover owner above. Longer downtime, normal
+Stop and signing in again are acceptable; data, permissions and one relational
+authority remain required. A general maintenance orchestrator or automatic
+drain certificate is not required. A PostgreSQL-to-PostgreSQL restore does not
+cover D1 data migration.
 The local D1 capture/COPY rehearsal now preserves and reconciles representative
-business records and verifies rollback, including sequence generators. Migrated
+business records and verifies rollback, including sequence generators. It also
+verifies an actual frozen D1 source and archives its exact maintenance metadata
+without importing that metadata as application data. Migrated
 Web sign-in, retained database-backed sessions, permissions, actual DO/R2 file
 contents, normal product writes and complete restart persistence now pass
 locally. An independent sample produced by the real legacy D1 Auth owner also
 passes migrated password login, session resolution and permission checks.
 Migrated Codex Wake is blocked by observed provider quota exhaustion; no
-migrated execution or real in-flight drain acceptance is claimed. The production
-cutover executor remains unavailable.
+migrated execution is claimed. The existing release path still needs minimal
+reviewed cutover admission and binding support.
 
 Production Spaces remain active on D1. This preparation does not authorize a
 main merge, main-product deployment, production export, shared-staging mutation,
@@ -516,6 +519,11 @@ boundary below.
 
 ## Future short-maintenance-window cutover
 
+The title does not promise a duration. Follow the current
+[manual cutover sequence](postgresql-cutover.md#remaining-release-and-maintenance-acceptance)
+and measure a representative rehearsal. This small internal deployment accepts
+a longer night-time window; the following points retain the data-safety boundary.
+
 1. Adapt from current merged source; inventory every reader/writer, scheduled
    job, queue consumer, Auth/Core/Remote/Gateway dependency and retention task.
    Rehearse schema conversion and business flows with synthetic isolated data.
@@ -523,7 +531,7 @@ boundary below.
    omissions explicitly. Freshness `expires_at` is not a retention cutoff.
 2. Prove restores, least-privilege grants, tenant authorization, IDs, DO/R2
    references, encryption compatibility and final schema/query plans. Record
-   exact source, bindings, backup IDs and a maximum maintenance window.
+   exact source, bindings, backup IDs and the agreed maintenance window.
 3. Announce maintenance; freeze every D1 business writer and ingress producer.
    Drain or explicitly stop/recover in-flight RuntimeCoordinator executions,
    Space outboxes and publication/recovery work. Do not infer empty queues from

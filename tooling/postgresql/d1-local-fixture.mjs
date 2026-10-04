@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { convertV4MiniflareOptions, Miniflare } from "miniflare";
@@ -32,7 +32,7 @@ export async function createLocalD1FromSqlite(input, root) {
   try {
     schema = database
       .prepare(
-        "SELECT sql FROM sqlite_schema WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' ORDER BY CASE type WHEN 'table' THEN 0 WHEN 'index' THEN 1 ELSE 2 END,name"
+        "SELECT sql FROM sqlite_schema WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' AND name <> 'd1_migrations' ORDER BY CASE type WHEN 'table' THEN 0 WHEN 'index' THEN 1 ELSE 2 END,name"
       )
       .all()
       .map((row) => `${row.sql};`)
@@ -40,7 +40,11 @@ export async function createLocalD1FromSqlite(input, root) {
   } finally {
     database.close();
   }
-  await writeFile(path.join(root, "fixture.sql"), schema, { mode: 0o600 });
+  const migrations = path.join(root, "migrations");
+  await mkdir(migrations, { recursive: true });
+  await writeFile(path.join(migrations, "0001_fixture.sql"), schema, {
+    mode: 0o600,
+  });
   const config = path.join(root, "wrangler.jsonc");
   await writeFile(
     config,
@@ -61,13 +65,12 @@ export async function createLocalD1FromSqlite(input, root) {
     "exec",
     "wrangler",
     "d1",
-    "execute",
+    "migrations",
+    "apply",
     "openmeld-d1-rehearsal",
     "--local",
     "--config",
     config,
-    "--file",
-    path.join(root, "fixture.sql"),
   ]);
   const mf = new Miniflare(
     convertV4MiniflareOptions({
@@ -90,7 +93,9 @@ async function populateSource(source, input) {
   const database = new DatabaseSync(input, { readOnly: true });
   try {
     const tables = orderD1Tables(readD1Catalog(database));
-    for (const name of ["d1_migrations", "sqlite_sequence"]) {
+    // Wrangler owns its actual source ledger. Do not replace it with the
+    // archival SQLite fixture's simplified metadata table.
+    for (const name of ["sqlite_sequence"]) {
       tables.push({
         name,
         columns: database.prepare(`PRAGMA table_xinfo(${quote(name)})`).all(),

@@ -9,6 +9,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { verifyPassword } from "better-auth/crypto";
 import { importD1Snapshot } from "./d1-import.mjs";
 import { createLocalD1FromSqlite } from "./d1-local-fixture.mjs";
+import { rehearseFrozenD1Capture } from "./d1-maintenance.test-support.mjs";
 import { rehearseD1Recovery } from "./d1-recovery.test-support.mjs";
 import { createD1RehearsalFixture, fixture } from "./d1-rehearsal-fixture.mjs";
 import { captureD1Snapshot } from "./d1-snapshot.mjs";
@@ -256,6 +257,19 @@ test("historical D1 capture to native PG18 preserves business data and rolls bac
         } finally {
           await client.end();
         }
+      }
+    );
+
+    await t.test(
+      "frozen source guards and exact maintenance ledger feed the existing typed capture and PG importer",
+      async () => {
+        evidence.frozenSource = await rehearseFrozenD1Capture({
+          root: path.join(root, "frozen-source"),
+          connectionString: await freshTarget(admin, targetIndex++),
+        });
+        evidence.cases.push(
+          "frozen_source_typed_capture_copy_and_identity_reconciliation"
+        );
       }
     );
 
@@ -509,7 +523,7 @@ test("historical D1 capture to native PG18 preserves business data and rolls bac
         evidence.cases.push(...evidence.recovery.cases);
       }
     );
-    if (evidence.cases.length !== 27) {
+    if (evidence.cases.length !== 28) {
       throw new Error(
         "Migration cases failed; no successful rehearsal receipt written"
       );

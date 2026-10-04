@@ -18,6 +18,29 @@ Current work prepares a later maintenance window while production Spaces keep
 running on D1. There is no production data export, writer freeze, product
 deployment or database cutover authorization here.
 
+The delivery target is a coordinated night-time cutover for a small internal
+test group. Longer downtime, normal Stop of internal tasks, signing in again
+and retrying low-impact operations are acceptable. Preserve data, files,
+permissions and product behavior. An automated drain certificate, general
+maintenance orchestrator and arbitrary interruption recovery for every callback
+are not prerequisites.
+
+The integration base is PostgreSQL commit
+`b0748d8b60227410ce87d67dfe382de2403dc07a`. Its immutable D1 history matches
+the D1 preparation base `c682d417d1327482b4fc8ebffe9a5cac02a8f55e` and
+maintenance candidate `da519d956d29198b68364c893dd394468ccfceb4`: no SQL
+migration differs. The history SHA-256 is
+`9eb9face4c014a7da2520258abcb40aa9b24ccec8c0977d1a006f5ffea071893`.
+The PG target uses the canonical journal through `0013_d1_import_completion`.
+Keep these baselines fixed for this integration; review required schema deltas
+instead of repeatedly following unrelated main changes.
+
+The only selected dependency from Draft PR 1485 is its standalone D1 barrier
+preparation/inspection owner. Its Auth, runtime, Queue and arbitrary-pause
+hardening is not a required bundle for this cutover. Unfinished Routine work
+remains in its separate worktree. The barrier is an additional relational fence;
+normal shutdown and operator checks must still cover DO/R2 and external effects.
+
 The reproducible database rehearsal captures all 159 historical tables from
 actual local D1. Its 287 records populate 18 tables: accounts, sessions, users,
 Organization membership, Profiles, both owner-account and hosted Center Agent
@@ -26,6 +49,14 @@ pagination, Agent Activity, and an opaque credential envelope. Empty tables are
 included explicitly. COPY and full-field reconciliation preserve the values;
 Better Auth verifies the migrated password hash. This database assertion is
 not a real Web login or a claim that external credentials remain usable.
+
+The same typed capture now accepts an explicitly identified frozen local D1
+source. It verifies all 477 guards and the exact source schema before and after
+capture, then archives the maintenance ledger's schema and rows in the capture
+manifest. That metadata is bound by the existing import completion receipt;
+neither the ledger nor its guards becomes a PostgreSQL business object. Missing
+identity, missing guards and unexpected objects fail closed. Ordinary local
+synthetic captures remain supported. Remote capture is still unavailable.
 
 The rehearsal passes unknown-table, unsupported stored-type, invalid UTF-8,
 NUL-text, unsafe-integer, native-constraint, value-mismatch and process-kill
@@ -38,18 +69,20 @@ the import child emits JSON is recovered by the normal development lifecycle.
 Run from the repository root with PostgreSQL 18 installed:
 
 ```bash
-pnpm --filter @openmeld/postgresql test:d1-migration
+pnpm --filter @openmeld/postgresql --fail-if-no-match test:d1-migration
 ```
 
 The command owns temporary D1 and PG state, never production state. To retain
 private synthetic evidence, set `OPENMELD_D1_REHEARSAL_OUTPUT` to an absolute
 directory-name prefix under an existing private directory; it creates a new
-directory and writes a receipt only after every case passes. A 2026-10-03 local
-run took about 28 seconds including fixture preparation and failure cases, but
+directory and writes a receipt only after every case passes. The 2026-10-04
+integrated run passed all 28 recorded cases in about 56 seconds, including an
+8.5-second frozen-source fixture, capture, COPY and reconciliation case, but
 excluding the outer PG cluster startup. This is not a production throughput
 measurement or maintenance-window estimate. The separate product checks below
-cover Web/Auth, permissions and retained DO/R2 content. Migrated Wake, complete
-writer freeze/drain and cloud product recovery acceptance remain open.
+cover Web/Auth, permissions and retained DO/R2 content. Migrated Wake, a verified
+stopped product source and cloud product acceptance remain open. The isolated
+database rehearsal has no attached product runtime and cannot prove its shutdown.
 
 ## Local product rehearsal
 
@@ -287,9 +320,11 @@ Relevant source owners: `services/auth/src/index.ts`,
 This is a source inventory, not a completed freeze implementation or evidence
 that production has drained. In particular, a historical `reply_published`
 projection plus a missing terminal head is not proof that no execution remains.
-The maintenance rehearsal must hold a real task in flight, prove new admission
-is closed, then prove safe authoritative convergence and publication. It must
-also cover queued/outbox work and recovery after an interrupted maintenance.
+Use a real admitted Agent execution and its final reply for migration product
+acceptance when provider capacity permits. It need not remain running across
+maintenance. Finish it or use normal Stop before final capture. Provider quota
+blocks that row only; continue independent data and product checks without
+bypassing admission or inventing a successful result.
 
 ## Remaining release and maintenance acceptance
 
@@ -308,27 +343,52 @@ non-trigger paths; this classification is not live compatibility evidence.
 Final release planning must use each actually deployed component's source and
 verified receipt. The fixed development baseline is not assumed to be deployed.
 
-The writer inventory above is preparation only. There is no implemented or
-accepted complete freeze/drain executor yet. Once a real workstation execution
-can be admitted, rehearse closure at the owning admission entries while the task
-is active. Fresh accepted/running evidence must keep it alive; use its normal
-stop path only if needed. Reconcile the RuntimeCoordinator in-flight index and
-execution identity with its final receipt, visible Space outcome and remaining
-outboxes. Separately prove producer/schedule closure, queue/workflow/alarm/socket
-settlement and remaining relational writer quiescence. A quiet screen, rejected
-new Wake, historical final ledger row or missing head alone does not prove drain.
+Use this manual sequence. It is preparation, not authorization for cloud
+mutations or a replacement for the existing release entrypoint.
 
-For an interrupted maintenance, retain the exact phase, source identity, frozen
-source/capture receipt, import receipt, authoritative executions/outboxes and
-DO/R2 effects. Resume only from matching evidence; an unknown phase stays closed.
-In a disposable rehearsal, interrupt before capture, during import and after the
-first normal PG write, then verify safe recovery at each owner. Existing COPY
-process-kill tests prove database rollback only, not this cross-owner recovery.
-No time estimate or automatic reopening is justified before that rehearsal.
+1. Record the D1 source/history, PG journal, application candidate and target
+   bindings. Notify internal testers and close new HTTP, webhook, scheduled and
+   connector sources with supported controls. Confirm Cron changes propagated;
+   preserve consumers still needed to finish accepted work.
+2. Finish tasks or use normal Stop. Check original execution owners, final Space
+   outcomes and retained outboxes. Pause Queue delivery and account for retained
+   messages, active consumers, Workflows, sockets and relevant DO/R2 effects.
+   A pause response is not proof that an invocation ended. Lark's disconnect
+   deletes pending events, so do not use it while accepted events remain. Wait
+   or defer the window if a writer or external outcome remains unknown.
+3. Keep traffic closed, install the exact prepared D1 barrier through official
+   migrations and inspect every guard. Preserve the source backup and exact
+   maintenance metadata. Use typed capture, which preserves escaped text and
+   Inbox identities. Missing guards, changed schema and unknown tables stop
+   capture; plain SQL export is not the PG migration path.
+4. COPY into the reviewed empty PG target over the direct migration connection.
+   Retain the existing transaction, constraints, field/identity comparison and
+   committed receipt. Failed or uncertain imports stay closed and use the
+   existing inspection/reconciliation path. Archive the maintenance ledger;
+   never import that ledger or D1 guards as PG application objects.
+5. Switch Auth and Core together to the candidate and one Hyperdrive PG binding
+   through the existing release path. Keep entry traffic closed until versions
+   and bindings agree. Minimal reviewed cutover admission/configuration support
+   is still required there; the plan-only option is not a deploy command. No
+   component may keep writing relational data to D1.
+6. Check old-account login, permissions, Organization/Space/messages, a real
+   Agent reply when quota permits, Files, Inbox/tasks, enabled integrations and
+   restart persistence. Reuse valid existing evidence; add missing migration
+   and Hyperdrive coverage. Reopen sources in the recorded order and preserve
+   the frozen D1 source plus capture/import receipts.
 
-Actual promotion stays closed until source identity, complete writer freeze/drain,
-final export/import/reconciliation, permissions, cloud product acceptance and
-recovery evidence all exist. There is no parallel deploy command.
+Before candidate review, run the data bridge and missing product paths locally,
+then validate Worker → Hyperdrive → PlanetScale in the authorized isolated
+foundation environment with synthetic data. Direct local PG and the earlier
+connection-only cloud probe do not prove the full cloud product. Review exact
+targets, bindings, credential scope and commands before newly required cloud
+operations; production and shared staging remain outside this preparation.
+
+Final acceptance covers one stable candidate's necessary database/contracts
+and main product paths, the manual runbook and unresolved evidence. Data,
+permissions and a single relational writer are hard gates. Independent
+low-impact improvements can follow. Do not create another execution truth,
+reset business clocks or mark unknown tasks complete.
 
 Before PostgreSQL accepts new product writes, coordinated rollback may restore
 all source/bindings to the unchanged frozen D1 authority. After new PG writes,

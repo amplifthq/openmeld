@@ -5,7 +5,10 @@ import { DatabaseSync } from "node:sqlite";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { from as copyFrom } from "pg-copy-streams";
-import { postgresqlImportCompletionSchema } from "../../packages/schemas/src/schemas/release/postgresql-import.ts";
+import {
+  postgresqlD1MaintenanceCaptureSchema,
+  postgresqlImportCompletionSchema,
+} from "../../packages/schemas/src/schemas/release/postgresql-import.ts";
 import {
   createHistoricalD1Database,
   fileSha256,
@@ -405,6 +408,25 @@ async function reconcileTables({
   return tables;
 }
 
+async function readD1SnapshotManifest(snapshot) {
+  const manifest = JSON.parse(await readFile(`${snapshot}.json`, "utf8"));
+  if (
+    manifest.maintenance !== undefined &&
+    !postgresqlD1MaintenanceCaptureSchema.safeParse(manifest.maintenance)
+      .success
+  ) {
+    throw new Error("Invalid D1 maintenance capture evidence");
+  }
+  if (
+    manifest.version !== 1 ||
+    manifest.identity.kind !== "local-synthetic" ||
+    manifest.snapshotSha256 !== (await fileSha256(snapshot))
+  ) {
+    throw new Error("Unverified or unsupported D1 snapshot");
+  }
+  return manifest;
+}
+
 async function processD1Snapshot(
   { snapshot, connectionString, migrationsDirectory },
   mode
@@ -413,14 +435,7 @@ async function processD1Snapshot(
   if (process.env.OPENMELD_PG_ISOLATED !== "1") {
     throw new Error("Only isolated local D1 import is enabled");
   }
-  const manifest = JSON.parse(await readFile(`${snapshot}.json`, "utf8"));
-  if (
-    manifest.version !== 1 ||
-    manifest.identity.kind !== "local-synthetic" ||
-    manifest.snapshotSha256 !== (await fileSha256(snapshot))
-  ) {
-    throw new Error("Unverified or unsupported D1 snapshot");
-  }
+  const manifest = await readD1SnapshotManifest(snapshot);
   const reference = await createHistoricalD1Database();
   let catalog;
   try {

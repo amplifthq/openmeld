@@ -10,6 +10,12 @@ import {
 } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import { isDeepStrictEqual } from "node:util";
+import { postgresqlD1MaintenanceCaptureSchema } from "../../packages/schemas/src/schemas/release/postgresql-import.ts";
+import {
+  D1_MAINTENANCE_CATALOG_QUERY,
+  D1_MAINTENANCE_LEDGER,
+  inspectD1MaintenanceBarrier,
+} from "../../scripts/release/d1-maintenance-barrier.mjs";
 import { quoteIdentifier as quote } from "./database.mjs";
 
 const history = new URL("../../packages/db/drizzle/", import.meta.url);
@@ -307,8 +313,13 @@ async function captureMetadata(query, database) {
   return sequences;
 }
 
-/** Only local synthetic callers are enabled until the guarded freeze owner exists. */
-export async function captureD1Snapshot({ source, destination, identity }) {
+/** Remote capture requires a separately authorized, verified stopped source. */
+export async function captureD1Snapshot({
+  source,
+  destination,
+  identity,
+  maintenanceId,
+}) {
   if (
     process.env.OPENMELD_PG_ISOLATED !== "1" ||
     identity.kind !== "local-synthetic"
@@ -335,13 +346,47 @@ export async function captureD1Snapshot({ source, destination, identity }) {
     const historical = await createHistoricalD1Database(destination);
     database = historical.database;
     const catalog = readD1Catalog(database);
-    const sourceSchema = (
-      await query(
-        "SELECT type,name,tbl_name,sql FROM sqlite_schema ORDER BY type,name"
-      )
-    ).filter((entry) => applicationTable(entry.tbl_name));
+    const maintenanceSource = {
+      catalog: database
+        .prepare(D1_MAINTENANCE_CATALOG_QUERY)
+        .all()
+        .map((row) => ({ ...row })),
+      tables: catalog.map(({ name }) => name),
+    };
+    const actualSchema = await query(
+      "SELECT type,name,tbl_name,sql FROM sqlite_schema ORDER BY type,name"
+    );
+    const readMaintenance = async (schema) => {
+      const inspection = inspectD1MaintenanceBarrier({
+        source: maintenanceSource,
+        catalog: schema.filter(({ sql }) => sql !== null),
+        maintenanceId,
+        state: "frozen",
+      });
+      return postgresqlD1MaintenanceCaptureSchema.parse({
+        ...inspection,
+        maintenanceId,
+        ledger: {
+          schema: schema.find(({ name }) => name === D1_MAINTENANCE_LEDGER)
+            ?.sql,
+          rows: await query(
+            `SELECT CAST(id AS TEXT) AS id,name,applied_at FROM ${quote(D1_MAINTENANCE_LEDGER)} ORDER BY id`
+          ),
+        },
+      });
+    };
+    const maintenance = maintenanceId
+      ? await readMaintenance(actualSchema)
+      : undefined;
+    const sourceSchema = actualSchema.filter((entry) =>
+      applicationTable(entry.tbl_name)
+    );
     const sourceNames = sourceSchema
-      .filter((entry) => entry.type === "table")
+      .filter(
+        (entry) =>
+          entry.type === "table" &&
+          !(maintenance && entry.name === D1_MAINTENANCE_LEDGER)
+      )
       .map(({ name }) => name);
     requireEqual(
       sourceNames,
@@ -359,6 +404,17 @@ export async function captureD1Snapshot({ source, destination, identity }) {
       [],
       "D1 snapshot has foreign-key violations"
     );
+    if (maintenance) {
+      requireEqual(
+        await readMaintenance(
+          await query(
+            "SELECT type,name,tbl_name,sql FROM sqlite_schema ORDER BY type,name"
+          )
+        ),
+        maintenance,
+        "D1 maintenance evidence changed during capture"
+      );
+    }
     database.exec("COMMIT");
     database.close();
     database = undefined;
@@ -372,6 +428,7 @@ export async function captureD1Snapshot({ source, destination, identity }) {
       snapshotSha256: await fileSha256(destination),
       tables,
       sequences,
+      ...(maintenance ? { maintenance } : {}),
     };
     await writeFile(
       `${destination}.json`,

@@ -2,6 +2,28 @@ import { z } from "zod/v4";
 
 const sha256 = z.string().regex(/^[a-f0-9]{64}$/u);
 
+// Capture evidence only. This does not certify that DO/R2 or external writers
+// have stopped, and the maintenance ledger never becomes application data.
+export const postgresqlD1MaintenanceCaptureSchema = z.strictObject({
+  maintenanceId: z.uuid(),
+  state: z.literal("frozen"),
+  tables: z.number().int().positive().safe(),
+  guards: z.number().int().positive().safe(),
+  catalogSha256: sha256,
+  ledger: z.strictObject({
+    schema: z.string().min(1),
+    rows: z
+      .array(
+        z.strictObject({
+          id: z.string().regex(/^\d+$/u),
+          name: z.string().min(1),
+          applied_at: z.string().min(1),
+        })
+      )
+      .min(1),
+  }),
+});
+
 // Local migration tooling only. This records one committed import, not current
 // business state, writer quiescence, or permission to promote a cloud release.
 export const postgresqlImportCompletionSchema = z.strictObject({
