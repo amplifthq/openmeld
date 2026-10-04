@@ -26,11 +26,23 @@ used to invent a second merge or evidence contract.
 Release only what changed.
 
 The PostgreSQL candidate uses the guarded local release lane and requires frozen
-import evidence for first production promotion. Hosted Auth/Core/CLI releases and
-shared-staging promotion remain closed: those lanes do not yet carry the private
-capture and maintenance admission. This window does not add hosted credentials
-or a separate migration channel. Unrelated hosted release targets retain their
-existing admission.
+import evidence for first production promotion. Hosted Auth/Core/database releases
+and shared-staging promotion remain closed: those lanes do not carry the private
+capture and maintenance admission. After cutover and Cron restoration, the existing
+GitHub CLI workflow can publish with npm Trusted Publishing. It requires verified
+Database/Auth/Core receipts with the same native schema, journal, target and grant
+contract as the CLI source, plus matching active Worker deployments, PostgreSQL
+bindings and cache-disabled Hyperdrive. It checks before publication and again
+before Core activation. Database changes still require the guarded local lane;
+hosted CLI does not receive migration credentials or snapshots. GitHub write
+credentials remain confined to trusted Git operations. Unrelated hosted release
+targets retain their existing admission.
+
+The CLI workflow records Core activation through the existing component receipt
+owner. If a prior attempt applied this exact source but failed its remaining
+health checks, database admission checks that recorded identity against the live
+deployment and the workflow resumes the original receipt before publication.
+Unknown deployments and different source attempts remain blocked.
 For a read-only maintenance preparation plan through this same release owner:
 
 ```bash
@@ -58,6 +70,10 @@ Auth/Core use a checked temporary config whose only change is empty production
 Cron. After product acceptance, `deploy --scope auth,core
 --database-cutover-restore-crons` explicitly restores and reads back the same
 candidate's normal schedules. Cleanup and failed deployment never restore Cron.
+Restoration publishes no Worker or CLI bytes. It retains common environment and
+source checks, then requires the exact active Auth/Core receipts, Hyperdrive,
+native journal and grants under the production leases. It does not require an
+unpublished CLI candidate or run a new artifact deployment preflight.
 
 - A Web fix releases Web.
 - A public website fix releases Website, without rebuilding or deploying Web.
