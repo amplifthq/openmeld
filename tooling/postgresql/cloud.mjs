@@ -26,11 +26,13 @@ if (
       "migrate",
       "accept",
       "grant-runtime",
+      "preserve-foundation",
+      "seed-business",
     ].includes(action)
   )
 ) {
   throw new Error(
-    "Usage: cloud.mjs <inventory|prepare|hyperdrive> <staging|production>; cloud.mjs <migrate|accept|grant-runtime> staging"
+    "Usage: cloud.mjs <inventory|prepare|hyperdrive> <staging|production>; cloud.mjs <preserve-foundation|migrate|grant-runtime|seed-business|accept> staging"
   );
 }
 const config = target === "staging" ? "stg" : "prd";
@@ -114,6 +116,14 @@ try {
   ) {
     throw new Error("Database engine or Cloudflare billing identity mismatch");
   }
+  if (
+    (entry.databaseId && entry.databaseId !== database.id) ||
+    (entry.branchId && entry.branchId !== branch.id)
+  ) {
+    throw new Error(
+      "Live database or branch differs from the registered target"
+    );
+  }
   entry.databaseId = database.id;
   entry.branchId = branch.id;
   entry.cluster = branch.cluster_name;
@@ -139,7 +149,15 @@ try {
         2
       )
     );
-  } else if (["migrate", "accept", "grant-runtime"].includes(action)) {
+  } else if (
+    [
+      "migrate",
+      "accept",
+      "grant-runtime",
+      "preserve-foundation",
+      "seed-business",
+    ].includes(action)
+  ) {
     if (target !== "staging") {
       throw new Error("Cloud mutation/acceptance commands are staging-only");
     }

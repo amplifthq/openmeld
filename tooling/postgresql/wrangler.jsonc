@@ -9,7 +9,7 @@
   "preview_urls": false,
   "vars": {
     "OPENMELD_WORKER_ENVIRONMENT": "postgresql-foundation-staging",
-    "POSTGRESQL_PROBE_EXPIRES_AT": "2026-10-04T00:00:00Z"
+    "POSTGRESQL_PROBE_EXPIRES_AT": "2026-10-04T06:00:00Z"
   },
   "secrets": {
     "required": ["POSTGRESQL_OPENMELD_PROBE_TOKEN"]

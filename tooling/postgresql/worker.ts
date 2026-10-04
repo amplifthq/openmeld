@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { readPostgresErrorCode } from "@openmeld/db/postgresql";
 import pg from "pg";
 import { acceptRuntime } from "./acceptance.mjs";
+import { acceptCloudBusiness } from "./business-acceptance";
 import { acceptRuntimeTransport } from "./runtime-transport-acceptance";
 
 const bearerPrefix = /^Bearer /u;
@@ -12,6 +13,22 @@ type ProbeEnvironment = {
   POSTGRESQL_PROBE_EXPIRES_AT: string;
   OPENMELD_WORKER_ENVIRONMENT: string;
 };
+
+async function acceptDriver(binding: Hyperdrive) {
+  // One request-scoped client; Hyperdrive owns origin pooling.
+  const client = new pg.Client({
+    connectionString: binding.connectionString,
+    connectionTimeoutMillis: 10_000,
+  });
+  try {
+    await client.connect();
+    await acceptRuntime(client);
+  } finally {
+    await client.end().catch(() => {
+      /* The operation already reported its outcome. */
+    });
+  }
+}
 
 export default {
   async fetch(request: Request, env: ProbeEnvironment): Promise<Response> {
@@ -39,42 +56,35 @@ export default {
     }
     if (
       request.method !== "POST" ||
-      !["/acceptance", "/runtime-transport"].includes(
-        new URL(request.url).pathname
-      )
+      ![
+        "/acceptance",
+        "/runtime-transport",
+        "/business-write",
+        "/business-read",
+      ].includes(new URL(request.url).pathname)
     ) {
       return new Response(null, { status: 404 });
     }
-    if (new URL(request.url).pathname === "/runtime-transport") {
-      try {
-        await acceptRuntimeTransport(env.OPENMELD_POSTGRESQL);
-        return new Response(null, { status: 204 });
-      } catch (error) {
-        console.error("PostgreSQL product transport acceptance failed", {
-          code: readPostgresErrorCode(error) ?? "acceptance_failed",
-        });
-        return new Response(null, { status: 500 });
-      }
-    }
-    // One request-scoped client; Hyperdrive owns origin pooling.
-    const client = new pg.Client({
-      connectionString: env.OPENMELD_POSTGRESQL.connectionString,
-      connectionTimeoutMillis: 10_000,
-    });
+    const pathname = new URL(request.url).pathname;
     try {
-      await client.connect();
-      await acceptRuntime(client);
+      if (pathname === "/business-write" || pathname === "/business-read") {
+        await acceptCloudBusiness(
+          env.OPENMELD_POSTGRESQL,
+          pathname === "/business-write" ? "write" : "read"
+        );
+      } else if (pathname === "/runtime-transport") {
+        await acceptRuntimeTransport(env.OPENMELD_POSTGRESQL);
+      } else {
+        await acceptDriver(env.OPENMELD_POSTGRESQL);
+      }
       return new Response(null, { status: 204 });
     } catch (error) {
       console.error("PostgreSQL acceptance failed", {
+        operation: pathname,
         code: readPostgresErrorCode(error) ?? "acceptance_failed",
       });
       // SQL text, connection details, and credentials never enter public output/logs.
       return new Response(null, { status: 500 });
-    } finally {
-      await client.end().catch(() => {
-        /* The operation already reported its outcome. */
-      });
     }
   },
 };

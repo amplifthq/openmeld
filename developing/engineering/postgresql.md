@@ -215,10 +215,16 @@ Staging acceptance uses a separate synthetic `openmeld_probe.records` table.
 It is not a business table and must never be provisioned in production. No
 production data is copied to it. The probe requires a secret bearer token,
 an exact environment marker and a finite expiry. It accepts only POST
-`/acceptance` and `/runtime-transport`, with no caller-supplied SQL. The latter
-uses the actual shared product connection owner and only the synthetic probe
-table to verify commit, rollback, query errors and pool closure. Remove the
-probe after cloud acceptance.
+`/acceptance`, `/runtime-transport`, `/business-write` and `/business-read`, with
+no caller-supplied SQL or business identities. The transport check uses the
+actual shared product connection owner and the synthetic probe table to verify
+commit, rollback, query errors and pool closure. Business checks use the actual
+Auth Drizzle Profile repository and Core Project service against fixed synthetic
+users and Organizations. They verify writes, reads in later requests, owner and
+tenant isolation, member permission denial and pool closure. This is cloud
+business-owner evidence, not cloud Auth sign-in or a complete deployed cloud UI.
+Remove the probe after cloud acceptance; retain the synthetic database and
+historical foundation evidence for inspection.
 
 ## Secret and deployment boundary
 
@@ -252,6 +258,64 @@ origin settings and records the deployed version plus source content hash.
 The cloud scripts inject only the requested credential through process memory.
 They do not export an entire Doppler environment or put URLs in shell arguments.
 Remove temporary bootstrap roles once preparation is validated.
+
+### Existing foundation business-owner rehearsal
+
+The existing isolated `openmeld-postgresql-stg` database and branch are
+`jacdfxhph47k` / `aol2e3kwz867`, in Amplift and Cloudflare account
+`e74a33891b4c7a16b1fe853c41011f52`. Reuse Hyperdrive
+`6af2d43ec8d8498b9607c653ca231e73`, migration role
+`pscale_api_m7rr7fm14at8` and runtime role `pscale_api_0hf13zdprg79`.
+This foundation is separate from shared D1 product staging. No new database,
+branch, role, Hyperdrive, KV, R2, Queue or container is needed.
+
+On 2026-10-04, read-only inspection found the original one-row
+`openmeld_meta.migrations` ledger, an empty `openmeld` schema and an empty
+`openmeld_probe.records` table. A direct TLS `pg_dump` preserved those three
+schemas in a 5,212-byte archive with SHA-256
+`0cc159e3e9014271b4888d5fdf2f86abfc2d6ed97336162f06ccdcfec2a99d9a`.
+Use PostgreSQL 18 tools with `sslmode=verify-full` and trusted roots; libpq on
+this workstation requires `sslrootcert=system`. The archive was restored into
+a fresh local cluster before validating the preservation operation. Local
+restore used `--no-owner --no-acl`; it proves content retention, not cloud grants.
+
+`preserve-foundation.sql` checks the exact role, database, schema ownership,
+empty application schema, absent new/archive namespaces and exact original
+ledger row, including its microsecond timestamp. One transaction renames the
+two old namespaces to `openmeld_foundation_20261002` and
+`openmeld_foundation_meta_20261002`. It deletes no data and does not pretend the
+old journal is a Drizzle journal. The existing migrator then creates the current
+schema normally. Local validation retained both schema OIDs and the original
+ledger row, then applied all 14 native migrations and found 159 application
+tables. Reinspect cloud facts and retain the archive before execution; unexpected
+objects or an already-preserved target require inspection, not reset.
+
+Run only this existing-foundation sequence after the scoped technical review:
+
+```sh
+node tooling/postgresql/cloud.mjs preserve-foundation staging
+node tooling/postgresql/cloud.mjs migrate staging
+node tooling/postgresql/cloud.mjs grant-runtime staging
+node tooling/postgresql/cloud.mjs seed-business staging
+node tooling/postgresql/cloud.mjs accept staging
+node tooling/postgresql/probe.mjs deploy
+node tooling/postgresql/probe.mjs check <returned-workers.dev-url>
+node tooling/postgresql/probe.mjs transport-check <returned-workers.dev-url>
+node tooling/postgresql/probe.mjs business-check <returned-workers.dev-url>
+node tooling/postgresql/probe.mjs cleanup
+```
+
+Do not rerun `prepare` or `hyperdrive` for this sequence. `seed-business` refuses
+any populated application table, then atomically inserts two synthetic users,
+two Organizations and two memberships. The probe creates one Profile and one
+Project through their real owners. Fixed identities live in
+`tooling/postgresql/business-fixture.mjs`; no credentials or sessions are seeded.
+Keep these records after the check. Cleanup removes only the isolated probe
+Worker, including after a failed check, and records whether checks succeeded.
+The deployed bundle and config are hashed together, covering imported business
+owners. Verify the actual runtime role's permissions after schema creation;
+local ACL-free restore is not permission evidence. The configured token window
+expires at `2026-10-04T06:00:00Z`; renew it explicitly before a later run.
 
 Use `openmeld-release/stg` and `openmeld-release/prd` for infrastructure and
 migration credentials; environment selection remains explicit. New keys follow

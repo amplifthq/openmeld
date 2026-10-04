@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { acceptRuntime } from "./acceptance.mjs";
+import { seedBusinessFixture } from "./business-fixture.mjs";
 import {
   importD1Snapshot,
   readD1ImportCompletion,
@@ -48,8 +49,17 @@ try {
       )
     );
   } else if (
-    ["migrate", "grant-runtime", "accept", "inspect"].includes(command) &&
+    [
+      "migrate",
+      "grant-runtime",
+      "accept",
+      "inspect",
+      "preserve-foundation",
+      "seed-business",
+    ].includes(command) &&
     ["local", "staging"].includes(target) &&
+    (!["preserve-foundation", "seed-business"].includes(command) ||
+      target === "staging") &&
     extra.length === 0
   ) {
     const variable = ["accept", "inspect"].includes(command)
@@ -68,7 +78,8 @@ try {
       if (
         !(destination.branchId && destination.host) ||
         url.hostname !== destination.host ||
-        !decodeURIComponent(url.username).endsWith(`.${destination.branchId}`)
+        decodeURIComponent(url.username) !==
+          `${["accept", "inspect"].includes(command) ? destination.runtimeRole : destination.migrationRole}.${destination.branchId}`
       ) {
         throw new Error(
           "Credential does not match the registered staging branch"
@@ -77,6 +88,20 @@ try {
     }
     const client = await connect(value, target === "local");
     try {
+      if (command === "preserve-foundation") {
+        await client.query(
+          await readFile(
+            new URL("./preserve-foundation.sql", import.meta.url),
+            "utf8"
+          )
+        );
+        console.log(
+          "Historical foundation namespaces and ledger preserved; no data removed"
+        );
+      }
+      if (command === "seed-business") {
+        console.log(JSON.stringify(await seedBusinessFixture(client)));
+      }
       if (command === "migrate") {
         console.log(JSON.stringify(await migrate(client)));
       }
@@ -102,7 +127,7 @@ try {
     }
   } else {
     throw new Error(
-      "Usage: pg plan | pg <migrate|grant-runtime|accept|inspect> <local|staging> | pg <import-d1|reconcile-d1|read-d1-import> local <snapshot>. Production operations and automatic optimization are unavailable before the reviewed cutover."
+      "Usage: pg plan | pg <migrate|grant-runtime|accept|inspect> <local|staging> | pg <preserve-foundation|seed-business> staging | pg <import-d1|reconcile-d1|read-d1-import> local <snapshot>. Production operations and automatic optimization are unavailable before the reviewed cutover."
     );
   }
 } catch (error) {

@@ -2,7 +2,9 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { verifyPostgresqlEnvironment } from "./verify.mjs";
 
 verifyPostgresqlEnvironment(new URL("../../", import.meta.url).pathname);
@@ -62,20 +64,9 @@ if (process.argv[2] === "deploy") {
     remote.result.origin.user,
     `${inventory.environments.staging.runtimeRole}.${inventory.environments.staging.branchId}`
   );
-  const hash = createHash("sha256");
-  for (const name of [
-    "worker.ts",
-    "runtime-transport-acceptance.ts",
-    "acceptance.mjs",
-    "wrangler.jsonc",
-    "package.json",
-    "../../pnpm-lock.yaml",
-    "../../packages/db/src/postgresql.ts",
-    "../../packages/db/dist/postgresql.mjs",
-  ]) {
-    hash.update(name);
-    hash.update(await readFile(new URL(name, import.meta.url)));
-  }
+  const bundleDirectory = await mkdtemp(
+    path.join(os.tmpdir(), "openmeld-pg-probe-")
+  );
   const flags = [
     "--config",
     new URL("./wrangler.jsonc", import.meta.url).pathname,
@@ -85,7 +76,30 @@ if (process.argv[2] === "deploy") {
     ["exec", "wrangler", "secret", "bulk", ...flags],
     JSON.stringify({ POSTGRESQL_OPENMELD_PROBE_TOKEN: token })
   );
-  const output = run("pnpm", ["exec", "wrangler", "deploy", ...flags]);
+  const output = run("pnpm", [
+    "exec",
+    "wrangler",
+    "deploy",
+    ...flags,
+    "--outdir",
+    bundleDirectory,
+  ]);
+  // Hash the emitted deployment bundle, including every imported business owner.
+  const hash = createHash("sha256");
+  async function hashBundle(directory) {
+    const entries = await readdir(directory, { withFileTypes: true });
+    for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+      const file = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        await hashBundle(file);
+      } else {
+        hash.update(path.relative(bundleDirectory, file));
+        hash.update(await readFile(file));
+      }
+    }
+  }
+  await hashBundle(bundleDirectory);
+  hash.update(await readFile(new URL("./wrangler.jsonc", import.meta.url)));
   inventory.environments.staging.probe = {
     url: output.match(deployedUrlPattern)?.[0],
     versionId: output.match(versionPattern)?.[1],
@@ -101,7 +115,9 @@ if (process.argv[2] === "deploy") {
     `${JSON.stringify(inventory, null, 2)}\n`
   );
   console.log(output);
-} else if (["check", "transport-check"].includes(process.argv[2])) {
+} else if (
+  ["check", "transport-check", "business-check"].includes(process.argv[2])
+) {
   const url = new URL(process.argv[3]);
   if (
     url.protocol !== "https:" ||
@@ -112,31 +128,44 @@ if (process.argv[2] === "deploy") {
     throw new Error("Expected isolated probe URL");
   }
   const transportCheck = process.argv[2] === "transport-check";
-  url.pathname = transportCheck ? "/runtime-transport" : "/acceptance";
-  assert.equal(
-    (await fetch(url, { method: "POST", redirect: "error" })).status,
-    401
-  );
-  for (let i = 0; i < 2; i++) {
+  const businessCheck = process.argv[2] === "business-check";
+  const paths = businessCheck
+    ? ["/business-write", "/business-read"]
+    : [transportCheck ? "/runtime-transport" : "/acceptance"];
+  for (const pathname of paths) {
+    url.pathname = pathname;
     assert.equal(
-      (
-        await fetch(url, {
-          method: "POST",
-          redirect: "error",
-          headers: { Authorization: `Bearer ${token}` },
-        })
-      ).status,
-      204
+      (await fetch(url, { method: "POST", redirect: "error" })).status,
+      401
     );
+    for (let i = 0; i < 2; i++) {
+      assert.equal(
+        (
+          await fetch(url, {
+            method: "POST",
+            redirect: "error",
+            headers: { Authorization: `Bearer ${token}` },
+          })
+        ).status,
+        204
+      );
+    }
   }
-  console.log(
-    transportCheck
-      ? "PASS isolated cloud product PostgreSQL owner: repeated request pools, transaction commit/rollback, immediate reads, query failure propagation and normal close"
-      : "PASS cloud Worker → Hyperdrive → PostgreSQL: auth, repeated transactions, rollback, immediate reads, CRUD and denied DDL/ledger/TRUNCATE"
-  );
+  const messages = {
+    "business-check":
+      "PASS isolated cloud Auth Profile and Core Project owners: writes, later-request reads, owner/tenant isolation, member denial and request pool closure",
+    "transport-check":
+      "PASS isolated cloud product PostgreSQL owner: repeated request pools, transaction commit/rollback, immediate reads, query failure propagation and normal close",
+    check:
+      "PASS cloud Worker → Hyperdrive → PostgreSQL: auth, repeated transactions, rollback, immediate reads, CRUD and denied DDL/ledger/TRUNCATE",
+  };
+  console.log(messages[process.argv[2]]);
   inventory.environments.staging.probe.status = "verified";
   inventory.environments.staging.probe.verifiedAt = new Date().toISOString();
-  if (transportCheck) {
+  if (businessCheck) {
+    inventory.environments.staging.probe.businessOwnersVerifiedAt =
+      new Date().toISOString();
+  } else if (transportCheck) {
     inventory.environments.staging.probe.productTransportVerifiedAt =
       new Date().toISOString();
   } else {
@@ -147,7 +176,11 @@ if (process.argv[2] === "deploy") {
     `${JSON.stringify(inventory, null, 2)}\n`
   );
 } else if (process.argv[2] === "cleanup") {
-  assert.equal(inventory.environments.staging.probe?.status, "verified");
+  assert(
+    ["deployed", "verified"].includes(
+      inventory.environments.staging.probe?.status
+    )
+  );
   console.log(
     run(
       "pnpm",
@@ -161,7 +194,10 @@ if (process.argv[2] === "deploy") {
       "y\n"
     )
   );
-  inventory.environments.staging.probe.status = "verified-and-removed";
+  inventory.environments.staging.probe.status =
+    inventory.environments.staging.probe.status === "verified"
+      ? "verified-and-removed"
+      : "removed-after-failed-check";
   inventory.environments.staging.probe.removedAt = new Date().toISOString();
   await writeFile(
     new URL("./resources.json", import.meta.url),
@@ -169,6 +205,6 @@ if (process.argv[2] === "deploy") {
   );
 } else {
   throw new Error(
-    "Usage: probe.mjs deploy | check <isolated workers.dev URL> | transport-check <isolated workers.dev URL> | cleanup"
+    "Usage: probe.mjs deploy | check <isolated workers.dev URL> | transport-check <isolated workers.dev URL> | business-check <isolated workers.dev URL> | cleanup"
   );
 }
