@@ -4787,8 +4787,10 @@ a separate header time. Each direct message shows its 24-hour, hour-and-minute
 time inside the floating toolbar. Message details remains available for an
 individual message. Message actions form one floating
 toolbar beside the bubble, or slightly over its upper edge when neither side
-has room. As a long message scrolls past the top of the message viewport, the
-toolbar aligns with that message's lower visible edge while it fits beside the
+has room. Individual message items must allow this overflow; paint containment
+belongs to the conversation viewport, where it cannot clip a toolbar between
+consecutive messages. As a long message scrolls past the top of the message
+viewport, the toolbar aligns with that message's lower visible edge while it fits beside the
 bubble. When it must overlap the bubble, it straddles that lower edge if there
 is room. It remains inside the viewport when the message continues beyond it.
 It prefers the opposite side of a right-aligned self message and the right side
