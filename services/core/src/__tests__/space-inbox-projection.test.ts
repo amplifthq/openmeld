@@ -157,6 +157,9 @@ describe("Space Inbox projection", () => {
                 authorName: "Center Agent",
                 authorProfileId: agentProfileId,
                 purpose: AGENT_REPLY_FINAL_PURPOSE,
+                // Captured native replies carry this relation without a replyTo snapshot.
+                replyToSignalId:
+                  scenario === "workstation-reply" ? undefined : source.id,
                 text: "The release is ready.",
               });
         signal.spaceId = spaceId;
@@ -166,15 +169,6 @@ describe("Space Inbox projection", () => {
             ...signal.data.meta,
             dispatchId: dispatch.dispatchId,
           };
-          if (scenario !== "workstation-reply") {
-            signal.data.replyTo = {
-              signalId: source.id,
-              profileId: requesterProfileId,
-              profileKind: "human",
-              profileName: "Requester",
-              previewText: "Please check the release.",
-            };
-          }
         } else if (signal.type === "signal.system_notice") {
           signal.data.dispatchId = dispatch.dispatchId;
           signal.data.actorProfileId = agentProfileId;
@@ -1518,6 +1512,7 @@ function textSignal(input: {
   purpose?: string;
   mentionTargets?: string[];
   referenceTargets?: string[];
+  replyToSignalId?: string;
   text: string;
 }): SignalEnvelope {
   return {
@@ -1530,6 +1525,9 @@ function textSignal(input: {
         activationTargets: [],
         mentionTargets: input.mentionTargets ?? [],
         referenceTargets: input.referenceTargets ?? [],
+        ...(input.replyToSignalId
+          ? { replyToSignalId: input.replyToSignalId }
+          : {}),
         text: input.text,
       },
       text: input.text,
