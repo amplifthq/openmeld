@@ -35,7 +35,7 @@ The PG target uses the canonical journal through `0013_d1_import_completion`.
 These remain the provenance of that accepted rehearsal, not a claim about the
 final source candidate or the history actually applied in production.
 
-The final source integration uses fixed main
+The first source integration uses fixed main
 `02351f6685b43bdf7cd4c752df41e805ccc6fe35`. Its new D1 migration
 `0191_powerful_lord_hawal` replaces the unique delegation index on
 `center_agent_wake_publications` with an ordinary index for multi-Space batches.
@@ -47,8 +47,20 @@ Targeted checks cover batch recovery, current Queue/Steer and Stop authority,
 Agent Direct Messages, editable reply placement, and Organization knowledge
 access. The earlier local product and isolated cloud receipts remain scoped to
 their recorded revisions; this source integration does not repeat or broaden
-those deployment claims. Do not chase later main changes before closing this
-candidate.
+those deployment claims.
+
+The final source integration uses the subsequently reviewed fixed main
+`edcaf1a00ba30a13b447e9dda28fd08383c1f69e`. D1 `0192_lush_rick_jones` adds
+`plugin_action_requests` and the action-operation connection version; native
+`0015_plugin_action_requests` preserves both. Plugin approval, Inbox resolution,
+delegated authorization and durable replay claims use the PostgreSQL owner and
+transactions. Targeted native checks pass 34 database-boundary cases, 63 Worker
+Plugin/Files cases and three exact execution-proof/working-folder cases.
+The isolated frozen capture includes populated approval and operation records
+and all 160 current historical tables with 480 write guards. Capture must still
+match the schema and history actually deployed at the maintenance window; a
+main commit is not evidence that its D1 migration ran. Do not chase additional
+main changes during this candidate's closeout.
 
 The Queue/Steer integration fixture initially passed all 26 assertions but
 exited with `ECONNRESET` while the Worker runtime shut down. It now waits for

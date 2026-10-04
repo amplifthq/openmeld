@@ -75,6 +75,7 @@ import type {
   UpdateInboxMessageNotificationPreferencesRpcInput,
   UpdateInboxNotificationPreferencesRpcInput,
 } from "@openmeld/schemas/types";
+import { reconcilePluginActionRequestInbox } from "../../../connectors/plugin-action-requests";
 import type { CoreBindings } from "../../../lib/bindings";
 import { reconcileInvitationInbox } from "../../../organizations/invitation-inbox-projection";
 import { resolveActiveOrganizationMembership } from "../../../organizations/organization-context";
@@ -572,6 +573,11 @@ async function prepareRequest(
       status: 503,
     });
   }
+  await reconcilePluginActionRequestInbox({
+    db,
+    organizationId: membership.organizationId,
+    userId: membership.userId,
+  });
   await reconcileTaskContinuationInbox({
     inboxDb: db,
     sourceDb: db,

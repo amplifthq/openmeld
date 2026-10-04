@@ -5,6 +5,7 @@ import type {
   CenterAgentConnectorActionExecutionConnection,
   CenterAgentConnectorActionOperationStatus,
 } from "@openmeld/schemas/types";
+import type { PluginRequestExecutionGuard } from "../connectors/plugin-action-requests";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import { prepareCenterAgentAuditJournalEntryIfMissingStatement } from "./center-agent-repository";
 /** The pinned OpenConnector reserves an action before execution for 24 hours. */
@@ -46,6 +47,7 @@ export type CenterAgentConnectorActionOperationRecord =
     connectionName: string;
     createdAtMs: number;
     executionConnection: CenterAgentConnectorActionExecutionConnection | null;
+    connectionUpdatedAtMs: number | null;
     id: string;
     providerExecutionId: string | null;
     requestSignature: string;
@@ -60,6 +62,7 @@ type CenterAgentConnectorActionOperationRow = {
   connection_owner_display_name: string | null;
   connection_owner_user_id: string | null;
   connection_scope: string | null;
+  connection_updated_at_ms: number | null;
   created_at_ms: number;
   id: string;
   operation_id: string;
@@ -199,6 +202,7 @@ export async function readCenterAgentConnectorActionOperationForRequest(input: {
   };
 }
 export async function recordCenterAgentConnectorActionOperation(input: {
+  connectionUpdatedAtMs?: number | null;
   actionId: string;
   actorProfileId: string;
   attribution?: CenterAgentAttribution;
@@ -215,10 +219,18 @@ export async function recordCenterAgentConnectorActionOperation(input: {
   service: string;
   sourceNativeDeliveryId?: string | null;
   sourceSpaceId?: string | null;
+  /** Core-derived submission/dispatch identity; never supplied by the model. */
+  sourceRequestKey?: string;
+  /** Same effect without the caller-chosen operation ID; absent for reads. */
+  effectSignature?: string;
+  effect?: "read" | "write" | "destructive" | "unspecified";
+  allowReplay?: boolean;
+  executionGuard?: PluginRequestExecutionGuard;
 }): Promise<{
   attribution: CenterAgentAttribution;
   operation: CenterAgentConnectorActionOperationRecord;
   replayed: boolean;
+  executionAllowed: boolean;
 }> {
   const scope = buildCenterAgentConnectorActionOperationScope({
     actorProfileId: input.actorProfileId,
@@ -226,10 +238,11 @@ export async function recordCenterAgentConnectorActionOperation(input: {
     organizationId: input.organizationId,
     requester: input.requester,
   });
-  const recordId = await buildOperationRecordId(scope);
+  const recordId = await buildOperationRecordId(scope, input);
   const existing = await readOperation({ db: input.db, scope });
   if (existing) {
     assertSameRequest(existing, input);
+    assertOperationConnectionVersion(existing, input);
   }
   const existingProvenance = existing
     ? await requireOperationProvenance({ db: input.db, operation: existing })
@@ -241,6 +254,11 @@ export async function recordCenterAgentConnectorActionOperation(input: {
         attribution: requireExistingAttribution(existingAttribution),
         operation: existing,
         replayed: true,
+        executionAllowed: await claimConnectorReplay({
+          ...input,
+          operation: existing,
+          provenance: existingProvenance,
+        }),
       };
     }
     const attribution = requireNewOperationAttribution({
@@ -267,9 +285,10 @@ export async function recordCenterAgentConnectorActionOperation(input: {
             })
           ),
           await client.query(
-            prepareCenterAgentAuditJournalEntryIfMissingStatement({
+            prepareFinalizeAuditStatement({
               action: auditAction,
-              actorProfileId: input.actorProfileId,
+              operationRecordId: recordId,
+              executionGuard: input.executionGuard,
               attribution,
               db: input.db,
               id: `${recordId}:attempted`,
@@ -285,14 +304,16 @@ export async function recordCenterAgentConnectorActionOperation(input: {
           ),
         ] as const
     );
-    const operation = await requireOperation({ db: input.db, scope });
-    assertSameRequest(operation, input);
+    // The row ID also fences a new operation ID for the same task/effect.
+    // Read the winning row, preserving its original account and operation ID.
+    const operation = await readClaimedOperation({ ...input, scope, recordId });
     return {
       attribution: (
         await requireOperationProvenance({ db: input.db, operation })
       ).attribution,
       operation,
       replayed: Number(insertResult.rowCount ?? 0) !== 1,
+      executionAllowed: Number(insertResult.rowCount ?? 0) === 1,
     };
   }
   if (!existing) {
@@ -308,6 +329,7 @@ export async function recordCenterAgentConnectorActionOperation(input: {
       attribution: requireExistingAttribution(existingAttribution),
       operation: existing,
       replayed: true,
+      executionAllowed: false,
     };
   }
   if (existing.status !== "pending" && existing.status !== "outcome_unknown") {
@@ -343,7 +365,7 @@ export async function recordCenterAgentConnectorActionOperation(input: {
           action: resolveAuditAction(input.outcome),
           attribution: requireExistingAttribution(existingAttribution),
           db: input.db,
-          id: `${recordId}:${input.outcome}`,
+          id: `${existing.id}:${input.outcome}`,
           nowMs: input.nowMs,
           organizationId: input.organizationId,
           resource: operationAuditResource(input),
@@ -371,8 +393,114 @@ export async function recordCenterAgentConnectorActionOperation(input: {
     attribution: requireExistingAttribution(existingAttribution),
     operation,
     replayed: Number(updateResult.rowCount ?? 0) !== 1,
+    executionAllowed: false,
   };
 }
+
+async function readClaimedOperation(
+  input: Parameters<typeof recordCenterAgentConnectorActionOperation>[0] & {
+    scope: CenterAgentConnectorActionOperationScope;
+    recordId: string;
+  }
+) {
+  const row = await input.db
+    .query<CenterAgentConnectorActionOperationRow>({
+      text: 'SELECT * FROM "openmeld"."center_agent_connector_action_operations" WHERE id = $1',
+      values: [input.recordId],
+    })
+    .then((result) => result.rows[0] ?? null);
+  const operation = row ? mapOperation(row) : await requireOperation(input);
+  if (
+    operation.actorProfileId === input.actorProfileId &&
+    operation.operationId === input.operationId
+  ) {
+    assertSameRequest(operation, input);
+  }
+  return operation;
+}
+
+async function claimConnectorReplay(input: {
+  executionGuard?: PluginRequestExecutionGuard;
+  allowReplay?: boolean;
+  effect?: "read" | "write" | "destructive" | "unspecified";
+  db: PostgresDatabase;
+  nowMs: number;
+  operation: CenterAgentConnectorActionOperationRecord;
+  provenance: CenterAgentConnectorActionOperationProvenance | null;
+}) {
+  if (input.effect === "read") {
+    return true;
+  }
+  if (!(input.allowReplay && input.provenance)) {
+    return false;
+  }
+  const result = await input.db.query(
+    prepareFinalizeAuditStatement({
+      action: resolveAuditAction("attempted"),
+      attribution: input.provenance.attribution,
+      db: input.db,
+      id: `${input.operation.id}:replay_attempted`,
+      nowMs: input.nowMs,
+      operationRecordId: input.operation.id,
+      organizationId: input.operation.organizationId,
+      resource: operationAuditResource(input.operation),
+      sourceNativeDeliveryId: input.provenance.sourceNativeDeliveryId,
+      sourceSpaceId: input.provenance.sourceSpaceId,
+      replayClaim: true,
+      executionGuard: input.executionGuard,
+    })
+  );
+  return Number(result.rowCount ?? 0) === 1;
+}
+
+/** The existing operation journal owns the single durable replay allowance. */
+export async function readConnectorActionReplayPermission(input: {
+  actorProfileId?: string;
+  db: PostgresDatabase;
+  operation: CenterAgentConnectorActionOperationRecord;
+  nowMs: number;
+}): Promise<
+  ReturnType<
+    typeof import("@openmeld/schemas").connectorActionReplayPermissionSchema.parse
+  >
+> {
+  if (
+    input.actorProfileId &&
+    input.actorProfileId !== input.operation.actorProfileId
+  ) {
+    return { allowed: false, reason: "original_executor_required" };
+  }
+  if (
+    input.operation.status === "completed" ||
+    input.operation.status === "failed"
+  ) {
+    return { allowed: false, reason: "operation_terminal" };
+  }
+  if (input.operation.connectionUpdatedAtMs === null) {
+    return { allowed: false, reason: "original_account_unverified" };
+  }
+  const replay = await input.db
+    .query({
+      text: 'SELECT id FROM "openmeld"."center_agent_audit_journal" WHERE id = $1',
+      values: [`${input.operation.id}:replay_attempted`],
+    })
+    .then((result) => result.rows[0] ?? null);
+  if (replay) {
+    return { allowed: false, reason: "already_replayed" };
+  }
+  const remainingWindowMs = resolveConnectorActionReplayWindowRemainingMs(
+    input.operation.createdAtMs,
+    input.nowMs
+  );
+  if (remainingWindowMs === 0) {
+    return { allowed: false, reason: "window_expired" };
+  }
+  if (input.operation.status !== "outcome_unknown") {
+    return { allowed: false, reason: "operation_in_progress" };
+  }
+  return { allowed: true, remainingWindowMs, maxAttempts: 1 };
+}
+
 function requireNewOperationAttribution(input: {
   actorProfileId: string;
   attribution?: CenterAgentAttribution;
@@ -421,7 +549,76 @@ function requireExistingAttribution(
   }
   return attribution;
 }
+
+function prepareFinalizeAuditStatement(input: {
+  executionGuard?: PluginRequestExecutionGuard;
+  action: CenterAgentAction;
+  attribution: CenterAgentAttribution;
+  db: PostgresDatabase;
+  id: string;
+  nowMs: number;
+  operationRecordId: string;
+  organizationId: string;
+  resource: { id: string; type: string };
+  sourceNativeDeliveryId: string | null;
+  sourceSpaceId: string | null;
+  replayClaim?: boolean;
+}): QueryConfig {
+  const onBehalfOf = input.attribution.onBehalfOf;
+  return {
+    text: `
+        INSERT INTO "openmeld"."center_agent_audit_journal" (
+          id,
+          organization_id,
+          actor_profile_id,
+          action,
+          on_behalf_of_profile_id,
+          on_behalf_of_user_id,
+          on_behalf_of_display_name,
+          resource_type,
+          resource_id,
+          source_native_delivery_id,
+          source_space_id,
+          created_at
+        )
+        SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+        WHERE EXISTS (
+          SELECT 1
+          FROM "openmeld"."center_agent_connector_action_operations"
+          WHERE id = $13
+            AND status IN ('pending', 'outcome_unknown')
+            AND ($14 = 0 OR (status = 'outcome_unknown'
+              AND connection_updated_at_ms IS NOT NULL
+              AND created_at_ms <= $15 AND created_at_ms > $16))
+        )
+        AND (${input.executionGuard?.sql(17) ?? "TRUE"})
+        ON CONFLICT DO NOTHING
+      `,
+    values: [
+      input.id,
+      input.organizationId,
+      input.attribution.actorProfileId,
+      input.action,
+      onBehalfOf?.profileId ?? null,
+      onBehalfOf?.userId ?? null,
+      onBehalfOf?.displayName ?? null,
+      input.resource.type,
+      input.resource.id,
+      input.sourceNativeDeliveryId,
+      input.sourceSpaceId,
+      input.nowMs,
+      input.operationRecordId,
+      input.replayClaim ? 1 : 0,
+      input.nowMs,
+      input.nowMs - 86_400_000,
+      ...(input.executionGuard?.bindings ?? []),
+    ],
+  };
+}
+
 function prepareInsertOperationStatement(input: {
+  executionGuard?: PluginRequestExecutionGuard;
+  connectionUpdatedAtMs?: number | null;
   actionId: string;
   connectionName: string;
   db: PostgresDatabase;
@@ -456,11 +653,14 @@ function prepareInsertOperationStatement(input: {
           connection_owner_display_name,
           connection_owner_user_id,
           connection_scope,
+          connection_updated_at_ms,
           status,
           provider_execution_id,
           created_at_ms,
           updated_at_ms
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) ON CONFLICT DO NOTHING`,
+        ) SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
+          WHERE ${input.executionGuard?.sql(20) ?? "TRUE"}
+          ON CONFLICT DO NOTHING`,
     values: [
       input.id,
       input.organizationId,
@@ -476,10 +676,12 @@ function prepareInsertOperationStatement(input: {
       input.executionConnection.ownerDisplayName,
       input.executionConnection.ownerUserId,
       input.executionConnection.scope,
+      input.connectionUpdatedAtMs ?? null,
       input.status,
       input.providerExecutionId,
       input.nowMs,
       input.nowMs,
+      ...(input.executionGuard?.bindings ?? []),
     ],
   };
 }
@@ -648,6 +850,7 @@ function mapOperation(
     connectionName: row.connection_name,
     createdAtMs: Number(row.created_at_ms),
     executionConnection: mapExecutionConnection(row),
+    connectionUpdatedAtMs: row.connection_updated_at_ms,
     id: row.id,
     operationId: row.operation_id,
     organizationId: row.organization_id,
@@ -715,17 +918,34 @@ function resolveAuditAction(
   }
 }
 async function buildOperationRecordId(
-  scope: CenterAgentConnectorActionOperationScope
+  scope: CenterAgentConnectorActionOperationScope,
+  effect: {
+    sourceRequestKey?: string;
+    effectSignature?: string;
+    effect?: string;
+  }
 ): Promise<string> {
   const digest = await crypto.subtle.digest(
     "SHA-256",
     new TextEncoder().encode(
-      JSON.stringify([
-        scope.organizationId,
-        scope.actorProfileId,
-        scope.requesterAttributionKey,
-        scope.operationId,
-      ])
+      JSON.stringify(
+        effect.sourceRequestKey &&
+          effect.effectSignature &&
+          effect.effect !== "read"
+          ? [
+              scope.organizationId,
+              scope.requesterAttributionKey,
+              "task_effect.v2",
+              effect.sourceRequestKey,
+              effect.effectSignature,
+            ]
+          : [
+              scope.organizationId,
+              scope.actorProfileId,
+              scope.requesterAttributionKey,
+              scope.operationId,
+            ]
+      )
     )
   );
   const hash = Array.from(new Uint8Array(digest), (byte) =>
@@ -783,4 +1003,23 @@ function operationConflict(reason: string): Error {
     reason,
     status: 409,
   });
+}
+
+function assertOperationConnectionVersion(
+  operation: CenterAgentConnectorActionOperationRecord,
+  request: {
+    outcome: string;
+    connectionUpdatedAtMs?: number | null;
+    allowReplay?: boolean;
+  }
+): void {
+  if (
+    request.outcome === "attempted" &&
+    request.allowReplay === true &&
+    request.connectionUpdatedAtMs !== operation.connectionUpdatedAtMs
+  ) {
+    throw operationConflict(
+      "The original connector account changed before execution."
+    );
+  }
 }

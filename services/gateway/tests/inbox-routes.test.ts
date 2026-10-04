@@ -14,6 +14,41 @@ const TEST_EXECUTION_CONTEXT = {
   waitUntil: () => undefined,
 } as unknown as ExecutionContext;
 
+it.each([
+  "9",
+  "10",
+])("projects private Plugin requests for Inbox capability %s", async (version) => {
+  const { coreRpc, env } = makeEnv();
+  const item = {
+    ...ITEM,
+    kind: "system_issue" as const,
+    sourceTarget: {
+      kind: "plugin_action_request" as const,
+      requestId: "00000000-0000-4000-8000-000000000001",
+    },
+  };
+  coreRpc.getInboxItem.mockResolvedValue({ item });
+  const response = await app.fetch(
+    new Request("http://local/v1/inbox/items/inbox-item-1", {
+      headers: { "x-openmeld-inbox-source-target-version": version },
+    }),
+    env,
+    TEST_EXECUTION_CONTEXT
+  );
+  expect(response.status).toBe(200);
+  const result = (await response.json()) as {
+    item: { sourceTarget: unknown; preview: string };
+  };
+  expect(result.item.sourceTarget).toEqual(
+    version === "10"
+      ? item.sourceTarget
+      : { kind: "settings", section: "notifications" }
+  );
+  if (version === "9") {
+    expect(result.item.preview).toContain("cannot approve");
+  }
+});
+
 const ITEM = {
   attention: "action_required" as const,
   contextLabel: "Build failures",
@@ -196,6 +231,7 @@ describe("Inbox routes", () => {
     "7",
     "8",
     "9",
+    "10",
   ])("opts version %s into account items only when all its readers support device scope", async (version) => {
     const { coreRpc, env } = makeEnv();
     const response = await app.fetch(
@@ -207,7 +243,9 @@ describe("Inbox routes", () => {
     );
     expect(response.status).toBe(200);
     expect(coreRpc.listInboxItems).toHaveBeenCalledWith(
-      expect.objectContaining({ includeAccountItems: version === "9" })
+      expect.objectContaining({
+        includeAccountItems: ["9", "10"].includes(version),
+      })
     );
   });
   it("forwards server feed filters and frozen scopes without accepting client-selected recipients", async () => {

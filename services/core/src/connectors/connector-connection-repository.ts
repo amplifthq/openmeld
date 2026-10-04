@@ -284,6 +284,18 @@ export async function requireConnectorConnectionForExecution(input: {
   db: PostgresDatabase;
   organizationId: string;
 }): Promise<ConnectorExecutionConnectionRecord> {
+  const connection = await readConnectorConnectionForExecution(input);
+  if (!connection) {
+    throw new Error("Connector connection was not found in this Organization.");
+  }
+  return connection;
+}
+
+export async function readConnectorConnectionForExecution(input: {
+  connectionName: ConnectorConnectionName;
+  db: PostgresDatabase;
+  organizationId: string;
+}): Promise<ConnectorExecutionConnectionRecord | null> {
   const row = await input.db
     .query<ConnectorExecutionConnectionRow>({
       text: `
@@ -305,10 +317,7 @@ export async function requireConnectorConnectionForExecution(input: {
       values: [input.organizationId, input.connectionName],
     })
     .then((result) => result.rows[0] ?? null);
-  if (!row) {
-    throw new Error("Connector connection was not found in this Organization.");
-  }
-  return toConnectorExecutionConnectionRecord(row);
+  return row ? toConnectorExecutionConnectionRecord(row) : null;
 }
 export async function readConnectorConnectionForUser(input: {
   db: PostgresDatabase;

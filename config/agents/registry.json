@@ -252,6 +252,7 @@
             },
             "transportModes": ["codex-app-server"],
             "capabilityDeclaration": {
+              "executionContextPermissionInheritance": true,
               "executionContextVersion": 2,
               "streamingCapability": "preview_capable",
               "imageInputCapability": "local_file_path",

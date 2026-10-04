@@ -395,6 +395,17 @@ no dual reads or writes and does not claim a safe rolling product cutover.
 No local component contract bump is required by the persistence-only boundary;
 release artifact eligibility still follows the base-aware local-component gate.
 
+The fixed-main Plugin/evidence additions retain their upstream optional
+capability contracts and rollout order in
+[Shared Agent Plugins](../architecture/shared-contracts.md#shared-agent-plugins).
+The PostgreSQL port adds no wire field or required local-component floor to
+those contracts. Native migration `0015_plugin_action_requests` supplies the
+storage corresponding to D1 `0192` before the new Core producer runs. Gateway
+and schema readers must understand the new Inbox target and replay reasons
+before Core emits them; Web/CLI consumers follow the coordinated cloud release.
+Feature-branch verification remains deferred. Final CLI/Service artifacts are
+stamped and published from the separately authorized release lane.
+
 The remote capture and import entry extends only the shared migration-tool
 evidence schema with the registered D1 source and PlanetScale target identity.
 Existing local completion records retain their shape. Operators must use the

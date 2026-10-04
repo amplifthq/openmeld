@@ -377,6 +377,9 @@ export const centerAgentConnectorActionOperations = applicationTable(
     connectionOwnerDisplayName: text("connection_owner_display_name"),
     connectionOwnerUserId: text("connection_owner_user_id"),
     connectionScope: text("connection_scope"),
+    connectionUpdatedAtMs: bigint("connection_updated_at_ms", {
+      mode: "number",
+    }),
     status: text("status").notNull(),
     providerExecutionId: text("provider_execution_id"),
     createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),

@@ -1,6 +1,7 @@
 import * as z from "../../lazy-zod";
 import { agentExecutionConfirmationSchema } from "../runtime/agent-failure";
 import { openConnectorRuntimeActionListSchema } from "../runtime/openconnector-runtime";
+import { connectorActionReplayPermissionSchema } from "./connector-action-replay";
 import {
   connectorConnectionNameSchema,
   connectorServiceSchema,
@@ -19,6 +20,8 @@ export const connectorActionOutcomeUnknownSchema = z.strictObject({
   operationId: z.string().trim().min(1),
   executionConfirmation: agentExecutionConfirmationSchema,
   providerExecutionId: z.string().nullable(),
+  // Absent on older receipts: absence never permits replay.
+  replay: connectorActionReplayPermissionSchema.optional(),
   message: z.string().min(1),
 });
 export const pluginRuntimeRequestSchema = z.discriminatedUnion("operation", [

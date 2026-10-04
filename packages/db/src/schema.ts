@@ -8,7 +8,6 @@ export {
   migrationSchema,
 } from "./postgresql/import.schema.ts";
 // Drizzle must discover the schema owner as well as its tables.
-// biome-ignore lint/performance/noBarrelFile: The canonical Drizzle entrypoint must export its schema owner.
 export { applicationSchema } from "./postgresql/schema.ts";
 
 export const schema = {
@@ -95,6 +94,7 @@ export const {
   routineRuns,
   connectorAccessEvents,
   pluginActionConfirmations,
+  pluginActionRequests,
   connectorAppRequests,
   connectorConnections,
   githubAppInstallationStates,

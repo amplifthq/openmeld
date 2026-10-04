@@ -252,6 +252,58 @@ function inboxAndActivity(database, now) {
     .run();
 }
 
+function pluginRequests(database, now) {
+  insert(database, "plugin_action_requests", {
+    id: "99999999-9999-4999-8999-999999999999",
+    organization_id: fixture.organization,
+    user_id: fixture.owner,
+    actor_profile_id: fixture.agent,
+    operation_id: "migration-plugin-operation",
+    source_request_key: "dispatch:migration-request",
+    request_digest: "a".repeat(64),
+    request_json: JSON.stringify({
+      organizationId: fixture.organization,
+      userId: fixture.owner,
+      actorProfileId: fixture.agent,
+      operationId: "migration-plugin-operation",
+      sourceRequestKey: "dispatch:migration-request",
+      connection: {
+        connectionName: "migration-plugin-account",
+        ownerUserId: fixture.owner,
+        ownerDisplayName: "Migration Owner",
+        scope: "member",
+        service: "posthog",
+      },
+      connectionUpdatedAtMs: now - 1000,
+      accessRevision: 2,
+      service: "posthog",
+      actionId: "posthog.create_dashboard",
+      effect: "write",
+      input: { name: fixture.text },
+    }),
+    state: "approved",
+    created_at_ms: now,
+    expires_at_ms: now + 3_600_000,
+    decided_at_ms: now + 1000,
+  });
+  insert(database, "center_agent_connector_action_operations", {
+    id: "migration-plugin-receipt",
+    organization_id: fixture.organization,
+    actor_profile_id: fixture.agent,
+    requester_attribution_key: `user:${fixture.owner}`,
+    represented_user_id: fixture.owner,
+    operation_id: "migration-plugin-operation",
+    request_signature: "b".repeat(64),
+    service: "posthog",
+    action_id: "posthog.create_dashboard",
+    connection_name: "migration-plugin-account",
+    connection_updated_at_ms: now - 1000,
+    status: "outcome_unknown",
+    created_at_ms: now,
+    updated_at_ms: now + 1000,
+  });
+}
+
 export async function createD1RehearsalFixture(destination) {
   const { database } = await createHistoricalD1Database(destination);
   const now = Date.now();
@@ -323,6 +375,7 @@ export async function createD1RehearsalFixture(destination) {
     profilesAndBindings(database, now);
     documentsAndSpace(database, now);
     inboxAndActivity(database, now);
+    pluginRequests(database, now);
     database.exec(
       "CREATE TABLE d1_migrations(id INTEGER PRIMARY KEY NOT NULL,name TEXT NOT NULL,applied_at TEXT NOT NULL)"
     );

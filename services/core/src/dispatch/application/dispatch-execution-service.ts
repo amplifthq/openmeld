@@ -155,6 +155,7 @@ import {
   isRuntimeTaskResultStatusSuccessLike,
   isSuccessfulRuntimeTaskResultPayload,
 } from "../rules/runtime-task-result-transition-contract";
+import { isExecutionContextOwnerRequested } from "./accepted-dispatch-snapshot";
 import { emitDispatchActivitySignal } from "./dispatch-activity-signal";
 import {
   buildDispatchResultRecord,
@@ -668,7 +669,7 @@ export const deliverDispatchMessageToDaemon = async (input: {
     await measureDispatchTiming({
       description: "Validate RuntimeTransport route execution compatibility",
       name: "openmeld_dispatch_deliver_route_guards",
-      read: () => {
+      read: async () => {
         assertDaemonRouteExecutionCompatible({
           executionContext: routeExecutionContext,
           executionLogBase,
@@ -684,6 +685,23 @@ export const deliverDispatchMessageToDaemon = async (input: {
           route,
           executionContext: routeExecutionContext,
         });
+        if (
+          input.message.executionContext?.permissionSource ===
+            "agent_settings" &&
+          !(await isExecutionContextOwnerRequested({
+            env: input.env,
+            message: input.message,
+            targetOwnerUserId: input.targetOwnerUserId,
+          }))
+        ) {
+          throw buildDispatchExecutionValidationError({
+            code: "execution_context.owner_request_unavailable",
+            message:
+              "The Agent owner's request can no longer be verified. Ask the owner to send this task again.",
+            executionContext: routeExecutionContext,
+            waitReasonCode: "execution_context.owner_request_unavailable",
+          });
+        }
       },
       timing: input.timing,
     });
@@ -1256,6 +1274,9 @@ function assertDaemonRouteExecutionContextCapable(input: {
     input.route.capabilities.runtimeAdapters?.some(
       (adapter) =>
         adapter.adapterId === adapterId &&
+        (!input.message.executionContext?.permissionSource ||
+          adapter.capabilityDeclaration
+            .executionContextPermissionInheritance === true) &&
         (adapter.capabilityDeclaration.executionContextVersion ?? 0) >=
           requiredExecutionContextVersion
     )

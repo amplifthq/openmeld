@@ -538,6 +538,7 @@ describe("Remote Agent native delivery callback service", () => {
     );
     const env = buildEnv(harness.db, {
       remoteAgentWorker: { submitConversationTurn: workerSubmit },
+      sourceSignal: createSignalEnvelope("signal_1", "Please help."),
     });
     const directory = spaceMemberDirectorySchema.parse({
       spaceId: SPACE_ID,
@@ -724,6 +725,115 @@ describe("Remote Agent native delivery callback service", () => {
       expect(env.__spaceStub.rpcListSignalsResult).toHaveBeenLastCalledWith(
         expect.objectContaining({ spaceId: SPACE_ID, limit: 31, recent: true })
       );
+      if (history.kind !== "messages" || !history.messages[0]) {
+        throw new Error("Expected an exact message reference");
+      }
+      const sourceRef = history.messages[0].sourceRef;
+      const evidenceRead = {
+        submissionId: "personal-submission",
+        operation: {
+          kind: "evidence",
+          sourceSignalId: sourceRef.id,
+          version: sourceRef.version,
+        },
+      };
+      await expect(
+        runPersonalRemoteAgentSpaceTool(env, evidenceRead)
+      ).resolves.toMatchObject({
+        kind: "evidence",
+        message: { sourceRef, content: { text: "Please help." } },
+        nextOffset: null,
+      });
+      await expect(
+        runPersonalRemoteAgentSpaceTool(env, {
+          ...evidenceRead,
+          operation: {
+            ...evidenceRead.operation,
+            version: `sha256:${"0".repeat(64)}`,
+          },
+        })
+      ).rejects.toThrow("evidence_version_unavailable");
+      await expect(
+        runPersonalRemoteAgentSpaceTool(env, {
+          ...evidenceRead,
+          operation: {
+            ...evidenceRead.operation,
+            sourceSignalId: "missing-source",
+          },
+        })
+      ).rejects.toThrow("evidence_unavailable");
+      readDirectory.mockResolvedValueOnce({ ...directory, members: [] });
+      await expect(
+        runPersonalRemoteAgentSpaceTool(env, evidenceRead)
+      ).rejects.toThrow("space_membership_revoked");
+      const rootSignal = createSignalEnvelope(
+        THREAD_CONTEXT.rootSignalId,
+        "Root"
+      );
+      const replies = [
+        createSignalEnvelope("thread-first", "First"),
+        createSignalEnvelope("thread-last", "Last"),
+      ];
+      const readThread = vi.fn(async () => ({
+        ok: true,
+        value: {
+          rootSignal,
+          thread: {
+            ...THREAD_CONTEXT,
+            spaceId: SPACE_ID,
+            createdByProfileId: HUMAN_PROFILE_ID,
+            createdAt: new Date(1000).toISOString(),
+            updatedAt: new Date(1000).toISOString(),
+          },
+        },
+      }));
+      const readReplies = vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          value: { signals: replies, placements: [] },
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          value: { signals: replies, placements: [] },
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          value: { signals: replies.slice(1), placements: [] },
+        });
+      Object.assign(env.__spaceStub, {
+        rpcGetThreadResult: readThread,
+        rpcListThreadSignalsResult: readReplies,
+      });
+      let afterSignalId: string | undefined;
+      for (const [id, next] of [
+        [rootSignal.id, rootSignal.id],
+        ["thread-first", "thread-first"],
+        ["thread-last", null],
+      ] as const) {
+        const page = await runPersonalRemoteAgentSpaceTool(env, {
+          submissionId: "personal-submission",
+          operation: {
+            kind: "thread",
+            threadId: THREAD_CONTEXT.threadId,
+            limit: 1,
+            ...(afterSignalId ? { afterSignalId } : {}),
+          },
+        });
+        expect(page).toMatchObject({
+          kind: "thread",
+          messages: [{ sourceRef: { id } }],
+          nextAfterSignalId: next,
+        });
+        if (page.kind !== "thread") {
+          throw new Error("Expected a thread page");
+        }
+        expect(page.messages).toHaveLength(1);
+        afterSignalId = next ?? undefined;
+      }
+      expect(
+        readReplies.mock.calls.map(([query]) => query.afterSignalId)
+      ).toEqual([rootSignal.id, rootSignal.id, "thread-first"]);
       const readUpdates = vi.fn(async () => ({ signals: [] }));
       Object.assign(env.__spaceStub, { rpcGetUpdates: readUpdates });
       const updates = await runPersonalRemoteAgentSpaceTool(env, {

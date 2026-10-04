@@ -23,16 +23,28 @@ metadata. It separately applied every native PostgreSQL migration and read
 
 | Surface | Correspondence |
 | --- | --- |
-| Tables | 159 shared product tables; columns and primary-key order match |
+| Tables | 160 shared product tables; columns and primary-key order match |
 | Nullability | No non-primary nullability change or primary-key tightening |
-| Foreign keys | 188; referenced columns, delete actions and update actions match |
+| Foreign keys | 189; referenced columns, delete actions and update actions match |
 | Named CHECK constraints | 557; all names resolve to their PostgreSQL counterpart |
-| Named indexes | 372; uniqueness, key columns and direction match, including the explicit Inbox ordering key below |
+| Named indexes | 374; uniqueness, key columns and direction match, including the explicit Inbox ordering key below |
 | Partial indexes | 29; predicates reviewed with their owner conditions |
 | Expression indexes | None in the final historical schema |
 | Unique constraints | No missing historical unique constraint |
 | Views | None in the final historical schema |
 | Triggers | Three historical triggers map to two native trigger owners |
+
+The final source audit uses fixed main
+`edcaf1a00ba30a13b447e9dda28fd08383c1f69e`, D1 history through `0192`, and
+native PostgreSQL history through `0015_plugin_action_requests`. Migration
+`0014` preserves the non-unique batch Wake index from D1 `0191`; `0015`
+preserves the Plugin request table, its two indexes and Organization foreign
+key, plus the nullable connection-version timestamp on action operations.
+No earlier migration is rewritten. The earlier 159-table product/cloud receipts
+retain their original source identities. Frozen physical diagnostics under
+`d1-history` remain explicitly pinned to their pre-port revision; capture and
+maintenance admission compare the actual source with the immutable SQL journal,
+not those diagnostic projections.
 
 CHECK comparison found 502 expressions with corresponding ordered tokens after
 the reviewed syntax changes. Another 54 pairs were reviewed semantically:

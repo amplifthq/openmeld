@@ -62,6 +62,12 @@ export {
   organizationMemberPresenceWriteResponseSchema,
 } from "./http/organization-member-presence";
 export {
+  pluginActionRequestCommandRpcSchema,
+  pluginActionRequestCommandSchema,
+  pluginActionRequestIntentSchema,
+  pluginActionRequestViewSchema,
+} from "./http/plugin-action-requests";
+export {
   resolveSpaceFileStreamMetadata,
   spaceFileStreamMetadataSchema,
   spaceFileStreamOptionsSchema,
@@ -91,6 +97,11 @@ export { messageChannelCardHistorySchema } from "./runtime/message-channel-card-
 
 export const OPENMELD_SCHEMA_VERSION = 1 as const;
 
+export {
+  spaceEvidenceReferenceSchema,
+  spaceEvidenceReferencesSchema,
+  spaceThreadEvidenceRequestSchema,
+} from "../space-evidence";
 export { agentControllerCollaborationModeSchema } from "./agent-controller-collaboration-mode";
 export { agentControllerPermissionModeSchema } from "./agent-controller-permission-mode";
 export { agentProfileWorkRecoveryActionKindSchema } from "./agent-profile-work-recovery";
@@ -555,6 +566,8 @@ export {
   RUNTIME_COORDINATOR_TOKEN_AUTHORITY_MODEL_VERSION,
   RUNTIME_COORDINATOR_TOKEN_DIAGNOSTIC_MODEL_VERSION,
   RUNTIME_COORDINATOR_TOKEN_SECRET_FIELD_NAMES,
+  runtimeCoordinatorExecutionAccessRequestSchema,
+  runtimeCoordinatorExecutionAccessResponseSchema,
   runtimeCoordinatorExecutionTokenAuthorityRecordSchema,
   runtimeCoordinatorExecutionTokenEchoSchema,
   runtimeCoordinatorExecutionTokenEnvelopeSchema,
@@ -1197,6 +1210,9 @@ export {
   centerAgentWakePublicationCommandSchema,
   centerAgentWatchAgentTaskBodySchema,
   centerAgentWatchAgentTaskResponseSchema,
+  connectorActionTerminalReceiptSchema,
+  connectorActionVerificationEvidenceSchema,
+  connectorActionVerificationReferenceSchema,
   designateCenterAgentBodySchema,
   designateCenterAgentResponseSchema,
   ensureMessageChannelMemberOrganizationMembershipRpcInputSchema,
@@ -1465,6 +1481,7 @@ export {
   OPENMELD_MACOS_CLI_SIGNING_REQUIREMENT,
   resolveCliBinaryPlatform,
 } from "./http/cli-binary-manifest";
+export { connectorActionReplayPermissionSchema } from "./http/connector-action-replay";
 export {
   buildConnectorAppRequestProviderKey,
   CENTER_AGENT_APP_CONNECTOR_SERVICES,
@@ -1574,6 +1591,7 @@ export {
   copyFileRootRevisionBodySchema,
   copyFileRootRevisionResponseSchema,
   copyFileRootToSpaceBodySchema,
+  copyOwnMessageExcerptBodySchema,
   fileRootEntryResponseSchema,
   fileRootEntrySchema,
   fileRootFileDescriptorSchema,
@@ -2009,6 +2027,10 @@ export {
   pluginActionRpcInputSchema,
 } from "./http/plugin-actions";
 export {
+  pluginDelegationAuthorizationSchema,
+  pluginDelegationRequestSchema,
+} from "./http/plugin-delegation";
+export {
   connectorActionOutcomeUnknownSchema,
   pluginActionEffectSchema,
   pluginRuntimeRequestSchema,
@@ -2317,6 +2339,7 @@ export {
   spaceEntryTargetSchema,
   spaceEntryViewSchema,
 } from "./http/space-entry";
+export { spaceThreadEvidenceResponseSchema } from "./http/space-evidence";
 export {
   spaceFileUpdateSettingsCommandSchema,
   spaceFileUpdateSettingsSchema,
@@ -3224,6 +3247,7 @@ export {
   spaceContractFieldsSchema,
   spaceContractSchema,
 } from "./space-mesh/space-contract";
+export { spaceMessageEvidenceRequestSchema } from "./space-mesh/space-message-evidence";
 export { spaceNoteSchema } from "./space-mesh/space-note";
 export {
   spaceThreadActionRefSchema,

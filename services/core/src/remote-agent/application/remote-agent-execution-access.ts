@@ -1,16 +1,23 @@
-import { getPostgresDatabase } from "@openmeld/db/postgresql";
+import {
+  getPostgresDatabase,
+  type PostgresDatabase,
+} from "@openmeld/db/postgresql";
 import {
   remoteAgentExecutionAccessRequestSchema,
   remoteAgentExecutionAccessResponseSchema,
   resolveRemoteAgentExecutionScope,
 } from "@openmeld/schemas";
 import { readPrimaryAgentProfileBindingRecord } from "../../agent-profile-binding/infrastructure/postgresql/agent-profile-binding-repo";
+import { requireDelegatedPluginAction } from "../../center-agent/application/delegated-plugin-authorization";
 import { requireRemotePluginConnection } from "../../connectors/plugin-access";
 import type { CoreBindings } from "../../lib/bindings";
 import { resolveOrganizationMembershipById } from "../../organizations/organization-context";
 import { rpcGetSpaceMemberDirectory } from "../../rpc/methods";
 import { readRemoteAgentNativeDeliveryBySubmissionId } from "../infrastructure/postgresql/native-delivery-ledger-repo";
-import { readRemoteAgentDelegatedRequester } from "./delegated-requester";
+import {
+  readPersonalDelegatedPluginActions,
+  readRemoteAgentDelegatedRequester,
+} from "./delegated-requester";
 import { isNativeDeliveryExecutingStatus } from "./native-delivery-execution-status";
 import { isActiveRemoteAgentRequesterProfile } from "./personal-remote-agent-space-tools";
 import { requireRemoteAgentToolCaller } from "./remote-agent-tool-caller";
@@ -28,7 +35,7 @@ export async function authorizeRemoteAgentExecutionAccess(
   );
   const scope = resolveRemoteAgentExecutionScope(request);
   const delegatedRequester =
-    parsed.includeDelegatedRequester &&
+    (parsed.includeDelegatedRequester || parsed.includePluginDelegations) &&
     "personalExecution" in caller &&
     request.turnEnvelope.sender.kind === "agent_profile"
       ? await readRemoteAgentDelegatedRequester({
@@ -58,26 +65,11 @@ export async function authorizeRemoteAgentExecutionAccess(
       throw new Error(membership.code);
     }
   }
-  if (delivery.conversationKind === "space") {
-    const directory =
-      "personalExecution" in caller
-        ? caller.personalExecution.directory
-        : await rpcGetSpaceMemberDirectory(env, {
-            context,
-            spaceId: delivery.spaceId,
-          });
-    if (
-      !directory.members.some(
-        (member) => member.profileId === delivery.profileId
-      ) ||
-      (request.author.profileId &&
-        !directory.members.some(
-          (member) => member.profileId === request.author.profileId
-        ))
-    ) {
-      throw new Error("remote_agent.space_membership_revoked");
-    }
-  }
+  await requireExecutionSpaceMembership(env, context, {
+    caller,
+    delivery,
+    request,
+  });
   if (
     principal.kind === "agent" &&
     !(await isActiveRemoteAgentRequesterProfile({
@@ -88,17 +80,24 @@ export async function authorizeRemoteAgentExecutionAccess(
   ) {
     throw new Error("remote_agent.requester_membership_revoked");
   }
+  const pluginDelegations =
+    parsed.includePluginDelegations ||
+    sources?.some((source) => source.service !== "github")
+      ? await readExecutionPluginDelegations(caller, db, delegatedRequester)
+      : [];
   await requireResultSources(
     caller,
     request,
     scope,
     sources,
     parsed.effect ?? "read",
-    delegatedRequester
+    delegatedRequester,
+    pluginDelegations
   );
   return remoteAgentExecutionAccessResponseSchema.parse({
     scope,
     submissionId,
+    ...(parsed.includePluginDelegations ? { pluginDelegations } : {}),
     ...(parsed.includeDelegatedRequester
       ? { delegatedRequesterSupported: true }
       : {}),
@@ -106,6 +105,57 @@ export async function authorizeRemoteAgentExecutionAccess(
       ? { delegatedRequester }
       : {}),
   });
+}
+
+async function requireExecutionSpaceMembership(
+  env: CoreBindings,
+  context: ReturnType<
+    typeof remoteAgentExecutionAccessRequestSchema.parse
+  >["context"],
+  {
+    caller,
+    delivery,
+    request,
+  }: Pick<
+    Awaited<ReturnType<typeof requireActiveExecution>>,
+    "caller" | "delivery" | "request"
+  >
+) {
+  if (delivery.conversationKind !== "space") {
+    return;
+  }
+  const directory =
+    "personalExecution" in caller
+      ? caller.personalExecution.directory
+      : await rpcGetSpaceMemberDirectory(env, {
+          context,
+          spaceId: delivery.spaceId,
+        });
+  if (
+    !directory.members.some(
+      (member) => member.profileId === delivery.profileId
+    ) ||
+    (request.author.profileId &&
+      !directory.members.some(
+        (member) => member.profileId === request.author.profileId
+      ))
+  ) {
+    throw new Error("remote_agent.space_membership_revoked");
+  }
+}
+
+async function readExecutionPluginDelegations(
+  caller: Awaited<ReturnType<typeof requireRemoteAgentToolCaller>>,
+  evidenceDb: PostgresDatabase,
+  requester: Awaited<ReturnType<typeof readRemoteAgentDelegatedRequester>>
+) {
+  return requester && "personalExecution" in caller
+    ? await readPersonalDelegatedPluginActions({
+        evidenceDb,
+        personal: caller.personalExecution,
+        requester,
+      })
+    : [];
 }
 
 async function requireResultSources(
@@ -118,13 +168,16 @@ async function requireResultSources(
   effect: "read" | "write",
   delegatedRequester: Awaited<
     ReturnType<typeof readRemoteAgentDelegatedRequester>
+  >,
+  pluginDelegations: Awaited<
+    ReturnType<typeof readPersonalDelegatedPluginActions>
   >
 ) {
-  if (delegatedRequester && sources?.length && effect !== "read") {
-    throw new Error("remote_agent.delegated_read_only");
-  }
   const principal = scope.principal;
   for (const source of sources ?? []) {
+    const grant = delegatedRequester
+      ? requireResultSourceGrant(pluginDelegations, source, effect)
+      : undefined;
     const connection = await requireRemotePluginConnection({
       db: caller.db,
       organizationId: scope.organizationId,
@@ -139,12 +192,45 @@ async function requireResultSources(
       effect,
     });
     if (
-      source.connectionUpdatedAtMs !== undefined &&
-      connection.updatedAtMs !== source.connectionUpdatedAtMs
+      (source.connectionUpdatedAtMs !== undefined &&
+        connection.updatedAtMs !== source.connectionUpdatedAtMs) ||
+      delegatedAccountChanged(grant, connection)
     ) {
       throw new Error("remote_agent.result_connection_changed");
     }
   }
+}
+
+function requireResultSourceGrant(
+  grants: Awaited<ReturnType<typeof readPersonalDelegatedPluginActions>>,
+  source: NonNullable<
+    ReturnType<typeof remoteAgentExecutionAccessRequestSchema.parse>["sources"]
+  >[number],
+  effect: "read" | "write"
+) {
+  if (source.service === "github") {
+    if (effect !== "read") {
+      throw new Error("remote_agent.delegated_read_only");
+    }
+    return undefined;
+  }
+  return requireDelegatedPluginAction(grants, {
+    service: source.service,
+    connectionName: source.connectionName,
+    ...(effect === "write" ? { effect } : {}),
+  });
+}
+
+function delegatedAccountChanged(
+  grant: ReturnType<typeof requireDelegatedPluginAction> | undefined,
+  connection: Awaited<ReturnType<typeof requireRemotePluginConnection>>
+) {
+  return (
+    grant &&
+    (connection.updatedAtMs !== grant.connectionUpdatedAtMs ||
+      connection.userId !== grant.connectionOwnerUserId ||
+      connection.scope !== grant.connectionScope)
+  );
 }
 
 async function requireActiveExecution(

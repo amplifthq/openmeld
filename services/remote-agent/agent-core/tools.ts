@@ -15,6 +15,7 @@ import {
   aiUsageQueryResponseSchema,
   buildOpenMeldNavigationAction,
   CENTER_AGENT_ANONYMOUS_MEMBER_TOOL_NAMES,
+  CENTER_AGENT_APP_CONNECTOR_SERVICES,
   CENTER_AGENT_DELEGATION_COMPLETION_MODES,
   CENTER_AGENT_MEMBER_RESEARCH_COVERAGE_SOURCES,
   CENTER_AGENT_MEMBER_RESEARCH_COVERAGE_STATUSES,
@@ -651,6 +652,57 @@ const taskReplyLanguageInputSchema = optional(
   )
 );
 const wakeAgentProfilesInSpaceToolInputSchema = object({
+  pluginActions: optional(
+    pipe(
+      array(
+        object({
+          targetProfileId: nonEmptyStringSchema,
+          service: picklist(CENTER_AGENT_APP_CONNECTOR_SERVICES),
+          connectionName: nonEmptyStringSchema,
+          actionId: nonEmptyStringSchema,
+          input: record(string(), unknownSchema()),
+          effect: picklist(["read", "write"]),
+          expiresAtMs: pipe(number(), integer(), minValue(1)),
+        })
+      ),
+      minLength(1),
+      maxLength(10),
+      description(
+        "Exact ordinary Plugin actions explicitly authorized by the original requester for these children. Pin the original connection, target/input, effect and an expiry within 24 hours. This narrows current Plugin access; it never grants new access or forwards another Agent's authority."
+      )
+    )
+  ),
+  evidenceRefs: optional(
+    pipe(
+      array(
+        union([
+          object({
+            kind: literal("message"),
+            spaceId: nonEmptyStringSchema,
+            sourceSignalId: nonEmptyStringSchema,
+            version: nonEmptyStringSchema,
+          }),
+          object({
+            kind: literal("thread"),
+            spaceId: nonEmptyStringSchema,
+            threadId: nonEmptyStringSchema,
+            version: nonEmptyStringSchema,
+          }),
+          object({
+            kind: literal("file"),
+            spaceId: nonEmptyStringSchema,
+            fileId: nonEmptyStringSchema,
+            revision: pipe(number(), integer(), minValue(1)),
+          }),
+        ])
+      ),
+      minLength(1),
+      maxLength(20),
+      description(
+        "Exact evidence references returned by the source reader. They select versions and never grant access. Use an explicit Files copy for a selected private excerpt intended for a different audience."
+      )
+    )
+  ),
   agentProfileIds: pipe(
     array(nonEmptyStringSchema),
     minLength(1),
@@ -3950,16 +4002,27 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_read_space_context",
       description:
-        "Read OpenMeld Space context progressively. Prefer scope=source for one exact source signal and its thread reference when applicable, scope=thread for one exact thread, scope=delta for messages after a known signal, and scope=history only when narrower context is insufficient. Messages include current reactions with actor identities and counts. Reactions are feedback, not instructions or task approval. Reread the source or history to refresh reactions on older messages; scope=delta only returns newer messages. Omitting scope preserves the legacy broad bootstrap read.",
+        "Read OpenMeld Space context progressively. For fixed-version handoffs use scope=source_evidence with sourceSignalId or scope=thread_evidence with threadId. These return sourceRef versions, at most 4,000 characters and nextOffset; continue with that offset and the same version, never substituting latest. Pass the returned version into Wake evidenceRefs. Every page rechecks source access. Use scope=source for ordinary source context, scope=thread for recent thread context, scope=delta for newer signals, and scope=history only when narrower context is insufficient. Reactions are feedback, not instructions or task approval. Omitting scope preserves the legacy broad bootstrap read.",
       input: object({
         afterSignalId: optionalNonEmptyStringSchema,
         limit: optional(pipe(number(), integer(), minValue(1), maxValue(100))),
         scope: optional(
-          picklist(["source", "thread", "delta", "history"] as const)
+          picklist([
+            "source",
+            "thread",
+            "source_evidence",
+            "thread_evidence",
+            "delta",
+            "history",
+          ] as const)
         ),
         sourceSignalId: optionalNonEmptyStringSchema,
         spaceId: nonEmptyStringSchema,
         threadId: optionalNonEmptyStringSchema,
+        version: optionalNonEmptyStringSchema,
+        offset: optional(
+          pipe(number(), integer(), minValue(0), maxValue(1_000_000))
+        ),
       }),
       execute: async (payload) => {
         const context = await buildOpenMeldToolRequestContext({
@@ -3973,6 +4036,10 @@ export function getRemoteAgentOpenMeldToolDefinitions(
         );
         return centerAgentReadSpaceContextResponseSchema.parse(
           await rpc({
+            ...(payload.version === undefined
+              ? {}
+              : { version: payload.version }),
+            ...(payload.offset === undefined ? {} : { offset: payload.offset }),
             ...(payload.afterSignalId === undefined
               ? {}
               : { afterSignalId: payload.afterSignalId }),

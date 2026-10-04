@@ -13,6 +13,7 @@ account credentials. Python 3 uses only its standard library.
 | Messages | `messages.py` | Human DMs with mixed peers and message previews; three Agent–Agent DMs cover the same owner, different owners, and an empty conversation through the owning API |
 | Personal grouping | `sidebar.py` | Starter stars and custom People/Agents groups, existing arrangements preserved |
 | Inbox browsing | `inbox.py` | Opt-in `--only inbox`: 27 Threads, 426 replies, 12 installed updates, eight restored/stopped connection incidents, one resolved system request and two setup requests; grouped reading, pagination and bulk actions |
+| Private Plugin confirmation | `inbox.py` | Opt-in `--only plugin-requests`: four synthetic private requests, including a dashboard-name summary and omitted-content canary; no provider credentials or executions; decisions and expiration survive reruns |
 
 ## Add or change a scenario
 

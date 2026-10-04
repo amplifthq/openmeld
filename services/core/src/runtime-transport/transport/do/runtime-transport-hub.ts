@@ -1804,6 +1804,29 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       };
     });
   }
+
+  async rpcAuthorizeExecutionAccess(
+    input: ReturnType<
+      typeof runtimeCoordinatorExecutionAccessRequestSchema.parse
+    >
+  ) {
+    const request = runtimeCoordinatorExecutionAccessRequestSchema.parse(input);
+    const authority = await this.readRuntimeCoordinatorTokenAuthority(
+      request.executionTokenEcho.runtimeCoordinatorExecutionId
+    );
+    const validation =
+      await validateRuntimeCoordinatorExecutionTokenAgainstAuthority({
+        ...request,
+        authority,
+        nowMs: Date.now(),
+      });
+    return runtimeCoordinatorExecutionAccessResponseSchema.parse(
+      validation.ok
+        ? { allowed: true }
+        : { allowed: false, reasonCode: validation.reasonCode }
+    );
+  }
+
   async rpcReadAgentProfileExecutionState(
     input: RuntimeTransportAgentProfileExecutionStateRequest
   ): Promise<RuntimeTransportAgentProfileExecutionStateResponse> {
@@ -2521,6 +2544,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     targetProfileId: string;
     agentControllerRef: string;
     requiredContextVersion?: 2 | 3;
+    requirePermissionInheritance?: boolean;
   }): string | null {
     const route = lookupRoute(
       this.state,
@@ -2544,6 +2568,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     return route.capabilities.runtimeAdapters?.some(
       (adapter) =>
         adapter.adapterId === adapterId &&
+        (!input.requirePermissionInheritance ||
+          adapter.capabilityDeclaration
+            .executionContextPermissionInheritance === true) &&
         (adapter.capabilityDeclaration.executionContextVersion ?? 0) >=
           (input.requiredContextVersion ?? 2)
     )
@@ -12200,6 +12227,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
               "workspace"
               ? 3
               : 2,
+          requirePermissionInheritance:
+            record.acceptedDispatchSnapshot?.executionContext
+              ?.permissionSource === "agent_settings",
         }),
       blockForExecutionTargetMutation: true,
       nowMs,
@@ -22177,3 +22207,8 @@ const safeCloseSocket = (
     // ignore
   }
 };
+
+import {
+  runtimeCoordinatorExecutionAccessRequestSchema,
+  runtimeCoordinatorExecutionAccessResponseSchema,
+} from "@openmeld/schemas";

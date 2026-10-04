@@ -31,7 +31,7 @@ export async function rehearseFrozenD1Capture({
   await mkdir(root, { recursive: true, mode: 0o700 });
   const started = performance.now();
   const input = path.join(root, "fixture.sqlite");
-  await createD1RehearsalFixture(input);
+  const { now } = await createD1RehearsalFixture(input);
   let runtime = await createLocalD1FromSqlite(input, root);
   let client;
   try {
@@ -120,6 +120,28 @@ export async function rehearseFrozenD1Capture({
     );
     const imported = await importD1Snapshot({ snapshot, connectionString });
     client = await connect(connectionString, true);
+    assert.deepEqual(
+      (
+        await client.query(
+          "SELECT state, decided_at_ms, request_json::jsonb #>> '{input,name}' AS name FROM openmeld.plugin_action_requests"
+        )
+      ).rows,
+      [
+        {
+          state: "approved",
+          decided_at_ms: String(now + 1000),
+          name: fixture.text,
+        },
+      ]
+    );
+    assert.equal(
+      (
+        await client.query(
+          "SELECT connection_updated_at_ms FROM openmeld.center_agent_connector_action_operations WHERE id='migration-plugin-receipt'"
+        )
+      ).rows[0].connection_updated_at_ms,
+      String(now - 1000)
+    );
     assert.equal(
       (
         await client.query("SELECT name FROM openmeld.users WHERE id=$1", [

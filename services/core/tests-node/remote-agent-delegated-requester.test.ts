@@ -3,17 +3,22 @@ import {
   buildPersonalRemoteAgentConversationId,
   buildRemoteAgentRuntimeConversationId,
   HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+  openMeldDaemonDispatchQueueMessageSchema,
   remoteAgentWorkerSubmitTurnRequestSchema,
 } from "@openmeld/schemas";
 import type { RemoteAgentWorkerSubmitTurnRequest } from "@openmeld/schemas/types";
+import { digestCanonicalJson } from "@openmeld/utils";
 import { describe, expect, it, vi } from "vitest";
 import { createSubmitTurnRequestV2 } from "../../remote-agent/tests/fixtures";
 import {
   activateAgentDelegationChildren,
   createAgentDelegation,
 } from "../src/agent-task-coordination/infrastructure/postgresql/agent-delegation-repo";
+import { prepareCenterAgentWakePublicationRecord } from "../src/center-agent/infrastructure/postgresql/center-agent-wake-publication-repo";
+import { buildAcceptedDispatchSnapshot } from "../src/dispatch/application/accepted-dispatch-snapshot";
 import type { CoreBindings } from "../src/lib/bindings";
 import { readRemoteAgentDelegatedRequester } from "../src/remote-agent/application/delegated-requester";
+import { prepareRemoteAgentMemberRequest } from "../src/remote-agent/application/remote-agent-member-request";
 import { rpcCenterAgentResolveConnectorConnection } from "../src/rpc/methods";
 import { postgresTestBinding } from "./helpers/postgresql-harness.test-support";
 
@@ -65,7 +70,7 @@ describe("delegated requester is a current projection of exact owner records", (
         text: "INSERT INTO \"openmeld\".\"members\" (id, role, organization_id, user_id, \"created_at\") VALUES ('member_123', 'owner', 'org_123', 'user_1', 1700000000000)",
       });
       await harness.query({
-        text: "INSERT INTO \"openmeld\".\"openmeld_profiles\" (profile_id, organization_id, profile_kind, profile_name, owner_user_id, managed_role, status, profile_handle, source) VALUES ($1, NULL, 'human', 'Felix', 'user_1', NULL, 'active', 'felix', 'auth_bootstrap')",
+        text: "INSERT INTO \"openmeld\".\"openmeld_profiles\" (profile_id, organization_id, profile_kind, profile_name, owner_user_id, managed_role, status, profile_handle, source, is_default) VALUES ($1, NULL, 'human', 'Felix', 'user_1', NULL, 'active', 'felix', 'auth_bootstrap', 1)",
         values: [HUMAN],
       });
       await harness.query({
@@ -85,7 +90,7 @@ describe("delegated requester is a current projection of exact owner records", (
         db: harness.db,
         idempotencyKey: parentRequest.idempotencyKey,
       });
-      if (!parent) {
+      if (!parent?.submissionId) {
         throw new Error("Parent fixture not persisted");
       }
       const legacy = createSubmitTurnRequestV2({
@@ -246,6 +251,121 @@ describe("delegated requester is a current projection of exact owner records", (
         includeDelegatedRequester: true as const,
         connectionPreference: "requester" as const,
       };
+      const localSnapshot = async (
+        sourceProfileId = input.request.author.profileId
+      ) =>
+        await buildAcceptedDispatchSnapshot({
+          env: rpcEnv,
+          targetOwnerUserId: input.request.agentProfileOwnerUserId ?? undefined,
+          openMeldServiceRuntimeId: "fixture-runtime",
+          runtimeKind: "openmeld_service",
+          message: openMeldDaemonDispatchQueueMessageSchema.parse({
+            v: 2,
+            dispatchId: "local-child-dispatch",
+            spaceId: input.delivery.spaceId,
+            organizationId: input.delivery.organizationId,
+            sourceEventId: "child-signal",
+            sourceClientMessageId: input.delivery.sourceClientMessageId,
+            targetProfileId: CHILD,
+            dispatchOwner: { kind: "owner_account", id: "user_1" },
+            dispatchChainId: "chain",
+            autoRelayDepth: 0,
+            visitedProfileIds: [],
+            visitedProfileIdsHash: "stable32:11111111",
+            dispatchContractVersion: 2,
+            dispatchPolicy: "mention_only",
+            ruleSource: "registry",
+            ruleId: "registry.default.all_members.v1",
+            ruleReason: "fixture",
+            taskId: "child-task",
+            transportMode: "codex-app-server",
+            contextIdMappingSpec: null,
+            controllerSnapshot: {
+              bindingId: "child-binding",
+              configurationRevision: 1,
+              targetBindingState: "bound",
+              targetBindingEnabled: true,
+              agentControllerRef: "builtin:codex",
+            },
+            sourceSignalSnapshot: {
+              profileId: sourceProfileId,
+              profileKind: sourceProfileId === HUMAN ? "human" : "agent",
+              text: "Continue the authorized task.",
+            },
+            dispatchRulesSnapshot: {
+              dispatchPolicy: "mention_only",
+              ruleSource: "registry",
+              ruleId: "registry.default.all_members.v1",
+              ruleReason: "fixture",
+            },
+            dispatchSnapshot: {
+              dispatchPolicy: "mention_only",
+              ruleSource: "registry",
+              ruleId: "registry.default.all_members.v1",
+              ruleReason: "fixture",
+              targetBindingState: "bound",
+              targetBindingEnabled: true,
+            },
+            idempotencyKey: "local-child",
+            enqueuedAtMs: Date.now(),
+          }),
+        });
+      expect((await localSnapshot())?.contextRequest?.ownerRequested).toBe(
+        true
+      );
+      expect((await localSnapshot(HUMAN))?.contextRequest?.ownerRequested).toBe(
+        true
+      );
+      const pluginAction = await seedPluginGrant({
+        harness,
+        parentSubmissionId: parent.submissionId,
+        context: selectionInput.context,
+        spaceId: request.spaceId,
+      });
+      await expect(
+        rpcCenterAgentResolveConnectorConnection(rpcEnv, {
+          ...selectionInput,
+          service: "posthog",
+        })
+      ).resolves.toMatchObject({
+        connection: { connectionName: "exact-posthog" },
+        permission: "write",
+      });
+      for (const effect of ["read", "write"] as const) {
+        await expect(
+          prepareRemoteAgentMemberRequest(
+            rpcEnv,
+            selectionInput.context,
+            { memberId: "member_123", userId: "user_1" },
+            {
+              ...pluginAction,
+              effect,
+              actionId: `fixture.${effect}`,
+              requestSignature: await fixtureSignature(effect),
+            }
+          )
+        ).resolves.toMatchObject({
+          member: {
+            userId: "user_1",
+            sourceNativeDeliveryId: delivery.deliveryId,
+          },
+        });
+      }
+      for (const override of [
+        { connectionName: "another-account" },
+        { requestSignature: "0".repeat(64) },
+        { effect: "destructive" },
+        { actionId: "fixture.delete" },
+      ]) {
+        await expect(
+          prepareRemoteAgentMemberRequest(
+            rpcEnv,
+            selectionInput.context,
+            { memberId: "member_123", userId: "user_1" },
+            { ...pluginAction, ...override }
+          )
+        ).rejects.toThrow("plugin.delegation_scope_mismatch");
+      }
       await expect(
         rpcCenterAgentResolveConnectorConnection(rpcEnv, selectionInput)
       ).resolves.toMatchObject({
@@ -260,6 +380,17 @@ describe("delegated requester is a current projection of exact owner records", (
         })
       ).rejects.toThrow("no longer authorizes");
       if (scenario === "allowed" || scenario === "allowed_secondary_space") {
+        await harness.query({
+          text: `UPDATE "openmeld"."connector_connections" SET updated_at_ms = 2 WHERE connection_name = 'exact-posthog'`,
+        });
+        await expect(
+          prepareRemoteAgentMemberRequest(
+            rpcEnv,
+            selectionInput.context,
+            { memberId: "member_123", userId: "user_1" },
+            pluginAction
+          )
+        ).rejects.toThrow("plugin.delegation_account_changed");
         await harness.query({
           text: "INSERT INTO \"openmeld\".\"connector_connections\" (connection_name, organization_id, user_id, scope, service, status, access_policy, created_at_ms, updated_at_ms) VALUES ('other-shared-account', 'org_123', 'user_1', 'shared', 'github', 'active', $1, 1, 1)",
           values: [
@@ -347,6 +478,17 @@ describe("delegated requester is a current projection of exact owner records", (
         });
       }
       expect(await readRemoteAgentDelegatedRequester(input)).toBeNull();
+      expect(
+        (await localSnapshot())?.contextRequest?.ownerRequested
+      ).toBeUndefined();
+      await expect(
+        prepareRemoteAgentMemberRequest(
+          rpcEnv,
+          selectionInput.context,
+          { memberId: "member_123", userId: "user_1" },
+          pluginAction
+        )
+      ).rejects.toThrow("plugin.delegation_unavailable");
       await expect(
         rpcCenterAgentResolveConnectorConnection(rpcEnv, selectionInput)
       ).rejects.toThrow("no longer authorizes");
@@ -355,6 +497,115 @@ describe("delegated requester is a current projection of exact owner records", (
     }
   });
 });
+
+async function seedPluginGrant(input: {
+  harness: Awaited<ReturnType<typeof createPostgresHarness>>;
+  parentSubmissionId: string;
+  context: Parameters<typeof prepareRemoteAgentMemberRequest>[1];
+  spaceId: string;
+}) {
+  const { harness } = input;
+
+  await harness.query({
+    text: "INSERT INTO \"openmeld\".\"connector_connections\" (connection_name, organization_id, user_id, scope, service, status, access_policy, created_at_ms, updated_at_ms) VALUES ('exact-posthog', 'org_123', 'user_1', 'member', 'posthog', 'active', $1, 1, 1)",
+    values: [
+      JSON.stringify({
+        center_agent: "write",
+        remote_agent: "write",
+        local_agent: "write",
+      }),
+    ],
+  });
+  const requestSignature = await fixtureSignature("write");
+  await prepareCenterAgentWakePublicationRecord({
+    db: harness.db,
+    nowMs: 1000,
+    command: {
+      v: 1,
+      clientMessageId: "child-wake",
+      delegationId: "delegation-1",
+      organizationId: "org_123",
+      spaceId: input.spaceId,
+      context: {
+        ...input.context,
+        actorContext: {
+          ...input.context.actorContext,
+          openMeldProfileId: CENTER,
+        },
+        agentControllerConversationId: input.parentSubmissionId,
+      },
+      parentSubmissionId: input.parentSubmissionId,
+      profile: { kind: "agent", profileId: CENTER, profileName: "Center" },
+      attribution: {
+        actorProfileId: CENTER,
+        onBehalfOf: {
+          userId: "user_1",
+          profileId: HUMAN,
+          displayName: "Felix",
+        },
+      },
+      activationTargets: [CHILD],
+      mentionTargets: [],
+      referenceTargets: [],
+      fallbackAgentProfileId: null,
+      subscriptionIds: ["subscription-1"],
+      text: "Use only the specified synthetic fixture.",
+      completionMode: "resume_parent_when_all_terminal",
+      pluginActions: await Promise.all(
+        (["read", "write"] as const).map(async (effect) => ({
+          targetProfileId: CHILD,
+          service: "posthog" as const,
+          connectionName: "exact-posthog",
+          actionId: `fixture.${effect}`,
+          effect,
+          expiresAtMs: Date.now() + 60_000,
+          connectionUpdatedAtMs: 1,
+          connectionOwnerUserId: "user_1",
+          connectionScope: "member" as const,
+          requestSignature: await fixtureSignature(effect),
+        }))
+      ),
+    },
+  });
+  await harness.query({
+    text: 'UPDATE "openmeld"."center_agent_wake_publications" SET state = \'completed\', accepted_at_ms = 1100, completed_at_ms = 1200, signal_json = $1',
+    values: [
+      JSON.stringify({
+        v: 1,
+        id: "child-signal",
+        type: "signal.text",
+        ts: 1100,
+        spaceId: input.spaceId,
+        profile: { kind: "agent", profileId: CENTER, profileName: "Center" },
+        data: {
+          text: "Synthetic fixture",
+          meta: { clientMessageId: "child-wake" },
+          messageEnvelope: {
+            text: "Synthetic fixture",
+            activationTargets: [CHILD],
+            referenceTargets: [],
+          },
+        },
+      }),
+    ],
+  });
+  return {
+    service: "posthog",
+    connectionName: "exact-posthog",
+    actionId: "fixture.write",
+    effect: "write",
+    requestSignature,
+  };
+}
+
+function fixtureSignature(effect: "read" | "write") {
+  return digestCanonicalJson({
+    actionId: `fixture.${effect}`,
+    service: "posthog",
+    connectionName: "exact-posthog",
+    input: { target: "isolated-A", text: "synthetic" },
+  });
+}
 
 async function insertDelivery(
   db: PostgresDatabase,

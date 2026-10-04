@@ -14,8 +14,9 @@ export async function readPluginDispatchRequester(input: {
       space_id: string;
       source_event_id: string;
       source_profile_id: string | null;
+      source_client_message_id: string | null;
     }>({
-      text: 'SELECT space_id, source_event_id, source_profile_id FROM "openmeld"."openMeldDaemon_dispatch_ledger" WHERE dispatch_id = $1 AND target_profile_id = $2 LIMIT 1',
+      text: 'SELECT space_id, source_event_id, source_profile_id, source_client_message_id FROM "openmeld"."openMeldDaemon_dispatch_ledger" WHERE dispatch_id = $1 AND target_profile_id = $2 LIMIT 1',
       values: [input.dispatchId, input.agentProfileId],
     })
     .then((result) => result.rows[0] ?? null);
@@ -39,5 +40,6 @@ export async function readPluginDispatchRequester(input: {
     profileId: ledger.source_profile_id,
     spaceId: ledger.space_id,
     sourceSignalId: ledger.source_event_id,
+    sourceClientMessageId: ledger.source_client_message_id,
   };
 }

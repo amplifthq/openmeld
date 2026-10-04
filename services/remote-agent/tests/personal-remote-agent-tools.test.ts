@@ -80,7 +80,7 @@ describe("personal Remote Agent capabilities", () => {
       },
     });
   });
-  it("retains conversation tools without optional shared-context tools", () => {
+  it("keeps baseline collaboration tools and exposes bounded evidence reads", () => {
     const tools = getPersonalRemoteAgentTools({
       coreWorker: {},
       submissionId: "older-submission",
@@ -89,6 +89,9 @@ describe("personal Remote Agent capabilities", () => {
       "openmeld_read_space_wake_progress",
       "openmeld_stop_space_wake",
       "openmeld_read_space_messages",
+      "openmeld_read_space_evidence",
+      "openmeld_read_space_file_evidence",
+      "openmeld_read_space_thread",
       "openmeld_read_space_members",
       "openmeld_wake_agent_in_space",
       "openmeld_set_reply_placement",
@@ -112,6 +115,9 @@ describe("personal Remote Agent capabilities", () => {
       "openmeld_read_space_wake_progress",
       "openmeld_stop_space_wake",
       "openmeld_read_space_messages",
+      "openmeld_read_space_evidence",
+      "openmeld_read_space_file_evidence",
+      "openmeld_read_space_thread",
       "openmeld_read_space_members",
       "openmeld_wake_agent_in_space",
       "openmeld_set_reply_placement",
