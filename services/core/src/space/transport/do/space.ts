@@ -24956,7 +24956,12 @@ function isWakeSourceSignal(signal: SignalEnvelope | null): signal is Extract<
 function readMessageDetailsReplyToSignalId(
   signal: MessageDetailsSignal
 ): string | null {
-  return normalizeOptionalText(signal.data.replyTo?.signalId);
+  return normalizeOptionalText(
+    signal.type === "signal.text"
+      ? (signal.data.messageEnvelope?.replyToSignalId ??
+          signal.data.replyTo?.signalId)
+      : signal.data.replyTo?.signalId
+  );
 }
 function resolveMessageDetailsWakeSourceSignal(input: {
   replySignal: MessageDetailsSignal | null;
