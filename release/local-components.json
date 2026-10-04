@@ -1,28 +1,28 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-03T15:00:28.963Z",
+  "updatedAt": "2026-10-03T16:42:05.810Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
       "packageVersion": "0.3.240",
       "updatePolicy": "available",
-      "reason": "Integrates exact evidence tools with current main task knowledge and typed private Plugin requests."
+      "reason": "Existing CLI commands remain compatible with both cloud versions; the version accompanies the updated shared Service package."
     },
     "service": {
-      "bundleHash": "31df45f2440c1a7348e78c0f69d24dba78c7b4e416a0d4f5cc23796ee9f7720b",
-      "portableBundleHash": "c0b220c6a8eda952eab7bb3a13421339c8dad5b864ced53b738f281bd7e79e8f",
+      "bundleHash": "bd0171df578786cfdadb0424193c5d8d3f829aafe0f32387ade813b8c099896b",
+      "portableBundleHash": "f04eb0e1ef1f25d1ac2d47016b2650f33be159e5d9b9bcc2fc2737b0ff923f66",
       "bundleVersion": "0.3.240",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
       "serviceContractVersion": "openmeld-service-contract-2026-09-local-install-recovery-v1",
       "updatePolicy": "available",
-      "reason": "Preserves current main dispatch knowledge and exact evidence context together."
+      "reason": "The added reply placement fields are opt-in and optional; existing Services remain compatible with old and new cloud receivers."
     },
     "skills": {
-      "bundleHash": "3969dce0d427bd0801a57f0094526322712f3d5f87dcf0d6d0c410eb4b3d3e78",
+      "bundleHash": "74569de82e8b0aa6803bd418ae8eab60063a4bda19e0173a66628b4d93d9fa98",
       "skillContractVersion": "openmeld-skills-contract-2026-09-explicit-space-recipients-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Retains current main managed guidance and receipt-guided recovery; no automatic update."
+      "reason": "The revised guide and DM commands require CLI 0.3.238, while existing Skills remain usable. Publish the matching CLI before distributing the new Skill to local users."
     }
   }
 }

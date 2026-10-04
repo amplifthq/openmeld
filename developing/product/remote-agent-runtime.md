@@ -1164,6 +1164,11 @@ the connected provider API.
    are not sent to CardKit or counted as visible progress. Slack retains its
    own publication path. The same durable card is finalized after the result;
    streaming is not a second response or an execution-completion signal.
+   The same publisher sends the first Web/Space text immediately and coalesces
+   subsequent text at 100 ms. An assistant `message_end` flushes its buffered
+   tail before any post-response compaction; prompt completion still owns final
+   execution settlement. Short answers must not wait for a later token or for
+   compaction to become visible.
    Lark-platform event ingestion is bounded to four Queue attempts. Exhaustion
    records one durable failed ingress and stops; it never resets the attempt
    count by creating a fresh copy of the same event. Replayed provider images

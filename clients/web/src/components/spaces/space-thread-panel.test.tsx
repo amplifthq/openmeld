@@ -292,7 +292,7 @@ describe("SpaceThreadPanel", () => {
 
 	it("hides redundant mention guidance in an Agent DM thread", () => {
 		renderThreadPanel({
-			agentDirectConversationKind: "direct_message",
+			automaticWakeConversationKind: "one_human_agent",
 		});
 
 		expect(
@@ -1424,7 +1424,7 @@ function renderThreadPanel(
 			updatedAt: "2026-04-11T00:00:00.000Z",
 		},
 		agentRecoveryPlansByProfileId: new Map(),
-		agentDirectConversationKind: null,
+		automaticWakeConversationKind: null,
 		agentStreams: [],
 		composerBlockedWakeProfileId: null,
 		composerErrorMessage: null,

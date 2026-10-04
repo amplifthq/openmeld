@@ -750,7 +750,8 @@ isDirectMessage = purpose is openmeld_dm_space
 
 Active member count uses the same active membership semantics as the normal
 Space member directory. This derived predicate is the single product meaning
-used by navigation, headers, and dispatch planning. Do not reimplement local
+used by navigation and headers. Automatic Wake addressing is derived separately
+from active membership. Do not reimplement local
 "looks like a DM" checks from name, visibility, member types, or route shape.
 
 Every DM is created with `members_only` access. Only its creator, an active
@@ -916,18 +917,29 @@ classification and owns its pending shell; it must not render or briefly pass
 through the Spaces sidebar. Clients do not offer a Direct Message to the
 signed-in Human Profile or to a member without an active Human Profile identity.
 
-In current DM state with exactly one active Human Profile and one active Agent
-Profile, a text message authored by the human automatically triggers the agent
+In a current DM or the main conversation of an ordinary Space with exactly one
+active Human Profile and one active Agent Profile, a text message authored by
+that human automatically triggers the agent
 through the same dispatch decision as an explicit Wake. After the target is
 selected, Binding kind chooses exactly one execution family: workstation
 Bindings use outbox, Queue, RuntimeCoordinator, and readiness; the
 `hosted:center-agent` Binding uses the Remote Agent native-delivery contract.
 Neither path may fall back to or also run the other. The dispatch prompt
-receives dynamic DM context telling the agent that the message is addressed
-directly to it and no mention is needed. Agent-authored messages never
-auto-trigger, even in a DM, to prevent agent-to-agent ping-pong. Human-human
-DMs, converted DM-origin Spaces, ordinary two-member Spaces without DM origin,
-and group Spaces keep the normal explicit Wake / mention behavior.
+receives one-human/one-agent context telling the agent that the message is addressed
+directly to it and no mention is needed. Under this automatic addressing rule,
+Agent-authored messages never auto-trigger, even in a DM, to prevent agent-to-agent ping-pong. Human-human and Agent-Agent
+conversations do not automatically Wake an Agent. Ordinary group Spaces require
+explicit Wake / mention addressing under the default mention-only policy.
+Adding a third active member disables membership-based automatic Wake; returning
+to one human and one Agent restores it for new messages. Online presence does
+not change membership. Converted DM-origin Spaces follow this ordinary Space
+addressing rule without regaining DM identity, privacy or mutation restrictions.
+Explicit Reference remains an opt-out. Existing explicit listen-all Space policy
+is separate from this default and is not enabled by membership changes.
+Agents use structured Wake targets to request another Agent's work; a plain reply
+never implies another Agent-to-Agent Wake under the default policy.
+Ordinary Space Threads retain their independent participant-based addressing;
+the containing Space's member count does not restrict a one-human/one-agent Thread.
 
 ## Legacy Welcoming Spaces
 
@@ -942,9 +954,8 @@ conversation mode. Current lists hide them, they do not auto-dispatch like Direc
 Messages, and the composer must not present them as an `@`-optional agent direct
 conversation. First-touch onboarding now belongs to the Center Agent DM.
 
-Do not generalize legacy welcoming behavior to ordinary Spaces. An ordinary
-Space with exactly one Human Profile and one Agent Profile keeps normal explicit
-Wake / mention behavior unless it has DM origin.
+Legacy Welcoming Spaces remain excluded from membership-based automatic Wake.
+Ordinary Spaces use the one-human/one-agent addressing rule above.
 
 ## Weekly Quality Reports
 
@@ -1486,10 +1497,13 @@ reject that Wake action instead of silently posting it to the main Space.
 A reply should appear where the user expects the conversation to continue.
 
 For Local Agents, personal Remote Agents, and interactive Center Agent turns in
-shared Spaces, the final answer belongs in the Thread under the triggering
-message by default. Existing Thread conversations continue there; direct
-messages remain direct. A user may request the main conversation, or an Agent
-may put a conclusion, decision, or blocker there when the whole Space needs it.
+shared Spaces, existing Thread conversations continue there by default. A main
+conversation request in a Direct Message or an ordinary Space with exactly one
+active human and one active Agent defaults to main. Other main-conversation
+requests default to the Thread under the triggering message. These defaults
+are recommendations: explicit user instructions take precedence, and an Agent
+may choose the location that fits the task, including a main-conversation
+announcement or a focused Thread exchange.
 That choice must be structured: Local Agents select `placement=conversation`
 on their final reply, while hosted Agents use `openmeld_set_reply_placement`.
 Answer text alone never changes placement. Do not also publish a copy in the
@@ -1503,17 +1517,27 @@ observation scope or RuntimeCoordinator execution authority.
 For interactive Center Agent turns, follow an explicit user preference for the
 main conversation, including a continuing preference while it remains relevant.
 The Center Agent selects that destination with `openmeld_set_reply_placement`
-before composing its answer.
-While the destination is unresolved, Web does not present a shared-Space Center
-Agent as working in the main conversation. Once Space selects a Thread, the
+as early as possible, preferably before public progress. Center and personal
+Remote Agents can change their selection until final publication begins.
+Reconsider each request using current instructions and relevant conversation
+preferences; a per-dispatch selection is not a permanent Space setting.
+While the destination is unresolved, Web presents the unfinished Agent reply in
+the source conversation, using the same progress projection as the sidebar and
+conversation controls. Public work and answer deltas appear in that reply as
+they arrive. This provisional presentation does not choose durable placement.
+Thinking and transient progress must not
+select a reply destination or create a Thread. Once Space selects a Thread, the
 triggering message's **Open thread** entrance shows the compact current status
 and an authorized Stop control; the complete progress and final answer appear
 in that Thread. A final reply preview replaces the interim entrance status.
 
 Space owns one durable output placement per dispatch, separate from source
-context and conversation continuity. Explicit selection or the first answer
-text locks the destination. Streaming, final publication, callback failures,
-and result recovery reuse it. Pre-execution system notices still follow the
+context and conversation continuity. Explicit selection and the first answer
+text resolve an editable destination. Public work, reply drafts, and active
+status follow the current selection, including changes with no new text delta.
+Final publication locks the destination for callbacks and result recovery.
+An abandoned empty Thread does not retain an active preview entrance; existing
+Thread content is never deleted when placement changes. Pre-execution system notices still follow the
 source message. Routines and external Message Channels keep their own policies.
 
 Guide answer detail positively: prioritize useful new information, make outcomes

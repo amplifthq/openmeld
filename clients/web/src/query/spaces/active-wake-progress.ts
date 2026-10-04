@@ -226,6 +226,7 @@ export function spaceActiveWakeProgressSummaryQueryOptions(input: {
 					includePageInfo: true,
 					includePreviewText: true,
 					includeSourceContext: true,
+					includeReplyPlacement: true,
 					includeTiming: true,
 					includeWaitReason: true,
 					includeDeviceWait: true,

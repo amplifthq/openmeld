@@ -297,7 +297,7 @@ export async function runPersonalRemoteAgentSpaceTool(
     const placement = await requirePersonalReplyPlacement({
       env,
       delivery,
-      lock: true,
+      lock: false,
       placement: input.operation.placement,
     });
     return personalRemoteAgentSpaceToolResponseSchema.parse({
