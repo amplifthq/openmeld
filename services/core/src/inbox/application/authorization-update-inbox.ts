@@ -1,5 +1,10 @@
+import type {
+  PostgresDatabase,
+  QueryConfig,
+  QueryResult,
+} from "@openmeld/db/postgresql";
 import type { InboxSourceTarget } from "@openmeld/schemas/types";
-import type { InboxSourceWriteGuard } from "../infrastructure/d1/inbox-item-repo";
+import type { InboxSourceWriteGuard } from "../infrastructure/postgresql/inbox-item-repo";
 import {
   prepareEnsureInboxItemStatements,
   prepareResolveInboxItemsBySourceStatements,
@@ -8,17 +13,15 @@ import {
 const SOURCE_KIND = "system_attention_event" as const;
 const SOURCE_COMPONENT = /^[a-zA-Z0-9._-]{1,100}$/u;
 export const AUTHORIZATION_UPDATE_SOURCE_PREFIX = "authorization-update:";
-
 export function authorizationUpdateSourcePrefix(sourceId: string): string {
   if (!SOURCE_COMPONENT.test(sourceId)) {
     throw new Error("Invalid authorization update source identity");
   }
   return `${AUTHORIZATION_UPDATE_SOURCE_PREFIX}${sourceId}:`;
 }
-
 /** The source owns permission truth. Inbox only projects its guarded consent request. */
 export async function requireAuthorizationUpdateInbox(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   sourceId: string;
   requirementRevision: string;
@@ -26,7 +29,10 @@ export async function requireAuthorizationUpdateInbox(input: {
   target: InboxSourceTarget;
   occurredAtMs: number;
   nowMs: number;
-  members: readonly { userId: string; role: string }[];
+  members: readonly {
+    userId: string;
+    role: string;
+  }[];
   sourceGuard: InboxSourceWriteGuard;
 }): Promise<void> {
   if (!SOURCE_COMPONENT.test(input.requirementRevision)) {
@@ -40,7 +46,7 @@ export async function requireAuthorizationUpdateInbox(input: {
         .map((member) => member.userId)
     ),
   ];
-  const statements: D1PreparedStatement[] = [];
+  const statements: QueryConfig[] = [];
   for (const recipientUserId of recipients) {
     const prepared = await prepareEnsureInboxItemStatements({
       db: input.db,
@@ -64,27 +70,33 @@ export async function requireAuthorizationUpdateInbox(input: {
     statements.push(...prepared.statements);
   }
   if (statements.length) {
-    await input.db.batch(statements);
+    await input.db.transaction(async (client) => {
+      const results: QueryResult[] = [];
+      for (const query of statements) {
+        results.push(await client.query(query));
+      }
+      return results;
+    });
   }
 }
-
 export async function resolveAuthorizationUpdateInbox(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   sourceId: string;
   nowMs: number;
   sourceGuard: InboxSourceWriteGuard;
 }): Promise<void> {
   const prefix = authorizationUpdateSourcePrefix(input.sourceId);
-  const rows = await input.db
-    .prepare(
-      "SELECT DISTINCT source_key FROM inbox_items WHERE organization_id = ? AND source_kind = ? AND substr(source_key, 1, ?) = ? AND resolution_status = 'open'"
-    )
-    .bind(input.organizationId, SOURCE_KIND, prefix.length, prefix)
-    .all<{ source_key: string }>();
-  for (const row of rows.results) {
-    await input.db.batch(
-      prepareResolveInboxItemsBySourceStatements({
+  const rows = await input.db.query<{
+    source_key: string;
+  }>({
+    text: 'SELECT DISTINCT source_key FROM "openmeld"."inbox_items" WHERE organization_id = $1 AND source_kind = $2 AND substr(source_key, 1, $3) = $4 AND resolution_status = \'open\'',
+    values: [input.organizationId, SOURCE_KIND, prefix.length, prefix],
+  });
+  for (const row of rows.rows) {
+    await input.db.transaction(async (client) => {
+      const results: QueryResult[] = [];
+      for (const query of prepareResolveInboxItemsBySourceStatements({
         db: input.db,
         organizationId: input.organizationId,
         sourceKind: SOURCE_KIND,
@@ -92,7 +104,10 @@ export async function resolveAuthorizationUpdateInbox(input: {
         resolvedAtMs: input.nowMs,
         markRead: true,
         sourceGuard: input.sourceGuard,
-      })
-    );
+      })) {
+        results.push(await client.query(query));
+      }
+      return results;
+    });
   }
 }

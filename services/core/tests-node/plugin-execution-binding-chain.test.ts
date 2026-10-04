@@ -5,10 +5,7 @@ import {
   readSpacePluginConnectionBinding,
 } from "../src/connectors/plugin-connection-execution-binding";
 import type { CoreBindings } from "../src/lib/bindings";
-import {
-  applyDrizzleMigrationsForTables,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 const owners = vi.hoisted(() => ({
   space: vi.fn(),
@@ -19,19 +16,23 @@ const owners = vi.hoisted(() => ({
 vi.mock("../src/rpc/methods", () => ({
   rpcReadPluginConnectionContinuationBinding: owners.space,
 }));
-vi.mock("../src/lib/bindings", () => ({ wakeEvidenceDb: () => ({}) }));
 vi.mock(
-  "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo",
+  "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo",
   () => ({
     readRemoteAgentNativeDeliveryBySubmissionId: owners.delivery,
     readRemoteAgentNativeDeliveryByDeliveryId: owners.parent,
   })
 );
 vi.mock(
-  "../src/remote-agent/infrastructure/d1/plugin-channel-metadata-repo",
+  "../src/remote-agent/infrastructure/postgresql/plugin-channel-metadata-repo",
   () => ({ readPluginChannelMetadata: owners.metadata })
 );
-const env = {} as CoreBindings;
+const env = {
+  OPENMELD_POSTGRESQL: {
+    connectionString:
+      "postgresql://projection_fixture@127.0.0.1:1/projection_fixture",
+  },
+} as CoreBindings;
 const request = createSubmitTurnRequest();
 const context = {
   activeOrganizationId: request.organizationId,
@@ -77,12 +78,12 @@ describe("explicit Plugin identities survive subsequent setup without becoming a
     "message_channel",
   ] as const)("keeps the frozen account after a real replay ACK in %s", async (conversationKind) => {
     const repo = await vi.importActual<
-      typeof import("../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo")
-    >("../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo");
-    const harness = createSqliteD1Harness();
-    applyDrizzleMigrationsForTables(harness, [
-      "openMeldRemoteAgent_native_delivery_ledger",
-    ]);
+      typeof import("../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo")
+    >(
+      "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo"
+    );
+    const harness = await createPostgresHarness();
+
     try {
       await repo.upsertRemoteAgentNativeDeliveryRecord({
         ...delivery,
@@ -109,9 +110,9 @@ describe("explicit Plugin identities survive subsequent setup without becoming a
         providerPublicationIdempotencyKey:
           conversationKind === "message_channel" ? "publication-1" : null,
       });
-      harness.run({
-        sql: "UPDATE openMeldRemoteAgent_native_delivery_ledger SET execution_recovery_submit_request_json = ? WHERE delivery_id = ?",
-        params: [JSON.stringify(request), delivery.deliveryId],
+      await harness.query({
+        text: 'UPDATE "openmeld"."openMeldRemoteAgent_native_delivery_ledger" SET execution_recovery_submit_request_json = $1 WHERE delivery_id = $2',
+        values: [JSON.stringify(request), delivery.deliveryId],
       });
       const ack = await repo.markRemoteAgentNativeDeliveryAck({
         db: harness.db,
@@ -136,7 +137,7 @@ describe("explicit Plugin identities survive subsequent setup without becoming a
         readPluginConnectionExecutionBinding(env, context, "linear")
       ).resolves.toMatchObject(selection);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
   it.each([

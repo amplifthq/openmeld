@@ -5,7 +5,7 @@ import {
   type InferSelectModel,
   inArray,
 } from "@openmeld/db/query";
-import type { createD1Db } from "../db";
+import type { createAuthDatabase } from "../db";
 import type { OpenMeldProfileSpaceCreatorKind } from "../db/profile-space-history.schema";
 import { openMeldSpaceDeletionTombstones } from "../db/space-deletion-tombstone.schema";
 
@@ -43,7 +43,7 @@ export type SpaceDeletionTombstoneRepository = {
   ) => Promise<SpaceDeletionTombstoneRecord>;
 };
 
-type OpenMeldProfileDatabase = ReturnType<typeof createD1Db>;
+type OpenMeldProfileDatabase = ReturnType<typeof createAuthDatabase>;
 
 export function createDrizzleSpaceDeletionTombstoneRepository(
   db: OpenMeldProfileDatabase

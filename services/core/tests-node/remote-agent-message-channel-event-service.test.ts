@@ -1,3 +1,4 @@
+import { PostgresDatabase } from "@openmeld/db/postgresql";
 import { buildMessageChannelConversationId } from "@openmeld/schemas";
 import type {
   ChannelContext,
@@ -25,8 +26,14 @@ describe("Remote Agent Message Channel event service", () => {
     const adapter = createProviderAdapter();
     const result = await processRemoteAgentMessageChannelEvent(
       {
-        db: {} as D1Database,
-        identityDb: {} as D1Database,
+        db: new PostgresDatabase({
+          connectionString:
+            "postgresql://127.0.0.1:1/unexpected_test_database_access",
+        }),
+        identityDb: new PostgresDatabase({
+          connectionString:
+            "postgresql://127.0.0.1:1/unexpected_test_database_access",
+        }),
         env: {} as CoreBindings,
         envelope: { ...createEnvelope(), connectionGeneration: 2 },
         queueAttempts: 1,
@@ -71,10 +78,16 @@ describe("Remote Agent Message Channel event service", () => {
 
     const result = await processRemoteAgentMessageChannelEvent(
       {
-        db: {} as D1Database,
+        db: new PostgresDatabase({
+          connectionString:
+            "postgresql://127.0.0.1:1/unexpected_test_database_access",
+        }),
         env: {} as CoreBindings,
         envelope,
-        identityDb: {} as D1Database,
+        identityDb: new PostgresDatabase({
+          connectionString:
+            "postgresql://127.0.0.1:1/unexpected_test_database_access",
+        }),
         queueAttempts: 1,
         queueMessageId: "queue_message_1",
         registry: createMessageChannelProviderRegistry([adapter]),
@@ -175,10 +188,16 @@ describe("Remote Agent Message Channel event service", () => {
 
     await processRemoteAgentMessageChannelEvent(
       {
-        db: {} as D1Database,
+        db: new PostgresDatabase({
+          connectionString:
+            "postgresql://127.0.0.1:1/unexpected_test_database_access",
+        }),
         env: {} as CoreBindings,
         envelope,
-        identityDb: {} as D1Database,
+        identityDb: new PostgresDatabase({
+          connectionString:
+            "postgresql://127.0.0.1:1/unexpected_test_database_access",
+        }),
         queueAttempts: 1,
         queueMessageId: "queue_message_1",
         registry: createMessageChannelProviderRegistry([adapter]),
@@ -225,10 +244,16 @@ describe("Remote Agent Message Channel event service", () => {
 
     await processRemoteAgentMessageChannelEvent(
       {
-        db: {} as D1Database,
+        db: new PostgresDatabase({
+          connectionString:
+            "postgresql://127.0.0.1:1/unexpected_test_database_access",
+        }),
         env: {} as CoreBindings,
         envelope,
-        identityDb: {} as D1Database,
+        identityDb: new PostgresDatabase({
+          connectionString:
+            "postgresql://127.0.0.1:1/unexpected_test_database_access",
+        }),
         queueAttempts: 1,
         queueMessageId: "queue_message_1",
         registry: createMessageChannelProviderRegistry([adapter]),
@@ -271,10 +296,16 @@ describe("Remote Agent Message Channel event service", () => {
     await expect(
       processRemoteAgentMessageChannelEvent(
         {
-          db: {} as D1Database,
+          db: new PostgresDatabase({
+            connectionString:
+              "postgresql://127.0.0.1:1/unexpected_test_database_access",
+          }),
           env: {} as CoreBindings,
           envelope,
-          identityDb: {} as D1Database,
+          identityDb: new PostgresDatabase({
+            connectionString:
+              "postgresql://127.0.0.1:1/unexpected_test_database_access",
+          }),
           queueAttempts: 1,
           queueMessageId: "queue_message_model_unavailable",
           registry: createMessageChannelProviderRegistry([adapter]),
@@ -337,12 +368,18 @@ describe("Remote Agent Message Channel event service", () => {
 
     await processRemoteAgentMessageChannelEvent(
       {
-        db: {} as D1Database,
+        db: new PostgresDatabase({
+          connectionString:
+            "postgresql://127.0.0.1:1/unexpected_test_database_access",
+        }),
         env: {
           OPENMELD_SPACE_ATTACHMENTS: {} as R2Bucket,
         } as CoreBindings,
         envelope,
-        identityDb: {} as D1Database,
+        identityDb: new PostgresDatabase({
+          connectionString:
+            "postgresql://127.0.0.1:1/unexpected_test_database_access",
+        }),
         queueAttempts: 1,
         queueMessageId: "queue_message_image_1",
         registry: createMessageChannelProviderRegistry([adapter]),
@@ -399,10 +436,16 @@ describe("Remote Agent Message Channel event service", () => {
     await expect(
       processRemoteAgentMessageChannelEvent(
         {
-          db: {} as D1Database,
+          db: new PostgresDatabase({
+            connectionString:
+              "postgresql://127.0.0.1:1/unexpected_test_database_access",
+          }),
           env: {} as CoreBindings,
           envelope,
-          identityDb: {} as D1Database,
+          identityDb: new PostgresDatabase({
+            connectionString:
+              "postgresql://127.0.0.1:1/unexpected_test_database_access",
+          }),
           queueAttempts: 1,
           queueMessageId: "queue_message_image_retry_1",
           registry: createMessageChannelProviderRegistry([adapter]),
@@ -428,10 +471,16 @@ describe("Remote Agent Message Channel event service", () => {
     await expect(
       processRemoteAgentMessageChannelEvent(
         {
-          db: {} as D1Database,
+          db: new PostgresDatabase({
+            connectionString:
+              "postgresql://127.0.0.1:1/unexpected_test_database_access",
+          }),
           env: {} as CoreBindings,
           envelope,
-          identityDb: {} as D1Database,
+          identityDb: new PostgresDatabase({
+            connectionString:
+              "postgresql://127.0.0.1:1/unexpected_test_database_access",
+          }),
           queueAttempts: 1,
           queueMessageId: "queue_message_1",
           registry: createMessageChannelProviderRegistry([adapter]),
@@ -468,10 +517,16 @@ describe("Remote Agent Message Channel event service", () => {
     await expect(
       processRemoteAgentMessageChannelEvent(
         {
-          db: {} as D1Database,
+          db: new PostgresDatabase({
+            connectionString:
+              "postgresql://127.0.0.1:1/unexpected_test_database_access",
+          }),
           env: {} as CoreBindings,
           envelope,
-          identityDb: {} as D1Database,
+          identityDb: new PostgresDatabase({
+            connectionString:
+              "postgresql://127.0.0.1:1/unexpected_test_database_access",
+          }),
           queueAttempts: 1,
           queueMessageId: "queue_message_provider_retry",
           registry: createMessageChannelProviderRegistry([adapter]),
@@ -492,10 +547,16 @@ describe("Remote Agent Message Channel event service", () => {
     await expect(
       processRemoteAgentMessageChannelEvent(
         {
-          db: {} as D1Database,
+          db: new PostgresDatabase({
+            connectionString:
+              "postgresql://127.0.0.1:1/unexpected_test_database_access",
+          }),
           env: {} as CoreBindings,
           envelope,
-          identityDb: {} as D1Database,
+          identityDb: new PostgresDatabase({
+            connectionString:
+              "postgresql://127.0.0.1:1/unexpected_test_database_access",
+          }),
           queueAttempts: 1,
           queueMessageId: "queue_card_action_1",
           registry: createMessageChannelProviderRegistry([adapter]),
@@ -543,10 +604,16 @@ describe("Remote Agent Message Channel event service", () => {
     await expect(
       processRemoteAgentMessageChannelEvent(
         {
-          db: {} as D1Database,
+          db: new PostgresDatabase({
+            connectionString:
+              "postgresql://127.0.0.1:1/unexpected_test_database_access",
+          }),
           env: {} as CoreBindings,
           envelope,
-          identityDb: {} as D1Database,
+          identityDb: new PostgresDatabase({
+            connectionString:
+              "postgresql://127.0.0.1:1/unexpected_test_database_access",
+          }),
           queueAttempts: 1,
           queueMessageId: "queue_message_1",
           registry: createMessageChannelProviderRegistry([adapter]),

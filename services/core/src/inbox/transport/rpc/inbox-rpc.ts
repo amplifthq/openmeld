@@ -1,3 +1,4 @@
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import {
   centerAgentInboxSummaryResponseSchema,
   dismissInboxItemResponseSchema,
@@ -74,13 +75,8 @@ import type {
   UpdateInboxMessageNotificationPreferencesRpcInput,
   UpdateInboxNotificationPreferencesRpcInput,
 } from "@openmeld/schemas/types";
-import {
-  agentTaskCoordinationDb,
-  type CoreBindings,
-  identityDb,
-  inboxDb,
-  wakeEvidenceDb,
-} from "../../../lib/bindings";
+import { reconcilePluginActionRequestInbox } from "../../../connectors/plugin-action-requests";
+import type { CoreBindings } from "../../../lib/bindings";
 import { reconcileInvitationInbox } from "../../../organizations/invitation-inbox-projection";
 import { resolveActiveOrganizationMembership } from "../../../organizations/organization-context";
 import { reconcileTaskContinuationInbox } from "../../../remote-agent/application/native-delivery-inbox-reconciliation";
@@ -569,7 +565,7 @@ async function prepareRequest(
       status: membership.status,
     });
   }
-  const db = inboxDb(env);
+  const db = getPostgresDatabase(env);
   if (!db) {
     throw createCoreRpcHttpError({
       code: "inbox.store_unavailable",
@@ -577,19 +573,19 @@ async function prepareRequest(
       status: 503,
     });
   }
-  const sourceDb = wakeEvidenceDb(env);
-  const identityOwnerDb = identityDb(env);
-  const coordinationDb = agentTaskCoordinationDb(env);
-  if (sourceDb && identityOwnerDb && coordinationDb) {
-    await reconcileTaskContinuationInbox({
-      inboxDb: db,
-      sourceDb,
-      identityDb: identityOwnerDb,
-      coordinationDb,
-      organizationId: membership.organizationId,
-      recipientUserId: membership.userId,
-    });
-  }
+  await reconcilePluginActionRequestInbox({
+    db,
+    organizationId: membership.organizationId,
+    userId: membership.userId,
+  });
+  await reconcileTaskContinuationInbox({
+    inboxDb: db,
+    sourceDb: db,
+    identityDb: db,
+    coordinationDb: db,
+    organizationId: membership.organizationId,
+    recipientUserId: membership.userId,
+  });
   return {
     db,
     organizationId: membership.organizationId,

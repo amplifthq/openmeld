@@ -1,10 +1,11 @@
+import type { PostgreSQLBinding } from "@openmeld/db/postgresql";
+
 type CoreProfileLifecycleWorker = Service<
   typeof import("../../../core/src/index").ProfileLifecycleEntrypoint
 >;
-
 export type AuthBindings = {
   AUTH_EMAIL: SendEmail;
-  OPENMELD_DB: D1Database;
+  OPENMELD_POSTGRESQL: PostgreSQLBinding;
   OPENMELD_AUTH_KV: KVNamespace;
   OPENMELD_ORGANIZATION_JOIN_LINK_ACCEPT_RATE_LIMITER: RateLimit;
   OPENMELD_CORE_WORKER?: CoreProfileLifecycleWorker;

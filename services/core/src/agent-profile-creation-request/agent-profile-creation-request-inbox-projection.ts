@@ -1,9 +1,10 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import type { AgentProfileCreationRequest } from "@openmeld/schemas/types";
 import {
   projectAgentProfileCreationRequestInbox,
   resolveAgentProfileCreationRequestInbox,
 } from "./agent-profile-creation-request-inbox";
-import { createD1AgentProfileCreationRequestRepository } from "./agent-profile-creation-request-repository";
+import { createPostgresAgentProfileCreationRequestRepository } from "./agent-profile-creation-request-repository";
 import {
   type AgentProfileCreationRequestInboxProjectionRecord,
   type AgentProfileCreationRequestRepository,
@@ -12,7 +13,6 @@ import {
 
 const RETRY_DELAYS_MS = [2000, 5000, 15_000, 60_000] as const;
 const MAX_RETRY_DELAY_MS = 60_000;
-
 export function createAgentProfileCreationRequestInboxProjectionService(input: {
   now?: () => number;
   project: (request: AgentProfileCreationRequest) => Promise<void>;
@@ -20,7 +20,6 @@ export function createAgentProfileCreationRequestInboxProjectionService(input: {
   resolve: (request: AgentProfileCreationRequest) => Promise<void>;
 }) {
   const now = input.now ?? Date.now;
-
   const attempt = async (
     projection: AgentProfileCreationRequestInboxProjectionRecord
   ): Promise<"completed" | "failed" | "superseded"> => {
@@ -77,7 +76,6 @@ export function createAgentProfileCreationRequestInboxProjectionService(input: {
       return "failed";
     }
   };
-
   const attemptLatest = async (
     requestId: string,
     initial?: AgentProfileCreationRequestInboxProjectionRecord
@@ -98,17 +96,19 @@ export function createAgentProfileCreationRequestInboxProjectionService(input: {
     }
     return "superseded";
   };
-
   return {
     attemptForRequest: async (requestId: string): Promise<void> => {
       await input.repository.synchronizeInboxProjectionIntents({ requestId });
       await attemptLatest(requestId);
     },
-
     retryDue: async (retryInput: {
       limit: number;
       nowMs: number;
-    }): Promise<{ completed: number; failed: number; scanned: number }> => {
+    }): Promise<{
+      completed: number;
+      failed: number;
+      scanned: number;
+    }> => {
       await input.repository.synchronizeInboxProjectionIntents();
       const projections =
         await input.repository.listDueInboxProjections(retryInput);
@@ -126,9 +126,8 @@ export function createAgentProfileCreationRequestInboxProjectionService(input: {
     },
   };
 }
-
-export function createD1AgentProfileCreationRequestInboxProjectionService(input: {
-  db: D1Database;
+export function createPostgresAgentProfileCreationRequestInboxProjectionService(input: {
+  db: PostgresDatabase;
   now?: () => number;
 }) {
   return createAgentProfileCreationRequestInboxProjectionService({
@@ -139,7 +138,7 @@ export function createD1AgentProfileCreationRequestInboxProjectionService(input:
         nowMs: input.now?.() ?? Date.now(),
         request,
       }),
-    repository: createD1AgentProfileCreationRequestRepository(input.db),
+    repository: createPostgresAgentProfileCreationRequestRepository(input.db),
     resolve: async (request) =>
       await resolveAgentProfileCreationRequestInbox({
         db: input.db,
@@ -148,13 +147,16 @@ export function createD1AgentProfileCreationRequestInboxProjectionService(input:
       }),
   });
 }
-
 export async function retryAgentProfileCreationRequestInboxProjections(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   limit?: number;
   nowMs: number;
-}): Promise<{ completed: number; failed: number; scanned: number }> {
-  return await createD1AgentProfileCreationRequestInboxProjectionService({
+}): Promise<{
+  completed: number;
+  failed: number;
+  scanned: number;
+}> {
+  return await createPostgresAgentProfileCreationRequestInboxProjectionService({
     db: input.db,
     now: () => input.nowMs,
   }).retryDue({
@@ -162,14 +164,12 @@ export async function retryAgentProfileCreationRequestInboxProjections(input: {
     nowMs: input.nowMs,
   });
 }
-
 function resolveRetryDelayMs(attemptCount: number): number {
   return (
     RETRY_DELAYS_MS[Math.min(attemptCount, RETRY_DELAYS_MS.length - 1)] ??
     MAX_RETRY_DELAY_MS
   );
 }
-
 function normalizeProjectionError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   return (message.trim() || "Unknown Inbox projection failure").slice(0, 500);

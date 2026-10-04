@@ -1,15 +1,15 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import type { OpenMeldDaemonDispatchQueueMessage } from "@openmeld/schemas/types";
-import { readRuntimeRegistryRecordByRuntimeId } from "../runtime-registry/infrastructure/d1/runtime-registry-repo";
-import type { DispatchResultInboxRecord } from "../runtime-transport/infrastructure/d1/dispatch-result-inbox-repo";
-import { readRuntimeCoordinatorExecutionProjectionById } from "../runtime-transport/infrastructure/d1/runtime-coordinator-execution-repo";
-import { readOwnedDeviceRegistryRecord } from "../start/infrastructure/d1/owned-device-registry-repo";
+import { readRuntimeRegistryRecordByRuntimeId } from "../runtime-registry/infrastructure/postgresql/runtime-registry-repo";
+import type { DispatchResultInboxRecord } from "../runtime-transport/infrastructure/postgresql/dispatch-result-inbox-repo";
+import { readRuntimeCoordinatorExecutionProjectionById } from "../runtime-transport/infrastructure/postgresql/runtime-coordinator-execution-repo";
+import { readOwnedDeviceRegistryRecord } from "../start/infrastructure/postgresql/owned-device-registry-repo";
 import { recordAiUsage } from "./ai-usage-repository";
-
 // Called only for an accepted result from the durable result inbox. The local
 // process supplies usage, never Organization, Computer, or attribution authority.
 export async function recordAcceptedLocalAiUsage(input: {
-  db: D1Database;
-  identityDb: D1Database;
+  db: PostgresDatabase;
+  identityDb: PostgresDatabase;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   inboxRecord: DispatchResultInboxRecord;
 }): Promise<void> {

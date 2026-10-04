@@ -238,6 +238,7 @@ export type OpenMeldDaemonTaskErrorType =
   | "timeout";
 
 export type ParsedDispatchTask = {
+  requesterIsAgentOwner?: boolean;
   workHandoff?: import("@openmeld/schemas").SpaceWorkHandoff;
   workingCopyId?: string;
   executionContext?: import("@openmeld/schemas/types").ExecutionContextTask;
@@ -285,6 +286,7 @@ export type ParsedDispatchTask = {
 };
 
 export type DispatchPromptBootstrapInput = {
+  requesterIsAgentOwner?: ParsedDispatchTask["requesterIsAgentOwner"];
   executionContextAccess?: NonNullable<
     ParsedDispatchTask["executionContext"]
   >["access"];

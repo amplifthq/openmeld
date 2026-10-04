@@ -436,6 +436,9 @@ function resolveOrderedWakeTargetProfileIds(
 export function buildSpaceWakeStopSelectorKey(
 	selector: SpaceWakeStopSelector
 ): string {
+	if (selector.dispatchId) {
+		return `dispatch:${selector.dispatchId}:${selector.targetProfileId}`;
+	}
 	if (selector.by === "source_signal") {
 		return `source_signal:${selector.sourceSignalId}:${selector.targetProfileId}`;
 	}
@@ -796,6 +799,7 @@ function resolveWakeStopSelector(input: {
 			by: "client_message",
 			clientMessageId,
 			targetProfileId: input.item.targetProfileId,
+			...(input.item.dispatchId ? { dispatchId: input.item.dispatchId } : {}),
 		};
 	}
 	const sourceSignalId =
@@ -810,6 +814,7 @@ function resolveWakeStopSelector(input: {
 			by: "source_signal",
 			sourceSignalId,
 			targetProfileId: input.item.targetProfileId,
+			...(input.item.dispatchId ? { dispatchId: input.item.dispatchId } : {}),
 		};
 	}
 

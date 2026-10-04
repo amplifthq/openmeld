@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   larkPlatformWebhookVerificationInputSchema,
   larkPlatformWebhookVerificationResponseSchema,
@@ -7,12 +8,12 @@ import type {
   LarkPlatformWebhookVerificationResponse,
 } from "@openmeld/schemas/types";
 import type { CoreBindings } from "../../lib/bindings";
-import type { LarkPlatformWebhookCredentials } from "../infrastructure/d1/lark-platform-channel-connection-repo";
+import type { LarkPlatformWebhookCredentials } from "../infrastructure/postgresql/lark-platform-channel-connection-repo";
 import {
   bindRemoteAgentLarkPlatformConnectionTenant,
   readRemoteAgentLarkPlatformWebhookContext,
-} from "../infrastructure/d1/lark-platform-channel-connection-repo";
-import { recordRemoteAgentLarkPlatformWebhookReachability } from "../infrastructure/d1/lark-platform-registration-attempt-repo";
+} from "../infrastructure/postgresql/lark-platform-channel-connection-repo";
+import { recordRemoteAgentLarkPlatformWebhookReachability } from "../infrastructure/postgresql/lark-platform-registration-attempt-repo";
 import {
   decryptLarkPlatformCredential,
   LARK_PLATFORM_CREDENTIAL_FORMAT_VERSION,
@@ -24,11 +25,9 @@ import {
 } from "./lark-platform-provider-policy";
 
 const SIGNATURE_PATTERN = /^[0-9a-f]{64}$/iu;
-
 type JsonObject = Record<string, unknown>;
-
 export async function verifyLarkPlatformWebhook(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: Pick<
     CoreBindings,
     | "OPENMELD_FEISHU_CHANNEL_ENABLED"
@@ -200,7 +199,6 @@ export async function verifyLarkPlatformWebhook(input: {
     })
   );
 }
-
 async function readConnectionWebhookSecrets(input: {
   connectionId: string;
   cryptoKey: string | undefined;
@@ -212,7 +210,10 @@ async function readConnectionWebhookSecrets(input: {
       status: "ready";
       verificationToken: string;
     }
-  | { reasonCode: string; status: "rejected" }
+  | {
+      reasonCode: string;
+      status: "rejected";
+    }
 > {
   const cryptoKey = input.cryptoKey?.trim();
   const credentials = input.credentials;
@@ -262,15 +263,20 @@ async function readConnectionWebhookSecrets(input: {
     };
   }
 }
-
 async function verifyAndDecryptPayload(input: {
   eventEncryptKey: string | null;
   headers: LarkPlatformWebhookVerificationInput["headers"];
   rawBody: string;
   rawPayload: JsonObject;
 }): Promise<
-  | { payload: JsonObject; status: "verified" }
-  | { reasonCode: string; status: "rejected" }
+  | {
+      payload: JsonObject;
+      status: "verified";
+    }
+  | {
+      reasonCode: string;
+      status: "rejected";
+    }
 > {
   const encryptedPayload = readString(input.rawPayload, "encrypt");
   if (!input.eventEncryptKey) {
@@ -328,7 +334,6 @@ async function verifyAndDecryptPayload(input: {
         status: "rejected",
       };
 }
-
 async function verifyWebhookSignature(input: {
   eventEncryptKey: string;
   headers: LarkPlatformWebhookVerificationInput["headers"];
@@ -349,7 +354,6 @@ async function verifyWebhookSignature(input: {
     .join("");
   return constantTimeEqual(signature.toLowerCase(), expected);
 }
-
 async function decryptWebhookPayload(input: {
   encryptedPayload: string;
   eventEncryptKey: string;
@@ -391,15 +395,20 @@ async function decryptWebhookPayload(input: {
     return null;
   }
 }
-
 function validateEventIdentity(input: {
   appId: string;
   payload: JsonObject;
   tenantKey: string | null;
   verificationToken: string;
 }):
-  | { status: "verified"; tenantKey: string }
-  | { reasonCode: string; status: "rejected" } {
+  | {
+      status: "verified";
+      tenantKey: string;
+    }
+  | {
+      reasonCode: string;
+      status: "rejected";
+    } {
   if (readString(input.payload, "schema") !== "2.0") {
     return {
       reasonCode: "message_channel.webhook_schema_unsupported",
@@ -435,13 +444,11 @@ function validateEventIdentity(input: {
   }
   return { status: "verified", tenantKey };
 }
-
 function response(
   value: LarkPlatformWebhookVerificationResponse
 ): LarkPlatformWebhookVerificationResponse {
   return larkPlatformWebhookVerificationResponseSchema.parse(value);
 }
-
 function parseJsonObject(value: string): JsonObject | null {
   try {
     const parsed: unknown = JSON.parse(value);
@@ -450,12 +457,10 @@ function parseJsonObject(value: string): JsonObject | null {
     return null;
   }
 }
-
 function readObject(object: JsonObject, key: string): JsonObject | null {
   const value = object[key];
   return isJsonObject(value) ? value : null;
 }
-
 function readString(object: JsonObject | null, key: string): string | null {
   const value = object?.[key];
   if (typeof value !== "string") {
@@ -464,11 +469,9 @@ function readString(object: JsonObject | null, key: string): string | null {
   const normalized = value.trim();
   return normalized.length > 0 ? normalized : null;
 }
-
 function isJsonObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
-
 function constantTimeEqual(
   first: string | null,
   second: string | null
@@ -487,7 +490,6 @@ function constantTimeEqual(
   }
   return difference === 0;
 }
-
 function toErrorMessage(error: unknown): string {
   return error instanceof Error
     ? `${error.name}: ${error.message}`

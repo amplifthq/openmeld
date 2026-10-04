@@ -1,4 +1,5 @@
 import { isPersonalOrganization } from "@openmeld/auth/server";
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   APIError,
   type AuthMiddleware,
@@ -7,47 +8,49 @@ import {
 import { logError } from "../utils/loggers";
 
 const ORGANIZATION_DELETE_PATH = "/organization/delete";
-
 const PERSONAL_ORGANIZATION_UNDELETABLE_RESPONSE = {
   code: "organization.personal_undeletable",
   message: "Personal organizations can’t be deleted.",
 } as const;
-
 const ORGANIZATION_DELETION_GUARD_FAILED_RESPONSE = {
   code: "organization.deletion_guard_failed",
   message:
     "OpenMeld couldn’t verify that this organization can be deleted. The organization was not deleted.",
 } as const;
-
 type OrganizationDeletionClassification =
-  | { status: "deletable" }
-  | { status: "indeterminate"; reason: string }
-  | { status: "personal" };
-
+  | {
+      status: "deletable";
+    }
+  | {
+      status: "indeterminate";
+      reason: string;
+    }
+  | {
+      status: "personal";
+    };
 type OrganizationMetadataRow = {
   metadata: unknown;
   slug: string;
 };
-
 export function createOrganizationDeletionGuard(
-  db: D1Database
+  db: PostgresDatabase
 ): AuthMiddleware {
   return createAuthMiddleware(async (context) => {
     if (context.path !== ORGANIZATION_DELETE_PATH) {
       return;
     }
-
     const organizationId = readOrganizationId(context.body);
     if (!organizationId) {
       return;
     }
-
     let organization: OrganizationMetadataRow | null;
     try {
       organization = await db
-        .prepare("select metadata, slug from organizations where id = ?")
-        .bind(organizationId)
-        .first<OrganizationMetadataRow>();
+        .query<OrganizationMetadataRow>({
+          text: 'select metadata, slug from "openmeld"."organizations" where id = $1',
+          values: [organizationId],
+        })
+        .then((result) => result.rows[0] ?? null);
     } catch (error) {
       logDeletionGuardFailure({
         error,
@@ -59,7 +62,6 @@ export function createOrganizationDeletionGuard(
         ORGANIZATION_DELETION_GUARD_FAILED_RESPONSE
       );
     }
-
     if (!organization) {
       logDeletionGuardFailure({
         organizationId,
@@ -70,7 +72,6 @@ export function createOrganizationDeletionGuard(
         ORGANIZATION_DELETION_GUARD_FAILED_RESPONSE
       );
     }
-
     const classification = classifyOrganizationDeletion(organization);
     if (classification.status === "personal") {
       throw new APIError(
@@ -90,7 +91,6 @@ export function createOrganizationDeletionGuard(
     }
   });
 }
-
 function classifyOrganizationDeletion(
   organization: OrganizationMetadataRow
 ): OrganizationDeletionClassification {
@@ -103,21 +103,17 @@ function classifyOrganizationDeletion(
   }
   return { status: "deletable" };
 }
-
 function readOrganizationId(body: unknown): string | null {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     return null;
   }
-
   const organizationId = (body as Record<string, unknown>).organizationId;
   if (typeof organizationId !== "string") {
     return null;
   }
-
   const normalized = organizationId.trim();
   return normalized.length > 0 ? normalized : null;
 }
-
 function logDeletionGuardFailure(input: {
   error?: unknown;
   organizationId: string;

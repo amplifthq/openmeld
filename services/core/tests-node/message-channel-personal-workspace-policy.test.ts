@@ -7,7 +7,10 @@ import {
   rpcCreateSlackOAuthState,
   rpcPollLarkPlatformRegistration,
 } from "../src/rpc/methods";
-import { createSqliteD1Harness } from "./helpers/sqlite-d1-harness.test-support";
+import {
+  createPostgresHarness,
+  postgresTestBinding,
+} from "./helpers/postgresql-harness.test-support";
 
 const PERSONAL_ORGANIZATION_ID = "org-personal";
 const OWNER_USER_ID = "user-owner";
@@ -24,51 +27,38 @@ const CONTEXT: OpenMeldRequestContext = {
 };
 
 describe("Personal Workspace Message Channel policy", () => {
-  let harness: ReturnType<typeof createSqliteD1Harness>;
+  let harness: Awaited<ReturnType<typeof createPostgresHarness>>;
   let env: CoreBindings;
 
-  beforeEach(() => {
-    harness = createSqliteD1Harness();
-    harness.run({
-      sql: `
-        CREATE TABLE organizations (
-          id TEXT PRIMARY KEY,
-          slug TEXT NOT NULL,
-          metadata TEXT
-        )
-      `,
+  beforeEach(async () => {
+    harness = await createPostgresHarness();
+    await harness.query({
+      text: `INSERT INTO "openmeld"."users" (id, name, email) VALUES ('user-owner', 'Owner', 'owner@example.test')`,
     });
-    harness.run({
-      sql: `
-        CREATE TABLE members (
-          id TEXT PRIMARY KEY,
-          organization_id TEXT NOT NULL,
-          user_id TEXT NOT NULL,
-          role TEXT NOT NULL
-        )
-      `,
-    });
-    harness.run({
-      params: [
+
+    await harness.query({
+      values: [
         PERSONAL_ORGANIZATION_ID,
         "personal-felix",
         JSON.stringify({ personal: true }),
       ],
-      sql: "INSERT INTO organizations (id, slug, metadata) VALUES (?, ?, ?)",
+      text: 'INSERT INTO "openmeld"."organizations" (id, slug, metadata, "name", "created_at") VALUES ($1, $2, $3, \'Test Organization\', 1700000000000)',
     });
-    harness.run({
-      params: [
+    await harness.query({
+      values: [
         "member-owner",
         PERSONAL_ORGANIZATION_ID,
         OWNER_USER_ID,
         "owner",
       ],
-      sql: "INSERT INTO members (id, organization_id, user_id, role) VALUES (?, ?, ?, ?)",
+      text: 'INSERT INTO "openmeld"."members" (id, organization_id, user_id, role, "created_at") VALUES ($1, $2, $3, $4, 1700000000000)',
     });
-    env = { OPENMELD_DB: harness.db } as CoreBindings;
+    env = {
+      OPENMELD_POSTGRESQL: postgresTestBinding(harness.db),
+    } as CoreBindings;
   });
 
-  afterEach(() => harness.close());
+  afterEach(async () => await harness.close());
 
   it.each([
     [

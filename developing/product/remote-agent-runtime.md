@@ -544,17 +544,68 @@ attribution, and destructive-action confirmation remain authoritative. Actions
 requiring a represented human still require the verified current human sender;
 an Agent-to-Agent handoff must not impersonate its owner to obtain those actions.
 General Computer, research, and current-Space collaboration tools remain usable
-on Agent handoffs. Recorded Center delegations have the narrow read path below.
+on Agent handoffs. Recorded Center delegations use the constrained paths below.
+
+Personal Remote Agents can read one current-Space message through
+`openmeld_read_space_evidence`, including a thread reply, and page a named thread
+through `openmeld_read_space_thread`. Exact reads reuse the existing
+`sourceRef.version`; an unavailable version or recalled message fails instead
+of substituting newer text. Long text uses bounded character pages with the
+same version on each continuation. Thread evidence pages fingerprint the complete
+current ordered source set; edits, recall, additions, or a different thread
+reject the old version. Up to 10,000 messages and 8 MiB of source envelopes are
+supported; larger sources fail explicitly. A page exposes at most 20 messages
+and 4,000 Unicode characters. Truncated messages retain exact message references
+for their remaining text. `openmeld_read_space_file_evidence` similarly reads
+4,000 characters at a time from a required Files revision and reopens that
+revision through the Files owner for every page. Each call rechecks the active execution and
+current Space membership, then reads through the ordinary Space owner. These
+tools do not authorize another Space, confer delegated Plugin permission, or
+publish private excerpts.
+
+Wake `evidenceRefs` name message/thread versions and Files revisions. The existing
+Signal metadata and dispatch outbox retain this selection. The shared source-text
+renderer carries its structured JSON to Local and Remote executions. Local
+`read_evidence`, `read_thread`, and `read_file` use the same source owners and
+version semantics. References do not widen access beyond the current Space;
+selected private material for another audience requires an explicit Files copy.
+Local transport keeps the existing wire shape by rendering references into the
+source text and removing the new snapshot field before sending to older Services.
+An older reader cannot claim exact evidence support merely because it sees the
+reference. The older live-thread RPC remains available for old callers, while
+new exact-thread calls use a distinct operation that older Core rejects.
 
 The first M2 increment provides an opt-in Core read projection through
 `authorizeRemoteAgentExecutionAccess(includeDelegatedRequester=true)`. It follows
 the exact recorded Space child task to its native Center parent, verifies the
 current Center designation, active human member and matching personal-Agent owner,
-and returns identity references only. It preserves the actual Agent execution
+and returns identity references only. In a multi-Space delegation, the matched
+child task owns its Space; the delegation's first Space does not restrict other
+recorded children. It preserves the actual Agent execution
 audience and checks the exact selected connection through the existing permission
 owner for source reads. It cannot authorize provider writes. No permanent grant
 or new persisted delegation state is created; clients without the opt-in retain
 their existing behavior.
+
+Ordinary non-GitHub Plugin reads and writes additionally require explicit
+`pluginActions` on the existing recorded Wake publication. Core fixes each
+target Agent, original human, Organization, connection owner/scope/version,
+action effect, exact input digest, and expiry (at most 24 hours). This constraint
+is part of the immutable publication command, not a separate permission store.
+The current delegation, human membership, target ownership, and connection
+access policy are rechecked before execution and retained-result disclosure.
+The requester must own the target personal Agent; shared access and Agent
+ownership never substitute for missing authorization. A child cannot redelegate.
+
+Remote callers opt into `includePluginDelegations` to discover these constraints;
+an older Core fails closed. Local callers carry the private execution-token echo
+from their admitted dispatch context. RuntimeCoordinator validates it against
+the live authority and exact binding, dispatch, Space, source message, and target.
+The token is neither a model argument nor a public receipt. A dispatch ledger row
+alone cannot authorize a delegated Local action. Older Local clients keep their
+previous behavior and cannot use the new delegation path without this proof.
+Local and Remote retain their respective current connection policies. Generic
+delegation does not relax GitHub's separate policy or destructive confirmations.
 
 Personal Remote GitHub named read tools and `github_checkout_repository` consume
 this projection for recorded Center-to-personal-Agent Space delegations. The
@@ -1116,10 +1167,13 @@ the connected provider API.
    own publication path. The same durable card is finalized after the result;
    streaming is not a second response or an execution-completion signal.
    The same publisher sends the first Web/Space text immediately and coalesces
-   subsequent text at 100 ms. An assistant `message_end` flushes its buffered
-   tail before any post-response compaction; prompt completion still owns final
-   execution settlement. Short answers must not wait for a later token or for
-   compaction to become visible.
+   subsequent text at 100 ms. A successful assistant `message_end` flushes its
+   buffered tail before any post-response compaction, provided the exact
+   execution is still active and has no requested safety failure. Failed or
+   aborted model messages do not trigger this flush. Prompt completion still
+   owns final execution settlement; showing text does not release the
+   conversation for another turn. Short answers must not wait for a later
+   token or for compaction to become visible.
    Lark-platform event ingestion is bounded to four Queue attempts. Exhaustion
    records one durable failed ingress and stops; it never resets the attempt
    count by creating a fresh copy of the same event. Replayed provider images
@@ -2094,12 +2148,44 @@ ordinary turns. Core owns only the logical-conversation-to-active-generation
 pointer. That pointer is routing metadata, not transcript, memory, execution,
 or publication truth.
 
-OpenMeld configures compaction with two explicit budgets:
+OpenMeld configures compaction with four explicit budgets:
 
 - model-specific `reserveTokens` starts compaction before the provider context
-  limit or a known higher prompt-price band; and
+  limit or a known higher prompt-price band;
 - `keepRecentTokens = 8,000` preserves the latest verbatim conversation tail
-  after older messages are summarized.
+  after older messages are summarized;
+- `workingContextTokens = 48,000`, capped by usable model capacity, checks the
+  assembled system prompt, tool definitions, and messages before every model
+  call, including tool-loop calls; and
+- `maxSummaryTokens = 4,096` caps each summary completion independently of the
+  physical model reserve. Reasoning tokens count toward this limit.
+
+The working-context budget uses the shared four-bytes-per-token text estimate
+and Flue's 1,200-token image heuristic, not an exact vendor tokenizer. Base64
+image bytes are preserved for inference and excluded from text estimation;
+the separate final payload-capacity and media-admission guards remain intact.
+Flue commits its normal compaction checkpoint and
+rebuilds its active projection before inference. The original canonical entries
+remain intact. An incomplete or empty summary cannot replace that projection.
+The working checkpoint preserves active constraints, corrections, unresolved
+work and source pointers instead of repeatedly copying every historical fact.
+The summary must not describe omitted evidence as nonexistent. During a tool
+loop, the cut retains the issuing assistant message with its tool results.
+If compaction cannot fit the current request, inference fails explicitly rather
+than silently removing the current message or sending an unbounded request.
+The final provider payload still has its separate physical-capacity guard.
+With preflight enabled, provider usage does not also trigger post-response
+compaction: internal Pro inference can inflate that usage without growing the
+assembled conversation. Overflow recovery remains available.
+
+Flue's `recall_conversation` tool searches original user/assistant text in the
+same canonical active lineage, including entries omitted from the summary.
+It returns at most eight source-attributed excerpts, a cursor for older search
+matches, and bounded entry pages. It exposes neither hidden reasoning nor tool payloads, other runtime
+conversations, or previous generations. Historical content is evidence, not
+current authorization. Product-owned history, Files, and memory tools remain
+the authorized sources across generations and for external artifacts. There
+is no copied transcript, separate search database, or second summarizer.
 
 Frozen model routes use the worker's reviewed exact-model prompt-price bands
 as well as the capacity reserve. The route's model, reasoning, modalities and
@@ -2112,9 +2198,10 @@ These are economic triggers, not provider admission limits. The final payload
 guard uses the physical window with its ordinary safety reserve, so a summary
 request can read history that crossed the cheaper band. Compaction and the
 subsequent cache rebuild both count toward actual task cost.
-The trigger is not a promise to stay below a billing tier: Flue needs a safe
-message cut point while preserving the recent tail, and a single very large
-message may defer compaction. Provider usage may aggregate internal work (for
+The trigger is not a promise to stay below a billing tier: the summary itself
+must read the older history and may enter a higher band. Flue needs a safe
+message cut point while preserving the recent tail. A single irreducible large
+current input fails the working-context admission check explicitly. Provider usage may aggregate internal work (for
 example Pro inference); it is not proof of physical prompt length. Evaluate
 actual total charges, summary overhead, cache writes/reads, and retained task
 constraints together before changing these reviewed policy values.
@@ -2287,6 +2374,11 @@ final-outcome authority.
   outcome. Finalization closes the projection, a successful terminal points to
   the published Space signal, and late deltas are rejected. Web must replace the
   temporary text with the durable outcome even when their text differs.
+  For a stopped outcome, Space attaches the last accepted public response text
+  to the stopped system notice. Its existing terminal guard retains the bounded
+  text snapshot until publication or expiry, including when close precedes
+  publication. Only response text is retained; this does not retain thinking,
+  public-progress drafts, or tool payloads, or convert Stop into success.
 
 This additive stream rollout is consumer first: deploy Web, then Core, then the
 Remote Agent producer. New Core accepts the legacy text callback and the typed

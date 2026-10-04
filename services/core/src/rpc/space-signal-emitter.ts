@@ -45,7 +45,6 @@ type EmitSpaceTextSignalInput = {
   replyTo?: SignalText["data"]["replyTo"];
   threadContext?: SpaceThreadContext;
 };
-
 export const emitSpaceTextSignal = async (
   input: EmitSpaceTextSignalInput
 ): Promise<SignalEnvelope | null> => {
@@ -53,7 +52,6 @@ export const emitSpaceTextSignal = async (
     await emitTransientSpaceTextSignal(input);
     return null;
   }
-
   return await rpcPostSignal(input.env, {
     ...(input.agentStreamId === undefined
       ? {}
@@ -78,9 +76,10 @@ export const emitSpaceTextSignal = async (
     ...(input.threadContext ? { threadContext: input.threadContext } : {}),
   });
 };
-
 export const emitSpaceTextSignalOnceByClientMessageId = async (
-  input: EmitSpaceTextSignalInput & { clientMessageId: string }
+  input: EmitSpaceTextSignalInput & {
+    clientMessageId: string;
+  }
 ): Promise<SignalEnvelope> => {
   return await rpcPostSignalOnceByClientMessageId(input.env, {
     ...(input.agentStreamId === undefined
@@ -107,7 +106,6 @@ export const emitSpaceTextSignalOnceByClientMessageId = async (
     ...(input.threadContext ? { threadContext: input.threadContext } : {}),
   });
 };
-
 async function emitTransientSpaceTextSignal(
   input: EmitSpaceTextSignalInput
 ): Promise<void> {
@@ -125,7 +123,6 @@ async function emitTransientSpaceTextSignal(
     ...(input.replyTo ? { replyTo: input.replyTo } : {}),
   });
 }
-
 type EmitSpaceStatusSignalInput = {
   env: CoreBindings;
   spaceId: string;
@@ -137,7 +134,6 @@ type EmitSpaceStatusSignalInput = {
   spaceAccess?: SpaceAccessContext;
   threadContext?: SpaceThreadContext;
 };
-
 type EmitSpaceSystemNoticeSignalInput = {
   env: CoreBindings;
   spaceId: string;
@@ -149,14 +145,12 @@ type EmitSpaceSystemNoticeSignalInput = {
   spaceAccess?: SpaceAccessContext;
   threadContext?: SpaceThreadContext;
 };
-
 type EmitSpaceExecutionRecoveryNoticeSignalInput = Omit<
   EmitSpaceSystemNoticeSignalInput,
   "data" | "finalOutcomeAuthority"
 > & {
   data: ExecutionRecoveryNoticeSignalData;
 };
-
 export const emitSpaceStatusSignal = async (
   input: EmitSpaceStatusSignalInput
 ): Promise<SignalEnvelope> => {
@@ -173,7 +167,6 @@ export const emitSpaceStatusSignal = async (
     ...(input.threadContext ? { threadContext: input.threadContext } : {}),
   });
 };
-
 export const emitSpaceSystemNoticeSignal = async (
   input: EmitSpaceSystemNoticeSignalInput
 ): Promise<SignalEnvelope> => {
@@ -190,7 +183,6 @@ export const emitSpaceSystemNoticeSignal = async (
     ...(input.threadContext ? { threadContext: input.threadContext } : {}),
   });
 };
-
 export const emitSpaceExecutionRecoveryNoticeSignal = async (
   input: EmitSpaceExecutionRecoveryNoticeSignalInput
 ): Promise<PostExecutionRecoveryNoticeSignalResponse> => {

@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   buildOrganizationLogoPublicPath,
   parseOrganizationLogoReferenceFromUrl,
@@ -10,7 +11,6 @@ import type {
 } from "@openmeld/schemas/types";
 import { canUpdateOrganizationLogoForRole } from "./access-control";
 import { isPersonalOrganization } from "./personal-organization";
-
 export type OrganizationLogoMutationRecord = {
   logo: string | null;
   metadata: string | null;
@@ -18,7 +18,6 @@ export type OrganizationLogoMutationRecord = {
   role: string;
   slug: string;
 };
-
 export type OrganizationLogoMutationRepository = {
   compareAndSetLogo(input: {
     actorUserId: string;
@@ -34,37 +33,34 @@ export type OrganizationLogoMutationRepository = {
     organizationId: string;
   }): Promise<OrganizationLogoMutationRecord | null>;
 };
-
-export function createD1OrganizationLogoMutationRepository(
-  db: D1Database
+export function createPostgresOrganizationLogoMutationRepository(
+  db: PostgresDatabase
 ): OrganizationLogoMutationRepository {
   return {
     compareAndSetLogo: async (input) => {
-      const result = await db
-        .prepare(
-          `
-            UPDATE organizations
-            SET logo = ?
-            WHERE id = ?
+      const result = await db.query({
+        text: `
+            UPDATE "openmeld"."organizations"
+            SET logo = $1
+            WHERE id = $2
               AND (
-                (logo IS NULL AND ? IS NULL)
-                OR logo = ?
+                (logo IS NULL AND $3::text IS NULL)
+                OR logo = $4
               )
               AND (
-                (metadata IS NULL AND ? IS NULL)
-                OR metadata = ?
+                (metadata IS NULL AND $5::text IS NULL)
+                OR metadata = $6
               )
-              AND slug = ?
+              AND slug = $7
               AND EXISTS (
                 SELECT 1
-                FROM members
+                FROM "openmeld"."members"
                 WHERE members.organization_id = organizations.id
-                  AND members.user_id = ?
-                  AND members.role = ?
+                  AND members.user_id = $8
+                  AND members.role = $9
               )
-          `
-        )
-        .bind(
+          `,
+        values: [
           input.nextLogo,
           input.organizationId,
           input.expectedLogo,
@@ -73,37 +69,37 @@ export function createD1OrganizationLogoMutationRepository(
           input.expectedMetadata,
           input.expectedSlug,
           input.actorUserId,
-          input.expectedRole
-        )
-        .run();
-      return Number(result.meta.changes ?? 0) === 1;
+          input.expectedRole,
+        ],
+      });
+      return Number(result.rowCount ?? 0) === 1;
     },
     readForActor: async (input) =>
       await db
-        .prepare(
-          `
+        .query<{
+          logo: string | null;
+          metadata: string | null;
+          organization_id: string;
+          role: string;
+          slug: string;
+        }>({
+          text: `
             SELECT
               organizations.id AS organization_id,
               organizations.logo AS logo,
               organizations.metadata AS metadata,
               organizations.slug AS slug,
               members.role AS role
-            FROM organizations
-            INNER JOIN members
+            FROM "openmeld"."organizations"
+            INNER JOIN "openmeld"."members"
               ON members.organization_id = organizations.id
-            WHERE organizations.id = ?
-              AND members.user_id = ?
+            WHERE organizations.id = $1
+              AND members.user_id = $2
             LIMIT 1
-          `
-        )
-        .bind(input.organizationId, input.actorUserId)
-        .first<{
-          logo: string | null;
-          metadata: string | null;
-          organization_id: string;
-          role: string;
-          slug: string;
-        }>()
+          `,
+          values: [input.organizationId, input.actorUserId],
+        })
+        .then((result) => result.rows[0] ?? null)
         .then((row) =>
           row
             ? {
@@ -117,7 +113,6 @@ export function createD1OrganizationLogoMutationRepository(
         ),
   };
 }
-
 export function createOrganizationLogoService(input: {
   repository: OrganizationLogoMutationRepository;
 }) {
@@ -125,10 +120,18 @@ export function createOrganizationLogoService(input: {
     actorUserId: string;
     organizationId: string;
   }): Promise<
-    | { ok: true; record: OrganizationLogoMutationRecord }
+    | {
+        ok: true;
+        record: OrganizationLogoMutationRecord;
+      }
     | {
         ok: false;
-        response: Extract<OrganizationLogoPrepareRpcResponse, { ok: false }>;
+        response: Extract<
+          OrganizationLogoPrepareRpcResponse,
+          {
+            ok: false;
+          }
+        >;
       }
   > => {
     const record = await input.repository.readForActor(request);
@@ -150,7 +153,6 @@ export function createOrganizationLogoService(input: {
         ),
       };
     }
-
     const personal = isPersonalOrganization({
       metadata: record.metadata,
       slug: record.slug,
@@ -175,7 +177,6 @@ export function createOrganizationLogoService(input: {
     }
     return { ok: true, record };
   };
-
   return {
     prepare: async (
       request: OrganizationLogoPrepareRpcInput
@@ -199,7 +200,6 @@ export function createOrganizationLogoService(input: {
           "The organization logo changed before this update completed."
         );
       }
-
       const nextLogoUrl = request.nextLogo?.url ?? null;
       if (
         request.nextLogo &&
@@ -214,7 +214,6 @@ export function createOrganizationLogoService(input: {
           "The organization logo reference is invalid."
         );
       }
-
       const updated = await input.repository.compareAndSetLogo({
         actorUserId: request.actorUserId,
         expectedLogo: request.expectedLogo,
@@ -234,7 +233,6 @@ export function createOrganizationLogoService(input: {
     },
   };
 }
-
 function isExpectedManagedLogoReference(input: {
   assetId: string;
   organizationId: string;
@@ -251,10 +249,19 @@ function isExpectedManagedLogoReference(input: {
       })
   );
 }
-
 function mutationFailure(
-  code: Extract<OrganizationLogoPrepareRpcResponse, { ok: false }>["code"],
+  code: Extract<
+    OrganizationLogoPrepareRpcResponse,
+    {
+      ok: false;
+    }
+  >["code"],
   message: string
-): Extract<OrganizationLogoPrepareRpcResponse, { ok: false }> {
+): Extract<
+  OrganizationLogoPrepareRpcResponse,
+  {
+    ok: false;
+  }
+> {
   return { code, message, ok: false };
 }

@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import { formatPublicAgentFailureFacts } from "@openmeld/schemas";
 import type {
   AgentTaskTerminalOutcome,
@@ -12,8 +13,8 @@ import {
   readInboxItemBySource,
   repairLegacyTaskContinuationInboxItem,
   replaceInboxSourceTargetsIfCurrent,
-} from "../../inbox/infrastructure/d1/inbox-item-repo";
-import type { RemoteAgentNativeDeliveryRecord } from "../infrastructure/d1/native-delivery-ledger-repo";
+} from "../../inbox/infrastructure/postgresql/inbox-item-repo";
+import type { RemoteAgentNativeDeliveryRecord } from "../infrastructure/postgresql/native-delivery-ledger-repo";
 import { buildTaskContinuationAdmissionFailureFacts } from "./native-delivery-failure-facts";
 import type { SlackInboxSourceTarget } from "./slack-inbox-source-target";
 
@@ -21,7 +22,7 @@ type SlackTerminalStatus = AgentTaskTerminalOutcome["status"];
 
 type TaskContinuationInboxInput = {
   attempts: number;
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   occurredAtMs: number;
   languageTag?: string;
@@ -131,9 +132,8 @@ function buildTaskContinuationInboxProjection(
     },
   };
 }
-
 export async function projectLinkedSlackNativeDeliveryInboxItem(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: {
     conversationKind: string;
     deliveryId: string;
@@ -214,14 +214,12 @@ export async function projectLinkedSlackNativeDeliveryInboxItem(input: {
     nowMs: input.occurredAtMs,
   });
 }
-
 export function buildSlackNativeDeliveryInboxSourceKey(
   deliveryId: string,
   event: "publication_unknown" | "terminal"
 ): string {
   return `${deliveryId}:${event}`;
 }
-
 function resolveSlackTerminalPresentation(status: SlackTerminalStatus): {
   attention: "action_required" | "update";
   preview: string;

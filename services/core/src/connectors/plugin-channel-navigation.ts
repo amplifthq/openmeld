@@ -1,14 +1,14 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import type { NavigationAction } from "@openmeld/schemas";
-import type { RemoteAgentNativeDeliveryRecord } from "../remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+import type { RemoteAgentNativeDeliveryRecord } from "../remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import {
   issuePluginChannelIntent,
   readPluginChannelMetadata,
-} from "../remote-agent/infrastructure/d1/plugin-channel-metadata-repo";
-
+} from "../remote-agent/infrastructure/postgresql/plugin-channel-metadata-repo";
 /** Called by existing private provider-publication owners after the original
  * final outcome is published. Request IDs locate state; they grant no access. */
 export async function preparePluginChannelNavigation(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   action: NavigationAction;
 }) {

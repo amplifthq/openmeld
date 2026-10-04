@@ -1,15 +1,11 @@
 import { sql } from "drizzle-orm";
-import {
-  index,
-  integer,
-  sqliteTable,
-  text,
-  uniqueIndex,
-} from "drizzle-orm/sqlite-core";
+import { bigint, index, text, uniqueIndex } from "drizzle-orm/pg-core";
 import { organizations, users } from "../auth/auth.schema.ts";
+import { applicationTable } from "../postgresql/schema.ts";
+import { integerBoolean } from "../postgresql/schema-types.ts";
 
 // Core owns the Space grant. Better Auth owns the separate Organization invite.
-export const spaceInvitations = sqliteTable(
+export const spaceInvitations = applicationTable(
   "space_invitations",
   {
     id: text("id").primaryKey(),
@@ -26,16 +22,14 @@ export const spaceInvitations = sqliteTable(
       .references(() => users.id, { onDelete: "cascade" }),
     organizationInvitationId: text("organization_invitation_id"),
     sponsorUserId: text("sponsor_user_id"),
-    organizationInvitationOwned: integer("organization_invitation_owned", {
-      mode: "boolean",
-    })
+    organizationInvitationOwned: integerBoolean("organization_invitation_owned")
       .notNull()
-      .default(false),
+      .default(sql`0`),
     status: text("status", {
       enum: ["pending", "accepting", "accepted", "revoked"],
     }).notNull(),
-    createdAt: integer("created_at").notNull(),
-    expiresAt: integer("expires_at").notNull(),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    expiresAt: bigint("expires_at", { mode: "number" }).notNull(),
   },
   (table) => [
     index("idx_space_invitations_recipient").on(table.email, table.status),

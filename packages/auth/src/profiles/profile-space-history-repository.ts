@@ -8,7 +8,7 @@ import {
   isNotNull,
   isNull,
 } from "@openmeld/db/query";
-import type { createD1Db } from "../db";
+import type { createAuthDatabase } from "../db";
 import type {
   OpenMeldProfileSpaceCreatorKind,
   OpenMeldProfileSpaceHistoryStatus,
@@ -84,7 +84,7 @@ export type ProfileSpaceHistoryRepository = {
   ) => Promise<ProfileSpaceHistoryRecord | null>;
 };
 
-type OpenMeldProfileDatabase = ReturnType<typeof createD1Db>;
+type OpenMeldProfileDatabase = ReturnType<typeof createAuthDatabase>;
 
 export function createDrizzleProfileSpaceHistoryRepository(
   db: OpenMeldProfileDatabase

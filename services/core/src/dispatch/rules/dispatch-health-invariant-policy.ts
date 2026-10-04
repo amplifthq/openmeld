@@ -26,12 +26,10 @@ type CoreTransitionContractViolationOperation =
   | "dispatch.claim"
   | "outbox.candidate"
   | "outbox.watchdog";
-
 const normalizeHumanContext = (
   humanContext: CoreDispatchHealthHumanContext | null | undefined
 ): CoreDispatchHealthHumanContext | null =>
   humanContext && Object.keys(humanContext).length > 0 ? humanContext : null;
-
 export const buildOutboxReadLedgerStatusFailedFinding = (input: {
   humanContext?: CoreDispatchHealthHumanContext | null;
 }): CoreDispatchHealthFinding => ({
@@ -40,7 +38,6 @@ export const buildOutboxReadLedgerStatusFailedFinding = (input: {
   summaryKey: "core.outbox.read_ledger_status_failed",
   humanContext: normalizeHumanContext(input.humanContext),
 });
-
 export const buildOutboxRedriveLoopSuspectedFinding = (input: {
   humanContext?: CoreDispatchHealthHumanContext | null;
 }): CoreDispatchHealthFinding => ({
@@ -49,7 +46,6 @@ export const buildOutboxRedriveLoopSuspectedFinding = (input: {
   summaryKey: "core.outbox.redrive_loop_suspected",
   humanContext: normalizeHumanContext(input.humanContext),
 });
-
 export const buildDispatchTransitionContractViolationFinding = (input: {
   humanContext?: CoreDispatchHealthHumanContext | null;
 }): CoreDispatchHealthFinding => ({
@@ -58,7 +54,6 @@ export const buildDispatchTransitionContractViolationFinding = (input: {
   summaryKey: "core.dispatch.transition_contract_violation",
   humanContext: normalizeHumanContext(input.humanContext),
 });
-
 export const resolveCoreClaimTransitionContractViolation = (input: {
   decision: DispatchAttemptClaimDecision;
   existingStatus: CoreDispatchLedgerLifecycleState;
@@ -81,7 +76,6 @@ export const resolveCoreClaimTransitionContractViolation = (input: {
     });
   }
 };
-
 export const resolveCoreOutboxCandidateTransitionContractViolation = (input: {
   decision: HandedOffOutboxCandidatePolicyDecision;
   humanContext?: CoreDispatchHealthHumanContext | null;
@@ -96,7 +90,6 @@ export const resolveCoreOutboxCandidateTransitionContractViolation = (input: {
         outboxStatus: input.outboxStatus,
       }),
   });
-
 export const resolveCoreOutboxWatchdogTransitionContractViolation = (input: {
   decision: ActiveAttemptWatchdogDecision;
   humanContext?: CoreDispatchHealthHumanContext | null;
@@ -111,7 +104,6 @@ export const resolveCoreOutboxWatchdogTransitionContractViolation = (input: {
         outboxStatus: input.outboxStatus,
       }),
   });
-
 const resolveOutboxTransitionContractViolation = (input: {
   humanContext?: CoreDispatchHealthHumanContext | null;
   operation: Exclude<

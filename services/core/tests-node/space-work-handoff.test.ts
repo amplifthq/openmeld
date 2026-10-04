@@ -54,6 +54,54 @@ const signal: SignalTextEnvelope = {
   },
 };
 describe("Space-owned work handoff admission", () => {
+  it("fences reference changes under an existing handoff identity", () => {
+    const evidenceRefs = [
+      {
+        kind: "file" as const,
+        spaceId: signal.spaceId,
+        fileId: "report",
+        revision: 5,
+      },
+    ];
+    const existing = {
+      ...signal,
+      data: {
+        ...signal.data,
+        meta: { clientMessageId: "exact-evidence", evidenceRefs },
+      },
+    };
+    const input = {
+      existing,
+      authorProfileId: signal.profile.profileId,
+      text: signal.data.text,
+      targetProfileIds: signal.data.messageEnvelope?.activationTargets ?? [],
+      handoff: undefined,
+      evidenceRefs,
+    };
+    expect(() => assertSameSpaceWorkHandoff(input)).not.toThrow();
+    expect(() =>
+      assertSameSpaceWorkHandoff({
+        ...input,
+        evidenceRefs: [{ ...evidenceRefs[0], revision: 6 }],
+      })
+    ).toThrow("different work");
+    expect(() =>
+      assertSameSpaceWorkHandoff({ ...input, evidenceRefs: undefined })
+    ).toThrow("different work");
+    expect(
+      postNormalMessageBodySchema.safeParse({
+        ...existing.data,
+        evidenceRefsVersion: 1,
+      }).success
+    ).toBe(true);
+    expect(
+      postNormalMessageBodySchema.safeParse({
+        ...existing.data,
+        evidenceRefsVersion: 2,
+      }).success
+    ).toBe(false);
+  });
+
   it("accepts the explicit handoff version at the HTTP boundary", () => {
     expect(
       postNormalMessageBodySchema.safeParse({

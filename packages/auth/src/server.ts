@@ -45,7 +45,7 @@ export {
   DEFAULT_OTT_EXPIRES_IN_MINUTES,
   LAST_USED_LOGIN_METHOD_COOKIE_NAME,
 } from "./configs/constants";
-export { createD1Db } from "./db";
+export { createAuthDatabase } from "./db";
 export type {
   OpenMeldProfileManagedRole,
   OpenMeldProfileSource,
@@ -102,8 +102,8 @@ export type {
   OrganizationLogoMutationRepository,
 } from "./organization/logo-service";
 export {
-  createD1OrganizationLogoMutationRepository,
   createOrganizationLogoService,
+  createPostgresOrganizationLogoMutationRepository,
 } from "./organization/logo-service";
 export {
   buildGeneratedOrganizationSlug,

@@ -13,6 +13,8 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    // Full-journal fixture migrations have a bounded native lock budget.
+    fileParallelism: false,
     exclude: ["tests/**/*.worker.test.ts"],
     globalSetup: ["./tests/support/build-lazy-runtime.global-setup.mjs"],
     include: ["tests/**/*.test.ts", "tests/**/*.test.mjs"],

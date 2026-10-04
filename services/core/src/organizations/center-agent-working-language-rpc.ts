@@ -1,4 +1,5 @@
 import { memberRoleHasOrganizationPermission } from "@openmeld/auth/organization-policy";
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import {
   centerAgentSetOrganizationWorkingLanguageToolResponseSchema,
   centerAgentSetOrganizationWorkingLanguageToolRpcInputSchema,
@@ -10,7 +11,7 @@ import type {
 import { prepareCenterAgentRepresentedMemberRequest } from "../center-agent/application/represented-member-request";
 import { resolveCenterAgentAuditAttribution } from "../center-agent/center-agent-audit";
 import { prepareCenterAgentAuditJournalEntryStatement } from "../center-agent/center-agent-repository";
-import { type CoreBindings, localStateDb } from "../lib/bindings";
+import type { CoreBindings } from "../lib/bindings";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import { readOrganizationPersonalClassification } from "./organization-context";
 import {
@@ -66,7 +67,7 @@ export async function rpcCenterAgentSetOrganizationWorkingLanguage(
     });
   }
 
-  const db = localStateDb(env);
+  const db = getPostgresDatabase(env);
   if (!db) {
     throw createCoreRpcHttpError({
       code: "organization.working_language_store_unavailable",

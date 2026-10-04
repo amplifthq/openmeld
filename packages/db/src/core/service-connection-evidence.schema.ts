@@ -1,23 +1,18 @@
 import { desc } from "drizzle-orm";
-import {
-  index,
-  integer,
-  primaryKey,
-  sqliteTable,
-  text,
-} from "drizzle-orm/sqlite-core";
+import { bigint, index, primaryKey, text } from "drizzle-orm/pg-core";
+import { applicationTable } from "../postgresql/schema.ts";
 
 // Owner-scoped operational evidence, never connection or execution authority.
-export const serviceConnectionIncidents = sqliteTable(
+export const serviceConnectionIncidents = applicationTable(
   "openmeld_service_connection_incidents",
   {
     ownerUserId: text("owner_user_id").notNull(),
     incidentId: text("incident_id").notNull(),
     deviceId: text("device_id").notNull(),
     runtimeLane: text("runtime_lane").notNull(),
-    startedAtMs: integer("started_at_ms").notNull(),
-    endedAtMs: integer("ended_at_ms").notNull(),
-    receivedAtMs: integer("received_at_ms").notNull(),
+    startedAtMs: bigint("started_at_ms", { mode: "number" }).notNull(),
+    endedAtMs: bigint("ended_at_ms", { mode: "number" }).notNull(),
+    receivedAtMs: bigint("received_at_ms", { mode: "number" }).notNull(),
     payloadJson: text("payload_json").notNull(),
   },
   (table) => [

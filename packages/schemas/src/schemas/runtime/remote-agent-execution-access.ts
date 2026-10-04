@@ -1,6 +1,7 @@
 import type * as zod from "zod/v4";
 import * as z from "../../lazy-zod";
 import { openMeldRequestContextSchema } from "../daemon/profile-identity";
+import { pluginDelegationAuthorizationSchema } from "../http/plugin-delegation";
 import { remoteAgentResultSourcesSchema } from "./remote-agent-retained-result";
 import type { remoteAgentTurnEnvelopeSchema } from "./remote-agent-turn-envelope";
 
@@ -11,6 +12,7 @@ export const remoteAgentExecutionAccessRequestSchema = z.strictObject({
   sources: remoteAgentResultSourcesSchema.optional(),
   effect: z.enum(["read", "write"]).optional(),
   includeDelegatedRequester: z.boolean().optional(),
+  includePluginDelegations: z.literal(true).optional(),
 });
 
 export const remoteAgentExecutionScopeSchema = z.strictObject({
@@ -34,6 +36,7 @@ export const remoteAgentExecutionScopeSchema = z.strictObject({
 export const remoteAgentExecutionAccessResponseSchema = z.strictObject({
   scope: remoteAgentExecutionScopeSchema,
   submissionId: identity,
+  pluginDelegations: z.array(pluginDelegationAuthorizationSchema).optional(),
   delegatedRequesterSupported: z.literal(true).optional(),
   delegatedRequester: z
     .strictObject({

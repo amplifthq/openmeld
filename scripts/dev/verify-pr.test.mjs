@@ -1,12 +1,56 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import path from "node:path";
 import { test } from "node:test";
 import {
+  buildValidationEnvironment,
   planPrChecks,
   resolveUnitTestScript,
   runPrChecks,
 } from "./verify-pr.mjs";
 
 const CIRCULAR_ALIAS = /Circular test script alias/u;
+
+test("validation subprocesses cannot inherit a live dispatch's authority", () => {
+  const source = {
+    ...process.env,
+    OPENMELD_HOME: "/synthetic/live-home",
+    OPENMELD_DISPATCH_RUNTIME_MODE: "dispatch-owned-runtime",
+    OPENMELD_DISPATCH_RUNTIME_DISPATCH_ID: "live-dispatch",
+    OPENMELD_SPACE_ACTION_CONTEXT_PATH: "/synthetic/live-context.json",
+    OPENMELD_SPACE_ACTION_DELIVERY_ONLY: "1",
+    OPENMELD_USER_FACING_CLI_COMMAND: "live-cli",
+    GIT_INDEX_FILE: "/synthetic/live-index",
+    VALIDATION_FIXTURE_SECRET: "keep-test-configuration",
+    PATH: [
+      "/synthetic/live-home/runtime/daemon/dispatch-space-actions/dispatch-1/bin",
+      "/synthetic/toolchain/bin",
+    ].join(path.delimiter),
+  };
+  const output = execFileSync(
+    process.execPath,
+    [
+      "-e",
+      "console.log(JSON.stringify({home:process.env.OPENMELD_HOME, authority:Object.keys(process.env).filter(k=>k.startsWith('OPENMELD_DISPATCH_')||k.startsWith('OPENMELD_SPACE_ACTION_')||k==='OPENMELD_USER_FACING_CLI_COMMAND'||k==='GIT_INDEX_FILE'), configuration:process.env.VALIDATION_FIXTURE_SECRET}))",
+    ],
+    {
+      env: buildValidationEnvironment(source, "/synthetic/test-home", [
+        "GIT_INDEX_FILE",
+      ]),
+      encoding: "utf8",
+    }
+  );
+  assert.deepEqual(JSON.parse(output), {
+    home: "/synthetic/test-home",
+    authority: [],
+    configuration: "keep-test-configuration",
+  });
+  assert.equal(source.OPENMELD_DISPATCH_RUNTIME_MODE, "dispatch-owned-runtime");
+  assert.equal(
+    buildValidationEnvironment(source, "/synthetic/test-home", []).PATH,
+    "/synthetic/toolchain/bin"
+  );
+});
 
 test("checks signed Skill inputs in feedback and PR validation without checking unrelated edits", () => {
   for (const feedback of [true, false]) {
@@ -82,7 +126,7 @@ test("focused PR validation keeps checks for changed workspaces with adjacent te
 test("Core feedback delegates every selected file to the package-owned runner contracts", () => {
   const paths = [
     "services/core/tests-node/local-contract.test.ts",
-    "services/core/tests-split-gate/dispatch-queue-hot-path.split-routing.test.ts",
+    "services/core/tests-postgresql-owner/dispatch-queue.test.ts",
     "services/core/tests/remote-agent-routine-delivery.integration.test.ts",
   ];
   const commands = planPrChecks(paths, {
@@ -92,7 +136,7 @@ test("Core feedback delegates every selected file to the package-owned runner co
       {
         directory: "services/core",
         name: "@openmeld/core",
-        test: "vitest run --config vitest.boundary.config.ts",
+        test: "node ../../tooling/postgresql/local.mjs run pnpm exec vitest run --config vitest.boundary.config.ts",
       },
     ],
   });
@@ -101,7 +145,7 @@ test("Core feedback delegates every selected file to the package-owned runner co
       .find((args) =>
         args.includes("scripts/dev/run-focused-workspace-tests.mjs")
       )
-      .slice(5),
+      .slice(10),
     paths.map((file) => file.slice("services/core/".length))
   );
 });

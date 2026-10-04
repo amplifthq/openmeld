@@ -1,4 +1,5 @@
 import { env, runInDurableObject } from "cloudflare:test";
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import { AGENT_REPLY_FINAL_PURPOSE } from "@openmeld/schemas";
 import type {
   PostSpaceWakeStopBody,
@@ -13,7 +14,7 @@ import type { CoreBindings } from "../src/lib/bindings";
 import {
   markRemoteAgentNativeDeliveryAck,
   upsertRemoteAgentNativeDeliveryRecord,
-} from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+} from "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import {
   createDispatchOutboxRecord,
   deleteDispatchOutboxRecord,
@@ -26,6 +27,7 @@ import { upsertSpaceMetaRecord } from "../src/space/infrastructure/sql/space-met
 import { ensureSpaceSqlSchema } from "../src/space/infrastructure/sql/space-schema-repo";
 import { insertSignalRecord } from "../src/space/infrastructure/sql/space-signal-repo";
 import type { Space } from "../src/space/transport/do/space";
+import { createWorkerPostgresFixture } from "./postgresql.test-support";
 
 type StopOwner = {
   bindings: CoreBindings;
@@ -166,17 +168,18 @@ it.each([
 ])("repairs an unadmitted %s stopped notice after SQL failure without another Stop click", async (controller) => {
   const shard = newSpace();
   await runInDurableObject(shard, async (instance, state) => {
+    const nativeSetAlarm = state.storage.setAlarm.bind(state.storage);
+    vi.spyOn(state.storage, "setAlarm").mockImplementation((time) =>
+      nativeSetAlarm(Math.max(Number(time), Date.now() + 3_600_000))
+    );
     const { query, selection } = seed(state, controller);
     const internal = instance as unknown as StopOwner;
-    const emptyDb = {
-      prepare: () => ({ bind: () => ({ first: async () => null }) }),
-    } as unknown as D1Database;
+    const fixture = await createWorkerPostgresFixture(env);
     Object.defineProperty(instance, "bindings", {
       configurable: true,
       value: {
         ...internal.bindings,
-        OPENMELD_LOCAL_STATE_DB: emptyDb,
-        OPENMELD_DB: emptyDb,
+        OPENMELD_POSTGRESQL: fixture.binding,
       },
     });
     state.storage.sql.exec(`CREATE TRIGGER fail_stopped_notice BEFORE INSERT ON space_signals
@@ -257,7 +260,7 @@ function cancellationResponse(
 }
 
 async function admitTestDelivery(
-  db: D1Database,
+  db: PostgresDatabase,
   record: ReturnType<typeof seed>["record"]
 ) {
   await upsertRemoteAgentNativeDeliveryRecord({
@@ -293,11 +296,16 @@ it.each([
   "probe_failure",
 ] as const)("acknowledges persisted Stop honestly after %s", async (scenario) => {
   await runInDurableObject(newSpace(), async (instance, state) => {
+    const nativeSetAlarm = state.storage.setAlarm.bind(state.storage);
+    vi.spyOn(state.storage, "setAlarm").mockImplementation((time) =>
+      nativeSetAlarm(Math.max(Number(time), Date.now() + 3_600_000))
+    );
     const { record, query, selection } = seed(state, "hosted:remote-agent");
     const internal = instance as unknown as StopOwner;
-    const db = (env as unknown as CoreBindings).OPENMELD_DB;
+    const fixture = await createWorkerPostgresFixture(env);
+    const db = fixture.db;
     if (!db) {
-      throw new Error("Missing test D1 binding");
+      throw new Error("Missing test PostgreSQL binding");
     }
     await instance.rpcAuthorizeNativeWakeAdmission(query);
     await admitTestDelivery(db, record);
@@ -353,8 +361,7 @@ it.each([
       configurable: true,
       value: {
         ...internal.bindings,
-        OPENMELD_LOCAL_STATE_DB: db,
-        OPENMELD_DB: db,
+        OPENMELD_POSTGRESQL: fixture.binding,
         OPENMELD_DAEMON_DISPATCH_QUEUE: {
           send: vi.fn(() => {
             if (scenario === "probe_failure") {
@@ -394,11 +401,16 @@ it.each([
   "hosted:center-agent",
 ])("recovers a legacy %s Stop when native evidence arrives after the request", async (controller) => {
   await runInDurableObject(newSpace(), async (instance, state) => {
+    const nativeSetAlarm = state.storage.setAlarm.bind(state.storage);
+    vi.spyOn(state.storage, "setAlarm").mockImplementation((time) =>
+      nativeSetAlarm(Math.max(Number(time), Date.now() + 3_600_000))
+    );
     const { record, query, selection } = seed(state, controller);
     const internal = instance as unknown as StopOwner;
-    const db = (env as unknown as CoreBindings).OPENMELD_DB;
+    const fixture = await createWorkerPostgresFixture(env);
+    const db = fixture.db;
     if (!db) {
-      throw new Error("Missing test D1 binding");
+      throw new Error("Missing test PostgreSQL binding");
     }
     state.storage.sql.exec(
       "UPDATE openMeldDaemon_outbox SET native_admission_started_at_ms = NULL WHERE dispatch_id = ?",
@@ -413,8 +425,7 @@ it.each([
       configurable: true,
       value: {
         ...internal.bindings,
-        OPENMELD_LOCAL_STATE_DB: db,
-        OPENMELD_DB: db,
+        OPENMELD_POSTGRESQL: fixture.binding,
         OPENMELD_DAEMON_DISPATCH_QUEUE: { send: vi.fn(async () => undefined) },
         OPENMELD_REMOTE_AGENT_WORKER: {
           cancelExecution,
@@ -451,10 +462,15 @@ it.each([
 
 it("does not let unresolved legacy Stops starve later cancellation recovery", async () => {
   await runInDurableObject(newSpace(), async (instance, state) => {
+    const nativeSetAlarm = state.storage.setAlarm.bind(state.storage);
+    vi.spyOn(state.storage, "setAlarm").mockImplementation((time) =>
+      nativeSetAlarm(Math.max(Number(time), Date.now() + 3_600_000))
+    );
     const internal = instance as unknown as StopOwner;
-    const db = (env as unknown as CoreBindings).OPENMELD_DB;
+    const fixture = await createWorkerPostgresFixture(env);
+    const db = fixture.db;
     if (!db) {
-      throw new Error("Missing test D1 binding");
+      throw new Error("Missing test PostgreSQL binding");
     }
     const records = Array.from(
       { length: 9 },
@@ -480,8 +496,7 @@ it("does not let unresolved legacy Stops starve later cancellation recovery", as
       configurable: true,
       value: {
         ...internal.bindings,
-        OPENMELD_DB: db,
-        OPENMELD_LOCAL_STATE_DB: db,
+        OPENMELD_POSTGRESQL: fixture.binding,
         OPENMELD_DAEMON_DISPATCH_QUEUE: { send: vi.fn(async () => undefined) },
         OPENMELD_REMOTE_AGENT_WORKER: {
           cancelExecution,
@@ -507,11 +522,16 @@ it("does not let unresolved legacy Stops starve later cancellation recovery", as
 
 it("preserves an already published final answer instead of accepting a contradictory Stop", async () => {
   await runInDurableObject(newSpace(), async (instance, state) => {
+    const nativeSetAlarm = state.storage.setAlarm.bind(state.storage);
+    vi.spyOn(state.storage, "setAlarm").mockImplementation((time) =>
+      nativeSetAlarm(Math.max(Number(time), Date.now() + 3_600_000))
+    );
     const { record, query, selection } = seed(state, "hosted:remote-agent");
     const internal = instance as unknown as StopOwner;
-    const db = (env as unknown as CoreBindings).OPENMELD_DB;
+    const fixture = await createWorkerPostgresFixture(env);
+    const db = fixture.db;
     if (!db) {
-      throw new Error("Missing test D1 binding");
+      throw new Error("Missing test PostgreSQL binding");
     }
     await admitTestDelivery(db, record);
     const cancelExecution = vi.fn();
@@ -519,8 +539,7 @@ it("preserves an already published final answer instead of accepting a contradic
       configurable: true,
       value: {
         ...internal.bindings,
-        OPENMELD_DB: db,
-        OPENMELD_LOCAL_STATE_DB: db,
+        OPENMELD_POSTGRESQL: fixture.binding,
         OPENMELD_REMOTE_AGENT_WORKER: { cancelExecution },
       },
     });
@@ -569,11 +588,16 @@ it.each([
   "submitted",
 ] as const)("keeps a legacy %s native delivery observable and stoppable after its outbox was retired", async (status) => {
   await runInDurableObject(newSpace(), async (instance, state) => {
+    const nativeSetAlarm = state.storage.setAlarm.bind(state.storage);
+    vi.spyOn(state.storage, "setAlarm").mockImplementation((time) =>
+      nativeSetAlarm(Math.max(Number(time), Date.now() + 3_600_000))
+    );
     const { record, query, selection } = seed(state, "hosted:remote-agent");
     const internal = instance as unknown as StopOwner;
-    const db = (env as unknown as CoreBindings).OPENMELD_DB;
+    const fixture = await createWorkerPostgresFixture(env);
+    const db = fixture.db;
     if (!db) {
-      throw new Error("Missing test D1 binding");
+      throw new Error("Missing test PostgreSQL binding");
     }
     const cancelExecution = vi.fn(async (identity) => ({
       status: "cancellation_requested" as const,
@@ -591,8 +615,7 @@ it.each([
       configurable: true,
       value: {
         ...internal.bindings,
-        OPENMELD_LOCAL_STATE_DB: db,
-        OPENMELD_DB: db,
+        OPENMELD_POSTGRESQL: fixture.binding,
         OPENMELD_DAEMON_DISPATCH_QUEUE: { send: vi.fn(async () => undefined) },
         OPENMELD_REMOTE_AGENT_WORKER: { cancelExecution },
       },

@@ -1,3 +1,4 @@
+import type { PostgresDatabase, QueryResult } from "@openmeld/db/postgresql";
 import { inboxSourceCandidateSchema } from "@openmeld/schemas";
 import type {
   InboxSourceCandidate,
@@ -10,27 +11,28 @@ import {
   prepareResolveInboxItemsBySourceStatements as prepareResolveInboxItemsBySourceStatementsInRepo,
   readInboxItemBySource,
   resolveOrganizationDocumentDraftInboxItemsOutsideRecipientSet as resolveOrganizationDocumentDraftInboxItemsOutsideRecipientSetInRepo,
-} from "../infrastructure/d1/inbox-item-repo";
+} from "../infrastructure/postgresql/inbox-item-repo";
 import { repairLegacyInteractionAttention } from "./inbox-legacy-interaction-attention";
 import {
   normalizeLegacySpaceAwareness,
   repairLegacySpaceAwareness,
 } from "./inbox-legacy-space-awareness";
-
 export class InboxSourceConflictError extends Error {
   constructor() {
     super("Inbox source identity conflicts with an existing item");
     this.name = "InboxSourceConflictError";
   }
 }
-
 export async function ensureInboxItem(input: {
   /** Source-owner migration opt-in; never accepted from HTTP/RPC candidates. */
   allowLegacySourceClassificationRepair?: boolean;
   candidate: InboxSourceCandidate;
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs: number;
-}): Promise<{ deliveryId: string | null; itemId: string }> {
+}): Promise<{
+  deliveryId: string | null;
+  itemId: string;
+}> {
   const candidate = normalizeLegacySpaceAwareness(
     inboxSourceCandidateSchema.parse(input.candidate)
   );
@@ -86,7 +88,13 @@ export async function ensureInboxItem(input: {
     nowMs: input.nowMs,
   });
   try {
-    await input.db.batch(prepared.statements);
+    await input.db.transaction(async (client) => {
+      const results: QueryResult[] = [];
+      for (const query of prepared.statements) {
+        results.push(await client.query(query));
+      }
+      return results;
+    });
   } catch (error) {
     const raced = await readInboxItemBySource({
       db: input.db,
@@ -102,9 +110,8 @@ export async function ensureInboxItem(input: {
   }
   return { deliveryId: prepared.deliveryId, itemId: prepared.itemId };
 }
-
 export async function resolveInboxItemsBySource(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   resolvedAtMs: number;
   sourceKey: string;
@@ -113,23 +120,27 @@ export async function resolveInboxItemsBySource(input: {
   assertRequiredIdentifier(input.organizationId, "organizationId");
   assertRequiredIdentifier(input.sourceKey, "sourceKey");
   assertValidTimestamp(input.resolvedAtMs, "resolvedAtMs");
-  const results = await input.db.batch(
-    prepareResolveInboxItemsBySourceStatementsInRepo(input)
-  );
-  return Math.max(0, Math.trunc(Number(results[0]?.meta.changes ?? 0)));
+  const results = await input.db.transaction(async (client) => {
+    const results: QueryResult[] = [];
+    for (const query of prepareResolveInboxItemsBySourceStatementsInRepo(
+      input
+    )) {
+      results.push(await client.query(query));
+    }
+    return results;
+  });
+  return Math.max(0, Math.trunc(Number(results[0]?.rowCount ?? 0)));
 }
-
 export async function prepareEnsureInboxItemStatements(input: {
   candidate: InboxSourceCandidate;
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs: number;
   sourceGuard?: InboxSourceWriteGuard;
 }) {
   return await prepareEnsureInboxItemStatementsInRepo(input);
 }
-
 export function prepareResolveInboxItemsBySourceStatements(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   resolvedAtMs: number;
   sourceKey: string;
@@ -139,10 +150,9 @@ export function prepareResolveInboxItemsBySourceStatements(input: {
 }) {
   return prepareResolveInboxItemsBySourceStatementsInRepo(input);
 }
-
 export async function resolveSupersededOrganizationDocumentDraftInboxItems(input: {
   currentSourceKey: string | null;
-  db: D1Database;
+  db: PostgresDatabase;
   documentId: string;
   organizationId: string;
   resolvedAtMs: number;
@@ -154,68 +164,71 @@ export async function resolveSupersededOrganizationDocumentDraftInboxItems(input
     assertRequiredIdentifier(input.currentSourceKey, "currentSourceKey");
   }
   const currentSourcePredicate =
-    input.currentSourceKey === null ? "" : "AND source_key <> ?";
-  const itemStatement = input.db
-    .prepare(
-      `
-        UPDATE inbox_items
+    input.currentSourceKey === null ? "" : "AND source_key <> $5";
+  const itemStatement = {
+    text: `
+        UPDATE "openmeld"."inbox_items"
         SET
           resolution_status = 'resolved',
-          resolved_at_ms = ?,
-          updated_at_ms = max(updated_at_ms, ?)
-        WHERE organization_id = ?
+          resolved_at_ms = $1,
+          updated_at_ms = GREATEST(updated_at_ms, $2)
+        WHERE organization_id = $3
           AND source_kind = 'organization_document_draft'
           AND attention = 'action_required'
           AND resolution_status = 'open'
-          AND json_extract(source_target_json, '$.kind') = 'organization_document'
-          AND json_extract(source_target_json, '$.documentId') = ?
+          AND ((source_target_json)::jsonb #>> '{kind}') = 'organization_document'
+          AND ((source_target_json)::jsonb #>> '{documentId}') = $4
           ${currentSourcePredicate}
-      `
-    )
-    .bind(
+      `,
+    values: [
       input.resolvedAtMs,
       input.resolvedAtMs,
       input.organizationId,
       input.documentId,
-      ...(input.currentSourceKey === null ? [] : [input.currentSourceKey])
-    );
-  const deliveryStatement = input.db
-    .prepare(
-      `
-        UPDATE inbox_email_deliveries
+      ...(input.currentSourceKey === null ? [] : [input.currentSourceKey]),
+    ],
+  };
+  const deliveryStatement = {
+    text: `
+        UPDATE "openmeld"."inbox_email_deliveries"
         SET
           state = 'suppressed',
           suppressed_reason = 'source_resolved',
-          suppressed_at_ms = ?,
+          suppressed_at_ms = $1,
           claim_id = NULL,
           claim_expires_at_ms = NULL,
-          updated_at_ms = max(updated_at_ms, ?)
+          updated_at_ms = GREATEST(updated_at_ms, $2)
         WHERE state = 'pending'
           AND inbox_item_id IN (
             SELECT id
-            FROM inbox_items
-            WHERE organization_id = ?
+            FROM "openmeld"."inbox_items"
+            WHERE organization_id = $3
               AND source_kind = 'organization_document_draft'
               AND resolution_status = 'resolved'
-              AND resolved_at_ms = ?
-              AND json_extract(source_target_json, '$.kind') = 'organization_document'
-              AND json_extract(source_target_json, '$.documentId') = ?
+              AND resolved_at_ms = $4
+              AND ((source_target_json)::jsonb #>> '{kind}') = 'organization_document'
+              AND ((source_target_json)::jsonb #>> '{documentId}') = $5
           )
-      `
-    )
-    .bind(
+      `,
+    values: [
       input.resolvedAtMs,
       input.resolvedAtMs,
       input.organizationId,
       input.resolvedAtMs,
-      input.documentId
-    );
-  const results = await input.db.batch([itemStatement, deliveryStatement]);
-  return Math.max(0, Math.trunc(Number(results[0]?.meta.changes ?? 0)));
+      input.documentId,
+    ],
+  };
+  const results = await input.db.transaction(
+    async (client) =>
+      [
+        await client.query(itemStatement),
+        await client.query(deliveryStatement),
+      ] as const
+  );
+  return Math.max(0, Math.trunc(Number(results[0].rowCount ?? 0)));
 }
-
 export async function listOpenOrganizationDocumentDraftInboxTargets(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   limit: number;
   offset?: number;
 }) {
@@ -230,10 +243,9 @@ export async function listOpenOrganizationDocumentDraftInboxTargets(input: {
     offset,
   });
 }
-
 export async function resolveOrganizationDocumentDraftInboxItemsOutsideRecipientSet(input: {
   allowedRecipientUserIds: readonly string[];
-  db: D1Database;
+  db: PostgresDatabase;
   documentId: string;
   organizationId: string;
   resolvedAtMs: number;
@@ -258,7 +270,6 @@ export async function resolveOrganizationDocumentDraftInboxItemsOutsideRecipient
     { ...input, allowedRecipientUserIds }
   );
 }
-
 function assertCandidateMatchesExisting(
   candidate: InboxSourceCandidate,
   existing: {
@@ -282,19 +293,16 @@ function assertCandidateMatchesExisting(
     throw new InboxSourceConflictError();
   }
 }
-
 function assertRequiredIdentifier(value: string, fieldName: string): void {
   if (!(value.trim() && value.length <= 256)) {
     throw new TypeError(`${fieldName} must be a non-empty identifier`);
   }
 }
-
 function assertValidTimestamp(value: number, fieldName: string): void {
   if (!(Number.isSafeInteger(value) && value >= 0)) {
     throw new TypeError(`${fieldName} must be a non-negative integer`);
   }
 }
-
 function assertBoundedListLimit(value: number, fieldName: string): void {
   if (!(Number.isSafeInteger(value) && value > 0 && value <= 500)) {
     throw new TypeError(`${fieldName} must be an integer between 1 and 500`);

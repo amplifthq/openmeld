@@ -89,7 +89,9 @@ async function run() {
   if (!isolatedDev) {
     assertRootDevPortsAvailable({ repoRoot });
   }
-  await verifySharedDbPrerequisites(extraArgs);
+  if (process.env.OPENMELD_PG_ISOLATED !== "1") {
+    await verifySharedDbPrerequisites(extraArgs);
+  }
   // clients/web dev is managed in a dedicated terminal window.
   const runSupervisor = createDevGuardRunSupervisor();
   const child = startTurboDev(extraArgs, runSupervisor, {
@@ -319,7 +321,13 @@ export function buildTurboDevArgs(extraArgs, options = {}) {
   if (taskName !== "dev" && taskName !== "dev:isolated") {
     throw new Error(`unsupported root dev task: ${taskName}`);
   }
-  const turboArgs = ["turbo", "run", taskName, ...ROOT_DEV_TURBO_FILTERS];
+  const filters =
+    process.env.OPENMELD_DEV_WITH_WEB === "1"
+      ? ROOT_DEV_TURBO_FILTERS.filter(
+          (filter) => filter !== "--filter=!openmeld-web"
+        )
+      : ROOT_DEV_TURBO_FILTERS;
+  const turboArgs = ["turbo", "run", taskName, ...filters];
   if (!hasExplicitConcurrencyArg(normalizedArgs)) {
     const defaultConcurrency = resolveDefaultConcurrency(options);
     turboArgs.push(`--concurrency=${String(defaultConcurrency)}`);

@@ -1,6 +1,6 @@
 import type { SpaceMessageAttachment } from "@openmeld/schemas/types";
 import { RUNTIME_COORDINATOR_PRE_AGENT_STOP_REQUESTED_REASON_CODE } from "../../runtime-transport/application/runtime-coordinator-authority";
-import type { RemoteAgentNativeDeliveryRecord } from "../infrastructure/d1/native-delivery-ledger-repo";
+import type { RemoteAgentNativeDeliveryRecord } from "../infrastructure/postgresql/native-delivery-ledger-repo";
 import type {
   MessageChannelProviderAdapter,
   MessageChannelPublicationResult,
@@ -11,7 +11,6 @@ import {
 } from "./message-channel-card-revision";
 import type { MessageChannelPublicationTarget } from "./message-channel-publication-target";
 import { projectMessageChannelTerminalContent } from "./message-channel-terminal-content";
-
 export type MessageChannelTerminalPublicationResult =
   | {
       providerProgressSequence: number | null;
@@ -28,7 +27,6 @@ export type MessageChannelTerminalPublicationResult =
       retryAfterMs?: number;
       status: "failed";
     };
-
 export async function publishMessageChannelTerminalResult(input: {
   attachments: readonly SpaceMessageAttachment[];
   delivery: RemoteAgentNativeDeliveryRecord;
@@ -67,7 +65,6 @@ export async function publishMessageChannelTerminalResult(input: {
       });
   return normalizeStandalonePublication(publication);
 }
-
 export function requiresMessageChannelFinalCardMutation(
   delivery: RemoteAgentNativeDeliveryRecord
 ): boolean {
@@ -84,7 +81,6 @@ export function requiresMessageChannelFinalCardMutation(
     delivery.providerProgressState === "rollover_send_outcome_unknown"
   );
 }
-
 export function resolveMessageChannelFinalCardSequence(
   delivery: RemoteAgentNativeDeliveryRecord
 ): number {
@@ -95,7 +91,6 @@ export function resolveMessageChannelFinalCardSequence(
     ) + 1;
   return delivery.finalPublicationProviderProgressSequence ?? nextSequence;
 }
-
 async function finalizeCard(input: {
   delivery: RemoteAgentNativeDeliveryRecord;
   failureCode?: string;
@@ -224,7 +219,6 @@ async function finalizeCard(input: {
         status: "outcome_unknown",
       };
 }
-
 function normalizeStandalonePublication(
   publication: MessageChannelPublicationResult
 ): MessageChannelTerminalPublicationResult {

@@ -1,30 +1,30 @@
 import { sql } from "drizzle-orm";
+import { bigint, check, index, text } from "drizzle-orm/pg-core";
 import {
-  check,
-  index,
-  integer,
-  sqliteTable,
-  text,
-} from "drizzle-orm/sqlite-core";
+  applicationTable,
+  currentTimestampMilliseconds,
+} from "../postgresql/schema.ts";
 
-export const openMeldProfileDeletionOutbox = sqliteTable(
+export const openMeldProfileDeletionOutbox = applicationTable(
   "openmeld_profile_deletion_outbox",
   {
     profileId: text("profile_id").primaryKey(),
     ownerUserId: text("owner_user_id"),
     organizationId: text("organization_id"),
     profileKind: text("profile_kind").$type<"agent" | "human">().notNull(),
-    attemptCount: integer("attempt_count").notNull().default(0),
-    nextAttemptAtMs: integer("next_attempt_at_ms")
-      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+    attemptCount: bigint("attempt_count", { mode: "number" })
+      .notNull()
+      .default(0),
+    nextAttemptAtMs: bigint("next_attempt_at_ms", { mode: "number" })
+      .default(currentTimestampMilliseconds)
       .notNull(),
-    lastAttemptAtMs: integer("last_attempt_at_ms"),
+    lastAttemptAtMs: bigint("last_attempt_at_ms", { mode: "number" }),
     lastError: text("last_error"),
-    createdAtMs: integer("created_at_ms")
-      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+    createdAtMs: bigint("created_at_ms", { mode: "number" })
+      .default(currentTimestampMilliseconds)
       .notNull(),
-    updatedAtMs: integer("updated_at_ms")
-      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" })
+      .default(currentTimestampMilliseconds)
       .notNull(),
   },
   (table) => [

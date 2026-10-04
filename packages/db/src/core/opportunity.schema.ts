@@ -1,15 +1,9 @@
 import { desc, sql } from "drizzle-orm";
-import {
-  check,
-  index,
-  integer,
-  sqliteTable,
-  text,
-  uniqueIndex,
-} from "drizzle-orm/sqlite-core";
+import { bigint, check, index, text, uniqueIndex } from "drizzle-orm/pg-core";
 import { organizations, users } from "../auth/auth.schema.ts";
+import { applicationTable } from "../postgresql/schema.ts";
 
-export const organizationOpportunities = sqliteTable(
+export const organizationOpportunities = applicationTable(
   "organization_opportunities",
   {
     id: text("id").primaryKey(),
@@ -31,9 +25,9 @@ export const organizationOpportunities = sqliteTable(
     decidedByUserId: text("decided_by_user_id").references(() => users.id, {
       onDelete: "cascade",
     }),
-    createdAtMs: integer("created_at_ms").notNull(),
-    decidedAtMs: integer("decided_at_ms"),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    decidedAtMs: bigint("decided_at_ms", { mode: "number" }),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     uniqueIndex("organization_opportunities_recipient_key_unique").on(
@@ -57,7 +51,7 @@ export const organizationOpportunities = sqliteTable(
     ),
     check(
       "organization_opportunities_evidence_check",
-      sql`length("evidence_json") between 3 and 8192 and json_valid("evidence_json") and json_type("evidence_json") = 'array' and json_array_length("evidence_json") between 1 and 8`
+      sql`length("evidence_json") between 3 and 8192 and case when "evidence_json" is json array then json_array_length("evidence_json"::json) between 1 and 8 else false end`
     ),
     check(
       "organization_opportunities_status_check",

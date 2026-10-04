@@ -1,16 +1,19 @@
 import { sql } from "drizzle-orm";
 import {
-  type AnySQLiteColumn,
+  type AnyPgColumn,
   check,
   index,
-  integer,
-  sqliteTable,
   text,
   uniqueIndex,
-} from "drizzle-orm/sqlite-core";
+} from "drizzle-orm/pg-core";
 import { organizations, users } from "../auth/auth.schema.ts";
+import {
+  applicationTable,
+  currentTimestampMilliseconds,
+} from "../postgresql/schema.ts";
+import { epochMilliseconds } from "../postgresql/schema-types.ts";
 
-export const organizationDocumentFolders = sqliteTable(
+export const organizationDocumentFolders = applicationTable(
   "organization_document_folders",
   {
     id: text("id").primaryKey(),
@@ -18,7 +21,7 @@ export const organizationDocumentFolders = sqliteTable(
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
     parentFolderId: text("parent_folder_id").references(
-      (): AnySQLiteColumn => organizationDocumentFolders.id,
+      (): AnyPgColumn => organizationDocumentFolders.id,
       { onDelete: "set null" }
     ),
     systemKind: text("system_kind"),
@@ -26,14 +29,12 @@ export const organizationDocumentFolders = sqliteTable(
       onDelete: "cascade",
     }),
     name: text("name").notNull(),
-    nameKey: text("name_key").generatedAlwaysAs(sql`lower("name")`, {
-      mode: "stored",
-    }),
-    createdAt: integer("created_at", { mode: "timestamp_ms" })
-      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+    nameKey: text("name_key").generatedAlwaysAs(sql`lower("name")`),
+    createdAt: epochMilliseconds("created_at")
+      .default(currentTimestampMilliseconds)
       .notNull(),
-    updatedAt: integer("updated_at", { mode: "timestamp_ms" })
-      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+    updatedAt: epochMilliseconds("updated_at")
+      .default(currentTimestampMilliseconds)
       .notNull(),
   },
   (table) => [

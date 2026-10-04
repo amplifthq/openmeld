@@ -6,7 +6,7 @@ import {
   createSlackOAuthState,
   SLACK_OAUTH_STATE_TTL_MS,
 } from "../src/remote-agent/application/slack-oauth-state";
-import { createSqliteD1Harness } from "./helpers/sqlite-d1-harness.test-support";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 const NOW_MS = Date.parse("2026-07-10T00:00:00.000Z");
 const SLACK_OAUTH_STATE_PATTERN = /^slackoauth_[0-9a-f]{64}$/u;
@@ -25,24 +25,10 @@ describe("Slack OAuth state", () => {
     );
   });
 
-  let harness: ReturnType<typeof createSqliteD1Harness>;
+  let harness: Awaited<ReturnType<typeof createPostgresHarness>>;
 
-  beforeEach(() => {
-    harness = createSqliteD1Harness();
-    harness.run({
-      sql: `
-        CREATE TABLE slack_oauth_states (
-          state_digest TEXT PRIMARY KEY,
-          organization_id TEXT NOT NULL,
-          user_id TEXT NOT NULL,
-          actor_profile_id TEXT NOT NULL,
-          return_path TEXT NOT NULL,
-          move_from_organization_id TEXT,
-          expires_at_ms INTEGER NOT NULL,
-          created_at_ms INTEGER NOT NULL
-        )
-      `,
-    });
+  beforeEach(async () => {
+    harness = await createPostgresHarness();
   });
 
   it("binds a confirmed move to the expected previous organization", async () => {
@@ -73,7 +59,7 @@ describe("Slack OAuth state", () => {
     });
   });
 
-  afterEach(() => harness.close());
+  afterEach(async () => await harness.close());
 
   it("binds a one-time state to the installer and organization", async () => {
     const created = await createSlackOAuthState({
@@ -208,8 +194,8 @@ describe("Slack OAuth state", () => {
     });
 
     expect(
-      harness.queryFirst<{ count: number }>({
-        sql: "SELECT COUNT(*) AS count FROM slack_oauth_states",
+      await harness.queryFirst<{ count: number }>({
+        text: 'SELECT COUNT(*) AS count FROM "openmeld"."slack_oauth_states"',
       })
     ).toEqual({ count: 1 });
   });

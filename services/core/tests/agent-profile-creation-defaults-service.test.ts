@@ -5,6 +5,7 @@ import {
   resolveFirstUseAgentProfileCreationDefaults,
 } from "../src/agent-profile-binding/application/agent-profile-creation-defaults-service";
 import { readAuthoredModelCatalog as readModelCatalog } from "../src/config/model-catalog";
+import { createProjectionPostgresDatabase } from "../test-support/postgresql-query.test-support";
 
 describe("first-use Agent Profile creation defaults", () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -17,11 +18,12 @@ describe("first-use Agent Profile creation defaults", () => {
       "OPENMELD_LOCAL_COMPONENTS_RELEASE_MANIFEST_JSON",
       JSON.stringify(receiverManifest)
     );
-    const prepare = vi.fn();
+    const db = createProjectionPostgresDatabase(() => []);
+    const query = vi.spyOn(db, "query");
     await expect(
       rememberAgentProfileCreationDefaults({
         agentControllerRef: "builtin:antigravity",
-        db: { prepare } as unknown as D1Database,
+        db,
         nowMs: 1000,
         organizationId: "org-1",
         userId: "user-1",
@@ -35,7 +37,7 @@ describe("first-use Agent Profile creation defaults", () => {
         },
       })
     ).rejects.toThrow("Antigravity permission settings are not available yet");
-    expect(prepare).not.toHaveBeenCalled();
+    expect(query).not.toHaveBeenCalled();
   });
   it("uses a creation recommendation independently of the runtime default", () => {
     const catalog = readModelCatalog();

@@ -7,11 +7,8 @@ import {
   LARK_PLATFORM_CREDENTIAL_FORMAT_VERSION,
 } from "../src/remote-agent/application/lark-platform-credential-crypto";
 import { verifyLarkPlatformWebhook as handleWebhook } from "../src/remote-agent/application/lark-platform-webhook-service";
-import { readRemoteAgentLarkPlatformChannelConnection } from "../src/remote-agent/infrastructure/d1/lark-platform-channel-connection-repo";
-import {
-  applyDrizzleMigrationForTable,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+import { readRemoteAgentLarkPlatformChannelConnection } from "../src/remote-agent/infrastructure/postgresql/lark-platform-channel-connection-repo";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 const CRYPTO_KEY = btoa("0123456789abcdef0123456789abcdef");
 const ENCRYPT_KEY = "event-encrypt-key";
@@ -49,15 +46,14 @@ const CARD_ACTION_FIXTURE = JSON.parse(
     "utf8"
   )
 ) as Record<string, unknown>;
-
 describe("Lark-platform Webhook verification", () => {
   it.each([
     "unchanged",
     "disconnected",
     "credentials_replaced",
   ] as const)("answers before evidence persistence and fences a %s connection", async (change) => {
-    const harness = createSqliteD1Harness();
-    applyConnectionMigration(harness);
+    const harness = await createPostgresHarness();
+    await applyConnectionMigration(harness);
     await seedConnection(harness, {
       encryptKey: ENCRYPT_KEY,
       provider: "feishu",
@@ -77,12 +73,12 @@ describe("Lark-platform Webhook verification", () => {
     const writeGate = new Promise<void>((resolve) => {
       releaseWrite = resolve;
     });
-    const batch = harness.db.batch.bind(harness.db);
+    const transaction = harness.db.transaction.bind(harness.db);
     const blockedWrite = vi
-      .spyOn(harness.db, "batch")
-      .mockImplementation(async (statements) => {
+      .spyOn(harness.db, "transaction")
+      .mockImplementation(async (callback) => {
         await writeGate;
-        return batch(statements);
+        return transaction(callback);
       });
     try {
       await expect(
@@ -115,24 +111,26 @@ describe("Lark-platform Webhook verification", () => {
         eventsWebhookVerifiedAtMs: null,
       });
       if (change === "disconnected") {
-        await harness.db
-          .prepare(
-            "UPDATE openMeldRemoteAgent_lark_platform_channel_connections SET status = 'disconnected' WHERE connection_id = ?"
-          )
-          .bind("connection_feishu_test")
-          .run();
+        await harness.db.query({
+          ...{
+            text: 'UPDATE "openmeld"."openMeldRemoteAgent_lark_platform_channel_connections" SET status = \'disconnected\' WHERE connection_id = $1',
+            values: [],
+          },
+          values: ["connection_feishu_test"],
+        });
       } else if (change === "credentials_replaced") {
         const replacement = await encryptLarkPlatformCredential({
           credentialName: "verification token",
           credential: "replacement-token",
           cryptoKey: CRYPTO_KEY,
         });
-        await harness.db
-          .prepare(
-            "UPDATE openMeldRemoteAgent_lark_platform_channel_credentials SET encrypted_verification_token = ? WHERE connection_id = ?"
-          )
-          .bind(replacement, "connection_feishu_test")
-          .run();
+        await harness.db.query({
+          ...{
+            text: 'UPDATE "openmeld"."openMeldRemoteAgent_lark_platform_channel_credentials" SET encrypted_verification_token = $1 WHERE connection_id = $2',
+            values: [],
+          },
+          values: [replacement, "connection_feishu_test"],
+        });
       }
       releaseWrite();
       await Promise.all(pending);
@@ -150,12 +148,12 @@ describe("Lark-platform Webhook verification", () => {
       releaseWrite();
       await Promise.all(pending);
       blockedWrite.mockRestore();
-      harness.close();
+      await harness.close();
     }
   });
   it("verifies and normalizes an encrypted signed Lark message event", async () => {
-    const harness = createSqliteD1Harness();
-    applyConnectionMigration(harness);
+    const harness = await createPostgresHarness();
+    await applyConnectionMigration(harness);
     await seedConnection(harness, {
       encryptKey: ENCRYPT_KEY,
       provider: "lark",
@@ -221,13 +219,12 @@ describe("Lark-platform Webhook verification", () => {
         status: "enqueue",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("connects only after both Webhook surfaces answer verified URL challenges", async () => {
-    const harness = createSqliteD1Harness();
-    applyConnectionMigration(harness);
+    const harness = await createPostgresHarness();
+    await applyConnectionMigration(harness);
     await seedConnection(harness, {
       encryptKey: null,
       provider: "lark",
@@ -310,13 +307,12 @@ describe("Lark-platform Webhook verification", () => {
         status: "connected",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("keeps setup configuring when only the card callback URL is verified", async () => {
-    const harness = createSqliteD1Harness();
-    applyConnectionMigration(harness);
+    const harness = await createPostgresHarness();
+    await applyConnectionMigration(harness);
     await seedConnection(harness, {
       encryptKey: null,
       provider: "lark",
@@ -362,13 +358,12 @@ describe("Lark-platform Webhook verification", () => {
         status: "configuring",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("does not accept message events while Webhook setup is still configuring", async () => {
-    const harness = createSqliteD1Harness();
-    applyConnectionMigration(harness);
+    const harness = await createPostgresHarness();
+    await applyConnectionMigration(harness);
     await seedConnection(harness, {
       encryptKey: null,
       provider: "lark",
@@ -399,16 +394,15 @@ describe("Lark-platform Webhook verification", () => {
         status: "rejected",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it.each([
     "feishu",
     "lark",
   ] as const)("admits %s rich posts with verified group mention and preserved line breaks", async (provider) => {
-    const harness = createSqliteD1Harness();
-    applyConnectionMigration(harness);
+    const harness = await createPostgresHarness();
+    await applyConnectionMigration(harness);
     await seedConnection(harness, {
       encryptKey: null,
       provider,
@@ -419,7 +413,9 @@ describe("Lark-platform Webhook verification", () => {
         MESSAGE_FIXTURE
       ) as typeof MESSAGE_FIXTURE & {
         header: Record<string, unknown>;
-        event: { message: Record<string, unknown> };
+        event: {
+          message: Record<string, unknown>;
+        };
       };
       fixture.header.app_id = `cli_${provider}_test`;
       fixture.header.tenant_key = `tenant_${provider}_test`;
@@ -465,13 +461,12 @@ describe("Lark-platform Webhook verification", () => {
         },
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("normalizes an official image message into a bounded provider resource reference", async () => {
-    const harness = createSqliteD1Harness();
-    applyConnectionMigration(harness);
+    const harness = await createPostgresHarness();
+    await applyConnectionMigration(harness);
     await seedConnection(harness, {
       encryptKey: null,
       provider: "lark",
@@ -522,13 +517,12 @@ describe("Lark-platform Webhook verification", () => {
         status: "enqueue",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("routes a non-form button by its callback value without requiring a form name", async () => {
-    const harness = createSqliteD1Harness();
-    applyConnectionMigration(harness);
+    const harness = await createPostgresHarness();
+    await applyConnectionMigration(harness);
     await seedConnection(harness, {
       encryptKey: null,
       provider: "lark",
@@ -538,7 +532,9 @@ describe("Lark-platform Webhook verification", () => {
       // Card JSON 2.0 ordinary buttons use behaviors[].value; name is form-only.
       const payload = structuredClone(
         CARD_ACTION_FIXTURE
-      ) as typeof CARD_ACTION_FIXTURE & { event: Record<string, unknown> };
+      ) as typeof CARD_ACTION_FIXTURE & {
+        event: Record<string, unknown>;
+      };
       payload.event.action = {
         tag: "button",
         value: {
@@ -575,13 +571,12 @@ describe("Lark-platform Webhook verification", () => {
         },
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("preserves a maximum-length form reply when JSON escaping expands it", async () => {
-    const harness = createSqliteD1Harness();
-    applyConnectionMigration(harness);
+    const harness = await createPostgresHarness();
+    await applyConnectionMigration(harness);
     await seedConnection(harness, {
       encryptKey: null,
       provider: "lark",
@@ -591,7 +586,9 @@ describe("Lark-platform Webhook verification", () => {
       const text = '"'.repeat(1000);
       const payload = structuredClone(
         CARD_ACTION_FIXTURE
-      ) as typeof CARD_ACTION_FIXTURE & { event: Record<string, unknown> };
+      ) as typeof CARD_ACTION_FIXTURE & {
+        event: Record<string, unknown>;
+      };
       payload.event.action = {
         tag: "button",
         name: "openmeld.center_agent.control",
@@ -626,13 +623,12 @@ describe("Lark-platform Webhook verification", () => {
         },
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("verifies and normalizes a supported card action callback", async () => {
-    const harness = createSqliteD1Harness();
-    applyConnectionMigration(harness);
+    const harness = await createPostgresHarness();
+    await applyConnectionMigration(harness);
     await seedConnection(harness, {
       encryptKey: null,
       provider: "lark",
@@ -687,16 +683,15 @@ describe("Lark-platform Webhook verification", () => {
         status: "enqueue",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it.each([
     "feishu",
     "lark",
   ] as const)("accepts %s encrypted URL challenges without signature headers", async (provider) => {
-    const harness = createSqliteD1Harness();
-    applyConnectionMigration(harness);
+    const harness = await createPostgresHarness();
+    await applyConnectionMigration(harness);
     await seedConnection(harness, {
       encryptKey: ENCRYPT_KEY,
       provider,
@@ -733,17 +728,16 @@ describe("Lark-platform Webhook verification", () => {
         });
       }
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it.each([
     "wrong-token",
     "ordinary-event",
     "partial-signature",
   ])("rejects an unsigned encrypted %s without recording reachability", async (scenario) => {
-    const harness = createSqliteD1Harness();
-    applyConnectionMigration(harness);
+    const harness = await createPostgresHarness();
+    await applyConnectionMigration(harness);
     await seedConnection(harness, {
       encryptKey: ENCRYPT_KEY,
       provider: "feishu",
@@ -794,13 +788,12 @@ describe("Lark-platform Webhook verification", () => {
         status: "configuring",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("rejects a bad signature before decrypting or normalizing", async () => {
-    const harness = createSqliteD1Harness();
-    applyConnectionMigration(harness);
+    const harness = await createPostgresHarness();
+    await applyConnectionMigration(harness);
     await seedConnection(harness, {
       encryptKey: ENCRYPT_KEY,
       provider: "lark",
@@ -834,13 +827,12 @@ describe("Lark-platform Webhook verification", () => {
         status: "rejected",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("keeps each provider behind its independent feature gate", async () => {
-    const harness = createSqliteD1Harness();
-    applyConnectionMigration(harness);
+    const harness = await createPostgresHarness();
+    await applyConnectionMigration(harness);
     await seedConnection(harness, {
       encryptKey: null,
       provider: "feishu",
@@ -874,13 +866,12 @@ describe("Lark-platform Webhook verification", () => {
         status: "rejected",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("rejects a globally enabled provider outside the connection Organization allowlist", async () => {
-    const harness = createSqliteD1Harness();
-    applyConnectionMigration(harness);
+    const harness = await createPostgresHarness();
+    await applyConnectionMigration(harness);
     await seedConnection(harness, {
       encryptKey: null,
       provider: "lark",
@@ -917,21 +908,20 @@ describe("Lark-platform Webhook verification", () => {
         status: "rejected",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("reports stored webhook credential decryption failures explicitly", async () => {
-    const harness = createSqliteD1Harness();
-    applyConnectionMigration(harness);
+    const harness = await createPostgresHarness();
+    await applyConnectionMigration(harness);
     await seedConnection(harness, {
       encryptKey: null,
       provider: "lark",
       verificationToken: VERIFICATION_TOKEN,
     });
-    harness.run({
-      sql: `
-        UPDATE openMeldRemoteAgent_lark_platform_channel_credentials
+    await harness.query({
+      text: `
+        UPDATE "openmeld"."openMeldRemoteAgent_lark_platform_channel_credentials"
         SET encrypted_verification_token = 'corrupt-verification-token'
         WHERE connection_id = 'connection_lark_test'
       `,
@@ -975,11 +965,10 @@ describe("Lark-platform Webhook verification", () => {
       );
     } finally {
       consoleError.mockRestore();
-      harness.close();
+      await harness.close();
     }
   });
 });
-
 async function verifyLarkPlatformWebhook(
   input: Omit<Parameters<typeof handleWebhook>[0], "waitUntil">
 ) {
@@ -993,7 +982,6 @@ async function verifyLarkPlatformWebhook(
   await Promise.all(pending);
   return result;
 }
-
 function buildEnv(input: {
   feishuEnabled?: boolean;
   feishuOrganizationIds?: string;
@@ -1011,30 +999,18 @@ function buildEnv(input: {
     OPENMELD_SPACES: {} as CoreBindings["OPENMELD_SPACES"],
   };
 }
-
-function applyConnectionMigration(
-  harness: ReturnType<typeof createSqliteD1Harness>
-): void {
-  harness.run({ sql: "CREATE TABLE users (id TEXT PRIMARY KEY)" });
-  harness.run({ sql: "CREATE TABLE organizations (id TEXT PRIMARY KEY)" });
-  harness.run({
-    sql: "INSERT INTO users (id) VALUES ('user_1')",
+async function applyConnectionMigration(
+  harness: Awaited<ReturnType<typeof createPostgresHarness>>
+): Promise<void> {
+  await harness.query({
+    text: "INSERT INTO \"openmeld\".\"users\" (id, name, email, created_at, updated_at) VALUES ('user_1', 'User', 'user@example.test', 1000, 1000)",
   });
-  harness.run({
-    sql: "INSERT INTO organizations (id) VALUES ('org_1')",
+  await harness.query({
+    text: "INSERT INTO \"openmeld\".\"organizations\" (id, name, slug, created_at) VALUES ('org_1', 'Organization', 'organization', 1000)",
   });
-  applyDrizzleMigrationForTable(
-    harness,
-    "openMeldRemoteAgent_lark_platform_channel_connections"
-  );
-  applyDrizzleMigrationForTable(
-    harness,
-    "openMeldRemoteAgent_lark_platform_registration_attempts"
-  );
 }
-
 async function seedConnection(
-  harness: ReturnType<typeof createSqliteD1Harness>,
+  harness: Awaited<ReturnType<typeof createPostgresHarness>>,
   input: {
     encryptKey: string | null;
     provider: "feishu" | "lark";
@@ -1062,8 +1038,8 @@ async function seedConnection(
         cryptoKey: CRYPTO_KEY,
       })
     : null;
-  harness.run({
-    params: [
+  await harness.query({
+    values: [
       connectionId,
       input.provider,
       appId,
@@ -1071,8 +1047,8 @@ async function seedConnection(
       input.status ?? "connected",
       input.status === "configuring" ? null : 1000,
     ],
-    sql: `
-      INSERT INTO openMeldRemoteAgent_lark_platform_channel_connections (
+    text: `
+      INSERT INTO "openmeld"."openMeldRemoteAgent_lark_platform_channel_connections" (
         connection_id,
         organization_id,
         provider,
@@ -1091,36 +1067,36 @@ async function seedConnection(
         created_at_ms,
         updated_at_ms
       ) VALUES (
-        ?,
+        $1,
         'org_1',
-        ?,
-        ?,
-        ?,
+        $2,
+        $3,
+        $4,
         'ou_bot_test',
         'Center Agent',
         'webhook',
-        ?,
+        $5,
         'user_1',
         'channel-v1',
         '["messages","cards"]',
         1,
-        ?,
+        $6,
         NULL,
         1000,
         1000
       )
     `,
   });
-  harness.run({
-    params: [
+  await harness.query({
+    values: [
       connectionId,
       encryptedAppSecret,
       encryptedVerificationToken,
       encryptedEventEncryptKey,
       LARK_PLATFORM_CREDENTIAL_FORMAT_VERSION,
     ],
-    sql: `
-      INSERT INTO openMeldRemoteAgent_lark_platform_channel_credentials (
+    text: `
+      INSERT INTO "openmeld"."openMeldRemoteAgent_lark_platform_channel_credentials" (
         connection_id,
         encrypted_app_secret,
         encrypted_verification_token,
@@ -1128,19 +1104,19 @@ async function seedConnection(
         credential_format_version,
         created_at_ms,
         updated_at_ms
-      ) VALUES (?, ?, ?, ?, ?, 1000, 1000)
+      ) VALUES ($1, $2, $3, $4, $5, 1000, 1000)
     `,
   });
   if (input.status === "configuring") {
-    harness.run({
-      params: [
+    await harness.query({
+      values: [
         `attempt_${input.provider}_test`,
         input.provider,
         input.provider,
         connectionId,
       ],
-      sql: `
-        INSERT INTO openMeldRemoteAgent_lark_platform_registration_attempts (
+      text: `
+        INSERT INTO "openmeld"."openMeldRemoteAgent_lark_platform_registration_attempts" (
           attempt_id,
           organization_id,
           initiated_by_user_id,
@@ -1165,16 +1141,16 @@ async function seedConnection(
           created_at_ms,
           updated_at_ms
         ) VALUES (
-          ?,
+          $1,
           'org_1',
           'user_1',
           'profile_1',
-          ?,
+          $2,
           'encrypted-device-code',
           'encrypted-registration-url',
           'https://accounts.example.test',
-          ?,
-          ?,
+          $3,
+          $4,
           1000,
           2000,
           1800000000000,
@@ -1193,11 +1169,12 @@ async function seedConnection(
     });
   }
 }
-
 async function encryptWebhookPayload(input: {
   encryptKey: string;
   payload: Record<string, unknown>;
-}): Promise<{ encrypt: string }> {
+}): Promise<{
+  encrypt: string;
+}> {
   const keyBytes = await crypto.subtle.digest(
     "SHA-256",
     new TextEncoder().encode(input.encryptKey)
@@ -1222,7 +1199,6 @@ async function encryptWebhookPayload(input: {
     encrypt: btoa(String.fromCharCode(...combined)),
   };
 }
-
 async function signWebhookBody(input: {
   body: string;
   encryptKey: string;

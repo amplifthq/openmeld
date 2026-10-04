@@ -1,19 +1,19 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   agentFailureFactsSchema,
   resolveHostedAgentCallbackFailureReasonCode,
 } from "@openmeld/schemas";
 import type { AgentFailureFacts } from "@openmeld/schemas/types";
-import { readAgentTaskContinuationReplyLanguage } from "../../agent-task-coordination/infrastructure/d1/agent-task-coordination-repo";
+import { readAgentTaskContinuationReplyLanguage } from "../../agent-task-coordination/infrastructure/postgresql/agent-task-coordination-repo";
 import { readOrganizationWorkingLanguagePreference } from "../../organizations/organization-working-language-repository";
-import type { RemoteAgentNativeDeliveryRecord } from "../infrastructure/d1/native-delivery-ledger-repo";
-
+import type { RemoteAgentNativeDeliveryRecord } from "../infrastructure/postgresql/native-delivery-ledger-repo";
 /**
  * Transitional persisted-copy fallback, not a per-task semantic language fact.
  * Used only when no upstream reply-language decision accompanies this task.
  * Never infer that decision from message text or relabel the Organization hint.
  */
 export async function readNativeFailureLanguageFallback(input: {
-  db: D1Database | undefined;
+  db: PostgresDatabase | undefined;
   organizationId: string;
 }): Promise<string | undefined> {
   if (!input.db) {
@@ -25,10 +25,9 @@ export async function readNativeFailureLanguageFallback(input: {
   });
   return preference.languageTag ?? undefined;
 }
-
 export async function resolveNativeFailureLanguage(input: {
-  coordinationDb: D1Database | undefined;
-  db: D1Database | undefined;
+  coordinationDb: PostgresDatabase | undefined;
+  db: PostgresDatabase | undefined;
   delivery: Pick<
     RemoteAgentNativeDeliveryRecord,
     | "organizationId"
@@ -77,7 +76,6 @@ export async function resolveNativeFailureLanguage(input: {
     organizationId: input.delivery.organizationId,
   });
 }
-
 /** The native owner supplies certainty; no ACK means unknown, not not-started. */
 export function buildTaskContinuationAdmissionFailureFacts(input: {
   delivery: RemoteAgentNativeDeliveryRecord;
@@ -106,7 +104,6 @@ export function buildTaskContinuationAdmissionFailureFacts(input: {
     ...(input.languageTag ? { languageTag: input.languageTag } : {}),
   });
 }
-
 /** A failed execution callback does not prove that earlier actions did not run. */
 export function buildRoutineExecutionFailureFacts(input: {
   delivery: Pick<RemoteAgentNativeDeliveryRecord, "dispatchId" | "spaceId"> & {
@@ -137,7 +134,6 @@ export function buildRoutineExecutionFailureFacts(input: {
     ...(input.languageTag ? { languageTag: input.languageTag } : {}),
   });
 }
-
 /** A timed-out receipt lookup is not evidence that a Routine never ran. */
 export function buildRoutineUnconfirmedAdmissionFailureFacts(input: {
   delivery: Pick<RemoteAgentNativeDeliveryRecord, "dispatchId" | "spaceId"> & {

@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   CHANNEL_CONTEXT_MESSAGE_TEXT_MAX_CHARS,
   CHANNEL_CONTEXT_TOTAL_TEXT_MAX_CHARS,
@@ -9,7 +10,7 @@ import {
   advanceSlackThreadContextCursor,
   readSlackThreadContextCursor,
   type SlackThreadContextCursorKey,
-} from "../infrastructure/d1/slack-thread-context-cursor-repo";
+} from "../infrastructure/postgresql/slack-thread-context-cursor-repo";
 import {
   readSlackChannelHistory,
   readSlackThreadMessages,
@@ -32,7 +33,6 @@ const SLACK_FORBIDDEN_ERROR_CODES = new Set([
   "not_allowed_token_type",
   "team_access_not_granted",
 ]);
-
 export type ResolvedSlackThreadContext = {
   channelContext: ChannelContext;
   cursorAdvance: {
@@ -41,18 +41,16 @@ export type ResolvedSlackThreadContext = {
   } | null;
   cursorKey: SlackThreadContextCursorKey;
 };
-
 type ParsedSlackThreadMessage = {
   epochMicros: number;
   message: SlackThreadMessage;
 };
-
 export async function resolveSlackThreadContext(input: {
   botToken: string;
   connectionCreatedAtMs: number;
   conversationId: string;
   currentMessageTs: string;
-  db: D1Database;
+  db: PostgresDatabase;
   includeRecentChannelMessages: boolean;
   organizationId: string;
   slackChannelId: string;
@@ -71,7 +69,6 @@ export async function resolveSlackThreadContext(input: {
     ...cursorKey,
   });
   const mode = syncedThroughTs ? "delta" : "snapshot";
-
   let page: Awaited<ReturnType<typeof readSlackThreadMessages>>;
   try {
     page = await readSlackThreadMessages({
@@ -107,7 +104,6 @@ export async function resolveSlackThreadContext(input: {
       cursorKey,
     };
   }
-
   const parsedThreadMessages = selectSlackThreadMessages({
     currentMessageTs: input.currentMessageTs,
     messages: page.messages,
@@ -150,13 +146,15 @@ export async function resolveSlackThreadContext(input: {
     cursorKey,
   };
 }
-
 async function readRecentSlackChannelContext(input: {
   botToken: string;
   channelId: string;
   currentMessageTs: string;
   slackTeamId: string;
-}): Promise<{ messages: ParsedSlackThreadMessage[]; truncated: boolean }> {
+}): Promise<{
+  messages: ParsedSlackThreadMessage[];
+  truncated: boolean;
+}> {
   try {
     const page = await readSlackChannelHistory({
       botToken: input.botToken,
@@ -187,12 +185,14 @@ async function readRecentSlackChannelContext(input: {
     return { messages: [], truncated: true };
   }
 }
-
 function buildBoundedChannelMessages(input: {
   currentMessageTs: string;
   parsedMessages: readonly ParsedSlackThreadMessage[];
   providerTruncated: boolean;
-}): { messages: ChannelContext["messages"]; truncated: boolean } {
+}): {
+  messages: ChannelContext["messages"];
+  truncated: boolean;
+} {
   let truncated = input.providerTruncated;
   let totalTextCharacters = 0;
   const seenMessageIds = new Set<string>();
@@ -239,7 +239,6 @@ function buildBoundedChannelMessages(input: {
   }
   return { messages, truncated };
 }
-
 function buildSlackContextMessageText(
   message: SlackThreadMessage
 ): string | null {
@@ -262,7 +261,6 @@ function buildSlackContextMessageText(
   }
   return [text, ...fileEvidence].filter(Boolean).join("\n");
 }
-
 function selectSlackThreadMessages(input: {
   currentMessageTs: string;
   messages: readonly SlackThreadMessage[];
@@ -287,7 +285,6 @@ function selectSlackThreadMessages(input: {
     )
     .sort((left, right) => left.epochMicros - right.epochMicros);
 }
-
 function selectRecentSlackChannelMessages(input: {
   currentMessageTs: string;
   messages: readonly SlackThreadMessage[];
@@ -307,9 +304,8 @@ function selectRecentSlackChannelMessages(input: {
     )
     .sort((left, right) => left.epochMicros - right.epochMicros);
 }
-
 export async function commitSlackThreadContextCursor(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs: number;
   resolution: ResolvedSlackThreadContext;
 }): Promise<void> {
@@ -323,7 +319,6 @@ export async function commitSlackThreadContextCursor(input: {
     ...input.resolution.cursorAdvance,
   });
 }
-
 function buildChannelContextAuthor(
   message: SlackThreadMessage
 ): ChannelContext["messages"][number]["author"] {
@@ -346,7 +341,6 @@ function buildChannelContextAuthor(
     ...(message.displayName ? { displayName: message.displayName } : {}),
   };
 }
-
 export function classifySlackContextFailure(
   error: unknown
 ): "forbidden" | "rate_limited" | "unavailable" {
@@ -360,7 +354,6 @@ export function classifySlackContextFailure(
     ? "forbidden"
     : "unavailable";
 }
-
 function parseSlackTimestampToEpochMicros(value: string): number | null {
   const match = SLACK_TIMESTAMP_PATTERN.exec(value);
   if (!match) {
@@ -373,11 +366,13 @@ function parseSlackTimestampToEpochMicros(value: string): number | null {
     ? epochMicros
     : null;
 }
-
 function truncateText(
   value: string,
   maxCharacters: number
-): { text: string; truncated: boolean } {
+): {
+  text: string;
+  truncated: boolean;
+} {
   if (value.length <= maxCharacters) {
     return { text: value, truncated: false };
   }
@@ -386,17 +381,15 @@ function truncateText(
   }
   let text = value.slice(0, maxCharacters - 1);
   const finalCodeUnit = text.charCodeAt(text.length - 1);
-  if (finalCodeUnit >= 0xd8_00 && finalCodeUnit <= 0xdb_ff) {
+  if (finalCodeUnit >= 55_296 && finalCodeUnit <= 56_319) {
     text = text.slice(0, -1);
   }
   return { text: `${text}…`, truncated: true };
 }
-
 function normalizeOptionalText(value: unknown): string | null {
   const normalized = String(value ?? "").trim();
   return normalized.length > 0 ? normalized : null;
 }
-
 function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }

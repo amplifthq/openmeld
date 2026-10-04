@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   messageChannelConnectionProjectionSchema,
   messageChannelProviderSchema,
@@ -7,25 +8,24 @@ import type { MessageChannelConnectionProjection } from "@openmeld/schemas/types
 import {
   listRemoteAgentLarkPlatformChannelConnectionsForOrganization,
   type RemoteAgentLarkPlatformChannelConnectionRecord,
-} from "../infrastructure/d1/lark-platform-channel-connection-repo";
+} from "../infrastructure/postgresql/lark-platform-channel-connection-repo";
 import {
   disconnectRemoteAgentLarkPlatformIdentityLink,
   listRemoteAgentLarkPlatformIdentityLinks,
-} from "../infrastructure/d1/lark-platform-identity-link-repo";
+} from "../infrastructure/postgresql/lark-platform-identity-link-repo";
 import {
   disconnectSlackUserIdentityLink,
   readSlackUserIdentityLinksForOrganization,
-} from "../infrastructure/d1/slack-user-identity-link-repo";
+} from "../infrastructure/postgresql/slack-user-identity-link-repo";
 import {
   type RemoteAgentSlackWorkspaceBindingRecord,
   readRemoteAgentSlackWorkspaceBindingByOrganization,
-} from "../infrastructure/d1/slack-workspace-binding-repo";
-import { readSlackWorkspaceToken } from "../infrastructure/d1/slack-workspace-token-repo";
+} from "../infrastructure/postgresql/slack-workspace-binding-repo";
+import { readSlackWorkspaceToken } from "../infrastructure/postgresql/slack-workspace-token-repo";
 import { requiresLarkPlatformAuthorizationUpdate } from "./lark-platform-permission-bundles";
 import type { MessageChannelIdentityLinkAuditRecord } from "./message-channel-identity-link-audit";
 
 const PROVIDER_ACCOUNT_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
-
 export type MessageChannelIdentityLinkProjection = {
   connectedAt: string;
   id: string;
@@ -34,12 +34,10 @@ export type MessageChannelIdentityLinkProjection = {
   providerAccountEmail: string | null;
   providerAccountName: string | null;
 };
-
 export type MessageChannelProviderAccountEmailsResolver = (input: {
   provider: MessageChannelConnectionProjection["provider"];
   providerUserIds: readonly string[];
 }) => Promise<ReadonlyMap<string, string | null>>;
-
 export type MessageChannelIdentityLinkTarget =
   | {
       connectionId: string;
@@ -55,31 +53,28 @@ export type MessageChannelIdentityLinkTarget =
       providerUserId: string;
       slackTeamId: string;
     };
-
 export type MessageChannelConnectionProjectionDependencies = {
   readSlackToken: typeof readSlackWorkspaceToken;
   listLarkPlatformConnections(input: {
-    db: D1Database;
+    db: PostgresDatabase;
     organizationId: string;
   }): Promise<RemoteAgentLarkPlatformChannelConnectionRecord[]>;
   readSlackBinding(input: {
-    db: D1Database;
+    db: PostgresDatabase;
     organizationId: string;
   }): Promise<RemoteAgentSlackWorkspaceBindingRecord | null>;
 };
-
 const DEFAULT_DEPENDENCIES: MessageChannelConnectionProjectionDependencies = {
   readSlackToken: readSlackWorkspaceToken,
   listLarkPlatformConnections:
     listRemoteAgentLarkPlatformChannelConnectionsForOrganization,
   readSlackBinding: readRemoteAgentSlackWorkspaceBindingByOrganization,
 };
-
 export async function listRemoteAgentMessageChannelConnectionProjections(
   input: {
-    identityDb: D1Database;
+    identityDb: PostgresDatabase;
     organizationId: string;
-    stateDb: D1Database;
+    stateDb: PostgresDatabase;
   },
   dependencies: MessageChannelConnectionProjectionDependencies = DEFAULT_DEPENDENCIES
 ): Promise<MessageChannelConnectionProjection[]> {
@@ -123,13 +118,12 @@ export async function listRemoteAgentMessageChannelConnectionProjections(
       providerOrder(left.provider) - providerOrder(right.provider)
   );
 }
-
 export async function listRemoteAgentMessageChannelIdentityLinkProjections(input: {
   connections: readonly MessageChannelConnectionProjection[];
-  identityDb: D1Database;
+  identityDb: PostgresDatabase;
   organizationId: string;
   resolveProviderAccountEmails?: MessageChannelProviderAccountEmailsResolver;
-  stateDb: D1Database;
+  stateDb: PostgresDatabase;
 }): Promise<MessageChannelIdentityLinkProjection[]> {
   const records = await Promise.all(
     input.connections.map(async (connection) => {
@@ -208,20 +202,18 @@ export async function listRemoteAgentMessageChannelIdentityLinkProjections(input
       : providerComparison;
   });
 }
-
 function resolveStoredProviderAccountEmail(
   value: string | null
 ): string | null {
   const normalized = value?.trim().toLowerCase() ?? "";
   return PROVIDER_ACCOUNT_EMAIL_PATTERN.test(normalized) ? normalized : null;
 }
-
 export async function findRemoteAgentMessageChannelIdentityLinkTarget(input: {
   connections: readonly MessageChannelConnectionProjection[];
-  identityDb: D1Database;
+  identityDb: PostgresDatabase;
   identityLinkId: string;
   organizationId: string;
-  stateDb: D1Database;
+  stateDb: PostgresDatabase;
 }): Promise<MessageChannelIdentityLinkTarget | null> {
   for (const connection of input.connections) {
     if (connection.provider === "slack") {
@@ -279,12 +271,11 @@ export async function findRemoteAgentMessageChannelIdentityLinkTarget(input: {
   }
   return null;
 }
-
 export async function deleteRemoteAgentMessageChannelIdentityLinkTarget(input: {
   audit: MessageChannelIdentityLinkAuditRecord;
-  identityDb: D1Database;
+  identityDb: PostgresDatabase;
   organizationId: string;
-  stateDb: D1Database;
+  stateDb: PostgresDatabase;
   target: MessageChannelIdentityLinkTarget;
 }): Promise<void> {
   if (input.target.provider === "slack") {
@@ -314,7 +305,6 @@ export async function deleteRemoteAgentMessageChannelIdentityLinkTarget(input: {
     throw new Error("Message Channel identity link changed before deletion");
   }
 }
-
 export async function buildMessageChannelIdentityLinkId(input: {
   connectionId: string;
   provider: MessageChannelConnectionProjection["provider"];
@@ -324,11 +314,8 @@ export async function buildMessageChannelIdentityLinkId(input: {
     `${input.provider}\u0000${input.connectionId}\u0000${input.providerUserId}`
   );
   const digest = await crypto.subtle.digest("SHA-256", value);
-  return `channel_identity_${Array.from(new Uint8Array(digest), (byte) =>
-    byte.toString(16).padStart(2, "0")
-  ).join("")}`;
+  return `channel_identity_${Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
 }
-
 function projectSlackConnection(
   binding: RemoteAgentSlackWorkspaceBindingRecord,
   needsAuthorization: boolean
@@ -348,7 +335,6 @@ function projectSlackConnection(
     transport: "webhook",
   });
 }
-
 export function projectRemoteAgentLarkPlatformConnection(
   connection: RemoteAgentLarkPlatformChannelConnectionRecord
 ): MessageChannelConnectionProjection {
@@ -372,7 +358,6 @@ export function projectRemoteAgentLarkPlatformConnection(
     transport: connection.transport,
   });
 }
-
 function providerOrder(
   provider: MessageChannelConnectionProjection["provider"]
 ) {

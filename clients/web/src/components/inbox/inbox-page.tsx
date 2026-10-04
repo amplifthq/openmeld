@@ -53,9 +53,25 @@ import {
 import { INBOX_TABS } from "./inbox-page-tabs";
 import { useInboxRemoval } from "./inbox-removal-dialog";
 import { InvitationReview } from "./invitation-review";
+import { PluginActionRequest } from "./plugin-action-request";
 import { useInboxExpansion } from "./use-inbox-expansion";
 import { useInboxItemDismissMutation } from "./use-inbox-item-dismiss-mutation";
 import { useInboxItemReadMutation } from "./use-inbox-item-read-mutation";
+
+function InboxSourceDetails({ target }: { target: InboxItem["sourceTarget"] }) {
+	if (target.kind === "desktop_update") {
+		return <InboxDesktopUpdateDetails target={target} />;
+	}
+	if (target.kind === "plugin_action_request") {
+		return (
+			<PluginActionRequest
+				key={target.requestId}
+				requestId={target.requestId}
+			/>
+		);
+	}
+	return null;
+}
 
 function markReadLabel(count: number | null): string {
 	if (count === null) {
@@ -350,9 +366,7 @@ export function InboxPage(input: {
 							organizationSlug={currentOrganization.slug}
 							registerItemElement={registerItem}
 						/>
-						{sourceItem.sourceTarget.kind === "desktop_update" ? (
-							<InboxDesktopUpdateDetails target={sourceItem.sourceTarget} />
-						) : null}
+						<InboxSourceDetails target={sourceItem.sourceTarget} />
 					</section>
 				) : null}
 				{input.itemId && deepLink.isPending ? <InboxListSkeleton /> : null}

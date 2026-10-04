@@ -23,7 +23,15 @@ if (
   process.argv[1] &&
   resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 ) {
-  runIsolatedWeb().catch((error) => {
+  const run = process.argv.includes("--runtime")
+    ? async () => {
+        process.exitCode = await runWeb(
+          { env: process.env },
+          "dev:isolated:runtime"
+        );
+      }
+    : runIsolatedWeb;
+  run().catch((error) => {
     console.error(`[${presentation.webCommandLabel}] ${toErrorMessage(error)}`);
     process.exit(1);
   });
@@ -74,18 +82,19 @@ export async function runIsolatedWeb() {
   }
 }
 
-function runWeb(input) {
+function runWeb(input, script = resolveIsolatedWebScript(input.env)) {
   const pnpmCommand = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
   const dopplerCommand = resolveIsolatedWebDopplerCommand(
     input.env,
-    pnpmCommand
+    pnpmCommand,
+    script
   );
   const command = dopplerCommand?.executable ?? pnpmCommand;
   const args = dopplerCommand?.args ?? [
     "--filter",
     "openmeld-web",
     "run",
-    resolveIsolatedWebScript(input.env),
+    script,
   ];
 
   return runOwnedCommand(command, args, {

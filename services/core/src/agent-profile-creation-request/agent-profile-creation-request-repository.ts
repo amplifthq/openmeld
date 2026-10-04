@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   agentProfileCreationApprovalPolicySchema,
   agentProfileCreationConfigurationSchema,
@@ -37,7 +38,6 @@ type RequestRow = {
   target_owner_user_id: string;
   updated_at: number;
 };
-
 type PreferenceRow = {
   existing_session_policy: string;
   new_session_policy: string;
@@ -45,7 +45,6 @@ type PreferenceRow = {
   updated_at: number;
   user_id: string;
 };
-
 type InboxProjectionRow = RequestRow & {
   inbox_projection_attempt_count: number;
   inbox_projection_generation: number;
@@ -54,7 +53,6 @@ type InboxProjectionRow = RequestRow & {
   inbox_projection_operation: string;
   inbox_projection_status: string;
 };
-
 const REQUEST_COLUMNS = `
   id,
   organization_id,
@@ -79,7 +77,6 @@ const REQUEST_COLUMNS = `
   created_at,
   updated_at
 `;
-
 const INBOX_PROJECTION_COLUMNS = `
   inbox_projection_operation,
   inbox_projection_generation,
@@ -88,226 +85,209 @@ const INBOX_PROJECTION_COLUMNS = `
   inbox_projection_last_error,
   inbox_projection_next_retry_at
 `;
-
-export function createD1AgentProfileCreationRequestRepository(
-  db: D1Database
+export function createPostgresAgentProfileCreationRequestRepository(
+  db: PostgresDatabase
 ): AgentProfileCreationRequestRepository {
   const getById = async (input: {
     organizationId: string;
     requestId: string;
   }): Promise<AgentProfileCreationRequestRecord | null> => {
     const row = await db
-      .prepare(
-        `
+      .query<RequestRow>({
+        text: `
           SELECT ${REQUEST_COLUMNS}
-          FROM agent_profile_creation_requests
-          WHERE organization_id = ?
-            AND id = ?
+          FROM "openmeld"."agent_profile_creation_requests"
+          WHERE organization_id = $1
+            AND id = $2
           LIMIT 1
-        `
-      )
-      .bind(input.organizationId, input.requestId)
-      .first<RequestRow>();
+        `,
+        values: [input.organizationId, input.requestId],
+      })
+      .then((result) => result.rows[0] ?? null);
     return row ? toRequestRecord(row) : null;
   };
-
   const reopenNewerCompletedInboxProjection = async (input: {
     generation: number;
     requestId: string;
   }): Promise<void> => {
-    await db
-      .prepare(
-        `
-          UPDATE agent_profile_creation_requests
+    await db.query({
+      text: `
+          UPDATE "openmeld"."agent_profile_creation_requests"
           SET
             inbox_projection_status = 'pending',
             inbox_projection_last_error = NULL,
             inbox_projection_next_retry_at = NULL,
             inbox_projection_completed_at = NULL
-          WHERE id = ?
-            AND inbox_projection_generation > ?
+          WHERE id = $1
+            AND inbox_projection_generation > $2
             AND inbox_projection_status = 'completed'
-        `
-      )
-      .bind(input.requestId, input.generation)
-      .run();
+        `,
+      values: [input.requestId, input.generation],
+    });
   };
-
   return {
     findByIdempotencyKey: async (input) => {
       const row = await db
-        .prepare(
-          `
+        .query<RequestRow>({
+          text: `
             SELECT ${REQUEST_COLUMNS}
-            FROM agent_profile_creation_requests
-            WHERE organization_id = ?
-              AND requester_user_id = ?
-              AND idempotency_key = ?
+            FROM "openmeld"."agent_profile_creation_requests"
+            WHERE organization_id = $1
+              AND requester_user_id = $2
+              AND idempotency_key = $3
             LIMIT 1
-          `
-        )
-        .bind(input.organizationId, input.requesterUserId, input.idempotencyKey)
-        .first<RequestRow>();
+          `,
+          values: [
+            input.organizationId,
+            input.requesterUserId,
+            input.idempotencyKey,
+          ],
+        })
+        .then((result) => result.rows[0] ?? null);
       return row ? toRequestRecord(row) : null;
     },
-
     getById,
-
     getInboxProjectionByRequestId: async (requestId) => {
       const row = await db
-        .prepare(
-          `
+        .query<InboxProjectionRow>({
+          text: `
             SELECT ${REQUEST_COLUMNS}, ${INBOX_PROJECTION_COLUMNS}
-            FROM agent_profile_creation_requests
-            WHERE id = ?
+            FROM "openmeld"."agent_profile_creation_requests"
+            WHERE id = $1
               AND inbox_projection_operation IS NOT NULL
             LIMIT 1
-          `
-        )
-        .bind(requestId)
-        .first<InboxProjectionRow>();
+          `,
+          values: [requestId],
+        })
+        .then((result) => result.rows[0] ?? null);
       return row ? toInboxProjectionRecord(row) : null;
     },
-
     listDueInboxProjections: async (input) => {
-      const result = await db
-        .prepare(
-          `
+      const result = await db.query<InboxProjectionRow>({
+        text: `
             SELECT ${REQUEST_COLUMNS}, ${INBOX_PROJECTION_COLUMNS}
-            FROM agent_profile_creation_requests
+            FROM "openmeld"."agent_profile_creation_requests"
             WHERE inbox_projection_status IN ('pending', 'failed')
               AND (
                 inbox_projection_next_retry_at IS NULL
-                OR inbox_projection_next_retry_at <= ?
+                OR inbox_projection_next_retry_at <= $1
               )
-            ORDER BY updated_at ASC, id ASC
-            LIMIT ?
-          `
-        )
-        .bind(input.nowMs, Math.max(1, input.limit))
-        .all<InboxProjectionRow>();
-      return result.results.map(toInboxProjectionRecord);
+            ORDER BY updated_at ASC NULLS FIRST, id ASC NULLS FIRST
+            LIMIT $2
+          `,
+        values: [input.nowMs, Math.max(1, input.limit)],
+      });
+      return result.rows.map(toInboxProjectionRecord);
     },
-
     listUnclaimedProfileCreations: async (input) => {
-      const result = await db
-        .prepare(`
+      const result = await db.query<RequestRow>({
+        text: `
         SELECT ${REQUEST_COLUMNS}
-        FROM agent_profile_creation_requests
+        FROM "openmeld"."agent_profile_creation_requests"
         WHERE status = 'approved' AND profile_creation_started_at IS NULL
-        ORDER BY updated_at ASC, id ASC
-        LIMIT ?
-      `)
-        .bind(Math.max(1, input.limit))
-        .all<RequestRow>();
-      return result.results.map(toRequestRecord);
+        ORDER BY updated_at ASC NULLS FIRST, id ASC NULLS FIRST
+        LIMIT $1
+      `,
+        values: [Math.max(1, input.limit)],
+      });
+      return result.rows.map(toRequestRecord);
     },
-
     listStaleProfileCreations: async (input) => {
-      const result = await db
-        .prepare(
-          `
+      const result = await db.query<RequestRow>({
+        text: `
             SELECT ${REQUEST_COLUMNS}
-            FROM agent_profile_creation_requests
+            FROM "openmeld"."agent_profile_creation_requests"
             WHERE status = 'approved'
               AND (
-                profile_creation_started_at <= ?
+                profile_creation_started_at <= $1
                 OR (
                   profile_creation_started_at IS NULL
-                  AND updated_at <= ?
+                  AND updated_at <= $2
                 )
               )
-            ORDER BY COALESCE(profile_creation_started_at, updated_at) ASC, id ASC
-            LIMIT ?
-          `
-        )
-        .bind(
+            ORDER BY COALESCE(profile_creation_started_at, updated_at) ASC NULLS FIRST, id ASC NULLS FIRST
+            LIMIT $3
+          `,
+        values: [
           input.staleBeforeMs,
           input.staleBeforeMs,
-          Math.max(1, input.limit)
-        )
-        .all<RequestRow>();
-      return result.results.map(toRequestRecord);
+          Math.max(1, input.limit),
+        ],
+      });
+      return result.rows.map(toRequestRecord);
     },
-
     claimProfileCreation: async (input) => {
-      const result = await db
-        .prepare(
-          `
-            UPDATE agent_profile_creation_requests
+      const result = await db.query({
+        text: `
+            UPDATE "openmeld"."agent_profile_creation_requests"
             SET
               profile_creation_attempt = profile_creation_attempt + 1,
-              profile_creation_started_at = ?,
-              updated_at = ?
-            WHERE id = ?
+              profile_creation_started_at = $1,
+              updated_at = $2
+            WHERE id = $3
               AND status = 'approved'
-              AND updated_at = ?
+              AND updated_at = $4
               AND (
-                (? IS NULL AND profile_creation_started_at IS NULL)
-                OR profile_creation_started_at = ?
+                ($5::text IS NULL AND profile_creation_started_at IS NULL)
+                OR profile_creation_started_at = $6
               )
-          `
-        )
-        .bind(
+          `,
+        values: [
           input.startedAtMs,
           input.startedAtMs,
           input.requestId,
           input.expectedUpdatedAtMs,
           input.expectedProfileCreationStartedAtMs,
-          input.expectedProfileCreationStartedAtMs
-        )
-        .run();
-      if (Number(result.meta.changes ?? 0) !== 1) {
+          input.expectedProfileCreationStartedAtMs,
+        ],
+      });
+      if (Number(result.rowCount ?? 0) !== 1) {
         return null;
       }
       const row = await db
-        .prepare(
-          `
+        .query<RequestRow>({
+          text: `
             SELECT ${REQUEST_COLUMNS}
-            FROM agent_profile_creation_requests
-            WHERE id = ?
+            FROM "openmeld"."agent_profile_creation_requests"
+            WHERE id = $1
             LIMIT 1
-          `
-        )
-        .bind(input.requestId)
-        .first<RequestRow>();
+          `,
+          values: [input.requestId],
+        })
+        .then((result) => result.rows[0] ?? null);
       return row ? toRequestRecord(row) : null;
     },
-
     getPreference: async (input) => {
       const row = await db
-        .prepare(
-          `
+        .query<PreferenceRow>({
+          text: `
             SELECT
               organization_id,
               user_id,
               new_session_policy,
               existing_session_policy,
               updated_at
-            FROM agent_profile_creation_approval_preferences
-            WHERE organization_id = ?
-              AND user_id = ?
+            FROM "openmeld"."agent_profile_creation_approval_preferences"
+            WHERE organization_id = $1
+              AND user_id = $2
             LIMIT 1
-          `
-        )
-        .bind(input.organizationId, input.userId)
-        .first<PreferenceRow>();
+          `,
+          values: [input.organizationId, input.userId],
+        })
+        .then((result) => result.rows[0] ?? null);
       return row ? toPreferenceRecord(row) : null;
     },
-
     insert: async (record, input) => {
       const inboxProjection = input?.inboxProjection ?? null;
-      await db
-        .prepare(
-          `
-            INSERT INTO agent_profile_creation_requests (
+      await db.query({
+        text: `
+            INSERT INTO "openmeld"."agent_profile_creation_requests" (
               ${REQUEST_COLUMNS},
               ${INBOX_PROJECTION_COLUMNS},
               inbox_projection_completed_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, NULL)
-          `
-        )
-        .bind(
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, 0, NULL, NULL, NULL)
+          `,
+        values: [
           record.id,
           record.organizationId,
           record.requesterUserId,
@@ -332,87 +312,77 @@ export function createD1AgentProfileCreationRequestRepository(
           record.updatedAtMs,
           inboxProjection,
           inboxProjection === null ? 0 : 1,
-          inboxProjection === null ? null : "pending"
-        )
-        .run();
+          inboxProjection === null ? null : "pending",
+        ],
+      });
       return record;
     },
-
     listForParticipant: async (input) => {
-      const result = await db
-        .prepare(
-          `
+      const result = await db.query<RequestRow>({
+        text: `
             SELECT ${REQUEST_COLUMNS}
-            FROM agent_profile_creation_requests
-            WHERE organization_id = ?
-              AND (requester_user_id = ? OR target_owner_user_id = ?)
-            ORDER BY updated_at DESC, id DESC
+            FROM "openmeld"."agent_profile_creation_requests"
+            WHERE organization_id = $1
+              AND (requester_user_id = $2 OR target_owner_user_id = $3)
+            ORDER BY updated_at DESC NULLS LAST, id DESC NULLS LAST
             LIMIT 200
-          `
-        )
-        .bind(input.organizationId, input.userId, input.userId)
-        .all<RequestRow>();
-      return result.results.map(toRequestRecord);
+          `,
+        values: [input.organizationId, input.userId, input.userId],
+      });
+      return result.rows.map(toRequestRecord);
     },
-
     markInboxProjectionCompleted: async (input) => {
-      const result = await db
-        .prepare(
-          `
-            UPDATE agent_profile_creation_requests
+      const result = await db.query({
+        text: `
+            UPDATE "openmeld"."agent_profile_creation_requests"
             SET
               inbox_projection_status = 'completed',
               inbox_projection_last_error = NULL,
               inbox_projection_next_retry_at = NULL,
-              inbox_projection_completed_at = ?
-            WHERE id = ?
-              AND inbox_projection_generation = ?
+              inbox_projection_completed_at = $1
+            WHERE id = $2
+              AND inbox_projection_generation = $3
               AND inbox_projection_status IN ('pending', 'failed')
-          `
-        )
-        .bind(input.completedAtMs, input.requestId, input.generation)
-        .run();
-      if (Number(result.meta.changes ?? 0) === 1) {
+          `,
+        values: [input.completedAtMs, input.requestId, input.generation],
+      });
+      if (Number(result.rowCount ?? 0) === 1) {
         return true;
       }
       await reopenNewerCompletedInboxProjection(input);
       return false;
     },
-
     markInboxProjectionFailed: async (input) => {
-      const result = await db
-        .prepare(
-          `
-            UPDATE agent_profile_creation_requests
+      const result = await db.query({
+        text: `
+            UPDATE "openmeld"."agent_profile_creation_requests"
             SET
               inbox_projection_status = 'failed',
               inbox_projection_attempt_count = inbox_projection_attempt_count + 1,
-              inbox_projection_last_error = ?,
-              inbox_projection_next_retry_at = ?
-            WHERE id = ?
-              AND inbox_projection_generation = ?
+              inbox_projection_last_error = $1,
+              inbox_projection_next_retry_at = $2
+            WHERE id = $3
+              AND inbox_projection_generation = $4
               AND inbox_projection_status IN ('pending', 'failed')
-          `
-        )
-        .bind(
+          `,
+        values: [
           input.lastError,
           input.nextRetryAtMs,
           input.requestId,
-          input.generation
-        )
-        .run();
-      if (Number(result.meta.changes ?? 0) === 1) {
+          input.generation,
+        ],
+      });
+      if (Number(result.rowCount ?? 0) === 1) {
         return true;
       }
       await reopenNewerCompletedInboxProjection(input);
       return false;
     },
-
     synchronizeInboxProjectionIntents: async (input) => {
-      const requestCondition = input?.requestId ? "AND id = ?" : "";
-      const statement = db.prepare(
-        `
-            UPDATE agent_profile_creation_requests
+      const requestCondition = input?.requestId ? "AND id = $1" : "";
+      const statement = {
+        text: `
+            UPDATE "openmeld"."agent_profile_creation_requests"
             SET
               inbox_projection_operation = CASE
                 WHEN status = 'pending' THEN 'project'
@@ -430,42 +400,45 @@ export function createD1AgentProfileCreationRequestRepository(
               OR (status != 'pending' AND inbox_projection_operation != 'resolve')
             )
             ${requestCondition}
-          `
+          `,
+        values: [],
+      };
+      const result = await db.query(
+        input?.requestId
+          ? {
+              ...statement,
+              values: [input.requestId],
+            }
+          : statement
       );
-      const result = await (input?.requestId
-        ? statement.bind(input.requestId)
-        : statement
-      ).run();
-      return Number(result.meta.changes ?? 0);
+      return Number(result.rowCount ?? 0);
     },
-
     transition: async (input) => {
       if (input.expectedStatuses.length === 0) {
         return null;
       }
       const current = await db
-        .prepare(
-          `
+        .query<RequestRow>({
+          text: `
             SELECT ${REQUEST_COLUMNS}
-            FROM agent_profile_creation_requests
-            WHERE id = ?
+            FROM "openmeld"."agent_profile_creation_requests"
+            WHERE id = $1
             LIMIT 1
-          `
-        )
-        .bind(input.requestId)
-        .first<RequestRow>();
+          `,
+          values: [input.requestId],
+        })
+        .then((result) => result.rows[0] ?? null);
       if (!current) {
         return null;
       }
       const record = { ...toRequestRecord(current), ...input.update };
-      const placeholders = input.expectedStatuses.map(() => "?").join(", ");
       const profileCreationAttemptCondition =
         input.expectedProfileCreationAttempt === undefined
           ? ""
-          : "AND profile_creation_attempt = ?";
+          : `AND profile_creation_attempt = $${input.inboxProjection ? 13 : 12}`;
       const inboxProjectionUpdate = input.inboxProjection
         ? `,
-              inbox_projection_operation = ?,
+              inbox_projection_operation = $12,
               inbox_projection_generation = inbox_projection_generation + 1,
               inbox_projection_status = 'pending',
               inbox_projection_attempt_count = 0,
@@ -473,27 +446,25 @@ export function createD1AgentProfileCreationRequestRepository(
               inbox_projection_next_retry_at = NULL,
               inbox_projection_completed_at = NULL`
         : "";
-      const result = await db
-        .prepare(
-          `
-            UPDATE agent_profile_creation_requests
+      const result = await db.query({
+        text: `
+            UPDATE "openmeld"."agent_profile_creation_requests"
             SET
-              status = ?,
-              status_reason = ?,
-              created_agent_profile_id = ?,
-              failure_message = ?,
-              decided_at = ?,
-              completed_at = ?,
-              profile_creation_started_at = ?,
-              updated_at = ?
+              status = $1,
+              status_reason = $2,
+              created_agent_profile_id = $3,
+              failure_message = $4,
+              decided_at = $5,
+              completed_at = $6,
+              profile_creation_started_at = $7,
+              updated_at = $8
               ${inboxProjectionUpdate}
-            WHERE id = ?
-              AND status IN (${placeholders})
-              AND updated_at = ?
+            WHERE id = $9
+              AND status = ANY($10::text[])
+              AND updated_at = $11
               ${profileCreationAttemptCondition}
-          `
-        )
-        .bind(
+          `,
+        values: [
           record.status,
           record.statusReason,
           record.createdAgentProfileId,
@@ -502,16 +473,16 @@ export function createD1AgentProfileCreationRequestRepository(
           record.completedAtMs,
           record.profileCreationStartedAtMs,
           record.updatedAtMs,
-          ...(input.inboxProjection ? [input.inboxProjection] : []),
           input.requestId,
-          ...input.expectedStatuses,
+          input.expectedStatuses,
           input.expectedUpdatedAtMs,
+          ...(input.inboxProjection ? [input.inboxProjection] : []),
           ...(input.expectedProfileCreationAttempt === undefined
             ? []
-            : [input.expectedProfileCreationAttempt])
-        )
-        .run();
-      if (Number(result.meta.changes ?? 0) !== 1) {
+            : [input.expectedProfileCreationAttempt]),
+        ],
+      });
+      if (Number(result.rowCount ?? 0) !== 1) {
         return null;
       }
       return await getById({
@@ -519,13 +490,11 @@ export function createD1AgentProfileCreationRequestRepository(
         requestId: record.id,
       });
     },
-
     upsertPreference: async (input) => {
       const id = `apcp_${crypto.randomUUID()}`;
-      await db
-        .prepare(
-          `
-            INSERT INTO agent_profile_creation_approval_preferences (
+      await db.query({
+        text: `
+            INSERT INTO "openmeld"."agent_profile_creation_approval_preferences" (
               id,
               organization_id,
               user_id,
@@ -533,40 +502,39 @@ export function createD1AgentProfileCreationRequestRepository(
               existing_session_policy,
               created_at,
               updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7)
             ON CONFLICT(organization_id, user_id) DO UPDATE SET
               new_session_policy = excluded.new_session_policy,
               existing_session_policy = excluded.existing_session_policy,
               updated_at = excluded.updated_at
-          `
-        )
-        .bind(
+          `,
+        values: [
           id,
           input.organizationId,
           input.userId,
           input.newSessionPolicy,
           input.existingSessionPolicy,
           input.nowMs,
-          input.nowMs
-        )
-        .run();
+          input.nowMs,
+        ],
+      });
       const row = await db
-        .prepare(
-          `
+        .query<PreferenceRow>({
+          text: `
             SELECT
               organization_id,
               user_id,
               new_session_policy,
               existing_session_policy,
               updated_at
-            FROM agent_profile_creation_approval_preferences
-            WHERE organization_id = ?
-              AND user_id = ?
+            FROM "openmeld"."agent_profile_creation_approval_preferences"
+            WHERE organization_id = $1
+              AND user_id = $2
             LIMIT 1
-          `
-        )
-        .bind(input.organizationId, input.userId)
-        .first<PreferenceRow>();
+          `,
+          values: [input.organizationId, input.userId],
+        })
+        .then((result) => result.rows[0] ?? null);
       if (!row) {
         throw new Error(
           "Agent Profile creation approval preference write did not produce a row."
@@ -576,7 +544,6 @@ export function createD1AgentProfileCreationRequestRepository(
     },
   };
 }
-
 function toRequestRecord(row: RequestRow): AgentProfileCreationRequestRecord {
   return {
     actorProfileId: requireText(row.actor_profile_id, "actor_profile_id"),
@@ -616,7 +583,6 @@ function toRequestRecord(row: RequestRow): AgentProfileCreationRequestRecord {
     updatedAtMs: requireTimestamp(row.updated_at, "updated_at"),
   };
 }
-
 function toInboxProjectionRecord(
   row: InboxProjectionRow
 ): AgentProfileCreationRequestInboxProjectionRecord {
@@ -651,7 +617,6 @@ function toInboxProjectionRecord(
     status,
   };
 }
-
 function parseConfiguration(value: unknown) {
   const raw = requireText(value, "configuration_json");
   let parsed: unknown;
@@ -667,7 +632,6 @@ function parseConfiguration(value: unknown) {
   }
   return agentProfileCreationConfigurationSchema.parse(parsed);
 }
-
 function toPreferenceRecord(
   row: PreferenceRow
 ): AgentProfileCreationApprovalPreferenceRecord {
@@ -683,7 +647,6 @@ function toPreferenceRecord(
     userId: requireText(row.user_id, "user_id"),
   };
 }
-
 function requireText(value: unknown, field: string): string {
   const text = String(value ?? "").trim();
   if (!text) {
@@ -691,16 +654,13 @@ function requireText(value: unknown, field: string): string {
   }
   return text;
 }
-
 function toNullableText(value: unknown): string | null {
   const text = String(value ?? "").trim();
   return text || null;
 }
-
 function requireTimestamp(value: unknown, field: string): number {
   return requireNonNegativeInteger(value, field);
 }
-
 function requireNonNegativeInteger(value: unknown, field: string): number {
   const timestamp = Number(value);
   if (!(Number.isSafeInteger(timestamp) && timestamp >= 0)) {
@@ -708,7 +668,6 @@ function requireNonNegativeInteger(value: unknown, field: string): number {
   }
   return timestamp;
 }
-
 function toNullableTimestamp(value: unknown, field: string): number | null {
   return value === null || value === undefined
     ? null

@@ -534,6 +534,16 @@ test("parses the local production release command", () => {
       scope: "web,core",
     }
   );
+  assert.equal(
+    parseProductionReleaseArgs(["plan", "--database-cutover"]).databaseCutover,
+    true
+  );
+  for (const command of ["deploy", "preflight", "verify"]) {
+    assert.throws(
+      () => parseProductionReleaseArgs([command, "--database-cutover"]),
+      { message: "Unknown production release option: --database-cutover" }
+    );
+  }
 });
 
 test("identifies a local release owner across computers", () => {
@@ -2384,8 +2394,8 @@ test("composes Remote Agent and Inbox receiver-first constraints before Core", (
       "Verify Web health",
       "Deploy Gateway Worker",
       "Verify Gateway Worker health",
-      "Deploy Core Worker",
-      "Verify Core deployment is visible",
+      "Deploy Core with the current published CLI projection",
+      "Verify Core receiver stable identity alignment",
     ]
   );
 });
@@ -2615,8 +2625,8 @@ test("keeps Core before a response producer while retaining Inbox receiver-first
       "Verify Web health",
       "Deploy Gateway Worker",
       "Verify Gateway Worker health",
-      "Deploy Core Worker",
-      "Verify Core deployment is visible",
+      "Deploy Core with the current published CLI projection",
+      "Verify Core receiver stable identity alignment",
       "Deploy Remote Agent Worker",
       "Verify Remote Agent deployment is visible",
     ]

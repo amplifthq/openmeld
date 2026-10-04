@@ -3,6 +3,7 @@ import {
   type SpaceAccessContext,
 } from "@openmeld/space";
 import { describe, expect, it } from "vitest";
+import { createProjectionPostgresBinding } from "../../test-support/postgresql-query.test-support";
 import type { CoreBindings } from "../lib/bindings";
 import {
   rpcCreateSpaceDiagnosticReport,
@@ -155,6 +156,9 @@ describe("Space RPC access context propagation", () => {
     } = {};
     const space = Object.create(Space.prototype) as DirectMetaHarness;
     space.spaceId = SPACE_ID;
+    Object.defineProperty(space, "bindings", {
+      value: { OPENMELD_POSTGRESQL: createProjectionPostgresBinding(() => []) },
+    });
     space.applySpaceRef = (spaceId) => {
       expect(spaceId).toBe(SPACE_ID);
     };
@@ -423,6 +427,9 @@ describe("Space RPC access context propagation", () => {
       requestSpaceAccess?: SpaceAccessContext;
     } = {};
     const space = Object.create(Space.prototype) as DirectWakeStopHarness;
+    Object.defineProperty(space, "bindings", {
+      value: { OPENMELD_POSTGRESQL: createProjectionPostgresBinding(() => []) },
+    });
     space.applySpaceRef = (spaceId) => {
       expect(spaceId).toBe(SPACE_ID);
     };
@@ -470,6 +477,9 @@ describe("Space RPC access context propagation", () => {
   it("preserves the detailed runtime diagnostics request through the Space DO adapter", async () => {
     const captured: { path?: string } = {};
     const space = Object.create(Space.prototype) as DirectDispatchTraceHarness;
+    Object.defineProperty(space, "bindings", {
+      value: { OPENMELD_POSTGRESQL: createProjectionPostgresBinding(() => []) },
+    });
     space.applySpaceRef = (spaceId) => {
       expect(spaceId).toBe(SPACE_ID);
     };
@@ -507,6 +517,9 @@ describe("Space RPC access context propagation", () => {
       requestSpaceAccess?: SpaceAccessContext;
     } = {};
     const space = Object.create(Space.prototype) as DirectBoardHarness;
+    Object.defineProperty(space, "bindings", {
+      value: { OPENMELD_POSTGRESQL: createProjectionPostgresBinding(() => []) },
+    });
     space.applySpaceRef = (spaceId) => {
       expect(spaceId).toBe(SPACE_ID);
     };
@@ -609,22 +622,13 @@ function createEnvWithSpaceStub(stub: Record<string, unknown>): CoreBindings {
 function createAttachmentEnvWithSpaceStub(
   stub: Record<string, unknown>
 ): CoreBindings {
-  const db = {
-    prepare: (sql: string) => ({
-      bind: () => ({
-        first: () =>
-          Promise.resolve(
-            sql.includes("FROM members")
-              ? { id: "member-1", role: "member" }
-              : null
-          ),
-        run: () => Promise.resolve({ meta: { changes: 1 }, success: true }),
-      }),
-    }),
-  };
   return {
     ...createEnvWithSpaceStub(stub),
-    OPENMELD_DB: db,
+    OPENMELD_POSTGRESQL: createProjectionPostgresBinding(({ text }) =>
+      text.includes('FROM "openmeld"."members"')
+        ? [{ id: "member-1", role: "member" }]
+        : []
+    ),
   } as unknown as CoreBindings;
 }
 
@@ -633,13 +637,7 @@ function createBoardEnvWithSpaceStub(
 ): CoreBindings {
   return {
     ...createEnvWithSpaceStub(stub),
-    OPENMELD_DB: {
-      prepare: () => ({
-        bind: () => ({
-          all: () => Promise.resolve({ results: [] }),
-        }),
-      }),
-    },
+    OPENMELD_POSTGRESQL: createProjectionPostgresBinding(() => []),
   } as unknown as CoreBindings;
 }
 
