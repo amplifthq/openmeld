@@ -200,10 +200,20 @@ export async function rpcImportOrganizationSkillFromGitHub(
     request.expectedOrganizationId
   );
   if (request.batchId !== undefined) {
-    return await importGitHubSkillInBatch({ actor, env, request });
+    return await importGitHubSkillInBatch({
+      actor,
+      actorProfileId: request.context.actorContext.openMeldProfileId,
+      env,
+      request,
+    });
   }
   if (request.operationId !== undefined) {
-    return await importGitHubSkillWithOperation({ actor, env, request });
+    return await importGitHubSkillWithOperation({
+      actor,
+      actorProfileId: request.context.actorContext.openMeldProfileId,
+      env,
+      request,
+    });
   }
   return parseResponse(importOrganizationSkillFromGitHubResponseSchema, {
     skill: await service.importFromGitHub(
@@ -227,6 +237,21 @@ export async function rpcBeginOrganizationSkillImportBatch(
     actor.organizationId,
     request.expectedOrganizationId
   );
+  return await beginSkillImportBatchForActor({ actor, env, request, service });
+}
+
+// Both the Web caller and the Center Agent's verified represented member use
+// the same frozen plan and per-item operation owner.
+export async function beginSkillImportBatchForActor(input: {
+  actor: OrganizationSkillActor;
+  env: CoreBindings;
+  request: Omit<
+    BeginOrganizationSkillImportBatchRpcInput,
+    "context" | "expectedOrganizationId"
+  >;
+  service: ReturnType<typeof createOrganizationSkillService>;
+}): Promise<BeginOrganizationSkillImportBatchResponse> {
+  const { actor, env, request, service } = input;
   requireManagerActor(actor);
   const { db } = requireStores(env);
   const existing = await readOrganizationSkillImportBatch({
@@ -328,10 +353,14 @@ export async function rpcListOrganizationSkillImportBatches(
   });
 }
 
-async function importGitHubSkillInBatch(input: {
+export async function importGitHubSkillInBatch(input: {
   actor: OrganizationSkillActor;
+  actorProfileId: string;
   env: CoreBindings;
-  request: ImportOrganizationSkillFromGitHubRpcInput;
+  request: Omit<
+    ImportOrganizationSkillFromGitHubRpcInput,
+    "context" | "expectedOrganizationId"
+  >;
 }): Promise<ImportOrganizationSkillFromGitHubResponse> {
   const { actor, env, request } = input;
   requireManagerActor(actor);
@@ -367,6 +396,7 @@ async function importGitHubSkillInBatch(input: {
   try {
     const response = await importGitHubSkillWithOperation({
       actor,
+      actorProfileId: input.actorProfileId,
       env,
       request: { ...request, operationId },
     });
@@ -444,8 +474,12 @@ function batchNotFound(): Error {
 
 async function importGitHubSkillWithOperation(input: {
   actor: OrganizationSkillActor;
+  actorProfileId: string;
   env: CoreBindings;
-  request: ImportOrganizationSkillFromGitHubRpcInput;
+  request: Omit<
+    ImportOrganizationSkillFromGitHubRpcInput,
+    "context" | "expectedOrganizationId"
+  >;
 }): Promise<ImportOrganizationSkillFromGitHubResponse> {
   const { actor, env, request } = input;
   if (actor.role !== "owner" && actor.role !== "admin") {
@@ -465,13 +499,13 @@ async function importGitHubSkillWithOperation(input: {
   }
   const { bucket, db } = requireStores(env);
   const operationKey = await buildHumanOrganizationSkillImportOperationKey({
-    actorProfileId: request.context.actorContext.openMeldProfileId,
+    actorProfileId: input.actorProfileId,
     operationId: request.operationId,
     organizationId: actor.organizationId,
     userId: actor.userId,
   });
   const requestSignature = await buildOrganizationSkillRequestSignature({
-    actorProfileId: request.context.actorContext.openMeldProfileId,
+    actorProfileId: input.actorProfileId,
     expectedCommitSha: request.expectedCommitSha,
     url: request.url,
     userId: actor.userId,

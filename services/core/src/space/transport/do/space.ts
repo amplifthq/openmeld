@@ -503,6 +503,7 @@ import {
   applyAgentStreamPart,
   applyAgentStreamTransientDelta,
   attachAgentActivityToFinalReply,
+  attachStoppedReplyText,
   cleanupExpiredAgentStreamProjections,
   closeAgentStreamProjection,
   listActiveAgentStreamPresences,
@@ -4378,7 +4379,7 @@ export class Space extends DurableObject<CoreBindings> {
           : "runtime_coordinator_failure_publication",
       ...(threadContext ? { threadContext } : {}),
     } satisfies SignalPublishContext;
-    const signal = this.buildSystemNoticeSignal(
+    const notice = this.buildSystemNoticeSignal(
       {
         kind: "system",
         profileId: DISPATCH_HINT_SYSTEM_PROFILE_ID,
@@ -4399,6 +4400,11 @@ export class Space extends DurableObject<CoreBindings> {
         text,
       }
     );
+    const signal = await attachStoppedReplyText({
+      signal: notice,
+      storage: this.agentStreamProjectionStorage,
+      nowMs: Date.now(),
+    });
     await armSpaceInboxProjectionRecoveryAlarm({
       spaceId: this.spaceId,
       storage: this.ctx.storage,
@@ -5857,9 +5863,26 @@ export class Space extends DurableObject<CoreBindings> {
       ...(input.spaceAccess ? { spaceAccess: input.spaceAccess } : {}),
     });
 
+    const stoppedSource =
+      parsedData.data.noticeType === "wake_stopped" &&
+      input.spaceAccess?.actor.kind === "dispatch_continuation"
+        ? this.readSignalById(input.spaceAccess.actor.sourceSignalId)
+        : null;
+    const stoppedReplyTo = stoppedSource
+      ? buildRuntimeCoordinatorFailurePublicationReplyTo(
+          stoppedSource,
+          this.ctx.storage.sql,
+          this.spaceId
+        )
+      : null;
     const signal = this.buildSystemNoticeSignal(
       await this.mergePublishedAuthorProfile(author, input.profile),
-      parsedData.data
+      {
+        ...parsedData.data,
+        ...(stoppedReplyTo && !parsedData.data.replyTo
+          ? { replyTo: stoppedReplyTo }
+          : {}),
+      }
     );
     // A pre-agent stop can be published after RuntimeCoordinator has discarded
     // its delivery payload. The authorized dispatch source still owns placement.
@@ -14171,12 +14194,13 @@ export class Space extends DurableObject<CoreBindings> {
       return earlyStop;
     }
     const lookup = await this.readWakeStopDispatchLookup(body.target);
+    const matchesRequestedExecution = (match: SpaceDispatchLookupMatch) =>
+      match.targetProfileId === body.target.targetProfileId &&
+      (!body.target.dispatchId || match.dispatchId === body.target.dispatchId);
     const lookupMatch =
-      lookup.matches.find(
-        (match) => match.targetProfileId === body.target.targetProfileId
-      ) ??
+      lookup.matches.find(matchesRequestedExecution) ??
       this.readWakeStopOutboxDispatchLookup(body.target).matches.find(
-        (match) => match.targetProfileId === body.target.targetProfileId
+        matchesRequestedExecution
       );
     if (!lookupMatch) {
       // No await between checking the Space-owned source/outbox and recording
@@ -14272,7 +14296,7 @@ export class Space extends DurableObject<CoreBindings> {
     body: PostSpaceWakeStopBody,
     context: OpenMeldRequestContext
   ): Promise<PostSpaceWakeStopResponse | null> {
-    if (body.target.by !== "client_message") {
+    if (body.target.by !== "client_message" || body.target.dispatchId) {
       return null;
     }
     // Center sends have a reserved namespace and a verified represented requester.
@@ -15138,6 +15162,9 @@ export class Space extends DurableObject<CoreBindings> {
   private async readWakeStopDispatchLookup(
     target: PostSpaceWakeStopBody["target"]
   ): Promise<GetSpaceDispatchLookupResponse> {
+    if (target.dispatchId) {
+      return await this.readExactWakeStopDispatchLookup(target);
+    }
     const readOutboxLookup = () =>
       this.readWakeStopOutboxDispatchLookup(target);
     if (target.by === "client_message") {
@@ -15152,6 +15179,78 @@ export class Space extends DurableObject<CoreBindings> {
       targetProfileId: target.targetProfileId,
     });
     return lookup.matches.length > 0 ? lookup : readOutboxLookup();
+  }
+
+  private async readExactWakeStopDispatchLookup(
+    target: PostSpaceWakeStopBody["target"]
+  ): Promise<GetSpaceDispatchLookupResponse> {
+    const outboxLookup = this.readWakeStopOutboxDispatchLookup(target);
+    const exactOutbox = outboxLookup.matches.filter(
+      (match) => match.dispatchId === target.dispatchId
+    );
+    if (exactOutbox.length > 0 || !target.dispatchId) {
+      return { ...outboxLookup, matches: exactOutbox };
+    }
+    const db = localStateDb(this.bindings);
+    if (!db) {
+      throw createCoreRpcHttpError({
+        status: 503,
+        code: "remote_agent.cancellation_state_unavailable",
+        reason: "The execution could not be checked. Try Stop again.",
+      });
+    }
+    const delivery = await readRemoteAgentNativeDeliveryByExecution({
+      db,
+      dispatchId: target.dispatchId,
+      profileId: target.targetProfileId,
+      spaceId: this.spaceId,
+    });
+    const sourceSignalId =
+      target.by === "source_signal"
+        ? target.sourceSignalId
+        : this.readSourceTextSignalByClientMessageId(target.clientMessageId)
+            ?.id;
+    if (
+      delivery &&
+      delivery.conversationKind === "space" &&
+      delivery.triggerMessageId === sourceSignalId
+    ) {
+      // Native continuations have their own dispatch, but no initial Space
+      // outbox row. Authenticate against their original, Space-owned request;
+      // stop only the exact execution shown by the progress owner.
+      return {
+        ...outboxLookup,
+        matches: [
+          {
+            dispatchId: delivery.dispatchId,
+            sourceSignalId: delivery.triggerMessageId,
+            targetProfileId: delivery.profileId,
+            status: "dispatching",
+            attemptCount: 0,
+            latestAttemptId: null,
+            latestAttemptStatus: null,
+            latestAttemptErrorCode: null,
+            latestAttemptErrorMessage: null,
+          },
+        ],
+      };
+    }
+    const lookup =
+      target.by === "client_message"
+        ? await this.readSpaceDispatchLookupByClientMessageId({
+            clientMessageId: target.clientMessageId,
+            targetProfileId: target.targetProfileId,
+          })
+        : await this.readSpaceDispatchLookup({
+            sourceSignalId: target.sourceSignalId,
+            targetProfileId: target.targetProfileId,
+          });
+    return {
+      ...lookup,
+      matches: lookup.matches.filter(
+        (match) => match.dispatchId === target.dispatchId
+      ),
+    };
   }
 
   private readWakeStopOutboxDispatchLookup(
@@ -24513,12 +24612,17 @@ export class Space extends DurableObject<CoreBindings> {
     signalContext?: SignalPublishContext
   ): Promise<void> {
     assertFinalOutcomeWriteAuthority(signal, signalContext);
+    const visibleSignal = await attachStoppedReplyText({
+      signal,
+      storage: this.agentStreamProjectionStorage,
+      nowMs: Date.now(),
+    });
     await armSpaceInboxProjectionRecoveryAlarm({
       spaceId: this.spaceId,
       storage: this.ctx.storage,
     });
     publishPresenceSignalUseCase({
-      signal,
+      signal: visibleSignal,
       persistSignal: (currentSignal) =>
         this.persistSignalWithOptionalOutbox(
           currentSignal,

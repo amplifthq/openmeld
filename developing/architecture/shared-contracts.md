@@ -3608,6 +3608,15 @@ Agent Space-stream paths:
   reasoning status is not execution truth; clients must not infer model support
   or a stuck execution from silence. Old Service/Gateway combinations do not
   negotiate the header and therefore continue without live reasoning.
+- `packages/schemas/src/schemas/protocol/envelope.ts` owns the optional
+  `stoppedReplyText` on a system notice envelope. Space attaches only its accepted
+  public text snapshot for the same Space, dispatch, target Profile, and source
+  message. The existing terminal guard can retain that bounded snapshot until
+  notice publication; its existing expiry still applies. This is display data,
+  never successful completion or execution authority. Older envelope readers
+  ignore this additive field and still parse the unchanged strict notice data.
+  New Web also accepts old notices without a partial reply. No Service, CLI,
+  setup, dispatch, trace, or recovery contract floor changes are needed.
 - `packages/schemas/src/schemas/protocol/agent-stream.ts` owns Space live text,
   thinking, public-progress, tool-part, and terminal frames plus the active stream presence,
   active text snapshot, and durable privacy-bounded Agent reply work
@@ -7267,7 +7276,7 @@ this field grant no replay permission. Core claims the single replay through a
 unique entry in the existing operation audit journal. Both Local and Remote
 ordinary Plugin writes require this durable permit. The original connection
 version is frozen in the operation ledger; replacing a same-name connection
-refuses replay. Migration `0191_yielding_lionheart.sql` adds that nullable
+refuses replay. Migration `0192_lush_rick_jones.sql` adds that nullable
 version before new Core code is deployed. Legacy rows remain readable but do
 not receive a replay permit without a frozen account version. Old consumers
 keep their prior response shape unless they opt into recovery receipts.

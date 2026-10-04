@@ -1184,11 +1184,12 @@ Service dispatch context, and the managed Plugin playbook.
   receipt is a shared schema, not a new operation state or writer.
 - Local writes without a trusted exact request now retain a private pending
   Plugin request before provider execution. The same operation, actor, account,
-  input and permission revision reuse that request. Auth sends a request-bound
-  code to the current verified account email; only a successful code check can
-  approve its stable root. An account bearer token, Human Profile selection,
-  caller-issued confirmation token, new dispatch ID, restart or fork does not
-  supply this proof. A changed executor cannot borrow another executor's root.
+  input and permission revision reuse that request. Only the request owner's
+  authenticated account with a Human Profile can approve its stable root.
+  An Agent credential, selected Profile name, caller-issued confirmation token,
+  new dispatch ID, restart or fork does not supply this authority. A manual
+  approval remains bound to its executor. A recorded delegation can carry its
+  original request root to its admitted child without another approval.
   An independently approved request may intentionally have identical content.
 - Excerpt copies use the existing Files reservation, R2 object, revision commit,
   and audience owner. The new optional expected audience is checked synchronously

@@ -6379,6 +6379,11 @@ async function failRemoteAgentRoutineDelivery(input: {
           spaceId: requireRoutineConversationId(input.routine),
         })
       : buildRoutineFailureText({
+          languageTag: await resolveRoutineFailureLanguage({
+            delivery: existingDelivery,
+            env: input.env,
+            organizationId: input.routine.organizationId,
+          }),
           failureCode: input.failureCode,
           failureReason: input.failureReason,
           routineName: input.routine.name,
@@ -6724,6 +6729,11 @@ async function publishRetriedRoutineFailure(input: {
     );
   } else {
     text = buildRoutineFailureText({
+      languageTag: await resolveRoutineFailureLanguage({
+        delivery: input.delivery,
+        env: input.env,
+        organizationId: input.run.organizationId,
+      }),
       failureCode: input.run.failureCode,
       failureReason: resolveRoutineFailurePublicationReason(input.run),
       routineName: input.run.routineName,
@@ -6842,13 +6852,66 @@ function resolveRoutineFailureLedgerStatus(
   return "failed";
 }
 
+async function resolveRoutineFailureLanguage(input: {
+  delivery: RemoteAgentNativeDeliveryRecord | null;
+  env: CoreBindings;
+  organizationId: string;
+}): Promise<string | undefined> {
+  return input.delivery
+    ? await resolveNativeFailureLanguage({
+        coordinationDb: agentTaskCoordinationDb(input.env),
+        db: identityDb(input.env),
+        delivery: input.delivery,
+      })
+    : await readNativeFailureLanguageFallback({
+        db: identityDb(input.env),
+        organizationId: input.organizationId,
+      });
+}
+
 function buildRoutineFailureText(input: {
+  languageTag?: string;
   failureCode: string;
   failureReason: string;
   routineName: string;
   runId: string;
   runUrl?: string;
 }): string {
+  if (input.languageTag?.split("-")[0]?.toLowerCase() === "zh") {
+    const runReference = `Run ID: ${input.runId}${input.runUrl ? `\n[查看 Run 详情](${input.runUrl})` : ""}`;
+    let reason: string;
+    if (input.failureCode === "remote_agent.empty_assistant_response") {
+      reason =
+        "没有发布结果，Agent 没有生成回复。请先检查已有成果，再决定是否重新发起。";
+    } else if (
+      input.failureCode === "remote_agent.turn.output_limit_exceeded"
+    ) {
+      reason =
+        "没有发布结果，Agent 在回复前达到了模型的输出上限。已完成的操作没有撤销；请先检查结果，再请求继续。";
+    } else if (
+      CENTER_AGENT_MODEL_RESOLUTION_FAILURE_CODES.has(input.failureCode)
+    ) {
+      reason = "未能运行，所选模型不可用。请让组织所有者或管理员选择可用模型。";
+    } else if (
+      input.failureCode === REMOTE_AGENT_DAILY_QUOTA_EXCEEDED_REASON_CODE
+    ) {
+      reason = "未能运行，组织的每日 AI 额度已用完，将在 00:00 UTC 重置。";
+    } else if (
+      input.failureCode ===
+      REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_REASON_CODE
+    ) {
+      reason = "未能继续，当前会话已达到历史记录上限。请打开诊断查看详情。";
+    } else if (
+      remoteAgentWorkerAdmissionRejectionCodeSchema.safeParse(input.failureCode)
+        .success
+    ) {
+      reason =
+        "未能运行，Agent 无法接纳本次请求。可以重试此 Routine，或打开诊断查看详情。";
+    } else {
+      reason = `未能运行。${resolveRoutineFailureReasonForDisplay({ failureCode: input.failureCode, failureDetail: input.failureReason }).trim()}`;
+    }
+    return `Routine “${input.routineName}”${reason}\n${runReference}`;
+  }
   const runReference = `Run ID: ${input.runId}${input.runUrl ? `\n[View Run details](${input.runUrl})` : ""}`;
   if (input.failureCode === "remote_agent.empty_assistant_response") {
     return `Routine “${input.routineName}” did not publish a result. The Agent produced no reply. If you still need the result, ask the Agent to do this work again.\n${runReference}`;

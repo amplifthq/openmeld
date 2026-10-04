@@ -579,7 +579,9 @@ The first M2 increment provides an opt-in Core read projection through
 `authorizeRemoteAgentExecutionAccess(includeDelegatedRequester=true)`. It follows
 the exact recorded Space child task to its native Center parent, verifies the
 current Center designation, active human member and matching personal-Agent owner,
-and returns identity references only. It preserves the actual Agent execution
+and returns identity references only. In a multi-Space delegation, the matched
+child task owns its Space; the delegation's first Space does not restrict other
+recorded children. It preserves the actual Agent execution
 audience and checks the exact selected connection through the existing permission
 owner for source reads. It cannot authorize provider writes. No permanent grant
 or new persisted delegation state is created; clients without the opt-in retain
@@ -1165,10 +1167,13 @@ the connected provider API.
    own publication path. The same durable card is finalized after the result;
    streaming is not a second response or an execution-completion signal.
    The same publisher sends the first Web/Space text immediately and coalesces
-   subsequent text at 100 ms. An assistant `message_end` flushes its buffered
-   tail before any post-response compaction; prompt completion still owns final
-   execution settlement. Short answers must not wait for a later token or for
-   compaction to become visible.
+   subsequent text at 100 ms. A successful assistant `message_end` flushes its
+   buffered tail before any post-response compaction, provided the exact
+   execution is still active and has no requested safety failure. Failed or
+   aborted model messages do not trigger this flush. Prompt completion still
+   owns final execution settlement; showing text does not release the
+   conversation for another turn. Short answers must not wait for a later
+   token or for compaction to become visible.
    Lark-platform event ingestion is bounded to four Queue attempts. Exhaustion
    records one durable failed ingress and stops; it never resets the attempt
    count by creating a fresh copy of the same event. Replayed provider images
@@ -2336,6 +2341,11 @@ final-outcome authority.
   outcome. Finalization closes the projection, a successful terminal points to
   the published Space signal, and late deltas are rejected. Web must replace the
   temporary text with the durable outcome even when their text differs.
+  For a stopped outcome, Space attaches the last accepted public response text
+  to the stopped system notice. Its existing terminal guard retains the bounded
+  text snapshot until publication or expiry, including when close precedes
+  publication. Only response text is retained; this does not retain thinking,
+  public-progress drafts, or tool payloads, or convert Stop into success.
 
 This additive stream rollout is consumer first: deploy Web, then Core, then the
 Remote Agent producer. New Core accepts the legacy text callback and the typed

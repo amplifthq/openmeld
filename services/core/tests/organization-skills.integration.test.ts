@@ -2227,6 +2227,215 @@ describe("Organization Skills", () => {
     }
   });
 
+  it("resumes one pinned batch across Center Agent and Web without repeating a successful item", async () => {
+    const fixture = await seedFixture();
+    const profile = await env.OPENMELD_DB.prepare(
+      "SELECT profile_id FROM openmeld_profiles WHERE owner_user_id = ? AND profile_kind = 'human' LIMIT 1"
+    )
+      .bind(fixture.owner.userId)
+      .first<{ profile_id: string }>();
+    if (!profile) {
+      throw new Error("Missing fixture profile.");
+    }
+    const commitSha = "c".repeat(40);
+    let docsUnavailable = true;
+    const fetchMock = vi.fn<typeof fetch>(async (request) => {
+      const url = String(request);
+      if (url.includes(`/git/trees/${commitSha}?recursive=1`)) {
+        const original = (await readGitHubFixtureResponse(
+          url,
+          commitSha
+        ).json()) as { tree: { path: string }[] };
+        return Response.json({
+          ...original,
+          tree: [
+            ...original.tree,
+            ...original.tree.map((entry) => ({
+              ...entry,
+              path: entry.path.replace("release/", "docs/"),
+            })),
+          ],
+        });
+      }
+      if (url.endsWith("/docs/references/checklist.md") && docsUnavailable) {
+        return new Response("unavailable", { status: 503 });
+      }
+      const response = readGitHubFixtureResponse(
+        url.replace("/docs/", "/release/"),
+        commitSha
+      );
+      if (url.endsWith("/docs/SKILL.md")) {
+        return new Response(
+          (await response.text()).replace("release-review", "preview-review")
+        );
+      }
+      return response;
+    });
+    const context = centerAgentRequestContext(fixture);
+    const speakerMember = {
+      memberId: fixture.ownerMemberId,
+      userId: fixture.owner.userId,
+    };
+    const humanContext = {
+      activeOrganizationId: fixture.organizationId,
+      actorContext: {
+        callerPrincipalId: fixture.owner.userId,
+        openMeldProfileId: profile.profile_id,
+        profileKind: "human" as const,
+        requestId: crypto.randomUUID(),
+      },
+    };
+    const batchId = crypto.randomUUID();
+    const beginRequest = {
+      action: "begin_import_batch" as const,
+      batchId,
+      context,
+      speakerMember,
+      expectedCommitSha: commitSha,
+      selectedPaths: ["release", "docs"],
+      url: "https://github.com/acme/skills",
+    };
+    const itemRequest = {
+      action: "install_batch_item" as const,
+      batchId,
+      context,
+      speakerMember,
+      path: "release",
+    };
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const plan = await rpcCenterAgentInstallOrganizationSkill(
+        coreEnv(),
+        beginRequest
+      );
+      if (plan.action !== "begin_import_batch") {
+        throw new Error("Expected batch plan.");
+      }
+      expect(plan.batch.results).toHaveLength(2);
+      const first = await rpcCenterAgentInstallOrganizationSkill(
+        coreEnv(),
+        itemRequest
+      );
+      if (first.action !== "install_batch_item") {
+        throw new Error("Expected installed item.");
+      }
+      const callsAfterInstall = fetchMock.mock.calls.length;
+      const candidate = plan.batch.preview.skills.find(
+        (item) => item.path === "release"
+      );
+      if (!candidate) {
+        throw new Error("Missing release candidate.");
+      }
+      const replay = await rpcImportOrganizationSkillFromGitHub(coreEnv(), {
+        batchId,
+        context: humanContext,
+        expectedCommitSha: commitSha,
+        expectedOrganizationId: fixture.organizationId,
+        url: candidate.url,
+      });
+      expect(replay.skill.id).toBe(first.skill.id);
+      expect(fetchMock).toHaveBeenCalledTimes(callsAfterInstall);
+      await expect(
+        rpcCenterAgentInstallOrganizationSkill(coreEnv(), {
+          ...itemRequest,
+          path: "docs",
+        })
+      ).rejects.toThrow();
+      const partial = await rpcCenterAgentReadOrganizationSkills(coreEnv(), {
+        action: "get_import_batch",
+        batchId,
+        context,
+        speakerMember,
+      });
+      expect(partial).toMatchObject({
+        batch: {
+          results: expect.arrayContaining([
+            {
+              path: "release",
+              selected: true,
+              status: "installed",
+              skillId: first.skill.id,
+              releaseId: first.skill.activeRelease.id,
+            },
+            expect.objectContaining({ path: "docs", status: "failed" }),
+          ]),
+        },
+      });
+      expect(
+        await rpcCenterAgentReadOrganizationSkills(coreEnv(), {
+          action: "list_import_batches",
+          context,
+          speakerMember,
+        })
+      ).toMatchObject({
+        batches: [{ batchId, installedCount: 1, failedCount: 1 }],
+      });
+      docsUnavailable = false;
+      await rpcCenterAgentInstallOrganizationSkill(coreEnv(), {
+        ...itemRequest,
+        path: "docs",
+      });
+      const complete = await rpcGetOrganizationSkillImportBatch(coreEnv(), {
+        batchId,
+        context: humanContext,
+      });
+      expect(
+        complete.batch.results.every((item) => item.status === "installed")
+      ).toBe(true);
+      const counts = await env.OPENMELD_DB.prepare(
+        "SELECT COUNT(*) AS count FROM organization_skills WHERE organization_id = ?"
+      )
+        .bind(fixture.organizationId)
+        .first<{ count: number }>();
+      expect(counts?.count).toBe(2);
+      await expect(
+        rpcCenterAgentInstallOrganizationSkill(coreEnv(), {
+          ...beginRequest,
+          selectedPaths: ["docs"],
+        })
+      ).rejects.toMatchObject({
+        cause: { code: "organization_skill.batch_conflict" },
+      });
+      await expect(
+        rpcCenterAgentInstallOrganizationSkill(coreEnv(), {
+          ...itemRequest,
+          path: "outside-plan",
+        })
+      ).rejects.toMatchObject({
+        cause: { code: "organization_skill.batch_conflict" },
+      });
+      await expect(
+        rpcCenterAgentReadOrganizationSkills(coreEnv(), {
+          action: "get_import_batch",
+          batchId,
+          context,
+          speakerMember: {
+            memberId: fixture.memberMemberId,
+            userId: fixture.member.userId,
+          },
+        })
+      ).rejects.toMatchObject({
+        cause: { code: "organization_skill.manage_forbidden" },
+      });
+      const other = await seedFixture();
+      await expect(
+        rpcCenterAgentReadOrganizationSkills(coreEnv(), {
+          action: "get_import_batch",
+          batchId,
+          context: centerAgentRequestContext(other),
+          speakerMember: {
+            memberId: other.ownerMemberId,
+            userId: other.owner.userId,
+          },
+        })
+      ).rejects.toMatchObject({
+        cause: { code: "organization_skill.batch_missing" },
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("lets the represented owner install once through Center Agent while members can only read", async () => {
     const fixture = await seedFixture();
     const context = centerAgentRequestContext(fixture);
@@ -2257,6 +2466,9 @@ describe("Organization Skills", () => {
       coreEnv(),
       request
     );
+    if (installed.action !== "create") {
+      throw new Error("Expected a created Skill.");
+    }
     expect(installed).not.toHaveProperty("warnings");
     const replayed = await rpcCenterAgentInstallOrganizationSkill(
       coreEnv(),
@@ -2438,6 +2650,9 @@ describe("Organization Skills", () => {
       coreEnv(),
       request
     );
+    if (installed.action !== "create") {
+      throw new Error("Expected a created Skill.");
+    }
     const service = createService();
     const original = await service.get(fixture.owner, installed.skill.id);
     const edited = await service.update(fixture.owner, original.id, {

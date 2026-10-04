@@ -560,11 +560,18 @@ function toTerminalProjection(input: {
 			status: "final_message",
 		};
 	}
+	const stoppedText =
+		input.currentProjection && "text" in input.currentProjection
+			? input.currentProjection.text
+			: "";
 	return {
 		...common,
 		reasonCode: input.frame.terminal.reasonCode,
 		status: input.frame.terminal.kind,
-		text: input.frame.terminal.noticeText,
+		text:
+			input.frame.terminal.kind === "stopped"
+				? stoppedText
+				: input.frame.terminal.noticeText,
 	};
 }
 

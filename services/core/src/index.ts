@@ -135,6 +135,7 @@ import type {
   CenterAgentUpdateRoutineToolRpcInput,
   CenterAgentUpdateSpaceSettingsResponse,
   CenterAgentWakeAgentProfilesInSpaceResponse,
+  CenterAgentWakeAgentProfilesInSpacesResponse,
   CenterAgentWatchAgentTaskResponse,
   CenterAgentWipeMemberMemoryResponse,
   ChangelogQueryResponse,
@@ -670,6 +671,7 @@ import {
   type CenterAgentUpdateAgentProfileRuntimeSettingsInput,
   type CenterAgentUpdateSpaceSettingsInput,
   type CenterAgentWakeAgentProfilesInSpaceInput,
+  type CenterAgentWakeAgentProfilesInSpacesInput,
   type CenterAgentWatchAgentTaskInput,
   type ClearSpacePasswordInput,
   type CompleteConnectorDisconnectInput,
@@ -897,6 +899,7 @@ import {
   rpcCenterAgentUpdateAgentProfileRuntimeSettings,
   rpcCenterAgentUpdateSpaceSettings,
   rpcCenterAgentWakeAgentProfilesInSpace,
+  rpcCenterAgentWakeAgentProfilesInSpaces,
   rpcCenterAgentWatchAgentTask,
   rpcClearSpacePassword,
   rpcCommitSpaceFileWrite,
@@ -3811,6 +3814,14 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return rpcCenterAgentRecordConnectorActionOperation(this.env, input);
   }
 
+  centerAgentWakeAgentProfilesInSpaces(
+    input: CenterAgentWakeAgentProfilesInSpacesInput
+  ): Promise<CenterAgentWakeAgentProfilesInSpacesResponse> {
+    return rpcCenterAgentWakeAgentProfilesInSpaces(this.env, input, (work) =>
+      this.ctx.waitUntil(work)
+    );
+  }
+
   centerAgentWakeAgentProfilesInSpace(
     input: CenterAgentWakeAgentProfilesInSpaceInput
   ): Promise<CenterAgentWakeAgentProfilesInSpaceResponse> {
@@ -5908,6 +5919,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: CenterAgentWakeAgentProfilesInSpaceInput
   ): Promise<CenterAgentWakeAgentProfilesInSpaceResponse> {
     return super.centerAgentWakeAgentProfilesInSpace(input);
+  }
+
+  centerAgentWakeAgentProfilesInSpaces(
+    input: CenterAgentWakeAgentProfilesInSpacesInput
+  ): Promise<CenterAgentWakeAgentProfilesInSpacesResponse> {
+    return super.centerAgentWakeAgentProfilesInSpaces(input);
   }
 
   personalRemoteAgentSpaceTool(input: unknown) {

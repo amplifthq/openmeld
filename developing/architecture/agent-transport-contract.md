@@ -751,6 +751,17 @@ Important execution rules:
   member names, and other signed-in accounts are not ownership evidence. Use
   this ordinary policy for viewer-scoped progress eligibility and the ordinary
   Stop mutation, before native or workstation cancellation side effects.
+- Progress may carry an exact `dispatchId` within the source/Profile selector.
+  Space verifies that dispatch against the same source, Space and target before
+  invoking its existing execution owner. This lets a resumed parent stop its
+  current native continuation without selecting the completed original turn.
+  An exact miss never falls back to another Wake or a pre-send fence. Stop
+  acceptance remains distinct from an acknowledged stopped outcome and does
+  not undo external effects that already occurred.
+- Local queued input may reserve the exact admitted run during startup. That
+  read supplies the existing Space queue's identity and never sends input to
+  the controller. Applying a steer still requires the current run to be running.
+  Terminal, withdrawn, stopped, replaced and mismatched runs remain rejected.
 - A designated Organization Center Agent may request Stop for a member
   verified by its current native delivery. Space grants the represented member
   ordinary source-account or target-owner authority, or authority over an exact

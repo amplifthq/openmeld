@@ -1567,6 +1567,138 @@ describe("OpenMeld Core", () => {
     });
   });
 
+  it("stops only the selected native continuation of the original request", async () => {
+    const spaceId = await createSpace({
+      name: `continuation-stop-${randomUUID()}`,
+    });
+    const source = await postTextSignal(
+      spaceId,
+      "Delegate and then summarize."
+    );
+    const unrelatedSource = await postTextSignal(spaceId, "Another request.");
+    const targetProfileId = `agt_${randomUUID()}`;
+    const nowMs = Date.now();
+    const deliveries = await Promise.all(
+      ["parent", "continuation", "unrelated"].map(async (kind) => {
+        const idempotencyKey = `${kind}-${randomUUID()}`;
+        const dispatchId = `dispatch-${randomUUID()}`;
+        const submissionId = `submission-${randomUUID()}`;
+        await upsertRemoteAgentNativeDeliveryRecord({
+          attemptId: null,
+          bindingId: `binding-${randomUUID()}`,
+          db: env.OPENMELD_DB,
+          dispatchId,
+          idempotencyKey,
+          nowMs,
+          organizationId: DEFAULT_TEST_ORGANIZATION_ID,
+          profileId: targetProfileId,
+          spaceId,
+          status: "submitted",
+          triggerMessageId:
+            kind === "unrelated" ? unrelatedSource.id : source.id,
+        });
+        await markRemoteAgentNativeDeliveryAck({
+          accepted: true,
+          db: env.OPENMELD_DB,
+          idempotencyKey,
+          nowMs,
+          submissionId,
+          workerRequestId: `request-${randomUUID()}`,
+        });
+        if (kind === "parent") {
+          await markRemoteAgentNativeDeliveryCompleted({
+            db: env.OPENMELD_DB,
+            submissionId,
+            publishedSignalId: null,
+            nowMs,
+          });
+        }
+        return { dispatchId, idempotencyKey, submissionId };
+      })
+    );
+    const [parent, continuation, unrelated] = deliveries;
+    if (!(parent && continuation && unrelated)) {
+      throw new Error("Missing native delivery fixture");
+    }
+    const cancelExecution = vi.fn(async (_input: { submissionId: string }) => ({
+      execution: {
+        acceptedAtMs: nowMs,
+        cancellationReason: "User stopped this Wake.",
+        completedAtMs: nowMs,
+        idempotencyKey: continuation.idempotencyKey,
+        lastProgressAtMs: nowMs,
+        lastProgressKind: "aborted" as const,
+        organizationId: DEFAULT_TEST_ORGANIZATION_ID,
+        spaceId,
+        status: "aborted" as const,
+        submissionId: continuation.submissionId,
+        v: 1 as const,
+      },
+      status: "already_cancelled" as const,
+    }));
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const stub = namespace.get(namespace.idFromString(spaceId));
+    await runInDurableObject(stub, async (_instance, state) => {
+      const space = new Space(state, {
+        ...env,
+        OPENMELD_REMOTE_AGENT_WORKER: { cancelExecution },
+      } as unknown as CoreBindings);
+      const stop = (
+        dispatchId: string,
+        sourceSignalId = source.id,
+        profileId = targetProfileId
+      ) =>
+        space.rpcPostWakeStop({
+          spaceId,
+          context: createRpcContext({
+            requestId: "native-continuation-stop",
+            profileId: DEFAULT_HUMAN_PROFILE_ID,
+            profileKind: "human",
+            ownerUserId: "owner-test-default",
+          }),
+          body: {
+            target: {
+              by: "source_signal",
+              sourceSignalId,
+              dispatchId,
+              targetProfileId: profileId,
+            },
+          },
+        });
+      await expect(stop(unrelated.dispatchId)).resolves.toMatchObject({
+        status: "not_found",
+      });
+      await expect(
+        stop(continuation.dispatchId, unrelatedSource.id)
+      ).resolves.toMatchObject({ status: "not_found" });
+      await expect(
+        stop(continuation.dispatchId, source.id, `agt_${randomUUID()}`)
+      ).resolves.toMatchObject({ status: "not_found" });
+      await expect(stop(parent.dispatchId)).resolves.toMatchObject({
+        status: "not_stoppable",
+      });
+      expect(cancelExecution).not.toHaveBeenCalled();
+      await expect(stop(continuation.dispatchId)).resolves.toMatchObject({
+        ok: true,
+        status: "cancelled",
+      });
+      expect(cancelExecution).toHaveBeenCalledOnce();
+      expect(cancelExecution.mock.calls[0]?.[0]).toMatchObject({
+        submissionId: continuation.submissionId,
+      });
+      await expect(stop(continuation.dispatchId)).resolves.toMatchObject({
+        status: "already_cancelled",
+      });
+      expect(cancelExecution).toHaveBeenCalledOnce();
+    });
+    await expect(
+      readRemoteAgentNativeDeliveryBySubmissionId({
+        db: env.OPENMELD_DB,
+        submissionId: unrelated.submissionId,
+      })
+    ).resolves.toMatchObject({ status: "accepted" });
+  });
+
   it("settles Core delivery state when Remote confirms the execution is already cancelled", async () => {
     const idempotencyKey = `space-stop-confirmed-${randomUUID()}`;
     const dispatchId = `dispatch-stop-confirmed-${randomUUID()}`;

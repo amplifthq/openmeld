@@ -124,6 +124,7 @@ import {
   centerAgentUpdateProjectToolResponseSchema,
   centerAgentUpdateSpaceSettingsResponseSchema,
   centerAgentWakeAgentProfilesInSpaceResponseSchema,
+  centerAgentWakeAgentProfilesInSpacesResponseSchema,
   centerAgentWatchAgentTaskResponseSchema,
   changelogQueryResponseSchema,
   createAgentProfileCreationRequestResponseSchema,
@@ -725,6 +726,26 @@ const wakeAgentProfilesInSpaceToolInputSchema = object({
   spaceId: nonEmptyStringSchema,
   text: pipe(string(), minLength(1), maxLength(MAX_TEXT_LENGTH)),
 });
+const wakeAgentProfilesInSpacesToolInputSchema = strictObject({
+  destinations: pipe(
+    array(
+      strictObject({
+        spaceId: nonEmptyStringSchema,
+        agentProfileIds: pipe(
+          array(nonEmptyStringSchema),
+          minLength(1),
+          maxLength(25)
+        ),
+        mentionProfileIds: mentionProfileIdsInputSchema,
+        referenceProfileIds: referenceProfileIdsInputSchema,
+        text: pipe(string(), minLength(1), maxLength(MAX_TEXT_LENGTH)),
+      })
+    ),
+    minLength(2),
+    maxLength(10)
+  ),
+  replyLanguageTag: taskReplyLanguageInputSchema,
+});
 const agentTaskHandleInputSchema = union([
   strictObject({
     kind: literal("space_wake"),
@@ -1266,15 +1287,27 @@ const readOrganizationSkillsToolInputSchema = strictObject({
     "get",
     "preview_github",
     "preview_github_repository",
+    "get_import_batch",
+    "list_import_batches",
   ]),
+  batchId: optional(organizationSkillOperationIdToolSchema),
   skillId: optional(organizationSkillIdentifierToolSchema),
   url: optional(pipe(trimmedNonEmptyStringSchema, maxLength(2048))),
 });
 const installOrganizationSkillToolInputSchema = strictObject({
-  action: picklist(["create", "import_github", "import_github_with_report"]),
+  action: picklist([
+    "create",
+    "import_github",
+    "import_github_with_report",
+    "begin_import_batch",
+    "install_batch_item",
+  ]),
+  batchId: optional(organizationSkillOperationIdToolSchema),
   bundle: optional(organizationSkillBundleToolSchema),
   expectedCommitSha: optional(pipe(trimmedNonEmptyStringSchema, maxLength(40))),
-  operationId: organizationSkillOperationIdToolSchema,
+  operationId: optional(organizationSkillOperationIdToolSchema),
+  path: optional(pipe(string(), maxLength(1024))),
+  selectedPaths: optional(array(pipe(string(), maxLength(1024)))),
   url: optional(pipe(trimmedNonEmptyStringSchema, maxLength(2048))),
 });
 const projectIdentifierToolSchema = pipe(
@@ -1426,11 +1459,13 @@ const stopSpaceWakeToolInputSchema = strictObject({
       by: literal("source_signal"),
       sourceSignalId: trimmedNonEmptyStringSchema,
       targetProfileId: trimmedNonEmptyStringSchema,
+      dispatchId: optional(trimmedNonEmptyStringSchema),
     }),
     strictObject({
       by: literal("client_message"),
       clientMessageId: trimmedNonEmptyStringSchema,
       targetProfileId: trimmedNonEmptyStringSchema,
+      dispatchId: optional(trimmedNonEmptyStringSchema),
     }),
   ]),
 });
@@ -1594,6 +1629,7 @@ export const REMOTE_AGENT_OPENMELD_TOOL_NAMES = [
   "openmeld_send_slack_file",
   "openmeld_post_space_message",
   "openmeld_set_final_reply_mentions",
+  "openmeld_wake_agent_profiles_in_spaces",
   "openmeld_wake_agent_profiles_in_space",
   "openmeld_list_agent_tasks",
   "openmeld_watch_agent_task",
@@ -3165,7 +3201,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_read_organization_skills",
       description:
-        "List the current Organization's Skills, read one complete Skill by id, or preview a GitHub Skill. A name-only installation request needs public source discovery before this tool can preview an exact GitHub URL. Use preview_github_repository for a compact per-Skill inventory of a multi-Skill repository, including exact commit, file-size blockers, and script warnings; then preview_github for the chosen directory before installing it. Every Organization member may list and read. GitHub previews require a verified OpenMeld identity and manager authority. This tool never installs or changes a Skill.",
+        "List the current Organization's Skills, read one complete Skill by id, or preview a GitHub Skill. A name-only installation request needs public source discovery before this tool can preview an exact GitHub URL. Use preview_github_repository for a compact per-Skill inventory of a multi-Skill repository, including exact commit, file-size blockers, and script warnings. For an interrupted batch, use list_import_batches to find the requester's unfinished plans, then get_import_batch with its batchId to read each saved result. Every Organization member may list and read Skills; GitHub previews and install batches require a verified owner or admin. This tool never installs or changes a Skill.",
       input: readOrganizationSkillsToolInputSchema,
       execute: async (payload) => {
         const request = parseValibot(
@@ -3200,7 +3236,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_install_organization_skill",
       description:
-        "Install one optional Organization Skill for the verified requester. Only Organization owners and admins may install. For GitHub, first preview the exact directory, then use import_github_with_report with its commit SHA to receive script and permission warnings in the result. The older import_github action remains supported. For a Skill authored in this conversation, pass the complete portable bundle. Reuse one stable operationId only when retrying the exact same installation. This tool is unavailable during Routines and never grants tool permissions from allowed-tools.",
+        "Install optional Organization Skills for the verified owner or admin. For one GitHub Skill, preview the exact directory, then use import_github_with_report with its commit SHA and a stable operationId. For multiple Skills, preview_github_repository first, then begin_import_batch with a stable batchId, URL, expectedCommitSha and selectedPaths (omit selectedPaths only to select all). The saved plan retains results across interruptions. Call install_batch_item with that batchId and one exact path for each pending or failed selected item; never reinstall installed or skipped items or start a replacement batch for a retry. Read the batch again before reporting totals. Item retries use the same saved operation across Web and Center Agent. For an authored Skill use create with its complete bundle and operationId. Routines cannot install; Skills never grant permissions from allowed-tools.",
       input: installOrganizationSkillToolInputSchema,
       execute: async (payload) => {
         const request = parseValibot(
@@ -3355,7 +3391,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_stop_space_wake",
       description:
-        "Stop one exact request in a Space, including while it is being sent or waiting to start. Use its spaceId, clientMessageId, and targetProfileId; sourceSignalId also works after publication. A progress read is not required. You can stop your own Agent Direct Message requests. Other requests require the verified current requester's permission. cancellation_requested means stopping, not confirmed stopped. Completed actions are not undone.",
+        "Stop one exact request in a Space, including while it is being sent or waiting to start. Use its spaceId, clientMessageId, and targetProfileId; sourceSignalId also works after publication. To stop a running continuation, copy its dispatchId from current Wake progress as well. Do not substitute another execution if that exact one has finished. You can stop your own Agent Direct Message requests. Other requests require the verified current requester's permission. cancellation_requested means stopping, not confirmed stopped. Completed actions are not undone.",
       input: stopSpaceWakeToolInputSchema,
       execute: async (payload) => {
         const request = parseValibot(stopSpaceWakeToolInputSchema, payload);
@@ -5185,6 +5221,51 @@ export function getRemoteAgentOpenMeldToolDefinitions(
           status: "prepared",
           mentionProfileIds: request.mentionProfileIds,
         };
+      },
+    }),
+    toolDefinition({
+      name: "openmeld_wake_agent_profiles_in_spaces",
+      description:
+        "Arrange one complete delegation across 2–10 Spaces, with at most 25 Agent tasks, and resume this original request once every child has a terminal result. Use this for a request that needs work in several Spaces: include every destination in this one call before any work starts. Each destination needs a self-contained brief with the goal, verified evidence, constraints, and completion criteria, plus explicit Human Mention and Agent Reference arrays. The same Agent can work in different Spaces. Core saves the whole batch first, retries unsubmitted destinations, and preserves successful work when another destination fails. queued acknowledges the durable plan, not delivery or completion. Do not repeat the batch, poll for completion, or ask children to Wake you; their results and failures return to this request automatically. This ends the scheduling turn. Per-destination fallbacks are not supported.",
+      input: wakeAgentProfilesInSpacesToolInputSchema,
+      endsTurnAfter: (result) =>
+        centerAgentWakeAgentProfilesInSpacesResponseSchema.safeParse(result)
+          .success,
+      execute: async (payload) => {
+        const request = parseValibot(
+          wakeAgentProfilesInSpacesToolInputSchema,
+          payload
+        );
+        const toolContext = await buildRepresentedMemberAttributionToolContext({
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_wake_agent_profiles_in_spaces",
+        });
+        const rpc = requireCoreRpc(
+          input.coreWorker.centerAgentWakeAgentProfilesInSpaces,
+          "centerAgentWakeAgentProfilesInSpaces"
+        );
+        await verifySpaceAuthoringContract(toolContext.context);
+        const response =
+          centerAgentWakeAgentProfilesInSpacesResponseSchema.parse(
+            await rpc({ ...request, ...toolContext })
+          );
+        const expected = request.destinations
+          .flatMap((destination) =>
+            [...new Set(destination.agentProfileIds)].map(
+              (profileId) => `${destination.spaceId}:${profileId}`
+            )
+          )
+          .sort();
+        const actual = response.childTasks
+          .map((child) => `${child.task.spaceId}:${child.task.targetProfileId}`)
+          .sort();
+        if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+          throw new Error(
+            "Core did not acknowledge the complete Wake batch. Do not repeat the request; inspect the returned delegation."
+          );
+        }
+        return response;
       },
     }),
     toolDefinition({

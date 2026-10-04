@@ -1,1 +1,0 @@
-ALTER TABLE `center_agent_connector_action_operations` ADD `connection_updated_at_ms` integer;

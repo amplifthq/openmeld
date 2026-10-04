@@ -24,6 +24,11 @@ import {
   recordAgentTaskTerminalOutcome,
   registerAgentTaskCompletionSubscription,
 } from "../src/agent-task-coordination/infrastructure/d1/agent-task-coordination-repo";
+import { planCenterAgentWakeDelegation } from "../src/center-agent/application/center-agent-delegation-service";
+import {
+  executeCenterAgentWakePublication,
+  prepareCenterAgentWakePublicationBatch,
+} from "../src/center-agent/application/center-agent-wake-publication-service";
 import type { CenterAgentMemoryService } from "../src/center-agent-memory/memory-service";
 import type { CoreBindings } from "../src/lib/bindings";
 import { createOrganizationSkillService } from "../src/organization-skills/organization-skill-service";
@@ -753,6 +758,135 @@ describe("Remote Agent Routine native delivery", () => {
     });
   });
 
+  it("keeps a Routine open when its initial callback precedes every batch publication", async () => {
+    const fixture = await seedRoutineDeliveryFixture();
+    await env.OPENMELD_DB.prepare(
+      "UPDATE routine_runs SET execution_engine = 'workflow' WHERE id = ?"
+    )
+      .bind(fixture.runId)
+      .run();
+    const workerSubmit = vi.fn(async () => ({
+      accepted: true,
+      createdAt: fixture.nowMs,
+      idempotencyKey: fixture.runId,
+      requestId: `request_${fixture.runId}`,
+      status: "pending" as const,
+      submissionId: fixture.submissionId,
+    }));
+    const testEnv = buildEnv({ fixture, workerSubmit });
+    await submitRemoteAgentRoutineDelivery({
+      db: env.OPENMELD_DB,
+      env: testEnv,
+      nowMs: fixture.nowMs,
+      routine: fixture.routine,
+      run: fixture.run,
+    });
+    const destinations = ["alpha", "beta"].map((name) => ({
+      childSpaceId: `space_${name}_${crypto.randomUUID()}`,
+      clientMessageId: `ca-wake:${crypto.randomUUID()}`,
+      targetProfileIds: [fixture.profileId],
+    }));
+    const [root, second] = destinations;
+    if (!(root && second)) {
+      throw new Error("Missing batch destinations");
+    }
+    const plan = planCenterAgentWakeDelegation({
+      ...root,
+      additionalDestinations: [second],
+    });
+    await prepareCenterAgentWakePublicationBatch({
+      commands: destinations.map((destination, index) => ({
+        activationTargets: destination.targetProfileIds,
+        attribution: {
+          actorProfileId: fixture.profileId,
+          onBehalfOf: {
+            displayName: "Routine Creator",
+            profileId: fixture.creatorProfileId,
+            userId: fixture.creatorUserId,
+          },
+        },
+        batchRootPublicationId: root.clientMessageId,
+        ...(index === 0
+          ? {
+              batchPublicationIds: destinations.map(
+                (item) => item.clientMessageId
+              ),
+            }
+          : {}),
+        clientMessageId: destination.clientMessageId,
+        completionMode: "resume_parent_when_all_terminal",
+        context: {
+          actorContext: {
+            profileKind: "agent",
+            profileName: "Routine Center Agent",
+            requestId: fixture.runId,
+            openMeldProfileId: fixture.profileId,
+          },
+          activeOrganizationId: fixture.organizationId,
+          agentControllerConversationId: fixture.submissionId,
+        },
+        delegationId: plan.delegationId,
+        fallbackAgentProfileId: null,
+        mentionTargets: [],
+        organizationId: fixture.organizationId,
+        parentSubmissionId: fixture.submissionId,
+        profile: {
+          kind: "agent",
+          profileId: fixture.profileId,
+          profileName: "Routine Center Agent",
+        },
+        referenceTargets: [],
+        spaceId: destination.childSpaceId,
+        subscriptionIds: plan.childTasks
+          .filter((child) => child.task.spaceId === destination.childSpaceId)
+          .map((child) => child.subscriptionId),
+        text: "Complete the delegated work.",
+        v: 1,
+      })),
+      db: env.OPENMELD_DB,
+      nowMs: fixture.nowMs + 100,
+    });
+    await expect(
+      completeRemoteAgentNativeDelivery(
+        testEnv,
+        buildCompletedCallback(fixture),
+        {
+          bypassRoutineWorkflowRouting: true,
+        }
+      )
+    ).resolves.toEqual({ publishedSignalId: null, status: "accepted" });
+    expect(
+      testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId
+    ).not.toHaveBeenCalled();
+    await expect(
+      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+    ).resolves.toMatchObject({ status: "submitted" });
+    const publishedSpaces: string[] = [];
+    for (const destination of destinations) {
+      await expect(
+        executeCenterAgentWakePublication({
+          db: env.OPENMELD_DB,
+          nowMs: fixture.nowMs + 200,
+          publicationId: destination.clientMessageId,
+          publishSignal: (command) => {
+            publishedSpaces.push(command.spaceId);
+            return Promise.resolve(
+              createSignal(
+                `signal_${crypto.randomUUID()}`,
+                fixture,
+                command.spaceId
+              )
+            );
+          },
+          resolveSignal: async () => null,
+        })
+      ).resolves.toMatchObject({ status: "accepted" });
+    }
+    expect(publishedSpaces).toEqual(
+      destinations.map((destination) => destination.childSpaceId)
+    );
+  });
+
   it.each([
     "completed",
     "failed",
@@ -1274,8 +1408,19 @@ describe("Remote Agent Routine native delivery", () => {
     });
   });
 
-  it("fails immediately when Remote Agent deterministically rejects Routine admission", async () => {
+  it.each([
+    "en",
+    "zh-Hans",
+  ])("fails immediately in %s when Remote Agent deterministically rejects Routine admission", async (languageTag) => {
     const fixture = await seedRoutineDeliveryFixture();
+    await setOrganizationWorkingLanguagePreference({
+      db: env.OPENMELD_DB,
+      organizationId: fixture.organizationId,
+      mode: "selected",
+      languageTag,
+      nowMs: fixture.nowMs,
+      updatedByUserId: fixture.routine.createdByUserId,
+    });
     const workerSubmit = vi.fn(async () => ({
       idempotencyKey: fixture.runId,
       message:
@@ -1302,7 +1447,9 @@ describe("Remote Agent Routine native delivery", () => {
     ).toHaveBeenCalledWith(
       expect.objectContaining({
         text: expect.stringContaining(
-          "Routine “Daily feedback review” could not run because the Agent could not accept the request. Try running the Routine again or open diagnostics."
+          languageTag === "en"
+            ? "Routine “Daily feedback review” could not run because the Agent could not accept the request. Try running the Routine again or open diagnostics."
+            : "Routine “Daily feedback review”未能运行，Agent 无法接纳本次请求。"
         ),
       })
     );

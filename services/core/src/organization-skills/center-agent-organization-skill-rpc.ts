@@ -23,6 +23,10 @@ import { prepareCenterAgentAuditJournalEntryIfMissingStatement } from "../center
 import { type CoreBindings, organizationSkillsDb } from "../lib/bindings";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import {
+  listOrganizationSkillImportBatches,
+  readOrganizationSkillImportBatch,
+} from "./organization-skill-import-batch";
+import {
   beginOrganizationSkillOperation,
   buildCenterAgentOrganizationSkillOperationKey,
   buildOrganizationSkillRequestSignature,
@@ -31,6 +35,10 @@ import {
   prepareCompleteOrganizationSkillOperationStatement,
   readOrganizationSkillOperation,
 } from "./organization-skill-operation-repository";
+import {
+  beginSkillImportBatchForActor,
+  importGitHubSkillInBatch,
+} from "./organization-skill-rpc";
 import {
   createOrganizationSkillService,
   describeOrganizationSkillBundleLimitations,
@@ -60,6 +68,46 @@ export async function rpcCenterAgentReadOrganizationSkills(
     centerAgentReadOrganizationSkillsRpcInputSchema,
     input
   );
+  if (
+    request.action === "get_import_batch" ||
+    request.action === "list_import_batches"
+  ) {
+    const prepared = await prepareRequest({
+      context: request.context,
+      env,
+      speakerMember: request.speakerMember,
+    });
+    requireManager(prepared.actor);
+    const scope = {
+      db: prepared.db,
+      organizationId: prepared.actor.organizationId,
+      userId: prepared.actor.userId,
+    };
+    const result =
+      request.action === "get_import_batch"
+        ? {
+            batch: await requireImportBatch({
+              ...scope,
+              batchId: request.batchId,
+            }),
+          }
+        : { batches: await listOrganizationSkillImportBatches(scope) };
+    await writeCenterAgentAuditEntry({
+      action: "read_org_skills",
+      authorization: prepared.authorization,
+      onBehalfOfProfileId: prepared.representedHuman.profileId,
+      resource: {
+        id: prepared.actor.organizationId,
+        type: "organization_skill_import_batch",
+      },
+      sourceNativeDeliveryId: prepared.sourceNativeDeliveryId,
+    });
+    return parseReadResponse({
+      action: request.action,
+      organizationId: prepared.actor.organizationId,
+      ...result,
+    });
+  }
   const prepared = await prepareReadRequest({
     context: request.context,
     env,
@@ -168,6 +216,87 @@ export async function rpcCenterAgentInstallOrganizationSkill(
     speakerMember: request.speakerMember,
   });
   requireManager(prepared.actor);
+  if (
+    request.action === "begin_import_batch" ||
+    request.action === "install_batch_item"
+  ) {
+    const service = createOrganizationSkillService({
+      bucket: prepared.bucket,
+      db: prepared.db,
+      fileBackedWritesEnabled: env.OPENMELD_SKILL_FILE_BACKED_WRITES === "true",
+      githubToken: env.GITHUB_OPENMELD_API_TOKEN,
+    });
+    const organizationId = prepared.actor.organizationId;
+    if (request.action === "begin_import_batch") {
+      const result = await beginSkillImportBatchForActor({
+        actor: prepared.actor,
+        env,
+        request,
+        service,
+      });
+      return parseInstallResponse({
+        action: request.action,
+        organizationId,
+        ...result,
+      });
+    }
+    const batch = await requireImportBatch({
+      batchId: request.batchId,
+      db: prepared.db,
+      organizationId,
+      userId: prepared.actor.userId,
+    });
+    const candidate = batch.preview.skills.find(
+      (item) => item.path === request.path
+    );
+    if (!candidate) {
+      throw createCoreRpcHttpError({
+        code: "organization_skill.batch_conflict",
+        reason: "This Skill is not part of the saved install plan.",
+        status: 409,
+      });
+    }
+    const { skill } = await importGitHubSkillInBatch({
+      actor: prepared.actor,
+      actorProfileId: prepared.representedHuman.profileId,
+      env,
+      request: {
+        batchId: batch.batchId,
+        expectedCommitSha: batch.preview.commitSha,
+        url: candidate.url,
+      },
+    });
+    const auditId = await buildOrganizationSkillRequestSignature({
+      batchId: batch.batchId,
+      path: candidate.path,
+      organizationId,
+      userId: prepared.actor.userId,
+    });
+    await prepareCenterAgentAuditJournalEntryIfMissingStatement({
+      action: "install_org_skill",
+      actorProfileId: prepared.actorProfileId,
+      attribution: {
+        actorProfileId: prepared.actorProfileId,
+        onBehalfOf: {
+          displayName: prepared.representedHuman.displayName,
+          profileId: prepared.representedHuman.profileId,
+          userId: prepared.representedHuman.userId,
+        },
+      },
+      db: prepared.db,
+      id: `audit_skill_batch_${auditId}`,
+      nowMs: Date.now(),
+      organizationId,
+      resource: { id: skill.id, type: "organization_skill" },
+      sourceNativeDeliveryId: prepared.sourceNativeDeliveryId,
+    }).run();
+    return parseInstallResponse({
+      action: request.action,
+      organizationId,
+      skill: toSkillSummary(skill),
+      ...describeOrganizationSkillBundleLimitations(skill.bundle),
+    });
+  }
   const operationKey = await buildCenterAgentOrganizationSkillOperationKey({
     action: request.action,
     actorProfileId: prepared.actorProfileId,
@@ -408,7 +537,10 @@ async function completeOperation(input: {
 }
 
 function installPayload(
-  request: CenterAgentInstallOrganizationSkillRpcInput
+  request: Extract<
+    CenterAgentInstallOrganizationSkillRpcInput,
+    { operationId: string }
+  >
 ): unknown {
   const {
     context: _context,
@@ -417,6 +549,20 @@ function installPayload(
     ...payload
   } = request;
   return payload;
+}
+
+async function requireImportBatch(
+  input: Parameters<typeof readOrganizationSkillImportBatch>[0]
+) {
+  const batch = await readOrganizationSkillImportBatch(input);
+  if (!batch) {
+    throw createCoreRpcHttpError({
+      code: "organization_skill.batch_missing",
+      reason: "This Skill install batch was not found.",
+      status: 404,
+    });
+  }
+  return batch;
 }
 
 function toSkillSummary(skill: OrganizationSkill) {

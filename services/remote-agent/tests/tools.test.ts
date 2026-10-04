@@ -3914,6 +3914,60 @@ describe("remote agent OpenMeld tool catalog", () => {
     ).toBe(false);
   });
 
+  it.each([
+    true,
+    false,
+  ])("accepts a multi-Space delegation only when all destinations are acknowledged (%s)", async (complete) => {
+    const destinations = ["alpha", "beta"].map((spaceId) => ({
+      spaceId,
+      agentProfileIds: [AGENT_PROFILE_ID],
+      text: `Review ${spaceId}.`,
+      mentionProfileIds: [],
+      referenceProfileIds: [],
+    }));
+    const response = {
+      delegationId: "delegation-batch",
+      status: "queued" as const,
+      childTasks: destinations.map((destination, index) => ({
+        completionCondition: "terminal" as const,
+        subscriptionId: `subscription-${index}`,
+        task: {
+          kind: "space_wake" as const,
+          v: 1 as const,
+          sourceClientMessageId: `child-${index}`,
+          spaceId: complete ? destination.spaceId : "alpha",
+          targetProfileId: AGENT_PROFILE_ID,
+        },
+      })),
+    };
+    const centerAgentWakeAgentProfilesInSpaces = vi.fn(async () => response);
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentWakeAgentProfilesInSpaces },
+      storage: await createStorageWithPendingContext(createSubmitTurnRequest()),
+    });
+    const result = executeTool(
+      tools,
+      "openmeld_wake_agent_profiles_in_spaces",
+      { destinations }
+    );
+    if (!complete) {
+      await expect(result).rejects.toThrow(
+        "Core did not acknowledge the complete Wake batch"
+      );
+      return;
+    }
+    await expect(result).resolves.toEqual(response);
+    expect(centerAgentWakeAgentProfilesInSpaces).toHaveBeenCalledOnce();
+    expect(centerAgentWakeAgentProfilesInSpaces).toHaveBeenCalledWith(
+      expect.objectContaining({ destinations })
+    );
+    expect(
+      tools
+        .find((tool) => tool.name === "openmeld_wake_agent_profiles_in_spaces")
+        ?.endsTurnAfter?.(await result)
+    ).toBe(true);
+  });
+
   it("returns a durably queued Wake without treating it as a tool failure", async () => {
     const request = createSubmitTurnRequest();
     const centerAgentWakeAgentProfilesInSpace = vi.fn(() => {

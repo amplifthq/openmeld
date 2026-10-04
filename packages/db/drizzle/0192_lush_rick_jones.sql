@@ -15,4 +15,5 @@ CREATE TABLE `plugin_action_requests` (
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `plugin_action_requests_operation_idx` ON `plugin_action_requests` (`organization_id`,`user_id`,`actor_profile_id`,`operation_id`);--> statement-breakpoint
-CREATE INDEX `plugin_action_requests_recipient_idx` ON `plugin_action_requests` (`organization_id`,`user_id`,`state`);
+CREATE INDEX `plugin_action_requests_recipient_idx` ON `plugin_action_requests` (`organization_id`,`user_id`,`state`);--> statement-breakpoint
+ALTER TABLE `center_agent_connector_action_operations` ADD `connection_updated_at_ms` integer;

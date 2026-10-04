@@ -96,7 +96,8 @@ export function buildSpaceConversationEntries(input: {
 			item.signalType !== "signal.text" &&
 			!(
 				item.actorProfileKind === "agent" &&
-				item.systemNoticeType === "execution_recovery_completed"
+				(item.systemNoticeType === "execution_recovery_completed" ||
+					item.systemNoticeType === "wake_stopped")
 			)
 		) {
 			entries.push({
@@ -178,7 +179,7 @@ function isSameLocalCalendarDay(leftMs: number, rightMs: number): boolean {
 	);
 }
 
-// Anchored terminal_failure/wake_stopped notices no longer disappear from the
+// Anchored terminal_failure notices no longer disappear from the
 // conversation: `orderSpaceTimelineItemsForConversation` still keeps them out
 // of the root/system-event stream (so they don't ALSO render at their own
 // timeline position), but `buildAnchoredSpaceOutcomeNoticesBySourceSignalId`
@@ -245,6 +246,9 @@ function resolveAnchoredOutcomeNoticeSourceSignalId(input: {
 	item: SpaceTimelineItem;
 	loadedSignalIds: ReadonlySet<string>;
 }): string | null {
+	if (input.item.systemNoticeType === "wake_stopped") {
+		return null;
+	}
 	if (
 		!(
 			(isSpaceOutcomeNoticeItem(input.item) ||

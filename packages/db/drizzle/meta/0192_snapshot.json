@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "9699ca85-be12-4a5d-ae48-b45ec3622b1a",
-  "prevId": "c47f701a-3f53-4c9e-8eb6-50bf87ff4689",
+  "id": "9187e606-7bbc-445c-bcfd-388cd29c0712",
+  "prevId": "e74a2083-cc28-486d-b6cc-15ccf92a472b",
   "tables": {
     "account_sidebar_preferences": {
       "name": "account_sidebar_preferences",
@@ -7028,10 +7028,10 @@
         }
       },
       "indexes": {
-        "center_agent_wake_publications_delegation_unique": {
-          "name": "center_agent_wake_publications_delegation_unique",
+        "center_agent_wake_publications_delegation_idx": {
+          "name": "center_agent_wake_publications_delegation_idx",
           "columns": ["delegation_id"],
-          "isUnique": true
+          "isUnique": false
         },
         "center_agent_wake_publications_due_idx": {
           "name": "center_agent_wake_publications_due_idx",
