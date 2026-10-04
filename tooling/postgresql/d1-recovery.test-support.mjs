@@ -252,12 +252,21 @@ export async function rehearseD1Recovery({ snapshot, root, manifest }) {
         [JSON.stringify(record)]
       );
     }
+    // Remove the completion migration itself, even after canonical migrations
+    // have been appended. Removing only the latest entry leaves a valid prefix.
+    const completionMigrationIndex = record.nativeJournal.findIndex(
+      ({ name }) => name === "0013_d1_import_completion.sql"
+    );
+    assert.notEqual(completionMigrationIndex, -1);
     await owner.query(
       "UPDATE openmeld_migration.d1_import_completion SET record=$1::jsonb",
       [
         JSON.stringify({
           ...record,
-          nativeJournal: record.nativeJournal.slice(0, -1),
+          nativeJournal: record.nativeJournal.slice(
+            0,
+            completionMigrationIndex
+          ),
         }),
       ]
     );
@@ -398,7 +407,7 @@ export async function rehearseD1Recovery({ snapshot, root, manifest }) {
       idx: journal.entries.length,
       version: "7",
       when: previous.when + 1,
-      tag: "0014_test_recovery_upgrade",
+      tag: `${String(journal.entries.length).padStart(4, "0")}_test_recovery_upgrade`,
       breakpoints: true,
     };
     journal.entries.push(upgrade);
