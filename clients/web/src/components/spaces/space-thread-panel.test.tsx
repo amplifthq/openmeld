@@ -1246,6 +1246,7 @@ describe("SpaceThreadPanel", () => {
 					selector: {
 						by: "client_message",
 						clientMessageId: "client-message-1",
+						dispatchId: "dispatch-1",
 						targetProfileId: TARGET_PROFILE_ID,
 					},
 					status: "active",
