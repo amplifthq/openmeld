@@ -215,6 +215,7 @@ const workerPackages = [
     ],
     expectedGeneratedBindings: [
       "AUTH_EMAIL",
+      "OPENMELD_POSTGRESQL",
       "OPENMELD_AUTH_KV",
       "OPENMELD_DB",
       "OPENMELD_IDENTITY_DB",
@@ -222,10 +223,19 @@ const workerPackages = [
       "OPENMELD_ORGANIZATION_JOIN_LINK_ACCEPT_RATE_LIMITER",
     ],
     forbiddenGeneratedBindings: [],
-    expectedD1Bindings: ({ environment, wranglerConfigPath }) => [
-      buildSharedD1BindingForWorkerConfig(wranglerConfigPath, environment),
-      buildAliasedD1Binding(AUTH_IDENTITY_DB_BINDING.binding, environment),
-    ],
+    expectedD1Bindings: ({ environment, wranglerConfigPath }) =>
+      environment === "stg"
+        ? [
+            buildSharedD1BindingForWorkerConfig(
+              wranglerConfigPath,
+              environment
+            ),
+            buildAliasedD1Binding(
+              AUTH_IDENTITY_DB_BINDING.binding,
+              environment
+            ),
+          ]
+        : [],
     expectedR2Bindings: () => [],
     expectedRateLimitBindings: AUTH_RATE_LIMIT_BINDINGS,
   },
@@ -267,6 +277,7 @@ const workerPackages = [
       "OPENMELD_AUTH_WORKER",
       "OPENMELD_REMOTE_AGENT_WORKER",
       "OPENMELD_RUNTIME_TRANSPORT",
+      "OPENMELD_POSTGRESQL",
       "OPENMELD_DB",
       "OPENMELD_LOCAL_STATE_DB",
       "OPENMELD_WAKE_EVIDENCE_DB",
@@ -292,12 +303,27 @@ const workerPackages = [
       "ZEP_OPENMELD_API_KEY",
     ],
     forbiddenGeneratedBindings: [],
-    expectedD1Bindings: ({ environment, wranglerConfigPath }) => [
-      buildSharedD1BindingForWorkerConfig(wranglerConfigPath, environment),
-      buildAliasedD1Binding(CORE_LOCAL_STATE_DB_BINDING.binding, environment),
-      buildAliasedD1Binding(CORE_WAKE_EVIDENCE_DB_BINDING.binding, environment),
-      buildAliasedD1Binding(CORE_PROJECTIONS_DB_BINDING.binding, environment),
-    ],
+    expectedD1Bindings: ({ environment, wranglerConfigPath }) =>
+      environment === "stg"
+        ? [
+            buildSharedD1BindingForWorkerConfig(
+              wranglerConfigPath,
+              environment
+            ),
+            buildAliasedD1Binding(
+              CORE_LOCAL_STATE_DB_BINDING.binding,
+              environment
+            ),
+            buildAliasedD1Binding(
+              CORE_WAKE_EVIDENCE_DB_BINDING.binding,
+              environment
+            ),
+            buildAliasedD1Binding(
+              CORE_PROJECTIONS_DB_BINDING.binding,
+              environment
+            ),
+          ]
+        : [],
     expectedR2Bindings: ({ environment }) => [
       {
         binding: SPACE_ATTACHMENTS_R2_BINDING,

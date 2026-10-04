@@ -10,7 +10,10 @@ import {
 } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import { isDeepStrictEqual } from "node:util";
-import { postgresqlD1MaintenanceCaptureSchema } from "../../packages/schemas/src/schemas/release/postgresql-import.ts";
+import {
+  postgresqlD1MaintenanceCaptureSchema,
+  postgresqlD1RemoteSourceSchema,
+} from "../../packages/schemas/src/schemas/release/postgresql-import.ts";
 import {
   D1_MAINTENANCE_CATALOG_QUERY,
   D1_MAINTENANCE_LEDGER,
@@ -313,19 +316,31 @@ async function captureMetadata(query, database) {
   return sequences;
 }
 
-/** Remote capture requires a separately authorized, verified stopped source. */
+/** Frozen remote sources use the same typed transport and archival checks. */
 export async function captureD1Snapshot({
   source,
   destination,
   identity,
   maintenanceId,
 }) {
-  if (
+  const remote = postgresqlD1RemoteSourceSchema.safeParse(identity);
+  if (remote.success) {
+    requireEqual(
+      source.identity,
+      remote.data,
+      "Remote D1 source identity mismatch"
+    );
+    if (!maintenanceId) {
+      throw new Error(
+        "Remote capture requires the exact frozen maintenance identity"
+      );
+    }
+  } else if (
     process.env.OPENMELD_PG_ISOLATED !== "1" ||
     identity.kind !== "local-synthetic"
   ) {
     throw new Error(
-      "Only isolated synthetic D1 capture is enabled; production capture is unavailable"
+      "Capture requires isolated synthetic D1 or an identified frozen remote source"
     );
   }
   const handle = await open(destination, "wx", 0o600);

@@ -1,5 +1,11 @@
-import { readFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
+import { parseJsoncObject } from "../../packages/db/src/tooling/parse-jsonc.ts";
+import { readCutoverTarget } from "../../tooling/postgresql/remote-target.mjs";
+import { readGuardedLocalReleaseSources } from "./production-release-evidence.mjs";
+import { verifyWorkerDeployment } from "./worker-deployment-evidence.mjs";
 
 function readBackendManifest(root) {
   return JSON.parse(
@@ -7,20 +13,266 @@ function readBackendManifest(root) {
   );
 }
 
-/** No flag bypasses the separately reviewed data cutover and product binding contract. */
-export function assertProductDatabaseReleaseSupported(root = process.cwd()) {
-  const manifest = readBackendManifest(root);
+// Hosted entrypoints do not carry the private snapshot or the local maintenance
+// admission. Keep them closed until that existing lane supports the same proof.
+export function assertHostedProductDatabaseReleaseSupported(root, scopes) {
   if (
-    manifest.backend === "postgresql" &&
-    manifest.productCutover === "unavailable"
+    scopes.some((scope) => ["db", "auth", "core", "cli"].includes(scope)) &&
+    existsSync(path.join(root, "release/database-backend.json")) &&
+    readBackendManifest(root).backend === "postgresql"
   ) {
     throw new Error(
-      "PostgreSQL product cutover is unavailable. Production and shared staging remain on the deployed D1 revision; use the isolated PostgreSQL development stack."
+      "PostgreSQL product cutover is unavailable through hosted release commands. Use the guarded local release lane and its maintenance admission."
+    );
+  }
+}
+
+// Trusted release control installs only schema-parser dependencies. Native
+// database drivers belong to the candidate's data operation, not module loading.
+async function runCutoverDataCommand(args) {
+  const owner = await import("../../tooling/postgresql/cutover.mjs");
+  return owner.runCutoverDataCommand(args);
+}
+
+/** Legacy D1 and shared-staging commands cannot deploy this PostgreSQL candidate. */
+export function assertProductDatabaseReleaseSupported(root = process.cwd()) {
+  const manifest = readBackendManifest(root);
+  if (manifest.backend === "postgresql") {
+    throw new Error(
+      "PostgreSQL product cutover is unavailable through legacy D1 or shared-staging commands. Use the guarded production release and its frozen import evidence."
     );
   }
   throw new Error(
     "Product database release support must be defined by the reviewed cutover control plane."
   );
+}
+
+export function assertPostgresqlProductBinding(config, registered) {
+  const bindings = config.env?.prod?.hyperdrive;
+  if (
+    config.env?.prod?.d1_databases?.length ||
+    bindings?.length !== 1 ||
+    bindings[0].binding !== "OPENMELD_POSTGRESQL" ||
+    bindings[0].id !== registered.hyperdriveId
+  ) {
+    throw new Error(
+      "Auth and Core must use only the registered PostgreSQL Hyperdrive binding"
+    );
+  }
+}
+
+export async function verifyProductHyperdrive(registered, request = fetch) {
+  const token = process.env.CLOUDFLARE_OPENMELD_RELEASE_API_TOKEN;
+  if (!token) {
+    throw new Error(
+      "Missing scoped Cloudflare release token for Hyperdrive inspection"
+    );
+  }
+  const response = await request(
+    `https://api.cloudflare.com/client/v4/accounts/${registered.source.accountId}/hyperdrive/configs/${registered.hyperdriveId}`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+      redirect: "error",
+    }
+  );
+  if (!response.ok) {
+    throw new Error(`Hyperdrive inspection failed (HTTP ${response.status})`);
+  }
+  const body = await response.json();
+  const configuration = body?.result;
+  if (
+    body?.success !== true ||
+    configuration?.id !== registered.hyperdriveId ||
+    configuration.caching?.disabled !== true ||
+    configuration.origin?.scheme !== "postgres" ||
+    configuration.origin.host !== registered.target.host ||
+    configuration.origin.port !== 5432 ||
+    configuration.origin.database !== registered.target.database ||
+    configuration.origin.user !==
+      `${registered.runtimeRole}.${registered.target.branchId}`
+  ) {
+    throw new Error(
+      "Hyperdrive target, runtime role or disabled-cache contract changed"
+    );
+  }
+}
+
+async function requireActivePostgresqlReceipts(input, registered) {
+  const receipts = await (input.readReceipts ?? readGuardedLocalReleaseSources)(
+    { cwd: input.root }
+  );
+  for (const scope of ["auth", "core"]) {
+    const source = receipts.get(scope);
+    const identity = source?.receipt?.identity;
+    if (input.restoreCrons && source?.sha !== input.sourceSha) {
+      throw new Error(
+        "Cron restoration requires Auth and Core receipts for this exact candidate"
+      );
+    }
+    if (
+      source?.receipt?.status !== "verified" ||
+      identity?.kind !== "worker-deployment" ||
+      identity.sourceSha !== source.sha ||
+      identity.workerName !== `openmeld-${scope}-prod`
+    ) {
+      throw new Error(
+        "First PostgreSQL release requires --database-cutover-snapshot and the coordinated Auth/Core/database scopes"
+      );
+    }
+    const file = `services/${scope}/wrangler.jsonc`;
+    const content = (
+      input.readGitFile ??
+      ((sha, name) =>
+        execFileSync("git", ["show", `${sha}:${name}`], {
+          cwd: input.root,
+          encoding: "utf8",
+        }))
+    )(source.sha, file);
+    assertPostgresqlProductBinding(parseJsoncObject(content), registered);
+    await (input.verifyDeployment ?? verifyWorkerDeployment)({
+      cwd: input.root,
+      sourceSha: source.sha,
+      expected: identity,
+      target: {
+        workerName: identity.workerName,
+        args: ["--config", file, "--env", "prod"],
+      },
+      runCommand: (command) =>
+        spawnSync(command.command, command.args, {
+          cwd: command.cwd,
+          env: command.env,
+          encoding: "utf8",
+        }),
+    });
+  }
+}
+
+// Called under the existing production scope leases. The committed import row
+// and existing Worker receipts remain the only completion/publication records.
+export async function admitPostgresqlProductRelease(input) {
+  const root = input.root ?? process.cwd();
+  const registered = await (input.readTarget ?? readCutoverTarget)();
+  for (const scope of ["auth", "core"]) {
+    const config = parseJsoncObject(
+      readFileSync(path.join(root, `services/${scope}/wrangler.jsonc`), "utf8")
+    );
+    assertPostgresqlProductBinding(config, registered);
+  }
+  const runData = input.runData ?? runCutoverDataCommand;
+  if (!input.snapshot) {
+    await requireActivePostgresqlReceipts({ ...input, root }, registered);
+    await (input.verifyHyperdrive ?? verifyProductHyperdrive)(registered);
+    if (!input.restoreCrons) {
+      await (input.verifyCrons ?? verifyProductCrons)({
+        root,
+        registered,
+        paused: false,
+      });
+    }
+    // A database stage may still need to apply new native migrations. Core's
+    // existing startup guard verifies the exact journal after that stage.
+    return { mode: "native_postgresql_release" };
+  }
+  if (!["db", "auth", "core"].every((scope) => input.scopes.includes(scope))) {
+    throw new Error(
+      "First PostgreSQL release requires coordinated db,auth,core scopes"
+    );
+  }
+  const readSnapshot =
+    input.readSnapshot ??
+    (await import("../../tooling/postgresql/d1-import.mjs"))
+      .readD1SnapshotManifest;
+  const manifest = await readSnapshot(input.snapshot);
+  if (!manifest.maintenance?.maintenanceId) {
+    throw new Error("Cutover snapshot requires frozen D1 maintenance evidence");
+  }
+  const inspection = ["inspect-barrier", manifest.maintenance.maintenanceId];
+  await runData(inspection);
+  const completion = await runData(["completion", input.snapshot]);
+  await runData(["reconcile", input.snapshot]);
+  await runData(["verify"]);
+  await (input.verifyHyperdrive ?? verifyProductHyperdrive)(registered);
+  await (input.verifyCrons ?? verifyProductCrons)({
+    root,
+    registered,
+    paused: true,
+  });
+  await runData(inspection);
+  return {
+    mode: "frozen_d1_cutover",
+    importId: completion.importId,
+    snapshotSha256: completion.snapshotSha256,
+  };
+}
+
+export async function verifyProductCrons({
+  root = process.cwd(),
+  registered,
+  paused,
+  request = fetch,
+}) {
+  const token = process.env.CLOUDFLARE_OPENMELD_RELEASE_API_TOKEN;
+  if (!token) {
+    throw new Error(
+      "Missing scoped Cloudflare release token for Cron inspection"
+    );
+  }
+  for (const scope of ["auth", "core"]) {
+    const config = parseJsoncObject(
+      readFileSync(path.join(root, `services/${scope}/wrangler.jsonc`), "utf8")
+    );
+    const response = await request(
+      `https://api.cloudflare.com/client/v4/accounts/${registered.source.accountId}/workers/scripts/${config.env.prod.name ?? `${config.name}-prod`}/schedules`,
+      { headers: { Authorization: `Bearer ${token}` }, redirect: "error" }
+    );
+    if (!response.ok) {
+      throw new Error(
+        `${scope} Cron inspection failed (HTTP ${response.status})`
+      );
+    }
+    const body = await response.json();
+    const schedules = body?.result?.schedules;
+    const expected = paused ? [] : config.env.prod.triggers.crons;
+    if (
+      body?.success !== true ||
+      !Array.isArray(schedules) ||
+      !isDeepStrictEqual(
+        schedules.map(({ cron }) => cron).sort(),
+        [...expected].sort()
+      )
+    ) {
+      throw new Error(
+        `${scope} Cron configuration differs from the requested maintenance state`
+      );
+    }
+  }
+}
+
+export async function restoreProductCrons({
+  root = process.cwd(),
+  runStep,
+  runData = runCutoverDataCommand,
+  verifyCrons = verifyProductCrons,
+}) {
+  await runData(["verify"]);
+  const registered = await readCutoverTarget();
+  for (const scope of ["auth", "core"]) {
+    await runStep({
+      command: "pnpm",
+      args: [
+        "exec",
+        "wrangler",
+        "triggers",
+        "deploy",
+        "--config",
+        `services/${scope}/wrangler.jsonc`,
+        "--env",
+        "prod",
+      ],
+      label: `Restore ${scope} triggers from the accepted candidate`,
+    });
+  }
+  await verifyCrons({ root, registered, paused: false });
 }
 
 // This is preparation output inside the existing release owner, never an
@@ -29,10 +281,10 @@ export async function readPostgresqlCutoverPreparation(root = process.cwd()) {
   const manifest = readBackendManifest(root);
   if (
     manifest.backend !== "postgresql" ||
-    manifest.productCutover !== "unavailable"
+    manifest.productCutover !== "guarded"
   ) {
     throw new Error(
-      "Cutover preparation requires the blocked PostgreSQL candidate manifest."
+      "Cutover preparation requires the guarded PostgreSQL candidate manifest."
     );
   }
   const resources = JSON.parse(
@@ -60,7 +312,7 @@ export async function readPostgresqlCutoverPreparation(root = process.cwd()) {
   return {
     mode: "preparation_only",
     promotionAllowed: false,
-    reasonCode: "postgresql_cutover_unavailable",
+    reasonCode: "postgresql_cutover_requires_frozen_import",
     inventorySource: "tracked configuration; live provider state not inspected",
     target: {
       backend: resources.engine,
@@ -102,6 +354,7 @@ export async function readPostgresqlCutoverPreparation(root = process.cwd()) {
         "Freeze again and preserve/reconcile new PostgreSQL writes plus DO/R2 effects, or forward-fix. Never point writers back to the stale D1 snapshot.",
     },
     evidenceStatus: "not_evaluated",
-    executor: "unavailable",
+    executor:
+      "production-release.mjs deploy --database-cutover-snapshot <snapshot>",
   };
 }

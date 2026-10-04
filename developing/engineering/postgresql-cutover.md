@@ -80,7 +80,9 @@ capture, then archives the maintenance ledger's schema and rows in the capture
 manifest. That metadata is bound by the existing import completion receipt;
 neither the ledger nor its guards becomes a PostgreSQL business object. Missing
 identity, missing guards and unexpected objects fail closed. Ordinary local
-synthetic captures remain supported. Remote capture is still unavailable.
+synthetic captures remain supported. The remote entry below uses the same owner
+and requires the registered source plus frozen maintenance identity. It has not
+exported production data.
 
 The rehearsal passes unknown-table, unsupported stored-type, invalid UTF-8,
 NUL-text, unsafe-integer, native-constraint, value-mismatch and process-kill
@@ -240,8 +242,8 @@ still require the exact reviewed historical mapping.
 
 Normal startup uses this same owner after the canonical migrator upgrades the
 database. The local helper can pass an explicit isolated migration directory to
-both owners for upgrade tests; production targets remain unavailable and the
-default is the repository journal. The external `d1-import.json` is only a checked projection, written by an
+both owners for upgrade tests; the registered production target requires the
+repository journal. The external `d1-import.json` is only a checked projection, written by an
 atomic rename; it is never independent proof of a successful commit.
 
 Use the existing development lifecycle and the following recovery boundaries:
@@ -392,8 +394,9 @@ The existing `release:plan -- --database-cutover --base <fixed-baseline> --json`
 entrypoint now produces a read-only PG preparation plan. It reuses the existing
 source-impact and rolling-order owners and the native migration journal reader.
 The plan contains registered target identity and hashes, not live cloud evidence.
-All executable step arrays are empty, promotion is false, and evidence remains
-`not_evaluated`. Deploy, preflight and verify do not accept this option. The
+All preparation step arrays are empty, promotion is false, and evidence remains
+`not_evaluated`. A separate snapshot option below admits a real frozen import
+through deploy/preflight. The
 ordinary source plan excludes receiver-only AI usage edits and the private
 context-manifest persistence repository from directional protocol triggers.
 Those paths previously produced a false Core/Remote cycle for this migration.
@@ -427,15 +430,97 @@ mutations or a replacement for the existing release entrypoint.
    existing inspection/reconciliation path. Archive the maintenance ledger;
    never import that ledger or D1 guards as PG application objects.
 5. Switch Auth and Core together to the candidate and one Hyperdrive PG binding
-   through the existing release path. Keep entry traffic closed until versions
-   and bindings agree. Minimal reviewed cutover admission/configuration support
-   is still required there; the plan-only option is not a deploy command. No
-   component may keep writing relational data to D1.
+   through the snapshot-admitted release below. Keep entry traffic closed until
+   versions and bindings agree. The derived maintenance configuration prevents
+   deployment from restarting Cron. No component may keep writing relational
+   data to D1.
 6. Check old-account login, permissions, Organization/Space/messages, a real
    Agent reply when quota permits, Files, Inbox/tasks, enabled integrations and
    restart persistence. Reuse valid existing evidence; add missing migration
-   and Hyperdrive coverage. Reopen sources in the recorded order and preserve
-   the frozen D1 source plus capture/import receipts.
+   and Hyperdrive coverage. Explicitly restore Cron, then reopen sources in the
+   recorded order and preserve the frozen D1 source plus capture/import receipts.
+
+### Executable maintenance-window entries
+
+These commands are for the separately authorized window and have not run against
+production. Use the exact reviewed clean candidate, existing release credentials
+and local release leases, one operator, and a private evidence directory. Hosted
+Auth/Core/CLI releases remain blocked until they support the same maintenance
+admission. Do not add business
+data to the repository. The data CLI resolves the fixed Amplift database/branch
+and migration role from `resources.json`, verifies live PlanetScale IDs and reads
+the scoped Doppler migration credential. Cloudflare reads require
+`CLOUDFLARE_OPENMELD_RELEASE_API_TOKEN` with D1 read, Hyperdrive read and Worker
+schedule read permissions. Existing deployment credentials remain required.
+
+```sh
+# Offline inventory only.
+node tooling/postgresql/cutover.mjs plan
+
+# After normal Stop/wait, producer closure and writer/outbox checks:
+node tooling/postgresql/cutover.mjs prepare-barrier <maintenance-id> <private-directory>
+# Review the returned config and SQL, then apply with official D1 migrations.
+pnpm exec wrangler d1 migrations apply openmeld-db-prod --remote --config <returned-config>
+node tooling/postgresql/cutover.mjs inspect-barrier <maintenance-id>
+node tooling/postgresql/cutover.mjs capture <maintenance-id> <private-snapshot.sqlite>
+
+# Native PG18 journal, then one atomic COPY/reconciliation transaction.
+node tooling/postgresql/cutover.mjs migrate
+node tooling/postgresql/cutover.mjs import <private-snapshot.sqlite>
+node tooling/postgresql/cutover.mjs grant-runtime
+node tooling/postgresql/cutover.mjs verify
+node tooling/postgresql/cutover.mjs completion <private-snapshot.sqlite>
+node tooling/postgresql/cutover.mjs reconcile <private-snapshot.sqlite>
+
+# Actual receipt-based coordinated scope; db,auth,core are mandatory.
+pnpm release:preflight:local -- --scope <reviewed-scopes> --database-cutover-snapshot <private-snapshot.sqlite>
+pnpm release:deploy:local -- --scope <reviewed-scopes> --database-cutover-snapshot <private-snapshot.sqlite>
+
+# Only after explicit product acceptance. This does not open HTTP/Queue ingress.
+pnpm release:deploy:local -- --scope auth,core --database-cutover-restore-crons
+```
+
+The snapshot is created exclusively with mode `0600`. Its adjacent JSON manifest
+binds source identity, frozen barrier, history, typed cells and hashes.
+`OPENMELD_PG_RECEIPT_PATH=<new-private-file>` optionally saves command output with
+the same exclusive permissions. External output is a projection: only the import
+completion row committed with COPY is completion truth. `completion` reads that
+row; `reconcile` compares current fields and generators with the snapshot.
+Neither proves DO/R2 convergence or opens traffic. API failures, 429 responses
+and uncertain imports stop without automatic retry or target reset.
+
+First product admission runs under existing production leases. It checks both
+candidate bindings, frozen D1 guards, committed import, full reconciliation,
+native journal, runtime grants, cache-disabled Hyperdrive and paused Cron, then
+rechecks the guards. The database deployment step verifies the import instead of
+running legacy D1 migrations. Source, artifact, CLI compatibility, component
+receipts and directional protocol gates remain in force. Later PG releases
+require verified Auth/Core receipts with matching active deployments and PG
+source bindings. Their database stage uses native migrate/grant/verify; Core
+checks the exact native journal and grants before activation.
+
+The release owner derives `.openmeld-pg-cutover.jsonc` beside each original
+Auth/Core config. Only `env.prod.triggers.crons` changes to `[]`; the same directory
+preserves relative entry/build paths. Auth deploy, Core version upload, atomic DO
+migration, later Core trigger sync and CLI projection publication use it and
+retain existing receipts. Cleanup never restores Cron. If interrupted cleanup
+leaves a derived file, inspect and remove it before retrying; the owner refuses
+to overwrite it. It does not accept arbitrary override configurations.
+
+The restore command requires the exact candidate's verified Auth/Core
+deployments, native readiness, normal release checks and both scope leases.
+It syncs the candidate's normal triggers and reads back both schedule lists.
+Ordinary PostgreSQL releases require those normal schedules already present;
+they cannot implicitly reopen paused Cron during product acceptance.
+Cron changes can take about 15 minutes to propagate. An empty API list does not
+prove an already-running job ended and does not pause Queues, Workflows, DO alarms
+or sockets. Keep the writer inventory and normal in-flight checks above.
+
+Local validation covers remote API envelopes/error refusal, source/credential
+identity, actual isolated frozen D1 to native PG import, grant denial, native
+release-step selection, derived configuration equivalence and Core deployment
+branches. Actual Auth and Core maintenance bundles pass Wrangler dry-run.
+This is not a managed-production import, shutdown or full cloud product smoke.
 
 The data bridge, local migrated product paths and isolated Worker → Hyperdrive →
 PlanetScale business-owner checks above have passed. They do not prove a full

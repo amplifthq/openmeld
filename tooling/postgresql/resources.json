@@ -33,6 +33,10 @@
       }
     },
     "production": {
+      "sourceD1": {
+        "databaseName": "openmeld-db-prod",
+        "databaseId": "15f16284-5240-4675-b626-3b7144e1d684"
+      },
       "database": "openmeld-postgresql-prod",
       "branch": "main",
       "databaseId": "p5r3cbx0r9j8",

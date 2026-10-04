@@ -230,6 +230,7 @@ export async function prepareD1MaintenanceMigration({
     config,
     JSON.stringify({
       name: "openmeld-d1-maintenance",
+      ...(target.accountId ? { account_id: target.accountId } : {}),
       compatibility_date: "2026-09-01",
       d1_databases: [
         {

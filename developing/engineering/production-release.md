@@ -25,7 +25,12 @@ used to invent a second merge or evidence contract.
 
 Release only what changed.
 
-The PostgreSQL candidate keeps production and shared-staging promotion closed.
+The PostgreSQL candidate uses the guarded local release lane and requires frozen
+import evidence for first production promotion. Hosted Auth/Core/CLI releases and
+shared-staging promotion remain closed: those lanes do not yet carry the private
+capture and maintenance admission. This window does not add hosted credentials
+or a separate migration channel. Unrelated hosted release targets retain their
+existing admission.
 For a read-only maintenance preparation plan through this same release owner:
 
 ```bash
@@ -40,12 +45,19 @@ read production data, inspect live cloud resources, collect acceptance evidence,
 acquire a release lease or execute a step. `evidenceStatus: not_evaluated` and
 `promotionAllowed: false` are explicit; a successful plan is not a cutover pass.
 The option is accepted only by `plan`, with automatic impact discovery. It does
-not waive incompatible receiver-first dependencies or enable any deploy command.
+not waive incompatible receiver-first dependencies or itself enable deployment.
 Its compatibility baseline is a source comparison only; deployed component
 receipts remain `not_inspected`. The actual release must establish each live
 component's source and receipt before deciding mixed-version compatibility.
 See [PostgreSQL cutover preparation](postgresql-cutover.md) for current evidence
-and remaining maintenance acceptance.
+and the executable data/maintenance runbook. Deploy/preflight accept the separate
+`--database-cutover-snapshot <snapshot>` option. It requires coordinated
+`db,auth,core` scopes, live frozen-source/import reconciliation, native journal
+and grants, cache-disabled Hyperdrive and paused Cron under existing leases.
+Auth/Core use a checked temporary config whose only change is empty production
+Cron. After product acceptance, `deploy --scope auth,core
+--database-cutover-restore-crons` explicitly restores and reads back the same
+candidate's normal schedules. Cleanup and failed deployment never restore Cron.
 
 - A Web fix releases Web.
 - A public website fix releases Website, without rebuilding or deploying Web.

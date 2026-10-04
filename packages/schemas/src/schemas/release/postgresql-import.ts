@@ -2,6 +2,21 @@ import { z } from "zod/v4";
 
 const sha256 = z.string().regex(/^[a-f0-9]{64}$/u);
 
+export const postgresqlD1RemoteSourceSchema = z.strictObject({
+  kind: z.literal("cloudflare-d1"),
+  accountId: z.string().regex(/^[a-f0-9]{32}$/u),
+  databaseId: z.uuid(),
+});
+
+export const postgresqlRemoteImportTargetSchema = z.strictObject({
+  kind: z.literal("planetscale"),
+  organization: z.literal("amplift"),
+  databaseId: z.string().min(1),
+  branchId: z.string().min(1),
+  host: z.string().endsWith(".pg.psdb.cloud"),
+  database: z.literal("postgres"),
+});
+
 // Capture evidence only. This does not certify that DO/R2 or external writers
 // have stopped, and the maintenance ledger never becomes application data.
 export const postgresqlD1MaintenanceCaptureSchema = z.strictObject({
@@ -24,7 +39,7 @@ export const postgresqlD1MaintenanceCaptureSchema = z.strictObject({
   }),
 });
 
-// Local migration tooling only. This records one committed import, not current
+// Migration tooling only. This records one committed import, not current
 // business state, writer quiescence, or permission to promote a cloud release.
 export const postgresqlImportCompletionSchema = z.strictObject({
   version: z.literal(1),
@@ -34,12 +49,15 @@ export const postgresqlImportCompletionSchema = z.strictObject({
   captureReceiptSha256: sha256,
   sourceSchemaSha256: sha256,
   historySha256: sha256,
-  target: z.strictObject({
-    systemIdentifier: z.string().regex(/^\d+$/u),
-    databaseOid: z.string().regex(/^\d+$/u),
-    database: z.string().min(1),
-    dataDirectory: z.string().min(1),
-  }),
+  target: z.union([
+    z.strictObject({
+      systemIdentifier: z.string().regex(/^\d+$/u),
+      databaseOid: z.string().regex(/^\d+$/u),
+      database: z.string().min(1),
+      dataDirectory: z.string().min(1),
+    }),
+    postgresqlRemoteImportTargetSchema,
+  ]),
   nativeJournal: z
     .array(
       z.strictObject({

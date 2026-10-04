@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { parseJsoncObject } from "../../packages/db/src/tooling/parse-jsonc.ts";
 
 const hyperdriveIdPattern = /^[a-f0-9]{32}$/u;
 export function verifyPostgresqlEnvironment(root) {
@@ -67,6 +68,27 @@ export function verifyPostgresqlEnvironment(root) {
   );
   assert(types.includes("OPENMELD_POSTGRESQL: Hyperdrive;"));
   assert(types.includes("POSTGRESQL_OPENMELD_PROBE_TOKEN: string;"));
+  for (const service of ["auth", "core"]) {
+    const config = parseJsoncObject(
+      readFileSync(
+        path.join(root, "services", service, "wrangler.jsonc"),
+        "utf8"
+      )
+    );
+    for (const section of [config, config.env.prod]) {
+      assert.deepEqual(section.hyperdrive, [
+        {
+          binding: "OPENMELD_POSTGRESQL",
+          id: inventory.environments.production.hyperdriveId,
+        },
+      ]);
+      assert.equal(
+        section.d1_databases,
+        undefined,
+        `${service} must have one relational authority`
+      );
+    }
+  }
   console.log(
     "PASS isolated PostgreSQL resource and Worker environment contracts"
   );

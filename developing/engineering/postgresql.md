@@ -107,18 +107,19 @@ MCP server or broad database-agent credential is needed for this foundation.
 
 The migration owner uses a direct TLS connection (port 5432), never Hyperdrive
 or PlanetScale's transaction pooler. `pg migrate staging` verifies the exact
-registered hostname and branch identity before connecting. Production apply is
-intentionally unavailable in the foundation CLI.
+registered hostname and branch identity before connecting. Production uses the
+separate `tooling/postgresql/cutover.mjs` entry in the
+[maintenance runbook](postgresql-cutover.md#executable-maintenance-window-entries).
 
 The current `db:generate`, `db:check` and `db:studio` commands use the native
 PostgreSQL configuration. Run local migration and acceptance inside `pg:local`
-with its explicit isolated connection variables. Production database commands
+with its explicit isolated connection variables. Legacy production D1 commands
 fail closed. Historical D1 SQL, physical-requirement snapshots, and diagnostic
 tooling remain evidence for the deployed D1 revision; they cannot generate or
-apply the new PostgreSQL model. The candidate's guarded production/shared-staging
-release rejects `release/database-backend.json` until the separately reviewed
-cutover admission and binding changes are implemented. Isolated development and the foundation
-probe are the supported validation paths.
+apply the new PostgreSQL model. First production release requires verified
+frozen capture and native import through the existing release owner. Shared
+staging stays blocked. Isolated development and the foundation probe remain the
+validation paths; an implemented command is not production authorization.
 
 `pnpm --filter @openmeld/db auth:generate` runs the official CLI at the installed
 Better Auth 1.6 patch version after building the actual Auth config. Generation
@@ -394,6 +395,15 @@ no dual reads or writes and does not claim a safe rolling product cutover.
 No local component contract bump is required by the persistence-only boundary;
 release artifact eligibility still follows the base-aware local-component gate.
 
+The remote capture and import entry extends only the shared migration-tool
+evidence schema with the registered D1 source and PlanetScale target identity.
+Existing local completion records retain their shape. Operators must use the
+same reviewed candidate for capture, import and release admission; this is not
+a new CLI, Service, Agent or public API payload. Core and CLI publication now
+check the native journal and runtime grants instead of the D1 pending list.
+The initial deployment retains paused Cron until an explicit accepted-source
+restore command succeeds; the ordinary release path refuses paused schedules.
+
 RuntimeCoordinator keeps in-flight execution authority. The PostgreSQL dispatch
 and task ledgers remain durable evidence and projections. The submission claim
 is a bounded duplicate-submission mutex: exact delivery key, expiring claim nonce,
@@ -417,10 +427,10 @@ they do not add RPC methods. See
 - D1 tooling and its captured fixtures preserve the deployed revision's
   operational vocabulary. Current `db:*` commands use PostgreSQL or fail closed;
   the candidate does not authorize historical production operations.
-- Production/shared-staging Wrangler configurations and generated D1 binding
-  declarations describe the deployed revision. The candidate product release
-  admission blocks their use with its PostgreSQL source until cutover support is
-  reviewed. They are not a runtime fallback.
+- Candidate production Auth/Core configurations and generated types declare
+  the same native Hyperdrive binding and no D1 aliases. Shared-staging D1 config
+  stays historical and guarded against candidate deployment, not a runtime
+  fallback. Live production retains its deployed revision until cutover.
 - Space, RuntimeTransportHub, and other Durable Objects retain private SQLite
   storage for their own state. OpenMeld Service's isolated local storage and R2
   file ownership also retain their existing boundaries.
@@ -608,8 +618,9 @@ the original Chrome login, visible reply, Project write, Inbox read state and
 identical import receipt. A transient Web startup stall and one recovered Inbox
 projection warning are recorded in the cutover owner; neither is claimed fixed.
 In-flight head reads, task mutations and external integrations are not proved by
-this sample. The existing release path still needs minimal reviewed cutover
-admission and binding support.
+this sample. The existing release path implements snapshot admission and native
+bindings. Its live maintenance actions and product acceptance remain for the
+authorized window.
 
 Production Spaces remain active on D1. This preparation does not authorize a
 main merge, main-product deployment, production export, shared-staging mutation,

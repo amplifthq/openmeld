@@ -20,9 +20,14 @@ import { connect } from "./database.mjs";
 
 const maintenanceError = /openmeld\.database_maintenance/u;
 const inventoryError = /table inventory/u;
+const maintenanceIdentityError = /maintenance identity/u;
 const barrierError = /inventory or maintenance rule definition differs/u;
 
-export async function rehearseFrozenD1Capture({ root, connectionString }) {
+export async function rehearseFrozenD1Capture({
+  root,
+  connectionString,
+  sourceIdentity,
+}) {
   await mkdir(root, { recursive: true, mode: 0o700 });
   const started = performance.now();
   const input = path.join(root, "fixture.sqlite");
@@ -83,23 +88,26 @@ export async function rehearseFrozenD1Capture({ root, connectionString }) {
       frozen.prepare("UPDATE users SET name='Rejected'").run(),
       maintenanceError
     );
-    const identity = {
+    const identity = sourceIdentity ?? {
       kind: "local-synthetic",
       id: "frozen-business-fixture",
       frozenBy:
         "verified exact local D1 maintenance barrier; no runtime attached",
     };
+    const captureSource = sourceIdentity
+      ? { identity, prepare: (sql) => frozen.prepare(sql) }
+      : frozen;
     await assert.rejects(
       captureD1Snapshot({
-        source: frozen,
+        source: captureSource,
         destination: path.join(root, "missing-identity.sqlite"),
         identity,
       }),
-      inventoryError
+      sourceIdentity ? maintenanceIdentityError : inventoryError
     );
     const snapshot = path.join(root, "frozen.sqlite");
     const capture = await captureD1Snapshot({
-      source: frozen,
+      source: captureSource,
       destination: snapshot,
       identity,
       maintenanceId,
@@ -159,7 +167,7 @@ export async function rehearseFrozenD1Capture({ root, connectionString }) {
     await frozen.prepare(`DROP TRIGGER "${guard}"`).run();
     await assert.rejects(
       captureD1Snapshot({
-        source: frozen,
+        source: captureSource,
         destination: path.join(root, "missing-guard.sqlite"),
         identity,
         maintenanceId,

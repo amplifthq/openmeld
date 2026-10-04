@@ -7,6 +7,7 @@ import { pipeline } from "node:stream/promises";
 import { from as copyFrom } from "pg-copy-streams";
 import {
   postgresqlD1MaintenanceCaptureSchema,
+  postgresqlD1RemoteSourceSchema,
   postgresqlImportCompletionSchema,
 } from "../../packages/schemas/src/schemas/release/postgresql-import.ts";
 import {
@@ -22,6 +23,7 @@ import {
   quoteIdentifier as quote,
   readMigrations,
 } from "./database.mjs";
+import { readCutoverTarget, verifyRemoteCredential } from "./remote-target.mjs";
 
 function csv(value) {
   if (value === null) {
@@ -104,11 +106,27 @@ async function reconcileTable(client, database, table, columns) {
   }
 }
 
-async function verifyNativeTarget(client, migrationsDirectory) {
-  const directory = (await client.query("SHOW data_directory")).rows[0]
-    .data_directory;
-  if (!path.basename(path.dirname(directory)).startsWith("openmeld-pg-")) {
-    throw new Error("Target must belong to a fresh pg:local cluster");
+export async function verifyNativeTarget(client, migrationsDirectory, remote) {
+  let identity;
+  if (remote) {
+    const observed = (
+      await client.query(
+        "SELECT current_database() AS database, current_user AS role"
+      )
+    ).rows[0];
+    requireEqual(
+      observed,
+      { database: remote.target.database, role: remote.migrationRole },
+      "Connected PostgreSQL identity differs from the registered target"
+    );
+    identity = remote.target;
+  } else {
+    const directory = (await client.query("SHOW data_directory")).rows[0]
+      .data_directory;
+    if (!path.basename(path.dirname(directory)).startsWith("openmeld-pg-")) {
+      throw new Error("Target must belong to a fresh pg:local cluster");
+    }
+    identity = await importTargetIdentity(client, directory);
   }
   const migrations = await readMigrations(migrationsDirectory);
   const applied = (
@@ -124,7 +142,7 @@ async function verifyNativeTarget(client, migrationsDirectory) {
     })),
     "Target native journal mismatch"
   );
-  return { migrations, directory };
+  return { migrations, identity };
 }
 
 async function readNativeImportLayout(client, catalog) {
@@ -359,7 +377,7 @@ async function reconcileIdentities(client, manifest, importData, identities) {
   return identities;
 }
 
-/** Direct connection, one transaction, existing native constraints, empty local target. */
+/** Direct connection, one transaction, existing native constraints, empty target. */
 export function importD1Snapshot(input) {
   return processD1Snapshot(input, "import");
 }
@@ -408,7 +426,7 @@ async function reconcileTables({
   return tables;
 }
 
-async function readD1SnapshotManifest(snapshot) {
+export async function readD1SnapshotManifest(snapshot) {
   const manifest = JSON.parse(await readFile(`${snapshot}.json`, "utf8"));
   if (
     manifest.maintenance !== undefined &&
@@ -419,7 +437,11 @@ async function readD1SnapshotManifest(snapshot) {
   }
   if (
     manifest.version !== 1 ||
-    manifest.identity.kind !== "local-synthetic" ||
+    !(
+      manifest.identity.kind === "local-synthetic" ||
+      (postgresqlD1RemoteSourceSchema.safeParse(manifest.identity).success &&
+        manifest.maintenance)
+    ) ||
     manifest.snapshotSha256 !== (await fileSha256(snapshot))
   ) {
     throw new Error("Unverified or unsupported D1 snapshot");
@@ -427,15 +449,46 @@ async function readD1SnapshotManifest(snapshot) {
   return manifest;
 }
 
+async function resolveImportDestination({
+  destination,
+  manifest,
+  connectionString,
+  migrationsDirectory,
+}) {
+  if (!["local", "production"].includes(destination)) {
+    throw new Error("Unknown D1 import destination");
+  }
+  if (destination === "local" && process.env.OPENMELD_PG_ISOLATED !== "1") {
+    throw new Error("Only isolated local D1 import is enabled");
+  }
+  const remote =
+    destination === "production" ? await readCutoverTarget() : null;
+  if (remote) {
+    if (migrationsDirectory) {
+      throw new Error("Remote import uses only the committed native journal");
+    }
+    verifyRemoteCredential(connectionString, remote);
+    requireEqual(
+      manifest.identity,
+      remote.source,
+      "Capture belongs to a different D1 source"
+    );
+  }
+  return remote;
+}
+
 async function processD1Snapshot(
-  { snapshot, connectionString, migrationsDirectory },
+  { snapshot, connectionString, migrationsDirectory, destination = "local" },
   mode
 ) {
   const importData = mode === "import";
-  if (process.env.OPENMELD_PG_ISOLATED !== "1") {
-    throw new Error("Only isolated local D1 import is enabled");
-  }
   const manifest = await readD1SnapshotManifest(snapshot);
+  const remote = await resolveImportDestination({
+    destination,
+    manifest,
+    connectionString,
+    migrationsDirectory,
+  });
   const reference = await createHistoricalD1Database();
   let catalog;
   try {
@@ -460,12 +513,16 @@ async function processD1Snapshot(
       catalog.map(({ name }) => name).sort(),
       "Snapshot receipt omits a table"
     );
-    client = await connect(connectionString, true);
+    client = await connect(connectionString, !remote);
     await client.query(
       importData ? "BEGIN" : "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY"
     );
     transaction = true;
-    const target = await verifyNativeTarget(client, migrationsDirectory);
+    const target = await verifyNativeTarget(
+      client,
+      migrationsDirectory,
+      remote
+    );
     if (importData) {
       await lockEmptyTarget(client, catalog);
     } else {
@@ -478,7 +535,7 @@ async function processD1Snapshot(
       captureReceiptSha256: await fileSha256(`${snapshot}.json`),
       sourceSchemaSha256: manifest.sourceSchemaSha256,
       historySha256: manifest.historySha256,
-      target: await importTargetIdentity(client, target.directory),
+      target: target.identity,
       tables: orderD1Tables(catalog).map(({ name }) => ({
         table: name,
         rows: Number(manifest.tables.find((entry) => entry.name === name).rows),

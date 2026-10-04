@@ -6,10 +6,18 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { readCutoverTarget } from "../../tooling/postgresql/remote-target.mjs";
 import {
-  assertProductDatabaseReleaseSupported,
+  admitPostgresqlProductRelease,
   readPostgresqlCutoverPreparation,
+  restoreProductCrons,
+  verifyProductCrons,
 } from "./database-backend-admission.mjs";
+import {
+  cutoverConfigArgs,
+  cutoverDeploySteps,
+  withPostgresqlCutoverConfig,
+} from "./postgresql-cutover-config.mjs";
 import { executeRecordedProductionDeploySteps } from "./production-release-receipts.mjs";
 import {
   acquireProductionScopeLease,
@@ -782,11 +790,16 @@ export function parseProductionReleaseArgs(argv) {
       options.databaseCutover = true;
       continue;
     }
+    if (arg === "--database-cutover-restore-crons" && command === "deploy") {
+      options.databaseCutoverRestoreCrons = true;
+      continue;
+    }
     const valueOption = new Map([
       ["--base", "base"],
       ["--scope", "scope"],
       ["--domain-evidence", "domainEvidence"],
       ["--domain-phase", "domainPhase"],
+      ["--database-cutover-snapshot", "databaseCutoverSnapshot"],
     ]).get(arg);
     if (valueOption) {
       options[valueOption] = readRequiredArgument(argv, ++index, arg);
@@ -803,7 +816,32 @@ export function parseProductionReleaseArgs(argv) {
     throw new Error(`Unknown production release option: ${arg}`);
   }
   validateDomainReleaseOptions(options);
+  validateDatabaseCutoverOptions(options);
   return options;
+}
+
+function validateDatabaseCutoverOptions(options) {
+  if (
+    options.databaseCutoverRestoreCrons &&
+    (options.scope !== "auth,core" ||
+      options.databaseCutoverSnapshot ||
+      options.domainEvidence ||
+      options.domainPhase)
+  ) {
+    throw new Error(
+      "Cron restoration requires deploy --scope auth,core without snapshot or domain options"
+    );
+  }
+  if (
+    options.databaseCutoverSnapshot &&
+    (!["deploy", "preflight"].includes(options.command) ||
+      options.domainEvidence ||
+      options.domainPhase)
+  ) {
+    throw new Error(
+      "A cutover snapshot applies only to deploy or preflight, without domain changes"
+    );
+  }
 }
 
 function validateDomainReleaseOptions(options) {
@@ -1210,6 +1248,8 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
   for (const scope of orderedScopes) {
     const start = steps.length;
     appendProductionDeployScopeSteps({
+      databaseBackend: input.databaseBackend,
+      databaseCutoverSnapshot: input.databaseCutoverSnapshot,
       coreReceiverFirst: isWorkingFolderRecoveryDiff(changedPaths),
       deployOrderProfile,
       releaseSha: input.releaseSha,
@@ -1307,13 +1347,29 @@ function appendRendererDeploySteps(input) {
   );
 }
 
+function appendDatabaseDeploySteps(input) {
+  if (input.databaseBackend === "postgresql") {
+    for (const command of input.databaseCutoverSnapshot
+      ? ["verify"]
+      : ["migrate", "grant-runtime", "verify"]) {
+      input.steps.push({
+        command: "node",
+        args: ["tooling/postgresql/cutover.mjs", command],
+        label: `PostgreSQL database: ${command}`,
+      });
+    }
+    return;
+  }
+  input.steps.push({
+    args: ["db:release:prod"],
+    command: "pnpm",
+    label: "Synchronize production database",
+  });
+}
+
 function appendProductionDeployScopeSteps(input) {
   if (input.scope === "db") {
-    input.steps.push({
-      args: ["db:release:prod"],
-      command: "pnpm",
-      label: "Synchronize production database",
-    });
+    appendDatabaseDeploySteps(input);
     return;
   }
   if (input.scope === "cli") {
@@ -2400,6 +2456,8 @@ export function buildProductionReleasePlan(input) {
     deployOrderProfile,
     deployScopeOrder,
     deploySteps: buildProductionDeployStepSpecs(scopes, {
+      databaseBackend: input.databaseBackend,
+      databaseCutoverSnapshot: input.databaseCutoverSnapshot,
       compatibilityContext,
       changedPaths,
       compatibilityChangedPaths,
@@ -2883,10 +2941,10 @@ function printPlan(plan, json) {
 }
 
 async function main(argv) {
-  const options = parseProductionReleaseArgs(argv);
-  if (options.command === "deploy") {
-    assertProductDatabaseReleaseSupported();
-  }
+  const options = {
+    ...parseProductionReleaseArgs(argv),
+    databaseBackend: "postgresql",
+  };
   if (options.databaseCutover) {
     if (options.scope !== "auto") {
       throw new Error(
@@ -2962,6 +3020,12 @@ async function main(argv) {
     runStep(step);
   }
   assertSourceStillMatches(plan.sourceSha);
+  if (options.command === "preflight" && options.databaseCutoverSnapshot) {
+    await admitPostgresqlProductRelease({
+      snapshot: options.databaseCutoverSnapshot,
+      scopes: plan.scopes,
+    });
+  }
   if (options.command === "verify" || options.command === "preflight") {
     return;
   }
@@ -2981,18 +3045,54 @@ async function main(argv) {
         process.stdout.write(`${JSON.stringify(result)}\n`);
         return;
       }
+      const databaseAdmission = await admitPostgresqlProductRelease({
+        snapshot: options.databaseCutoverSnapshot,
+        scopes: plan.scopes,
+        sourceSha: plan.sourceSha,
+        restoreCrons: options.databaseCutoverRestoreCrons,
+      });
+      process.stdout.write(`${JSON.stringify({ databaseAdmission })}\n`);
+      if (options.databaseCutoverRestoreCrons) {
+        await restoreProductCrons({
+          runStep: (step) => {
+            assertSourceStillMatches(plan.sourceSha);
+            runStep(step);
+            assertSourceStillMatches(plan.sourceSha);
+          },
+        });
+        return;
+      }
       const admission = await admitWebsiteDomainRelease(domainInput);
-      await executeObservedDomainRelease(domainInput, admission, () =>
-        executeRecordedProductionDeploySteps({
-          sourceSha: plan.sourceSha,
-          executeSteps: executeProductionDeploySteps,
-          redeploy: options.redeploy ?? false,
-          beforeStep: () => assertSourceStillMatches(plan.sourceSha),
-          runCommand: runReadOnlyCommand,
-          afterStep: () => assertSourceStillMatches(plan.sourceSha),
-          steps: plan.deploySteps,
-        })
+      await withPostgresqlCutoverConfig(
+        process.cwd(),
+        Boolean(options.databaseCutoverSnapshot),
+        (env) =>
+          executeObservedDomainRelease(domainInput, admission, () =>
+            executeRecordedProductionDeploySteps({
+              env,
+              sourceSha: plan.sourceSha,
+              executeSteps: executeProductionDeploySteps,
+              redeploy: options.redeploy ?? false,
+              beforeStep: () => {
+                assertSourceStillMatches(plan.sourceSha);
+                for (const scope of ["auth", "core"]) {
+                  cutoverConfigArgs(scope, { env });
+                }
+              },
+              runCommand: runReadOnlyCommand,
+              afterStep: () => assertSourceStillMatches(plan.sourceSha),
+              steps: options.databaseCutoverSnapshot
+                ? cutoverDeploySteps(plan.deploySteps)
+                : plan.deploySteps,
+            })
+          )
       );
+      if (options.databaseCutoverSnapshot) {
+        await verifyProductCrons({
+          registered: await readCutoverTarget(),
+          paused: true,
+        });
+      }
     },
     owner: resolveLocalReleaseOwner(),
     scopes: options.domainEvidence
@@ -3092,7 +3192,10 @@ function workerDeploymentHealthStep(input) {
 }
 
 function isDatabaseSchemaPath(path) {
-  if (path.startsWith(DB_MIGRATION_PATH_PREFIX)) {
+  if (
+    path.startsWith(DB_MIGRATION_PATH_PREFIX) ||
+    path.startsWith("packages/db/postgresql/migrations/")
+  ) {
     return path.endsWith(".sql") || path.endsWith(".json");
   }
   return (

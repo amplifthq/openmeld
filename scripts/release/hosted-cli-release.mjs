@@ -8,6 +8,7 @@ import {
   buildTrustedGitHubRepositoryUrl,
   createTrustedGitEnvironment,
 } from "../ci/trusted-git-network.mjs";
+import { assertHostedProductDatabaseReleaseSupported } from "./database-backend-admission.mjs";
 import {
   readNpmPublicationReceipt,
   recordNpmPublicationReceipt,
@@ -23,6 +24,7 @@ const EXACT_SHA_PATTERN = /^[0-9a-f]{40}$/u;
 
 export async function runHostedCliRelease(input = {}) {
   const cwd = path.resolve(input.cwd ?? process.cwd());
+  assertHostedProductDatabaseReleaseSupported(cwd, ["cli"]);
   const env = input.env ?? process.env;
   const sourceSha = String(env.RELEASE_SHA ?? "").trim();
   const token = String(env.OPENMELD_TRUSTED_GIT_GITHUB_TOKEN ?? "").trim();

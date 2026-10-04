@@ -9,6 +9,10 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import {
+  CUTOVER_CONFIG_NAME,
+  withPostgresqlCutoverConfig,
+} from "../release/postgresql-cutover-config.mjs";
 import { buildProductionDeployStepSpecs } from "../release/production-release.mjs";
 
 import {
@@ -191,50 +195,61 @@ test("fails closed when Cloudflare does not return startup evidence", () => {
 const MIGRATION_REFUSAL =
   "Version upload failed. You attempted to upload a version of a Worker that includes a Durable Object migration, but migrations must be fully applied via a non-versioned deployment. [code: 10211]";
 
-test("applies only the platform-required migration atomically and records actual traffic", () => {
+test("applies only the platform-required migration atomically with maintenance crons held", async () => {
   const cwd = mkdtempSync(path.join(tmpdir(), "core-migration-test-"));
   mkdirSync(path.join(cwd, "services/core"), { recursive: true });
   writeFileSync(
     path.join(cwd, "services/core/wrangler.jsonc"),
-    '{"migrations":[{"tag":"v5","new_sqlite_classes":["LarkChannelConnector"]}]}'
+    '{"migrations":[{"tag":"v5","new_sqlite_classes":["LarkChannelConnector"]}],"env":{"prod":{"triggers":{"crons":["* * * * *"]}}}}'
+  );
+  mkdirSync(path.join(cwd, "services/auth"), { recursive: true });
+  writeFileSync(
+    path.join(cwd, "services/auth/wrangler.jsonc"),
+    '{"env":{"prod":{"triggers":{"crons":["*/15 * * * *"]}}}}'
   );
   const calls = [];
   try {
-    const evidence = runCoreStartupAdmission({
-      cwd,
-      releaseSha: "a".repeat(40),
-      tag: "release-target",
-      defines: ['MANIFEST:"exact"'],
-      runCommand(input) {
-        if (input.args.includes("d1")) {
-          return CURRENT_DATABASE;
-        }
-        calls.push(input);
-        if (calls.length === 1) {
-          return { status: 1, stderr: MIGRATION_REFUSAL };
-        }
-        writeFileSync(
-          input.env.WRANGLER_OUTPUT_FILE_PATH,
-          JSON.stringify({
-            type: "deploy",
-            version: 1,
-            worker_name: "openmeld-core-prod",
-            worker_tag: "f4edc6df3d904f57a487c725fa861f11",
-            version_id: "603c2f42-8eb6-48aa-b3be-bae44e6c61d2",
-            targets: [],
-            wrangler_environment: "prod",
-            worker_name_overridden: false,
-          })
-        );
-        return { status: 0, stdout: "Worker Startup Time: 421 ms" };
-      },
-    });
+    const evidence = await withPostgresqlCutoverConfig(cwd, true, (env) =>
+      runCoreStartupAdmission({
+        cwd,
+        env,
+        releaseSha: "a".repeat(40),
+        tag: "release-target",
+        defines: ['MANIFEST:"exact"'],
+        runCommand(input) {
+          if (input.args.includes("d1")) {
+            return CURRENT_DATABASE;
+          }
+          calls.push(input);
+          if (calls.length === 1) {
+            return { status: 1, stderr: MIGRATION_REFUSAL };
+          }
+          writeFileSync(
+            input.env.WRANGLER_OUTPUT_FILE_PATH,
+            JSON.stringify({
+              type: "deploy",
+              version: 1,
+              worker_name: "openmeld-core-prod",
+              worker_tag: "f4edc6df3d904f57a487c725fa861f11",
+              version_id: "603c2f42-8eb6-48aa-b3be-bae44e6c61d2",
+              targets: [],
+              wrangler_environment: "prod",
+              worker_name_overridden: false,
+            })
+          );
+          return { status: 0, stdout: "Worker Startup Time: 421 ms" };
+        },
+      })
+    );
     assert.equal(calls.length, 2);
     assert.ok(calls[0].args.includes("upload"));
     assert.ok(calls[1].args.includes("deploy"));
     assert.ok(!calls[1].args.includes("versions"));
     assert.ok(calls[1].args.includes("release-target"));
     assert.ok(calls[1].args.includes('MANIFEST:"exact"'));
+    for (const call of calls) {
+      assert.deepEqual(call.args.slice(-2), ["--config", CUTOVER_CONFIG_NAME]);
+    }
     assert.equal(evidence.trafficPercent, 100);
     assert.equal(evidence.releaseSha, "a".repeat(40));
     assert.equal(evidence.startupTimeMs, 421);
@@ -244,24 +259,31 @@ test("applies only the platform-required migration atomically and records actual
 });
 
 test("does not turn a startup or authentication failure into a production deployment", () => {
-  for (const stderr of [
-    "Worker startup failed [code: 10021]",
-    "Authentication failed [code: 10000]",
-  ]) {
-    let calls = 0;
-    assert.throws(() =>
-      runCoreStartupAdmission({
-        releaseSha: "a".repeat(40),
-        runCommand(input) {
-          if (input.args.includes("d1")) {
-            return CURRENT_DATABASE;
-          }
-          calls++;
-          return { status: 1, stderr };
-        },
-      })
-    );
-    assert.equal(calls, 1);
+  const cwd = mkdtempSync(path.join(tmpdir(), "core-startup-failure-"));
+  try {
+    for (const stderr of [
+      "Worker startup failed [code: 10021]",
+      "Authentication failed [code: 10000]",
+    ]) {
+      let calls = 0;
+      assert.throws(() =>
+        runCoreStartupAdmission({
+          cwd,
+          releaseSha: "a".repeat(40),
+          runCommand(input) {
+            if (input.args.includes("d1")) {
+              return CURRENT_DATABASE;
+            }
+            calls++;
+            assert.ok(input.args.includes("upload"));
+            return { status: 1, stderr };
+          },
+        })
+      );
+      assert.equal(calls, 1);
+    }
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
   }
 });
 
