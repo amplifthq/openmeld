@@ -17170,7 +17170,6 @@ async function isCenterAgentSpaceWakeWatchTargetRegistered(input: {
     );
     return (
       delegation.organizationId === input.organizationId &&
-      delegation.spaceId === input.task.spaceId &&
       (delegatedChild?.state === "active" ||
         delegatedChild?.state === "terminal")
     );
