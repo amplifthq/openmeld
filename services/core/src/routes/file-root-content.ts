@@ -720,7 +720,7 @@ async function read(c: Context<HonoBindings>): Promise<Response> {
       status: stream.status,
       headers: {
         "accept-ranges": "bytes",
-        "cache-control": "private, no-store",
+        "cache-control": "private, no-store, no-transform",
         "content-length": String(length),
         "content-type": resolved.revision.mimeType,
         "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(resolved.file.name)}`,

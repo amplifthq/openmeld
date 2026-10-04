@@ -466,8 +466,11 @@ mutations or a replacement for the existing release entrypoint.
 These commands are for the separately authorized window and have not run against
 production. Use the exact reviewed clean candidate, existing release credentials
 and local release leases, one operator, and a private evidence directory. Hosted
-Auth/Core/CLI releases remain blocked until they support the same maintenance
-admission. Do not add business
+Auth/Core/database releases remain blocked. After the local cutover and Cron
+restoration, the existing hosted CLI workflow can publish only against verified
+Database/Auth/Core receipts for the same native database contract and matching
+live deployments and Hyperdrive configuration. It neither performs a migration
+nor receives private capture data or migration credentials. Do not add business
 data to the repository. The data CLI resolves the fixed Amplift database/branch
 and migration role from `resources.json`, verifies live PlanetScale IDs and reads
 the scoped Doppler migration credential. Cloudflare reads require

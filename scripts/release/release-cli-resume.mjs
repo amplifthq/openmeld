@@ -55,6 +55,7 @@ export async function runResumableCliRelease(input) {
     fetch: input.adapters?.fetch ?? input.fetch ?? fetch,
     runCommand: input.adapters?.runCommand ?? runReadOnlyCommand,
     runStep: input.adapters?.runStep ?? input.release.runStep,
+    deployCore: input.adapters?.deployCore,
     prepareNpmArtifact:
       input.adapters?.prepareNpmArtifact ?? prepareNpmCliArtifact,
     verifyNpmArtifact:
@@ -328,7 +329,7 @@ async function publishPreparedCliRelease(input) {
   runBinaryReleaseStage(input);
   const npmPublishedThisRun = runNpmReleaseStage(input);
   runReleaseTagStage(input);
-  runCoreProjectionStage(input);
+  await runCoreProjectionStage(input);
 
   let final = await probeCliReleaseStages({
     adapters: input.adapters,
@@ -505,7 +506,7 @@ function runReleaseTagStage(input) {
   }
 }
 
-function runCoreProjectionStage(input) {
+async function runCoreProjectionStage(input) {
   printStageDecision(
     "Core release projection",
     input.initial.core,
@@ -515,6 +516,15 @@ function runCoreProjectionStage(input) {
     return;
   }
   try {
+    if (input.adapters.deployCore) {
+      await input.adapters.deployCore({
+        cwd: input.cwd,
+        env: input.env,
+        tag: input.target.coreTag,
+        verifyLocalComponents: true,
+      });
+      return;
+    }
     input.adapters.runStep({
       ...input.release.buildCoreDeployStepSpec({
         targetTag: input.target.coreTag,
