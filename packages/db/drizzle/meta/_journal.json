@@ -1345,6 +1345,13 @@
       "when": 1791042625847,
       "tag": "0191_powerful_lord_hawal",
       "breakpoints": true
+    },
+    {
+      "idx": 192,
+      "version": "6",
+      "when": 1791085637622,
+      "tag": "0192_lush_rick_jones",
+      "breakpoints": true
     }
   ]
 }

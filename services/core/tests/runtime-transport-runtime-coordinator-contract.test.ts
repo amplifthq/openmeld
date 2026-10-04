@@ -4026,6 +4026,51 @@ const completeLatestAutomaticUpdateRequest = async (input: {
 };
 
 describe("runtime transport runtime coordinator transport contract", () => {
+  it("authorizes Plugin reads only for the exact current execution proof without mutating it", async () => {
+    const harness = createHarness();
+    const token = await issueDeliveryToken(harness);
+    const access = harness.hub as unknown as Pick<
+      RuntimeTransportHub,
+      "rpcAuthorizeExecutionAccess"
+    >;
+    const request = {
+      executionTokenEcho: buildExecutionTokenEcho(token),
+      expectedExecutionScope: token.executionScope,
+      expectedAuthorityScope: token.authorityScope,
+    };
+    const before = structuredClone([...harness.storageRecords.entries()]);
+    expect(await access.rpcAuthorizeExecutionAccess(request)).toEqual({
+      allowed: true,
+    });
+    expect(
+      await access.rpcAuthorizeExecutionAccess({
+        ...request,
+        executionTokenEcho: {
+          ...request.executionTokenEcho,
+          executionToken: `rcet_v1_${"b".repeat(64)}`,
+        },
+      })
+    ).toMatchObject({ allowed: false });
+    expect(
+      await access.rpcAuthorizeExecutionAccess({
+        ...request,
+        expectedExecutionScope: {
+          ...request.expectedExecutionScope,
+          spaceId: "another-space",
+        },
+      })
+    ).toMatchObject({ allowed: false });
+    expect(
+      await access.rpcAuthorizeExecutionAccess({
+        ...request,
+        expectedAuthorityScope: {
+          ...request.expectedAuthorityScope,
+          bindingId: "another-binding",
+        },
+      })
+    ).toMatchObject({ allowed: false });
+    expect([...harness.storageRecords.entries()]).toEqual(before);
+  });
   it("assigns ordinary Claude Wakes independent Space contexts in parallel mode", async () => {
     const { hub } = createContextHarness({
       bindingControllerRef: "builtin:claude-code",
@@ -4182,7 +4227,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
     expect(spaceOnlyResponse.executionContext?.access).toBe("space_context");
   });
 
-  it("keeps an ordinary Codex Wake in the Profile's current working folder after context activation", async () => {
+  it.each([
+    false,
+    true,
+  ])("keeps an ordinary Codex Wake in the Profile's current working folder after context activation (owner request: %s)", async (ownerRequested) => {
     const { hub, storageRecords } = createContextHarness({
       bindingControllerRef: "builtin:codex",
     });
@@ -4194,6 +4242,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         }),
         contextRequest: {
           required: false,
+          ...(ownerRequested ? { ownerRequested: true as const } : {}),
           scope: {
             organizationId: "org",
             requesterProfileId: "human",
@@ -4224,9 +4273,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
       )
     ) as RuntimeCoordinatorHeadLifecycleRecord;
     const firstSnapshot = firstHead.acceptedDispatchSnapshot;
-    if (!firstSnapshot) {
+    if (!firstSnapshot?.contextRequest) {
       throw new Error("Expected an accepted ordinary Codex Wake");
     }
+    const contextRequest = firstSnapshot.contextRequest;
     const dispatchId = "dispatch-codex-ordinary-current-folder";
     const identity = projectTargetWakeLifecycleIdentity({
       clientMessageId: "client-codex-ordinary-current-folder",
@@ -4257,6 +4307,41 @@ describe("runtime transport runtime coordinator transport contract", () => {
     expect(
       plan.record.acceptedDispatchSnapshot?.executionContext
     ).toMatchObject({ access: "workspace", workspace: "current" });
+    expect(
+      plan.record.acceptedDispatchSnapshot?.executionContext?.permissionSource
+    ).toBe(ownerRequested ? "agent_settings" : undefined);
+    for (const access of [
+      undefined,
+      "workspace",
+      "read_only",
+      "space_context",
+    ] as const) {
+      const next = await storage.transaction((transaction) =>
+        prepareExecutionContextAssignment({
+          contextModeActive: true,
+          storage: transaction,
+          record: {
+            ...plan.record,
+            acceptedDispatchSnapshot: {
+              ...firstSnapshot,
+              contextRequest: {
+                ...contextRequest,
+                selection: { mode: "new", ...(access ? { access } : {}) },
+              },
+              payloadFingerprint: `sha256:${"c".repeat(64)}`,
+            },
+          },
+        })
+      );
+      expect(
+        next.record.acceptedDispatchSnapshot?.executionContext?.permissionSource
+      ).toBe(ownerRequested && !access ? "agent_settings" : undefined);
+      if (access) {
+        expect(
+          next.record.acceptedDispatchSnapshot?.executionContext?.access
+        ).toBe(access);
+      }
+    }
   });
 
   it.each([

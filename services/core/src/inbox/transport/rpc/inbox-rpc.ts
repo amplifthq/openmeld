@@ -74,6 +74,7 @@ import type {
   UpdateInboxMessageNotificationPreferencesRpcInput,
   UpdateInboxNotificationPreferencesRpcInput,
 } from "@openmeld/schemas/types";
+import { reconcilePluginActionRequestInbox } from "../../../connectors/plugin-action-requests";
 import {
   agentTaskCoordinationDb,
   type CoreBindings,
@@ -580,6 +581,11 @@ async function prepareRequest(
   const sourceDb = wakeEvidenceDb(env);
   const identityOwnerDb = identityDb(env);
   const coordinationDb = agentTaskCoordinationDb(env);
+  await reconcilePluginActionRequestInbox({
+    db,
+    organizationId: membership.organizationId,
+    userId: membership.userId,
+  });
   if (sourceDb && identityOwnerDb && coordinationDb) {
     await reconcileTaskContinuationInbox({
       inboxDb: db,

@@ -1,18 +1,9 @@
-import { buildAgentTaskKey } from "@openmeld/schemas";
 import type { RemoteAgentWorkerSubmitTurnRequest } from "@openmeld/schemas/types";
-import { readAgentDelegationByChildTask } from "../../agent-task-coordination/infrastructure/d1/agent-delegation-repo";
-import {
-  isCenterAgentDesignationActive,
-  readCenterAgentDesignationRecord,
-} from "../../center-agent/center-agent-repository";
+import { readRecordedDelegationRequester } from "../../center-agent/application/recorded-delegation-requester";
 import { type CoreBindings, wakeEvidenceDb } from "../../lib/bindings";
 import { createCoreRpcHttpError } from "../../rpc/errors";
-import {
-  type RemoteAgentNativeDeliveryRecord,
-  readRemoteAgentNativeDeliveryByDeliveryId,
-} from "../infrastructure/d1/native-delivery-ledger-repo";
+import type { RemoteAgentNativeDeliveryRecord } from "../infrastructure/d1/native-delivery-ledger-repo";
 import type { requireRemoteAgentToolCaller } from "./remote-agent-tool-caller";
-import { readActiveRepresentedHumanSender } from "./turn-envelope";
 
 /** Connection selection still uses the existing owner and access policy. */
 export async function resolveRemoteAgentConnectorRequester(input: {
@@ -37,10 +28,7 @@ export async function resolveRemoteAgentConnectorRequester(input: {
   }
   const evidenceDb = wakeEvidenceDb(input.env);
   const delegated =
-    personal &&
-    evidenceDb &&
-    input.service === "github" &&
-    sender?.kind === "agent_profile"
+    personal && evidenceDb && sender?.kind === "agent_profile"
       ? await readRemoteAgentDelegatedRequester({
           identityDb: input.authorization.db,
           evidenceDb,
@@ -55,7 +43,92 @@ export async function resolveRemoteAgentConnectorRequester(input: {
       status: 403,
     });
   }
+  if (input.service !== "github" && personal && evidenceDb) {
+    requireDelegatedPluginAction(
+      await readPersonalDelegatedPluginActions({
+        evidenceDb,
+        personal,
+        requester: delegated,
+      }),
+      { service: input.service }
+    );
+  }
   return delegated.userId;
+}
+
+export async function readPersonalDelegatedPluginActions(input: {
+  evidenceDb: D1Database;
+  personal: {
+    delivery: RemoteAgentNativeDeliveryRecord;
+    request: RemoteAgentWorkerSubmitTurnRequest;
+  };
+  requester: NonNullable<
+    Awaited<ReturnType<typeof readRemoteAgentDelegatedRequester>>
+  >;
+}) {
+  const { delivery } = input.personal;
+  if (!delivery.sourceClientMessageId) {
+    return [];
+  }
+  return await readDelegatedPluginActions({
+    db: input.evidenceDb,
+    sourceClientMessageId: delivery.sourceClientMessageId,
+    delegationId: input.requester.delegationId,
+    parentDeliveryId: input.requester.parentDeliveryId,
+    organizationId: delivery.organizationId,
+    spaceId: delivery.spaceId,
+    targetProfileId: delivery.profileId,
+    requesterUserId: input.requester.userId,
+    requesterProfileId: input.requester.profileId,
+  });
+}
+
+export async function requireDelegatedConnectionSelection(input: {
+  env: CoreBindings;
+  authorization: Awaited<ReturnType<typeof requireRemoteAgentToolCaller>>;
+  includeDelegatedRequester?: true;
+  connection: {
+    service: string;
+    connectionName: string;
+    updatedAtMs: number;
+    scope: string;
+    userId: string;
+  } | null;
+}) {
+  if (
+    !(input.includeDelegatedRequester && input.connection) ||
+    input.connection.service === "github"
+  ) {
+    return;
+  }
+  const evidenceDb = wakeEvidenceDb(input.env);
+  if (!(evidenceDb && "personalExecution" in input.authorization)) {
+    throw new Error("plugin.delegation_unavailable");
+  }
+  const personal = input.authorization.personalExecution;
+  const requester = await readRemoteAgentDelegatedRequester({
+    identityDb: input.authorization.db,
+    evidenceDb,
+    ...personal,
+  });
+  if (!requester) {
+    throw new Error("plugin.delegation_unavailable");
+  }
+  const grant = requireDelegatedPluginAction(
+    await readPersonalDelegatedPluginActions({
+      evidenceDb,
+      personal,
+      requester,
+    }),
+    input.connection
+  );
+  if (
+    grant.connectionUpdatedAtMs !== input.connection.updatedAtMs ||
+    grant.connectionOwnerUserId !== input.connection.userId ||
+    grant.connectionScope !== input.connection.scope
+  ) {
+    throw new Error("plugin.delegation_account_changed");
+  }
 }
 
 /** A current projection of one recorded Center delegation, never a stored grant. */
@@ -81,97 +154,19 @@ export async function readRemoteAgentDelegatedRequester(input: {
   ) {
     return null;
   }
-  const task = {
-    v: 1 as const,
-    kind: "space_wake" as const,
+  return await readRecordedDelegationRequester({
+    identityDb: input.identityDb,
+    evidenceDb: input.evidenceDb,
+    organizationId: delivery.organizationId,
     spaceId: delivery.spaceId,
     sourceClientMessageId: delivery.sourceClientMessageId,
+    sourceProfileId: sender.profileId,
     targetProfileId: delivery.profileId,
-  };
-  const delegation = await readAgentDelegationByChildTask({
-    db: input.evidenceDb,
-    task,
+    targetOwnerUserId: request.agentProfileOwnerUserId,
   });
-  if (
-    !delegation ||
-    delegation.organizationId !== delivery.organizationId ||
-    delegation.state !== "active" ||
-    delegation.parentTask.kind !== "native_delivery" ||
-    !delegation.children.some(
-      (child) =>
-        child.agentProfileId === delivery.profileId &&
-        child.state === "active" &&
-        buildAgentTaskKey(child.task) === buildAgentTaskKey(task)
-    )
-  ) {
-    return null;
-  }
-  const [parent, designation] = await Promise.all([
-    readRemoteAgentNativeDeliveryByDeliveryId({
-      db: input.evidenceDb,
-      deliveryId: delegation.parentTask.deliveryId,
-    }),
-    readCenterAgentDesignationRecord({
-      db: input.identityDb,
-      organizationId: delivery.organizationId,
-    }),
-  ]);
-  if (
-    !parent ||
-    parent.organizationId !== delivery.organizationId ||
-    parent.profileId !== sender.profileId ||
-    !["accepted", "retry_observed", "completed"].includes(parent.status) ||
-    !designation ||
-    !isCenterAgentDesignationActive(designation) ||
-    designation.agentProfileId !== parent.profileId
-  ) {
-    return null;
-  }
-  const parentRequest =
-    parent.executionRecoverySubmitRequest ?? parent.workerSubmitRequest;
-  const represented = parentRequest?.turnEnvelope.sender;
-  if (
-    !parentRequest ||
-    parentRequest.organizationId !== parent.organizationId ||
-    parentRequest.agentProfileId !== parent.profileId ||
-    parentRequest.bindingId !== parent.bindingId ||
-    parentRequest.dispatchId !== parent.dispatchId ||
-    parentRequest.spaceId !== parent.spaceId ||
-    parentRequest.idempotencyKey !== parent.idempotencyKey ||
-    represented?.kind !== "member" ||
-    !represented.verified ||
-    !represented.ownerUserId ||
-    !represented.profileId ||
-    represented.ownerUserId !== request.agentProfileOwnerUserId
-  ) {
-    return null;
-  }
-  const [member, agent] = await Promise.all([
-    readActiveRepresentedHumanSender({
-      db: input.identityDb,
-      organizationId: delivery.organizationId,
-      profileId: represented.profileId,
-      userId: represented.ownerUserId,
-    }),
-    input.identityDb
-      .prepare(
-        "SELECT profile_id FROM openmeld_profiles WHERE profile_id = ? AND organization_id = ? AND owner_user_id = ? AND profile_kind = 'agent' AND managed_role IS NULL AND status = 'active' LIMIT 1"
-      )
-      .bind(
-        delivery.profileId,
-        delivery.organizationId,
-        represented.ownerUserId
-      )
-      .first(),
-  ]);
-  if (!member?.member_id || member.member_id !== represented.id || !agent) {
-    return null;
-  }
-  return {
-    delegationId: delegation.delegationId,
-    parentDeliveryId: parent.deliveryId,
-    memberId: member.member_id,
-    userId: member.owner_user_id,
-    profileId: member.profile_id,
-  };
 }
+
+import {
+  readDelegatedPluginActions,
+  requireDelegatedPluginAction,
+} from "../../center-agent/application/delegated-plugin-authorization";

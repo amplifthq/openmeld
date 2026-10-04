@@ -17,11 +17,11 @@ export async function readRemoteAgentExecutionAccess(input: {
   sources?: RemoteAgentResultSource[];
   effect?: "read" | "write";
   includeDelegatedRequester?: true;
+  includePluginDelegations?: true;
 }) {
   const includeDelegatedRequester =
     input.includeDelegatedRequester ||
-    (isDelegatedGitHubTurn(input.context) &&
-      input.sources?.some((source) => source.service === "github"));
+    (isDelegatedGitHubTurn(input.context) && Boolean(input.sources?.length));
   const authorize = input.coreWorker.authorizeRemoteAgentExecutionAccess;
   if (!authorize) {
     throw new Error(
@@ -37,6 +37,9 @@ export async function readRemoteAgentExecutionAccess(input: {
       ),
       submissionId: input.context.submissionId,
       ...(includeDelegatedRequester ? { includeDelegatedRequester: true } : {}),
+      ...(input.includePluginDelegations
+        ? { includePluginDelegations: true }
+        : {}),
       ...(input.effect ? { effect: input.effect } : {}),
       ...(input.sources?.length ? { sources: input.sources } : {}),
     });
@@ -56,6 +59,9 @@ export async function readRemoteAgentExecutionAccess(input: {
     throw error;
   }
   const response = remoteAgentExecutionAccessResponseSchema.parse(rawResponse);
+  if (input.includePluginDelegations && !response.pluginDelegations) {
+    throw new Error("remote_agent.plugin_delegation_capability_unavailable");
+  }
   const scope = resolveRemoteAgentExecutionScope(input.context);
   if (
     response.submissionId !== input.context.submissionId ||

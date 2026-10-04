@@ -63,7 +63,7 @@ export const OPENMELD_HEADER_INBOX_SUMMARY_VERSION =
   "x-openmeld-inbox-summary-version";
 export const OPENMELD_INBOX_SUMMARY_VERSION = "3";
 export const OPENMELD_INBOX_SOURCE_TARGET_THREAD_UNAWARE_VERSION = "3";
-export const OPENMELD_INBOX_SOURCE_TARGET_VERSION = "9";
+export const OPENMELD_INBOX_SOURCE_TARGET_VERSION = "10";
 export const OPENMELD_EXPECTED_FORWARDED_BY = "openmeld-gateway";
 
 const MAX_HEADER_LENGTH = 128;

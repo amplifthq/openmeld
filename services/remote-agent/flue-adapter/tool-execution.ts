@@ -8,7 +8,10 @@ import type {
   RemoteAgentStorage,
 } from "../agent-core/callback-context";
 import { readRemoteAgentCallbackContext } from "../agent-core/callback-context";
-import { ConnectorActionOutcomeUnknownError } from "../agent-core/connector-tools";
+import {
+  ConnectorActionOutcomeUnknownError,
+  ConnectorActionTerminalReceipt,
+} from "../agent-core/connector-tools";
 import {
   assertRemoteAgentExecutionCanContinue,
   buildRemoteAgentExecutionIdentity,
@@ -85,9 +88,11 @@ export async function executeRemoteAgentToolDefinition(input: {
           })
         : await input.definition.execute(input.toolInput);
     } catch (error) {
-      if (error instanceof ConnectorActionOutcomeUnknownError) {
-        // A returned uncertain receipt is not a failed write. The same value
-        // reaches direct tools and Code Mode and remains available to activity.
+      if (
+        error instanceof ConnectorActionOutcomeUnknownError ||
+        error instanceof ConnectorActionTerminalReceipt
+      ) {
+        // Preserve the owner's evidence in both direct tools and Code Mode.
         result = error.result;
       } else {
         console.warn("[remote_agent.tool_execution_failed]", {

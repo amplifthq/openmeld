@@ -1,8 +1,14 @@
-import { authRpcResolveProfileByIdResultSchema } from "@openmeld/schemas";
+import {
+  authRpcResolveProfileByIdResultSchema,
+  runtimeCoordinatorExecutionAccessResponseSchema,
+} from "@openmeld/schemas";
 import type { PluginActionRpcInput } from "@openmeld/schemas/types";
 import { readPrimaryAgentProfileBindingRecord } from "../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
+import { readDelegatedPluginActions } from "../center-agent/application/delegated-plugin-authorization";
+import { readRecordedDelegationRequester } from "../center-agent/application/recorded-delegation-requester";
 import { readPluginDispatchRequester } from "../dispatch/application/plugin-request-provenance";
-import { type CoreBindings, identityDb } from "../lib/bindings";
+import { resolveRuntimeTransportOwnerShard } from "../dispatch/infrastructure/runtime-transport/runtime-transport-shard";
+import { type CoreBindings, identityDb, wakeEvidenceDb } from "../lib/bindings";
 import { requireExpectedOrganizationContext } from "../organizations/expected-organization-context";
 import {
   readOrganizationAccountIdentityProjection,
@@ -72,12 +78,29 @@ export async function requireLocalPluginCaller(
   const source = provenance
     ? await requirePluginProfile(env, provenance.profileId)
     : null;
-  if (source && (source.profileKind !== "human" || !source.ownerUserId)) {
+  const delegated =
+    source?.profileKind === "agent" && provenance
+      ? await requireLocalDelegation({
+          env,
+          input,
+          binding,
+          provenance,
+          ownerUserId: member.userId,
+          organizationId: member.organizationId,
+          actorProfileId: profile.profileId,
+        })
+      : null;
+  if (
+    source &&
+    !delegated &&
+    (source.profileKind !== "human" || !source.ownerUserId)
+  ) {
     throw denied(
       "This Wake does not have a verified human requester for plugin access."
     );
   }
-  const representedUserId = source?.ownerUserId ?? member.userId;
+  const representedUserId =
+    delegated?.requester.userId ?? source?.ownerUserId ?? member.userId;
   const requesterMembership = await resolveOrganizationMembershipById({
     env,
     organizationId: member.organizationId,
@@ -109,9 +132,114 @@ export async function requireLocalPluginCaller(
     representedUserId,
     sourceSpaceId: provenance?.spaceId ?? null,
     sourceSignalId: provenance?.sourceSignalId ?? null,
+    sourceRequestKey: input.request.dispatchId
+      ? `dispatch:${input.request.dispatchId}`
+      : undefined,
+    // This identity comes from admitted, immutable request provenance. A model
+    // supplied dispatch ID or an Agent's claim about the owner is not a root.
+    authorizedRequestRoot: resolvePluginRequestRoot(provenance, delegated),
     human: identity.account.defaultHumanProfile,
     personalAllowed: representedUserId === member.userId,
+    delegatedPluginActions: delegated?.actions,
   };
+}
+
+function resolvePluginRequestRoot(
+  provenance: Awaited<ReturnType<typeof readPluginDispatchRequester>> | null,
+  delegated: Awaited<ReturnType<typeof requireLocalDelegation>> | null
+) {
+  if (delegated) {
+    return delegated.requester.parentDeliveryId;
+  }
+  // requireLocalPluginCaller already rejected an unverified Agent sender.
+  return provenance
+    ? `space-message:${provenance.spaceId}:${provenance.sourceSignalId}`
+    : undefined;
+}
+
+async function requireLocalDelegation(input: {
+  env: CoreBindings;
+  input: PluginActionRpcInput;
+  binding: NonNullable<
+    Awaited<ReturnType<typeof readPrimaryAgentProfileBindingRecord>>
+  >;
+  provenance: Awaited<ReturnType<typeof readPluginDispatchRequester>>;
+  ownerUserId: string;
+  organizationId: string;
+  actorProfileId: string;
+}) {
+  const proof = input.input.request.executionTokenEcho;
+  const sourceClientMessageId = input.provenance.sourceClientMessageId;
+  const db = identityDb(input.env);
+  const evidenceDb = wakeEvidenceDb(input.env);
+  if (
+    !(
+      proof &&
+      sourceClientMessageId &&
+      db &&
+      evidenceDb &&
+      input.input.request.dispatchId
+    )
+  ) {
+    throw denied(
+      "This delegated action requires the current Local execution's proof."
+    );
+  }
+  const access = runtimeCoordinatorExecutionAccessResponseSchema.parse(
+    await resolveRuntimeTransportOwnerShard(
+      input.env,
+      input.ownerUserId
+    ).rpcAuthorizeExecutionAccess({
+      executionTokenEcho: proof,
+      expectedExecutionScope: {
+        dispatchId: input.input.request.dispatchId,
+        runtimeCoordinatorExecutionId: proof.runtimeCoordinatorExecutionId,
+        sourceClientMessageId,
+        spaceId: input.provenance.spaceId,
+        targetProfileId: input.actorProfileId,
+      },
+      expectedAuthorityScope: {
+        bindingId: input.binding.bindingId,
+        agentControllerRef: input.binding.agentControllerRef,
+        openMeldServiceRuntimeId: input.binding.openMeldServiceRuntimeId,
+      },
+    })
+  );
+  if (!access.allowed) {
+    throw denied("The delegated Local execution is no longer authorized.");
+  }
+  const requester = await readRecordedDelegationRequester({
+    identityDb: db,
+    evidenceDb,
+    organizationId: input.organizationId,
+    spaceId: input.provenance.spaceId,
+    sourceClientMessageId,
+    sourceProfileId: input.provenance.profileId,
+    targetProfileId: input.actorProfileId,
+    targetOwnerUserId: input.ownerUserId,
+  });
+  if (!requester) {
+    throw denied(
+      "The recorded delegation no longer authorizes this requester."
+    );
+  }
+  const actions = await readDelegatedPluginActions({
+    db: evidenceDb,
+    sourceClientMessageId,
+    delegationId: requester.delegationId,
+    parentDeliveryId: requester.parentDeliveryId,
+    organizationId: input.organizationId,
+    spaceId: input.provenance.spaceId,
+    targetProfileId: input.actorProfileId,
+    requesterUserId: requester.userId,
+    requesterProfileId: requester.profileId,
+  });
+  if (!actions.length) {
+    throw denied(
+      "This delegation has no current, explicit Plugin action authorization."
+    );
+  }
+  return { requester, actions };
 }
 
 export async function requirePluginProfile(

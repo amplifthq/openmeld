@@ -89,6 +89,10 @@ export function SpaceComposerTaskMenu(input: {
 				label = "New Space-only task";
 			} else if (access === "workspace" && workspace === "isolated") {
 				label = "New project task";
+			} else if (access === "read_only") {
+				label = "Read current folder";
+			} else {
+				label = "Work in current folder";
 			}
 		}
 		choose({ ...next, access, workspace }, label);
@@ -121,8 +125,16 @@ export function SpaceComposerTaskMenu(input: {
 				>
 					Continue automatically
 				</FluidDropdownMenuItem>
+				{input.supportsCurrentFolder ? (
+					<FluidDropdownMenuItem
+						index={1}
+						onClick={() => choose({ mode: "new" }, "New task")}
+					>
+						New task
+					</FluidDropdownMenuItem>
+				) : null}
 				<FluidDropdownMenuItem
-					index={1}
+					index={2}
 					onClick={() =>
 						choose(
 							{ mode: "new", access: "workspace", workspace: "isolated" },
@@ -133,7 +145,7 @@ export function SpaceComposerTaskMenu(input: {
 					New project task
 				</FluidDropdownMenuItem>
 				<FluidDropdownMenuItem
-					index={2}
+					index={3}
 					onClick={() =>
 						choose(
 							{ mode: "new", access: "space_context", workspace: "isolated" },
@@ -144,6 +156,9 @@ export function SpaceComposerTaskMenu(input: {
 					New Space-only task
 				</FluidDropdownMenuItem>
 				<p className="px-2 py-1 text-muted-foreground text-xs">
+					{input.supportsCurrentFolder
+						? "New task keeps your own Agent's file access settings. "
+						: null}
 					{`Independent tasks can run together, up to ${AGENT_PROFILE_WORK_CONCURRENCY_LIMIT} per Agent. Project tasks use an isolated worktree.`}
 				</p>
 				{sources.length > 0 ? (
@@ -193,27 +208,27 @@ export function SpaceComposerTaskMenu(input: {
 						<DropdownMenuGroup>
 							<DropdownMenuLabel>Task files</DropdownMenuLabel>
 							<FluidDropdownMenuItem
-								index={3}
+								index={4}
 								onClick={() => changeAccess("space_context", "isolated")}
 							>
 								Space context only
 							</FluidDropdownMenuItem>
 							<FluidDropdownMenuItem
-								index={4}
+								index={5}
 								onClick={() => changeAccess("workspace", "isolated")}
 							>
 								Independent project worktree
 							</FluidDropdownMenuItem>
 							<FluidDropdownMenuItem
 								disabled={!input.supportsCurrentFolder}
-								index={5}
+								index={6}
 								onClick={() => changeAccess("read_only", "current")}
 							>
 								Read current folder · Codex
 							</FluidDropdownMenuItem>
 							<FluidDropdownMenuItem
 								disabled={!input.supportsCurrentFolder}
-								index={6}
+								index={7}
 								onClick={() => changeAccess("workspace", "current")}
 							>
 								Work in current folder · Codex

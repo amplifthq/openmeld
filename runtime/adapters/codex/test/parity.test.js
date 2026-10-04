@@ -4171,8 +4171,8 @@ test("invokeCodexAppServerTransport isolates structured-action repair from the s
   }
 });
 
-test("invokeCodexAppServerTransport reports a missing rollout as missing context", async () => {
-  const { invokeCodexAppServerTransport } = await import("../dist/index.js");
+test("an inherited-permission task reports missing history without starting replacement work", async () => {
+  const { invokeCodexAppServer } = await import("../dist/index.js");
   const fixtureDir = await mkdtemp(join(tmpdir(), "codex-app-no-rollout-"));
   const dispatchDir = await mkdtemp(
     join(tmpdir(), "codex-app-no-rollout-dir-")
@@ -4184,7 +4184,23 @@ test("invokeCodexAppServerTransport reports a missing rollout as missing context
 
   try {
     await assert.rejects(
-      invokeCodexAppServerTransport({
+      invokeCodexAppServer({
+        executionContext: {
+          version: 1,
+          id: "11111111-1111-4111-8111-111111111111",
+          access: "workspace",
+          workspace: "current",
+          permissionSource: "agent_settings",
+          scope: {
+            organizationId: "org",
+            requesterProfileId: "human",
+            spaceId: "space",
+            targetProfileId: "agent",
+            threadId: null,
+          },
+          nativeConversationId: "thread-missing-rollout",
+          runtimeWorkspaceFingerprint: null,
+        },
         launchContract: createNodeScriptLaunchContract(fixturePath),
         codexTimeoutMs: 5000,
         codexWorkdir: dispatchDir,

@@ -8,6 +8,7 @@ import type {
   CenterAgentContextManifestSourceRef,
   CreateCenterAgentContextManifestResponse,
   SignalEnvelope,
+  SpaceThread,
 } from "@openmeld/schemas/types";
 
 const CURSOR_VERSION = "center_agent_context_cursor.v1" as const;
@@ -229,6 +230,126 @@ async function materializeEntry(input: {
     },
   };
   return entry;
+}
+
+/** One exact message page; access must be checked by the source owner per call. */
+export async function buildSpaceMessageEvidence(input: {
+  signal: TextSignalEnvelope;
+  spaceId: string;
+  version?: string;
+  offset?: number;
+}) {
+  if (input.signal.data.meta?.recalledAt !== undefined) {
+    throw new Error("space.evidence_unavailable: This message was recalled.");
+  }
+  const entry = await materializeEntry(input);
+  if (
+    input.version !== undefined &&
+    input.version !== entry.sourceRef.version
+  ) {
+    throw new Error(
+      "space.evidence_version_unavailable: The requested message version is no longer available."
+    );
+  }
+  const offset = input.offset ?? 0;
+  const characters = Array.from(entry.content.text);
+  if (offset > characters.length) {
+    throw new Error(
+      "space.evidence_offset_invalid: The offset is outside this message."
+    );
+  }
+  const end = Math.min(characters.length, offset + 4000);
+  const complete = offset === 0 && end === characters.length;
+  return {
+    message: complete
+      ? entry
+      : await buildTruncatedEntry(
+          entry,
+          characters.slice(offset, end).join("")
+        ),
+    offset,
+    nextOffset: end < characters.length ? end : null,
+  };
+}
+
+/** Stable thread selection over current source records. Any mutation rejects
+ * the old fingerprint; this does not manufacture unavailable historical text. */
+export async function buildSpaceThreadEvidence(input: {
+  thread: SpaceThread;
+  signals: readonly SignalEnvelope[];
+  version?: string;
+  offset?: number;
+}) {
+  if (input.signals.length > 10_000) {
+    throw new Error("space.evidence_thread_too_large");
+  }
+  if (
+    input.signals.reduce(
+      (bytes, signal) =>
+        bytes + TEXT_ENCODER.encode(JSON.stringify(signal)).byteLength,
+      0
+    ) >
+    8 * 1024 * 1024
+  ) {
+    throw new Error("space.evidence_thread_too_large");
+  }
+  if (input.signals.some((signal) => signal.spaceId !== input.thread.spaceId)) {
+    throw new Error("space.evidence_source_mismatch");
+  }
+  const visible = input.signals.filter(
+    (signal): signal is TextSignalEnvelope =>
+      signal.type === "signal.text" &&
+      signal.data.meta?.recalledAt === undefined
+  );
+  const entries = await Promise.all(
+    visible.map((signal) =>
+      materializeEntry({ signal, spaceId: input.thread.spaceId })
+    )
+  );
+  const version = await sha256(
+    JSON.stringify({
+      thread: input.thread,
+      sources: entries.map((entry) => entry.sourceRef),
+    })
+  );
+  if (input.version !== undefined && input.version !== version) {
+    throw new Error(
+      "space.evidence_version_unavailable: The requested thread version is no longer available."
+    );
+  }
+  const offset = input.offset ?? 0;
+  if (offset > entries.length) {
+    throw new Error("space.evidence_offset_invalid");
+  }
+  const messages: CenterAgentContextManifestEntry[] = [];
+  let remaining = 4000;
+  for (const entry of entries.slice(offset, offset + 20)) {
+    if (remaining === 0) {
+      break;
+    }
+    const chars = Array.from(entry.content.text);
+    const selected = chars.slice(0, remaining).join("");
+    messages.push(
+      chars.length > remaining
+        ? await buildTruncatedEntry(entry, selected)
+        : entry
+    );
+    remaining -= Math.min(chars.length, remaining);
+  }
+  const end = offset + messages.length;
+  return {
+    sourceRef: {
+      kind: "thread" as const,
+      spaceId: input.thread.spaceId,
+      threadId: input.thread.threadId,
+      version,
+    },
+    messages,
+    offset,
+    nextOffset: end < entries.length ? end : null,
+    truncated:
+      end < entries.length || messages.some((entry) => entry.content.truncated),
+  };
 }
 
 async function truncateEntryToTokenBudget(input: {

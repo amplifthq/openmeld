@@ -305,6 +305,18 @@ export async function requireConnectorConnectionForExecution(input: {
   db: D1Database;
   organizationId: string;
 }): Promise<ConnectorExecutionConnectionRecord> {
+  const connection = await readConnectorConnectionForExecution(input);
+  if (!connection) {
+    throw new Error("Connector connection was not found in this Organization.");
+  }
+  return connection;
+}
+
+export async function readConnectorConnectionForExecution(input: {
+  connectionName: ConnectorConnectionName;
+  db: D1Database;
+  organizationId: string;
+}): Promise<ConnectorExecutionConnectionRecord | null> {
   const row = await input.db
     .prepare(
       `
@@ -326,10 +338,7 @@ export async function requireConnectorConnectionForExecution(input: {
     )
     .bind(input.organizationId, input.connectionName)
     .first<ConnectorExecutionConnectionRow>();
-  if (!row) {
-    throw new Error("Connector connection was not found in this Organization.");
-  }
-  return toConnectorExecutionConnectionRecord(row);
+  return row ? toConnectorExecutionConnectionRecord(row) : null;
 }
 
 export async function readConnectorConnectionForUser(input: {

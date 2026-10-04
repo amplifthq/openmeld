@@ -226,6 +226,91 @@ function getRemoteAgentGitHubToolDefinitions(
 
 describe("Remote Agent GitHub tools", () => {
   it.each([
+    ["missing", "direct"],
+    ["denied", "direct"],
+    ["completed", "direct"],
+    ["failed", "direct"],
+    ["missing", "code_mode"],
+    ["denied", "code_mode"],
+    ["completed", "code_mode"],
+    ["failed", "code_mode"],
+  ] as const)("preserves a %s Core execution decision through %s without a provider write", async (decision, source) => {
+    const storage = await createStorage(createSubmitTurnRequest());
+    const provider = vi.fn<typeof fetch>();
+    const executionConnection = {
+      connectionName: "original-github-account",
+      ownerDisplayName: "Mira",
+      ownerUserId: "user_mira",
+      scope: "member" as const,
+      service: "github" as const,
+    };
+    const terminal = decision === "completed" || decision === "failed";
+    const tools = getRemoteAgentGitHubToolDefinitions({
+      storage,
+      connectorExecution: {
+        baseUrl: "https://connectors.example.test",
+        runtimeToken: "fixture",
+        fetch: provider,
+      },
+      coreWorker: {
+        centerAgentResolveConnectorConnection: vi.fn(async () =>
+          connectionSelection({ ownerDisplayName: "Mira", userId: "user_mira" })
+        ),
+        centerAgentRecordConnectorActionOperation: vi.fn(async () => ({
+          attribution: {
+            actorProfileId: "agt_11111111-1111-4111-8111-111111111111",
+            onBehalfOf: null,
+          },
+          operationId: "original-operation",
+          providerExecutionId: terminal ? "provider-original" : null,
+          status: terminal ? decision : "pending",
+          recorded: true,
+          replayed: true,
+          executionConnection,
+          ...(decision === "missing" ? {} : { executionAllowed: false }),
+          replay: {
+            allowed: false,
+            reason: terminal ? "operation_terminal" : "operation_in_progress",
+          },
+        })) as never,
+      },
+    });
+    const definition = tools.find(
+      (tool) => tool.name === "github_create_issue_comment"
+    );
+    if (!definition) {
+      throw new Error("Missing GitHub write tool");
+    }
+    const receipt = await executeRemoteAgentToolDefinition({
+      definition,
+      storage,
+      submissionId: ACK.submissionId,
+      source,
+      toolInput: {
+        githubActor: "requester",
+        operationId: "replacement-id",
+        owner: "synthetic",
+        repo: "fixture",
+        issueNumber: 1,
+        body: "Synthetic comment",
+      },
+    });
+    expect(provider).not.toHaveBeenCalled();
+    expect(receipt).toMatchObject({
+      status: terminal ? decision : "outcome_unknown",
+      operationId: "original-operation",
+    });
+    if (terminal) {
+      expect(receipt).toHaveProperty(
+        "executionConnection",
+        executionConnection
+      );
+      expect(receipt).not.toHaveProperty("data");
+      expect(receipt).not.toHaveProperty("executionConfirmation", "executed");
+    }
+  });
+
+  it.each([
     "expired",
     "legacy_core",
     "replayed_unknown",
@@ -430,6 +515,7 @@ describe("Remote Agent GitHub tools", () => {
     expect(JSON.stringify(receipt)).not.toContain(providerKey);
     expect(record.mock.calls.map(([entry]) => entry.outcome)).toEqual([
       "attempted",
+      "outcome_unknown",
     ]);
     await expect(
       executeTool(definitions, "github_create_issue_comment", toolInput)
@@ -443,6 +529,7 @@ describe("Remote Agent GitHub tools", () => {
     ).toBe(providerKey);
     expect(record.mock.calls.map(([entry]) => entry.outcome)).toEqual([
       "attempted",
+      "outcome_unknown",
       "attempted",
       "completed",
     ]);
@@ -705,7 +792,7 @@ describe("Remote Agent GitHub tools", () => {
     };
     const dynamic = tools.find((tool) => tool.name === "github_execute_action");
     expect(dynamic?.description).toContain(
-      "retry exactly once only if its receipt explicitly allows"
+      "retry exactly once only when its receipt explicitly permits replay"
     );
     expect(dynamic?.description).not.toContain(
       "Reuse operationId only to recover the same execution"
@@ -1116,7 +1203,7 @@ describe("Remote Agent GitHub tools", () => {
       }).success
     ).toBe(false);
     expect(pullRequestDescription).toContain(
-      "retry exactly once only if its receipt explicitly allows"
+      "retry exactly once only when its receipt explicitly permits replay"
     );
     expect(pullRequestDescription).toContain(
       "never use a new ID to repeat the write"
@@ -4902,6 +4989,7 @@ async function executeTool(
 }
 
 type TestConnectorOperation = {
+  replayAttempted?: boolean;
   createdAtMs: number;
   actionId: string;
   connectionName: string;
@@ -4989,6 +5077,7 @@ function withTestConnectorOperationLedger(
         return Promise.resolve({
           operation: operation
             ? {
+                replay: testReplayPermission(operation),
                 replayWindowRemainingMs: Math.max(
                   0,
                   24 * 60 * 60 * 1000 - (Date.now() - operation.createdAtMs)
@@ -5028,6 +5117,14 @@ function withTestConnectorOperationLedger(
           service: input.service,
           status: "pending",
         };
+        const executionAllowed =
+          input.outcome === "attempted" &&
+          (input.effect === "read" ||
+            !existing ||
+            testReplayPermission(operation).allowed);
+        if (existing && executionAllowed && input.effect !== "read") {
+          operation.replayAttempted = true;
+        }
         if (input.outcome !== "attempted") {
           operation.providerExecutionId = input.providerExecutionId;
           operation.status = input.outcome;
@@ -5046,11 +5143,42 @@ function withTestConnectorOperationLedger(
           operationId: operation.operationId,
           providerExecutionId: operation.providerExecutionId,
           recorded: true,
+          executionAllowed,
+          replay: testReplayPermission(operation),
           replayed: Boolean(existing),
           status: operation.status,
         });
       }),
   };
+}
+
+function testReplayPermission(operation: TestConnectorOperation) {
+  if (operation.status === "completed" || operation.status === "failed") {
+    return { allowed: false as const, reason: "operation_terminal" as const };
+  }
+  if (!operation.executionConnection) {
+    return {
+      allowed: false as const,
+      reason: "original_account_unverified" as const,
+    };
+  }
+  if (operation.replayAttempted) {
+    return { allowed: false as const, reason: "already_replayed" as const };
+  }
+  const remainingWindowMs = Math.max(
+    0,
+    86_400_000 - (Date.now() - operation.createdAtMs)
+  );
+  if (remainingWindowMs === 0) {
+    return { allowed: false as const, reason: "window_expired" as const };
+  }
+  if (operation.status !== "outcome_unknown") {
+    return {
+      allowed: false as const,
+      reason: "operation_in_progress" as const,
+    };
+  }
+  return { allowed: true as const, remainingWindowMs, maxAttempts: 1 as const };
 }
 
 function requireWriteConfirmationToken(result: unknown): string {

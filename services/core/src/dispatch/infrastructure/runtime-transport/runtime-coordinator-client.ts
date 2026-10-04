@@ -239,6 +239,7 @@ export const buildRuntimeTransportDeliverDispatchRequest = (input: {
         ? { profileMentionLabel: sourceProfileMentionLabel }
         : {}),
       text: renderDispatchSourceText({
+        evidenceRefs: input.message.sourceSignalSnapshot?.evidenceRefs,
         workHandoff: input.message.sourceSignalSnapshot?.workHandoff,
         text: input.sourceSignal.text,
         quotedMessage: input.message.sourceSignalSnapshot?.quotedMessage,
@@ -354,6 +355,7 @@ function buildRuntimeTransportSourceSignalSnapshot(input: {
     pinnedFiles,
     contextMessages,
     workHandoff,
+    evidenceRefs,
     ...sourceSnapshot
   } = input.sourceSignalSnapshot;
   if (workHandoff && input.route.capabilities.spaceWorkHandoff !== true) {
@@ -387,6 +389,7 @@ function buildRuntimeTransportSourceSignalSnapshot(input: {
         }
       : {}),
     text: renderDispatchSourceText({
+      evidenceRefs,
       text: sourceSnapshot.text,
       workHandoff,
       quotedMessage,

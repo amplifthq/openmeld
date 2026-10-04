@@ -1,6 +1,10 @@
 import * as z from "../../lazy-zod";
 import { computerSetupModeSchema } from "../../navigation-action";
 import { DISPATCH_ERROR_SUMMARY_MAX_LENGTH } from "../../public-agent-failure-reason";
+import {
+  spaceEvidenceReferenceSchema,
+  spaceEvidenceReferencesSchema,
+} from "../../space-evidence";
 import { hostedModelReasoningLevelSchema } from "../config/model-catalog";
 import { agentControllerRefSchema } from "../daemon/agent-controller-ref";
 import { computerCareObservationSchema } from "../daemon/computer-care";
@@ -47,6 +51,7 @@ import {
   listAgentProfileCreationDefaultsResponseSchema,
 } from "./agent-profile-binding";
 import { centerAgentToolSpeakerSchema } from "./center-agent-speaker";
+import { connectorActionReplayPermissionSchema } from "./connector-action-replay";
 import {
   connectorConnectionNameSchema,
   connectorConnectionScopeSchema,
@@ -90,6 +95,10 @@ import {
   spaceDispatchTraceAttemptStatusSchema,
   spaceDispatchTraceDispatchStatusSchema,
 } from "./space-dispatch-trace";
+import {
+  spaceMessageEvidenceResponseSchema,
+  spaceThreadEvidenceResponseSchema,
+} from "./space-evidence";
 import { spaceMessageFileReferencesSchema } from "./space-files";
 import {
   postSpaceMembersResponseSchema,
@@ -262,8 +271,23 @@ export const centerAgentConnectorActionExecutionConnectionSchema =
     service: connectorServiceSchema,
   });
 
+export const connectorActionVerificationReferenceSchema = z.strictObject({
+  operationId: trimmedNonEmptyStringSchema.max(256),
+  actionId: trimmedNonEmptyStringSchema.max(160),
+});
+
+export const connectorActionVerificationEvidenceSchema = z.strictObject({
+  operationId: trimmedNonEmptyStringSchema.max(256),
+  actionId: trimmedNonEmptyStringSchema.max(160),
+  requestSignature: z.string().regex(/^[a-f0-9]{64}$/u),
+  status: centerAgentConnectorActionOperationStatusSchema,
+  connection: centerAgentConnectorActionExecutionConnectionSchema,
+  interpretation: z.literal("read_evidence_only"),
+});
+
 export const centerAgentReadConnectorActionOperationBodySchema = z.strictObject(
   {
+    includeExecutionPermit: z.literal(true).optional(),
     includeRecoveryWindow: z.boolean().optional(),
     actionId: trimmedNonEmptyStringSchema.max(160),
     operationId: trimmedNonEmptyStringSchema.max(256),
@@ -274,6 +298,7 @@ export const centerAgentReadConnectorActionOperationBodySchema = z.strictObject(
 
 const centerAgentConnectorActionOperationSchema = z
   .strictObject({
+    replay: connectorActionReplayPermissionSchema.optional(),
     replayWindowRemainingMs: z.int().nonnegative().optional(),
     actionId: trimmedNonEmptyStringSchema.max(160),
     connectionName: connectorConnectionNameSchema,
@@ -306,6 +331,8 @@ export const centerAgentReadConnectorActionOperationResponseSchema =
 
 export const centerAgentRecordConnectorActionOperationBodySchema = z
   .strictObject({
+    verificationOf: connectorActionVerificationReferenceSchema.optional(),
+    includeExecutionPermit: z.literal(true).optional(),
     includeRecoveryWindow: z.boolean().optional(),
     actionId: trimmedNonEmptyStringSchema.max(160),
     effect: z.enum(["read", "write", "destructive", "unspecified"]).optional(),
@@ -330,6 +357,9 @@ export const centerAgentRecordConnectorActionOperationBodySchema = z
 
 export const centerAgentRecordConnectorActionOperationResponseSchema =
   z.strictObject({
+    verificationOf: connectorActionVerificationEvidenceSchema.optional(),
+    executionAllowed: z.boolean().optional(),
+    replay: connectorActionReplayPermissionSchema.optional(),
     replayWindowRemainingMs: z.int().nonnegative().optional(),
     attribution: centerAgentAttributionSchema,
     executionConnection: centerAgentConnectorActionExecutionConnectionSchema
@@ -340,6 +370,15 @@ export const centerAgentRecordConnectorActionOperationResponseSchema =
     recorded: z.literal(true),
     replayed: z.boolean(),
     status: centerAgentConnectorActionOperationStatusSchema,
+  });
+
+// A duplicate claim can return durable status without retained provider data.
+export const connectorActionTerminalReceiptSchema =
+  centerAgentRecordConnectorActionOperationResponseSchema.extend({
+    actionId: trimmedNonEmptyStringSchema,
+    status: z.enum(["completed", "failed"]),
+    executionAllowed: z.literal(false),
+    message: trimmedNonEmptyStringSchema,
   });
 
 export const centerAgentDesignationSchema = z.strictObject({
@@ -702,6 +741,8 @@ export const centerAgentRemoveAgentProfilesFromSpaceBodySchema = z.strictObject(
 export const centerAgentSpaceContextScopeSchema = z.enum([
   "source",
   "thread",
+  "source_evidence",
+  "thread_evidence",
   "delta",
   "history",
 ]);
@@ -711,6 +752,8 @@ const centerAgentSpaceContextAnchorByScope = {
   history: null,
   source: "sourceSignalId",
   thread: "threadId",
+  source_evidence: "sourceSignalId",
+  thread_evidence: "threadId",
 } as const;
 
 export const centerAgentReadSpaceContextBodySchema = z
@@ -722,8 +765,24 @@ export const centerAgentReadSpaceContextBodySchema = z
     sourceSignalId: trimmedNonEmptyStringSchema.optional(),
     spaceId: trimmedNonEmptyStringSchema,
     threadId: trimmedNonEmptyStringSchema.optional(),
+    version: spaceEvidenceReferenceSchema.options[0].shape.version.optional(),
+    offset: z.int().nonnegative().max(1_000_000).optional(),
   })
   .superRefine((value, context) => {
+    const exact =
+      value.scope === "source_evidence" || value.scope === "thread_evidence";
+    if (
+      (!exact && (value.version !== undefined || value.offset !== undefined)) ||
+      (exact && value.limit !== undefined) ||
+      (value.offset && !value.version) ||
+      (value.scope === "thread_evidence" && (value.offset ?? 0) > 10_000)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "Exact evidence pages require their original version and offset; limit applies only to context reads.",
+      });
+    }
     const requiredAnchor = value.scope
       ? centerAgentSpaceContextAnchorByScope[value.scope]
       : null;
@@ -896,6 +955,12 @@ export const centerAgentDelegationCompletionModeSchema = z.enum(
 
 export const centerAgentWakeAgentProfilesInSpaceBodySchema = z
   .strictObject({
+    evidenceRefs: spaceEvidenceReferencesSchema.optional(),
+    pluginActions: z
+      .array(pluginDelegationRequestSchema)
+      .min(1)
+      .max(10)
+      .optional(),
     agentProfileIds: z.array(agentProfileIdSchema).min(1).max(25),
     completionMode: centerAgentDelegationCompletionModeSchema.optional(),
     replyLanguageTag: workingLanguageTagSchema.optional(),
@@ -983,6 +1048,12 @@ export const centerAgentWakeAgentProfilesInSpaceBodySchema = z
 
 export const centerAgentWakePublicationCommandSchema = z
   .strictObject({
+    evidenceRefs: spaceEvidenceReferencesSchema.optional(),
+    pluginActions: z
+      .array(pluginDelegationAuthorizationSchema)
+      .min(1)
+      .max(10)
+      .optional(),
     activationTargets: z.array(agentProfileIdSchema).min(1),
     attribution: centerAgentAttributionSchema,
     clientMessageId: trimmedNonEmptyStringSchema,
@@ -1621,6 +1692,12 @@ const centerAgentSpaceContextBaseResponseShape = {
 };
 
 const centerAgentProgressiveSpaceContextSchema = z.discriminatedUnion("scope", [
+  spaceMessageEvidenceResponseSchema.extend({
+    scope: z.literal("source_evidence"),
+  }),
+  spaceThreadEvidenceResponseSchema.extend({
+    scope: z.literal("thread_evidence"),
+  }),
   z.strictObject({
     scope: z.literal("source"),
     signals: z.array(signalEnvelopeSchema).max(1),
@@ -1921,3 +1998,8 @@ export const openCenterAgentDirectMessageSpaceResponseSchema = z.strictObject({
   spaceId: trimmedNonEmptyStringSchema,
   created: z.boolean(),
 });
+
+import {
+  pluginDelegationAuthorizationSchema,
+  pluginDelegationRequestSchema,
+} from "./plugin-delegation";

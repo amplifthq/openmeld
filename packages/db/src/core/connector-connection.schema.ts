@@ -301,3 +301,40 @@ export const pluginActionConfirmations = sqliteTable(
     index("plugin_action_confirmations_expiry_idx").on(table.expiresAtMs),
   ]
 );
+
+// Request-specific human authorization for Plugin writes. Inbox projects this
+// source; Auth verifies the recipient; the operation ledger owns execution.
+export const pluginActionRequests = sqliteTable(
+  "plugin_action_requests",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    actorProfileId: text("actor_profile_id").notNull(),
+    operationId: text("operation_id").notNull(),
+    sourceRequestKey: text("source_request_key"),
+    requestDigest: text("request_digest").notNull(),
+    requestJson: text("request_json").notNull(),
+    state: text("state", { enum: ["pending", "approved", "rejected"] })
+      .notNull()
+      .default("pending"),
+    createdAtMs: integer("created_at_ms").notNull(),
+    expiresAtMs: integer("expires_at_ms").notNull(),
+    decidedAtMs: integer("decided_at_ms"),
+  },
+  (table) => [
+    uniqueIndex("plugin_action_requests_operation_idx").on(
+      table.organizationId,
+      table.userId,
+      table.actorProfileId,
+      table.operationId
+    ),
+    index("plugin_action_requests_recipient_idx").on(
+      table.organizationId,
+      table.userId,
+      table.state
+    ),
+  ]
+);
