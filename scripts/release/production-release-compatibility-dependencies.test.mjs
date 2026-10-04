@@ -184,6 +184,25 @@ const INBOX_OBSERVATIONS = [
   "clients/web/src/lib/inbox/notification-observer.ts",
 ];
 
+test("keeps Inbox readers before a new target writer during a storage migration", () => {
+  const plan = buildProductionReleasePlan({
+    changedPaths: [
+      "packages/schemas/src/schemas/http/inbox.ts",
+      "services/core/src/inbox/application/inbox-notification-observations.ts",
+      "services/core/src/remote-agent/application/native-delivery-service.ts",
+      "services/gateway/src/routes/rpc-http.inbox.ts",
+      "clients/web/src/components/inbox/inbox-page.tsx",
+    ],
+    sourceSha: "a".repeat(40),
+    scope: "web,gateway,core,cli",
+  });
+  assert.deepEqual(plan.deployScopeOrder, ["web", "gateway", "core", "cli"]);
+  assert.deepEqual(plan.compatibilityDependencies, [
+    ["web", "core"],
+    ["gateway", "core"],
+  ]);
+});
+
 test("deploys Inbox observation receivers before callers, composed with Remote titles", () => {
   const plan = buildProductionReleasePlan({
     changedPaths: [

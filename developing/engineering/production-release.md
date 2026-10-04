@@ -512,8 +512,9 @@ with an explicit scope only when the changed contract and mixed-version behavior
 prove that narrower rollout is safe.
 
 Inbox notification observations add Core -> Gateway -> Web compatibility
-dependencies when the shared Inbox schema and Core observation owner change
-together. The existing dependency scheduler composes these edges with other
+dependencies when the shared Inbox schema and Web observation caller change
+together. A Core observation storage edit does not establish a changed caller
+contract. The existing dependency scheduler composes these edges with other
 contracts, including Remote Agent -> Core, and rejects cycles. Automatic scope
 selection includes all three components; a separate caller stage requires a
 verified receiver receipt. This additive observation API has the opposite

@@ -580,9 +580,11 @@ function isReviewedWindowsPreviewOnlyNpmSetupDiff(paths, context) {
 }
 
 function isInboxNotificationObservationDiff(paths) {
+  // Storage-only receiver changes do not introduce a new observation caller.
+  // Other Inbox schema additions still keep their reader-before-writer order.
   return [
     INBOX_SCHEMA_PATH,
-    "services/core/src/inbox/application/inbox-notification-observations.ts",
+    "clients/web/src/lib/inbox/notification-observer.ts",
   ].every((file) => paths.includes(file));
 }
 const RETIRED_TASK_INBOX_PRODUCER_PATH =
