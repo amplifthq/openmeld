@@ -3507,6 +3507,15 @@ Agent Space-stream paths:
   reasoning status is not execution truth; clients must not infer model support
   or a stuck execution from silence. Old Service/Gateway combinations do not
   negotiate the header and therefore continue without live reasoning.
+- `packages/schemas/src/schemas/protocol/envelope.ts` owns the optional
+  `stoppedReplyText` on a system notice envelope. Space attaches only its accepted
+  public text snapshot for the same Space, dispatch, target Profile, and source
+  message. The existing terminal guard can retain that bounded snapshot until
+  notice publication; its existing expiry still applies. This is display data,
+  never successful completion or execution authority. Older envelope readers
+  ignore this additive field and still parse the unchanged strict notice data.
+  New Web also accepts old notices without a partial reply. No Service, CLI,
+  setup, dispatch, trace, or recovery contract floor changes are needed.
 - `packages/schemas/src/schemas/protocol/agent-stream.ts` owns Space live text,
   thinking, public-progress, tool-part, and terminal frames plus the active stream presence,
   active text snapshot, and durable privacy-bounded Agent reply work

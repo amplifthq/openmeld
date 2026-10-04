@@ -4409,7 +4409,7 @@ describe("SpaceConversationPanel", () => {
 
 	it.each([
 		["failed", "Center Agent could not complete this reply.", "Reply failed"],
-		["stopped", "Center Agent stopped this reply.", "Stopped"],
+		["stopped", "Center Agent stopped this reply.", "(Request stopped)"],
 		[
 			"completed_but_publish_failed",
 			"Center Agent finished, but OpenMeld could not publish the reply.",
@@ -4539,28 +4539,29 @@ describe("SpaceConversationPanel", () => {
 		expect(row?.className).toContain("py-2");
 	});
 
-	it("gives a stopped Wake a muted outcome row instead of a destructive one", () => {
+	it("shows Stopped with the Agent's partial reply instead of a separate notice", () => {
 		renderSpaceConversationPanel({
 			readOnly: false,
 			timelineItems: [
 				createTimelineItem({
-					actorName: "OpenMeld",
-					actorProfileId: "system",
-					actorProfileKind: "system",
-					actorProfileName: "OpenMeld",
+					actorName: "Runner",
+					actorProfileId: "agent-runner",
+					actorProfileKind: "agent",
+					actorProfileName: "Runner",
 					id: "signal-wake-stopped",
 					signalType: "signal.system_notice",
 					systemNoticeType: "wake_stopped",
-					text: "Wake was stopped for Runner.",
+					text: "Here is the first finding.",
 				}),
 			],
 		});
 
-		const marker = screen
-			.getByText("Wake was stopped for Runner.")
-			.closest("[data-slot='marker']");
-		expect(marker?.className).toContain("text-muted-foreground");
-		expect(marker?.className).not.toContain("text-destructive");
+		const reply = screen
+			.getByText("Here is the first finding.")
+			.closest("[data-message-row-id='signal-wake-stopped']") as HTMLElement;
+		expect(reply).not.toBeNull();
+		expect(within(reply).getByText("(Request stopped)")).toBeTruthy();
+		expect(reply.querySelector("[data-slot='marker']")).toBeNull();
 	});
 
 	it("moves an anchored failure into the source message footer and keeps a past-tense outcome in Details", () => {
@@ -4765,7 +4766,7 @@ describe("SpaceConversationPanel", () => {
 		).toBeNull();
 	});
 
-	it("merges wake_stopped notices for multiple targets into a single muted-tone row", () => {
+	it("keeps stopped outcomes attached to their individual Agents", () => {
 		renderSpaceConversationPanel({
 			membersSnapshot: createWakeReceiptMembersSnapshot(),
 			readOnly: false,
@@ -4775,39 +4776,44 @@ describe("SpaceConversationPanel", () => {
 					text: "@Codex(wake) @Claude(wake) please investigate",
 				}),
 				createTimelineItem({
-					actorName: "OpenMeld",
-					actorProfileId: "system",
-					actorProfileKind: "system",
-					actorProfileName: "OpenMeld",
+					actorName: "Codex 5.6 Sol",
+					actorProfileId: TARGET_PROFILE_ID,
+					actorProfileKind: "agent",
+					actorProfileName: "Codex 5.6 Sol",
 					createdAtMs: Date.UTC(2026, 4, 27, 10, 1),
 					id: "sig-stopped-codex",
 					replyToSignalId: "sig-wake",
 					signalType: "signal.system_notice",
 					systemNoticeTargetProfileId: TARGET_PROFILE_ID,
 					systemNoticeType: "wake_stopped",
-					text: "Wake was stopped for Codex 5.6 Sol.",
+					text: "",
 				}),
 				createTimelineItem({
-					actorName: "OpenMeld",
-					actorProfileId: "system",
-					actorProfileKind: "system",
-					actorProfileName: "OpenMeld",
+					actorName: "Claude Opus 4.8",
+					actorProfileId: SECOND_TARGET_PROFILE_ID,
+					actorProfileKind: "agent",
+					actorProfileName: "Claude Opus 4.8",
 					createdAtMs: Date.UTC(2026, 4, 27, 10, 1),
 					id: "sig-stopped-claude",
 					replyToSignalId: "sig-wake",
 					signalType: "signal.system_notice",
 					systemNoticeTargetProfileId: SECOND_TARGET_PROFILE_ID,
 					systemNoticeType: "wake_stopped",
-					text: "Wake was stopped for Claude Opus 4.8.",
+					text: "Partial research",
 				}),
 			],
 		});
 
-		const marker = screen
-			.getByText("Wake was stopped for Codex 5.6 Sol and Claude Opus 4.8.")
-			.closest("[data-slot='marker']");
-		expect(marker?.className).toContain("text-muted-foreground");
-		expect(marker?.className).not.toContain("text-destructive");
+		const stopped = screen.getAllByText("(Request stopped)");
+		expect(stopped).toHaveLength(2);
+		expect(
+			stopped.map((status) =>
+				status
+					.closest("[data-message-row-id]")
+					?.getAttribute("data-message-row-id")
+			)
+		).toEqual(["sig-stopped-codex", "sig-stopped-claude"]);
+		expect(screen.queryByTestId("space-outcome-row")).toBeNull();
 	});
 
 	it("aligns a failed message footer with the current user's own message", () => {

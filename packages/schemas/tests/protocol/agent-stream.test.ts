@@ -3,6 +3,7 @@ import {
   agentStreamsForReplyPlacementReader,
   incomingServerMessageSchema,
   signalEnvelopeSchema,
+  signalSystemNoticeEnvelopeSchema,
   spaceAgentActivitySchema,
   spaceAgentStreamDeltaFrameSchema,
   spaceAgentStreamPartFrameSchema,
@@ -22,6 +23,39 @@ const baseFrame = {
 } as const;
 
 describe("Space Agent stream frames", () => {
+  it("round-trips a stopped partial reply without breaking old notice readers", () => {
+    const signal = {
+      v: 1,
+      id: "stopped-1",
+      spaceId: "space_1",
+      ts: 1,
+      profile: { kind: "system", profileId: "openmeld-system" },
+      type: "signal.system_notice",
+      data: {
+        noticeType: "wake_stopped",
+        dispatchId: "dispatch_1",
+        actorProfileId: baseFrame.profileId,
+        text: "This request was stopped.",
+        generatedBy: "openmeld",
+      },
+      stoppedReplyText: "Partial public response",
+    };
+    expect(
+      signalEnvelopeSchema.parse(JSON.parse(JSON.stringify(signal)))
+    ).toEqual(signal);
+    const legacyReader = signalSystemNoticeEnvelopeSchema.omit({
+      stoppedReplyText: true,
+    });
+    expect(legacyReader.parse(signal)).toEqual({
+      v: signal.v,
+      id: signal.id,
+      spaceId: signal.spaceId,
+      ts: signal.ts,
+      profile: signal.profile,
+      type: signal.type,
+      data: signal.data,
+    });
+  });
   it.each([
     "outcome_unknown",
     "future_outcome",

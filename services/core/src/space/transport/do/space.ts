@@ -502,6 +502,7 @@ import {
   applyAgentStreamPart,
   applyAgentStreamTransientDelta,
   attachAgentActivityToFinalReply,
+  attachStoppedReplyText,
   cleanupExpiredAgentStreamProjections,
   closeAgentStreamProjection,
   listActiveAgentStreamPresences,
@@ -4314,7 +4315,7 @@ export class Space extends DurableObject<CoreBindings> {
           : "runtime_coordinator_failure_publication",
       ...(threadContext ? { threadContext } : {}),
     } satisfies SignalPublishContext;
-    const signal = this.buildSystemNoticeSignal(
+    const notice = this.buildSystemNoticeSignal(
       {
         kind: "system",
         profileId: DISPATCH_HINT_SYSTEM_PROFILE_ID,
@@ -4335,6 +4336,11 @@ export class Space extends DurableObject<CoreBindings> {
         text,
       }
     );
+    const signal = await attachStoppedReplyText({
+      signal: notice,
+      storage: this.agentStreamProjectionStorage,
+      nowMs: Date.now(),
+    });
     await armSpaceInboxProjectionRecoveryAlarm({
       spaceId: this.spaceId,
       storage: this.ctx.storage,
@@ -5792,9 +5798,26 @@ export class Space extends DurableObject<CoreBindings> {
       ...(input.spaceAccess ? { spaceAccess: input.spaceAccess } : {}),
     });
 
+    const stoppedSource =
+      parsedData.data.noticeType === "wake_stopped" &&
+      input.spaceAccess?.actor.kind === "dispatch_continuation"
+        ? this.readSignalById(input.spaceAccess.actor.sourceSignalId)
+        : null;
+    const stoppedReplyTo = stoppedSource
+      ? buildRuntimeCoordinatorFailurePublicationReplyTo(
+          stoppedSource,
+          this.ctx.storage.sql,
+          this.spaceId
+        )
+      : null;
     const signal = this.buildSystemNoticeSignal(
       await this.mergePublishedAuthorProfile(author, input.profile),
-      parsedData.data
+      {
+        ...parsedData.data,
+        ...(stoppedReplyTo && !parsedData.data.replyTo
+          ? { replyTo: stoppedReplyTo }
+          : {}),
+      }
     );
     // A pre-agent stop can be published after RuntimeCoordinator has discarded
     // its delivery payload. The authorized dispatch source still owns placement.
@@ -24522,12 +24545,17 @@ export class Space extends DurableObject<CoreBindings> {
     signalContext?: SignalPublishContext
   ): Promise<void> {
     assertFinalOutcomeWriteAuthority(signal, signalContext);
+    const visibleSignal = await attachStoppedReplyText({
+      signal,
+      storage: this.agentStreamProjectionStorage,
+      nowMs: Date.now(),
+    });
     await armSpaceInboxProjectionRecoveryAlarm({
       spaceId: this.spaceId,
       storage: this.ctx.storage,
     });
     publishPresenceSignalUseCase({
-      signal,
+      signal: visibleSignal,
       persistSignal: (currentSignal) =>
         this.persistSignalWithOptionalOutbox(
           currentSignal,
