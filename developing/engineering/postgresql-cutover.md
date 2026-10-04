@@ -80,8 +80,8 @@ integrated run passed all 28 recorded cases in about 56 seconds, including an
 8.5-second frozen-source fixture, capture, COPY and reconciliation case, but
 excluding the outer PG cluster startup. This is not a production throughput
 measurement or maintenance-window estimate. The separate product checks below
-cover Web/Auth, permissions and retained DO/R2 content. Migrated Wake, a verified
-stopped product source and cloud product acceptance remain open. The isolated
+cover Web/Auth, permissions, a migrated Wake and retained DO/R2 content. A verified
+stopped legacy product source and cloud product acceptance remain open. The isolated
 database rehearsal has no attached product runtime and cannot prove its shutdown.
 
 ## Local product rehearsal
@@ -126,15 +126,46 @@ API-boundary checks. Separately, both legacy passwords succeeded through normal
 Web sign-in into the retained shared Organization. The current server permission
 endpoint allowed channel connection for the owner and denied it for the member.
 
-The migrated Codex Wake attempt was rejected before execution with
+The 2026-10-03 migrated Codex Wake attempt was rejected before execution with
 `usage_exhausted`, while Binding, Runtime and Service evidence was ready and the
 route was online. An independent current account-limit read confirmed 100% use
 of the ordinary Codex weekly window and `creditsAvailable: true`. OpenMeld's
 current usage admission rejects this Codex Wake; this does not establish that
 paid capacity is unavailable. The lane had no other existing workstation Agent
-Profile. The quota was not bypassed; previous native-PG Wake successes do not
-stand in for migrated Wake or authoritative in-flight drain evidence. Keep those
-acceptance gates open until an actual admitted execution can be observed.
+Profile. This is historical admission evidence, not the current migrated-Wake
+result below. The quota was not bypassed.
+
+On 2026-10-04, candidate `32804937e6f3af38a7cf73c6d46c8f72ce32dd44`
+captured the same 425-row retained-product sample from actual local D1 with all
+477 write guards installed. The frozen source SHA-256 is
+`b0c02a7891605c2db6ae1bd0a36af8bbb66f542e13460b33a720823ac39704d1`.
+Normal Web password login, existing Space messages and exact file contents
+passed. A normal CLI Wake of the existing Codex Profile executed and published
+the visible reply `Frozen D1 PostgreSQL migration confirmed.`:
+
+- Dispatch: `b612a1b3-448a-4930-af01-3a79cd7c2a52`.
+- Client message: `d2849885-71de-43ed-9e91-9234955c83d0`.
+- Reply signal: `e7b4b531-7bcb-4063-b68c-a38d5ab8139b`.
+- Trace: `visible_reply`, `reply.delivered` and coordinator `reply_published`.
+
+No model, quota, permission or Profile substitution was used. The post-terminal
+head read remained unavailable, so this proves execution and publication, not
+an authoritative in-flight drain observation. One Inbox projection primary-key
+warning recovered through the existing outbox; exactly one item appeared and
+its read state persisted. The occurrence was recorded without expanding this
+candidate into an unreproduced concurrency fix.
+
+After normal whole-stack stop/start, the target retained the Project rename,
+Inbox read state and identical import receipt SHA-256
+`b6b62adac144d5a97d22c45c10f13a439f38fb131b6c72809c76607bae65815a`.
+The first restart left Web page requests unresponsive while Auth/Gateway and
+native database reads worked. One normal restart retry initially showed the
+same symptom; static assets responded before page rendering recovered. The
+original Chrome session then reloaded the Space with the exact reply visible
+and Inbox caught up. The startup delay's cause is not established or fixed.
+Do not equate a listening port with Web readiness. No data reset or reimport
+was used. Tasks were observed only in their empty read view; task mutations and
+external integrations are not covered by this product sample.
 
 The new launcher option reuses the existing import owner and local database
 lifecycle. It does not transfer execution authority from RuntimeCoordinator,

@@ -505,9 +505,16 @@ Web sign-in, retained database-backed sessions, permissions, actual DO/R2 file
 contents, normal product writes and complete restart persistence now pass
 locally. An independent sample produced by the real legacy D1 Auth owner also
 passes migrated password login, session resolution and permission checks.
-Migrated Codex Wake is blocked by observed provider quota exhaustion; no
-migrated execution is claimed. The existing release path still needs minimal
-reviewed cutover admission and binding support.
+The 2026-10-04 frozen-source product rehearsal also passed one actual migrated
+Codex execution and visible Space reply with coordinator `reply_published`.
+This closes the earlier quota-blocked acceptance row without changing quota,
+permissions, model or Profile. A normal stop/start and one startup retry retained
+the original Chrome login, visible reply, Project write, Inbox read state and
+identical import receipt. A transient Web startup stall and one recovered Inbox
+projection warning are recorded in the cutover owner; neither is claimed fixed.
+In-flight head reads, task mutations and external integrations are not proved by
+this sample. The existing release path still needs minimal reviewed cutover
+admission and binding support.
 
 Production Spaces remain active on D1. This preparation does not authorize a
 main merge, main-product deployment, production export, shared-staging mutation,
