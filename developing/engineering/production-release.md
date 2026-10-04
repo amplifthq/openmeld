@@ -70,6 +70,10 @@ Auth/Core use a checked temporary config whose only change is empty production
 Cron. After product acceptance, `deploy --scope auth,core
 --database-cutover-restore-crons` explicitly restores and reads back the same
 candidate's normal schedules. Cleanup and failed deployment never restore Cron.
+Restoration publishes no Worker or CLI bytes. It retains common environment and
+source checks, then requires the exact active Auth/Core receipts, Hyperdrive,
+native journal and grants under the production leases. It does not require an
+unpublished CLI candidate or run a new artifact deployment preflight.
 
 - A Web fix releases Web.
 - A public website fix releases Website, without rebuilding or deploying Web.
