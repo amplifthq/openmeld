@@ -143,8 +143,9 @@ runs the official migrator on that same connection. Drizzle commits pending SQL
 and its history together in a transaction. A second executor fails without applying
 changes. A failed migration rolls back; changed or missing applied history blocks
 further work. A database with the earlier isolated foundation ledger is rejected
-until its adoption is explicitly reconciled; this candidate does not modify those
-cloud databases. Statement and lock timeouts bound schema operations, not active
+until its adoption is explicitly reconciled. The reviewed isolated foundation
+preservation sequence below performs that reconciliation. Statement and lock
+timeouts bound schema operations, not active
 OpenMeld execution. Do not automatically retry an ambiguous committed write.
 
 Migration `0011` replays the bounded retired owner-awareness Inbox correction
@@ -316,6 +317,36 @@ The deployed bundle and config are hashed together, covering imported business
 owners. Verify the actual runtime role's permissions after schema creation;
 local ACL-free restore is not permission evidence. The configured token window
 expires at `2026-10-04T06:00:00Z`; renew it explicitly before a later run.
+
+The reviewed sequence completed against that exact target on 2026-10-04 using
+candidate `c6e8f70270ab5046a3c620fb572ab906cfd1f63c`. The deployed Worker version
+was `e26c0da0-3ce9-4270-afb4-f5e31620a1d0`; the emitted bundle and config SHA-256
+was `08bf437bee0ee0fc939a84a4b990de62afe42cb9d36c29c2152524330fd33800`.
+Each check passed separately:
+
+| Check | Observed result |
+| --- | --- |
+| Direct runtime role | Commit, rollback, CRUD, immediate reads and denied schema changes passed. |
+| Worker / Hyperdrive connection | Unauthenticated requests returned 401; repeated transactions, CRUD, rollback and denied DDL, ledger reads and TRUNCATE passed. |
+| Product PostgreSQL connection owner | Repeated request pools, commit/rollback, immediate reads, query-error propagation and normal close passed. |
+| Auth Profile / Core Project owners | Repeated writes and later-request reads passed; wrong owner/tenant and member writes were rejected, with request pools closed. |
+
+Wrangler confirmed probe deletion at `2026-10-04T04:06:59.043Z`, before expiry.
+Final read-only inspection at `2026-10-04T04:07:53.525Z` matched all 14 native
+journal hashes and 159 application tables. Only five application tables contained
+data: two users, two Organizations, two memberships, one Profile and one Project.
+The exact Unicode/literal-escape marker and owner/Organization identities matched.
+The probe table was empty. The original foundation ledger, including timestamp
+`2026-10-02 17:26:58.727893+00`, remained intact. The runtime retained business
+DML privileges but could not use the old ledger, native journal or import-metadata
+schemas. The initial read-only evidence script assumed unordered SQL results had
+a stable order; sorting the returned table counts corrected that comparison,
+without repeating mutations or changing database state.
+
+The machine-readable deployment/check/cleanup receipt is in
+`tooling/postgresql/resources.json`. This closes the isolated business-owner
+Hyperdrive acceptance row. It does not certify cloud Auth login, a complete cloud
+product deployment, a legacy writer shutdown or production cutover.
 
 Use `openmeld-release/stg` and `openmeld-release/prd` for infrastructure and
 migration credentials; environment selection remains explicit. New keys follow

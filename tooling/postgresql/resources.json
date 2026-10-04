@@ -14,7 +14,7 @@
       "host": "aws-us-east-1-5.pg.psdb.cloud",
       "hyperdriveName": "openmeld-postgresql-stg",
       "hyperdriveId": "6af2d43ec8d8498b9607c653ca231e73",
-      "status": "foundation-applied",
+      "status": "foundation-verified",
       "cluster": "PS_5_AWS_ARM",
       "replicas": 0,
       "migrationRole": "pscale_api_m7rr7fm14at8",
@@ -23,12 +23,13 @@
       "runtimeRoleId": "0hf13zdprg79",
       "probe": {
         "url": "https://openmeld-postgresql-probe-stg.jingyueyusen.workers.dev",
-        "versionId": "09004040-6cc5-4b6b-a26b-58e456967b22",
-        "sourceSha256": "2239bbe520916450b37ca766d8cbe5160a47992021a281cbf48a8d24216f2681",
+        "versionId": "e26c0da0-3ce9-4270-afb4-f5e31620a1d0",
+        "sourceSha256": "08bf437bee0ee0fc939a84a4b990de62afe42cb9d36c29c2152524330fd33800",
         "status": "verified-and-removed",
-        "verifiedAt": "2026-10-02T21:51:12.415Z",
-        "productTransportVerifiedAt": "2026-10-02T21:51:12.415Z",
-        "removedAt": "2026-10-02T21:52:47.193Z"
+        "verifiedAt": "2026-10-04T04:06:31.399Z",
+        "productTransportVerifiedAt": "2026-10-04T04:06:05.866Z",
+        "businessOwnersVerifiedAt": "2026-10-04T04:06:31.400Z",
+        "removedAt": "2026-10-04T04:06:59.043Z"
       }
     },
     "production": {

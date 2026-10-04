@@ -80,9 +80,14 @@ integrated run passed all 28 recorded cases in about 56 seconds, including an
 8.5-second frozen-source fixture, capture, COPY and reconciliation case, but
 excluding the outer PG cluster startup. This is not a production throughput
 measurement or maintenance-window estimate. The separate product checks below
-cover Web/Auth, permissions, a migrated Wake and retained DO/R2 content. A verified
-stopped legacy product source and cloud product acceptance remain open. The isolated
-database rehearsal has no attached product runtime and cannot prove its shutdown.
+cover Web/Auth, permissions, a migrated Wake and retained DO/R2 content. The
+[isolated cloud business-owner rehearsal](postgresql.md#existing-foundation-business-owner-rehearsal)
+also passed through Worker / Hyperdrive / PlanetScale on 2026-10-04, including
+actual Auth Profile and Core Project persistence and permission decisions. Its
+temporary Worker was removed and the database evidence retained. A verified
+stopped legacy product source and complete cloud product acceptance remain open.
+The isolated database rehearsal has no attached product runtime and cannot prove
+its shutdown.
 
 ## Local product rehearsal
 
@@ -408,10 +413,9 @@ mutations or a replacement for the existing release entrypoint.
    and Hyperdrive coverage. Reopen sources in the recorded order and preserve
    the frozen D1 source plus capture/import receipts.
 
-Before candidate review, run the data bridge and missing product paths locally,
-then validate Worker → Hyperdrive → PlanetScale in the authorized isolated
-foundation environment with synthetic data. Direct local PG and the earlier
-connection-only cloud probe do not prove the full cloud product. Review exact
+The data bridge, local migrated product paths and isolated Worker → Hyperdrive →
+PlanetScale business-owner checks above have passed. They do not prove a full
+cloud product deployment or the shutdown of a legacy D1 source. Review exact
 targets, bindings, credential scope and commands before newly required cloud
 operations; production and shared staging remain outside this preparation.
 
