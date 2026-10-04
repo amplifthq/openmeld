@@ -140,6 +140,8 @@ import {
   centerAgentUpdateSpaceSettingsResponseSchema,
   centerAgentWakeAgentProfilesInSpaceBodySchema,
   centerAgentWakeAgentProfilesInSpaceResponseSchema,
+  centerAgentWakeAgentProfilesInSpacesBodySchema,
+  centerAgentWakeAgentProfilesInSpacesResponseSchema,
   centerAgentWatchAgentTaskBodySchema,
   centerAgentWatchAgentTaskResponseSchema,
   centerAgentWipeMemberMemoryResponseSchema,
@@ -479,6 +481,8 @@ import type {
   CenterAgentUpdateSpaceSettingsResponse,
   CenterAgentWakeAgentProfilesInSpaceBody,
   CenterAgentWakeAgentProfilesInSpaceResponse,
+  CenterAgentWakeAgentProfilesInSpacesBody,
+  CenterAgentWakeAgentProfilesInSpacesResponse,
   CenterAgentWatchAgentTaskBody,
   CenterAgentWatchAgentTaskResponse,
   CenterAgentWipeMemberMemoryResponse,
@@ -836,8 +840,10 @@ import {
   validateCenterAgentContextManifestResponse,
 } from "../center-agent/application/center-agent-context-manifest-service";
 import {
+  buildDelegatedTaskText,
   CenterAgentDelegationPreparationError,
   planCenterAgentWakeDelegation,
+  requireCenterAgentContinuationParent,
 } from "../center-agent/application/center-agent-delegation-service";
 import {
   type CenterAgentDirectMessageOpenTimingRecorder,
@@ -857,6 +863,7 @@ import { prepareCenterAgentTaskWatch } from "../center-agent/application/center-
 import {
   executeCenterAgentWakePublication,
   prepareCenterAgentWakePublication,
+  prepareCenterAgentWakePublicationBatch,
 } from "../center-agent/application/center-agent-wake-publication-service";
 import { isHostedCenterAgentExecutionTarget } from "../center-agent/application/hosted-center-agent-binding";
 import {
@@ -3699,6 +3706,11 @@ export type CenterAgentRecordConnectorActionOperationInput =
 
 export type CenterAgentWakeAgentProfilesInSpaceInput =
   CenterAgentWakeAgentProfilesInSpaceBody & {
+    context?: CoreRpcContextInput;
+  };
+
+export type CenterAgentWakeAgentProfilesInSpacesInput =
+  CenterAgentWakeAgentProfilesInSpacesBody & {
     context?: CoreRpcContextInput;
   };
 
@@ -16480,6 +16492,191 @@ function parseCenterAgentWakeAgentProfilesInSpaceInput(
   return parsed.data;
 }
 
+export async function rpcCenterAgentWakeAgentProfilesInSpaces(
+  env: CoreBindings,
+  input: CenterAgentWakeAgentProfilesInSpacesInput,
+  waitUntil: (work: Promise<unknown>) => void
+): Promise<CenterAgentWakeAgentProfilesInSpacesResponse> {
+  const authorization = await requireCurrentDesignatedCenterAgentCaller({
+    context: requireRpcContext(input.context),
+    env,
+  });
+  const parsed = centerAgentWakeAgentProfilesInSpacesBodySchema.safeParse({
+    destinations: input.destinations,
+    replyLanguageTag: input.replyLanguageTag,
+    onBehalfOf: input.onBehalfOf,
+  });
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason: parsed.error.issues[0]?.message ?? "Invalid multi-Space Wake.",
+    });
+  }
+  const request = parsed.data;
+  const destinations = request.destinations
+    .map((destination) => ({
+      spaceId: destination.spaceId,
+      text: buildDelegatedTaskText(destination.text, request.replyLanguageTag),
+      agentProfileIds: [...new Set(destination.agentProfileIds)].sort(),
+      mentionProfileIds: [
+        ...new Set(destination.mentionProfileIds ?? []),
+      ].sort(),
+      referenceProfileIds: [
+        ...new Set(destination.referenceProfileIds ?? []),
+      ].sort(),
+    }))
+    .sort((left, right) => left.spaceId.localeCompare(right.spaceId));
+  const db = requireAgentTaskCoordinationDb(env);
+  const member = await requireCenterAgentWakeMembers({
+    actorProfileId: authorization.actorProfileId,
+    db: requireCenterAgentDb(env),
+    organizationId: authorization.activeOrganization.organizationId,
+    targetProfileIds: [
+      ...new Set(
+        destinations.flatMap((destination) => destination.agentProfileIds)
+      ),
+    ],
+  });
+  for (const destination of destinations) {
+    await requireCenterAgentSpaceInActiveOrganization({
+      authorization,
+      env,
+      spaceId: destination.spaceId,
+    });
+  }
+  const parentSubmissionId = normalizeOptionalText(
+    authorization.context.agentControllerConversationId
+  );
+  if (!parentSubmissionId) {
+    throw createCoreRpcHttpError({
+      status: 409,
+      code: "center_agent.delegation_parent_unavailable",
+      reason:
+        "The active Center Agent task could not be linked to this delegation.",
+    });
+  }
+  const batchKey = hashClientMessageIdMaterial(
+    JSON.stringify({
+      destinations,
+      parentSubmissionId,
+      requestId: authorization.context.actorContext.requestId ?? null,
+      actorProfileId: authorization.actorProfileId,
+      onBehalfOf: request.onBehalfOf ?? null,
+      replyLanguageTag: request.replyLanguageTag ?? null,
+    })
+  );
+  const publicationIdAt = (index: number) =>
+    `ca-wake:batch:${batchKey}:${index}`;
+  const publicationIds = destinations.map((_, index) => publicationIdAt(index));
+  const rootId = publicationIdAt(0);
+  const firstDestination = destinations[0];
+  if (!firstDestination) {
+    throw new Error("Wake batch has no destinations");
+  }
+  const delegation = planCenterAgentWakeDelegation({
+    childSpaceId: firstDestination.spaceId,
+    clientMessageId: rootId,
+    targetProfileIds: firstDestination.agentProfileIds,
+    additionalDestinations: destinations.slice(1).map((destination, index) => ({
+      childSpaceId: destination.spaceId,
+      clientMessageId: publicationIdAt(index + 1),
+      targetProfileIds: destination.agentProfileIds,
+    })),
+  });
+  await requireCenterAgentContinuationParent({
+    actorProfileId: authorization.actorProfileId,
+    claimRoutineContinuation: false,
+    continuationDelegationId: delegation.delegationId,
+    destinationNeutralContinuations:
+      shouldWriteDestinationNeutralTaskContinuations(env),
+    db,
+    organizationId: authorization.activeOrganization.organizationId,
+    parentSubmissionId,
+    resumesParent: true,
+    routineDelegationCompletionMode: "resume_parent_when_all_terminal",
+  });
+  const attribution = await resolveCenterAgentAuditAttribution({
+    authorization,
+    onBehalfOfProfileId: request.onBehalfOf?.profileId ?? null,
+  });
+  const profile = buildProfileDisplay({
+    agentControllerRef: member.agentControllerRef,
+    ownerName: member.ownerName,
+    ownerUserId: member.ownerUserId,
+    profileId: member.profileId,
+    profileKind: "agent",
+    profileName: member.profileName,
+  });
+  await prepareCenterAgentWakePublicationBatch({
+    commands: destinations.map((destination, index) => ({
+      activationTargets: destination.agentProfileIds,
+      attribution,
+      batchRootPublicationId: rootId,
+      ...(index === 0 ? { batchPublicationIds: publicationIds } : {}),
+      clientMessageId: publicationIdAt(index),
+      completionMode: "resume_parent_when_all_terminal",
+      replyLanguageTag: request.replyLanguageTag,
+      context: authorization.context,
+      delegationId: delegation.delegationId,
+      fallbackAgentProfileId: null,
+      organizationId: authorization.activeOrganization.organizationId,
+      parentSubmissionId,
+      profile,
+      mentionTargets: destination.mentionProfileIds,
+      referenceTargets: destination.referenceProfileIds,
+      spaceAddressingVersion: OPENMELD_SPACE_ADDRESSING_VERSION,
+      spaceId: destination.spaceId,
+      subscriptionIds: delegation.childTasks
+        .filter((child) => child.task.spaceId === destination.spaceId)
+        .map((child) => child.subscriptionId),
+      text: destination.text,
+      v: 1,
+    })),
+    db,
+    destinationNeutralContinuations:
+      shouldWriteDestinationNeutralTaskContinuations(env),
+    nowMs: Date.now(),
+  });
+  // Persist the continuation before queued can end the parent turn.
+  // This is an acceptance receipt for the entire durable plan. Each Space's
+  // exact publication is independently redriven by the existing scheduler.
+  waitUntil(
+    Promise.allSettled(
+      publicationIds.map(async (publicationId) => {
+        await executeCenterAgentWakePublication({
+          db,
+          destinationNeutralContinuations:
+            shouldWriteDestinationNeutralTaskContinuations(env),
+          nowMs: Date.now(),
+          publicationId,
+          publishSignal: (command) =>
+            rpcPostCenterAgentWakePublicationSignal(env, command),
+          resolveSignal: (command) =>
+            rpcResolveCenterAgentWakePublicationSignal(env, command),
+        });
+      })
+    ).then((results) => {
+      for (const [index, result] of results.entries()) {
+        if (result.status === "rejected") {
+          console.error("[core.center_agent.wake_batch.publication_failed]", {
+            publicationId: publicationIds[index],
+            error:
+              result.reason instanceof Error
+                ? result.reason.message
+                : String(result.reason),
+          });
+        }
+      }
+    })
+  );
+  return centerAgentWakeAgentProfilesInSpacesResponseSchema.parse({
+    status: "queued",
+    delegationId: delegation.delegationId,
+    childTasks: delegation.childTasks,
+  });
+}
+
 export async function rpcCenterAgentWakeAgentProfilesInSpace(
   env: CoreBindings,
   input: CenterAgentWakeAgentProfilesInSpaceInput
@@ -16973,7 +17170,6 @@ async function isCenterAgentSpaceWakeWatchTargetRegistered(input: {
     );
     return (
       delegation.organizationId === input.organizationId &&
-      delegation.spaceId === input.task.spaceId &&
       (delegatedChild?.state === "active" ||
         delegatedChild?.state === "terminal")
     );
@@ -17218,7 +17414,7 @@ async function executeCenterAgentDelegatedWake(input: {
       spaceAddressingVersion: input.spaceAddressingVersion,
       spaceId: input.spaceId,
       subscriptionIds: delegation.subscriptionIds,
-      text: input.text,
+      text: buildDelegatedTaskText(input.text, input.replyLanguageTag),
       v: 1,
     },
     db: input.db,

@@ -1338,6 +1338,13 @@
       "when": 1790957116862,
       "tag": "0190_chemical_supreme_intelligence",
       "breakpoints": true
+    },
+    {
+      "idx": 191,
+      "version": "6",
+      "when": 1791042625847,
+      "tag": "0191_powerful_lord_hawal",
+      "breakpoints": true
     }
   ]
 }

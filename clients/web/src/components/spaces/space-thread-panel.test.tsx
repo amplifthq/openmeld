@@ -1081,6 +1081,7 @@ describe("SpaceThreadPanel", () => {
 			signals: [
 				createSystemNoticeSignal({
 					id: "sig-thread-stopped",
+					actorProfileId: TARGET_PROFILE_ID,
 					noticeType: "wake_stopped",
 					text: "Wake was stopped for Runner.",
 				}),

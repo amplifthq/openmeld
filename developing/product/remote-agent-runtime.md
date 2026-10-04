@@ -550,7 +550,9 @@ The first M2 increment provides an opt-in Core read projection through
 `authorizeRemoteAgentExecutionAccess(includeDelegatedRequester=true)`. It follows
 the exact recorded Space child task to its native Center parent, verifies the
 current Center designation, active human member and matching personal-Agent owner,
-and returns identity references only. It preserves the actual Agent execution
+and returns identity references only. In a multi-Space delegation, the matched
+child task owns its Space; the delegation's first Space does not restrict other
+recorded children. It preserves the actual Agent execution
 audience and checks the exact selected connection through the existing permission
 owner for source reads. It cannot authorize provider writes. No permanent grant
 or new persisted delegation state is created; clients without the opt-in retain

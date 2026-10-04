@@ -38,10 +38,12 @@ const HUMAN = "22222222-2222-4222-8222-222222222222";
 describe("delegated requester is a current projection of exact owner records", () => {
   it.each([
     "allowed",
+    "allowed_secondary_space",
     "revoked",
     "other_organization",
     "other_owner",
     "unrecorded_wake",
+    "wrong_space",
     "wrong_author",
     "cancelled",
     "changed_center",
@@ -154,8 +156,23 @@ describe("delegated requester is a current projection of exact owner records", (
           kind: "native_delivery",
           deliveryId: parent.deliveryId,
         },
-        spaceId: request.spaceId,
+        spaceId: scenario === "allowed" ? request.spaceId : "space-first",
         children: [
+          ...(scenario === "allowed"
+            ? []
+            : [
+                {
+                  agentProfileId: CHILD,
+                  role: "primary" as const,
+                  task: {
+                    v: 1 as const,
+                    kind: "space_wake" as const,
+                    spaceId: "space-first",
+                    sourceClientMessageId: "first-child-wake",
+                    targetProfileId: CHILD,
+                  },
+                },
+              ]),
           {
             agentProfileId: CHILD,
             role: "primary",
@@ -252,7 +269,7 @@ describe("delegated requester is a current projection of exact owner records", (
           requesterUserId: "another-user",
         })
       ).rejects.toThrow("no longer authorizes");
-      if (scenario === "allowed") {
+      if (scenario === "allowed" || scenario === "allowed_secondary_space") {
         harness.run({
           sql: "INSERT INTO connector_connections (connection_name, organization_id, user_id, scope, service, status, access_policy, created_at_ms, updated_at_ms) VALUES ('other-shared-account', 'org_123', 'user_1', 'shared', 'github', 'active', ?, 1, 1)",
           params: [
@@ -306,6 +323,9 @@ describe("delegated requester is a current projection of exact owner records", (
           ...delivery,
           sourceClientMessageId: "unrecorded-wake",
         };
+      }
+      if (scenario === "wrong_space") {
+        input.delivery = { ...delivery, spaceId: "unrecorded-space" };
       }
       if (scenario === "wrong_author") {
         input.request = {

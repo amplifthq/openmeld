@@ -27,6 +27,8 @@ const VITEST_TEST_SUFFIXES = [
   ".spec.jsx",
 ];
 const SCRIPT_ALIAS = /^pnpm run ([\w:-]+)$/u;
+const DISPATCH_COMMAND_PATH =
+  /[\\/]runtime[\\/]daemon[\\/](?:dispatch-space-actions[\\/][^\\/]+[\\/]bin|bin[\\/]dispatch-owned-cli)$/u;
 
 // Resolve plain unit-test aliases, never reinterpret shell pipelines or Worker
 // integration commands. Unsupported runners retain their package-owned command.
@@ -42,6 +44,28 @@ export function resolveUnitTestScript(
   const command = scripts?.[name];
   const alias = SCRIPT_ALIAS.exec(command ?? "");
   return alias ? resolveUnitTestScript(scripts, alias[1], seen) : command;
+}
+
+export function buildValidationEnvironment(source, lane, gitLocalNames) {
+  const environment = { ...source, OPENMELD_HOME: lane };
+  if (source.PATH) {
+    // A dispatch shim embeds its original authority and can restore it even
+    // after the environment markers are removed.
+    environment.PATH = source.PATH.split(path.delimiter)
+      .filter((entry) => !DISPATCH_COMMAND_PATH.test(entry))
+      .join(path.delimiter);
+  }
+  for (const name of Object.keys(environment)) {
+    if (
+      name.startsWith("OPENMELD_DISPATCH_") ||
+      name.startsWith("OPENMELD_SPACE_ACTION_") ||
+      name === "OPENMELD_USER_FACING_CLI_COMMAND" ||
+      gitLocalNames.includes(name)
+    ) {
+      delete environment[name];
+    }
+  }
+  return environment;
 }
 
 export function planPrChecks(paths, options = {}) {
@@ -281,14 +305,13 @@ export function runVerification(options = {}) {
     return 0;
   }
   const lane = mkdtempSync(path.join(tmpdir(), "openmeld-focused-checks-"));
-  const validationEnv = { ...process.env, OPENMELD_HOME: lane };
   // Hooks export repository-local Git state. Tests that create temporary repos
-  // must not inherit the pushed worktree's GIT_DIR/GIT_INDEX_FILE, etc.
-  for (const name of git(["rev-parse", "--local-env-vars"])
-    .trim()
-    .split(WHITESPACE)) {
-    delete validationEnv[name];
-  }
+  // must not inherit it or the launching Agent's live dispatch authority.
+  const validationEnv = buildValidationEnvironment(
+    process.env,
+    lane,
+    git(["rev-parse", "--local-env-vars"]).trim().split(WHITESPACE)
+  );
   try {
     console.log(
       `Focused validation: ${base}...HEAD; isolated OPENMELD_HOME=${lane}`
