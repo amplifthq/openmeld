@@ -11,7 +11,9 @@
     "check": "tsc --noEmit"
   },
   "dependencies": {
+    "@openmeld/auth": "workspace:*",
     "@openmeld/db": "workspace:*",
+    "@openmeld/projects": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "pg": "8.23.1",
     "pg-copy-streams": "7.0.0"

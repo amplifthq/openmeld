@@ -455,6 +455,13 @@ The path-filtered `.github/workflows/postgresql-foundation.yml` installs PG18
 from the official PostgreSQL apt repository and runs the same isolated checks.
 It never receives Doppler, PlanetScale, or Cloudflare credentials.
 
+Build the acceptance package's dependency graph before its standalone typecheck:
+`pnpm exec turbo run build --filter=@openmeld/postgresql^...`. Its real business
+acceptance imports Auth/Profile and Core/Project owners, whose package exports
+require the Auth and Projects build outputs as well as the native database.
+`tooling/postgresql/package.json` declares those dependencies so a clean runner
+does not rely on artifacts left by unrelated local builds.
+
 Run the same `pnpm pg:check` locally and in CI with ephemeral PostgreSQL 18.
 It exercises baseline, repeated application, upgrade with preserved data,
 checksum drift, concurrency, rollback, runtime permission denial, database
