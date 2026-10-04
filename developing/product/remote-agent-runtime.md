@@ -544,7 +544,36 @@ attribution, and destructive-action confirmation remain authoritative. Actions
 requiring a represented human still require the verified current human sender;
 an Agent-to-Agent handoff must not impersonate its owner to obtain those actions.
 General Computer, research, and current-Space collaboration tools remain usable
-on Agent handoffs. Recorded Center delegations have the narrow read path below.
+on Agent handoffs. Recorded Center delegations use the constrained paths below.
+
+Personal Remote Agents can read one current-Space message through
+`openmeld_read_space_evidence`, including a thread reply, and page a named thread
+through `openmeld_read_space_thread`. Exact reads reuse the existing
+`sourceRef.version`; an unavailable version or recalled message fails instead
+of substituting newer text. Long text uses bounded character pages with the
+same version on each continuation. Thread evidence pages fingerprint the complete
+current ordered source set; edits, recall, additions, or a different thread
+reject the old version. Up to 10,000 messages and 8 MiB of source envelopes are
+supported; larger sources fail explicitly. A page exposes at most 20 messages
+and 4,000 Unicode characters. Truncated messages retain exact message references
+for their remaining text. `openmeld_read_space_file_evidence` similarly reads
+4,000 characters at a time from a required Files revision and reopens that
+revision through the Files owner for every page. Each call rechecks the active execution and
+current Space membership, then reads through the ordinary Space owner. These
+tools do not authorize another Space, confer delegated Plugin permission, or
+publish private excerpts.
+
+Wake `evidenceRefs` name message/thread versions and Files revisions. The existing
+Signal metadata and dispatch outbox retain this selection. The shared source-text
+renderer carries its structured JSON to Local and Remote executions. Local
+`read_evidence`, `read_thread`, and `read_file` use the same source owners and
+version semantics. References do not widen access beyond the current Space;
+selected private material for another audience requires an explicit Files copy.
+Local transport keeps the existing wire shape by rendering references into the
+source text and removing the new snapshot field before sending to older Services.
+An older reader cannot claim exact evidence support merely because it sees the
+reference. The older live-thread RPC remains available for old callers, while
+new exact-thread calls use a distinct operation that older Core rejects.
 
 The first M2 increment provides an opt-in Core read projection through
 `authorizeRemoteAgentExecutionAccess(includeDelegatedRequester=true)`. It follows
@@ -557,6 +586,26 @@ audience and checks the exact selected connection through the existing permissio
 owner for source reads. It cannot authorize provider writes. No permanent grant
 or new persisted delegation state is created; clients without the opt-in retain
 their existing behavior.
+
+Ordinary non-GitHub Plugin reads and writes additionally require explicit
+`pluginActions` on the existing recorded Wake publication. Core fixes each
+target Agent, original human, Organization, connection owner/scope/version,
+action effect, exact input digest, and expiry (at most 24 hours). This constraint
+is part of the immutable publication command, not a separate permission store.
+The current delegation, human membership, target ownership, and connection
+access policy are rechecked before execution and retained-result disclosure.
+The requester must own the target personal Agent; shared access and Agent
+ownership never substitute for missing authorization. A child cannot redelegate.
+
+Remote callers opt into `includePluginDelegations` to discover these constraints;
+an older Core fails closed. Local callers carry the private execution-token echo
+from their admitted dispatch context. RuntimeCoordinator validates it against
+the live authority and exact binding, dispatch, Space, source message, and target.
+The token is neither a model argument nor a public receipt. A dispatch ledger row
+alone cannot authorize a delegated Local action. Older Local clients keep their
+previous behavior and cannot use the new delegation path without this proof.
+Local and Remote retain their respective current connection policies. Generic
+delegation does not relax GitHub's separate policy or destructive confirmations.
 
 Personal Remote GitHub named read tools and `github_checkout_repository` consume
 this projection for recorded Center-to-personal-Agent Space delegations. The

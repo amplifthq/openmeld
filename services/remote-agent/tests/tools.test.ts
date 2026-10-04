@@ -7052,6 +7052,42 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
     },
     {
       expectedPayload: {
+        requestedAddressingModel: "wake_reference_mention",
+        scope: "thread_evidence",
+        threadId: "thr_11111111-1111-4111-8111-111111111111",
+        spaceId: SPACE_ID,
+        offset: 20,
+        version: `sha256:${"a".repeat(64)}`,
+      },
+      input: {
+        scope: "thread_evidence",
+        threadId: "thr_11111111-1111-4111-8111-111111111111",
+        spaceId: SPACE_ID,
+        offset: 20,
+        version: `sha256:${"a".repeat(64)}`,
+      },
+      response: {
+        organizationId: "org_123",
+        spaceId: SPACE_ID,
+        context: {
+          scope: "thread_evidence",
+          sourceRef: {
+            kind: "thread",
+            spaceId: SPACE_ID,
+            threadId: "thr_11111111-1111-4111-8111-111111111111",
+            version: `sha256:${"a".repeat(64)}`,
+          },
+          messages: [],
+          offset: 20,
+          nextOffset: null,
+          truncated: false,
+        },
+      },
+      rpcName: "centerAgentReadSpaceContext",
+      toolName: "openmeld_read_space_context",
+    },
+    {
+      expectedPayload: {
         parentId: null,
         speakerMember: { memberId: "member_123", userId: "user_1" },
       },

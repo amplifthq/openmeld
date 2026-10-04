@@ -1,10 +1,10 @@
+import { buildCenterAgentContextMessageProjection } from "@openmeld/protocol";
 import type {
   SignalEnvelope,
   SpaceMessageReactions,
 } from "@openmeld/schemas/types";
 import { buildSignalMessageReadProjection } from "@openmeld/space";
 import { describe, expect, it } from "vitest";
-import { buildCenterAgentContextMessageProjection } from "../src/center-agent/application/center-agent-context-manifest-service";
 
 const reactions: SpaceMessageReactions = {
   version: 1,

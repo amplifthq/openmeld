@@ -1,10 +1,14 @@
-import { buildProfileDisplay } from "@openmeld/protocol";
+import {
+  buildCenterAgentContextMessageProjection,
+  buildProfileDisplay,
+  buildSpaceMessageEvidence,
+  buildSpaceThreadEvidence,
+} from "@openmeld/protocol";
 import {
   HOSTED_REMOTE_AGENT_CONTROLLER_REF,
   personalRemoteAgentSpaceToolRequestSchema,
   personalRemoteAgentSpaceToolResponseSchema,
 } from "@openmeld/schemas";
-import { buildCenterAgentContextMessageProjection } from "../../center-agent/application/center-agent-context-manifest-service";
 import {
   isCenterAgentDesignationActive,
   readCenterAgentDesignationRecord,
@@ -17,11 +21,14 @@ import {
 } from "../../lib/bindings";
 import { createCoreRpcHttpError } from "../../rpc/errors";
 import {
+  rpcCenterAgentReadSpaceFile,
   rpcGetSpaceBoard,
   rpcGetSpaceMemberDirectory,
+  rpcGetSpaceThread,
   rpcGetSpaceUpdates,
   rpcGetSpaceWakeProgress,
   rpcListSignals,
+  rpcListSpaceThreadSignals,
   rpcPostSignalOnceByClientMessageId,
   rpcPostSpaceWakeStop,
 } from "../../rpc/methods";
@@ -220,6 +227,32 @@ async function resolvePersonalAgentWakeControlSpace(
   return spaceId;
 }
 
+function projectPersonalUpdates(
+  updates: Awaited<ReturnType<typeof rpcGetSpaceUpdates>>
+) {
+  return updates.signals.filter(isFormalSpaceUpdateSignal).map((signal) => {
+    const text = signal.data.text ?? "";
+    return {
+      id: signal.id,
+      profileId: resolveFormalSpaceUpdateActorProfileId(signal),
+      profileName: resolveFormalSpaceUpdateActorName(signal),
+      type: signal.type,
+      text: text.slice(0, 4000),
+      truncated: text.length > 4000,
+    };
+  });
+}
+
+async function requirePersonalReplyPlacement(
+  input: Parameters<typeof resolveNativeDeliveryReplyPlacement>[0]
+) {
+  const placement = await resolveNativeDeliveryReplyPlacement(input);
+  if (!placement) {
+    throw new Error("remote_agent.reply_placement_unavailable");
+  }
+  return placement;
+}
+
 export async function runPersonalRemoteAgentSpaceTool(
   env: CoreBindings,
   value: unknown
@@ -261,15 +294,12 @@ export async function runPersonalRemoteAgentSpaceTool(
     });
   }
   if (input.operation.kind === "reply_placement") {
-    const placement = await resolveNativeDeliveryReplyPlacement({
+    const placement = await requirePersonalReplyPlacement({
       env,
       delivery,
       lock: false,
       placement: input.operation.placement,
     });
-    if (!placement) {
-      throw new Error("remote_agent.reply_placement_unavailable");
-    }
     return personalRemoteAgentSpaceToolResponseSchema.parse({
       kind: "reply_placement",
       placement,
@@ -293,16 +323,7 @@ export async function runPersonalRemoteAgentSpaceTool(
     });
     return personalRemoteAgentSpaceToolResponseSchema.parse({
       kind: "updates",
-      signals: updates.signals
-        .filter(isFormalSpaceUpdateSignal)
-        .map((signal) => ({
-          id: signal.id,
-          profileId: resolveFormalSpaceUpdateActorProfileId(signal),
-          profileName: resolveFormalSpaceUpdateActorName(signal),
-          type: signal.type,
-          text: (signal.data.text ?? "").slice(0, 4000),
-          truncated: (signal.data.text?.length ?? 0) > 4000,
-        })),
+      signals: projectPersonalUpdates(updates),
     });
   }
   if (input.operation.kind === "messages") {
@@ -324,6 +345,47 @@ export async function runPersonalRemoteAgentSpaceTool(
       kind: "messages",
       messages: projection.entries,
       truncated: projection.budget.truncated,
+    });
+  }
+  if (input.operation.kind === "evidence") {
+    return await readPersonalMessageEvidence({
+      env,
+      context,
+      spaceId: delivery.spaceId,
+      operation: input.operation,
+    });
+  }
+  if (input.operation.kind === "file_evidence") {
+    return await readPersonalFileEvidence({
+      env,
+      context,
+      spaceId: delivery.spaceId,
+      operation: input.operation,
+    });
+  }
+  if (input.operation.kind === "thread_evidence") {
+    const selection = {
+      context,
+      spaceId: delivery.spaceId,
+      threadId: input.operation.threadId,
+    };
+    const thread = await rpcGetSpaceThread(env, selection);
+    const page = await rpcListSpaceThreadSignals(env, selection);
+    return personalRemoteAgentSpaceToolResponseSchema.parse({
+      kind: "thread_evidence",
+      ...(await buildSpaceThreadEvidence({
+        ...input.operation,
+        thread: thread.thread,
+        signals: page.signals,
+      })),
+    });
+  }
+  if (input.operation.kind === "thread") {
+    return await readPersonalSpaceThread({
+      env,
+      context,
+      spaceId: delivery.spaceId,
+      operation: input.operation,
     });
   }
   if (input.operation.kind === "members") {
@@ -394,5 +456,135 @@ export async function runPersonalRemoteAgentSpaceTool(
     // caller-supplied ID, which also proves that the caller knows this field.
     ...(operation.clientMessageId ? { clientMessageId } : {}),
     agentProfileId: target.profileId,
+  });
+}
+
+type PersonalEvidenceInput<Kind extends "evidence" | "file_evidence"> = {
+  env: CoreBindings;
+  context: Awaited<
+    ReturnType<typeof requirePersonalRemoteAgentExecution>
+  >["context"];
+  spaceId: string;
+  operation: Extract<
+    ReturnType<
+      typeof personalRemoteAgentSpaceToolRequestSchema.parse
+    >["operation"],
+    { kind: Kind }
+  >;
+};
+
+async function readPersonalMessageEvidence({
+  env,
+  context,
+  spaceId,
+  operation,
+}: PersonalEvidenceInput<"evidence">) {
+  const page = await rpcListSignals(env, {
+    context,
+    spaceId,
+    aroundSignalId: operation.sourceSignalId,
+    beforeCount: 0,
+    afterCount: 0,
+    signalTypes: ["signal.text"],
+  });
+  const signal = page.signals.find(
+    (candidate) => candidate.id === operation.sourceSignalId
+  );
+  if (!signal || signal.type !== "signal.text") {
+    throw new Error(
+      "space.evidence_unavailable: The requested message is unavailable."
+    );
+  }
+  return personalRemoteAgentSpaceToolResponseSchema.parse({
+    kind: "evidence",
+    ...(await buildSpaceMessageEvidence({ ...operation, signal, spaceId })),
+  });
+}
+
+async function readPersonalFileEvidence({
+  env,
+  context,
+  spaceId,
+  operation,
+}: PersonalEvidenceInput<"file_evidence">) {
+  const { fileId, revision, offset = 0 } = operation;
+  const result = await rpcCenterAgentReadSpaceFile(env, {
+    context,
+    spaceId,
+    fileId,
+    revision,
+  });
+  if (result.revision.revision !== revision || result.file.id !== fileId) {
+    throw new Error("space.evidence_version_unavailable");
+  }
+  const characters = Array.from(result.content);
+  if (offset > characters.length) {
+    throw new Error("space.evidence_offset_invalid");
+  }
+  const end = Math.min(characters.length, offset + 4000);
+  return personalRemoteAgentSpaceToolResponseSchema.parse({
+    kind: "file_evidence",
+    fileId,
+    revision,
+    offset,
+    nextOffset: end < characters.length ? end : null,
+    text: characters.slice(offset, end).join(""),
+  });
+}
+
+async function readPersonalSpaceThread(input: {
+  env: CoreBindings;
+  context: Awaited<
+    ReturnType<typeof requirePersonalRemoteAgentExecution>
+  >["context"];
+  spaceId: string;
+  operation: Extract<
+    ReturnType<
+      typeof personalRemoteAgentSpaceToolRequestSchema.parse
+    >["operation"],
+    { kind: "thread" }
+  >;
+}) {
+  const { env, context, spaceId } = input;
+  const { threadId, afterSignalId, limit = 20 } = input.operation;
+  const thread = await rpcGetSpaceThread(env, { context, spaceId, threadId });
+  const replies = await rpcListSpaceThreadSignals(env, {
+    context,
+    spaceId,
+    threadId,
+    afterSignalId: afterSignalId ?? thread.thread.rootSignalId,
+    limit: limit + 1,
+  });
+  const candidates = [
+    ...(!afterSignalId && thread.rootSignal ? [thread.rootSignal] : []),
+    ...replies.signals,
+  ];
+  const page = candidates.slice(0, limit);
+  const signals = page.filter(
+    (signal) =>
+      signal.type === "signal.text" &&
+      signal.data.meta?.recalledAt === undefined
+  );
+  // The projection budgets newest-first. Reverse this forward page so budget
+  // pressure cannot skip its first unread message and advance beyond it.
+  const projection = await buildCenterAgentContextMessageProjection({
+    hasOlderMessages: false,
+    limit,
+    maxContextTokens: 8192,
+    signals: signals.toReversed(),
+    spaceId,
+  });
+  const messages = projection.entries.toReversed();
+  const budgetLimited = messages.length < signals.length;
+  const more = candidates.length > limit || budgetLimited;
+  const lastRead = budgetLimited
+    ? messages.at(-1)?.sourceRef.id
+    : page.at(-1)?.id;
+  return personalRemoteAgentSpaceToolResponseSchema.parse({
+    kind: "thread",
+    threadId,
+    messages,
+    nextAfterSignalId: more ? (lastRead ?? null) : null,
+    truncated: more || projection.budget.truncated,
   });
 }

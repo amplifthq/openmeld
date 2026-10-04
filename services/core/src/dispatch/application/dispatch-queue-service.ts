@@ -1998,6 +1998,8 @@ const acceptRuntimeCoordinatorHeadBeforeFreshExecution = async (input: {
     return { status: "skip_duplicate" };
   }
   const acceptedDispatchSnapshot = await buildAcceptedDispatchSnapshot({
+    env: input.env,
+    targetOwnerUserId: input.targetOwnerUserId,
     message: input.dispatchMessage,
     openMeldServiceRuntimeId: input.openMeldServiceRuntimeId,
     runtimeKind: input.runtimeKind,

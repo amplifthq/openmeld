@@ -642,8 +642,15 @@ function createContext(
   source: ContextSource | null
 ): ContextRecord {
   const selection = request.selection;
+  const inheritsAgentSettings =
+    request.ownerRequested === true &&
+    snapshot.controllerSnapshot.agentControllerRef === "builtin:codex" &&
+    selection.mode !== "resume" &&
+    !selection.access &&
+    (!source ||
+      source.context.assignment.permissionSource === "agent_settings");
   const implicitPreferences =
-    selection.mode === "auto" &&
+    (selection.mode === "auto" || inheritsAgentSettings) &&
     !source &&
     snapshot.controllerSnapshot.agentControllerRef === "builtin:codex"
       ? ({ access: "workspace", workspace: "current" } as const)
@@ -658,6 +665,9 @@ function createContext(
       version: 1,
       id: crypto.randomUUID(),
       scope: request.scope,
+      ...(inheritsAgentSettings
+        ? { permissionSource: "agent_settings" as const }
+        : {}),
       access:
         preferences.access ??
         source?.context.assignment.access ??

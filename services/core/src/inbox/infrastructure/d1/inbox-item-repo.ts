@@ -263,6 +263,7 @@ function readInboxTargetScope(
     case "organization_document":
     case "computer_connection":
     case "desktop_update":
+    case "plugin_action_request":
     case "settings":
       return null;
     default:

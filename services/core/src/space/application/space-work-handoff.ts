@@ -1,6 +1,7 @@
 import type { SignalEnvelope } from "@openmeld/protocol";
 import {
   SPACE_FILE_RAW_UPLOAD_MAX_BYTES,
+  spaceEvidenceReferencesSchema,
   spaceWorkHandoffSchema,
 } from "@openmeld/schemas";
 import type { SpaceMessageFileReference } from "@openmeld/schemas/types";
@@ -12,6 +13,7 @@ export function assertSameSpaceWorkHandoff(input: {
   existing: SignalEnvelope;
   authorProfileId: string;
   handoff: unknown;
+  evidenceRefs?: unknown;
   text: string;
   targetProfileIds: string[];
 }) {
@@ -19,17 +21,23 @@ export function assertSameSpaceWorkHandoff(input: {
     return;
   }
   const previous = input.existing.data.meta?.workHandoff;
-  if (!(previous || input.handoff)) {
+  const previousRefs = input.existing.data.meta?.evidenceRefs;
+  if (!(previous || input.handoff || previousRefs || input.evidenceRefs)) {
     return;
   }
   if (
-    !(previous && input.handoff) ||
     input.existing.profile.profileId !== input.authorProfileId ||
     input.existing.data.text !== input.text.trim() ||
     JSON.stringify(input.existing.data.messageEnvelope?.activationTargets) !==
       JSON.stringify(input.targetProfileIds) ||
-    JSON.stringify(spaceWorkHandoffSchema.parse(previous)) !==
-      JSON.stringify(spaceWorkHandoffSchema.parse(input.handoff))
+    JSON.stringify(spaceWorkHandoffSchema.optional().parse(previous)) !==
+      JSON.stringify(spaceWorkHandoffSchema.optional().parse(input.handoff)) ||
+    JSON.stringify(
+      spaceEvidenceReferencesSchema.optional().parse(previousRefs)
+    ) !==
+      JSON.stringify(
+        spaceEvidenceReferencesSchema.optional().parse(input.evidenceRefs)
+      )
   ) {
     throw createCoreRpcHttpError({
       status: 409,

@@ -42,32 +42,43 @@ export const executionContextScopeSchema = z.strictObject({
 // Created by Core from an authorized Space message, never supplied by a client.
 export const executionContextRequestSchema = z.strictObject({
   required: z.boolean().optional(),
+  // Core resolves this from current identity or recorded delegation, not text.
+  ownerRequested: z.literal(true).optional(),
   scope: executionContextScopeSchema,
   selection: executionContextSelectionSchema,
 });
 
-export const executionContextAssignmentSchema = z.strictObject({
-  version: z.literal(1),
-  id: z.string().uuid(),
-  scope: executionContextScopeSchema,
-  access: executionContextAccessSchema,
-  workspace,
-  forkSource: z
-    .strictObject({
-      contextId: z.string().uuid(),
-      sourceWakeId: reference,
-      nativeConversationId: reference,
-      // Absent when the boundary is confirmed by read-only preparation instead
-      // of by a frozen checkpoint: the source may be a thread OpenMeld never
-      // finished a turn on, and only the harness can say where its settled
-      // history ends. Core still names the exact source context, Wake, native
-      // conversation, and workspace the fork must inherit.
-      completedHistoryId: reference.optional(),
-      runtimeWorkspaceFingerprint: reference,
-      workspace,
-    })
-    .optional(),
-});
+export const executionContextAssignmentSchema = z
+  .strictObject({
+    version: z.literal(1),
+    id: z.string().uuid(),
+    scope: executionContextScopeSchema,
+    access: executionContextAccessSchema,
+    // Absent on retained tasks: their original folder boundary still applies.
+    permissionSource: z.literal("agent_settings").optional(),
+    workspace,
+    forkSource: z
+      .strictObject({
+        contextId: z.string().uuid(),
+        sourceWakeId: reference,
+        nativeConversationId: reference,
+        // Absent when the boundary is confirmed by read-only preparation instead
+        // of by a frozen checkpoint: the source may be a thread OpenMeld never
+        // finished a turn on, and only the harness can say where its settled
+        // history ends. Core still names the exact source context, Wake, native
+        // conversation, and workspace the fork must inherit.
+        completedHistoryId: reference.optional(),
+        runtimeWorkspaceFingerprint: reference,
+        workspace,
+      })
+      .optional(),
+  })
+  .refine(
+    (context) => !context.permissionSource || context.access === "workspace",
+    {
+      message: "Task restrictions cannot inherit broader Agent permissions.",
+    }
+  );
 
 export const executionContextCompletionSchema = z.strictObject({
   contextId: z.string().uuid(),
@@ -87,7 +98,7 @@ export const executionContextLegacyAssociationSchema = z.strictObject({
 });
 
 export const executionContextTaskSchema =
-  executionContextAssignmentSchema.extend({
+  executionContextAssignmentSchema.safeExtend({
     legacyAssociation: executionContextLegacyAssociationSchema.optional(),
     nativeConversationId: reference.nullable(),
     runtimeWorkspaceFingerprint: reference.nullable(),

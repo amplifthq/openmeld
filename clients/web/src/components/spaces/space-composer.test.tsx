@@ -23,6 +23,10 @@ afterEach(cleanup);
 
 it.each([
 	{
+		choice: "New task",
+		selection: { mode: "new" },
+	},
+	{
 		choice: "New project task",
 		selection: { mode: "new", access: "workspace", workspace: "isolated" },
 	},
@@ -38,7 +42,7 @@ it.each([
 			onChange={onChange}
 			requiresProjectContainer={true}
 			sources={[]}
-			supportsCurrentFolder={false}
+			supportsCurrentFolder={input.choice === "New task"}
 			targetProfileId="agent"
 		/>
 	);

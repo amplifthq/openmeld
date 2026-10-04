@@ -1527,8 +1527,7 @@ class CodexAppServerSession {
       cwd: tmpdir(),
       env: launch.env,
       shell: launch.shell ?? false,
-      ...(this.#computerFileAccessBoundary?.executionContextAccess &&
-      this.#env?.OPENMELD_PROCESS_SUPERVISION_ID
+      ...(this.#env?.OPENMELD_PROCESS_SUPERVISION_ID
         ? { supervisionId: this.#env.OPENMELD_PROCESS_SUPERVISION_ID }
         : {}),
     });

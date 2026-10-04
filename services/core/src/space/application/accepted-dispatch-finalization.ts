@@ -148,6 +148,9 @@ function buildSourceSignalSnapshot(
         }
       : {}),
     text,
+    ...(sourceSignal.data.meta?.evidenceRefs
+      ? { evidenceRefs: sourceSignal.data.meta.evidenceRefs }
+      : {}),
     ...(sourceSignal.data.meta?.workHandoff
       ? { workHandoff: sourceSignal.data.meta.workHandoff }
       : {}),

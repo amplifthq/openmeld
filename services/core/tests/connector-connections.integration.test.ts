@@ -7,9 +7,16 @@ import type {
   PluginRuntimeResponse,
 } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
+import { createSubmitTurnRequestV2 } from "../../remote-agent/tests/fixtures";
 import capturedActions from "../../remote-agent/tests/fixtures/openconnector-runtime-actions.json";
+import {
+  activateAgentDelegationChildren,
+  createAgentDelegation,
+} from "../src/agent-task-coordination/infrastructure/d1/agent-delegation-repo";
+import { prepareDelegatedPluginActions } from "../src/center-agent/application/delegated-plugin-authorization";
 import { prepareCenterAgentRepresentedMemberRequest } from "../src/center-agent/application/represented-member-request";
 import { recordCenterAgentConnectorActionOperation } from "../src/center-agent/connector-action-operation-repository";
+import { prepareCenterAgentWakePublicationRecord } from "../src/center-agent/infrastructure/d1/center-agent-wake-publication-repo";
 import {
   createConnectorConnectionName,
   createSharedConnectorConnectionName,
@@ -24,10 +31,14 @@ import {
   rpcListPluginAccess,
   rpcUpdatePluginAccess,
 } from "../src/connectors/plugin-access-rpc";
+import { rpcPluginActionRequest } from "../src/connectors/plugin-action-requests";
 import { rpcPluginAction } from "../src/connectors/plugin-actions";
+import { rpcGetInboxItem } from "../src/inbox/transport/rpc/inbox-rpc";
 import type { CoreBindings } from "../src/lib/bindings";
 import {
   markRemoteAgentNativeDeliveryAck,
+  persistRemoteAgentWorkerSubmitRequest,
+  readRemoteAgentNativeDeliveryByIdempotencyKey,
   upsertRemoteAgentNativeDeliveryRecord,
 } from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
 import {
@@ -46,6 +57,9 @@ import {
   rpcReadPendingGitHubAppInstallation,
   rpcReconcileCurrentOrganizationConnectorConnections,
 } from "../src/rpc/methods";
+import { issueRuntimeCoordinatorExecutionToken } from "../src/runtime-transport/application/runtime-coordinator-execution-token";
+import { writeRuntimeCoordinatorTokenAuthorityToStorage } from "../src/runtime-transport/application/runtime-coordinator-storage";
+import type { RuntimeTransportHub } from "../src/runtime-transport/transport/do/runtime-transport-hub";
 
 import { upsertSpaceMetaRecord } from "../src/space/infrastructure/sql/space-meta-repo";
 import { insertSignalRecord } from "../src/space/infrastructure/sql/space-signal-repo";
@@ -54,7 +68,622 @@ import type { Space } from "../src/space/transport/do/space";
 const CONNECTOR_CONNECTION_NAME_PATTERN =
   /^org_[A-Za-z0-9_-]{18}__user_[A-Za-z0-9_-]{18}__github$/u;
 
+describe("Local Plugin human request authority", () => {
+  it("distinguishes proposed dashboard names without disclosing bodies or secrets", async () => {
+    const f = await seedHumanPluginRequestFixture();
+    const captured = capturedActions.data[1];
+    if (!captured) {
+      throw new Error("Missing captured dashboard action");
+    }
+    const metadata = { ...captured, effect: "write" as const };
+    f.runtime.mockImplementation(async () => ({
+      status: "catalog",
+      actions: [metadata] as (typeof f.metadata)[],
+    }));
+    const views: { label: string; value: string }[][] = [];
+    for (const name of ["Intended dashboard", "Unrequested dashboard"]) {
+      f.input.request.action = {
+        ...f.action,
+        actionId: metadata.id,
+        operationId: name,
+        input: { name, body: "private-body-canary", token: "secret-canary" },
+      };
+      const request = await f.pending();
+      expect(request.targets).toEqual([
+        { label: "Dashboard name", value: name },
+      ]);
+      expect(JSON.stringify(request)).not.toContain("private-body-canary");
+      expect(JSON.stringify(request)).not.toContain("secret-canary");
+      views.push(request.targets);
+    }
+    expect(views[0]).not.toEqual(views[1]);
+    expect(f.executions()).toHaveLength(0);
+  });
+
+  it("requires the owner account principal and executes two independently approved manual requests", async () => {
+    const f = await seedHumanPluginRequestFixture();
+    const first = await f.pending();
+    expect(f.executions()).toHaveLength(0);
+    for (const callerPrincipalId of [undefined, "delegated-agent-principal"]) {
+      await expect(
+        rpcPluginActionRequest(f.core, {
+          ...f.command(first.requestId),
+          context: {
+            ...f.command(first.requestId).context,
+            actorContext: {
+              ...f.command(first.requestId).context.actorContext,
+              callerPrincipalId,
+            },
+          },
+          command: { operation: "approve", requestId: first.requestId },
+        })
+      ).rejects.toThrow();
+    }
+    await expect(
+      rpcPluginActionRequest(f.core, {
+        ...f.command(first.requestId),
+        context: f.input.context,
+        command: {
+          operation: "approve",
+          requestId: first.requestId,
+        },
+      })
+    ).rejects.toThrow();
+    const approved = await Promise.all([
+      f.decide(first.requestId, "approve"),
+      f.decide(first.requestId, "approve"),
+    ]);
+    expect(approved.map((request) => request.requestId)).toEqual([
+      first.requestId,
+      first.requestId,
+    ]);
+    expect((await f.decide(first.requestId, "approve")).state).toBe("approved");
+    await Promise.all([
+      rpcPluginAction(f.core, f.input),
+      rpcPluginAction(f.core, f.input),
+    ]);
+    expect(f.executions()).toHaveLength(1);
+    f.input.request.action = {
+      ...f.action,
+      operationId: "explicit-second-request",
+    };
+    const second = await f.pending();
+    expect(second.requestId).not.toBe(first.requestId);
+    expect(f.executions()).toHaveLength(1);
+    await f.decide(second.requestId, "approve");
+    await rpcPluginAction(f.core, f.input);
+    expect(f.executions()).toHaveLength(2);
+    const rows = await env.OPENMELD_DB.prepare(
+      "SELECT state FROM plugin_action_requests WHERE organization_id = ?"
+    )
+      .bind(f.organizationA)
+      .all<{ state: string }>();
+    expect(rows.results.map((row) => row.state)).toEqual([
+      "approved",
+      "approved",
+    ]);
+  });
+
+  it("retains old unknown results while omitted dispatch, new IDs, and cold clients cannot issue replacement writes", async () => {
+    const f = await seedHumanPluginRequestFixture();
+    f.runtime.mockImplementation(async (request) =>
+      request.operation === "list"
+        ? { status: "catalog", actions: [f.metadata] }
+        : {
+            status: "outcome_unknown",
+            providerExecutionId: null,
+            error: "Synthetic lost provider response",
+          }
+    );
+    const original = await f.pending();
+    await f.decide(original.requestId, "approve");
+    await rpcPluginAction(f.core, f.input);
+    expect(f.executions()).toHaveLength(1);
+    // A retained pre-contract unknown has no request/root record. Do not
+    // fabricate a backfill from its irreversible signature.
+    await env.OPENMELD_DB.prepare(
+      "DELETE FROM plugin_action_requests WHERE id = ?"
+    )
+      .bind(original.requestId)
+      .run();
+    for (const label of [
+      "resume",
+      "fork",
+      "cold-start",
+      "child-without-dispatch",
+    ]) {
+      const reply = await rpcPluginAction(
+        { ...f.core },
+        {
+          ...f.input,
+          request: {
+            includeRecoveryReceipt: true,
+            includeRequestAuthorization: true,
+            action: { ...f.action, operationId: label },
+          },
+        }
+      );
+      expect(reply.kind).toBe("authorization_required");
+    }
+    const receipt = await rpcPluginAction(f.core, {
+      ...f.input,
+      request: { ...f.input.request, action: { ...f.action, replay: true } },
+    });
+    expect(receipt).toMatchObject({
+      kind: "execution",
+      status: "outcome_unknown",
+      replay: { allowed: false },
+    });
+    expect(f.executions()).toHaveLength(1);
+    expect(
+      (
+        await env.OPENMELD_DB.prepare(
+          "SELECT status FROM center_agent_connector_action_operations WHERE organization_id = ?"
+        )
+          .bind(f.organizationA)
+          .first<{ status: string }>()
+      )?.status
+    ).toBe("outcome_unknown");
+  });
+
+  it.each([
+    "reject",
+    "expire",
+    "revoke",
+    "input",
+    "account",
+  ] as const)("refuses %s changes without a provider call", async (mode) => {
+    const f = await seedHumanPluginRequestFixture();
+    const pending = await f.pending();
+    if (mode === "reject") {
+      await f.decide(pending.requestId, "reject");
+    } else if (mode === "expire") {
+      await env.OPENMELD_DB.prepare(
+        "UPDATE plugin_action_requests SET expires_at_ms = 1 WHERE id = ?"
+      )
+        .bind(pending.requestId)
+        .run();
+    } else if (mode === "revoke") {
+      await env.OPENMELD_DB.prepare(
+        "UPDATE connector_connections SET access_revision = access_revision + 1 WHERE connection_name = ?"
+      )
+        .bind(f.connection)
+        .run();
+    } else {
+      await f.decide(pending.requestId, "approve");
+      if (mode === "input") {
+        f.input.request.action = {
+          ...f.action,
+          input: { project: "different-target" },
+        };
+      } else {
+        await env.OPENMELD_DB.prepare(
+          "UPDATE connector_connections SET updated_at_ms = updated_at_ms + 1 WHERE connection_name = ?"
+        )
+          .bind(f.connection)
+          .run();
+      }
+    }
+    if (mode === "reject" || mode === "expire") {
+      expect(await rpcPluginAction(f.core, f.input)).toMatchObject({
+        kind: "authorization_required",
+        request: { state: mode === "reject" ? "rejected" : "expired" },
+      });
+    } else {
+      await expect(rpcPluginAction(f.core, f.input)).rejects.toThrow();
+    }
+    expect(f.executions()).toHaveLength(0);
+  });
+
+  it("keeps request details and Inbox recipients private and rejects approval after permission changes", async () => {
+    const f = await seedHumanPluginRequestFixture();
+    f.input.request.action = {
+      ...f.action,
+      input: {
+        project: "synthetic-target",
+        secret: "synthetic-private-secret",
+      },
+    };
+    const pending = await f.pending();
+    const other = {
+      ...f.command(pending.requestId),
+      context: {
+        ...f.input.context,
+        actorContext: {
+          ...f.input.context.actorContext,
+          ownerUserId: f.otherMemberA,
+          callerPrincipalId: f.otherMemberA,
+          openMeldProfileId: f.requesterProfileId,
+          profileKind: "human" as const,
+        },
+      },
+    };
+    await expect(rpcPluginActionRequest(f.core, other)).rejects.toThrow();
+    await expect(
+      rpcGetInboxItem(f.core, {
+        context: other.context,
+        itemId: pending.inboxItemId,
+      })
+    ).rejects.toThrow();
+    expect(
+      (
+        await rpcGetInboxItem(f.core, {
+          context: f.command(pending.requestId).context,
+          itemId: pending.inboxItemId,
+        })
+      ).item.sourceTarget
+    ).toEqual({ kind: "plugin_action_request", requestId: pending.requestId });
+    const inbox = await env.OPENMELD_DB.prepare(
+      "SELECT recipient_user_id, preview, source_target_json FROM inbox_items WHERE id = ?"
+    )
+      .bind(pending.inboxItemId)
+      .first();
+    expect(inbox).toMatchObject({ recipient_user_id: f.ownerA });
+    expect(JSON.stringify(inbox)).not.toContain("synthetic-private-secret");
+    expect(JSON.stringify(pending)).not.toContain("synthetic-private-secret");
+    await env.OPENMELD_DB.prepare(
+      "UPDATE connector_connections SET access_revision = access_revision + 1 WHERE connection_name = ?"
+    )
+      .bind(f.connection)
+      .run();
+    await expect(f.decide(pending.requestId, "approve")).rejects.toThrow();
+    expect(f.executions()).toHaveLength(0);
+  });
+});
+
+async function seedHumanPluginRequestFixture(
+  effect: "write" | "destructive" = "write"
+) {
+  const f = await seedLocalPluginFixture(effect, "write");
+  f.input.request.includeRequestAuthorization = true;
+  f.input.request.includeRecoveryReceipt = true;
+  const command = (requestId: string) => ({
+    expectedOrganizationId: f.organizationA,
+    context: {
+      ...f.input.context,
+      actorContext: {
+        ...f.input.context.actorContext,
+        profileKind: "human" as const,
+        openMeldProfileId: f.ownerProfileId,
+        callerPrincipalId: f.ownerA,
+      },
+    },
+    command: { operation: "read" as const, requestId },
+  });
+  return {
+    ...f,
+    command,
+    executions: () =>
+      f.runtime.mock.calls.filter(
+        ([request]) => request.operation === "execute"
+      ),
+    pending: async () => {
+      const reply = await rpcPluginAction(f.core, f.input);
+      if (reply.kind !== "authorization_required") {
+        throw new Error("Expected a pending request");
+      }
+      return reply.request;
+    },
+    decide: (requestId: string, operation: "approve" | "reject") =>
+      rpcPluginActionRequest(f.core, {
+        ...command(requestId),
+        command: { operation, requestId },
+      }),
+  };
+}
+
 describe("Local Agent plugin admission", () => {
+  it.each([
+    "read_failure",
+    "missing_submission",
+    "missing_row",
+  ] as const)("preserves the task fence and recovery when provenance has %s", async (failure) => {
+    const fixture = await seedConnectorFixture();
+    const center = await seedDesignatedCenterAgent(fixture);
+    const connectionName = await seedSharedConnectorConnection(
+      fixture,
+      "posthog"
+    );
+    const member = await env.OPENMELD_DB.prepare(
+      "SELECT id FROM members WHERE organization_id = ? AND user_id = ?"
+    )
+      .bind(fixture.organizationA, fixture.ownerA)
+      .first<{ id: string }>();
+    if (!member) {
+      throw new Error("Missing requester member");
+    }
+    const core = connectorCoreEnv();
+    const body = {
+      actionId: "posthog.create_dashboard",
+      connectionName,
+      context: center.context,
+      effect: "write" as const,
+      operationId: `provenance-${crypto.randomUUID()}`,
+      includeExecutionPermit: true as const,
+      outcome: "attempted" as const,
+      providerExecutionId: null,
+      requestSignature: "a".repeat(64),
+      service: "posthog" as const,
+      speakerMember: { memberId: member.id, userId: fixture.ownerA },
+    };
+    expect(
+      await rpcCenterAgentRecordConnectorActionOperation(core, body)
+    ).toMatchObject({ executionAllowed: true });
+    await rpcCenterAgentRecordConnectorActionOperation(core, {
+      ...body,
+      outcome: "outcome_unknown",
+    });
+    const replacement = {
+      ...body,
+      operationId: `${body.operationId}-replacement`,
+    };
+    expect(
+      await rpcCenterAgentRecordConnectorActionOperation(core, replacement)
+    ).toMatchObject({
+      executionAllowed: false,
+      operationId: body.operationId,
+      status: "outcome_unknown",
+    });
+    const unavailable = () => {
+      let failNextRead = true;
+      return failure === "read_failure"
+        ? {
+            ...core,
+            OPENMELD_WAKE_EVIDENCE_DB: new Proxy(env.OPENMELD_DB, {
+              get(target, property, receiver) {
+                if (property === "prepare") {
+                  return (query: string) => {
+                    if (failNextRead) {
+                      failNextRead = false;
+                      throw new Error("Injected provenance storage outage");
+                    }
+                    return target.prepare(query);
+                  };
+                }
+                return Reflect.get(target, property, receiver);
+              },
+            }),
+          }
+        : core;
+    };
+    const submissions = {
+      read_failure: body.context.agentControllerConversationId,
+      missing_submission: undefined,
+      missing_row: "absent-submission",
+    };
+    const context = {
+      ...body.context,
+      agentControllerConversationId: submissions[failure],
+    };
+    await expect(
+      rpcCenterAgentRecordConnectorActionOperation(unavailable(), {
+        ...replacement,
+        context,
+      })
+    ).rejects.toThrow("plugin.task_provenance_unavailable");
+    expect(
+      await rpcCenterAgentReadConnectorActionOperation(unavailable(), {
+        ...body,
+        context,
+      })
+    ).toMatchObject({
+      operation: { operationId: body.operationId, status: "outcome_unknown" },
+    });
+    expect(
+      await rpcCenterAgentRecordConnectorActionOperation(unavailable(), {
+        ...body,
+        context,
+        outcome: "completed",
+        providerExecutionId: "original-provider-result",
+      })
+    ).toMatchObject({ status: "completed", executionAllowed: false });
+    expect(
+      await rpcCenterAgentRecordConnectorActionOperation(unavailable(), {
+        ...replacement,
+        context,
+        actionId: "posthog.list_projects",
+        effect: "read",
+      })
+    ).toMatchObject({ executionAllowed: true });
+    const rows = await env.OPENMELD_DB.prepare(
+      "SELECT operation_id, status FROM center_agent_connector_action_operations WHERE organization_id = ? AND action_id = ?"
+    )
+      .bind(fixture.organizationA, body.actionId)
+      .all();
+    expect(rows.results).toEqual([
+      { operation_id: body.operationId, status: "completed" },
+    ]);
+  });
+  it.each([
+    false,
+    true,
+  ])("refuses execution after a denied legacy receipt (reconnected: %s)", async (reconnected) => {
+    const fixture = await seedConnectorFixture();
+    const center = await seedDesignatedCenterAgent(fixture);
+    const connectionName = await seedSharedConnectorConnection(
+      fixture,
+      "posthog"
+    );
+    const member = await env.OPENMELD_DB.prepare(
+      "SELECT id FROM members WHERE organization_id = ? AND user_id = ?"
+    )
+      .bind(fixture.organizationA, fixture.ownerA)
+      .first<{ id: string }>();
+    if (!member) {
+      throw new Error("Missing requester member");
+    }
+    const body = {
+      actionId: "posthog.create_project",
+      connectionName,
+      context: center.context,
+      effect: "write" as const,
+      operationId: `legacy-${crypto.randomUUID()}`,
+      includeExecutionPermit: true as const,
+      includeRecoveryWindow: true as const,
+      outcome: "attempted" as const,
+      providerExecutionId: null,
+      requestSignature: "a".repeat(64),
+      service: "posthog" as const,
+      speakerMember: { memberId: member.id, userId: fixture.ownerA },
+    };
+    const core = connectorCoreEnv();
+    await rpcCenterAgentRecordConnectorActionOperation(core, body);
+    await rpcCenterAgentRecordConnectorActionOperation(core, {
+      ...body,
+      outcome: "outcome_unknown",
+    });
+    await env.OPENMELD_DB.prepare(
+      "UPDATE center_agent_connector_action_operations SET connection_updated_at_ms = NULL WHERE operation_id = ?"
+    )
+      .bind(body.operationId)
+      .run();
+    if (reconnected) {
+      await env.OPENMELD_DB.prepare(
+        "UPDATE connector_connections SET updated_at_ms = updated_at_ms + 1 WHERE connection_name = ?"
+      )
+        .bind(connectionName)
+        .run();
+    }
+    const receipt = await rpcCenterAgentReadConnectorActionOperation(
+      core,
+      body
+    );
+    expect(receipt.operation?.replay).toEqual({
+      allowed: false,
+      reason: "original_account_unverified",
+    });
+    for (const claim of await Promise.all([
+      rpcCenterAgentRecordConnectorActionOperation(core, body),
+      rpcCenterAgentRecordConnectorActionOperation(core, body),
+    ])) {
+      expect(claim).toMatchObject({
+        executionAllowed: false,
+        status: "outcome_unknown",
+        operationId: body.operationId,
+      });
+    }
+    expect(
+      (await rpcCenterAgentReadConnectorActionOperation(core, body)).operation
+        ?.replay
+    ).toEqual({ allowed: false, reason: "original_account_unverified" });
+    expect(
+      await env.OPENMELD_DB.prepare(
+        "SELECT audit.id FROM center_agent_audit_journal audit JOIN center_agent_connector_action_operations operation ON audit.id = operation.id || ':replay_attempted' WHERE operation.operation_id = ?"
+      )
+        .bind(body.operationId)
+        .first()
+    ).toBeNull();
+  });
+
+  it("executes a recorded one-hop write and its verification through current Local admission", async () => {
+    const fixture = await seedHumanPluginRequestFixture();
+    const delegated = await seedLocalRecordedDelegation(fixture);
+    const readAction = {
+      ...fixture.metadata,
+      id: "fixture.verify",
+      effect: "read" as const,
+    };
+    const effects = new Map<string, unknown>();
+    fixture.runtime.mockImplementation((request) => {
+      if (request.operation === "list") {
+        return Promise.resolve({
+          status: "catalog",
+          actions: [fixture.metadata, readAction],
+        });
+      }
+      if (request.actionId === fixture.action.actionId) {
+        effects.set(request.idempotencyKey, request.input);
+      }
+      return Promise.resolve({
+        status: "completed",
+        providerExecutionId: "isolated-provider-result",
+        data:
+          request.actionId === readAction.id
+            ? [...effects.values()]
+            : request.input,
+        outputSchema: {},
+      });
+    });
+    const input: PluginActionRpcInput = {
+      ...fixture.input,
+      request: {
+        ...delegated.request,
+        includeRecoveryReceipt: true,
+        action: {
+          ...fixture.action,
+          input: { target: "isolated-A", text: "synthetic selection" },
+        },
+      },
+    };
+    const executeCalls = () =>
+      fixture.runtime.mock.calls.filter(
+        ([request]) => request.operation === "execute"
+      );
+    for (const changed of [
+      {
+        ...input.request,
+        executionTokenEcho: {
+          ...delegated.request.executionTokenEcho,
+          executionToken: `rcet_v1_${"b".repeat(64)}`,
+        },
+      },
+      {
+        ...input.request,
+        action: { ...fixture.action, input: { target: "isolated-B" } },
+      },
+      {
+        ...input.request,
+        action: { ...fixture.action, account: "personal" as const },
+      },
+    ]) {
+      await expect(
+        rpcPluginAction(fixture.core, { ...input, request: changed })
+      ).rejects.toThrow();
+      expect(executeCalls()).toHaveLength(0);
+      expect(effects.size).toBe(0);
+    }
+    expect(await rpcPluginAction(fixture.core, input)).toMatchObject({
+      status: "completed",
+      replayed: false,
+      data: { target: "isolated-A", text: "synthetic selection" },
+    });
+    expect(effects.size).toBe(1);
+    const verification: PluginActionRpcInput = {
+      ...input,
+      request: {
+        ...input.request,
+        action: {
+          ...fixture.action,
+          actionId: readAction.id,
+          operationId: "target-check",
+          input: { target: "isolated-A" },
+          verificationOf: {
+            actionId: fixture.action.actionId,
+            operationId: fixture.action.operationId,
+          },
+        },
+      },
+    };
+    expect(await rpcPluginAction(fixture.core, verification)).toMatchObject({
+      status: "completed",
+      data: [{ target: "isolated-A", text: "synthetic selection" }],
+      verificationOf: {
+        operationId: fixture.action.operationId,
+        interpretation: "read_evidence_only",
+      },
+    });
+    expect(executeCalls()).toHaveLength(2);
+    await env.OPENMELD_DB.prepare(
+      "UPDATE agent_delegations SET state = 'cancelled' WHERE delegation_id = ?"
+    )
+      .bind(delegated.delegationId)
+      .run();
+    await expect(rpcPluginAction(fixture.core, verification)).rejects.toThrow(
+      "recorded delegation"
+    );
+    expect(executeCalls()).toHaveLength(2);
+    expect(effects.size).toBe(1);
+  });
   it("keeps the Agent owner's private account out of another member's Wake", async () => {
     const fixture = await seedLocalPluginFixture("read", "read");
     const privateConnection = await createConnectorConnectionName({
@@ -181,7 +810,7 @@ describe("Local Agent plugin admission", () => {
     ).toHaveLength(0);
   });
 
-  it("records one execution and replays its frozen outcome after access is revoked", async () => {
+  it("retains the outcome but refuses receipt disclosure and new execution after access is revoked", async () => {
     const fixture = await seedLocalPluginFixture("read", "read");
     const first = await rpcPluginAction(fixture.core, fixture.input);
     expect(first).toMatchObject({
@@ -201,11 +830,9 @@ describe("Local Agent plugin admission", () => {
         fixture.connection
       )
       .run();
-    expect(await rpcPluginAction(fixture.core, fixture.input)).toMatchObject({
-      kind: "execution",
-      status: "completed",
-      replayed: true,
-    });
+    await expect(rpcPluginAction(fixture.core, fixture.input)).rejects.toThrow(
+      "Local Agent access was revoked"
+    );
     expect(
       fixture.runtime.mock.calls.filter(
         ([request]) => request.operation === "execute"
@@ -228,7 +855,9 @@ describe("Local Agent plugin admission", () => {
   });
 
   it("binds destructive confirmation to the exact action and current access revision", async () => {
-    const fixture = await seedLocalPluginFixture("destructive", "write");
+    const fixture = await seedHumanPluginRequestFixture("destructive");
+    const pending = await fixture.pending();
+    await fixture.decide(pending.requestId, "approve");
     const preview = await rpcPluginAction(fixture.core, fixture.input);
     expect(preview.kind).toBe("confirmation_required");
     if (preview.kind !== "confirmation_required") {
@@ -255,6 +884,17 @@ describe("Local Agent plugin admission", () => {
           action: { ...confirmed.request.action, input: { changed: true } },
         },
       })
+    ).rejects.toThrow("no longer matches");
+    await expect(
+      rpcPluginAction(fixture.core, {
+        ...confirmed,
+        request: {
+          action: {
+            ...confirmed.request.action,
+            confirmationToken: crypto.randomUUID(),
+          },
+        },
+      })
     ).rejects.toThrow("confirmation expired");
     await env.OPENMELD_DB.prepare(
       "UPDATE connector_connections SET access_revision = access_revision + 1 WHERE connection_name = ?"
@@ -262,8 +902,18 @@ describe("Local Agent plugin admission", () => {
       .bind(fixture.connection)
       .run();
     await expect(rpcPluginAction(fixture.core, confirmed)).rejects.toThrow(
-      "confirmation expired"
+      "no longer matches"
     );
+    const nextAction = {
+      ...fixture.action,
+      operationId: "new-destructive-request",
+    };
+    fixture.input.request = {
+      includeRequestAuthorization: true,
+      action: nextAction,
+    };
+    const newPending = await fixture.pending();
+    await fixture.decide(newPending.requestId, "approve");
     const next = await rpcPluginAction(fixture.core, fixture.input);
     if (next.kind !== "confirmation_required") {
       throw new Error("Expected confirmation");
@@ -273,7 +923,7 @@ describe("Local Agent plugin admission", () => {
         ...fixture.input,
         request: {
           action: {
-            ...fixture.action,
+            ...nextAction,
             confirmationToken: next.confirmationToken,
           },
         },
@@ -336,6 +986,387 @@ describe("Local Agent plugin admission", () => {
     ).toHaveLength(1);
   });
 });
+
+async function seedLocalRecordedDelegation(
+  fixture: Awaited<ReturnType<typeof seedLocalPluginFixture>>
+) {
+  const db = env.OPENMELD_DB;
+  const center = `agt_${crypto.randomUUID()}`;
+  const spaces = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+  const spaceId = spaces.newUniqueId().toString();
+  fixture.core.OPENMELD_SPACES = spaces;
+  const dispatchId = crypto.randomUUID();
+  const clientMessageId = crypto.randomUUID();
+  const sourceSignalId = crypto.randomUUID();
+  const delegationId = crypto.randomUUID();
+  const nowMs = Date.now();
+  await runInDurableObject(
+    spaces.get(spaces.idFromString(spaceId)),
+    (_instance, state) => {
+      const timestamp = new Date(nowMs).toISOString();
+      upsertSpaceMetaRecord(state.storage.sql, {
+        v: 1,
+        spaceId,
+        organizationId: fixture.organizationA,
+        visibility: "private",
+        accessMode: "members_only",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      });
+      insertSignalRecord(state.storage.sql, {
+        v: 1,
+        id: sourceSignalId,
+        spaceId,
+        ts: nowMs,
+        type: "signal.text",
+        profile: {
+          kind: "agent",
+          profileId: center,
+          profileName: "Synthetic Center",
+        },
+        data: {
+          text: "Use the isolated fixture.",
+          meta: { clientMessageId },
+          messageEnvelope: {
+            text: "Use the isolated fixture.",
+            activationTargets: [fixture.actor],
+            referenceTargets: [],
+          },
+        },
+      });
+    }
+  );
+  const member = await db
+    .prepare("SELECT id FROM members WHERE organization_id = ? AND user_id = ?")
+    .bind(fixture.organizationA, fixture.ownerA)
+    .first<{ id: string }>();
+  if (!member) {
+    throw new Error("Missing original member fixture");
+  }
+  await db
+    .prepare(
+      "INSERT INTO openmeld_profiles (profile_id, profile_name, profile_handle, profile_kind, organization_id, owner_user_id, source) VALUES (?, 'Synthetic Center', ?, 'agent', ?, ?, 'cli_create')"
+    )
+    .bind(center, center, fixture.organizationA, fixture.ownerA)
+    .run();
+  await db
+    .prepare(
+      "INSERT INTO center_agent_designations (organization_id, agent_profile_id, operating_state, created_at) VALUES (?, ?, 'active', ?)"
+    )
+    .bind(fixture.organizationA, center, nowMs)
+    .run();
+  await db
+    .prepare(
+      "UPDATE connector_connections SET access_policy = ? WHERE connection_name = ?"
+    )
+    .bind(
+      JSON.stringify({
+        center_agent: "write",
+        local_agent: "write",
+        remote_agent: "none",
+      }),
+      fixture.connection
+    )
+    .run();
+  const auth = fixture.core.OPENMELD_AUTH_WORKER;
+  if (!auth?.resolveProfileById) {
+    throw new Error("Missing identity fixture");
+  }
+  const resolveProfile = auth.resolveProfileById.bind(auth);
+  auth.resolveProfileById = (input) =>
+    input.openMeldProfileId === center
+      ? Promise.resolve({
+          ok: true,
+          profile: {
+            profileId: center,
+            profileName: "Synthetic Center",
+            profileHandle: center,
+            profileKind: "agent",
+            status: "active",
+            ownerUserId: fixture.ownerA,
+            organizationId: fixture.organizationA,
+          },
+        })
+      : resolveProfile(input);
+  const defaults = createSubmitTurnRequestV2();
+  const parent = createSubmitTurnRequestV2({
+    organizationId: fixture.organizationA,
+    agentProfileId: center,
+    agentProfileOwnerUserId: fixture.ownerA,
+    spaceId,
+    dispatchId: crypto.randomUUID(),
+    idempotencyKey: crypto.randomUUID(),
+    author: {
+      profileId: fixture.ownerProfileId,
+      profileKind: "human",
+      displayName: "Synthetic member",
+    },
+    turnEnvelope: {
+      ...defaults.turnEnvelope,
+      sender: {
+        kind: "member",
+        id: member.id,
+        verified: true,
+        profileId: fixture.ownerProfileId,
+        ownerUserId: fixture.ownerA,
+        displayName: "Synthetic member",
+        role: "owner",
+      },
+      space: { ...defaults.turnEnvelope.space, id: spaceId },
+      organization: {
+        ...defaults.turnEnvelope.organization,
+        id: fixture.organizationA,
+      },
+    },
+  });
+  await upsertRemoteAgentNativeDeliveryRecord({
+    db,
+    nowMs,
+    attemptId: null,
+    bindingId: parent.bindingId,
+    dispatchId: parent.dispatchId,
+    idempotencyKey: parent.idempotencyKey,
+    organizationId: fixture.organizationA,
+    profileId: center,
+    sourceClientMessageId: parent.sourceClientMessageId ?? null,
+    spaceId,
+    triggerMessageId: parent.triggerMessageId,
+    status: "submitted",
+  });
+  await persistRemoteAgentWorkerSubmitRequest({
+    db,
+    nowMs,
+    idempotencyKey: parent.idempotencyKey,
+    workerSubmitRequest: parent,
+  });
+  const parentSubmissionId = crypto.randomUUID();
+  await markRemoteAgentNativeDeliveryAck({
+    db,
+    nowMs,
+    idempotencyKey: parent.idempotencyKey,
+    submissionId: parentSubmissionId,
+    workerRequestId: crypto.randomUUID(),
+    accepted: true,
+  });
+  const delivery = await readRemoteAgentNativeDeliveryByIdempotencyKey({
+    db,
+    idempotencyKey: parent.idempotencyKey,
+  });
+  if (!delivery) {
+    throw new Error("Missing parent delivery");
+  }
+  await createAgentDelegation({
+    db,
+    nowMs,
+    delegationId,
+    idempotencyKey: delegationId,
+    organizationId: fixture.organizationA,
+    spaceId,
+    parentTask: {
+      v: 1,
+      kind: "native_delivery",
+      deliveryId: delivery.deliveryId,
+    },
+    children: [
+      {
+        agentProfileId: fixture.actor,
+        role: "primary",
+        task: {
+          v: 1,
+          kind: "space_wake",
+          spaceId,
+          sourceClientMessageId: clientMessageId,
+          targetProfileId: fixture.actor,
+        },
+      },
+    ],
+    completionPolicy: { mode: "resume_parent", when: "all_terminal" },
+  });
+  await activateAgentDelegationChildren({ db, nowMs, delegationId });
+  const attribution = {
+    actorProfileId: center,
+    onBehalfOf: {
+      userId: fixture.ownerA,
+      profileId: fixture.ownerProfileId,
+      displayName: "Synthetic member",
+    },
+  };
+  fixture.runtime.mockResolvedValue({
+    status: "catalog",
+    actions: [
+      fixture.metadata,
+      { ...fixture.metadata, id: "fixture.verify", effect: "read" },
+    ],
+  });
+  const pluginActions = await prepareDelegatedPluginActions({
+    env: fixture.core,
+    db,
+    organizationId: fixture.organizationA,
+    actorProfileId: center,
+    parentSubmissionId,
+    attribution,
+    targetProfileIds: [fixture.actor],
+    requests: [
+      {
+        targetProfileId: fixture.actor,
+        service: "posthog",
+        connectionName: fixture.connection,
+        actionId: fixture.action.actionId,
+        effect: "write",
+        input: { target: "isolated-A", text: "synthetic selection" },
+        expiresAtMs: nowMs + 60_000,
+      },
+      {
+        targetProfileId: fixture.actor,
+        service: "posthog",
+        connectionName: fixture.connection,
+        actionId: "fixture.verify",
+        effect: "read",
+        input: { target: "isolated-A" },
+        expiresAtMs: nowMs + 60_000,
+      },
+    ],
+  });
+  await prepareCenterAgentWakePublicationRecord({
+    db,
+    nowMs,
+    command: {
+      v: 1,
+      clientMessageId,
+      delegationId,
+      organizationId: fixture.organizationA,
+      spaceId,
+      context: {
+        ...fixture.input.context,
+        actorContext: {
+          ...fixture.input.context.actorContext,
+          openMeldProfileId: center,
+        },
+        agentControllerConversationId: parentSubmissionId,
+      },
+      parentSubmissionId,
+      profile: {
+        kind: "agent",
+        profileId: center,
+        profileName: "Synthetic Center",
+      },
+      attribution,
+      activationTargets: [fixture.actor],
+      mentionTargets: [],
+      referenceTargets: [],
+      fallbackAgentProfileId: null,
+      subscriptionIds: [crypto.randomUUID()],
+      text: "Use the isolated fixture.",
+      completionMode: "resume_parent_when_all_terminal",
+      pluginActions,
+    },
+  });
+  await db
+    .prepare(
+      "UPDATE center_agent_wake_publications SET state = 'completed', accepted_at_ms = ?, completed_at_ms = ?, signal_json = ? WHERE publication_id = ?"
+    )
+    .bind(
+      nowMs,
+      nowMs,
+      JSON.stringify({
+        v: 1,
+        id: sourceSignalId,
+        type: "signal.text",
+        ts: nowMs,
+        spaceId,
+        profile: {
+          kind: "agent",
+          profileId: center,
+          profileName: "Synthetic Center",
+        },
+        data: {
+          text: "Use the isolated fixture.",
+          meta: { clientMessageId },
+          messageEnvelope: {
+            text: "Use the isolated fixture.",
+            activationTargets: [fixture.actor],
+            referenceTargets: [],
+          },
+        },
+      }),
+      clientMessageId
+    )
+    .run();
+  await db
+    .prepare(
+      "INSERT INTO space_index_spaces (space_id, organization_id, organization_visibility, status, source_updated_at_ms, projected_at_ms, projection_event_id) VALUES (?, ?, 'private', 'active', ?, ?, ?)"
+    )
+    .bind(spaceId, fixture.organizationA, nowMs, nowMs, crypto.randomUUID())
+    .run();
+  await db
+    .prepare(
+      "INSERT INTO openMeldDaemon_dispatch_ledger (idempotency_key, dispatch_id, space_id, source_event_id, source_profile_id, source_client_message_id, target_profile_id, status, first_seen_at_ms, last_attempt_at_ms, attempt_count) VALUES (?, ?, ?, ?, ?, ?, ?, 'accepted', ?, ?, 1)"
+    )
+    .bind(
+      dispatchId,
+      dispatchId,
+      spaceId,
+      sourceSignalId,
+      center,
+      clientMessageId,
+      fixture.actor,
+      nowMs,
+      nowMs
+    )
+    .run();
+  const binding = await db
+    .prepare(
+      "SELECT binding_id FROM openMeldDaemon_agent_profile_bindings WHERE agent_profile_id = ?"
+    )
+    .bind(fixture.actor)
+    .first<{ binding_id: string }>();
+  if (!binding) {
+    throw new Error("Missing Local binding fixture");
+  }
+  const token = await issueRuntimeCoordinatorExecutionToken({
+    nowMs,
+    authorityScope: {
+      bindingId: binding.binding_id,
+      agentControllerRef: "codex",
+      openMeldServiceRuntimeId: "test-local-runtime",
+    },
+    executionScope: {
+      dispatchId,
+      runtimeCoordinatorExecutionId: crypto.randomUUID(),
+      sourceClientMessageId: clientMessageId,
+      spaceId,
+      targetProfileId: fixture.actor,
+    },
+    deliveryProvenance: {
+      connectionGeneration: null,
+      daemonSessionId: null,
+      leaseEpoch: null,
+    },
+  });
+  const namespace =
+    env.OPENMELD_RUNTIME_TRANSPORT as DurableObjectNamespace<RuntimeTransportHub>;
+  const stub = namespace.get(namespace.idFromName(fixture.ownerA));
+  await runInDurableObject(stub, async (_instance, state) => {
+    await writeRuntimeCoordinatorTokenAuthorityToStorage(
+      state.storage,
+      token.authority
+    );
+  });
+  fixture.core.OPENMELD_RUNTIME_TRANSPORT = namespace;
+  return {
+    delegationId,
+    request: {
+      dispatchId,
+      executionTokenEcho: {
+        executionToken: token.envelope.executionToken,
+        runId: token.envelope.runId,
+        runtimeCoordinatorExecutionId:
+          token.envelope.executionScope.runtimeCoordinatorExecutionId,
+        tokenFingerprint: token.envelope.tokenFingerprint,
+      },
+    },
+  };
+}
 
 async function seedLocalPluginFixture(
   effect: "read" | "write" | "destructive",
@@ -1265,6 +2296,12 @@ describe("Core connector connection ownership", () => {
 
     const context = {
       activeOrganizationId: fixture.organizationA,
+      agentControllerConversationId: await seedConnectorTaskSource(
+        fixture,
+        centerAgentProfileId,
+        fixture.memberA,
+        representedProfileId
+      ),
       actorContext: {
         agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
         callerPrincipalId: centerAgentProfileId,
@@ -1295,6 +2332,7 @@ describe("Core connector connection ownership", () => {
     const coreEnv = {
       OPENMELD_AUTH_WORKER: { resolveUserDisplayName },
       OPENMELD_DB: env.OPENMELD_DB,
+      OPENMELD_WAKE_EVIDENCE_DB: env.OPENMELD_DB,
     } as unknown as CoreBindings;
 
     await expect(
@@ -1328,6 +2366,7 @@ describe("Core connector connection ownership", () => {
         ...body,
         connectionName: sharedConnection,
         operationId: sharedOperationId,
+        requestSignature: "d".repeat(64),
         outcome: "attempted",
       })
     ).resolves.toMatchObject({
@@ -1507,6 +2546,7 @@ describe("Core connector connection ownership", () => {
       context: center.context,
       effect: "write" as const,
       operationId: `live-replay-${crypto.randomUUID()}`,
+      includeExecutionPermit: true as const,
       outcome: "attempted" as const,
       providerExecutionId: null,
       requestSignature: "a".repeat(64),
@@ -1523,6 +2563,7 @@ describe("Core connector connection ownership", () => {
     ).resolves.toMatchObject({
       replayed: true,
       executionConnection: first.executionConnection,
+      executionAllowed: false,
     });
     for (const permission of ["read", "none"] as const) {
       await env.OPENMELD_DB.prepare(
@@ -2597,6 +3638,10 @@ async function seedDesignatedCenterAgent(
   return {
     context: {
       activeOrganizationId: fixture.organizationA,
+      agentControllerConversationId: await seedConnectorTaskSource(
+        fixture,
+        profileId
+      ),
       actorContext: {
         agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
         callerPrincipalId: profileId,
@@ -2607,6 +3652,41 @@ async function seedDesignatedCenterAgent(
     },
     profileId,
   };
+}
+
+async function seedConnectorTaskSource(
+  fixture: Awaited<ReturnType<typeof seedConnectorFixture>>,
+  profileId: string,
+  userId = fixture.ownerA,
+  humanProfileId = fixture.ownerProfileId
+) {
+  const idempotencyKey = crypto.randomUUID();
+  const submissionId = crypto.randomUUID();
+  const nowMs = Date.now();
+  await upsertRemoteAgentNativeDeliveryRecord({
+    db: env.OPENMELD_DB,
+    attemptId: null,
+    bindingId: crypto.randomUUID(),
+    dispatchId: crypto.randomUUID(),
+    idempotencyKey,
+    nowMs,
+    organizationId: fixture.organizationA,
+    profileId,
+    spaceId: crypto.randomUUID(),
+    triggerMessageId: crypto.randomUUID(),
+    status: "submitted",
+    onBehalfOfUserId: userId,
+    onBehalfOfProfileId: humanProfileId,
+    onBehalfOfDisplayName: "Synthetic requester",
+  });
+  await markRemoteAgentNativeDeliveryAck({
+    accepted: true,
+    db: env.OPENMELD_DB,
+    idempotencyKey,
+    nowMs,
+    submissionId,
+  });
+  return submissionId;
 }
 
 function connectorCoreEnv(): CoreBindings {

@@ -7,6 +7,30 @@ import {
 } from "../src/read-projection/dispatch-source-context";
 
 describe("dispatch quoted context", () => {
+  it("preserves exact selected versions in the Local and Remote source text", () => {
+    const refs = [
+      {
+        kind: "message" as const,
+        spaceId: "space",
+        sourceSignalId: "source",
+        version: `sha256:${"1".repeat(64)}`,
+      },
+      {
+        kind: "thread" as const,
+        spaceId: "space",
+        threadId: "thr_11111111-1111-4111-8111-111111111111",
+        version: `sha256:${"2".repeat(64)}`,
+      },
+      { kind: "file" as const, spaceId: "space", fileId: "file", revision: 3 },
+    ];
+    const rendered = renderDispatchSourceText({
+      text: "Review selected evidence",
+      evidenceRefs: refs,
+    });
+    expect(rendered).toContain(JSON.stringify(refs));
+    expect(rendered).toContain("Never substitute latest content");
+  });
+
   const message = {
     id: "original",
     type: "signal.text",

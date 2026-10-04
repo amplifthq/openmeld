@@ -25,6 +25,7 @@ export type CenterAgentOrganizationMember = {
   profileId: string | null;
   role: "admin" | "member" | "owner";
   sourceNativeDeliveryId: string | null;
+  sourceRequestKey?: string;
   sourceSpaceId: string | null;
   userId: string | null;
 };
