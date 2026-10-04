@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import {
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -10,6 +18,7 @@ import {
   admitPostgresqlProductRelease,
   assertHostedProductDatabaseReleaseSupported,
   restoreProductCrons,
+  verifyHostedPostgresqlCliDatabase,
   verifyProductCrons,
   verifyProductHyperdrive,
 } from "./database-backend-admission.mjs";
@@ -22,11 +31,132 @@ const CUTOVER_UNAVAILABLE_PATTERN =
   /PostgreSQL product cutover is unavailable/u;
 const MISSING_COMMAND_PATTERN = /ENOENT|not found/u;
 const CHECKSUM_PATTERN = /^[0-9a-f]{64}$/u;
+const DEPLOYED_POSTGRESQL_CONTRACT_PATTERN = /deployed PostgreSQL contract/u;
 
 const root = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "../.."
 );
+
+test("hosted CLI reuses only the deployed PostgreSQL contract and current live services", async () => {
+  const cwd = mkdtempSync(path.join(tmpdir(), "hosted-pg-cli-"));
+  const git = (...args) =>
+    execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
+  try {
+    for (const name of [
+      "release/database-backend.json",
+      "packages/db/postgresql",
+      "tooling/postgresql/resources.json",
+      "tooling/postgresql/database.mjs",
+      "tooling/postgresql/remote-target.mjs",
+      "tooling/postgresql/cutover.mjs",
+      "services/auth/wrangler.jsonc",
+      "services/core/wrangler.jsonc",
+    ]) {
+      mkdirSync(path.dirname(path.join(cwd, name)), { recursive: true });
+      cpSync(path.join(root, name), path.join(cwd, name), { recursive: true });
+    }
+    git("init", "--quiet");
+    git("add", ".");
+    git(
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.com",
+      "commit",
+      "--quiet",
+      "-m",
+      "Applied PostgreSQL contract"
+    );
+    const deployedSha = git("rev-parse", "HEAD");
+    const receipts = new Map(
+      ["db", "auth", "core"].map((scope) => [
+        scope,
+        {
+          sha: deployedSha,
+          receipt: {
+            status: "verified",
+            identity:
+              scope === "db"
+                ? { kind: "release-source" }
+                : {
+                    kind: "worker-deployment",
+                    sourceSha: deployedSha,
+                    workerName: `openmeld-${scope}-prod`,
+                  },
+          },
+        },
+      ])
+    );
+    const input = {
+      root: cwd,
+      sourceSha: deployedSha,
+      readReceipts: () => receipts,
+      verifyDeployment: () => Promise.resolve(),
+      verifyHyperdrive: () => Promise.resolve(),
+      verifyCrons: () => Promise.resolve(),
+    };
+    assert.equal(
+      (await verifyHostedPostgresqlCliDatabase(input)).status,
+      "current"
+    );
+    for (const scope of ["db", "auth", "core"]) {
+      const saved = receipts.get(scope);
+      receipts.delete(scope);
+      await assert.rejects(verifyHostedPostgresqlCliDatabase(input), {
+        message:
+          scope === "db"
+            ? "Hosted CLI requires a verified PostgreSQL database release. Complete the guarded local database release first."
+            : `Hosted CLI requires a verified PostgreSQL ${scope} release. Complete the guarded local release first.`,
+      });
+      receipts.set(scope, {
+        ...saved,
+        receipt: { ...saved.receipt, status: "failed" },
+      });
+      await assert.rejects(verifyHostedPostgresqlCliDatabase(input));
+      receipts.set(scope, saved);
+    }
+    for (const guard of [
+      "verifyDeployment",
+      "verifyHyperdrive",
+      "verifyCrons",
+    ]) {
+      await assert.rejects(
+        verifyHostedPostgresqlCliDatabase({
+          ...input,
+          [guard]: () => Promise.reject(new Error(`Changed ${guard}`)),
+        }),
+        { message: `Changed ${guard}` }
+      );
+    }
+    // A real Git change to native migration input must not be mistaken for a
+    // publication-only release, even when all earlier receipts remain green.
+    writeFileSync(
+      path.join(cwd, "packages/db/postgresql/migrations/9999_pending.sql"),
+      "CREATE TABLE pending_release (id bigint);\n"
+    );
+    git("add", ".");
+    git(
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.com",
+      "commit",
+      "--quiet",
+      "-m",
+      "Pending native migration"
+    );
+    await assert.rejects(
+      verifyHostedPostgresqlCliDatabase({
+        ...input,
+        sourceSha: git("rev-parse", "HEAD"),
+      }),
+      DEPLOYED_POSTGRESQL_CONTRACT_PATTERN
+    );
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
 test("the PostgreSQL candidate blocks unsupported release lanes before external commands", () => {
   assert.doesNotThrow(() =>
     assertHostedProductDatabaseReleaseSupported(root, [
@@ -39,7 +169,6 @@ test("the PostgreSQL candidate blocks unsupported release lanes before external 
   for (const args of [
     ["scripts/release/production-db.mjs"],
     ["scripts/release/staging-release.mjs", "deploy"],
-    ["scripts/release/hosted-cli-release.mjs"],
     [
       "scripts/release/hosted-production-preflight.mjs",
       "--release-source",

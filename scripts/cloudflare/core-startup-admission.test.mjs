@@ -137,12 +137,12 @@ test("accepts a Cloudflare-approved version with a performance warning above tar
   assert.equal(evidence.trafficPercent, 0);
 });
 
-test("continues a guarded release after Cloudflare accepts an above-target version", () => {
+test("continues a guarded release after Cloudflare accepts an above-target version", async () => {
   const fixtureDirectory = mkdtempSync(
     path.join(tmpdir(), "openmeld-core-startup-warning-test-")
   );
   try {
-    const evidence = runCoreStartupAdmission({
+    const evidence = await runCoreStartupAdmission({
       cwd: fixtureDirectory,
       output: "startup-evidence.json",
       releaseSha: "552812d05f1398f791fc327ec8247b24166193ee",
@@ -258,7 +258,7 @@ test("applies only the platform-required migration atomically with maintenance c
   }
 });
 
-test("does not turn a startup or authentication failure into a production deployment", () => {
+test("does not turn a startup or authentication failure into a production deployment", async () => {
   const cwd = mkdtempSync(path.join(tmpdir(), "core-startup-failure-"));
   try {
     for (const stderr of [
@@ -266,7 +266,7 @@ test("does not turn a startup or authentication failure into a production deploy
       "Authentication failed [code: 10000]",
     ]) {
       let calls = 0;
-      assert.throws(() =>
+      await assert.rejects(() =>
         runCoreStartupAdmission({
           cwd,
           releaseSha: "a".repeat(40),
@@ -287,13 +287,13 @@ test("does not turn a startup or authentication failure into a production deploy
   }
 });
 
-test("stops when the required atomic migration fails without retrying it", () => {
+test("stops when the required atomic migration fails without retrying it", async () => {
   const cwd = mkdtempSync(path.join(tmpdir(), "core-migration-failure-"));
   mkdirSync(path.join(cwd, "services/core"), { recursive: true });
   writeFileSync(path.join(cwd, "services/core/wrangler.jsonc"), "{}");
   let calls = 0;
   try {
-    assert.throws(() =>
+    await assert.rejects(() =>
       runCoreStartupAdmission({
         cwd,
         releaseSha: "a".repeat(40),
@@ -318,7 +318,7 @@ test("stops when the required atomic migration fails without retrying it", () =>
   }
 });
 
-test("Core refuses a pending database but the ordered database-then-Core stage can proceed", () => {
+test("Core refuses a pending database but the ordered database-then-Core stage can proceed", async () => {
   const cwd = mkdtempSync(path.join(tmpdir(), "core-database-admission-"));
   let pending = true;
   const uploads = [];
@@ -343,7 +343,20 @@ test("Core refuses a pending database but the ordered database-then-Core stage c
   const admit = () =>
     runCoreStartupAdmission({ cwd, releaseSha: "a".repeat(40), runCommand });
   try {
-    assert.throws(admit, PENDING_DATABASE_ERROR);
+    await assert.rejects(admit, PENDING_DATABASE_ERROR);
+    assert.equal(uploads.length, 0);
+    await assert.rejects(
+      runCoreStartupAdmission({
+        cwd,
+        releaseSha: "a".repeat(40),
+        requireDatabaseCurrent: async () => {
+          await Promise.resolve();
+          throw new Error("Hosted PostgreSQL deployment drifted");
+        },
+        runCommand,
+      }),
+      { message: "Hosted PostgreSQL deployment drifted" }
+    );
     assert.equal(uploads.length, 0);
     const steps = buildProductionDeployStepSpecs(["db", "core"], {
       releaseSha: "a".repeat(40),
@@ -353,7 +366,7 @@ test("Core refuses a pending database but the ordered database-then-Core stage c
         // The external migration command succeeds before the Core owner is entered.
         pending = false;
       } else if (step.args.includes("scripts/release/deploy-core-worker.mjs")) {
-        assert.equal(admit().decision, "accepted");
+        assert.equal((await admit()).decision, "accepted");
       }
     }
     assert.equal(uploads.length, 1);
