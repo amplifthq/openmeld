@@ -4409,7 +4409,7 @@ describe("SpaceConversationPanel", () => {
 
 	it.each([
 		["failed", "Center Agent could not complete this reply.", "Reply failed"],
-		["stopped", "Center Agent stopped this reply.", "Stopped"],
+		["stopped", "Center Agent stopped this reply.", "(Request stopped)"],
 		[
 			"completed_but_publish_failed",
 			"Center Agent finished, but OpenMeld could not publish the reply.",
@@ -4560,7 +4560,7 @@ describe("SpaceConversationPanel", () => {
 			.getByText("Here is the first finding.")
 			.closest("[data-message-row-id='signal-wake-stopped']") as HTMLElement;
 		expect(reply).not.toBeNull();
-		expect(within(reply).getByText("Stopped")).toBeTruthy();
+		expect(within(reply).getByText("(Request stopped)")).toBeTruthy();
 		expect(reply.querySelector("[data-slot='marker']")).toBeNull();
 	});
 
@@ -4804,7 +4804,7 @@ describe("SpaceConversationPanel", () => {
 			],
 		});
 
-		const stopped = screen.getAllByText("Stopped");
+		const stopped = screen.getAllByText("(Request stopped)");
 		expect(stopped).toHaveLength(2);
 		expect(
 			stopped.map((status) =>

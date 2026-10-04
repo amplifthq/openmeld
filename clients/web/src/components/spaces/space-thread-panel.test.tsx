@@ -1088,7 +1088,7 @@ describe("SpaceThreadPanel", () => {
 			],
 		});
 
-		expect(screen.getByText("Stopped")).toBeTruthy();
+		expect(screen.getByText("(Request stopped)")).toBeTruthy();
 		expect(screen.queryByTestId("space-outcome-row")).toBeNull();
 	});
 

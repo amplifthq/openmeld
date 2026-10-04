@@ -5572,8 +5572,8 @@ and reuse the shared status, Orb, preview, and Stop controls, without message
 timestamps or publication actions. Missing source history does not hide a Wake
 whose authoritative source context proves its conversation scope.
 Stopped outcomes use the target Agent's reply surface with the original request
-preview and a quiet `Stopped` label below any retained public reply text. An
-empty response still shows `Stopped`. They are not grouped across Agents or
+preview and a quiet `(Request stopped)` label below any retained public reply text. An
+empty response still shows `(Request stopped)`. They are not grouped across Agents or
 rendered as full-width system separators; partial text survives history reload.
 Core-published native failure and cancellation text (`remote_agent_failure`)
 replaces its exact submission's temporary stream, just as a successful final

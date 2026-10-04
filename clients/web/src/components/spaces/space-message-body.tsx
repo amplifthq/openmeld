@@ -519,7 +519,7 @@ const SpaceMessageBodyDisplay = memo(function SpaceMessageBodyDisplay(
 							className="text-muted-foreground text-xs leading-5"
 							data-slot="stopped-reply-status"
 						>
-							Stopped
+							(Request stopped)
 						</p>
 					) : null}
 				</>

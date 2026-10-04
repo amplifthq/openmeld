@@ -10,6 +10,6 @@ Remote Agent answers still appear as soon as their text is ready. Pressing Stop
 also prevents a late model message from revealing more buffered answer text.
 Failed or interrupted model messages no longer flush unfinished text before a retry.
 
-Stopped replies now show `Stopped` with the corresponding Agent and request,
+Stopped replies now show `(Request stopped)` with the corresponding Agent and request,
 instead of a separate notice across the conversation. Any public reply text
 already shown stays readable after stopping and refreshing the page.
