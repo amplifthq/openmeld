@@ -75,11 +75,11 @@ async function reconcileTable(client, database, table, columns) {
   const order = keys
     .map(
       (column) =>
-        `${quote(column.name)}${column.type === "TEXT" ? ' COLLATE "C"' : ""}`
+        `source.${quote(column.name)}${column.type === "TEXT" ? ' COLLATE "C"' : ""}`
     )
     .join(",");
   await client.query(
-    `DECLARE migration_rows NO SCROLL CURSOR FOR SELECT ${columns.map((column) => `${quote(column.name)}::text AS ${quote(column.name)}`).join(",")} FROM openmeld.${quote(table.name)} ORDER BY ${order}`
+    `DECLARE migration_rows NO SCROLL CURSOR FOR SELECT ${columns.map((column) => `${quote(column.name)}::text AS ${quote(column.name)}`).join(",")} FROM openmeld.${quote(table.name)} AS source ORDER BY ${order}`
   );
   const expected = sourceRows(database, table, columns, true);
   let count = 0;

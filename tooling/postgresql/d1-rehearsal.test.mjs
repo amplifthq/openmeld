@@ -138,6 +138,17 @@ test("historical D1 capture to native PG18 preserves business data and rolls bac
           performance.now() - baselineCapturedMs;
         const client = await connect(connectionString, true);
         try {
+          assert.deepEqual(
+            (
+              await client.query(
+                'SELECT id,idempotency_key FROM openmeld."openMeldDaemon_dispatch_ledger" ORDER BY id'
+              )
+            ).rows,
+            [
+              { id: "2", idempotency_key: "numeric-key-2" },
+              { id: "10", idempotency_key: "numeric-key-10" },
+            ]
+          );
           assert.equal(
             (
               await client.query(

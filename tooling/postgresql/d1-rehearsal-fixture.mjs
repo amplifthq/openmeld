@@ -374,6 +374,22 @@ export async function createD1RehearsalFixture(destination) {
     });
     profilesAndBindings(database, now);
     documentsAndSpace(database, now);
+    // Numeric and lexical key ordering differ; reconciliation must retain
+    // the INTEGER ordering even when it projects PostgreSQL values as text.
+    for (const id of [2, 10]) {
+      insert(database, "openMeldDaemon_dispatch_ledger", {
+        id,
+        idempotency_key: `numeric-key-${id}`,
+        dispatch_id: `migration-dispatch-${id}`,
+        space_id: fixture.space,
+        source_event_id: `migration-event-${id}`,
+        target_profile_id: fixture.agent,
+        status: "pending",
+        first_seen_at_ms: now,
+        last_attempt_at_ms: now,
+        attempt_count: 0,
+      });
+    }
     inboxAndActivity(database, now);
     pluginRequests(database, now);
     database.exec(
