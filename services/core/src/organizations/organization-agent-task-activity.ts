@@ -1,17 +1,19 @@
-import { readRemoteAgentTaskActivity } from "../remote-agent/infrastructure/d1/native-delivery-ledger-repo";
-import { readRuntimeCoordinatorTaskActivity } from "../runtime-transport/infrastructure/d1/runtime-coordinator-execution-repo";
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
+import { readRemoteAgentTaskActivity } from "../remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
+import { readRuntimeCoordinatorTaskActivity } from "../runtime-transport/infrastructure/postgresql/runtime-coordinator-execution-repo";
 
 // Match the existing Wake evidence retention, rather than inventing lifetime
 // work history or a new persistent writer for directory ordering.
 const TASK_ACTIVITY_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
-
 export async function withOrganizationAgentTaskActivity<
   T extends {
     generatedAt: string;
     organizationId: string;
-    agentProfiles: { profileId: string }[];
+    agentProfiles: {
+      profileId: string;
+    }[];
   },
->(input: { db: D1Database; overview: T }) {
+>(input: { db: PostgresDatabase; overview: T }) {
   const sinceMs =
     Date.parse(input.overview.generatedAt) - TASK_ACTIVITY_WINDOW_MS;
   const authorizedProfileIds = input.overview.agentProfiles.map(

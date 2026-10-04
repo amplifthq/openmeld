@@ -1,42 +1,49 @@
 import { desc, sql } from "drizzle-orm";
 import {
+  bigint,
   check,
   index,
-  integer,
   primaryKey,
-  sqliteTable,
   text,
   uniqueIndex,
-} from "drizzle-orm/sqlite-core";
+} from "drizzle-orm/pg-core";
 import { organizations, users } from "../auth/auth.schema.ts";
+import {
+  applicationTable,
+  currentTimestampMilliseconds,
+} from "../postgresql/schema.ts";
+import {
+  epochMilliseconds,
+  integerBoolean,
+} from "../postgresql/schema-types.ts";
 
-export const organizationSkills = sqliteTable(
+export const organizationSkills = applicationTable(
   "organization_skills",
   {
     activeReleaseId: text("active_release_id").notNull(),
-    createdAt: integer("created_at", { mode: "timestamp_ms" })
-      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+    createdAt: epochMilliseconds("created_at")
+      .default(currentTimestampMilliseconds)
       .notNull(),
     createdByUserId: text("created_by_user_id")
       .notNull()
       .references(() => users.id),
     description: text("description").notNull(),
-    enabled: integer("enabled", { mode: "boolean" }).default(true).notNull(),
+    enabled: integerBoolean("enabled").default(sql`1`).notNull(),
     id: text("id").primaryKey(),
     maintainerUpdateToken: text("maintainer_update_token"),
     name: text("name").notNull(),
     organizationId: text("organization_id")
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
-    removedAt: integer("removed_at", { mode: "timestamp_ms" }),
+    removedAt: epochMilliseconds("removed_at"),
     sourceCommitSha: text("source_commit_sha"),
     sourceKind: text("source_kind").notNull(),
     sourcePath: text("source_path"),
     sourceRepository: text("source_repository"),
-    updatedAt: integer("updated_at", { mode: "timestamp_ms" })
-      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+    updatedAt: epochMilliseconds("updated_at")
+      .default(currentTimestampMilliseconds)
       .notNull(),
-    version: integer("version").default(1).notNull(),
+    version: bigint("version", { mode: "number" }).default(1).notNull(),
   },
   (table) => [
     uniqueIndex("organization_skills_org_name_active_unique")
@@ -62,11 +69,11 @@ export const organizationSkills = sqliteTable(
   ]
 );
 
-export const organizationSkillReleases = sqliteTable(
+export const organizationSkillReleases = applicationTable(
   "organization_skill_releases",
   {
-    createdAt: integer("created_at", { mode: "timestamp_ms" })
-      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+    createdAt: epochMilliseconds("created_at")
+      .default(currentTimestampMilliseconds)
       .notNull(),
     createdByUserId: text("created_by_user_id")
       .notNull()
@@ -96,7 +103,7 @@ export const organizationSkillReleases = sqliteTable(
     ),
     check(
       "organization_skill_releases_digest_check",
-      sql`length("digest") = 64 and "digest" not glob '*[^a-f0-9]*'`
+      sql`length("digest") = 64 and "digest" !~ '^.*[^a-f0-9].*$'`
     ),
     check(
       "organization_skill_releases_source_kind_check",
@@ -105,11 +112,11 @@ export const organizationSkillReleases = sqliteTable(
   ]
 );
 
-export const organizationSkillMaintainers = sqliteTable(
+export const organizationSkillMaintainers = applicationTable(
   "organization_skill_maintainers",
   {
-    assignedAt: integer("assigned_at", { mode: "timestamp_ms" })
-      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+    assignedAt: epochMilliseconds("assigned_at")
+      .default(currentTimestampMilliseconds)
       .notNull(),
     assignedByUserId: text("assigned_by_user_id")
       .notNull()
@@ -136,11 +143,11 @@ export const organizationSkillMaintainers = sqliteTable(
   ]
 );
 
-export const organizationSkillActivations = sqliteTable(
+export const organizationSkillActivations = applicationTable(
   "organization_skill_activations",
   {
-    activatedAt: integer("activated_at", { mode: "timestamp_ms" })
-      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+    activatedAt: epochMilliseconds("activated_at")
+      .default(currentTimestampMilliseconds)
       .notNull(),
     digest: text("digest").notNull(),
     organizationId: text("organization_id")
@@ -172,17 +179,17 @@ export const organizationSkillActivations = sqliteTable(
     ),
     check(
       "organization_skill_activations_digest_check",
-      sql`length("digest") = 64 and "digest" not glob '*[^a-f0-9]*'`
+      sql`length("digest") = 64 and "digest" !~ '^.*[^a-f0-9].*$'`
     ),
   ]
 );
 
-export const centerAgentOrganizationSkillOperations = sqliteTable(
+export const centerAgentOrganizationSkillOperations = applicationTable(
   "center_agent_organization_skill_operations",
   {
-    completedAt: integer("completed_at", { mode: "timestamp_ms" }),
-    createdAt: integer("created_at", { mode: "timestamp_ms" })
-      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+    completedAt: epochMilliseconds("completed_at"),
+    createdAt: epochMilliseconds("created_at")
+      .default(currentTimestampMilliseconds)
       .notNull(),
     operationId: text("operation_id").notNull(),
     organizationId: text("organization_id")
@@ -203,12 +210,12 @@ export const centerAgentOrganizationSkillOperations = sqliteTable(
   ]
 );
 
-export const organizationSkillImportOperations = sqliteTable(
+export const organizationSkillImportOperations = applicationTable(
   "organization_skill_import_operations",
   {
-    completedAt: integer("completed_at", { mode: "timestamp_ms" }),
-    createdAt: integer("created_at", { mode: "timestamp_ms" })
-      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+    completedAt: epochMilliseconds("completed_at"),
+    createdAt: epochMilliseconds("created_at")
+      .default(currentTimestampMilliseconds)
       .notNull(),
     operationId: text("operation_id").notNull(),
     organizationId: text("organization_id")
@@ -229,13 +236,13 @@ export const organizationSkillImportOperations = sqliteTable(
   ]
 );
 
-export const organizationSkillImportBatches = sqliteTable(
+export const organizationSkillImportBatches = applicationTable(
   "organization_skill_import_batches",
   {
     batchId: text("batch_id").notNull(),
     commitSha: text("commit_sha").notNull(),
-    createdAt: integer("created_at", { mode: "timestamp_ms" })
-      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+    createdAt: epochMilliseconds("created_at")
+      .default(currentTimestampMilliseconds)
       .notNull(),
     organizationId: text("organization_id")
       .notNull()

@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import type {
   AgentActivitySessionInventoryQuery,
   SubmitAgentActivitySessionReconciliationBody,
@@ -15,13 +16,12 @@ import {
   resolveAgentActivitySessionInventorySelection,
 } from "../src/agent-activity/activity-session-inventory-repository";
 import { isSessionReconciliationFingerprintCompatible } from "../src/agent-activity/activity-session-inventory-rpc";
-import { forgetComputerRecordAtomically } from "../src/start/infrastructure/d1/current-device-forget-repo";
+import { forgetComputerRecordAtomically } from "../src/start/infrastructure/postgresql/current-device-forget-repo";
 import {
-  applyDrizzleMigrationsForTables,
-  createBeforeMatchingBatchD1Database,
-  createDuplicateMatchingBatchD1Database,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+  createBeforeMatchingPostgresTransaction,
+  createDuplicateMatchingPostgresTransaction,
+  createPostgresHarness,
+} from "./helpers/postgresql-harness.test-support";
 
 const NOW_MS = 1_787_200_000_000;
 const LOCAL_CONNECTION_ID =
@@ -32,17 +32,17 @@ const AUTHORITY = {
   organizationId: "org-1",
   ownerUserId: "user-1",
 };
-const harnesses: ReturnType<typeof createSqliteD1Harness>[] = [];
+const harnesses: Awaited<ReturnType<typeof createPostgresHarness>>[] = [];
 
 describe("Agent Activity Session Inventory repository", () => {
-  afterEach(() => {
+  afterEach(async () => {
     for (const harness of harnesses.splice(0)) {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("publishes only a complete reconciliation and provides stable keyset pages", async () => {
-    const harness = createInventoryHarness();
+    const harness = await createInventoryHarness();
     await reconcile(harness.db, {
       pageIndex: 0,
       sessions: [observedSession("native-3", 3000)],
@@ -75,7 +75,7 @@ describe("Agent Activity Session Inventory repository", () => {
   });
 
   it("enumerates several live inventory pages and rejects a changed filter", async () => {
-    const harness = createInventoryHarness();
+    const harness = await createInventoryHarness();
     await reconcile(harness.db, {
       sessions: Array.from({ length: 7 }, (_, index) =>
         observedSession(`native-${index + 1}`, (index + 1) * 1000)
@@ -106,7 +106,7 @@ describe("Agent Activity Session Inventory repository", () => {
   });
 
   it("keeps cursors live rather than claiming a frozen snapshot across source changes", async () => {
-    const harness = createInventoryHarness();
+    const harness = await createInventoryHarness();
     const original = Array.from({ length: 4 }, (_, index) =>
       observedSession(`native-${index + 1}`, (index + 1) * 1000)
     );
@@ -129,7 +129,7 @@ describe("Agent Activity Session Inventory repository", () => {
   });
 
   it("rejects a pagination cursor issued for another Organization", async () => {
-    const harness = createInventoryHarness();
+    const harness = await createInventoryHarness();
     await reconcile(harness.db, {
       sessions: [
         observedSession("native-2", 2000),
@@ -166,12 +166,14 @@ describe("Agent Activity Session Inventory repository", () => {
   });
 
   it("does not let a racing reconciliation move a current Session identity between sources", async () => {
-    const harness = createInventoryHarness();
-    const racingDb = createBeforeMatchingBatchD1Database({
-      beforeBatch: () => insertRacingSessionIdentity(harness),
+    const harness = await createInventoryHarness();
+    const racingDb = createBeforeMatchingPostgresTransaction({
+      beforeTransaction: async () => await insertRacingSessionIdentity(harness),
       db: harness.db,
       matches: (sql) =>
-        sql.includes("INSERT INTO agent_activity_session_inventory ("),
+        sql.includes(
+          'INSERT INTO "openmeld"."agent_activity_session_inventory" ('
+        ),
     });
 
     await expect(
@@ -183,19 +185,19 @@ describe("Agent Activity Session Inventory repository", () => {
     );
 
     expect(
-      harness.queryFirst<{
+      await harness.queryFirst<{
         source_scope_key: string;
       }>({
-        params: ["native-race"],
-        sql: `SELECT source_scope_key
-          FROM agent_activity_session_inventory
-          WHERE native_session_id = ?`,
+        values: ["native-race"],
+        text: `SELECT source_scope_key
+          FROM "openmeld"."agent_activity_session_inventory"
+          WHERE native_session_id = $1`,
       })
     ).toEqual({ source_scope_key: "source-race-winner" });
     expect(
-      harness.queryFirst<{ problem_code: string; state: string }>({
-        sql: `SELECT problem_code, state
-          FROM agent_activity_session_inventory_sources
+      await harness.queryFirst<{ problem_code: string; state: string }>({
+        text: `SELECT problem_code, state
+          FROM "openmeld"."agent_activity_session_inventory_sources"
           WHERE source_scope_key <> 'source-race-winner'`,
       })
     ).toEqual({
@@ -205,11 +207,13 @@ describe("Agent Activity Session Inventory repository", () => {
   });
 
   it("keeps terminal publication idempotent when the same batch races twice", async () => {
-    const harness = createInventoryHarness();
-    const duplicatedDb = createDuplicateMatchingBatchD1Database({
+    const harness = await createInventoryHarness();
+    const duplicatedDb = createDuplicateMatchingPostgresTransaction({
       db: harness.db,
       matches: (sql) =>
-        sql.includes("INSERT INTO agent_activity_session_inventory ("),
+        sql.includes(
+          'INSERT INTO "openmeld"."agent_activity_session_inventory" ('
+        ),
     });
 
     const response = await reconcile(duplicatedDb, {
@@ -220,16 +224,16 @@ describe("Agent Activity Session Inventory repository", () => {
     expect((await read(harness.db)).sessions).toMatchObject([
       { nativeSessionId: "native-idempotent" },
     ]);
-    expect(inventoryRowCount(harness)).toBe(1);
+    expect(await inventoryRowCount(harness)).toBe(1);
   });
 
   it("derives Binding live and never returns internal device or local path content", async () => {
-    const harness = createInventoryHarness();
+    const harness = await createInventoryHarness();
     await reconcile(harness.db, {
       sessions: [observedSession("native-bound", 3000)],
     });
-    harness.run({
-      params: [
+    await harness.query({
+      values: [
         "agt_11111111-1111-4111-8111-111111111111",
         "Agent",
         "agent",
@@ -237,12 +241,12 @@ describe("Agent Activity Session Inventory repository", () => {
         "user-1",
         "active",
       ],
-      sql: `INSERT INTO openmeld_profiles
-        (profile_id, profile_name, profile_kind, organization_id, owner_user_id, status)
-        VALUES (?, ?, ?, ?, ?, ?)`,
+      text: `INSERT INTO "openmeld"."openmeld_profiles"
+        (profile_id, profile_name, profile_kind, organization_id, owner_user_id, status, profile_handle, source)
+        VALUES ($1, $2, $3, $4, $5, $6, 'inventory-agent', 'web_create')`,
     });
-    harness.run({
-      params: [
+    await harness.query({
+      values: [
         "binding-1",
         "user-1",
         "agt_11111111-1111-4111-8111-111111111111",
@@ -250,10 +254,10 @@ describe("Agent Activity Session Inventory repository", () => {
         "native-bound",
         "enabled_primary",
       ],
-      sql: `INSERT INTO openMeldDaemon_agent_profile_bindings
+      text: `INSERT INTO "openmeld"."openMeldDaemon_agent_profile_bindings"
         (binding_id, owner_kind, owner_id, agent_profile_id,
-         agent_controller_ref, agent_controller_conversation_id, binding_state)
-        VALUES (?, 'owner_account', ?, ?, ?, ?, ?)`,
+         agent_controller_ref, agent_controller_conversation_id, binding_state, openmeld_service_runtime_id, created_at_ms, updated_at_ms)
+        VALUES ($1, 'owner_account', $2, $3, $4, $5, $6, 'runtime-test', 1, 1)`,
     });
 
     const bound = (await read(harness.db)).sessions[0];
@@ -267,8 +271,8 @@ describe("Agent Activity Session Inventory repository", () => {
     expect(serialized).not.toContain(AUTHORITY.deviceId);
     expect(serialized).not.toContain("/Users/");
 
-    harness.run({
-      sql: "UPDATE openMeldDaemon_agent_profile_bindings SET binding_state = 'disabled_historical'",
+    await harness.query({
+      text: 'UPDATE "openmeld"."openMeldDaemon_agent_profile_bindings" SET binding_state = \'disabled_historical\', disabled_at_ms = 2',
     });
     expect((await read(harness.db)).sessions[0]).toMatchObject({
       bindingState: "unbound",
@@ -277,7 +281,7 @@ describe("Agent Activity Session Inventory repository", () => {
   });
 
   it("authorizes Resume only from a fresh matching unbound Session fact", async () => {
-    const harness = createInventoryHarness();
+    const harness = await createInventoryHarness();
     await reconcile(harness.db, {
       sessions: [observedSession("native-resume", 1000)],
     });
@@ -307,31 +311,37 @@ describe("Agent Activity Session Inventory repository", () => {
     ).resolves.toBe(false);
     await expect(validate({ deviceId: "another-device" })).resolves.toBe(false);
 
-    harness.run({
-      params: ["agt_existing", "Existing Agent", "org-1", "user-1", "active"],
-      sql: `INSERT INTO openmeld_profiles
-        (profile_id, profile_name, profile_kind, organization_id, owner_user_id, status)
-        VALUES (?, ?, 'agent', ?, ?, ?)`,
+    await harness.query({
+      values: [
+        "agt_22222222-2222-4222-8222-222222222222",
+        "Existing Agent",
+        "org-1",
+        "user-1",
+        "active",
+      ],
+      text: `INSERT INTO "openmeld"."openmeld_profiles"
+        (profile_id, profile_name, profile_kind, organization_id, owner_user_id, status, profile_handle, source)
+        VALUES ($1, $2, 'agent', $3, $4, $5, 'inventory-agent', 'web_create')`,
     });
-    harness.run({
-      params: [
+    await harness.query({
+      values: [
         "binding-existing",
         "user-1",
-        "agt_existing",
+        "agt_22222222-2222-4222-8222-222222222222",
         "builtin:codex",
         "native-resume",
         "enabled_primary",
       ],
-      sql: `INSERT INTO openMeldDaemon_agent_profile_bindings
+      text: `INSERT INTO "openmeld"."openMeldDaemon_agent_profile_bindings"
         (binding_id, owner_kind, owner_id, agent_profile_id,
-         agent_controller_ref, agent_controller_conversation_id, binding_state)
-        VALUES (?, 'owner_account', ?, ?, ?, ?, ?)`,
+         agent_controller_ref, agent_controller_conversation_id, binding_state, openmeld_service_runtime_id, created_at_ms, updated_at_ms)
+        VALUES ($1, 'owner_account', $2, $3, $4, $5, $6, 'runtime-test', 1, 1)`,
     });
     await expect(validate()).resolves.toBe(false);
   });
 
   it("resolves Resume and Fork selections from the same current Session fact", async () => {
-    const harness = createInventoryHarness();
+    const harness = await createInventoryHarness();
     await reconcile(harness.db, {
       sessions: [
         {
@@ -371,32 +381,38 @@ describe("Agent Activity Session Inventory repository", () => {
       resolve("resume", { computerId: "another-computer" })
     ).resolves.toBeNull();
 
-    harness.run({
-      params: ["agt_existing", "Existing Agent", "org-1", "user-1", "active"],
-      sql: `INSERT INTO openmeld_profiles
-        (profile_id, profile_name, profile_kind, organization_id, owner_user_id, status)
-        VALUES (?, ?, 'agent', ?, ?, ?)`,
+    await harness.query({
+      values: [
+        "agt_22222222-2222-4222-8222-222222222222",
+        "Existing Agent",
+        "org-1",
+        "user-1",
+        "active",
+      ],
+      text: `INSERT INTO "openmeld"."openmeld_profiles"
+        (profile_id, profile_name, profile_kind, organization_id, owner_user_id, status, profile_handle, source)
+        VALUES ($1, $2, 'agent', $3, $4, $5, 'inventory-agent', 'web_create')`,
     });
-    harness.run({
-      params: [
+    await harness.query({
+      values: [
         "binding-existing-selectable",
         "user-1",
-        "agt_existing",
+        "agt_22222222-2222-4222-8222-222222222222",
         "builtin:codex",
         "native-selectable",
         "enabled_primary",
       ],
-      sql: `INSERT INTO openMeldDaemon_agent_profile_bindings
+      text: `INSERT INTO "openmeld"."openMeldDaemon_agent_profile_bindings"
         (binding_id, owner_kind, owner_id, agent_profile_id,
-         agent_controller_ref, agent_controller_conversation_id, binding_state)
-        VALUES (?, 'owner_account', ?, ?, ?, ?, ?)`,
+         agent_controller_ref, agent_controller_conversation_id, binding_state, openmeld_service_runtime_id, created_at_ms, updated_at_ms)
+        VALUES ($1, 'owner_account', $2, $3, $4, $5, $6, 'runtime-test', 1, 1)`,
     });
     await expect(resolve("resume")).resolves.toBeNull();
     await expect(resolve("fork")).resolves.toEqual(expectedSelection);
   });
 
   it("keeps the last complete rows stale after an error and removes them after disconnect", async () => {
-    const harness = createInventoryHarness();
+    const harness = await createInventoryHarness();
     await reconcile(harness.db, {
       sessions: [observedSession("native-1", 1000)],
     });
@@ -423,29 +439,31 @@ describe("Agent Activity Session Inventory repository", () => {
     expect(disconnected.coverage).toMatchObject([
       { problemCode: null, state: "disconnected" },
     ]);
-    expect(inventoryRowCount(harness)).toBe(0);
+    expect(await inventoryRowCount(harness)).toBe(0);
   });
 
   it.each([
     "disconnected",
     "unsupported",
   ] as const)("does not let delayed %s coverage replace a newer reconciliation", async (result) => {
-    const harness = createInventoryHarness();
+    const harness = await createInventoryHarness();
     await reconcile(harness.db, {
       sessions: [observedSession("native-newer", 1000)],
     });
-    const racingDb = createBeforeMatchingBatchD1Database({
-      beforeBatch: () => {
-        harness.run({
-          params: [NOW_MS + 1, NOW_MS + 1],
-          sql: `UPDATE agent_activity_session_inventory_sources
+    const racingDb = createBeforeMatchingPostgresTransaction({
+      beforeTransaction: async () => {
+        await harness.query({
+          values: [NOW_MS + 1, NOW_MS + 1],
+          text: `UPDATE "openmeld"."agent_activity_session_inventory_sources"
             SET current_reconciliation_id = 'reconciliation-newer',
-                state = 'current', last_complete_at_ms = ?, updated_at_ms = ?`,
+                state = 'current', last_complete_at_ms = $1, updated_at_ms = $2`,
         });
       },
       db: harness.db,
       matches: (sql) =>
-        sql.includes("INSERT INTO agent_activity_session_inventory_sources"),
+        sql.includes(
+          'INSERT INTO "openmeld"."agent_activity_session_inventory_sources"'
+        ),
     });
 
     await expect(
@@ -462,12 +480,12 @@ describe("Agent Activity Session Inventory repository", () => {
       { nativeSessionId: "native-newer" },
     ]);
     expect(
-      harness.queryFirst<{
+      await harness.queryFirst<{
         current_reconciliation_id: string;
         state: string;
       }>({
-        sql: `SELECT current_reconciliation_id, state
-          FROM agent_activity_session_inventory_sources`,
+        text: `SELECT current_reconciliation_id, state
+          FROM "openmeld"."agent_activity_session_inventory_sources"`,
       })
     ).toEqual({
       current_reconciliation_id: "reconciliation-newer",
@@ -476,15 +494,15 @@ describe("Agent Activity Session Inventory repository", () => {
   });
 
   it("returns every source coverage fact instead of a fixed snapshot", async () => {
-    const harness = createInventoryHarness();
-    harness.run({
-      params: [NOW_MS, NOW_MS, NOW_MS],
-      sql: `WITH RECURSIVE source_number(value) AS (
+    const harness = await createInventoryHarness();
+    await harness.query({
+      values: [NOW_MS, NOW_MS, NOW_MS],
+      text: `WITH RECURSIVE source_number(value) AS (
           SELECT 0
           UNION ALL
           SELECT value + 1 FROM source_number WHERE value < 2500
         )
-        INSERT INTO agent_activity_session_inventory_sources (
+        INSERT INTO "openmeld"."agent_activity_session_inventory_sources" (
           source_scope_key, organization_id, owner_user_id, project_id,
           device_id, connected_computer_id, local_connection_id,
           agent_controller_ref, provider, state, current_reconciliation_id,
@@ -492,12 +510,12 @@ describe("Agent Activity Session Inventory repository", () => {
           last_complete_at_ms, updated_at_ms
         )
         SELECT
-          'coverage-source-' || printf('%04d', value),
+          'coverage-source-' || lpad(value::text, 4, '0'),
           'org-1', 'user-1', 'project-1',
           'coverage-device-' || value, 'coverage-computer-' || value,
-          'sha256:' || printf('%064x', value),
+          'sha256:' || lpad(to_hex(value), 64, '0'),
           'builtin:codex', 'codex', 'current', NULL,
-          0, NULL, ?, ?, ?
+          0, NULL, $1, $2, $3
         FROM source_number`,
     });
 
@@ -510,7 +528,7 @@ describe("Agent Activity Session Inventory repository", () => {
   });
 
   it("deletes Session metadata proven absent by a complete reconciliation", async () => {
-    const harness = createInventoryHarness();
+    const harness = await createInventoryHarness();
     await reconcile(harness.db, {
       sessions: [observedSession("native-removed", 1000)],
     });
@@ -521,11 +539,11 @@ describe("Agent Activity Session Inventory repository", () => {
     });
 
     expect(
-      harness.queryFirst<{ count: number }>({
-        params: ["native-removed"],
-        sql: `SELECT count(*) AS count
-          FROM agent_activity_session_inventory
-          WHERE native_session_id = ?`,
+      await harness.queryFirst<{ count: number }>({
+        values: ["native-removed"],
+        text: `SELECT count(*) AS count
+          FROM "openmeld"."agent_activity_session_inventory"
+          WHERE native_session_id = $1`,
       })
     ).toEqual({ count: 0 });
     expect((await read(harness.db)).sessions).toMatchObject([
@@ -534,7 +552,7 @@ describe("Agent Activity Session Inventory repository", () => {
   });
 
   it("keeps the last complete inventory visible while its replacement is syncing", async () => {
-    const harness = createInventoryHarness();
+    const harness = await createInventoryHarness();
     await reconcile(harness.db, {
       sessions: [observedSession("native-published", 1000)],
     });
@@ -554,7 +572,7 @@ describe("Agent Activity Session Inventory repository", () => {
   });
 
   it("retires a disconnected source generation after its replacement publishes", async () => {
-    const harness = createInventoryHarness();
+    const harness = await createInventoryHarness();
     await reconcile(harness.db, {
       sessions: [observedSession("native-old", 1000)],
     });
@@ -571,11 +589,14 @@ describe("Agent Activity Session Inventory repository", () => {
     });
 
     expect(
-      harness.queryFirst<{ disconnected_count: number; source_count: number }>({
-        sql: `SELECT
+      await harness.queryFirst<{
+        disconnected_count: number;
+        source_count: number;
+      }>({
+        text: `SELECT
           sum(CASE WHEN state = 'disconnected' THEN 1 ELSE 0 END) AS disconnected_count,
           count(*) AS source_count
-        FROM agent_activity_session_inventory_sources`,
+        FROM "openmeld"."agent_activity_session_inventory_sources"`,
       })
     ).toEqual({ disconnected_count: 0, source_count: 1 });
     expect((await read(harness.db)).coverage).toMatchObject([
@@ -584,20 +605,20 @@ describe("Agent Activity Session Inventory repository", () => {
   });
 
   it("removes Sessions from the current inventory when the Project disconnects", async () => {
-    const harness = createInventoryHarness();
+    const harness = await createInventoryHarness();
     await reconcile(harness.db, {
       sessions: [observedSession("native-1", 1000)],
     });
-    harness.run({
-      params: [NOW_MS],
-      sql: "UPDATE projects SET archived_at_ms = ? WHERE id = 'project-1'",
+    await harness.query({
+      values: [NOW_MS],
+      text: 'UPDATE "openmeld"."projects" SET archived_at_ms = $1 WHERE id = \'project-1\'',
     });
     expect((await read(harness.db)).sessions).toEqual([]);
     expect((await read(harness.db)).coverage).toEqual([]);
   });
 
   it("removes every current and staged Session projection when its Computer is forgotten", async () => {
-    const harness = createInventoryHarness();
+    const harness = await createInventoryHarness();
     await reconcile(harness.db, {
       sessions: [observedSession("native-published", 1000)],
     });
@@ -626,24 +647,24 @@ describe("Agent Activity Session Inventory repository", () => {
       "openMeldDaemon_owned_devices",
     ]) {
       expect(
-        harness.queryFirst<{ count: number }>({
-          params: [AUTHORITY.ownerUserId, AUTHORITY.deviceId],
-          sql: `SELECT count(*) AS count FROM ${table}
-            WHERE owner_user_id = ? AND device_id = ?`,
+        await harness.queryFirst<{ count: number }>({
+          values: [AUTHORITY.ownerUserId, AUTHORITY.deviceId],
+          text: `SELECT count(*) AS count FROM "openmeld"."${table}"
+            WHERE owner_user_id = $1 AND device_id = $2`,
         })
       ).toEqual({ count: 0 });
     }
     expect(
-      harness.queryFirst<{ count: number }>({
-        params: [AUTHORITY.ownerUserId, AUTHORITY.deviceId],
-        sql: `SELECT count(*) AS count FROM openMeldDaemon_forgotten_devices
-          WHERE owner_user_id = ? AND device_id = ?`,
+      await harness.queryFirst<{ count: number }>({
+        values: [AUTHORITY.ownerUserId, AUTHORITY.deviceId],
+        text: `SELECT count(*) AS count FROM "openmeld"."openMeldDaemon_forgotten_devices"
+          WHERE owner_user_id = $1 AND device_id = $2`,
       })
     ).toEqual({ count: 1 });
   });
 
   it("purges every current and staged Session projection when its Organization member is removed", async () => {
-    const harness = createInventoryHarness();
+    const harness = await createInventoryHarness();
     await reconcile(harness.db, {
       sessions: [observedSession("native-published", 1000)],
     });
@@ -673,19 +694,19 @@ describe("Agent Activity Session Inventory repository", () => {
       "agent_activity_session_inventory_sources",
     ]) {
       expect(
-        harness.queryFirst<{ count: number }>({
-          params: [AUTHORITY.organizationId, AUTHORITY.ownerUserId],
-          sql: `SELECT count(*) AS count FROM ${table}
-            WHERE organization_id = ? AND owner_user_id = ?`,
+        await harness.queryFirst<{ count: number }>({
+          values: [AUTHORITY.organizationId, AUTHORITY.ownerUserId],
+          text: `SELECT count(*) AS count FROM "openmeld"."${table}"
+            WHERE organization_id = $1 AND owner_user_id = $2`,
         })
       ).toEqual({ count: 0 });
     }
     expect(
-      harness.queryFirst<{ count: number }>({
-        params: [AUTHORITY.organizationId, AUTHORITY.ownerUserId],
-        sql: `SELECT count(*) AS count
-          FROM agent_activity_session_inventory_member_cleanup_requests
-          WHERE organization_id = ? AND owner_user_id = ?`,
+      await harness.queryFirst<{ count: number }>({
+        values: [AUTHORITY.organizationId, AUTHORITY.ownerUserId],
+        text: `SELECT count(*) AS count
+          FROM "openmeld"."agent_activity_session_inventory_member_cleanup_requests"
+          WHERE organization_id = $1 AND owner_user_id = $2`,
       })
     ).toEqual({ count: 1 });
 
@@ -694,11 +715,11 @@ describe("Agent Activity Session Inventory repository", () => {
       sessions: [observedSession("native-raced", 1500)],
     });
     expect(
-      harness.queryFirst<{ count: number }>({
-        params: [AUTHORITY.organizationId, AUTHORITY.ownerUserId],
-        sql: `SELECT count(*) AS count
-          FROM agent_activity_session_inventory
-          WHERE organization_id = ? AND owner_user_id = ?`,
+      await harness.queryFirst<{ count: number }>({
+        values: [AUTHORITY.organizationId, AUTHORITY.ownerUserId],
+        text: `SELECT count(*) AS count
+          FROM "openmeld"."agent_activity_session_inventory"
+          WHERE organization_id = $1 AND owner_user_id = $2`,
       })
     ).toEqual({ count: 1 });
 
@@ -723,17 +744,17 @@ describe("Agent Activity Session Inventory repository", () => {
       "agent_activity_session_inventory_member_cleanup_requests",
     ]) {
       expect(
-        harness.queryFirst<{ count: number }>({
-          params: [AUTHORITY.organizationId, AUTHORITY.ownerUserId],
-          sql: `SELECT count(*) AS count FROM ${table}
-            WHERE organization_id = ? AND owner_user_id = ?`,
+        await harness.queryFirst<{ count: number }>({
+          values: [AUTHORITY.organizationId, AUTHORITY.ownerUserId],
+          text: `SELECT count(*) AS count FROM "openmeld"."${table}"
+            WHERE organization_id = $1 AND owner_user_id = $2`,
         })
       ).toEqual({ count: 0 });
     }
   });
 
   it("retries an accepted cleanup and removes projections that raced with member removal", async () => {
-    const harness = createInventoryHarness();
+    const harness = await createInventoryHarness();
     await reconcile(harness.db, {
       sessions: [observedSession("native-before-removal", 1000)],
     });
@@ -773,37 +794,33 @@ describe("Agent Activity Session Inventory repository", () => {
       "agent_activity_session_inventory_member_cleanup_requests",
     ]) {
       expect(
-        harness.queryFirst<{ count: number }>({
-          params: [AUTHORITY.organizationId, AUTHORITY.ownerUserId],
-          sql: `SELECT count(*) AS count FROM ${table}
-            WHERE organization_id = ? AND owner_user_id = ?`,
+        await harness.queryFirst<{ count: number }>({
+          values: [AUTHORITY.organizationId, AUTHORITY.ownerUserId],
+          text: `SELECT count(*) AS count FROM "openmeld"."${table}"
+            WHERE organization_id = $1 AND owner_user_id = $2`,
         })
       ).toEqual({ count: 0 });
     }
   });
 });
 
-function createInventoryHarness(): ReturnType<typeof createSqliteD1Harness> {
-  const harness = createSqliteD1Harness();
+async function createInventoryHarness(): Promise<
+  Awaited<ReturnType<typeof createPostgresHarness>>
+> {
+  const harness = await createPostgresHarness();
   harnesses.push(harness);
-  createReadAuthorityTables(harness);
-  applyDrizzleMigrationsForTables(harness, [
-    "agent_activity_session_inventory",
-    "agent_activity_session_inventory_candidates",
-    "agent_activity_session_inventory_sources",
-    "agent_activity_session_inventory_member_cleanup_requests",
-  ]);
+
   for (const sql of [
-    "INSERT INTO organizations (id, name) VALUES ('org-1', 'Amplift')",
-    "INSERT INTO users (id, name) VALUES ('user-1', 'Felix')",
-    "INSERT INTO members (organization_id, user_id) VALUES ('org-1', 'user-1')",
-    `INSERT INTO projects (id, organization_id, name, slug, archived_at_ms)
-      VALUES ('project-1', 'org-1', 'OpenMeld', 'openmeld', NULL)`,
+    "INSERT INTO \"openmeld\".\"organizations\" (id, name, slug, created_at) VALUES ('org-1', 'Amplift', 'amplift', 0)",
+    "INSERT INTO \"openmeld\".\"users\" (id, name, email) VALUES ('user-1', 'Felix', 'felix@example.test')",
+    "INSERT INTO \"openmeld\".\"members\" (id, organization_id, user_id, created_at) VALUES ('member-1', 'org-1', 'user-1', 0)",
+    `INSERT INTO "openmeld"."projects" (id, organization_id, name, slug, archived_at_ms, created_by_user_id, created_at_ms, updated_at_ms)
+      VALUES ('project-1', 'org-1', 'OpenMeld', 'openmeld', NULL, 'user-1', 0, 0)`,
   ]) {
-    harness.run({ sql });
+    await harness.query({ text: sql });
   }
-  harness.run({
-    params: [
+  await harness.query({
+    values: [
       AUTHORITY.ownerUserId,
       AUTHORITY.deviceId,
       AUTHORITY.connectedComputerId,
@@ -812,46 +829,12 @@ function createInventoryHarness(): ReturnType<typeof createSqliteD1Harness> {
       NOW_MS,
       NOW_MS,
     ],
-    sql: `INSERT INTO openMeldDaemon_owned_devices
+    text: `INSERT INTO "openmeld"."openMeldDaemon_owned_devices"
       (owner_user_id, device_id, connected_computer_id, user_display_name,
        first_seen_at_ms, last_observed_at_ms, updated_at_ms)
-      VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      VALUES ($1, $2, $3, $4, $5, $6, $7)`,
   });
   return harness;
-}
-
-function createReadAuthorityTables(
-  harness: ReturnType<typeof createSqliteD1Harness>
-): void {
-  for (const sql of [
-    "CREATE TABLE organizations (id TEXT PRIMARY KEY, name TEXT NOT NULL)",
-    "CREATE TABLE users (id TEXT PRIMARY KEY, name TEXT NOT NULL)",
-    "CREATE TABLE members (organization_id TEXT NOT NULL, user_id TEXT NOT NULL)",
-    `CREATE TABLE projects (
-        id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, name TEXT NOT NULL,
-        slug TEXT NOT NULL, archived_at_ms INTEGER
-      )`,
-    `CREATE TABLE openmeld_profiles (
-        profile_id TEXT PRIMARY KEY, profile_name TEXT NOT NULL,
-        profile_kind TEXT NOT NULL, organization_id TEXT, owner_user_id TEXT NOT NULL,
-        status TEXT NOT NULL
-      )`,
-    `CREATE TABLE openMeldDaemon_agent_profile_bindings (
-        binding_id TEXT PRIMARY KEY, owner_kind TEXT NOT NULL, owner_id TEXT NOT NULL,
-        agent_profile_id TEXT NOT NULL, agent_controller_ref TEXT NOT NULL,
-        agent_controller_conversation_id TEXT, binding_state TEXT NOT NULL
-      )`,
-    `CREATE TABLE openMeldDaemon_runtime_registry_records (
-        openmeld_service_runtime_id TEXT PRIMARY KEY, owner_kind TEXT NOT NULL,
-        owner_id TEXT NOT NULL, device_id TEXT NOT NULL
-      )`,
-    `CREATE TABLE openMeldDaemon_runtime_agent_controller_reports (
-        openmeld_service_runtime_id TEXT NOT NULL, agent_controller_ref TEXT NOT NULL,
-        expires_at_ms INTEGER NOT NULL
-      )`,
-  ]) {
-    harness.run({ sql });
-  }
 }
 
 function observedSession(nativeSessionId: string, offsetMs: number) {
@@ -867,22 +850,24 @@ function observedSession(nativeSessionId: string, offsetMs: number) {
   };
 }
 
-function inventoryRowCount(
-  harness: ReturnType<typeof createSqliteD1Harness>
-): number {
+async function inventoryRowCount(
+  harness: Awaited<ReturnType<typeof createPostgresHarness>>
+): Promise<number> {
   return (
-    harness.queryFirst<{ count: number }>({
-      sql: "SELECT count(*) AS count FROM agent_activity_session_inventory",
-    })?.count ?? -1
+    (await (
+      await harness.queryFirst<{ count: number }>({
+        text: 'SELECT count(*) AS count FROM "openmeld"."agent_activity_session_inventory"',
+      })
+    )?.count) ?? -1
   );
 }
 
-function insertRacingSessionIdentity(
-  harness: ReturnType<typeof createSqliteD1Harness>
-): void {
+async function insertRacingSessionIdentity(
+  harness: Awaited<ReturnType<typeof createPostgresHarness>>
+): Promise<void> {
   const competingConnectionId = `sha256:${"f".repeat(64)}`;
-  harness.run({
-    params: [
+  await harness.query({
+    values: [
       "source-race-winner",
       AUTHORITY.organizationId,
       AUTHORITY.ownerUserId,
@@ -897,16 +882,16 @@ function insertRacingSessionIdentity(
       NOW_MS,
       NOW_MS,
     ],
-    sql: `INSERT INTO agent_activity_session_inventory_sources (
+    text: `INSERT INTO "openmeld"."agent_activity_session_inventory_sources" (
       source_scope_key, organization_id, owner_user_id, project_id,
       device_id, connected_computer_id, local_connection_id,
       agent_controller_ref, provider, state, current_reconciliation_id,
       next_page_index, problem_code, last_attempt_at_ms,
       last_complete_at_ms, updated_at_ms
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'current', ?, 1, NULL, ?, ?, ?)`,
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'current', $10, 1, NULL, $11, $12, $13)`,
   });
-  harness.run({
-    params: [
+  await harness.query({
+    values: [
       "inventory-race-winner",
       AUTHORITY.organizationId,
       AUTHORITY.ownerUserId,
@@ -925,20 +910,20 @@ function insertRacingSessionIdentity(
       NOW_MS,
       NOW_MS,
     ],
-    sql: `INSERT INTO agent_activity_session_inventory (
+    text: `INSERT INTO "openmeld"."agent_activity_session_inventory" (
       id, organization_id, owner_user_id, agent_controller_ref,
       native_session_id, project_id, device_id, connected_computer_id,
       local_connection_id, source_scope_key, provider, native_session_title,
       status, last_active_at_ms, started_at_ms, origin, can_resume, can_fork,
       visible, source_reconciliation_id, observed_at_ms, published_at_ms,
       updated_at_ms
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'idle', ?, NULL, 'local',
-      1, 0, 1, ?, ?, ?, ?)`,
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'idle', $13, NULL, 'local',
+      1, 0, 1, $14, $15, $16, $17)`,
   });
 }
 
 async function reconcile(
-  db: D1Database,
+  db: PostgresDatabase,
   overrides: Partial<SubmitAgentActivitySessionReconciliationBody> & {
     sessions: SubmitAgentActivitySessionReconciliationBody["sessions"];
   }
@@ -970,7 +955,7 @@ async function reconcile(
 }
 
 async function read(
-  db: D1Database,
+  db: PostgresDatabase,
   query: Partial<AgentActivitySessionInventoryQuery> = {}
 ) {
   return await readAgentActivitySessionInventory({

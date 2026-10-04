@@ -3,33 +3,25 @@ import { describe, expect, it } from "vitest";
 import {
   claimRemoteAgentRoutineNativeDelivery,
   upsertRemoteAgentNativeDeliveryRecord,
-} from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+} from "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import { requireMessageChannelRoutineOrigin } from "../src/routines/message-channel-routine-destination";
 import {
   claimRoutineOccurrenceAndAdvance,
   readRoutineRunRecord,
 } from "../src/routines/routine-repository";
-import {
-  applyDrizzleMigrationForTable,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 describe("Message Channel Routine destinations", () => {
   it.each([
     "feishu",
     "lark",
   ] as const)("freezes the %s destination and atomically admits one delivery", async (provider) => {
-    const harness = createSqliteD1Harness();
+    const harness = await createPostgresHarness();
     try {
-      harness.run({ sql: "CREATE TABLE organizations (id TEXT PRIMARY KEY)" });
-      harness.run({ sql: "INSERT INTO organizations VALUES ('org')" });
-      for (const table of [
-        "routines",
-        "routine_runs",
-        "openMeldRemoteAgent_native_delivery_ledger",
-      ]) {
-        applyDrizzleMigrationForTable(harness, table);
-      }
+      await harness.query({
+        text: 'INSERT INTO "openmeld"."organizations" (id, "name", "slug", "created_at") VALUES (\'org\', \'Test Organization\', (\'org\')::text, 1700000000000)',
+      });
+
       const locator = {
         provider,
         connectionId: "connection",
@@ -40,9 +32,9 @@ describe("Message Channel Routine destinations", () => {
         threadId: "omt_thread",
       };
       const conversationId = buildMessageChannelConversationId(locator);
-      harness.run({
-        sql: `INSERT INTO routines (id, organization_id, name, instructions, schedule_kind, cron_expression, timezone, destination_kind, message_channel_destination_json, status, next_due_at, created_by_user_id, updated_by_user_id, created_at_ms, updated_at_ms) VALUES ('routine', 'org', 'Report', 'Send the report here', 'cron', '0 9 * * *', 'America/New_York', 'message_channel', ?, 'enabled', 1000, 'member', 'member', 0, 0)`,
-        params: [JSON.stringify({ conversationId, locator })],
+      await harness.query({
+        text: `INSERT INTO "openmeld"."routines" (id, organization_id, name, instructions, schedule_kind, cron_expression, timezone, destination_kind, message_channel_destination_json, status, next_due_at, created_by_user_id, updated_by_user_id, created_at_ms, updated_at_ms) VALUES ('routine', 'org', 'Report', 'Send the report here', 'cron', '0 9 * * *', 'America/New_York', 'message_channel', $1, 'enabled', 1000, 'member', 'member', 0, 0)`,
+        values: [JSON.stringify({ conversationId, locator })],
       });
       await claimRoutineOccurrenceAndAdvance({
         db: harness.db,
@@ -54,9 +46,9 @@ describe("Message Channel Routine destinations", () => {
         nextDueAt: 2000,
         status: "claimed",
       });
-      harness.run({
-        sql: "UPDATE routines SET message_channel_destination_json = ? WHERE id = 'routine'",
-        params: [
+      await harness.query({
+        text: 'UPDATE "openmeld"."routines" SET message_channel_destination_json = $1 WHERE id = \'routine\'',
+        values: [
           JSON.stringify({
             conversationId: "changed",
             locator: { ...locator, chatId: "another_chat" },
@@ -102,17 +94,13 @@ describe("Message Channel Routine destinations", () => {
         first.delivery?.providerPublicationIdempotencyKey
       );
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("rejects another member or conversation as a Routine origin", async () => {
-    const harness = createSqliteD1Harness();
+    const harness = await createPostgresHarness();
     try {
-      applyDrizzleMigrationForTable(
-        harness,
-        "openMeldRemoteAgent_native_delivery_ledger"
-      );
       const locator = {
         provider: "feishu" as const,
         connectionId: "connection",
@@ -167,7 +155,7 @@ describe("Message Channel Routine destinations", () => {
         })
       ).rejects.toThrow();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });

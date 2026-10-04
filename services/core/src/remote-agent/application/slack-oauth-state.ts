@@ -1,16 +1,14 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   consumeSlackOAuthStateRecord,
   deleteExpiredSlackOAuthStateRecords,
   insertSlackOAuthState,
-} from "../infrastructure/d1/slack-oauth-state-repo";
-
+} from "../infrastructure/postgresql/slack-oauth-state-repo";
 export const SLACK_OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
-
 const SLACK_OAUTH_STATE_BYTE_LENGTH = 32;
 const SLACK_OAUTH_STATE_PREFIX = "slackoauth_";
 const SLACK_IDENTITY_STATE_PREFIX = "slackidentity_";
 const SLACK_OAUTH_STATE_PATTERN = /^slack(?:oauth|identity)_[0-9a-f]{64}$/u;
-
 export type ConsumedSlackOAuthState =
   | {
       actorProfileId: string;
@@ -21,33 +19,38 @@ export type ConsumedSlackOAuthState =
       status: "valid";
       userId: string;
     }
-  | { returnPath: string; status: "expired" }
-  | { status: "invalid" };
-
+  | {
+      returnPath: string;
+      status: "expired";
+    }
+  | {
+      status: "invalid";
+    };
 export function buildSlackOAuthChannelsReturnPath(
   organizationSlug: string
 ): string {
   const slug = requireNonEmptyText(organizationSlug, "organization slug");
   return `/o/${encodeURIComponent(slug)}/center-agent/channels`;
 }
-
 export function buildSlackOAuthPeopleReturnPath(
   organizationSlug: string
 ): string {
   const slug = requireNonEmptyText(organizationSlug, "organization slug");
   return `/o/${encodeURIComponent(slug)}/people`;
 }
-
 export async function createSlackOAuthState(input: {
   actorProfileId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   moveFromOrganizationId?: string | null;
   nowMs: number;
   organizationId: string;
   purpose?: "member_identity" | "organization_install";
   returnPath: string;
   userId: string;
-}): Promise<{ expiresAtMs: number; state: string }> {
+}): Promise<{
+  expiresAtMs: number;
+  state: string;
+}> {
   const actorProfileId = requireNonEmptyText(
     input.actorProfileId,
     "actor profile id"
@@ -65,7 +68,6 @@ export async function createSlackOAuthState(input: {
   const state = createOpaqueSlackOAuthState(purpose);
   const stateDigest = await digestSlackOAuthState(state);
   const expiresAtMs = input.nowMs + SLACK_OAUTH_STATE_TTL_MS;
-
   await deleteExpiredSlackOAuthStateRecords({
     db: input.db,
     nowMs: input.nowMs,
@@ -83,12 +85,10 @@ export async function createSlackOAuthState(input: {
       userId,
     },
   });
-
   return { expiresAtMs, state };
 }
-
 export async function consumeSlackOAuthState(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs: number;
   state: string;
 }): Promise<ConsumedSlackOAuthState> {
@@ -115,7 +115,6 @@ export async function consumeSlackOAuthState(input: {
     userId: record.userId,
   };
 }
-
 function createOpaqueSlackOAuthState(
   purpose: "member_identity" | "organization_install"
 ): string {
@@ -127,7 +126,6 @@ function createOpaqueSlackOAuthState(
       : SLACK_OAUTH_STATE_PREFIX;
   return `${prefix}${toHex(bytes)}`;
 }
-
 function resolveSlackOAuthPurpose(
   state: string
 ): "member_identity" | "organization_install" {
@@ -135,7 +133,6 @@ function resolveSlackOAuthPurpose(
     ? "member_identity"
     : "organization_install";
 }
-
 async function digestSlackOAuthState(state: string): Promise<string> {
   const digest = await crypto.subtle.digest(
     "SHA-256",
@@ -143,13 +140,11 @@ async function digestSlackOAuthState(state: string): Promise<string> {
   );
   return `sha256:${toHex(new Uint8Array(digest))}`;
 }
-
 function toHex(bytes: Uint8Array): string {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join(
     ""
   );
 }
-
 function requireNonEmptyText(value: string, fieldName: string): string {
   const normalized = value.trim();
   if (!normalized) {
@@ -157,14 +152,12 @@ function requireNonEmptyText(value: string, fieldName: string): string {
   }
   return normalized;
 }
-
 function normalizeOptionalText(
   value: string | null | undefined
 ): string | null {
   const normalized = value?.trim() ?? "";
   return normalized.length > 0 ? normalized : null;
 }
-
 function requireReturnPath(value: string): string {
   const normalized = value.trim();
   if (!normalized.startsWith("/")) {

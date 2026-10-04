@@ -5,17 +5,14 @@ import {
   projectAgentProfileWorkRecoveryInboxItem,
   resolveAgentProfileWorkRecoveryInboxItem,
 } from "../src/runtime-transport/application/agent-profile-work-recovery-inbox-producer";
-import {
-  applyDrizzleMigrationsForTables,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 const RECOVERY_SOURCE_KEY_PATTERN =
   /^agent_profile_work_recovery_[a-f0-9]{64}$/u;
 
 describe("Agent Profile work recovery Inbox producer", () => {
   it("projects a separate queue approval action without exposing work details", async () => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
       await projectAgentProfileWorkRecoveryInboxItem({
         db: harness.db,
@@ -58,12 +55,12 @@ describe("Agent Profile work recovery Inbox producer", () => {
       expect(serialized).not.toContain("space_private");
       expect(serialized).not.toContain("/Users/felix/private-project");
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("projects one Needs attention item that links back to the interrupted Wake", async () => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
       const input = {
         db: harness.db,
@@ -86,13 +83,13 @@ describe("Agent Profile work recovery Inbox producer", () => {
       await projectAgentProfileWorkRecoveryInboxItem(input);
 
       expect(
-        harness.queryAll<{
+        await harness.queryAll<{
           attention: string;
           preview: string;
           source_target_json: string;
           title: string;
         }>({
-          sql: "SELECT attention, preview, source_target_json, title FROM inbox_items",
+          text: 'SELECT attention, preview, source_target_json, title FROM "openmeld"."inbox_items"',
         })
       ).toEqual([
         {
@@ -108,12 +105,12 @@ describe("Agent Profile work recovery Inbox producer", () => {
         },
       ]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("resolves the exact queue approval and suppresses its pending email", async () => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
       const source = {
         interruptedClientMessageId: "message_private_task_one",
@@ -152,27 +149,27 @@ describe("Agent Profile work recovery Inbox producer", () => {
       ).resolves.toBe(0);
 
       expect(
-        harness.queryAll<{ resolution_status: string }>({
-          sql: "SELECT resolution_status FROM inbox_items",
+        await harness.queryAll<{ resolution_status: string }>({
+          text: 'SELECT resolution_status FROM "openmeld"."inbox_items"',
         })
       ).toEqual([{ resolution_status: "resolved" }]);
       expect(
-        harness.queryAll<{ state: string }>({
-          sql: `
+        await harness.queryAll<{ state: string }>({
+          text: `
             SELECT delivery.state
-            FROM inbox_email_deliveries AS delivery
-            INNER JOIN inbox_items AS item ON item.id = delivery.inbox_item_id
+            FROM "openmeld"."inbox_email_deliveries" AS delivery
+            INNER JOIN "openmeld"."inbox_items" AS item ON item.id = delivery.inbox_item_id
             ORDER BY item.title
           `,
         })
       ).toEqual([{ state: "suppressed" }]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("keeps source recovery open when the owner reads or dismisses the item", async () => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
       const projected = await projectAgentProfileWorkRecoveryInboxItem({
         db: harness.db,
@@ -194,12 +191,12 @@ describe("Agent Profile work recovery Inbox producer", () => {
         recipientUserId: "user_owner",
       });
       expect(
-        harness.queryFirst<{
+        await harness.queryFirst<{
           cleared_at_ms: number | null;
           read_at_ms: number | null;
           resolution_status: string;
         }>({
-          sql: "SELECT cleared_at_ms, read_at_ms, resolution_status FROM inbox_items",
+          text: 'SELECT cleared_at_ms, read_at_ms, resolution_status FROM "openmeld"."inbox_items"',
         })
       ).toEqual({
         cleared_at_ms: null,
@@ -213,15 +210,15 @@ describe("Agent Profile work recovery Inbox producer", () => {
         recipientUserId: "user_owner",
       });
       expect(
-        harness.queryFirst<{
+        await harness.queryFirst<{
           cleared_at_ms: number | null;
           resolution_status: string;
         }>({
-          sql: "SELECT cleared_at_ms, resolution_status FROM inbox_items",
+          text: 'SELECT cleared_at_ms, resolution_status FROM "openmeld"."inbox_items"',
         })
       ).toEqual({ cleared_at_ms: 3000, resolution_status: "open" });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
@@ -246,50 +243,20 @@ describe("Agent Profile work recovery Inbox producer", () => {
   });
 });
 
-function createInboxHarness() {
-  const harness = createSqliteD1Harness();
-  harness.run({
-    sql: `
-      CREATE TABLE organizations (
-        id TEXT PRIMARY KEY NOT NULL,
-        name TEXT NOT NULL,
-        slug TEXT NOT NULL,
-        created_at INTEGER NOT NULL
-      )
-    `,
-  });
-  harness.run({
-    sql: `
-      CREATE TABLE users (
-        id TEXT PRIMARY KEY NOT NULL,
-        name TEXT NOT NULL,
-        email TEXT NOT NULL
-      )
-    `,
-  });
-  applyDrizzleMigrationsForTables(harness, [
-    "openmeld_profiles",
-    "center_agent_designations",
-    "center_agent_tasks",
-    "center_agent_task_authorized_readers",
-    "inbox_items",
-    "inbox_email_deliveries",
-    "inbox_notification_preferences",
-    "inbox_center_agent_read_watermarks",
-    "space_index_spaces",
-    "space_index_memberships",
-  ]);
-  harness.run({
-    params: ["org_one", "Recovery Org", "recovery-org", 1000],
-    sql: "INSERT INTO organizations (id, name, slug, created_at) VALUES (?, ?, ?, ?)",
+async function createInboxHarness() {
+  const harness = await createPostgresHarness();
+
+  await harness.query({
+    values: ["org_one", "Recovery Org", "recovery-org", 1000],
+    text: 'INSERT INTO "openmeld"."organizations" (id, name, slug, created_at) VALUES ($1, $2, $3, $4)',
   });
   for (const [id, name, email] of [
     ["user_owner", "Profile Owner", "owner@example.com"],
     ["user_other", "Other Member", "other@example.com"],
   ] as const) {
-    harness.run({
-      params: [id, name, email],
-      sql: "INSERT INTO users (id, name, email) VALUES (?, ?, ?)",
+    await harness.query({
+      values: [id, name, email],
+      text: 'INSERT INTO "openmeld"."users" (id, name, email) VALUES ($1, $2, $3)',
     });
   }
   return harness;

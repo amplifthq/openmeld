@@ -1,7 +1,11 @@
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import type {
   OpenMeldDaemonAcceptedDispatchSnapshot,
   OpenMeldDaemonDispatchQueueMessage,
 } from "@openmeld/schemas/types";
+import { readRecordedDelegationRequester } from "../../center-agent/application/recorded-delegation-requester";
+import type { CoreBindings } from "../../lib/bindings";
+import { readActiveRepresentedHumanSender } from "../../remote-agent/application/turn-envelope";
 
 export async function buildAcceptedDispatchSnapshot(input: {
   message: OpenMeldDaemonDispatchQueueMessage;
@@ -63,6 +67,56 @@ export async function buildAcceptedDispatchSnapshot(input: {
   };
 }
 
+export async function isDispatchRequestedByAgentOwner(input: {
+  env?: CoreBindings;
+  targetOwnerUserId?: string;
+  message: OpenMeldDaemonDispatchQueueMessage;
+}): Promise<boolean> {
+  const { env, message, targetOwnerUserId } = input;
+  const source = message.sourceSignalSnapshot;
+  if (
+    !(env && targetOwnerUserId && message.organizationId && source?.profileId)
+  ) {
+    return false;
+  }
+  const db = getPostgresDatabase(env);
+  if (!db) {
+    return false;
+  }
+  if (source.profileKind === "human") {
+    return Boolean(
+      await readActiveRepresentedHumanSender({
+        db,
+        organizationId: message.organizationId,
+        profileId: source.profileId,
+        userId: targetOwnerUserId,
+      })
+    );
+  }
+  const evidenceDb = getPostgresDatabase(env);
+  if (
+    !(
+      source.profileKind === "agent" &&
+      evidenceDb &&
+      message.sourceClientMessageId
+    )
+  ) {
+    return false;
+  }
+  return Boolean(
+    await readRecordedDelegationRequester({
+      identityDb: db,
+      evidenceDb,
+      organizationId: message.organizationId,
+      spaceId: message.spaceId,
+      sourceClientMessageId: message.sourceClientMessageId,
+      sourceProfileId: source.profileId,
+      targetProfileId: message.targetProfileId,
+      targetOwnerUserId,
+    })
+  );
+}
+
 export function applyAcceptedDispatchSnapshotToMessage(input: {
   message: OpenMeldDaemonDispatchQueueMessage;
   snapshot: OpenMeldDaemonAcceptedDispatchSnapshot;
@@ -92,7 +146,6 @@ export function applyAcceptedDispatchSnapshotToMessage(input: {
     },
   };
 }
-
 async function fingerprintAcceptedDispatchPayload(
   message: OpenMeldDaemonDispatchQueueMessage
 ): Promise<`sha256:${string}`> {
@@ -123,7 +176,6 @@ async function fingerprintAcceptedDispatchPayload(
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("")}`;
 }
-
 function stableJson(value: unknown): string {
   if (value === null || typeof value !== "object") {
     return JSON.stringify(value);

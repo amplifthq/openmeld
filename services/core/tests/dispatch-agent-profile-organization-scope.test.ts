@@ -2,6 +2,7 @@ import type { OpenMeldDaemonDispatchQueueMessage } from "@openmeld/schemas/types
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { resolveTargetBindingOrganizationScope } from "../src/dispatch/application/dispatch-execution-service";
 import type { CoreBindings } from "../src/lib/bindings";
+import { createProjectionPostgresBinding } from "../test-support/postgresql-query.test-support";
 
 describe("dispatch Agent Profile Organization scope", () => {
   afterEach(() => {
@@ -75,7 +76,7 @@ describe("dispatch Agent Profile Organization scope", () => {
     const log = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const result = await resolveTargetBindingOrganizationScope({
       bindingId: "binding-acme",
-      env: createFailingScopeEnv(new Error("D1 lookup failed")),
+      env: createFailingScopeEnv(new Error("PostgreSQL lookup failed")),
       message: createDispatchMessage(),
     });
 
@@ -89,7 +90,7 @@ describe("dispatch Agent Profile Organization scope", () => {
       {
         bindingId: "binding-acme",
         dispatchId: "dispatch-1",
-        error: "D1 lookup failed",
+        error: "PostgreSQL lookup failed",
         event:
           "core.openMeldDaemon.dispatch_execution.agent_profile_organization_lookup_failed",
         sourceEventId: "source-event-1",
@@ -115,41 +116,33 @@ function createDispatchMessage(input?: {
   } as OpenMeldDaemonDispatchQueueMessage;
 }
 
+const scopeQuery = new WeakMap<CoreBindings, () => string>();
 function createFailingScopeEnv(error: Error): CoreBindings {
   return {
-    OPENMELD_DB: {
-      prepare: () => {
-        throw error;
-      },
-    } as unknown as D1Database,
+    OPENMELD_POSTGRESQL: createProjectionPostgresBinding(() => {
+      throw error;
+    }),
   } as CoreBindings;
 }
-
 function createScopeEnv(input: {
   profileOrganizationId: string;
   spaceOrganizationId: string;
 }): CoreBindings {
-  let preparedSql = "";
-  return {
-    OPENMELD_DB: {
-      prepare: (sql: string) => {
-        preparedSql = sql;
-        return {
-          bind: () => ({
-            first: async () => ({
-              organization_id: input.spaceOrganizationId,
-              profile_organization_id: input.profileOrganizationId,
-            }),
-          }),
-        };
-      },
-      __readPreparedSql: () => preparedSql,
-    } as unknown as D1Database,
+  let queriedSql = "";
+  const env = {
+    OPENMELD_POSTGRESQL: createProjectionPostgresBinding(({ text }) => {
+      queriedSql = text;
+      return [
+        {
+          organization_id: input.spaceOrganizationId,
+          profile_organization_id: input.profileOrganizationId,
+        },
+      ];
+    }),
   } as CoreBindings;
+  scopeQuery.set(env, () => queriedSql);
+  return env;
 }
-
 function readPreparedSql(env: CoreBindings): string {
-  return (
-    env.OPENMELD_DB as unknown as { __readPreparedSql: () => string }
-  ).__readPreparedSql();
+  return scopeQuery.get(env)?.() ?? "";
 }

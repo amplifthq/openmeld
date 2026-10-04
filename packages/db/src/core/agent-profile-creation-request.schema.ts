@@ -1,15 +1,13 @@
 import { sql } from "drizzle-orm";
-import {
-  check,
-  index,
-  integer,
-  sqliteTable,
-  text,
-  uniqueIndex,
-} from "drizzle-orm/sqlite-core";
+import { bigint, check, index, text, uniqueIndex } from "drizzle-orm/pg-core";
 import { organizations, users } from "../auth/auth.schema.ts";
+import {
+  applicationTable,
+  currentTimestampMilliseconds,
+} from "../postgresql/schema.ts";
+import { epochMilliseconds } from "../postgresql/schema-types.ts";
 
-export const agentProfileCreationApprovalPreferences = sqliteTable(
+export const agentProfileCreationApprovalPreferences = applicationTable(
   "agent_profile_creation_approval_preferences",
   {
     id: text("id").primaryKey(),
@@ -25,11 +23,11 @@ export const agentProfileCreationApprovalPreferences = sqliteTable(
     existingSessionPolicy: text("existing_session_policy")
       .default("ask_every_time")
       .notNull(),
-    createdAt: integer("created_at", { mode: "timestamp_ms" })
-      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+    createdAt: epochMilliseconds("created_at")
+      .default(currentTimestampMilliseconds)
       .notNull(),
-    updatedAt: integer("updated_at", { mode: "timestamp_ms" })
-      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+    updatedAt: epochMilliseconds("updated_at")
+      .default(currentTimestampMilliseconds)
       .notNull(),
   },
   (table) => [
@@ -45,7 +43,7 @@ export const agentProfileCreationApprovalPreferences = sqliteTable(
   ]
 );
 
-export const agentProfileCreationRequests = sqliteTable(
+export const agentProfileCreationRequests = applicationTable(
   "agent_profile_creation_requests",
   {
     id: text("id").primaryKey(),
@@ -73,41 +71,43 @@ export const agentProfileCreationRequests = sqliteTable(
     status: text("status").notNull(),
     statusReason: text("status_reason").notNull(),
     createdAgentProfileId: text("created_agent_profile_id"),
-    workspaceConfiguredAt: integer("workspace_configured_at", {
-      mode: "timestamp_ms",
-    }),
-    defaultProjectConfiguredAt: integer("default_project_configured_at", {
-      mode: "timestamp_ms",
-    }),
+    workspaceConfiguredAt: epochMilliseconds("workspace_configured_at"),
+    defaultProjectConfiguredAt: epochMilliseconds(
+      "default_project_configured_at"
+    ),
     failureMessage: text("failure_message"),
-    decidedAt: integer("decided_at", { mode: "timestamp_ms" }),
-    completedAt: integer("completed_at", { mode: "timestamp_ms" }),
-    profileCreationAttempt: integer("profile_creation_attempt")
+    decidedAt: epochMilliseconds("decided_at"),
+    completedAt: epochMilliseconds("completed_at"),
+    profileCreationAttempt: bigint("profile_creation_attempt", {
+      mode: "number",
+    })
       .default(0)
       .notNull(),
-    profileCreationStartedAt: integer("profile_creation_started_at", {
-      mode: "timestamp_ms",
-    }),
+    profileCreationStartedAt: epochMilliseconds("profile_creation_started_at"),
     inboxProjectionOperation: text("inbox_projection_operation"),
-    inboxProjectionGeneration: integer("inbox_projection_generation")
+    inboxProjectionGeneration: bigint("inbox_projection_generation", {
+      mode: "number",
+    })
       .default(0)
       .notNull(),
     inboxProjectionStatus: text("inbox_projection_status"),
-    inboxProjectionAttemptCount: integer("inbox_projection_attempt_count")
+    inboxProjectionAttemptCount: bigint("inbox_projection_attempt_count", {
+      mode: "number",
+    })
       .default(0)
       .notNull(),
     inboxProjectionLastError: text("inbox_projection_last_error"),
-    inboxProjectionNextRetryAt: integer("inbox_projection_next_retry_at", {
-      mode: "timestamp_ms",
-    }),
-    inboxProjectionCompletedAt: integer("inbox_projection_completed_at", {
-      mode: "timestamp_ms",
-    }),
-    createdAt: integer("created_at", { mode: "timestamp_ms" })
-      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+    inboxProjectionNextRetryAt: epochMilliseconds(
+      "inbox_projection_next_retry_at"
+    ),
+    inboxProjectionCompletedAt: epochMilliseconds(
+      "inbox_projection_completed_at"
+    ),
+    createdAt: epochMilliseconds("created_at")
+      .default(currentTimestampMilliseconds)
       .notNull(),
-    updatedAt: integer("updated_at", { mode: "timestamp_ms" })
-      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+    updatedAt: epochMilliseconds("updated_at")
+      .default(currentTimestampMilliseconds)
       .notNull(),
   },
   (table) => [

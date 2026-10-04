@@ -1,7 +1,7 @@
 import { getCookies, getSessionCookie } from "better-auth/cookies";
 import { describe, expect, it } from "vitest";
 import { createAuthClientConfig } from "../src/configs/auth.client.config";
-import { createAuthConfig } from "../src/configs/auth.config";
+import { createAuthConfigForTest } from "./auth-config.test-support";
 
 const AUTH_ENV = {
   BETTER_AUTH_OPENMELD_SECRET:
@@ -12,8 +12,8 @@ const AUTH_ENV = {
 
 describe("multi-session configuration", () => {
   it("isolates staging sessions from inherited production cookies without renaming production cookies", () => {
-    const production = createAuthConfig(AUTH_ENV);
-    const staging = createAuthConfig({
+    const production = createAuthConfigForTest(AUTH_ENV);
+    const staging = createAuthConfigForTest({
       ...AUTH_ENV,
       AUTH_COOKIE_PREFIX: "openmeld-staging",
     });
@@ -33,7 +33,7 @@ describe("multi-session configuration", () => {
     expect(getSessionCookie(headers)).toBe("production");
   });
   it("enables the server endpoints", () => {
-    const config = createAuthConfig(AUTH_ENV);
+    const config = createAuthConfigForTest(AUTH_ENV);
 
     expect(config.plugins?.map((plugin) => plugin.id)).toContain(
       "multi-session"

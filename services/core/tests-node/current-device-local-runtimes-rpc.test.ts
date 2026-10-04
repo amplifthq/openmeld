@@ -12,9 +12,9 @@ import {
   rpcWriteCurrentDeviceObservedMetadata,
 } from "../src/rpc/methods";
 import {
-  applyDrizzleMigrationForTable,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+  createPostgresHarness,
+  postgresTestBinding,
+} from "./helpers/postgresql-harness.test-support";
 
 describe("current device local runtimes RPC read model", () => {
   const CODEX_AGENT_CONTROLLER_INTERFACE = {
@@ -58,27 +58,29 @@ describe("current device local runtimes RPC read model", () => {
   } satisfies AgentControllerInterfaceSnapshot;
 
   it("does not partially write current target or owned device rows when setup carries invalid connected computer evidence", async () => {
-    const harness = createSqliteD1Harness();
-    applyOwnedDeviceExecutionTargetMigrations(harness);
+    const harness = await createPostgresHarness();
+
     try {
-      const env = { OPENMELD_DB: harness.db } as CoreBindings;
+      const env = {
+        OPENMELD_POSTGRESQL: postgresTestBinding(harness.db),
+      } as CoreBindings;
       const context = createRequestContext();
-      insertBindingWithRuntime(harness, {
+      await insertBindingWithRuntime(harness, {
         ownerUserId: "owner-1",
         deviceId: "device-existing",
         suffix: "existing",
       });
-      harness.run({
-        sql: `
-          INSERT INTO openMeldDaemon_connected_computers (
+      await harness.query({
+        text: `
+          INSERT INTO "openmeld"."openMeldDaemon_connected_computers" (
             owner_user_id,
             connected_computer_id,
             created_at_ms,
             updated_at_ms
           )
-          VALUES (?, ?, ?, ?)
+          VALUES ($1, $2, $3, $4)
         `,
-        params: ["owner-1", "computer-existing", 1, 1],
+        values: ["owner-1", "computer-existing", 1, 1],
       });
       await rpcEnrollLocalRuntime(env, {
         connectedComputerId: "computer-existing",
@@ -100,17 +102,17 @@ describe("current device local runtimes RPC read model", () => {
       });
 
       expect(
-        harness.queryAll<{
+        await harness.queryAll<{
           connected_computer_id: string | null;
           device_id: string;
         }>({
-          sql: `
+          text: `
             SELECT device_id, connected_computer_id
-            FROM openMeldDaemon_owned_devices
-            WHERE owner_user_id = ?
+            FROM "openmeld"."openMeldDaemon_owned_devices"
+            WHERE owner_user_id = $1
             ORDER BY device_id
           `,
-          params: ["owner-1"],
+          values: ["owner-1"],
         })
       ).toEqual([
         {
@@ -134,17 +136,19 @@ describe("current device local runtimes RPC read model", () => {
         ],
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("uses registry observed metadata as the local runtime last observed moment", async () => {
-    const harness = createSqliteD1Harness();
-    applyOwnedDeviceExecutionTargetMigrations(harness);
+    const harness = await createPostgresHarness();
+
     try {
-      const env = { OPENMELD_DB: harness.db } as CoreBindings;
+      const env = {
+        OPENMELD_POSTGRESQL: postgresTestBinding(harness.db),
+      } as CoreBindings;
       const context = createRequestContext();
-      insertBindingWithRuntime(harness, {
+      await insertBindingWithRuntime(harness, {
         ownerUserId: "owner-1",
         deviceId: "device-macbook",
         suffix: "macbook",
@@ -191,17 +195,19 @@ describe("current device local runtimes RPC read model", () => {
         ],
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("projects reported Agent Controller Interface evidence through local runtimes", async () => {
-    const harness = createSqliteD1Harness();
-    applyOwnedDeviceExecutionTargetMigrations(harness);
+    const harness = await createPostgresHarness();
+
     try {
-      const env = { OPENMELD_DB: harness.db } as CoreBindings;
+      const env = {
+        OPENMELD_POSTGRESQL: postgresTestBinding(harness.db),
+      } as CoreBindings;
       const context = createRequestContext();
-      insertBindingWithRuntime(harness, {
+      await insertBindingWithRuntime(harness, {
         ownerUserId: "owner-1",
         deviceId: "device-macbook",
         suffix: "macbook",
@@ -327,40 +333,42 @@ describe("current device local runtimes RPC read model", () => {
           ?.agentControllerInterface?.usageLimits
       ).toBeUndefined();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });
 
-function applyOwnedDeviceExecutionTargetMigrations(
-  harness: ReturnType<typeof createSqliteD1Harness>
-): void {
-  applyDrizzleMigrationForTable(
-    harness,
-    "openMeldDaemon_runtime_registry_records"
-  );
-  applyDrizzleMigrationForTable(
-    harness,
-    "openMeldDaemon_runtime_agent_controller_reports"
-  );
-  applyDrizzleMigrationForTable(
-    harness,
-    "openMeldDaemon_agent_profile_bindings"
-  );
-}
-
-function insertBindingWithRuntime(
-  harness: ReturnType<typeof createSqliteD1Harness>,
+async function insertBindingWithRuntime(
+  harness: Awaited<ReturnType<typeof createPostgresHarness>>,
   input: {
     ownerUserId: string;
     deviceId: string;
     suffix: string;
   }
-): void {
+): Promise<void> {
+  const profileId = `agt_${crypto.randomUUID()}`;
+  const organizationId = `org-${input.ownerUserId}`;
+  await harness.query({
+    text: `INSERT INTO "openmeld"."users" (id, name, email) VALUES ($1, 'Owner', $1::text || '@example.test') ON CONFLICT (id) DO NOTHING`,
+    values: [input.ownerUserId],
+  });
+  await harness.query({
+    text: `INSERT INTO "openmeld"."organizations" (id, name, slug, created_at) VALUES ($1, 'Organization', $1, 1000) ON CONFLICT (id) DO NOTHING`,
+    values: [organizationId],
+  });
+  await harness.query({
+    text: `INSERT INTO "openmeld"."openmeld_profiles" (profile_id, profile_name, profile_handle, profile_kind, owner_user_id, organization_id, source, status) VALUES ($1, 'Codex', $2, 'agent', $3, $4, 'web_create', 'active')`,
+    values: [
+      profileId,
+      `codex-${input.suffix}`,
+      input.ownerUserId,
+      organizationId,
+    ],
+  });
   const nowMs = Date.parse("2026-04-28T00:00:00.000Z");
-  harness.run({
-    sql: `
-      INSERT INTO openMeldDaemon_runtime_registry_records (
+  await harness.query({
+    text: `
+      INSERT INTO "openmeld"."openMeldDaemon_runtime_registry_records" (
         openmeld_service_runtime_id,
         owner_kind,
         owner_id,
@@ -370,9 +378,9 @@ function insertBindingWithRuntime(
         last_registered_at_ms,
         updated_at_ms
       )
-      VALUES (?, 'owner_account', ?, ?, 'dev-local', ?, ?, ?)
+      VALUES ($1, 'owner_account', $2, $3, 'dev-local', $4, $5, $6)
     `,
-    params: [
+    values: [
       `runtime-${input.suffix}`,
       input.ownerUserId,
       input.deviceId,
@@ -381,9 +389,9 @@ function insertBindingWithRuntime(
       nowMs,
     ],
   });
-  harness.run({
-    sql: `
-      INSERT INTO openMeldDaemon_agent_profile_bindings (
+  await harness.query({
+    text: `
+      INSERT INTO "openmeld"."openMeldDaemon_agent_profile_bindings" (
         binding_id,
         owner_kind,
         owner_id,
@@ -394,12 +402,12 @@ function insertBindingWithRuntime(
         created_at_ms,
         updated_at_ms
       )
-      VALUES (?, 'owner_account', ?, ?, ?, 'builtin:codex', 'enabled_primary', ?, ?)
+      VALUES ($1, 'owner_account', $2, $3, $4, 'builtin:codex', 'enabled_primary', $5, $6)
     `,
-    params: [
+    values: [
       `binding-${input.suffix}`,
       input.ownerUserId,
-      `agt-${input.suffix}`,
+      profileId,
       `runtime-${input.suffix}`,
       nowMs,
       nowMs,

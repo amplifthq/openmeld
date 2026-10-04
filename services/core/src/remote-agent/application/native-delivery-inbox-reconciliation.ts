@@ -1,14 +1,15 @@
-import { listLegacyTaskContinuationInboxItems } from "../../inbox/infrastructure/d1/inbox-item-repo";
-import { listRemoteAgentNativeDeliveriesByDeliveryIds } from "../infrastructure/d1/native-delivery-ledger-repo";
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
+import { listLegacyTaskContinuationInboxItems } from "../../inbox/infrastructure/postgresql/inbox-item-repo";
+import { listRemoteAgentNativeDeliveriesByDeliveryIds } from "../infrastructure/postgresql/native-delivery-ledger-repo";
 import { resolveNativeFailureLanguage } from "./native-delivery-failure-facts";
 import { repairTaskContinuationAdmissionExhaustedInboxItem } from "./native-delivery-inbox-producer";
 
 /** Repair old recipient projections from their source, without replaying execution. */
 export async function reconcileTaskContinuationInbox(input: {
-  inboxDb: D1Database;
-  sourceDb: D1Database;
-  identityDb: D1Database;
-  coordinationDb: D1Database;
+  inboxDb: PostgresDatabase;
+  sourceDb: PostgresDatabase;
+  identityDb: PostgresDatabase;
+  coordinationDb: PostgresDatabase;
   organizationId: string;
   recipientUserId: string;
 }): Promise<void> {

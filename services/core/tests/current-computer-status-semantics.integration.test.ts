@@ -1,46 +1,64 @@
 import { env } from "cloudflare:test";
+import type { QueryResult } from "@openmeld/db/postgresql";
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH } from "@openmeld/schemas";
 import { afterEach, describe, expect, it } from "vitest";
-import { listOwnedDeviceExecutionTargetRecords } from "../src/runtime-registry/infrastructure/d1/runtime-registry-repo";
+import { listOwnedDeviceExecutionTargetRecords } from "../src/runtime-registry/infrastructure/postgresql/runtime-registry-repo";
 import {
   getCurrentLocalRuntimeReplyReadinessUseCase,
   listLocalRuntimesUseCase,
 } from "../src/start/application/current-device-target-service";
-import { resolveCurrentDeviceFromBindings } from "../src/start/infrastructure/d1/current-device-derivation-repo";
-import { listOwnedDeviceRegistryRecords } from "../src/start/infrastructure/d1/owned-device-registry-repo";
+import { resolveCurrentDeviceFromBindings } from "../src/start/infrastructure/postgresql/current-device-derivation-repo";
+import { listOwnedDeviceRegistryRecords } from "../src/start/infrastructure/postgresql/owned-device-registry-repo";
 
 type ReadinessStore = Parameters<
   typeof getCurrentLocalRuntimeReplyReadinessUseCase
 >[0]["store"];
-
 type TestReport = {
   agentControllerRef: string;
   reasonCodes: string[];
   status: "ready" | "disabled" | "unavailable" | "unknown";
 };
-
 const seededFixtures: Array<{
   deviceId: string;
   openMeldServiceRuntimeId: string;
   ownerUserId: string;
 }> = [];
-
 afterEach(async () => {
   for (const fixture of seededFixtures.splice(0)) {
-    await env.OPENMELD_DB.batch([
-      env.OPENMELD_DB.prepare(
-        "DELETE FROM openMeldDaemon_runtime_agent_controller_reports WHERE openmeld_service_runtime_id = ?"
-      ).bind(fixture.openMeldServiceRuntimeId),
-      env.OPENMELD_DB.prepare(
-        "DELETE FROM openMeldDaemon_runtime_registry_records WHERE openmeld_service_runtime_id = ?"
-      ).bind(fixture.openMeldServiceRuntimeId),
-      env.OPENMELD_DB.prepare(
-        "DELETE FROM openMeldDaemon_owned_devices WHERE owner_user_id = ? AND device_id = ?"
-      ).bind(fixture.ownerUserId, fixture.deviceId),
-    ]);
+    await getPostgresDatabase(env).transaction(async (client) =>
+      (async () => {
+        const results: QueryResult[] = [];
+        for (const query of [
+          {
+            ...{
+              text: 'DELETE FROM "openmeld"."openMeldDaemon_runtime_agent_controller_reports" WHERE openmeld_service_runtime_id = $1',
+              values: [],
+            },
+            values: [fixture.openMeldServiceRuntimeId],
+          },
+          {
+            ...{
+              text: 'DELETE FROM "openmeld"."openMeldDaemon_runtime_registry_records" WHERE openmeld_service_runtime_id = $1',
+              values: [],
+            },
+            values: [fixture.openMeldServiceRuntimeId],
+          },
+          {
+            ...{
+              text: 'DELETE FROM "openmeld"."openMeldDaemon_owned_devices" WHERE owner_user_id = $1 AND device_id = $2',
+              values: [],
+            },
+            values: [fixture.ownerUserId, fixture.deviceId],
+          },
+        ]) {
+          results.push(await client.query(query));
+        }
+        return results;
+      })()
+    );
   }
 });
-
 describe("current computer status semantics from D1 evidence", () => {
   it.each([
     {
@@ -146,14 +164,12 @@ describe("current computer status semantics from D1 evidence", () => {
   ])("$description", async ({ expected, reports }) => {
     const fixture = await seedD1Runtime(reports);
     const store = createD1ReadinessStore();
-
     const readiness = await getCurrentLocalRuntimeReplyReadinessUseCase({
       lookupOwnerService: () => Promise.resolve(buildLiveOwnerService(fixture)),
       now: new Date(),
       store,
       userId: fixture.ownerUserId,
     });
-
     expect(readiness).toMatchObject({
       canReplyFromThisComputer: expected.canReplyFromThisComputer,
       nextAction: expected.nextAction,
@@ -167,7 +183,6 @@ describe("current computer status semantics from D1 evidence", () => {
       },
       status: expected.status,
     });
-
     const inventory = await listLocalRuntimesUseCase({
       store,
       userId: fixture.ownerUserId,
@@ -188,7 +203,6 @@ describe("current computer status semantics from D1 evidence", () => {
     }
   });
 });
-
 function disabledReport(
   agentControllerRef: string,
   status: "ready" | "disabled"
@@ -199,7 +213,6 @@ function disabledReport(
     status,
   };
 }
-
 function readyReport(agentControllerRef: string): TestReport {
   return {
     agentControllerRef,
@@ -207,7 +220,6 @@ function readyReport(agentControllerRef: string): TestReport {
     status: "ready",
   };
 }
-
 function checkFailedReport(agentControllerRef: string): TestReport {
   return {
     agentControllerRef,
@@ -215,7 +227,6 @@ function checkFailedReport(agentControllerRef: string): TestReport {
     status: "unavailable",
   };
 }
-
 function repairReport(agentControllerRef: string): TestReport {
   return {
     agentControllerRef,
@@ -223,7 +234,6 @@ function repairReport(agentControllerRef: string): TestReport {
     status: "unavailable",
   };
 }
-
 async function seedD1Runtime(reports: TestReport[]) {
   const suffix = crypto.randomUUID().replaceAll("-", "");
   const ownerUserId = `owner_computer_status_${suffix}`;
@@ -231,10 +241,13 @@ async function seedD1Runtime(reports: TestReport[]) {
   const openMeldServiceRuntimeId = `runtime_computer_status_${suffix}`;
   const nowMs = Date.now();
   seededFixtures.push({ deviceId, openMeldServiceRuntimeId, ownerUserId });
-
-  await env.OPENMELD_DB.batch([
-    env.OPENMELD_DB.prepare(
-      `INSERT INTO openMeldDaemon_owned_devices (
+  await getPostgresDatabase(env).transaction(async (client) =>
+    (async () => {
+      const results: QueryResult[] = [];
+      for (const query of [
+        {
+          ...{
+            text: `INSERT INTO "openmeld"."openMeldDaemon_owned_devices" (
         owner_user_id,
         device_id,
         connected_computer_id,
@@ -246,10 +259,14 @@ async function seedD1Runtime(reports: TestReport[]) {
         first_seen_at_ms,
         last_observed_at_ms,
         updated_at_ms
-      ) VALUES (?, ?, NULL, 'Test Mac', NULL, 'macOS', '15.0', 'laptop', ?, ?, ?)`
-    ).bind(ownerUserId, deviceId, nowMs, nowMs, nowMs),
-    env.OPENMELD_DB.prepare(
-      `INSERT INTO openMeldDaemon_runtime_registry_records (
+      ) VALUES ($1, $2, NULL, 'Test Mac', NULL, 'macOS', '15.0', 'laptop', $3, $4, $5)`,
+            values: [],
+          },
+          values: [ownerUserId, deviceId, nowMs, nowMs, nowMs],
+        },
+        {
+          ...{
+            text: `INSERT INTO "openmeld"."openMeldDaemon_runtime_registry_records" (
         openmeld_service_runtime_id,
         owner_kind,
         owner_id,
@@ -258,18 +275,21 @@ async function seedD1Runtime(reports: TestReport[]) {
         created_at_ms,
         last_registered_at_ms,
         updated_at_ms
-      ) VALUES (?, 'owner_account', ?, ?, 'dev-local', ?, ?, ?)`
-    ).bind(
-      openMeldServiceRuntimeId,
-      ownerUserId,
-      deviceId,
-      nowMs,
-      nowMs,
-      nowMs
-    ),
-    ...reports.map((report) =>
-      env.OPENMELD_DB.prepare(
-        `INSERT INTO openMeldDaemon_runtime_agent_controller_reports (
+      ) VALUES ($1, 'owner_account', $2, $3, 'dev-local', $4, $5, $6)`,
+            values: [],
+          },
+          values: [
+            openMeldServiceRuntimeId,
+            ownerUserId,
+            deviceId,
+            nowMs,
+            nowMs,
+            nowMs,
+          ],
+        },
+        ...reports.map((report) => ({
+          ...{
+            text: `INSERT INTO "openmeld"."openMeldDaemon_runtime_agent_controller_reports" (
           openmeld_service_runtime_id,
           agent_controller_ref,
           report_status,
@@ -279,47 +299,54 @@ async function seedD1Runtime(reports: TestReport[]) {
           agent_controller_interface_json,
           accepted_at_ms,
           updated_at_ms
-        ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)`
-      ).bind(
-        openMeldServiceRuntimeId,
-        report.agentControllerRef,
-        report.status,
-        nowMs,
-        nowMs + 60_000,
-        JSON.stringify(report.reasonCodes),
-        nowMs,
-        nowMs
-      )
-    ),
-  ]);
-
+        ) VALUES ($1, $2, $3, $4, $5, $6, NULL, $7, $8)`,
+            values: [],
+          },
+          values: [
+            openMeldServiceRuntimeId,
+            report.agentControllerRef,
+            report.status,
+            nowMs,
+            nowMs + 60_000,
+            JSON.stringify(report.reasonCodes),
+            nowMs,
+            nowMs,
+          ],
+        })),
+      ]) {
+        results.push(await client.query(query));
+      }
+      return results;
+    })()
+  );
   return { deviceId, openMeldServiceRuntimeId, ownerUserId };
 }
-
 function createD1ReadinessStore(): ReadinessStore {
   const unavailableMutation = (): Promise<never> =>
     Promise.reject(
       new Error("read-only D1 readiness test store does not allow mutations")
     );
-
   return {
     deleteForgottenDevice: unavailableMutation,
     forgetComputer: unavailableMutation,
     forgetCurrentComputer: unavailableMutation,
     readConnectedComputerIdentity: () => Promise.resolve(null),
     readCurrentDeviceTarget: ({ userId }) =>
-      resolveCurrentDeviceFromBindings({ db: env.OPENMELD_DB, userId }),
+      resolveCurrentDeviceFromBindings({
+        db: getPostgresDatabase(env),
+        userId,
+      }),
     readForgottenDevice: () => Promise.resolve(null),
     readOwnedDeviceExecutionTargets: ({ nowMs, userId }) =>
       listOwnedDeviceExecutionTargetRecords({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         nowMs,
         userId,
       }),
     readOwnedDeviceRegistryRecord: () => Promise.resolve(null),
     readOwnedDevices: async ({ userId }) => {
       const records = await listOwnedDeviceRegistryRecords({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         userId,
       });
       return records.map((record) => ({
@@ -337,7 +364,6 @@ function createD1ReadinessStore(): ReadinessStore {
     upsertOwnedDeviceRegistryRecord: unavailableMutation,
   };
 }
-
 function buildLiveOwnerService(fixture: {
   deviceId: string;
   openMeldServiceRuntimeId: string;

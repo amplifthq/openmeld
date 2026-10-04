@@ -1,3 +1,4 @@
+import { PostgresDatabase } from "@openmeld/db/postgresql";
 import { CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH } from "@openmeld/schemas";
 import type {
   LocalComponentsStatus,
@@ -5,11 +6,11 @@ import type {
 } from "@openmeld/schemas/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
-import * as agentProfileBindingRepo from "../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
+import * as agentProfileBindingRepo from "../agent-profile-binding/infrastructure/postgresql/agent-profile-binding-repo";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
-import * as dispatchLedgerD1 from "../dispatch/infrastructure/d1/dispatch-ledger-d1";
+import * as dispatchSourceSignalContext from "../dispatch/application/dispatch-source-signal-context";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
-import * as dispatchSourceSignalContext from "../dispatch/infrastructure/d1/dispatch-source-signal-context";
+import * as dispatchLedgerPostgres from "../dispatch/infrastructure/postgresql/dispatch-ledger-postgresql";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
 import * as runtimeCoordinatorClient from "../dispatch/infrastructure/runtime-transport/runtime-coordinator-client";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
@@ -19,9 +20,9 @@ import * as localComponentsUpdateProjection from "../local-components/update-pro
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
 import * as informationProtectionRepo from "../organizations/organization-information-protection-repository";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
-import * as runtimeRegistryRepo from "../runtime-registry/infrastructure/d1/runtime-registry-repo";
+import * as runtimeRegistryRepo from "../runtime-registry/infrastructure/postgresql/runtime-registry-repo";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
-import * as forgottenDeviceRepo from "../start/infrastructure/d1/forgotten-device-repo";
+import * as forgottenDeviceRepo from "../start/infrastructure/postgresql/forgotten-device-repo";
 import { REQUIRED_SERVICE_UPDATE_RELEASE_MANIFEST } from "./local-components-release-manifest-fixture";
 
 const recordDispatchAttemptExecutionOwnershipMock = vi.fn();
@@ -36,7 +37,7 @@ import {
   lookupRuntimeTransportOwnerService,
   lookupRuntimeTransportRoute,
 } from "../dispatch/infrastructure/runtime-transport/runtime-transport-client";
-import { readRuntimeRegistryRecordByRuntimeId } from "../runtime-registry/infrastructure/d1/runtime-registry-repo";
+import { readRuntimeRegistryRecordByRuntimeId } from "../runtime-registry/infrastructure/postgresql/runtime-registry-repo";
 
 const TEST_TARGET_PROFILE_ID = "agt_11111111-1111-4111-8111-111111111111";
 const LIVE_CODEX_CAPABILITIES = {
@@ -298,7 +299,7 @@ describe("dispatch execution profile identity boundaries", () => {
       status: "found",
     } as never);
     vi.spyOn(
-      dispatchLedgerD1,
+      dispatchLedgerPostgres,
       "recordDispatchAttemptExecutionOwnership"
     ).mockImplementation((...args) =>
       recordDispatchAttemptExecutionOwnershipMock(...args)
@@ -334,10 +335,16 @@ describe("dispatch execution profile identity boundaries", () => {
     await expect(
       deliverDispatchMessageToDaemon({
         attemptId: "attempt-profile-identity-1",
-        db: {} as D1Database,
+        db: new PostgresDatabase({
+          connectionString:
+            "postgresql://127.0.0.1:1/unexpected_test_database_access",
+        }),
         env: {
           OPENMELD_AUTH_WORKER: undefined,
-          OPENMELD_LOCAL_STATE_DB: {} as D1Database,
+          OPENMELD_POSTGRESQL: {
+            connectionString:
+              "postgresql://127.0.0.1:1/unexpected_test_database_access",
+          },
         } as never,
         message: createDispatchMessage(),
         targetOwnerUserId: "user-1",
@@ -366,7 +373,10 @@ describe("dispatch execution profile identity boundaries", () => {
     await expect(
       deliverDispatchMessageToDaemon({
         attemptId: "attempt-profile-identity-lookup-failed-1",
-        db: {} as D1Database,
+        db: new PostgresDatabase({
+          connectionString:
+            "postgresql://127.0.0.1:1/unexpected_test_database_access",
+        }),
         env: {
           OPENMELD_AUTH_WORKER: {
             resolveProfileById: vi.fn().mockResolvedValue({
@@ -375,7 +385,10 @@ describe("dispatch execution profile identity boundaries", () => {
               message: "profile lookup failed",
             }),
           },
-          OPENMELD_LOCAL_STATE_DB: {} as D1Database,
+          OPENMELD_POSTGRESQL: {
+            connectionString:
+              "postgresql://127.0.0.1:1/unexpected_test_database_access",
+          },
         } as never,
         message: createDispatchMessage({
           dispatchId: "dispatch-profile-identity-lookup-failed-1",
@@ -404,10 +417,16 @@ describe("dispatch execution profile identity boundaries", () => {
 
     const result = await deliverDispatchMessageToDaemon({
       attemptId: "attempt-profile-identity-2",
-      db: {} as D1Database,
+      db: new PostgresDatabase({
+        connectionString:
+          "postgresql://127.0.0.1:1/unexpected_test_database_access",
+      }),
       env: {
         OPENMELD_AUTH_WORKER: authRpc,
-        OPENMELD_LOCAL_STATE_DB: {} as D1Database,
+        OPENMELD_POSTGRESQL: {
+          connectionString:
+            "postgresql://127.0.0.1:1/unexpected_test_database_access",
+        },
       } as never,
       message: createDispatchMessage({
         targetProfileNameSnapshot: "Snapshot Codex",
@@ -455,10 +474,16 @@ describe("dispatch execution profile identity boundaries", () => {
 
     await deliverDispatchMessageToDaemon({
       attemptId: "attempt-profile-identity-protection-1",
-      db: {} as D1Database,
+      db: new PostgresDatabase({
+        connectionString:
+          "postgresql://127.0.0.1:1/unexpected_test_database_access",
+      }),
       env: {
         OPENMELD_AUTH_WORKER: createAvailableAuthRpc(),
-        OPENMELD_LOCAL_STATE_DB: {} as D1Database,
+        OPENMELD_POSTGRESQL: {
+          connectionString:
+            "postgresql://127.0.0.1:1/unexpected_test_database_access",
+        },
       } as never,
       message: createDispatchMessage({
         dispatchId: "dispatch-profile-identity-protection-1",
@@ -486,10 +511,16 @@ describe("dispatch execution profile identity boundaries", () => {
   it("keeps delivery compatible with an older Local Service", async () => {
     await deliverDispatchMessageToDaemon({
       attemptId: "attempt-profile-identity-legacy-service-1",
-      db: {} as D1Database,
+      db: new PostgresDatabase({
+        connectionString:
+          "postgresql://127.0.0.1:1/unexpected_test_database_access",
+      }),
       env: {
         OPENMELD_AUTH_WORKER: createAvailableAuthRpc(),
-        OPENMELD_LOCAL_STATE_DB: {} as D1Database,
+        OPENMELD_POSTGRESQL: {
+          connectionString:
+            "postgresql://127.0.0.1:1/unexpected_test_database_access",
+        },
       } as never,
       message: createDispatchMessage({
         dispatchId: "dispatch-profile-identity-legacy-service-1",
@@ -535,10 +566,16 @@ describe("dispatch execution profile identity boundaries", () => {
     await expect(
       deliverDispatchMessageToDaemon({
         attemptId: "attempt-profile-identity-protection-fallback-1",
-        db: {} as D1Database,
+        db: new PostgresDatabase({
+          connectionString:
+            "postgresql://127.0.0.1:1/unexpected_test_database_access",
+        }),
         env: {
           OPENMELD_AUTH_WORKER: createAvailableAuthRpc(),
-          OPENMELD_LOCAL_STATE_DB: {} as D1Database,
+          OPENMELD_POSTGRESQL: {
+            connectionString:
+              "postgresql://127.0.0.1:1/unexpected_test_database_access",
+          },
         } as never,
         message: createDispatchMessage({
           dispatchId: "dispatch-profile-identity-protection-fallback-1",
@@ -590,10 +627,16 @@ describe("dispatch execution profile identity boundaries", () => {
     await expect(
       deliverDispatchMessageToDaemon({
         attemptId: "attempt-profile-identity-protection-scope-fallback-1",
-        db: {} as D1Database,
+        db: new PostgresDatabase({
+          connectionString:
+            "postgresql://127.0.0.1:1/unexpected_test_database_access",
+        }),
         env: {
           OPENMELD_AUTH_WORKER: createAvailableAuthRpc(),
-          OPENMELD_LOCAL_STATE_DB: {} as D1Database,
+          OPENMELD_POSTGRESQL: {
+            connectionString:
+              "postgresql://127.0.0.1:1/unexpected_test_database_access",
+          },
         } as never,
         message: createDispatchMessage({
           dispatchId: "dispatch-profile-identity-protection-scope-fallback-1",
@@ -630,10 +673,16 @@ describe("dispatch execution profile identity boundaries", () => {
 
     await deliverDispatchMessageToDaemon({
       attemptId: "attempt-profile-identity-ownership-1",
-      db: {} as D1Database,
+      db: new PostgresDatabase({
+        connectionString:
+          "postgresql://127.0.0.1:1/unexpected_test_database_access",
+      }),
       env: {
         OPENMELD_AUTH_WORKER: createAvailableAuthRpc(),
-        OPENMELD_LOCAL_STATE_DB: {} as D1Database,
+        OPENMELD_POSTGRESQL: {
+          connectionString:
+            "postgresql://127.0.0.1:1/unexpected_test_database_access",
+        },
       } as never,
       message: createDispatchMessage({
         dispatchId: "dispatch-profile-identity-ownership-1",
@@ -659,16 +708,22 @@ describe("dispatch execution profile identity boundaries", () => {
 
   it("does not send the daemon deliver frame when durable execution ownership cannot be recorded", async () => {
     recordDispatchAttemptExecutionOwnershipMock.mockRejectedValueOnce(
-      new Error("d1 unavailable")
+      new Error("postgresql unavailable")
     );
 
     await expect(
       deliverDispatchMessageToDaemon({
         attemptId: "attempt-profile-identity-ownership-failed-1",
-        db: {} as D1Database,
+        db: new PostgresDatabase({
+          connectionString:
+            "postgresql://127.0.0.1:1/unexpected_test_database_access",
+        }),
         env: {
           OPENMELD_AUTH_WORKER: createAvailableAuthRpc(),
-          OPENMELD_LOCAL_STATE_DB: {} as D1Database,
+          OPENMELD_POSTGRESQL: {
+            connectionString:
+              "postgresql://127.0.0.1:1/unexpected_test_database_access",
+          },
         } as never,
         message: createDispatchMessage({
           dispatchId: "dispatch-profile-identity-ownership-failed-1",
@@ -677,7 +732,7 @@ describe("dispatch execution profile identity boundaries", () => {
         }),
         targetOwnerUserId: "user-1",
       })
-    ).rejects.toThrow("d1 unavailable");
+    ).rejects.toThrow("postgresql unavailable");
 
     expect(deliverRuntimeTransportDispatch).not.toHaveBeenCalled();
   });
@@ -704,10 +759,16 @@ describe("dispatch execution profile identity boundaries", () => {
     await expect(
       deliverDispatchMessageToDaemon({
         attemptId: "attempt-profile-identity-lane-mismatch-1",
-        db: {} as D1Database,
+        db: new PostgresDatabase({
+          connectionString:
+            "postgresql://127.0.0.1:1/unexpected_test_database_access",
+        }),
         env: {
           OPENMELD_AUTH_WORKER: createAvailableAuthRpc(),
-          OPENMELD_LOCAL_STATE_DB: {} as D1Database,
+          OPENMELD_POSTGRESQL: {
+            connectionString:
+              "postgresql://127.0.0.1:1/unexpected_test_database_access",
+          },
         } as never,
         message: createDispatchMessage({
           dispatchId: "dispatch-profile-identity-lane-mismatch-1",
@@ -740,10 +801,16 @@ describe("dispatch execution profile identity boundaries", () => {
           runtimeKind: "openmeld_service",
         },
         attemptId: "attempt-profile-identity-reconnect-drift-1",
-        db: {} as D1Database,
+        db: new PostgresDatabase({
+          connectionString:
+            "postgresql://127.0.0.1:1/unexpected_test_database_access",
+        }),
         env: {
           OPENMELD_AUTH_WORKER: createAvailableAuthRpc(),
-          OPENMELD_LOCAL_STATE_DB: {} as D1Database,
+          OPENMELD_POSTGRESQL: {
+            connectionString:
+              "postgresql://127.0.0.1:1/unexpected_test_database_access",
+          },
         } as never,
         message: createDispatchMessage({
           dispatchId: "dispatch-profile-identity-reconnect-drift-1",
@@ -778,10 +845,16 @@ describe("dispatch execution profile identity boundaries", () => {
     await expect(
       deliverDispatchMessageToDaemon({
         attemptId: "attempt-profile-identity-missing-contract-1",
-        db: {} as D1Database,
+        db: new PostgresDatabase({
+          connectionString:
+            "postgresql://127.0.0.1:1/unexpected_test_database_access",
+        }),
         env: {
           OPENMELD_AUTH_WORKER: createAvailableAuthRpc(),
-          OPENMELD_LOCAL_STATE_DB: {} as D1Database,
+          OPENMELD_POSTGRESQL: {
+            connectionString:
+              "postgresql://127.0.0.1:1/unexpected_test_database_access",
+          },
         } as never,
         message: createDispatchMessage({
           dispatchId: "dispatch-profile-identity-missing-contract-1",
@@ -816,10 +889,16 @@ describe("dispatch execution profile identity boundaries", () => {
     await expect(
       deliverDispatchMessageToDaemon({
         attemptId: "attempt-profile-identity-service-update-1",
-        db: {} as D1Database,
+        db: new PostgresDatabase({
+          connectionString:
+            "postgresql://127.0.0.1:1/unexpected_test_database_access",
+        }),
         env: {
           OPENMELD_AUTH_WORKER: createAvailableAuthRpc(),
-          OPENMELD_LOCAL_STATE_DB: {} as D1Database,
+          OPENMELD_POSTGRESQL: {
+            connectionString:
+              "postgresql://127.0.0.1:1/unexpected_test_database_access",
+          },
         } as never,
         message: createDispatchMessage({
           dispatchId: "dispatch-profile-identity-service-update-1",
@@ -855,10 +934,16 @@ describe("dispatch execution profile identity boundaries", () => {
     await expect(
       deliverDispatchMessageToDaemon({
         attemptId: "attempt-profile-identity-missing-service-version-1",
-        db: {} as D1Database,
+        db: new PostgresDatabase({
+          connectionString:
+            "postgresql://127.0.0.1:1/unexpected_test_database_access",
+        }),
         env: {
           OPENMELD_AUTH_WORKER: createAvailableAuthRpc(),
-          OPENMELD_LOCAL_STATE_DB: {} as D1Database,
+          OPENMELD_POSTGRESQL: {
+            connectionString:
+              "postgresql://127.0.0.1:1/unexpected_test_database_access",
+          },
         } as never,
         message: createDispatchMessage({
           dispatchId: "dispatch-profile-identity-missing-service-version-1",
@@ -896,10 +981,16 @@ describe("dispatch execution profile identity boundaries", () => {
 
     await deliverDispatchMessageToDaemon({
       attemptId: "attempt-profile-identity-route-components-1",
-      db: {} as D1Database,
+      db: new PostgresDatabase({
+        connectionString:
+          "postgresql://127.0.0.1:1/unexpected_test_database_access",
+      }),
       env: {
         OPENMELD_AUTH_WORKER: createAvailableAuthRpc(),
-        OPENMELD_LOCAL_STATE_DB: {} as D1Database,
+        OPENMELD_POSTGRESQL: {
+          connectionString:
+            "postgresql://127.0.0.1:1/unexpected_test_database_access",
+        },
       } as never,
       message: createDispatchMessage({
         dispatchId: "dispatch-profile-identity-route-components-1",
@@ -941,10 +1032,16 @@ describe("dispatch execution profile identity boundaries", () => {
     await expect(
       deliverDispatchMessageToDaemon({
         attemptId: "attempt-profile-identity-offline-service-update-1",
-        db: {} as D1Database,
+        db: new PostgresDatabase({
+          connectionString:
+            "postgresql://127.0.0.1:1/unexpected_test_database_access",
+        }),
         env: {
           OPENMELD_AUTH_WORKER: createAvailableAuthRpc(),
-          OPENMELD_LOCAL_STATE_DB: {} as D1Database,
+          OPENMELD_POSTGRESQL: {
+            connectionString:
+              "postgresql://127.0.0.1:1/unexpected_test_database_access",
+          },
         } as never,
         message: createDispatchMessage({
           dispatchId: "dispatch-profile-identity-offline-service-update-1",
@@ -990,10 +1087,16 @@ describe("dispatch execution profile identity boundaries", () => {
     await expect(
       deliverDispatchMessageToDaemon({
         attemptId: "attempt-profile-identity-offline-components-1",
-        db: {} as D1Database,
+        db: new PostgresDatabase({
+          connectionString:
+            "postgresql://127.0.0.1:1/unexpected_test_database_access",
+        }),
         env: {
           OPENMELD_AUTH_WORKER: createAvailableAuthRpc(),
-          OPENMELD_LOCAL_STATE_DB: {} as D1Database,
+          OPENMELD_POSTGRESQL: {
+            connectionString:
+              "postgresql://127.0.0.1:1/unexpected_test_database_access",
+          },
         } as never,
         message: createDispatchMessage({
           dispatchId: "dispatch-profile-identity-offline-components-1",

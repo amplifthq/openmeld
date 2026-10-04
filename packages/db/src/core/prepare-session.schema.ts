@@ -1,13 +1,8 @@
 import { desc } from "drizzle-orm";
-import {
-  index,
-  integer,
-  sqliteTable,
-  text,
-  uniqueIndex,
-} from "drizzle-orm/sqlite-core";
+import { bigint, index, text, uniqueIndex } from "drizzle-orm/pg-core";
+import { applicationTable } from "../postgresql/schema.ts";
 
-export const openMeldDaemonPrepareSessions = sqliteTable(
+export const openMeldDaemonPrepareSessions = applicationTable(
   "openMeldDaemon_prepare_sessions",
   {
     prepareSessionId: text("prepare_session_id").primaryKey(),
@@ -19,13 +14,13 @@ export const openMeldDaemonPrepareSessions = sqliteTable(
     creationIdempotencyKey: text("creation_idempotency_key"),
     lifecycleStatus: text("lifecycle_status").notNull(),
     phase: text("phase").notNull(),
-    sessionRevision: integer("session_revision").notNull(),
+    sessionRevision: bigint("session_revision", { mode: "number" }).notNull(),
     snapshotJson: text("snapshot_json").notNull(),
     diagnosticCorrelationId: text("diagnostic_correlation_id").notNull(),
-    createdAtMs: integer("created_at_ms").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
-    completedAtMs: integer("completed_at_ms"),
-    expiresAtMs: integer("expires_at_ms").notNull(),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
+    completedAtMs: bigint("completed_at_ms", { mode: "number" }),
+    expiresAtMs: bigint("expires_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     index("idx_openMeldDaemon_prepare_sessions_owner_status_updated").on(
@@ -46,15 +41,15 @@ export const openMeldDaemonPrepareSessions = sqliteTable(
   ]
 );
 
-export const openMeldDaemonPrepareSessionTokens = sqliteTable(
+export const openMeldDaemonPrepareSessionTokens = applicationTable(
   "openMeldDaemon_prepare_session_tokens",
   {
     tokenDigest: text("token_digest").primaryKey(),
     prepareSessionId: text("prepare_session_id").notNull(),
     ownerUserId: text("owner_user_id").notNull(),
-    issuedAtMs: integer("issued_at_ms").notNull(),
-    expiresAtMs: integer("expires_at_ms").notNull(),
-    revokedAtMs: integer("revoked_at_ms"),
+    issuedAtMs: bigint("issued_at_ms", { mode: "number" }).notNull(),
+    expiresAtMs: bigint("expires_at_ms", { mode: "number" }).notNull(),
+    revokedAtMs: bigint("revoked_at_ms", { mode: "number" }),
   },
   (table) => [
     index("idx_openMeldDaemon_prepare_session_tokens_session_active").on(
@@ -68,17 +63,17 @@ export const openMeldDaemonPrepareSessionTokens = sqliteTable(
   ]
 );
 
-export const openMeldDaemonPrepareSessionEvents = sqliteTable(
+export const openMeldDaemonPrepareSessionEvents = applicationTable(
   "openMeldDaemon_prepare_session_events",
   {
     eventId: text("event_id").primaryKey(),
     prepareSessionId: text("prepare_session_id").notNull(),
     ownerUserId: text("owner_user_id").notNull(),
-    sessionRevision: integer("session_revision").notNull(),
+    sessionRevision: bigint("session_revision", { mode: "number" }).notNull(),
     eventType: text("event_type").notNull(),
     actor: text("actor").notNull(),
     eventJson: text("event_json").notNull(),
-    createdAtMs: integer("created_at_ms").notNull(),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     index("idx_openMeldDaemon_prepare_session_events_session_created").on(

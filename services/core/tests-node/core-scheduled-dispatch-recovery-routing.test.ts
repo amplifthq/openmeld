@@ -1,3 +1,4 @@
+import { PostgresDatabase } from "@openmeld/db/postgresql";
 import { describe, expect, it, vi } from "vitest";
 import type { CoreBindings } from "../src/lib/bindings";
 import {
@@ -14,8 +15,6 @@ const asScheduledDependency = <Key extends keyof ScheduledInput>(
 
 describe("Core scheduled dispatch recovery routing", () => {
   it("keeps pre-head failure publication recovery on the authoritative Core database", async () => {
-    const recoveryDb = {} as D1Database;
-    const wakeEvidenceDb = {} as D1Database;
     const retryPreHeadFailurePublications = vi.fn().mockResolvedValue({
       enqueued: 0,
       errors: 0,
@@ -34,11 +33,12 @@ describe("Core scheduled dispatch recovery routing", () => {
         ),
       cron: ROUTINE_TICK_CRON,
       env: {
-        OPENMELD_DB: recoveryDb,
-        OPENMELD_LOCAL_STATE_DB: recoveryDb,
+        OPENMELD_POSTGRESQL: {
+          connectionString:
+            "postgresql://127.0.0.1:1/unexpected_test_database_access",
+        },
         OPENMELD_ROUTINE_ENGINE_DEFAULT: "legacy",
         OPENMELD_SPACES: {} as CoreBindings["OPENMELD_SPACES"],
-        OPENMELD_WAKE_EVIDENCE_DB: wakeEvidenceDb,
       },
       nowMs: 1000,
       retryAgentTaskContinuations:
@@ -84,10 +84,9 @@ describe("Core scheduled dispatch recovery routing", () => {
 
     expect(retryPreHeadFailurePublications).toHaveBeenCalledOnce();
     const [retryInput] = retryPreHeadFailurePublications.mock.calls[0] ?? [];
-    expect(retryInput?.db).toBe(recoveryDb);
-    expect(retryInput?.db).not.toBe(wakeEvidenceDb);
+    expect(retryInput?.db).toBeInstanceOf(PostgresDatabase);
     expect(retryAcceptedDeliveryProbes).toHaveBeenCalledWith({
-      db: wakeEvidenceDb,
+      db: expect.any(PostgresDatabase),
       env: expect.any(Object),
       nowMs: 1000,
     });

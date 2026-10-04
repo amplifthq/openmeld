@@ -1,8 +1,8 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import { summarizeInformationProtectionError } from "./organization-information-protection-observability";
 import { readOrganizationInformationProtectionPolicy } from "./organization-information-protection-repository";
-
 export async function readOrganizationInformationProtectionForPrompt(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
 }): Promise<string | null> {
   try {

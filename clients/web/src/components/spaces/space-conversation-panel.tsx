@@ -3256,7 +3256,9 @@ function resolveSpaceMessageBubbleVisibilityClassName(input: {
 	item: SpaceTimelineItem;
 	showProgressInAnswerArea: boolean;
 }): string | undefined {
-	return input.showProgressInAnswerArea ||
+	return input.item.systemNoticeType === "wake_stopped" ||
+		input.item.agentStreamState?.status === "stopped" ||
+		input.showProgressInAnswerArea ||
 		input.item.text.trim().length > 0 ||
 		input.item.agentStreamState?.thinking ||
 		input.item.attachments.length > 0 ||
@@ -4237,7 +4239,6 @@ const EMPTY_ANCHORED_OUTCOME_NOTICES: readonly SpaceTimelineItem[] = [];
 const UNAVAILABLE_SPACE_WAKE_STOP_REQUEST: SpaceWakeStopRequestHandler = () =>
 	Promise.reject(new Error("Space Wake Stop is unavailable."));
 
-// Stopped system outcomes stay with their source message and open its details.
 // Participants open terminal failures from the footer; observers read them inline.
 function renderAnchoredSpaceOutcomeRows(input: {
 	notices: readonly SpaceTimelineItem[];

@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AuthRpcEntrypoint } from "../src/lib/rpc/entrypoint";
 import {
-  applyDrizzleMigrations,
-  createSqliteD1Harness,
-  type SqliteD1Harness,
-} from "./support/sqlite-d1-harness";
+  createPostgresHarness,
+  Pool,
+  type PostgresHarness,
+  postgresTestBinding,
+} from "../../../tooling/postgresql/test-harness";
+import { AuthRpcEntrypoint } from "../src/lib/rpc/entrypoint";
 
 const executionContext = {
   exports: {},
@@ -22,23 +23,23 @@ const validRequest = {
   userId: "user-felix",
 } as const;
 
-let harness: SqliteD1Harness;
+let harness: PostgresHarness;
 let sendEmail: ReturnType<typeof vi.fn>;
 
-beforeEach(() => {
-  harness = createSqliteD1Harness();
-  applyDrizzleMigrations(harness.database);
+beforeEach(async () => {
+  harness = await createPostgresHarness();
+
   sendEmail = vi.fn();
 });
 
-afterEach(() => {
-  harness.close();
+afterEach(async () => {
+  await harness.close();
   vi.restoreAllMocks();
 });
 
 describe("urgent Inbox email RPC", () => {
   it("links invitation review emails to the same in-app request destination", async () => {
-    seedIdentity({ organizationSlug: "acme-team" });
+    await seedIdentity({ organizationSlug: "acme-team" });
     sendEmail.mockResolvedValue({ messageId: "review-mail" });
     await expect(
       createRpc().sendInboxUrgentEmail({
@@ -55,7 +56,7 @@ describe("urgent Inbox email RPC", () => {
   });
   it("rejects non-strict input before reading identity data or sending", async () => {
     const rpc = createRpc();
-    const prepare = vi.spyOn(harness.db, "prepare");
+    const prepare = vi.spyOn(Pool.prototype, "query");
 
     await expect(
       rpc.sendInboxUrgentEmail({
@@ -73,7 +74,7 @@ describe("urgent Inbox email RPC", () => {
   });
 
   it("suppresses delivery when the user is not a current organization member", async () => {
-    seedIdentity({ includeMembership: false });
+    await seedIdentity({ includeMembership: false });
 
     await expect(
       createRpc().sendInboxUrgentEmail(validRequest)
@@ -93,7 +94,7 @@ describe("urgent Inbox email RPC", () => {
       state: "unverified",
     },
   ])("suppresses delivery when the current email is $state", async (identity) => {
-    seedIdentity(identity);
+    await seedIdentity(identity);
 
     await expect(
       createRpc().sendInboxUrgentEmail(validRequest)
@@ -106,7 +107,7 @@ describe("urgent Inbox email RPC", () => {
   });
 
   it("sends native English text and HTML with a safe Inbox link", async () => {
-    seedIdentity({ organizationSlug: "acme-team" });
+    await seedIdentity({ organizationSlug: "acme-team" });
     sendEmail.mockResolvedValue({ messageId: "cf-message-123" });
     const rpc = createRpc();
 
@@ -167,7 +168,7 @@ describe("urgent Inbox email RPC", () => {
     expectedCode,
     retryable,
   }) => {
-    seedIdentity({});
+    await seedIdentity({});
     const providerError = Object.assign(new Error("provider detail"), {
       code: cloudflareCode,
     });
@@ -198,19 +199,19 @@ function createRpc(): AuthRpcEntrypoint {
     AUTH_EMAIL: { send: sendEmail },
     AUTH_FROM_EMAIL: "OpenMeld <noreply@openmeld.invalid>",
     AUTH_WORKER_NODE_ENV: "test",
-    OPENMELD_DB: harness.db,
+    OPENMELD_POSTGRESQL: postgresTestBinding(harness.db),
     WEB_APP_URL: "https://openmeld.ai",
   } as unknown as CloudflareBindings);
 }
 
-function seedIdentity(input: {
+async function seedIdentity(input: {
   email?: string;
   emailVerified?: boolean;
   includeMembership?: boolean;
   organizationSlug?: string;
 }) {
-  harness.run({
-    params: [
+  await harness.query({
+    values: [
       "user-felix",
       "Felix",
       input.email ?? "felix@amplift.ai",
@@ -218,32 +219,32 @@ function seedIdentity(input: {
       1,
       1,
     ],
-    sql: `
-      INSERT INTO users (
+    text: `
+      INSERT INTO "openmeld"."users" (
         id,
         name,
         email,
         email_verified,
         created_at,
         updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?)
+      ) VALUES ($1, $2, $3, $4, $5, $6)
     `,
   });
-  harness.run({
-    params: ["org-acme", "Acme", input.organizationSlug ?? "acme", 1],
-    sql: `
-      INSERT INTO organizations (id, name, slug, created_at)
-      VALUES (?, ?, ?, ?)
+  await harness.query({
+    values: ["org-acme", "Acme", input.organizationSlug ?? "acme", 1],
+    text: `
+      INSERT INTO "openmeld"."organizations" (id, name, slug, created_at)
+      VALUES ($1, $2, $3, $4)
     `,
   });
   if (input.includeMembership === false) {
     return;
   }
-  harness.run({
-    params: ["member-felix", "org-acme", "user-felix", "owner", 1],
-    sql: `
-      INSERT INTO members (id, organization_id, user_id, role, created_at)
-      VALUES (?, ?, ?, ?, ?)
+  await harness.query({
+    values: ["member-felix", "org-acme", "user-felix", "owner", 1],
+    text: `
+      INSERT INTO "openmeld"."members" (id, organization_id, user_id, role, created_at)
+      VALUES ($1, $2, $3, $4, $5)
     `,
   });
 }

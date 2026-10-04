@@ -1,33 +1,20 @@
 import {
   type AccountDisplayNameService,
   createAccountDisplayNameService,
-  createD1Db,
+  createAuthDatabase,
   createDrizzleAccountDisplayNameRepository,
 } from "@openmeld/auth/server";
 import { createMiddleware } from "hono/factory";
-import type { AuthBindings } from "../bindings";
 import type { AppContext } from "../context";
-
-const serviceCache = new WeakMap<D1Database, AccountDisplayNameService>();
-
-export function getAccountDisplayNameService(
-  env: AuthBindings
-): AccountDisplayNameService {
-  const cached = serviceCache.get(env.OPENMELD_DB);
-  if (cached) {
-    return cached;
-  }
-
+export function getAccountDisplayNameService(): AccountDisplayNameService {
   const service = createAccountDisplayNameService(
-    createDrizzleAccountDisplayNameRepository(createD1Db(env.OPENMELD_DB))
+    createDrizzleAccountDisplayNameRepository(createAuthDatabase())
   );
-  serviceCache.set(env.OPENMELD_DB, service);
   return service;
 }
-
 export const accountDisplayNameServiceMiddleware = createMiddleware<AppContext>(
   async (c, next) => {
-    c.set("accountDisplayNameService", getAccountDisplayNameService(c.env));
+    c.set("accountDisplayNameService", getAccountDisplayNameService());
     await next();
   }
 );

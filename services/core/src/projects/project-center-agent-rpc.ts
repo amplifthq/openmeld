@@ -1,4 +1,9 @@
 import {
+  getPostgresDatabase,
+  type PostgresDatabase,
+  type QueryConfig,
+} from "@openmeld/db/postgresql";
+import {
   centerAgentCreateProjectToolResponseSchema,
   centerAgentCreateProjectToolRpcInputSchema,
   centerAgentListProjectsToolResponseSchema,
@@ -31,7 +36,7 @@ import type {
 } from "@openmeld/schemas/types";
 import { prepareCenterAgentRepresentedMemberRequest } from "../center-agent/application/represented-member-request";
 import { prepareCenterAgentAuditJournalEntryStatement } from "../center-agent/center-agent-repository";
-import { type CoreBindings, projectDb } from "../lib/bindings";
+import type { CoreBindings } from "../lib/bindings";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import { updateAgentProfileDefaultProjectForAuthority } from "./agent-profile-default-project-service";
 import {
@@ -55,7 +60,7 @@ import { createProjectService, type ProjectService } from "./project-service";
 type PreparedCenterAgentProjectRequest = {
   actorProfileId: string;
   authority: ProjectAuthority;
-  db: D1Database;
+  db: PostgresDatabase;
   representedHuman: {
     displayName: string;
     profileId: string;
@@ -64,7 +69,6 @@ type PreparedCenterAgentProjectRequest = {
   service: ProjectService;
   sourceNativeDeliveryId: string | null;
 };
-
 type PreparedCenterAgentProjectListRequest = {
   actorProfileId: string;
   attribution: {
@@ -76,23 +80,26 @@ type PreparedCenterAgentProjectListRequest = {
     } | null;
   };
   authority: ProjectReadAuthority;
-  db: D1Database;
+  db: PostgresDatabase;
   service: ProjectService;
   sourceNativeDeliveryId: string | null;
 };
-
 type RuntimeSchema<T> = {
   safeParse: (value: unknown) =>
-    | { data: T; success: true }
+    | {
+        data: T;
+        success: true;
+      }
     | {
         error: {
-          issues: Array<{ message?: string }>;
+          issues: Array<{
+            message?: string;
+          }>;
           message: string;
         };
         success: false;
       };
 };
-
 export async function rpcCenterAgentListProjects(
   env: CoreBindings,
   input: CenterAgentListProjectsToolRpcInput
@@ -122,20 +129,21 @@ export async function rpcCenterAgentListProjects(
     hasMore: filtered.length > limit,
     projects: filtered.slice(0, limit).map(toCenterAgentProject),
   });
-  await prepareCenterAgentAuditJournalEntryStatement({
-    action: "read_projects",
-    actorProfileId: prepared.actorProfileId,
-    attribution: prepared.attribution,
-    db: prepared.db,
-    id: crypto.randomUUID(),
-    nowMs: Date.now(),
-    organizationId: prepared.authority.organizationId,
-    resource: null,
-    sourceNativeDeliveryId: prepared.sourceNativeDeliveryId,
-  }).run();
+  await prepared.db.query(
+    prepareCenterAgentAuditJournalEntryStatement({
+      action: "read_projects",
+      actorProfileId: prepared.actorProfileId,
+      attribution: prepared.attribution,
+      db: prepared.db,
+      id: crypto.randomUUID(),
+      nowMs: Date.now(),
+      organizationId: prepared.authority.organizationId,
+      resource: null,
+      sourceNativeDeliveryId: prepared.sourceNativeDeliveryId,
+    })
+  );
   return response;
 }
-
 export async function rpcCenterAgentCreateProject(
   env: CoreBindings,
   input: CenterAgentCreateProjectToolRpcInput
@@ -167,7 +175,6 @@ export async function rpcCenterAgentCreateProject(
   if (replay) {
     return replay;
   }
-
   let project: Project;
   try {
     project = await createProjectService({
@@ -200,7 +207,6 @@ export async function rpcCenterAgentCreateProject(
   });
   return response;
 }
-
 export async function rpcCenterAgentUpdateProject(
   env: CoreBindings,
   input: CenterAgentUpdateProjectToolRpcInput
@@ -233,7 +239,6 @@ export async function rpcCenterAgentUpdateProject(
   if (replay) {
     return replay;
   }
-
   const project = await prepared.service.update(
     prepared.authority,
     operation.targetResourceId,
@@ -258,7 +263,6 @@ export async function rpcCenterAgentUpdateProject(
   });
   return response;
 }
-
 export async function rpcCenterAgentSetAgentProfileDefaultProject(
   env: CoreBindings,
   input: CenterAgentSetAgentProfileDefaultProjectToolRpcInput
@@ -289,7 +293,6 @@ export async function rpcCenterAgentSetAgentProfileDefaultProject(
   if (replay) {
     return replay;
   }
-
   const updated = await updateAgentProfileDefaultProjectForAuthority({
     agentProfileId: request.agentProfileId,
     authority: prepared.authority,
@@ -323,7 +326,6 @@ export async function rpcCenterAgentSetAgentProfileDefaultProject(
   });
   return response;
 }
-
 export async function rpcCenterAgentPrepareRemoveProject(
   env: CoreBindings,
   input: CenterAgentPrepareRemoveProjectToolRpcInput
@@ -354,16 +356,21 @@ export async function rpcCenterAgentPrepareRemoveProject(
     representedProfileId: prepared.representedHuman.profileId,
     representedUserId: prepared.representedHuman.userId,
   });
-  await prepared.db.batch([
-    confirmation.statement,
-    prepareAuditStatement({
-      action: "prepare_remove_project",
-      id: crypto.randomUUID(),
-      nowMs,
-      prepared,
-      resource: { id: project.id, type: "project" },
-    }),
-  ]);
+  await prepared.db.transaction(
+    async (client) =>
+      [
+        await client.query(confirmation.statement),
+        await client.query(
+          prepareAuditStatement({
+            action: "prepare_remove_project",
+            id: crypto.randomUUID(),
+            nowMs,
+            prepared,
+            resource: { id: project.id, type: "project" },
+          })
+        ),
+      ] as const
+  );
   return parseResponse(centerAgentPrepareRemoveProjectToolResponseSchema, {
     confirmation: {
       expiresAtMs: confirmation.confirmation.expiresAtMs,
@@ -374,7 +381,6 @@ export async function rpcCenterAgentPrepareRemoveProject(
       "Removing this Project is permanent. Existing Agent Activity remains available under its normal retention.",
   });
 }
-
 export async function rpcCenterAgentRemoveProject(
   env: CoreBindings,
   input: CenterAgentRemoveProjectToolRpcInput
@@ -402,7 +408,6 @@ export async function rpcCenterAgentRemoveProject(
   ) {
     throw invalidRemoveConfirmationError();
   }
-
   const operation = await beginOperation({
     kind: "remove_project",
     operationId: request.operationId,
@@ -428,7 +433,6 @@ export async function rpcCenterAgentRemoveProject(
   ) {
     throw invalidRemoveConfirmationError();
   }
-
   const current = await prepared.service.read(
     prepared.authority,
     confirmation.projectId
@@ -472,7 +476,6 @@ export async function rpcCenterAgentRemoveProject(
   });
   return response;
 }
-
 async function prepareProjectRequest(input: {
   context:
     | CenterAgentListProjectsToolRpcInput["context"]
@@ -489,7 +492,7 @@ async function prepareProjectRequest(input: {
       reason: "A verified active human Organization member is required.",
     }
   );
-  const db = projectDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (!db) {
     throw createCoreRpcHttpError({
       code: "project.store_unavailable",
@@ -511,7 +514,6 @@ async function prepareProjectRequest(input: {
     sourceNativeDeliveryId: represented.sourceNativeDeliveryId,
   };
 }
-
 async function prepareProjectListRequest(input: {
   context: CenterAgentListProjectsToolRpcInput["context"];
   env: CoreBindings;
@@ -522,7 +524,7 @@ async function prepareProjectListRequest(input: {
     input.context,
     input.speakerMember
   );
-  const db = projectDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (!db) {
     throw createCoreRpcHttpError({
       code: "project.store_unavailable",
@@ -564,7 +566,6 @@ async function prepareProjectListRequest(input: {
     sourceNativeDeliveryId,
   };
 }
-
 async function beginOperation(input: {
   kind: CenterAgentProjectOperationKind;
   operationId: string;
@@ -589,43 +590,54 @@ async function beginOperation(input: {
     targetResourceId: input.targetResourceId,
   });
 }
-
 async function completeOperation(input: {
   action: CenterAgentAction;
   operation: CenterAgentProjectOperationRecord;
   prepared: PreparedCenterAgentProjectRequest;
-  resource: { id: string; type: string };
+  resource: {
+    id: string;
+    type: string;
+  };
   response: unknown;
 }): Promise<void> {
   const nowMs = Date.now();
-  await input.prepared.db.batch([
-    prepareCenterAgentAuditJournalEntryStatement({
-      action: input.action,
-      actorProfileId: input.prepared.actorProfileId,
-      attribution: buildAttribution(input.prepared),
-      db: input.prepared.db,
-      id: `audit_${input.operation.id}`,
-      nowMs,
-      organizationId: input.prepared.authority.organizationId,
-      resource: input.resource,
-      sourceNativeDeliveryId: input.prepared.sourceNativeDeliveryId,
-    }),
-    prepareCompleteCenterAgentProjectOperationStatement({
-      db: input.prepared.db,
-      nowMs,
-      operationId: input.operation.id,
-      responseJson: JSON.stringify(input.response),
-    }),
-  ]);
+  await input.prepared.db.transaction(
+    async (client) =>
+      [
+        await client.query(
+          prepareCenterAgentAuditJournalEntryStatement({
+            action: input.action,
+            actorProfileId: input.prepared.actorProfileId,
+            attribution: buildAttribution(input.prepared),
+            db: input.prepared.db,
+            id: `audit_${input.operation.id}`,
+            nowMs,
+            organizationId: input.prepared.authority.organizationId,
+            resource: input.resource,
+            sourceNativeDeliveryId: input.prepared.sourceNativeDeliveryId,
+          })
+        ),
+        await client.query(
+          prepareCompleteCenterAgentProjectOperationStatement({
+            db: input.prepared.db,
+            nowMs,
+            operationId: input.operation.id,
+            responseJson: JSON.stringify(input.response),
+          })
+        ),
+      ] as const
+  );
 }
-
 function prepareAuditStatement(input: {
   action: CenterAgentAction;
   id: string;
   nowMs: number;
   prepared: PreparedCenterAgentProjectRequest;
-  resource: { id: string; type: string } | null;
-}): D1PreparedStatement {
+  resource: {
+    id: string;
+    type: string;
+  } | null;
+}): QueryConfig {
   return prepareCenterAgentAuditJournalEntryStatement({
     action: input.action,
     actorProfileId: input.prepared.actorProfileId,
@@ -638,7 +650,6 @@ function prepareAuditStatement(input: {
     sourceNativeDeliveryId: input.prepared.sourceNativeDeliveryId,
   });
 }
-
 function buildAttribution(prepared: PreparedCenterAgentProjectRequest) {
   return {
     actorProfileId: prepared.actorProfileId,
@@ -649,7 +660,6 @@ function buildAttribution(prepared: PreparedCenterAgentProjectRequest) {
     },
   };
 }
-
 async function readExistingOperationProject(
   prepared: PreparedCenterAgentProjectRequest,
   operation: CenterAgentProjectOperationRecord
@@ -662,14 +672,17 @@ async function readExistingOperationProject(
   } catch (error) {
     if (
       error instanceof Error &&
-      (error as Error & { code?: string }).code === "project.not_found"
+      (
+        error as Error & {
+          code?: string;
+        }
+      ).code === "project.not_found"
     ) {
       return null;
     }
     throw error;
   }
 }
-
 function requireInteractiveProjectRemoval(
   executionMode: "interactive" | "routine"
 ): void {
@@ -682,7 +695,6 @@ function requireInteractiveProjectRemoval(
     status: 403,
   });
 }
-
 function toCenterAgentProject(project: Project): CenterAgentProject {
   return {
     canArchive: project.canArchive,
@@ -693,7 +705,6 @@ function toCenterAgentProject(project: Project): CenterAgentProject {
     slug: project.slug,
   };
 }
-
 function parseRequest<T>(schema: RuntimeSchema<T>, value: unknown): T {
   const parsed = schema.safeParse(value);
   if (!parsed.success) {
@@ -707,7 +718,6 @@ function parseRequest<T>(schema: RuntimeSchema<T>, value: unknown): T {
   }
   return parsed.data;
 }
-
 function parseResponse<T>(schema: RuntimeSchema<T>, value: unknown): T {
   const parsed = schema.safeParse(value);
   if (!parsed.success) {
@@ -717,7 +727,6 @@ function parseResponse<T>(schema: RuntimeSchema<T>, value: unknown): T {
   }
   return parsed.data;
 }
-
 function parseReplay<T>(
   schema: RuntimeSchema<T>,
   operation: CenterAgentProjectOperationRecord

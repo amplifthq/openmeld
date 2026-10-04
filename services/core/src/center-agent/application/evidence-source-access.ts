@@ -1,4 +1,5 @@
 import { resolveCenterAgentContextScopePlan } from "@openmeld/agent-runtime";
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { centerAgentEvidenceSourceSpaceSchema } from "@openmeld/schemas";
 import type {
   OpenMeldRequestContext,
@@ -6,8 +7,8 @@ import type {
   SpaceMeta,
 } from "@openmeld/schemas/types";
 import { createAuthenticatedSpaceAccessContext } from "@openmeld/space";
-import { type CoreBindings, wakeEvidenceDb } from "../../lib/bindings";
-import { readRemoteAgentNativeDeliveryBySubmissionId } from "../../remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+import type { CoreBindings } from "../../lib/bindings";
+import { readRemoteAgentNativeDeliveryBySubmissionId } from "../../remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import type { ListSignalsResult } from "../../rpc/methods";
 import { resolveSpaceStub } from "../../rpc/space-ref";
 import type { prepareCenterAgentRepresentedMemberRequest } from "./represented-member-request";
@@ -179,7 +180,7 @@ async function readVerifiedCurrentEnvelope(input: {
   const { authorization, representedHuman, sourceNativeDeliveryId } =
     input.prepared;
   const submissionId = authorization.context.agentControllerConversationId;
-  const db = wakeEvidenceDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (!(db && submissionId && sourceNativeDeliveryId)) {
     return null;
   }

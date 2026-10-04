@@ -5,18 +5,18 @@ import { createInboxFeedFixture } from "./helpers/inbox-feed.test-support";
 
 describe("canonical account Inbox scope", () => {
   it("shares one device item across authorized Organization feeds without exposing another tenant or accepting a legacy mutation", async () => {
-    const f = createInboxFeedFixture();
+    const f = await createInboxFeedFixture();
     try {
       await f.item("organization-private");
       await f.item("other-private", {
         organizationId: "other-org",
         sourceTarget: { kind: "space", spaceId: "other-space" },
       });
-      f.run({
-        sql: `INSERT INTO inbox_items
+      await f.query({
+        text: `INSERT INTO "openmeld"."inbox_items"
         (id, organization_id, recipient_user_id, kind, attention, importance, title, preview, source_kind, source_key, source_target_json, resolution_status, occurred_at_ms, created_at_ms, updated_at_ms)
-        VALUES ('device-item', NULL, 'owner', 'desktop_update', 'update', 'normal', 'Update available', 'An update for your test device.', 'desktop_update', 'installation:version', ?, 'not_applicable', 1, 1, 1)`,
-        params: [
+        VALUES ('device-item', NULL, 'owner', 'desktop_update', 'update', 'normal', 'Update available', 'An update for your test device.', 'desktop_update', 'installation:version', $1, 'not_applicable', 1, 1, 1)`,
+        values: [
           JSON.stringify({
             kind: "desktop_update",
             installationId: "installation",
@@ -77,12 +77,12 @@ describe("canonical account Inbox scope", () => {
         (await feed.list(f.identity)).rows.map((r) => r.item.id)
       ).not.toContain("device-item");
       expect(
-        f.queryFirst({
-          sql: "SELECT count(*) AS n FROM inbox_items WHERE id = 'device-item'",
+        await f.queryFirst({
+          text: 'SELECT count(*) AS n FROM "openmeld"."inbox_items" WHERE id = \'device-item\'',
         })
       ).toEqual({ n: 1 });
     } finally {
-      f.close();
+      await f.close();
     }
   });
 });

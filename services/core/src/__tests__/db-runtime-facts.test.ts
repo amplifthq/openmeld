@@ -1,18 +1,21 @@
-import { getCoreDbSchemaSources } from "@openmeld/db/core";
 import { describe, expect, it } from "vitest";
 import { inspectCoreDbState } from "../db/runtime-facts";
-import type { CoreBindings } from "../lib/bindings";
 
 describe("core runtime db facts", () => {
   it("does not expose retired runtime fallback fields after the shared DB gate takes ownership", () => {
     const snapshot = inspectCoreDbState({
-      OPENMELD_DB: {} as D1Database,
-    } as CoreBindings);
+      OPENMELD_POSTGRESQL: {
+        connectionString:
+          "postgresql://127.0.0.1:1/unexpected_test_database_access",
+      },
+    });
 
     expect(snapshot.subject).toBe("core");
-    expect(snapshot.schemaSources).toEqual(getCoreDbSchemaSources());
+    expect(snapshot.schemaSources.map((item) => item.path)).toEqual([
+      "packages/db/src/schema.ts",
+    ]);
     expect(snapshot.migrationSources.map((item) => item.path)).toEqual([
-      "packages/db/drizzle",
+      "packages/db/postgresql/migrations",
     ]);
     expect(snapshot.target.databaseId).toBeNull();
     expect(snapshot.target.databaseName).toBeNull();
@@ -21,7 +24,7 @@ describe("core runtime db facts", () => {
     expect("observedFallbackHits" in snapshot).toBe(false);
   });
 
-  it("reports when the current core runtime does not have an OPENMELD_DB binding", () => {
+  it("reports when the current core runtime does not have a PostgreSQL binding", () => {
     const snapshot = inspectCoreDbState({});
 
     expect(snapshot.target.databaseId).toBeNull();

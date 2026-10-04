@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import { inboxSourceCandidateSchema } from "@openmeld/schemas";
 import type {
   AuthRpcResolveOrganizationAccountIdentityResult,
@@ -15,7 +16,6 @@ import {
 const RETRY_DELAYS_MS = [2000, 5000, 15_000, 60_000] as const;
 const MAX_RETRY_DELAY_MS = 60_000;
 const PROJECTION_FAILED_ERROR_CODE = "space_inbox_projection_failed";
-
 export type SpaceInboxProjectionAttemptResult =
   | {
       completedAtMs: number;
@@ -31,9 +31,8 @@ export type SpaceInboxProjectionAttemptResult =
       projectedUserIds: string[];
       status: "failed";
     };
-
 export async function attemptSpaceInboxProjectionOutboxRecord(input: {
-  db: D1Database | undefined;
+  db: PostgresDatabase | undefined;
   ensureItem?: typeof ensureInboxItem;
   isRecipientEligible: (candidate: InboxSourceCandidate) => Promise<boolean>;
   canReceiveAgentActivity?: (
@@ -131,7 +130,6 @@ export async function attemptSpaceInboxProjectionOutboxRecord(input: {
     };
   }
 }
-
 export async function selectSpaceInboxRecipients(
   candidates: readonly InboxSourceCandidate[],
   canReceiveAgentActivity?: (
@@ -160,7 +158,6 @@ export async function selectSpaceInboxRecipients(
   }
   return [...byRecipient.values()];
 }
-
 function normalizeSpaceInboxProjectionCandidate(
   candidate: InboxSourceCandidate
 ): InboxSourceCandidate {
@@ -191,7 +188,6 @@ function normalizeSpaceInboxProjectionCandidate(
   }
   return candidate;
 }
-
 function mergeSpaceInboxRecipient(
   left: InboxSourceCandidate,
   right: InboxSourceCandidate
@@ -261,7 +257,6 @@ function mergeSpaceInboxRecipient(
       : {}),
   });
 }
-
 function recipientReasonRank(candidate: InboxSourceCandidate): number {
   if (candidate.kind === "space_mention") {
     return 3;
@@ -274,10 +269,8 @@ function recipientReasonRank(candidate: InboxSourceCandidate): number {
   }
   return candidate.sourceTarget.agentOwnerActivity ? 1 : 0;
 }
-
 class SpaceInboxRecipientProjectionError extends Error {
   readonly candidates: readonly InboxSourceCandidate[];
-
   constructor(input: {
     candidates: readonly InboxSourceCandidate[];
     cause: Error | undefined;
@@ -291,7 +284,6 @@ class SpaceInboxRecipientProjectionError extends Error {
     this.candidates = input.candidates;
   }
 }
-
 export async function resolveSpaceInboxRecipientEligibility(input: {
   candidate: InboxSourceCandidate;
   hasActiveSpaceMembership: boolean;
@@ -300,7 +292,6 @@ export async function resolveSpaceInboxRecipientEligibility(input: {
   if (!input.hasActiveSpaceMembership) {
     return false;
   }
-
   const identity = await input.readAccountIdentity();
   if (!identity) {
     throw new Error("Inbox recipient identity projection is unavailable");
@@ -310,13 +301,11 @@ export async function resolveSpaceInboxRecipientEligibility(input: {
       `Inbox recipient identity projection failed: ${identity.code}`
     );
   }
-
   return Boolean(
     identity.account?.userId === input.candidate.recipientUserId &&
       identity.account.membership
   );
 }
-
 function resolveRetryDelayMs(record: SpaceInboxProjectionOutboxRecord): number {
   return (
     RETRY_DELAYS_MS[Math.max(0, record.attemptCount)] ?? MAX_RETRY_DELAY_MS

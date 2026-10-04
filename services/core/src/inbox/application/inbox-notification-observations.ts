@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   inboxNotificationObservationCursorSchema,
   inboxNotificationObservationsQuerySchema,
@@ -15,15 +16,17 @@ import {
 } from "./inbox-service";
 import { buildCurrentInboxSourceAccessSql } from "./inbox-source-access";
 
-type Identity = { organizationId: string; recipientUserId: string };
-
+type Identity = {
+  organizationId: string;
+  recipientUserId: string;
+};
 /** Uses the existing soft-cleared Inbox ledger. A cursor is an in-memory
  * observation position, never authority, a persisted receipt, or read state.
  * Insertion order is required: delayed outbox arrivals may have old occurredAt. */
 export async function observeInboxNotifications(
   input: Identity &
     InboxNotificationObservationsQuery & {
-      db: D1Database;
+      db: PostgresDatabase;
       canManageOrganization?: boolean;
     }
 ): Promise<InboxNotificationObservationsResponse> {
@@ -36,23 +39,19 @@ export async function observeInboxNotifications(
     recipientUserId: input.recipientUserId,
   };
   const scope =
-    "(organization_id = ? OR organization_id IS NULL) AND recipient_user_id = ?";
+    "(organization_id = $1 OR organization_id IS NULL) AND recipient_user_id = $2";
   const previous = query.cursor ? decodeCursor(query.cursor, identity) : null;
   let throughRowId = previous?.throughRowId ?? 0;
   if (!previous || previous.afterRowId === previous.throughRowId) {
     const row = await input.db
-      .prepare(
-        `SELECT max(
-          coalesce((SELECT max(rowid) FROM inbox_items WHERE organization_id = ? AND recipient_user_id = ?), 0),
-          coalesce((SELECT max(rowid) FROM inbox_items WHERE organization_id IS NULL AND recipient_user_id = ?), 0)
-        ) AS last_row_id`
-      )
-      .bind(
-        identity.organizationId,
-        identity.recipientUserId,
-        identity.recipientUserId
-      )
-      .first<{ last_row_id: number }>();
+      .query<{ last_row_id: number }>({
+        text: `SELECT GREATEST(
+          coalesce((SELECT max(sequence) FROM "openmeld"."inbox_items" WHERE organization_id = $1 AND recipient_user_id = $2), 0),
+          coalesce((SELECT max(sequence) FROM "openmeld"."inbox_items" WHERE organization_id IS NULL AND recipient_user_id = $2), 0)
+        ) AS last_row_id`,
+        values: [identity.organizationId, identity.recipientUserId],
+      })
+      .then((result) => result.rows[0] ?? null);
     if (
       !(row && Number.isSafeInteger(row.last_row_id)) ||
       row.last_row_id < throughRowId
@@ -94,24 +93,28 @@ export async function observeInboxNotifications(
     "inbox_items",
     input.canManageOrganization === true
   );
-  const result = await input.db
-    .prepare(`SELECT rowid AS observation_row_id,
+  const result = await input.db.query<
+    InboxItemRow & {
+      observation_row_id: number;
+    }
+  >({
+    text: `SELECT sequence AS observation_row_id,
       id, organization_id, recipient_user_id, kind, attention, importance,
       title, preview, context_label, source_target_json, resolution_status,
       read_at_ms, occurred_at_ms, created_at_ms, updated_at_ms,
       ${currentInboxSourceFactsSql("inbox_items")} AS source_facts_json
-    FROM inbox_items WHERE ${scope} AND rowid > ? AND rowid <= ?
+    FROM "openmeld"."inbox_items" WHERE ${scope} AND sequence > $3 AND sequence <= $4
       AND cleared_at_ms IS NULL AND ${access}
-    ORDER BY rowid ASC LIMIT ?`)
-    .bind(
+    ORDER BY sequence ASC NULLS FIRST LIMIT $5`,
+    values: [
       identity.organizationId,
       identity.recipientUserId,
       previous.afterRowId,
       throughRowId,
-      limit + 1
-    )
-    .all<InboxItemRow & { observation_row_id: number }>();
-  const rows = result.results ?? [];
+      limit + 1,
+    ],
+  });
+  const rows = result.rows ?? [];
   const page = rows.slice(0, limit);
   const hasMore = rows.length > limit;
   return {
@@ -128,11 +131,9 @@ export async function observeInboxNotifications(
     }),
   };
 }
-
 function encodeCursor(cursor: Cursor): string {
   return btoa(encodeURIComponent(JSON.stringify(cursor)));
 }
-
 function decodeCursor(value: string, identity: Identity): Cursor {
   try {
     const cursor = inboxNotificationObservationCursorSchema.parse(

@@ -1,0 +1,19 @@
+{
+  "source": "Captured from synthetic PostgreSQL 18 with the complete native migration journal",
+  "organizationActive": {
+    "message": "duplicate key value violates unique constraint \"organization_join_links_active_organization_uidx\"",
+    "code": "23505",
+    "severity": "ERROR",
+    "schema": "openmeld",
+    "table": "organization_join_links",
+    "constraint": "organization_join_links_active_organization_uidx"
+  },
+  "profileOwnerHandle": {
+    "message": "duplicate key value violates unique constraint \"openmeld_profiles_owner_handle_uq_idx\"",
+    "code": "23505",
+    "severity": "ERROR",
+    "schema": "openmeld",
+    "table": "openmeld_profiles",
+    "constraint": "openmeld_profiles_owner_handle_uq_idx"
+  }
+}

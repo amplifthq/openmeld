@@ -4,10 +4,7 @@ import {
   type CenterAgentPostChannelFileInput,
   rpcCenterAgentPostChannelFile,
 } from "../src/remote-agent/application/message-channel-file-publication-service";
-import {
-  applyDrizzleMigrationForTable,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 const state = vi.hoisted(() => ({
   authorization: {} as Record<string, unknown>,
@@ -40,28 +37,22 @@ vi.mock("../src/remote-agent/application/message-channel-file-service", () => ({
 }));
 
 describe("durable current-channel file sending", () => {
-  let harness: ReturnType<typeof createSqliteD1Harness>;
+  let harness: Awaited<ReturnType<typeof createPostgresHarness>>;
   let request: CenterAgentPostChannelFileInput;
   beforeEach(async () => {
     vi.clearAllMocks();
-    harness = createSqliteD1Harness();
+    harness = await createPostgresHarness();
     for (const sql of [
-      "CREATE TABLE users (id text PRIMARY KEY)",
-      "CREATE TABLE organizations (id text PRIMARY KEY)",
-      "CREATE TABLE openmeld_profiles (profile_id text PRIMARY KEY)",
-      "INSERT INTO users VALUES ('user')",
-      "INSERT INTO organizations VALUES ('org')",
-      "INSERT INTO openmeld_profiles VALUES ('agent')",
+      `INSERT INTO "openmeld"."users" (id, name, email) VALUES ('user', 'Requester', 'requester@example.test')`,
+      `INSERT INTO "openmeld"."organizations" (id, name, slug, created_at) VALUES ('org', 'Organization', 'org', 1000)`,
+      `INSERT INTO "openmeld"."openmeld_profiles" (profile_id, profile_name, profile_handle, profile_kind, organization_id, owner_user_id, created_by_user_id, managed_role, source, status) VALUES ('agt_11111111-1111-4111-8111-111111111111', 'Center Agent', 'center-agent', 'agent', 'org', NULL, 'user', 'center_agent', 'auth_bootstrap', 'active')`,
     ]) {
-      harness.run({ sql });
+      await harness.query({ text: sql });
     }
-    applyDrizzleMigrationForTable(
-      harness,
-      "center_agent_publication_operations"
-    );
+
     state.authorization = {
       db: harness.db,
-      actorProfileId: "agent",
+      actorProfileId: "agt_11111111-1111-4111-8111-111111111111",
       activeOrganization: { organizationId: "org" },
     };
     state.sourceId = "delivery";
@@ -82,8 +73,13 @@ describe("durable current-channel file sending", () => {
       speakerMember: { memberId: "member", userId: "user" },
     } as CenterAgentPostChannelFileInput;
   });
-  afterEach(() => harness.close());
-  const env = {} as CoreBindings;
+  afterEach(async () => await harness.close());
+  const env = {
+    OPENMELD_POSTGRESQL: {
+      connectionString:
+        "postgresql://projection_fixture@127.0.0.1:1/projection_fixture",
+    },
+  } as CoreBindings;
   it("replays the durable receipt without another upload", async () => {
     const first = await rpcCenterAgentPostChannelFile(env, request);
     expect(first).toMatchObject({

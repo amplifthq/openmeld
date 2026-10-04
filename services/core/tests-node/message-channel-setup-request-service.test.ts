@@ -3,53 +3,31 @@ import {
   createMessageChannelSetupRequest,
   resolveMessageChannelSetupRequests,
 } from "../src/remote-agent/application/message-channel-setup-request-service";
-import {
-  applyDrizzleMigrationsForTables,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 describe("Message Channel setup requests", () => {
-  let harness: ReturnType<typeof createSqliteD1Harness>;
+  let harness: Awaited<ReturnType<typeof createPostgresHarness>>;
 
-  beforeEach(() => {
-    harness = createSqliteD1Harness();
-    harness.run({
-      sql: `CREATE TABLE organizations (
-        id TEXT PRIMARY KEY NOT NULL,
-        name TEXT NOT NULL,
-        slug TEXT NOT NULL,
-        created_at INTEGER NOT NULL
-      )`,
-    });
-    harness.run({
-      sql: `CREATE TABLE users (
-        id TEXT PRIMARY KEY NOT NULL,
-        name TEXT NOT NULL,
-        email TEXT NOT NULL
-      )`,
-    });
-    applyDrizzleMigrationsForTables(harness, [
-      "organization_message_channel_setup_requests",
-      "inbox_items",
-      "inbox_email_deliveries",
-    ]);
-    harness.run({
-      params: ["org_one", "One", "one", 1],
-      sql: "INSERT INTO organizations (id, name, slug, created_at) VALUES (?, ?, ?, ?)",
+  beforeEach(async () => {
+    harness = await createPostgresHarness();
+
+    await harness.query({
+      values: ["org_one", "One", "one", 1],
+      text: 'INSERT INTO "openmeld"."organizations" (id, name, slug, created_at) VALUES ($1, $2, $3, $4)',
     });
     for (const [id, name] of [
       ["member_one", "Member One"],
       ["owner_one", "Owner One"],
       ["admin_one", "Admin One"],
     ] as const) {
-      harness.run({
-        params: [id, name, `${id}@example.test`],
-        sql: "INSERT INTO users (id, name, email) VALUES (?, ?, ?)",
+      await harness.query({
+        values: [id, name, `${id}@example.test`],
+        text: 'INSERT INTO "openmeld"."users" (id, name, email) VALUES ($1, $2, $3)',
       });
     }
   });
 
-  afterEach(() => harness.close());
+  afterEach(async () => await harness.close());
 
   it("creates one durable request and an actionable Inbox item for every admin", async () => {
     const first = await createMessageChannelSetupRequest({
@@ -76,17 +54,19 @@ describe("Message Channel setup requests", () => {
       status: "already_requested",
     });
     expect(
-      harness.queryAll<{ count: number }>({
-        sql: "SELECT count(*) AS count FROM organization_message_channel_setup_requests",
-      })[0]?.count
+      await (
+        await harness.queryAll<{ count: number }>({
+          text: 'SELECT count(*) AS count FROM "openmeld"."organization_message_channel_setup_requests"',
+        })
+      )[0]?.count
     ).toBe(1);
     expect(
-      harness.queryAll<{
+      await harness.queryAll<{
         recipient_user_id: string;
         resolution_status: string;
         source_kind: string;
       }>({
-        sql: "SELECT recipient_user_id, resolution_status, source_kind FROM inbox_items ORDER BY recipient_user_id",
+        text: 'SELECT recipient_user_id, resolution_status, source_kind FROM "openmeld"."inbox_items" ORDER BY recipient_user_id',
       })
     ).toEqual([
       {
@@ -121,13 +101,13 @@ describe("Message Channel setup requests", () => {
       })
     ).toBe(1);
     expect(
-      harness.queryAll<{ resolution_status: string }>({
-        sql: "SELECT resolution_status FROM inbox_items",
+      await harness.queryAll<{ resolution_status: string }>({
+        text: 'SELECT resolution_status FROM "openmeld"."inbox_items"',
       })
     ).toEqual([{ resolution_status: "resolved" }]);
     expect(
-      harness.queryAll<{ status: string }>({
-        sql: "SELECT status FROM organization_message_channel_setup_requests",
+      await harness.queryAll<{ status: string }>({
+        text: 'SELECT status FROM "openmeld"."organization_message_channel_setup_requests"',
       })
     ).toEqual([{ status: "resolved" }]);
   });

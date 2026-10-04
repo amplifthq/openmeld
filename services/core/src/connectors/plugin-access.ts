@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import { pluginAccessPolicySchema } from "@openmeld/schemas";
 import type {
   ConnectorConnectionPreference,
@@ -11,9 +12,8 @@ import {
   requireConnectorConnectionForExecution,
   selectActiveConnectorConnection,
 } from "./connector-connection-repository";
-
 export async function requireRemotePluginConnection(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   connectionName: string;
   service: ConnectorService;
@@ -44,13 +44,11 @@ export async function requireRemotePluginConnection(input: {
   });
   return connection;
 }
-
 type ConnectionAccessRow = {
   access_policy: string | null;
   access_revision: number;
   scope: "member" | "shared";
 };
-
 // A legacy absent policy preserves shipped authority, including the shared-only
 // personal Remote Agent boundary. New registrations persist explicit all-none;
 // this fallback must not be reused as their initialization policy.
@@ -75,16 +73,14 @@ export function resolvePluginAccessPolicy(
   }
   return parsed.data;
 }
-
 export function pluginPermissionAllows(
   permission: PluginPermission,
   effect: "read" | "write" | "destructive" | "unspecified"
 ): boolean {
   return permission === "write" || (permission === "read" && effect === "read");
 }
-
 export async function selectPluginConnection(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   requesterUserId: string | null;
   service: ConnectorService;
@@ -114,19 +110,22 @@ export async function selectPluginConnection(input: {
   }
   return null;
 }
-
 export async function readPluginAccess(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   connectionName: string;
   activeOnly?: boolean;
 }) {
   const row = await input.db
-    .prepare(
-      "SELECT access_policy, access_revision, scope FROM connector_connections WHERE organization_id = ? AND connection_name = ? AND (? = 0 OR status = 'active')"
-    )
-    .bind(input.organizationId, input.connectionName, input.activeOnly ? 1 : 0)
-    .first<ConnectionAccessRow>();
+    .query<ConnectionAccessRow>({
+      text: 'SELECT access_policy, access_revision, scope FROM "openmeld"."connector_connections" WHERE organization_id = $1 AND connection_name = $2 AND ($3 = 0 OR status = \'active\')',
+      values: [
+        input.organizationId,
+        input.connectionName,
+        input.activeOnly ? 1 : 0,
+      ],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!row) {
     throw createCoreRpcHttpError({
       code: "plugin.connection_not_found",
@@ -139,9 +138,8 @@ export async function readPluginAccess(input: {
     revision: row.access_revision,
   };
 }
-
 export async function requirePluginPermission(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   connectionName: string;
   consumer: PluginConsumer;
@@ -159,9 +157,8 @@ export async function requirePluginPermission(input: {
   }
   return permission;
 }
-
 export async function updatePluginAccess(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   connectionName: string;
   actorProfileId: string;
@@ -175,41 +172,45 @@ export async function updatePluginAccess(input: {
   }
   const id = crypto.randomUUID();
   const policy = JSON.stringify(pluginAccessPolicySchema.parse(input.policy));
-  const results = await input.db.batch([
-    input.db
-      .prepare(`INSERT INTO connector_access_events
+  const results = await input.db.transaction(
+    async (client) =>
+      [
+        await client.query({
+          text: `INSERT INTO "openmeld"."connector_access_events"
       (id, connection_name, organization_id, actor_profile_id, actor_user_id, revision, previous_policy, policy, created_at_ms)
-      SELECT ?, connection_name, organization_id, ?, ?, access_revision + 1, ?, ?, ?
-      FROM connector_connections WHERE organization_id = ? AND connection_name = ? AND access_revision = ? AND status = 'active'`)
-      .bind(
-        id,
-        input.actorProfileId,
-        input.actorUserId,
-        JSON.stringify(previous.policy),
-        policy,
-        Date.now(),
-        input.organizationId,
-        input.connectionName,
-        input.expectedRevision
-      ),
-    input.db
-      .prepare(`UPDATE connector_connections SET access_policy = ?, access_revision = access_revision + 1
-      WHERE organization_id = ? AND connection_name = ? AND access_revision = ? AND status = 'active'
-      AND EXISTS (SELECT 1 FROM connector_access_events WHERE id = ?)`)
-      .bind(
-        policy,
-        input.organizationId,
-        input.connectionName,
-        input.expectedRevision,
-        id
-      ),
-  ]);
-  if (results[1]?.meta.changes !== 1) {
+      SELECT $1, connection_name, organization_id, $2, $3, access_revision + 1, $4, $5, $6
+      FROM "openmeld"."connector_connections" WHERE organization_id = $7 AND connection_name = $8 AND access_revision = $9 AND status = 'active'`,
+          values: [
+            id,
+            input.actorProfileId,
+            input.actorUserId,
+            JSON.stringify(previous.policy),
+            policy,
+            Date.now(),
+            input.organizationId,
+            input.connectionName,
+            input.expectedRevision,
+          ],
+        }),
+        await client.query({
+          text: `UPDATE "openmeld"."connector_connections" SET access_policy = $1, access_revision = access_revision + 1
+      WHERE organization_id = $2 AND connection_name = $3 AND access_revision = $4 AND status = 'active'
+      AND EXISTS (SELECT 1 FROM "openmeld"."connector_access_events" WHERE id = $5)`,
+          values: [
+            policy,
+            input.organizationId,
+            input.connectionName,
+            input.expectedRevision,
+            id,
+          ],
+        }),
+      ] as const
+  );
+  if (results[1].rowCount !== 1) {
     throw accessConflict();
   }
   return { policy: input.policy, revision: input.expectedRevision + 1 };
 }
-
 function accessConflict() {
   return createCoreRpcHttpError({
     code: "plugin.access_changed",

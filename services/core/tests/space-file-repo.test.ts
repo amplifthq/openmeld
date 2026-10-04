@@ -1,4 +1,6 @@
 import { env, runInDurableObject } from "cloudflare:test";
+import type { QueryResult } from "@openmeld/db/postgresql";
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { SPACE_FILE_MAX_NAME_LENGTH } from "@openmeld/schemas";
 import type {
   OpenMeldRequestContext,
@@ -24,7 +26,6 @@ const actor: SpaceFileActor = {
   displayName: "Avery Stone",
   ownerUserId: "user-files-test",
 };
-
 describe("SpaceFileRepository", () => {
   it("keeps optional geometry on its immutable revision through reads, updates, replay, and lazy migration", async () => {
     const fixture = createFixture();
@@ -33,7 +34,10 @@ describe("SpaceFileRepository", () => {
       const fileId = `${fixture.prefix}-image`;
       const save = (
         revision: number,
-        imageDimensions?: { width: number; height: number }
+        imageDimensions?: {
+          width: number;
+          height: number;
+        }
       ) => ({
         actor,
         imageDimensions,
@@ -93,7 +97,6 @@ describe("SpaceFileRepository", () => {
       expect(repository.getFile(fileId).latestRevision.revision).toBe(3);
     });
   });
-
   it("commits notification intent once with a new revision, never for conflicts or replayed saves", async () => {
     const fixture = createFixture();
     await withRepository(fixture.spaceId, (repository, sql) => {
@@ -179,7 +182,6 @@ describe("SpaceFileRepository", () => {
   });
   it("stores folders, immutable file revisions, paths, and actor attribution in Space SQLite", async () => {
     const fixture = createFixture();
-
     await withRepository(fixture.spaceId, (repository) => {
       const folder = repository.createFolder({
         actor,
@@ -201,7 +203,6 @@ describe("SpaceFileRepository", () => {
         path: "/Launch",
         createdBy: actor,
       });
-
       const firstRevision = repository.commitWrite({
         actor,
         auditEvent: createAuditEvent({
@@ -228,7 +229,6 @@ describe("SpaceFileRepository", () => {
         path: "/Launch/brief.md",
         latestRevision: { revision: 1, sizeBytes: 18 },
       });
-
       const secondRevision = repository.commitWrite({
         actor,
         auditEvent: createAuditEvent({
@@ -274,10 +274,8 @@ describe("SpaceFileRepository", () => {
       });
     });
   });
-
   it("defaults the Files list to artifacts, treats a legacy write as an artifact, and fails closed on chat-upload files", async () => {
     const fixture = createFixture();
-
     await withRepository(fixture.spaceId, (repository) => {
       const folder = repository.createFolder({
         actor,
@@ -293,7 +291,6 @@ describe("SpaceFileRepository", () => {
         nowMs: fixture.nowMs,
         spaceId: fixture.spaceId,
       });
-
       const commit = (input: {
         fileId: string;
         name: string;
@@ -323,7 +320,6 @@ describe("SpaceFileRepository", () => {
             ...(input.origin ? { origin: input.origin } : {}),
           },
         });
-
       const artifactFile = commit({
         fileId: `${fixture.prefix}-artifact`,
         name: "brief.txt",
@@ -331,7 +327,6 @@ describe("SpaceFileRepository", () => {
         revision: 1,
       });
       expect(artifactFile.origin).toBe("artifact");
-
       const chatUploadFile = commit({
         fileId: `${fixture.prefix}-chat-upload`,
         name: "screenshot.txt",
@@ -339,7 +334,6 @@ describe("SpaceFileRepository", () => {
         revision: 2,
       });
       expect(chatUploadFile.origin).toBe("chat_upload");
-
       // A legacy client that never learned about `origin` (or an old
       // request that omits it) is not "unclassified": the repository
       // defaults a plain new-file write to 'artifact', matching pre-feature
@@ -351,7 +345,6 @@ describe("SpaceFileRepository", () => {
         revision: 3,
       });
       expect(legacyFile.origin).toBe("artifact");
-
       const defaultList = repository.list({
         spaceId: fixture.spaceId,
         parentId: null,
@@ -366,7 +359,6 @@ describe("SpaceFileRepository", () => {
       expect(
         defaultList.entries.some((entry) => entry.id === chatUploadFile.id)
       ).toBe(false);
-
       const allList = repository.list({
         spaceId: fixture.spaceId,
         parentId: null,
@@ -382,7 +374,6 @@ describe("SpaceFileRepository", () => {
           legacyFile.id,
         ])
       );
-
       // A later revision of a chat upload never becomes an artifact by
       // omission; origin is fixed at creation and stays hidden by default.
       const chatUploadRevision = repository.commitWrite({
@@ -413,7 +404,6 @@ describe("SpaceFileRepository", () => {
       ).toBe(false);
     });
   });
-
   it("fails closed on a NULL origin as exceptional/corrupt data, not normal history", async () => {
     // Every write path now assigns 'artifact' or 'chat_upload' explicitly, and
     // the schema migration backfills every pre-existing row, so the only way
@@ -422,7 +412,6 @@ describe("SpaceFileRepository", () => {
     // bypassing commitWrite, to prove the read path still fails closed
     // instead of guessing a classification.
     const fixture = createFixture();
-
     await withRepository(fixture.spaceId, (repository, sql) => {
       const folder = repository.createFolder({
         actor,
@@ -470,7 +459,6 @@ describe("SpaceFileRepository", () => {
         actorJson,
         `${corruptFileId}-write`
       );
-
       const defaultList = repository.list({
         spaceId: fixture.spaceId,
         parentId: null,
@@ -482,7 +470,6 @@ describe("SpaceFileRepository", () => {
       expect(defaultList.entries).toMatchObject([
         { id: folder.id, kind: "folder" },
       ]);
-
       const allList = repository.list({
         spaceId: fixture.spaceId,
         parentId: null,
@@ -498,10 +485,8 @@ describe("SpaceFileRepository", () => {
       ).toBeNull();
     });
   });
-
   it("rejects stale writes with the current file and safely replays identical mutations", async () => {
     const fixture = createFixture();
-
     await withRepository(fixture.spaceId, (repository) => {
       const input = {
         actor,
@@ -519,7 +504,6 @@ describe("SpaceFileRepository", () => {
       };
       const folder = repository.createFolder(input);
       expect(repository.createFolder(input)).toEqual(folder);
-
       const file = repository.commitWrite({
         actor,
         auditEvent: createAuditEvent({
@@ -580,7 +564,6 @@ describe("SpaceFileRepository", () => {
           code: "space_file.conflict",
         })
       );
-
       expect(() =>
         repository.prepareWrite({
           spaceId: fixture.spaceId,
@@ -601,10 +584,8 @@ describe("SpaceFileRepository", () => {
       );
     });
   });
-
   it("numbers duplicate folder names while preventing folder cycles and trashing non-empty folders", async () => {
     const fixture = createFixture();
-
     await withRepository(fixture.spaceId, (repository) => {
       const parent = repository.createFolder({
         actor,
@@ -635,7 +616,6 @@ describe("SpaceFileRepository", () => {
         parentId: parent.id,
         spaceId: fixture.spaceId,
       });
-
       const duplicate = repository.createFolder({
         actor,
         auditEvent: createAuditEvent({
@@ -738,10 +718,8 @@ describe("SpaceFileRepository", () => {
       ]);
     });
   });
-
   it("keeps every uploaded file by assigning a collision-safe name", async () => {
     const fixture = createFixture();
-
     await withRepository(fixture.spaceId, (repository) => {
       const firstFile = repository.commitWrite({
         actor,
@@ -810,7 +788,6 @@ describe("SpaceFileRepository", () => {
           sizeBytes: 4096,
         },
       });
-
       expect(firstFile.name).toBe("Terminal Screenshot.png");
       expect(secondFile.name).toBe("terminal screenshot (2).png");
       expect(thirdFile.name).toBe("TERMINAL SCREENSHOT (3).PNG");
@@ -831,10 +808,7 @@ describe("SpaceFileRepository", () => {
         ])
       );
       expect(repository.prepareWrite(secondWrite)).toEqual(secondFile);
-
-      const extensionHeavyName = `a.${"x".repeat(
-        SPACE_FILE_MAX_NAME_LENGTH - 2
-      )}`;
+      const extensionHeavyName = `a.${"x".repeat(SPACE_FILE_MAX_NAME_LENGTH - 2)}`;
       const extensionHeavyFile = repository.commitWrite({
         actor,
         auditEvent: createAuditEvent({
@@ -886,10 +860,8 @@ describe("SpaceFileRepository", () => {
       );
     });
   });
-
   it("lists Trash separately and restores the same file with every revision intact", async () => {
     const fixture = createFixture();
-
     await withRepository(fixture.spaceId, (repository) => {
       const file = repository.commitWrite({
         actor,
@@ -933,7 +905,6 @@ describe("SpaceFileRepository", () => {
           sizeBytes: 31,
         },
       });
-
       repository.trashEntry({
         actor,
         auditEvent: createAuditEvent({
@@ -946,7 +917,6 @@ describe("SpaceFileRepository", () => {
         entryId: file.id,
         nowMs: fixture.nowMs + 2,
       });
-
       expect(
         repository.list({
           spaceId: fixture.spaceId,
@@ -977,7 +947,6 @@ describe("SpaceFileRepository", () => {
           },
         ],
       });
-
       const restored = repository.restoreEntry({
         actor,
         auditEvent: createAuditEvent({
@@ -990,7 +959,6 @@ describe("SpaceFileRepository", () => {
         entryId: file.id,
         nowMs: fixture.nowMs + 3,
       });
-
       expect(restored).toMatchObject({
         id: file.id,
         name: "launch-notes.md",
@@ -1019,38 +987,56 @@ describe("SpaceFileRepository", () => {
       ).toMatchObject([{ id: file.id }]);
     });
   });
-
   it("allows active human members to write and rejects Organization-only users", async () => {
     const fixture = createFixture();
     // Space membership is valid only while its Human owner still belongs to
     // the Organization. Seed that independent Auth fact for the write actor.
-    await env.OPENMELD_DB.batch([
-      env.OPENMELD_DB.prepare(
-        "INSERT OR IGNORE INTO users (id, name, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)"
-      ).bind(
-        actor.ownerUserId,
-        actor.displayName,
-        "files-test@openmeld.test",
-        fixture.nowMs,
-        fixture.nowMs
-      ),
-      env.OPENMELD_DB.prepare(
-        "INSERT OR IGNORE INTO organizations (id, name, slug, created_at) VALUES (?, ?, ?, ?)"
-      ).bind("org-files-test", "Files", "files-test", fixture.nowMs),
-      env.OPENMELD_DB.prepare(
-        "INSERT OR IGNORE INTO members (id, organization_id, user_id, role, created_at) VALUES (?, ?, ?, 'member', ?)"
-      ).bind(
-        "member-files-test",
-        "org-files-test",
-        actor.ownerUserId,
-        fixture.nowMs
-      ),
-    ]);
+    await getPostgresDatabase(env).transaction(async (client) =>
+      (async () => {
+        const results: QueryResult[] = [];
+        for (const query of [
+          {
+            ...{
+              text: 'INSERT INTO "openmeld"."users" (id, name, email, email_verified, created_at, updated_at) VALUES ($1, $2, $3, 1, $4, $5) ON CONFLICT DO NOTHING',
+              values: [],
+            },
+            values: [
+              actor.ownerUserId,
+              actor.displayName,
+              "files-test@openmeld.test",
+              fixture.nowMs,
+              fixture.nowMs,
+            ],
+          },
+          {
+            ...{
+              text: 'INSERT INTO "openmeld"."organizations" (id, name, slug, created_at) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING',
+              values: [],
+            },
+            values: ["org-files-test", "Files", "files-test", fixture.nowMs],
+          },
+          {
+            ...{
+              text: 'INSERT INTO "openmeld"."members" (id, organization_id, user_id, role, created_at) VALUES ($1, $2, $3, \'member\', $4) ON CONFLICT DO NOTHING',
+              values: [],
+            },
+            values: [
+              "member-files-test",
+              "org-files-test",
+              actor.ownerUserId,
+              fixture.nowMs,
+            ],
+          },
+        ]) {
+          results.push(await client.query(query));
+        }
+        return results;
+      })()
+    );
     const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
     const durableObjectId = namespace.newUniqueId();
     const spaceId = durableObjectId.toString();
     const stub = namespace.get(durableObjectId);
-
     await runInDurableObject(stub, async (instance, state) => {
       ensureSpaceSqlSchema(state.storage.sql);
       upsertSpaceMetaRecord(state.storage.sql, {
@@ -1086,7 +1072,6 @@ describe("SpaceFileRepository", () => {
         createdAt: new Date(fixture.nowMs).toISOString(),
         updatedAt: new Date(fixture.nowMs).toISOString(),
       });
-
       await expect(
         instance.rpcCreateSpaceFolder({
           spaceId,
@@ -1100,7 +1085,6 @@ describe("SpaceFileRepository", () => {
           }),
         })
       ).resolves.toMatchObject({ folder: { name: "Member work" } });
-
       const context = createRequestContext(actor.profileId);
       context.actorContext.ownerUserId = actor.ownerUserId;
       const spaceAccess = createAuthenticatedSpaceAccessContext({
@@ -1169,7 +1153,6 @@ describe("SpaceFileRepository", () => {
         status: 403,
         code: "space_file.human_required",
       });
-
       await expect(
         instance.rpcCreateSpaceFolder({
           spaceId,
@@ -1186,7 +1169,6 @@ describe("SpaceFileRepository", () => {
         code: "space.membership_required",
         status: 403,
       });
-
       await expect(
         instance.rpcListSpaceFiles({
           spaceId,
@@ -1216,7 +1198,6 @@ describe("SpaceFileRepository", () => {
     });
   });
 });
-
 async function withRepository(
   spaceId: string,
   operation: (repository: SpaceFileRepository, sql: SqlStorage) => void
@@ -1235,7 +1216,6 @@ async function withRepository(
     );
   });
 }
-
 function createFixture(): {
   nowMs: number;
   prefix: string;
@@ -1248,7 +1228,6 @@ function createFixture(): {
     spaceId: `${prefix}-space`,
   };
 }
-
 function createRequestContext(profileId: string): OpenMeldRequestContext {
   return {
     activeOrganizationId: "org-files-test",
@@ -1262,7 +1241,6 @@ function createRequestContext(profileId: string): OpenMeldRequestContext {
     },
   };
 }
-
 function createAuditEvent(input: {
   entryId: string;
   fixture: ReturnType<typeof createFixture>;

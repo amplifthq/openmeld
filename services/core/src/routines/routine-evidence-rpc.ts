@@ -1,3 +1,4 @@
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import {
   centerAgentListRoutineRunsToolResponseSchema,
   centerAgentListRoutineRunsToolRpcInputSchema,
@@ -15,9 +16,9 @@ import type {
 } from "@openmeld/schemas/types";
 import { createCenterAgentEvidenceSourceAccess } from "../center-agent/application/evidence-source-access";
 import { prepareCenterAgentRepresentedMemberRequest } from "../center-agent/application/represented-member-request";
-import { type CoreBindings, routineDb, wakeEvidenceDb } from "../lib/bindings";
+import type { CoreBindings } from "../lib/bindings";
 import { attachCenterAgentTurnRuntimeEvidence } from "../remote-agent/application/center-agent-turn-diagnostics";
-import { listRemoteAgentRoutineDeliveryDiagnosticRecords } from "../remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+import { listRemoteAgentRoutineDeliveryDiagnosticRecords } from "../remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import {
   listRoutineRunRecords,
@@ -114,7 +115,7 @@ async function prepareRead(
     request.context,
     request.speakerMember
   );
-  const db = routineDb(env);
+  const db = getPostgresDatabase(env);
   if (!db) {
     throw createCoreRpcHttpError({
       code: "routine.store_unavailable",
@@ -194,7 +195,7 @@ async function readNativeEvidence(
     historyTruncated: false,
     deliveries: [],
   };
-  const db = wakeEvidenceDb(env);
+  const db = getPostgresDatabase(env);
   if (!db) {
     return { ...empty, coverage: "unavailable" };
   }

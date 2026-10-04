@@ -3,6 +3,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { assertNativeStorageContract } from "./native-storage.test-support";
 
 const repoRootDirectoryPath = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -41,20 +42,26 @@ const readMigrationStatements = (): readonly string[] => {
 };
 
 describe("weekly eval report storage schema", () => {
-  it("keeps one Organization-scoped projection per reporting period", () => {
-    const schemaSource = readRepoFile(
-      "packages/db/src/core/eval-report.schema.ts"
-    );
-    const coreIndexSource = readRepoFile("packages/db/src/core/index.ts");
-    const coreSchemaSource = readRepoFile(
-      "packages/db/src/core/dispatch.schema.ts"
-    );
-    const sharedSchemaSource = readRepoFile("packages/db/src/schema.ts");
-
-    expect(schemaSource).toContain("export const evalReports = sqliteTable(");
-    expect(coreIndexSource).toContain("evalReports");
-    expect(coreSchemaSource).toContain("evalReports");
-    expect(sharedSchemaSource).toContain("evalReports");
+  it("keeps one Organization-scoped projection per reporting period", async () => {
+    await assertNativeStorageContract({
+      table: "eval_reports",
+      uniqueKey: ["organization_id", "period_start", "period_end"],
+      epochColumns: ["period_start", "period_end", "created_at"],
+      record: {
+        organization_id: "org-a",
+        period_start: 1_700_000_000_000,
+        period_end: 1_700_000_001_000,
+        metrics_json: "{}",
+        created_at: 1_700_000_000_000,
+      },
+      distinctRecord: {
+        organization_id: "org-b",
+        period_start: 1_700_000_000_000,
+        period_end: 1_700_000_001_000,
+        metrics_json: "{}",
+        created_at: 1_700_000_000_000,
+      },
+    });
 
     const database = new DatabaseSync(":memory:");
     try {

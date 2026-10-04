@@ -204,6 +204,14 @@ describe("Remote Agent user-visible work semantics", () => {
 
   it("describes Organization Skill work precisely", () => {
     expect(
+      resolveRemoteAgentToolWorkActivity(
+        "openmeld_install_organization_skill",
+        {
+          action: "begin_import_batch",
+        }
+      )
+    ).toEqual({ v: 1, key: "organization.skills.read" });
+    expect(
       resolveRemoteAgentToolWorkActivity("openmeld_read_organization_skills", {
         action: "list",
       })

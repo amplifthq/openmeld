@@ -1,4 +1,5 @@
-import type { RemoteAgentLarkPlatformChannelConnectionRecord } from "../infrastructure/d1/lark-platform-channel-connection-repo";
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
+import type { RemoteAgentLarkPlatformChannelConnectionRecord } from "../infrastructure/postgresql/lark-platform-channel-connection-repo";
 import {
   claimRemoteAgentMessageChannelProviderCardCreation,
   claimRemoteAgentMessageChannelProviderCardSend,
@@ -8,16 +9,15 @@ import {
   markRemoteAgentMessageChannelProviderCardSendOutcomeUnknown,
   markRemoteAgentMessageChannelProviderCardSent,
   markRemoteAgentMessageChannelProviderCardUnavailable,
-} from "../infrastructure/d1/message-channel-provider-progress-repo";
+} from "../infrastructure/postgresql/message-channel-provider-progress-repo";
 import {
   type RemoteAgentNativeDeliveryRecord,
   readRemoteAgentNativeDeliveryByIdempotencyKey,
-} from "../infrastructure/d1/native-delivery-ledger-repo";
+} from "../infrastructure/postgresql/native-delivery-ledger-repo";
 import type { MessageChannelProviderRegistry } from "./message-channel-adapters";
 import { buildMessageChannelProviderPublicationUuid } from "./provider-publication-uuid";
 
 const MESSAGE_CHANNEL_PROVIDER_PROGRESS_CLAIM_LEASE_MS = 30_000;
-
 export type MessageChannelWorkingCardPreparationResult =
   | {
       delivery: RemoteAgentNativeDeliveryRecord;
@@ -33,9 +33,8 @@ export type MessageChannelWorkingCardPreparationResult =
       reasonCode: string;
       status: "in_progress";
     };
-
 export async function prepareRemoteAgentMessageChannelWorkingCard(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   connection: RemoteAgentLarkPlatformChannelConnectionRecord;
   nowMs: number;
@@ -90,9 +89,8 @@ export async function prepareRemoteAgentMessageChannelWorkingCard(input: {
     status: "unavailable",
   };
 }
-
 async function createWorkingCard(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   connection: RemoteAgentLarkPlatformChannelConnectionRecord;
   nowMs: number;
@@ -159,9 +157,8 @@ async function createWorkingCard(input: {
     "Message Channel failed card creation lost its claim"
   );
 }
-
 async function publishWorkingCard(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   connection: RemoteAgentLarkPlatformChannelConnectionRecord;
   nowMs: number;
@@ -245,9 +242,8 @@ async function publishWorkingCard(input: {
     "Message Channel failed card send lost its claim"
   );
 }
-
 async function requireCurrentDelivery(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
 }): Promise<RemoteAgentNativeDeliveryRecord> {
   const current = await readRemoteAgentNativeDeliveryByIdempotencyKey({
@@ -259,7 +255,6 @@ async function requireCurrentDelivery(input: {
   }
   return current;
 }
-
 function requireWorkingCardTarget(input: {
   connection: RemoteAgentLarkPlatformChannelConnectionRecord;
   delivery: RemoteAgentNativeDeliveryRecord;
@@ -286,7 +281,6 @@ function requireWorkingCardTarget(input: {
     locator,
   };
 }
-
 async function requireTransition(
   transition: Promise<RemoteAgentNativeDeliveryRecord | null>,
   errorMessage: string

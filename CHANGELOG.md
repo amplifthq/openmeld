@@ -67,6 +67,18 @@ internal preview with a downloadable installer and no automatic updates.
 
 Evidence: pr:1478, commit:f75bb375a68dcb3a35b475b6fa89e07141b1396d, workflow:37111442861, workflow:37113245618, https://openmeld.ai/desktop?candidate=ae93d1e04b0e1dcaedf01c0c4530b82968144de9bf4a931241abfacc8711b3dc
 
+### Desktop recognizes an already connected computer
+
+Fixed · v0.3.240 · desktop · computers
+
+Desktop’s Computer entry checks this Mac’s existing connection before offering
+setup. Connected computers show their connection status, and a completed
+reconnection returns to connection management instead of offering Connect again.
+After disconnecting, Desktop no longer describes the signed-out computer as
+connected to another account.
+
+Evidence: pr:1483, commit:15549cc047d90f90edfbe2a1209919681a1e7e24, workflow:37138467122, https://openmeld.ai/desktop?candidate=d26801c5b9439dfe0f47eea747d50c22157b2ff729c31fd4b0b864d40faa3d69
+
 ### Keep mention badges consistent before and after sending
 
 Fixed · v0.3.238 · spaces · messages
@@ -85,6 +97,17 @@ under System updates instead of crowding the Inbox with separate rows. Requests
 that still need attention and important execution outcomes remain separate.
 
 Evidence: pr:1466, workflow:37111856220, workflow:37112710810
+
+### Keep welcome greetings out of Center Agent chat history
+
+Fixed · v0.3.240 · center-agent · spaces
+
+Opening or preparing a Center Agent chat no longer adds a template greeting to
+the conversation. Starting guidance stays in the chat introduction, so an
+existing conversation cannot receive a welcome message that looks like an
+unsolicited Agent reply. Previous messages remain available.
+
+Evidence: pr:1483, commit:15549cc047d90f90edfbe2a1209919681a1e7e24, commit:a76ffd7eb654e78ad0be127cea8deb944c18d10f, commit:5f5ec1d00ab8dc7f6d7bf8e00a912cd03a93abb2
 
 ### Keep your place when returning to a conversation
 
@@ -224,6 +247,17 @@ configurations and reports an error when a selected file cannot be run.
 
 Evidence: pr:1462, workflow:37111095247, workflow:37111856220
 
+### Save Center Agent reasoning effort
+
+Fixed · v0.3.240 · center-agent · settings
+
+Center Agent model settings now save your selected reasoning effort and keep it
+after you reload. Choosing an effort while using OpenMeld default saves it with
+the current model. You can return to OpenMeld default to follow the recommended
+model and reasoning effort again.
+
+Evidence: pr:1486, commit:15549cc047d90f90edfbe2a1209919681a1e7e24, commit:a76ffd7eb654e78ad0be127cea8deb944c18d10f, commit:5f5ec1d00ab8dc7f6d7bf8e00a912cd03a93abb2
+
 ### Stop an Agent as soon as you send
 
 Improved · v0.3.238 · spaces · center-agent · local-agents · cli
@@ -239,6 +273,27 @@ remain visible. CLI and personal Remote Agents can stop the same exact request
 before its first progress snapshot exists.
 
 Evidence: pr:1476, pr:1477, workflow:37111856220, workflow:37112285051, workflow:37112710810, workflow:37113245618
+
+### Talk directly to the only Agent in a Space
+
+Improved · v0.3.240 · spaces · agents
+
+In a Space with one person and one Agent, messages can reach the Agent without
+an @mention. Adding another member restores explicit addressing; one-person,
+one-Agent Threads keep their independent automatic addressing.
+
+Working status stays visible while a Center Agent chooses where to reply.
+Thinking updates no longer create an empty Thread before an answer appears in
+the main conversation.
+
+Center and Remote Agents can choose main or Thread to match your instructions
+and the task, and change that choice before final publication. Live work and
+the reply draft follow the current choice together.
+
+Replies show live work and elapsed time in the conversation. Short answers
+appear as soon as they arrive, without waiting for conversation compaction.
+
+Evidence: pr:1487, commit:15549cc047d90f90edfbe2a1209919681a1e7e24, commit:a76ffd7eb654e78ad0be127cea8deb944c18d10f, commit:5f5ec1d00ab8dc7f6d7bf8e00a912cd03a93abb2, workflow:37138463357
 
 ### Trace native follow-up tasks from the CLI
 

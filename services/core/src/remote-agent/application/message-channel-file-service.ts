@@ -1,3 +1,4 @@
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import {
   centerAgentReadChannelFileBodySchema,
   centerAgentReadChannelFileResponseSchema,
@@ -15,20 +16,14 @@ import {
   type CurrentDesignatedCenterAgentAuthorization,
   requireCurrentDesignatedCenterAgentCaller,
 } from "../../center-agent/current-designated-center-agent";
-import {
-  type CoreBindings,
-  localStateDb,
-  wakeEvidenceDb,
-} from "../../lib/bindings";
+import type { CoreBindings } from "../../lib/bindings";
 import { createCoreRpcHttpError } from "../../rpc/errors";
-import { readRemoteAgentLarkPlatformChannelConnection } from "../infrastructure/d1/lark-platform-channel-connection-repo";
-import { readRemoteAgentNativeDeliveryByDispatchAndConversation } from "../infrastructure/d1/native-delivery-ledger-repo";
+import { readRemoteAgentLarkPlatformChannelConnection } from "../infrastructure/postgresql/lark-platform-channel-connection-repo";
+import { readRemoteAgentNativeDeliveryByDispatchAndConversation } from "../infrastructure/postgresql/native-delivery-ledger-repo";
 import { createLarkPlatformMessageChannelAdapter } from "./lark-platform-message-channel-adapter";
-
 export type CenterAgentReadChannelFileInput = CenterAgentReadChannelFileBody & {
   context: OpenMeldRequestContext;
 };
-
 export async function rpcCenterAgentReadChannelFile(
   env: CoreBindings,
   input: CenterAgentReadChannelFileInput
@@ -101,7 +96,6 @@ export async function rpcCenterAgentReadChannelFile(
   });
   return response;
 }
-
 export async function resolveAdmittedMessageChannelRequest(
   env: CoreBindings,
   input: {
@@ -110,8 +104,8 @@ export async function resolveAdmittedMessageChannelRequest(
   }
 ) {
   const { authorization } = input;
-  const db = wakeEvidenceDb(env);
-  const connectionDb = localStateDb(env);
+  const db = getPostgresDatabase(env);
+  const connectionDb = getPostgresDatabase(env);
   const dispatchId = authorization.context.agentControllerConversationId;
   if (!(db && connectionDb && dispatchId)) {
     throw denied();
@@ -160,7 +154,6 @@ export async function resolveAdmittedMessageChannelRequest(
   });
   return { authorization, delivery, locator, trigger, connection, adapter };
 }
-
 function denied(): Error {
   return createCoreRpcHttpError({
     status: 403,
@@ -169,7 +162,6 @@ function denied(): Error {
       "This file operation requires the current admitted Feishu or Lark request.",
   });
 }
-
 function encodeBytes(bytes: Uint8Array): string {
   let binary = "";
   for (let offset = 0; offset < bytes.length; offset += 8192) {

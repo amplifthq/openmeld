@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createAuthConfig } from "../src/configs/auth.config";
+import { createAuthConfigForTest } from "./auth-config.test-support";
 
 const AUTH_ENV = {
   BETTER_AUTH_OPENMELD_SECRET:
@@ -10,13 +10,13 @@ const AUTH_ENV = {
 
 describe("sign-in error redirect", () => {
   it("sends an unrecoverable sign-in failure to the product sign-in page instead of Better Auth's default developer error page", () => {
-    const config = createAuthConfig(AUTH_ENV);
+    const config = createAuthConfigForTest(AUTH_ENV);
 
     expect(config.onAPIError?.errorURL).toBe("http://localhost:3000/login");
   });
 
   it("keeps pointing at the configured web app origin when it differs from the auth origin", () => {
-    const config = createAuthConfig({
+    const config = createAuthConfigForTest({
       ...AUTH_ENV,
       WEB_APP_URL: "https://app.openmeld.ai",
     });

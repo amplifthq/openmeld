@@ -1225,7 +1225,13 @@ function ThreadTimeline(input: {
 					/>
 					<MessageScrollerContent className="gap-0">
 						{input.items.map((item) => {
-							if (isSpaceOutcomeNoticeItem(item)) {
+							if (
+								isSpaceOutcomeNoticeItem(item) &&
+								!(
+									item.systemNoticeType === "wake_stopped" &&
+									item.actorProfileKind === "agent"
+								)
+							) {
 								return (
 									<MessageScrollerItem key={item.id} messageId={item.id}>
 										<div

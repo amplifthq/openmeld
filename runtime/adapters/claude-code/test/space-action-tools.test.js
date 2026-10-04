@@ -205,6 +205,74 @@ test("project contexts keep restricted file tools and the in-process project she
   }
 });
 
+for (const mode of ["auto", "plan", "default", "bypassPermissions"]) {
+  test(`independent Claude tasks retain native tools and ${mode} permissions`, async () => {
+    const directory = await mkdtemp(join(tmpdir(), "claude-native-task-"));
+    let options;
+    try {
+      await invokeClaudeAgentSdkTransport({
+        agentControllerPermissionMode: `claude-code:${mode}`,
+        executionContext: {
+          version: 1,
+          id: "11111111-1111-4111-8111-111111111111",
+          scope: {
+            organizationId: "org",
+            requesterProfileId: "teammate",
+            spaceId: "space",
+            targetProfileId: "agent",
+            threadId: null,
+          },
+          permissionSource: "agent_settings",
+          access: "workspace",
+          workspace: "current",
+          nativeConversationId: null,
+          runtimeWorkspaceFingerprint: null,
+        },
+        spaceActionTools: fixtureTools(),
+        launchContract: { kind: "executable", commandPath: process.execPath },
+        claudeTimeoutMs: 5000,
+        claudeWorkdir: directory,
+        sessionId: "existing-native-session",
+        prompt: "Continue the task with your native tools.",
+        createQuery(input) {
+          options = input.options;
+          const query = (async function* () {
+            for await (const _ of input.prompt) {
+              /* Consume the SDK's typed streaming input. */
+            }
+            yield {
+              type: "result",
+              subtype: "success",
+              is_error: false,
+              result: "done",
+              session_id: "existing-native-session",
+              usage: {},
+            };
+          })();
+          return Object.assign(query, {
+            close() {
+              // The generator fixture owns no process.
+            },
+            interrupt: () => Promise.resolve(),
+            setPermissionMode: () => Promise.resolve(),
+          });
+        },
+      });
+      assert.equal(options.permissionMode, mode);
+      assert.equal(options.resume, "existing-native-session");
+      assert.equal(options.tools, undefined);
+      assert.equal(options.strictMcpConfig, undefined);
+      assert.equal(options.extraArgs, undefined);
+      assert.notEqual(options.settings?.disableAllHooks, true);
+      assert.deepEqual(options.settingSources, ["user", "project", "local"]);
+      assert.deepEqual(options.additionalDirectories, [directory]);
+      assert.equal(options.mcpServers[serverId].type, "sdk");
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+}
+
 for (const mode of ["auto", "plan", "default"]) {
   test(`SDK delivery-only repair preserves ${mode}, disables business tools, and verifies the real receipt`, async () => {
     const directory = await mkdtemp(join(tmpdir(), "claude-delivery-only-"));

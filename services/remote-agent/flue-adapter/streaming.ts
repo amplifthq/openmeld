@@ -464,12 +464,14 @@ export function createRemoteAgentStreamPublisher(
           };
         }
         if (
-          !shouldPublishRemoteAgentStreamPush({
-            context: input.context,
-            observedAtMs: input.observedAtMs,
-            replacingFailedText,
-            state,
-          })
+          !(
+            replacingFailedText ||
+            shouldFlushRemoteAgentStream(
+              state,
+              input.observedAtMs,
+              input.context
+            )
+          )
         ) {
           return {
             status: "buffered",
@@ -691,30 +693,16 @@ function shouldFlushRemoteAgentStream(
   observedAtMs: number,
   context: RemoteAgentCallbackContext
 ): boolean {
-  // The first visible content must not wait for another token or prompt
-  // completion (which can include post-response conversation compaction).
+  // A short answer may arrive in one delta. Send the first words immediately;
+  // coalesce later snapshots and flush the tail at the model-message boundary.
   if (state.lastFlushedAtMs === null) {
     return true;
   }
-  if (context.turnEnvelope?.trigger.source === "message_channel") {
-    return (
-      observedAtMs - state.lastFlushedAtMs >=
-      MESSAGE_CHANNEL_STREAM_FLUSH_INTERVAL_MS
-    );
-  }
-  return observedAtMs - state.lastFlushedAtMs >= STREAM_FLUSH_INTERVAL_MS;
-}
-
-function shouldPublishRemoteAgentStreamPush(input: {
-  context: RemoteAgentCallbackContext;
-  observedAtMs: number;
-  replacingFailedText: boolean;
-  state: RemoteAgentStreamState;
-}): boolean {
-  return (
-    input.replacingFailedText ||
-    shouldFlushRemoteAgentStream(input.state, input.observedAtMs, input.context)
-  );
+  const intervalMs =
+    context.turnEnvelope?.trigger.source === "message_channel"
+      ? MESSAGE_CHANNEL_STREAM_FLUSH_INTERVAL_MS
+      : STREAM_FLUSH_INTERVAL_MS;
+  return observedAtMs - state.lastFlushedAtMs >= intervalMs;
 }
 
 async function deliverRemoteAgentStreamDelta(input: {

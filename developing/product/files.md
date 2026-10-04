@@ -42,6 +42,21 @@ Copying an exact revision to another root requires an authorized source read and
 
 Live references, automatic cross-root synchronization, cross-Organization browsing, public links, desktop sync, and per-file ACL inheritance are outside the first complete Files path. They must not be simulated by a copy that looks linked.
 
+An explicit human selection can copy an excerpt of the author's own Space
+message through `POST /v1/spaces/:spaceId/files/excerpts` or
+`openmeld files copy-excerpt`. The request names the exact source message,
+content version, author, Unicode character range (end exclusive), and every
+destination member. The current human must be that author. Only the selected
+plain text is copied; adjacent messages, reply context, attachments, and other
+authors' text are not fetched into the copy. Selections are limited to 16,000
+characters. Source access and version are checked again after object storage.
+The destination must be private, members-only, invite-only, and have exactly
+the named members; the Files owner rechecks that audience at metadata commit.
+An Agent-authored request cannot grant itself this sharing authority. A lawful
+copy has its own Files identity and lifecycle: subsequent source recall does
+not delete it. Revocation before copying refuses the operation. This entry
+does not add anyone to the source conversation or create cross-root revocation.
+
 ## Managed content
 
 Files can show managed objects, but ordinary file mutations never bypass their owning workflows.

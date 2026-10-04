@@ -134,6 +134,14 @@ test("standard final certification does not repeat workspace checks and unit tes
   assert.ok(!checkIds(plan).includes("affected-integration-tests"));
 });
 
+test("native PostgreSQL migration-only changes retain the database guard", () => {
+  const plan = createPlan([
+    "packages/db/postgresql/migrations/0014_batch_wake_publications.sql",
+  ]);
+  assert.ok(checkIds(plan).includes("database-contract"));
+  assert.ok(!checkIds(plan).includes("affected-integration-tests"));
+});
+
 test("shared schema changes retain database and release guards without broad reruns", () => {
   const plan = createPlan([
     "packages/db/drizzle/0129_example.sql",
