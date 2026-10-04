@@ -25,15 +25,39 @@ permissions and product behavior. An automated drain certificate, general
 maintenance orchestrator and arbitrary interruption recovery for every callback
 are not prerequisites.
 
-The integration base is PostgreSQL commit
+The accepted frozen-data rehearsal used PostgreSQL commit
 `b0748d8b60227410ce87d67dfe382de2403dc07a`. Its immutable D1 history matches
 the D1 preparation base `c682d417d1327482b4fc8ebffe9a5cac02a8f55e` and
 maintenance candidate `da519d956d29198b68364c893dd394468ccfceb4`: no SQL
 migration differs. The history SHA-256 is
 `9eb9face4c014a7da2520258abcb40aa9b24ccec8c0977d1a006f5ffea071893`.
 The PG target uses the canonical journal through `0013_d1_import_completion`.
-Keep these baselines fixed for this integration; review required schema deltas
-instead of repeatedly following unrelated main changes.
+These remain the provenance of that accepted rehearsal, not a claim about the
+final source candidate or the history actually applied in production.
+
+The final source integration uses fixed main
+`02351f6685b43bdf7cd4c752df41e805ccc6fe35`. Its new D1 migration
+`0191_powerful_lord_hawal` replaces the unique delegation index on
+`center_agent_wake_publications` with an ordinary index for multi-Space batches.
+The new native migration `0014_batch_wake_publications` makes the same change;
+no previously recorded PostgreSQL migration is rewritten. A complete batch is
+inserted in one native transaction before any destination is attempted, while
+the existing publication ID and immutable command checks retain retry identity.
+Targeted checks cover batch recovery, current Queue/Steer and Stop authority,
+Agent Direct Messages, editable reply placement, and Organization knowledge
+access. The earlier local product and isolated cloud receipts remain scoped to
+their recorded revisions; this source integration does not repeat or broaden
+those deployment claims. Do not chase later main changes before closing this
+candidate.
+
+The Queue/Steer integration fixture initially passed all 26 assertions but
+exited with `ECONNRESET` while the Worker runtime shut down. It now waits for
+its own `waitUntil` work before deleting its alarm and restoring mocks. Three
+consecutive ordinary runs against fresh PostgreSQL clusters passed all 26
+assertions and returned exit 0. No exception suppression, retry setting,
+arbitrary delay or product behavior change was used. This scoped fixture fix
+does not establish a Miniflare defect or resolve the separate long-lived
+Worker-shard limitation recorded in the PostgreSQL workflow.
 
 The only selected dependency from Draft PR 1485 is its standalone D1 barrier
 preparation/inspection owner. Its Auth, runtime, Queue and arbitrary-pause

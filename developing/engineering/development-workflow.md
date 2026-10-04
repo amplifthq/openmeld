@@ -125,14 +125,14 @@ environment callback, or no coordination best fits the actual work.
   next action. Ordinary evidence and status facts can be sent without Wake.
   The Center Agent can summarize or connect organization context when that adds
   value; it is not a merge authority or a required relay.
-- Treat OpenMeld friction as product evidence. Record every firsthand problem
-  in any OpenMeld product surface, App, client, Service, runtime, integration,
-  Wake, CI/CD, OpenCode Worker, or collaboration path through
+- Report eligible problems from released, supported OpenMeld product use through
   [Agent Experience Occurrence Feedback](agent-native-delivery.md#agent-experience-occurrence-feedback)
-  without searching for or suppressing duplicates.
+  under its production-use and occurrence rules. An Agent doing development
+  can encounter a released product defect; findings confined to unreleased
+  work or internal development tooling stay in the owning task, PR, or issue.
   For ordinary development coordination, an authorized native fallback may
-  keep delivery moving after the failure is recorded. When Wake itself is the
-  product behavior under smoke, only the visible product path proves success.
+  keep delivery moving. When Wake itself is the product behavior under smoke,
+  only the visible product path proves success.
 
 ### Delivery Pipeline
 
@@ -450,7 +450,12 @@ printed by the launcher so a newcomer does not mistake first compilation for a
 failed start.
 
 For real CLI/Service Setup smoke, run `pnpm cli:binary:serve:worktree` in the same
-worktree and use the Web-generated lane command. On macOS, when testing real
+worktree and use the Web-generated lane command. The CLI resolves its default
+OAuth client from the active lane:
+`dev-local` uses `openmeld-cli-dev`, matching the Web-issued grant; production
+and canary use `openmeld-cli`. Explicit CLI/client environment overrides retain
+precedence. The packaged binary and source entry use the same resolver.
+On macOS, when testing real
 Keychain access across CLI and Service copies, an already provisioned signing
 identity can be selected with `OPENMELD_CLI_BINARY_DEV_SIGNING_IDENTITY`.
 The binary server signs with the normal release entitlements, verifies the

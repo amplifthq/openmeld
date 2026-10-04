@@ -456,6 +456,38 @@ it("explains the first unknown state before offering a connection action", async
 });
 
 it.each([
+	"ordinary",
+	"embedded",
+	"reconnect",
+] as const)("shows the confirmed connection in the %s flow without offering first-time setup", async (flow) => {
+	state.localComputer.mockResolvedValue(availableComputer());
+	state.routeIntent.resetThisComputer = flow === "reconnect";
+	const onCompleted = vi.fn();
+	renderConnection(
+		<DesktopComputerConnection
+			allowDisconnect={flow !== "embedded"}
+			onCompleted={onCompleted}
+		/>
+	);
+	const label = {
+		ordinary: "Disconnect this Mac",
+		embedded: "Continue",
+		reconnect: "Reconnect this Mac",
+	}[flow];
+	const button = await screen.findByRole("button", { name: label });
+	expect(screen.getByText("Connected")).toBeTruthy();
+	expect(screen.queryByRole("button", { name: "Connect this Mac" })).toBeNull();
+	expect(state.connect).not.toHaveBeenCalled();
+	if (flow === "embedded") {
+		fireEvent.click(button);
+		await waitFor(() =>
+			expect(onCompleted).toHaveBeenCalledWith(availableComputer().target)
+		);
+		expect(state.connect).not.toHaveBeenCalled();
+	}
+});
+
+it.each([
 	"account-a",
 	"account-b",
 ])("uses background display data only for its matching account: %s", async (accountId) => {

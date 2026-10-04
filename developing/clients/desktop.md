@@ -16,6 +16,16 @@
 
 ## Product boundary
 
+New installed builds use `https://app.openmeld.ai` as their production Web
+origin. The installed-target schema still accepts the old root for existing
+builds. Root Auth, API, compatibility, and installer requests are forwarded
+without redirects because native transport rejects redirects. Installed
+renderers reject generated server-function calls and use shared APIs.
+The native credential store is keyed by Web origin, so a new installed build
+may require signing in again. Native schemes and the Passkey parent RP ID stay
+unchanged. Verify an actual installed old-to-new client separately from browser
+smoke before publishing this origin change; see [Website](website.md).
+
 The native frame waits for hydration before adding its titlebar and content
 wrapper. Its first client tree must match the prerendered shell, where no native
 bridge exists. A document-level hydration replacement clears the shared Web
@@ -290,6 +300,9 @@ one Electron call, owns OS callback delivery, and passes callbacks to the vendor
 public `handleDeepLink` API. SDK scheme registration, unrestricted IPC handlers,
 and the global CSP hook are disabled. Credentials never cross the
 renderer bridge. Storage is scoped to the configured Web origin.
+Computer authorization uses the CLI environment's device-auth client ID, keeping
+the grant and its CLI exchange aligned in isolated development lanes. A signed-out
+CLI is unconnected; only a present, different account is an account mismatch.
 
 Space video reuses this native cloud transport. The request allowlist forwards
 Range and If-Range; responses retain range/length, ETag and disposition while
@@ -418,6 +431,14 @@ projection as Working folder selection. A positive connection shows Connected
 and a destructive Disconnect this Mac action; the header links to that page and
 preserves the originating Human Profile for Back. New Agent recovery retains
 its explicit connection intent instead of offering Disconnect.
+The toolbar and account-menu Computer entry open the ordinary native connection
+check without a fresh-session request, regardless of browser Computer selection.
+Connection presentation is independent of Disconnect eligibility: embedded flows
+show an existing connection and Continue without running Setup, while an explicit
+reconnect shows Connected and Reconnect this Mac. After confirmed completion, the
+standalone route consumes its one-time fresh-session and Computer-target intent
+and returns to ordinary connection management. Failed or cancelled operations
+retain that intent for recovery.
 
 Disconnect requires a native confirmation. The fixed `computer disconnect
 --connection-intent <json> --view agent` command carries the displayed account

@@ -1,7 +1,9 @@
-import { describe, expect, it } from "vitest";
 import {
 	APP_PAGE_FRAME_CLASS_NAME,
 	APP_PAGE_FRAME_PADDING_CLASS_NAME,
+} from "@openmeld/ui/lib/page-frame";
+import { describe, expect, it } from "vitest";
+import {
 	APP_SPACE_FRAME_CLASS_NAME,
 	appShellStaticData,
 	resolveAppOuterRailDestinationFromMatches,

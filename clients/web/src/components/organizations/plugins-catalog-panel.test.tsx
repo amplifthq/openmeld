@@ -1,3 +1,4 @@
+import { PLUGINS } from "@openmeld/product-catalog/plugins";
 import {
 	cleanup,
 	fireEvent,
@@ -12,7 +13,6 @@ import {
 	createTestQueryClient,
 	TestQueryClientProvider,
 } from "#/test-support/query-client";
-import { PLUGINS } from "./plugin-catalog";
 import { PluginsCatalogPanel } from "./plugins-catalog-panel";
 
 const GITHUB_LINK_NAME = /GitHub/;

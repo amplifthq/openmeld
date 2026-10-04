@@ -19,6 +19,8 @@ import {
   type RecallCenterAgentOrganizationMemoryInput,
   type RememberCenterAgentTurnInput,
 } from "./contract";
+import { interleaveMemoryScopes } from "./memory-selection";
+
 export type CenterAgentMemoryService = {
   deleteMemberMemory(input: {
     organizationId: string;
@@ -64,6 +66,36 @@ export function createCenterAgentMemoryService(input: {
     input.recallTimeoutMs ?? CENTER_AGENT_MEMORY_RECALL_TIMEOUT_MS;
   const writeTimeoutMs =
     input.writeTimeoutMs ?? CENTER_AGENT_MEMORY_WRITE_TIMEOUT_MS;
+
+  async function recallRetained(
+    recallInput:
+      | RecallCenterAgentMemoryForTurnInput
+      | RecallCenterAgentOrganizationMemoryInput
+  ) {
+    const refs = await input.repository.readActiveSubjects(recallInput);
+    const results = await Promise.all(
+      refs.map((ref) =>
+        recallMemory({
+          adapter: input.adapter,
+          limit: CENTER_AGENT_MEMORY_MAX_ITEMS,
+          logger,
+          query: recallInput.query,
+          ref,
+          timeoutMs: recallTimeoutMs,
+        })
+      )
+    );
+    const currentRefs = await input.repository.readActiveSubjects(recallInput);
+    const currentResults = results.filter((_, index) =>
+      currentRefs.some(
+        (current) =>
+          current.subjectId === refs[index]?.subjectId &&
+          current.updatedAtMs === refs[index]?.updatedAtMs
+      )
+    );
+    return projectMemoryEnvelope(interleaveMemoryScopes(currentResults));
+  }
+
   return {
     async deleteMemberMemory(deleteInput) {
       const ref = buildCenterAgentMemberMemoryRef({
@@ -129,65 +161,10 @@ export function createCenterAgentMemoryService(input: {
       }
     },
     async recallForTurn(recallInput) {
-      const policy = await input.repository.readPolicy(
-        recallInput.organizationId
-      );
-      const memberRef = await input.repository.upsertMemberSubject({
-        memberId: recallInput.speakerMember.memberId,
-        nowMs: nowMs(),
-        organizationId: recallInput.organizationId,
-        userId: recallInput.speakerMember.userId,
-      });
-      const recallTasks = [
-        recallMemory({
-          adapter: input.adapter,
-          limit: CENTER_AGENT_MEMORY_MAX_ITEMS,
-          logger,
-          query: recallInput.query,
-          ref: memberRef,
-          timeoutMs: recallTimeoutMs,
-        }),
-      ];
-      if (policy.organizationMemoryOptIn) {
-        const organizationRef =
-          await input.repository.upsertOrganizationSubject({
-            nowMs: nowMs(),
-            organizationId: recallInput.organizationId,
-          });
-        recallTasks.push(
-          recallMemory({
-            adapter: input.adapter,
-            limit: CENTER_AGENT_MEMORY_MAX_ITEMS,
-            logger,
-            query: recallInput.query,
-            ref: organizationRef,
-            timeoutMs: recallTimeoutMs,
-          })
-        );
-      }
-      const results = (await Promise.all(recallTasks)).flat();
-      return projectMemoryEnvelope(results);
+      return await recallRetained(recallInput);
     },
     async recallForOrganization(recallInput) {
-      const policy = await input.repository.readPolicy(
-        recallInput.organizationId
-      );
-      if (!policy.organizationMemoryOptIn) {
-        return projectMemoryEnvelope([]);
-      }
-      const organizationRef = await input.repository.upsertOrganizationSubject({
-        nowMs: nowMs(),
-        organizationId: recallInput.organizationId,
-      });
-      const results = await recallMemory({
-        adapter: input.adapter,
-        limit: CENTER_AGENT_MEMORY_MAX_ITEMS,
-        logger,
-        query: recallInput.query,
-        ref: organizationRef,
-        timeoutMs: recallTimeoutMs,
-      });
-      return projectMemoryEnvelope(results);
+      return await recallRetained(recallInput);
     },
     async readOrganizationMemoryPolicy(organizationId) {
       return await input.repository.readPolicy(organizationId);
@@ -223,6 +200,11 @@ export function createCenterAgentMemoryService(input: {
       );
     },
     async rememberTurn(rememberInput) {
+      // Shared conversations require an explicit organization save. Never
+      // reinterpret shared chatter as a private member episode.
+      if (rememberInput.interactionEnvironment !== "requester_private") {
+        return;
+      }
       const episode = {
         assistantMessage: rememberInput.assistantMessage,
         captureMethod: "automatic_turn" as const,
@@ -235,47 +217,22 @@ export function createCenterAgentMemoryService(input: {
         sourceMessageId: rememberInput.sourceMessageId,
         userMessage: rememberInput.userMessage,
       };
-      if (rememberInput.interactionEnvironment === "requester_private") {
-        const memberRef = await input.repository.upsertMemberSubject({
-          memberId: rememberInput.speakerMember.memberId,
-          nowMs: nowMs(),
-          organizationId: rememberInput.organizationId,
-          userId: rememberInput.speakerMember.userId,
-        });
-        await withTimeout(
-          input.adapter.ensureMemberUser(memberRef),
-          writeTimeoutMs,
-          "center_agent_memory.member_ensure_timeout"
-        );
-        await withTimeout(
-          input.adapter.addEpisode({ episode, ref: memberRef }),
-          writeTimeoutMs,
-          "center_agent_memory.member_write_timeout"
-        );
-        return;
-      }
-      if (rememberInput.interactionEnvironment === "externally_shared") {
-        return;
-      }
-      const policy = await input.repository.readPolicy(
-        rememberInput.organizationId
-      );
-      if (!policy.organizationMemoryOptIn) {
-        return;
-      }
-      const organizationRef = await input.repository.upsertOrganizationSubject({
+
+      const memberRef = await input.repository.upsertMemberSubject({
+        memberId: rememberInput.speakerMember.memberId,
         nowMs: nowMs(),
         organizationId: rememberInput.organizationId,
+        userId: rememberInput.speakerMember.userId,
       });
       await withTimeout(
-        input.adapter.ensureOrganizationGraph(organizationRef),
+        input.adapter.ensureMemberUser(memberRef),
         writeTimeoutMs,
-        "center_agent_memory.organization_ensure_timeout"
+        "center_agent_memory.member_ensure_timeout"
       );
       await withTimeout(
-        input.adapter.addEpisode({ episode, ref: organizationRef }),
+        input.adapter.addEpisode({ episode, ref: memberRef }),
         writeTimeoutMs,
-        "center_agent_memory.organization_write_timeout"
+        "center_agent_memory.member_write_timeout"
       );
     },
     async setOrganizationMemoryPolicy(policyInput) {
@@ -327,8 +284,13 @@ function projectMemoryEnvelope(
 ): RecallCenterAgentMemoryForTurnResult {
   const items: RecallCenterAgentMemoryForTurnResult["items"] = [];
   let remainingChars = CENTER_AGENT_MEMORY_MAX_ENVELOPE_TEXT_CHARS;
-  let truncated = results.length > CENTER_AGENT_MEMORY_MAX_ITEMS;
-  for (const result of results.slice(0, CENTER_AGENT_MEMORY_MAX_ITEMS)) {
+  const candidates = results.filter((result) =>
+    normalizeMemoryText(result.text)
+  );
+  const selected = candidates.slice(0, CENTER_AGENT_MEMORY_MAX_ITEMS);
+  let truncated = candidates.length > selected.length;
+
+  for (const [index, result] of selected.entries()) {
     const normalizedFact = normalizeMemoryText(result.text);
     if (!normalizedFact) {
       continue;
@@ -340,26 +302,15 @@ function projectMemoryEnvelope(
     });
     const itemText = truncateMemoryText(
       normalizedText,
-      CENTER_AGENT_MEMORY_MAX_ITEM_TEXT_CHARS
+      Math.min(
+        CENTER_AGENT_MEMORY_MAX_ITEM_TEXT_CHARS,
+        Math.floor(remainingChars / (selected.length - index))
+      )
     );
     if (itemText.truncated) {
       truncated = true;
     }
     const text = itemText.text;
-    if (text.length > remainingChars) {
-      if (remainingChars <= 40) {
-        truncated = true;
-        break;
-      }
-      items.push(
-        buildMemoryEnvelopeItem({
-          result,
-          text: truncateMemoryText(text, remainingChars).text,
-        })
-      );
-      truncated = true;
-      break;
-    }
     items.push(buildMemoryEnvelopeItem({ result, text }));
     remainingChars -= text.length;
   }

@@ -40,7 +40,7 @@ type LegacyRemoteAgentStreamDeltaCallbackBody = Extract<
 >;
 
 describe("Remote Agent stream delta service", () => {
-  it("forwards typed thinking snapshots to Space without relabeling them as text", async () => {
+  it("forwards transient progress without selecting a reply destination or creating a Thread", async () => {
     const harness = await createPostgresHarness();
 
     const rpcApplyAgentStreamDelta = vi.fn(async () => ({
@@ -49,12 +49,14 @@ describe("Remote Agent stream delta service", () => {
     }));
     try {
       await createAcceptedDelivery(harness.db);
+      const environment = buildEnv(harness.db, rpcApplyAgentStreamDelta);
+      const stub = environment.OPENMELD_SPACES.get(
+        environment.OPENMELD_SPACES.idFromString(SPACE_ID)
+      );
+      const selectPlacement = vi.spyOn(stub, "rpcResolveNativeReplyPlacement");
 
       await expect(
-        submitRemoteAgentStreamDelta(
-          buildEnv(harness.db, rpcApplyAgentStreamDelta),
-          createThinkingDelta()
-        )
+        submitRemoteAgentStreamDelta(environment, createThinkingDelta())
       ).resolves.toEqual({ status: "accepted", lastSequence: 1 });
       expect(rpcApplyAgentStreamDelta).toHaveBeenCalledWith({
         dispatchId: "dispatch_1",
@@ -65,26 +67,27 @@ describe("Remote Agent stream delta service", () => {
         streamId: "stream:sub_1",
         thinkingSnapshot: "Checking the current Space state",
         triggerMessageId: "signal_trigger_1",
-        replyThreadRootSignalId: "signal_trigger_1",
         v: 1,
       });
       await expect(
-        submitRemoteAgentStreamDelta(
-          buildEnv(harness.db, rpcApplyAgentStreamDelta),
-          {
-            ...createThinkingDelta(),
-            kind: "progress",
-            delta: "Checking the current Space context.",
-            snapshot: "Checking the current Space context.",
-            source: "hosted.public_progress",
-          }
-        )
+        submitRemoteAgentStreamDelta(environment, {
+          ...createThinkingDelta(),
+          kind: "progress",
+          delta: "Checking the current Space context.",
+          snapshot: "Checking the current Space context.",
+          source: "hosted.public_progress",
+        })
       ).resolves.toEqual({ status: "accepted", lastSequence: 1 });
       expect(rpcApplyAgentStreamDelta).toHaveBeenLastCalledWith(
         expect.objectContaining({
           kind: "progress",
           progressSnapshot: "Checking the current Space context.",
         })
+      );
+      expect(selectPlacement).not.toHaveBeenCalled();
+      await submitRemoteAgentStreamDelta(environment, createDelta());
+      expect(selectPlacement).toHaveBeenCalledWith(
+        expect.objectContaining({ lock: false })
       );
     } finally {
       await harness.close();

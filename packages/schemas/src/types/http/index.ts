@@ -3,6 +3,10 @@ export type {
   RuntimeTransportAgentProfileExecutionModeRequest,
 } from "../../schemas/http/agent-profile-execution-mode";
 export type {
+  AgentWorkloadSnapshot,
+  SpaceAgentWorkloadInput,
+} from "../../schemas/http/agent-workload";
+export type {
   AccountDisplayName,
   SelectLastSelectedOrganizationBody,
   SelectLastSelectedOrganizationErrorCode,
@@ -282,6 +286,8 @@ export type {
   CenterAgentUpdateSpaceSettingsResponse,
   CenterAgentWakeAgentProfilesInSpaceBody,
   CenterAgentWakeAgentProfilesInSpaceResponse,
+  CenterAgentWakeAgentProfilesInSpacesBody,
+  CenterAgentWakeAgentProfilesInSpacesResponse,
   CenterAgentWakePublicationCommand,
   CenterAgentWatchAgentTaskBody,
   CenterAgentWatchAgentTaskResponse,

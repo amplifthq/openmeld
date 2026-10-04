@@ -57,9 +57,12 @@ import {
   rpcGetSpaceBoard,
   rpcGetSpaceEntryResolution,
   rpcGetSpaceStatus,
+  rpcGetSpaceWakeProgress,
   rpcListCenterAgentSessions,
   rpcOpenCenterAgentDirectMessageSpace,
+  rpcOpenDirectMessageSpace,
   rpcPostSignal,
+  rpcPostSpaceWakeStop,
   rpcPostStatusSignal,
   rpcPostSystemNoticeSignal,
 } from "../src/rpc/methods";
@@ -1024,12 +1027,9 @@ async function readResponseStatusAndCode(response: Response): Promise<{
 }
 async function postTextSignal(
   spaceId: string,
-  text: string
-): Promise<
-  SignalEnvelope & {
-    type: "signal.text";
-  }
-> {
+  text: string,
+  clientMessageId?: string
+): Promise<SignalEnvelope & { type: "signal.text" }> {
   const response = await fetchWithOpenMeldAuth(
     `${BASE_URL}/v1/spaces/${spaceId}/signals`,
     {
@@ -1038,6 +1038,7 @@ async function postTextSignal(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
+        ...(clientMessageId ? { clientMessageId } : {}),
         profile: {
           kind: "human",
           profileId: DEFAULT_HUMAN_PROFILE_ID,
@@ -1572,6 +1573,139 @@ describe("OpenMeld Core", () => {
       status: "not_found",
     });
   });
+
+  it("stops only the selected native continuation of the original request", async () => {
+    const spaceId = await createSpace({
+      name: `continuation-stop-${randomUUID()}`,
+    });
+    const source = await postTextSignal(
+      spaceId,
+      "Delegate and then summarize."
+    );
+    const unrelatedSource = await postTextSignal(spaceId, "Another request.");
+    const targetProfileId = `agt_${randomUUID()}`;
+    const nowMs = Date.now();
+    const deliveries = await Promise.all(
+      ["parent", "continuation", "unrelated"].map(async (kind) => {
+        const idempotencyKey = `${kind}-${randomUUID()}`;
+        const dispatchId = `dispatch-${randomUUID()}`;
+        const submissionId = `submission-${randomUUID()}`;
+        await upsertRemoteAgentNativeDeliveryRecord({
+          attemptId: null,
+          bindingId: `binding-${randomUUID()}`,
+          db: getPostgresDatabase(env),
+          dispatchId,
+          idempotencyKey,
+          nowMs,
+          organizationId: DEFAULT_TEST_ORGANIZATION_ID,
+          profileId: targetProfileId,
+          spaceId,
+          status: "submitted",
+          triggerMessageId:
+            kind === "unrelated" ? unrelatedSource.id : source.id,
+        });
+        await markRemoteAgentNativeDeliveryAck({
+          accepted: true,
+          db: getPostgresDatabase(env),
+          idempotencyKey,
+          nowMs,
+          submissionId,
+          workerRequestId: `request-${randomUUID()}`,
+        });
+        if (kind === "parent") {
+          await markRemoteAgentNativeDeliveryCompleted({
+            db: getPostgresDatabase(env),
+            submissionId,
+            publishedSignalId: null,
+            nowMs,
+          });
+        }
+        return { dispatchId, idempotencyKey, submissionId };
+      })
+    );
+    const [parent, continuation, unrelated] = deliveries;
+    if (!(parent && continuation && unrelated)) {
+      throw new Error("Missing native delivery fixture");
+    }
+    const cancelExecution = vi.fn(async (_input: { submissionId: string }) => ({
+      execution: {
+        acceptedAtMs: nowMs,
+        cancellationReason: "User stopped this Wake.",
+        completedAtMs: nowMs,
+        idempotencyKey: continuation.idempotencyKey,
+        lastProgressAtMs: nowMs,
+        lastProgressKind: "aborted" as const,
+        organizationId: DEFAULT_TEST_ORGANIZATION_ID,
+        spaceId,
+        status: "aborted" as const,
+        submissionId: continuation.submissionId,
+        v: 1 as const,
+      },
+      status: "already_cancelled" as const,
+    }));
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const stub = namespace.get(namespace.idFromString(spaceId));
+    await runInDurableObject(stub, async (_instance, state) => {
+      const space = new Space(state, {
+        ...env,
+        OPENMELD_REMOTE_AGENT_WORKER: { cancelExecution },
+      } as unknown as CoreBindings);
+      const stop = (
+        dispatchId: string,
+        sourceSignalId = source.id,
+        profileId = targetProfileId
+      ) =>
+        space.rpcPostWakeStop({
+          spaceId,
+          context: createRpcContext({
+            requestId: "native-continuation-stop",
+            profileId: DEFAULT_HUMAN_PROFILE_ID,
+            profileKind: "human",
+            ownerUserId: "owner-test-default",
+          }),
+          body: {
+            target: {
+              by: "source_signal",
+              sourceSignalId,
+              dispatchId,
+              targetProfileId: profileId,
+            },
+          },
+        });
+      await expect(stop(unrelated.dispatchId)).resolves.toMatchObject({
+        status: "not_found",
+      });
+      await expect(
+        stop(continuation.dispatchId, unrelatedSource.id)
+      ).resolves.toMatchObject({ status: "not_found" });
+      await expect(
+        stop(continuation.dispatchId, source.id, `agt_${randomUUID()}`)
+      ).resolves.toMatchObject({ status: "not_found" });
+      await expect(stop(parent.dispatchId)).resolves.toMatchObject({
+        status: "not_stoppable",
+      });
+      expect(cancelExecution).not.toHaveBeenCalled();
+      await expect(stop(continuation.dispatchId)).resolves.toMatchObject({
+        ok: true,
+        status: "cancelled",
+      });
+      expect(cancelExecution).toHaveBeenCalledOnce();
+      expect(cancelExecution.mock.calls[0]?.[0]).toMatchObject({
+        submissionId: continuation.submissionId,
+      });
+      await expect(stop(continuation.dispatchId)).resolves.toMatchObject({
+        status: "already_cancelled",
+      });
+      expect(cancelExecution).toHaveBeenCalledOnce();
+    });
+    await expect(
+      readRemoteAgentNativeDeliveryBySubmissionId({
+        db: getPostgresDatabase(env),
+        submissionId: unrelated.submissionId,
+      })
+    ).resolves.toMatchObject({ status: "accepted" });
+  });
+
   it("settles Core delivery state when Remote confirms the execution is already cancelled", async () => {
     const idempotencyKey = `space-stop-confirmed-${randomUUID()}`;
     const dispatchId = `dispatch-stop-confirmed-${randomUUID()}`;
@@ -2586,6 +2720,199 @@ describe("OpenMeld Core", () => {
     expect(status).toMatchObject({ members: { totalCount: 1 } });
     expect(status.directMessageConvertedAt).toBeUndefined();
   });
+
+  it("keeps two-Agent DMs private, retries one message, and admits both owners through explicit conversion", async () => {
+    const organizationId = "org-two-agent-dm";
+    const firstAgent = "agt_59595959-5959-4595-8595-595959595959";
+    const secondAgent = "agt_60606060-6060-4060-8060-606060606060";
+    const pairKey = [firstAgent, secondAgent].sort().join(":");
+    const agents = [
+      {
+        profileId: firstAgent,
+        profileKind: "agent" as const,
+        profileName: "Writer",
+        ownerUserId: "dm-writer-owner",
+        ownerName: "Writer Owner",
+        agentControllerRef: "builtin:codex",
+      },
+      {
+        profileId: secondAgent,
+        profileKind: "agent" as const,
+        profileName: "Reviewer",
+        ownerUserId: "dm-reviewer-owner",
+        ownerName: "Reviewer Owner",
+        agentControllerRef: "builtin:codex",
+      },
+    ];
+    for (const agent of agents) {
+      await ensureTestOrganizationMembership({
+        organizationId,
+        userId: agent.ownerUserId,
+      });
+      await insertTestOrganizationAgentProfile({
+        organizationId,
+        agentProfileId: agent.profileId,
+        ownerUserId: agent.ownerUserId,
+      });
+    }
+    const context = createRpcContext({
+      activeOrganizationId: organizationId,
+      ownerUserId: "dm-writer-owner",
+      profileId: firstAgent,
+      profileKind: "agent",
+      profileName: "Writer",
+      requestId: "dm-writer",
+    });
+    const ownerContext = createRpcContext({
+      activeOrganizationId: organizationId,
+      ownerUserId: "dm-reviewer-owner",
+      profileId: THIRD_HUMAN_PROFILE_ID,
+      profileKind: "human",
+      profileName: "Reviewer Owner",
+      requestId: "dm-reader",
+    });
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const opened = await rpcOpenDirectMessageSpace(env as CoreBindings, {
+      context,
+      targetProfileId: secondAgent,
+      message: {
+        clientMessageId: "00000000-0000-4000-8000-000000000077",
+        text: "The review is ready.",
+        wake: false,
+      },
+    });
+    const spaceId = opened.spaceId;
+    const stub = namespace.get(namespace.idFromString(spaceId));
+    const message = {
+      spaceId,
+      organizationId,
+      pairKey,
+      context,
+      authoringPolicy: "user_authored" as const,
+      profile: {
+        kind: "agent" as const,
+        profileId: firstAgent,
+        profileName: "Writer",
+      },
+      clientMessageId: "00000000-0000-4000-8000-000000000077",
+      meta: { clientMessageId: "00000000-0000-4000-8000-000000000077" },
+      text: "The review is ready.",
+      messageEnvelope: {
+        text: "The review is ready.",
+        activationTargets: [],
+        referenceTargets: [secondAgent],
+      },
+    };
+    expect(opened.signal?.profile.profileId).toBe(firstAgent);
+    expect((await stub.rpcPostDirectMessageSignal(message)).id).toBe(
+      opened.signal?.id
+    );
+    const conflict = await stub
+      .rpcPostDirectMessageSignal({ ...message, text: "Different work" })
+      .then(
+        () => null,
+        (error: Error) => error.message
+      );
+    expect(conflict).toContain("direct_message.message_conflict");
+    await expect(
+      stub.rpcGetStatus({ context: ownerContext, spaceId })
+    ).resolves.toMatchObject({ members: { totalCount: 2 } });
+    const readOnlyError = await stub
+      .rpcPostSignal({
+        ...message,
+        context: ownerContext,
+        profile: {
+          kind: "human",
+          profileId: THIRD_HUMAN_PROFILE_ID,
+          profileName: "Reviewer Owner",
+        },
+      })
+      .then(
+        () => null,
+        (error: Error) => error.message
+      );
+    expect(readOnlyError).toContain("space.access.read_only");
+    const clientMessageId = "00000000-0000-4000-8000-000000000078";
+    await expect(
+      rpcPostSpaceWakeStop(env as CoreBindings, {
+        context,
+        spaceId,
+        body: {
+          target: {
+            by: "client_message",
+            clientMessageId,
+            targetProfileId: secondAgent,
+          },
+        },
+      })
+    ).resolves.toMatchObject({ status: "cancelled" });
+    const pinnedRequest = {
+      context,
+      spaceId,
+      targetProfileId: secondAgent,
+      message: { clientMessageId, text: "Please review this.", wake: true },
+    };
+    const stoppedSend = await rpcOpenDirectMessageSpace(
+      env as CoreBindings,
+      pinnedRequest
+    );
+    expect(stoppedSend.spaceId).toBe(spaceId);
+    expect(stoppedSend.signal?.profile.profileId).toBe(firstAgent);
+    await expect(
+      rpcGetSpaceWakeProgress(env as CoreBindings, {
+        context,
+        spaceId,
+        clientMessageId,
+      })
+    ).resolves.toMatchObject({
+      items: [{ targetProfileId: secondAgent, phase: "stopped" }],
+    });
+    const wrongOrganization = await stub
+      .rpcPostDirectMessageSignal({
+        ...message,
+        organizationId: "another-org",
+      })
+      .then(
+        () => null,
+        (error: Error) => error.message
+      );
+    expect(wrongOrganization).toContain("direct_message.conversation_changed");
+    const converted = await stub.rpcConvertDirectMessageToSpace({
+      context: ownerContext,
+      spaceId,
+      name: "Review team",
+      members: [
+        {
+          profileId: SECOND_HUMAN_PROFILE_ID,
+          profileKind: "human",
+          profileName: "Writer Owner",
+          ownerUserId: "dm-writer-owner",
+          ownerName: "Writer Owner",
+          agentControllerRef: null,
+        },
+        {
+          profileId: THIRD_HUMAN_PROFILE_ID,
+          profileKind: "human",
+          profileName: "Reviewer Owner",
+          ownerUserId: "dm-reviewer-owner",
+          ownerName: "Reviewer Owner",
+          agentControllerRef: null,
+        },
+      ],
+    });
+    expect(converted.addedMemberIds.sort()).toEqual(
+      [SECOND_HUMAN_PROFILE_ID, THIRD_HUMAN_PROFILE_ID].sort()
+    );
+    const convertedError = await stub.rpcPostDirectMessageSignal(message).then(
+      () => null,
+      (error: Error) => error.message
+    );
+    expect(convertedError).toContain("direct_message.conversion_required");
+    await expect(
+      rpcOpenDirectMessageSpace(env as CoreBindings, pinnedRequest)
+    ).rejects.toThrow("direct_message.conversion_required");
+  });
+
   it("keeps an Agent owner read-only until they explicitly join and convert the Direct Message", async () => {
     const organizationId = "org-agent-owner-observer";
     await ensureTestOrganizationMembership({
@@ -9307,33 +9634,86 @@ describe("OpenMeld Core", () => {
     );
     expect(signalsResponse.status).toBe(200);
     const signalsPage = (await signalsResponse.json()) as {
-      signals?: Array<{
-        data?: {
-          meta?: {
-            purpose?: string;
-          };
-          text?: string;
-        };
-        profile?: {
-          profileId?: string;
-        };
-        type?: string;
-      }>;
+      signals: Array<{ type: string }>;
     };
-    const welcomeSignals =
-      signalsPage.signals?.filter(
-        (signal) =>
-          signal.type === "signal.text" &&
-          signal.data?.meta?.purpose === "center_agent_dm_welcome"
-      ) ?? [];
-    expect(welcomeSignals).toHaveLength(1);
-    expect(welcomeSignals[0]).toMatchObject({
-      profile: { profileId: agentProfileId },
-      type: "signal.text",
+    expect(
+      signalsPage.signals.filter((signal) => signal.type === "signal.text")
+    ).toEqual([]);
+  });
+
+  it.each([
+    false,
+    true,
+  ])("reopens an existing Center chat without appending or rewriting messages (historical welcome: %s)", async (hasHistoricalWelcome) => {
+    const organizationId = `org-center-reopen-${randomUUID()}`;
+    const ownerUserId = `user-center-reopen-${randomUUID()}`;
+    const humanProfileId = randomUUID();
+    const agentProfileId = `agt_${randomUUID()}`;
+    await ensureTestCenterAgentDesignation({
+      agentProfileId,
+      agentProfileName: "Center Agent",
+      organizationId,
+      ownerUserId,
     });
-    expect(welcomeSignals[0]?.data?.text).toContain(
-      "I'm the Center Agent for Test Organization"
+    await insertTestPrimaryHumanProfile({
+      ownerUserId,
+      profileId: humanProfileId,
+    });
+    const context = createRpcContext({
+      activeOrganizationId: organizationId,
+      ownerUserId,
+      profileId: humanProfileId,
+      profileKind: "human",
+      profileName: "Ava",
+      requestId: "center-chat-reopen",
+    });
+    const session = await rpcOpenCenterAgentDirectMessageSpace(
+      env as CoreBindings,
+      {
+        context,
+        sessionCreationId: randomUUID(),
+      }
     );
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const stub = namespace.get(namespace.idFromString(session.spaceId));
+    await stub.rpcPostSignal({
+      context,
+      spaceId: session.spaceId,
+      profile: { kind: "human", profileId: humanProfileId, profileName: "Ava" },
+      authoringPolicy: "system_emitted",
+      text: "Existing conversation",
+    });
+    if (hasHistoricalWelcome) {
+      await stub.rpcPostSignalOnceByClientMessageId({
+        context,
+        spaceId: session.spaceId,
+        profile: {
+          kind: "human",
+          profileId: humanProfileId,
+          profileName: "Ava",
+        },
+        authoringPolicy: "system_emitted",
+        text: "Historical welcome",
+        clientMessageId: `center-agent-dm-welcome:${session.spaceId}`,
+        meta: {
+          clientMessageId: `center-agent-dm-welcome:${session.spaceId}`,
+          purpose: "center_agent_dm_welcome",
+        },
+      });
+    }
+    const before = await stub.rpcListSignals({
+      context,
+      spaceId: session.spaceId,
+    });
+    const reopened = await rpcOpenCenterAgentDirectMessageSpace(
+      env as CoreBindings,
+      { context }
+    );
+    expect(reopened.spaceId).toBe(session.spaceId);
+    expect(reopened.created).toBe(false);
+    expect(
+      await stub.rpcListSignals({ context, spaceId: session.spaceId })
+    ).toEqual(before);
   });
   it("bootstraps a fresh organization and opens a usable Center Agent DM through the real Core path", async () => {
     const organizationId = `org-center-bootstrap-${randomUUID()}`;
@@ -9478,33 +9858,11 @@ describe("OpenMeld Core", () => {
     );
     expect(signalsResponse.status).toBe(200);
     const signalsPage = (await signalsResponse.json()) as {
-      signals?: Array<{
-        data?: {
-          meta?: {
-            purpose?: string;
-          };
-          text?: string;
-        };
-        profile?: {
-          profileId?: string;
-        };
-        type?: string;
-      }>;
+      signals: Array<{ type: string }>;
     };
-    const welcomeSignals =
-      signalsPage.signals?.filter(
-        (signal) =>
-          signal.type === "signal.text" &&
-          signal.data?.meta?.purpose === "center_agent_dm_welcome"
-      ) ?? [];
-    expect(welcomeSignals).toHaveLength(1);
-    expect(welcomeSignals[0]).toMatchObject({
-      profile: { profileId: agentProfileId },
-      type: "signal.text",
-    });
-    expect(welcomeSignals[0]?.data?.text).toContain(
-      "I'm the Center Agent for Test Organization"
-    );
+    expect(
+      signalsPage.signals.filter((signal) => signal.type === "signal.text")
+    ).toEqual([]);
   });
   it("supports direct DO rpc methods and applies space ref per request", async () => {
     await ensureTestOrganizationMembership({
@@ -10100,21 +10458,22 @@ describe("OpenMeld Core", () => {
       }),
       spaceId,
     });
-    const failedFolderRequestId = "rpc-space-file-audit-folder-failed";
+    const failedRenameRequestId = "rpc-space-file-audit-rename-failed";
     await runInDurableObject(stub, async (instance) => {
       await expect(
-        instance.rpcCreateSpaceFolder({
+        instance.rpcUpdateSpaceFileEntry({
           body: {
             clientMutationId: randomUUID(),
             name: "Private Audit Folder",
             parentId: fileId,
           },
+          entryId: fileId,
           spaceAccess: createAuthenticatedSpaceAccessContext({
             requestContext: {
               ...context,
               actorContext: {
                 ...context.actorContext,
-                requestId: failedFolderRequestId,
+                requestId: failedRenameRequestId,
               },
             },
             spaceId,
@@ -10223,9 +10582,9 @@ describe("OpenMeld Core", () => {
           result: "succeeded",
         }),
         expect.objectContaining({
-          error_code: "space_file.invalid_parent",
-          operation: "folder_create",
-          request_id: failedFolderRequestId,
+          error_code: "space_file.name_conflict",
+          operation: "entry_update",
+          request_id: failedRenameRequestId,
           result: "failed",
         }),
         expect.objectContaining({
@@ -12682,6 +13041,135 @@ describe("OpenMeld Core", () => {
       });
     }
   });
+  it.each([
+    "native",
+    "outbox",
+    "ledger",
+  ] as const)("preserves native execution timing through the %s progress projection", async (carrier) => {
+    const spaceId = await createSpace({ name: `native-timing-${carrier}` });
+    const clientMessageId = randomUUID();
+    const source = await postTextSignal(spaceId, "ping", clientMessageId);
+    const targetProfileId = "agt_11111111-1111-4111-8111-111111111111";
+    const nowMs = Date.now();
+    const record = createDispatchOutboxRecord({
+      bindingEnabled: true,
+      bindingState: "bound",
+      dispatchPolicy: "mention_only",
+      nowMs,
+      ruleId: "wake_explicit_activation",
+      ruleReason: "Explicit Wake target",
+      ruleSource: "registry",
+      senderProfileId: DEFAULT_HUMAN_PROFILE_ID,
+      sourceEventId: source.id,
+      sourceClientMessageId: clientMessageId,
+      sourceSignalSnapshot: {
+        profileId: DEFAULT_HUMAN_PROFILE_ID,
+        profileKind: "human",
+        text: "ping",
+      },
+      spaceId,
+      targetProfileId,
+    });
+    if (carrier !== "native") {
+      const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+      await runInDurableObject(
+        namespace.get(namespace.idFromString(spaceId)),
+        (_instance, state) => {
+          insertDispatchOutboxRecord(state.storage.sql, record);
+          markDispatchOutboxHandedOff(state.storage.sql, {
+            dispatchId: record.dispatchId,
+            handedOffAtMs: nowMs,
+          });
+        }
+      );
+    }
+    if (carrier === "ledger") {
+      await getPostgresDatabase(env).query({
+        text: '\n          INSERT INTO "openmeld"."openMeldDaemon_dispatch_ledger"\n            (idempotency_key, dispatch_id, space_id, source_event_id, source_client_message_id,\n             target_profile_id, status, first_seen_at_ms, last_attempt_at_ms, attempt_count)\n          VALUES ($1, $2, $3, $4, $5, $6, \'dispatching\', $7, $8, 1)\n        ',
+        values: [
+          record.idempotencyKey,
+          record.dispatchId,
+          spaceId,
+          source.id,
+          clientMessageId,
+          targetProfileId,
+          nowMs,
+          nowMs,
+        ],
+      });
+    }
+    await upsertRemoteAgentNativeDeliveryRecord({
+      db: getPostgresDatabase(env),
+      nowMs,
+      organizationId: DEFAULT_TEST_ORGANIZATION_ID,
+      conversationKind: "space",
+      spaceId,
+      profileId: targetProfileId,
+      bindingId: "native-timing-binding",
+      sourceClientMessageId: clientMessageId,
+      attemptId: null,
+      triggerMessageId: source.id,
+      dispatchId: record.dispatchId,
+      idempotencyKey: record.idempotencyKey,
+      status: "submitted",
+    });
+    const startedAtMs = nowMs + 10;
+    await markRemoteAgentNativeDeliveryAck({
+      db: getPostgresDatabase(env),
+      nowMs: startedAtMs,
+      idempotencyKey: record.idempotencyKey,
+      submissionId: `timing-${record.dispatchId}`,
+      accepted: true,
+    });
+    const spaceStub = (
+      env.OPENMELD_SPACES as DurableObjectNamespace<Space>
+    ).get(
+      (env.OPENMELD_SPACES as DurableObjectNamespace<Space>).idFromString(
+        spaceId
+      )
+    );
+    await spaceStub.rpcResolveNativeReplyPlacement({
+      spaceId,
+      dispatchId: record.dispatchId,
+      sourceSignalId: source.id,
+      profileId: targetProfileId,
+      defaultToThread: true,
+      placement: "conversation",
+      lock: false,
+    });
+    for (const includeTiming of [false, true]) {
+      for (const path of [
+        `active-wake-progress?includeTiming=${includeTiming}&includeReplyPlacement=${includeTiming}`,
+        `wake-progress?clientMessageId=${clientMessageId}&targetProfileId=${targetProfileId}&includeTiming=${includeTiming}&includeReplyPlacement=${includeTiming}`,
+      ]) {
+        const response = await fetchSpaceDoWithOpenMeldAuth({
+          spaceId,
+          path: `/${path}`,
+        });
+        expect(response.status).toBe(200);
+        const body = (await response.json()) as {
+          items: Array<{
+            dispatchId: string;
+            startedAtMs?: number;
+            replyThreadRootSignalId?: string | null;
+            replyPlacementRevision?: number;
+          }>;
+        };
+        const item = body.items.find(
+          (item) => item.dispatchId === record.dispatchId
+        );
+        expect(item).toBeDefined();
+        expect(item?.startedAtMs).toBe(includeTiming ? startedAtMs : undefined);
+        expect(item?.replyThreadRootSignalId).toBe(
+          includeTiming ? null : undefined
+        );
+        expect(item?.replyPlacementRevision).toBe(
+          includeTiming ? 1 : undefined
+        );
+      }
+    }
+  });
+
   it.each([
     "same Space",
     "another Space",

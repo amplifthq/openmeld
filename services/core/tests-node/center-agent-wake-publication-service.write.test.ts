@@ -5,16 +5,22 @@ import type {
 } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 import { readAgentDelegation } from "../src/agent-task-coordination/infrastructure/postgresql/agent-delegation-repo";
-import { readAgentTaskCompletionSubscription } from "../src/agent-task-coordination/infrastructure/postgresql/agent-task-coordination-repo";
+import {
+  hasAgentTaskResumeContinuationByObserverTask,
+  readAgentTaskCompletionSubscription,
+  recordAgentTaskTerminalOutcome,
+} from "../src/agent-task-coordination/infrastructure/postgresql/agent-task-coordination-repo";
 import { planCenterAgentWakeDelegation } from "../src/center-agent/application/center-agent-delegation-service";
 import {
   executeCenterAgentWakePublication,
   prepareCenterAgentWakePublication,
+  prepareCenterAgentWakePublicationBatch,
   retryPendingCenterAgentWakePublications,
 } from "../src/center-agent/application/center-agent-wake-publication-service";
 import {
   claimCenterAgentWakePublication,
   markCenterAgentWakePublicationAccepted,
+  prepareCenterAgentWakePublicationRecords,
   readCenterAgentWakePublication,
 } from "../src/center-agent/infrastructure/postgresql/center-agent-wake-publication-repo";
 import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
@@ -24,6 +30,193 @@ const CHILD_PROFILE_ID = "agt_00000000-0000-4000-8000-000000000002";
 const HUMAN_PROFILE_ID = "00000000-0000-4000-8000-000000000003";
 const CLIENT_MESSAGE_ID = "ca-wake:durable-publication";
 describe("Center Agent Wake publication recovery", () => {
+  it.each([
+    { secondOutcome: "accepted", routine: false },
+    { secondOutcome: "rejected", routine: false },
+    { secondOutcome: "accepted", routine: true },
+    { secondOutcome: "rejected", routine: true },
+  ])("recovers an unattempted second Space ($secondOutcome, routine=$routine) without repeating the first or losing its result", async ({
+    secondOutcome,
+    routine,
+  }) => {
+    const harness = await createHarness();
+    try {
+      await insertAuditIdentity(harness.db);
+      await insertParentDelivery(harness.db);
+      if (routine) {
+        await harness.db.transaction(async (client) => {
+          await client.query({
+            text: "INSERT INTO \"openmeld\".\"routine_runs\" (id, routine_id, organization_id, scheduled_for, status, target_space_id_snapshot, execution_engine, native_delivery_id, started_at_ms) VALUES ('routine-run-1', 'routine-1', 'org-1', 900, 'submitted', 'space-parent', 'workflow', 'delivery-parent', 900)",
+            values: [],
+          });
+          await client.query({
+            text: "UPDATE \"openmeld\".\"openMeldRemoteAgent_native_delivery_ledger\" SET routine_run_id = 'routine-run-1', idempotency_key = 'routine-run-1' WHERE delivery_id = 'delivery-parent'",
+            values: [],
+          });
+        });
+      }
+      const ids = ["ca-wake:batch-alpha", "ca-wake:batch-beta"] as const;
+      const plans = ids.map((clientMessageId, index) =>
+        planCenterAgentWakeDelegation({
+          childSpaceId: index === 0 ? "space-alpha" : "space-beta",
+          clientMessageId,
+          targetProfileIds: [CHILD_PROFILE_ID],
+        })
+      );
+      const [alpha, beta] = plans;
+      const alphaTask = alpha?.childTasks[0]?.task;
+      const betaTask = beta?.childTasks[0]?.task;
+      if (!(alpha && beta && alphaTask && betaTask)) {
+        throw new Error("Missing batch fixture");
+      }
+      const commands = plans.map((plan, index) => ({
+        ...buildCommand({
+          clientMessageId: index === 0 ? ids[0] : ids[1],
+          delegationId: alpha.delegationId,
+          subscriptionIds: plan.subscriptionIds,
+        }),
+        batchRootPublicationId: ids[0],
+        ...(index === 0 ? { batchPublicationIds: [...ids] } : {}),
+        spaceId: index === 0 ? "space-alpha" : "space-beta",
+      }));
+      const prepare = routine
+        ? prepareCenterAgentWakePublicationBatch
+        : prepareCenterAgentWakePublicationRecords;
+      await prepare({
+        commands,
+        db: harness.db,
+        nowMs: 1000,
+      });
+      if (routine) {
+        // The initial callback checks this persisted predicate. It must see
+        // the continuation before any background Space publication starts.
+        await expect(
+          hasAgentTaskResumeContinuationByObserverTask({
+            db: harness.db,
+            observerTask: {
+              deliveryId: "delivery-parent",
+              kind: "native_delivery",
+              v: 1,
+            },
+          })
+        ).resolves.toBe(true);
+        await harness.db.query({
+          text: "UPDATE \"openmeld\".\"openMeldRemoteAgent_native_delivery_ledger\" SET status = 'completed' WHERE delivery_id = 'delivery-parent'",
+          values: [],
+        });
+      }
+      const publishSignal = vi.fn(
+        (command: CenterAgentWakePublicationCommand) => {
+          if (
+            command.spaceId === "space-beta" &&
+            secondOutcome === "rejected"
+          ) {
+            return Promise.reject(
+              new Error(
+                'HTTP 403: {"error":{"message":"Space access revoked"}}'
+              )
+            );
+          }
+          return Promise.resolve({
+            ...buildSignal({
+              clientMessageId: command.clientMessageId,
+              signalId: `signal:${command.spaceId}`,
+            }),
+            spaceId: command.spaceId,
+          });
+        }
+      );
+      await executeCenterAgentWakePublication({
+        db: harness.db,
+        nowMs: 1010,
+        publicationId: ids[0],
+        publishSignal,
+        resolveSignal: async () => null,
+      });
+      const firstResult = await recordAgentTaskTerminalOutcome({
+        db: harness.db,
+        nowMs: 1020,
+        task: alphaTask,
+        outcome: {
+          status: "succeeded",
+          errorCode: null,
+          eventId: "result-alpha",
+          occurredAtMs: 1020,
+          publishedSignalId: "result-alpha",
+        },
+      });
+      expect(firstResult.readySubscriptionIds).toEqual([]);
+      const partial = await readAgentDelegation({
+        db: harness.db,
+        delegationId: alpha.delegationId,
+      });
+      expect(partial?.children.map((child) => child.state)).toEqual([
+        "terminal",
+        "planned",
+      ]);
+
+      // The original scheduling turn is over. Only durable records survive;
+      // the second destination has never been called by the original owner.
+      await harness.db.query({
+        text: "UPDATE \"openmeld\".\"openMeldRemoteAgent_native_delivery_ledger\" SET status = 'completed' WHERE delivery_id = 'delivery-parent'",
+        values: [],
+      });
+      await retryPendingCenterAgentWakePublications({
+        db: harness.db,
+        nowMs: 2000,
+        publishSignal,
+        resolveSignal: async () => null,
+      });
+      expect(
+        publishSignal.mock.calls.map(([command]) => command.spaceId)
+      ).toEqual(["space-alpha", "space-beta"]);
+      if (secondOutcome === "accepted") {
+        await recordAgentTaskTerminalOutcome({
+          db: harness.db,
+          nowMs: 2010,
+          task: betaTask,
+          outcome: {
+            status: "succeeded",
+            errorCode: null,
+            eventId: "result-beta",
+            occurredAtMs: 2010,
+            publishedSignalId: "result-beta",
+          },
+        });
+      }
+      const complete = await readAgentDelegation({
+        db: harness.db,
+        delegationId: alpha.delegationId,
+      });
+      expect(
+        complete?.children.map((child) => child.terminalOutcome?.status)
+      ).toEqual([
+        "succeeded",
+        secondOutcome === "accepted" ? "succeeded" : "publication_failed",
+      ]);
+      const subscriptions = await Promise.all(
+        plans.map((plan) =>
+          readAgentTaskCompletionSubscription({
+            db: harness.db,
+            subscriptionId: plan.subscriptionIds[0] ?? "",
+          })
+        )
+      );
+      expect(
+        subscriptions.filter((subscription) => subscription?.state === "ready")
+      ).toHaveLength(1);
+      await retryPendingCenterAgentWakePublications({
+        db: harness.db,
+        nowMs: 3000,
+        publishSignal,
+        resolveSignal: async () => null,
+      });
+      expect(publishSignal).toHaveBeenCalledTimes(2);
+    } finally {
+      harness.close();
+    }
+  });
+
   it("redrives an outcome-unknown Space publication and completes coordination once", async () => {
     const harness = await createHarness();
     const publishSignal = vi

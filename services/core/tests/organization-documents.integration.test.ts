@@ -1,11 +1,14 @@
 import { env } from "cloudflare:test";
 import { getPostgresDatabase, type QueryResult } from "@openmeld/db/postgresql";
 import {
+  buildPersonalRemoteAgentConversationId,
   centerAgentDraftOrganizationDocumentRpcInputSchema,
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
+  HOSTED_REMOTE_AGENT_CONTROLLER_REF,
   remoteAgentWorkerSubmitTurnRequestSchema,
 } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
+import { createSubmitTurnRequestV2 } from "../../remote-agent/tests/fixtures";
 import {
   prepareCenterAgentOrganizationMemberRequest,
   rpcCenterAgentAuthorizeAnonymousMemberTool,
@@ -25,11 +28,17 @@ import {
   rpcCenterAgentOrganizationDocumentsComputerSnapshot,
   rpcCenterAgentReadOrganizationDocuments,
   rpcCreateOrganizationDocument,
+  rpcGetOrganizationDocument,
+  rpcListOrganizationDocuments,
 } from "../src/organization-documents/organization-document-rpc";
 import {
   createOrganizationDocumentService,
   type OrganizationDocumentActor,
 } from "../src/organization-documents/organization-document-service";
+import {
+  createPersonalRemoteAgentBinding,
+  requirePersonalRemoteAgentBinding,
+} from "../src/remote-agent/application/personal-remote-agent-binding";
 // biome-ignore lint/performance/noNamespaceImport: Needed to pause the authorization read at the exact replay race boundary.
 import * as nativeDeliveryLedgerRepo from "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import {
@@ -40,15 +49,154 @@ import {
   upsertRemoteAgentNativeDeliveryRecord,
 } from "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import {
+  rpcAddSpaceMembers,
   rpcCenterAgentGetOrganizationDirectory,
   rpcCenterAgentListComputers,
   rpcCenterAgentReadMemberComputers,
+  rpcCreateSpace,
   rpcListCenterAgentAuditJournal,
 } from "../src/rpc/methods";
 import { installWorkerPostgresWriteFailure } from "./postgresql.test-support";
 
 const ISO_CALENDAR_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/u;
 describe("Organization documents", () => {
+  it("lets an ordinary owned Agent read approved documents without draft or management access", async () => {
+    const coreEnv = env as unknown as CoreBindings;
+    const fixture = await seedFixture();
+    const profileId = `agt_${crypto.randomUUID()}`;
+    await getPostgresDatabase(env).query({
+      text: "INSERT INTO \"openmeld\".\"openmeld_profiles\"\n      (profile_id, profile_name, profile_handle, profile_kind, is_default, status, organization_id, owner_user_id, created_by_user_id, source, created_at, updated_at)\n      VALUES ($1, 'Local reader', $2, 'agent', 0, 'active', $3, $4, $5, 'cli_create', 1000, 1000)",
+      values: [
+        profileId,
+        profileId,
+        fixture.organizationId,
+        fixture.owner.userId,
+        fixture.owner.userId,
+      ],
+    });
+    const humanContext = humanRequestContext(
+      fixture.organizationId,
+      profileId,
+      fixture.owner.userId
+    );
+    const context = {
+      ...humanContext,
+      actorContext: {
+        ...humanContext.actorContext,
+        profileKind: "agent" as const,
+      },
+    };
+    const service = createOrganizationDocumentService({
+      db: getPostgresDatabase(env),
+    });
+    const approved = await service.create(fixture.owner, {
+      kind: "knowledge",
+      title: "Review policy",
+      content: "Use release B.",
+    });
+    await service.draft(
+      fixture.organizationId,
+      { documentId: approved.id, draftContent: "Unadopted release C." },
+      []
+    );
+    const draftOnly = await service.draft(
+      fixture.organizationId,
+      {
+        kind: "knowledge",
+        title: "Unadopted proposal",
+        draftContent: "Do not publish.",
+      },
+      []
+    );
+    const listed = await rpcListOrganizationDocuments(coreEnv, { context });
+    expect(listed.documents.map((document) => document.id)).toContain(
+      approved.id
+    );
+    expect(listed.documents.map((document) => document.id)).not.toContain(
+      draftOnly.document.id
+    );
+    expect(listed.canManage).toBe(false);
+    const read = await rpcGetOrganizationDocument(coreEnv, {
+      context,
+      documentId: approved.id,
+    });
+    expect(read.document).toMatchObject({
+      content: "Use release B.",
+      draftContent: null,
+      draftCreatedAt: null,
+      canManage: false,
+      canEditContent: false,
+    });
+    const remoteContext = await seedPersonalDocumentReader(fixture, profileId);
+    const remoteList = await rpcCenterAgentReadOrganizationDocuments(coreEnv, {
+      context: remoteContext,
+      action: "list",
+    });
+    expect(remoteList).toMatchObject({
+      action: "list",
+      documents: [expect.objectContaining({ id: approved.id })],
+    });
+    const remoteRead = await rpcCenterAgentReadOrganizationDocuments(coreEnv, {
+      context: remoteContext,
+      action: "get",
+      documentId: approved.id,
+    });
+    expect(remoteRead).toMatchObject({
+      action: "get",
+      document: { content: "Use release B." },
+    });
+    expect(JSON.stringify(remoteRead)).not.toContain("Unadopted release C.");
+    const externalContext = await seedPersonalDocumentReader(
+      fixture,
+      profileId,
+      true
+    );
+    await expect(
+      rpcCenterAgentReadOrganizationDocuments(coreEnv, {
+        context: externalContext,
+        action: "list",
+      })
+    ).rejects.toMatchObject({
+      status: 403,
+      code: "organization_document.audience_not_allowed",
+    });
+    await expect(
+      rpcCenterAgentReadOrganizationDocuments(coreEnv, {
+        context: {
+          ...remoteContext,
+          actorContext: {
+            ...remoteContext.actorContext,
+            ownerUserId: fixture.member.userId,
+          },
+        },
+        action: "get",
+        documentId: approved.id,
+      })
+    ).rejects.toMatchObject({ status: 403 });
+    await expect(
+      rpcCreateOrganizationDocument(coreEnv, {
+        context,
+        expectedOrganizationId: fixture.organizationId,
+        kind: "knowledge",
+        title: "Unauthorized",
+        content: "No",
+      })
+    ).rejects.toMatchObject({ status: 403 });
+    await getPostgresDatabase(env).query({
+      text: 'UPDATE "openmeld"."openmeld_profiles" SET status = \'disabled\' WHERE profile_id = $1',
+      values: [profileId],
+    });
+    await expect(
+      rpcGetOrganizationDocument(coreEnv, { context, documentId: approved.id })
+    ).rejects.toMatchObject({ status: 403 });
+    await expect(
+      rpcCenterAgentReadOrganizationDocuments(coreEnv, {
+        context: remoteContext,
+        action: "get",
+        documentId: approved.id,
+      })
+    ).rejects.toThrow("remote_agent.personal_profile_unavailable");
+  });
   it("projects a maximum-length document title within the Inbox title contract", async () => {
     const fixture = await seedFixture();
     const documentTitle = `${"A".repeat(149)}😀${"B".repeat(49)}`;
@@ -1961,12 +2109,7 @@ describe("Organization documents", () => {
         speakerMember,
       })
     ).resolves.toMatchObject({
-      documents: [
-        expect.objectContaining({
-          id: drafted.document.id,
-          title: "Operations runbook",
-        }),
-      ],
+      documents: [],
     });
     await expect(
       rpcCenterAgentReadOrganizationDocuments(coreEnv, {
@@ -2842,6 +2985,169 @@ async function seedFixture(): Promise<{
     ownerMemberId: `membership_0_${suffix}`,
   };
 }
+
+async function seedPersonalDocumentReader(
+  fixture: Awaited<ReturnType<typeof seedFixture>>,
+  profileId: string,
+  externalRequester = false
+) {
+  const coreEnv = env as unknown as CoreBindings;
+  const humanContext = humanRequestContext(
+    fixture.organizationId,
+    fixture.ownerHumanProfileId,
+    fixture.owner.userId
+  );
+  const senderId = `agt_${crypto.randomUUID()}`;
+  await getPostgresDatabase(env).query({
+    text: "INSERT INTO \"openmeld\".\"openmeld_profiles\"\n    (profile_id, profile_name, profile_handle, profile_kind, is_default, status, organization_id, owner_user_id, created_by_user_id, source, created_at, updated_at)\n    VALUES ($1, 'Delegating Agent', $2, 'agent', 0, 'active', $3, $4, $5, 'cli_create', 1000, 1000)",
+    values: [
+      senderId,
+      senderId,
+      fixture.organizationId,
+      fixture.owner.userId,
+      fixture.owner.userId,
+    ],
+  });
+  await createPersonalRemoteAgentBinding({
+    db: getPostgresDatabase(env),
+    agentProfileId: profileId,
+    organizationId: fixture.organizationId,
+    ownerUserId: fixture.owner.userId,
+    createdByProfileId: fixture.ownerHumanProfileId,
+    modelId: null,
+    reasoningLevel: null,
+  });
+  const binding = await requirePersonalRemoteAgentBinding({
+    db: getPostgresDatabase(env),
+    agentProfileId: profileId,
+    organizationId: fixture.organizationId,
+    ownerUserId: fixture.owner.userId,
+  });
+  const { spaceId } = await rpcCreateSpace(coreEnv, {
+    context: humanContext,
+    name: "Delegated document test",
+    visibility: "private",
+  });
+  await rpcAddSpaceMembers(coreEnv, {
+    context: humanContext,
+    spaceId,
+    members: [profileId, senderId].map((id) => ({
+      profileId: id,
+      profileKind: "agent" as const,
+      profileName: "Test Agent",
+      ownerUserId: fixture.owner.userId,
+      ownerName: "Olivia Owner",
+      agentControllerRef: HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+    })),
+  });
+  const idempotencyKey = crypto.randomUUID();
+  const submissionId = crypto.randomUUID();
+  const base = createSubmitTurnRequestV2();
+  const conversationId = buildPersonalRemoteAgentConversationId({
+    organizationId: fixture.organizationId,
+    agentProfileId: profileId,
+    spaceId,
+  });
+  const workerSubmitRequest = remoteAgentWorkerSubmitTurnRequestSchema.parse({
+    ...base,
+    v: 4,
+    agentProfileId: profileId,
+    agentProfileOwnerUserId: fixture.owner.userId,
+    organizationId: fixture.organizationId,
+    spaceId,
+    bindingId: binding.bindingId,
+    dispatchId: idempotencyKey,
+    idempotencyKey,
+    conversationId,
+    runtimeConversation: { generation: 0, id: conversationId },
+    conversationIdentity: { kind: "personal_agent", agentProfileId: profileId },
+    author: {
+      profileId: senderId,
+      profileKind: "agent",
+      displayName: "Delegating Agent",
+    },
+    spaceDispatchContext: {
+      dispatchChainId: idempotencyKey,
+      autoRelayDepth: 0,
+      visitedProfileIds: [],
+      visitedProfileIdsHash: "fixture",
+    },
+    turnEnvelope: {
+      ...base.turnEnvelope,
+      organization: {
+        ...base.turnEnvelope.organization,
+        id: fixture.organizationId,
+      },
+      sender: {
+        kind: "agent_profile",
+        id: senderId,
+        profileId: senderId,
+        displayName: "Delegating Agent",
+        ownerUserId: fixture.owner.userId,
+        verified: true,
+        ...(externalRequester
+          ? {
+              callerContext: {
+                relationship: "external",
+                spaceRole: "member",
+                audience: "external",
+              },
+            }
+          : {}),
+      },
+      space: {
+        id: spaceId,
+        name: "Delegated document test",
+        kind: "space",
+        isCenterAgentDm: false,
+      },
+      trigger: { source: "space_wake" },
+      interactionEnvironment: "organization_shared",
+    },
+  });
+  await upsertRemoteAgentNativeDeliveryRecord({
+    db: getPostgresDatabase(env),
+    attemptId: null,
+    bindingId: binding.bindingId,
+    dispatchId: idempotencyKey,
+    idempotencyKey,
+    nowMs: 2000,
+    onBehalfOfDisplayName: null,
+    onBehalfOfProfileId: null,
+    onBehalfOfUserId: null,
+    organizationId: fixture.organizationId,
+    profileId,
+    spaceId,
+    status: "submitted",
+    triggerMessageId: idempotencyKey,
+  });
+  await persistRemoteAgentWorkerSubmitRequest({
+    db: getPostgresDatabase(env),
+    idempotencyKey,
+    nowMs: 2001,
+    workerSubmitRequest,
+  });
+  await markRemoteAgentNativeDeliveryAck({
+    db: getPostgresDatabase(env),
+    idempotencyKey,
+    nowMs: 2002,
+    submissionId,
+    accepted: true,
+  });
+  return {
+    activeOrganizationId: fixture.organizationId,
+    agentControllerConversationId: submissionId,
+    actorContext: {
+      agentControllerRef: HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+      callerPrincipalId: fixture.owner.userId,
+      ownerUserId: fixture.owner.userId,
+      profileKind: "agent" as const,
+      openMeldProfileId: profileId,
+      requestId: "delegated-doc-test",
+    },
+  };
+}
+
 async function seedAcceptedLocalAgentDocumentDelivery(
   fixture: Awaited<ReturnType<typeof seedFixture>>
 ): Promise<{

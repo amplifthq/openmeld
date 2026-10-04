@@ -71,7 +71,10 @@ import {
 	spaceMemberDirectoryDisplayQueryOptions,
 } from "#/query/spaces/member-directory-display";
 import { spaceStatusQueryOptions } from "#/query/spaces/status";
-import { buildDirectMessageConversionDefaultName } from "./direct-message-conversion";
+import {
+	buildDirectMessageConversionDefaultName,
+	resolveDirectMessageConversionNames,
+} from "./direct-message-conversion";
 import { DirectMessageConversionDialog } from "./direct-message-conversion-dialog";
 import { PeopleAgentPickerDialog } from "./people-agent-picker-dialog";
 import {
@@ -1072,12 +1075,12 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 		}
 		const profileIds = [...activeSelectedProfileIds];
 		if (input.onConvertDirectMessageToSpace) {
-			const selectedNames: string[] = [];
-			for (const candidate of allCandidates) {
-				if (effectiveSelectedProfileIds.has(candidate.profileId)) {
-					selectedNames.push(candidate.profileName);
-				}
-			}
+			const selectedNames = resolveDirectMessageConversionNames({
+				snapshot: input.snapshot,
+				selectedMembers: allCandidates.filter((candidate) =>
+					effectiveSelectedProfileIds.has(candidate.profileId)
+				),
+			});
 			const currentMemberNames = input.snapshot
 				? [...input.snapshot.humans, ...input.snapshot.agents].map(
 						(member) => member.profileName

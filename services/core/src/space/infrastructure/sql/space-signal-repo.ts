@@ -790,6 +790,8 @@ export const deleteAllSqlSpaceData = (sql: SqlStorage): void => {
   sql.exec("DELETE FROM space_signals");
   sql.exec("DELETE FROM space_execution_input_outbox");
   sql.exec("DELETE FROM space_client_message_rejections");
+  sql.exec("DELETE FROM space_pending_wake_stops");
+  sql.exec("DELETE FROM space_wake_stop_outcome_outbox");
   sql.exec("DELETE FROM space_final_reply_claims");
   sql.exec("DELETE FROM space_member_profile_liveness");
   sql.exec("DELETE FROM space_member_projection_dirty");

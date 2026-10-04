@@ -17,6 +17,8 @@ import type {
   AdapterRuntimeProcessCallback,
   AdapterStreamingMode,
   AgentControllerPermissionMode,
+  AgentExecutionSteerRequest,
+  AgentExecutionSteerResponse,
   ConversationPolicy,
   RuntimeAgentControllerLaunchContract,
   SpawnedAgentControllerProcess,
@@ -78,6 +80,9 @@ export type CodexAppServerTransportResult = {
 
 export type CodexAppServerActiveTurnRegistration = {
   interrupt: () => Promise<void>;
+  steer: (
+    input: Omit<AgentExecutionSteerRequest, "taskId">
+  ) => Promise<AgentExecutionSteerResponse>;
   taskId: string;
   threadId: string;
   turnId: string;
@@ -124,6 +129,7 @@ type JsonRpcRequestTimeout = {
   code: string;
   operation: CodexAppServerControlOperation;
   timeoutMs: number;
+  terminateSession?: boolean;
 };
 
 type CodexAppServerInteractionFailure = {
@@ -512,6 +518,7 @@ async function startAndAwaitAppServerTurn(input: {
 }): Promise<AppServerTurn> {
   const { session, executionThreadId } = input;
   let activeTurnId: string | null = null;
+  let turnSettled = false;
   let interruptRequested = false;
   let interruptSent = false;
   const sendInterruptIfActive = async (targetTurnId: string) => {
@@ -530,6 +537,88 @@ async function startAndAwaitAppServerTurn(input: {
   };
 
   const unregisterActiveTurn = session.registerActiveTurn({
+    steer: async (steeringInput) => {
+      const targetTurnId = activeTurnId;
+      if (
+        !targetTurnId ||
+        turnSettled ||
+        interruptRequested ||
+        input.cancellationSignal?.aborted
+      ) {
+        return {
+          status: "not_applied",
+          taskId: input.taskId,
+          reasonCode: "execution_input.target_unavailable",
+        };
+      }
+      try {
+        // clientUserMessageId correlates native history; it does not dedupe.
+        // Send once: an absent or mismatched receipt cannot authorize a later
+        // Queue execution.
+        const result = toRecord(
+          await session.requestControl(
+            "turn/steer",
+            {
+              threadId: executionThreadId,
+              clientUserMessageId: steeringInput.inputId,
+              expectedTurnId: targetTurnId,
+              input: [
+                { type: "text", text: steeringInput.text, text_elements: [] },
+              ],
+            },
+            {
+              code: "runtime.turn_steer_timeout",
+              operation: "turn/steer",
+              terminateSession: false,
+            }
+          )
+        );
+        if (result?.turnId === targetTurnId) {
+          return {
+            status: "applied",
+            taskId: input.taskId,
+            threadId: executionThreadId,
+            turnId: targetTurnId,
+          };
+        }
+      } catch (error) {
+        const transportError =
+          error instanceof CodexAppServerTransportError ? error : null;
+        if (transportError?.rpcErrorCode === -32_601) {
+          return {
+            status: "not_applied",
+            taskId: input.taskId,
+            reasonCode: "execution_input.unsupported",
+          };
+        }
+        // Codex rejects turn/steer preconditions with Invalid Request/Params
+        // before admitting input (including an ended or different active turn).
+        // Internal errors and transport failures do not prove non-application.
+        if (
+          transportError?.rpcErrorCode === -32_600 ||
+          transportError?.rpcErrorCode === -32_602
+        ) {
+          return {
+            status: "not_applied",
+            taskId: input.taskId,
+            reasonCode: "execution_input.rejected",
+          };
+        }
+        return {
+          status: "unconfirmed",
+          taskId: input.taskId,
+          reasonCode: "execution_input.application_unconfirmed",
+          diagnosticCode: transportError?.code ?? "runtime.turn_steer_failed",
+          nativeErrorCode: transportError?.rpcErrorCode,
+        };
+      }
+      return {
+        status: "unconfirmed",
+        taskId: input.taskId,
+        reasonCode: "execution_input.application_unconfirmed",
+        diagnosticCode: "runtime.turn_steer_receipt_mismatch",
+      };
+    },
     interrupt: async () => {
       session.spaceToolInvocation.fence();
       interruptRequested = true;
@@ -597,6 +686,7 @@ async function startAndAwaitAppServerTurn(input: {
           turnId,
         });
   } finally {
+    turnSettled = true;
     session.spaceToolInvocation.fence();
     unregisterActiveTurn?.();
   }
@@ -1890,7 +1980,10 @@ class CodexAppServerSession {
     }
     const inventory = await this.requestControl(
       "mcpServerStatus/list",
-      { threadId, detail: "full", limit: 100 },
+      // Scoped execution must also prove that resources are not exposed. A
+      // normal native-tool turn only checks the alternate carrier; unrelated
+      // MCP resource catalogs must not hold up that admission check.
+      { threadId, detail: scoped ? "full" : "toolsAndAuthOnly", limit: 100 },
       {
         code: "execution_context.mcp_inventory_timeout",
         operation: "mcpServerStatus/list",
@@ -2000,6 +2093,17 @@ class CodexAppServerSession {
       if (pending) {
         pending.timeout = setTimeout(() => {
           if (!this.#pending.has(id)) {
+            return;
+          }
+          if (timeout.terminateSession === false) {
+            this.#pending.delete(id);
+            pending.reject(
+              new CodexAppServerTransportError({
+                code: timeout.code,
+                errorType: "timeout",
+                message: `${timeout.code}: codex app-server did not acknowledge ${timeout.operation}.`,
+              })
+            );
             return;
           }
           const timeoutTriggeredAtMs = Date.now();
@@ -2112,6 +2216,7 @@ class CodexAppServerSession {
 
   registerActiveTurn(input: {
     interrupt?: () => Promise<void>;
+    steer: CodexAppServerActiveTurnRegistration["steer"];
     onActiveTurn?: CodexAppServerActiveTurnRegistrar;
     taskId: string;
     threadId: string;
@@ -2121,6 +2226,7 @@ class CodexAppServerSession {
       return null;
     }
     return input.onActiveTurn({
+      steer: input.steer,
       taskId: input.taskId,
       threadId: input.threadId,
       turnId: input.turnId ?? "",
@@ -3569,6 +3675,7 @@ function toJsonRpcTransportError(
       errorType: "config",
       message,
       originalError,
+      ...(typeof error.code === "number" ? { rpcErrorCode: error.code } : {}),
     });
   }
   return new CodexAppServerTransportError({

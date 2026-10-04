@@ -274,7 +274,7 @@ export function AgentListControls(input: {
 									</span>
 								)}
 							</DropdownMenuSubTrigger>
-							<DropdownMenuSubContent className="max-h-[min(24rem,var(--available-height))] w-72 overflow-y-auto">
+							<DropdownMenuSubContent className="max-h-[min(24rem,var(--available-height))] w-72">
 								{choices}
 							</DropdownMenuSubContent>
 						</DropdownMenuSub>

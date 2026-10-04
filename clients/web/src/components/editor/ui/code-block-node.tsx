@@ -244,7 +244,7 @@ function CodeBlockCombobox({
 					/>
 					<CommandEmpty>No language found.</CommandEmpty>
 
-					<CommandList className="h-[344px] overflow-y-auto">
+					<CommandList className="h-[344px]">
 						<CommandGroup>
 							{items.map((language) => (
 								<CommandItem

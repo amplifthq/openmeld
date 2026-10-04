@@ -383,7 +383,7 @@ export const centerAgentWakePublications = applicationTable(
     updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
-    uniqueIndex("center_agent_wake_publications_delegation_unique").on(
+    index("center_agent_wake_publications_delegation_idx").on(
       table.delegationId
     ),
     index("center_agent_wake_publications_due_idx").on(

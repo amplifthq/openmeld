@@ -139,6 +139,7 @@ import type {
   CenterAgentUpdateRoutineToolRpcInput,
   CenterAgentUpdateSpaceSettingsResponse,
   CenterAgentWakeAgentProfilesInSpaceResponse,
+  CenterAgentWakeAgentProfilesInSpacesResponse,
   CenterAgentWatchAgentTaskResponse,
   CenterAgentWipeMemberMemoryResponse,
   ChangelogQueryResponse,
@@ -375,6 +376,7 @@ import type {
   SpaceIdentityDirectory,
   SpaceInboxSummaryResponse,
   SpaceInboxUnreadTargetsResponse,
+  SpaceInputQueueResponse,
   SpaceMemberDirectory,
   SpaceMembersSnapshot,
   SpaceMessagePinsResponse,
@@ -663,10 +665,12 @@ import {
   type CenterAgentSearchSlackMessagesInput,
   type CenterAgentSelectLocalAgentInstallationInput,
   type CenterAgentSetOpenMeldToolsMaintenanceInput,
+  type CenterAgentSpaceInputQueueInput,
   type CenterAgentStopSpaceWakeInput,
   type CenterAgentUpdateAgentProfileRuntimeSettingsInput,
   type CenterAgentUpdateSpaceSettingsInput,
   type CenterAgentWakeAgentProfilesInSpaceInput,
+  type CenterAgentWakeAgentProfilesInSpacesInput,
   type CenterAgentWatchAgentTaskInput,
   type ClearSpacePasswordInput,
   type CompleteConnectorDisconnectInput,
@@ -888,11 +892,13 @@ import {
   rpcCenterAgentSearchSlackMessages,
   rpcCenterAgentSelectLocalAgentInstallation,
   rpcCenterAgentSetOpenMeldToolsMaintenance,
+  rpcCenterAgentSpaceInputQueue,
   rpcCenterAgentStartSelfMemberResearch,
   rpcCenterAgentStopSpaceWake,
   rpcCenterAgentUpdateAgentProfileRuntimeSettings,
   rpcCenterAgentUpdateSpaceSettings,
   rpcCenterAgentWakeAgentProfilesInSpace,
+  rpcCenterAgentWakeAgentProfilesInSpaces,
   rpcCenterAgentWatchAgentTask,
   rpcClearSpacePassword,
   rpcCommitSpaceFileWrite,
@@ -1049,6 +1055,8 @@ import {
   rpcRecordSpaceAttachment,
   rpcRefreshCurrentLocalAgentCatalog,
   rpcRefreshPeopleComputerLocalAgentCatalog,
+  rpcRemoteAgentGetOrganizationDirectory,
+  rpcRemoteAgentOpenDirectMessageSpace,
   rpcRemoveConnection,
   rpcRemoveMissingConnections,
   rpcRemoveSpaceMembers,
@@ -1083,6 +1091,7 @@ import {
   rpcSpaceFilePins,
   rpcSpaceFileUpdateSettings,
   rpcSpaceFileUpload,
+  rpcSpaceInputQueue,
   rpcSpaceMessagePins,
   rpcStageSpaceComposerUpload,
   rpcStreamSpaceFileContent,
@@ -1129,6 +1138,7 @@ import {
   type SpaceAccessModeStateResult,
   type SpaceFilePinsInput,
   type SpaceFileWriteInput,
+  type SpaceInputQueueInput,
   type SpaceMessagePinsInput,
   type SpacePasswordStateResult,
   type StageSpaceComposerUploadRpcInput,
@@ -2351,6 +2361,13 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   ): Promise<SpaceMessagePinsResponse> {
     return rpcSpaceMessagePins(this.env, input);
   }
+
+  spaceInputQueue(
+    input: SpaceInputQueueInput
+  ): Promise<SpaceInputQueueResponse> {
+    return rpcSpaceInputQueue(this.env, input);
+  }
+
   listSpaceTasks(input: ListSpaceTasksInput): Promise<ListSpaceTasksResponse> {
     return rpcListSpaceTasks(this.env, input);
   }
@@ -3332,6 +3349,13 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   ): Promise<PostSpaceWakeStopResponse> {
     return rpcCenterAgentStopSpaceWake(this.env, input);
   }
+
+  centerAgentSpaceInputQueue(
+    input: CenterAgentSpaceInputQueueInput
+  ): Promise<SpaceInputQueueResponse> {
+    return rpcCenterAgentSpaceInputQueue(this.env, input);
+  }
+
   centerAgentReadSpaceContext(
     input: CenterAgentReadSpaceContextInput
   ): Promise<CenterAgentReadSpaceContextResponse> {
@@ -3447,6 +3471,15 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   ): Promise<CenterAgentRecordConnectorActionOperationResponse> {
     return rpcCenterAgentRecordConnectorActionOperation(this.env, input);
   }
+
+  centerAgentWakeAgentProfilesInSpaces(
+    input: CenterAgentWakeAgentProfilesInSpacesInput
+  ): Promise<CenterAgentWakeAgentProfilesInSpacesResponse> {
+    return rpcCenterAgentWakeAgentProfilesInSpaces(this.env, input, (work) =>
+      this.ctx.waitUntil(work)
+    );
+  }
+
   centerAgentWakeAgentProfilesInSpace(
     input: CenterAgentWakeAgentProfilesInSpaceInput
   ): Promise<CenterAgentWakeAgentProfilesInSpaceResponse> {
@@ -4404,6 +4437,13 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
   ): Promise<SpaceMessagePinsResponse> {
     return super.spaceMessagePins(input);
   }
+
+  spaceInputQueue(
+    input: SpaceInputQueueInput
+  ): Promise<SpaceInputQueueResponse> {
+    return super.spaceInputQueue(input);
+  }
+
   listSpaceTasks(input: ListSpaceTasksInput): Promise<ListSpaceTasksResponse> {
     return super.listSpaceTasks(input);
   }
@@ -5207,6 +5247,13 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
   ): Promise<CenterAgentWakeAgentProfilesInSpaceResponse> {
     return super.centerAgentWakeAgentProfilesInSpace(input);
   }
+
+  centerAgentWakeAgentProfilesInSpaces(
+    input: CenterAgentWakeAgentProfilesInSpacesInput
+  ): Promise<CenterAgentWakeAgentProfilesInSpacesResponse> {
+    return super.centerAgentWakeAgentProfilesInSpaces(input);
+  }
+
   personalRemoteAgentSpaceTool(input: unknown) {
     return super.personalRemoteAgentSpaceTool(input);
   }
@@ -5292,6 +5339,16 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
   }
 }
 export class CenterAgentRpcEntrypoint extends CoreRpcEntrypoint {
+  remoteAgentOpenDirectMessageSpace(input: OpenDirectMessageSpaceInput) {
+    return rpcRemoteAgentOpenDirectMessageSpace(this.env, input);
+  }
+
+  remoteAgentGetOrganizationDirectory(input: {
+    context?: CoreRpcContextInput;
+  }) {
+    return rpcRemoteAgentGetOrganizationDirectory(this.env, input);
+  }
+
   writeSpaceFileContent(
     input: WriteSpaceFileContentRpcInput,
     spaceFilesOriginVersion?: string,
@@ -5444,6 +5501,13 @@ export class CenterAgentRpcEntrypoint extends CoreRpcEntrypoint {
   centerAgentReadChangelog(input: CenterAgentReadChangelogInput) {
     return rpcCenterAgentReadChangelog(this.env, input);
   }
+
+  centerAgentSpaceInputQueue(
+    input: CenterAgentSpaceInputQueueInput
+  ): Promise<SpaceInputQueueResponse> {
+    return rpcCenterAgentSpaceInputQueue(this.env, input);
+  }
+
   centerAgentSearchMemory(input: CenterAgentSearchMemoryRpcInput) {
     return rpcCenterAgentSearchMemory(this.env, input);
   }

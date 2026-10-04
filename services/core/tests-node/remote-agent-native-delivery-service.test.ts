@@ -738,6 +738,111 @@ describe("Remote Agent native delivery callback service", () => {
           limit: 20,
         })
       );
+      const targetDmSpaceId = "d".repeat(64);
+      const otherOrganizationSpaceId = "e".repeat(64);
+      const inaccessibleSpaceId = "f".repeat(64);
+      for (const [spaceId, organizationId] of [
+        [targetDmSpaceId, "org_1"],
+        [otherOrganizationSpaceId, "another-org"],
+        [inaccessibleSpaceId, "org_1"],
+      ] as const) {
+        await harness.query({
+          text: `INSERT INTO "openmeld"."space_index_spaces" (
+            space_id, organization_id, organization_visibility, status,
+            space_name, source_updated_at_ms, projected_at_ms, projection_event_id
+          ) VALUES ($1, $2, 'private', 'active', 'DM', 100, 100, $3)`,
+          values: [spaceId, organizationId, `projection-${spaceId}`],
+        });
+      }
+      const stopResponse = {
+        ok: true,
+        runtimeCoordinatorExecutionId: null,
+        status: "cancelled",
+        stopMode: "openmeld_owned_pre_agent",
+        targetProfileId: AGENT_PROFILE_ID,
+        cancellationState: {
+          observedAtMs: 100,
+          reasonCode: "space.wake_stopped_before_send",
+          status: "cancelled",
+        },
+      };
+      const checkSpaceAccess = (input: { spaceId: string }) => {
+        if (input.spaceId === inaccessibleSpaceId) {
+          throw new Error("HTTP 403: Space access denied");
+        }
+      };
+      const readProgress = vi.fn(
+        (input: { spaceId: string; clientMessageId: string }) => {
+          checkSpaceAccess(input);
+          return Promise.resolve({
+            query: {
+              spaceId: input.spaceId,
+              clientMessageId: input.clientMessageId,
+              targetProfileId: null,
+            },
+            items: [],
+          });
+        }
+      );
+      const stopWake = vi.fn((input: { spaceId: string }) => {
+        checkSpaceAccess(input);
+        return Promise.resolve(stopResponse);
+      });
+      Object.assign(env.__spaceStub, {
+        rpcGetWakeProgress: readProgress,
+        rpcPostWakeStop: stopWake,
+      });
+      for (const kind of ["wake_progress", "wake_stop"] as const) {
+        const operation =
+          kind === "wake_progress"
+            ? { kind, query: { clientMessageId: "dm-message" } }
+            : {
+                kind,
+                body: {
+                  target: {
+                    by: "client_message",
+                    clientMessageId: "dm-message",
+                    targetProfileId: AGENT_PROFILE_ID,
+                  },
+                },
+              };
+        for (const spaceId of [undefined, targetDmSpaceId]) {
+          await expect(
+            runPersonalRemoteAgentSpaceTool(env, {
+              submissionId: "personal-submission",
+              operation: { ...operation, ...(spaceId ? { spaceId } : {}) },
+            })
+          ).resolves.toMatchObject({ kind });
+          expect(
+            kind === "wake_progress" ? readProgress : stopWake
+          ).toHaveBeenLastCalledWith(
+            expect.objectContaining({
+              spaceId: spaceId ?? SPACE_ID,
+              context: expect.objectContaining({
+                actorContext: expect.objectContaining({
+                  openMeldProfileId: AGENT_PROFILE_ID,
+                  ownerUserId: "user_1",
+                }),
+              }),
+            })
+          );
+        }
+        for (const [spaceId, error] of [
+          [otherOrganizationSpaceId, "HTTP 404"],
+          ["9".repeat(64), "HTTP 404"],
+          [inaccessibleSpaceId, "HTTP 403"],
+        ]) {
+          await expect(
+            runPersonalRemoteAgentSpaceTool(env, {
+              submissionId: "personal-submission",
+              operation: { ...operation, spaceId },
+            })
+          ).rejects.toThrow(error);
+        }
+        expect(
+          kind === "wake_progress" ? readProgress : stopWake
+        ).toHaveBeenCalledTimes(3);
+      }
       const siblingProfileId = "agt_22222222-2222-4222-8222-222222222222";
       const sibling = directory.members[0];
       if (!sibling) {
@@ -769,7 +874,7 @@ describe("Remote Agent native delivery callback service", () => {
       });
       expect(replyPlacement).toMatchObject({
         kind: "reply_placement",
-        placement: { dispatchId: "dispatch_1", locked: true },
+        placement: { dispatchId: "dispatch_1", locked: false },
       });
       expect(
         env.__spaceStub.rpcResolveNativeReplyPlacement
@@ -779,7 +884,7 @@ describe("Remote Agent native delivery callback service", () => {
           sourceSignalId: "signal_1",
           profileId: AGENT_PROFILE_ID,
           placement: "conversation",
-          lock: true,
+          lock: false,
         })
       );
       for (const kind of ["board", "updates", "authorize"] as const) {
@@ -12687,6 +12792,27 @@ function createMemoryRepository(input: {
   organizationMemoryOptIn: boolean;
 }): CenterAgentMemoryRepository {
   return {
+    readActiveSubjects: vi.fn(async (readInput) => [
+      ...(readInput.speakerMember
+        ? [
+            {
+              ...buildCenterAgentMemberMemoryRef({
+                organizationId: readInput.organizationId,
+                ...readInput.speakerMember,
+              }),
+              updatedAtMs: 1,
+            },
+          ]
+        : []),
+      ...(input.organizationMemoryOptIn
+        ? [
+            {
+              ...buildCenterAgentOrganizationMemoryRef(readInput),
+              updatedAtMs: 1,
+            },
+          ]
+        : []),
+    ]),
     markMemberDeleted: vi.fn(async () => true),
     markMemberDeleteFailed: vi.fn(async () => undefined),
     markOrganizationDeleted: vi.fn(async () => true),

@@ -94,6 +94,23 @@ References: the pinned upstream `docs/runtime-api.md`,
 [Cloudflare Fetch Handler](https://developers.cloudflare.com/workers/runtime-apis/handlers/fetch/);
 [GitHub reference updates](https://docs.github.com/en/rest/git/refs#update-a-reference).
 
+## Website and App hosts
+
+`clients/website/wrangler.jsonc` owns `openmeld-website-prod` on `openmeld.ai`
+and `openmeld-website-stg` on `staging.openmeld.ai`. Its fixed `APP` binding
+targets the corresponding Web Worker; `APP_URL` and the compiled `VITE_APP_URL`
+point at the corresponding App host. It owns no D1, R2 or secrets and reuses the
+environment's existing observability dataset. `LEGACY_BROWSER_COMPATIBILITY`
+controls only the temporary old-browser asset/server-function forwarding window.
+
+Web custom domains are `app.openmeld.ai` and `app.staging.openmeld.ai`.
+Auth/Core/Gateway `WEB_APP_URL` uses the same App host. Auth's singular
+`AUTH_LEGACY_APP_ORIGIN` admits the exact old root during the migration; parent
+cookie domains and Passkey RP IDs remain unchanged. Read the guarded
+[migration sequence](../developing/engineering/production-release.md#websiteapp-origin-migration)
+before applying these configurations. A configuration diff is not deployed
+domain evidence.
+
 ## Internal Staging Topology
 
 Each Worker has an explicit `env.stg` block. Staging uses the same binding names
@@ -102,14 +119,14 @@ staging-only resource:
 
 | Resource | Staging identity |
 | --- | --- |
-| Workers | `openmeld-web-stg`, `openmeld-auth-stg`, `openmeld-gateway-stg`, `openmeld-core-stg`, `openmeld-remote-agent-stg` |
+| Workers | `openmeld-website-stg`, `openmeld-web-stg`, `openmeld-auth-stg`, `openmeld-gateway-stg`, `openmeld-core-stg`, `openmeld-remote-agent-stg` |
 | D1 | `openmeld-db-stg` |
 | KV | `openmeld-auth-kv-stg` |
 | Queues | `openmeld-daemon-dispatch-stg`, `openmeld-message-channel-events-stg` |
 | R2 | `openmeld-space-attachments-stg`, `openmeld-organization-skills-stg`, `openmeld-organization-logos-stg`, `openmeld-desktop-downloads-stg` |
 | AI Gateway | Shared operator gateway `openmeld-remote-agent-prod`; request metadata retains the Staging environment and Organization |
 | Remote Agent container | `openmeld-agent-computer-stg` |
-| Public routes | `staging.openmeld.ai`, `auth.staging.openmeld.ai`, `gateway.staging.openmeld.ai` |
+| Public routes | `staging.openmeld.ai`, `app.staging.openmeld.ai`, `auth.staging.openmeld.ai`, `gateway.staging.openmeld.ai` |
 
 Durable Object namespaces, Workflow identity, Analytics Engine environment
 metadata, and Worker versions are created by the staging Worker deployments.

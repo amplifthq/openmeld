@@ -1,4 +1,8 @@
-import type { PostgresDatabase, QueryResult } from "@openmeld/db/postgresql";
+import type {
+  PostgresDatabase,
+  QueryConfig,
+  QueryResult,
+} from "@openmeld/db/postgresql";
 import type { SignalEnvelope } from "@openmeld/protocol";
 import {
   centerAgentWakePublicationCommandSchema,
@@ -57,61 +61,146 @@ export async function prepareCenterAgentWakePublicationRecord(input: {
   db: PostgresDatabase;
   nowMs: number;
 }): Promise<CenterAgentWakePublicationRecord> {
-  const command = centerAgentWakePublicationCommandSchema.parse(input.command);
-  const nowMs = requireTimestamp(input.nowMs, "nowMs");
-  const commandJson = serializeJson(command);
-  await input.db.query({
-    text: `
-        INSERT INTO "openmeld"."center_agent_wake_publications" (
-          publication_id,
-          delegation_id,
-          organization_id,
-          space_id,
-          command_json,
-          state,
-          attempt_count,
-          next_attempt_at_ms,
-          last_error,
-          claim_id,
-          claim_expires_at_ms,
-          accepted_at_ms,
-          signal_json,
-          completed_at_ms,
-          created_at_ms,
-          updated_at_ms
-        )
-        VALUES ($1, $2, $3, $4, $5, 'pending', 0, $6, NULL, NULL, NULL, NULL, NULL, NULL, $7, $8)
-        ON CONFLICT(publication_id) DO NOTHING
-      `,
-    values: [
-      command.clientMessageId,
-      command.delegationId,
-      command.organizationId,
-      command.spaceId,
-      commandJson,
-      nowMs,
-      nowMs,
-      nowMs,
-    ],
-  });
-  const record = await readCenterAgentWakePublication({
+  const [record] = await prepareCenterAgentWakePublicationRecords({
+    commands: [input.command],
     db: input.db,
-    publicationId: command.clientMessageId,
+    nowMs: input.nowMs,
   });
   if (!record) {
     throw new Error("Center Agent Wake publication write lost its row");
   }
+  return record;
+}
+
+// Persist the complete fan-out before any Space can accept a Wake. Recovery
+// reads this same immutable set, including destinations not attempted yet.
+export async function prepareCenterAgentWakePublicationRecords(input: {
+  commands: CenterAgentWakePublicationCommand[];
+  db: PostgresDatabase;
+  nowMs: number;
+}): Promise<CenterAgentWakePublicationRecord[]> {
+  const commands = input.commands.map((command) =>
+    centerAgentWakePublicationCommandSchema.parse(command)
+  );
+  const first = commands[0];
+  if (!first) {
+    throw new Error(
+      "A Wake publication batch requires at least one destination"
+    );
+  }
+  const isBatch = commands.length > 1;
   if (
-    record.delegationId !== command.delegationId ||
-    record.organizationId !== command.organizationId ||
-    record.spaceId !== command.spaceId ||
-    serializeJson(record.command) !== commandJson
+    new Set(commands.map((command) => command.clientMessageId)).size !==
+      commands.length ||
+    commands.some(
+      (command) =>
+        command.delegationId !== first.delegationId ||
+        command.organizationId !== first.organizationId ||
+        command.parentSubmissionId !== first.parentSubmissionId ||
+        command.completionMode !== first.completionMode ||
+        (isBatch && command.batchRootPublicationId !== first.clientMessageId)
+    )
+  ) {
+    throw new Error("Wake publications must belong to one complete delegation");
+  }
+  if (
+    isBatch &&
+    serializeJson(first.batchPublicationIds) !==
+      serializeJson(commands.map((command) => command.clientMessageId))
+  ) {
+    throw new Error(
+      "The root publication must declare the complete destination set"
+    );
+  }
+  await input.db.transaction(async (client) => {
+    for (const command of commands) {
+      await client.query(
+        preparePublicationInsert({
+          command,
+          nowMs: input.nowMs,
+          ...(isBatch && command !== first ? { rootCommand: first } : {}),
+        })
+      );
+    }
+  });
+  const records = await listCenterAgentWakePublicationsByDelegation({
+    db: input.db,
+    delegationId: first.delegationId,
+  });
+  if (
+    records.length !== commands.length ||
+    commands.some((command) => {
+      const record = records.find(
+        (entry) => entry.publicationId === command.clientMessageId
+      );
+      return (
+        !record || serializeJson(record.command) !== serializeJson(command)
+      );
+    })
   ) {
     throw new Error(
       "Center Agent Wake publication id was reused with different input"
     );
   }
-  return record;
+  return commands.map((command) => {
+    const record = records.find(
+      (entry) => entry.publicationId === command.clientMessageId
+    );
+    if (!record) {
+      throw new Error("Center Agent Wake publication write lost its row");
+    }
+    return record;
+  });
+}
+
+function preparePublicationInsert(input: {
+  command: CenterAgentWakePublicationCommand;
+  nowMs: number;
+  rootCommand?: CenterAgentWakePublicationCommand;
+}): QueryConfig {
+  const command = centerAgentWakePublicationCommandSchema.parse(input.command);
+  const nowMs = requireTimestamp(input.nowMs, "nowMs");
+  return {
+    text: `
+      INSERT INTO "openmeld"."center_agent_wake_publications" (
+        publication_id, delegation_id, organization_id, space_id, command_json,
+        state, attempt_count, next_attempt_at_ms, last_error, claim_id,
+        claim_expires_at_ms, accepted_at_ms, signal_json, completed_at_ms,
+        created_at_ms, updated_at_ms
+      )
+      SELECT $1, $2, $3, $4, $5, 'pending', 0, $6::bigint, NULL, NULL,
+        NULL, NULL, NULL, NULL, $7::bigint, $8::bigint
+      WHERE ${input.rootCommand ? 'EXISTS (SELECT 1 FROM "openmeld"."center_agent_wake_publications" WHERE publication_id = $9 AND command_json = $10)' : "1 = 1"}
+      ON CONFLICT(publication_id) DO NOTHING
+    `,
+    values: [
+      command.clientMessageId,
+      command.delegationId,
+      command.organizationId,
+      command.spaceId,
+      serializeJson(command),
+      nowMs,
+      nowMs,
+      nowMs,
+      ...(input.rootCommand
+        ? [input.rootCommand.clientMessageId, serializeJson(input.rootCommand)]
+        : []),
+    ],
+  };
+}
+
+export async function listCenterAgentWakePublicationsByDelegation(input: {
+  db: PostgresDatabase;
+  delegationId: string;
+}): Promise<CenterAgentWakePublicationRecord[]> {
+  const rows = await input.db.query<CenterAgentWakePublicationRow>({
+    text: `
+      SELECT * FROM "openmeld"."center_agent_wake_publications"
+      WHERE delegation_id = $1 ORDER BY publication_id ASC
+    `,
+    values: [requireNonEmpty(input.delegationId, "delegationId")],
+  });
+  return rows.rows.map(mapRow);
 }
 export async function readCenterAgentWakePublication(input: {
   db: PostgresDatabase;

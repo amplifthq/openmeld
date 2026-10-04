@@ -27,8 +27,14 @@ import {
   computerFileAccessDaemonFrameSchema,
   computerFileAccessPolicyResultSchema,
   daemonStreamFrameSchema,
+  LOCAL_EXECUTION_INPUT_CAPABILITY_HEADER,
   LOCAL_FOLDER_PICKER_RUNTIME_CAPABILITY,
   localAgentReasoningPreferencesSchema,
+  localExecutionInputBindingSchema,
+  localExecutionInputOperationSchema,
+  localExecutionInputResolveSchema,
+  localExecutionInputResponseSchema,
+  localExecutionInputResultFrameSchema,
   localFolderPickerDaemonFrameSchema,
   localFolderPickerResultSchema,
   localProjectControlConnectResultSchema,
@@ -3582,6 +3588,32 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       }
       case "daemon.local_agent_control.result": {
         this.handleLocalAgentControlResultFrame(webSocket, frame.payload);
+        return;
+      }
+      case "daemon.execution_input.result": {
+        const parsed = localExecutionInputResultFrameSchema.safeParse(
+          frame.payload
+        );
+        if (!parsed.success) {
+          return;
+        }
+        const waiter = this.currentDeviceOperationWaiters.get(
+          parsed.data.requestId
+        );
+        if (
+          !waiter ||
+          waiter.socket !== webSocket ||
+          waiter.expectedResponseCode !== "daemon.execution_input.result"
+        ) {
+          return;
+        }
+        clearTimeout(waiter.timeoutId);
+        this.currentDeviceOperationWaiters.delete(parsed.data.requestId);
+        if (waiter.isExpectedPayload(parsed.data.result)) {
+          waiter.resolve(parsed.data.result);
+        } else {
+          waiter.reject(new Error("Execution input receipt target mismatch."));
+        }
         return;
       }
       case "daemon.openmeld_tools_control.result": {
@@ -10607,6 +10639,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       | undefined = {
       "/runtime-coordinator/interaction/read": (input: Request) =>
         this.handleRuntimeCoordinatorReadInteractionRequest(input),
+      "/runtime-coordinator/execution-input/resolve": (input: Request) =>
+        this.handleExecutionInput(input, true),
+      "/runtime-coordinator/execution-input": (input: Request) =>
+        this.handleExecutionInput(input, false),
       "/runtime-coordinator/interaction/respond": (input: Request) =>
         this.handleRuntimeCoordinatorRespondInteractionRequest(input),
       "/runtime-coordinator/wake-stop/publication-eligibility": (
@@ -10656,6 +10692,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       computerCare: request.headers.get(OPENMELD_COMPUTER_CARE_HEADER) === "1",
       spaceWorkHandoff:
         request.headers.get(SPACE_WORK_HANDOFF_CAPABILITY_HEADER) === "1",
+      localExecutionInput:
+        request.headers.get(LOCAL_EXECUTION_INPUT_CAPABILITY_HEADER) === "1",
       connectionDiagnosticId: serviceConnectionDiagnosticIdSchema.safeParse(
         new URL(request.url).searchParams.get(
           SERVICE_CONNECTION_ID_QUERY_PARAMETER
@@ -13708,6 +13746,164 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       taskResult: record.taskResult,
     };
   }
+
+  private async handleExecutionInput(
+    request: Request,
+    resolveOnly: boolean
+  ): Promise<Response> {
+    const body = await readJsonBody(request);
+    const operation = localExecutionInputOperationSchema.safeParse(body);
+    let selectorBody = body;
+    if (!resolveOnly) {
+      selectorBody = operation.success
+        ? {
+            ownerUserId: operation.data.request.ownerUserId,
+            runtimeCoordinatorExecutionId:
+              operation.data.request.runtimeCoordinatorExecutionId,
+            dispatchId: operation.data.request.dispatchId,
+            targetProfileId: operation.data.request.targetProfileId,
+            spaceId: operation.data.request.source.spaceId,
+            authorProfileId: operation.data.request.source.authorProfileId,
+          }
+        : null;
+    }
+    const selector = localExecutionInputResolveSchema.safeParse(selectorBody);
+    if (!(selector.success && (resolveOnly || operation.success))) {
+      return Response.json(null, { status: 400 });
+    }
+    const scope = selector.data;
+    const state = await this.ctx.storage.transaction(async (transaction) => {
+      const [command, authority] = await Promise.all([
+        readRuntimeCoordinatorRunCommandStateFromStorage(
+          transaction,
+          scope.runtimeCoordinatorExecutionId
+        ),
+        readRuntimeCoordinatorTokenAuthorityFromStorage(
+          transaction,
+          scope.runtimeCoordinatorExecutionId
+        ),
+      ]);
+      const delivery = command?.sanitizedDeliveryRequest.payload;
+      if (
+        !(command && delivery) ||
+        command.ownerUserId !== scope.ownerUserId ||
+        command.dispatchId !== scope.dispatchId ||
+        command.targetProfileId !== scope.targetProfileId ||
+        delivery.spaceId !== scope.spaceId ||
+        delivery.sourceSignal.profileId !== scope.authorProfileId ||
+        delivery.executionIdentity.core.agentControllerRef !== "builtin:codex"
+      ) {
+        return null;
+      }
+      if (
+        operation.success &&
+        (command.attemptId !== operation.data.request.attemptId ||
+          command.activeRunId !==
+            operation.data.request.runtimeCoordinatorRunId)
+      ) {
+        return null;
+      }
+      if (
+        resolveOnly ||
+        (operation.success && operation.data.operation === "apply")
+      ) {
+        const run = authority?.runsById[command.activeRunId];
+        // Resolving reserves the next input in Space; apply delivers to the
+        // current controller turn. Startup must not reject a queue.
+        const inputPhases = resolveOnly
+          ? ["starting", "accepted_local", "running"]
+          : ["running"];
+        if (
+          !authority ||
+          authority.terminalOutcome ||
+          authority.currentRunId !== command.activeRunId ||
+          run?.tokenStatus !== "active" ||
+          !inputPhases.includes(command.localProgress.phase) ||
+          command.localAttemptWithdrawal ||
+          command.lastCommandReasonCode?.includes("wake_stop")
+        ) {
+          return null;
+        }
+      }
+      return command;
+    });
+    if (!state) {
+      // Even a known terminal state says nothing about an earlier application's receipt.
+      return Response.json(null);
+    }
+    const provenance = state.lastDeliveryProvenance;
+    const session = this.state.sessionsById.get(provenance.daemonSessionId);
+    const lease = this.state.profileLeasesByProfileId.get(
+      scope.targetProfileId
+    );
+    if (
+      !session?.socket ||
+      session.ownerUserId !== scope.ownerUserId ||
+      session.connectionGeneration !== provenance.connectionGeneration ||
+      !session.profileIds.has(scope.targetProfileId) ||
+      session.capabilities.localExecutionInput !== true ||
+      !isDaemonExecutionCompatible(session.executionCompatibility) ||
+      !lease ||
+      lease.daemonSessionId !== session.daemonSessionId ||
+      lease.deviceId !== session.deviceId ||
+      lease.lane !== session.lane ||
+      lease.leaseEpoch !== provenance.leaseEpoch
+    ) {
+      return Response.json(null);
+    }
+    if (resolveOnly) {
+      return Response.json(
+        localExecutionInputBindingSchema.parse({
+          ownerUserId: state.ownerUserId,
+          runtimeCoordinatorExecutionId: state.runtimeCoordinatorExecutionId,
+          dispatchId: state.dispatchId,
+          targetProfileId: state.targetProfileId,
+          attemptId: state.attemptId,
+          runtimeCoordinatorRunId: state.activeRunId,
+        })
+      );
+    }
+    if (!operation.success) {
+      return Response.json(null);
+    }
+    const requestId = crypto.randomUUID();
+    try {
+      const result = await this.sendCurrentDeviceOperationAndWait({
+        code: "daemon.execution_input.request",
+        expectedResponseCode: "daemon.execution_input.result",
+        requestId,
+        session: session as RuntimeTransportSessionState & {
+          socket: WebSocket;
+        },
+        payload: {
+          ...operation.data,
+          requestId,
+          connectionGeneration: session.connectionGeneration,
+          leaseEpoch: lease.leaseEpoch,
+        },
+        isExpectedPayload: (value) => {
+          const parsed = localExecutionInputResponseSchema.safeParse(value);
+          return (
+            parsed.success &&
+            parsed.data.inputId === operation.data.request.inputId
+          );
+        },
+        timeoutMs: 10_000,
+      });
+      return Response.json(result);
+    } catch (error) {
+      // Space owns the durable claim. Neither a lost response nor a transport
+      // error authorizes a second apply; only a read may reconcile it.
+      console.warn("[core.runtime_transport.execution_input_unconfirmed]", {
+        inputId: operation.data.request.inputId,
+        runtimeCoordinatorExecutionId: scope.runtimeCoordinatorExecutionId,
+        operation: operation.data.operation,
+        errorName: error instanceof Error ? error.name : "unknown",
+      });
+      return Response.json(null);
+    }
+  }
+
   private async handleRuntimeCoordinatorReadInteractionRequest(
     request: Request
   ): Promise<Response> {

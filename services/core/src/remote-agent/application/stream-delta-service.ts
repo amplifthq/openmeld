@@ -62,11 +62,16 @@ export async function submitRemoteAgentStreamDelta(
   }
 
   try {
-    const placement = await resolveNativeDeliveryReplyPlacement({
-      env,
-      delivery: target.delivery,
-      lock: delta.kind === "text",
-    });
+    // Thinking and progress describe execution, not a reply destination.
+    // Resolving even an unlocked default creates a real Thread in Space.
+    const placement =
+      delta.kind === "text"
+        ? await resolveNativeDeliveryReplyPlacement({
+            env,
+            delivery: target.delivery,
+            lock: false,
+          })
+        : null;
     return remoteAgentStreamDeltaCallbackResponseSchema.parse(
       await target.stub.rpcApplyAgentStreamDelta({
         ...(placement

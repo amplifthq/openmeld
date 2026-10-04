@@ -1,0 +1,33 @@
+{
+  "include": ["**/*.ts", "**/*.tsx"],
+  "compilerOptions": {
+    "target": "ES2022",
+    "jsx": "react-jsx",
+    "module": "ESNext",
+    "baseUrl": ".",
+    "paths": {
+      "#/*": ["./src/*"],
+      "@openmeld/schemas": ["../../packages/schemas/src/index.ts"],
+      "@openmeld/schemas/types": ["../../packages/schemas/src/types/index.ts"],
+      "@openmeld/api-client": ["../../packages/api-client/src/index.ts"],
+      "@openmeld/gateway-contract": [
+        "../../packages/gateway-contract/src/index.ts"
+      ],
+      "@openmeld/protocol": ["../../packages/protocol/src/index.ts"],
+      "@openmeld/schemas/schemas": [
+        "../../packages/schemas/src/schemas/index.ts"
+      ],
+      "@openmeld/utils": ["../../packages/utils/src/index.ts"]
+    },
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["vite/client"],
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true
+  }
+}

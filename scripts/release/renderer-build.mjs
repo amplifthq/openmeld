@@ -25,8 +25,10 @@ export function rendererBuildEnvironment(
   const existing = [...(env.NODE_OPTIONS ?? "").matchAll(HEAP_OPTION)].at(
     -1
   )?.[1];
+  // Optional workflow inputs arrive as empty strings. Only a nonblank override
+  // replaces an existing Node flag or the owning renderer's default budget.
   const heap = Number(
-    env.OPENMELD_RENDERER_NODE_HEAP_MB ?? existing ?? defaultHeapMiB
+    env.OPENMELD_RENDERER_NODE_HEAP_MB?.trim() || existing || defaultHeapMiB
   );
   if (
     !Number.isSafeInteger(heap) ||
@@ -79,7 +81,7 @@ export async function buildProductionRenderer(
   try {
     const code = await (options.runCommand ?? runOwnedCommand)(
       "pnpm",
-      ["--dir", "clients/web", "run", "build:prod"],
+      ["--dir", options.clientDirectory ?? "clients/web", "run", "build:prod"],
       {
         cwd: root,
         env: {

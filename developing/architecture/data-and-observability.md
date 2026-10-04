@@ -333,6 +333,47 @@ it only after the input is recorded there. Core retries pending forwarding
 through the existing Space alarm and retains terminal receipts for replay.
 Deleting the Space removes its input outbox with the rest of Space data.
 
+The pending-input receiver retains editable inputs in that same outbox, not a
+second browser queue. A queued row has no forwarding deadline. Its Space-owned
+position is also the ordinary-consumption claim order. Synchronous conditional
+claims fence delete, reorder, ordinary consumption, and explicit Steer; claimed
+or uncertain input cannot be claimed again. Reordering compares the complete
+pending order before changing it in one storage transaction. Deleted and consumed
+rows remain as idempotency records and cannot be resurrected by enqueue replay.
+These are input-delivery states, never execution states.
+
+The current `spaceInputQueue` receiver supports only the original Human
+Profile of one native Center DM execution. It does not grant another Space member
+or Agent the original execution's frozen authority. Queue Steer sends once, then
+uses the existing Remote receipt reader. A missing or rejected receipt query is
+not proof that an earlier send was rejected. Unknown application retains and
+holds the input; an explicit intake rejection retains it as blocked Queue work.
+Only exact-target application removes it and publishes its original Signal,
+atomically, without creating a Wake. Queue receipt deadlines use a separate
+column so an older Core's forwarding query cannot resend uncertain Queue input.
+Old outbox rows retain their existing forwarding behavior.
+
+The Human/Center Web path uses the Gateway receiver and the same queue read
+projection. Ordinary consumption is driven by the existing persisted final reply
+claim for the preceding dispatch, not by client progress or elapsed time. The
+Space alarm promotes only the first eligible item after a successful reply or
+explicit silent outcome. Stop, failure, missing outcome content, revoked author,
+or an unavailable target retains blocked Queue work. Unknown Steer holds later
+claims as well.
+
+SQL schema 50 adds the preceding-dispatch dependency to the existing row. The
+normal publication owner prepares the usual unresolved handoff seed, then
+atomically claims the queued input, inserts its original Signal and single
+dispatch outbox record, retires the input, and moves remaining inputs behind
+that dispatch. A failed transaction leaves all inputs pending. After a crash,
+the existing durable dispatch outbox resumes the same identity; it does not
+claim or publish that queued input again. The dependency is input ordering,
+not a second execution state machine. Native execution and admission remain
+with Remote/Flue. Agent tools and Local Service callers remain unimplemented.
+The seed deliberately has no resolved controller yet: Core admission owns that
+selection. Queue validates its supported Center member and exact target rather
+than treating the seed's empty controller snapshot as unavailable execution.
+
 OpenMeld separates durable truth from query projections.
 
 Agent Profile Work Coordinator state lives in the existing owner-sharded
@@ -1085,6 +1126,10 @@ not become a second in-flight execution state machine beside Remote Agent.
 `routine_runs.continuation_delegation_id` is the atomic one-continuation fence:
 the same delegation id may replay, while a different second id conflicts before
 child work is created.
+Multi-Space Wake acceptance persists the complete publication manifest and its
+continuation subscriptions before returning `queued`. Space publication remains
+asynchronous; an immediate initial-delivery callback must already see the
+continuation and leave the Run open for its final result.
 
 Each successful human- or Center-Agent-initiated Routine create, update, pause,
 resume, or delete appends one audit row in the same D1 batch as the mutation.
@@ -2018,6 +2063,20 @@ Space posting, delegation preparation, child activation, and audit writes are
 individually idempotent, so an interruption at any boundary converges without
 duplicating the Wake or spending another Agent turn. The outbox records
 coordination progress; it is not Space message truth or execution authority.
+
+Multi-Space delegation saves every destination command atomically before the
+first publication. The root publication retains the complete ordered manifest;
+each destination references that root and shares one Agent Task Coordination
+delegation and completion barrier. Recovery reads this frozen plan, including
+after the originating model turn finishes. It does not reconstruct the batch
+from whichever child publications happened to succeed. Each publication activates
+or rejects only its own children. A definite rejection retains accepted siblings
+and their results; parent synthesis waits for every planned child to settle.
+Routine continuation ownership is claimed only after the durable intent exists.
+The original semantic reply-language fact is also included in each delegated
+brief, so Local and Remote children preserve it when the brief is in another
+language. This adds no language detector or parallel execution authority.
+
 Once Space accepts the publication, the outbox retains the validated returned
 signal envelope. Completed command replays therefore return the original Space
 acceptance evidence without another network read or post. Every external post

@@ -31,10 +31,11 @@ the Web manifest reader before this smoke so it preserves the Service selection.
 Verify the Service process identity and connection remain unchanged across the
 CLI upgrade; the ordinary coupled-update smoke does not prove this behavior.
 
-Staging is a persistent, internal OpenMeld environment. It runs the same five
+Staging is a persistent, internal OpenMeld environment. It runs the same six
 internal deployables as production:
 
 - Web
+- Website
 - Auth
 - Gateway
 - Core
@@ -44,6 +45,7 @@ It has separate Cloudflare Workers, D1, KV, R2 buckets, Queues, Durable Object
 namespaces, and container identity. Its public entry points are:
 
 - `https://staging.openmeld.ai`
+- `https://app.staging.openmeld.ai`
 - `https://auth.staging.openmeld.ai`
 - `https://gateway.staging.openmeld.ai`
 
@@ -140,6 +142,8 @@ pnpm staging:plan
 pnpm env:doctor:stg
 pnpm staging:deploy
 pnpm staging:deploy -- --scope web
+pnpm staging:deploy -- --scope website
+pnpm staging:deploy -- --scope auth
 pnpm staging:deploy -- --scope remote-agent
 pnpm staging:deploy -- --scope remote-agent --containers-rollout=none
 pnpm staging:verify
@@ -153,15 +157,26 @@ pnpm staging:smoke:computer -- plan
 - `env:doctor:stg` checks Doppler access and required names without printing
   values or changing Cloudflare.
 - `staging:deploy` requires a clean worktree, creates only missing staging
-  prerequisites, applies staging D1 migrations, deploys the five Workers, and
+  prerequisites, applies staging D1 migrations, deploys the six Workers, and
   verifies resources and public entry points.
-  The Worker order is Auth, Core, Gateway, Web, then Remote Agent so stream
+  The Worker order is Auth, Core, Gateway, Web, Remote Agent, then Website so stream
   readers understand new activity fields before the runtime emits them.
-- `staging:deploy -- --scope web` and `--scope remote-agent` deploy one
+- `staging:deploy -- --scope web`, `--scope website`, `--scope auth`, and `--scope remote-agent` deploy one
   non-database Worker after verifying the existing Staging resources. Use these
   narrow paths for component-only changes so an unrelated Worker cannot block
   or enlarge the deploy. Database-backed component changes still use the full
-  deployment.
+  deployment. The Auth-only path is for compatible Auth changes with no pending
+  database requirement; it does not apply migrations.
+
+The first website/App split uses the production domain guard with staging-only
+names. Run `staging:deploy -- --domain-phase prepare --domain-evidence <file>`,
+then scoped Auth, real App browser checks, scoped Website, and the remaining
+scopes as described in [Production Release](production-release.md#websiteapp-origin-migration).
+Pass the same `--domain-evidence <file>` on those stages. Use
+`--domain-phase rollback` to restore the recorded Web version and root owner.
+The evidence fixes the environment to `stg`; no production binding is changed.
+Staging domain work reuses the existing Auth/Web/Website leases and intentionally
+serializes against production domain work rather than introducing another lock.
 - `staging:verify` is read-only. It verifies the checked-in environment
   contract, Doppler readiness, Cloudflare resource inventory, and public
   staging entry points.

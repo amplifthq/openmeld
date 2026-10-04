@@ -97,7 +97,6 @@ export async function readRemoteAgentDelegatedRequester(input: {
   if (
     !delegation ||
     delegation.organizationId !== delivery.organizationId ||
-    delegation.spaceId !== delivery.spaceId ||
     delegation.state !== "active" ||
     delegation.parentTask.kind !== "native_delivery" ||
     !delegation.children.some(

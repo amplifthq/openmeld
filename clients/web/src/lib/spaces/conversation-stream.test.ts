@@ -293,7 +293,7 @@ describe("space conversation stream state", () => {
 			noticeText:
 				"Center Agent finished the reply, but OpenMeld could not publish it here.",
 		},
-	])("replaces partial text with the $kind terminal notice and rejects a late delta", (terminal) => {
+	])("settles $kind without accepting a late delta", (terminal) => {
 		let state = applySpaceConversationStreamFrame({
 			current: [],
 			frame: {
@@ -324,7 +324,10 @@ describe("space conversation stream state", () => {
 				reasonCode: terminal.reasonCode,
 				replyThreadRootSignalId: "source-thread-root",
 				status: terminal.kind,
-				text: terminal.noticeText,
+				text:
+					terminal.kind === "stopped"
+						? "Unfinished partial text"
+						: terminal.noticeText,
 			}),
 		]);
 	});

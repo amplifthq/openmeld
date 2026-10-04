@@ -7,6 +7,7 @@ import {
 	PopoverTitle,
 	PopoverTrigger,
 } from "@openmeld/ui/components/popover";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { CaretUpIcon } from "@phosphor-icons/react";
 import {
 	AnimatePresence,
@@ -290,32 +291,34 @@ function SpaceComposerWakeBookmarks({ context }: { context: BookmarkContext }) {
 						<PopoverTrigger render={button} />
 						<PopoverContent
 							align="end"
-							className="max-h-80 w-80 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-md motion-reduce:animate-none"
+							className="w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-md motion-reduce:animate-none"
 							side="top"
 						>
-							<PopoverTitle>Work outside your view</PopoverTitle>
-							<div className="flex flex-col gap-1">
-								{items.map((item) => (
-									<WakeBookmarkRow
-										current={context.activeItems.find(
-											(candidate) =>
-												wakeBookmarkKey(candidate) === wakeBookmarkKey(item)
-										)}
-										item={item}
-										key={wakeBookmarkKey(item)}
-										onClick={() => {
-											context.jump(item);
-											setOpen(false);
-										}}
-									/>
-								))}
-							</div>
-							{context.hasMore ? (
-								<p className="text-muted-foreground">
-									This list may be incomplete. More work is active in this
-									Space.
-								</p>
-							) : null}
+							<ScrollArea className="max-h-72">
+								<PopoverTitle>Work outside your view</PopoverTitle>
+								<div className="flex flex-col gap-1">
+									{items.map((item) => (
+										<WakeBookmarkRow
+											current={context.activeItems.find(
+												(candidate) =>
+													wakeBookmarkKey(candidate) === wakeBookmarkKey(item)
+											)}
+											item={item}
+											key={wakeBookmarkKey(item)}
+											onClick={() => {
+												context.jump(item);
+												setOpen(false);
+											}}
+										/>
+									))}
+								</div>
+								{context.hasMore ? (
+									<p className="text-muted-foreground">
+										This list may be incomplete. More work is active in this
+										Space.
+									</p>
+								) : null}
+							</ScrollArea>
 						</PopoverContent>
 					</Popover>
 				</WakeBookmarkPresence>

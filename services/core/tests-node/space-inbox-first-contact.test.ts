@@ -16,7 +16,7 @@ import {
 } from "../src/space/infrastructure/sql/space-member-repo";
 import { ensureSpaceSqlSchema } from "../src/space/infrastructure/sql/space-schema-repo";
 import { insertSignalRecord } from "../src/space/infrastructure/sql/space-signal-repo";
-import { buildDirectMessageDispatchReadyDecisions } from "../src/space/rules/dispatch/direct-message-dispatch";
+import { buildAutomaticWakeDispatchReadyDecisions } from "../src/space/rules/dispatch/automatic-wake-dispatch";
 
 const CODEX = "agt_22222222-2222-4222-8222-222222222222";
 const FELIX = "11111111-1111-4111-8111-111111111111";
@@ -135,7 +135,7 @@ describe("durable personal-Agent contact identity", () => {
         referenceTargets: [CODEX],
       });
       const envelope = structuredClone(reference.data.messageEnvelope);
-      const dispatch = buildDirectMessageDispatchReadyDecisions({
+      const dispatch = buildAutomaticWakeDispatchReadyDecisions({
         activeMemberRecords: listSpaceMemberRecords(fixture.sql, {
           status: "active",
         }),

@@ -169,6 +169,10 @@ export function resolveAccountSpaceViewerProfileId(input: {
 	currentProfileId: string;
 	item: AccountSpaceItem;
 }): string {
+	// Owners observe their Agents' DMs as themselves until they explicitly join.
+	if (isDirectMessageItem(input.item)) {
+		return input.currentProfileId;
+	}
 	return input.item.joinedProfiles.some(
 		(profile) => profile.profileId === input.currentProfileId
 	)

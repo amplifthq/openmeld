@@ -242,7 +242,7 @@ describe("authorized retained-memory search from normal member tools", () => {
     expect(result.status).toBe("matched");
     expect(result.items).toHaveLength(1);
     expect(result.items[0]).toMatchObject({
-      text: CONCLUSION,
+      text: `[Fact validity: unknown] ${CONCLUSION}`,
       scope: "member",
       currentness: "not_verified",
       interpretation: "remembered_summary_not_quote",
@@ -292,7 +292,9 @@ describe("authorized retained-memory search from normal member tools", () => {
     );
     const partial = await f.read();
     expect(partial.status).toBe("partial");
-    expect(partial.items[0]?.text).toBe(CONCLUSION);
+    expect(partial.items[0]?.text).toBe(
+      `[Fact validity: unknown] ${CONCLUSION}`
+    );
     expect(partial).not.toHaveProperty("failedSourceCount");
   });
 
@@ -351,7 +353,7 @@ describe("authorized retained-memory search from normal member tools", () => {
       (output as { result: unknown }).result
     );
     expect(result.items.map((item) => item.text)).toEqual([
-      "The public review starts at noon.",
+      "[Fact validity: unknown] The public review starts at noon.",
     ]);
     expect(JSON.stringify(output)).not.toContain(
       "Mixed private finance conclusion"

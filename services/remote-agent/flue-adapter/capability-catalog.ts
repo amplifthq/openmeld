@@ -221,6 +221,8 @@ const CAPABILITY_CATALOG_OVERRIDES: Readonly<
     aliases: [
       "install an Organization Skill",
       "install a GitHub Skill",
+      "import a repository of Skills",
+      "resume an interrupted Skill import batch",
       "安装组织技能",
       "安装 GitHub 技能",
     ],

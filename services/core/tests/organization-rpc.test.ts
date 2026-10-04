@@ -57,6 +57,7 @@ import type {
   ListSpaceThreadsResponse,
   LocalRuntimesResponse,
   OpenMeldRequestContext,
+  PostSpaceWakeStopResponse,
   SignalTextEnvelope,
 } from "@openmeld/schemas/types";
 import { OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE } from "@openmeld/space";
@@ -141,6 +142,7 @@ import {
   rpcRecordCenterAgentAudit,
   rpcRecordCurrentOrganizationMemberPresence,
   rpcRecordCurrentOrganizationWebActivity,
+  rpcRemoteAgentOpenDirectMessageSpace,
   rpcRemoveSpaceMembers,
   rpcSetCenterAgentOrganizationMemoryPolicy,
   rpcSetOrganizationInformationProtectionPolicy,
@@ -3067,7 +3069,25 @@ describe("organization Core RPC", () => {
     expect(await db.readCenterAgentAuditRows()).toEqual([]);
   });
 
-  it("lets every member read the Center Agent model while only owners and admins can change it", async () => {
+  it.each([
+    {
+      preference: {
+        kind: "selected_model" as const,
+        modelId: "deepseek/deepseek-v4-flash",
+      },
+      modelId: "deepseek/deepseek-v4-flash",
+      displayName: "DeepSeek V4 Flash",
+    },
+    {
+      preference: { kind: "system_default" as const },
+      modelId: "anthropic/claude-opus-5.5",
+      displayName: "Claude Opus 5.5",
+    },
+  ])("persists authorized Center Agent model and reasoning updates for $preference.kind", async ({
+    preference,
+    modelId,
+    displayName,
+  }) => {
     const db = await createOrganizationRpcDb({
       agentProfiles: [
         managedCenterAgentProfileRow({ organizationId: "org-a" }),
@@ -3152,19 +3172,19 @@ describe("organization Core RPC", () => {
       rpcUpdateCenterAgentModel(env, {
         context: adminContext,
         expectedConfigurationRevision: 4,
-        preference: {
-          kind: "selected_model",
-          modelId: "deepseek/deepseek-v4-flash",
-        },
+        preference,
+        reasoningLevel: "high",
       })
     ).resolves.toMatchObject({
       canManage: true,
       changed: true,
       configurationRevision: 5,
       effectiveModel: {
-        displayName: "DeepSeek V4 Flash",
-        modelId: "deepseek/deepseek-v4-flash",
+        displayName,
+        modelId,
       },
+      reasoningLevel: "high",
+      effectiveReasoningLevel: "high",
     });
     await expect(
       rpcGetCenterAgentModel(env, { context: ownerContext })
@@ -3173,8 +3193,10 @@ describe("organization Core RPC", () => {
       configurationRevision: 5,
       preference: {
         kind: "selected_model",
-        modelId: "deepseek/deepseek-v4-flash",
+        modelId,
       },
+      reasoningLevel: "high",
+      effectiveReasoningLevel: "high",
     });
     await expect(
       rpcUpdateCenterAgentModel(env, {
@@ -3185,6 +3207,20 @@ describe("organization Core RPC", () => {
     ).rejects.toMatchObject({
       code: "center_agent.model_configuration_changed",
       status: 409,
+    });
+    await expect(
+      rpcUpdateCenterAgentModel(env, {
+        context: ownerContext,
+        expectedConfigurationRevision: 5,
+        preference: { kind: "system_default" },
+        reasoningLevel: null,
+      })
+    ).resolves.toMatchObject({
+      changed: true,
+      configurationRevision: 6,
+      preference: { kind: "system_default" },
+      reasoningLevel: null,
+      effectiveReasoningLevel: "medium",
     });
   });
 
@@ -8149,31 +8185,9 @@ describe("organization Core RPC", () => {
         spaceId: first.spaceId,
       })
     );
-    expect(spaceStub.rpcPostSignalOnceByClientMessageId).toHaveBeenCalledTimes(
-      2
-    );
-    expect(spaceStub.rpcPostSignalOnceByClientMessageId).toHaveBeenCalledWith(
-      expect.objectContaining({
-        authoringPolicy: "system_emitted",
-        clientMessageId: `center-agent-dm-welcome:${first.spaceId}`,
-        meta: expect.objectContaining({
-          clientMessageId: `center-agent-dm-welcome:${first.spaceId}`,
-          purpose: "center_agent_dm_welcome",
-        }),
-        profile: expect.objectContaining({
-          kind: "agent",
-          profileId: AGENT_PROFILE_ID,
-          profileName: "Codex",
-        }),
-        spaceId: first.spaceId,
-        text: "👋 Hi Ava — I'm the Center Agent for Acme Labs. Choose a starting point, or tell me what you'd like to get done.",
-      })
-    );
+    expect(spaceStub.rpcPostSignalOnceByClientMessageId).not.toHaveBeenCalled();
     expect(spaceStub.rpcInitializeDirectMessageMeta).toHaveBeenCalledTimes(1);
     expect(spaceStub.rpcPostMembers).toHaveBeenCalledTimes(1);
-    expect(spaceStub.rpcPostSignalOnceByClientMessageId).toHaveBeenCalledTimes(
-      2
-    );
     expect(spaceStub.rpcListSignals).not.toHaveBeenCalled();
     const reasonCodeIndex =
       OBSERVABILITY_CLOUDFLARE_ANALYTICS_BLOBS.indexOf("reasonCode");
@@ -8193,7 +8207,6 @@ describe("organization Core RPC", () => {
       "meta_upsert",
       "members_upsert",
       "direct_message_open",
-      "welcome",
       "response_validation",
       "total_created",
       "membership",
@@ -8202,7 +8215,6 @@ describe("organization Core RPC", () => {
       "center_agent_member",
       "reusable_candidate_lookup",
       "direct_message_open",
-      "welcome",
       "response_validation",
       "total_existing",
     ]);
@@ -8334,16 +8346,7 @@ describe("organization Core RPC", () => {
       organizationId: "org-a",
       createdByUserId: "user-a",
     });
-    expect(spaceStub.rpcPostSignalOnceByClientMessageId).toHaveBeenCalledWith(
-      expect.objectContaining({
-        profile: expect.objectContaining({
-          profileId: AGENT_PROFILE_ID,
-          profileName: "Center Agent",
-        }),
-        spaceId: inviteeOpen.spaceId,
-        text: "👋 Hi Ava — I'm the Center Agent for Acme Labs. Choose a starting point, or tell me what you'd like to get done.",
-      })
-    );
+    expect(spaceStub.rpcPostSignalOnceByClientMessageId).not.toHaveBeenCalled();
   });
 
   it("keeps the owner-first Center Agent designation bootstrap path working", async () => {
@@ -8686,7 +8689,7 @@ describe("organization Core RPC", () => {
     ]);
   });
 
-  it("posts the personal Center Agent DM welcome once", async () => {
+  it("opens and reuses the personal Center Agent DM without publishing messages", async () => {
     const db = await createOrganizationRpcDb({
       agentProfiles: [
         {
@@ -8732,180 +8735,8 @@ describe("organization Core RPC", () => {
     });
 
     expect(second.spaceId).toBe(first.spaceId);
-    expect(spaceStub.rpcPostSignalOnceByClientMessageId).toHaveBeenCalledTimes(
-      2
-    );
+    expect(spaceStub.rpcPostSignalOnceByClientMessageId).not.toHaveBeenCalled();
     expect(spaceStub.rpcListSignals).not.toHaveBeenCalled();
-    expect(spaceStub.rpcPostSignalOnceByClientMessageId).toHaveBeenCalledWith(
-      expect.objectContaining({
-        authoringPolicy: "system_emitted",
-        clientMessageId: `center-agent-dm-welcome:${first.spaceId}`,
-        meta: expect.objectContaining({
-          clientMessageId: `center-agent-dm-welcome:${first.spaceId}`,
-          purpose: "center_agent_dm_welcome",
-        }),
-        profile: expect.objectContaining({
-          kind: "agent",
-          profileId: AGENT_PROFILE_ID,
-          profileName: "Center Agent",
-        }),
-        spaceId: first.spaceId,
-        text: "👋 Hi Ava — I'm your Center Agent. Choose a starting point, or tell me what you'd like to get done.",
-      })
-    );
-  });
-
-  it("still opens the Center Agent DM when welcome delivery fails and retries later", async () => {
-    const db = await createOrganizationRpcDb({
-      agentProfiles: [
-        {
-          managedRole: "center_agent",
-          organizationId: "org-a",
-          ownerUserId: null,
-          profileHandle: "codex",
-          profileId: AGENT_PROFILE_ID,
-          profileName: "Codex",
-          status: "active",
-        },
-      ],
-      centerAgentDesignations: [
-        centerAgentDesignationRow({
-          agentProfileId: AGENT_PROFILE_ID,
-          designatedBy: "user-a",
-          organizationId: "org-a",
-        }),
-      ],
-      members: [memberRow("member-a", "org-a", "user-a", "member")],
-      organizations: [
-        {
-          name: "Acme Labs",
-          organizationId: "org-a",
-          slug: "acme-labs",
-        },
-      ],
-    });
-    const spaceStub = createSpaceStub({ spaces: db.spaces });
-    const env = await buildEnv({ db, spaceStub });
-    const memberContext = buildContext({
-      activeOrganizationId: "org-a",
-      requestId: "req-open-center-agent-dm",
-      userId: "user-a",
-    });
-    const warnSpy = vi
-      .spyOn(console, "warn")
-      .mockImplementation(() => undefined);
-    spaceStub.rpcPostSignal.mockRejectedValueOnce(
-      new Error("welcome write failed")
-    );
-
-    try {
-      const first = await rpcOpenCenterAgentDirectMessageSpace(env, {
-        context: memberContext,
-      });
-      const second = await rpcOpenCenterAgentDirectMessageSpace(env, {
-        context: memberContext,
-      });
-
-      expect(first).toMatchObject({
-        centerAgentProfileId: AGENT_PROFILE_ID,
-        created: true,
-        memberProfileId: HUMAN_PROFILE_ID,
-        organizationId: "org-a",
-      });
-      expect(second).toMatchObject({
-        created: false,
-        spaceId: first.spaceId,
-      });
-      expect(
-        spaceStub.rpcPostSignalOnceByClientMessageId
-      ).toHaveBeenCalledTimes(2);
-      expect(spaceStub.rpcPostSignal).toHaveBeenCalledTimes(2);
-      expect(
-        spaceStub.rpcPostSignalOnceByClientMessageId
-      ).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          clientMessageId: `center-agent-dm-welcome:${first.spaceId}`,
-          meta: expect.objectContaining({
-            clientMessageId: `center-agent-dm-welcome:${first.spaceId}`,
-            purpose: "center_agent_dm_welcome",
-          }),
-          spaceId: first.spaceId,
-        })
-      );
-      expect(warnSpy).toHaveBeenCalledWith(
-        "[core.center_agent.dm_welcome_delivery_failed]",
-        expect.objectContaining({
-          centerAgentProfileId: AGENT_PROFILE_ID,
-          error: "welcome write failed",
-          errorStack: expect.stringContaining("welcome write failed"),
-          event: "core.center_agent.dm_welcome_delivery_failed",
-          memberProfileId: HUMAN_PROFILE_ID,
-          organizationId: "org-a",
-          requestId: "req-open-center-agent-dm",
-          spaceId: first.spaceId,
-        })
-      );
-    } finally {
-      warnSpy.mockRestore();
-    }
-  });
-
-  it("omits the greeting name when the Center Agent DM member name is missing", async () => {
-    const db = await createOrganizationRpcDb({
-      agentProfiles: [
-        {
-          managedRole: "center_agent",
-          organizationId: "org-personal",
-          ownerUserId: null,
-          profileHandle: "center",
-          profileId: AGENT_PROFILE_ID,
-          profileName: "Center Agent",
-          status: "active",
-        },
-      ],
-      centerAgentDesignations: [
-        centerAgentDesignationRow({
-          agentProfileId: AGENT_PROFILE_ID,
-          designatedBy: "user-a",
-          organizationId: "org-personal",
-        }),
-      ],
-      members: [memberRow("member-a", "org-personal", "user-a", "owner")],
-      organizations: [
-        {
-          metadata: JSON.stringify({ personal: true }),
-          name: "Ava's OpenMeld",
-          organizationId: "org-personal",
-          slug: "personal-user-a",
-        },
-      ],
-    });
-    const spaceStub = createSpaceStub({ spaces: db.spaces });
-    const env = await buildEnv({ db, spaceStub });
-    const memberContext = buildContext({
-      activeOrganizationId: "org-personal",
-      profileName: "@",
-      userId: "user-a",
-    });
-
-    const opened = await rpcOpenCenterAgentDirectMessageSpace(env, {
-      context: memberContext,
-    });
-
-    expect(spaceStub.rpcPostSignalOnceByClientMessageId).toHaveBeenCalledTimes(
-      1
-    );
-    expect(spaceStub.rpcPostSignalOnceByClientMessageId).toHaveBeenCalledWith(
-      expect.objectContaining({
-        clientMessageId: `center-agent-dm-welcome:${opened.spaceId}`,
-        meta: expect.objectContaining({
-          clientMessageId: `center-agent-dm-welcome:${opened.spaceId}`,
-          purpose: "center_agent_dm_welcome",
-        }),
-        spaceId: opened.spaceId,
-        text: "👋 I'm your Center Agent. Choose a starting point, or tell me what you'd like to get done.",
-      })
-    );
   });
 
   it("opens one Center Agent DM per Organization member", async () => {
@@ -9852,6 +9683,171 @@ describe("organization Core RPC", () => {
       spaceId: first.spaceId,
     });
     expect(db.spaces).toHaveLength(1);
+  });
+
+  it("lets either owned Agent open the same DM without adding their Humans", async () => {
+    const db = await createOrganizationRpcDb({
+      agentProfiles: [
+        {
+          organizationId: "org-a",
+          ownerUserId: "user-a",
+          profileHandle: "codex",
+          profileId: AGENT_PROFILE_ID,
+          profileName: "Codex",
+          status: "active",
+        },
+        {
+          organizationId: "org-a",
+          ownerUserId: "user-b",
+          profileHandle: "reviewer",
+          profileId: SECOND_AGENT_PROFILE_ID,
+          profileName: "Reviewer",
+          status: "active",
+        },
+      ],
+      members: [
+        memberRow("member-a", "org-a", "user-a"),
+        memberRow("member-b", "org-a", "user-b"),
+      ],
+    });
+    const spaceStub = createSpaceStub({ spaces: db.spaces });
+    const env = await buildEnv({ db, spaceStub });
+    const first = await rpcOpenDirectMessageSpace(env, {
+      context: buildContext({
+        activeOrganizationId: "org-a",
+        userId: "user-a",
+        profileKind: "agent",
+      }),
+      targetProfileId: SECOND_AGENT_PROFILE_ID,
+    });
+    const second = await rpcOpenDirectMessageSpace(env, {
+      context: buildContext({
+        activeOrganizationId: "org-a",
+        userId: "user-b",
+        profileId: SECOND_AGENT_PROFILE_ID,
+        profileKind: "agent",
+      }),
+      targetProfileId: AGENT_PROFILE_ID,
+    });
+    expect(second).toMatchObject({ spaceId: first.spaceId, created: false });
+    expect(spaceStub.rpcPostMembers).toHaveBeenCalledTimes(1);
+    expect(
+      spaceStub.rpcPostMembers.mock.calls[0]?.[0].members
+        .map((member) => member.profileId)
+        .sort()
+    ).toEqual([AGENT_PROFILE_ID, SECOND_AGENT_PROFILE_ID].sort());
+    await expect(
+      rpcOpenDirectMessageSpace(env, {
+        context: buildContext({
+          activeOrganizationId: "org-a",
+          userId: "user-b",
+          profileKind: "agent",
+        }),
+        targetProfileId: SECOND_HUMAN_PROFILE_ID,
+      })
+    ).rejects.toMatchObject({
+      code: "direct_message.caller_forbidden",
+      status: 403,
+    });
+  });
+
+  it("lets the Center create a fresh Human chat or delegate in an ordinary Agent DM", async () => {
+    const db = await createOrganizationRpcDb({
+      agentProfiles: [
+        managedCenterAgentProfileRow(),
+        {
+          organizationId: "org-a",
+          ownerUserId: "user-a",
+          profileHandle: "codex",
+          profileId: SECOND_AGENT_PROFILE_ID,
+          profileName: "Codex",
+          status: "active",
+        },
+      ],
+      centerAgentDesignations: [
+        centerAgentDesignationRow({
+          agentProfileId: AGENT_PROFILE_ID,
+          designatedBy: "user-a",
+          organizationId: "org-a",
+        }),
+      ],
+      members: [memberRow("member-a", "org-a", "user-a", "owner")],
+    });
+    const spaceStub = createSpaceStub({ spaces: db.spaces });
+    const env = await buildEnv({ db, spaceStub });
+    const context = buildCenterAgentContext({
+      activeOrganizationId: "org-a",
+      userId: "user-a",
+      profileKind: "agent",
+    });
+    const creationId = "00000000-0000-4000-8000-000000000041";
+    const first = await rpcRemoteAgentOpenDirectMessageSpace(env, {
+      context,
+      targetProfileId: HUMAN_PROFILE_ID,
+      creationId,
+    });
+    const retry = await rpcRemoteAgentOpenDirectMessageSpace(env, {
+      context,
+      targetProfileId: HUMAN_PROFILE_ID,
+      creationId,
+    });
+    const next = await rpcRemoteAgentOpenDirectMessageSpace(env, {
+      context,
+      targetProfileId: HUMAN_PROFILE_ID,
+      creationId: "00000000-0000-4000-8000-000000000042",
+    });
+    expect(retry.spaceId).toBe(first.spaceId);
+    expect(next.spaceId).not.toBe(first.spaceId);
+    const agentDm = await rpcRemoteAgentOpenDirectMessageSpace(env, {
+      context,
+      targetProfileId: SECOND_AGENT_PROFILE_ID,
+    });
+    const request = {
+      context,
+      spaceId: agentDm.spaceId,
+      targetProfileId: SECOND_AGENT_PROFILE_ID,
+      message: {
+        clientMessageId: "00000000-0000-4000-8000-000000000043",
+        text: "Review the release checklist.",
+        wake: true,
+      },
+    };
+    const sent = await rpcRemoteAgentOpenDirectMessageSpace(env, request);
+    const resent = await rpcRemoteAgentOpenDirectMessageSpace(env, request);
+    expect(sent.signal).toMatchObject({
+      profile: { profileId: AGENT_PROFILE_ID },
+      data: {
+        messageEnvelope: {
+          activationTargets: [SECOND_AGENT_PROFILE_ID],
+          referenceTargets: [],
+        },
+      },
+    });
+    expect(resent.signal?.id).toBe(sent.signal?.id);
+    expect(spaceStub.rpcInitializeDirectMessageMeta).toHaveBeenLastCalledWith(
+      expect.objectContaining({ ownerUserIds: ["user-a"] })
+    );
+    await expect(
+      rpcRemoteAgentOpenDirectMessageSpace(env, {
+        context,
+        targetProfileId: SECOND_AGENT_PROFILE_ID,
+        creationId,
+      })
+    ).rejects.toMatchObject({
+      code: "direct_message.new_session_requires_center",
+    });
+    await expect(
+      rpcRemoteAgentOpenDirectMessageSpace(env, {
+        ...request,
+        spaceId: undefined,
+      })
+    ).rejects.toMatchObject({ code: "direct_message.wake_requires_space" });
+    await expect(
+      rpcRemoteAgentOpenDirectMessageSpace(env, {
+        ...request,
+        targetProfileId: HUMAN_PROFILE_ID,
+      })
+    ).rejects.toMatchObject({ code: "direct_message.wake_requires_agent" });
   });
 
   it("resolves Organization profiles before converting a Direct Message", async () => {
@@ -11154,27 +11150,31 @@ describe("Center Agent Wake Stop delegation", () => {
       ],
     });
     const spaceStub = createSpaceStub({ spaces: db.spaces });
-    const stop = vi.fn((input: { context: OpenMeldRequestContext }) => {
-      if (input.context.actorContext.profileKind === "agent") {
-        return Promise.reject(
-          Object.assign(new Error("Only the requester can stop this Wake"), {
-            status: 403,
-          })
-        );
-      }
-      return Promise.resolve({
-        cancellationState: {
-          observedAtMs: TEST_NOW_MS,
-          reasonCode: "runtime_coordinator.pre_agent_stop_requested",
+    const stop = vi.fn(
+      (input: {
+        context: OpenMeldRequestContext;
+      }): Promise<PostSpaceWakeStopResponse> => {
+        if (input.context.actorContext.profileKind === "agent") {
+          return Promise.reject(
+            Object.assign(new Error("Only the requester can stop this Wake"), {
+              status: 403,
+            })
+          );
+        }
+        return Promise.resolve({
+          cancellationState: {
+            observedAtMs: TEST_NOW_MS,
+            reasonCode: "runtime_coordinator.pre_agent_stop_requested",
+            status: "cancelled" as const,
+          },
+          ok: true as const,
+          runtimeCoordinatorExecutionId: null,
           status: "cancelled" as const,
-        },
-        ok: true as const,
-        runtimeCoordinatorExecutionId: null,
-        status: "cancelled" as const,
-        stopMode: "openmeld_owned_pre_agent" as const,
-        targetProfileId: SECOND_AGENT_PROFILE_ID,
-      });
-    });
+          stopMode: "openmeld_owned_pre_agent" as const,
+          targetProfileId: SECOND_AGENT_PROFILE_ID,
+        });
+      }
+    );
     Object.assign(spaceStub, { rpcPostWakeStop: stop });
     return { env: await buildEnv({ db, spaceStub }), spaceStub, stop };
   };
@@ -11189,10 +11189,14 @@ describe("Center Agent Wake Stop delegation", () => {
         speakerMember: { memberId: "member-a", userId: "user-a" },
       })
     ).resolves.toMatchObject({ status: "cancelled" });
-    expect(stop).toHaveBeenCalledOnce();
+    expect(stop).toHaveBeenCalledTimes(2);
     expect(
       stop.mock.calls.map(([request]) => request.context.actorContext)
     ).toEqual([
+      expect.objectContaining({
+        openMeldProfileId: AGENT_PROFILE_ID,
+        profileKind: "agent",
+      }),
       expect.objectContaining({
         openMeldProfileId: HUMAN_PROFILE_ID,
         ownerUserId: "user-a",
@@ -11211,7 +11215,13 @@ describe("Center Agent Wake Stop delegation", () => {
         speakerMember: { memberId: "member-a", userId: "user-a" },
       })
     ).rejects.toMatchObject({ status: 403 });
-    expect(stop).not.toHaveBeenCalled();
+    expect(stop).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        context: expect.objectContaining({
+          actorContext: expect.objectContaining({ profileKind: "agent" }),
+        }),
+      })
+    );
   });
 
   it("does not call Space Stop across Organizations", async () => {
@@ -11227,7 +11237,125 @@ describe("Center Agent Wake Stop delegation", () => {
     expect(stop).not.toHaveBeenCalled();
   });
 
-  it("keeps Center progress available when the requester cannot read that Space", async () => {
+  it("keeps a Space-authorized self-Stop without requiring a Human requester", async () => {
+    const { env, stop } = await setup(false);
+    stop.mockResolvedValueOnce({
+      ok: true,
+      runtimeCoordinatorExecutionId: null,
+      status: "cancelled",
+      stopMode: "openmeld_owned_pre_agent",
+      targetProfileId: SECOND_AGENT_PROFILE_ID,
+      cancellationState: {
+        observedAtMs: TEST_NOW_MS,
+        reasonCode: "space.wake_stopped_before_send",
+        status: "cancelled",
+      },
+    });
+    await expect(
+      rpcCenterAgentStopSpaceWake(env, {
+        body: stopBody,
+        context: centerContext(),
+        spaceId: JOINED_PUBLIC_SPACE_ID,
+      })
+    ).resolves.toMatchObject({ status: "cancelled" });
+    expect(stop).toHaveBeenCalledOnce();
+    expect(stop.mock.calls[0]?.[0].context.actorContext.profileKind).toBe(
+      "agent"
+    );
+  });
+
+  it("does not retry an uncertain self-Stop as a Human", async () => {
+    const { env, stop } = await setup(true);
+    stop.mockRejectedValueOnce(
+      Object.assign(new Error("Cancellation unavailable"), { status: 503 })
+    );
+    await expect(
+      rpcCenterAgentStopSpaceWake(env, {
+        body: stopBody,
+        context: centerContext("submission-center-stop"),
+        spaceId: JOINED_PUBLIC_SPACE_ID,
+        speakerMember: { memberId: "member-a", userId: "user-a" },
+      })
+    ).rejects.toMatchObject({ status: 503 });
+    expect(stop).toHaveBeenCalledOnce();
+  });
+
+  it("does not replace a missing Center UUID with a Human early-Stop fence", async () => {
+    const { env, stop } = await setup(true);
+    stop.mockResolvedValueOnce({
+      ok: false,
+      status: "not_found",
+      runtimeCoordinatorExecutionId: null,
+      targetProfileId: SECOND_AGENT_PROFILE_ID,
+      reasonCode: "space.wake_stop_target_not_found",
+      cancellationState: {
+        observedAtMs: TEST_NOW_MS,
+        reasonCode: "space.wake_stop_target_not_found",
+        status: "not_requested",
+      },
+    });
+    await expect(
+      rpcCenterAgentStopSpaceWake(env, {
+        body: {
+          target: {
+            by: "client_message",
+            clientMessageId: "00000000-0000-4000-8000-000000000094",
+            targetProfileId: SECOND_AGENT_PROFILE_ID,
+          },
+        },
+        context: centerContext("submission-center-stop"),
+        spaceId: JOINED_PUBLIC_SPACE_ID,
+        speakerMember: { memberId: "member-a", userId: "user-a" },
+      })
+    ).resolves.toMatchObject({ status: "not_found" });
+    expect(stop).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    false,
+    true,
+  ])("delegates a UUID only after resolving an existing source (found: %s)", async (found) => {
+    const { env, stop, spaceStub } = await setup(true);
+    const lookup = vi.fn(async () => ({
+      matches: found
+        ? [
+            {
+              sourceSignalId: stopBody.target.sourceSignalId,
+              targetProfileId: SECOND_AGENT_PROFILE_ID,
+            },
+          ]
+        : [],
+    }));
+    Object.assign(spaceStub, { rpcGetDispatchLookup: lookup });
+    const result = rpcCenterAgentStopSpaceWake(env, {
+      body: {
+        target: {
+          by: "client_message",
+          clientMessageId: "00000000-0000-4000-8000-000000000094",
+          targetProfileId: SECOND_AGENT_PROFILE_ID,
+        },
+      },
+      context: centerContext("submission-center-stop"),
+      spaceId: JOINED_PUBLIC_SPACE_ID,
+      speakerMember: { memberId: "member-a", userId: "user-a" },
+    });
+    if (found) {
+      await expect(result).resolves.toMatchObject({ status: "cancelled" });
+      expect(stop).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          body: stopBody,
+          context: expect.objectContaining({
+            actorContext: expect.objectContaining({ profileKind: "human" }),
+          }),
+        })
+      );
+    } else {
+      await expect(result).rejects.toMatchObject({ status: 403 });
+      expect(stop).toHaveBeenCalledOnce();
+    }
+  });
+
+  it("keeps the Center's own authorized Stop eligibility when the requester cannot read that Space", async () => {
     const { env, spaceStub } = await setup(true);
     const progress = {
       items: [
@@ -11256,7 +11384,7 @@ describe("Center Agent Wake Stop delegation", () => {
         speakerMember: { memberId: "member-a", userId: "user-a" },
       })
     ).resolves.toMatchObject({
-      items: [{ wakeStopEligibility: null }],
+      items: [{ wakeStopEligibility: { status: "eligible" } }],
     });
     expect(read).toHaveBeenCalledTimes(2);
   });
@@ -13247,6 +13375,7 @@ function createSpaceStub(
     ),
     rpcPostSignal: postSignal,
     rpcPostSignalOnceByClientMessageId: postSignalOnceByClientMessageId,
+    rpcPostDirectMessageSignal: postSignalOnceByClientMessageId,
     rpcPostMembers: vi.fn(
       async (request: {
         members: Array<{ profileId: string; profileKind?: string }>;

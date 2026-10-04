@@ -1,6 +1,7 @@
 import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import type { SignalEnvelope } from "@openmeld/protocol";
 import { activateAgentDelegationChildren } from "../../agent-task-coordination/infrastructure/postgresql/agent-delegation-repo";
+import { recordAgentTaskTerminalOutcome } from "../../agent-task-coordination/infrastructure/postgresql/agent-task-coordination-repo";
 import { readCoreRpcHttpStatus } from "../../rpc/errors";
 import { prepareCenterAgentAuditJournalEntryIfMissingStatement } from "../center-agent-repository";
 import {
@@ -8,17 +9,20 @@ import {
   type CenterAgentWakePublicationCommand,
   type CenterAgentWakePublicationRecord,
   claimCenterAgentWakePublication,
+  listCenterAgentWakePublicationsByDelegation,
   listDueCenterAgentWakePublications,
   markCenterAgentWakePublicationAccepted,
   markCenterAgentWakePublicationCompleted,
   markCenterAgentWakePublicationFailed,
   prepareCenterAgentWakePublicationRecord,
+  prepareCenterAgentWakePublicationRecords,
   readCenterAgentWakePublication,
   rescheduleCenterAgentWakePublication,
 } from "../infrastructure/postgresql/center-agent-wake-publication-repo";
 import {
   CenterAgentDelegationPreparationError,
   cancelPreparedCenterAgentWakeDelegation,
+  planCenterAgentWakeDelegation,
   prepareCenterAgentWakeDelegation,
 } from "./center-agent-delegation-service";
 
@@ -56,6 +60,59 @@ export async function prepareCenterAgentWakePublication(input: {
 }): Promise<CenterAgentWakePublicationRecord> {
   return await prepareCenterAgentWakePublicationRecord(input);
 }
+
+export async function prepareCenterAgentWakePublicationBatch(input: {
+  commands: CenterAgentWakePublicationCommand[];
+  db: PostgresDatabase;
+  destinationNeutralContinuations?: boolean;
+  nowMs: number;
+}): Promise<void> {
+  const [publication] = await prepareCenterAgentWakePublicationRecords(input);
+  if (!publication) {
+    throw new Error("Wake delegation has no publication destinations");
+  }
+  // queued can end the parent turn immediately. Its callback must already
+  // see the subscriptions even when no Space publication has started.
+  await prepareCenterAgentWakePublicationDelegation({ ...input, publication });
+}
+
+async function prepareCenterAgentWakePublicationDelegation(input: {
+  db: PostgresDatabase;
+  destinationNeutralContinuations?: boolean;
+  nowMs: number;
+  publication: CenterAgentWakePublicationRecord;
+}): Promise<void> {
+  const { publication } = input;
+  const destinations = await readDelegationDestinations(input.db, publication);
+  const root = destinations[0];
+  if (!root) {
+    throw new Error("Wake delegation has no publication destinations");
+  }
+  await prepareCenterAgentWakeDelegation({
+    actorProfileId: root.attribution.actorProfileId,
+    childSpaceId: root.spaceId,
+    clientMessageId: root.clientMessageId,
+    completionMode: root.completionMode,
+    replyLanguageTag: root.replyLanguageTag,
+    additionalDestinations: destinations.slice(1).map((command) => ({
+      childSpaceId: command.spaceId,
+      clientMessageId: command.clientMessageId,
+      targetProfileIds: command.activationTargets,
+    })),
+    db: input.db,
+    destinationNeutralContinuations:
+      input.destinationNeutralContinuations === true,
+    ...(publication.command.fallbackAgentProfileId
+      ? { fallbackAgentProfileId: publication.command.fallbackAgentProfileId }
+      : {}),
+    nowMs: input.nowMs,
+    organizationId: publication.command.organizationId,
+    parentSubmissionId: publication.command.parentSubmissionId,
+    targetProfileIds: root.activationTargets,
+    text: publication.command.text,
+  });
+}
+
 export async function executeCenterAgentWakePublication(input: {
   db: PostgresDatabase;
   destinationNeutralContinuations?: boolean;
@@ -88,25 +145,12 @@ export async function executeCenterAgentWakePublication(input: {
   let signalAccepted = publication.signal !== null;
   let stage: "prepare" | "publish" | "finalize" = "prepare";
   try {
-    await prepareCenterAgentWakeDelegation({
-      actorProfileId: publication.command.attribution.actorProfileId,
-      childSpaceId: publication.command.spaceId,
-      clientMessageId: publication.command.clientMessageId,
-      completionMode: publication.command.completionMode,
-      replyLanguageTag: publication.command.replyLanguageTag,
+    await prepareCenterAgentWakePublicationDelegation({
       db: input.db,
       destinationNeutralContinuations:
         input.destinationNeutralContinuations === true,
-      ...(publication.command.fallbackAgentProfileId
-        ? {
-            fallbackAgentProfileId: publication.command.fallbackAgentProfileId,
-          }
-        : {}),
       nowMs: input.nowMs,
-      organizationId: publication.command.organizationId,
-      parentSubmissionId: publication.command.parentSubmissionId,
-      targetProfileIds: publication.command.activationTargets,
-      text: publication.command.text,
+      publication,
     });
     let signal = publication.signal;
     if (!signal) {
@@ -275,12 +319,32 @@ async function failRejectedPublication(input: {
   publication: CenterAgentWakePublicationRecord;
 }): Promise<CenterAgentWakePublicationExecution> {
   try {
-    await cancelPreparedCenterAgentWakeDelegation({
-      db: input.input.db,
-      delegationId: input.publication.command.delegationId,
-      nowMs: input.input.nowMs,
-      subscriptionIds: input.publication.command.subscriptionIds,
-    });
+    if (input.publication.command.batchRootPublicationId) {
+      // The exact Space post was fenced before reaching this branch. Preserve
+      // accepted siblings and let the existing all-terminal barrier report
+      // this destination's failure alongside their results.
+      for (const child of publicationChildTasks(input.publication.command)) {
+        await recordAgentTaskTerminalOutcome({
+          db: input.input.db,
+          nowMs: input.input.nowMs,
+          task: child.task,
+          outcome: {
+            errorCode: "center_agent.wake_publication_rejected",
+            eventId: `wake-publication-rejected:${input.publication.publicationId}`,
+            occurredAtMs: input.input.nowMs,
+            publishedSignalId: null,
+            status: "publication_failed",
+          },
+        });
+      }
+    } else {
+      await cancelPreparedCenterAgentWakeDelegation({
+        db: input.input.db,
+        delegationId: input.publication.command.delegationId,
+        nowMs: input.input.nowMs,
+        subscriptionIds: input.publication.command.subscriptionIds,
+      });
+    }
     await markCenterAgentWakePublicationFailed({
       claimId: input.claimId,
       db: input.input.db,
@@ -399,6 +463,54 @@ async function requirePublication(input: {
   }
   return publication;
 }
+
+function publicationChildTasks(command: CenterAgentWakePublicationCommand) {
+  return planCenterAgentWakeDelegation({
+    childSpaceId: command.spaceId,
+    clientMessageId: command.clientMessageId,
+    targetProfileIds: command.activationTargets,
+  }).childTasks;
+}
+
+async function readDelegationDestinations(
+  db: PostgresDatabase,
+  publication: CenterAgentWakePublicationRecord
+): Promise<CenterAgentWakePublicationCommand[]> {
+  const rootId = publication.command.batchRootPublicationId;
+  if (!rootId) {
+    return [publication.command];
+  }
+  const records = await listCenterAgentWakePublicationsByDelegation({
+    db,
+    delegationId: publication.delegationId,
+  });
+  const root = records.find((record) => record.publicationId === rootId);
+  const ids = root?.command.batchPublicationIds;
+  if (!ids || ids[0] !== rootId || ids.length !== records.length) {
+    throw new Error(
+      "The complete Wake batch is unavailable; publication must wait"
+    );
+  }
+  return ids.map((id) => {
+    const command = records.find(
+      (record) => record.publicationId === id
+    )?.command;
+    if (
+      !command ||
+      command.batchRootPublicationId !== rootId ||
+      command.organizationId !== root.command.organizationId ||
+      command.parentSubmissionId !== root.command.parentSubmissionId ||
+      command.attribution.actorProfileId !==
+        root.command.attribution.actorProfileId ||
+      command.completionMode !== "resume_parent_when_all_terminal" ||
+      command.fallbackAgentProfileId !== null
+    ) {
+      throw new Error("Wake batch destinations do not match their delegation");
+    }
+    return command;
+  });
+}
+
 async function requireTextSignal(
   signalPromise: Promise<SignalEnvelope>
 ): Promise<
@@ -459,6 +571,9 @@ async function finalizeAcceptedPublication(input: {
     db: input.db,
     delegationId: input.publication.command.delegationId,
     nowMs: input.nowMs,
+    tasks: publicationChildTasks(input.publication.command).map(
+      (child) => child.task
+    ),
   });
   await input.db.query(
     prepareCenterAgentAuditJournalEntryIfMissingStatement({

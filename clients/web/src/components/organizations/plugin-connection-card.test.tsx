@@ -1,3 +1,7 @@
+import {
+	findPluginDefinition,
+	type PluginDefinition,
+} from "@openmeld/product-catalog/plugins";
 import { onlineManager } from "@tanstack/react-query";
 import {
 	act,
@@ -14,7 +18,6 @@ import {
 	createTestQueryClient,
 	TestQueryClientProvider,
 } from "#/test-support/query-client";
-import { findPluginDefinition, type PluginDefinition } from "./plugin-catalog";
 import { PluginConnectionCard } from "./plugin-connection-card";
 
 const listConnectionsMock = vi.hoisted(() => vi.fn());

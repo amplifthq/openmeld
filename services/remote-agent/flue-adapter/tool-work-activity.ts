@@ -174,6 +174,7 @@ const TOOL_WORK_BY_NAME = new Map<string, AgentWorkActivityKey>([
   ["openmeld_update_routine", "routine.update"],
   ["openmeld_update_space_settings", "space.settings.update"],
   ["openmeld_wake_agent_profiles_in_space", "space.agents.wake"],
+  ["openmeld_wake_agent_profiles_in_spaces", "space.agents.wake"],
   ["openmeld_watch_agent_task", "task.watch"],
   ["web_fetch", "webpage.read"],
   ["web_search", "web.search"],
@@ -281,7 +282,11 @@ export function resolveRemoteAgentToolWorkActivity(
     return null;
   }
   const key =
-    TOOL_WORK_BY_NAME.get(toolName) ?? GITHUB_TOOL_WORK_BY_NAME.get(toolName);
+    toolName === "openmeld_install_organization_skill" &&
+    toRecord(toolInput)?.action === "begin_import_batch"
+      ? "organization.skills.read"
+      : (TOOL_WORK_BY_NAME.get(toolName) ??
+        GITHUB_TOOL_WORK_BY_NAME.get(toolName));
   if (key) {
     const subject = resolveSafeToolSubject(toolName, toolInput);
     if (CONNECTED_APP_SUBJECT_TOOL_NAMES.has(toolName) && !subject) {

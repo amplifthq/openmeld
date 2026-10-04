@@ -20,7 +20,7 @@ import {
 	selectAccountSpaceSections,
 } from "./account-space-sections";
 import { type Chat, mergeChatPreferences } from "./chat-sidebar-model";
-import { resolveDirectMessagePeer } from "./direct-message-peer";
+import { resolveDirectMessagePresentation } from "./direct-message-presentation";
 import { spaceMessagePreviewQueryOptions } from "./direct-message-preview";
 import {
 	resolveSidebarAttentionSpaceIds,
@@ -77,7 +77,7 @@ export function useChats(input: {
 				currentProfileId: profileId,
 				item,
 			});
-			const peer = resolveDirectMessagePeer({
+			const presentation = resolveDirectMessagePresentation({
 				item,
 				profileDirectory: directory.data,
 				viewerProfileId,
@@ -87,10 +87,12 @@ export function useChats(input: {
 				{
 					messagePreview: item.messagePreview,
 					spaceId: item.spaceId,
-					name: peer?.profileName ?? item.spaceName,
+					name: presentation.name,
+					profileKind: presentation.profileKind,
 					createdAt: item.spaceCreatedAt ?? null,
 					viewerProfileId,
-					peer,
+					peer: presentation.peer,
+					participants: presentation.participants,
 				},
 			];
 		})
@@ -208,7 +210,7 @@ export function useChats(input: {
 			(chat) =>
 				owner(chat.spaceId) === section &&
 				input.includes(
-					chat.session ? "agent" : (chat.peer?.profileKind ?? "unknown")
+					chat.session ? "agent" : (chat.profileKind ?? "unknown")
 				) &&
 				preferences.archivedIds.includes(chat.spaceId) === input.archived &&
 				title(chat)

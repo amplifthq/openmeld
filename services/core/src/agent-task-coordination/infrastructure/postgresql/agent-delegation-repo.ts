@@ -202,9 +202,14 @@ export async function activateAgentDelegationChildren(input: {
   db: PostgresDatabase;
   delegationId: string;
   nowMs: number;
+  tasks?: AgentTaskHandle[];
 }): Promise<AgentDelegationRecord | null> {
   const delegationId = requireNonEmpty(input.delegationId, "delegationId");
   const nowMs = requireTimestamp(input.nowMs, "nowMs");
+  const taskKeys = input.tasks?.map(buildAgentTaskKey);
+  if (taskKeys?.length === 0) {
+    return await readAgentDelegation({ db: input.db, delegationId });
+  }
   await input.db.query({
     text: `
         UPDATE "openmeld"."agent_delegation_children"
@@ -215,8 +220,9 @@ export async function activateAgentDelegationChildren(input: {
         WHERE delegation_id = $3
           AND role = 'primary'
           AND state = 'planned'
+          ${taskKeys ? `AND task_key IN (${taskKeys.map((_, index) => `$${index + 4}`).join(", ")})` : ""}
       `,
-    values: [nowMs, nowMs, delegationId],
+    values: [nowMs, nowMs, delegationId, ...(taskKeys ?? [])],
   });
   return await readAgentDelegation({ db: input.db, delegationId });
 }

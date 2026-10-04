@@ -683,19 +683,21 @@ export function createOrganizationDocumentService(
     ): Promise<OrganizationDocument> =>
       await getDocument(dependencies.db, actor, documentId),
     async list(
-      actor: OrganizationDocumentReadActor
+      actor: OrganizationDocumentReadActor,
+      approvedOnly = false
     ): Promise<OrganizationDocumentSummary[]> {
       const result = await dependencies.db.query<OrganizationDocumentRow>({
         text: `
             SELECT *
             FROM "openmeld"."organization_documents"
             WHERE organization_id = $1
+              AND ($2 = 0 OR length(trim(content)) > 0)
             ORDER BY
               CASE kind WHEN 'brief' THEN 0 WHEN 'member_profile' THEN 1 ELSE 2 END,
               lower(title),
               created_at
           `,
-        values: [actor.organizationId],
+        values: [actor.organizationId, approvedOnly ? 1 : 0],
       });
       return (result.rows ?? []).map((row) => toSummary(row, actor));
     },

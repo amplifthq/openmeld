@@ -1,9 +1,9 @@
-import { describe, expect, it } from "vitest";
 import {
 	FEISHU_CHANNEL_IDENTITY,
 	findPluginDefinition,
 	LARK_CHANNEL_IDENTITY,
-} from "./plugin-catalog";
+} from "@openmeld/product-catalog/plugins";
+import { describe, expect, it } from "vitest";
 
 describe("Message channel identities", () => {
 	it("uses the Feishu mark for both Lark platform variants", () => {

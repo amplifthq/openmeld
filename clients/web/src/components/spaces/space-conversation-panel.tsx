@@ -135,7 +135,7 @@ import {
 } from "./space-composer";
 import {
 	resolveSpaceComposerConversationKind,
-	type SpaceAgentDirectConversationComposerHintKind,
+	type SpaceAutomaticWakeComposerHintKind,
 	type SpaceComposerConversationKind,
 } from "./space-composer-copy";
 import type { SpaceComposerSendOptions } from "./space-composer-device-wait";
@@ -169,6 +169,7 @@ import type { SpaceGraphFocusRequest } from "./space-graph";
 import { buildSpaceGraphPresentation } from "./space-graph-presentation";
 import { SpaceHistoryJumpControl } from "./space-history-jump-control";
 import { SpaceHistoryRail } from "./space-history-rail";
+import { SpaceInputQueue } from "./space-input-queue";
 import {
 	hasSpaceMessageAttachments,
 	SpaceMessageAttachments,
@@ -229,6 +230,7 @@ import {
 	groupAnchoredOutcomeNotices,
 	resolveGroupedOutcomeRowText,
 	SpaceOutcomeRow,
+	visibleAnchoredOutcomeNotices,
 } from "./space-outcome-row";
 import { resolveSpaceOutcomeRowTone } from "./space-outcome-tone";
 import { SpaceGraphSkeleton } from "./space-panel-skeletons";
@@ -312,7 +314,7 @@ type SpaceConversationPanelResolvedProps = {
 	initialFocusRequestId?: string;
 	initialFocusSignalId?: string;
 	initialFocusThreadRootSignalId?: string;
-	agentDirectConversationKind?: SpaceAgentDirectConversationComposerHintKind | null;
+	automaticWakeConversationKind?: SpaceAutomaticWakeComposerHintKind | null;
 	isCenterAgentDirectMessage: boolean;
 	isDirectMessage: boolean;
 	isPersonalContext?: boolean;
@@ -470,12 +472,12 @@ function shouldRenderSpaceComposer(input: {
 }
 
 function resolveConversationComposerContext(input: {
-	agentDirectConversationKind?: SpaceAgentDirectConversationComposerHintKind | null;
+	automaticWakeConversationKind?: SpaceAutomaticWakeComposerHintKind | null;
 	isCenterAgentDirectMessage: boolean;
 	isDirectMessage: boolean;
 }): SpaceComposerConversationKind {
 	return resolveSpaceComposerConversationKind({
-		isAgentDirectMessage: Boolean(input.agentDirectConversationKind),
+		hasAutomaticWakeTarget: Boolean(input.automaticWakeConversationKind),
 		isCenterAgentDirectMessage: input.isCenterAgentDirectMessage,
 		isDirectMessage: input.isDirectMessage,
 	});
@@ -1158,49 +1160,14 @@ function useSpaceConversationPresentationController(
 		() => buildThreadSignalIds(input.threadPreviews),
 		[input.threadPreviews]
 	);
-	const undecidedCenterStreamIds = useMemo(
-		() =>
-			new Set(
-				(input.agentStreams ?? [])
-					.filter(
-						(stream) =>
-							!input.isDirectMessage &&
-							stream.profileId === input.centerAgentProfileId &&
-							stream.status === "streaming" &&
-							stream.replyThreadRootSignalId === undefined
-					)
-					.map((stream) => stream.streamId)
-			),
-		[input.agentStreams, input.centerAgentProfileId, input.isDirectMessage]
-	);
 	const baseMainTimelineItems = useMemo(
-		() =>
-			input.timelineItems.filter(
-				(item) =>
-					!(
-						threadSignalIds.has(item.id) ||
-						undecidedCenterStreamIds.has(item.agentStreamState?.streamId ?? "")
-					)
-			),
-		[input.timelineItems, threadSignalIds, undecidedCenterStreamIds]
+		() => input.timelineItems.filter((item) => !threadSignalIds.has(item.id)),
+		[input.timelineItems, threadSignalIds]
 	);
 	const belongsInMainConversation = useCallback(
 		(progress: SpaceEphemeralActivityItem) => {
 			if (!isActiveWakeProgressItem(progress)) {
 				return true;
-			}
-			const selectedThreadRoot = resolveWakeReplyThreadRoot({
-				progress,
-				agentStreams: input.agentStreams,
-			});
-			// A shared-Space Center Agent defaults to a Thread, but may explicitly
-			// choose the main conversation. Wait for Space's selected destination.
-			if (
-				!input.isDirectMessage &&
-				progress.targetProfileId === input.centerAgentProfileId &&
-				selectedThreadRoot === undefined
-			) {
-				return false;
 			}
 			return isWakeProgressInConversation({
 				progress,
@@ -1217,12 +1184,7 @@ function useSpaceConversationPresentationController(
 				),
 			});
 		},
-		[
-			input.agentStreams,
-			input.centerAgentProfileId,
-			input.isDirectMessage,
-			baseMainTimelineItems,
-		]
+		[input.agentStreams, baseMainTimelineItems]
 	);
 	const mainActivityItems = useMemo(
 		() => input.ephemeralActivityItems.filter(belongsInMainConversation),
@@ -1347,10 +1309,16 @@ function useSpaceConversationPresentationController(
 			if (!isActiveWakeProgressItem(progress)) {
 				continue;
 			}
-			const rootSignalId = resolveWakeReplyThreadRoot({
+			const selectedRoot = resolveWakeReplyThreadRoot({
 				progress,
 				agentStreams: input.agentStreams,
 			});
+			const rootSignalId =
+				selectedRoot === undefined
+					? input.threads.find(
+							(thread) => thread.threadId === progress.sourceContext?.threadId
+						)?.rootSignalId
+					: selectedRoot;
 			if (!rootSignalId) {
 				continue;
 			}
@@ -1359,7 +1327,7 @@ function useSpaceConversationPresentationController(
 			byRoot.set(rootSignalId, items);
 		}
 		return byRoot;
-	}, [input.ephemeralActivityItems, input.agentStreams]);
+	}, [input.ephemeralActivityItems, input.agentStreams, input.threads]);
 	const threadPreviewByThreadId = useMemo(
 		() => buildThreadPreviewByThreadId(input.threadPreviews),
 		[input.threadPreviews]
@@ -2079,6 +2047,7 @@ function SpaceComposerSection(input: {
 					context={{
 						conversationKind: input.composerContext,
 						placement: "conversation",
+						readOnly: panel.readOnly,
 						readOnlyPlaceholder: panel.readOnly
 							? panel.readOnlyComposerPlaceholder
 							: undefined,
@@ -2096,6 +2065,27 @@ function SpaceComposerSection(input: {
 					}}
 					slots={{
 						pendingActionSurface: panel.pendingActionSurface,
+						queuedMessages:
+							!panel.readOnly && panel.spaceId ? (
+								<SpaceInputQueue
+									key={`${panel.spaceId}:${panel.selfProfileId}`}
+									onEdit={(queuedText) => {
+										const text = panel.composerText
+											? `${panel.composerText}\n\n${queuedText}`
+											: queuedText;
+										panel.onComposerEditorChange({
+											authoredMentions: [
+												...(panel.composerAuthoredMentions ?? []),
+											],
+											selection: { start: text.length, end: text.length },
+											text,
+										});
+										panel.textareaRef.current?.focus();
+									}}
+									profileId={panel.selfProfileId}
+									spaceId={panel.spaceId}
+								/>
+							) : null,
 						beforePrimaryAction: (
 							<SpaceComposerActiveWakes placement="conversation" />
 						),
@@ -2717,12 +2707,15 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 					? [
 							resolveWakeStopTargetForProgressItem({
 								item: item.activeWakeProgress,
+								sourceItem: wakePresentationItem,
+								viewerProfileId: input.selfProfileId,
 								stopRequestStatusBySelectorKey:
 									input.wakeStopRequestStatusBySelectorKey,
 							}),
 						]
 					: resolveSpaceMessageWakeStopTargets({
 							item: wakePresentationItem,
+							viewerProfileId: input.selfProfileId,
 							stopRequestStatusBySelectorKey:
 								input.wakeStopRequestStatusBySelectorKey,
 							timelineItems: input.timelineItems,
@@ -2730,7 +2723,6 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 							wakeProgressItems: input.ephemeralActivityItems,
 						});
 				const wakeStopControl =
-					wakePresentationItem.deliveryState !== "pending" &&
 					!input.readOnly &&
 					input.onWakeStopRequest &&
 					shouldRenderSpaceWakeStopControl(wakeStopTargets) ? (
@@ -2782,6 +2774,8 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 					control: wakeStopControl,
 					entries: wakeThinkingEntries,
 					hideForActiveWakeSource: isActiveWakeSource,
+					wakeOutcomeIndex: input.wakeOutcomeIndex,
+					wakeSourceItem: wakePresentationItem,
 					item,
 					messageDetailsItem,
 					onOpenMessageDetails: input.onOpenMessageDetails,
@@ -3262,7 +3256,9 @@ function resolveSpaceMessageBubbleVisibilityClassName(input: {
 	item: SpaceTimelineItem;
 	showProgressInAnswerArea: boolean;
 }): string | undefined {
-	return input.showProgressInAnswerArea ||
+	return input.item.systemNoticeType === "wake_stopped" ||
+		input.item.agentStreamState?.status === "stopped" ||
+		input.showProgressInAnswerArea ||
 		input.item.text.trim().length > 0 ||
 		input.item.agentStreamState?.thinking ||
 		input.item.attachments.length > 0 ||
@@ -3297,6 +3293,8 @@ function renderConversationMessageProgressStatus(input: {
 		typeof resolveSpaceMessageWakeProgressState
 	>["thinkingEntries"];
 	hideForActiveWakeSource: boolean;
+	wakeOutcomeIndex: SpaceWakeOutcomeIndex;
+	wakeSourceItem: SpaceTimelineItem;
 	item: SpaceTimelineItem;
 	messageDetailsItem: SpaceTimelineItem | null;
 	onOpenMessageDetails: (item: SpaceTimelineItem) => void;
@@ -3316,6 +3314,8 @@ function renderConversationMessageProgressStatus(input: {
 				item: input.messageDetailsItem ?? input.item,
 				onOpenMessageDetails: input.onOpenMessageDetails,
 			})}
+			wakeOutcomeIndex={input.wakeOutcomeIndex}
+			wakeSourceItem={input.wakeSourceItem}
 		/>
 	);
 }
@@ -3847,6 +3847,14 @@ function ThreadPreview(input: {
 		})
 	);
 	const replyCount = input.preview?.replyCount ?? 0;
+	if (
+		input.preview &&
+		replyCount === 0 &&
+		progressStatuses.length === 0 &&
+		!input.isReplyInProgress
+	) {
+		return null;
+	}
 	const replyCountText = formatThreadReplyCount(replyCount);
 	const unreadLabel = `${String(input.unreadCount)} unread`;
 	const countLabel = input.unreadCount > 0 ? unreadLabel : replyCountText;
@@ -4231,8 +4239,7 @@ const EMPTY_ANCHORED_OUTCOME_NOTICES: readonly SpaceTimelineItem[] = [];
 const UNAVAILABLE_SPACE_WAKE_STOP_REQUEST: SpaceWakeStopRequestHandler = () =>
 	Promise.reject(new Error("Space Wake Stop is unavailable."));
 
-// Stopped system outcomes stay with their source message and open its details.
-// Terminal failures are represented by the source message failure footer.
+// Participants open terminal failures from the footer; observers read them inline.
 function renderAnchoredSpaceOutcomeRows(input: {
 	notices: readonly SpaceTimelineItem[];
 	onOpenMessageDetails: (item: SpaceTimelineItem) => void;
@@ -4246,11 +4253,7 @@ function renderAnchoredSpaceOutcomeRows(input: {
 		return null;
 	}
 
-	const outcomeNotices = input.notices.filter(
-		(notice) =>
-			isSpaceOutcomeNoticeItem(notice) &&
-			notice.systemNoticeType !== "terminal_failure"
-	);
+	const outcomeNotices = visibleAnchoredOutcomeNotices(input);
 	if (outcomeNotices.length === 0) {
 		return null;
 	}
@@ -4282,6 +4285,7 @@ function renderAnchoredSpaceOutcomeRows(input: {
 						spaceReferencesById={input.spaceReferencesById}
 						text={resolveGroupedOutcomeRowText({
 							notices: group.notices,
+							readOnly: input.readOnly,
 							resolveTargetLabel: (targetProfileId) =>
 								input.profileEntriesById.get(targetProfileId)?.profileName ??
 								null,
@@ -4298,7 +4302,7 @@ function renderAnchoredSpaceOutcomeRows(input: {
 function resolveDirectMessageTargetName(
 	input: Pick<
 		SpaceConversationPanelResolvedProps,
-		| "agentDirectConversationKind"
+		| "automaticWakeConversationKind"
 		| "isCenterAgentDirectMessage"
 		| "isDirectMessage"
 		| "membersSnapshot"
@@ -4308,7 +4312,7 @@ function resolveDirectMessageTargetName(
 	if (input.isCenterAgentDirectMessage) {
 		return "Center Agent";
 	}
-	if (input.agentDirectConversationKind) {
+	if (input.automaticWakeConversationKind) {
 		return (
 			input.membersSnapshot?.agents.find((member) => member.status === "active")
 				?.profileName ?? null

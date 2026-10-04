@@ -4,13 +4,13 @@ Run `pnpm -C packages/auth email:dev` from the repository root, then open
 `http://localhost:3333`. The preview uses fictional data and never sends mail
 unless a developer explicitly configures and uses the preview tool's Send action.
 
-All six outgoing email families use the content functions in
+All seven outgoing email families use the content functions in
 `_components/content.ts` and the React Email layout in
 `_components/action-email.tsx`. Production builders in
 `../utils/email-templates.ts` render that same layout and supply a plain-text
 alternative. Do not add separate HTML strings to a sender.
 
-- Verification and magic link: Auth configuration.
+- Verification, magic link, and password reset: Auth configuration.
 - Organization invitation: Auth organization invitation callback.
 - Space invitation: Auth Space invitation route.
 - Invitation review and urgent Inbox: Auth Inbox delivery RPC.

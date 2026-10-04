@@ -1,4 +1,5 @@
 import type { PostgresDatabase } from "@openmeld/db/postgresql";
+import { workingLanguageTagSchema } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
 import {
   activateAgentDelegationChildren,
@@ -11,9 +12,11 @@ import {
   settleAgentTaskCompletionSubscription,
 } from "../src/agent-task-coordination/infrastructure/postgresql/agent-task-coordination-repo";
 import {
+  buildDelegatedTaskText,
   type CenterAgentDelegationPreparationError,
   cancelPreparedCenterAgentWakeDelegation,
   prepareCenterAgentWakeDelegation,
+  requireCenterAgentContinuationParent,
 } from "../src/center-agent/application/center-agent-delegation-service";
 import { prepareCenterAgentTaskWatch } from "../src/center-agent/application/center-agent-task-watch-service";
 import type { CoreBindings } from "../src/lib/bindings";
@@ -22,6 +25,19 @@ import { createPostgresHarness } from "./helpers/postgresql-harness.test-support
 const CENTER_AGENT_PROFILE_ID = "agt_00000000-0000-4000-8000-000000000001";
 const CHILD_PROFILE_ID = "agt_00000000-0000-4000-8000-000000000002";
 describe("Center Agent delegation preparation", () => {
+  it.each([
+    ["en-u-ca-gregory", "English"],
+    ["en-x-private", "English"],
+    ["zh-Hant-TW", "Chinese (Traditional, Taiwan)"],
+  ])("renders a delegated brief for the valid language tag %s", (tag, language) => {
+    const text = buildDelegatedTaskText(
+      "Review the report.",
+      workingLanguageTagSchema.parse(tag)
+    );
+    expect(text).toContain("Review the report.");
+    expect(text).toContain(`reply language is ${language}.`);
+  });
+
   it.each([
     undefined,
     "zh-Hans",
@@ -439,6 +455,27 @@ describe("Center Agent delegation preparation", () => {
         runId: "routine-run-1",
       });
       await insertParentDelivery(harness.db, "slack", "routine-run-1");
+
+      await requireCenterAgentContinuationParent({
+        actorProfileId: CENTER_AGENT_PROFILE_ID,
+        claimRoutineContinuation: false,
+        continuationDelegationId: "dlg:ca-wake:unpersisted-batch",
+        destinationNeutralContinuations: false,
+        db: harness.db,
+        organizationId: "org-1",
+        parentSubmissionId: "submission-parent",
+        resumesParent: true,
+        routineDelegationCompletionMode: "resume_parent_when_all_terminal",
+      });
+      await expect(
+        harness.db
+          .query({
+            text: 'SELECT continuation_delegation_id FROM "openmeld"."routine_runs" WHERE id = $1',
+            values: ["routine-run-1"],
+          })
+          .then((result) => result.rows[0])
+      ).resolves.toMatchObject({ continuation_delegation_id: null });
+
       await expect(
         prepareCenterAgentWakeDelegation({
           actorProfileId: CENTER_AGENT_PROFILE_ID,

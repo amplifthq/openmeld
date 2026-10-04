@@ -123,6 +123,7 @@ import {
   centerAgentUpdateProjectToolResponseSchema,
   centerAgentUpdateSpaceSettingsResponseSchema,
   centerAgentWakeAgentProfilesInSpaceResponseSchema,
+  centerAgentWakeAgentProfilesInSpacesResponseSchema,
   centerAgentWatchAgentTaskResponseSchema,
   changelogQueryResponseSchema,
   createAgentProfileCreationRequestResponseSchema,
@@ -170,6 +171,8 @@ import {
   ORGANIZATION_SKILL_INSTRUCTIONS_MAX_CHARS,
   ORGANIZATION_SKILL_NAME_MAX_CHARS,
   ORGANIZATION_SKILL_OPERATION_ID_MAX_CHARS,
+  openDirectMessageSpaceBodySchema,
+  openDirectMessageSpaceResponseSchema,
   openMeldNavigationTargetSchema,
   organizationDirectoryResponseSchema,
   organizationSpaceDirectoryResponseSchema,
@@ -196,6 +199,8 @@ import {
   SPACE_TASK_TITLE_MAX_CHARS,
   setAgentProfileCreationApprovalPreferenceResponseSchema,
   setOrganizationWorkingLanguagePreferenceBodySchema,
+  spaceInputQueueMutationSchema,
+  spaceInputQueueResponseSchema,
   spaceTaskMutationReceiptSchema,
   startCenterAgentMemberResearchResponseSchema,
   submitFeedbackIssueRequestSchema,
@@ -292,12 +297,14 @@ import {
   understandRemoteAgentImages,
 } from "./image-understanding";
 import { pageOrganizationDirectory } from "./organization-directory-page";
+import { REPLY_PLACEMENT_TOOL_DESCRIPTION } from "./reply-placement-guidance";
 import { REMOTE_AGENT_SLACK_MEMBER_RESEARCH_STATE_PREFIX } from "./slack-member-research-state";
 import {
   extractSlackSearchThreadPublicationTargetKeys,
   parseSlackThreadPublicationTargetKey,
 } from "./slack-thread-publication-evidence";
 import {
+  buildOrganizationDocumentReadContext,
   buildRemoteAgentToolContext,
   resolveOrganizationMemberTurnEnvelopeSpeaker,
   resolveVerifiedTurnEnvelopeProfileId,
@@ -666,6 +673,26 @@ const wakeAgentProfilesInSpaceToolInputSchema = object({
   fallbackAgentProfileId: optional(nonEmptyStringSchema),
   spaceId: nonEmptyStringSchema,
   text: pipe(string(), minLength(1), maxLength(MAX_TEXT_LENGTH)),
+});
+const wakeAgentProfilesInSpacesToolInputSchema = strictObject({
+  destinations: pipe(
+    array(
+      strictObject({
+        spaceId: nonEmptyStringSchema,
+        agentProfileIds: pipe(
+          array(nonEmptyStringSchema),
+          minLength(1),
+          maxLength(25)
+        ),
+        mentionProfileIds: mentionProfileIdsInputSchema,
+        referenceProfileIds: referenceProfileIdsInputSchema,
+        text: pipe(string(), minLength(1), maxLength(MAX_TEXT_LENGTH)),
+      })
+    ),
+    minLength(2),
+    maxLength(10)
+  ),
+  replyLanguageTag: taskReplyLanguageInputSchema,
 });
 const agentTaskHandleInputSchema = union([
   strictObject({
@@ -1208,15 +1235,27 @@ const readOrganizationSkillsToolInputSchema = strictObject({
     "get",
     "preview_github",
     "preview_github_repository",
+    "get_import_batch",
+    "list_import_batches",
   ]),
+  batchId: optional(organizationSkillOperationIdToolSchema),
   skillId: optional(organizationSkillIdentifierToolSchema),
   url: optional(pipe(trimmedNonEmptyStringSchema, maxLength(2048))),
 });
 const installOrganizationSkillToolInputSchema = strictObject({
-  action: picklist(["create", "import_github", "import_github_with_report"]),
+  action: picklist([
+    "create",
+    "import_github",
+    "import_github_with_report",
+    "begin_import_batch",
+    "install_batch_item",
+  ]),
+  batchId: optional(organizationSkillOperationIdToolSchema),
   bundle: optional(organizationSkillBundleToolSchema),
   expectedCommitSha: optional(pipe(trimmedNonEmptyStringSchema, maxLength(40))),
-  operationId: organizationSkillOperationIdToolSchema,
+  operationId: optional(organizationSkillOperationIdToolSchema),
+  path: optional(pipe(string(), maxLength(1024))),
+  selectedPaths: optional(array(pipe(string(), maxLength(1024)))),
   url: optional(pipe(trimmedNonEmptyStringSchema, maxLength(2048))),
 });
 const projectIdentifierToolSchema = pipe(
@@ -1330,6 +1369,37 @@ const readSpaceWakeProgressToolInputSchema = strictObject({
   spaceId: trimmedNonEmptyStringSchema,
   targetProfileId: optional(trimmedNonEmptyStringSchema),
 });
+const inputQueueTarget = strictObject({
+  dispatchId: trimmedNonEmptyStringSchema,
+  targetProfileId: trimmedNonEmptyStringSchema,
+});
+const spaceInputQueueToolInputSchema = strictObject({
+  spaceId: trimmedNonEmptyStringSchema,
+  mutation: optional(
+    union([
+      strictObject({
+        action: literal("enqueue"),
+        inputId: trimmedNonEmptyStringSchema,
+        target: inputQueueTarget,
+        text: pipe(string(), trim(), minLength(1), maxLength(MAX_TEXT_LENGTH)),
+      }),
+      strictObject({
+        action: literal("steer"),
+        inputId: trimmedNonEmptyStringSchema,
+        target: inputQueueTarget,
+      }),
+      strictObject({
+        action: literal("delete"),
+        inputId: trimmedNonEmptyStringSchema,
+      }),
+      strictObject({
+        action: literal("reorder"),
+        expectedIds: pipe(array(trimmedNonEmptyStringSchema), maxLength(50)),
+        orderedIds: pipe(array(trimmedNonEmptyStringSchema), maxLength(50)),
+      }),
+    ])
+  ),
+});
 const stopSpaceWakeToolInputSchema = strictObject({
   spaceId: trimmedNonEmptyStringSchema,
   target: union([
@@ -1337,11 +1407,13 @@ const stopSpaceWakeToolInputSchema = strictObject({
       by: literal("source_signal"),
       sourceSignalId: trimmedNonEmptyStringSchema,
       targetProfileId: trimmedNonEmptyStringSchema,
+      dispatchId: optional(trimmedNonEmptyStringSchema),
     }),
     strictObject({
       by: literal("client_message"),
       clientMessageId: trimmedNonEmptyStringSchema,
       targetProfileId: trimmedNonEmptyStringSchema,
+      dispatchId: optional(trimmedNonEmptyStringSchema),
     }),
   ]),
 });
@@ -1433,6 +1505,7 @@ async function executeMessageChannelIdentityNavigationAction(input: {
 
 export const REMOTE_AGENT_OPENMELD_TOOL_NAMES = [
   ...REMOTE_AGENT_EXTERNAL_TOOL_NAMES,
+  "openmeld_open_direct_message",
   "openmeld_require_identity_for_action",
   "openmeld_get_navigation_action",
   "openmeld_read_organization_directory",
@@ -1457,6 +1530,7 @@ export const REMOTE_AGENT_OPENMELD_TOOL_NAMES = [
   "openmeld_list_active_space_wakes",
   "openmeld_read_space_wake_progress",
   "openmeld_stop_space_wake",
+  "openmeld_space_input_queue",
   "openmeld_list_projects",
   "openmeld_create_project",
   "openmeld_update_project",
@@ -1503,6 +1577,7 @@ export const REMOTE_AGENT_OPENMELD_TOOL_NAMES = [
   "openmeld_send_slack_file",
   "openmeld_post_space_message",
   "openmeld_set_final_reply_mentions",
+  "openmeld_wake_agent_profiles_in_spaces",
   "openmeld_wake_agent_profiles_in_space",
   "openmeld_list_agent_tasks",
   "openmeld_watch_agent_task",
@@ -2151,6 +2226,57 @@ export function getRemoteAgentOpenMeldToolDefinitions(
       submissionId: input.submissionId,
     }),
     toolDefinition({
+      name: "openmeld_open_direct_message",
+      description:
+        "Open or reuse your Direct Message with an active Human or Agent Profile in this organization. Use an exact profile ID from the organization directory. To assign work, first open without message, then send message with wake=true, the returned spaceId, and a fresh UUID clientMessageId. Keep that spaceId and UUID on retries and use them with openmeld_stop_space_wake even before sending finishes. Never reopen a converted conversation to retry work. Set wake=true only to assign concrete work to an Agent; it replies in that conversation. Sending is not proof of completion. Ordinary messages use wake=false and never start Agent work. Agent owners can read the conversation and join, which turns it into a Space. To create a separate chat between yourself as Center Agent and a Human, pass a fresh UUID creationId only when opening; keep it on opening retries. Omit creationId for all other pairs and when sending with spaceId. Return the conversation link so the user can open it. Do not forward unrelated private context or wake another Agent just to acknowledge its reply.",
+      input: strictObject({
+        targetProfileId: string(),
+        creationId: optional(string()),
+        spaceId: optional(string()),
+        message: optional(
+          strictObject({
+            clientMessageId: string(),
+            text: string(),
+            wake: boolean(),
+          })
+        ),
+      }),
+      execute: async (payload) => {
+        const request = openDirectMessageSpaceBodySchema.parse(payload);
+        const toolContext = await buildRemoteAgentToolContext({
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_open_direct_message",
+        });
+        const rpc = requireCoreRpc(
+          input.coreWorker.remoteAgentOpenDirectMessageSpace,
+          "remoteAgentOpenDirectMessageSpace"
+        );
+        const response = openDirectMessageSpaceResponseSchema.parse(
+          await rpc({
+            ...request,
+            context: toolContext.context,
+          })
+        );
+        const organizationWebUrl =
+          toolContext.turnEnvelope?.organization.webUrl;
+        const navigation = organizationWebUrl
+          ? buildOpenMeldNavigationAction({
+              organizationWebUrl,
+              target: { kind: "space", spaceId: response.spaceId },
+            })
+          : undefined;
+        if (navigation) {
+          await recordRemoteAgentNavigationTarget({
+            storage: input.storage,
+            submissionId: input.submissionId,
+            target: navigation.target,
+          });
+        }
+        return { ...response, ...(navigation ? { navigation } : {}) };
+      },
+    }),
+    toolDefinition({
       name: "openmeld_require_identity_for_action",
       description:
         "Record that one explicit action requested by the current connected Message Channel member cannot proceed without their personal OpenMeld access. Use this only for a personal or member-owned capability, a role-restricted action, a destructive or human-attributed action, or an action whose owner reports that a verified OpenMeld member is required. Never use it for public research, Organization information, shared-App reads, or ordinary safe shared-App writes. Complete every independent part first. This does not execute the blocked action. OpenMeld immediately records one private Connect my account and continue action for the current request. You may then compare the current provider account with openmeld_read_organization_directory and refine the action through openmeld_get_navigation_action when exactly one member is clearly the same person; otherwise the generic private action is already ready. Never expose tools, catalogs, sessions, routing, or permission infrastructure to the user.",
@@ -2278,15 +2404,20 @@ export function getRemoteAgentOpenMeldToolDefinitions(
           organizationReadPageToolInputSchema,
           payload
         );
-        const toolContext =
-          await buildAnonymousCompatibleOrganizationReadToolContext({
-            storage: input.storage,
-            submissionId: input.submissionId,
-            toolName: "openmeld_read_organization_directory",
-          });
+        const toolContext = await (input.personalAgent
+          ? buildRemoteAgentToolContext
+          : buildAnonymousCompatibleOrganizationReadToolContext)({
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_read_organization_directory",
+        });
         const rpc = requireCoreRpc(
-          input.coreWorker.centerAgentGetOrganizationDirectory,
-          "centerAgentGetOrganizationDirectory"
+          input.personalAgent
+            ? input.coreWorker.remoteAgentGetOrganizationDirectory
+            : input.coreWorker.centerAgentGetOrganizationDirectory,
+          input.personalAgent
+            ? "remoteAgentGetOrganizationDirectory"
+            : "centerAgentGetOrganizationDirectory"
         );
         const response = pageOrganizationDirectory(
           organizationDirectoryResponseSchema.parse(
@@ -2793,13 +2924,13 @@ export function getRemoteAgentOpenMeldToolDefinitions(
         if (request.action === "list" && request.documentId) {
           throw new TypeError("Listing documents cannot include documentId.");
         }
-        const toolContext = await buildOrganizationMemberToolContext({
-          missingSpeakerMessage:
-            "Organization document reads require a current Organization member.",
-          storage: input.storage,
-          submissionId: input.submissionId,
-          toolName: "openmeld_read_org_documents",
-        });
+        const toolContext = buildOrganizationDocumentReadContext(
+          await buildOpenMeldToolContext({
+            storage: input.storage,
+            submissionId: input.submissionId,
+            toolName: "openmeld_read_org_documents",
+          })
+        );
         const rpcInput =
           request.action === "list"
             ? { action: "list" as const, ...toolContext }
@@ -3018,7 +3149,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_read_organization_skills",
       description:
-        "List the current Organization's Skills, read one complete Skill by id, or preview a GitHub Skill. A name-only installation request needs public source discovery before this tool can preview an exact GitHub URL. Use preview_github_repository for a compact per-Skill inventory of a multi-Skill repository, including exact commit, file-size blockers, and script warnings; then preview_github for the chosen directory before installing it. Every Organization member may list and read. GitHub previews require a verified OpenMeld identity and manager authority. This tool never installs or changes a Skill.",
+        "List the current Organization's Skills, read one complete Skill by id, or preview a GitHub Skill. A name-only installation request needs public source discovery before this tool can preview an exact GitHub URL. Use preview_github_repository for a compact per-Skill inventory of a multi-Skill repository, including exact commit, file-size blockers, and script warnings. For an interrupted batch, use list_import_batches to find the requester's unfinished plans, then get_import_batch with its batchId to read each saved result. Every Organization member may list and read Skills; GitHub previews and install batches require a verified owner or admin. This tool never installs or changes a Skill.",
       input: readOrganizationSkillsToolInputSchema,
       execute: async (payload) => {
         const request = parseValibot(
@@ -3053,7 +3184,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_install_organization_skill",
       description:
-        "Install one optional Organization Skill for the verified requester. Only Organization owners and admins may install. For GitHub, first preview the exact directory, then use import_github_with_report with its commit SHA to receive script and permission warnings in the result. The older import_github action remains supported. For a Skill authored in this conversation, pass the complete portable bundle. Reuse one stable operationId only when retrying the exact same installation. This tool is unavailable during Routines and never grants tool permissions from allowed-tools.",
+        "Install optional Organization Skills for the verified owner or admin. For one GitHub Skill, preview the exact directory, then use import_github_with_report with its commit SHA and a stable operationId. For multiple Skills, preview_github_repository first, then begin_import_batch with a stable batchId, URL, expectedCommitSha and selectedPaths (omit selectedPaths only to select all). The saved plan retains results across interruptions. Call install_batch_item with that batchId and one exact path for each pending or failed selected item; never reinstall installed or skipped items or start a replacement batch for a retry. Read the batch again before reporting totals. Item retries use the same saved operation across Web and Center Agent. For an authored Skill use create with its complete bundle and operationId. Routines cannot install; Skills never grant permissions from allowed-tools.",
       input: installOrganizationSkillToolInputSchema,
       execute: async (payload) => {
         const request = parseValibot(
@@ -3191,7 +3322,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
           readSpaceWakeProgressToolInputSchema,
           payload
         );
-        const toolContext = await buildOrganizationMemberToolContext({
+        const toolContext = await buildWakeControlToolContext({
           storage: input.storage,
           submissionId: input.submissionId,
           toolName: "openmeld_read_space_wake_progress",
@@ -3208,11 +3339,11 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_stop_space_wake",
       description:
-        "Request Stop for one exact Wake in a Space. Use the sourceSignalId or clientMessageId and targetProfileId from Wake progress. OpenMeld checks whether this Center Agent sent the Wake or the verified current requester could stop it in Web. The result distinguishes a Stop request from a confirmed stopped outcome; do not describe cancellation_requested as stopped.",
+        "Stop one exact request in a Space, including while it is being sent or waiting to start. Use its spaceId, clientMessageId, and targetProfileId; sourceSignalId also works after publication. To stop a running continuation, copy its dispatchId from current Wake progress as well. Do not substitute another execution if that exact one has finished. You can stop your own Agent Direct Message requests. Other requests require the verified current requester's permission. cancellation_requested means stopping, not confirmed stopped. Completed actions are not undone.",
       input: stopSpaceWakeToolInputSchema,
       execute: async (payload) => {
         const request = parseValibot(stopSpaceWakeToolInputSchema, payload);
-        const toolContext = await buildOrganizationMemberToolContext({
+        const toolContext = await buildWakeControlToolContext({
           storage: input.storage,
           submissionId: input.submissionId,
           toolName: "openmeld_stop_space_wake",
@@ -3229,6 +3360,37 @@ export function getRemoteAgentOpenMeldToolDefinitions(
               ? { speakerMember: toolContext.speakerMember }
               : {}),
             spaceId: request.spaceId,
+          })
+        );
+      },
+    }),
+    toolDefinition({
+      name: "openmeld_space_input_queue",
+      description:
+        "Read or manage the verified current requester's own queued messages in a Space. Omit mutation to read. Enqueue plain text with a stable inputId and the exact dispatchId/targetProfileId from Wake progress. Steer only explicitly when requested; it updates that existing execution, never starts a new Wake. Delete only removes a pending message; reorder uses the last observed pending IDs. Unknown or unconfirmed delivery stays held: never resend with a new ID. Supported targets are Center DM and Codex Local executions; no owner or Organization-role fallback is allowed.",
+      input: spaceInputQueueToolInputSchema,
+      execute: async (payload) => {
+        const request = parseValibot(spaceInputQueueToolInputSchema, payload);
+        const toolContext = await buildOrganizationMemberToolContext({
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_space_input_queue",
+        });
+        const rpc = requireCoreRpc(
+          input.coreWorker.centerAgentSpaceInputQueue,
+          "centerAgentSpaceInputQueue"
+        );
+        return spaceInputQueueResponseSchema.parse(
+          await rpc({
+            ...toolContext,
+            spaceId: request.spaceId,
+            ...(request.mutation
+              ? {
+                  mutation: spaceInputQueueMutationSchema.parse(
+                    request.mutation
+                  ),
+                }
+              : {}),
           })
         );
       },
@@ -3732,8 +3894,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     }),
     toolDefinition({
       name: "openmeld_set_reply_placement",
-      description:
-        "Choose where this turn's reply will appear before writing the answer. In a shared Space, the default is the thread under the triggering message; existing thread conversations continue there. Direct messages default to a direct reply. When the user explicitly asks for the main conversation, choose conversation. The choice applies to this turn's streamed answer and final outcome. Once the answer starts, its placement is fixed.",
+      description: REPLY_PLACEMENT_TOOL_DESCRIPTION,
       input: object({
         placement: picklist(["conversation", "thread"] as const),
       }),
@@ -4993,6 +5154,51 @@ export function getRemoteAgentOpenMeldToolDefinitions(
           status: "prepared",
           mentionProfileIds: request.mentionProfileIds,
         };
+      },
+    }),
+    toolDefinition({
+      name: "openmeld_wake_agent_profiles_in_spaces",
+      description:
+        "Arrange one complete delegation across 2–10 Spaces, with at most 25 Agent tasks, and resume this original request once every child has a terminal result. Use this for a request that needs work in several Spaces: include every destination in this one call before any work starts. Each destination needs a self-contained brief with the goal, verified evidence, constraints, and completion criteria, plus explicit Human Mention and Agent Reference arrays. The same Agent can work in different Spaces. Core saves the whole batch first, retries unsubmitted destinations, and preserves successful work when another destination fails. queued acknowledges the durable plan, not delivery or completion. Do not repeat the batch, poll for completion, or ask children to Wake you; their results and failures return to this request automatically. This ends the scheduling turn. Per-destination fallbacks are not supported.",
+      input: wakeAgentProfilesInSpacesToolInputSchema,
+      endsTurnAfter: (result) =>
+        centerAgentWakeAgentProfilesInSpacesResponseSchema.safeParse(result)
+          .success,
+      execute: async (payload) => {
+        const request = parseValibot(
+          wakeAgentProfilesInSpacesToolInputSchema,
+          payload
+        );
+        const toolContext = await buildRepresentedMemberAttributionToolContext({
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_wake_agent_profiles_in_spaces",
+        });
+        const rpc = requireCoreRpc(
+          input.coreWorker.centerAgentWakeAgentProfilesInSpaces,
+          "centerAgentWakeAgentProfilesInSpaces"
+        );
+        await verifySpaceAuthoringContract(toolContext.context);
+        const response =
+          centerAgentWakeAgentProfilesInSpacesResponseSchema.parse(
+            await rpc({ ...request, ...toolContext })
+          );
+        const expected = request.destinations
+          .flatMap((destination) =>
+            [...new Set(destination.agentProfileIds)].map(
+              (profileId) => `${destination.spaceId}:${profileId}`
+            )
+          )
+          .sort();
+        const actual = response.childTasks
+          .map((child) => `${child.task.spaceId}:${child.task.targetProfileId}`)
+          .sort();
+        if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+          throw new Error(
+            "Core did not acknowledge the complete Wake batch. Do not repeat the request; inspect the returned delegation."
+          );
+        }
+        return response;
       },
     }),
     toolDefinition({
@@ -6472,6 +6678,24 @@ async function buildRepresentedMemberAttributionToolContext(input: {
   return {
     context: toolContext.context,
     onBehalfOf: { profileId },
+  };
+}
+
+async function buildWakeControlToolContext(input: {
+  storage: RemoteAgentReadableStorage;
+  submissionId: string;
+  toolName: RemoteAgentOpenMeldToolName;
+}): Promise<{
+  context: OpenMeldRequestContext;
+  speakerMember?: CenterAgentToolSpeaker;
+}> {
+  const toolContext = await buildOpenMeldToolContext(input);
+  const speakerMember = resolveOrganizationMemberTurnEnvelopeSpeaker(
+    toolContext.turnEnvelope
+  );
+  return {
+    context: toolContext.context,
+    ...(speakerMember ? { speakerMember } : {}),
   };
 }
 

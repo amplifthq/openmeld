@@ -23,6 +23,16 @@
 - Source of truth: This file owns the durable product boundary for the OpenMeld Web
   client as a browser client.
 
+## App and public website boundary
+
+`clients/web` is the App at `app.openmeld.ai` (Staging:
+`app.staging.openmeld.ai`). Its root enters the authenticated Organization
+resolver or sends anonymous visitors to `/login`. Public marketing, legal,
+Changelog, and local-agent guides belong to `clients/website`; Web keeps only
+redirects for those pages. See [Public Website](website.md) for presentation and
+root-domain forwarding. Web remains the sole owner of Auth proxies, application
+APIs, installers, downloads, and native authorization entry points.
+
 ## Conversational Plugin setup
 
 A Plugin setup intent opens the current Organization's existing connection
@@ -185,6 +195,11 @@ identity. It retains the existing pair-based open/reuse behavior. Once a
 conversation is displayed, view navigation pins its resolved Space ID in the
 URL so Files/Messages cannot reselect a different conversation. Explicit
 session links always select their exact identity, including after reload.
+
+The resolved conversation's component identity uses its canonical Space ID.
+Pinning that same ID into the URL must not remount the conversation and discard
+an attachment-open request. Opening a final-message attachment therefore retains
+its selected file revision while switching from Messages to Files.
 
 Web uses three navigation levels: a 76px application rail (52px in Icons only), a contextual
 list inside the inset surface, and the current work area. Inbox, Spaces, and
@@ -1675,6 +1690,9 @@ an optional supported reasoning effort. Center Agent settings use the same
 reasoning selector. New personal Remote Agents initially select GPT-6 Sol with
 `medium` effort; Center Agent OpenMeld default is Claude Opus 5.5 with `medium`.
 Default reasoning follows the selected model's catalog effort.
+An explicit effort under **OpenMeld default** saves the current default as a
+concrete model selection. Before Save, Web explains that this model will remain
+selected when OpenMeld defaults change; Core owns materializing the model ID.
 Changing to another provider clears an incompatible draft and requires a new
 model choice before Create or Save; an empty draft must not silently select
 the system default. Local Agent model controls keep their controller-owned
@@ -2996,13 +3014,15 @@ open the exact same Agent.
 The selected Agent’s right-hand detail uses the same Profile Details section
 model, permissions, queries, mutations, execution-target locks, and diagnostic
 facts as the existing About and edit surfaces. Read-only detail is the default.
-Its Agent Profile Operational Context includes one **Activity** section. Owners
-and other members see the same compact workload copy, for example
-**Active task · 3 queued**. A Work Coordinator slot is not proof that the
-provider is generating. Selecting a disclosed work location opens its Space:
-the owner may see the current Space and queued task references, while another
-member sees only neutral working and queue-count facts. Neither view infers work
-from Agent Activity, browser timers, or message age.
+Its existing **Current activity** section combines Space-owned Wake progress and
+pending input across that Agent's Organization conversations. Owners and other
+members see the same compact counts, for example **1 active · 3 queued**.
+Each viewer sees source text and navigation only for conversations they can
+access; other conversations contribute neutral counts. Owning an Agent alone
+does not reveal its private conversations. A Work Coordinator slot is not proof
+that the provider is generating. This read-only presentation does not add a
+second execution queue or grant mutation access. Neither view infers work from
+Agent Activity, browser timers, or message age.
 If interrupted work needs attention, only the owner sees **Skip interrupted
 work** in this Activity section. The action resolves the exact current recovery
 gate and lets the oldest queued Wake continue; repeating it is harmless. Web
@@ -4492,8 +4512,10 @@ minimum and maximum widths, and reduced-motion behavior. Thread can grow to
 60rem, constrained by the available conversation area after other inline panels,
 with 512px reserved for the main conversation. When the available area cannot
 fit that width alongside Thread's minimum reading width, Thread covers the
-conversation area until closed instead of crushing either column. Covered
-content is hidden from interaction and the accessibility tree. A smaller viewport
+main conversation area until closed instead of crushing either column. Its
+overlay width excludes other inline panels, so opening Members keeps Members
+visible and interactive beside Thread. Only the covered main conversation is
+hidden from interaction and the accessibility tree. A smaller viewport
 constrains the displayed width without overwriting the saved wider preference.
 Members and Thread widths are persisted as separate browser presentation preferences. The
 Members open/closed state and width are scoped to the current Space id, so
@@ -4748,9 +4770,9 @@ state; a success and failure are always separate, exact rows. Web retains at
 most the latest 50 admitted live calls. New work follows the bottom while the
 user remains there; scrolling up pauses following and shows one
 `new step · Jump to latest` control instead of pulling the user away.
-Reduced-motion preferences disable smooth following. The summary does not
-create an empty message bubble before text arrives in ordinary Spaces or
-threads.
+Reduced-motion preferences disable smooth following. Known active execution
+occupies an unfinished Agent reply before text arrives, in both ordinary Spaces
+and threads. Public work fills that same reply without waiting for answer text.
 
 Space messages and Thread messages do not render a separate `woke Agent Name`
 receipt. Instead, the inline Agent token shows its exact Wake or Reference
@@ -5511,9 +5533,14 @@ input-waiting Orbs are paused.
 
 Unfinished Agent replies follow the latest message in their owning conversation.
 The server-selected `replyThreadRootSignalId` takes precedence over the trigger
-message's location once reply placement is known. Before selection, progress
-keeps its source context, except a shared-Space Center Agent Wake waits for its
-selected destination instead of showing a provisional main-conversation status.
+message's location once reply placement is known. Before selection, execution
+progress keeps its source context, including shared-Space Center Agent Wakes.
+The unfinished reply immediately shows the same authoritative progress as the
+sidebar and admits public work even before its final destination is selected.
+Native execution timing survives both outbox and dispatch-ledger projections,
+so the reply's elapsed time comes from its runtime's accepted execution evidence.
+Transient thinking and progress never allocate a reply Thread. Existing
+Thread work can use its source Thread context before an answer stream arrives.
 For a Thread-bound reply, the main message's **Open thread** entrance shows the
 compact current phase and authorized Stop control in place. The Thread shows the
 complete progress and its Stop control. The main message does not show a second
@@ -5544,6 +5571,10 @@ and stopped outcomes keep their original request context. Active rows expose a r
 and reuse the shared status, Orb, preview, and Stop controls, without message
 timestamps or publication actions. Missing source history does not hide a Wake
 whose authoritative source context proves its conversation scope.
+Stopped outcomes use the target Agent's reply surface with the original request
+preview and a quiet `(Request stopped)` label below any retained public reply text. An
+empty response still shows `(Request stopped)`. They are not grouped across Agents or
+rendered as full-width system separators; partial text survives history reload.
 Core-published native failure and cancellation text (`remote_agent_failure`)
 replaces its exact submission's temporary stream, just as a successful final
 reply does. A late or stale stream must not retain a working or failed bubble

@@ -46,16 +46,87 @@ afterEach(async () => {
 });
 
 describe("organization identity foundation", () => {
-  it("rejects cookieless cross-origin magic-link email requests", async () => {
+  it.each([
+    WEB_APP_URL,
+    "https://legacy.openmeld.invalid",
+  ])("sends a usable password reset email from trusted App origin %s", async (appOrigin) => {
+    const { auth, harness, sentEmails } = await createTestAuth({
+      enforceOriginCheck: true,
+      legacyAppOrigin: "https://legacy.openmeld.invalid",
+    });
+    const email = "reset-password@example.com";
+    await signUp(auth, { email, name: "Password Reset", password });
+    await verifyUserEmail(harness, email);
+    sentEmails.length = 0;
+
+    const response = await auth.handler(
+      new Request(`${AUTH_BASE_URL}/api/auth/request-password-reset`, {
+        body: JSON.stringify({
+          email,
+          redirectTo: `${appOrigin}/reset-password`,
+        }),
+        headers: { "content-type": "application/json", origin: appOrigin },
+        method: "POST",
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect(sentEmails).toHaveLength(1);
+    expect(sentEmails[0]).toMatchObject({
+      to: email,
+      subject: "Reset your OpenMeld password",
+    });
+    const urls = sentEmails[0]?.text?.match(EMAIL_URL_PATTERN) ?? [];
+    expect(urls).toHaveLength(1);
+    const resetLink = urls[0];
+    if (!resetLink) {
+      throw new Error("Expected a password reset link in the email");
+    }
+    const resetUrl = new URL(resetLink);
+    expect(resetUrl.origin).toBe(WEB_APP_URL);
+    expect(resetUrl.pathname).toBe("/reset-password");
+    const token = resetUrl.searchParams.get("token");
+    expect(token).toBeTruthy();
+    const newPassword = "a-new-correct-horse-battery-staple";
+    const resetResponse = await postAuth(auth, "/reset-password", {
+      token,
+      newPassword,
+    });
+    expect(resetResponse.status).toBe(200);
+    const oldSignIn = await postAuth(auth, "/sign-in/email", {
+      email,
+      password,
+    });
+    expect(oldSignIn.status).toBe(401);
+    const newSignIn = await postAuth(auth, "/sign-in/email", {
+      email,
+      password: newPassword,
+    });
+    expect(newSignIn.status).toBe(200);
+    const replay = await postAuth(auth, "/reset-password", {
+      token,
+      newPassword,
+    });
+    expect(replay.status).toBe(400);
+  });
+
+  it.each([
+    { endpoint: "/sign-in/magic-link", cookie: false },
+    { endpoint: "/request-password-reset", cookie: true },
+  ])("rejects untrusted-origin email requests at $endpoint with cookie=$cookie", async ({
+    endpoint,
+    cookie,
+  }) => {
     const { auth, sentEmails } = await createTestAuth({
       enforceOriginCheck: true,
     });
     const response = await auth.handler(
-      new Request(`${AUTH_BASE_URL}/api/auth/sign-in/magic-link`, {
+      new Request(`${AUTH_BASE_URL}/api/auth${endpoint}`, {
         body: JSON.stringify({ email: "attacker@example.com" }),
         headers: {
           "content-type": "application/json",
           origin: "https://attacker.invalid",
+          ...(cookie ? { cookie: "session=untrusted" } : {}),
         },
         method: "POST",
       })
@@ -65,17 +136,29 @@ describe("organization identity foundation", () => {
     expect(sentEmails).toEqual([]);
   });
 
-  it("keeps the exact add-account intent in the final magic-link email URL", async () => {
-    const { auth, sentEmails } = await createTestAuth();
-    const callbackUrl = new URL("/magic-link", WEB_APP_URL);
+  it.each([
+    WEB_APP_URL,
+    "https://legacy.openmeld.invalid",
+  ])("keeps the exact add-account intent from trusted App origin %s in the final magic-link email URL", async (appOrigin) => {
+    const { auth, sentEmails } = await createTestAuth({
+      enforceOriginCheck: true,
+      legacyAppOrigin: "https://legacy.openmeld.invalid",
+    });
+    const callbackUrl = new URL("/magic-link", appOrigin);
     callbackUrl.searchParams.set("intent", "add-account");
     callbackUrl.searchParams.set("redirect", "/o/acme/settings/account");
     callbackUrl.searchParams.set("untrusted", "https://attacker.invalid");
 
-    const response = await postAuth(auth, "/sign-in/magic-link", {
-      callbackURL: callbackUrl.toString(),
-      email: "add-account@example.com",
-    });
+    const response = await auth.handler(
+      new Request(`${AUTH_BASE_URL}/api/auth/sign-in/magic-link`, {
+        body: JSON.stringify({
+          callbackURL: callbackUrl.toString(),
+          email: "add-account@example.com",
+        }),
+        headers: { "content-type": "application/json", origin: appOrigin },
+        method: "POST",
+      })
+    );
 
     expect(response.status).toBe(200);
     const emailUrl = requireMagicLinkEmailUrl(
@@ -1431,6 +1514,7 @@ async function createTestAuth(
       AuthConfigEnv["OPENMELD_CORE_WORKER"]
     >["checkSpaceOwnerDeparture"];
     enforceOriginCheck?: boolean;
+    legacyAppOrigin?: string;
     sender?: CloudflareEmailSender;
   } = {}
 ): Promise<{
@@ -1465,6 +1549,7 @@ async function createTestAuth(
     AUTH_EMAIL: sender,
     AUTH_FROM_EMAIL: "OpenMeld <noreply@openmeld.invalid>",
     AUTH_MAGIC_LINK_EXPIRES_IN_SECONDS: "300",
+    AUTH_LEGACY_APP_ORIGIN: input.legacyAppOrigin,
     AUTH_WORKER_NODE_ENV: input.enforceOriginCheck
       ? "production"
       : "development",

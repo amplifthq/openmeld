@@ -119,6 +119,7 @@ test("checks only selected client artifacts, even when the train includes other 
         cli: "not_required",
         desktop: "not_required",
         web: "not_required",
+        website: "not_required",
       },
       productionScopes: ["db"],
       scopes: ["db"],
@@ -144,6 +145,7 @@ test("checks only selected client artifacts, even when the train includes other 
         cli: "verified",
         desktop: "not_required",
         web: "not_required",
+        website: "not_required",
       },
       productionScopes: ["db", "cli", "web"],
       scopes: ["db", "cli", "web", "desktop"],
@@ -201,6 +203,7 @@ test("the CLI admits an explicit selected scope at the checked-out source", () =
       cli: "not_required",
       desktop: "not_required",
       web: "not_required",
+      website: "not_required",
     },
     productionScopes: ["db"],
     scopes: ["db"],
@@ -442,7 +445,7 @@ test("one coordinated full train admits each artifact once and every child verif
   await rm(path.join(webRoot, "dist"), { recursive: true });
   await rm(path.join(webRoot, ".wrangler"), { recursive: true });
   await runProductionTrainAdmission(
-    { ...input, selectedScopes: "web", restoreWebArtifact: true },
+    { ...input, selectedScopes: "web", restoreRendererArtifact: true },
     dependencies
   );
   assert.equal(
@@ -642,7 +645,7 @@ test("Web handoff rejects missing or corrupt bytes and changed build inputs inst
   const webInput = {
     ...input,
     selectedScopes: "web",
-    restoreWebArtifact: true,
+    restoreRendererArtifact: true,
   };
   await assert.rejects(
     runProductionTrainAdmission(
