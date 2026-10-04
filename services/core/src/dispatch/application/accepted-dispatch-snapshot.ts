@@ -11,8 +11,6 @@ import {
 import { readActiveRepresentedHumanSender } from "../../remote-agent/application/turn-envelope";
 
 export async function buildAcceptedDispatchSnapshot(input: {
-  env?: CoreBindings;
-  targetOwnerUserId?: string;
   message: OpenMeldDaemonDispatchQueueMessage;
   openMeldServiceRuntimeId?: string | null;
   runtimeKind?:
