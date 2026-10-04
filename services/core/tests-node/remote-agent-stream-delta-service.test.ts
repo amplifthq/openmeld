@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import type {
   RemoteAgentStreamDeltaCallbackBody,
   RemoteAgentStreamPartCallbackBody,
@@ -16,18 +17,18 @@ import {
   claimRemoteAgentMessageChannelProviderCardSend,
   markRemoteAgentMessageChannelProviderCardCreated,
   markRemoteAgentMessageChannelProviderCardSent,
-} from "../src/remote-agent/infrastructure/d1/message-channel-provider-progress-repo";
+} from "../src/remote-agent/infrastructure/postgresql/message-channel-provider-progress-repo";
 import {
   claimRemoteAgentMessageChannelFinalPublication,
   markRemoteAgentNativeDeliveryAck,
   markRemoteAgentNativeDeliveryCompleted,
   readRemoteAgentNativeDeliveryByIdempotencyKey,
   upsertRemoteAgentNativeDeliveryRecord,
-} from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+} from "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import {
-  applyDrizzleMigrationForTable as applyMigrationForTable,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+  createPostgresHarness,
+  postgresTestBinding,
+} from "./helpers/postgresql-harness.test-support";
 
 const SPACE_ID =
   "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -40,11 +41,8 @@ type LegacyRemoteAgentStreamDeltaCallbackBody = Extract<
 
 describe("Remote Agent stream delta service", () => {
   it("forwards transient progress without selecting a reply destination or creating a Thread", async () => {
-    const harness = createSqliteD1Harness();
-    applyMigrationForTable(
-      harness,
-      "openMeldRemoteAgent_native_delivery_ledger"
-    );
+    const harness = await createPostgresHarness();
+
     const rpcApplyAgentStreamDelta = vi.fn(async () => ({
       status: "accepted" as const,
       lastSequence: 1,
@@ -92,16 +90,13 @@ describe("Remote Agent stream delta service", () => {
         expect.objectContaining({ lock: false })
       );
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("validates native-delivery identity before applying a Space projection", async () => {
-    const harness = createSqliteD1Harness();
-    applyMigrationForTable(
-      harness,
-      "openMeldRemoteAgent_native_delivery_ledger"
-    );
+    const harness = await createPostgresHarness();
+
     const rpcApplyAgentStreamDelta = vi.fn(async () => ({
       status: "accepted" as const,
       lastSequence: 1,
@@ -135,16 +130,13 @@ describe("Remote Agent stream delta service", () => {
       });
       expect(rpcApplyAgentStreamDelta).toHaveBeenCalledTimes(1);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("refreshes execution evidence only for a new validated stream sequence", async () => {
-    const harness = createSqliteD1Harness();
-    applyMigrationForTable(
-      harness,
-      "openMeldRemoteAgent_native_delivery_ledger"
-    );
+    const harness = await createPostgresHarness();
+
     const rpcApplyAgentStreamDelta = vi.fn(async () => ({
       status: "accepted" as const,
       lastSequence: 1,
@@ -204,16 +196,13 @@ describe("Remote Agent stream delta service", () => {
       });
     } finally {
       vi.useRealTimers();
-      harness.close();
+      await harness.close();
     }
   });
 
   it("counts a validated tool lifecycle part as worker forward progress", async () => {
-    const harness = createSqliteD1Harness();
-    applyMigrationForTable(
-      harness,
-      "openMeldRemoteAgent_native_delivery_ledger"
-    );
+    const harness = await createPostgresHarness();
+
     const rpcApplyAgentStreamPart = vi.fn(async () => ({
       status: "accepted" as const,
       lastSequence: 1,
@@ -241,16 +230,13 @@ describe("Remote Agent stream delta service", () => {
       });
     } finally {
       vi.useRealTimers();
-      harness.close();
+      await harness.close();
     }
   });
 
   it("rejects Slack, unstable stream ids, and terminal native deliveries", async () => {
-    const harness = createSqliteD1Harness();
-    applyMigrationForTable(
-      harness,
-      "openMeldRemoteAgent_native_delivery_ledger"
-    );
+    const harness = await createPostgresHarness();
+
     const rpcApplyAgentStreamDelta = vi.fn(async () => ({
       status: "accepted" as const,
       lastSequence: 1,
@@ -308,16 +294,13 @@ describe("Remote Agent stream delta service", () => {
       });
       expect(rpcApplyAgentStreamDelta).not.toHaveBeenCalled();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("accepts Routine deltas without projecting a fabricated trigger frame", async () => {
-    const harness = createSqliteD1Harness();
-    applyMigrationForTable(
-      harness,
-      "openMeldRemoteAgent_native_delivery_ledger"
-    );
+    const harness = await createPostgresHarness();
+
     const rpcApplyAgentStreamDelta = vi.fn(async () => ({
       status: "accepted" as const,
       lastSequence: 1,
@@ -335,13 +318,13 @@ describe("Remote Agent stream delta service", () => {
       ).resolves.toEqual({ status: "accepted", lastSequence: 1 });
       expect(rpcApplyAgentStreamDelta).not.toHaveBeenCalled();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("accepts an in-flight card delta superseded by the canonical final publication", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelStreamMigrations(harness);
+    const harness = await createPostgresHarness();
+    await applyMessageChannelStreamMigrations(harness);
     const fetchImpl = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(
@@ -402,13 +385,13 @@ describe("Remote Agent stream delta service", () => {
       expect(fetchImpl).toHaveBeenCalledTimes(2);
     } finally {
       vi.unstubAllGlobals();
-      harness.close();
+      await harness.close();
     }
   });
 
   it("streams a Message Channel text snapshot into the exact durable CardKit card", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelStreamMigrations(harness);
+    const harness = await createPostgresHarness();
+    await applyMessageChannelStreamMigrations(harness);
     const fetchImpl = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(
@@ -463,18 +446,15 @@ describe("Remote Agent stream delta service", () => {
       expect(fetchImpl).toHaveBeenCalledTimes(2);
     } finally {
       vi.unstubAllGlobals();
-      harness.close();
+      await harness.close();
     }
   });
 
-  it("reads provider connections from local state while writing progress to native evidence", async () => {
-    const evidenceStore = createSqliteD1Harness();
-    const providerStore = createSqliteD1Harness();
-    applyMigrationForTable(
-      evidenceStore,
-      "openMeldRemoteAgent_native_delivery_ledger"
-    );
-    applyMessageChannelProviderMigrations(providerStore);
+  it("keeps provider authorization and native progress as distinct owners in one PostgreSQL database", async () => {
+    const evidenceStore = await createPostgresHarness();
+    const providerStore = evidenceStore;
+
+    await applyMessageChannelProviderMigrations(providerStore);
     const fetchImpl = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(
@@ -490,7 +470,7 @@ describe("Remote Agent stream delta service", () => {
       await seedLarkConnection(providerStore);
       await createAcceptedMessageChannelDelivery(evidenceStore.db);
       const env = {
-        ...buildSplitEnv(evidenceStore.db, providerStore.db, vi.fn()),
+        ...buildEnv(evidenceStore.db, vi.fn()),
         OPENMELD_LARK_CHANNEL_ENABLED: "true",
         LARK_OPENMELD_PLATFORM_CREDENTIAL_CRYPTO_KEY: CRYPTO_KEY,
       } as CoreBindings;
@@ -517,14 +497,13 @@ describe("Remote Agent stream delta service", () => {
       });
     } finally {
       vi.unstubAllGlobals();
-      evidenceStore.close();
-      providerStore.close();
+      await evidenceStore.close();
     }
   });
 
   it("returns provider Retry-After for a rate-limited CardKit stream", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelStreamMigrations(harness);
+    const harness = await createPostgresHarness();
+    await applyMessageChannelStreamMigrations(harness);
     const fetchImpl = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(
@@ -570,13 +549,13 @@ describe("Remote Agent stream delta service", () => {
       });
     } finally {
       vi.unstubAllGlobals();
-      harness.close();
+      await harness.close();
     }
   });
 
   it("retries one ambiguous CardKit update with the same sequence and UUID", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelStreamMigrations(harness);
+    const harness = await createPostgresHarness();
+    await applyMessageChannelStreamMigrations(harness);
     const fetchImpl = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(
@@ -630,13 +609,13 @@ describe("Remote Agent stream delta service", () => {
       ).toHaveLength(1);
     } finally {
       vi.unstubAllGlobals();
-      harness.close();
+      await harness.close();
     }
   });
 
   it("rolls a long Message Channel snapshot into a durable follow-up card", async () => {
-    const harness = createSqliteD1Harness();
-    applyMessageChannelStreamMigrations(harness);
+    const harness = await createPostgresHarness();
+    await applyMessageChannelStreamMigrations(harness);
     const fetchImpl = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(
@@ -744,7 +723,7 @@ describe("Remote Agent stream delta service", () => {
       });
     } finally {
       vi.unstubAllGlobals();
-      harness.close();
+      await harness.close();
     }
   });
 });
@@ -759,7 +738,7 @@ function readRequestJson(
 }
 
 async function createAcceptedDelivery(
-  db: D1Database,
+  db: PostgresDatabase,
   options: {
     conversationKind?: "slack" | "space";
     idempotencyKey?: string;
@@ -873,7 +852,7 @@ function createToolPart(): RemoteAgentStreamPartCallbackBody {
 }
 
 function buildEnv(
-  db: D1Database,
+  db: PostgresDatabase,
   rpcApplyAgentStreamDelta: ReturnType<typeof vi.fn>,
   rpcApplyAgentStreamPart: ReturnType<typeof vi.fn> = vi.fn()
 ): CoreBindings {
@@ -894,9 +873,8 @@ function buildEnv(
     }),
   };
   return {
-    OPENMELD_DB: db,
-    OPENMELD_LOCAL_STATE_DB: db,
-    OPENMELD_WAKE_EVIDENCE_DB: db,
+    OPENMELD_POSTGRESQL: postgresTestBinding(db),
+
     OPENMELD_SPACES: {
       get: () => spaceStub,
       idFromString: () => ({ toString: () => SPACE_ID }),
@@ -904,50 +882,34 @@ function buildEnv(
   } as CoreBindings;
 }
 
-function buildSplitEnv(
-  evidenceDb: D1Database,
-  providerDb: D1Database,
-  rpcApplyAgentStreamDelta: ReturnType<typeof vi.fn>
-): CoreBindings {
-  return {
-    ...buildEnv(evidenceDb, rpcApplyAgentStreamDelta),
-    OPENMELD_DB: providerDb,
-    OPENMELD_LOCAL_STATE_DB: providerDb,
-    OPENMELD_WAKE_EVIDENCE_DB: evidenceDb,
-  } as CoreBindings;
+async function applyMessageChannelStreamMigrations(
+  harness: Awaited<ReturnType<typeof createPostgresHarness>>
+): Promise<void> {
+  await applyMessageChannelProviderMigrations(harness);
 }
 
-function applyMessageChannelStreamMigrations(
-  harness: ReturnType<typeof createSqliteD1Harness>
-): void {
-  applyMigrationForTable(harness, "openMeldRemoteAgent_native_delivery_ledger");
-  applyMessageChannelProviderMigrations(harness);
-}
-
-function applyMessageChannelProviderMigrations(
-  harness: ReturnType<typeof createSqliteD1Harness>
-): void {
-  harness.run({ sql: "CREATE TABLE users (id TEXT PRIMARY KEY)" });
-  harness.run({ sql: "CREATE TABLE organizations (id TEXT PRIMARY KEY)" });
-  harness.run({ sql: "INSERT INTO users (id) VALUES ('user_1')" });
-  harness.run({ sql: "INSERT INTO organizations (id) VALUES ('org_1')" });
-  applyMigrationForTable(
-    harness,
-    "openMeldRemoteAgent_lark_platform_channel_connections"
-  );
+async function applyMessageChannelProviderMigrations(
+  harness: Awaited<ReturnType<typeof createPostgresHarness>>
+): Promise<void> {
+  await harness.query({
+    text: "INSERT INTO \"openmeld\".\"users\" (id, \"name\", \"email\") VALUES ('user_1', 'Test User', ('user_1')::text || '@example.com')",
+  });
+  await harness.query({
+    text: 'INSERT INTO "openmeld"."organizations" (id, "name", "slug", "created_at") VALUES (\'org_1\', \'Test Organization\', (\'org_1\')::text, 1700000000000)',
+  });
 }
 
 async function seedLarkConnection(
-  harness: ReturnType<typeof createSqliteD1Harness>
+  harness: Awaited<ReturnType<typeof createPostgresHarness>>
 ): Promise<void> {
   const encryptedAppSecret = await encryptLarkPlatformCredential({
     credential: "app-secret",
     credentialName: "app secret",
     cryptoKey: CRYPTO_KEY,
   });
-  harness.run({
-    sql: `
-      INSERT INTO openMeldRemoteAgent_lark_platform_channel_connections (
+  await harness.query({
+    text: `
+      INSERT INTO "openmeld"."openMeldRemoteAgent_lark_platform_channel_connections" (
         connection_id,
         organization_id,
         provider,
@@ -986,10 +948,10 @@ async function seedLarkConnection(
       )
     `,
   });
-  harness.run({
-    params: [encryptedAppSecret, LARK_PLATFORM_CREDENTIAL_FORMAT_VERSION],
-    sql: `
-      INSERT INTO openMeldRemoteAgent_lark_platform_channel_credentials (
+  await harness.query({
+    values: [encryptedAppSecret, LARK_PLATFORM_CREDENTIAL_FORMAT_VERSION],
+    text: `
+      INSERT INTO "openmeld"."openMeldRemoteAgent_lark_platform_channel_credentials" (
         connection_id,
         encrypted_app_secret,
         encrypted_verification_token,
@@ -999,10 +961,10 @@ async function seedLarkConnection(
         updated_at_ms
       ) VALUES (
         'connection_lark_test',
-        ?,
+        $1,
         NULL,
         NULL,
-        ?,
+        $2,
         1000,
         1000
       )
@@ -1011,7 +973,7 @@ async function seedLarkConnection(
 }
 
 async function createAcceptedMessageChannelDelivery(
-  db: D1Database
+  db: PostgresDatabase
 ): Promise<void> {
   await upsertRemoteAgentNativeDeliveryRecord({
     attemptId: "attempt_1",

@@ -52,7 +52,6 @@ import {
   type GitWorkingCopyLocation,
 } from "./github-working-copy-computer";
 import { advanceGitPackTransfer } from "./github-working-copy-transfer";
-
 export const REMOTE_AGENT_GIT_STORAGE_PREFIX = "github-working-copy:v2:";
 // Code Mode stops its script after 60 seconds. Leave time to import the blobs
 // already transferred and return a truthful preparing result.
@@ -90,7 +89,11 @@ type CheckoutTimings = {
   computerWrite: number;
   computerPrepare: number;
 };
-type Publication = { signature: string; commit: string; refAttempted: boolean };
+type Publication = {
+  signature: string;
+  commit: string;
+  refAttempted: boolean;
+};
 type FilePublication = Publication & {
   branch: string;
   path: string;
@@ -98,7 +101,6 @@ type FilePublication = Publication & {
   repo: string;
   githubActor: "requester" | "organization";
 };
-
 export function getGitHubWorkingCopyTools(
   input: Dependencies
 ): RemoteAgentToolDefinition[] {
@@ -159,7 +161,6 @@ export function getGitHubWorkingCopyTools(
     },
   ];
 }
-
 type PublishComputerFileInput = {
   path: string;
   owner: string;
@@ -167,7 +168,6 @@ type PublishComputerFileInput = {
   githubActor: "requester" | "organization";
   operationId: string;
 };
-
 export async function publishComputerFile(
   input: Dependencies,
   request: PublishComputerFileInput,
@@ -356,7 +356,6 @@ export async function publishComputerFile(
   }
   return computerFileReceipt(publication, request.operationId, false);
 }
-
 function validComputerFilePublishRequest(request: PublishComputerFileInput) {
   return (
     GITHUB_REPOSITORY_SEGMENT_PATTERN.test(request.owner) &&
@@ -364,7 +363,6 @@ function validComputerFilePublishRequest(request: PublishComputerFileInput) {
     GITHUB_OPERATION_ID_PATTERN.test(request.operationId)
   );
 }
-
 async function createComputerFileCommit(input: {
   remote: GitHubWorkingCopyProvider;
   operation: Omit<
@@ -402,7 +400,6 @@ async function createComputerFileCommit(input: {
   }
   return commit;
 }
-
 function computerFileReceipt(
   publication: FilePublication,
   operationId: string,
@@ -424,7 +421,6 @@ function computerFileReceipt(
       "Keep this side branch while the image is referenced so the commit remains reachable.",
   };
 }
-
 async function locate(input: Dependencies, key: string) {
   const scope = await requireRemoteAgentExecutionAccess(input);
   const scopeKey = remoteAgentExecutionScopeKey(scope);
@@ -441,7 +437,6 @@ async function locate(input: Dependencies, key: string) {
   }
   return { stored, id, storageKey, scopeKey };
 }
-
 async function authorizeCheckout(
   input: Dependencies,
   record: Checkout,
@@ -460,7 +455,6 @@ async function authorizeCheckout(
     ],
   });
 }
-
 function provider(
   input: Dependencies,
   record: Checkout,
@@ -482,7 +476,6 @@ function provider(
     deadlineAtMs,
   });
 }
-
 async function createCheckout(
   input: Dependencies,
   intent: RemoteAgentGitCheckoutInput,
@@ -585,7 +578,6 @@ async function createCheckout(
         : null,
   };
 }
-
 async function readVerifiedCachedManifests(
   computer: GitWorkingCopyComputer,
   record: Checkout
@@ -619,7 +611,6 @@ async function readVerifiedCachedManifests(
     return null;
   }
 }
-
 async function loadVerifiedCheckoutManifests(input: {
   record: Checkout;
   created: Awaited<ReturnType<typeof createCheckout>> | null;
@@ -650,7 +641,6 @@ async function loadVerifiedCheckoutManifests(input: {
   }
   return { entries, baselineEntries };
 }
-
 async function transferCheckoutBlobs(input: {
   allowed: Set<string>;
   missing: string[];
@@ -704,7 +694,6 @@ async function transferCheckoutBlobs(input: {
     throw transferError;
   }
 }
-
 async function prepareCheckoutWithinBudget(input: {
   computer: GitWorkingCopyComputer;
   record: Checkout;
@@ -734,7 +723,6 @@ async function prepareCheckoutWithinBudget(input: {
     throw error;
   }
 }
-
 async function prepareRequesterCheckoutObjects(input: {
   dependencies: Dependencies;
   record: Checkout;
@@ -778,7 +766,6 @@ async function prepareRequesterCheckoutObjects(input: {
     ? ((await prepareWithinBudget(true)) ?? progress)
     : progress;
 }
-
 export async function checkoutRepository(
   input: Dependencies,
   intent: RemoteAgentGitCheckoutInput,
@@ -815,7 +802,6 @@ export async function checkoutRepository(
     });
   }
 }
-
 async function loadOrCreateCheckout(input: {
   deps: Dependencies;
   intent: RemoteAgentGitCheckoutInput;
@@ -859,7 +845,6 @@ async function loadOrCreateCheckout(input: {
   }
   return { record, created, identity };
 }
-
 async function registerRequesterCheckoutGrant(input: {
   dependencies: Dependencies;
   intent: RemoteAgentGitCheckoutInput;
@@ -921,7 +906,6 @@ async function registerRequesterCheckoutGrant(input: {
     })
   );
 }
-
 async function checkoutRepositoryBatch(
   input: Dependencies,
   intent: RemoteAgentGitCheckoutInput,
@@ -1087,7 +1071,6 @@ async function checkoutRepositoryBatch(
       : "Call github_checkout_repository again with identical input to check transfer progress.",
   };
 }
-
 export async function publishCheckout(
   input: Dependencies,
   request: RemoteAgentGitPublishInput,
@@ -1262,7 +1245,6 @@ export async function publishCheckout(
     false
   );
 }
-
 async function reconcilePublication(input: {
   existing: Awaited<ReturnType<typeof readConnectorActionOperation>>;
   publication: Publication | undefined;
@@ -1314,7 +1296,6 @@ async function reconcilePublication(input: {
     true
   );
 }
-
 async function planUploadObjects(
   remote: GitHubWorkingCopyProvider,
   entries: RemoteAgentGitTreeEntry[],
@@ -1341,7 +1322,6 @@ async function planUploadObjects(
   }
   return needed;
 }
-
 async function uploadObjects(
   remote: GitHubWorkingCopyProvider,
   computer: GitWorkingCopyComputer,
@@ -1355,7 +1335,6 @@ async function uploadObjects(
   }
   await remote.createTree(entries, tree);
 }
-
 function publicationReceipt(
   record: Checkout,
   request: RemoteAgentGitPublishInput,
@@ -1378,7 +1357,6 @@ function publicationReceipt(
       "Use this branch with github_create_pull_request and draft=true, or update the existing Draft PR. Report tests against the exact local commit/tree separately.",
   };
 }
-
 function validateCheckoutBudget(
   entries: RemoteAgentGitTreeEntry[],
   baseline: RemoteAgentGitTreeEntry[]
@@ -1410,7 +1388,6 @@ function validateCheckoutBudget(
     );
   }
 }
-
 async function textDigest(text: string) {
   return Buffer.from(
     await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))

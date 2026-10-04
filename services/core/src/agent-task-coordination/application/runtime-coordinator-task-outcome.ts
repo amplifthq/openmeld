@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   areAgentTaskTerminalOutcomesEqual,
   buildAgentTaskKey,
@@ -12,7 +13,7 @@ import type {
 } from "@openmeld/schemas/types";
 import type { CoreBindings } from "../../lib/bindings";
 import { resolveRuntimeCoordinatorFinalizationSemantic } from "../../runtime-transport/application/runtime-coordinator-finalization-semantic";
-import { readAgentTaskTerminalOutcome } from "../infrastructure/d1/agent-task-coordination-repo";
+import { readAgentTaskTerminalOutcome } from "../infrastructure/postgresql/agent-task-coordination-repo";
 import {
   recordAndEnqueueAgentTaskTerminalOutcome,
   recordAndEnqueueAgentTaskTerminalOutcomeIfMatching,
@@ -22,21 +23,20 @@ import {
 type RuntimeCoordinatorTaskTerminalRecord = {
   nowMs: number;
   outcome: AgentTaskTerminalOutcome;
-  task: AgentTaskHandle & { kind: "space_wake" };
+  task: AgentTaskHandle & {
+    kind: "space_wake";
+  };
 };
-
 type RuntimeCoordinatorTaskOutcomeWriteResult = {
   expectedOutcome: AgentTaskTerminalOutcome;
   matches: boolean;
   storedOutcome: AgentTaskTerminalOutcome;
 };
-
 type RuntimeCoordinatorTaskOutcomeInspectionResult = {
   expectedOutcome: AgentTaskTerminalOutcome;
   matches: boolean;
   storedOutcome: AgentTaskTerminalOutcome | null;
 };
-
 export function projectRuntimeCoordinatorFinalizationTaskTerminalRecord(input: {
   command: RuntimeCoordinatorFinalizationCommand;
   finalMessageKind?: RuntimeCoordinatorFinalizationFinalMessageKind;
@@ -48,7 +48,6 @@ export function projectRuntimeCoordinatorFinalizationTaskTerminalRecord(input: {
   if (!sourceClientMessageId) {
     return null;
   }
-
   const payload = input.command.acceptedResult.taskResult.payload;
   const occurredAtMs =
     ("telemetry" in payload ? payload.telemetry?.completedAtMs : undefined) ??
@@ -75,7 +74,6 @@ export function projectRuntimeCoordinatorFinalizationTaskTerminalRecord(input: {
     task,
   };
 }
-
 export function projectRuntimeCoordinatorPublicationFailedTaskTerminalRecord(input: {
   command: RuntimeCoordinatorFinalizationCommand;
   occurredAtMs: number;
@@ -103,7 +101,6 @@ export function projectRuntimeCoordinatorPublicationFailedTaskTerminalRecord(inp
     }),
   };
 }
-
 export function projectRuntimeCoordinatorFailureTaskTerminalRecord(input: {
   command: RuntimeCoordinatorFailurePublicationCommand;
   finalMessageKind: RuntimeCoordinatorFailurePublicationFinalMessageKind;
@@ -114,7 +111,6 @@ export function projectRuntimeCoordinatorFailureTaskTerminalRecord(input: {
   if (!sourceClientMessageId) {
     return null;
   }
-
   let status: AgentTaskTerminalOutcome["status"] = "failed";
   if (
     input.finalMessageKind === "status" ||
@@ -138,10 +134,9 @@ export function projectRuntimeCoordinatorFailureTaskTerminalRecord(input: {
     }),
   };
 }
-
 export async function recordRuntimeCoordinatorFinalizationTaskOutcome(input: {
   command: RuntimeCoordinatorFinalizationCommand;
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   finalMessageKind?: RuntimeCoordinatorFinalizationFinalMessageKind;
   publishedSignalId: string | null;
@@ -163,10 +158,9 @@ export async function recordRuntimeCoordinatorFinalizationTaskOutcome(input: {
     storedOutcome,
   };
 }
-
 export async function recordRuntimeCoordinatorPublicationFailedTaskOutcome(input: {
   command: RuntimeCoordinatorFinalizationCommand;
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   occurredAtMs: number;
   publishedSignalId: string;
@@ -188,10 +182,9 @@ export async function recordRuntimeCoordinatorPublicationFailedTaskOutcome(input
     storedOutcome: write.storedOutcome,
   };
 }
-
 export async function inspectRuntimeCoordinatorPublicationFailedTaskOutcome(input: {
   command: RuntimeCoordinatorFinalizationCommand;
-  db: D1Database;
+  db: PostgresDatabase;
   occurredAtMs: number;
   publishedSignalId: string;
   reasonCode: string;
@@ -213,10 +206,9 @@ export async function inspectRuntimeCoordinatorPublicationFailedTaskOutcome(inpu
     storedOutcome: stored?.outcome ?? null,
   };
 }
-
 export async function recordRuntimeCoordinatorFailureTaskOutcome(input: {
   command: RuntimeCoordinatorFailurePublicationCommand;
-  db: D1Database | undefined;
+  db: PostgresDatabase | undefined;
   env: CoreBindings;
   finalMessageKind: RuntimeCoordinatorFailurePublicationFinalMessageKind;
   publishedSignalId: string;
@@ -231,9 +223,8 @@ export async function recordRuntimeCoordinatorFailureTaskOutcome(input: {
     ...record,
   });
 }
-
 export async function recordRuntimeCoordinatorStoppedTaskOutcome(input: {
-  db: D1Database | undefined;
+  db: PostgresDatabase | undefined;
   env: CoreBindings;
   eventId: string;
   occurredAtMs: number;
@@ -253,9 +244,8 @@ export async function recordRuntimeCoordinatorStoppedTaskOutcome(input: {
     ...record,
   });
 }
-
 export async function recordRuntimeCoordinatorExecutionFailureTaskOutcome(input: {
-  db: D1Database | undefined;
+  db: PostgresDatabase | undefined;
   env: CoreBindings;
   eventId: string;
   occurredAtMs: number;
@@ -286,7 +276,6 @@ export async function recordRuntimeCoordinatorExecutionFailureTaskOutcome(input:
     }),
   });
 }
-
 export function projectRuntimeCoordinatorStoppedTaskTerminalRecord(input: {
   eventId: string;
   occurredAtMs: number;
@@ -315,12 +304,13 @@ export function projectRuntimeCoordinatorStoppedTaskTerminalRecord(input: {
     }),
   };
 }
-
 function buildSpaceWakeTaskHandle(input: {
   sourceClientMessageId: string;
   spaceId: string;
   targetProfileId: string;
-}): AgentTaskHandle & { kind: "space_wake" } {
+}): AgentTaskHandle & {
+  kind: "space_wake";
+} {
   return {
     kind: "space_wake",
     sourceClientMessageId: input.sourceClientMessageId,

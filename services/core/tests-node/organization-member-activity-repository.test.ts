@@ -3,32 +3,24 @@ import {
   listOrganizationMemberActivity,
   recordOrganizationMemberActivity,
 } from "../src/organizations/organization-member-activity-repository";
-import {
-  applyDrizzleMigrationsForTables,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 describe("Organization member activity repository", () => {
   it("keeps the newest accepted Human activity for each Organization member", async () => {
-    const harness = createSqliteD1Harness();
-    applyDrizzleMigrationsForTables(harness, [
-      "users",
-      "organizations",
-      "members",
-      "organization_member_activity",
-    ]);
-    harness.run({
-      params: ["user-one", "Person One", "person@example.com", 1, 1],
-      sql: `
-        INSERT INTO users (id, name, email, email_verified, created_at, updated_at)
-        VALUES (?, ?, ?, true, ?, ?)
+    const harness = await createPostgresHarness();
+
+    await harness.query({
+      values: ["user-one", "Person One", "person@example.com", 1, 1],
+      text: `
+        INSERT INTO "openmeld"."users" (id, name, email, email_verified, created_at, updated_at)
+        VALUES ($1, $2, $3, 1, $4, $5)
       `,
     });
-    harness.run({
-      params: ["org-one", "Organization One", "organization-one", 1],
-      sql: `
-        INSERT INTO organizations (id, name, slug, created_at)
-        VALUES (?, ?, ?, ?)
+    await harness.query({
+      values: ["org-one", "Organization One", "organization-one", 1],
+      text: `
+        INSERT INTO "openmeld"."organizations" (id, name, slug, created_at)
+        VALUES ($1, $2, $3, $4)
       `,
     });
 
@@ -65,7 +57,7 @@ describe("Organization member activity repository", () => {
         },
       ]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });

@@ -1,8 +1,9 @@
 import { env } from "cloudflare:test";
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { describe, expect, it, vi } from "vitest";
 import type { CenterAgentMemoryAdapter } from "../src/center-agent-memory/contract";
-import { createD1CenterAgentMemoryRepository } from "../src/center-agent-memory/d1-memory-repository";
 import { createCenterAgentMemoryService } from "../src/center-agent-memory/memory-service";
+import { createPostgresCenterAgentMemoryRepository } from "../src/center-agent-memory/postgresql-memory-repository";
 
 describe("automatic memory recall with persisted subject state", () => {
   it.each([
@@ -90,17 +91,17 @@ async function seedMemorySubject() {
   const id = crypto.randomUUID();
   const organizationId = `memory_org_${id}`;
   const userId = `memory_user_${id}`;
-  await env.OPENMELD_DB.prepare(
-    "INSERT INTO organizations (id, name, slug, created_at) VALUES (?, ?, ?, ?)"
-  )
-    .bind(organizationId, "Synthetic memory evaluation", id, 1000)
-    .run();
-  await env.OPENMELD_DB.prepare(
-    "INSERT INTO users (id, name, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)"
-  )
-    .bind(userId, "Synthetic evaluator", `${id}@example.com`, 1, 1000, 1000)
-    .run();
-  const repository = createD1CenterAgentMemoryRepository(env.OPENMELD_DB);
+  await getPostgresDatabase(env).query({
+    text: 'INSERT INTO "openmeld"."organizations" (id, name, slug, created_at) VALUES ($1, $2, $3, $4)',
+    values: [organizationId, "Synthetic memory evaluation", id, 1000],
+  });
+  await getPostgresDatabase(env).query({
+    text: 'INSERT INTO "openmeld"."users" (id, name, email, email_verified, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6)',
+    values: [userId, "Synthetic evaluator", `${id}@example.com`, 1, 1000, 1000],
+  });
+  const repository = createPostgresCenterAgentMemoryRepository(
+    getPostgresDatabase(env)
+  );
   await repository.upsertOrganizationSubject({ organizationId, nowMs: 1000 });
   return {
     organizationId,
@@ -108,11 +109,10 @@ async function seedMemorySubject() {
     repository,
     readRows: async () =>
       (
-        await env.OPENMELD_DB.prepare(
-          "SELECT * FROM center_agent_memory_subjects WHERE organization_id = ?"
-        )
-          .bind(organizationId)
-          .all()
-      ).results,
+        await getPostgresDatabase(env).query({
+          text: 'SELECT * FROM "openmeld"."center_agent_memory_subjects" WHERE organization_id = $1',
+          values: [organizationId],
+        })
+      ).rows,
   };
 }

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { spawnSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 
@@ -11,6 +12,36 @@ const PENDING_D1_MIGRATIONS_PATTERN =
 
 export function requireProductionDatabaseCurrent(input = {}) {
   const cwd = path.resolve(input.cwd ?? process.cwd());
+  const manifestPath = path.join(cwd, "release/database-backend.json");
+  if (
+    existsSync(manifestPath) &&
+    JSON.parse(readFileSync(manifestPath, "utf8")).backend === "postgresql"
+  ) {
+    const result = (input.runCommand ?? runCommand)({
+      command: process.execPath,
+      args: [path.join(cwd, "tooling/postgresql/cutover.mjs"), "verify"],
+      cwd,
+    });
+    if (result.status !== 0) {
+      throw new Error(
+        `Production PostgreSQL journal or runtime grants are not current. ${formatProbeEvidence(result)}`
+      );
+    }
+    const verified = JSON.parse(result.stdout);
+    if (
+      !(verified.runtimeGrantsVerified && verified.nativeJournal?.length) ||
+      verified.target?.kind !== "planetscale"
+    ) {
+      throw new Error(
+        "Production PostgreSQL probe did not return native target evidence"
+      );
+    }
+    return {
+      status: "current",
+      reason:
+        "the native PostgreSQL journal and runtime grants match the release source",
+    };
+  }
   const command = {
     command: "pnpm",
     args: [

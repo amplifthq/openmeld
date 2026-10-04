@@ -1,13 +1,13 @@
 import type { InboxSourceCandidate } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
 import { prepareSpaceInboxCandidateForCenterAgent } from "../src/space/application/space-inbox-center-agent-candidate";
-import { createSqliteD1Harness } from "./helpers/sqlite-d1-harness.test-support";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 describe("Center Agent Space Inbox candidate", () => {
   it("uses the canonical Center Agent target for a reply in the member DM", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     try {
-      seedCenterAgentDirectMessage(harness);
+      await seedCenterAgentDirectMessage(harness);
 
       await expect(
         prepareSpaceInboxCandidateForCenterAgent({
@@ -23,14 +23,14 @@ describe("Center Agent Space Inbox candidate", () => {
         },
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("uses the canonical Center Agent target for an attention request in the member DM", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     try {
-      seedCenterAgentDirectMessage(harness);
+      await seedCenterAgentDirectMessage(harness);
 
       await expect(
         prepareSpaceInboxCandidateForCenterAgent({
@@ -51,15 +51,16 @@ describe("Center Agent Space Inbox candidate", () => {
         },
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("keeps an ordinary agent reply on its Space target", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     try {
-      seedSpace(harness, {
-        directMessagePairKey: "profile-human:profile-other-agent",
+      await seedSpace(harness, {
+        directMessagePairKey:
+          "22222222-2222-4222-8222-222222222222:agt_33333333-3333-4333-8333-333333333333",
         purpose: "openmeld_dm_space",
       });
 
@@ -70,7 +71,7 @@ describe("Center Agent Space Inbox candidate", () => {
         })
       ).resolves.toEqual(candidate());
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });
@@ -96,66 +97,58 @@ function candidate(): InboxSourceCandidate {
   };
 }
 
-function createHarness() {
-  const harness = createSqliteD1Harness();
-  harness.run({
-    sql: `
-      CREATE TABLE center_agent_designations (
-        organization_id TEXT PRIMARY KEY NOT NULL,
-        agent_profile_id TEXT NOT NULL
-      )
-    `,
+async function createHarness() {
+  const harness = await createPostgresHarness();
+  await harness.query({
+    text: `INSERT INTO "openmeld"."users" (id,name,email) VALUES ('owner','Owner','owner@example.test')`,
   });
-  harness.run({
-    sql: `
-      CREATE TABLE space_index_spaces (
-        space_id TEXT PRIMARY KEY NOT NULL,
-        organization_id TEXT NOT NULL,
-        space_purpose TEXT,
-        direct_message_pair_key TEXT,
-        status TEXT NOT NULL
-      )
-    `,
+  await harness.query({
+    text: `INSERT INTO "openmeld"."organizations" (id,name,slug,created_at) VALUES ('org-1','Organization','org-1',1000)`,
   });
-  harness.run({
-    params: ["org-1", "profile-center-agent"],
-    sql: `
-      INSERT INTO center_agent_designations (organization_id, agent_profile_id)
-      VALUES (?, ?)
+  await harness.query({
+    text: `INSERT INTO "openmeld"."openmeld_profiles" (profile_id,profile_name,profile_handle,profile_kind,organization_id,created_by_user_id,managed_role,source,status) VALUES ('agt_11111111-1111-4111-8111-111111111111','Center Agent','center-agent','agent','org-1','owner','center_agent','auth_bootstrap','active')`,
+  });
+
+  await harness.query({
+    values: ["org-1", "agt_11111111-1111-4111-8111-111111111111"],
+    text: `
+      INSERT INTO "openmeld"."center_agent_designations" (organization_id, agent_profile_id)
+      VALUES ($1, $2)
     `,
   });
   return harness;
 }
 
-function seedCenterAgentDirectMessage(
-  harness: ReturnType<typeof createSqliteD1Harness>
-): void {
-  seedSpace(harness, {
-    directMessagePairKey: "profile-center-agent:profile-human",
+async function seedCenterAgentDirectMessage(
+  harness: Awaited<ReturnType<typeof createPostgresHarness>>
+): Promise<void> {
+  await seedSpace(harness, {
+    directMessagePairKey:
+      "agt_11111111-1111-4111-8111-111111111111:22222222-2222-4222-8222-222222222222",
     purpose: "openmeld_dm_space",
   });
 }
 
-function seedSpace(
-  harness: ReturnType<typeof createSqliteD1Harness>,
+async function seedSpace(
+  harness: Awaited<ReturnType<typeof createPostgresHarness>>,
   input: { directMessagePairKey: string; purpose: string }
-): void {
-  harness.run({
-    params: [
+): Promise<void> {
+  await harness.query({
+    values: [
       "space-1",
       "org-1",
       input.purpose,
       input.directMessagePairKey,
       "active",
     ],
-    sql: `
-      INSERT INTO space_index_spaces (
+    text: `
+      INSERT INTO "openmeld"."space_index_spaces" (
         space_id,
         organization_id,
         space_purpose,
         direct_message_pair_key,
-        status
-      ) VALUES (?, ?, ?, ?, ?)
+        status, organization_visibility, source_updated_at_ms, projected_at_ms, projection_event_id
+      ) VALUES ($1, $2, $3, $4, $5, 'private', 1000, 1000, 'fixture-projection')
     `,
   });
 }

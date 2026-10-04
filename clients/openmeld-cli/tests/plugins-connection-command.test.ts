@@ -1,5 +1,7 @@
 import { Command } from "commander";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { getCommandCheckRequirements } from "../src/command-entry-checks/command-check-requirements";
+import { resolveCommandEntryNameFromTokens } from "../src/command-entry-checks/command-entry-name";
 import { registerPluginCommands } from "../src/plugins/registration";
 
 const runPluginCommand = vi.hoisted(() => vi.fn());
@@ -16,6 +18,13 @@ function program() {
 }
 beforeEach(() => runPluginCommand.mockReset());
 describe("Local Agent Plugin setup command", () => {
+  it("requires sign-in at the registered connection command entry", () => {
+    const entry = resolveCommandEntryNameFromTokens(["plugins", "connect"]);
+    expect(entry).not.toBeNull();
+    if (entry) {
+      expect(getCommandCheckRequirements(entry).signIn.mode).toBe("required");
+    }
+  });
   it.each([
     "choose",
     "personal",

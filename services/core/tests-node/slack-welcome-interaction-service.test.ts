@@ -1,21 +1,23 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   handleSlackWelcomeInteraction,
   requireRemoteAgentSlackTeammateInvitationDeliveryEvidence,
 } from "../src/remote-agent/application/slack-welcome-interaction-service";
 import {
-  createFaultInjectingD1Database,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+  createFaultInjectingPostgresDatabase,
+  createPostgresHarness,
+  postgresTestBinding,
+} from "./helpers/postgresql-harness.test-support";
 
 describe("Slack welcome teammate invitations", () => {
-  let harness: ReturnType<typeof createSqliteD1Harness>;
+  let harness: Awaited<ReturnType<typeof createPostgresHarness>>;
   let slackFetch: ReturnType<typeof vi.fn>;
 
-  beforeEach(() => {
-    harness = createSqliteD1Harness();
-    createTables(harness);
-    seedVerifiedMember(harness);
+  beforeEach(async () => {
+    harness = await createPostgresHarness();
+
+    await seedVerifiedMember(harness);
     slackFetch = vi.fn((url: string, request?: RequestInit) => {
       if (url.startsWith("https://slack.com/api/users.list")) {
         return Response.json({
@@ -232,10 +234,10 @@ describe("Slack welcome teammate invitations", () => {
     }
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
-    harness.close();
+    await harness.close();
   });
 
   it.each([
@@ -515,7 +517,7 @@ describe("Slack welcome teammate invitations", () => {
   });
 
   it("lets a verified member share an existing Organization invite link", async () => {
-    seedActiveJoinLink(harness);
+    await seedActiveJoinLink(harness);
     const ensureOrganizationJoinLinkOnBehalfOf = vi.fn();
 
     await expect(
@@ -556,7 +558,7 @@ describe("Slack welcome teammate invitations", () => {
   });
 
   it("does not invite a teammate who is already in the OpenMeld Organization", async () => {
-    seedActiveJoinLink(harness);
+    await seedActiveJoinLink(harness);
     const resolveOrganizationDirectoryMembers = vi.fn(async () => ({
       members: [
         buildDirectoryMember({
@@ -603,14 +605,14 @@ describe("Slack welcome teammate invitations", () => {
       }),
     ]);
     expect(
-      harness.queryFirst({
-        sql: "SELECT status FROM slack_teammate_invitation_deliveries",
+      await harness.queryFirst({
+        text: 'SELECT status FROM "openmeld"."slack_teammate_invitation_deliveries"',
       })
     ).toBeNull();
   });
 
   it("sends no invitations and gives one retry when membership checking is unavailable", async () => {
-    seedActiveJoinLink(harness);
+    await seedActiveJoinLink(harness);
     const resolveOrganizationDirectoryMembers = vi.fn(async () => ({
       code: "auth.organization_directory_unavailable",
       message: "Organization Directory members are temporarily unavailable.",
@@ -647,13 +649,13 @@ describe("Slack welcome teammate invitations", () => {
   });
 
   it("keeps a confirmed teammate invitation delivered when its first checkpoint write fails", async () => {
-    seedActiveJoinLink(harness);
-    const db = createFaultInjectingD1Database({
+    await seedActiveJoinLink(harness);
+    const db = createFaultInjectingPostgresDatabase({
       db: harness.db,
-      matches: (sql, operation) =>
-        operation === "run" &&
-        sql.includes("UPDATE slack_teammate_invitation_deliveries") &&
-        sql.includes("SET status = ?"),
+      matches: (sql) =>
+        sql.includes(
+          'UPDATE "openmeld"."slack_teammate_invitation_deliveries"'
+        ) && sql.includes("SET status = ?"),
     });
 
     await expect(
@@ -672,9 +674,9 @@ describe("Slack welcome teammate invitations", () => {
       )
     ).toHaveLength(2);
     expect(
-      harness.queryFirst({
-        sql: `SELECT status, message_ts, failure_code, onboarding_status
-          FROM slack_teammate_invitation_deliveries`,
+      await harness.queryFirst({
+        text: `SELECT status, message_ts, failure_code, onboarding_status
+          FROM "openmeld"."slack_teammate_invitation_deliveries"`,
       })
     ).toEqual({
       failure_code: null,
@@ -685,7 +687,7 @@ describe("Slack welcome teammate invitations", () => {
   });
 
   it("stops reading the Slack roster once every selected teammate is resolved", async () => {
-    seedActiveJoinLink(harness);
+    await seedActiveJoinLink(harness);
     slackFetch.mockImplementation((url: string, request?: RequestInit) => {
       if (url.startsWith("https://slack.com/api/users.list")) {
         const cursor = new URL(url).searchParams.get("cursor");
@@ -741,7 +743,7 @@ describe("Slack welcome teammate invitations", () => {
   });
 
   it("keeps reading until both the selected teammate and inviter are resolved", async () => {
-    seedActiveJoinLink(harness);
+    await seedActiveJoinLink(harness);
     slackFetch.mockImplementation((url: string, request?: RequestInit) => {
       if (url.startsWith("https://slack.com/api/users.list")) {
         const cursor = new URL(url).searchParams.get("cursor");
@@ -803,7 +805,7 @@ describe("Slack welcome teammate invitations", () => {
   });
 
   it("does not send a targeted invite when Slack cannot safely correlate the teammate", async () => {
-    seedActiveJoinLink(harness);
+    await seedActiveJoinLink(harness);
     slackFetch.mockImplementation((url: string, request?: RequestInit) => {
       if (url.startsWith("https://slack.com/api/users.list")) {
         return Response.json({
@@ -854,8 +856,8 @@ describe("Slack welcome teammate invitations", () => {
       "https://openmeld.test/join-organization?token=join-token-1"
     );
     expect(
-      harness.queryFirst({
-        sql: "SELECT status FROM slack_teammate_invitation_deliveries",
+      await harness.queryFirst({
+        text: 'SELECT status FROM "openmeld"."slack_teammate_invitation_deliveries"',
       })
     ).toBeNull();
   });
@@ -892,7 +894,7 @@ describe("Slack welcome teammate invitations", () => {
   });
 
   it("gives a stale Slack identity one private next step after the user leaves the Organization", async () => {
-    seedActiveJoinLink(harness);
+    await seedActiveJoinLink(harness);
     const resolveOrganizationAccountIdentity = vi.fn(async () => ({
       account: {
         defaultHumanProfile: null,
@@ -944,7 +946,7 @@ describe("Slack welcome teammate invitations", () => {
 });
 
 function buildEnv(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   ensureOrganizationJoinLinkOnBehalfOf: ReturnType<typeof vi.fn>;
   resolveOrganizationAccountIdentity?: ReturnType<typeof vi.fn>;
   resolveOrganizationDirectoryMembers?: ReturnType<typeof vi.fn>;
@@ -987,7 +989,7 @@ function buildEnv(input: {
           organizationId: "org-1",
         })),
     },
-    OPENMELD_DB: input.db,
+    OPENMELD_POSTGRESQL: postgresTestBinding(input.db),
     SLACK_OPENMELD_BOT_TOKEN: "xoxb-test",
     WEB_APP_URL: "https://openmeld.test",
   } as never;
@@ -1025,70 +1027,29 @@ function teammateInviteInput() {
   };
 }
 
-function createTables(harness: ReturnType<typeof createSqliteD1Harness>): void {
-  for (const sql of [
-    `CREATE TABLE openMeldRemoteAgent_slack_workspace_bindings (
-      slack_team_id TEXT PRIMARY KEY, organization_id TEXT NOT NULL,
-      created_at_ms INTEGER NOT NULL, updated_at_ms INTEGER NOT NULL
-    )`,
-    `CREATE TABLE slack_user_identity_links (
-      organization_id TEXT NOT NULL, slack_team_id TEXT NOT NULL,
-      slack_user_id TEXT NOT NULL, openmeld_user_id TEXT NOT NULL,
-      source TEXT NOT NULL, created_at_ms INTEGER NOT NULL,
-      PRIMARY KEY (slack_team_id, slack_user_id)
-    )`,
-    `CREATE TABLE organizations (
-      id TEXT PRIMARY KEY, name TEXT NOT NULL
-    )`,
-    `CREATE TABLE slack_workspace_tokens (
-      slack_team_id TEXT PRIMARY KEY, encrypted_bot_token TEXT NOT NULL,
-      bot_user_id TEXT NOT NULL, granted_bot_scopes TEXT,
-      installed_by_user_id TEXT NOT NULL,
-      organization_id TEXT NOT NULL, created_at_ms INTEGER NOT NULL,
-      updated_at_ms INTEGER NOT NULL
-    )`,
-    `CREATE TABLE organization_join_links (
-      organization_id TEXT PRIMARY KEY, token TEXT NOT NULL, revoked_at INTEGER,
-      space_id TEXT, mode TEXT NOT NULL DEFAULT 'request', expires_at INTEGER
-    )`,
-    `CREATE TABLE slack_teammate_invitation_deliveries (
-      interaction_id TEXT NOT NULL, slack_team_id TEXT NOT NULL,
-      organization_id TEXT NOT NULL, actor_slack_user_id TEXT NOT NULL,
-      actor_user_id TEXT NOT NULL, target_slack_user_id TEXT NOT NULL,
-      target_email TEXT, target_display_name TEXT NOT NULL, status TEXT NOT NULL,
-      message_ts TEXT, failure_code TEXT, onboarding_status TEXT,
-      joined_user_id TEXT, joined_profile_id TEXT, research_task_id TEXT,
-      welcome_message_ts TEXT, onboarding_failure_code TEXT,
-      created_at_ms INTEGER NOT NULL, updated_at_ms INTEGER NOT NULL,
-      PRIMARY KEY (interaction_id, target_slack_user_id)
-    )`,
-  ]) {
-    harness.run({ sql });
-  }
-}
-
-function seedVerifiedMember(
-  harness: ReturnType<typeof createSqliteD1Harness>
-): void {
-  harness.run({
-    sql: `INSERT INTO openMeldRemoteAgent_slack_workspace_bindings
-      VALUES ('T1', 'org-1', 1, 1)`,
+async function seedVerifiedMember(
+  harness: Awaited<ReturnType<typeof createPostgresHarness>>
+): Promise<void> {
+  await harness.query({
+    text: `INSERT INTO "openmeld"."users" (id,name,email) VALUES ('user-actor','Alex','alex@example.test')`,
   });
-  harness.run({
-    sql: `INSERT INTO slack_user_identity_links
-      VALUES ('org-1', 'T1', 'U_ACTOR', 'user-actor', 'explicit', 1)`,
+  await harness.query({
+    text: `INSERT INTO "openmeld"."openMeldRemoteAgent_slack_workspace_bindings" (slack_team_id, organization_id, created_at_ms, updated_at_ms) VALUES ('T1', 'org-1', 1, 1)`,
   });
-  harness.run({
-    sql: `INSERT INTO organizations VALUES ('org-1', 'Ampli Lift')`,
+  await harness.query({
+    text: `INSERT INTO "openmeld"."slack_user_identity_links" (organization_id, slack_team_id, slack_user_id, openmeld_user_id, source, created_at_ms) VALUES ('org-1', 'T1', 'U_ACTOR', 'user-actor', 'explicit', 1)`,
+  });
+  await harness.query({
+    text: `INSERT INTO "openmeld"."organizations" (id, name, "slug", "created_at") VALUES ('org-1', 'Ampli Lift', ('org-1')::text, 1700000000000)`,
   });
 }
 
-function seedActiveJoinLink(
-  harness: ReturnType<typeof createSqliteD1Harness>
-): void {
-  harness.run({
-    sql: `INSERT INTO organization_join_links
-      (organization_id, token, revoked_at, space_id)
-      VALUES ('org-1', 'join-token-1', NULL, NULL)`,
+async function seedActiveJoinLink(
+  harness: Awaited<ReturnType<typeof createPostgresHarness>>
+): Promise<void> {
+  await harness.query({
+    text: `INSERT INTO "openmeld"."organization_join_links"
+      (id, organization_id, token, revoked_at, space_id, created_by)
+      VALUES ('join-link-1', 'org-1', 'join-token-1', NULL, NULL, 'user-actor')`,
   });
 }

@@ -4,6 +4,10 @@ import {
   type WorkflowStep,
 } from "cloudflare:workers";
 import {
+  getPostgresDatabase,
+  type PostgresDatabase,
+} from "@openmeld/db/postgresql";
+import {
   remoteAgentCoreCallbackBodySchema,
   routineWorkflowContinuationEventPayloadSchema,
 } from "@openmeld/schemas";
@@ -12,7 +16,7 @@ import type {
   RoutineWorkflowContinuationEventPayload,
 } from "@openmeld/schemas/types";
 import type { CoreBindings } from "../lib/bindings";
-import { localStateDb } from "../lib/bindings";
+
 import {
   completeRemoteAgentNativeDelivery,
   ensureRemoteAgentRoutineWorkflowSubmission,
@@ -30,11 +34,10 @@ const ROUTINE_WORKFLOW_RETRY = {
   retries: { backoff: "exponential", delay: "1 second", limit: 5 },
   timeout: "1 minute",
 } as const;
-
 const ROUTINE_CALLBACK_WAIT_WINDOW_MS = 24 * 60 * 60 * 1000;
-
-type RoutineRunWorkflowParams = { runId: string };
-
+type RoutineRunWorkflowParams = {
+  runId: string;
+};
 export class RoutineRunWorkflow extends WorkflowEntrypoint<
   CoreBindings,
   RoutineRunWorkflowParams
@@ -90,7 +93,6 @@ export class RoutineRunWorkflow extends WorkflowEntrypoint<
     const callback = remoteAgentCoreCallbackBodySchema.parse(
       callbackEvent.payload
     );
-
     const firstFinalization = await step.do(
       ROUTINE_WORKFLOW_STEPS.finalizeCallback,
       ROUTINE_WORKFLOW_RETRY,
@@ -172,12 +174,14 @@ export class RoutineRunWorkflow extends WorkflowEntrypoint<
     return { status: "completed" };
   }
 }
-
 async function waitForRoutineCallback<T extends Rpc.Serializable<T>>(
   step: WorkflowStep,
   name: string,
   type: string,
-  context: { env: CoreBindings; runId: string }
+  context: {
+    env: CoreBindings;
+    runId: string;
+  }
 ) {
   for (;;) {
     try {
@@ -213,12 +217,14 @@ async function waitForRoutineCallback<T extends Rpc.Serializable<T>>(
     }
   }
 }
-
 async function finalizeRoutineWorkflowCallback(input: {
   callback: RemoteAgentCoreCallbackBody;
   env: CoreBindings;
   runId: string;
-}): Promise<{ finalized: true; terminal: boolean }> {
+}): Promise<{
+  finalized: true;
+  terminal: boolean;
+}> {
   const result = await completeRemoteAgentNativeDelivery(
     input.env,
     input.callback,
@@ -238,7 +244,6 @@ async function finalizeRoutineWorkflowCallback(input: {
     terminal: run?.status === "completed" || run?.status === "failed",
   };
 }
-
 function parseRoutineRunWorkflowParams(
   value: Readonly<RoutineRunWorkflowParams>
 ): RoutineRunWorkflowParams {
@@ -253,19 +258,16 @@ function parseRoutineRunWorkflowParams(
   }
   return { runId: value.runId };
 }
-
-function requireRoutineWorkflowDb(env: CoreBindings): D1Database {
-  const db = localStateDb(env);
+function requireRoutineWorkflowDb(env: CoreBindings): PostgresDatabase {
+  const db = getPostgresDatabase(env);
   if (!db) {
     throw new Error("Routine Run Workflow database is unavailable");
   }
   return db;
 }
-
 function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
-
 async function runRoutineWorkflowOperation<T>(input: {
   errorMessage: string;
   errorName: string;

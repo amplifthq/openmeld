@@ -68,6 +68,12 @@ function CenterAgentDirectMessagePage(input: {
 }) {
 	const { currentOrganization } = useAppOrganization();
 	const { data: currentAccountAvatar } = useAccountAvatar();
+	// Pinning the default chat in the URL must not discard an attachment-open
+	// request. Reset state only when the actual conversation changes.
+	const conversationId =
+		input.directMessageRouteData.status === "ready"
+			? input.directMessageRouteData.directMessage.spaceId
+			: (input.sessionId ?? "default");
 
 	return (
 		<CenterAgentDirectMessageOrganizationBoundary
@@ -77,7 +83,7 @@ function CenterAgentDirectMessagePage(input: {
 			initialFocusSignalId={input.initialFocusSignalId}
 			initialFocusThreadRootSignalId={input.initialFocusThreadRootSignalId}
 			initialSpaceView={input.initialSpaceView}
-			key={`${currentOrganization.id}:${input.sessionId ?? "default"}`}
+			key={`${currentOrganization.id}:${conversationId}`}
 			organizationId={currentOrganization.id}
 			organizationSlug={currentOrganization.slug}
 			presentation={input.presentation}

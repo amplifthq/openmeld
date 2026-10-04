@@ -446,6 +446,7 @@ export const runtimeTransportBaseCapabilitiesSchema = z.strictObject({
   agentReplyContextReview: z.literal(true).optional(),
   informationProtectionPrompt: z.literal(true).optional(),
   workingLanguagePrompt: z.literal(true).optional(),
+  verifiedRequesterContext: z.literal(true).optional(),
   localAgentInteraction: z.literal(true).optional(),
   profileConfigurationRevision: z.literal(true).optional(),
   localComponents: localComponentsStatusSchema.optional(),
@@ -1193,6 +1194,8 @@ export const runtimeTransportDispatchSourceSignalSchema = z.strictObject({
 });
 
 export const runtimeTransportDeliverDispatchPayloadSchema = z.strictObject({
+  // Core identity/delegation projection for this Wake, never a permission grant.
+  requesterIsAgentOwner: z.boolean().optional(),
   runtimeCoordinatorExecutionId:
     runtimeCoordinatorExecutionRecordSchema.shape.runtimeCoordinatorExecutionId,
   executionToken: runtimeCoordinatorExecutionTokenEnvelopeSchema.optional(),

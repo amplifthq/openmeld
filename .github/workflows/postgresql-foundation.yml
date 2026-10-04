@@ -1,0 +1,30 @@
+name: PostgreSQL foundation
+
+on:
+  pull_request:
+    paths:
+      - "tooling/postgresql/**"
+      - "packages/db/postgresql/**"
+      - ".github/workflows/postgresql-foundation.yml"
+      - ".github/actions/setup-postgresql/**"
+      - "pnpm-lock.yaml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-postgresql:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-node-pnpm
+      - uses: ./.github/actions/setup-postgresql
+      - name: Build PostgreSQL acceptance dependencies
+        run: pnpm exec turbo run build --filter=@openmeld/postgresql^...
+      - name: Verify isolated migrations, permissions, and recovery
+        run: |
+          node tooling/postgresql/verify.mjs
+          pnpm --filter @openmeld/postgresql --fail-if-no-match check
+          pnpm pg:check

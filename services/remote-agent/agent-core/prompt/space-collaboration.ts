@@ -19,6 +19,7 @@ export function renderPersonalRemoteAgentCollaborationContext(
   return [
     `Source signal: ${request.triggerMessageId}`,
     `Requested by: ${request.author.displayName} (Profile ID: ${request.author.profileId}).`,
+    "Use openmeld_read_space_evidence for an exact source message and its sourceRef.version, and openmeld_read_space_thread for a bounded thread page. Follow the returned continuation without changing the source version. An unavailable version or revoked source is not permission to substitute newer content.",
     renderSpaceEntryBrief({
       whatThisSpaceIs:
         "A Space is the shared collaboration surface; an Agent Profile is an AI teammate identity. OpenMeld runs you remotely and publishes your final answer under your own identity.",

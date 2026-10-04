@@ -1,32 +1,33 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import { queryAiUsage } from "./ai-usage-repository";
-
 export const REMOTE_AGENT_DAILY_QUOTA_EXCEEDED_REASON_CODE =
   "remote_agent.daily_quota_exceeded";
 export const REMOTE_AGENT_DAILY_QUOTA_EXCEEDED_MESSAGE =
   "This Organization has used its daily AI allowance. It resets at 00:00 UTC.";
 export const REMOTE_AGENT_DAILY_QUOTA_EXCEEDED_ROUTINE_REASON =
   "the Organization has used its daily AI allowance. It resets at 00:00 UTC.";
-
 export function aiUsageDay(nowMs: number) {
   const fromMs = Math.floor(nowMs / 86_400_000) * 86_400_000;
   return { fromMs, toMs: fromMs + 86_400_000 };
 }
-
 export async function readAiUsageAllowance(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   nowMs: number;
 }) {
   const period = aiUsageDay(input.nowMs);
-  const [policy, usage] = await Promise.all([
-    input.db
-      .prepare(
-        "SELECT daily_limit_nano_usd FROM organization_ai_usage_policies WHERE organization_id = ?"
-      )
-      .bind(input.organizationId)
-      .first<{ daily_limit_nano_usd: number | null }>(),
-    queryAiUsage({ ...input, query: { ...period, runtime: "remote" } }),
-  ]);
+  const policy = await input.db
+    .query<{
+      daily_limit_nano_usd: number | null;
+    }>({
+      text: 'SELECT daily_limit_nano_usd FROM "openmeld"."organization_ai_usage_policies" WHERE organization_id = $1',
+      values: [input.organizationId],
+    })
+    .then((result) => result.rows[0] ?? null);
+  const usage = await queryAiUsage({
+    ...input,
+    query: { ...period, runtime: "remote" },
+  });
   const dailyLimitNanoUsd = policy?.daily_limit_nano_usd ?? null;
   const usedNanoUsd = usage.models.reduce(
     (total, model) => total + model.reportedCostNanoUsd,

@@ -1,3 +1,5 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
+
 type OrganizationMemberActivityRow = {
   human_profile_id: string;
   last_active_at_ms: number;
@@ -5,7 +7,6 @@ type OrganizationMemberActivityRow = {
   updated_at_ms: number;
   user_id: string;
 };
-
 export type OrganizationMemberActivityRecord = {
   humanProfileId: string;
   lastActiveAtMs: number;
@@ -13,67 +14,59 @@ export type OrganizationMemberActivityRecord = {
   updatedAtMs: number;
   userId: string;
 };
-
 export async function recordOrganizationMemberActivity(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   humanProfileId: string;
   lastActiveAtMs: number;
   organizationId: string;
   updatedAtMs: number;
   userId: string;
 }): Promise<void> {
-  await input.db
-    .prepare(
-      `
-        INSERT INTO organization_member_activity (
+  await input.db.query({
+    text: `
+        INSERT INTO "openmeld"."organization_member_activity" (
           organization_id,
           user_id,
           human_profile_id,
           last_active_at_ms,
           updated_at_ms
         )
-        VALUES (?, ?, ?, ?, ?)
+        VALUES ($1, $2, $3, $4, $5)
         ON CONFLICT(organization_id, user_id) DO UPDATE SET
           human_profile_id = excluded.human_profile_id,
           last_active_at_ms = excluded.last_active_at_ms,
           updated_at_ms = excluded.updated_at_ms
         WHERE excluded.last_active_at_ms > organization_member_activity.last_active_at_ms
-      `
-    )
-    .bind(
+      `,
+    values: [
       input.organizationId,
       input.userId,
       input.humanProfileId,
       input.lastActiveAtMs,
-      input.updatedAtMs
-    )
-    .run();
+      input.updatedAtMs,
+    ],
+  });
 }
-
 export async function listOrganizationMemberActivity(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
 }): Promise<OrganizationMemberActivityRecord[]> {
-  const result = await input.db
-    .prepare(
-      `
+  const result = await input.db.query<OrganizationMemberActivityRow>({
+    text: `
         SELECT
           organization_id,
           user_id,
           human_profile_id,
           last_active_at_ms,
           updated_at_ms
-        FROM organization_member_activity
-        WHERE organization_id = ?
-        ORDER BY user_id ASC
-      `
-    )
-    .bind(input.organizationId)
-    .all<OrganizationMemberActivityRow>();
-
-  return result.results.map((row) => mapOrganizationMemberActivityRow(row));
+        FROM "openmeld"."organization_member_activity"
+        WHERE organization_id = $1
+        ORDER BY user_id ASC NULLS FIRST
+      `,
+    values: [input.organizationId],
+  });
+  return result.rows.map((row) => mapOrganizationMemberActivityRow(row));
 }
-
 function mapOrganizationMemberActivityRow(
   row: OrganizationMemberActivityRow
 ): OrganizationMemberActivityRecord {
@@ -88,7 +81,6 @@ function mapOrganizationMemberActivityRow(
   ) {
     throw new Error("Invalid Organization member activity projection row.");
   }
-
   return {
     humanProfileId: row.human_profile_id,
     lastActiveAtMs: row.last_active_at_ms,

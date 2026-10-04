@@ -1,9 +1,10 @@
 import { WORKING_LANGUAGE_TAG_MAX_CHARS } from "@openmeld/schemas";
 import { sql } from "drizzle-orm";
-import { check, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { bigint, check, text } from "drizzle-orm/pg-core";
 import { organizations, users } from "../auth/auth.schema.ts";
+import { applicationTable } from "../postgresql/schema.ts";
 
-export const organizationWorkingLanguagePreferences = sqliteTable(
+export const organizationWorkingLanguagePreferences = applicationTable(
   "organization_working_language_preferences",
   {
     organizationId: text("organization_id")
@@ -11,12 +12,12 @@ export const organizationWorkingLanguagePreferences = sqliteTable(
       .references(() => organizations.id, { onDelete: "cascade" }),
     mode: text("mode").notNull(),
     languageTag: text("language_tag").notNull(),
-    revision: integer("revision").default(1).notNull(),
+    revision: bigint("revision", { mode: "number" }).default(1).notNull(),
     updatedByUserId: text("updated_by_user_id").references(() => users.id, {
       onDelete: "set null",
     }),
-    createdAtMs: integer("created_at_ms").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   () => [
     check(

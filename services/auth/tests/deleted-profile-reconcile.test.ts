@@ -1,14 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  createPostgresHarness,
+  type PostgresHarness,
+  postgresTestBinding,
+} from "../../../tooling/postgresql/test-harness";
 import type { AuthBindings } from "../src/lib/bindings";
 import {
   reconcileDeletedAgentProfileMemberships,
   runDeletedProfileReconcileOutbox,
 } from "../src/lib/profiles/deleted-profile-reconcile";
-import {
-  applyDrizzleMigrations,
-  createSqliteD1Harness,
-  type SqliteD1Harness,
-} from "./support/sqlite-d1-harness";
 
 const AGENT_PROFILE = {
   ownerUserId: "owner-1",
@@ -22,27 +22,27 @@ type TestDeletedProfile = {
   profileKind: "agent" | "human";
 };
 
-const harnesses: SqliteD1Harness[] = [];
+const harnesses: PostgresHarness[] = [];
 
-afterEach(() => {
+afterEach(async () => {
   for (const harness of harnesses.splice(0)) {
-    harness.close();
+    await harness.close();
   }
   vi.restoreAllMocks();
 });
 
-function createEnv(input: {
+async function createEnv(input: {
   reconcile?: ReturnType<typeof vi.fn>;
   profile?: TestDeletedProfile;
-}): { env: AuthBindings; harness: SqliteD1Harness } {
-  const harness = createSqliteD1Harness();
+}): Promise<{ env: AuthBindings; harness: PostgresHarness }> {
+  const harness = await createPostgresHarness();
   harnesses.push(harness);
-  applyDrizzleMigrations(harness.database);
+
   const profile = input.profile ?? AGENT_PROFILE;
-  seedOutbox(harness, profile);
+  await seedOutbox(harness, profile);
   return {
     env: {
-      OPENMELD_DB: harness.db,
+      OPENMELD_POSTGRESQL: postgresTestBinding(harness.db),
       OPENMELD_AUTH_KV: {} as KVNamespace,
       ...(input.reconcile
         ? {
@@ -56,17 +56,17 @@ function createEnv(input: {
   };
 }
 
-function seedOutbox(
-  harness: SqliteD1Harness,
+async function seedOutbox(
+  harness: PostgresHarness,
   profile: {
     ownerUserId: string;
     profileId: string;
     profileKind: "agent" | "human";
   }
-): void {
+): Promise<void> {
   const nowMs = Date.now();
-  harness.run({
-    params: [
+  await harness.query({
+    values: [
       profile.profileId,
       profile.ownerUserId,
       profile.profileKind,
@@ -74,29 +74,29 @@ function seedOutbox(
       nowMs,
       nowMs,
     ],
-    sql: `
-      INSERT INTO openmeld_profile_deletion_outbox (
+    text: `
+      INSERT INTO "openmeld"."openmeld_profile_deletion_outbox" (
         profile_id,
         owner_user_id,
         profile_kind,
         next_attempt_at_ms,
         created_at_ms,
         updated_at_ms
-      ) VALUES (?, ?, ?, ?, ?, ?)
+      ) VALUES ($1, $2, $3, $4, $5, $6)
     `,
   });
 }
 
-function readOutbox(
-  harness: SqliteD1Harness,
+async function readOutbox(
+  harness: PostgresHarness,
   profileId = AGENT_PROFILE.profileId
-): { attempt_count: number; last_error: string | null } | null {
-  return harness.queryFirst({
-    params: [profileId],
-    sql: `
+): Promise<{ attempt_count: number; last_error: string | null } | null> {
+  return await harness.queryFirst({
+    values: [profileId],
+    text: `
       SELECT attempt_count, last_error
-      FROM openmeld_profile_deletion_outbox
-      WHERE profile_id = ?
+      FROM "openmeld"."openmeld_profile_deletion_outbox"
+      WHERE profile_id = $1
     `,
   });
 }
@@ -109,7 +109,7 @@ describe("reconcileDeletedAgentProfileMemberships", () => {
       profileId: AGENT_PROFILE.profileId,
       spaces: [{ spaceId: "a".repeat(64), status: "removed" }],
     });
-    const { env, harness } = createEnv({ reconcile });
+    const { env, harness } = await createEnv({ reconcile });
 
     await reconcileDeletedAgentProfileMemberships(env, AGENT_PROFILE);
 
@@ -119,7 +119,7 @@ describe("reconcileDeletedAgentProfileMemberships", () => {
       profileKind: "agent",
       spaceIds: [],
     });
-    expect(readOutbox(harness)).toBeNull();
+    expect(await readOutbox(harness)).toBeNull();
   });
 
   it("fans out human Profile deletions with the human kind", async () => {
@@ -134,7 +134,7 @@ describe("reconcileDeletedAgentProfileMemberships", () => {
       profileId: humanProfile.profileId,
       spaces: [],
     });
-    const { env, harness } = createEnv({
+    const { env, harness } = await createEnv({
       profile: humanProfile,
       reconcile,
     });
@@ -144,14 +144,14 @@ describe("reconcileDeletedAgentProfileMemberships", () => {
     expect(reconcile).toHaveBeenCalledWith(
       expect.objectContaining({ profileKind: "human" })
     );
-    expect(readOutbox(harness, humanProfile.profileId)).toBeNull();
+    expect(await readOutbox(harness, humanProfile.profileId)).toBeNull();
   });
 
   it("keeps the item retryable when the Core binding is missing", async () => {
     const warnSpy = vi
       .spyOn(console, "warn")
       .mockImplementation(() => undefined);
-    const { env, harness } = createEnv({});
+    const { env, harness } = await createEnv({});
 
     await expect(
       reconcileDeletedAgentProfileMemberships(env, AGENT_PROFILE)
@@ -163,7 +163,7 @@ describe("reconcileDeletedAgentProfileMemberships", () => {
         reason: "openmeld_core_worker_unbound",
       })
     );
-    expect(readOutbox(harness)).toMatchObject({
+    expect(await readOutbox(harness)).toMatchObject({
       attempt_count: 1,
       last_error: "openmeld_core_worker_unbound",
     });
@@ -174,7 +174,7 @@ describe("reconcileDeletedAgentProfileMemberships", () => {
       .spyOn(console, "warn")
       .mockImplementation(() => undefined);
     const reconcile = vi.fn().mockRejectedValue(new Error("core down"));
-    const { env, harness } = createEnv({ reconcile });
+    const { env, harness } = await createEnv({ reconcile });
 
     await expect(
       reconcileDeletedAgentProfileMemberships(env, AGENT_PROFILE)
@@ -187,7 +187,7 @@ describe("reconcileDeletedAgentProfileMemberships", () => {
         profileId: AGENT_PROFILE.profileId,
       })
     );
-    expect(readOutbox(harness)).toMatchObject({
+    expect(await readOutbox(harness)).toMatchObject({
       attempt_count: 1,
       last_error: "core down",
     });
@@ -199,11 +199,11 @@ describe("reconcileDeletedAgentProfileMemberships", () => {
       profileId: AGENT_PROFILE.profileId,
       spaces: [],
     });
-    const { env, harness } = createEnv({ reconcile });
+    const { env, harness } = await createEnv({ reconcile });
 
     await reconcileDeletedAgentProfileMemberships(env, AGENT_PROFILE);
 
-    expect(readOutbox(harness)).toMatchObject({
+    expect(await readOutbox(harness)).toMatchObject({
       attempt_count: 1,
       last_error: "core_reconcile_incomplete",
     });
@@ -231,19 +231,19 @@ describe("runDeletedProfileReconcileOutbox", () => {
         profileId: secondProfile.profileId,
         spaces: [],
       });
-    const { env, harness } = createEnv({ reconcile });
-    seedOutbox(harness, secondProfile);
-    harness.run({
-      params: [Date.now() - 1],
-      sql: "UPDATE openmeld_profile_deletion_outbox SET next_attempt_at_ms = ?",
+    const { env, harness } = await createEnv({ reconcile });
+    await seedOutbox(harness, secondProfile);
+    await harness.query({
+      values: [Date.now() - 1],
+      text: 'UPDATE "openmeld"."openmeld_profile_deletion_outbox" SET next_attempt_at_ms = $1',
     });
 
     await expect(
       runDeletedProfileReconcileOutbox(env, { limit: 10 })
     ).resolves.toEqual({ completed: 1, failed: 1, scanned: 2 });
 
-    expect(readOutbox(harness, AGENT_PROFILE.profileId)).toBeNull();
-    expect(readOutbox(harness, secondProfile.profileId)).toMatchObject({
+    expect(await readOutbox(harness, AGENT_PROFILE.profileId)).toBeNull();
+    expect(await readOutbox(harness, secondProfile.profileId)).toMatchObject({
       attempt_count: 1,
       last_error: "core_reconcile_incomplete",
     });

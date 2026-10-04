@@ -8,21 +8,17 @@ import type { AuthBindings } from "../bindings";
 // one-shot operational backfill. Kept small to stay well under the Workers
 // subrequest budget for a single scheduled invocation.
 const OVERLAY_RECONCILE_DEFAULT_LIMIT = 300;
-
 type CoreOverlayWorker = NonNullable<AuthBindings["OPENMELD_CORE_WORKER"]>;
-
 export type SpaceIndexOverlayReconcileSummary = {
   scanned: number;
   emitted: number;
   skipped: number;
 };
-
 export type SpaceIndexOverlayProjectionResult = {
   repairAttempted: boolean;
   status: "applied" | "degraded" | "pending";
   updated: boolean;
 };
-
 // Single source of truth for the Auth→Core overlay projection payload, shared
 // by the per-write onHistoryWritten hook (service.ts) and the periodic
 // reconcile below so the two paths can never drift.
@@ -40,7 +36,6 @@ export function toSpaceIndexOverlayProjectionInput(
     updatedAtMs: record.updatedAt?.getTime() ?? null,
   };
 }
-
 export async function projectSpaceIndexMembershipOverlay(input: {
   coreWorker: CoreOverlayWorker | undefined;
   record: ProfileSpaceHistoryRecord;
@@ -48,7 +43,6 @@ export async function projectSpaceIndexMembershipOverlay(input: {
   if (!input.coreWorker) {
     return { repairAttempted: false, status: "degraded", updated: false };
   }
-
   try {
     const result = await input.coreWorker.projectSpaceIndexMembershipOverlay(
       toSpaceIndexOverlayProjectionInput(input.record)
@@ -58,7 +52,6 @@ export async function projectSpaceIndexMembershipOverlay(input: {
     return { repairAttempted: false, status: "degraded", updated: false };
   }
 }
-
 function normalizeSpaceIndexOverlayProjectionResult(
   result: unknown
 ): SpaceIndexOverlayProjectionResult {
@@ -78,7 +71,6 @@ function normalizeSpaceIndexOverlayProjectionResult(
       updated: candidate.updated === true,
     };
   }
-
   // Deployment skew bridge: older Core workers returned only { updated }.
   // Preserve the meaning without claiming a repair was attempted.
   if (typeof candidate.updated === "boolean") {
@@ -88,10 +80,8 @@ function normalizeSpaceIndexOverlayProjectionResult(
       updated: candidate.updated,
     };
   }
-
   return { repairAttempted: false, status: "degraded", updated: false };
 }
-
 // Pure and testable: re-announces each history row's overlay to Core. Mirrors
 // the per-write onHistoryWritten hook, but driven periodically so a dropped or
 // failed announcement (a broken Auth→Core binding window, projection lag, a
@@ -106,7 +96,6 @@ export async function reconcileSpaceIndexMembershipOverlays(input: {
   if (!coreWorker) {
     return { scanned: rows.length, emitted: 0, skipped: rows.length };
   }
-
   const results = await Promise.all(
     rows.map((record) =>
       projectSpaceIndexMembershipOverlay({
@@ -124,7 +113,6 @@ export async function reconcileSpaceIndexMembershipOverlays(input: {
     skipped: rows.length - emitted,
   };
 }
-
 // I/O wrapper for the scheduled handler: lists the bounded active-history set
 // from the Profile-owned source table and reconciles it onto the Core overlay.
 // Best-effort and idempotent; never throws into the cron. The Profile-domain
@@ -132,10 +120,11 @@ export async function reconcileSpaceIndexMembershipOverlays(input: {
 // in unit tests without pulling the worker-only auth runtime.
 export async function runSpaceIndexMembershipOverlayReconcile(
   env: AuthBindings,
-  options?: { limit?: number }
+  options?: {
+    limit?: number;
+  }
 ): Promise<SpaceIndexOverlayReconcileSummary> {
   const limit = options?.limit ?? OVERLAY_RECONCILE_DEFAULT_LIMIT;
-
   if (!env.OPENMELD_CORE_WORKER) {
     // Expose the missing binding as evidence rather than silently doing
     // nothing (data-and-observability.md: do not hide projection staleness).
@@ -144,10 +133,11 @@ export async function runSpaceIndexMembershipOverlayReconcile(
     });
     return { scanned: 0, emitted: 0, skipped: 0 };
   }
-
-  const { createD1Db, listActiveProfileSpaceHistoryForOverlayReconcile } =
-    await import("@openmeld/auth/server");
-  const db = createD1Db(env.OPENMELD_DB);
+  const {
+    createAuthDatabase,
+    listActiveProfileSpaceHistoryForOverlayReconcile,
+  } = await import("@openmeld/auth/server");
+  const db = createAuthDatabase();
   const rows = await listActiveProfileSpaceHistoryForOverlayReconcile(
     db,
     limit

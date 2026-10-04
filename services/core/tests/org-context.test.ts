@@ -1,8 +1,10 @@
+import type { PostgreSQLBinding } from "@openmeld/db/postgresql";
 import { applyOpenMeldRequestContextHeaders } from "@openmeld/gateway-contract";
 import type { OpenMeldRequestContext } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
 import { createHttpApp } from "../src/app";
 import type { CoreBindings } from "../src/lib/bindings";
+import { createProjectionPostgresBinding } from "../test-support/postgresql-query.test-support";
 
 const HUMAN_PROFILE_ID = "11111111-1111-4111-8111-111111111111";
 
@@ -43,29 +45,16 @@ function buildRequest(context: OpenMeldRequestContext): Request {
 function createMembershipDb(input: {
   member: boolean;
   throwOnLookup?: boolean;
-}): { db: D1Database; probe: MembershipDbProbe } {
-  const probe: MembershipDbProbe = {
-    bindings: [],
-    prepareCalls: [],
-  };
-  const db = {
-    prepare(sql: string) {
-      probe.prepareCalls.push(sql);
-      return {
-        bind(...values: unknown[]) {
-          probe.bindings = values;
-          return {
-            first() {
-              if (input.throwOnLookup) {
-                throw new Error("raw d1 unavailable");
-              }
-              return input.member ? { id: "member-1", role: "member" } : null;
-            },
-          };
-        },
-      };
-    },
-  } as unknown as D1Database;
+}): { db: PostgreSQLBinding; probe: MembershipDbProbe } {
+  const probe: MembershipDbProbe = { bindings: [], prepareCalls: [] };
+  const db = createProjectionPostgresBinding(({ text, values }) => {
+    probe.prepareCalls.push(text);
+    probe.bindings = values ?? [];
+    if (input.throwOnLookup) {
+      throw new Error("raw PostgreSQL unavailable");
+    }
+    return input.member ? [{ id: "member-1", role: "member" }] : [];
+  });
   return { db, probe };
 }
 
@@ -74,7 +63,7 @@ describe("Core active organization context", () => {
     const { db, probe } = createMembershipDb({ member: true });
     const response = await createHttpApp().fetch(
       buildRequest(buildContext({ callerPrincipalId: "user-1" })),
-      { OPENMELD_DB: db } satisfies Partial<CoreBindings>
+      { OPENMELD_POSTGRESQL: db } satisfies Partial<CoreBindings>
     );
 
     expect(response.status).toBe(403);
@@ -95,7 +84,7 @@ describe("Core active organization context", () => {
           callerPrincipalId: "user-1",
         })
       ),
-      { OPENMELD_DB: db } satisfies Partial<CoreBindings>
+      { OPENMELD_POSTGRESQL: db } satisfies Partial<CoreBindings>
     );
 
     expect(response.status).toBe(403);
@@ -104,7 +93,7 @@ describe("Core active organization context", () => {
       code: "organization.membership_required",
       message: "You are not a member of the active organization.",
     });
-    expect(probe.prepareCalls[0]).toContain("FROM members");
+    expect(probe.prepareCalls[0]).toContain('FROM "openmeld"."members"');
     expect(probe.bindings).toEqual(["org-1", "user-1"]);
   });
 
@@ -120,7 +109,7 @@ describe("Core active organization context", () => {
           callerPrincipalId: "user-1",
         })
       ),
-      { OPENMELD_DB: db } satisfies Partial<CoreBindings>
+      { OPENMELD_POSTGRESQL: db } satisfies Partial<CoreBindings>
     );
 
     expect(response.status).toBe(503);

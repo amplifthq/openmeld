@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   AGENT_ACTIVITY_PRESENCE_TTL_MAX_MS,
   agentActivityDigestCitationSchema,
@@ -31,7 +32,6 @@ type SessionRow = {
   status: AgentActivityPublicSession["status"];
   title: string | null;
 };
-
 type EventRow = {
   client_kind: AgentActivityPublicEvent["clientKind"];
   event_id: string;
@@ -44,7 +44,6 @@ type EventRow = {
   status: AgentActivityPublicEvent["status"];
   title: string | null;
 };
-
 type DigestRow = {
   created_at_ms: number;
   citations_json: string;
@@ -57,18 +56,19 @@ type DigestRow = {
   window_ended_at_ms: number;
   window_started_at_ms: number;
 };
-
 export async function readAgentActivityPublicDigests(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   query: AgentActivitySnapshotQuery;
-}): Promise<{ digests: AgentActivityPublicDigest[]; truncated: boolean }> {
+}): Promise<{
+  digests: AgentActivityPublicDigest[];
+  truncated: boolean;
+}> {
   if (input.query.memberUserId || input.query.provider || input.query.status) {
     return { digests: [], truncated: false };
   }
-  const rows = await input.db
-    .prepare(
-      `
+  const rows = await input.db.query<DigestRow>({
+    text: `
         WITH ranked AS (
           SELECT
             id, project_id, window_started_at_ms, window_ended_at_ms,
@@ -76,12 +76,12 @@ export async function readAgentActivityPublicDigests(input: {
             created_at_ms,
             row_number() OVER (
               PARTITION BY project_id, status
-              ORDER BY created_at_ms DESC, id DESC
+              ORDER BY created_at_ms DESC NULLS LAST, id DESC NULLS LAST
             ) AS status_rank
-          FROM agent_activity_digests
-          WHERE organization_id = ?
+          FROM "openmeld"."agent_activity_digests"
+          WHERE organization_id = $1
             AND status IN ('completed', 'failed')
-            AND (? IS NULL OR project_id = ?)
+            AND ($2::text IS NULL OR project_id = $3)
         )
         SELECT
           id, project_id, window_started_at_ms, window_ended_at_ms,
@@ -101,17 +101,16 @@ export async function readAgentActivityPublicDigests(input: {
               -1
             )
           )
-        ORDER BY created_at_ms DESC, id DESC
+        ORDER BY created_at_ms DESC NULLS LAST, id DESC NULLS LAST
         LIMIT 501
-      `
-    )
-    .bind(
+      `,
+    values: [
       input.organizationId,
       input.query.projectId ?? null,
-      input.query.projectId ?? null
-    )
-    .all<DigestRow>();
-  const digests = (rows.results ?? []).map((row) => ({
+      input.query.projectId ?? null,
+    ],
+  });
+  const digests = (rows.rows ?? []).map((row) => ({
     citations: agentActivityDigestCitationSchema
       .array()
       .max(20)
@@ -128,22 +127,23 @@ export async function readAgentActivityPublicDigests(input: {
   }));
   return { digests: digests.slice(0, 500), truncated: digests.length > 500 };
 }
-
 export async function readAgentActivityPublicSessions(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs: number;
   organizationId: string;
   query: AgentActivitySnapshotQuery;
-}): Promise<{ sessions: AgentActivityPublicSession[]; truncated: boolean }> {
+}): Promise<{
+  sessions: AgentActivityPublicSession[];
+  truncated: boolean;
+}> {
   const scoped = buildFilters(
     input.organizationId,
     input.query,
     "sessions",
     input.nowMs
   );
-  const rows = await input.db
-    .prepare(
-      `
+  const rows = await input.db.query<SessionRow>({
+    text: `
         SELECT
           sessions.id,
           sessions.project_id,
@@ -155,7 +155,7 @@ export async function readAgentActivityPublicSessions(input: {
           sessions.title,
           sessions.model,
           CASE
-            WHEN sessions.status = 'active' AND sessions.expires_at_ms <= ?
+            WHEN sessions.status = 'active' AND sessions.expires_at_ms <= $${scoped.bindings.length + 1}
               THEN 'unknown'
             ELSE sessions.status
           END AS status,
@@ -164,30 +164,28 @@ export async function readAgentActivityPublicSessions(input: {
           sessions.started_at_ms,
           sessions.last_observed_at_ms,
           sessions.expires_at_ms
-        FROM agent_activity_sessions sessions
-        LEFT JOIN users ON users.id = sessions.member_user_id
+        FROM "openmeld"."agent_activity_sessions" sessions
+        LEFT JOIN "openmeld"."users" ON users.id = sessions.member_user_id
         WHERE ${scoped.sql}
         ORDER BY
           CASE
-            WHEN sessions.status = 'active' AND sessions.expires_at_ms > ?
+            WHEN sessions.status = 'active' AND sessions.expires_at_ms > $${scoped.bindings.length + 1}
               THEN 0
             ELSE 1
-          END ASC,
-          sessions.last_observed_at_ms DESC,
-          sessions.id DESC
+          END ASC NULLS FIRST,
+          sessions.last_observed_at_ms DESC NULLS LAST,
+          sessions.id DESC NULLS LAST
         LIMIT 501
-      `
-    )
-    .bind(input.nowMs, ...scoped.bindings, input.nowMs)
-    .all<SessionRow>();
-  const sessions = (rows.results ?? [])
+      `,
+    values: [...scoped.bindings, input.nowMs],
+  });
+  const sessions = (rows.rows ?? [])
     .slice(0, 500)
     .map((row) =>
       mapPublicSessionRow(row, input.query.includeProviderMetadata === true)
     );
-  return { sessions, truncated: (rows.results ?? []).length > 500 };
+  return { sessions, truncated: (rows.rows ?? []).length > 500 };
 }
-
 function mapPublicSessionRow(
   row: SessionRow,
   includeProviderMetadata: boolean
@@ -213,7 +211,6 @@ function mapPublicSessionRow(
     title: row.title,
   });
 }
-
 function parsePublicProviderMetadata(row: SessionRow): unknown {
   try {
     const raw: unknown = JSON.parse(row.provider_metadata_json);
@@ -254,14 +251,19 @@ function parsePublicProviderMetadata(row: SessionRow): unknown {
     );
   }
 }
-
 function requireValidStoredProviderMetadata<T>(
   schema: {
-    safeParse(
-      value: unknown
-    ):
-      | { data: T; success: true }
-      | { error: { issues: unknown[] }; success: false };
+    safeParse(value: unknown):
+      | {
+          data: T;
+          success: true;
+        }
+      | {
+          error: {
+            issues: unknown[];
+          };
+          success: false;
+        };
   },
   value: unknown
 ): T {
@@ -276,16 +278,14 @@ function requireValidStoredProviderMetadata<T>(
   }
   return parsed.data;
 }
-
 export async function readAgentActivityPublicEvents(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   query: AgentActivitySnapshotQuery;
 }): Promise<AgentActivityPublicEvent[]> {
   const scoped = buildFilters(input.organizationId, input.query, "events");
-  const rows = await input.db
-    .prepare(
-      `
+  const rows = await input.db.query<EventRow>({
+    text: `
         SELECT
           events.event_id,
           events.project_id,
@@ -297,16 +297,15 @@ export async function readAgentActivityPublicEvents(input: {
           events.title,
           events.status,
           events.observed_at_ms
-        FROM agent_activity_events events
-        LEFT JOIN users ON users.id = events.member_user_id
+        FROM "openmeld"."agent_activity_events" events
+        LEFT JOIN "openmeld"."users" ON users.id = events.member_user_id
         WHERE ${scoped.sql}
-        ORDER BY events.observed_at_ms DESC, events.event_id DESC
+        ORDER BY events.observed_at_ms DESC NULLS LAST, events.event_id DESC NULLS LAST
         LIMIT 100
-      `
-    )
-    .bind(...scoped.bindings)
-    .all<EventRow>();
-  return (rows.results ?? []).map((row) => ({
+      `,
+    values: [...scoped.bindings],
+  });
+  return (rows.rows ?? []).map((row) => ({
     clientKind: row.client_kind,
     eventId: row.event_id,
     eventType: row.event_type,
@@ -319,17 +318,15 @@ export async function readAgentActivityPublicEvents(input: {
     title: row.title,
   }));
 }
-
 export const AGENT_ACTIVITY_STALENESS_THRESHOLD_MS =
   AGENT_ACTIVITY_PRESENCE_TTL_MAX_MS;
-
 function buildFilters(
   organizationId: string,
   query: AgentActivitySnapshotQuery,
   alias: "events" | "sessions",
   nowMs?: number
 ) {
-  const clauses = [`${alias}.organization_id = ?`];
+  const clauses = [`${alias}.organization_id = $1`];
   const bindings: unknown[] = [organizationId];
   for (const [column, value] of [
     ["project_id", query.projectId],
@@ -337,21 +334,23 @@ function buildFilters(
     ["provider", query.provider],
   ] as const) {
     if (value !== undefined) {
-      clauses.push(`${alias}.${column} = ?`);
+      clauses.push(`${alias}.${column} = $${bindings.length + 1}`);
       bindings.push(value);
     }
   }
   if (query.status !== undefined) {
     if (alias === "sessions" && query.status === "active") {
-      clauses.push("sessions.status = 'active' AND sessions.expires_at_ms > ?");
+      clauses.push(
+        `sessions.status = 'active' AND sessions.expires_at_ms > $${bindings.length + 1}`
+      );
       bindings.push(nowMs);
     } else if (alias === "sessions" && query.status === "unknown") {
       clauses.push(
-        "(sessions.status = 'unknown' OR (sessions.status = 'active' AND sessions.expires_at_ms <= ?))"
+        `(sessions.status = 'unknown' OR (sessions.status = 'active' AND sessions.expires_at_ms <= $${bindings.length + 1}))`
       );
       bindings.push(nowMs);
     } else {
-      clauses.push(`${alias}.status = ?`);
+      clauses.push(`${alias}.status = $${bindings.length + 1}`);
       bindings.push(query.status);
     }
   }

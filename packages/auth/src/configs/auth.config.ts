@@ -1,6 +1,12 @@
 import { electron } from "@better-auth/electron";
 import { passkey } from "@better-auth/passkey";
 import {
+  getPostgresDatabase,
+  isPostgresUniqueViolation,
+  type PostgreSQLBinding,
+  type PostgresDatabase,
+} from "@openmeld/db/postgresql";
+import {
   desktopAuthIdentity,
   ORGANIZATION_INVITATION_LIFETIME_SECONDS,
 } from "@openmeld/schemas";
@@ -18,7 +24,7 @@ import {
   organization,
   username,
 } from "better-auth/plugins";
-import { createD1Db } from "../db";
+import { createAuthCodegenDatabase, createAuthDatabase } from "../db";
 import { schema } from "../db/schema";
 import {
   organizationAccessControl,
@@ -77,27 +83,26 @@ import {
   DEFAULT_PASSWORD_RESET_EXPIRES_IN_SECONDS,
   LAST_USED_LOGIN_METHOD_COOKIE_NAME,
 } from "./constants";
-
 export type AuthConfigEnv = AuthConfigInput & {
   AUTH_EMAIL?: CloudflareEmailSender;
   OPENMELD_CORE_WORKER?: AgentActivitySessionInventoryLifecycleWorker &
     CenterAgentMemoryLifecycleWorker &
     import("@openmeld/schemas").SpaceInvitationWorker &
     import("@openmeld/schemas").SpaceOwnerDepartureWorker;
-  OPENMELD_DB?: D1Database;
+  OPENMELD_POSTGRESQL?: PostgreSQLBinding;
+  AUTH_SCHEMA_CODEGEN?: boolean;
 };
-
 const TRAILING_SLASH_PATTERN = /\/$/;
 const ADD_ACCOUNT_AUTH_INTENT = "add-account";
 const PERSONAL_ORGANIZATION_OWNER_UNIQUE_CONSTRAINT =
-  "UNIQUE constraint failed: organizations.created_by_user_id";
-const PERSONAL_MEMBERSHIP_ID_UNIQUE_CONSTRAINT =
-  "UNIQUE constraint failed: members.id";
-
+  "organizations_personal_created_by_user_uidx";
+const PERSONAL_MEMBERSHIP_ID_UNIQUE_CONSTRAINT = "members_pkey";
 type OrganizationHookContext = Parameters<typeof getOrgAdapter>[0];
 type DatabaseHookContext =
   | OrganizationHookContext
-  | { context: OrganizationHookContext }
+  | {
+      context: OrganizationHookContext;
+    }
   | null;
 type OrganizationRecord = {
   createdAt: Date;
@@ -113,7 +118,6 @@ type UserLookupContext = {
     findUserById?: (userId: string) => Promise<unknown>;
   };
 };
-
 function buildMagicLinkWebUrl(
   webAppUrl: string,
   token: string,
@@ -130,7 +134,6 @@ function buildMagicLinkWebUrl(
   ) {
     searchParams.set("intent", ADD_ACCOUNT_AUTH_INTENT);
   }
-
   try {
     const magicLinkUrl = new URL("/magic-link", webAppUrl);
     magicLinkUrl.search = searchParams.toString();
@@ -140,7 +143,6 @@ function buildMagicLinkWebUrl(
     return `${sanitizedBaseUrl}/magic-link?${searchParams.toString()}`;
   }
 }
-
 function hasTrustedAddAccountMagicLinkIntent(
   webAppUrl: string,
   sourceUrl: string | undefined,
@@ -154,7 +156,6 @@ function hasTrustedAddAccountMagicLinkIntent(
   if (!(parsedWebAppUrl && callbackUrl)) {
     return false;
   }
-
   const expectedCallbackUrl = new URL("/magic-link", parsedWebAppUrl);
   const intentValues = callbackUrl.searchParams.getAll("intent");
   return (
@@ -165,7 +166,6 @@ function hasTrustedAddAccountMagicLinkIntent(
     intentValues[0] === ADD_ACCOUNT_AUTH_INTENT
   );
 }
-
 function buildVerifyEmailWebUrl(
   webAppUrl: string,
   token: string,
@@ -188,9 +188,7 @@ function buildVerifyEmailWebUrl(
     return `${sanitizedBaseUrl}/verify-email?${searchParams.toString()}`;
   }
 }
-
 const AUTH_ERROR_LANDING_PATH = "/login";
-
 // Better Auth's own default `/api/auth/error` page is a raw developer-facing
 // HTML page (see https://better-auth.com/docs/reference/options#erroru-rl).
 // Every browser-visible redirect failure that cannot recover a per-flow
@@ -209,48 +207,40 @@ function buildAuthErrorLandingUrl(webAppUrl: string): string {
     return `${sanitizedBaseUrl}${AUTH_ERROR_LANDING_PATH}`;
   }
 }
-
 function resolveVerificationRedirectTarget(sourceUrl: string | undefined) {
   const parsedSourceUrl = parseUrl(sourceUrl);
   if (!parsedSourceUrl) {
     return null;
   }
-
   const directRedirect = normalizeRelativeRedirect(
     parsedSourceUrl.searchParams.get("redirect")
   );
   if (directRedirect) {
     return directRedirect;
   }
-
   const callbackUrl = parseUrl(parsedSourceUrl.searchParams.get("callbackURL"));
   return normalizeRelativeRedirect(callbackUrl?.searchParams.get("redirect"));
 }
-
 function parseUrl(value: string | null | undefined): URL | null {
   if (typeof value !== "string" || !value.trim()) {
     return null;
   }
-
   try {
     return new URL(value, "http://localhost");
   } catch {
     return null;
   }
 }
-
 function normalizeRelativeRedirect(
   value: string | null | undefined
 ): string | null {
   if (typeof value !== "string") {
     return null;
   }
-
   const trimmed = value.trim();
   if (!(trimmed.startsWith("/") && !trimmed.startsWith("//"))) {
     return null;
   }
-
   try {
     const redirectUrl = new URL(trimmed, "http://localhost");
     if (redirectUrl.origin !== "http://localhost") {
@@ -261,47 +251,37 @@ function normalizeRelativeRedirect(
     return null;
   }
 }
-
 function requireAuthEmailSender(
   sender: CloudflareEmailSender | undefined
 ): CloudflareEmailSender {
   if (!sender) {
     throw new Error("AUTH_EMAIL binding is not configured");
   }
-
   return sender;
 }
-
 function readRequiredString(value: unknown, name: string): string {
   if (typeof value !== "string") {
     throw new Error(`${name} must be a string`);
   }
-
   const normalized = value.trim();
   if (!normalized) {
     throw new Error(`${name} is required`);
   }
-
   return normalized;
 }
-
 function readOptionalString(value: unknown): string | null {
   if (typeof value !== "string") {
     return null;
   }
-
   const normalized = value.trim();
   return normalized ? normalized : null;
 }
-
 function readRecordString(record: unknown, key: string): string | null {
   if (!record || typeof record !== "object") {
     return null;
   }
-
   return readOptionalString((record as Record<string, unknown>)[key]);
 }
-
 function resolveInvitationInviterName(user: {
   email?: string | null;
   name?: string | null;
@@ -314,21 +294,21 @@ function resolveInvitationInviterName(user: {
     }) ?? "A teammate"
   );
 }
-
-function describeError(error: unknown): { errorName: string; message: string } {
+function describeError(error: unknown): {
+  errorName: string;
+  message: string;
+} {
   if (error instanceof Error) {
     return {
       errorName: error.name,
       message: error.message,
     };
   }
-
   return {
     errorName: typeof error,
     message: String(error),
   };
 }
-
 function requireOrganizationHookContext(
   context: DatabaseHookContext,
   operation: string
@@ -336,14 +316,11 @@ function requireOrganizationHookContext(
   if (!context) {
     throw new Error(`Better Auth context is required to ${operation}`);
   }
-
   if ("context" in context) {
     return context.context;
   }
-
   return context;
 }
-
 function readOrganizationCreatedAtMs(organization: OrganizationRecord): number {
   const timestamp = organization.createdAt.getTime();
   if (!Number.isFinite(timestamp)) {
@@ -351,10 +328,8 @@ function readOrganizationCreatedAtMs(organization: OrganizationRecord): number {
       `Organization ${organization.id} is missing a valid createdAt timestamp`
     );
   }
-
   return timestamp;
 }
-
 function selectInitialOrganization(
   organizations: OrganizationRecord[]
 ): OrganizationRecord {
@@ -363,14 +338,11 @@ function selectInitialOrganization(
       readOrganizationCreatedAtMs(left) - readOrganizationCreatedAtMs(right);
     return createdAtDelta || left.id.localeCompare(right.id);
   });
-
   if (!organization) {
     throw new Error("Cannot create a session without organization membership");
   }
-
   return organization;
 }
-
 async function ensurePersonalOrganizationForUser({
   context,
   organizationOptions,
@@ -389,7 +361,6 @@ async function ensurePersonalOrganizationForUser({
   if (existingOrganizations.length > 0) {
     return selectInitialOrganization(existingOrganizations).id;
   }
-
   const user = await resolveUserIdentity({
     context,
     userEmail,
@@ -419,23 +390,23 @@ async function ensurePersonalOrganizationForUser({
     });
   } catch (error) {
     if (
-      !errorHasMessage(error, PERSONAL_ORGANIZATION_OWNER_UNIQUE_CONSTRAINT)
+      !isPostgresUniqueViolation(
+        error,
+        PERSONAL_ORGANIZATION_OWNER_UNIQUE_CONSTRAINT
+      )
     ) {
       throw error;
     }
     organization = await readPersonalOrganizationByOwner({ context, userId });
   }
-
   await ensurePersonalOrganizationMembership({
     context,
     createdAt,
     organizationId: organization.id,
     userId,
   });
-
   return organization.id;
 }
-
 async function readPersonalOrganizationByOwner(input: {
   context: OrganizationHookContext;
   userId: string;
@@ -464,7 +435,11 @@ async function readPersonalOrganizationByOwner(input: {
     organization &&
     typeof organization === "object" &&
     (organization as Record<string, unknown>).createdAt instanceof Date
-      ? (organization as { createdAt: Date }).createdAt
+      ? (
+          organization as {
+            createdAt: Date;
+          }
+        ).createdAt
       : null;
   if (!(id && createdAt)) {
     throw new Error(
@@ -473,7 +448,6 @@ async function readPersonalOrganizationByOwner(input: {
   }
   return { createdAt, id };
 }
-
 async function ensurePersonalOrganizationMembership(input: {
   context: OrganizationHookContext;
   createdAt: Date;
@@ -497,7 +471,12 @@ async function ensurePersonalOrganizationMembership(input: {
       model: "member",
     });
   } catch (error) {
-    if (!errorHasMessage(error, PERSONAL_MEMBERSHIP_ID_UNIQUE_CONSTRAINT)) {
+    if (
+      !isPostgresUniqueViolation(
+        error,
+        PERSONAL_MEMBERSHIP_ID_UNIQUE_CONSTRAINT
+      )
+    ) {
       throw error;
     }
     const existingMembership = await input.context.adapter.findOne({
@@ -514,29 +493,6 @@ async function ensurePersonalOrganizationMembership(input: {
     }
   }
 }
-
-function errorHasMessage(error: unknown, expectedMessage: string): boolean {
-  let current = error;
-  for (let depth = 0; depth < 3; depth += 1) {
-    if (current instanceof Error) {
-      if (current.message.includes(expectedMessage)) {
-        return true;
-      }
-      current = current.cause;
-      continue;
-    }
-    if (!(current && typeof current === "object")) {
-      return false;
-    }
-    const message = readRecordString(current, "message");
-    if (message?.includes(expectedMessage)) {
-      return true;
-    }
-    current = "cause" in current ? current.cause : null;
-  }
-  return false;
-}
-
 async function resolveUserIdentity(input: {
   context: OrganizationHookContext;
   userEmail?: string | null;
@@ -550,7 +506,6 @@ async function resolveUserIdentity(input: {
       name: input.userName,
     };
   }
-
   const user = await (
     input.context as UserLookupContext
   ).internalAdapter?.findUserById?.(input.userId);
@@ -562,12 +517,10 @@ async function resolveUserIdentity(input: {
       name: typeof record.name === "string" ? record.name : null,
     };
   }
-
   return {
     id: input.userId,
   };
 }
-
 function rejectOrganizationSlug(error: unknown): never {
   throw new APIError("BAD_REQUEST", {
     code: "organization.slug_invalid",
@@ -575,21 +528,18 @@ function rejectOrganizationSlug(error: unknown): never {
       error instanceof Error ? error.message : "Organization slug is invalid.",
   });
 }
-
 function rejectMalformedOrganizationMetadata(): never {
   throw new APIError("BAD_REQUEST", {
     code: "organization.metadata_invalid",
     message: "Organization metadata is invalid.",
   });
 }
-
 function rejectPersonalOrganizationInvitation(): never {
   throw new APIError("BAD_REQUEST", {
     code: "organization.personal_no_members",
     message: "Personal organizations cannot invite members.",
   });
 }
-
 function rejectManagedOrganizationLogoWrite(
   organization: Record<string, unknown>
 ): void {
@@ -601,7 +551,6 @@ function rejectManagedOrganizationLogoWrite(
     message: "Use the Organization logo settings to change this logo.",
   });
 }
-
 function rejectManagedOrganizationMetadataWrite(
   organization: Record<string, unknown>
 ): void {
@@ -613,27 +562,29 @@ function rejectManagedOrganizationMetadataWrite(
     message: "Organization metadata is managed by OpenMeld.",
   });
 }
-
 async function preservePersonalOrganizationClassification(input: {
-  db?: D1Database;
+  db?: PostgresDatabase;
   organizationId: string;
 }): Promise<Record<string, unknown> | null> {
   if (!input.db) {
     throw new Error(
-      "OPENMELD_DB is required to preserve personal organization classification."
+      "OPENMELD_POSTGRESQL is required to preserve personal organization classification."
     );
   }
   const organization = await input.db
-    .prepare(
-      `
+    .query<{
+      metadata: string | null;
+      slug: string;
+    }>({
+      text: `
         SELECT metadata, slug
-        FROM organizations
-        WHERE id = ?
+        FROM "openmeld"."organizations"
+        WHERE id = $1
         LIMIT 1
-      `
-    )
-    .bind(input.organizationId)
-    .first<{ metadata: string | null; slug: string }>();
+      `,
+      values: [input.organizationId],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!organization) {
     throw new APIError("BAD_REQUEST", {
       code: "organization.not_found",
@@ -653,8 +604,10 @@ async function preservePersonalOrganizationClassification(input: {
   }
   return personal.personal ? { ...metadata.value, personal: true } : null;
 }
-
-export function createAuthConfig(env: AuthConfigEnv = {}): BetterAuthOptions {
+export function createAuthConfig(
+  env: AuthConfigEnv = {},
+  database?: ReturnType<typeof createAuthDatabase>
+): BetterAuthOptions {
   const validated = validateAuthConfig({
     BETTER_AUTH_URL: env.BETTER_AUTH_URL,
     BETTER_AUTH_OPENMELD_SECRET: env.BETTER_AUTH_OPENMELD_SECRET,
@@ -678,23 +631,16 @@ export function createAuthConfig(env: AuthConfigEnv = {}): BetterAuthOptions {
       env.GOOGLE_OPENMELD_AUTH_OAUTH_CLIENT_SECRET,
     AUTH_MAGIC_LINK_EXPIRES_IN_SECONDS: env.AUTH_MAGIC_LINK_EXPIRES_IN_SECONDS,
   });
-
-  // False-positive guard: keep this fallback for Better Auth CLI/codegen runs
-  // in Node where Worker bindings are unavailable.
-  // Do not replace this with a hard throw in the shared config layer.
-  // Production Worker requests must provide OPENMELD_DB via bindings.
-  const db = env.OPENMELD_DB
-    ? createD1Db(env.OPENMELD_DB)
-    : createD1Db({} as D1Database);
+  const db = env.AUTH_SCHEMA_CODEGEN
+    ? createAuthCodegenDatabase()
+    : (database ?? createAuthDatabase());
   const profileService = createOpenMeldProfileService(
     createDrizzleOpenMeldProfileRepository(db)
   );
-
   const authEmail = env.AUTH_EMAIL;
   if (validated.AUTH_WORKER_NODE_ENV === "production" && !authEmail) {
     throw new Error("AUTH_EMAIL binding is required in production mode");
   }
-
   const allowedClientIds = new Set(validated.AUTH_DEVICE_ALLOWED_CLIENT_IDS);
   const cookieDomain = inferCookieDomain({
     authUrl: validated.BETTER_AUTH_URL,
@@ -709,7 +655,6 @@ export function createAuthConfig(env: AuthConfigEnv = {}): BetterAuthOptions {
   const authOrigin = new URL(validated.BETTER_AUTH_URL).origin;
   const socialProviders: NonNullable<BetterAuthOptions["socialProviders"]> = {};
   const trustedProviders: ("google" | "github")[] = [];
-
   if (
     validated.GITHUB_OPENMELD_AUTH_OAUTH_CLIENT_ID &&
     validated.GITHUB_OPENMELD_AUTH_OAUTH_CLIENT_SECRET
@@ -721,7 +666,6 @@ export function createAuthConfig(env: AuthConfigEnv = {}): BetterAuthOptions {
     };
     trustedProviders.push("github");
   }
-
   if (
     validated.GOOGLE_OPENMELD_AUTH_OAUTH_CLIENT_ID &&
     validated.GOOGLE_OPENMELD_AUTH_OAUTH_CLIENT_SECRET
@@ -732,17 +676,14 @@ export function createAuthConfig(env: AuthConfigEnv = {}): BetterAuthOptions {
     };
     trustedProviders.push("google");
   }
-
   const hasSocialProviders = Object.keys(socialProviders).length > 0;
   const webDeviceVerificationUri = `${validated.WEB_APP_URL}/device/approve`;
-
   if (validated.AUTH_COOKIE_DOMAIN && !cookieDomain) {
     const setterHost = new URL(validated.BETTER_AUTH_URL).hostname;
     console.warn(
       `[auth] AUTH_COOKIE_DOMAIN="${validated.AUTH_COOKIE_DOMAIN}" is not compatible with auth host "${setterHost}". Cross-subdomain cookies disabled.`
     );
   }
-
   const organizationOptions = {
     ac: organizationAccessControl,
     organizationLimit: 5,
@@ -760,16 +701,17 @@ export function createAuthConfig(env: AuthConfigEnv = {}): BetterAuthOptions {
     },
     organizationHooks: {
       beforeDeleteOrganization: async ({ organization }) => {
-        if (!env.OPENMELD_DB) {
+        if (!getPostgresDatabase(env)) {
           throw new APIError("SERVICE_UNAVAILABLE", {
             message: "Couldn't check this organization's Spaces.",
           });
         }
-        const ownedSpace = await env.OPENMELD_DB.prepare(
-          "SELECT r.space_id FROM space_owner_member_references r JOIN members m ON m.id = r.member_id WHERE m.organization_id = ? LIMIT 1"
-        )
-          .bind(organization.id)
-          .first();
+        const ownedSpace = await getPostgresDatabase(env)
+          .query({
+            text: 'SELECT r.space_id FROM "openmeld"."space_owner_member_references" r JOIN "openmeld"."members" m ON m.id = r.member_id WHERE m.organization_id = $1 LIMIT 1',
+            values: [organization.id],
+          })
+          .then((result) => result.rows[0] ?? null);
         if (ownedSpace) {
           throw new APIError("CONFLICT", {
             code: "organization.spaces_must_be_deleted",
@@ -822,7 +764,7 @@ export function createAuthConfig(env: AuthConfigEnv = {}): BetterAuthOptions {
           organization.slug === undefined
             ? null
             : await preservePersonalOrganizationClassification({
-                db: env.OPENMELD_DB,
+                db: getPostgresDatabase(env),
                 organizationId: member.organizationId,
               });
         return personalMetadata
@@ -837,7 +779,7 @@ export function createAuthConfig(env: AuthConfigEnv = {}): BetterAuthOptions {
           userId,
         });
         await assertCenterAgentIdentityBeforeMemberRemoval({
-          db: env.OPENMELD_DB,
+          db: getPostgresDatabase(env),
           organizationId: organization.id,
           userId,
         });
@@ -926,7 +868,6 @@ export function createAuthConfig(env: AuthConfigEnv = {}): BetterAuthOptions {
           organizationName,
           role: data.role,
         });
-
         await sendCloudflareEmail(requireAuthEmailSender(authEmail), {
           from: validated.AUTH_FROM_EMAIL,
           html: emailContent.html,
@@ -950,7 +891,6 @@ export function createAuthConfig(env: AuthConfigEnv = {}): BetterAuthOptions {
       enabled: false,
     },
   } satisfies OrganizationOptions;
-
   return {
     baseURL: validated.BETTER_AUTH_URL,
     secret: validated.BETTER_AUTH_OPENMELD_SECRET,
@@ -967,7 +907,11 @@ export function createAuthConfig(env: AuthConfigEnv = {}): BetterAuthOptions {
         request,
       }),
     database: drizzleAdapter(db, {
-      provider: "sqlite",
+      provider: "pg",
+      // Profile bootstrap hooks cross their own business-owner boundary.
+      // Keep the existing post-create/recovery contract; each paired
+      // business mutation uses its own explicit PostgreSQL transaction.
+      transaction: false,
       schema,
       usePlural: true,
     }),
@@ -993,7 +937,6 @@ export function createAuthConfig(env: AuthConfigEnv = {}): BetterAuthOptions {
               context,
               "create a personal organization"
             );
-
             await ensurePersonalOrganizationForUser({
               context: organizationContext,
               organizationOptions,
@@ -1001,7 +944,6 @@ export function createAuthConfig(env: AuthConfigEnv = {}): BetterAuthOptions {
               userId,
               userName: typeof user.name === "string" ? user.name : null,
             });
-
             try {
               await profileService.ensurePrimaryHumanProfile({
                 userId,
@@ -1037,7 +979,6 @@ export function createAuthConfig(env: AuthConfigEnv = {}): BetterAuthOptions {
                 organizationOptions,
                 userId,
               });
-
             return {
               data: {
                 ...session,
@@ -1091,7 +1032,6 @@ export function createAuthConfig(env: AuthConfigEnv = {}): BetterAuthOptions {
           expiresInSeconds: DEFAULT_EMAIL_VERIFICATION_EXPIRES_IN_SECONDS,
           verificationUrl,
         });
-
         await sendCloudflareEmail(requireAuthEmailSender(authEmail), {
           to: user.email,
           from: validated.AUTH_FROM_EMAIL,
@@ -1110,7 +1050,7 @@ export function createAuthConfig(env: AuthConfigEnv = {}): BetterAuthOptions {
       }),
       createSpaceOwnerDeparturePlugin({
         coreWorker: env.OPENMELD_CORE_WORKER,
-        db: env.OPENMELD_DB,
+        db: env.AUTH_SCHEMA_CODEGEN ? undefined : getPostgresDatabase(env),
       }),
       bearer(),
       username(),
@@ -1140,7 +1080,6 @@ export function createAuthConfig(env: AuthConfigEnv = {}): BetterAuthOptions {
             expiresInSeconds: validated.AUTH_MAGIC_LINK_EXPIRES_IN_SECONDS,
             magicLinkUrl,
           });
-
           await sendCloudflareEmail(requireAuthEmailSender(authEmail), {
             to: email,
             from: validated.AUTH_FROM_EMAIL,
@@ -1167,23 +1106,18 @@ export function createAuthConfig(env: AuthConfigEnv = {}): BetterAuthOptions {
           if (ctx.path === "/magic-link/verify") {
             return "magic-link";
           }
-
           if (ctx.path === "/passkey/verify-authentication") {
             return "passkey";
           }
-
           if (ctx.path === "/sign-in/email" || ctx.path === "/sign-up/email") {
             return "email";
           }
-
           if (ctx.path.startsWith("/callback/")) {
             return ctx.path.split("/").pop() ?? null;
           }
-
           if (ctx.path.startsWith("/oauth2/callback/")) {
             return ctx.path.split("/").pop() ?? null;
           }
-
           return null;
         },
       }),

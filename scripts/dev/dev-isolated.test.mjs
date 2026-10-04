@@ -131,6 +131,7 @@ test("does not trust an ambient Web component marker after supervisor scrubbing"
 test("uses the complete Remote Agent capability set by default", () => {
   assert.deepEqual(resolveIsolatedDevLaunchOptions([]), {
     devGuardArgs: [],
+    postgresqlEnabled: false,
     remoteAgentSandboxEnabled: true,
     scheduledEventsEnabled: false,
   });
@@ -144,6 +145,7 @@ test("keeps the no-Sandbox flag out of Turbo arguments", () => {
     ]),
     {
       devGuardArgs: ["--filter=@openmeld/remote-agent"],
+      postgresqlEnabled: false,
       remoteAgentSandboxEnabled: false,
       scheduledEventsEnabled: false,
     }
@@ -158,8 +160,45 @@ test("keeps the scheduled-test flag out of Turbo arguments", () => {
     ]),
     {
       devGuardArgs: ["--filter=@openmeld/auth-worker"],
+      postgresqlEnabled: false,
       remoteAgentSandboxEnabled: true,
       scheduledEventsEnabled: true,
     }
+  );
+});
+
+test("keeps the PostgreSQL launcher flag out of Turbo arguments", () => {
+  assert.deepEqual(
+    resolveIsolatedDevLaunchOptions(["--postgresql", "--no-sandbox"]),
+    {
+      devGuardArgs: [],
+      postgresqlEnabled: true,
+      remoteAgentSandboxEnabled: false,
+      scheduledEventsEnabled: false,
+    }
+  );
+  const snapshot = fileURLToPath(
+    new URL("./synthetic-snapshot.sqlite", import.meta.url)
+  );
+  assert.deepEqual(
+    resolveIsolatedDevLaunchOptions([
+      "--postgresql",
+      `--d1-snapshot=${snapshot}`,
+    ]),
+    {
+      devGuardArgs: [],
+      postgresqlEnabled: true,
+      postgresqlSnapshot: snapshot,
+      remoteAgentSandboxEnabled: true,
+      scheduledEventsEnabled: false,
+    }
+  );
+  assert.throws(
+    () => resolveIsolatedDevLaunchOptions([`--d1-snapshot=${snapshot}`]),
+    { message: "Use pnpm dev:postgresql with --d1-snapshot=<path>." }
+  );
+  assert.throws(
+    () => resolveIsolatedDevLaunchOptions(["--postgresql", "--d1-snapshot="]),
+    { message: "Provide one D1 snapshot path with --d1-snapshot=<path>." }
   );
 });

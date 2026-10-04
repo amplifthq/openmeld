@@ -1,4 +1,5 @@
 import { env } from "cloudflare:test";
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { describe, expect, it } from "vitest";
 import {
   rpcListFeedbackIssuesForOrganization,
@@ -16,9 +17,10 @@ describe("Feedback submit RPC", () => {
     const inboxId = `feedback_inbox_${suffix}`;
     const inboxKey = `feedback_key_${suffix}`;
     const organizationId = `org_feedback_${suffix}`;
-    await env.OPENMELD_DB.prepare(
-      `
-        INSERT INTO openMeldFeedback_inboxes (
+    await getPostgresDatabase(env).query({
+      ...{
+        text: `
+        INSERT INTO "openmeld"."openMeldFeedback_inboxes" (
           inbox_id,
           organization_id,
           label,
@@ -27,12 +29,19 @@ describe("Feedback submit RPC", () => {
           status,
           created_at_ms,
           updated_at_ms
-        ) VALUES (?, ?, ?, ?, 'inbox_only', 'active', ?, ?)
-      `
-    )
-      .bind(inboxId, organizationId, "OpenMeld Feedback", inboxKey, 1000, 1000)
-      .run();
-
+        ) VALUES ($1, $2, $3, $4, 'inbox_only', 'active', $5, $6)
+      `,
+        values: [],
+      },
+      values: [
+        inboxId,
+        organizationId,
+        "OpenMeld Feedback",
+        inboxKey,
+        1000,
+        1000,
+      ],
+    });
     const result = await rpcSubmitFeedbackIssue(env as CoreBindings, {
       inboxKey,
       request: {
@@ -42,28 +51,30 @@ describe("Feedback submit RPC", () => {
       },
       submitterUserId: null,
     });
-
     expect(result.ok).toBe(true);
     await expect(
-      env.OPENMELD_DB.prepare(
-        `
+      getPostgresDatabase(env)
+        .query({
+          ...{
+            text: `
           SELECT
-            organization_id AS organizationId,
-            submitter_user_id AS submitterUserId,
+            organization_id AS "organizationId",
+            submitter_user_id AS "submitterUserId",
             status
-          FROM openMeldFeedback_issues
-          WHERE issue_id = ?
-        `
-      )
-        .bind(result.issueId)
-        .first()
+          FROM "openmeld"."openMeldFeedback_issues"
+          WHERE issue_id = $1
+        `,
+            values: [],
+          },
+          values: [result.issueId],
+        })
+        .then((result) => result.rows[0] ?? null)
     ).resolves.toEqual({
       organizationId,
       submitterUserId: null,
       status: "new",
     });
   });
-
   it("preserves stable Feedback errors without echoing submitted text", async () => {
     const privateSummary = "A private summary that must not enter the error";
     let error: unknown;
@@ -80,19 +91,22 @@ describe("Feedback submit RPC", () => {
     } catch (caught) {
       error = caught;
     }
-
     expect(error).toBeInstanceOf(Error);
-    expect((error as Error & { cause?: unknown }).cause).toMatchObject({
+    expect(
+      (
+        error as Error & {
+          cause?: unknown;
+        }
+      ).cause
+    ).toMatchObject({
       status: 404,
       code: "feedback.submit.inbox_not_found",
       message: "feedback inbox was not found",
     });
     expect(String((error as Error).message)).not.toContain(privateSummary);
   });
-
   it("exposes only submit on the explicit Gateway Feedback RPC surface", () => {
     const methods = Object.getOwnPropertyNames(GatewayRpcEntrypoint.prototype);
-
     expect(methods).toContain("submitFeedbackIssue");
     expect(methods).toContain("readCurrentOrganizationFeedbackReportingPolicy");
     expect(methods).toContain("setCurrentOrganizationFeedbackReportingPolicy");
@@ -102,7 +116,6 @@ describe("Feedback submit RPC", () => {
     expect(methods).not.toContain("listFeedbackIssues");
     expect(methods).not.toContain("updateFeedbackIssueStatus");
   });
-
   it("lists and updates issues only inside the explicit organization", async () => {
     const suffix = crypto.randomUUID();
     const organizationId = `org_feedback_owner_${suffix}`;
@@ -115,7 +128,6 @@ describe("Feedback submit RPC", () => {
       suffix: `${suffix}_other`,
       organizationId: otherOrganizationId,
     });
-
     await expect(
       rpcListFeedbackIssuesForOrganization(env as CoreBindings, {
         organizationId,
@@ -125,7 +137,6 @@ describe("Feedback submit RPC", () => {
       items: [{ issueId: first.issueId, organizationId }],
       nextCursor: null,
     });
-
     await expect(
       rpcUpdateFeedbackIssueStatusForOrganization(env as CoreBindings, {
         organizationId,
@@ -152,7 +163,6 @@ describe("Feedback submit RPC", () => {
       triageNote: "Reproduced locally.",
     });
   });
-
   it("preserves an invalid transition as a structured Feedback error", async () => {
     const suffix = crypto.randomUUID();
     const organizationId = `org_feedback_transition_${suffix}`;
@@ -167,7 +177,6 @@ describe("Feedback submit RPC", () => {
       issueId: issue.issueId,
       status: "resolved",
     });
-
     await expect(
       rpcUpdateFeedbackIssueStatusForOrganization(env as CoreBindings, {
         organizationId,
@@ -182,13 +191,11 @@ describe("Feedback submit RPC", () => {
       },
     });
   });
-
   it("defaults reporting to enabled and persists an explicit opt-out", async () => {
     const suffix = crypto.randomUUID();
     const organizationId = `org_feedback_policy_${suffix}`;
     const userId = `user_feedback_policy_${suffix}`;
     await seedOrganizationAndUser({ organizationId, suffix, userId });
-
     await expect(
       rpcReadFeedbackReportingPolicy(env as CoreBindings, { organizationId })
     ).resolves.toEqual({
@@ -212,16 +219,18 @@ describe("Feedback submit RPC", () => {
     ).resolves.toMatchObject({ reportingEnabled: false });
   });
 });
-
 async function seedFeedbackIssue(input: {
   organizationId: string;
   suffix: string;
-}): Promise<{ issueId: string }> {
+}): Promise<{
+  issueId: string;
+}> {
   const inboxId = `feedback_inbox_${input.suffix}`;
   const inboxKey = `feedback_key_${input.suffix}`;
-  await env.OPENMELD_DB.prepare(
-    `
-      INSERT INTO openMeldFeedback_inboxes (
+  await getPostgresDatabase(env).query({
+    ...{
+      text: `
+      INSERT INTO "openmeld"."openMeldFeedback_inboxes" (
         inbox_id,
         organization_id,
         label,
@@ -230,18 +239,19 @@ async function seedFeedbackIssue(input: {
         status,
         created_at_ms,
         updated_at_ms
-      ) VALUES (?, ?, ?, ?, 'inbox_only', 'active', ?, ?)
-    `
-  )
-    .bind(
+      ) VALUES ($1, $2, $3, $4, 'inbox_only', 'active', $5, $6)
+    `,
+      values: [],
+    },
+    values: [
       inboxId,
       input.organizationId,
       "OpenMeld Feedback",
       inboxKey,
       1000,
-      1000
-    )
-    .run();
+      1000,
+    ],
+  });
   return await rpcSubmitFeedbackIssue(env as CoreBindings, {
     inboxKey,
     request: {
@@ -254,32 +264,35 @@ async function seedFeedbackIssue(input: {
     submitterUserId: null,
   });
 }
-
 async function seedOrganizationAndUser(input: {
   organizationId: string;
   suffix: string;
   userId: string;
 }): Promise<void> {
-  await env.OPENMELD_DB.prepare(
-    "INSERT INTO organizations (id, name, slug, created_at) VALUES (?, ?, ?, ?)"
-  )
-    .bind(
+  await getPostgresDatabase(env).query({
+    ...{
+      text: 'INSERT INTO "openmeld"."organizations" (id, name, slug, created_at) VALUES ($1, $2, $3, $4)',
+      values: [],
+    },
+    values: [
       input.organizationId,
       "Feedback Org",
       `feedback-${input.suffix}`,
-      1000
-    )
-    .run();
-  await env.OPENMELD_DB.prepare(
-    "INSERT INTO users (id, name, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)"
-  )
-    .bind(
+      1000,
+    ],
+  });
+  await getPostgresDatabase(env).query({
+    ...{
+      text: 'INSERT INTO "openmeld"."users" (id, name, email, email_verified, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6)',
+      values: [],
+    },
+    values: [
       input.userId,
       "Feedback Owner",
       `feedback-${input.suffix}@example.com`,
       1,
       1000,
-      1000
-    )
-    .run();
+      1000,
+    ],
+  });
 }

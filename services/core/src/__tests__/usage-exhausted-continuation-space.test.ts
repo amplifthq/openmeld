@@ -54,6 +54,7 @@ describe("Usage-exhausted Space continuation", () => {
     const space = Object.create(
       Space.prototype
     ) as unknown as UsageContinuationSpaceHarness;
+    space.bindings = createUnusedPostgresBindings();
     space.spaceId = SPACE_ID;
     space.ctx = {
       storage: {
@@ -272,6 +273,7 @@ function createUsageContinuationSpaceHarness(input: {
   const space = Object.create(
     Space.prototype
   ) as unknown as UsageContinuationSpaceHarness;
+  space.bindings = createUnusedPostgresBindings();
   space.spaceId = SPACE_ID;
   space.ctx = {
     storage: {
@@ -326,8 +328,18 @@ function continuationInput(): StartUsageExhaustedContinuationInput {
   };
 }
 
+function createUnusedPostgresBindings() {
+  return {
+    OPENMELD_POSTGRESQL: {
+      connectionString:
+        "postgresql://continuation_fixture@127.0.0.1:1/continuation_fixture",
+    },
+  };
+}
+
 type UsageContinuationSpaceHarness = {
   applySpaceRef: ReturnType<typeof vi.fn>;
+  bindings: ReturnType<typeof createUnusedPostgresBindings>;
   ctx: {
     storage: {
       sql: {

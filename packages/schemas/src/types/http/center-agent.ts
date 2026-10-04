@@ -392,6 +392,12 @@ export type CenterAgentUpdateAgentProfileRuntimeSettingsResponse =
   z.infer<CenterAgentUpdateAgentProfileRuntimeSettingsResponseSchema>;
 export type CenterAgentWakeAgentProfilesInSpaceBody =
   z.infer<CenterAgentWakeAgentProfilesInSpaceBodySchema>;
+export type CenterAgentWakeAgentProfilesInSpacesBody = z.infer<
+  typeof import("../../schemas/http/center-agent")["centerAgentWakeAgentProfilesInSpacesBodySchema"]
+>;
+export type CenterAgentWakeAgentProfilesInSpacesResponse = z.infer<
+  typeof import("../../schemas/http/center-agent")["centerAgentWakeAgentProfilesInSpacesResponseSchema"]
+>;
 export type CenterAgentWakeAgentProfilesInSpaceResponse =
   z.infer<CenterAgentWakeAgentProfilesInSpaceResponseSchema>;
 export type CenterAgentWakePublicationCommand =

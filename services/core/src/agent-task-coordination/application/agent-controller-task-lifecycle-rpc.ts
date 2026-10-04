@@ -1,3 +1,4 @@
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import {
   submitAgentControllerTaskLifecycleEventsResponseSchema,
   submitAgentControllerTaskLifecycleEventsRpcInputSchema,
@@ -6,11 +7,7 @@ import type {
   SubmitAgentControllerTaskLifecycleEventsResponse,
   SubmitAgentControllerTaskLifecycleEventsRpcInput,
 } from "@openmeld/schemas/types";
-import {
-  agentTaskCoordinationDb,
-  type CoreBindings,
-  localStateDb,
-} from "../../lib/bindings";
+import type { CoreBindings } from "../../lib/bindings";
 import { resolveOrganizationMembershipById } from "../../organizations/organization-context";
 import { createCoreRpcHttpError } from "../../rpc/errors";
 import { verifyRuntimeReportingAuthority } from "../../runtime-reporting/runtime-reporting-authority";
@@ -41,8 +38,8 @@ export async function rpcSubmitAgentControllerTaskLifecycleEvents(
       status: 401,
     });
   }
-  const runtimeDb = localStateDb(env);
-  const coordinationDb = agentTaskCoordinationDb(env);
+  const runtimeDb = getPostgresDatabase(env);
+  const coordinationDb = getPostgresDatabase(env);
   if (!(runtimeDb && coordinationDb)) {
     throw createCoreRpcHttpError({
       code: "agent_controller_task.store_unavailable",

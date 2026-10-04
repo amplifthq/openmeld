@@ -1,14 +1,15 @@
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import type { CoreBindings } from "../lib/bindings";
-import { identityDb } from "../lib/bindings";
+
 import {
   clearRemoteAgentNativeDeliveryTriggerTextForMember,
   clearRemoteAgentNativeDeliveryTriggerTextForOrganization,
-} from "../remote-agent/infrastructure/d1/native-delivery-ledger-repo";
-import { createD1CenterAgentMemoryRepository } from "./d1-memory-repository";
+} from "../remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import {
   type CenterAgentMemoryService,
   createCenterAgentMemoryService,
 } from "./memory-service";
+import { createPostgresCenterAgentMemoryRepository } from "./postgresql-memory-repository";
 import {
   type RetainedMemoryRead,
   searchRetainedCenterAgentMemory,
@@ -18,7 +19,7 @@ import { createZepCenterAgentMemoryAdapter } from "./zep-memory-adapter";
 export function createCoreCenterAgentMemoryService(
   env: CoreBindings
 ): CenterAgentMemoryService | null {
-  const db = identityDb(env);
+  const db = getPostgresDatabase(env);
   const apiKey = normalizeOptionalText(env.ZEP_OPENMELD_API_KEY);
   if (!(db && apiKey)) {
     return null;
@@ -38,7 +39,7 @@ export function createCoreCenterAgentMemoryService(
           ...ledgerInput,
         }),
     },
-    repository: createD1CenterAgentMemoryRepository(db),
+    repository: createPostgresCenterAgentMemoryRepository(db),
   });
 }
 
@@ -51,7 +52,7 @@ export async function readCoreCenterAgentRetainedMemory(
     limit: number;
   }
 ): Promise<RetainedMemoryRead> {
-  const db = identityDb(env);
+  const db = getPostgresDatabase(env);
   const apiKey = normalizeOptionalText(env.ZEP_OPENMELD_API_KEY);
   if (!(db && apiKey)) {
     return { items: [], status: "unavailable" };
@@ -59,7 +60,7 @@ export async function readCoreCenterAgentRetainedMemory(
   return await searchRetainedCenterAgentMemory({
     ...input,
     adapter: createZepCenterAgentMemoryAdapter({ apiKey }),
-    repository: createD1CenterAgentMemoryRepository(db),
+    repository: createPostgresCenterAgentMemoryRepository(db),
   });
 }
 
@@ -67,7 +68,7 @@ export async function clearCoreCenterAgentOrganizationNativeDeliveryData(
   env: CoreBindings,
   organizationId: string
 ): Promise<boolean> {
-  const db = identityDb(env);
+  const db = getPostgresDatabase(env);
   if (!db) {
     return false;
   }
@@ -83,7 +84,7 @@ export async function clearCoreCenterAgentMemberNativeDeliveryData(
   organizationId: string,
   userId: string
 ): Promise<boolean> {
-  const db = identityDb(env);
+  const db = getPostgresDatabase(env);
   if (!db) {
     return false;
   }

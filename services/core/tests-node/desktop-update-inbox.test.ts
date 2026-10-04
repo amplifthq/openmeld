@@ -3,6 +3,7 @@ import type {
   DesktopUpdateObservationRpcInput,
 } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
+import { installPostgresWriteFailure } from "../../../tooling/postgresql/test-harness";
 import {
   reportDesktopUpdateObservation,
   rpcReportDesktopUpdateObservation,
@@ -10,7 +11,7 @@ import {
 import { createInboxService } from "../src/inbox/application/inbox-service";
 import type { CoreBindings } from "../src/lib/bindings";
 import { createInboxFeedFixture } from "./helpers/inbox-feed.test-support";
-import { applyDrizzleMigrationsForTables } from "./helpers/sqlite-d1-harness.test-support";
+import { postgresTestBinding } from "./helpers/postgresql-harness.test-support";
 
 const installationId = "11111111-2222-4333-8444-555555555555";
 const observation: DesktopUpdateObservation = {
@@ -27,34 +28,33 @@ const observation: DesktopUpdateObservation = {
 
 describe("native Desktop update Inbox source", () => {
   it("serializes concurrent source reports without leaving an outdated active offer", async () => {
-    const f = fixture();
+    const f = await fixture();
     try {
       await Promise.all([
         f.report(observation),
         f.report({ ...observation, sequence: 2, availableVersion: "0.1.5" }),
         f.report({ ...observation, sequence: 3, availableVersion: "0.1.6" }),
       ]);
-      const available = f
-        .items()
+      const available = (await f.items())
         .map((row) => JSON.parse(String(row.source_target_json)))
         .filter((target) => target.state === "available");
       expect(available).toHaveLength(1);
       expect(available[0].version).toBe("0.1.6");
     } finally {
-      f.close();
+      await f.close();
     }
   });
   it("keeps one quiet canonical item across checks, read and Dismiss; native install confirmation changes source truth only", async () => {
-    const f = fixture();
+    const f = await fixture();
     try {
       await f.report(observation);
       await f.report(observation);
       await f.report({ ...observation, sequence: 2 });
-      const original = f.items()[0];
+      const original = (await f.items())[0];
       if (!original) {
         throw new Error("Expected native update projection");
       }
-      expect(f.items()).toHaveLength(1);
+      expect(await f.items()).toHaveLength(1);
       expect(original).toMatchObject({
         organization_id: null,
         importance: "normal",
@@ -71,37 +71,39 @@ describe("native Desktop update Inbox source", () => {
         organizationId: "other-org",
         itemId: String(original.id),
       });
-      const read = f.items()[0]?.read_at_ms;
-      const cleared = f.items()[0]?.cleared_at_ms;
+      const read = (await f.items())[0]?.read_at_ms;
+      const cleared = (await f.items())[0]?.cleared_at_ms;
       await f.report({ ...observation, sequence: 3 });
-      expect(JSON.parse(String(f.items()[0]?.source_target_json)).state).toBe(
-        "available"
-      );
+      expect(
+        JSON.parse(String((await f.items())[0]?.source_target_json)).state
+      ).toBe("available");
       await f.report({
         ...observation,
         availableVersion: undefined,
         installedVersion: "0.1.4",
         sequence: 4,
       });
-      expect(f.items()[0]).toMatchObject({
+      expect((await f.items())[0]).toMatchObject({
         id: original.id,
         read_at_ms: read,
         cleared_at_ms: cleared,
         occurred_at_ms: original.occurred_at_ms,
       });
-      expect(JSON.parse(String(f.items()[0]?.source_target_json)).state).toBe(
-        "installed"
-      );
       expect(
-        f.queryAll({ sql: "SELECT * FROM inbox_email_deliveries" })
+        JSON.parse(String((await f.items())[0]?.source_target_json)).state
+      ).toBe("installed");
+      expect(
+        await f.queryAll({
+          text: 'SELECT * FROM "openmeld"."inbox_email_deliveries"',
+        })
       ).toEqual([]);
     } finally {
-      f.close();
+      await f.close();
     }
   });
 
   it("supersedes older offers without claiming installation, rejects replay conflicts and ignores stale reports", async () => {
-    const f = fixture();
+    const f = await fixture();
     try {
       await f.report(observation);
       await f.report({
@@ -110,7 +112,9 @@ describe("native Desktop update Inbox source", () => {
         availableVersion: "0.1.5",
       });
       expect(
-        f.items().map((row) => JSON.parse(String(row.source_target_json)).state)
+        (await f.items()).map(
+          (row) => JSON.parse(String(row.source_target_json)).state
+        )
       ).toEqual(["superseded", "available"]);
       await expect(f.report({ ...observation, sequence: 2 })).resolves.toEqual({
         accepted: false,
@@ -125,50 +129,53 @@ describe("native Desktop update Inbox source", () => {
         availableVersion: undefined,
       });
       expect(
-        f
-          .items()
-          .filter(
-            (row) =>
-              JSON.parse(String(row.source_target_json)).state === "available"
-          )
+        (await f.items()).filter(
+          (row) =>
+            JSON.parse(String(row.source_target_json)).state === "available"
+        )
       ).toHaveLength(1);
       await f.report({ ...observation, sequence: 5, availableVersion: null });
       expect(
-        f
-          .items()
-          .every(
-            (row) =>
-              JSON.parse(String(row.source_target_json)).state === "superseded"
-          )
+        (await f.items()).every(
+          (row) =>
+            JSON.parse(String(row.source_target_json)).state === "superseded"
+        )
       ).toBe(true);
     } finally {
-      f.close();
+      await f.close();
     }
   });
 
   it("uses an atomic source sequence and projection batch so a failed write retries without a receipt or duplicate", async () => {
-    const f = fixture();
+    const f = await fixture();
     try {
-      f.run({
-        sql: "CREATE TRIGGER fail_desktop_update BEFORE INSERT ON inbox_items BEGIN SELECT RAISE(ABORT, 'source projection failure'); END",
+      const removeFailure = await installPostgresWriteFailure({
+        harness: f,
+        table: "inbox_items",
+        operation: "INSERT",
+        message: "source projection failure",
       });
       await expect(f.report(observation)).rejects.toThrow();
-      expect(f.items()).toEqual([]);
+      expect(await f.items()).toEqual([]);
       expect(
-        f.queryAll({ sql: "SELECT * FROM desktop_update_installations" })
+        await f.queryAll({
+          text: 'SELECT * FROM "openmeld"."desktop_update_installations"',
+        })
       ).toEqual([]);
-      f.run({ sql: "DROP TRIGGER fail_desktop_update" });
+      await removeFailure();
       await f.report(observation);
-      expect(f.items()).toHaveLength(1);
+      expect(await f.items()).toHaveLength(1);
     } finally {
-      f.close();
+      await f.close();
     }
   });
 
   it("binds the account to verified Human identity and rejects mismatched users, arbitrary fields and invalid availability", async () => {
-    const f = fixture();
+    const f = await fixture();
     try {
-      const env = { OPENMELD_DB: f.db } as unknown as CoreBindings;
+      const env = {
+        OPENMELD_POSTGRESQL: postgresTestBinding(f.db),
+      } as unknown as CoreBindings;
       const context = {
         actorContext: {
           callerPrincipalId: "owner",
@@ -207,14 +214,14 @@ describe("native Desktop update Inbox source", () => {
         f.report({ ...observation, sequence: 2, availableVersion: "0.1.2" })
       ).rejects.toMatchObject({ status: 400 });
     } finally {
-      f.close();
+      await f.close();
     }
   });
 });
 
-function fixture() {
-  const f = createInboxFeedFixture();
-  applyDrizzleMigrationsForTables(f, ["desktop_update_installations"]);
+async function fixture() {
+  const f = await createInboxFeedFixture();
+
   let nowMs = 10_000;
   return {
     ...f,
@@ -224,9 +231,9 @@ function fixture() {
         observation: value,
         nowMs: nowMs++,
       }),
-    items: () =>
-      f.queryAll({
-        sql: "SELECT * FROM inbox_items WHERE kind = 'desktop_update' ORDER BY occurred_at_ms",
+    items: async () =>
+      await f.queryAll({
+        text: 'SELECT * FROM "openmeld"."inbox_items" WHERE kind = \'desktop_update\' ORDER BY occurred_at_ms',
       }),
   };
 }

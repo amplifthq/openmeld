@@ -289,6 +289,12 @@ message text the only way to understand what happened.
 
 ## Data Ownership Rule
 
+The shared relational target is Hyperdrive + PlanetScale PostgreSQL in the
+Amplift organization, as decided in [physical-db-split.md](physical-db-split.md).
+Current product storage remains D1 until controlled cutover. Physical migration
+does not transfer logical ownership, move Space Durable Object/R2 state, or
+make a relational projection a second execution authority.
+
 Every persistent state needs one authority owner.
 
 Before adding or changing a table, database, projection, Durable Object state, or
@@ -691,13 +697,16 @@ Local, and personal Remote Agent consumers.
 Local plugin calls reuse `center_agent_connector_action_operations` and the
 existing audit journal; its historical physical name does not restrict its
 consumer. A claim freezes the authenticated Agent, represented member, selected
-connection, input signature, and operation ID. An exact replay returns that
-record, including after revocation, and never starts a second provider call.
+connection, input signature, and operation ID. Recovery retains that
+record; current connection permission still controls disclosure. An unknown write can execute one exact
+replay only when current authorization and the original frozen account are
+verified and the operation journal atomically grants its unused allowance in
+the original 24-hour window. Missing account provenance never grants execution.
 New operations recheck access immediately before claiming. A revocation blocks
 new admission; it does not cancel a provider action already admitted.
-Unknown provider outcomes remain unknown and require investigation rather than
-automatic resubmission. Provider response data is returned to the caller but
-is not copied into the operation ledger.
+Known completed or failed claims retain their outcome without another provider
+write. Provider response data is returned to the caller but is not copied into
+the operation ledger; a recovered terminal receipt must not invent that data.
 
 `plugin_action_confirmations` stores short-lived, exact-request confirmations
 bound to the organization, Agent, signature (including operation ID), and access
@@ -707,6 +716,33 @@ worker hosts the credential-bearing executor through an internal service
 binding, independently of any conversation or LLM. It rechecks provider action
 metadata against the admitted effect before execution. No broad runtime token
 or provider credential is returned to a CLI.
+
+`plugin_action_requests` retains an exact Local write without verified task
+provenance. Core's Plugin request owner is its sole writer. The row
+binds requester, Organization, executor, operation ID, frozen connection/access
+revisions, action, effect and input for one hour. Input stays in that protected
+owner record; Inbox receives only an opaque reference and generic private
+recipient text. The detail projection exposes bounded resource identifiers,
+not arbitrary input or credentials. Core permits approval only when the
+authenticated account principal matches the request owner and the acting Profile
+is human. An Agent delegation/execution credential or a selected Human Profile
+alone cannot approve. This is the existing account credential boundary, not a
+human-presence guarantee when an Agent has the owner's full account credentials.
+No email code or separate factor enrollment is required.
+
+The decision and Inbox resolution share a conditional D1 batch. Repeated or
+lost responses return the same decision and root. The operation owner rechecks
+that approved root and current revisions in its atomic execution/replay claim.
+Changing IDs cannot authorize an old unknown replacement. An independently
+approved new request may intentionally repeat content without resolving the old
+unknown. Existing precise destructive confirmations remain an additional gate;
+they are not proof of a new human request.
+
+New non-read claims from native Remote/Center Agents require a verified task
+root before execution permission is issued. Missing or unreadable provenance
+must not fall back to a caller-selected operation ID. Existing receipt reads
+and outcome recording remain available; a read failure does not erase the
+original operation or prevent its outcome from being recorded.
 
 The `connector_app_requests` D1 table is Core's internal demand ledger for Apps
 that a member asks OpenMeld to support. A request is scoped by Organization,
@@ -1120,6 +1156,10 @@ not become a second in-flight execution state machine beside Remote Agent.
 `routine_runs.continuation_delegation_id` is the atomic one-continuation fence:
 the same delegation id may replay, while a different second id conflicts before
 child work is created.
+Multi-Space Wake acceptance persists the complete publication manifest and its
+continuation subscriptions before returning `queued`. Space publication remains
+asynchronous; an immediate initial-delivery callback must already see the
+continuation and leave the Run open for its final result.
 
 Each successful human- or Center-Agent-initiated Routine create, update, pause,
 resume, or delete appends one audit row in the same D1 batch as the mutation.
@@ -2053,6 +2093,20 @@ Space posting, delegation preparation, child activation, and audit writes are
 individually idempotent, so an interruption at any boundary converges without
 duplicating the Wake or spending another Agent turn. The outbox records
 coordination progress; it is not Space message truth or execution authority.
+
+Multi-Space delegation saves every destination command atomically before the
+first publication. The root publication retains the complete ordered manifest;
+each destination references that root and shares one Agent Task Coordination
+delegation and completion barrier. Recovery reads this frozen plan, including
+after the originating model turn finishes. It does not reconstruct the batch
+from whichever child publications happened to succeed. Each publication activates
+or rejects only its own children. A definite rejection retains accepted siblings
+and their results; parent synthesis waits for every planned child to settle.
+Routine continuation ownership is claimed only after the durable intent exists.
+The original semantic reply-language fact is also included in each delegated
+brief, so Local and Remote children preserve it when the brief is in another
+language. This adds no language detector or parallel execution authority.
+
 Once Space accepts the publication, the outbox retains the validated returned
 signal envelope. Completed command replays therefore return the original Space
 acceptance evidence without another network read or post. Every external post
@@ -4051,3 +4105,28 @@ Use scoped owner documents for related rules:
 - Analytics Engine is a compact historical projection; it must not drift from
   the shared runtime evidence contract or exceed Cloudflare physical limits.
 - Sensitive data must not be logged or persisted for diagnostics.
+
+### Native PostgreSQL Slack initial submission
+
+The native delivery ledger holds an exact, short submission claim alongside
+the frozen worker request. A guarded update grants one concurrent caller the
+initial worker RPC. An overlapping request returns the existing submitted
+intent and leaves acknowledgement to that caller or the admission watchdog.
+The claim is released by its exact nonce after the attempt, including an
+ambiguous response, so a later retry can replay the same frozen request and
+worker idempotency key. A crashed caller's claim expires for recovery.
+
+The claim excludes overlapping admission operations only. Expiry neither
+finalizes nor fails an execution; the worker acknowledgement/callback and
+RuntimeCoordinator keep their established authority. Network calls hold no
+PostgreSQL transaction or row lock.
+
+### RuntimeCoordinator execution projection writes
+
+The shared PostgreSQL execution projection advances in one atomic write.
+PostgreSQL evaluates the existing status and observation time while holding the
+row lock, so a concurrent earlier delivery projection cannot discard accepted
+running evidence. Equal-rank observations retain their timestamp ordering;
+locked terminal outcomes cannot be replaced by another outcome or nonterminal
+progress. The repository owns the status ordering. This projection remains a
+read model; RuntimeCoordinator retains execution and finalization authority.

@@ -1,4 +1,5 @@
 import { isAgentWakeAdmissionPreparationPendingReason } from "@openmeld/agent-runtime";
+import { readPostgresErrorCode } from "@openmeld/db/postgresql";
 import {
   computeDispatchRetryDelaySeconds,
   DISPATCH_OFFLINE_RETRY_BACKOFF_SECONDS,
@@ -128,26 +129,24 @@ const NON_RETRYABLE_DISPATCH_ERROR_CODES = new Set([
 // raises one it must fail loud and terminal rather than burn the retry budget.
 // This is the fail-loud half of removing the per-batch hot-path storage probe:
 // the probe no longer guards the Wake path, so the real query is the detector.
-const D1_SCHEMA_ERROR_MESSAGE_FRAGMENTS = [
-  "no such table",
-  "no such column",
-  "no such index",
-] as const;
+const POSTGRES_SCHEMA_ERROR_CODES = new Set([
+  "42P01",
+  "42703",
+  "42704",
+  "3F000",
+]);
+const POSTGRES_OVERLOADED_ERROR_CODES = new Set(["53300", "53400", "57P03"]);
 
 export const DISPATCH_STORAGE_SCHEMA_MISSING_ERROR_CODE =
   "dispatch.storage.schema_missing";
 
-// D1 reports backpressure, not a malformed Wake or a missing identity.
+// Database capacity is not a malformed Wake or a missing identity.
 // Callers must retain work and delay retry rather than retrying immediately.
-export const isD1OverloadedError = (errorMessage: string): boolean =>
-  errorMessage.toLowerCase().includes("d1 db is overloaded.");
+export const isPostgresOverloadedError = (error: unknown): boolean =>
+  POSTGRES_OVERLOADED_ERROR_CODES.has(readPostgresErrorCode(error) ?? "");
 
-export const isD1SchemaError = (errorMessage: string): boolean => {
-  const normalized = errorMessage.toLowerCase();
-  return D1_SCHEMA_ERROR_MESSAGE_FRAGMENTS.some((fragment) =>
-    normalized.includes(fragment)
-  );
-};
+export const isPostgresSchemaError = (error: unknown): boolean =>
+  POSTGRES_SCHEMA_ERROR_CODES.has(readPostgresErrorCode(error) ?? "");
 
 export type DispatchErrorCategory = "retryable" | "non_retryable" | "unknown";
 
@@ -169,10 +168,10 @@ export const classifyDispatchError = (
   error: unknown,
   errorMessage: string
 ): DispatchErrorCategory => {
-  if (isD1SchemaError(errorMessage)) {
+  if (isPostgresSchemaError(error)) {
     return "non_retryable";
   }
-  if (isD1OverloadedError(errorMessage)) {
+  if (isPostgresOverloadedError(error)) {
     return "retryable";
   }
   const directCode = toErrorCode(error);
@@ -198,10 +197,10 @@ export const resolveDispatchErrorCode = (
   error: unknown,
   errorMessage: string
 ): string => {
-  if (isD1SchemaError(errorMessage)) {
+  if (isPostgresSchemaError(error)) {
     return DISPATCH_STORAGE_SCHEMA_MISSING_ERROR_CODE;
   }
-  if (isD1OverloadedError(errorMessage)) {
+  if (isPostgresOverloadedError(error)) {
     return DISPATCH_STORAGE_OVERLOADED_ERROR_CODE;
   }
   const directCode = toErrorCode(error);

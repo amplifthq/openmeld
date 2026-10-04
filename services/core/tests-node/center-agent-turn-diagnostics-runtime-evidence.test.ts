@@ -8,7 +8,7 @@ import {
   attachCenterAgentTurnRuntimeEvidence,
   projectCenterAgentTurnRuntimeEvidence,
 } from "../src/remote-agent/application/center-agent-turn-diagnostics";
-import type { RemoteAgentNativeDeliveryRecord } from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+import type { RemoteAgentNativeDeliveryRecord } from "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 
 describe("Center Agent turn runtime evidence", () => {
   it("joins exact submission evidence across the current and previous turns", () => {

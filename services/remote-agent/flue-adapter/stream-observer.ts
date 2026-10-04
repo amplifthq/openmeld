@@ -19,6 +19,7 @@ import {
   completeRemoteAgentExecutionState,
   markRemoteAgentExecutionProgress,
   RemoteAgentTerminalExecutionOwnerMissingError,
+  readRemoteAgentExecutionState,
   readRemoteAgentRequestedExecutionFailure,
   resolveRemoteAgentTerminalExecutionOutcome,
 } from "../agent-core/execution-state";
@@ -96,17 +97,6 @@ export async function handleCenterAgentObservation(input: {
     });
     return;
   }
-  if (event.type === "message_end" && event.message.role === "assistant") {
-    await flushRemoteAgentStream({
-      ...resolveDependencies(input.resolveDependencies),
-      event,
-      streamPublisher: input.streamPublisher,
-      submissionId: resolveRemoteAgentObservationSubmissionId(
-        event.submissionId
-      ),
-    });
-    return;
-  }
   const streamDelta = extractFlueStreamDelta(event);
   if (streamDelta) {
     await handleCenterAgentStreamDelta({
@@ -124,6 +114,44 @@ export async function handleCenterAgentObservation(input: {
       eventIndex: event.eventIndex,
       streamPublisher: input.streamPublisher,
       toolPart,
+    });
+    return;
+  }
+  if (isCompletedAssistantMessage(event)) {
+    const { coreWorker, env, storage } = resolveDependencies(
+      input.resolveDependencies
+    );
+    const submissionId = resolveRemoteAgentObservationSubmissionId(
+      event.submissionId
+    );
+    const context = await resolveRemoteAgentStreamContext({
+      storage,
+      submissionId,
+    });
+    if (!context || context.workLoopCheckpoint) {
+      return;
+    }
+    const identity = buildRemoteAgentExecutionIdentity(context);
+    const execution = await readRemoteAgentExecutionState({
+      identity,
+      storage,
+    });
+    if (
+      execution.status !== "found" ||
+      !["accepted", "running"].includes(execution.execution.status) ||
+      (await readRemoteAgentRequestedExecutionFailure({ identity, storage }))
+    ) {
+      return;
+    }
+    // A completed model message is ready to preview before compaction or
+    // later tool work. It does not settle the execution or publish its result.
+    await flushRemoteAgentStream({
+      coreWorker,
+      env,
+      event,
+      storage,
+      submissionId,
+      streamPublisher: input.streamPublisher,
     });
     return;
   }
@@ -729,13 +757,22 @@ function normalizeSubmissionId(
 function isRemoteAgentExecutionObservation(event: FlueObservation): boolean {
   return (
     event.type === "text_delta" ||
-    (event.type === "message_end" && event.message.role === "assistant") ||
     event.type === "thinking_delta" ||
     event.type === "tool_start" ||
     event.type === "tool" ||
     event.type === "compaction_start" ||
     event.type === "compaction" ||
+    isCompletedAssistantMessage(event) ||
     (event.type === "operation" && event.operationKind === "prompt")
+  );
+}
+
+function isCompletedAssistantMessage(event: FlueObservation): boolean {
+  return (
+    event.type === "message_end" &&
+    event.message.role === "assistant" &&
+    event.message.stopReason !== "error" &&
+    event.message.stopReason !== "aborted"
   );
 }
 

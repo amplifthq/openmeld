@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   spaceMessageAttachmentSchema,
   spaceMessageAttachmentsSchema,
@@ -6,21 +7,18 @@ import type {
   SpaceAttachmentDescriptor,
   SpaceMessageAttachment,
 } from "@openmeld/schemas/types";
-import { readSpaceAttachmentRecord } from "../infrastructure/d1/space-attachment-repo";
-
+import { readSpaceAttachmentRecord } from "../infrastructure/postgresql/space-attachment-repo";
 export const ATTACHMENT_REFERENCE_INVALID_MESSAGE =
   "One or more attachment references are invalid for this Space.";
-
 export class SpaceAttachmentReferenceInvalidError extends Error {
   constructor() {
     super(ATTACHMENT_REFERENCE_INVALID_MESSAGE);
     this.name = "SpaceAttachmentReferenceInvalidError";
   }
 }
-
 export async function resolveSpaceMessageAttachmentReferences(input: {
   attachments: unknown;
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   spaceId: string;
 }): Promise<SpaceMessageAttachment[]> {
@@ -28,7 +26,6 @@ export async function resolveSpaceMessageAttachmentReferences(input: {
   if (!references.success) {
     throw new SpaceAttachmentReferenceInvalidError();
   }
-
   const canonicalReferences: SpaceMessageAttachment[] = [];
   for (const reference of references.data) {
     const attachment = await readSpaceAttachmentRecord({
@@ -44,7 +41,6 @@ export async function resolveSpaceMessageAttachmentReferences(input: {
   }
   return canonicalReferences;
 }
-
 function toSpaceMessageAttachment(
   attachment: SpaceAttachmentDescriptor
 ): SpaceMessageAttachment {

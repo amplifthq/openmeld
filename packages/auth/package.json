@@ -29,8 +29,8 @@
   "scripts": {
     "dev": "tsdown --watch --no-clean",
     "build": "tsdown --no-clean",
-    "test": "vitest run",
-    "test:watch": "vitest",
+    "test": "node ../../tooling/postgresql/local.mjs run pnpm exec vitest run",
+    "test:watch": "node ../../tooling/postgresql/local.mjs run pnpm exec vitest",
     "typecheck": "tsc -p tsconfig.json",
     "check": "biome check --no-errors-on-unmatched ./ && pnpm run typecheck",
     "fix": "biome check --write --no-errors-on-unmatched ./",

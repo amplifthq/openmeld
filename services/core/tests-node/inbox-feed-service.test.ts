@@ -11,7 +11,7 @@ import { createInboxFeedFixture } from "./helpers/inbox-feed.test-support";
 
 describe("canonical Inbox attention feed", () => {
   it("limits Thread reads to ordinary updates in the selected category, including when urgent replies share the Thread", async () => {
-    const f = createInboxFeedFixture();
+    const f = await createInboxFeedFixture();
     try {
       const feed = createInboxFeedService({ db: f.db, nowMs: () => 11_000 });
       const sourceTarget = {
@@ -84,11 +84,11 @@ describe("canonical Inbox attention feed", () => {
       });
       expect(remaining.rows.map((row) => row.item.id)).toEqual([urgent.itemId]);
     } finally {
-      f.close();
+      await f.close();
     }
   });
   it("groups a Space across pages, keeps Threads distinct, and reads only the frozen group", async () => {
-    const f = createInboxFeedFixture();
+    const f = await createInboxFeedFixture();
     try {
       const feed = createInboxFeedService({ db: f.db, nowMs: () => 11_000 });
       for (let index = 0; index < 45; index += 1) {
@@ -170,12 +170,12 @@ describe("canonical Inbox attention feed", () => {
           ?.item.resolutionStatus
       ).toBe("open");
     } finally {
-      f.close();
+      await f.close();
     }
   });
 
   it("groups resolved system requests without absorbing open requests or urgent outcomes, including after bulk actions", async () => {
-    const f = createInboxFeedFixture();
+    const f = await createInboxFeedFixture();
     try {
       const system = {
         kind: "system_issue",
@@ -260,14 +260,14 @@ describe("canonical Inbox attention feed", () => {
         itemCount: 1,
       });
     } finally {
-      f.close();
+      await f.close();
     }
   });
 
   it("shares priority and request categories with the unpaged summary while respecting read, first contact and mute facts", async () => {
-    const f = createInboxFeedFixture();
+    const f = await createInboxFeedFixture();
     try {
-      f.agent("codex");
+      await f.agent("agt_11111111-1111-4111-8111-111111111111");
       await f.item("first", {
         sourceFacts: facts(true),
         sourceTarget: {
@@ -297,8 +297,8 @@ describe("canonical Inbox attention feed", () => {
           requestCategory: "action",
         },
       });
-      f.run({
-        sql: "INSERT INTO inbox_conversation_notification_preferences VALUES ('owner', 'org', 'space', 'muted')",
+      await f.query({
+        text: "INSERT INTO \"openmeld\".\"inbox_conversation_notification_preferences\" VALUES ('owner', 'org', 'space', 'muted')",
       });
       const service = createInboxService({
         db: f.db,
@@ -350,11 +350,11 @@ describe("canonical Inbox attention feed", () => {
       });
       expect(legacy).not.toHaveProperty("priorityCount");
     } finally {
-      f.close();
+      await f.close();
     }
   });
   it("keeps an old priority request ahead of recent conversations across the full dataset and paging", async () => {
-    const fixture = createInboxFeedFixture();
+    const fixture = await createInboxFeedFixture();
     try {
       const urgent = await fixture.item("old-request", {
         attention: "action_required",
@@ -409,14 +409,14 @@ describe("canonical Inbox attention feed", () => {
       expect(new Set(ids).size).toBe(83);
       expect(ids.slice(0, 2)).toEqual([urgent.itemId, normal.itemId]);
     } finally {
-      fixture.close();
+      await fixture.close();
     }
   });
 
   it("includes direct messages in mention attention while preserving strict legacy mentions", async () => {
-    const fixture = createInboxFeedFixture();
+    const fixture = await createInboxFeedFixture();
     try {
-      fixture.agent("codex");
+      await fixture.agent("agt_11111111-1111-4111-8111-111111111111");
       const human = await fixture.item("human-mention", {
         kind: "space_mention",
         sourceFacts: { version: 1, recipientReasons: ["human_mention"] },
@@ -438,9 +438,9 @@ describe("canonical Inbox attention feed", () => {
           directMessage: true,
         },
       });
-      fixture.run({
-        sql: "UPDATE inbox_items SET read_at_ms = 10500 WHERE id = ?",
-        params: [human.itemId],
+      await fixture.query({
+        text: 'UPDATE "openmeld"."inbox_items" SET read_at_ms = 10500 WHERE id = $1',
+        values: [human.itemId],
       });
       const feed = createInboxFeedService({
         db: fixture.db,
@@ -483,14 +483,14 @@ describe("canonical Inbox attention feed", () => {
         ).rows[0]?.itemCount
       ).toBe(1);
     } finally {
-      fixture.close();
+      await fixture.close();
     }
   });
 
   it("filters actual Agent events before grouping and paging, never mere Agent presence", async () => {
-    const fixture = createInboxFeedFixture();
+    const fixture = await createInboxFeedFixture();
     try {
-      fixture.agent("codex");
+      await fixture.agent("agt_11111111-1111-4111-8111-111111111111");
       for (let index = 0; index < 45; index += 1) {
         await fixture.item(`ordinary-${index}`, { occurredAtMs: 2000 + index });
       }
@@ -498,7 +498,7 @@ describe("canonical Inbox attention feed", () => {
         kind: "agent_reply",
         sourceFacts: {
           version: 1,
-          agentProfileIds: ["codex"],
+          agentProfileIds: ["agt_11111111-1111-4111-8111-111111111111"],
           recipientReasons: ["space_member"],
         },
       });
@@ -514,9 +514,9 @@ describe("canonical Inbox attention feed", () => {
       expect(result.rows[0]?.item.id).toBe(meaningful.itemId);
       expect(result.rows[0]?.itemCount).toBe(1);
       expect(result.nextCursor).toBeNull();
-      fixture.space("dm");
-      fixture.run({
-        sql: "UPDATE space_index_spaces SET direct_message_pair_key = 'human:other' WHERE space_id = 'dm'",
+      await fixture.space("dm");
+      await fixture.query({
+        text: "UPDATE \"openmeld\".\"space_index_spaces\" SET direct_message_pair_key = 'human:other' WHERE space_id = 'dm'",
       });
       const dmTarget = {
         kind: "space",
@@ -585,14 +585,14 @@ describe("canonical Inbox attention feed", () => {
       const unread = await feed.list(fixture.identity, { unreadOnly: "true" });
       expect(unread.counts.all).toBe(49);
     } finally {
-      fixture.close();
+      await fixture.close();
     }
   });
 
   it("keeps priority contact as the conversation anchor, but never combines Threads, requests, or failures", async () => {
-    const fixture = createInboxFeedFixture();
+    const fixture = await createInboxFeedFixture();
     try {
-      fixture.agent("codex");
+      await fixture.agent("agt_11111111-1111-4111-8111-111111111111");
       const first = await fixture.item("first-contact", {
         sourceFacts: facts(true),
         sourceTarget: {
@@ -636,9 +636,11 @@ describe("canonical Inbox attention feed", () => {
       expect(children.rows).toHaveLength(2);
       expect(children.rows.every((row) => row.item.readAt === null)).toBe(true);
       expect(
-        fixture.queryFirst<{ n: number }>({
-          sql: "SELECT count(*) AS n FROM inbox_items WHERE read_at_ms IS NOT NULL",
-        })?.n
+        (
+          await fixture.queryFirst<{ n: number }>({
+            text: 'SELECT count(*) AS n FROM "openmeld"."inbox_items" WHERE read_at_ms IS NOT NULL',
+          })
+        )?.n
       ).toBe(0);
       await createInboxService({
         db: fixture.db,
@@ -649,12 +651,12 @@ describe("canonical Inbox attention feed", () => {
         after.rows.find((row) => row.item.title === "newer-chat")
       ).toMatchObject({ itemCount: 2, dot: "blue", section: "activity" });
     } finally {
-      fixture.close();
+      await fixture.close();
     }
   });
 
   it("makes action and review mutually exclusive and resolves dots from business state rather than read state", async () => {
-    const fixture = createInboxFeedFixture();
+    const fixture = await createInboxFeedFixture();
     try {
       const request = {
         attention: "action_required" as const,
@@ -680,9 +682,9 @@ describe("canonical Inbox attention feed", () => {
         importance: "urgent",
       });
       const question = await fixture.item("question", { ...request });
-      fixture.run({
-        sql: "UPDATE inbox_items SET read_at_ms = 10500 WHERE id IN (?, ?, ?)",
-        params: [review.itemId, urgent.itemId, question.itemId],
+      await fixture.query({
+        text: 'UPDATE "openmeld"."inbox_items" SET read_at_ms = 10500 WHERE id IN ($1, $2, $3)',
+        values: [review.itemId, urgent.itemId, question.itemId],
       });
       const feed = createInboxFeedService({
         db: fixture.db,
@@ -703,9 +705,9 @@ describe("canonical Inbox attention feed", () => {
           (row) => row.item.id === urgent.itemId
         )?.dot
       ).toBe("yellow");
-      fixture.run({
-        sql: "UPDATE inbox_items SET resolution_status = 'resolved', resolved_at_ms = 11000, read_at_ms = NULL WHERE id = ?",
-        params: [urgent.itemId],
+      await fixture.query({
+        text: 'UPDATE "openmeld"."inbox_items" SET resolution_status = \'resolved\', resolved_at_ms = 11000, read_at_ms = NULL WHERE id = $1',
+        values: [urgent.itemId],
       });
       expect(
         (
@@ -722,7 +724,7 @@ describe("canonical Inbox attention feed", () => {
         item: { resolutionStatus: "resolved" },
       });
     } finally {
-      fixture.close();
+      await fixture.close();
     }
   });
 
@@ -730,7 +732,7 @@ describe("canonical Inbox attention feed", () => {
     "read",
     "dismiss",
   ] as const)("freezes %s members, excluding later arrivals, late outbox rows, other Threads and muted history", async (operation) => {
-    const fixture = createInboxFeedFixture();
+    const fixture = await createInboxFeedFixture();
     try {
       const old = await fixture.item("visible");
       const thread = await fixture.item("thread", {
@@ -741,12 +743,12 @@ describe("canonical Inbox attention feed", () => {
           threadRootSignalId: "thread",
         },
       });
-      fixture.space("muted");
+      await fixture.space("muted");
       const muted = await fixture.item("muted", {
         sourceTarget: { kind: "space", spaceId: "muted", signalId: "muted" },
       });
-      fixture.run({
-        sql: "INSERT INTO inbox_conversation_notification_preferences VALUES ('owner', 'org', 'muted', 'muted')",
+      await fixture.query({
+        text: "INSERT INTO \"openmeld\".\"inbox_conversation_notification_preferences\" VALUES ('owner', 'org', 'muted', 'muted')",
       });
       const feed = createInboxFeedService({
         db: fixture.db,
@@ -757,8 +759,8 @@ describe("canonical Inbox attention feed", () => {
       expect(group).toBeDefined();
       const newItem = await fixture.item("later", { occurredAtMs: 1000 });
       const lateOutbox = await fixture.item("late-outbox", { occurredAtMs: 1 });
-      fixture.run({
-        sql: "DELETE FROM inbox_conversation_notification_preferences",
+      await fixture.query({
+        text: 'DELETE FROM "openmeld"."inbox_conversation_notification_preferences"',
       });
       expect(
         await feed.mutate(fixture.identity, {
@@ -767,13 +769,13 @@ describe("canonical Inbox attention feed", () => {
           operation,
         })
       ).toEqual({ changedCount: 1 });
-      const untouched = fixture.queryAll<{
+      const untouched = await fixture.queryAll<{
         id: string;
         read_at_ms: number | null;
         cleared_at_ms: number | null;
       }>({
-        sql: "SELECT id, read_at_ms, cleared_at_ms FROM inbox_items WHERE id != ?",
-        params: [old.itemId],
+        text: 'SELECT id, read_at_ms, cleared_at_ms FROM "openmeld"."inbox_items" WHERE id != $1',
+        values: [old.itemId],
       });
       expect(untouched).toEqual(
         expect.arrayContaining(
@@ -791,23 +793,25 @@ describe("canonical Inbox attention feed", () => {
         })
       ).toEqual({ changedCount: 1 });
       expect(
-        fixture.queryFirst({
-          sql: "SELECT read_at_ms, cleared_at_ms FROM inbox_items WHERE id = ?",
-          params: [muted.itemId],
+        await fixture.queryFirst({
+          text: 'SELECT read_at_ms, cleared_at_ms FROM "openmeld"."inbox_items" WHERE id = $1',
+          values: [muted.itemId],
         })
       ).toEqual({ read_at_ms: null, cleared_at_ms: null });
       expect(
-        fixture.queryFirst<{ n: number }>({
-          sql: "SELECT count(*) AS n FROM inbox_space_thread_read_watermarks",
-        })?.n
+        (
+          await fixture.queryFirst<{ n: number }>({
+            text: 'SELECT count(*) AS n FROM "openmeld"."inbox_space_thread_read_watermarks"',
+          })
+        )?.n
       ).toBe(0);
     } finally {
-      fixture.close();
+      await fixture.close();
     }
   });
 
   it("binds pagination and mutations to the authenticated account, Organization and exact filters", async () => {
-    const fixture = createInboxFeedFixture();
+    const fixture = await createInboxFeedFixture();
     try {
       await fixture.item("first", {
         kind: "system_issue",
@@ -854,15 +858,15 @@ describe("canonical Inbox attention feed", () => {
         })
       ).rejects.toMatchObject({ code: "inbox.snapshot_expired" });
     } finally {
-      fixture.close();
+      await fixture.close();
     }
   });
 
   it("never substitutes another owned Agent for missing legacy source identity, including frozen bulk writes", async () => {
-    const f = createInboxFeedFixture();
+    const f = await createInboxFeedFixture();
     try {
-      f.agent("codex");
-      f.agent("still-mine");
+      await f.agent("agt_11111111-1111-4111-8111-111111111111");
+      await f.agent("agt_22222222-2222-4222-8222-222222222222");
       const legacy = await f.item("legacy-agent-reply", {
         kind: "agent_reply",
         sourceTarget: {
@@ -878,18 +882,18 @@ describe("canonical Inbox attention feed", () => {
       const feed = createInboxFeedService({ db: f.db, nowMs: () => 11_000 });
       const inbox = createInboxService({ db: f.db });
       const snapshot = await feed.list(f.identity);
-      const before = f.queryFirst({
-        sql: "SELECT * FROM inbox_items WHERE id = ?",
-        params: [legacy.itemId],
+      const before = await f.queryFirst({
+        text: 'SELECT * FROM "openmeld"."inbox_items" WHERE id = $1',
+        values: [legacy.itemId],
       });
-      f.run({
-        sql: "UPDATE openmeld_profiles SET owner_user_id = 'other' WHERE profile_id = 'codex'",
+      await f.query({
+        text: "UPDATE \"openmeld\".\"openmeld_profiles\" SET owner_user_id = 'other' WHERE profile_id = 'agt_11111111-1111-4111-8111-111111111111'",
       });
-      f.run({
-        sql: "UPDATE space_index_memberships SET owner_user_id_snapshot = 'other' WHERE profile_id = 'codex'",
+      await f.query({
+        text: "UPDATE \"openmeld\".\"space_index_memberships\" SET owner_user_id_snapshot = 'other' WHERE profile_id = 'agt_11111111-1111-4111-8111-111111111111'",
       });
-      f.run({
-        sql: "UPDATE space_index_memberships SET status = 'removed' WHERE space_id = 'space' AND profile_kind_snapshot = 'human' AND owner_user_id_snapshot = 'owner'",
+      await f.query({
+        text: "UPDATE \"openmeld\".\"space_index_memberships\" SET status = 'removed' WHERE space_id = 'space' AND profile_kind_snapshot = 'human' AND owner_user_id_snapshot = 'owner'",
       });
       await expect(
         inbox.get({ ...f.identity, itemId: legacy.itemId })
@@ -911,14 +915,14 @@ describe("canonical Inbox attention feed", () => {
         })
       ).toEqual({ changedCount: 0 });
       expect(
-        f.queryFirst({
-          sql: "SELECT * FROM inbox_items WHERE id = ?",
-          params: [legacy.itemId],
+        await f.queryFirst({
+          text: 'SELECT * FROM "openmeld"."inbox_items" WHERE id = $1',
+          values: [legacy.itemId],
         })
       ).toEqual(before);
       // Current Human membership is a separate right, not a guessed Agent relationship.
-      f.run({
-        sql: "UPDATE space_index_memberships SET status = 'active' WHERE space_id = 'space' AND profile_kind_snapshot = 'human' AND owner_user_id_snapshot = 'owner'",
+      await f.query({
+        text: "UPDATE \"openmeld\".\"space_index_memberships\" SET status = 'active' WHERE space_id = 'space' AND profile_kind_snapshot = 'human' AND owner_user_id_snapshot = 'owner'",
       });
       expect(
         (await inbox.get({ ...f.identity, itemId: human.itemId })).item.id
@@ -927,15 +931,15 @@ describe("canonical Inbox attention feed", () => {
         (await inbox.get({ ...f.identity, itemId: legacy.itemId })).item.id
       ).toBe(legacy.itemId);
     } finally {
-      f.close();
+      await f.close();
     }
   });
 
   it("revokes only the transferred personal-Agent relationship even when another owned Agent remains in the Space", async () => {
-    const fixture = createInboxFeedFixture();
+    const fixture = await createInboxFeedFixture();
     try {
-      fixture.agent("codex");
-      fixture.agent("still-mine");
+      await fixture.agent("agt_11111111-1111-4111-8111-111111111111");
+      await fixture.agent("agt_22222222-2222-4222-8222-222222222222");
       const ownerOnly = await fixture.item("owner-only", {
         sourceFacts: facts(true),
         sourceTarget: {
@@ -963,8 +967,8 @@ describe("canonical Inbox attention feed", () => {
         nowMs: () => 11_000,
       });
       const snapshot = await feed.list(fixture.identity);
-      fixture.run({
-        sql: "UPDATE openmeld_profiles SET owner_user_id = 'other' WHERE profile_id = 'codex'",
+      await fixture.query({
+        text: "UPDATE \"openmeld\".\"openmeld_profiles\" SET owner_user_id = 'other' WHERE profile_id = 'agt_11111111-1111-4111-8111-111111111111'",
       });
       const result = await feed.list(fixture.identity, {
         category: "mentions",
@@ -996,13 +1000,13 @@ describe("canonical Inbox attention feed", () => {
         })
       ).toEqual({ changedCount: 1 });
       expect(
-        fixture.queryFirst({
-          sql: "SELECT read_at_ms FROM inbox_items WHERE id = ?",
-          params: [ownerOnly.itemId],
+        await fixture.queryFirst({
+          text: 'SELECT read_at_ms FROM "openmeld"."inbox_items" WHERE id = $1',
+          values: [ownerOnly.itemId],
         })
       ).toEqual({ read_at_ms: null });
     } finally {
-      fixture.close();
+      await fixture.close();
     }
   });
 });
@@ -1010,10 +1014,12 @@ describe("canonical Inbox attention feed", () => {
 function facts(first = false): InboxSourceFacts {
   return {
     version: 1,
-    agentProfileIds: ["codex"],
-    personalAgentProfileIds: ["codex"],
-    mentionedAgentProfileIds: ["codex"],
-    firstContactAgentProfileIds: first ? ["codex"] : [],
+    agentProfileIds: ["agt_11111111-1111-4111-8111-111111111111"],
+    personalAgentProfileIds: ["agt_11111111-1111-4111-8111-111111111111"],
+    mentionedAgentProfileIds: ["agt_11111111-1111-4111-8111-111111111111"],
+    firstContactAgentProfileIds: first
+      ? ["agt_11111111-1111-4111-8111-111111111111"]
+      : [],
     recipientReasons: ["agent_owner"],
   };
 }

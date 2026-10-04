@@ -1,11 +1,11 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import { buildMessageChannelConversationId } from "@openmeld/schemas";
 import type { MessageChannelConversationLocator } from "@openmeld/schemas/types";
-import { readRemoteAgentLarkPlatformChannelConnection } from "../remote-agent/infrastructure/d1/lark-platform-channel-connection-repo";
-import { readRemoteAgentNativeDeliveryByDeliveryId } from "../remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+import { readRemoteAgentLarkPlatformChannelConnection } from "../remote-agent/infrastructure/postgresql/lark-platform-channel-connection-repo";
+import { readRemoteAgentNativeDeliveryByDeliveryId } from "../remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import { createCoreRpcHttpError } from "../rpc/errors";
-
 export async function isMessageChannelRoutineConnectionAvailable(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   locator: MessageChannelConversationLocator | null | undefined;
 }): Promise<boolean> {
@@ -26,7 +26,6 @@ export async function isMessageChannelRoutineConnectionAvailable(input: {
     connection.tenantKey === locator.tenantKey
   );
 }
-
 export async function requireMessageChannelRoutineConnection(
   input: Parameters<typeof isMessageChannelRoutineConnectionAvailable>[0]
 ): Promise<void> {
@@ -34,9 +33,8 @@ export async function requireMessageChannelRoutineConnection(
     throw unavailable();
   }
 }
-
 export async function requireMessageChannelRoutineOrigin(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   locator: MessageChannelConversationLocator;
   organizationId: string;
   sourceNativeDeliveryId: string | null;
@@ -65,7 +63,6 @@ export async function requireMessageChannelRoutineOrigin(input: {
     throw unavailable();
   }
 }
-
 function unavailable(): Error {
   return createCoreRpcHttpError({
     status: 409,

@@ -1,14 +1,10 @@
-import { describe, expect, it, vi } from "vitest";
+import type { QueryResultRow } from "@openmeld/db/postgresql";
+import { describe, expect, it } from "vitest";
 import { readOrganizationInformationProtectionPolicyForSpace } from "../src/organizations/organization-information-protection-repository";
+import { createProjectionPostgresDatabase } from "../test-support/postgresql-query.test-support";
 
-function createDb(firstRow: unknown): D1Database {
-  return {
-    prepare: vi.fn(() => ({
-      bind: vi.fn(() => ({
-        first: vi.fn(async () => firstRow),
-      })),
-    })),
-  } as unknown as D1Database;
+function createDb(firstRow: QueryResultRow | null) {
+  return createProjectionPostgresDatabase(() => (firstRow ? [firstRow] : []));
 }
 
 describe("Organization information protection Space projection", () => {

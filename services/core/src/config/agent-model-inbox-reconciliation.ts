@@ -2,22 +2,18 @@ import {
   getAgentControllerModelCatalogId,
   parseAgentControllerRef,
 } from "@openmeld/agent-runtime";
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import {
   listEnabledPrimaryAgentProfileBindingRecordsForRuntimeAgentController,
   readPrimaryAgentProfileBindingRecord,
-} from "../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
+} from "../agent-profile-binding/infrastructure/postgresql/agent-profile-binding-repo";
 import { readAgentProfileOrganizationContext } from "../center-agent/center-agent-organization-scope";
 import {
   type AgentModelInboxSnapshot,
   reconcileAgentModelInboxProjection,
 } from "../inbox/application/agent-model-inbox";
-import {
-  type CoreBindings,
-  identityDb,
-  inboxDb,
-  localStateDb,
-} from "../lib/bindings";
-import { readCurrentRuntimeAgentControllerReport } from "../runtime-registry/infrastructure/d1/runtime-agent-controller-report-repo";
+import type { CoreBindings } from "../lib/bindings";
+import { readCurrentRuntimeAgentControllerReport } from "../runtime-registry/infrastructure/postgresql/runtime-agent-controller-report-repo";
 import {
   readCurrentAgentModelAuthType,
   resolveCurrentAgentModelAvailability,
@@ -31,7 +27,7 @@ export async function reconcileRuntimeAgentModelInboxes(input: {
   openMeldServiceRuntimeId: { value: string };
   nowMs: number;
 }): Promise<void> {
-  const db = localStateDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (!db) {
     return;
   }
@@ -59,7 +55,7 @@ export async function reconcileAgentModelInbox(input: {
   agentProfileId: string;
   nowMs: number;
 }): Promise<void> {
-  const db = inboxDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (!db) {
     return;
   }
@@ -76,8 +72,8 @@ async function readCurrentSnapshot(input: {
   agentProfileId: string;
   nowMs: number;
 }): Promise<AgentModelInboxSnapshot | null> {
-  const db = localStateDb(input.env);
-  const profilesDb = identityDb(input.env);
+  const db = getPostgresDatabase(input.env);
+  const profilesDb = getPostgresDatabase(input.env);
   if (!(db && profilesDb)) {
     return null;
   }

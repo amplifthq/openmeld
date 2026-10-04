@@ -515,7 +515,7 @@ describe("Remote Agent streaming", () => {
     expect(submitRemoteAgentStreamDelta).not.toHaveBeenCalled();
   });
 
-  it("caps worker callbacks at ten accumulated snapshots per second", async () => {
+  it("sends the first snapshot immediately, coalesces at 100 ms, and flushes the tail", async () => {
     const context = createRemoteAgentCallbackContext({
       ack: ACK,
       nowMs: TEST_NOW_MS,
@@ -543,6 +543,11 @@ describe("Remote Agent streaming", () => {
       });
     }
     expect(submitRemoteAgentStreamDelta).toHaveBeenCalledTimes(10);
+    expect(submitRemoteAgentStreamDelta.mock.calls[0]?.[0]).toMatchObject({
+      sequence: 1,
+      snapshot: "a",
+      observedAtMs: TEST_NOW_MS,
+    });
     await publisher.flush({
       context,
       coreWorker: { submitRemoteAgentStreamDelta },

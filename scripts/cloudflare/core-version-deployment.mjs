@@ -49,7 +49,14 @@ export function buildCoreVersionReleaseStepSpecs(input) {
       label: "Deploy the startup-admitted Core version",
     },
     {
-      args: [...wranglerPrefix, "triggers", "deploy", "--env", "prod"],
+      args: [
+        ...wranglerPrefix,
+        "triggers",
+        "deploy",
+        "--env",
+        "prod",
+        ...(input.configArgs ?? []),
+      ],
       command: "pnpm",
       label: "Synchronize Core triggers",
     },
