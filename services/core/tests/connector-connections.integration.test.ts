@@ -374,6 +374,127 @@ async function seedHumanPluginRequestFixture(
 
 describe("Local Agent plugin admission", () => {
   it.each([
+    "read_failure",
+    "missing_submission",
+    "missing_row",
+  ] as const)("preserves the task fence and recovery when provenance has %s", async (failure) => {
+    const fixture = await seedConnectorFixture();
+    const center = await seedDesignatedCenterAgent(fixture);
+    const connectionName = await seedSharedConnectorConnection(
+      fixture,
+      "posthog"
+    );
+    const member = await env.OPENMELD_DB.prepare(
+      "SELECT id FROM members WHERE organization_id = ? AND user_id = ?"
+    )
+      .bind(fixture.organizationA, fixture.ownerA)
+      .first<{ id: string }>();
+    if (!member) {
+      throw new Error("Missing requester member");
+    }
+    const core = connectorCoreEnv();
+    const body = {
+      actionId: "posthog.create_dashboard",
+      connectionName,
+      context: center.context,
+      effect: "write" as const,
+      operationId: `provenance-${crypto.randomUUID()}`,
+      includeExecutionPermit: true as const,
+      outcome: "attempted" as const,
+      providerExecutionId: null,
+      requestSignature: "a".repeat(64),
+      service: "posthog" as const,
+      speakerMember: { memberId: member.id, userId: fixture.ownerA },
+    };
+    expect(
+      await rpcCenterAgentRecordConnectorActionOperation(core, body)
+    ).toMatchObject({ executionAllowed: true });
+    await rpcCenterAgentRecordConnectorActionOperation(core, {
+      ...body,
+      outcome: "outcome_unknown",
+    });
+    const replacement = {
+      ...body,
+      operationId: `${body.operationId}-replacement`,
+    };
+    expect(
+      await rpcCenterAgentRecordConnectorActionOperation(core, replacement)
+    ).toMatchObject({
+      executionAllowed: false,
+      operationId: body.operationId,
+      status: "outcome_unknown",
+    });
+    const unavailable = () => {
+      let failNextRead = true;
+      return failure === "read_failure"
+        ? {
+            ...core,
+            OPENMELD_WAKE_EVIDENCE_DB: new Proxy(env.OPENMELD_DB, {
+              get(target, property, receiver) {
+                if (property === "prepare") {
+                  return (query: string) => {
+                    if (failNextRead) {
+                      failNextRead = false;
+                      throw new Error("Injected provenance storage outage");
+                    }
+                    return target.prepare(query);
+                  };
+                }
+                return Reflect.get(target, property, receiver);
+              },
+            }),
+          }
+        : core;
+    };
+    const submissions = {
+      read_failure: body.context.agentControllerConversationId,
+      missing_submission: undefined,
+      missing_row: "absent-submission",
+    };
+    const context = {
+      ...body.context,
+      agentControllerConversationId: submissions[failure],
+    };
+    await expect(
+      rpcCenterAgentRecordConnectorActionOperation(unavailable(), {
+        ...replacement,
+        context,
+      })
+    ).rejects.toThrow("plugin.task_provenance_unavailable");
+    expect(
+      await rpcCenterAgentReadConnectorActionOperation(unavailable(), {
+        ...body,
+        context,
+      })
+    ).toMatchObject({
+      operation: { operationId: body.operationId, status: "outcome_unknown" },
+    });
+    expect(
+      await rpcCenterAgentRecordConnectorActionOperation(unavailable(), {
+        ...body,
+        context,
+        outcome: "completed",
+        providerExecutionId: "original-provider-result",
+      })
+    ).toMatchObject({ status: "completed", executionAllowed: false });
+    expect(
+      await rpcCenterAgentRecordConnectorActionOperation(unavailable(), {
+        ...replacement,
+        context,
+        actionId: "posthog.list_projects",
+        effect: "read",
+      })
+    ).toMatchObject({ executionAllowed: true });
+    const rows = await env.OPENMELD_DB.prepare(
+      "SELECT operation_id, status FROM center_agent_connector_action_operations WHERE organization_id = ? AND action_id = ?"
+    )
+      .bind(fixture.organizationA, body.actionId)
+      .all();
+    expect(rows.results).toEqual([
+      { operation_id: body.operationId, status: "completed" },
+    ]);
+  });
+  it.each([
     false,
     true,
   ])("refuses execution after a denied legacy receipt (reconnected: %s)", async (reconnected) => {
@@ -2175,6 +2296,12 @@ describe("Core connector connection ownership", () => {
 
     const context = {
       activeOrganizationId: fixture.organizationA,
+      agentControllerConversationId: await seedConnectorTaskSource(
+        fixture,
+        centerAgentProfileId,
+        fixture.memberA,
+        representedProfileId
+      ),
       actorContext: {
         agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
         callerPrincipalId: centerAgentProfileId,
@@ -2205,6 +2332,7 @@ describe("Core connector connection ownership", () => {
     const coreEnv = {
       OPENMELD_AUTH_WORKER: { resolveUserDisplayName },
       OPENMELD_DB: env.OPENMELD_DB,
+      OPENMELD_WAKE_EVIDENCE_DB: env.OPENMELD_DB,
     } as unknown as CoreBindings;
 
     await expect(
@@ -2238,6 +2366,7 @@ describe("Core connector connection ownership", () => {
         ...body,
         connectionName: sharedConnection,
         operationId: sharedOperationId,
+        requestSignature: "d".repeat(64),
         outcome: "attempted",
       })
     ).resolves.toMatchObject({
@@ -3509,6 +3638,10 @@ async function seedDesignatedCenterAgent(
   return {
     context: {
       activeOrganizationId: fixture.organizationA,
+      agentControllerConversationId: await seedConnectorTaskSource(
+        fixture,
+        profileId
+      ),
       actorContext: {
         agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
         callerPrincipalId: profileId,
@@ -3519,6 +3652,41 @@ async function seedDesignatedCenterAgent(
     },
     profileId,
   };
+}
+
+async function seedConnectorTaskSource(
+  fixture: Awaited<ReturnType<typeof seedConnectorFixture>>,
+  profileId: string,
+  userId = fixture.ownerA,
+  humanProfileId = fixture.ownerProfileId
+) {
+  const idempotencyKey = crypto.randomUUID();
+  const submissionId = crypto.randomUUID();
+  const nowMs = Date.now();
+  await upsertRemoteAgentNativeDeliveryRecord({
+    db: env.OPENMELD_DB,
+    attemptId: null,
+    bindingId: crypto.randomUUID(),
+    dispatchId: crypto.randomUUID(),
+    idempotencyKey,
+    nowMs,
+    organizationId: fixture.organizationA,
+    profileId,
+    spaceId: crypto.randomUUID(),
+    triggerMessageId: crypto.randomUUID(),
+    status: "submitted",
+    onBehalfOfUserId: userId,
+    onBehalfOfProfileId: humanProfileId,
+    onBehalfOfDisplayName: "Synthetic requester",
+  });
+  await markRemoteAgentNativeDeliveryAck({
+    accepted: true,
+    db: env.OPENMELD_DB,
+    idempotencyKey,
+    nowMs,
+    submissionId,
+  });
+  return submissionId;
 }
 
 function connectorCoreEnv(): CoreBindings {

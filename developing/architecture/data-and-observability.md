@@ -711,17 +711,18 @@ binding, independently of any conversation or LLM. It rechecks provider action
 metadata against the admitted effect before execution. No broad runtime token
 or provider credential is returned to a CLI.
 
-`plugin_action_requests` retains an exact Local write that lacks separately
-verified human intent. Core's Plugin request owner is its sole writer. The row
+`plugin_action_requests` retains an exact Local write without verified task
+provenance. Core's Plugin request owner is its sole writer. The row
 binds requester, Organization, executor, operation ID, frozen connection/access
 revisions, action, effect and input for one hour. Input stays in that protected
 owner record; Inbox receives only an opaque reference and generic private
 recipient text. The detail projection exposes bounded resource identifiers,
-not arbitrary input or credentials. Auth verifies a request-bound code delivered
-to the current verified account email through service-binding RPC. The caller's
-account credential or Profile selection alone cannot approve it. Email assumes
-that the recipient mailbox is independently controlled; an Agent separately
-authorized to read that mailbox is outside this verification guarantee.
+not arbitrary input or credentials. Core permits approval only when the
+authenticated account principal matches the request owner and the acting Profile
+is human. An Agent delegation/execution credential or a selected Human Profile
+alone cannot approve. This is the existing account credential boundary, not a
+human-presence guarantee when an Agent has the owner's full account credentials.
+No email code or separate factor enrollment is required.
 
 The decision and Inbox resolution share a conditional D1 batch. Repeated or
 lost responses return the same decision and root. The operation owner rechecks
@@ -730,6 +731,12 @@ Changing IDs cannot authorize an old unknown replacement. An independently
 approved new request may intentionally repeat content without resolving the old
 unknown. Existing precise destructive confirmations remain an additional gate;
 they are not proof of a new human request.
+
+New non-read claims from native Remote/Center Agents require a verified task
+root before execution permission is issued. Missing or unreadable provenance
+must not fall back to a caller-selected operation ID. Existing receipt reads
+and outcome recording remain available; a read failure does not erase the
+original operation or prevent its outcome from being recorded.
 
 The `connector_app_requests` D1 table is Core's internal demand ledger for Apps
 that a member asks OpenMeld to support. A request is scoped by Organization,

@@ -37,6 +37,8 @@ authorization. Continuing a task or handing its exact action to a selected
 Agent does not require another Inbox approval or repeat a completed write.
 Unknown results retain the original operation and account. Only the original
 executor can claim its permitted replay.
+If OpenMeld cannot verify the original task, it blocks a new write while keeping
+the original receipt available. A different operation ID does not bypass this check.
 
 New Codex tasks started by their owner, including recorded Center delegation,
 keep the Agent's permission settings and the Computer's file-access policy.

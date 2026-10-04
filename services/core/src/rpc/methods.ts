@@ -16287,7 +16287,14 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
   let executionConnection =
     existing?.operation.executionConnection ?? undefined;
   let connectionUpdatedAtMs = existing?.operation.connectionUpdatedAtMs;
+  const sourceRequestKey =
+    member.sourceRequestKey ?? member.sourceNativeDeliveryId ?? undefined;
   if (parsed.data.outcome === "attempted") {
+    requireConnectorTaskProvenance({
+      existingOperation: Boolean(existing),
+      effect: parsed.data.effect,
+      sourceRequestKey,
+    });
     // The operation freezes identity and attribution, never current permission.
     const exactConnectionName = connectionName ?? parsed.data.connectionName;
     const connection = await requireConnectorOperationConnection(
@@ -16373,8 +16380,7 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
     service: parsed.data.service,
     sourceNativeDeliveryId: member.sourceNativeDeliveryId,
     sourceSpaceId: member.sourceSpaceId,
-    sourceRequestKey:
-      member.sourceRequestKey ?? member.sourceNativeDeliveryId ?? undefined,
+    sourceRequestKey,
     effectSignature: parsed.data.requestSignature,
     effect: parsed.data.effect,
     allowReplay: parsed.data.includeExecutionPermit === true,
@@ -16386,6 +16392,25 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
     request: parsed.data,
     verificationOf,
   });
+}
+
+function requireConnectorTaskProvenance(input: {
+  existingOperation: boolean;
+  effect?: string;
+  sourceRequestKey?: string;
+}): void {
+  if (
+    !input.existingOperation &&
+    input.effect !== "read" &&
+    !input.sourceRequestKey
+  ) {
+    throw createCoreRpcHttpError({
+      code: "plugin.task_provenance_unavailable",
+      reason:
+        "OpenMeld could not verify the original task for this write. Retry the same task and operation ID when task history is available. Do not create a replacement operation.",
+      status: 409,
+    });
+  }
 }
 
 async function presentConnectorOperationResult(input: {
