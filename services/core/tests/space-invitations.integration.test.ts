@@ -1,4 +1,6 @@
 import { env, runInDurableObject } from "cloudflare:test";
+import type { QueryResult } from "@openmeld/db/postgresql";
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { applyOpenMeldRequestContextHeaders } from "@openmeld/gateway-contract";
 import type {
   OrganizationJoinRequestRpcInput,
@@ -18,7 +20,6 @@ import type { Space } from "../src/space/transport/do/space";
 import { waitForJsonMessage } from "./test-support/ws-stream";
 
 const core = env as unknown as CoreBindings;
-
 describe("Organization Space self-join", () => {
   it("admits a colleague to a listed members-only Space and rechecks current policy", async () => {
     const f = await fixture();
@@ -169,11 +170,21 @@ describe("Organization Space self-join", () => {
       })
     );
     await passiveHello;
-    await env.OPENMELD_DB.prepare(
-      "DELETE FROM members WHERE organization_id = ? AND user_id = ?"
-    )
-      .bind(f.organizationId, f.recipientId)
-      .run();
+    // Membership revalidation may close either stream during the awaited RPCs.
+    // Observe both close events before revoking the member's authorization.
+    const closed = new Promise<CloseEvent>((resolve) =>
+      socket.addEventListener("close", resolve, { once: true })
+    );
+    const passiveClosed = new Promise<CloseEvent>((resolve) =>
+      passiveSocket.addEventListener("close", resolve, { once: true })
+    );
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'DELETE FROM "openmeld"."members" WHERE organization_id = $1 AND user_id = $2',
+        values: [],
+      },
+      values: [f.organizationId, f.recipientId],
+    });
     await expect(
       (async () =>
         await f.stub.rpcGetStatus({
@@ -182,12 +193,6 @@ describe("Organization Space self-join", () => {
         }))()
     ).rejects.toThrow("space.membership_required");
     await expect(postMembers()).rejects.toThrow("space.membership_required");
-    const closed = new Promise<CloseEvent>((resolve) =>
-      socket.addEventListener("close", resolve, { once: true })
-    );
-    const passiveClosed = new Promise<CloseEvent>((resolve) =>
-      passiveSocket.addEventListener("close", resolve, { once: true })
-    );
     socket.send(
       JSON.stringify({
         type: "signal.text",
@@ -211,8 +216,7 @@ describe("Organization Space self-join", () => {
     expect((await passiveClosed).code).toBe(1008);
   });
 });
-
-// First-party Auth directory contract; membership decisions still exercise D1.
+// First-party Auth directory contract; membership decisions use PostgreSQL.
 describe("Space ownership handoff", () => {
   it("retains one owner during concurrent demotions and preserves creator attribution", async () => {
     const f = await fixture();
@@ -255,11 +259,13 @@ describe("Space ownership handoff", () => {
       (await patch(ownerContext, f.recipientId, "owner")).ownerUserIds
     ).toEqual(expect.arrayContaining([f.ownerId, f.recipientId]));
     await expect(
-      env.OPENMELD_DB.prepare(
-        "DELETE FROM members WHERE organization_id = ? AND user_id = ?"
-      )
-        .bind(f.organizationId, f.recipientId)
-        .run()
+      getPostgresDatabase(env).query({
+        ...{
+          text: 'DELETE FROM "openmeld"."members" WHERE organization_id = $1 AND user_id = $2',
+          values: [],
+        },
+        values: [f.organizationId, f.recipientId],
+      })
     ).rejects.toThrow();
     expect(
       await f.stub.rpcCheckSpaceOwnerDeparture({
@@ -282,7 +288,6 @@ describe("Space ownership handoff", () => {
     expect(meta?.creator?.profileId).toBe(f.ownerProfile);
   });
 });
-
 describe("targeted guest invitations", () => {
   it("requires explicit owner approval and grants only Space membership", async () => {
     const f = await fixture();
@@ -323,11 +328,15 @@ describe("targeted guest invitations", () => {
     ).toBe(true);
     expect(await f.memberStatus()).toBe("active");
     expect(
-      await env.OPENMELD_DB.prepare(
-        "SELECT id FROM members WHERE organization_id = ? AND user_id = ?"
-      )
-        .bind(f.organizationId, f.recipientId)
-        .first()
+      await getPostgresDatabase(env)
+        .query({
+          ...{
+            text: 'SELECT id FROM "openmeld"."members" WHERE organization_id = $1 AND user_id = $2',
+            values: [],
+          },
+          values: [f.organizationId, f.recipientId],
+        })
+        .then((result) => result.rows[0] ?? null)
     ).toBeNull();
     expect(
       await f.stub.rpcHasSpaceGuestAccess({
@@ -371,7 +380,6 @@ describe("targeted guest invitations", () => {
     ).rejects.toThrow("space.membership_required");
   });
 });
-
 const requestCore: CoreBindings = {
   ...core,
   OPENMELD_AUTH_WORKER: {
@@ -379,15 +387,19 @@ const requestCore: CoreBindings = {
       if (account?.kind !== "email") {
         throw new Error("This fixture resolves invitation recipients by email");
       }
-      const row = await env.OPENMELD_DB.prepare(
-        "SELECT u.id, u.email, m.id AS member_id FROM users u LEFT JOIN members m ON m.user_id = u.id AND m.organization_id = ? WHERE lower(u.email) = lower(?)"
-      )
-        .bind(organizationId, account.email)
-        .first<{
+      const row = await getPostgresDatabase(env)
+        .query<{
           id: string;
           email: string;
           member_id: string | null;
-        }>();
+        }>({
+          ...{
+            text: 'SELECT u.id, u.email, m.id AS member_id FROM "openmeld"."users" u LEFT JOIN "openmeld"."members" m ON m.user_id = u.id AND m.organization_id = $1 WHERE lower(u.email) = lower($2)',
+            values: [],
+          },
+          values: [organizationId, account.email],
+        })
+        .then((result) => result.rows[0] ?? null);
       return {
         ok: true,
         organization: {
@@ -411,21 +423,23 @@ const requestCore: CoreBindings = {
       };
     },
     resolveOrganizationDirectoryMembers: async ({ organizationId }) => {
-      const rows = await env.OPENMELD_DB.prepare(
-        "SELECT m.id, m.user_id, m.role, u.email, u.name FROM members m JOIN users u ON u.id = m.user_id WHERE m.organization_id = ?"
-      )
-        .bind(organizationId)
-        .all<{
-          id: string;
-          user_id: string;
-          role: string;
-          email: string;
-          name: string;
-        }>();
+      const rows = await getPostgresDatabase(env).query<{
+        id: string;
+        user_id: string;
+        role: string;
+        email: string;
+        name: string;
+      }>({
+        ...{
+          text: 'SELECT m.id, m.user_id, m.role, u.email, u.name FROM "openmeld"."members" m JOIN "openmeld"."users" u ON u.id = m.user_id WHERE m.organization_id = $1',
+          values: [],
+        },
+        values: [organizationId],
+      });
       return {
         ok: true,
         organizationId,
-        members: rows.results.map((row) => ({
+        members: rows.rows.map((row) => ({
           memberId: row.id,
           organizationId,
           userId: row.user_id,
@@ -443,25 +457,32 @@ const requestCore: CoreBindings = {
     },
   },
 };
-
 describe("invitation approval boundary", () => {
   it("lists old pending requests before completed records across pages and keeps member history private", async () => {
     const f = await fixture();
-    await env.OPENMELD_DB.batch(
-      Array.from({ length: 104 }, (_, index) =>
-        env.OPENMELD_DB.prepare(
-          "INSERT INTO organization_join_requests (id, organization_id, requested_by_user_id, email, status, created_at, reviewed_by_user_id, reviewed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-        ).bind(
-          `${f.organizationId}-${index}`,
-          f.organizationId,
-          f.ownerId,
-          `request-${index}@example.com`,
-          index < 2 ? "pending" : "approved",
-          index < 2 ? 1 : 1000 + index,
-          index < 2 ? null : f.ownerId,
-          index < 2 ? null : 2000 + index
-        )
-      )
+    await getPostgresDatabase(env).transaction(async (client) =>
+      (async () => {
+        const results: QueryResult[] = [];
+        for (const query of Array.from({ length: 104 }, (_, index) => ({
+          ...{
+            text: 'INSERT INTO "openmeld"."organization_join_requests" (id, organization_id, requested_by_user_id, email, status, created_at, reviewed_by_user_id, reviewed_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
+            values: [],
+          },
+          values: [
+            `${f.organizationId}-${index}`,
+            f.organizationId,
+            f.ownerId,
+            `request-${index}@example.com`,
+            index < 2 ? "pending" : "approved",
+            index < 2 ? 1 : 1000 + index,
+            index < 2 ? null : f.ownerId,
+            index < 2 ? null : 2000 + index,
+          ],
+        }))) {
+          results.push(await client.query(query));
+        }
+        return results;
+      })()
     );
     const call = (
       userId: string,
@@ -541,7 +562,6 @@ describe("invitation approval boundary", () => {
       })
     ).toMatchObject({ ok: true, requests: [] });
   });
-
   it("does not complete a Space invitation just because the recipient belongs to the organization", async () => {
     const f = await fixture();
     await f.joinOrganization();
@@ -621,25 +641,50 @@ describe("invitation approval boundary", () => {
       await call({ action: "summary", organizationId: f.organizationId })
     ).toMatchObject({ actionRequiredCount: 0 });
     expect(
-      await env.OPENMELD_DB.prepare(
-        "SELECT count(*) AS total FROM inbox_items WHERE organization_id = ? AND resolution_status = 'open'"
-      )
-        .bind(f.organizationId)
-        .first()
+      await getPostgresDatabase(env)
+        .query({
+          ...{
+            text: 'SELECT count(*) AS total FROM "openmeld"."inbox_items" WHERE organization_id = $1 AND resolution_status = \'open\'',
+            values: [],
+          },
+          values: [f.organizationId],
+        })
+        .then((result) => result.rows[0] ?? null)
     ).toEqual({ total: 0 });
     expect(await f.memberStatus()).toBeNull();
   });
   it("notifies every administrator without marking routine reviews urgent and lets any one complete a recipient's joining request", async () => {
     const f = await fixture();
     const adminId = crypto.randomUUID();
-    await env.OPENMELD_DB.batch([
-      env.OPENMELD_DB.prepare(
-        "INSERT INTO users (id, name, email, email_verified, created_at, updated_at) VALUES (?, 'Admin', ?, 1, ?, ?)"
-      ).bind(adminId, `${adminId}@example.com`, Date.now(), Date.now()),
-      env.OPENMELD_DB.prepare(
-        "INSERT INTO members (id, organization_id, user_id, role, created_at) VALUES (?, ?, ?, 'admin', ?)"
-      ).bind(crypto.randomUUID(), f.organizationId, adminId, Date.now()),
-    ]);
+    await getPostgresDatabase(env).transaction(async (client) =>
+      (async () => {
+        const results: QueryResult[] = [];
+        for (const query of [
+          {
+            ...{
+              text: 'INSERT INTO "openmeld"."users" (id, name, email, email_verified, created_at, updated_at) VALUES ($1, \'Admin\', $2, 1, $3, $4)',
+              values: [],
+            },
+            values: [adminId, `${adminId}@example.com`, Date.now(), Date.now()],
+          },
+          {
+            ...{
+              text: 'INSERT INTO "openmeld"."members" (id, organization_id, user_id, role, created_at) VALUES ($1, $2, $3, \'admin\', $4)',
+              values: [],
+            },
+            values: [
+              crypto.randomUUID(),
+              f.organizationId,
+              adminId,
+              Date.now(),
+            ],
+          },
+        ]) {
+          results.push(await client.query(query));
+        }
+        return results;
+      })()
+    );
     const call = (
       userId: string,
       request: OrganizationJoinRequestRpcInput["request"],
@@ -673,12 +718,14 @@ describe("invitation approval boundary", () => {
         sponsorUserId: f.ownerId,
       })
     ).toMatchObject({ requests: [{ id: requestId }] });
-    const items = await env.OPENMELD_DB.prepare(
-      "SELECT recipient_user_id, importance, attention FROM inbox_items WHERE organization_id = ?"
-    )
-      .bind(f.organizationId)
-      .all();
-    expect(items.results).toEqual(
+    const items = await getPostgresDatabase(env).query({
+      ...{
+        text: 'SELECT recipient_user_id, importance, attention FROM "openmeld"."inbox_items" WHERE organization_id = $1',
+        values: [],
+      },
+      values: [f.organizationId],
+    });
+    expect(items.rows).toEqual(
       expect.arrayContaining(
         [f.ownerId, adminId].map((recipient_user_id) => ({
           recipient_user_id,
@@ -687,13 +734,17 @@ describe("invitation approval boundary", () => {
         }))
       )
     );
-    expect(items.results).toHaveLength(2);
+    expect(items.rows).toHaveLength(2);
     expect(
-      await env.OPENMELD_DB.prepare(
-        "SELECT count(*) AS total FROM inbox_email_deliveries WHERE inbox_item_id IN (SELECT id FROM inbox_items WHERE organization_id = ?)"
-      )
-        .bind(f.organizationId)
-        .first()
+      await getPostgresDatabase(env)
+        .query({
+          ...{
+            text: 'SELECT count(*) AS total FROM "openmeld"."inbox_email_deliveries" WHERE inbox_item_id IN (SELECT id FROM "openmeld"."inbox_items" WHERE organization_id = $1)',
+            values: [],
+          },
+          values: [f.organizationId],
+        })
+        .then((result) => result.rows[0] ?? null)
     ).toEqual({ total: 2 });
     const decisions = await Promise.all([
       call(f.ownerId, { action: "approve", requestId }, "3"),
@@ -731,11 +782,15 @@ describe("invitation approval boundary", () => {
         organizationId: f.organizationId,
       })
     ).toMatchObject({ actionRequiredCount: 0 });
-    const unresolved = await env.OPENMELD_DB.prepare(
-      "SELECT count(*) AS total FROM inbox_items WHERE organization_id = ? AND resolution_status = 'open'"
-    )
-      .bind(f.organizationId)
-      .first();
+    const unresolved = await getPostgresDatabase(env)
+      .query({
+        ...{
+          text: 'SELECT count(*) AS total FROM "openmeld"."inbox_items" WHERE organization_id = $1 AND resolution_status = \'open\'',
+          values: [],
+        },
+        values: [f.organizationId],
+      })
+      .then((result) => result.rows[0] ?? null);
     expect(unresolved).toEqual({ total: 0 });
   });
   it("keeps requests separate from membership, blocks member approval, and queues one review email", async () => {
@@ -780,18 +835,26 @@ describe("invitation approval boundary", () => {
     expect(
       await call(f.recipientId, { action: "approve", requestId })
     ).toMatchObject({ ok: false, code: "organization.join_request.forbidden" });
-    const counts = await env.OPENMELD_DB.prepare(
-      "SELECT (SELECT count(*) FROM inbox_items WHERE organization_id = ?) AS inbox, (SELECT count(*) FROM inbox_email_deliveries WHERE inbox_item_id IN (SELECT id FROM inbox_items WHERE organization_id = ?)) AS emails, (SELECT count(*) FROM invitations WHERE organization_id = ?) AS invitations"
-    )
-      .bind(f.organizationId, f.organizationId, f.organizationId)
-      .first();
+    const counts = await getPostgresDatabase(env)
+      .query({
+        ...{
+          text: 'SELECT (SELECT count(*) FROM "openmeld"."inbox_items" WHERE organization_id = $1) AS inbox, (SELECT count(*) FROM "openmeld"."inbox_email_deliveries" WHERE inbox_item_id IN (SELECT id FROM "openmeld"."inbox_items" WHERE organization_id = $2)) AS emails, (SELECT count(*) FROM "openmeld"."invitations" WHERE organization_id = $3) AS invitations',
+          values: [],
+        },
+        values: [f.organizationId, f.organizationId, f.organizationId],
+      })
+      .then((result) => result.rows[0] ?? null);
     expect(counts).toEqual({ inbox: 1, emails: 1, invitations: 0 });
     expect(
-      await env.OPENMELD_DB.prepare(
-        "SELECT importance, attention FROM inbox_items WHERE organization_id = ? AND source_key = ?"
-      )
-        .bind(f.organizationId, `invitation:${requestId}`)
-        .first()
+      await getPostgresDatabase(env)
+        .query({
+          ...{
+            text: 'SELECT importance, attention FROM "openmeld"."inbox_items" WHERE organization_id = $1 AND source_key = $2',
+            values: [],
+          },
+          values: [f.organizationId, `invitation:${requestId}`],
+        })
+        .then((result) => result.rows[0] ?? null)
     ).toEqual({ importance: "normal", attention: "action_required" });
     expect(
       await call(f.ownerId, { action: "approve", requestId })
@@ -800,11 +863,15 @@ describe("invitation approval boundary", () => {
       requests: [{ status: "approved", invitationSentAt: null }],
     });
     const reviewState = () =>
-      env.OPENMELD_DB.prepare(
-        "SELECT resolution_status FROM inbox_items WHERE organization_id = ? AND source_key = ?"
-      )
-        .bind(f.organizationId, `invitation:${requestId}`)
-        .first();
+      getPostgresDatabase(env)
+        .query({
+          ...{
+            text: 'SELECT resolution_status FROM "openmeld"."inbox_items" WHERE organization_id = $1 AND source_key = $2',
+            values: [],
+          },
+          values: [f.organizationId, `invitation:${requestId}`],
+        })
+        .then((result) => result.rows[0] ?? null);
     // Approval is not delivery: keep the actionable item until Auth confirms sending.
     expect(await reviewState()).toEqual({ resolution_status: "open" });
     expect(await summary(f.ownerId)).toMatchObject({
@@ -832,14 +899,17 @@ describe("invitation approval boundary", () => {
       code: "organization.join_request.already_reviewed",
     });
     expect(
-      await env.OPENMELD_DB.prepare(
-        "SELECT count(*) AS count FROM members WHERE organization_id = ?"
-      )
-        .bind(f.organizationId)
-        .first()
+      await getPostgresDatabase(env)
+        .query({
+          ...{
+            text: 'SELECT count(*) AS count FROM "openmeld"."members" WHERE organization_id = $1',
+            values: [],
+          },
+          values: [f.organizationId],
+        })
+        .then((result) => result.rows[0] ?? null)
     ).toEqual({ count: 2 });
   });
-
   it("does not let an unverified applicant or a non-Space sponsor create a request", async () => {
     const f = await fixture();
     await f.joinOrganization();
@@ -869,7 +939,6 @@ describe("invitation approval boundary", () => {
     });
   });
 });
-
 async function fixture() {
   const organizationId = crypto.randomUUID();
   const ownerId = crypto.randomUUID();
@@ -878,29 +947,49 @@ async function fixture() {
   const recipientProfile = crypto.randomUUID();
   const email = `${recipientId}@example.com`;
   const now = Date.now();
-  await env.OPENMELD_DB.prepare(
-    "INSERT INTO organizations (id, name, slug, created_at) VALUES (?, 'Harbor Design', ?, ?)"
-  )
-    .bind(organizationId, organizationId, now)
-    .run();
+  await getPostgresDatabase(env).query({
+    ...{
+      text: 'INSERT INTO "openmeld"."organizations" (id, name, slug, created_at) VALUES ($1, \'Harbor Design\', $2, $3)',
+      values: [],
+    },
+    values: [organizationId, organizationId, now],
+  });
   for (const [userId, profileId, address] of [
     [ownerId, ownerProfile, `${ownerId}@example.com`],
     [recipientId, recipientProfile, email],
   ]) {
-    await env.OPENMELD_DB.batch([
-      env.OPENMELD_DB.prepare(
-        "INSERT INTO users (id, name, email, email_verified, created_at, updated_at) VALUES (?, 'Morgan Lee', ?, 1, ?, ?)"
-      ).bind(userId, address, now, now),
-      env.OPENMELD_DB.prepare(
-        "INSERT INTO openmeld_profiles (profile_id, profile_name, profile_handle, profile_kind, is_default, status, owner_user_id, created_by_user_id, source, created_at, updated_at) VALUES (?, 'Morgan Lee', ?, 'human', 1, 'active', ?, ?, 'auth_bootstrap', ?, ?)"
-      ).bind(profileId, profileId, userId, userId, now, now),
-    ]);
+    await getPostgresDatabase(env).transaction(async (client) =>
+      (async () => {
+        const results: QueryResult[] = [];
+        for (const query of [
+          {
+            ...{
+              text: 'INSERT INTO "openmeld"."users" (id, name, email, email_verified, created_at, updated_at) VALUES ($1, \'Morgan Lee\', $2, 1, $3, $4)',
+              values: [],
+            },
+            values: [userId, address, now, now],
+          },
+          {
+            ...{
+              text: "INSERT INTO \"openmeld\".\"openmeld_profiles\" (profile_id, profile_name, profile_handle, profile_kind, is_default, status, owner_user_id, created_by_user_id, source, created_at, updated_at) VALUES ($1, 'Morgan Lee', $2, 'human', 1, 'active', $3, $4, 'auth_bootstrap', $5, $6)",
+              values: [],
+            },
+            values: [profileId, profileId, userId, userId, now, now],
+          },
+        ]) {
+          results.push(await client.query(query));
+        }
+        return results;
+      })()
+    );
   }
-  await env.OPENMELD_DB.prepare(
-    "INSERT INTO members (id, organization_id, user_id, role, created_at) VALUES (?, ?, ?, 'owner', ?)"
-  )
-    .bind(crypto.randomUUID(), organizationId, ownerId, now)
-    .run();
+  await getPostgresDatabase(env).query({
+    ...{
+      text: 'INSERT INTO "openmeld"."members" (id, organization_id, user_id, role, created_at) VALUES ($1, $2, $3, \'owner\', $4)',
+      values: [],
+    },
+    values: [crypto.randomUUID(), organizationId, ownerId, now],
+  });
   const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
   const objectId = namespace.newUniqueId();
   const spaceId = objectId.toString();
@@ -940,11 +1029,13 @@ async function fixture() {
       request,
     });
   const joinOrganization = () =>
-    env.OPENMELD_DB.prepare(
-      "INSERT INTO members (id, organization_id, user_id, role, created_at) VALUES (?, ?, ?, 'member', ?)"
-    )
-      .bind(crypto.randomUUID(), organizationId, recipientId, now)
-      .run();
+    getPostgresDatabase(env).query({
+      ...{
+        text: 'INSERT INTO "openmeld"."members" (id, organization_id, user_id, role, created_at) VALUES ($1, $2, $3, \'member\', $4)',
+        values: [],
+      },
+      values: [crypto.randomUUID(), organizationId, recipientId, now],
+    });
   const create = () =>
     owner({ action: "create", organizationId, spaceId, email });
   const memberStatus = () =>
@@ -952,7 +1043,9 @@ async function fixture() {
       stub,
       (_instance, state) =>
         [
-          ...state.storage.sql.exec<{ status: string }>(
+          ...state.storage.sql.exec<{
+            status: string;
+          }>(
             "SELECT status FROM space_members WHERE profile_id = ?",
             recipientProfile
           ),
@@ -974,23 +1067,23 @@ async function fixture() {
     spaceId,
   };
 }
-
 function invitationId(result: SpaceInvitationRpcResult): string {
   if (!(result.result.ok && result.result.invitations[0])) {
     throw new Error(JSON.stringify(result));
   }
   return result.result.invitations[0].id;
 }
-
 describe("Space invitation admission", () => {
   it("rejects expired admission until an authorized sender resends", async () => {
     const f = await fixture();
     const id = invitationId(await f.create());
-    await env.OPENMELD_DB.prepare(
-      "UPDATE space_invitations SET expires_at = ? WHERE id = ?"
-    )
-      .bind(Date.now() - 1, id)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'UPDATE "openmeld"."space_invitations" SET expires_at = $1 WHERE id = $2',
+        values: [],
+      },
+      values: [Date.now() - 1, id],
+    });
     expect(
       await f.recipient({ action: "claim", invitationId: id })
     ).toMatchObject({
@@ -1039,16 +1132,17 @@ describe("Space invitation admission", () => {
       },
     });
     expect(await f.memberStatus()).toBeNull();
-    await env.OPENMELD_DB.prepare(
-      "UPDATE members SET role = 'member' WHERE organization_id = ? AND user_id = ?"
-    )
-      .bind(f.organizationId, f.ownerId)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'UPDATE "openmeld"."members" SET role = \'member\' WHERE organization_id = $1 AND user_id = $2',
+        values: [],
+      },
+      values: [f.organizationId, f.ownerId],
+    });
     expect(await f.create()).toMatchObject({
       result: { ok: false, code: "space.invitation.forbidden" },
     });
   });
-
   it("deduplicates concurrent sends and never re-adds a removed member when acceptance is retried", async () => {
     const f = await fixture();
     const [first, second] = await Promise.all([f.create(), f.create()]);
@@ -1069,17 +1163,18 @@ describe("Space invitation admission", () => {
       );
     });
     // Model a lost D1 completion acknowledgement after the Space transaction.
-    await env.OPENMELD_DB.prepare(
-      "UPDATE space_invitations SET status = 'accepting' WHERE id = ?"
-    )
-      .bind(id)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'UPDATE "openmeld"."space_invitations" SET status = \'accepting\' WHERE id = $1',
+        values: [],
+      },
+      values: [id],
+    });
     expect(
       await f.recipient({ action: "complete", invitationId: id })
     ).toMatchObject({ result: { ok: true } });
     expect(await f.memberStatus()).toBe("removed");
   });
-
   it("arbitrates revoke and grant in the same Space transaction", async () => {
     const f = await fixture();
     const id = invitationId(await f.create());

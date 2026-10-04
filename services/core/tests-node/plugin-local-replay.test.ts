@@ -14,9 +14,9 @@ import { rpcPluginActionRequest } from "../src/connectors/plugin-action-requests
 import { rpcPluginAction } from "../src/connectors/plugin-actions";
 import type { CoreBindings } from "../src/lib/bindings";
 import {
-  applyDrizzleMigrationsForTables,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+  createPostgresHarness,
+  postgresTestBinding,
+} from "./helpers/postgresql-harness.test-support";
 
 const admission = vi.hoisted(() => ({ caller: vi.fn(), identity: vi.fn() }));
 // This seam starts after identity admission. Connection policy, operation
@@ -49,7 +49,7 @@ const readAction = openConnectorRuntimeActionSchema.parse({
   effect: "read",
   operationType: "read",
 });
-let harness: ReturnType<typeof createSqliteD1Harness>;
+let harness: Awaited<ReturnType<typeof createPostgresHarness>>;
 let providerCalls: PluginRuntimeRequest[];
 let effects: Set<string>;
 let submission: string;
@@ -89,40 +89,36 @@ function request(operationId = "original-operation", replay = false) {
   });
 }
 
-beforeEach(() => {
-  harness = createSqliteD1Harness();
-  applyDrizzleMigrationsForTables(harness, [
-    "users",
-    "organizations",
-    "members",
-    "openmeld_profiles",
-    "connector_connections",
-    "center_agent_connector_action_operations",
-    "center_agent_audit_journal",
-    "plugin_action_requests",
-    "inbox_items",
-    "inbox_email_deliveries",
-  ]);
-  harness.run({
-    sql: "INSERT INTO users (id, name, email, created_at, updated_at) VALUES ('user-1', 'Synthetic member', 'synthetic@example.test', 1000, 1000)",
+beforeEach(async () => {
+  harness = await createPostgresHarness();
+
+  await harness.query({
+    text: "INSERT INTO \"openmeld\".\"users\" (id, name, email, created_at, updated_at) VALUES ('user-1', 'Synthetic member', 'synthetic@example.test', 1000, 1000)",
+    values: [],
   });
-  harness.run({
-    sql: "INSERT INTO organizations (id, name, slug, created_at) VALUES ('org-1', 'Synthetic organization', 'synthetic', 1000)",
+  await harness.query({
+    text: "INSERT INTO \"openmeld\".\"organizations\" (id, name, slug, created_at) VALUES ('org-1', 'Synthetic organization', 'synthetic', 1000)",
+    values: [],
   });
-  harness.run({
-    sql: "INSERT INTO members (id, organization_id, user_id, role, created_at) VALUES ('member-1', 'org-1', 'user-1', 'owner', 1000)",
+  await harness.query({
+    text: "INSERT INTO \"openmeld\".\"members\" (id, organization_id, user_id, role, created_at) VALUES ('member-1', 'org-1', 'user-1', 'owner', 1000)",
+    values: [],
   });
-  harness.run({
-    sql: "UPDATE users SET email_verified = 1 WHERE id = 'user-1'",
+  await harness.query({
+    text: 'UPDATE "openmeld"."users" SET email_verified = 1 WHERE id = \'user-1\'',
+    values: [],
   });
-  harness.run({
-    sql: `INSERT INTO openmeld_profiles (profile_id, profile_name, profile_handle, profile_kind, organization_id, owner_user_id, source) VALUES ('${profileId}', 'Synthetic Agent', 'synthetic-agent', 'agent', 'org-1', 'user-1', 'cli_create')`,
+  await harness.query({
+    text: `INSERT INTO "openmeld"."openmeld_profiles" (profile_id, profile_name, profile_handle, profile_kind, organization_id, owner_user_id, source) VALUES ('${profileId}', 'Synthetic Agent', 'synthetic-agent', 'agent', 'org-1', 'user-1', 'cli_create')`,
+    values: [],
   });
-  harness.run({
-    sql: `INSERT INTO openmeld_profiles (profile_id, profile_name, profile_handle, profile_kind, organization_id, owner_user_id, source) VALUES ('${humanId}', 'Synthetic member', 'synthetic-member', 'human', NULL, 'user-1', 'cli_create')`,
+  await harness.query({
+    text: `INSERT INTO "openmeld"."openmeld_profiles" (profile_id, profile_name, profile_handle, profile_kind, organization_id, owner_user_id, source) VALUES ('${humanId}', 'Synthetic member', 'synthetic-member', 'human', NULL, 'user-1', 'cli_create')`,
+    values: [],
   });
-  harness.run({
-    sql: `INSERT INTO connector_connections (connection_name, organization_id, user_id, scope, service, status, created_at_ms, updated_at_ms, access_policy) VALUES ('${connectionName}', 'org-1', 'user-1', 'member', 'posthog', 'active', 1000, 1000, '{"local_agent":"write","remote_agent":"none","center_agent":"none"}')`,
+  await harness.query({
+    text: `INSERT INTO "openmeld"."connector_connections" (connection_name, organization_id, user_id, scope, service, status, created_at_ms, updated_at_ms, access_policy) VALUES ('${connectionName}', 'org-1', 'user-1', 'member', 'posthog', 'active', 1000, 1000, '{"local_agent":"write","remote_agent":"none","center_agent":"none"}')`,
+    values: [],
   });
   submission = "dispatch:original-request";
   authorizedRequestRoot = undefined;
@@ -151,7 +147,7 @@ beforeEach(() => {
   effects = new Set();
   providerResult = "outcome_unknown";
   env = {
-    OPENMELD_DB: harness.db,
+    OPENMELD_POSTGRESQL: postgresTestBinding(harness.db),
     OPENMELD_REMOTE_AGENT_WORKER: {
       pluginRuntime: (
         input: PluginRuntimeRequest
@@ -239,8 +235,11 @@ describe("Local plugin replay through real operation and connection storage", ()
     });
     expect(providerCalls).toHaveLength(1);
     expect(
-      await harness.db.prepare("SELECT id FROM plugin_action_requests").all()
-    ).toMatchObject({ results: [] });
+      await harness.db.query({
+        text: 'SELECT id FROM "openmeld"."plugin_action_requests"',
+        values: [],
+      })
+    ).toMatchObject({ rows: [] });
     actorProfileId = profileId;
     await rpcPluginAction(env, request("original-operation", true));
     expect(providerCalls).toHaveLength(2);
@@ -291,8 +290,9 @@ describe("Local plugin replay through real operation and connection storage", ()
       input.request.action.account = "shared";
     }
     if (scenario === "replaced") {
-      harness.run({
-        sql: "UPDATE connector_connections SET updated_at_ms = 1001",
+      await harness.query({
+        text: 'UPDATE "openmeld"."connector_connections" SET updated_at_ms = 1001',
+        values: [],
       });
     }
     if (scenario === "allowed") {
@@ -351,8 +351,9 @@ describe("Local plugin replay through real operation and connection storage", ()
     }
     changed.request.action.input = { project: "different-target" };
     await expect(rpcPluginAction(env, changed)).rejects.toThrow();
-    harness.run({
-      sql: 'UPDATE connector_connections SET access_policy = \'{"local_agent":"none","remote_agent":"none","center_agent":"none"}\'',
+    await harness.query({
+      text: 'UPDATE "openmeld"."connector_connections" SET access_policy = \'{"local_agent":"none","remote_agent":"none","center_agent":"none"}\'',
+      values: [],
     });
     await expect(
       rpcPluginAction(env, request("original-operation", true))
@@ -363,8 +364,9 @@ describe("Local plugin replay through real operation and connection storage", ()
   it("does not replay after the same connection name is replaced", async () => {
     await approveRequest();
     await rpcPluginAction(env, request());
-    harness.run({
-      sql: "UPDATE connector_connections SET updated_at_ms = 2000",
+    await harness.query({
+      text: 'UPDATE "openmeld"."connector_connections" SET updated_at_ms = 2000',
+      values: [],
     });
     await expect(
       rpcPluginAction(env, request("original-operation", true))
@@ -415,8 +417,9 @@ describe("Local plugin replay through real operation and connection storage", ()
   it("keeps a legacy unknown receipt readable without granting replay", async () => {
     await approveRequest();
     await rpcPluginAction(env, request());
-    harness.run({
-      sql: "UPDATE center_agent_connector_action_operations SET connection_updated_at_ms = NULL",
+    await harness.query({
+      text: 'UPDATE "openmeld"."center_agent_connector_action_operations" SET connection_updated_at_ms = NULL',
+      values: [],
     });
     const receipt = await rpcPluginAction(
       env,

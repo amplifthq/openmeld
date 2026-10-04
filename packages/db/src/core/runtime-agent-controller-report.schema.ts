@@ -1,25 +1,19 @@
 import { sql } from "drizzle-orm";
-import {
-  check,
-  index,
-  integer,
-  sqliteTable,
-  text,
-  uniqueIndex,
-} from "drizzle-orm/sqlite-core";
+import { bigint, check, index, text, uniqueIndex } from "drizzle-orm/pg-core";
+import { applicationTable } from "../postgresql/schema.ts";
 
-export const openMeldDaemonRuntimeAgentControllerReports = sqliteTable(
+export const openMeldDaemonRuntimeAgentControllerReports = applicationTable(
   "openMeldDaemon_runtime_agent_controller_reports",
   {
     openMeldServiceRuntimeId: text("openmeld_service_runtime_id").notNull(),
     agentControllerRef: text("agent_controller_ref").notNull(),
     reportStatus: text("report_status").notNull(),
-    observedAtMs: integer("observed_at_ms").notNull(),
-    expiresAtMs: integer("expires_at_ms").notNull(),
+    observedAtMs: bigint("observed_at_ms", { mode: "number" }).notNull(),
+    expiresAtMs: bigint("expires_at_ms", { mode: "number" }).notNull(),
     reportedReasonCodesJson: text("reported_reason_codes_json").notNull(),
     agentControllerInterfaceJson: text("agent_controller_interface_json"),
-    acceptedAtMs: integer("accepted_at_ms").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    acceptedAtMs: bigint("accepted_at_ms", { mode: "number" }).notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     uniqueIndex(

@@ -2535,6 +2535,10 @@ normal contracts.
 
 ## Database Workflow
 
+For the decided PostgreSQL target, use [the PostgreSQL workflow](postgresql.md)
+and `pnpm pg plan` / `pnpm pg:check`. It has independent migration history and
+isolated targets. The commands below continue to own D1 product deployments.
+
 Run shared D1 workflow commands from the repo root through the `pnpm db:*`
 command family.
 

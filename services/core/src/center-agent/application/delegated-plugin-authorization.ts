@@ -1,4 +1,8 @@
 import {
+  getPostgresDatabase,
+  type PostgresDatabase,
+} from "@openmeld/db/postgresql";
+import {
   pluginDelegationAuthorizationSchema,
   pluginRuntimeResponseSchema,
 } from "@openmeld/schemas";
@@ -8,9 +12,9 @@ import type {
 } from "@openmeld/schemas/types";
 import { digestCanonicalJson } from "@openmeld/utils";
 import { requireRemotePluginConnection } from "../../connectors/plugin-access";
-import { type CoreBindings, identityDb } from "../../lib/bindings";
-import { readRemoteAgentNativeDeliveryByDeliveryId } from "../../remote-agent/infrastructure/d1/native-delivery-ledger-repo";
-import { readCenterAgentWakePublication } from "../infrastructure/d1/center-agent-wake-publication-repo";
+import type { CoreBindings } from "../../lib/bindings";
+import { readRemoteAgentNativeDeliveryByDeliveryId } from "../../remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
+import { readCenterAgentWakePublication } from "../infrastructure/postgresql/center-agent-wake-publication-repo";
 import { requireCenterAgentContinuationParent } from "./center-agent-delegation-service";
 
 type Authorization = ReturnType<
@@ -21,7 +25,7 @@ type Authorization = ReturnType<
  * and current connection permission remain their existing owners' decisions. */
 export async function prepareDelegatedPluginActions(input: {
   env: CoreBindings;
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   actorProfileId: string;
   parentSubmissionId: string;
@@ -40,7 +44,7 @@ export async function prepareDelegatedPluginActions(input: {
   const request =
     parent.executionRecoverySubmitRequest ?? parent.workerSubmitRequest;
   const sender = request?.turnEnvelope.sender;
-  const db = identityDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (
     !db ||
     sender?.kind !== "member" ||
@@ -62,11 +66,15 @@ export async function prepareDelegatedPluginActions(input: {
       throw new Error("plugin.delegation_scope_invalid");
     }
     const child = await db
-      .prepare(
-        "SELECT profile_id FROM openmeld_profiles WHERE profile_id = ? AND organization_id = ? AND owner_user_id = ? AND profile_kind = 'agent' AND managed_role IS NULL AND status = 'active'"
-      )
-      .bind(selected.targetProfileId, input.organizationId, sender.ownerUserId)
-      .first();
+      .query({
+        text: "SELECT profile_id FROM \"openmeld\".\"openmeld_profiles\" WHERE profile_id = $1 AND organization_id = $2 AND owner_user_id = $3 AND profile_kind = 'agent' AND managed_role IS NULL AND status = 'active'",
+        values: [
+          selected.targetProfileId,
+          input.organizationId,
+          sender.ownerUserId,
+        ],
+      })
+      .then((result) => result.rows[0] ?? null);
     if (!child) {
       throw new Error("plugin.delegation_target_owner_mismatch");
     }
@@ -117,7 +125,7 @@ export async function prepareDelegatedPluginActions(input: {
 }
 
 export async function readDelegatedPluginActions(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   sourceClientMessageId: string;
   delegationId: string;
   parentDeliveryId: string;

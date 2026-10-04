@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { readActiveRepresentedHumanSender } from "../src/remote-agent/application/turn-envelope";
-import { createSqliteD1Harness } from "./helpers/sqlite-d1-harness.test-support";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 describe("Remote Agent continuation requester resolution", () => {
   it("resolves an active Organization member through their account-scoped Human Profile", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     try {
-      seedMemberAndHumanProfile(harness, {
+      await seedMemberAndHumanProfile(harness, {
         organizationId: "org_1",
-        profileId: "human_1",
+        profileId: "11111111-1111-4111-8111-111111111111",
         profileOrganizationId: null,
         userId: "user_1",
       });
@@ -17,28 +17,28 @@ describe("Remote Agent continuation requester resolution", () => {
         readActiveRepresentedHumanSender({
           db: harness.db,
           organizationId: "org_1",
-          profileId: "human_1",
+          profileId: "11111111-1111-4111-8111-111111111111",
           userId: "user_1",
         })
       ).resolves.toMatchObject({
         member_id: "member_1",
         owner_user_id: "user_1",
-        profile_id: "human_1",
+        profile_id: "11111111-1111-4111-8111-111111111111",
         profile_kind: "human",
         profile_name: "Felix",
         role: "owner",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("does not resolve a Human Profile owned by another user", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     try {
-      seedMemberAndHumanProfile(harness, {
+      await seedMemberAndHumanProfile(harness, {
         organizationId: "org_1",
-        profileId: "human_1",
+        profileId: "11111111-1111-4111-8111-111111111111",
         profileOrganizationId: null,
         userId: "user_2",
       });
@@ -47,45 +47,30 @@ describe("Remote Agent continuation requester resolution", () => {
         readActiveRepresentedHumanSender({
           db: harness.db,
           organizationId: "org_1",
-          profileId: "human_1",
+          profileId: "11111111-1111-4111-8111-111111111111",
           userId: "user_1",
         })
       ).resolves.toBeNull();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });
 
-function createHarness() {
-  const harness = createSqliteD1Harness();
-  harness.run({
-    sql: `
-      CREATE TABLE members (
-        id TEXT PRIMARY KEY NOT NULL,
-        organization_id TEXT NOT NULL,
-        user_id TEXT NOT NULL,
-        role TEXT NOT NULL
-      )
-    `,
+async function createHarness() {
+  const harness = await createPostgresHarness();
+  await harness.query({
+    text: `INSERT INTO "openmeld"."users" (id,name,email) VALUES ('user_1','Felix','user1@example.test'), ('user_2','Other','user2@example.test')`,
   });
-  harness.run({
-    sql: `
-      CREATE TABLE openmeld_profiles (
-        profile_id TEXT PRIMARY KEY NOT NULL,
-        profile_kind TEXT NOT NULL,
-        profile_name TEXT NOT NULL,
-        owner_user_id TEXT NOT NULL,
-        organization_id TEXT,
-        status TEXT NOT NULL
-      )
-    `,
+  await harness.query({
+    text: `INSERT INTO "openmeld"."organizations" (id,name,slug,created_at) VALUES ('org_1','Organization','org-1',1000)`,
   });
+
   return harness;
 }
 
-function seedMemberAndHumanProfile(
-  harness: ReturnType<typeof createHarness>,
+async function seedMemberAndHumanProfile(
+  harness: Awaited<ReturnType<typeof createHarness>>,
   input: {
     organizationId: string;
     profileId: string;
@@ -93,15 +78,15 @@ function seedMemberAndHumanProfile(
     userId: string;
   }
 ) {
-  harness.run({
-    params: ["member_1", input.organizationId, "user_1", "owner"],
-    sql: `
-      INSERT INTO members (id, organization_id, user_id, role)
-      VALUES (?, ?, ?, ?)
+  await harness.query({
+    values: ["member_1", input.organizationId, "user_1", "owner"],
+    text: `
+      INSERT INTO "openmeld"."members" (id, organization_id, user_id, role, "created_at")
+      VALUES ($1, $2, $3, $4, 1700000000000)
     `,
   });
-  harness.run({
-    params: [
+  await harness.query({
+    values: [
       input.profileId,
       "human",
       "Felix",
@@ -109,16 +94,16 @@ function seedMemberAndHumanProfile(
       input.profileOrganizationId,
       "active",
     ],
-    sql: `
-      INSERT INTO openmeld_profiles (
+    text: `
+      INSERT INTO "openmeld"."openmeld_profiles" (
         profile_id,
         profile_kind,
         profile_name,
         owner_user_id,
         organization_id,
-        status
+        status, profile_handle, source
       )
-      VALUES (?, ?, ?, ?, ?, ?)
+      VALUES ($1, $2, $3, $4, $5, $6, 'felix', 'auth_bootstrap')
     `,
   });
 }

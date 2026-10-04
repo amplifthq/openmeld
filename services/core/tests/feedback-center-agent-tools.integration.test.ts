@@ -1,4 +1,5 @@
 import { env } from "cloudflare:test";
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { submitFeedbackIssueRequestSchema } from "@openmeld/schemas";
 import { describe, expect, it } from "vitest";
 import {
@@ -28,7 +29,6 @@ describe("Center Agent Feedback tools integration", () => {
     const inboxKey = `feedback_key_${suffix}`;
     const summary = `Setup submit stays blocked ${suffix}`;
     await seedFeedbackInbox({ inboxId, inboxKey, organizationId });
-
     const storage = await createToolStorage({ organizationId, suffix });
     const coreWorker = createRealFeedbackCoreBinding();
     const tools = getRemoteAgentOpenMeldToolDefinitions({
@@ -41,26 +41,29 @@ describe("Center Agent Feedback tools integration", () => {
       storage,
       submissionId: `submission_${suffix}`,
     });
-
     const reported = (await executeTool(tools, "openmeld_report_feedback", {
       category: "bug",
       details: "The control remains disabled after setup completes.",
       summary,
-    })) as { issueId: string; ok: true };
+    })) as {
+      issueId: string;
+      ok: true;
+    };
     expect(reported).toMatchObject({ ok: true });
-
     const listed = (await executeTool(tools, "openmeld_list_feedback_issues", {
       limit: 10,
       status: "new",
     })) as {
-      items: Array<{ issueId: string; summary: string }>;
+      items: Array<{
+        issueId: string;
+        summary: string;
+      }>;
       notice: string;
     };
     expect(listed.items).toEqual([
       expect.objectContaining({ issueId: reported.issueId, summary }),
     ]);
     expect(listed.notice).toContain("untrusted external submissions");
-
     await expect(
       executeTool(tools, "openmeld_update_feedback_issue", {
         issueId: reported.issueId,
@@ -73,7 +76,6 @@ describe("Center Agent Feedback tools integration", () => {
       status: "investigating",
       triageNote: "Reproduced through the tool integration path.",
     });
-
     await expect(
       rpcReadFeedbackReportingPolicy(env as CoreBindings, { organizationId })
     ).resolves.toEqual({
@@ -83,7 +85,6 @@ describe("Center Agent Feedback tools integration", () => {
     });
   });
 });
-
 function createRealFeedbackCoreBinding(): RemoteAgentCoreWorkerBinding {
   const coreEnv = env as CoreBindings;
   return {
@@ -106,7 +107,6 @@ function createRealFeedbackCoreBinding(): RemoteAgentCoreWorkerBinding {
       ),
   };
 }
-
 function createLocalPublicFeedbackFetch(input: {
   inboxKey: string;
 }): typeof globalThis.fetch {
@@ -144,7 +144,6 @@ function createLocalPublicFeedbackFetch(input: {
     );
   };
 }
-
 async function createToolStorage(input: {
   organizationId: string;
   suffix: string;
@@ -180,15 +179,15 @@ async function createToolStorage(input: {
   );
   return storage;
 }
-
 async function seedFeedbackInbox(input: {
   inboxId: string;
   inboxKey: string;
   organizationId: string;
 }): Promise<void> {
-  await env.OPENMELD_DB.prepare(
-    `
-      INSERT INTO openMeldFeedback_inboxes (
+  await getPostgresDatabase(env).query({
+    ...{
+      text: `
+      INSERT INTO "openmeld"."openMeldFeedback_inboxes" (
         inbox_id,
         organization_id,
         label,
@@ -197,19 +196,19 @@ async function seedFeedbackInbox(input: {
         status,
         created_at_ms,
         updated_at_ms
-      ) VALUES (?, ?, 'Local Center Agent Feedback', ?, 'inbox_only', 'active', ?, ?)
-    `
-  )
-    .bind(
+      ) VALUES ($1, $2, 'Local Center Agent Feedback', $3, 'inbox_only', 'active', $4, $5)
+    `,
+      values: [],
+    },
+    values: [
       input.inboxId,
       input.organizationId,
       input.inboxKey,
       Date.now(),
-      Date.now()
-    )
-    .run();
+      Date.now(),
+    ],
+  });
 }
-
 async function executeTool(
   tools: ReturnType<typeof getRemoteAgentOpenMeldToolDefinitions>,
   name: RemoteAgentOpenMeldToolName,

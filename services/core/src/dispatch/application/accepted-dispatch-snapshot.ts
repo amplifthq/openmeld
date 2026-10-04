@@ -1,13 +1,10 @@
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import type {
   OpenMeldDaemonAcceptedDispatchSnapshot,
   OpenMeldDaemonDispatchQueueMessage,
 } from "@openmeld/schemas/types";
 import { readRecordedDelegationRequester } from "../../center-agent/application/recorded-delegation-requester";
-import {
-  type CoreBindings,
-  identityDb,
-  wakeEvidenceDb,
-} from "../../lib/bindings";
+import type { CoreBindings } from "../../lib/bindings";
 import { readActiveRepresentedHumanSender } from "../../remote-agent/application/turn-envelope";
 
 export async function buildAcceptedDispatchSnapshot(input: {
@@ -82,7 +79,7 @@ export async function isDispatchRequestedByAgentOwner(input: {
   ) {
     return false;
   }
-  const db = identityDb(env);
+  const db = getPostgresDatabase(env);
   if (!db) {
     return false;
   }
@@ -96,7 +93,7 @@ export async function isDispatchRequestedByAgentOwner(input: {
       })
     );
   }
-  const evidenceDb = wakeEvidenceDb(env);
+  const evidenceDb = getPostgresDatabase(env);
   if (
     !(
       source.profileKind === "agent" &&
@@ -149,7 +146,6 @@ export function applyAcceptedDispatchSnapshotToMessage(input: {
     },
   };
 }
-
 async function fingerprintAcceptedDispatchPayload(
   message: OpenMeldDaemonDispatchQueueMessage
 ): Promise<`sha256:${string}`> {
@@ -180,7 +176,6 @@ async function fingerprintAcceptedDispatchPayload(
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("")}`;
 }
-
 function stableJson(value: unknown): string {
   if (value === null || typeof value !== "object") {
     return JSON.stringify(value);

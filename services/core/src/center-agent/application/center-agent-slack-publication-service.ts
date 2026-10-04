@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   centerAgentPostSlackChannelMessageResponseSchema,
   centerAgentPostSlackFileResponseSchema,
@@ -16,7 +17,7 @@ import {
   SlackMessagePublicationError,
 } from "../../remote-agent/application/slack-client";
 import { buildSlackFinalReplyPresentation } from "../../remote-agent/application/slack-final-reply-presentation";
-import { readRemoteAgentNativeDeliveryBySubmissionId } from "../../remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+import { readRemoteAgentNativeDeliveryBySubmissionId } from "../../remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import {
   readRoutineRecord,
   readRoutineRunRecord,
@@ -47,7 +48,6 @@ type CenterAgentPublicationFailurePhase =
   | "publish_file"
   | "publish_message"
   | "record_audit";
-
 export async function executeCenterAgentSlackPublication(input: {
   authorization: CurrentDesignatedCenterAgentAuthorization;
   botToken: string;
@@ -84,7 +84,6 @@ export async function executeCenterAgentSlackPublication(input: {
       target: input.target,
     });
   }
-
   const source = await resolveCenterAgentPublicationSource({
     authorization: input.authorization,
     publicationSource: input.publicationSource,
@@ -111,7 +110,6 @@ export async function executeCenterAgentSlackPublication(input: {
     requestSignature,
     source,
   });
-
   if (claim.outcome === "completed_replay") {
     return parseCompletedPublicationResponse(claim.operation.responseJson);
   }
@@ -131,12 +129,10 @@ export async function executeCenterAgentSlackPublication(input: {
       status: 409,
     });
   }
-
   const claimId = claim.operation.claimId;
   if (!claimId) {
     throw new Error("Claimed Center Agent publication has no claim id.");
   }
-
   let presentation: Awaited<
     ReturnType<typeof buildSlackFinalReplyPresentation>
   >;
@@ -153,7 +149,6 @@ export async function executeCenterAgentSlackPublication(input: {
     });
     throw error;
   }
-
   const attribution = await writeCenterAgentAuditEntry({
     action: "post_slack_channel_message",
     authorization: input.authorization,
@@ -171,7 +166,6 @@ export async function executeCenterAgentSlackPublication(input: {
     });
     throw error;
   });
-
   let publication: Awaited<ReturnType<typeof postSlackChannelMessage>>;
   try {
     publication = await postSlackChannelMessage({
@@ -190,7 +184,6 @@ export async function executeCenterAgentSlackPublication(input: {
     });
     throw error;
   }
-
   const response = buildCenterAgentSlackChannelMessageResponse({
     attribution,
     joinedChannel: publication.joinedChannel,
@@ -219,7 +212,6 @@ export async function executeCenterAgentSlackPublication(input: {
   }
   return response;
 }
-
 export async function executeCenterAgentSlackFilePublication(input: {
   authorization: CurrentDesignatedCenterAgentAuthorization;
   botToken: string;
@@ -360,7 +352,6 @@ export async function executeCenterAgentSlackFilePublication(input: {
   }
   return response;
 }
-
 function parseCompletedSlackFilePublicationResponse(
   responseJson: string | null
 ): CenterAgentPostSlackFileResponse {
@@ -379,7 +370,6 @@ function parseCompletedSlackFilePublicationResponse(
   }
   return response.data;
 }
-
 function parseCompletedPublicationResponse(
   responseJson: string | null
 ): CenterAgentPostSlackChannelMessageResponse {
@@ -398,7 +388,6 @@ function parseCompletedPublicationResponse(
   }
   return response.data;
 }
-
 async function resolveCenterAgentPublicationSource(input: {
   authorization: CurrentDesignatedCenterAgentAuthorization;
   publicationSource: PublicationSource;
@@ -506,7 +495,6 @@ async function resolveCenterAgentPublicationSource(input: {
       throw new Error("Unsupported Center Agent publication source.");
   }
 }
-
 function centerAgentPublicationSourceInvalid(reason: string): Error {
   return createCoreRpcHttpError({
     code: "center_agent.publication_source_invalid",
@@ -514,7 +502,6 @@ function centerAgentPublicationSourceInvalid(reason: string): Error {
     status: 409,
   });
 }
-
 function buildCenterAgentSlackChannelMessageResponse(input: {
   attribution: CenterAgentPostSlackChannelMessageResponse["attribution"];
   joinedChannel: boolean;
@@ -538,10 +525,9 @@ function buildCenterAgentSlackChannelMessageResponse(input: {
   }
   return validated.data;
 }
-
 async function recordCenterAgentPublicationFailure(input: {
   claimId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   error: unknown;
   operation: CenterAgentPublicationOperationRecord;
   phase: CenterAgentPublicationFailurePhase;
@@ -587,7 +573,6 @@ async function recordCenterAgentPublicationFailure(input: {
     );
   }
 }
-
 function normalizeOptionalText(value: unknown): string | null {
   if (typeof value !== "string") {
     return null;

@@ -7,6 +7,8 @@ node_modules
 .wrangler
 .wrangler-isolated.json
 .wrangler-dev-state
+services/auth/.openmeld-pg-cutover.jsonc
+services/core/.openmeld-pg-cutover.jsonc
 
 # Local env files
 .env

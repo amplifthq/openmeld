@@ -2,43 +2,17 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   claimSlackTeammateInvitationDelivery,
   completeSlackTeammateInvitationDelivery,
-} from "../src/remote-agent/infrastructure/d1/slack-teammate-invitation-delivery-repo";
-import { createSqliteD1Harness } from "./helpers/sqlite-d1-harness.test-support";
+} from "../src/remote-agent/infrastructure/postgresql/slack-teammate-invitation-delivery-repo";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 describe("Slack teammate invitation delivery ledger", () => {
-  let harness: ReturnType<typeof createSqliteD1Harness>;
+  let harness: Awaited<ReturnType<typeof createPostgresHarness>>;
 
-  beforeEach(() => {
-    harness = createSqliteD1Harness();
-    harness.run({
-      sql: `
-        CREATE TABLE slack_teammate_invitation_deliveries (
-          interaction_id TEXT NOT NULL,
-          slack_team_id TEXT NOT NULL,
-          organization_id TEXT NOT NULL,
-          actor_slack_user_id TEXT NOT NULL,
-          actor_user_id TEXT NOT NULL,
-          target_slack_user_id TEXT NOT NULL,
-          target_email TEXT,
-          target_display_name TEXT NOT NULL,
-          status TEXT NOT NULL,
-          message_ts TEXT,
-          failure_code TEXT,
-          onboarding_status TEXT,
-          joined_user_id TEXT,
-          joined_profile_id TEXT,
-          research_task_id TEXT,
-          welcome_message_ts TEXT,
-          onboarding_failure_code TEXT,
-          created_at_ms INTEGER NOT NULL,
-          updated_at_ms INTEGER NOT NULL,
-          PRIMARY KEY (interaction_id, target_slack_user_id)
-        )
-      `,
-    });
+  beforeEach(async () => {
+    harness = await createPostgresHarness();
   });
 
-  afterEach(() => harness.close());
+  afterEach(async () => await harness.close());
 
   it("claims and completes one target exactly once across Slack retries", async () => {
     const input = {
@@ -68,8 +42,8 @@ describe("Slack teammate invitation delivery ledger", () => {
       claimSlackTeammateInvitationDelivery({ ...input, nowMs: 1002 })
     ).resolves.toBeNull();
     expect(
-      harness.queryFirst({
-        sql: "SELECT status, message_ts, failure_code, onboarding_status FROM slack_teammate_invitation_deliveries",
+      await harness.queryFirst({
+        text: 'SELECT status, message_ts, failure_code, onboarding_status FROM "openmeld"."slack_teammate_invitation_deliveries"',
       })
     ).toEqual({
       failure_code: null,

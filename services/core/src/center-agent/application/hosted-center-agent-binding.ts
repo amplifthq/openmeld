@@ -3,7 +3,7 @@ import {
   HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
   hostedCenterAgentRuntimeIdentitySchema,
 } from "@openmeld/schemas";
-import type { AgentProfileBindingRecord } from "../../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
+import type { AgentProfileBindingRecord } from "../../agent-profile-binding/infrastructure/postgresql/agent-profile-binding-repo";
 
 type HostedCenterAgentExecutionTarget = Pick<
   AgentProfileBindingRecord,

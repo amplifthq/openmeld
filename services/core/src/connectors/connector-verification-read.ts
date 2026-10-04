@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import { connectorActionVerificationEvidenceSchema } from "@openmeld/schemas";
 import type { CenterAgentConnectorActionExecutionConnection } from "@openmeld/schemas/types";
 import {
@@ -8,7 +9,7 @@ import { createCoreRpcHttpError } from "../rpc/errors";
 
 /** Associates read evidence with an original operation; never finalizes it. */
 export async function requireConnectorVerificationRead(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   scope: CenterAgentConnectorActionOperationScope;
   reference: { operationId: string; actionId: string } | undefined;
   effect: string | undefined;

@@ -1,15 +1,16 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import { workingLanguageTagSchema } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
 import {
   activateAgentDelegationChildren,
   readAgentDelegation,
-} from "../src/agent-task-coordination/infrastructure/d1/agent-delegation-repo";
+} from "../src/agent-task-coordination/infrastructure/postgresql/agent-delegation-repo";
 import {
   claimReadyAgentTaskCompletionSubscription,
   readAgentTaskCompletionSubscription,
   recordAgentTaskTerminalOutcome,
   settleAgentTaskCompletionSubscription,
-} from "../src/agent-task-coordination/infrastructure/d1/agent-task-coordination-repo";
+} from "../src/agent-task-coordination/infrastructure/postgresql/agent-task-coordination-repo";
 import {
   buildDelegatedTaskText,
   type CenterAgentDelegationPreparationError,
@@ -19,14 +20,10 @@ import {
 } from "../src/center-agent/application/center-agent-delegation-service";
 import { prepareCenterAgentTaskWatch } from "../src/center-agent/application/center-agent-task-watch-service";
 import type { CoreBindings } from "../src/lib/bindings";
-import {
-  applyDrizzleMigrationForTable,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 const CENTER_AGENT_PROFILE_ID = "agt_00000000-0000-4000-8000-000000000001";
 const CHILD_PROFILE_ID = "agt_00000000-0000-4000-8000-000000000002";
-
 describe("Center Agent delegation preparation", () => {
   it.each([
     ["en-u-ca-gregory", "English"],
@@ -45,10 +42,9 @@ describe("Center Agent delegation preparation", () => {
     undefined,
     "zh-Hans",
   ])("persists the child subscription and upstream language %s before returning dispatch work", async (replyLanguageTag) => {
-    const harness = createHarness();
+    const harness = await createHarness();
     try {
       await insertParentDelivery(harness.db);
-
       const prepared = await prepareCenterAgentWakeDelegation({
         actorProfileId: CENTER_AGENT_PROFILE_ID,
         childSpaceId: "space-child",
@@ -63,7 +59,6 @@ describe("Center Agent delegation preparation", () => {
         targetProfileIds: [CHILD_PROFILE_ID],
         text: "Do the delegated work.",
       });
-
       expect(prepared).toMatchObject({
         childTasks: [
           {
@@ -109,15 +104,13 @@ describe("Center Agent delegation preparation", () => {
         state: "active",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("keeps writing the legacy destination snapshot while the rollout gate is disabled", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     try {
       await insertParentDelivery(harness.db);
-
       const prepared = await prepareCenterAgentWakeDelegation({
         actorProfileId: CENTER_AGENT_PROFILE_ID,
         childSpaceId: "space-child",
@@ -131,7 +124,6 @@ describe("Center Agent delegation preparation", () => {
         targetProfileIds: [CHILD_PROFILE_ID],
         text: "Do the delegated work.",
       });
-
       const subscription = await readAgentTaskCompletionSubscription({
         db: harness.db,
         subscriptionId: prepared.childTasks[0]?.subscriptionId ?? "",
@@ -149,15 +141,13 @@ describe("Center Agent delegation preparation", () => {
         },
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("keeps ordinary Slack parent continuation unavailable while the rollout gate is disabled", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     try {
       await insertParentDelivery(harness.db, "slack");
-
       await expect(
         prepareCenterAgentWakeDelegation({
           actorProfileId: CENTER_AGENT_PROFILE_ID,
@@ -176,12 +166,11 @@ describe("Center Agent delegation preparation", () => {
         code: "center_agent.delegation_parent_continuation_unsupported",
       } satisfies Partial<CenterAgentDelegationPreparationError>);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("persists multiple primary children for an all-terminal barrier", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     try {
       await insertParentDelivery(harness.db);
       await expect(
@@ -212,12 +201,11 @@ describe("Center Agent delegation preparation", () => {
         delegationId: "dlg:ca-wake:many",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("rejects fallback delegation with more than one primary at the application boundary", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     try {
       await expect(
         prepareCenterAgentWakeDelegation({
@@ -240,12 +228,11 @@ describe("Center Agent delegation preparation", () => {
         code: "center_agent.delegation_fallback_requires_one_primary",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("atomically cancels the delegation and its completion subscription", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     try {
       await insertParentDelivery(harness.db);
       const prepared = await prepareCenterAgentWakeDelegation({
@@ -260,14 +247,12 @@ describe("Center Agent delegation preparation", () => {
         targetProfileIds: [CHILD_PROFILE_ID],
         text: "Do the delegated work.",
       });
-
       await cancelPreparedCenterAgentWakeDelegation({
         db: harness.db,
         delegationId: prepared.delegationId,
         nowMs: 1100,
         subscriptionIds: prepared.subscriptionIds,
       });
-
       await expect(
         readAgentDelegation({
           db: harness.db,
@@ -284,12 +269,11 @@ describe("Center Agent delegation preparation", () => {
         })
       ).resolves.toMatchObject({ state: "cancelled" });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("keeps a fallback planned behind a failure-only activation subscription", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     const fallbackProfileId = "agt_00000000-0000-4000-8000-000000000004";
     try {
       await insertParentDelivery(harness.db);
@@ -306,7 +290,6 @@ describe("Center Agent delegation preparation", () => {
         targetProfileIds: [CHILD_PROFILE_ID],
         text: "Clone the repository and report the exact result.",
       });
-
       expect(prepared.fallbackTask).toMatchObject({
         task: {
           sourceClientMessageId: "ca-fallback:ca-wake:fallback",
@@ -338,12 +321,11 @@ describe("Center Agent delegation preparation", () => {
         watchedTask: { targetProfileId: CHILD_PROFILE_ID },
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("skips a fallback without waking it when the primary succeeds", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     const fallbackProfileId = "agt_00000000-0000-4000-8000-000000000004";
     try {
       await insertParentDelivery(harness.db);
@@ -385,7 +367,6 @@ describe("Center Agent delegation preparation", () => {
       ).resolves.toMatchObject({
         newlyReadySubscriptionIds: [primaryTask.subscriptionId],
       });
-
       await expect(
         readAgentDelegation({
           db: harness.db,
@@ -411,15 +392,13 @@ describe("Center Agent delegation preparation", () => {
         })
       ).resolves.toMatchObject({ state: "settled" });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("lets an ordinary Slack parent resume from the exact observed task", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     try {
       await insertParentDelivery(harness.db, "slack");
-
       await expect(
         prepareCenterAgentWakeDelegation({
           actorProfileId: CENTER_AGENT_PROFILE_ID,
@@ -465,12 +444,11 @@ describe("Center Agent delegation preparation", () => {
         },
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("allows one all-terminal continuation for a Workflow Routine", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     try {
       await insertRoutineRun(harness.db, {
         nativeDeliveryId: "delivery-parent",
@@ -491,11 +469,11 @@ describe("Center Agent delegation preparation", () => {
       });
       await expect(
         harness.db
-          .prepare(
-            "SELECT continuation_delegation_id FROM routine_runs WHERE id = ?"
-          )
-          .bind("routine-run-1")
-          .first()
+          .query({
+            text: 'SELECT continuation_delegation_id FROM "openmeld"."routine_runs" WHERE id = $1',
+            values: ["routine-run-1"],
+          })
+          .then((result) => result.rows[0])
       ).resolves.toMatchObject({ continuation_delegation_id: null });
 
       await expect(
@@ -548,12 +526,11 @@ describe("Center Agent delegation preparation", () => {
         code: "center_agent.routine_delegation_limit_reached",
       } satisfies Partial<CenterAgentDelegationPreparationError>);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("releases the exact Workflow Routine continuation fence after cancellation", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     try {
       await insertRoutineRun(harness.db, {
         nativeDeliveryId: "delivery-parent",
@@ -576,21 +553,24 @@ describe("Center Agent delegation preparation", () => {
         targetProfileIds: [CHILD_PROFILE_ID],
         text: "Do the delegated work.",
       });
-
       await cancelPreparedCenterAgentWakeDelegation({
         db: harness.db,
         delegationId: prepared.delegationId,
         nowMs: 1100,
         subscriptionIds: prepared.subscriptionIds,
       });
-
       await expect(
         harness.db
-          .prepare(
-            "SELECT continuation_delegation_id FROM routine_runs WHERE id = ?"
-          )
-          .bind("routine-run-cancelled-delegation")
-          .first<{ continuation_delegation_id: string | null }>()
+          .query<{
+            continuation_delegation_id: string | null;
+          }>({
+            ...{
+              text: 'SELECT continuation_delegation_id FROM "openmeld"."routine_runs" WHERE id = $1',
+              values: [],
+            },
+            values: ["routine-run-cancelled-delegation"],
+          })
+          .then((result) => result.rows[0] ?? null)
       ).resolves.toEqual({ continuation_delegation_id: null });
       await expect(
         prepareCenterAgentWakeDelegation({
@@ -609,19 +589,17 @@ describe("Center Agent delegation preparation", () => {
         delegationId: "dlg:ca-wake:routine-retry",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("rejects non-deterministic continuation modes for a Routine", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     try {
       await insertRoutineRun(harness.db, {
         nativeDeliveryId: "delivery-parent",
         runId: "routine-run-1",
       });
       await insertParentDelivery(harness.db, "space", "routine-run-1");
-
       await expect(
         prepareCenterAgentWakeDelegation({
           actorProfileId: CENTER_AGENT_PROFILE_ID,
@@ -639,14 +617,13 @@ describe("Center Agent delegation preparation", () => {
         code: "center_agent.routine_delegation_requires_all_terminal",
       } satisfies Partial<CenterAgentDelegationPreparationError>);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });
-
 describe("Center Agent task watch preparation", () => {
   it("persists one exact watch without creating delegation ownership", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     try {
       await insertParentDelivery(harness.db);
       const task = {
@@ -656,7 +633,6 @@ describe("Center Agent task watch preparation", () => {
         targetProfileId: CHILD_PROFILE_ID,
         v: 1 as const,
       };
-
       await expect(
         prepareCenterAgentTaskWatch({
           actorProfileId: CENTER_AGENT_PROFILE_ID,
@@ -696,16 +672,20 @@ describe("Center Agent task watch preparation", () => {
         watchId: "watch-1",
       });
       const delegationCount = await harness.db
-        .prepare("SELECT COUNT(*) AS count FROM agent_delegations")
-        .first<{ count: number }>();
+        .query<{
+          count: number;
+        }>({
+          text: 'SELECT COUNT(*) AS count FROM "openmeld"."agent_delegations"',
+          values: [],
+        })
+        .then((result) => result.rows[0] ?? null);
       expect(delegationCount?.count).toBe(0);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("keeps the legacy watch destination snapshot while the rollout gate is disabled", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     try {
       await insertParentDelivery(harness.db);
       const task = {
@@ -715,7 +695,6 @@ describe("Center Agent task watch preparation", () => {
         targetProfileId: CHILD_PROFILE_ID,
         v: 1 as const,
       };
-
       await prepareCenterAgentTaskWatch({
         actorProfileId: CENTER_AGENT_PROFILE_ID,
         completionCondition: "terminal",
@@ -730,7 +709,6 @@ describe("Center Agent task watch preparation", () => {
         task,
         watchId: "watch-legacy-rollout",
       });
-
       const subscription = await readAgentTaskCompletionSubscription({
         db: harness.db,
         subscriptionId: "sub:watch-legacy-rollout",
@@ -747,15 +725,13 @@ describe("Center Agent task watch preparation", () => {
         watchId: "watch-legacy-rollout",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("keeps ordinary Slack task watches unavailable while the rollout gate is disabled", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     try {
       await insertParentDelivery(harness.db, "slack");
-
       await expect(
         prepareCenterAgentTaskWatch({
           actorProfileId: CENTER_AGENT_PROFILE_ID,
@@ -779,12 +755,11 @@ describe("Center Agent task watch preparation", () => {
         code: "center_agent.delegation_parent_continuation_unsupported",
       } satisfies Partial<CenterAgentDelegationPreparationError>);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("immediately schedules a continuation when the exact task is already terminal", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     const send = vi.fn(async () => undefined);
     const task = {
       deliveryId: "delivery-watched",
@@ -805,7 +780,6 @@ describe("Center Agent task watch preparation", () => {
         },
         task,
       });
-
       await expect(
         prepareCenterAgentTaskWatch({
           actorProfileId: CENTER_AGENT_PROFILE_ID,
@@ -846,7 +820,6 @@ describe("Center Agent task watch preparation", () => {
         nowMs: 1200,
         subscriptionId: "sub:watch-already-terminal",
       });
-
       await expect(
         prepareCenterAgentTaskWatch({
           actorProfileId: CENTER_AGENT_PROFILE_ID,
@@ -865,12 +838,11 @@ describe("Center Agent task watch preparation", () => {
         status: "continuation_created",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("returns the authoritative terminal outcome when the watch condition cannot match", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     const task = {
       deliveryId: "delivery-failed-before-watch",
       kind: "native_delivery" as const,
@@ -890,7 +862,6 @@ describe("Center Agent task watch preparation", () => {
         },
         task,
       });
-
       await expect(
         prepareCenterAgentTaskWatch({
           actorProfileId: CENTER_AGENT_PROFILE_ID,
@@ -913,52 +884,28 @@ describe("Center Agent task watch preparation", () => {
         status: "condition_not_met",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });
-
-function createHarness() {
-  const harness = createSqliteD1Harness();
-  applyDrizzleMigrationForTable(
-    harness,
-    "openMeldRemoteAgent_native_delivery_ledger"
-  );
-  harness.run({
-    sql: `
-      CREATE TABLE organizations (
-        id TEXT PRIMARY KEY NOT NULL
-      )
-    `,
+async function createHarness() {
+  const harness = await createPostgresHarness();
+  await harness.query({
+    text: 'INSERT INTO "openmeld"."organizations" (id, "name", "slug", "created_at") VALUES (\'org-1\', \'Test Organization\', (\'org-1\')::text, 1700000000000)',
   });
-  harness.run({
-    sql: "INSERT INTO organizations (id) VALUES ('org-1')",
-  });
-  harness.run({
-    sql: `
-      CREATE TABLE routines (
-        id TEXT PRIMARY KEY NOT NULL,
-        name TEXT NOT NULL,
-        target_space_id TEXT
-      )
-    `,
-  });
-  applyDrizzleMigrationForTable(harness, "routine_runs");
-  applyDrizzleMigrationForTable(harness, "agent_task_terminal_outcomes");
-  applyDrizzleMigrationForTable(harness, "agent_task_completion_subscriptions");
-  applyDrizzleMigrationForTable(harness, "agent_delegations");
-  applyDrizzleMigrationForTable(harness, "agent_delegation_children");
   return harness;
 }
-
 async function insertRoutineRun(
-  db: D1Database,
-  input: { nativeDeliveryId: string; runId: string }
+  db: PostgresDatabase,
+  input: {
+    nativeDeliveryId: string;
+    runId: string;
+  }
 ): Promise<void> {
-  await db
-    .prepare(
-      `
-        INSERT INTO routine_runs (
+  await db.query({
+    ...{
+      text: `
+        INSERT INTO "openmeld"."routine_runs" (
           id,
           routine_id,
           organization_id,
@@ -969,23 +916,23 @@ async function insertRoutineRun(
           native_delivery_id,
           started_at_ms
         )
-        VALUES (?, 'routine-1', 'org-1', 900, 'submitted', 'space-parent',
-          'workflow', ?, 900)
-      `
-    )
-    .bind(input.runId, input.nativeDeliveryId)
-    .run();
+        VALUES ($1, 'routine-1', 'org-1', 900, 'submitted', 'space-parent',
+          'workflow', $2, 900)
+      `,
+      values: [],
+    },
+    values: [input.runId, input.nativeDeliveryId],
+  });
 }
-
 async function insertParentDelivery(
-  db: D1Database,
+  db: PostgresDatabase,
   conversationKind: "slack" | "space" = "space",
   routineRunId: string | null = null
 ): Promise<void> {
-  await db
-    .prepare(
-      `
-        INSERT INTO openMeldRemoteAgent_native_delivery_ledger (
+  await db.query({
+    ...{
+      text: `
+        INSERT INTO "openmeld"."openMeldRemoteAgent_native_delivery_ledger" (
           delivery_id,
           organization_id,
           conversation_kind,
@@ -1008,10 +955,11 @@ async function insertParentDelivery(
           created_at_ms,
           updated_at_ms
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'accepted', ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `
-    )
-    .bind(
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'accepted', $12, $13, $14, $15, $16, $17, $18, $19, $20)
+      `,
+      values: [],
+    },
+    values: [
       "delivery-parent",
       "org-1",
       conversationKind,
@@ -1034,7 +982,7 @@ async function insertParentDelivery(
       conversationKind === "slack" ? "channel-parent" : null,
       conversationKind === "slack" ? "thread-parent" : null,
       900,
-      900
-    )
-    .run();
+      900,
+    ],
+  });
 }

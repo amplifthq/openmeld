@@ -1,11 +1,12 @@
-import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { bigint, text } from "drizzle-orm/pg-core";
+import { applicationTable } from "../postgresql/schema.ts";
 
-export const openMeldDaemonCurrentDeviceTargets = sqliteTable(
+export const openMeldDaemonCurrentDeviceTargets = applicationTable(
   "openMeldDaemon_current_device_targets",
   {
     ownerUserId: text("owner_user_id").primaryKey(),
     deviceId: text("device_id").notNull(),
     runtimeLane: text("runtime_lane"),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   }
 );

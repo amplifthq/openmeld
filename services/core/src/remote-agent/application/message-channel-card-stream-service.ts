@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import { remoteAgentStreamDeltaCallbackResponseSchema } from "@openmeld/schemas";
 import type { RemoteAgentStreamDeltaCallbackResponse } from "@openmeld/schemas/types";
 import {
@@ -5,11 +6,11 @@ import {
   markRemoteAgentMessageChannelProviderCardUpdateFailed,
   markRemoteAgentMessageChannelProviderCardUpdateOutcomeUnknown,
   markRemoteAgentMessageChannelProviderCardUpdatePublished,
-} from "../infrastructure/d1/message-channel-provider-progress-repo";
+} from "../infrastructure/postgresql/message-channel-provider-progress-repo";
 import {
   type RemoteAgentNativeDeliveryRecord,
   readRemoteAgentNativeDeliveryByIdempotencyKey,
-} from "../infrastructure/d1/native-delivery-ledger-repo";
+} from "../infrastructure/postgresql/native-delivery-ledger-repo";
 import type { MessageChannelProviderRegistry } from "./message-channel-adapters";
 import {
   projectMessageChannelCardRevision,
@@ -20,12 +21,11 @@ import { resolveMessageChannelPublicationTarget } from "./message-channel-public
 import { buildMessageChannelProviderPublicationUuid } from "./provider-publication-uuid";
 
 const MESSAGE_CHANNEL_CARD_UPDATE_CLAIM_LEASE_MS = 30_000;
-
 export async function publishRemoteAgentMessageChannelCardStreamDelta(input: {
   delivery: RemoteAgentNativeDeliveryRecord;
-  evidenceDb: D1Database;
+  evidenceDb: PostgresDatabase;
   nowMs: number;
-  providerDb: D1Database;
+  providerDb: PostgresDatabase;
   registry: MessageChannelProviderRegistry;
   sequence: number;
   textSnapshot: string;
@@ -130,7 +130,6 @@ export async function publishRemoteAgentMessageChannelCardStreamDelta(input: {
     textSnapshot: input.textSnapshot,
   });
 }
-
 function buildMessageChannelStreamPublicationKind(
   delivery: RemoteAgentNativeDeliveryRecord,
   sequence: number
@@ -142,14 +141,13 @@ function buildMessageChannelStreamPublicationKind(
     ? `work-loop:${workLoopAttempt}:stream:${sequence}`
     : `stream:${sequence}`;
 }
-
 async function publishClaimedCardUpdate(input: {
   claimId: string;
   claimedDelivery: RemoteAgentNativeDeliveryRecord;
   delivery: RemoteAgentNativeDeliveryRecord;
-  evidenceDb: D1Database;
+  evidenceDb: PostgresDatabase;
   nowMs: number;
-  providerDb: D1Database;
+  providerDb: PostgresDatabase;
   providerPublicationIdempotencyKey: string;
   registry: MessageChannelProviderRegistry;
   sequence: number;
@@ -274,7 +272,6 @@ async function publishClaimedCardUpdate(input: {
     status: "retryable",
   });
 }
-
 function resolveUnclaimedCardUpdate(
   sequence: number,
   delivery: RemoteAgentNativeDeliveryRecord | null
@@ -294,7 +291,6 @@ function resolveUnclaimedCardUpdate(
     status: "retryable",
   });
 }
-
 function acceptSuppressedSequence(
   sequence: number
 ): RemoteAgentStreamDeltaCallbackResponse {
@@ -303,7 +299,6 @@ function acceptSuppressedSequence(
     status: "accepted",
   });
 }
-
 function requiresCardRollover(
   delivery: RemoteAgentNativeDeliveryRecord,
   textSnapshot: string
@@ -326,7 +321,6 @@ function requiresCardRollover(
       .length > 0
   );
 }
-
 function canPublishCardStream(
   state: RemoteAgentNativeDeliveryRecord["providerProgressState"]
 ): boolean {
@@ -341,7 +335,6 @@ function canPublishCardStream(
     state === "rollover_send_outcome_unknown"
   );
 }
-
 function retryCardStream(
   delivery: RemoteAgentNativeDeliveryRecord,
   reasonCode: string,

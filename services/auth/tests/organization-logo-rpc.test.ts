@@ -1,11 +1,11 @@
-import { createD1OrganizationLogoMutationRepository } from "@openmeld/auth/server";
+import { createPostgresOrganizationLogoMutationRepository } from "@openmeld/auth/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AuthRpcEntrypoint } from "../src/lib/rpc/entrypoint";
 import {
-  applyDrizzleMigrations,
-  createSqliteD1Harness,
-  type SqliteD1Harness,
-} from "./support/sqlite-d1-harness";
+  createPostgresHarness,
+  type PostgresHarness,
+  postgresTestBinding,
+} from "../../../tooling/postgresql/test-harness";
+import { AuthRpcEntrypoint } from "../src/lib/rpc/entrypoint";
 
 const executionContext = {
   exports: {},
@@ -14,21 +14,20 @@ const executionContext = {
   waitUntil: () => undefined,
 } as unknown as ExecutionContext;
 
-let harness: SqliteD1Harness;
+let harness: PostgresHarness;
 
-beforeEach(() => {
-  harness = createSqliteD1Harness();
-  applyDrizzleMigrations(harness.database);
+beforeEach(async () => {
+  harness = await createPostgresHarness();
 });
 
-afterEach(() => {
-  harness.close();
+afterEach(async () => {
+  await harness.close();
   vi.restoreAllMocks();
 });
 
 describe("organization logo RPC", () => {
   it("prepares and commits an owner logo update with compare-and-set", async () => {
-    seedOrganization({ role: "owner" });
+    await seedOrganization({ role: "owner" });
     const rpc = createRpc();
 
     await expect(
@@ -51,9 +50,9 @@ describe("organization logo RPC", () => {
       })
     ).resolves.toEqual({ logo: nextLogo.url, ok: true });
     expect(
-      harness.queryFirst({
-        params: ["org-acme"],
-        sql: "select logo from organizations where id = ?",
+      await harness.queryFirst({
+        values: ["org-acme"],
+        text: 'select logo from "openmeld"."organizations" where id = $1',
       })
     ).toEqual({ logo: nextLogo.url });
 
@@ -71,17 +70,17 @@ describe("organization logo RPC", () => {
   });
 
   it("rejects admin, member, and personal organization mutations", async () => {
-    seedOrganization({
+    await seedOrganization({
       organizationId: "org-admin",
       role: "admin",
       slug: "admin-team",
     });
-    seedOrganization({
+    await seedOrganization({
       organizationId: "org-member",
       role: "member",
       slug: "member-team",
     });
-    seedOrganization({
+    await seedOrganization({
       metadata: JSON.stringify({ personal: true }),
       organizationId: "org-personal",
       role: "owner",
@@ -126,28 +125,30 @@ describe("organization logo RPC", () => {
   });
 
   it("prevents a stale owner authorization from winning the final database write", async () => {
-    seedOrganization({ role: "owner" });
-    const repository = createD1OrganizationLogoMutationRepository(harness.db);
+    await seedOrganization({ role: "owner" });
+    const repository = createPostgresOrganizationLogoMutationRepository(
+      harness.db
+    );
     const authorized = await repository.readForActor({
       actorUserId: "user-owner",
       organizationId: "org-acme",
     });
     expect(authorized?.role).toBe("owner");
 
-    harness.run({
-      params: ["admin", "org-acme", "user-owner"],
-      sql: `
-        update members
-        set role = ?
-        where organization_id = ? and user_id = ?
+    await harness.query({
+      values: ["admin", "org-acme", "user-owner"],
+      text: `
+        update "openmeld"."members"
+        set role = $1
+        where organization_id = $2 and user_id = $3
       `,
     });
     expect(
-      harness.queryFirst({
-        params: ["org-acme", "user-owner"],
-        sql: `
-          select role from members
-          where organization_id = ? and user_id = ?
+      await harness.queryFirst({
+        values: ["org-acme", "user-owner"],
+        text: `
+          select role from "openmeld"."members"
+          where organization_id = $1 and user_id = $2
         `,
       })
     ).toEqual({ role: "admin" });
@@ -165,25 +166,27 @@ describe("organization logo RPC", () => {
       })
     ).resolves.toBe(false);
     expect(
-      harness.queryFirst({
-        params: ["org-acme"],
-        sql: "select logo from organizations where id = ?",
+      await harness.queryFirst({
+        values: ["org-acme"],
+        text: 'select logo from "openmeld"."organizations" where id = $1',
       })
     ).toEqual({ logo: null });
   });
 
   it("prevents a personal-classification race from winning the final database write", async () => {
-    seedOrganization({ role: "owner" });
-    const repository = createD1OrganizationLogoMutationRepository(harness.db);
+    await seedOrganization({ role: "owner" });
+    const repository = createPostgresOrganizationLogoMutationRepository(
+      harness.db
+    );
     const authorized = await repository.readForActor({
       actorUserId: "user-owner",
       organizationId: "org-acme",
     });
     expect(authorized).toMatchObject({ metadata: null, slug: "acme" });
 
-    harness.run({
-      params: [JSON.stringify({ personal: true }), "org-acme"],
-      sql: "update organizations set metadata = ? where id = ?",
+    await harness.query({
+      values: [JSON.stringify({ personal: true }), "org-acme"],
+      text: 'update "openmeld"."organizations" set metadata = $1 where id = $2',
     });
 
     await expect(
@@ -199,9 +202,9 @@ describe("organization logo RPC", () => {
       })
     ).resolves.toBe(false);
     expect(
-      harness.queryFirst({
-        params: ["org-acme"],
-        sql: "select logo from organizations where id = ?",
+      await harness.queryFirst({
+        values: ["org-acme"],
+        text: 'select logo from "openmeld"."organizations" where id = $1',
       })
     ).toEqual({ logo: null });
   });
@@ -210,56 +213,56 @@ describe("organization logo RPC", () => {
 function createRpc(): AuthRpcEntrypoint {
   return new AuthRpcEntrypoint(executionContext, {
     AUTH_WORKER_NODE_ENV: "test",
-    OPENMELD_DB: harness.db,
+    OPENMELD_POSTGRESQL: postgresTestBinding(harness.db),
   } as unknown as CloudflareBindings);
 }
 
-function seedOrganization(input: {
+async function seedOrganization(input: {
   metadata?: string | null;
   organizationId?: string;
   role: "admin" | "member" | "owner";
   slug?: string;
-}): void {
+}): Promise<void> {
   const organizationId = input.organizationId ?? "org-acme";
   const now = Date.now();
   if (
-    !harness.queryFirst({
-      params: ["user-owner"],
-      sql: "select id from users where id = ?",
-    })
+    !(await harness.queryFirst({
+      values: ["user-owner"],
+      text: 'select id from "openmeld"."users" where id = $1',
+    }))
   ) {
-    harness.run({
-      params: ["user-owner", "Owner", "owner@example.com", 1, now, now],
-      sql: `
-        insert into users (id, name, email, email_verified, created_at, updated_at)
-        values (?, ?, ?, ?, ?, ?)
+    await harness.query({
+      values: ["user-owner", "Owner", "owner@example.com", 1, now, now],
+      text: `
+        insert into "openmeld"."users" (id, name, email, email_verified, created_at, updated_at)
+        values ($1, $2, $3, $4, $5, $6)
       `,
     });
   }
-  harness.run({
-    params: [
+  await harness.query({
+    values: [
       organizationId,
       `Organization ${organizationId}`,
       input.slug ?? "acme",
       now,
       input.metadata ?? null,
     ],
-    sql: `
-      insert into organizations (id, name, slug, created_at, metadata)
-      values (?, ?, ?, ?, ?)
+    text: `
+      insert into "openmeld"."organizations" (id, name, slug, created_at, metadata)
+      values ($1, $2, $3, $4, $5)
     `,
   });
-  harness.run({
-    params: [
+  await harness.query({
+    values: [
       `member-${organizationId}`,
       organizationId,
       "user-owner",
       input.role,
       now,
     ],
-    sql: `
-      insert into members (id, organization_id, user_id, role, created_at)
-      values (?, ?, ?, ?, ?)
+    text: `
+      insert into "openmeld"."members" (id, organization_id, user_id, role, created_at)
+      values ($1, $2, $3, $4, $5)
     `,
   });
 }

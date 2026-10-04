@@ -1,15 +1,19 @@
 import {
+  getPostgresDatabase,
+  type PostgresDatabase,
+} from "@openmeld/db/postgresql";
+import {
   remoteAgentExecutionAccessRequestSchema,
   remoteAgentExecutionAccessResponseSchema,
   resolveRemoteAgentExecutionScope,
 } from "@openmeld/schemas";
-import { readPrimaryAgentProfileBindingRecord } from "../../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
+import { readPrimaryAgentProfileBindingRecord } from "../../agent-profile-binding/infrastructure/postgresql/agent-profile-binding-repo";
 import { requireDelegatedPluginAction } from "../../center-agent/application/delegated-plugin-authorization";
 import { requireRemotePluginConnection } from "../../connectors/plugin-access";
-import { type CoreBindings, wakeEvidenceDb } from "../../lib/bindings";
+import type { CoreBindings } from "../../lib/bindings";
 import { resolveOrganizationMembershipById } from "../../organizations/organization-context";
 import { rpcGetSpaceMemberDirectory } from "../../rpc/methods";
-import { readRemoteAgentNativeDeliveryBySubmissionId } from "../infrastructure/d1/native-delivery-ledger-repo";
+import { readRemoteAgentNativeDeliveryBySubmissionId } from "../infrastructure/postgresql/native-delivery-ledger-repo";
 import {
   readPersonalDelegatedPluginActions,
   readRemoteAgentDelegatedRequester,
@@ -142,7 +146,7 @@ async function requireExecutionSpaceMembership(
 
 async function readExecutionPluginDelegations(
   caller: Awaited<ReturnType<typeof requireRemoteAgentToolCaller>>,
-  evidenceDb: D1Database,
+  evidenceDb: PostgresDatabase,
   requester: Awaited<ReturnType<typeof readRemoteAgentDelegatedRequester>>
 ) {
   return requester && "personalExecution" in caller
@@ -234,7 +238,7 @@ async function requireActiveExecution(
   input: ReturnType<typeof remoteAgentExecutionAccessRequestSchema.parse>
 ) {
   const { context, submissionId } = input;
-  const db = wakeEvidenceDb(env);
+  const db = getPostgresDatabase(env);
   if (!db) {
     throw new Error("remote_agent.execution_store_unavailable");
   }

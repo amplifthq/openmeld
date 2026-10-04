@@ -1,5 +1,5 @@
 import { centerAgentReadAuditJournalResponseSchema } from "@openmeld/schemas";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   rpcCenterAgentReadAuditJournal,
   rpcListCenterAgentAuditJournal,
@@ -18,29 +18,20 @@ import {
   TEST_NOW_MS,
 } from "./fixtures";
 
-const fixtures: Awaited<ReturnType<typeof createEvidenceFixture>>[] = [];
 const IDENTITY_REQUIRED_PATTERN = /verified|identity/i;
 const RPC_UNAVAILABLE_PATTERN = /unavailable|not available|not implemented/i;
-afterEach(() => {
-  for (const fixture of fixtures.splice(0)) {
-    fixture.harness.close();
-  }
-});
 
 async function fixture(
   input: Parameters<typeof createEvidenceFixture>[0] = {}
 ) {
   const result = await createEvidenceFixture(input);
-  fixtures.push(result);
   for (const [id, spaceId] of [
     ["allowed-action", EVIDENCE_SPACE_ID],
     ["private-action", EVIDENCE_OTHER_SPACE_ID],
   ] as const) {
-    result.harness.run({
-      sql: `INSERT INTO center_agent_audit_journal
-        (id, organization_id, actor_profile_id, action, resource_type, resource_id, source_space_id, created_at)
-        VALUES (?, ?, ?, 'create_space', 'space', ?, ?, ?)`,
-      params: [
+    await result.harness.query({
+      text: "INSERT INTO openmeld.\"center_agent_audit_journal\"\n        (id, organization_id, actor_profile_id, action, resource_type, resource_id, source_space_id, created_at)\n        VALUES ($1, $2, $3, 'create_space', 'space', $4, $5, $6)",
+      values: [
         id,
         result.request.organizationId,
         result.request.agentProfileId,
@@ -121,9 +112,9 @@ describe("member-attributed Center Agent audit evidence", () => {
     const f = await fixture();
     const input = request(f);
     if (failure === "revoked_member") {
-      f.harness.run({
-        sql: "DELETE FROM members WHERE id = ?",
-        params: [f.speaker.id],
+      await f.harness.query({
+        text: 'DELETE FROM openmeld."members" WHERE id = $1',
+        values: [f.speaker.id],
       });
     } else if (failure === "wrong_member") {
       input.speakerMember.userId = "unrelated-user";
@@ -131,15 +122,22 @@ describe("member-attributed Center Agent audit evidence", () => {
       input.context.activeOrganizationId = "unrelated-organization";
     } else if (failure === "stale_designation") {
       const replacement = "agt_33333333-3333-4333-8333-333333333333";
-      f.harness.run({
-        sql: `INSERT INTO openmeld_profiles
-            SELECT ?, profile_name, profile_kind, is_default, status, organization_id, owner_user_id, managed_role
-            FROM openmeld_profiles WHERE profile_id = ?`,
-        params: [replacement, f.request.agentProfileId],
+      await f.harness.query({
+        text: "UPDATE openmeld.openmeld_profiles SET status = 'disabled' WHERE profile_id = $1",
+        values: [f.request.agentProfileId],
       });
-      f.harness.run({
-        sql: "UPDATE center_agent_designations SET agent_profile_id = ?",
-        params: [replacement],
+      await f.harness.query({
+        text: `INSERT INTO openmeld.openmeld_profiles
+          (profile_id, profile_name, profile_handle, profile_kind, is_default, status,
+           organization_id, owner_user_id, managed_role, source)
+          SELECT $1, profile_name, 'replacement-center-agent', profile_kind, is_default, 'active',
+            organization_id, owner_user_id, managed_role, source
+          FROM openmeld.openmeld_profiles WHERE profile_id = $2`,
+        values: [replacement, f.request.agentProfileId],
+      });
+      await f.harness.query({
+        text: 'UPDATE openmeld."center_agent_designations" SET agent_profile_id = $1',
+        values: [replacement],
       });
     } else {
       input.context.actorContext.ownerUserId = f.speaker.ownerUserId;
@@ -206,9 +204,9 @@ describe("member-attributed Center Agent audit evidence", () => {
       await f.execute(binding, "openmeld_read_center_agent_activity")
     );
     expect(result.entries).toHaveLength(2);
-    f.harness.run({
-      sql: "DELETE FROM members WHERE id = ?",
-      params: [f.speaker.id],
+    await f.harness.query({
+      text: 'DELETE FROM openmeld."members" WHERE id = $1',
+      values: [f.speaker.id],
     });
     await expect(
       f.execute(binding, "openmeld_read_center_agent_activity")

@@ -1,15 +1,13 @@
 import { sql } from "drizzle-orm";
+import { check, index, text, uniqueIndex } from "drizzle-orm/pg-core";
 import {
-  check,
-  index,
-  integer,
-  sqliteTable,
-  text,
-  uniqueIndex,
-} from "drizzle-orm/sqlite-core";
+  applicationTable,
+  currentTimestampMilliseconds,
+} from "../postgresql/schema.ts";
+import { epochMilliseconds } from "../postgresql/schema-types.ts";
 import type { OpenMeldProfileSpaceCreatorKind } from "./profile-space-history.schema.ts";
 
-export const openMeldSpaceDeletionTombstones = sqliteTable(
+export const openMeldSpaceDeletionTombstones = applicationTable(
   "openmeld_space_deletion_tombstones",
   {
     gatewayHost: text("gateway_host").notNull(),
@@ -20,12 +18,12 @@ export const openMeldSpaceDeletionTombstones = sqliteTable(
     deletedByProfileId: text("deleted_by_profile_id"),
     deletedByProfileName: text("deleted_by_profile_name"),
     deletedByOwnerUserId: text("deleted_by_owner_user_id"),
-    deletedAt: integer("deleted_at", { mode: "timestamp_ms" }).notNull(),
-    createdAt: integer("created_at", { mode: "timestamp_ms" })
-      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+    deletedAt: epochMilliseconds("deleted_at").notNull(),
+    createdAt: epochMilliseconds("created_at")
+      .default(currentTimestampMilliseconds)
       .notNull(),
-    updatedAt: integer("updated_at", { mode: "timestamp_ms" })
-      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+    updatedAt: epochMilliseconds("updated_at")
+      .default(currentTimestampMilliseconds)
       .$onUpdate(() => /* @__PURE__ */ new Date())
       .notNull(),
   },

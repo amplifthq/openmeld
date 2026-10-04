@@ -3,32 +3,18 @@ import {
   advanceRemoteAgentConversationGeneration,
   markRemoteAgentConversationGenerationStarted,
   readRemoteAgentConversationGeneration,
-} from "../src/remote-agent/infrastructure/d1/conversation-generation-repo";
-import { createSqliteD1Harness } from "./helpers/sqlite-d1-harness.test-support";
+} from "../src/remote-agent/infrastructure/postgresql/conversation-generation-repo";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 describe("Remote Agent conversation generation repository", () => {
-  let harness: ReturnType<typeof createSqliteD1Harness>;
+  let harness: Awaited<ReturnType<typeof createPostgresHarness>>;
 
-  beforeEach(() => {
-    harness = createSqliteD1Harness();
-    harness.run({
-      sql: `
-        CREATE TABLE openMeldRemoteAgent_conversation_generations (
-          organization_id TEXT NOT NULL,
-          logical_conversation_id TEXT NOT NULL,
-          active_generation INTEGER NOT NULL,
-          started_at_ms INTEGER,
-          rollover_delivery_id TEXT NOT NULL,
-          created_at_ms INTEGER NOT NULL,
-          updated_at_ms INTEGER NOT NULL,
-          PRIMARY KEY (organization_id, logical_conversation_id)
-        )
-      `,
-    });
+  beforeEach(async () => {
+    harness = await createPostgresHarness();
   });
 
-  afterEach(() => {
-    harness.close();
+  afterEach(async () => {
+    await harness.close();
   });
 
   it("treats a conversation without a pointer as legacy generation zero", async () => {
@@ -62,13 +48,13 @@ describe("Remote Agent conversation generation repository", () => {
     expect(first).toEqual({ generation: 1, startedAtMs: null });
     expect(second).toEqual({ generation: 1, startedAtMs: null });
     expect(
-      harness.queryFirst<{
+      await harness.queryFirst<{
         active_generation: number;
         rollover_delivery_id: string;
       }>({
-        sql: `
+        text: `
           SELECT active_generation, rollover_delivery_id
-          FROM openMeldRemoteAgent_conversation_generations
+          FROM "openmeld"."openMeldRemoteAgent_conversation_generations"
           WHERE organization_id = 'org-1'
             AND logical_conversation_id = 'space-1'
         `,

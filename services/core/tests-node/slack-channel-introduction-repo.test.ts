@@ -1,20 +1,16 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import { describe, expect, it } from "vitest";
 import {
   claimNextSlackChannelIntroductionItem,
   completeSlackChannelIntroductionAcknowledgement,
   completeSlackChannelIntroductionItemClaim,
   createSlackChannelIntroductionManifest,
-} from "../src/remote-agent/infrastructure/d1/slack-channel-introduction-repo";
-import {
-  applyDrizzleMigrationForTable,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+} from "../src/remote-agent/infrastructure/postgresql/slack-channel-introduction-repo";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 describe("Slack channel introduction manifest", () => {
   it("checkpoints each channel and reclaims only an interrupted item", async () => {
-    const harness = createSqliteD1Harness();
-    applyDrizzleMigrationForTable(harness, "slack_channel_introduction_runs");
-    applyDrizzleMigrationForTable(harness, "slack_channel_introduction_items");
+    const harness = await createPostgresHarness();
 
     try {
       const manifest = buildManifest(harness.db);
@@ -86,9 +82,9 @@ describe("Slack channel introduction manifest", () => {
         })
       ).resolves.toBeNull();
       expect(
-        harness.queryAll({
-          sql: `SELECT slack_channel_id, status, attempt_count
-            FROM slack_channel_introduction_items
+        await harness.queryAll({
+          text: `SELECT slack_channel_id, status, attempt_count
+            FROM "openmeld"."slack_channel_introduction_items"
             ORDER BY position`,
         })
       ).toEqual([
@@ -104,14 +100,12 @@ describe("Slack channel introduction manifest", () => {
         },
       ]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("rejects reuse without mutating the original channel manifest", async () => {
-    const harness = createSqliteD1Harness();
-    applyDrizzleMigrationForTable(harness, "slack_channel_introduction_runs");
-    applyDrizzleMigrationForTable(harness, "slack_channel_introduction_items");
+    const harness = await createPostgresHarness();
 
     try {
       const manifest = buildManifest(harness.db);
@@ -130,9 +124,9 @@ describe("Slack channel introduction manifest", () => {
         })
       ).rejects.toThrow("reused with a different manifest");
       expect(
-        harness.queryAll({
-          sql: `SELECT slack_channel_id
-            FROM slack_channel_introduction_items
+        await harness.queryAll({
+          text: `SELECT slack_channel_id
+            FROM "openmeld"."slack_channel_introduction_items"
             ORDER BY position`,
         })
       ).toEqual([
@@ -140,12 +134,12 @@ describe("Slack channel introduction manifest", () => {
         { slack_channel_id: "C_DESIGN" },
       ]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });
 
-function buildManifest(db: D1Database) {
+function buildManifest(db: PostgresDatabase) {
   return {
     channels: [
       {

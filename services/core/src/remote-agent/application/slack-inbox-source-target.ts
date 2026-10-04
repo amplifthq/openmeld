@@ -1,6 +1,6 @@
 import { slackInboxSourceTargetSchema } from "@openmeld/schemas";
 import type { InboxSourceTarget } from "@openmeld/schemas/types";
-import type { RemoteAgentNativeDeliveryRecord } from "../infrastructure/d1/native-delivery-ledger-repo";
+import type { RemoteAgentNativeDeliveryRecord } from "../infrastructure/postgresql/native-delivery-ledger-repo";
 import { getSlackMessagePermalink } from "./slack-client";
 
 export type SlackInboxSourceTarget = Extract<

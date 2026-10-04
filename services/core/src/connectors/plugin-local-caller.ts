@@ -1,14 +1,15 @@
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import {
   authRpcResolveProfileByIdResultSchema,
   runtimeCoordinatorExecutionAccessResponseSchema,
 } from "@openmeld/schemas";
 import type { PluginActionRpcInput } from "@openmeld/schemas/types";
-import { readPrimaryAgentProfileBindingRecord } from "../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
+import { readPrimaryAgentProfileBindingRecord } from "../agent-profile-binding/infrastructure/postgresql/agent-profile-binding-repo";
 import { readDelegatedPluginActions } from "../center-agent/application/delegated-plugin-authorization";
 import { readRecordedDelegationRequester } from "../center-agent/application/recorded-delegation-requester";
 import { readPluginDispatchRequester } from "../dispatch/application/plugin-request-provenance";
 import { resolveRuntimeTransportOwnerShard } from "../dispatch/infrastructure/runtime-transport/runtime-transport-shard";
-import { type CoreBindings, identityDb, wakeEvidenceDb } from "../lib/bindings";
+import type { CoreBindings } from "../lib/bindings";
 import { requireExpectedOrganizationContext } from "../organizations/expected-organization-context";
 import {
   readOrganizationAccountIdentityProjection,
@@ -17,7 +18,6 @@ import {
 } from "../organizations/organization-context";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import { callRequiredAuthWorkerRpc } from "../rpc/required-auth-worker-rpc";
-
 export async function requireLocalPluginCaller(
   env: CoreBindings,
   input: PluginActionRpcInput
@@ -48,7 +48,7 @@ export async function requireLocalPluginCaller(
   ) {
     throw denied("Use a Local Agent owned by your signed-in account.");
   }
-  const db = identityDb(env);
+  const db = getPostgresDatabase(env);
   if (!db) {
     throw createCoreRpcHttpError({
       code: "plugin.state_unavailable",
@@ -170,8 +170,8 @@ async function requireLocalDelegation(input: {
 }) {
   const proof = input.input.request.executionTokenEcho;
   const sourceClientMessageId = input.provenance.sourceClientMessageId;
-  const db = identityDb(input.env);
-  const evidenceDb = wakeEvidenceDb(input.env);
+  const db = getPostgresDatabase(input.env);
+  const evidenceDb = getPostgresDatabase(input.env);
   if (
     !(
       proof &&
@@ -268,7 +268,6 @@ export async function requirePluginProfile(
   }
   return parsed.data.profile;
 }
-
 function denied(reason: string) {
   return createCoreRpcHttpError({
     code: "plugin.caller_forbidden",

@@ -1,3 +1,4 @@
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import type { SignalEnvelope } from "@openmeld/protocol";
 import {
   SPACE_FILE_RAW_UPLOAD_MAX_BYTES,
@@ -5,7 +6,7 @@ import {
   spaceWorkHandoffSchema,
 } from "@openmeld/schemas";
 import type { SpaceMessageFileReference } from "@openmeld/schemas/types";
-import { type CoreBindings, organizationSkillsDb } from "../../lib/bindings";
+import type { CoreBindings } from "../../lib/bindings";
 import { createOrganizationSkillService } from "../../organization-skills/organization-skill-service";
 import { createCoreRpcHttpError } from "../../rpc/errors";
 
@@ -120,7 +121,7 @@ export async function validateSpaceWorkHandoff(input: {
   if (!handoff.skills.length) {
     return;
   }
-  const db = organizationSkillsDb(input.env);
+  const db = getPostgresDatabase(input.env);
   const bucket = input.env.OPENMELD_ORGANIZATION_SKILLS;
   if (!(input.organizationId && db && bucket)) {
     throw createCoreRpcHttpError({

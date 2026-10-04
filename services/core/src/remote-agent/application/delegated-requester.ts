@@ -1,8 +1,12 @@
+import {
+  getPostgresDatabase,
+  type PostgresDatabase,
+} from "@openmeld/db/postgresql";
 import type { RemoteAgentWorkerSubmitTurnRequest } from "@openmeld/schemas/types";
 import { readRecordedDelegationRequester } from "../../center-agent/application/recorded-delegation-requester";
-import { type CoreBindings, wakeEvidenceDb } from "../../lib/bindings";
+import type { CoreBindings } from "../../lib/bindings";
 import { createCoreRpcHttpError } from "../../rpc/errors";
-import type { RemoteAgentNativeDeliveryRecord } from "../infrastructure/d1/native-delivery-ledger-repo";
+import type { RemoteAgentNativeDeliveryRecord } from "../infrastructure/postgresql/native-delivery-ledger-repo";
 import type { requireRemoteAgentToolCaller } from "./remote-agent-tool-caller";
 
 /** Connection selection still uses the existing owner and access policy. */
@@ -26,7 +30,7 @@ export async function resolveRemoteAgentConnectorRequester(input: {
       ? (sender.ownerUserId ?? null)
       : null;
   }
-  const evidenceDb = wakeEvidenceDb(input.env);
+  const evidenceDb = getPostgresDatabase(input.env);
   const delegated =
     personal && evidenceDb && sender?.kind === "agent_profile"
       ? await readRemoteAgentDelegatedRequester({
@@ -57,7 +61,7 @@ export async function resolveRemoteAgentConnectorRequester(input: {
 }
 
 export async function readPersonalDelegatedPluginActions(input: {
-  evidenceDb: D1Database;
+  evidenceDb: PostgresDatabase;
   personal: {
     delivery: RemoteAgentNativeDeliveryRecord;
     request: RemoteAgentWorkerSubmitTurnRequest;
@@ -101,7 +105,7 @@ export async function requireDelegatedConnectionSelection(input: {
   ) {
     return;
   }
-  const evidenceDb = wakeEvidenceDb(input.env);
+  const evidenceDb = getPostgresDatabase(input.env);
   if (!(evidenceDb && "personalExecution" in input.authorization)) {
     throw new Error("plugin.delegation_unavailable");
   }
@@ -133,8 +137,8 @@ export async function requireDelegatedConnectionSelection(input: {
 
 /** A current projection of one recorded Center delegation, never a stored grant. */
 export async function readRemoteAgentDelegatedRequester(input: {
-  identityDb: D1Database;
-  evidenceDb: D1Database;
+  identityDb: PostgresDatabase;
+  evidenceDb: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   request: RemoteAgentWorkerSubmitTurnRequest;
 }) {

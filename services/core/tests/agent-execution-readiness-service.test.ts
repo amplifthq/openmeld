@@ -14,11 +14,16 @@ import {
   resolveCoreAgentExecutionReadinessForProfile,
 } from "../src/agent-execution/application/agent-execution-readiness-service";
 import type { CoreBindings } from "../src/lib/bindings";
+import { createProjectionPostgresBinding } from "../test-support/postgresql-query.test-support";
 
 describe("agent-execution-readiness-service", () => {
   it("resolves a profile from Core evidence without relying on space-member snapshots", async () => {
     const readiness = await resolveCoreAgentExecutionReadinessForProfile({
-      env: {} as CoreBindings,
+      env: {
+        OPENMELD_POSTGRESQL: createProjectionPostgresBinding(() => {
+          throw new Error("Profile binding store is unavailable");
+        }),
+      } as CoreBindings,
       generatedAt: "2026-05-10T00:00:00.000Z",
       profileId: "agt_readiness_without_snapshot",
     });
@@ -40,7 +45,7 @@ describe("agent-execution-readiness-service", () => {
     expect(readiness.agentExecutionReadiness.reasonCodes).toEqual(
       expect.arrayContaining([
         "agent_profile.identity_lookup_unavailable",
-        "agent_profile_binding.store_unavailable",
+        "agent_profile_binding.read_unavailable",
         "agent_profile.organization_context_missing",
       ])
     );
@@ -493,14 +498,12 @@ function createAuthorizationEnv(
   }
 ): CoreBindings {
   return {
-    OPENMELD_DB: {
-      prepare: (sql: string) => ({
-        bind: () => ({
-          first: async () =>
-            sql.includes("FROM openmeld_profiles") ? profileContext : record,
-        }),
-      }),
-    } as unknown as D1Database,
+    OPENMELD_POSTGRESQL: createProjectionPostgresBinding(({ text }) => {
+      const row = text.includes('FROM "openmeld"."openmeld_profiles"')
+        ? profileContext
+        : record;
+      return row ? [row as Record<string, unknown>] : [];
+    }),
   } as CoreBindings;
 }
 
@@ -511,77 +514,74 @@ function createHostedCenterAgentReadinessEnv(input: {
   remoteAgentWorkerAvailable?: boolean;
 }): CoreBindings {
   const profileId = "agt_readiness_without_snapshot";
-  const db = {
-    prepare: (sql: string) => {
-      const normalizedSql = sql.toLowerCase();
-      return {
-        bind: () => ({
-          first: () => {
-            if (
-              normalizedSql.includes(
-                "from openmelddaemon_agent_profile_bindings"
-              )
-            ) {
-              if (input.bindingRead === "failed") {
-                throw new Error("Binding read unavailable");
-              }
-              if (input.bindingRead === "missing") {
-                return null;
-              }
-              return {
-                agent_controller_collaboration_mode: null,
-                agent_controller_conversation_id: null,
-                agent_controller_permission_mode: null,
-                agent_controller_ref: HOSTED_CENTER_AGENT_CONTROLLER_REF,
-                agent_profile_id: profileId,
-                binding_id: "binding-hosted-center-agent",
-                binding_state: "enabled_primary",
-                configuration_revision: 1,
-                created_at_ms: 1,
-                created_by_profile_id: null,
-                disabled_at_ms: null,
-                hosted_runtime_identity_json: JSON.stringify(
-                  HOSTED_CENTER_AGENT_RUNTIME_IDENTITY
-                ),
-                model_id: input.modelId ?? null,
-                opencode_permission: null,
-                owner_id: "user-1",
-                owner_kind: "owner_account",
-                reason_code: "center_agent.remote_agent_designation",
-                reasoning_level: null,
-                runtime_kind: "hosted_center_agent",
-                updated_at_ms: 1,
-                openmeld_service_runtime_id:
-                  HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
-              };
-            }
-            if (normalizedSql.includes("from center_agent_designations")) {
-              return {
-                agent_profile_id: profileId,
-                created_at: 1,
-                designated_by: "user-1",
-                duty: null,
-                operating_state: "active",
-                organization_id: "org-acme",
-                paused_at: null,
-                paused_by_user_id: null,
-              };
-            }
-            if (normalizedSql.includes("from openmeld_profiles")) {
-              return {
-                managed_role: "center_agent",
-                organization_id: input.profileOrganizationId,
-                owner_user_id: "user-1",
-                profile_kind: "agent",
-                profile_name: "Center Agent",
-              };
-            }
-            return null;
-          },
-        }),
-      };
-    },
-  } as unknown as D1Database;
+  const binding = createProjectionPostgresBinding(({ text }) => {
+    const normalizedSql = text.toLowerCase();
+    const readRow = () => {
+      if (
+        normalizedSql.includes(
+          'from "openmeld"."openmelddaemon_agent_profile_bindings"'
+        )
+      ) {
+        if (input.bindingRead === "failed") {
+          throw new Error("Binding read unavailable");
+        }
+        if (input.bindingRead === "missing") {
+          return null;
+        }
+        return {
+          agent_controller_collaboration_mode: null,
+          agent_controller_conversation_id: null,
+          agent_controller_permission_mode: null,
+          agent_controller_ref: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+          agent_profile_id: profileId,
+          binding_id: "binding-hosted-center-agent",
+          binding_state: "enabled_primary",
+          configuration_revision: 1,
+          created_at_ms: 1,
+          created_by_profile_id: null,
+          disabled_at_ms: null,
+          hosted_runtime_identity_json: JSON.stringify(
+            HOSTED_CENTER_AGENT_RUNTIME_IDENTITY
+          ),
+          model_id: input.modelId ?? null,
+          opencode_permission: null,
+          owner_id: "user-1",
+          owner_kind: "owner_account",
+          reason_code: "center_agent.remote_agent_designation",
+          reasoning_level: null,
+          runtime_kind: "hosted_center_agent",
+          updated_at_ms: 1,
+          openmeld_service_runtime_id: HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
+        };
+      }
+      if (
+        normalizedSql.includes('from "openmeld"."center_agent_designations"')
+      ) {
+        return {
+          agent_profile_id: profileId,
+          created_at: 1,
+          designated_by: "user-1",
+          duty: null,
+          operating_state: "active",
+          organization_id: "org-acme",
+          paused_at: null,
+          paused_by_user_id: null,
+        };
+      }
+      if (normalizedSql.includes('from "openmeld"."openmeld_profiles"')) {
+        return {
+          managed_role: "center_agent",
+          organization_id: input.profileOrganizationId,
+          owner_user_id: "user-1",
+          profile_kind: "agent",
+          profile_name: "Center Agent",
+        };
+      }
+      return null;
+    };
+    const row = readRow();
+    return row ? [row] : [];
+  });
   return {
     OPENMELD_AUTH_WORKER: {
       resolveProfileById: async () => ({
@@ -596,7 +596,7 @@ function createHostedCenterAgentReadinessEnv(input: {
         },
       }),
     },
-    OPENMELD_DB: db,
+    OPENMELD_POSTGRESQL: binding,
     OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED: "true",
     ...(input.remoteAgentWorkerAvailable === false
       ? {}

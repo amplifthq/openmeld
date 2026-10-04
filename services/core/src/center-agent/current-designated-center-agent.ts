@@ -1,12 +1,15 @@
+import {
+  getPostgresDatabase,
+  type PostgresDatabase,
+} from "@openmeld/db/postgresql";
 import type { OpenMeldRequestContext } from "@openmeld/schemas/types";
-import { type CoreBindings, identityDb } from "../lib/bindings";
+import type { CoreBindings } from "../lib/bindings";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import {
   type CenterAgentDesignationRecord,
   isCenterAgentDesignationActive,
   readCenterAgentDesignationRecord,
 } from "./center-agent-repository";
-
 export type CurrentDesignatedCenterAgentProfile = {
   managedRole: string | null;
   organizationId: string | null;
@@ -16,7 +19,6 @@ export type CurrentDesignatedCenterAgentProfile = {
   profileName: string;
   status: "active" | "disabled";
 };
-
 export type CurrentDesignatedCenterAgentAuthorization = {
   activeOrganization: {
     organizationId: string;
@@ -24,10 +26,9 @@ export type CurrentDesignatedCenterAgentAuthorization = {
   actorProfile: CurrentDesignatedCenterAgentProfile;
   actorProfileId: string;
   context: OpenMeldRequestContext;
-  db: D1Database;
+  db: PostgresDatabase;
   designation: CenterAgentDesignationRecord;
 };
-
 export async function requireCurrentDesignatedCenterAgentCaller(input: {
   context: OpenMeldRequestContext;
   env: CoreBindings;
@@ -108,14 +109,21 @@ export async function requireCurrentDesignatedCenterAgentCaller(input: {
     designation,
   };
 }
-
 async function readCenterAgentProfile(input: {
   actorProfileId: string;
-  db: D1Database;
+  db: PostgresDatabase;
 }): Promise<CurrentDesignatedCenterAgentProfile | null> {
   const row = await input.db
-    .prepare(
-      `
+    .query<{
+      managed_role: string | null;
+      organization_id: string | null;
+      owner_user_id: string | null;
+      profile_id: string;
+      profile_kind: "agent" | "human" | "system";
+      profile_name: string;
+      status: "active" | "disabled";
+    }>({
+      text: `
         SELECT
           profile_id,
           profile_name,
@@ -124,21 +132,13 @@ async function readCenterAgentProfile(input: {
           organization_id,
           owner_user_id,
           managed_role
-        FROM openmeld_profiles
-        WHERE profile_id = ?
+        FROM "openmeld"."openmeld_profiles"
+        WHERE profile_id = $1
         LIMIT 1
-      `
-    )
-    .bind(input.actorProfileId)
-    .first<{
-      managed_role: string | null;
-      organization_id: string | null;
-      owner_user_id: string | null;
-      profile_id: string;
-      profile_kind: "agent" | "human" | "system";
-      profile_name: string;
-      status: "active" | "disabled";
-    }>();
+      `,
+      values: [input.actorProfileId],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!row) {
     return null;
   }
@@ -152,9 +152,8 @@ async function readCenterAgentProfile(input: {
     status: row.status,
   };
 }
-
-function requireCenterAgentDb(env: CoreBindings): D1Database {
-  const db = identityDb(env);
+function requireCenterAgentDb(env: CoreBindings): PostgresDatabase {
+  const db = getPostgresDatabase(env);
   if (!db) {
     throw createCoreRpcHttpError({
       status: 503,
@@ -164,7 +163,6 @@ function requireCenterAgentDb(env: CoreBindings): D1Database {
   }
   return db;
 }
-
 function centerAgentNotDesignatedError(reason: string): Error {
   return createCoreRpcHttpError({
     status: 403,
@@ -172,7 +170,6 @@ function centerAgentNotDesignatedError(reason: string): Error {
     code: "center_agent.not_designated",
   });
 }
-
 function normalizeOptionalText(value: unknown): string | null {
   const normalized = String(value ?? "").trim();
   return normalized.length > 0 ? normalized : null;

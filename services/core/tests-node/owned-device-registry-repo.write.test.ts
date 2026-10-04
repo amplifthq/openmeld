@@ -3,12 +3,12 @@ import {
   listOwnedDeviceRegistryRecords,
   readOwnedDeviceRegistryRecord,
   upsertOwnedDeviceRegistryRecord,
-} from "../src/start/infrastructure/d1/owned-device-registry-repo";
-import { createSqliteD1Harness } from "./helpers/sqlite-d1-harness.test-support";
+} from "../src/start/infrastructure/postgresql/owned-device-registry-repo";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 describe("owned device registry repo write-side", () => {
   it("writes and reads a canonical owned device registry row", async () => {
-    const harness = createSqliteD1Harness();
+    const harness = await createPostgresHarness();
     try {
       await upsertOwnedDeviceRegistryRecord({
         db: harness.db,
@@ -46,12 +46,12 @@ describe("owned device registry repo write-side", () => {
         updatedAtMs: Date.parse("2026-04-14T09:05:00.000Z"),
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("lists owned device registry rows ordered by updatedAtMs descending", async () => {
-    const harness = createSqliteD1Harness();
+    const harness = await createPostgresHarness();
     try {
       await upsertOwnedDeviceRegistryRecord({
         db: harness.db,
@@ -118,7 +118,7 @@ describe("owned device registry repo write-side", () => {
         },
       ]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });

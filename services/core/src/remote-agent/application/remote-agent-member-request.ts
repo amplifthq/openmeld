@@ -1,3 +1,4 @@
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import type {
   CenterAgentToolSpeaker,
   OpenMeldRequestContext,
@@ -6,7 +7,6 @@ import { prepareCenterAgentOrganizationMemberRequest } from "../../center-agent/
 import { requireDelegatedPluginAction } from "../../center-agent/application/delegated-plugin-authorization";
 import { requireActiveHumanMember } from "../../center-agent/application/represented-member-request";
 import type { CoreBindings } from "../../lib/bindings";
-import { wakeEvidenceDb } from "../../lib/bindings";
 import { createCoreRpcHttpError } from "../../rpc/errors";
 import {
   readPersonalDelegatedPluginActions,
@@ -83,7 +83,7 @@ async function requireDelegatedPluginMember(
   authorization: Awaited<ReturnType<typeof requireRemoteAgentToolCaller>>,
   action: Parameters<typeof requireDelegatedPluginAction>[1]
 ) {
-  const evidenceDb = wakeEvidenceDb(env);
+  const evidenceDb = getPostgresDatabase(env);
   if (!(evidenceDb && "personalExecution" in authorization)) {
     throw new Error("plugin.delegation_unavailable");
   }

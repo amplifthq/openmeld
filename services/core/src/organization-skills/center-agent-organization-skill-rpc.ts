@@ -1,4 +1,8 @@
 import {
+  getPostgresDatabase,
+  type PostgresDatabase,
+} from "@openmeld/db/postgresql";
+import {
   CENTER_AGENT_OPENMELD_IDENTITY_REQUIRED_CODE,
   centerAgentInstallOrganizationSkillResponseSchema,
   centerAgentInstallOrganizationSkillRpcInputSchema,
@@ -20,7 +24,7 @@ import {
 import { prepareCenterAgentRepresentedMemberRequest } from "../center-agent/application/represented-member-request";
 import { writeCenterAgentAuditEntry } from "../center-agent/center-agent-audit";
 import { prepareCenterAgentAuditJournalEntryIfMissingStatement } from "../center-agent/center-agent-repository";
-import { type CoreBindings, organizationSkillsDb } from "../lib/bindings";
+import type { CoreBindings } from "../lib/bindings";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import {
   listOrganizationSkillImportBatches,
@@ -53,13 +57,12 @@ type PreparedCenterAgentOrganizationSkillRequest = {
     ReturnType<typeof prepareCenterAgentRepresentedMemberRequest>
   >["authorization"];
   bucket: R2Bucket;
-  db: D1Database;
+  db: PostgresDatabase;
   representedHuman: Awaited<
     ReturnType<typeof prepareCenterAgentRepresentedMemberRequest>
   >["representedHuman"];
   sourceNativeDeliveryId: string | null;
 };
-
 export async function rpcCenterAgentReadOrganizationSkills(
   env: CoreBindings,
   input: CenterAgentReadOrganizationSkillsRpcInput
@@ -201,7 +204,6 @@ export async function rpcCenterAgentReadOrganizationSkills(
     preview,
   });
 }
-
 export async function rpcCenterAgentInstallOrganizationSkill(
   env: CoreBindings,
   input: CenterAgentInstallOrganizationSkillRpcInput
@@ -272,24 +274,26 @@ export async function rpcCenterAgentInstallOrganizationSkill(
       organizationId,
       userId: prepared.actor.userId,
     });
-    await prepareCenterAgentAuditJournalEntryIfMissingStatement({
-      action: "install_org_skill",
-      actorProfileId: prepared.actorProfileId,
-      attribution: {
+    await prepared.db.query(
+      prepareCenterAgentAuditJournalEntryIfMissingStatement({
+        action: "install_org_skill",
         actorProfileId: prepared.actorProfileId,
-        onBehalfOf: {
-          displayName: prepared.representedHuman.displayName,
-          profileId: prepared.representedHuman.profileId,
-          userId: prepared.representedHuman.userId,
+        attribution: {
+          actorProfileId: prepared.actorProfileId,
+          onBehalfOf: {
+            displayName: prepared.representedHuman.displayName,
+            profileId: prepared.representedHuman.profileId,
+            userId: prepared.representedHuman.userId,
+          },
         },
-      },
-      db: prepared.db,
-      id: `audit_skill_batch_${auditId}`,
-      nowMs: Date.now(),
-      organizationId,
-      resource: { id: skill.id, type: "organization_skill" },
-      sourceNativeDeliveryId: prepared.sourceNativeDeliveryId,
-    }).run();
+        db: prepared.db,
+        id: `audit_skill_batch_${auditId}`,
+        nowMs: Date.now(),
+        organizationId,
+        resource: { id: skill.id, type: "organization_skill" },
+        sourceNativeDeliveryId: prepared.sourceNativeDeliveryId,
+      })
+    );
     return parseInstallResponse({
       action: request.action,
       organizationId,
@@ -324,7 +328,6 @@ export async function rpcCenterAgentInstallOrganizationSkill(
   if (begin.outcome === "pending_in_progress") {
     throw operationInProgressError();
   }
-
   // Distinct operations must not share release object keys: a failed writer
   // may clean up only the objects that its own operation created.
   const releaseIdentity = await buildOrganizationSkillRequestSignature({
@@ -375,7 +378,6 @@ export async function rpcCenterAgentInstallOrganizationSkill(
     }
     skill = recovered;
   }
-
   const baseResponse = {
     action: request.action,
     organizationId: prepared.actor.organizationId,
@@ -396,7 +398,6 @@ export async function rpcCenterAgentInstallOrganizationSkill(
     skillId,
   });
 }
-
 async function prepareRequest(input: {
   context: CenterAgentReadOrganizationSkillsRpcInput["context"];
   env: CoreBindings;
@@ -412,7 +413,7 @@ async function prepareRequest(input: {
         "Organization Skills require a verified active human Organization member.",
     }
   );
-  const db = organizationSkillsDb(input.env);
+  const db = getPostgresDatabase(input.env);
   const bucket = input.env.OPENMELD_ORGANIZATION_SKILLS;
   if (!(db && bucket)) {
     throw createCoreRpcHttpError({
@@ -436,7 +437,6 @@ async function prepareRequest(input: {
     sourceNativeDeliveryId: represented.sourceNativeDeliveryId,
   };
 }
-
 async function prepareReadRequest(input: {
   context: CenterAgentReadOrganizationSkillsRpcInput["context"];
   env: CoreBindings;
@@ -455,7 +455,7 @@ async function prepareReadRequest(input: {
     input.context,
     input.speakerMember
   );
-  const db = organizationSkillsDb(input.env);
+  const db = getPostgresDatabase(input.env);
   const bucket = input.env.OPENMELD_ORGANIZATION_SKILLS;
   if (!(db && bucket)) {
     throw createCoreRpcHttpError({
@@ -477,7 +477,6 @@ async function prepareReadRequest(input: {
     member: prepared.member,
   };
 }
-
 function openMeldIdentityRequiredError(): Error {
   return createCoreRpcHttpError({
     code: CENTER_AGENT_OPENMELD_IDENTITY_REQUIRED_CODE,
@@ -486,7 +485,6 @@ function openMeldIdentityRequiredError(): Error {
     status: 403,
   });
 }
-
 async function completeOperation(input: {
   operation: OrganizationSkillOperationRecord;
   prepared: PreparedCenterAgentOrganizationSkillRequest;
@@ -494,34 +492,41 @@ async function completeOperation(input: {
   skillId: string;
 }): Promise<CenterAgentInstallOrganizationSkillResponse> {
   const nowMs = Date.now();
-  const results = await input.prepared.db.batch([
-    prepareCenterAgentAuditJournalEntryIfMissingStatement({
-      action: "install_org_skill",
-      actorProfileId: input.prepared.actorProfileId,
-      attribution: {
-        actorProfileId: input.prepared.actorProfileId,
-        onBehalfOf: {
-          displayName: input.prepared.representedHuman.displayName,
-          profileId: input.prepared.representedHuman.profileId,
-          userId: input.prepared.representedHuman.userId,
-        },
-      },
-      db: input.prepared.db,
-      id: `audit_${input.operation.operationKey}`,
-      nowMs,
-      organizationId: input.prepared.actor.organizationId,
-      resource: { id: input.skillId, type: "organization_skill" },
-      sourceNativeDeliveryId: input.prepared.sourceNativeDeliveryId,
-    }),
-    prepareCompleteOrganizationSkillOperationStatement({
-      db: input.prepared.db,
-      kind: "center_agent",
-      nowMs,
-      operation: input.operation,
-      responseJson: JSON.stringify(input.response),
-    }),
-  ]);
-  if (Number(results[1]?.meta.changes ?? 0) === 1) {
+  const results = await input.prepared.db.transaction(
+    async (client) =>
+      [
+        await client.query(
+          prepareCenterAgentAuditJournalEntryIfMissingStatement({
+            action: "install_org_skill",
+            actorProfileId: input.prepared.actorProfileId,
+            attribution: {
+              actorProfileId: input.prepared.actorProfileId,
+              onBehalfOf: {
+                displayName: input.prepared.representedHuman.displayName,
+                profileId: input.prepared.representedHuman.profileId,
+                userId: input.prepared.representedHuman.userId,
+              },
+            },
+            db: input.prepared.db,
+            id: `audit_${input.operation.operationKey}`,
+            nowMs,
+            organizationId: input.prepared.actor.organizationId,
+            resource: { id: input.skillId, type: "organization_skill" },
+            sourceNativeDeliveryId: input.prepared.sourceNativeDeliveryId,
+          })
+        ),
+        await client.query(
+          prepareCompleteOrganizationSkillOperationStatement({
+            db: input.prepared.db,
+            kind: "center_agent",
+            nowMs,
+            operation: input.operation,
+            responseJson: JSON.stringify(input.response),
+          })
+        ),
+      ] as const
+  );
+  if (Number(results[1].rowCount ?? 0) === 1) {
     return input.response;
   }
   const current = await readOrganizationSkillOperation({
@@ -535,7 +540,6 @@ async function completeOperation(input: {
   }
   throw operationInProgressError();
 }
-
 function installPayload(
   request: Extract<
     CenterAgentInstallOrganizationSkillRpcInput,
@@ -574,11 +578,9 @@ function toSkillSummary(skill: OrganizationSkill) {
   } = skill;
   return summary;
 }
-
 function isManager(actor: Pick<OrganizationSkillActor, "role">): boolean {
   return actor.role === "owner" || actor.role === "admin";
 }
-
 function requireOpenMeldIdentity(
   actor: OrganizationSkillReadActor
 ): OrganizationSkillActor {
@@ -587,7 +589,6 @@ function requireOpenMeldIdentity(
   }
   throw openMeldIdentityRequiredError();
 }
-
 function requireManager(actor: OrganizationSkillActor): void {
   if (isManager(actor)) {
     return;
@@ -599,14 +600,19 @@ function requireManager(actor: OrganizationSkillActor): void {
     status: 403,
   });
 }
-
 function parseRequest<T>(
   schema: {
-    safeParse(
-      value: unknown
-    ):
-      | { data: T; success: true }
-      | { error: { message: string }; success: false };
+    safeParse(value: unknown):
+      | {
+          data: T;
+          success: true;
+        }
+      | {
+          error: {
+            message: string;
+          };
+          success: false;
+        };
   },
   value: unknown
 ): T {
@@ -620,7 +626,6 @@ function parseRequest<T>(
   }
   return parsed.data;
 }
-
 function parseReadResponse(
   value: unknown
 ): CenterAgentReadOrganizationSkillsResponse {
@@ -633,7 +638,6 @@ function parseReadResponse(
   }
   return parsed.data;
 }
-
 function parseInstallResponse(
   value: unknown
 ): CenterAgentInstallOrganizationSkillResponse {
@@ -646,7 +650,6 @@ function parseInstallResponse(
   }
   return parsed.data;
 }
-
 function parseCompletedResponse(
   operation: OrganizationSkillOperationRecord
 ): CenterAgentInstallOrganizationSkillResponse {
@@ -657,7 +660,6 @@ function parseCompletedResponse(
   }
   return parseInstallResponse(JSON.parse(operation.responseJson));
 }
-
 function operationInProgressError(): Error {
   return createCoreRpcHttpError({
     code: "organization_skill.operation_in_progress",

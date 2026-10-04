@@ -1,14 +1,8 @@
 import { sql } from "drizzle-orm";
-import {
-  check,
-  index,
-  integer,
-  sqliteTable,
-  text,
-  uniqueIndex,
-} from "drizzle-orm/sqlite-core";
+import { bigint, check, index, text, uniqueIndex } from "drizzle-orm/pg-core";
+import { applicationTable } from "../postgresql/schema.ts";
 
-export const openMeldDaemonAgentProfileBindings = sqliteTable(
+export const openMeldDaemonAgentProfileBindings = applicationTable(
   "openMeldDaemon_agent_profile_bindings",
   {
     bindingId: text("binding_id").primaryKey(),
@@ -27,13 +21,13 @@ export const openMeldDaemonAgentProfileBindings = sqliteTable(
       "agent_controller_collaboration_mode"
     ),
     openCodePermission: text("opencode_permission"),
-    configurationRevision: integer("configuration_revision")
+    configurationRevision: bigint("configuration_revision", { mode: "number" })
       .notNull()
       .default(1),
     bindingState: text("binding_state").notNull(),
-    createdAtMs: integer("created_at_ms").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
-    disabledAtMs: integer("disabled_at_ms"),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
+    disabledAtMs: bigint("disabled_at_ms", { mode: "number" }),
     createdByProfileId: text("created_by_profile_id"),
     reasonCode: text("reason_code"),
   },
@@ -79,7 +73,7 @@ export const openMeldDaemonAgentProfileBindings = sqliteTable(
     ),
     check(
       "openMeldDaemon_agent_profile_bindings_hosted_identity_check",
-      sql`(("runtime_kind" = 'openmeld_service' and "hosted_runtime_identity_json" is null) or ("runtime_kind" in ('hosted_center_agent', 'hosted_remote_agent') and "hosted_runtime_identity_json" is not null and json_valid("hosted_runtime_identity_json")))`
+      sql`(("runtime_kind" = 'openmeld_service' and "hosted_runtime_identity_json" is null) or ("runtime_kind" in ('hosted_center_agent', 'hosted_remote_agent') and "hosted_runtime_identity_json" is not null and ("hosted_runtime_identity_json" is json)))`
     ),
     check(
       "openMeldDaemon_agent_profile_bindings_agent_controller_ref_non_empty_check",

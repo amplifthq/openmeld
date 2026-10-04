@@ -1,5 +1,9 @@
 import { env, SELF } from "cloudflare:test";
 import {
+  getPostgresDatabase,
+  type PostgresDatabase,
+} from "@openmeld/db/postgresql";
+import {
   applyOpenMeldRequestContextHeaders,
   OPENMELD_EXPECTED_FORWARDED_BY,
 } from "@openmeld/gateway-contract";
@@ -36,6 +40,7 @@ import {
   type OrganizationSkillActor,
   readEnabledOrganizationSkillReleaseSelection,
 } from "../src/organization-skills/organization-skill-service";
+import { observePostgresDatabase } from "../test-support/postgresql-query.test-support";
 
 const GITHUB_SKILL_MARKDOWN = [
   "---",
@@ -46,22 +51,20 @@ const GITHUB_SKILL_MARKDOWN = [
   "---",
   "Follow the release checklist.",
 ].join("\n");
-
 describe("Organization Skills", () => {
   it("keeps an ordinary Agent's selected release after an update and rejects it after disablement", async () => {
     const fixture = await seedFixture();
     const profileId = `agt_${crypto.randomUUID()}`;
-    await env.OPENMELD_DB.prepare(`INSERT INTO openmeld_profiles
-      (profile_id, profile_name, profile_handle, profile_kind, is_default, status, organization_id, owner_user_id, created_by_user_id, source, created_at, updated_at)
-      VALUES (?, 'Task reader', ?, 'agent', 0, 'active', ?, ?, ?, 'cli_create', 1000, 1000)`)
-      .bind(
+    await getPostgresDatabase(env).query({
+      text: "INSERT INTO \"openmeld\".\"openmeld_profiles\"\n      (profile_id, profile_name, profile_handle, profile_kind, is_default, status, organization_id, owner_user_id, created_by_user_id, source, created_at, updated_at)\n      VALUES ($1, 'Task reader', $2, 'agent', 0, 'active', $3, $4, $5, 'cli_create', 1000, 1000)",
+      values: [
         profileId,
         profileId,
         fixture.organizationId,
         fixture.owner.userId,
-        fixture.owner.userId
-      )
-      .run();
+        fixture.owner.userId,
+      ],
+    });
     const context: OpenMeldRequestContext = {
       activeOrganizationId: fixture.organizationId,
       actorContext: {
@@ -140,11 +143,17 @@ describe("Organization Skills", () => {
       expectedActiveReleaseId: created.activeRelease.id,
       expectedVersion: created.version,
     });
-    const profile = await env.OPENMELD_DB.prepare(
-      "SELECT profile_id FROM openmeld_profiles WHERE owner_user_id = ? AND profile_kind = 'human' LIMIT 1"
-    )
-      .bind(fixture.owner.userId)
-      .first<{ profile_id: string }>();
+    const profile = await getPostgresDatabase(env)
+      .query<{
+        profile_id: string;
+      }>({
+        ...{
+          text: 'SELECT profile_id FROM "openmeld"."openmeld_profiles" WHERE owner_user_id = $1 AND profile_kind = \'human\' LIMIT 1',
+          values: [],
+        },
+        values: [fixture.owner.userId],
+      })
+      .then((result) => result.rows[0] ?? null);
     if (!profile) {
       throw new Error("Human profile fixture is missing.");
     }
@@ -177,9 +186,13 @@ describe("Organization Skills", () => {
       headers,
     });
     expect(missing.status).toBe(404);
-    await env.OPENMELD_DB.prepare("DELETE FROM members WHERE id = ?")
-      .bind(fixture.ownerMemberId)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'DELETE FROM "openmeld"."members" WHERE id = $1',
+        values: [],
+      },
+      values: [fixture.ownerMemberId],
+    });
     const revoked = await SELF.fetch(url, { headers });
     expect(revoked.status).toBe(403);
   });
@@ -208,17 +221,26 @@ describe("Organization Skills", () => {
       expectedActiveReleaseId: created.activeRelease.id,
       expectedVersion: created.version,
     });
-    const row = await env.OPENMELD_DB.prepare(
-      "SELECT object_key, manifest_json FROM organization_skill_releases WHERE id = ?"
-    )
-      .bind(updated.activeRelease.id)
-      .first<{ object_key: string; manifest_json: string }>();
+    const row = await getPostgresDatabase(env)
+      .query<{
+        object_key: string;
+        manifest_json: string;
+      }>({
+        ...{
+          text: 'SELECT object_key, manifest_json FROM "openmeld"."organization_skill_releases" WHERE id = $1',
+          values: [],
+        },
+        values: [updated.activeRelease.id],
+      })
+      .then((result) => result.rows[0] ?? null);
     if (!row) {
       throw new Error("Release row is missing.");
     }
     const object = await env.OPENMELD_ORGANIZATION_SKILLS.get(row.object_key);
     const saved = JSON.parse((await object?.text()) ?? "null") as {
-      files?: Array<{ content: string }>;
+      files?: Array<{
+        content: string;
+      }>;
       format?: string;
     };
     expect(saved.format).toBeUndefined();
@@ -239,7 +261,6 @@ describe("Organization Skills", () => {
       )
     ).toMatchObject({ content });
   });
-
   it("budgets enabled Skills by catalog metadata rather than resource bytes", async () => {
     const fixture = await seedFixture();
     const service = createService();
@@ -265,14 +286,23 @@ describe("Organization Skills", () => {
       expectedActiveReleaseId: created.activeRelease.id,
       expectedVersion: created.version,
     });
-    const row = await env.OPENMELD_DB.prepare(
-      "SELECT manifest_json FROM organization_skill_releases WHERE id = ?"
-    )
-      .bind(updated.activeRelease.id)
-      .first<{ manifest_json: string }>();
+    const row = await getPostgresDatabase(env)
+      .query<{
+        manifest_json: string;
+      }>({
+        ...{
+          text: 'SELECT manifest_json FROM "openmeld"."organization_skill_releases" WHERE id = $1',
+          values: [],
+        },
+        values: [updated.activeRelease.id],
+      })
+      .then((result) => result.rows[0] ?? null);
     const runtimeBytes = Number(
-      (JSON.parse(row?.manifest_json ?? "null") as { runtimeBytes?: number })
-        ?.runtimeBytes
+      (
+        JSON.parse(row?.manifest_json ?? "null") as {
+          runtimeBytes?: number;
+        }
+      )?.runtimeBytes
     );
     expect(runtimeBytes).toBeGreaterThan(0);
     expect(runtimeBytes).toBeLessThan(2000);
@@ -289,7 +319,6 @@ describe("Organization Skills", () => {
       )
     ).toMatchObject({ content, size: content.length });
   });
-
   it("publishes a resource-heavy portable package and reads one exact resource", async () => {
     const fixture = await seedFixture();
     const service = createService();
@@ -337,7 +366,6 @@ describe("Organization Skills", () => {
       size: largeContent.length,
     });
   });
-
   it("reads a stored UTF-8 resource without dropping its BOM", async () => {
     const fixture = await seedFixture();
     const service = createService();
@@ -375,7 +403,6 @@ describe("Organization Skills", () => {
       )
     ).toMatchObject(file);
   });
-
   it("keeps release resources separate and fails closed when one is missing", async () => {
     const fixture = await seedFixture();
     const service = createService();
@@ -407,11 +434,17 @@ describe("Organization Skills", () => {
       expectedActiveReleaseId: created.activeRelease.id,
       expectedVersion: created.version,
     });
-    const row = await env.OPENMELD_DB.prepare(
-      "SELECT object_key FROM organization_skill_releases WHERE id = ?"
-    )
-      .bind(updated.activeRelease.id)
-      .first<{ object_key: string }>();
+    const row = await getPostgresDatabase(env)
+      .query<{
+        object_key: string;
+      }>({
+        ...{
+          text: 'SELECT object_key FROM "openmeld"."organization_skill_releases" WHERE id = $1',
+          values: [],
+        },
+        values: [updated.activeRelease.id],
+      })
+      .then((result) => result.rows[0] ?? null);
     if (!row) {
       throw new Error("Release row is missing.");
     }
@@ -419,7 +452,9 @@ describe("Organization Skills", () => {
     expect(manifest).not.toBeNull();
     const serialized = await manifest?.text();
     const stored = JSON.parse(serialized ?? "null") as {
-      files: Array<{ path: string }>;
+      files: Array<{
+        path: string;
+      }>;
       format: string;
     };
     expect(stored?.format).toBe("files-v1");
@@ -543,7 +578,6 @@ describe("Organization Skills", () => {
       cause: { code: "organization_skill.release_object_missing", status: 503 },
     });
   });
-
   it("keeps a successful release intact when another writer fails after sharing its resource", async () => {
     const fixture = await seedFixture();
     const created = await createService().create(fixture.owner, {
@@ -600,12 +634,12 @@ describe("Organization Skills", () => {
     const sharedId = () => "shared-release-race";
     const failedWriter = createOrganizationSkillService({
       bucket,
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       newId: sharedId,
     });
     const winningWriter = createOrganizationSkillService({
       bucket: env.OPENMELD_ORGANIZATION_SKILLS,
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       newId: sharedId,
     });
     const update = {
@@ -630,7 +664,6 @@ describe("Organization Skills", () => {
       await env.OPENMELD_ORGANIZATION_SKILLS.get(`${objectKey}/files/a.txt`)
     ).not.toBeNull();
   });
-
   it("still reads a legacy inline release", async () => {
     const fixture = await seedFixture();
     const service = createService();
@@ -655,11 +688,17 @@ describe("Organization Skills", () => {
       expectedActiveReleaseId: created.activeRelease.id,
       expectedVersion: created.version,
     });
-    const row = await env.OPENMELD_DB.prepare(
-      "SELECT object_key FROM organization_skill_releases WHERE id = ?"
-    )
-      .bind(saved.activeRelease.id)
-      .first<{ object_key: string }>();
+    const row = await getPostgresDatabase(env)
+      .query<{
+        object_key: string;
+      }>({
+        ...{
+          text: 'SELECT object_key FROM "openmeld"."organization_skill_releases" WHERE id = $1',
+          values: [],
+        },
+        values: [saved.activeRelease.id],
+      })
+      .then((result) => result.rows[0] ?? null);
     if (!row) {
       throw new Error("Release row is missing.");
     }
@@ -674,7 +713,6 @@ describe("Organization Skills", () => {
       }
     );
   });
-
   it("keeps management with owners and admins while assigned maintainers can edit", async () => {
     const fixture = await seedFixture();
     const service = createService();
@@ -684,10 +722,9 @@ describe("Organization Skills", () => {
       name: "release-review",
     });
     const frozenSelection = await readEnabledOrganizationSkillReleaseSelection({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       organizationId: fixture.organizationId,
     });
-
     await expect(service.list(fixture.member)).resolves.toMatchObject([
       {
         id: created.id,
@@ -706,7 +743,6 @@ describe("Organization Skills", () => {
     ).rejects.toMatchObject({
       cause: { code: "organization_skill.edit_forbidden", status: 403 },
     });
-
     const assigned = await service.setMaintainers(
       fixture.owner,
       created.id,
@@ -719,7 +755,6 @@ describe("Organization Skills", () => {
     ).resolves.toMatchObject({
       permissions: { canEdit: true, canManage: false },
     });
-
     const updated = await service.update(fixture.member, created.id, {
       bundle: {
         ...created.bundle,
@@ -768,33 +803,37 @@ describe("Organization Skills", () => {
       version: updated.version,
     });
     expect(noOpSave.releases).toHaveLength(2);
-
-    await env.OPENMELD_DB.prepare("DELETE FROM members WHERE id = ?")
-      .bind(fixture.memberMemberId)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'DELETE FROM "openmeld"."members" WHERE id = $1',
+        values: [],
+      },
+      values: [fixture.memberMemberId],
+    });
     await expect(service.get(fixture.owner, created.id)).resolves.toMatchObject(
       {
         maintainerUserIds: [],
       }
     );
-    await env.OPENMELD_DB.prepare(
-      "INSERT INTO members (id, organization_id, user_id, role, created_at) VALUES (?, ?, ?, ?, ?)"
-    )
-      .bind(
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'INSERT INTO "openmeld"."members" (id, organization_id, user_id, role, created_at) VALUES ($1, $2, $3, $4, $5)',
+        values: [],
+      },
+      values: [
         `rejoined_${fixture.memberMemberId}`,
         fixture.organizationId,
         fixture.member.userId,
         fixture.member.role,
-        Date.now() + 1000
-      )
-      .run();
+        Date.now() + 1000,
+      ],
+    });
     await expect(
       service.get(fixture.member, created.id)
     ).resolves.toMatchObject({
       maintainerUserIds: [],
       permissions: { canEdit: false, canManage: false },
     });
-
     await expect(
       service.setEnabled(fixture.member, created.id, false, updated.version)
     ).rejects.toMatchObject({
@@ -821,7 +860,6 @@ describe("Organization Skills", () => {
       organizationId: fixture.organizationId,
       releases: [],
     });
-
     const reenabled = await service.setEnabled(
       fixture.owner,
       created.id,
@@ -860,7 +898,6 @@ describe("Organization Skills", () => {
       ],
     });
   });
-
   it("drops only disabled optional releases while explicit selections still fail", async () => {
     const fixture = await seedFixture();
     const service = createService();
@@ -876,14 +913,14 @@ describe("Organization Skills", () => {
     });
     const selectedReleases = await readEnabledOrganizationSkillReleaseSelection(
       {
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         organizationId: fixture.organizationId,
       }
     );
     await service.setEnabled(fixture.owner, removed.id, false, removed.version);
     await expect(
       readEnabledOrganizationSkillReleaseSelection({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         organizationId: fixture.organizationId,
         selectedReleases,
       })
@@ -892,7 +929,7 @@ describe("Organization Skills", () => {
     });
     await expect(
       readEnabledOrganizationSkillReleaseSelection({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         organizationId: fixture.organizationId,
         selectedReleases,
         skipUnavailableSelectedReleases: true,
@@ -902,7 +939,7 @@ describe("Organization Skills", () => {
     );
     await expect(
       readEnabledOrganizationSkillReleaseSelection({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         organizationId: fixture.organizationId,
         selectedReleases: selectedReleases.map((release) =>
           release.skillId === kept.id
@@ -915,7 +952,6 @@ describe("Organization Skills", () => {
       cause: { code: "organization_skill.release_unavailable", status: 403 },
     });
   });
-
   it("keeps the winning Maintainers when a stale concurrent update is rejected", async () => {
     const fixture = await seedFixture();
     const service = createService();
@@ -924,46 +960,24 @@ describe("Organization Skills", () => {
       instructions: "Check the release evidence.",
       name: "concurrent-maintainers",
     });
-    const concurrentDb = {
-      batch: async (statements: D1PreparedStatement[]) => {
-        await env.OPENMELD_DB.prepare(
-          `
-            UPDATE organization_skills
-            SET updated_at = ?,
-                version = version + 1
-            WHERE id = ?
-              AND organization_id = ?
-              AND version = ?
-          `
-        )
-          .bind(Date.now(), created.id, fixture.organizationId, created.version)
-          .run();
-        await env.OPENMELD_DB.prepare(
-          `
-            INSERT INTO organization_skill_maintainers (
-              assigned_at,
-              assigned_by_user_id,
-              organization_id,
-              skill_id,
-              user_id
-            )
-            VALUES (?, ?, ?, ?, ?)
-          `
-        )
-          .bind(
-            Date.now(),
-            fixture.owner.userId,
-            fixture.organizationId,
-            created.id,
-            fixture.member.userId
-          )
-          .run();
-        return await env.OPENMELD_DB.batch(statements);
-      },
-      prepare: env.OPENMELD_DB.prepare.bind(env.OPENMELD_DB),
-    } as unknown as D1Database;
+    let interleaved = false;
+    const concurrentDb = observePostgresDatabase(
+      getPostgresDatabase(env),
+      () => undefined,
+      async () => {
+        if (interleaved) {
+          return;
+        }
+        interleaved = true;
+        await service.setMaintainers(
+          fixture.owner,
+          created.id,
+          [fixture.member.userId],
+          created.version
+        );
+      }
+    );
     const staleService = createService({ db: concurrentDb });
-
     await expect(
       staleService.setMaintainers(
         fixture.owner,
@@ -984,7 +998,6 @@ describe("Organization Skills", () => {
       }
     );
   });
-
   it("creates a new release when saved content returns to a historical version", async () => {
     const fixture = await seedFixture();
     const service = createService();
@@ -1001,13 +1014,11 @@ describe("Organization Skills", () => {
       expectedActiveReleaseId: original.activeRelease.id,
       expectedVersion: original.version,
     });
-
     const restored = await service.update(fixture.owner, original.id, {
       bundle: original.bundle,
       expectedActiveReleaseId: edited.activeRelease.id,
       expectedVersion: edited.version,
     });
-
     expect(restored).toMatchObject({
       activeRelease: {
         digest: original.activeRelease.digest,
@@ -1019,7 +1030,6 @@ describe("Organization Skills", () => {
     expect(restored.activeRelease.id).not.toBe(edited.activeRelease.id);
     expect(restored.releases).toHaveLength(3);
   });
-
   it("fails closed on stale saves and cross-Organization reads", async () => {
     const fixture = await seedFixture();
     const service = createService();
@@ -1033,7 +1043,6 @@ describe("Organization Skills", () => {
       expectedActiveReleaseId: created.activeRelease.id,
       expectedVersion: created.version,
     });
-
     await expect(
       service.update(fixture.owner, created.id, {
         bundle: { ...created.bundle, instructions: "Overwrite newer work." },
@@ -1061,7 +1070,6 @@ describe("Organization Skills", () => {
       cause: { code: "organization_skill.not_found", status: 404 },
     });
   });
-
   it("rejects duplicate names without changing the committed release", async () => {
     const fixture = await seedFixture();
     const service = createService();
@@ -1070,7 +1078,6 @@ describe("Organization Skills", () => {
       instructions: "Check the release evidence.",
       name: "release-review",
     });
-
     await expect(
       service.create(fixture.owner, {
         description: "A conflicting name.",
@@ -1086,19 +1093,27 @@ describe("Organization Skills", () => {
     });
     expect(
       (
-        await env.OPENMELD_DB.prepare(
-          "SELECT COUNT(*) AS count FROM organization_skills WHERE organization_id = ?"
-        )
-          .bind(fixture.organizationId)
-          .first<{ count: number }>()
+        await getPostgresDatabase(env)
+          .query<{
+            count: number;
+          }>({
+            ...{
+              text: 'SELECT COUNT(*) AS count FROM "openmeld"."organization_skills" WHERE organization_id = $1',
+              values: [],
+            },
+            values: [fixture.organizationId],
+          })
+          .then((result) => result.rows[0] ?? null)
       )?.count
     ).toBe(1);
   });
-
   it("rejects management actions before the enabled runtime catalog exceeds its limits", async () => {
     const fixture = await seedFixture();
     const service = createService();
-    let firstSkill: { id: string; version: number } | null = null;
+    let firstSkill: {
+      id: string;
+      version: number;
+    } | null = null;
     for (
       let index = 0;
       index < ORGANIZATION_SKILL_RUNTIME_RELEASE_LIMIT;
@@ -1111,7 +1126,6 @@ describe("Organization Skills", () => {
       });
       firstSkill ??= created;
     }
-
     await expect(
       service.create(fixture.owner, {
         description: "One Skill too many.",
@@ -1124,7 +1138,6 @@ describe("Organization Skills", () => {
         status: 409,
       },
     });
-
     if (!firstSkill) {
       throw new Error("The catalog limit fixture did not create a Skill.");
     }
@@ -1149,12 +1162,11 @@ describe("Organization Skills", () => {
     });
     await expect(
       readEnabledOrganizationSkillReleaseSelection({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         organizationId: fixture.organizationId,
       })
     ).resolves.toHaveLength(ORGANIZATION_SKILL_RUNTIME_RELEASE_LIMIT);
   });
-
   it("rejects enabling or installing when the runtime catalog is already too large", async () => {
     const fixture = await seedFixture();
     const service = createService();
@@ -1174,23 +1186,24 @@ describe("Organization Skills", () => {
       instructions: "Reserve the catalog capacity.",
       name: "catalog-capacity",
     });
-    await env.OPENMELD_DB.prepare(
-      `
-        UPDATE organization_skill_releases
-        SET manifest_json = json_set(
-          manifest_json,
-          '$.runtimeBytes',
-          ?
-        )
-        WHERE id = ?
-      `
-    )
-      .bind(
+    await getPostgresDatabase(env).query({
+      ...{
+        text: `
+        UPDATE "openmeld"."organization_skill_releases"
+        SET manifest_json = jsonb_set(
+          manifest_json::jsonb,
+          '{runtimeBytes}',
+          to_jsonb($1::bigint)
+        )::text
+        WHERE id = $2
+      `,
+        values: [],
+      },
+      values: [
         ORGANIZATION_SKILL_RUNTIME_CATALOG_MAX_BYTES,
-        blocker.activeRelease.id
-      )
-      .run();
-
+        blocker.activeRelease.id,
+      ],
+    });
     await expect(
       service.setEnabled(fixture.owner, disabled.id, true, disabled.version)
     ).rejects.toMatchObject({
@@ -1212,7 +1225,6 @@ describe("Organization Skills", () => {
       },
     });
   });
-
   it("rejects saving an enabled Skill when its replacement release would exceed the runtime catalog limit", async () => {
     const fixture = await seedFixture();
     const service = createService();
@@ -1226,15 +1238,21 @@ describe("Organization Skills", () => {
       instructions: "Reserve the remaining catalog capacity.",
       name: "catalog-update-capacity",
     });
-    const candidateManifest = await env.OPENMELD_DB.prepare(
-      `
+    const candidateManifest = await getPostgresDatabase(env)
+      .query<{
+        manifest_json: string;
+      }>({
+        ...{
+          text: `
         SELECT manifest_json
-        FROM organization_skill_releases
-        WHERE id = ?
-      `
-    )
-      .bind(candidate.activeRelease.id)
-      .first<{ manifest_json: string }>();
+        FROM "openmeld"."organization_skill_releases"
+        WHERE id = $1
+      `,
+          values: [],
+        },
+        values: [candidate.activeRelease.id],
+      })
+      .then((result) => result.rows[0] ?? null);
     if (!candidateManifest) {
       throw new Error("The candidate release manifest is unavailable.");
     }
@@ -1245,23 +1263,24 @@ describe("Organization Skills", () => {
         }
       ).runtimeBytes
     );
-    await env.OPENMELD_DB.prepare(
-      `
-        UPDATE organization_skill_releases
-        SET manifest_json = json_set(
-          manifest_json,
-          '$.runtimeBytes',
-          ?
-        )
-        WHERE id = ?
-      `
-    )
-      .bind(
+    await getPostgresDatabase(env).query({
+      ...{
+        text: `
+        UPDATE "openmeld"."organization_skill_releases"
+        SET manifest_json = jsonb_set(
+          manifest_json::jsonb,
+          '{runtimeBytes}',
+          to_jsonb($1::bigint)
+        )::text
+        WHERE id = $2
+      `,
+        values: [],
+      },
+      values: [
         ORGANIZATION_SKILL_RUNTIME_CATALOG_MAX_BYTES - candidateRuntimeBytes,
-        blocker.activeRelease.id
-      )
-      .run();
-
+        blocker.activeRelease.id,
+      ],
+    });
     await expect(
       service.update(fixture.owner, candidate.id, {
         bundle: {
@@ -1285,13 +1304,11 @@ describe("Organization Skills", () => {
       version: candidate.version,
     });
   });
-
   it("imports one portable Skill from an immutable GitHub commit", async () => {
     const commitSha = "a".repeat(40);
     const fetchMock = vi.fn<typeof fetch>((request) =>
       Promise.resolve(readGitHubFixtureResponse(String(request), commitSha))
     );
-
     await expect(
       importOrganizationSkillBundleFromGitHub({
         fetch: fetchMock,
@@ -1343,7 +1360,6 @@ describe("Organization Skills", () => {
       cause: { code: "organization_skill.github_source_changed", status: 400 },
     });
   });
-
   it("installs one local portable Skill package atomically", async () => {
     const fixture = await seedFixture();
     const service = createService();
@@ -1404,7 +1420,6 @@ describe("Organization Skills", () => {
     });
     expect(await service.list(fixture.owner)).toHaveLength(1);
   });
-
   it("enforces the portable Agent Skills description limit", async () => {
     const fixture = await seedFixture();
     const service = createService();
@@ -1440,7 +1455,6 @@ describe("Organization Skills", () => {
       message: expect.stringContaining("Agent Skills 1024-character limit"),
     });
   });
-
   it("retries public GitHub reads without a repository-scoped token", async () => {
     const commitSha = "e".repeat(40);
     const fetchMock = vi.fn<typeof fetch>((request, init) => {
@@ -1451,7 +1465,6 @@ describe("Organization Skills", () => {
       }
       return Promise.resolve(readGitHubFixtureResponse(url, commitSha));
     });
-
     await expect(
       importOrganizationSkillBundleFromGitHub({
         fetch: fetchMock,
@@ -1484,7 +1497,6 @@ describe("Organization Skills", () => {
       )
     ).toBe(true);
   });
-
   it("rejects an oversized GitHub Skill before downloading its blobs", async () => {
     const commitSha = "d".repeat(40);
     const fetchMock = vi.fn<typeof fetch>((request) => {
@@ -1506,7 +1518,6 @@ describe("Organization Skills", () => {
       }
       return Promise.resolve(readGitHubFixtureResponse(url, commitSha));
     });
-
     await expect(
       importOrganizationSkillBundleFromGitHub({
         fetch: fetchMock,
@@ -1524,7 +1535,6 @@ describe("Organization Skills", () => {
       )
     ).toBe(false);
   });
-
   it("rejects a GitHub blob that exceeds its declared size while reading it", async () => {
     const commitSha = "c".repeat(40);
     const fetchMock = vi.fn<typeof fetch>((request) => {
@@ -1549,7 +1559,6 @@ describe("Organization Skills", () => {
       }
       return Promise.resolve(readGitHubFixtureResponse(url, commitSha));
     });
-
     await expect(
       importOrganizationSkillBundleFromGitHub({
         fetch: fetchMock,
@@ -1563,7 +1572,6 @@ describe("Organization Skills", () => {
       message: expect.stringContaining("more content than declared"),
     });
   });
-
   it("keeps the UTF-8 BOM and byte size of an imported Skill resource", async () => {
     const commitSha = "b".repeat(40);
     const resourceContent = "\uFEFF<schema/>";
@@ -1597,7 +1605,6 @@ describe("Organization Skills", () => {
       }
       return Promise.resolve(readGitHubFixtureResponse(url, commitSha));
     });
-
     const imported = await importOrganizationSkillBundleFromGitHub({
       fetch: fetchMock,
       url: "https://github.com/acme/skills",
@@ -1611,7 +1618,6 @@ describe("Organization Skills", () => {
       }),
     ]);
   });
-
   it("rejects invalid GitHub frontmatter before fetching supporting files", async () => {
     const commitSha = "b".repeat(40);
     const markdown = `---\nname: release-review\ndescription: ${"A".repeat(1068)}\n---\nUse the reference.`;
@@ -1649,7 +1655,6 @@ describe("Organization Skills", () => {
       }
       return Promise.resolve(readGitHubFixtureResponse(url, commitSha));
     });
-
     await expect(
       importOrganizationSkillBundleFromGitHub({
         fetch: fetchMock,
@@ -1664,7 +1669,6 @@ describe("Organization Skills", () => {
       )
     ).toBe(false);
   });
-
   it("previews every Skill directory and its blockers without downloading bundles", async () => {
     const commitSha = "e".repeat(40);
     const fetchMock = vi.fn<typeof fetch>((request) => {
@@ -1719,7 +1723,6 @@ describe("Organization Skills", () => {
       )
     ).toBe(false);
   });
-
   it("can review a repository with more Skills than the runtime can enable", async () => {
     const commitSha = "a".repeat(40);
     const fetchMock = vi.fn<typeof fetch>((request) => {
@@ -1741,7 +1744,6 @@ describe("Organization Skills", () => {
       }
       return Promise.resolve(readGitHubFixtureResponse(url, commitSha));
     });
-
     const preview = await previewOrganizationSkillRepositoryFromGitHub({
       fetch: fetchMock,
       url: "https://github.com/acme/skills",
@@ -1753,7 +1755,6 @@ describe("Organization Skills", () => {
       organizationSkillGitHubRepositoryPreviewSchema.safeParse(preview).success
     ).toBe(true);
   });
-
   it("imports a previewed Skill whose GitHub directory contains spaces and Unicode", async () => {
     const commitSha = "a".repeat(40);
     const path = "skills/My Skill 中文";
@@ -1797,7 +1798,6 @@ describe("Organization Skills", () => {
     expect(imported.source.path).toBe(path);
     expect(imported.bundle.portable.name).toBe("release-review");
   });
-
   it("inspects a selected Skill when GitHub truncates the repository tree", async () => {
     const commitSha = "a".repeat(40);
     const rootSha = "b".repeat(40);
@@ -1851,7 +1851,6 @@ describe("Organization Skills", () => {
       }
       return Promise.resolve(readGitHubFixtureResponse(url, commitSha));
     });
-
     const preview = await previewOrganizationSkillRepositoryFromGitHub({
       fetch: fetchMock,
       url: "https://github.com/acme/skills/tree/main/skills/selected",
@@ -1876,7 +1875,6 @@ describe("Organization Skills", () => {
         String(request).includes(`/git/trees/${unrelatedSha}`)
       )
     ).toBe(false);
-
     const incompleteFetch = vi.fn<typeof fetch>((request) => {
       const url = String(request);
       if (url.includes(`/git/trees/${commitSha}?recursive=1`)) {
@@ -1898,7 +1896,6 @@ describe("Organization Skills", () => {
       cause: { code: "organization_skill.github_tree_too_large" },
     });
   });
-
   it("keeps root Skill resources while excluding nested Skill packages", async () => {
     const commitSha = "f".repeat(40);
     const markdown = [
@@ -1949,7 +1946,6 @@ describe("Organization Skills", () => {
       }
       return Promise.resolve(readGitHubFixtureResponse(url, commitSha));
     });
-
     const preview = await previewOrganizationSkillRepositoryFromGitHub({
       fetch: fetchMock,
       url: "https://github.com/acme/skills",
@@ -1985,7 +1981,6 @@ describe("Organization Skills", () => {
     ]);
     expect(imported.source.path).toBe("");
   });
-
   it("lets managers preview the exact GitHub release before installation", async () => {
     const fixture = await seedFixture();
     const commitSha = "c".repeat(40);
@@ -1993,7 +1988,6 @@ describe("Organization Skills", () => {
       Promise.resolve(readGitHubFixtureResponse(String(request), commitSha))
     );
     const service = createService({ fetch: fetchMock });
-
     await expect(
       service.previewFromGitHub(fixture.owner, "https://github.com/acme/skills")
     ).resolves.toMatchObject({
@@ -2029,14 +2023,19 @@ describe("Organization Skills", () => {
       cause: { code: "organization_skill.manage_forbidden", status: 403 },
     });
   });
-
   it("replays a human GitHub install without creating another release", async () => {
     const fixture = await seedFixture();
-    const profile = await env.OPENMELD_DB.prepare(
-      "SELECT profile_id FROM openmeld_profiles WHERE owner_user_id = ? AND profile_kind = 'human' LIMIT 1"
-    )
-      .bind(fixture.owner.userId)
-      .first<{ profile_id: string }>();
+    const profile = await getPostgresDatabase(env)
+      .query<{
+        profile_id: string;
+      }>({
+        ...{
+          text: 'SELECT profile_id FROM "openmeld"."openmeld_profiles" WHERE owner_user_id = $1 AND profile_kind = \'human\' LIMIT 1',
+          values: [],
+        },
+        values: [fixture.owner.userId],
+      })
+      .then((result) => result.rows[0] ?? null);
     if (!profile) {
       throw new Error("Human test profile is missing.");
     }
@@ -2070,17 +2069,25 @@ describe("Organization Skills", () => {
         rpcImportOrganizationSkillFromGitHub(coreEnv(), request)
       ).resolves.toEqual(installed);
       expect(fetchMock).toHaveBeenCalledTimes(fetchedAfterInstall);
-      const count = await env.OPENMELD_DB.prepare(
-        "SELECT COUNT(*) AS count FROM organization_skills WHERE organization_id = ?"
-      )
-        .bind(fixture.organizationId)
-        .first<{ count: number }>();
+      const count = await getPostgresDatabase(env)
+        .query<{
+          count: number;
+        }>({
+          ...{
+            text: 'SELECT COUNT(*) AS count FROM "openmeld"."organization_skills" WHERE organization_id = $1',
+            values: [],
+          },
+          values: [fixture.organizationId],
+        })
+        .then((result) => result.rows[0] ?? null);
       expect(count?.count).toBe(1);
-      await env.OPENMELD_DB.prepare(
-        "UPDATE organization_skill_import_operations SET completed_at = NULL, response_json = NULL, created_at = 0 WHERE organization_id = ?"
-      )
-        .bind(fixture.organizationId)
-        .run();
+      await getPostgresDatabase(env).query({
+        ...{
+          text: 'UPDATE "openmeld"."organization_skill_import_operations" SET completed_at = NULL, response_json = NULL, created_at = 0 WHERE organization_id = $1',
+          values: [],
+        },
+        values: [fixture.organizationId],
+      });
       await expect(
         rpcImportOrganizationSkillFromGitHub(coreEnv(), request)
       ).resolves.toEqual(installed);
@@ -2096,14 +2103,19 @@ describe("Organization Skills", () => {
       vi.unstubAllGlobals();
     }
   });
-
   it("recovers a pinned batch and its installed result across requests", async () => {
     const fixture = await seedFixture();
-    const profile = await env.OPENMELD_DB.prepare(
-      "SELECT profile_id FROM openmeld_profiles WHERE owner_user_id = ? AND profile_kind = 'human' LIMIT 1"
-    )
-      .bind(fixture.owner.userId)
-      .first<{ profile_id: string }>();
+    const profile = await getPostgresDatabase(env)
+      .query<{
+        profile_id: string;
+      }>({
+        ...{
+          text: 'SELECT profile_id FROM "openmeld"."openmeld_profiles" WHERE owner_user_id = $1 AND profile_kind = \'human\' LIMIT 1',
+          values: [],
+        },
+        values: [fixture.owner.userId],
+      })
+      .then((result) => result.rows[0] ?? null);
     if (!profile) {
       throw new Error("Human test profile is missing.");
     }
@@ -2216,11 +2228,17 @@ describe("Organization Skills", () => {
           url: `${sourceUrl}/tree/${commitSha}`,
         })
       ).resolves.toEqual(recovered);
-      const count = await env.OPENMELD_DB.prepare(
-        "SELECT COUNT(*) AS count FROM organization_skills WHERE organization_id = ?"
-      )
-        .bind(fixture.organizationId)
-        .first<{ count: number }>();
+      const count = await getPostgresDatabase(env)
+        .query<{
+          count: number;
+        }>({
+          ...{
+            text: 'SELECT COUNT(*) AS count FROM "openmeld"."organization_skills" WHERE organization_id = $1',
+            values: [],
+          },
+          values: [fixture.organizationId],
+        })
+        .then((result) => result.rows[0] ?? null);
       expect(count?.count).toBe(1);
     } finally {
       vi.unstubAllGlobals();
@@ -2229,11 +2247,12 @@ describe("Organization Skills", () => {
 
   it("resumes one pinned batch across Center Agent and Web without repeating a successful item", async () => {
     const fixture = await seedFixture();
-    const profile = await env.OPENMELD_DB.prepare(
-      "SELECT profile_id FROM openmeld_profiles WHERE owner_user_id = ? AND profile_kind = 'human' LIMIT 1"
-    )
-      .bind(fixture.owner.userId)
-      .first<{ profile_id: string }>();
+    const profile = await getPostgresDatabase(env)
+      .query<{ profile_id: string }>({
+        text: 'SELECT profile_id FROM "openmeld"."openmeld_profiles" WHERE owner_user_id = $1 AND profile_kind = \'human\' LIMIT 1',
+        values: [fixture.owner.userId],
+      })
+      .then((result) => result.rows[0] ?? null);
     if (!profile) {
       throw new Error("Missing fixture profile.");
     }
@@ -2382,11 +2401,12 @@ describe("Organization Skills", () => {
       expect(
         complete.batch.results.every((item) => item.status === "installed")
       ).toBe(true);
-      const counts = await env.OPENMELD_DB.prepare(
-        "SELECT COUNT(*) AS count FROM organization_skills WHERE organization_id = ?"
-      )
-        .bind(fixture.organizationId)
-        .first<{ count: number }>();
+      const counts = await getPostgresDatabase(env)
+        .query<{ count: number }>({
+          text: 'SELECT COUNT(*) AS count FROM "openmeld"."organization_skills" WHERE organization_id = $1',
+          values: [fixture.organizationId],
+        })
+        .then((result) => result.rows[0] ?? null);
       expect(counts?.count).toBe(2);
       await expect(
         rpcCenterAgentInstallOrganizationSkill(coreEnv(), {
@@ -2461,7 +2481,6 @@ describe("Organization Skills", () => {
       operationId: "install-release-review",
       speakerMember: ownerSpeaker,
     };
-
     const installed = await rpcCenterAgentInstallOrganizationSkill(
       coreEnv(),
       request
@@ -2475,15 +2494,17 @@ describe("Organization Skills", () => {
       request
     );
     expect(replayed).toEqual(installed);
-    await env.OPENMELD_DB.prepare(
-      `
-        UPDATE center_agent_organization_skill_operations
+    await getPostgresDatabase(env).query({
+      ...{
+        text: `
+        UPDATE "openmeld"."center_agent_organization_skill_operations"
         SET completed_at = NULL, response_json = NULL, created_at = 0
-        WHERE organization_id = ?
-      `
-    )
-      .bind(fixture.organizationId)
-      .run();
+        WHERE organization_id = $1
+      `,
+        values: [],
+      },
+      values: [fixture.organizationId],
+    });
     await expect(
       rpcCenterAgentInstallOrganizationSkill(coreEnv(), request)
     ).resolves.toEqual(installed);
@@ -2498,7 +2519,6 @@ describe("Organization Skills", () => {
     ).rejects.toMatchObject({
       cause: { code: "organization_skill.operation_conflict", status: 409 },
     });
-
     const listed = await rpcCenterAgentReadOrganizationSkills(coreEnv(), {
       action: "list",
       context,
@@ -2525,28 +2545,39 @@ describe("Organization Skills", () => {
     ).rejects.toMatchObject({
       cause: { code: "organization_skill.manage_forbidden", status: 403 },
     });
-
-    const counts = await env.OPENMELD_DB.prepare(
-      `
+    const counts = await getPostgresDatabase(env)
+      .query<{
+        operations: number;
+        skills: number;
+      }>({
+        ...{
+          text: `
         SELECT
-          (SELECT COUNT(*) FROM organization_skills WHERE organization_id = ?) AS skills,
-          (SELECT COUNT(*) FROM center_agent_organization_skill_operations WHERE organization_id = ?) AS operations
-      `
-    )
-      .bind(fixture.organizationId, fixture.organizationId)
-      .first<{ operations: number; skills: number }>();
+          (SELECT COUNT(*) FROM "openmeld"."organization_skills" WHERE organization_id = $1) AS skills,
+          (SELECT COUNT(*) FROM "openmeld"."center_agent_organization_skill_operations" WHERE organization_id = $2) AS operations
+      `,
+          values: [],
+        },
+        values: [fixture.organizationId, fixture.organizationId],
+      })
+      .then((result) => result.rows[0] ?? null);
     expect(counts).toEqual({ operations: 1, skills: 1 });
-    const audits = await env.OPENMELD_DB.prepare(
-      `
+    const audits = await getPostgresDatabase(env).query<{
+      action: string;
+      on_behalf_of_user_id: string | null;
+    }>({
+      ...{
+        text: `
         SELECT action, on_behalf_of_user_id
-        FROM center_agent_audit_journal
-        WHERE organization_id = ?
+        FROM "openmeld"."center_agent_audit_journal"
+        WHERE organization_id = $1
         ORDER BY created_at ASC
-      `
-    )
-      .bind(fixture.organizationId)
-      .all<{ action: string; on_behalf_of_user_id: string | null }>();
-    expect(audits.results).toEqual([
+      `,
+        values: [],
+      },
+      values: [fixture.organizationId],
+    });
+    expect(audits.rows).toEqual([
       {
         action: "install_org_skill",
         on_behalf_of_user_id: fixture.owner.userId,
@@ -2557,7 +2588,6 @@ describe("Organization Skills", () => {
       },
     ]);
   });
-
   it("reports stored scripts and ignored tool hints after a GitHub install without changing the legacy reply", async () => {
     const fixture = await seedFixture();
     const commitSha = "f".repeat(40);
@@ -2622,7 +2652,6 @@ describe("Organization Skills", () => {
       vi.unstubAllGlobals();
     }
   });
-
   it("does not turn a repeated install into success or delete a committed release after an edit", async () => {
     const fixture = await seedFixture();
     const request = {
@@ -2664,7 +2693,6 @@ describe("Organization Skills", () => {
       expectedVersion: original.version,
     });
     const originalObjectKey = `organizations/${fixture.organizationId}/skills/${original.id}/releases/${original.activeRelease.id}.json`;
-
     await expect(
       rpcCenterAgentInstallOrganizationSkill(coreEnv(), {
         ...request,
@@ -2673,7 +2701,6 @@ describe("Organization Skills", () => {
     ).rejects.toMatchObject({
       cause: { code: "organization_skill.name_exists", status: 409 },
     });
-
     expect(
       await env.OPENMELD_ORGANIZATION_SKILLS.get(originalObjectKey)
     ).not.toBeNull();
@@ -2688,7 +2715,6 @@ describe("Organization Skills", () => {
     });
   });
 });
-
 function readGitHubFixtureResponse(url: string, commitSha: string): Response {
   if (url === "https://api.github.com/repos/acme/skills") {
     return Response.json({ default_branch: "main" });
@@ -2726,29 +2752,26 @@ function readGitHubFixtureResponse(url: string, commitSha: string): Response {
   }
   return new Response("not found", { status: 404 });
 }
-
 function createService(
   input: {
-    db?: D1Database;
+    db?: PostgresDatabase;
     fetch?: typeof fetch;
     fileBackedWritesEnabled?: boolean;
   } = {}
 ) {
   return createOrganizationSkillService({
     bucket: env.OPENMELD_ORGANIZATION_SKILLS,
-    db: input.db ?? env.OPENMELD_DB,
+    db: input.db ?? getPostgresDatabase(env),
     fetch: input.fetch,
     fileBackedWritesEnabled: input.fileBackedWritesEnabled,
   });
 }
-
 function coreEnv(): CoreBindings {
   return {
-    OPENMELD_DB: env.OPENMELD_DB,
+    OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL,
     OPENMELD_ORGANIZATION_SKILLS: env.OPENMELD_ORGANIZATION_SKILLS,
   } as CoreBindings;
 }
-
 function centerAgentRequestContext(
   fixture: Awaited<ReturnType<typeof seedFixture>>
 ) {
@@ -2764,7 +2787,6 @@ function centerAgentRequestContext(
     },
   };
 }
-
 async function seedFixture(): Promise<{
   centerAgentProfileId: string;
   member: OrganizationSkillActor;
@@ -2779,38 +2801,45 @@ async function seedFixture(): Promise<{
     { id: `skill_owner_${suffix}`, name: "Olivia Owner", role: "owner" },
     { id: `skill_member_${suffix}`, name: "Morgan Member", role: "member" },
   ] as const;
-  await env.OPENMELD_DB.prepare(
-    "INSERT INTO organizations (id, name, slug, created_at) VALUES (?, ?, ?, ?)"
-  )
-    .bind(organizationId, "Skills Org", `skills-${suffix}`, 1000)
-    .run();
+  await getPostgresDatabase(env).query({
+    ...{
+      text: 'INSERT INTO "openmeld"."organizations" (id, name, slug, created_at) VALUES ($1, $2, $3, $4)',
+      values: [],
+    },
+    values: [organizationId, "Skills Org", `skills-${suffix}`, 1000],
+  });
   for (const [index, user] of users.entries()) {
-    await env.OPENMELD_DB.prepare(
-      "INSERT INTO users (id, name, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)"
-    )
-      .bind(
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'INSERT INTO "openmeld"."users" (id, name, email, email_verified, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6)',
+        values: [],
+      },
+      values: [
         user.id,
         user.name,
         `skills-${index}-${suffix}@example.com`,
         1,
         1000,
-        1000
-      )
-      .run();
-    await env.OPENMELD_DB.prepare(
-      "INSERT INTO members (id, organization_id, user_id, role, created_at) VALUES (?, ?, ?, ?, ?)"
-    )
-      .bind(
+        1000,
+      ],
+    });
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'INSERT INTO "openmeld"."members" (id, organization_id, user_id, role, created_at) VALUES ($1, $2, $3, $4, $5)',
+        values: [],
+      },
+      values: [
         `skill_membership_${index}_${suffix}`,
         organizationId,
         user.id,
         user.role,
-        1000
-      )
-      .run();
-    await env.OPENMELD_DB.prepare(
-      `
-        INSERT INTO openmeld_profiles (
+        1000,
+      ],
+    });
+    await getPostgresDatabase(env).query({
+      ...{
+        text: `
+        INSERT INTO "openmeld"."openmeld_profiles" (
           profile_id,
           profile_name,
           profile_handle,
@@ -2822,24 +2851,26 @@ async function seedFixture(): Promise<{
           source,
           created_at,
           updated_at
-        ) VALUES (?, ?, ?, 'human', 1, 'active', ?, ?, 'auth_bootstrap', ?, ?)
-      `
-    )
-      .bind(
+        ) VALUES ($1, $2, $3, 'human', 1, 'active', $4, $5, 'auth_bootstrap', $6, $7)
+      `,
+        values: [],
+      },
+      values: [
         crypto.randomUUID(),
         user.name,
         `skill-human-${index}-${suffix}`,
         user.id,
         user.id,
         1000,
-        1000
-      )
-      .run();
+        1000,
+      ],
+    });
   }
   const centerAgentProfileId = `agt_${crypto.randomUUID()}`;
-  await env.OPENMELD_DB.prepare(
-    `
-      INSERT INTO openmeld_profiles (
+  await getPostgresDatabase(env).query({
+    ...{
+      text: `
+      INSERT INTO "openmeld"."openmeld_profiles" (
         profile_id,
         profile_name,
         profile_handle,
@@ -2853,31 +2884,34 @@ async function seedFixture(): Promise<{
         managed_role,
         created_at,
         updated_at
-      ) VALUES (?, 'Center Agent', ?, 'agent', 0, 'active', ?, NULL, ?, 'cli_create', 'center_agent', ?, ?)
-    `
-  )
-    .bind(
+      ) VALUES ($1, 'Center Agent', $2, 'agent', 0, 'active', $3, NULL, $4, 'cli_create', 'center_agent', $5, $6)
+    `,
+      values: [],
+    },
+    values: [
       centerAgentProfileId,
       `skill-center-${suffix}`,
       organizationId,
       users[0].id,
       1000,
-      1000
-    )
-    .run();
-  await env.OPENMELD_DB.prepare(
-    `
-      INSERT INTO center_agent_designations (
+      1000,
+    ],
+  });
+  await getPostgresDatabase(env).query({
+    ...{
+      text: `
+      INSERT INTO "openmeld"."center_agent_designations" (
         organization_id,
         agent_profile_id,
         duty,
         designated_by,
         created_at
-      ) VALUES (?, ?, NULL, ?, ?)
-    `
-  )
-    .bind(organizationId, centerAgentProfileId, users[0].id, 1000)
-    .run();
+      ) VALUES ($1, $2, NULL, $3, $4)
+    `,
+      values: [],
+    },
+    values: [organizationId, centerAgentProfileId, users[0].id, 1000],
+  });
   return {
     centerAgentProfileId,
     member: {

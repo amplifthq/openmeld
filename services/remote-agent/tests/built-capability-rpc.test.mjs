@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
-import { createRequire } from "node:module";
+import { builtinModules, createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -57,6 +57,16 @@ test("the real Core resolver negotiates through the built Remote service binding
       format: "esm",
       platform: "neutral",
       target: "es2022",
+      // Match Workers' native Node module resolution for Core's pg dependency.
+      alias: Object.fromEntries(
+        builtinModules
+          .filter((name) => !name.startsWith("node:"))
+          .map((name) => [name, `node:${name}`])
+      ),
+      banner: {
+        // This in-memory module has no import.meta.url; require resolves builtins.
+        js: 'import { createRequire as createWorkerRequire } from "node:module"; const require = createWorkerRequire("/caller.mjs");',
+      },
       external: ["cloudflare:*", "node:*"],
       outfile: caller,
     });

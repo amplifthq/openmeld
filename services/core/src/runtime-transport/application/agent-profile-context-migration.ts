@@ -1,6 +1,6 @@
 import { executionContextLegacyAssociationSchema } from "@openmeld/schemas";
 import type { ExecutionContextLegacyAssociation } from "@openmeld/schemas/types";
-import type { AgentProfileBindingRecord } from "../../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
+import type { AgentProfileBindingRecord } from "../../agent-profile-binding/infrastructure/postgresql/agent-profile-binding-repo";
 
 export type LegacyContextAssociation = ExecutionContextLegacyAssociation;
 

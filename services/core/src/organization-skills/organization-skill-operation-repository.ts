@@ -1,15 +1,13 @@
+import type { PostgresDatabase, QueryConfig } from "@openmeld/db/postgresql";
 import { createCoreRpcHttpError } from "../rpc/errors";
 
 const ORGANIZATION_SKILL_OPERATION_LEASE_MS = 5 * 60_000;
-
 export type OrganizationSkillOperationKind = "center_agent" | "human_import";
-
 function operationTable(kind: OrganizationSkillOperationKind): string {
   return kind === "center_agent"
-    ? "center_agent_organization_skill_operations"
-    : "organization_skill_import_operations";
+    ? '"openmeld"."center_agent_organization_skill_operations"'
+    : '"openmeld"."organization_skill_import_operations"';
 }
-
 export type OrganizationSkillOperationRecord = {
   completedAt: number | null;
   createdAt: number;
@@ -18,12 +16,10 @@ export type OrganizationSkillOperationRecord = {
   requestSignature: string;
   responseJson: string | null;
 };
-
 export type BeginOrganizationSkillOperationResult = {
   operation: OrganizationSkillOperationRecord;
   outcome: "claimed" | "completed_replay" | "pending_in_progress";
 };
-
 type OperationRow = {
   completed_at: number | null;
   created_at: number;
@@ -32,7 +28,6 @@ type OperationRow = {
   request_signature: string;
   response_json: string | null;
 };
-
 export async function buildCenterAgentOrganizationSkillOperationKey(input: {
   action: string;
   actorProfileId: string;
@@ -42,7 +37,6 @@ export async function buildCenterAgentOrganizationSkillOperationKey(input: {
 }): Promise<string> {
   return `center_agent_org_skill_${await sha256Hex(stableJson(input))}`;
 }
-
 export async function buildHumanOrganizationSkillImportOperationKey(input: {
   actorProfileId: string;
   operationId: string;
@@ -51,15 +45,13 @@ export async function buildHumanOrganizationSkillImportOperationKey(input: {
 }): Promise<string> {
   return `human_org_skill_import_${await sha256Hex(stableJson(input))}`;
 }
-
 export async function buildOrganizationSkillRequestSignature(
   value: unknown
 ): Promise<string> {
   return await sha256Hex(stableJson(value));
 }
-
 export async function beginOrganizationSkillOperation(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   kind: OrganizationSkillOperationKind;
   nowMs: number;
   operationKey: string;
@@ -67,26 +59,23 @@ export async function beginOrganizationSkillOperation(input: {
   requestSignature: string;
 }): Promise<BeginOrganizationSkillOperationResult> {
   const table = operationTable(input.kind);
-  const insert = await input.db
-    .prepare(
-      `
-        INSERT OR IGNORE INTO ${table} (
+  const insert = await input.db.query({
+    text: `
+        INSERT INTO ${table} (
           completed_at,
           created_at,
           operation_id,
           organization_id,
           request_signature,
           response_json
-        ) VALUES (NULL, ?, ?, ?, ?, NULL)
-      `
-    )
-    .bind(
+        ) VALUES (NULL, $1, $2, $3, $4, NULL) ON CONFLICT DO NOTHING`,
+    values: [
       input.nowMs,
       input.operationKey,
       input.organizationId,
-      input.requestSignature
-    )
-    .run();
+      input.requestSignature,
+    ],
+  });
   const operation = await requireOperation({
     db: input.db,
     kind: input.kind,
@@ -94,33 +83,31 @@ export async function beginOrganizationSkillOperation(input: {
     organizationId: input.organizationId,
   });
   requireRequestMatch(operation, input.requestSignature);
-  if (Number(insert.meta.changes ?? 0) === 1) {
+  if (Number(insert.rowCount ?? 0) === 1) {
     return { operation, outcome: "claimed" };
   }
   if (operation.completedAt !== null) {
     return { operation, outcome: "completed_replay" };
   }
-  const takeover = await input.db
-    .prepare(
-      `
+  const takeover = await input.db.query({
+    text: `
         UPDATE ${table}
-        SET created_at = ?
-        WHERE organization_id = ?
-          AND operation_id = ?
-          AND request_signature = ?
+        SET created_at = $1
+        WHERE organization_id = $2
+          AND operation_id = $3
+          AND request_signature = $4
           AND completed_at IS NULL
-          AND created_at <= ?
-      `
-    )
-    .bind(
+          AND created_at <= $5
+      `,
+    values: [
       input.nowMs,
       input.organizationId,
       input.operationKey,
       input.requestSignature,
-      input.nowMs - ORGANIZATION_SKILL_OPERATION_LEASE_MS
-    )
-    .run();
-  if (Number(takeover.meta.changes ?? 0) !== 1) {
+      input.nowMs - ORGANIZATION_SKILL_OPERATION_LEASE_MS,
+    ],
+  });
+  if (Number(takeover.rowCount ?? 0) !== 1) {
     return { operation, outcome: "pending_in_progress" };
   }
   return {
@@ -133,90 +120,82 @@ export async function beginOrganizationSkillOperation(input: {
     outcome: "claimed",
   };
 }
-
 export function prepareCompleteOrganizationSkillOperationStatement(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   kind: OrganizationSkillOperationKind;
   nowMs: number;
   operation: OrganizationSkillOperationRecord;
   responseJson: string;
-}): D1PreparedStatement {
-  return input.db
-    .prepare(
-      `
+}): QueryConfig {
+  return {
+    text: `
         UPDATE ${operationTable(input.kind)}
-        SET completed_at = ?, response_json = ?
-        WHERE organization_id = ?
-          AND operation_id = ?
-          AND request_signature = ?
+        SET completed_at = $1, response_json = $2
+        WHERE organization_id = $3
+          AND operation_id = $4
+          AND request_signature = $5
           AND completed_at IS NULL
-          AND created_at = ?
-      `
-    )
-    .bind(
+          AND created_at = $6
+      `,
+    values: [
       input.nowMs,
       input.responseJson,
       input.operation.organizationId,
       input.operation.operationKey,
       input.operation.requestSignature,
-      input.operation.createdAt
-    );
+      input.operation.createdAt,
+    ],
+  };
 }
-
 export async function deletePendingOrganizationSkillOperation(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   kind: OrganizationSkillOperationKind;
   operation: OrganizationSkillOperationRecord;
 }): Promise<void> {
-  await input.db
-    .prepare(
-      `
+  await input.db.query({
+    text: `
         DELETE FROM ${operationTable(input.kind)}
-        WHERE organization_id = ?
-          AND operation_id = ?
-          AND request_signature = ?
+        WHERE organization_id = $1
+          AND operation_id = $2
+          AND request_signature = $3
           AND completed_at IS NULL
-          AND created_at = ?
-      `
-    )
-    .bind(
+          AND created_at = $4
+      `,
+    values: [
       input.operation.organizationId,
       input.operation.operationKey,
       input.operation.requestSignature,
-      input.operation.createdAt
-    )
-    .run();
+      input.operation.createdAt,
+    ],
+  });
 }
-
 export async function readOrganizationSkillOperation(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   kind: OrganizationSkillOperationKind;
   operationKey: string;
   organizationId: string;
 }): Promise<OrganizationSkillOperationRecord | null> {
   const row = await input.db
-    .prepare(
-      `
+    .query<OperationRow>({
+      text: `
         SELECT *
         FROM ${operationTable(input.kind)}
-        WHERE organization_id = ? AND operation_id = ?
+        WHERE organization_id = $1 AND operation_id = $2
         LIMIT 1
-      `
-    )
-    .bind(input.organizationId, input.operationKey)
-    .first<OperationRow>();
+      `,
+      values: [input.organizationId, input.operationKey],
+    })
+    .then((result) => result.rows[0] ?? null);
   return row ? fromRow(row) : null;
 }
-
 export function requireOrganizationSkillRequestMatch(
   operation: OrganizationSkillOperationRecord,
   requestSignature: string
 ): void {
   requireRequestMatch(operation, requestSignature);
 }
-
 async function requireOperation(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   kind: OrganizationSkillOperationKind;
   operationKey: string;
   organizationId: string;
@@ -227,7 +206,6 @@ async function requireOperation(input: {
   }
   return operation;
 }
-
 function requireRequestMatch(
   operation: OrganizationSkillOperationRecord,
   requestSignature: string
@@ -242,7 +220,6 @@ function requireRequestMatch(
     status: 409,
   });
 }
-
 function fromRow(row: OperationRow): OrganizationSkillOperationRecord {
   return {
     completedAt: row.completed_at,
@@ -253,11 +230,9 @@ function fromRow(row: OperationRow): OrganizationSkillOperationRecord {
     responseJson: row.response_json,
   };
 }
-
 function stableJson(value: unknown): string {
   return JSON.stringify(sortJson(value));
 }
-
 function sortJson(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map(sortJson);
@@ -276,7 +251,6 @@ function sortJson(value: unknown): unknown {
   }
   return value;
 }
-
 async function sha256Hex(value: string): Promise<string> {
   const digest = await crypto.subtle.digest(
     "SHA-256",

@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import type { SpaceOwnerDepartureWorker } from "@openmeld/schemas";
 import type { BetterAuthPlugin } from "better-auth";
 import {
@@ -6,10 +7,9 @@ import {
   getSessionFromCtx,
 } from "better-auth/api";
 import { requireSpaceOwnershipHandoff } from "../organization/space-owner-departure";
-
 export function createSpaceOwnerDeparturePlugin(input: {
   coreWorker?: SpaceOwnerDepartureWorker;
-  db?: D1Database;
+  db?: PostgresDatabase;
 }): BetterAuthPlugin {
   return {
     id: "openmeld-space-owner-departure",
@@ -44,11 +44,13 @@ export function createSpaceOwnerDeparturePlugin(input: {
                 message: "Couldn't check Space ownership. Try again.",
               });
             }
-            const memberships = await input.db
-              .prepare("SELECT organization_id FROM members WHERE user_id = ?")
-              .bind(session.user.id)
-              .all<{ organization_id: string }>();
-            for (const membership of memberships.results) {
+            const memberships = await input.db.query<{
+              organization_id: string;
+            }>({
+              text: 'SELECT organization_id FROM "openmeld"."members" WHERE user_id = $1',
+              values: [session.user.id],
+            });
+            for (const membership of memberships.rows) {
               await requireSpaceOwnershipHandoff({
                 coreWorker: input.coreWorker,
                 organizationId: membership.organization_id,

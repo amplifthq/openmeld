@@ -13,6 +13,8 @@ const CONTROL_PATH =
 const SOURCE_PATH = /\.[cm]?[jt]sx?$/u;
 const NODE_SOURCE_PATH = /^scripts\/.*\.mjs$/u;
 const VITEST_SCRIPT = /^vitest run(?: --(?:config|environment) [\w./-]+)*$/u;
+const NATIVE_POSTGRESQL_VITEST_SCRIPT =
+  /^node \.\.\/\.\.\/tooling\/postgresql\/local\.mjs run pnpm exec (vitest run.*)$/u;
 const WHITESPACE = /\s+/u;
 const NODE_EXTENSION = /\.mjs$/u;
 const VITEST_TEST_FILE = /\.(?:test|spec)\.[cm]?[jt]sx?$/u;
@@ -203,7 +205,9 @@ function focusedWorkspaceCommands(paths, workspace, existingFiles) {
         existingFiles.has(file)
     )
     .map((file) => file.slice(workspace.directory.length + 1));
-  if (!VITEST_SCRIPT.test(workspace.test)) {
+  const nativeCommand = NATIVE_POSTGRESQL_VITEST_SCRIPT.exec(workspace.test);
+  const unitCommand = nativeCommand?.[1] ?? workspace.test;
+  if (!VITEST_SCRIPT.test(unitCommand)) {
     return [];
   }
   const tests = new Set();
@@ -225,11 +229,14 @@ function focusedWorkspaceCommands(paths, workspace, existingFiles) {
   }
   return [
     [
+      ...(nativeCommand
+        ? ["exec", "node", "tooling/postgresql/local.mjs", "run", "pnpm"]
+        : []),
       "exec",
       "node",
       "scripts/dev/run-focused-workspace-tests.mjs",
       workspace.directory,
-      workspace.test,
+      unitCommand,
       ...tests,
     ],
   ];

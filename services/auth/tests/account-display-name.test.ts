@@ -1,12 +1,14 @@
+import { withPostgresRequest } from "@openmeld/db/postgresql";
 import { afterEach, describe, expect, it } from "vitest";
-import type { AuthBindings } from "../src/lib/bindings";
-import { createHonoApp } from "../src/lib/hono/create-hono-app";
-import { getOpenMeldProfileService } from "../src/lib/profiles/service";
 import {
-  applyDrizzleMigrations,
-  createSqliteD1Harness,
-  type SqliteD1Harness,
-} from "./support/sqlite-d1-harness";
+  createPostgresHarness,
+  installPostgresWriteFailure,
+  type PostgresHarness,
+  postgresTestBinding,
+} from "../../../tooling/postgresql/test-harness";
+import type { AuthBindings } from "../src/lib/bindings";
+import { getOpenMeldProfileService } from "../src/lib/profiles/service";
+import { createAuthWorkerTestApp } from "./support/auth-worker-entrypoint.test-support";
 
 const AUTH_BASE_URL = "http://localhost:8788";
 const WEB_APP_URL = "http://localhost:3000";
@@ -19,13 +21,13 @@ const TEST_EXECUTION_CONTEXT = {
   waitUntil: () => undefined,
 } as unknown as ExecutionContext;
 
-type TestContext = ReturnType<typeof createTestContext>;
+type TestContext = Awaited<ReturnType<typeof createTestContext>>;
 
 const contexts: TestContext[] = [];
 
-afterEach(() => {
+afterEach(async () => {
   for (const context of contexts.splice(0)) {
-    context.harness.close();
+    await context.harness.close();
   }
 });
 
@@ -34,18 +36,20 @@ describe("account display name HTTP API", () => {
     "TRUE",
     "1",
     " true ",
-  ])("fails closed for a malformed additional Human Profile capability value: %s", (capabilityValue) => {
-    const context = createTestContext({ capabilityValue });
+  ])("fails closed for a malformed additional Human Profile capability value: %s", async (capabilityValue) => {
+    const context = await createTestContext({ capabilityValue });
 
     expect(
-      getOpenMeldProfileService(context.env).getProfileCapabilities()
+      await withPostgresRequest(context.env.OPENMELD_POSTGRESQL, () =>
+        getOpenMeldProfileService(context.env).getProfileCapabilities()
+      )
     ).toEqual({
       additionalHumanProfileCreationEnabled: false,
     });
   });
 
   it("publishes the disabled capability and rejects additional Human Profile creation by default", async () => {
-    const context = createTestContext();
+    const context = await createTestContext();
     const account = await createSignedInUser(context, {
       email: "single-human-profile@example.com",
       name: "Felix Lu",
@@ -92,7 +96,7 @@ describe("account display name HTTP API", () => {
   });
 
   it("keeps the account display name and default Human Profile name synchronized", async () => {
-    const context = createTestContext();
+    const context = await createTestContext();
     const account = await createSignedInUser(context, {
       email: "felix@example.com",
       name: "felix lu",
@@ -124,7 +128,7 @@ describe("account display name HTTP API", () => {
   });
 
   it("routes a default Human Profile rename through the same paired command", async () => {
-    const context = createTestContext();
+    const context = await createTestContext();
     const account = await createSignedInUser(context, {
       email: "default-profile@example.com",
       name: "Initial Name",
@@ -159,7 +163,7 @@ describe("account display name HTTP API", () => {
   });
 
   it("keeps non-default Human Profile names independent from the Account Display Name", async () => {
-    const context = createTestContext({
+    const context = await createTestContext({
       additionalHumanProfileCreationEnabled: true,
     });
     const account = await createSignedInUser(context, {
@@ -206,7 +210,7 @@ describe("account display name HTTP API", () => {
   });
 
   it("routes the legacy name-only endpoint through the paired command", async () => {
-    const context = createTestContext();
+    const context = await createTestContext();
     const account = await createSignedInUser(context, {
       email: "bypass@example.com",
       name: "Original Name",
@@ -229,7 +233,7 @@ describe("account display name HTTP API", () => {
   });
 
   it("rejects other Better Auth user fields instead of reopening a generic writer", async () => {
-    const context = createTestContext();
+    const context = await createTestContext();
     const account = await createSignedInUser(context, {
       email: "generic-writer@example.com",
       name: "Original Name",
@@ -255,19 +259,19 @@ describe("account display name HTTP API", () => {
   });
 
   it("rolls back the Account Display Name when the default Human Profile update fails", async () => {
-    const context = createTestContext();
+    const context = await createTestContext();
     const account = await createSignedInUser(context, {
       email: "rollback@example.com",
       name: "Stable Name",
     });
-    context.harness.database.exec(`
-      create trigger reject_default_human_profile_name
-      before update of profile_name on openmeld_profiles
-      when new.profile_name = 'Rejected Name'
-      begin
-        select raise(abort, 'profile name rejected by test');
-      end
-    `);
+    await installPostgresWriteFailure({
+      harness: context.harness,
+      table: "openmeld_profiles",
+      operation: "UPDATE",
+      columns: ["profile_name"],
+      condition: "new.profile_name = 'Rejected Name'",
+      message: "profile name rejected by test",
+    });
 
     const updateResponse = await patchJson(
       context,
@@ -286,16 +290,14 @@ describe("account display name HTTP API", () => {
   });
 });
 
-function createTestContext(
+async function createTestContext(
   options: {
     additionalHumanProfileCreationEnabled?: boolean;
     capabilityValue?: string;
   } = {}
 ) {
-  const harness = createSqliteD1Harness({
-    rejectExplicitTransactions: true,
-  });
-  applyDrizzleMigrations(harness.database);
+  const harness = await createPostgresHarness();
+
   const env = {
     AUTH_BRAND_NAME: "OpenMeld",
     AUTH_COOKIE_DOMAIN: "localhost",
@@ -315,11 +317,11 @@ function createTestContext(
         ? "true"
         : "false"),
     OPENMELD_AUTH_KV: {},
-    OPENMELD_DB: harness.db,
+    OPENMELD_POSTGRESQL: postgresTestBinding(harness.db),
     WEB_APP_URL,
   } as unknown as AuthBindings;
   const context = {
-    app: createHonoApp(),
+    app: createAuthWorkerTestApp(),
     env,
     harness,
   };
@@ -342,7 +344,7 @@ async function createSignedInUser(
     );
   }
 
-  setEmailVerified(context.harness, input.email, true);
+  await setEmailVerified(context.harness, input.email, true);
   const signInResponse = await postJson(context, "/api/auth/sign-in/email", {
     email: input.email,
     password: PASSWORD,
@@ -464,14 +466,14 @@ function requestJson(
   );
 }
 
-function setEmailVerified(
-  harness: SqliteD1Harness,
+async function setEmailVerified(
+  harness: PostgresHarness,
   email: string,
   verified: boolean
-): void {
-  harness.run({
-    params: [verified ? 1 : 0, email],
-    sql: "update users set email_verified = ? where email = ?",
+): Promise<void> {
+  await harness.query({
+    values: [verified ? 1 : 0, email],
+    text: 'update "openmeld"."users" set email_verified = $1 where email = $2',
   });
 }
 

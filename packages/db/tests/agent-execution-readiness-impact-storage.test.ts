@@ -3,6 +3,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { assertNativeStorageContract } from "./native-storage.test-support";
 
 const repoRootDirectoryPath = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -11,13 +12,6 @@ const repoRootDirectoryPath = path.resolve(
 
 const TABLE_NAME = "openMeldDaemon_agent_execution_readiness_impacts";
 const UNIQUE_ERROR_PATTERN = /UNIQUE/;
-
-const readRepoFile = (relativePath: string): string => {
-  return fs.readFileSync(
-    path.resolve(repoRootDirectoryPath, relativePath),
-    "utf8"
-  );
-};
 
 const readSharedMigrationStatements = (): readonly string[] => {
   const migrationDirectoryPath = path.resolve(
@@ -44,39 +38,60 @@ const applySharedMigrations = (database: DatabaseSync) => {
 };
 
 describe("Agent execution readiness impact storage schema", () => {
-  it("stores one fresh readiness impact per execution target, with TTL and clearing", () => {
-    const schemaSource = readRepoFile(
-      "packages/db/src/core/agent-execution-readiness-impact.schema.ts"
-    );
-    const coreIndexSource = readRepoFile("packages/db/src/core/index.ts");
-    const coreSchemaSource = readRepoFile(
-      "packages/db/src/core/dispatch.schema.ts"
-    );
-    const sharedSchemaSource = readRepoFile("packages/db/src/schema.ts");
-
-    expect(schemaSource).toContain(
-      "export const openMeldDaemonAgentExecutionReadinessImpacts = sqliteTable("
-    );
-    expect(schemaSource).toContain(`"${TABLE_NAME}"`);
-    expect(schemaSource).toContain(
-      "openMeldDaemon_agent_execution_readiness_impacts_target_kind_unique"
-    );
-    expect(schemaSource).toContain(
-      "idx_openMeldDaemon_agent_execution_readiness_impacts_readiness"
-    );
-    expect(schemaSource).toContain(
-      "idx_openMeldDaemon_agent_execution_readiness_impacts_source_dispatch"
-    );
-
-    expect(coreIndexSource).toContain(
-      "openMeldDaemonAgentExecutionReadinessImpacts"
-    );
-    expect(coreSchemaSource).toContain(
-      "openMeldDaemonAgentExecutionReadinessImpacts"
-    );
-    expect(sharedSchemaSource).toContain(
-      "openMeldDaemonAgentExecutionReadinessImpacts"
-    );
+  it("stores one fresh readiness impact per execution target, with TTL and clearing", async () => {
+    await assertNativeStorageContract({
+      table: "openMeldDaemon_agent_execution_readiness_impacts",
+      uniqueKey: [
+        "agent_profile_id",
+        "binding_id",
+        "openmeld_service_runtime_id",
+        "agent_controller_ref",
+        "impact_kind",
+      ],
+      epochColumns: [
+        "observed_at_ms",
+        "expires_at_ms",
+        "cleared_at_ms",
+        "created_at_ms",
+        "updated_at_ms",
+      ],
+      record: {
+        impact_id: "impact-a",
+        impact_kind: "local_execution",
+        agent_profile_id: "agent-a",
+        binding_id: "binding-a",
+        openmeld_service_runtime_id: "runtime-a",
+        agent_controller_ref: "builtin:codex",
+        reason_code: "controller.client.upgrade_required",
+        source: "wake_failure",
+        source_dispatch_id: "dispatch-a",
+        source_attempt_id: "attempt-a",
+        observed_at_ms: 1_700_000_000_000,
+        expires_at_ms: 1_700_000_001_000,
+        cleared_at_ms: null,
+        cleared_by_dispatch_id: null,
+        created_at_ms: 1_700_000_000_000,
+        updated_at_ms: 1_700_000_000_000,
+      },
+      distinctRecord: {
+        impact_id: "impact-b",
+        impact_kind: "local_execution",
+        agent_profile_id: "agent-a",
+        binding_id: "binding-a",
+        openmeld_service_runtime_id: "runtime-b",
+        agent_controller_ref: "builtin:codex",
+        reason_code: "controller.client.upgrade_required",
+        source: "wake_failure",
+        source_dispatch_id: "dispatch-a",
+        source_attempt_id: "attempt-a",
+        observed_at_ms: 1_700_000_000_000,
+        expires_at_ms: 1_700_000_001_000,
+        cleared_at_ms: null,
+        cleared_by_dispatch_id: null,
+        created_at_ms: 1_700_000_000_000,
+        updated_at_ms: 1_700_000_000_000,
+      },
+    });
 
     const database = new DatabaseSync(":memory:");
     try {

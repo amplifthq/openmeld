@@ -1,14 +1,8 @@
 import { desc, sql } from "drizzle-orm";
-import {
-  check,
-  index,
-  integer,
-  sqliteTable,
-  text,
-  uniqueIndex,
-} from "drizzle-orm/sqlite-core";
+import { bigint, check, index, text, uniqueIndex } from "drizzle-orm/pg-core";
+import { applicationTable } from "../postgresql/schema.ts";
 
-export const openMeldDaemonProviderConversationProofs = sqliteTable(
+export const openMeldDaemonProviderConversationProofs = applicationTable(
   "openMeldDaemon_provider_conversation_proofs",
   {
     proofId: text("proof_id").primaryKey(),
@@ -23,14 +17,14 @@ export const openMeldDaemonProviderConversationProofs = sqliteTable(
       "agent_controller_conversation_id"
     ).notNull(),
     transportMode: text("transport_mode").notNull(),
-    intrusive: integer("intrusive").notNull(),
+    intrusive: bigint("intrusive", { mode: "number" }).notNull(),
     errorCode: text("error_code"),
     errorType: text("error_type"),
     errorMessage: text("error_message"),
-    observedAtMs: integer("observed_at_ms").notNull(),
-    expiresAtMs: integer("expires_at_ms").notNull(),
-    createdAtMs: integer("created_at_ms").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    observedAtMs: bigint("observed_at_ms", { mode: "number" }).notNull(),
+    expiresAtMs: bigint("expires_at_ms", { mode: "number" }).notNull(),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     uniqueIndex(

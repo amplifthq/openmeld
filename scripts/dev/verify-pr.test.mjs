@@ -126,7 +126,7 @@ test("focused PR validation keeps checks for changed workspaces with adjacent te
 test("Core feedback delegates every selected file to the package-owned runner contracts", () => {
   const paths = [
     "services/core/tests-node/local-contract.test.ts",
-    "services/core/tests-split-gate/dispatch-queue-hot-path.split-routing.test.ts",
+    "services/core/tests-postgresql-owner/dispatch-queue.test.ts",
     "services/core/tests/remote-agent-routine-delivery.integration.test.ts",
   ];
   const commands = planPrChecks(paths, {
@@ -136,7 +136,7 @@ test("Core feedback delegates every selected file to the package-owned runner co
       {
         directory: "services/core",
         name: "@openmeld/core",
-        test: "vitest run --config vitest.boundary.config.ts",
+        test: "node ../../tooling/postgresql/local.mjs run pnpm exec vitest run --config vitest.boundary.config.ts",
       },
     ],
   });
@@ -145,7 +145,7 @@ test("Core feedback delegates every selected file to the package-owned runner co
       .find((args) =>
         args.includes("scripts/dev/run-focused-workspace-tests.mjs")
       )
-      .slice(5),
+      .slice(10),
     paths.map((file) => file.slice("services/core/".length))
   );
 });

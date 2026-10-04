@@ -1,9 +1,6 @@
-import {
-  buildRuntimeCoordinatorExecutionEventId,
-  RUNTIME_COORDINATOR_EXECUTION_MODEL_VERSION,
-} from "@openmeld/schemas";
+import { RUNTIME_COORDINATOR_EXECUTION_MODEL_VERSION } from "@openmeld/schemas";
 import type { RuntimeCoordinatorExecutionTokenAuthorityRecord } from "@openmeld/schemas/types";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   buildRuntimeCoordinatorCancelledExecutionRecord,
   settleRuntimeCoordinatorAuthorityForCancellationAccepted,
@@ -25,7 +22,6 @@ import {
   validateRuntimeCoordinatorExecutionToken,
   validateRuntimeCoordinatorExecutionTokenAgainstAuthority,
 } from "../runtime-transport/application/runtime-coordinator-execution-token";
-import { writeRuntimeCoordinatorExecutionEventFromParts } from "../runtime-transport/infrastructure/d1/runtime-coordinator-execution-repo";
 
 const RUNTIME_COORDINATOR_TOKEN_AUTHORITY_MODEL_VERSION =
   "openmeld.runtime_coordinator.token_authority.v1";
@@ -57,48 +53,6 @@ const tokenScope: RuntimeCoordinatorTokenScope = {
 };
 
 describe("runtime coordinator execution token helper", () => {
-  it("bounds long diagnostic identities without changing legacy replay identities or correlation", async () => {
-    const rows: unknown[][] = [];
-    const db = {
-      prepare: () => ({
-        bind: (...values: unknown[]) => ({
-          run: () => {
-            rows.push(values);
-            return Promise.resolve();
-          },
-        }),
-      }),
-    } as unknown as D1Database;
-    const input = {
-      db,
-      eventType: "execution_token_terminal_late" as const,
-      runtimeCoordinatorExecutionId: "e".repeat(200),
-      idempotencyKey: `token_validation:${"e".repeat(200)}:lifecycle:${"r".repeat(120)}`,
-      observedAtMs: 1000,
-      payload: { frameKind: "lifecycle" },
-    };
-    await writeRuntimeCoordinatorExecutionEventFromParts(input);
-    await writeRuntimeCoordinatorExecutionEventFromParts({
-      ...input,
-      observedAtMs: 2000,
-    });
-    await writeRuntimeCoordinatorExecutionEventFromParts({
-      ...input,
-      idempotencyKey: `${input.idempotencyKey}:different`,
-    });
-    expect(String(rows[0]?.[0]).length).toBeLessThanOrEqual(512);
-    expect(rows[0]?.[0]).toBe(rows[1]?.[0]);
-    expect(rows[0]?.[0]).not.toBe(rows[2]?.[0]);
-    expect(rows[0]?.[1]).toBe(input.runtimeCoordinatorExecutionId);
-    expect(rows[0]?.[6]).toBe(input.idempotencyKey);
-    const short = {
-      ...input,
-      idempotencyKey: "short",
-      runtimeCoordinatorExecutionId: "rce-1",
-    };
-    await writeRuntimeCoordinatorExecutionEventFromParts(short);
-    expect(rows[3]?.[0]).toBe(buildRuntimeCoordinatorExecutionEventId(short));
-  });
   it("generates an opaque execution token with enough entropy material", () => {
     const token = generateRuntimeCoordinatorExecutionToken({
       randomBytes: (byteLength) =>
@@ -1017,49 +971,6 @@ describe("runtime coordinator execution token helper", () => {
         nowMs: 1_700_000_015_000,
       })
     ).toThrow("runtime_coordinator.token_authority_invalid");
-  });
-
-  it("redacts coordinator event payloads before writing D1 projection rows", async () => {
-    const validationHash = await createRuntimeCoordinatorTokenValidationHash({
-      executionToken: EXECUTION_TOKEN,
-      scope: tokenScope,
-    });
-    const fingerprint = await createRuntimeCoordinatorTokenFingerprint({
-      executionToken: EXECUTION_TOKEN,
-      scope: tokenScope,
-    });
-    const capturedParams: unknown[][] = [];
-    const db = {
-      prepare: vi.fn(() => ({
-        bind: vi.fn((...params: unknown[]) => {
-          capturedParams.push(params);
-          return {
-            run: vi.fn(async () => ({ meta: { changes: 1 } })),
-          };
-        }),
-      })),
-    } as unknown as D1Database;
-
-    await writeRuntimeCoordinatorExecutionEventFromParts({
-      db,
-      eventType: "result_received",
-      idempotencyKey: "rce-1::run-1",
-      observedAtMs: 1_700_000_000_000,
-      payload: {
-        executionToken: EXECUTION_TOKEN,
-        tokenFingerprint: fingerprint,
-        tokenValidationHash: validationHash,
-      },
-      reasonCode: "execution_token_issued",
-      runtimeCoordinatorExecutionId: "rce-1",
-      statusAfter: "delivery_accepted",
-    });
-
-    const payloadJson = String(capturedParams[0]?.[7]);
-    expect(payloadJson).not.toContain(EXECUTION_TOKEN);
-    expect(payloadJson).not.toContain(validationHash);
-    expect(payloadJson).toContain(fingerprint);
-    expect(payloadJson).toContain(REDACTED_RUNTIME_COORDINATOR_EXECUTION_TOKEN);
   });
 });
 

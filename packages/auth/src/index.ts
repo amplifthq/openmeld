@@ -50,7 +50,7 @@ export {
   LAST_USED_LOGIN_METHOD_COOKIE_NAME,
 } from "./configs/constants";
 
-export { createD1Db } from "./db";
+export { createAuthDatabase } from "./db";
 export type {
   OpenMeldProfileSpaceCreatorKind,
   OpenMeldProfileSpaceHistoryStatus,

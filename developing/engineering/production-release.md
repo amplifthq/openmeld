@@ -25,6 +25,40 @@ used to invent a second merge or evidence contract.
 
 Release only what changed.
 
+The PostgreSQL candidate uses the guarded local release lane and requires frozen
+import evidence for first production promotion. Hosted Auth/Core/CLI releases and
+shared-staging promotion remain closed: those lanes do not yet carry the private
+capture and maintenance admission. This window does not add hosted credentials
+or a separate migration channel. Unrelated hosted release targets retain their
+existing admission.
+For a read-only maintenance preparation plan through this same release owner:
+
+```bash
+pnpm release:plan -- --database-cutover --base <fixed-reviewed-baseline> --json
+```
+
+This reads local source impact, the registered PostgreSQL 18 target and native
+migration hashes. It reports the ordinary rolling-release ordering or its blocker,
+the complete coordinated scope to review, freeze/drain requirements, retained
+DO/R2 obligations and the before/after-first-write recovery boundary. It does not
+read production data, inspect live cloud resources, collect acceptance evidence,
+acquire a release lease or execute a step. `evidenceStatus: not_evaluated` and
+`promotionAllowed: false` are explicit; a successful plan is not a cutover pass.
+The option is accepted only by `plan`, with automatic impact discovery. It does
+not waive incompatible receiver-first dependencies or itself enable deployment.
+Its compatibility baseline is a source comparison only; deployed component
+receipts remain `not_inspected`. The actual release must establish each live
+component's source and receipt before deciding mixed-version compatibility.
+See [PostgreSQL cutover preparation](postgresql-cutover.md) for current evidence
+and the executable data/maintenance runbook. Deploy/preflight accept the separate
+`--database-cutover-snapshot <snapshot>` option. It requires coordinated
+`db,auth,core` scopes, live frozen-source/import reconciliation, native journal
+and grants, cache-disabled Hyperdrive and paused Cron under existing leases.
+Auth/Core use a checked temporary config whose only change is empty production
+Cron. After product acceptance, `deploy --scope auth,core
+--database-cutover-restore-crons` explicitly restores and reads back the same
+candidate's normal schedules. Cleanup and failed deployment never restore Cron.
+
 - A Web fix releases Web.
 - A public website fix releases Website, without rebuilding or deploying Web.
 - A Gateway fix releases Gateway.
@@ -478,8 +512,9 @@ with an explicit scope only when the changed contract and mixed-version behavior
 prove that narrower rollout is safe.
 
 Inbox notification observations add Core -> Gateway -> Web compatibility
-dependencies when the shared Inbox schema and Core observation owner change
-together. The existing dependency scheduler composes these edges with other
+dependencies when the shared Inbox schema and Web observation caller change
+together. A Core observation storage edit does not establish a changed caller
+contract. The existing dependency scheduler composes these edges with other
 contracts, including Remote Agent -> Core, and rejects cycles. Automatic scope
 selection includes all three components; a separate caller stage requires a
 verified receiver receipt. This additive observation API has the opposite
@@ -507,7 +542,16 @@ ready. Shared schemas and Core's native-delivery service are intentionally not
 directional path signals because they carry contracts in both directions.
 
 Remote AI usage adds the opposite dependency: Core's `recordRemoteAiUsage`
-receiver precedes its Remote producer. The planner composes this edge with the
+receiver precedes its Remote producer when the shared AI usage schema or Remote
+producer changes. A Core receiver-only edit does not establish that a new Remote
+producer contract exists. Likewise, Center Agent context-manifest ordering uses
+the explicit Core context projection owner, not a filename substring matching its
+private persistence repository. `compatibilityPathSignals` explains these two
+classifications, including matched paths and relevant non-trigger paths. These
+source signals do not certify a deployed receiver or authorize a breaking
+receiver-only change.
+
+The planner composes the metering edge with the
 request dependencies and rejects an unresolved cycle, including a single-stage
 guard that tries to skip a pending receiver. It must not report a safe train by
 choosing only one side of that cycle.
@@ -1467,6 +1511,13 @@ when recorded evidence proves that a later queued SHA safely supersedes it.
 Never cancel a running production job.
 
 ## Production Database Release
+
+This section owns the currently deployed D1 product database. PostgreSQL
+foundation preparation is owned by [postgresql.md](postgresql.md). Empty
+production-destination resources do not authorize cutover. Future PostgreSQL
+promotion must extend this guarded control plane and prove cutover/recovery
+conditions before changing product bindings; foundation commands cannot apply
+production migrations.
 
 Production database work has one implementation entrypoint:
 

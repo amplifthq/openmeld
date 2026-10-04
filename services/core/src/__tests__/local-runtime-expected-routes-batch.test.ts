@@ -1,11 +1,12 @@
 import { createAuthorityOpenMeldServiceRuntimeId } from "@openmeld/agent-runtime";
+import { PostgresDatabase } from "@openmeld/db/postgresql";
 import type { AuthRpcProfileFact } from "@openmeld/schemas/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readLocalRuntimeExpectedRoutes } from "../agent-profile-binding/application/local-runtime-expected-routes-service";
-import type { AgentProfileBindingRecord } from "../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
+import type { AgentProfileBindingRecord } from "../agent-profile-binding/infrastructure/postgresql/agent-profile-binding-repo";
 // biome-ignore lint/performance/noNamespaceImport: Per-test repository spy.
-import * as bindingRepo from "../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
-import { listEnabledPrimaryAgentProfileBindingRecords } from "../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
+import * as bindingRepo from "../agent-profile-binding/infrastructure/postgresql/agent-profile-binding-repo";
+import { listEnabledPrimaryAgentProfileBindingRecords } from "../agent-profile-binding/infrastructure/postgresql/agent-profile-binding-repo";
 import type { CoreBindings } from "../lib/bindings";
 // biome-ignore lint/performance/noNamespaceImport: Per-test runtime lookup spy.
 import * as runtimeLookup from "../runtime-registry/application/runtime-lookup-service";
@@ -110,7 +111,10 @@ function read(authWorker: unknown) {
   return readLocalRuntimeExpectedRoutes({
     authWorker: authWorker as CoreBindings["OPENMELD_AUTH_WORKER"],
     contractVersion: "v4",
-    db: {} as D1Database,
+    db: new PostgresDatabase({
+      connectionString:
+        "postgresql://127.0.0.1:1/unexpected_test_database_access",
+    }),
     deviceId: "device-1",
     ownerUserId: "owner",
     lane: "prod",

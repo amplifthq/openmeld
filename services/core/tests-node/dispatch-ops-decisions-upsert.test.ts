@@ -1,9 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { writeOpenMeldDaemonOpsDecision } from "../src/dispatch/infrastructure/d1/dispatch-ledger-d1";
-import {
-  applyDrizzleMigrationForTable,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+import { writeOpenMeldDaemonOpsDecision } from "../src/dispatch/infrastructure/postgresql/dispatch-ledger-postgresql";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 // Deterministic proof of the D4 ops-decisions upsert contract
 // (physical-db-split.md): per (correlation_id, decision_code) keep the latest
@@ -22,27 +19,29 @@ type OpsDecisionRow = {
   correlation_id: string | null;
 };
 
-const harnesses: ReturnType<typeof createSqliteD1Harness>[] = [];
+const harnesses: Awaited<ReturnType<typeof createPostgresHarness>>[] = [];
 
-function createMigratedHarness(): ReturnType<typeof createSqliteD1Harness> {
-  const harness = createSqliteD1Harness();
+async function createMigratedHarness(): Promise<
+  Awaited<ReturnType<typeof createPostgresHarness>>
+> {
+  const harness = await createPostgresHarness();
   harnesses.push(harness);
-  applyDrizzleMigrationForTable(harness, "openMeldDaemon_ops_decisions");
+
   return harness;
 }
 
-function readRows(
-  harness: ReturnType<typeof createSqliteD1Harness>,
+async function readRows(
+  harness: Awaited<ReturnType<typeof createPostgresHarness>>,
   correlationId: string | null
-): OpsDecisionRow[] {
+): Promise<OpsDecisionRow[]> {
   if (correlationId === null) {
-    return harness.queryAll<OpsDecisionRow>({
-      sql: "SELECT id, decision_code, decision_payload_json, decided_at_ms, correlation_id FROM openMeldDaemon_ops_decisions WHERE correlation_id IS NULL ORDER BY decided_at_ms, id",
+    return await harness.queryAll<OpsDecisionRow>({
+      text: 'SELECT id, decision_code, decision_payload_json, decided_at_ms, correlation_id FROM "openmeld"."openMeldDaemon_ops_decisions" WHERE correlation_id IS NULL ORDER BY decided_at_ms, id',
     });
   }
-  return harness.queryAll<OpsDecisionRow>({
-    params: [correlationId],
-    sql: "SELECT id, decision_code, decision_payload_json, decided_at_ms, correlation_id FROM openMeldDaemon_ops_decisions WHERE correlation_id = ? ORDER BY decision_code, decided_at_ms",
+  return await harness.queryAll<OpsDecisionRow>({
+    values: [correlationId],
+    text: 'SELECT id, decision_code, decision_payload_json, decided_at_ms, correlation_id FROM "openmeld"."openMeldDaemon_ops_decisions" WHERE correlation_id = $1 ORDER BY decision_code, decided_at_ms',
   });
 }
 
@@ -55,7 +54,7 @@ function firstRowOf(rows: OpsDecisionRow[]): OpsDecisionRow {
 }
 
 function write(
-  harness: ReturnType<typeof createSqliteD1Harness>,
+  harness: Awaited<ReturnType<typeof createPostgresHarness>>,
   input: {
     decisionCode: string;
     decidedAtMs: number;
@@ -75,21 +74,21 @@ function write(
 }
 
 describe("openMeldDaemon_ops_decisions upsert contract (D4)", () => {
-  afterEach(() => {
+  afterEach(async () => {
     for (const harness of harnesses.splice(0)) {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("inserts a new (correlation_id, decision_code) row", async () => {
-    const harness = createMigratedHarness();
+    const harness = await createMigratedHarness();
     await write(harness, {
       correlationId: "dispatch-1",
       decidedAtMs: 1000,
       decisionCode: "dispatch.streaming.telemetry",
       payload: { step: 1 },
     });
-    const rows = readRows(harness, "dispatch-1");
+    const rows = await readRows(harness, "dispatch-1");
     expect(rows).toHaveLength(1);
     expect(JSON.parse(firstRowOf(rows).decision_payload_json)).toEqual({
       step: 1,
@@ -97,21 +96,21 @@ describe("openMeldDaemon_ops_decisions upsert contract (D4)", () => {
   });
 
   it("keeps exactly one row and the newer payload when the same key is rewritten with a newer timestamp", async () => {
-    const harness = createMigratedHarness();
+    const harness = await createMigratedHarness();
     await write(harness, {
       correlationId: "dispatch-1",
       decidedAtMs: 1000,
       decisionCode: "dispatch.streaming.telemetry",
       payload: { step: 1 },
     });
-    const firstId = firstRowOf(readRows(harness, "dispatch-1")).id;
+    const firstId = firstRowOf(await readRows(harness, "dispatch-1")).id;
     await write(harness, {
       correlationId: "dispatch-1",
       decidedAtMs: 2000,
       decisionCode: "dispatch.streaming.telemetry",
       payload: { step: 2 },
     });
-    const rows = readRows(harness, "dispatch-1");
+    const rows = await readRows(harness, "dispatch-1");
     expect(rows).toHaveLength(1);
     expect(firstRowOf(rows).decided_at_ms).toBe(2000);
     expect(JSON.parse(firstRowOf(rows).decision_payload_json)).toEqual({
@@ -122,7 +121,7 @@ describe("openMeldDaemon_ops_decisions upsert contract (D4)", () => {
   });
 
   it("does NOT throw and keeps the newer row when a stale (older) write arrives late", async () => {
-    const harness = createMigratedHarness();
+    const harness = await createMigratedHarness();
     await write(harness, {
       correlationId: "dispatch-1",
       decidedAtMs: 2000,
@@ -139,7 +138,7 @@ describe("openMeldDaemon_ops_decisions upsert contract (D4)", () => {
         payload: { latest: false },
       })
     ).resolves.toBeUndefined();
-    const rows = readRows(harness, "dispatch-1");
+    const rows = await readRows(harness, "dispatch-1");
     expect(rows).toHaveLength(1);
     expect(firstRowOf(rows).decided_at_ms).toBe(2000);
     expect(JSON.parse(firstRowOf(rows).decision_payload_json)).toEqual({
@@ -148,7 +147,7 @@ describe("openMeldDaemon_ops_decisions upsert contract (D4)", () => {
   });
 
   it("updates in place when the rewrite has an equal timestamp (>= guard)", async () => {
-    const harness = createMigratedHarness();
+    const harness = await createMigratedHarness();
     await write(harness, {
       correlationId: "dispatch-1",
       decidedAtMs: 1000,
@@ -161,7 +160,7 @@ describe("openMeldDaemon_ops_decisions upsert contract (D4)", () => {
       decisionCode: "dispatch.execution.lifecycle",
       payload: { phase: "finished" },
     });
-    const rows = readRows(harness, "dispatch-1");
+    const rows = await readRows(harness, "dispatch-1");
     expect(rows).toHaveLength(1);
     expect(JSON.parse(firstRowOf(rows).decision_payload_json)).toEqual({
       phase: "finished",
@@ -169,7 +168,7 @@ describe("openMeldDaemon_ops_decisions upsert contract (D4)", () => {
   });
 
   it("appends (never updates) when correlation_id is null, since NULLs are distinct in the unique index", async () => {
-    const harness = createMigratedHarness();
+    const harness = await createMigratedHarness();
     await write(harness, {
       correlationId: null,
       decidedAtMs: 1000,
@@ -182,12 +181,12 @@ describe("openMeldDaemon_ops_decisions upsert contract (D4)", () => {
       decisionCode: "dispatch.ops.unknown",
       payload: { n: 2 },
     });
-    const rows = readRows(harness, null);
+    const rows = await readRows(harness, null);
     expect(rows).toHaveLength(2);
   });
 
   it("keeps distinct decision codes for the same correlation_id side by side", async () => {
-    const harness = createMigratedHarness();
+    const harness = await createMigratedHarness();
     await write(harness, {
       correlationId: "dispatch-1",
       decidedAtMs: 1000,
@@ -200,7 +199,7 @@ describe("openMeldDaemon_ops_decisions upsert contract (D4)", () => {
       decisionCode: "dispatch.runtime.telemetry",
       payload: {},
     });
-    const rows = readRows(harness, "dispatch-1");
+    const rows = await readRows(harness, "dispatch-1");
     expect(rows.map((row) => row.decision_code)).toEqual([
       "dispatch.runtime.telemetry",
       "dispatch.streaming.telemetry",
@@ -208,7 +207,7 @@ describe("openMeldDaemon_ops_decisions upsert contract (D4)", () => {
   });
 
   it("never produces duplicate rows under repeated rewrites of the same key (real telemetry pattern)", async () => {
-    const harness = createMigratedHarness();
+    const harness = await createMigratedHarness();
     for (let i = 0; i < 50; i += 1) {
       await write(harness, {
         correlationId: "dispatch-hot",
@@ -217,7 +216,7 @@ describe("openMeldDaemon_ops_decisions upsert contract (D4)", () => {
         payload: { tick: i },
       });
     }
-    const rows = readRows(harness, "dispatch-hot");
+    const rows = await readRows(harness, "dispatch-hot");
     expect(rows).toHaveLength(1);
     expect(JSON.parse(firstRowOf(rows).decision_payload_json)).toEqual({
       tick: 49,

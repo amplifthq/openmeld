@@ -1,4 +1,10 @@
 import { env, runInDurableObject } from "cloudflare:test";
+import type { QueryResult } from "@openmeld/db/postgresql";
+import {
+  getPostgresDatabase,
+  PostgresDatabase,
+  type QueryConfig,
+} from "@openmeld/db/postgresql";
 import { HOSTED_CENTER_AGENT_CONTROLLER_REF } from "@openmeld/schemas";
 import type {
   AuthRpcResolveProfileByIdResult,
@@ -6,17 +12,17 @@ import type {
   PluginRuntimeRequest,
   PluginRuntimeResponse,
 } from "@openmeld/schemas/types";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { createSubmitTurnRequestV2 } from "../../remote-agent/tests/fixtures";
 import capturedActions from "../../remote-agent/tests/fixtures/openconnector-runtime-actions.json";
 import {
   activateAgentDelegationChildren,
   createAgentDelegation,
-} from "../src/agent-task-coordination/infrastructure/d1/agent-delegation-repo";
+} from "../src/agent-task-coordination/infrastructure/postgresql/agent-delegation-repo";
 import { prepareDelegatedPluginActions } from "../src/center-agent/application/delegated-plugin-authorization";
 import { prepareCenterAgentRepresentedMemberRequest } from "../src/center-agent/application/represented-member-request";
 import { recordCenterAgentConnectorActionOperation } from "../src/center-agent/connector-action-operation-repository";
-import { prepareCenterAgentWakePublicationRecord } from "../src/center-agent/infrastructure/d1/center-agent-wake-publication-repo";
+import { prepareCenterAgentWakePublicationRecord } from "../src/center-agent/infrastructure/postgresql/center-agent-wake-publication-repo";
 import {
   createConnectorConnectionName,
   createSharedConnectorConnectionName,
@@ -40,7 +46,7 @@ import {
   persistRemoteAgentWorkerSubmitRequest,
   readRemoteAgentNativeDeliveryByIdempotencyKey,
   upsertRemoteAgentNativeDeliveryRecord,
-} from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+} from "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import {
   rpcAuthorizeConnectorDisconnect,
   rpcBeginCurrentMemberConnectorAuthorization,
@@ -64,6 +70,7 @@ import type { RuntimeTransportHub } from "../src/runtime-transport/transport/do/
 import { upsertSpaceMetaRecord } from "../src/space/infrastructure/sql/space-meta-repo";
 import { insertSignalRecord } from "../src/space/infrastructure/sql/space-signal-repo";
 import type { Space } from "../src/space/transport/do/space";
+import { observePostgresDatabase } from "../test-support/postgresql-query.test-support";
 
 const CONNECTOR_CONNECTION_NAME_PATTERN =
   /^org_[A-Za-z0-9_-]{18}__user_[A-Za-z0-9_-]{18}__github$/u;
@@ -153,15 +160,11 @@ describe("Local Plugin human request authority", () => {
     await f.decide(second.requestId, "approve");
     await rpcPluginAction(f.core, f.input);
     expect(f.executions()).toHaveLength(2);
-    const rows = await env.OPENMELD_DB.prepare(
-      "SELECT state FROM plugin_action_requests WHERE organization_id = ?"
-    )
-      .bind(f.organizationA)
-      .all<{ state: string }>();
-    expect(rows.results.map((row) => row.state)).toEqual([
-      "approved",
-      "approved",
-    ]);
+    const rows = await getPostgresDatabase(env).query<{ state: string }>({
+      text: 'SELECT state FROM "openmeld"."plugin_action_requests" WHERE organization_id = $1',
+      values: [f.organizationA],
+    });
+    expect(rows.rows.map((row) => row.state)).toEqual(["approved", "approved"]);
   });
 
   it("retains old unknown results while omitted dispatch, new IDs, and cold clients cannot issue replacement writes", async () => {
@@ -181,11 +184,10 @@ describe("Local Plugin human request authority", () => {
     expect(f.executions()).toHaveLength(1);
     // A retained pre-contract unknown has no request/root record. Do not
     // fabricate a backfill from its irreversible signature.
-    await env.OPENMELD_DB.prepare(
-      "DELETE FROM plugin_action_requests WHERE id = ?"
-    )
-      .bind(original.requestId)
-      .run();
+    await getPostgresDatabase(env).query({
+      text: 'DELETE FROM "openmeld"."plugin_action_requests" WHERE id = $1',
+      values: [original.requestId],
+    });
     for (const label of [
       "resume",
       "fork",
@@ -217,11 +219,12 @@ describe("Local Plugin human request authority", () => {
     expect(f.executions()).toHaveLength(1);
     expect(
       (
-        await env.OPENMELD_DB.prepare(
-          "SELECT status FROM center_agent_connector_action_operations WHERE organization_id = ?"
-        )
-          .bind(f.organizationA)
-          .first<{ status: string }>()
+        await getPostgresDatabase(env)
+          .query<{ status: string }>({
+            text: 'SELECT status FROM "openmeld"."center_agent_connector_action_operations" WHERE organization_id = $1',
+            values: [f.organizationA],
+          })
+          .then((result) => result.rows[0] ?? null)
       )?.status
     ).toBe("outcome_unknown");
   });
@@ -238,17 +241,15 @@ describe("Local Plugin human request authority", () => {
     if (mode === "reject") {
       await f.decide(pending.requestId, "reject");
     } else if (mode === "expire") {
-      await env.OPENMELD_DB.prepare(
-        "UPDATE plugin_action_requests SET expires_at_ms = 1 WHERE id = ?"
-      )
-        .bind(pending.requestId)
-        .run();
+      await getPostgresDatabase(env).query({
+        text: 'UPDATE "openmeld"."plugin_action_requests" SET expires_at_ms = 1 WHERE id = $1',
+        values: [pending.requestId],
+      });
     } else if (mode === "revoke") {
-      await env.OPENMELD_DB.prepare(
-        "UPDATE connector_connections SET access_revision = access_revision + 1 WHERE connection_name = ?"
-      )
-        .bind(f.connection)
-        .run();
+      await getPostgresDatabase(env).query({
+        text: 'UPDATE "openmeld"."connector_connections" SET access_revision = access_revision + 1 WHERE connection_name = $1',
+        values: [f.connection],
+      });
     } else {
       await f.decide(pending.requestId, "approve");
       if (mode === "input") {
@@ -257,11 +258,10 @@ describe("Local Plugin human request authority", () => {
           input: { project: "different-target" },
         };
       } else {
-        await env.OPENMELD_DB.prepare(
-          "UPDATE connector_connections SET updated_at_ms = updated_at_ms + 1 WHERE connection_name = ?"
-        )
-          .bind(f.connection)
-          .run();
+        await getPostgresDatabase(env).query({
+          text: 'UPDATE "openmeld"."connector_connections" SET updated_at_ms = updated_at_ms + 1 WHERE connection_name = $1',
+          values: [f.connection],
+        });
       }
     }
     if (mode === "reject" || mode === "expire") {
@@ -313,19 +313,19 @@ describe("Local Plugin human request authority", () => {
         })
       ).item.sourceTarget
     ).toEqual({ kind: "plugin_action_request", requestId: pending.requestId });
-    const inbox = await env.OPENMELD_DB.prepare(
-      "SELECT recipient_user_id, preview, source_target_json FROM inbox_items WHERE id = ?"
-    )
-      .bind(pending.inboxItemId)
-      .first();
+    const inbox = await getPostgresDatabase(env)
+      .query({
+        text: 'SELECT recipient_user_id, preview, source_target_json FROM "openmeld"."inbox_items" WHERE id = $1',
+        values: [pending.inboxItemId],
+      })
+      .then((result) => result.rows[0] ?? null);
     expect(inbox).toMatchObject({ recipient_user_id: f.ownerA });
     expect(JSON.stringify(inbox)).not.toContain("synthetic-private-secret");
     expect(JSON.stringify(pending)).not.toContain("synthetic-private-secret");
-    await env.OPENMELD_DB.prepare(
-      "UPDATE connector_connections SET access_revision = access_revision + 1 WHERE connection_name = ?"
-    )
-      .bind(f.connection)
-      .run();
+    await getPostgresDatabase(env).query({
+      text: 'UPDATE "openmeld"."connector_connections" SET access_revision = access_revision + 1 WHERE connection_name = $1',
+      values: [f.connection],
+    });
     await expect(f.decide(pending.requestId, "approve")).rejects.toThrow();
     expect(f.executions()).toHaveLength(0);
   });
@@ -384,11 +384,12 @@ describe("Local Agent plugin admission", () => {
       fixture,
       "posthog"
     );
-    const member = await env.OPENMELD_DB.prepare(
-      "SELECT id FROM members WHERE organization_id = ? AND user_id = ?"
-    )
-      .bind(fixture.organizationA, fixture.ownerA)
-      .first<{ id: string }>();
+    const member = await getPostgresDatabase(env)
+      .query<{ id: string }>({
+        text: 'SELECT id FROM "openmeld"."members" WHERE organization_id = $1 AND user_id = $2',
+        values: [fixture.organizationA, fixture.ownerA],
+      })
+      .then((result) => result.rows[0] ?? null);
     if (!member) {
       throw new Error("Missing requester member");
     }
@@ -424,27 +425,31 @@ describe("Local Agent plugin admission", () => {
       operationId: body.operationId,
       status: "outcome_unknown",
     });
+    let failNextRead = false;
+    const nativeQuery = PostgresDatabase.prototype.query;
+    const querySpy = vi
+      .spyOn(PostgresDatabase.prototype, "query")
+      .mockImplementation(async function (
+        this: PostgresDatabase,
+        query,
+        values
+      ) {
+        const text = typeof query === "string" ? query : query.text;
+        if (
+          failNextRead &&
+          text.includes(
+            'FROM "openmeld"."openMeldRemoteAgent_native_delivery_ledger"'
+          )
+        ) {
+          failNextRead = false;
+          throw new Error("Injected provenance storage outage");
+        }
+        return await nativeQuery.call(this, query, values);
+      });
+    onTestFinished(() => querySpy.mockRestore());
     const unavailable = () => {
-      let failNextRead = true;
-      return failure === "read_failure"
-        ? {
-            ...core,
-            OPENMELD_WAKE_EVIDENCE_DB: new Proxy(env.OPENMELD_DB, {
-              get(target, property, receiver) {
-                if (property === "prepare") {
-                  return (query: string) => {
-                    if (failNextRead) {
-                      failNextRead = false;
-                      throw new Error("Injected provenance storage outage");
-                    }
-                    return target.prepare(query);
-                  };
-                }
-                return Reflect.get(target, property, receiver);
-              },
-            }),
-          }
-        : core;
+      failNextRead = failure === "read_failure";
+      return core;
     };
     const submissions = {
       read_failure: body.context.agentControllerConversationId,
@@ -485,12 +490,11 @@ describe("Local Agent plugin admission", () => {
         effect: "read",
       })
     ).toMatchObject({ executionAllowed: true });
-    const rows = await env.OPENMELD_DB.prepare(
-      "SELECT operation_id, status FROM center_agent_connector_action_operations WHERE organization_id = ? AND action_id = ?"
-    )
-      .bind(fixture.organizationA, body.actionId)
-      .all();
-    expect(rows.results).toEqual([
+    const rows = await getPostgresDatabase(env).query({
+      text: 'SELECT operation_id, status FROM "openmeld"."center_agent_connector_action_operations" WHERE organization_id = $1 AND action_id = $2',
+      values: [fixture.organizationA, body.actionId],
+    });
+    expect(rows.rows).toEqual([
       { operation_id: body.operationId, status: "completed" },
     ]);
   });
@@ -504,11 +508,12 @@ describe("Local Agent plugin admission", () => {
       fixture,
       "posthog"
     );
-    const member = await env.OPENMELD_DB.prepare(
-      "SELECT id FROM members WHERE organization_id = ? AND user_id = ?"
-    )
-      .bind(fixture.organizationA, fixture.ownerA)
-      .first<{ id: string }>();
+    const member = await getPostgresDatabase(env)
+      .query<{ id: string }>({
+        text: 'SELECT id FROM "openmeld"."members" WHERE organization_id = $1 AND user_id = $2',
+        values: [fixture.organizationA, fixture.ownerA],
+      })
+      .then((result) => result.rows[0] ?? null);
     if (!member) {
       throw new Error("Missing requester member");
     }
@@ -532,17 +537,15 @@ describe("Local Agent plugin admission", () => {
       ...body,
       outcome: "outcome_unknown",
     });
-    await env.OPENMELD_DB.prepare(
-      "UPDATE center_agent_connector_action_operations SET connection_updated_at_ms = NULL WHERE operation_id = ?"
-    )
-      .bind(body.operationId)
-      .run();
+    await getPostgresDatabase(env).query({
+      text: 'UPDATE "openmeld"."center_agent_connector_action_operations" SET connection_updated_at_ms = NULL WHERE operation_id = $1',
+      values: [body.operationId],
+    });
     if (reconnected) {
-      await env.OPENMELD_DB.prepare(
-        "UPDATE connector_connections SET updated_at_ms = updated_at_ms + 1 WHERE connection_name = ?"
-      )
-        .bind(connectionName)
-        .run();
+      await getPostgresDatabase(env).query({
+        text: 'UPDATE "openmeld"."connector_connections" SET updated_at_ms = updated_at_ms + 1 WHERE connection_name = $1',
+        values: [connectionName],
+      });
     }
     const receipt = await rpcCenterAgentReadConnectorActionOperation(
       core,
@@ -567,11 +570,12 @@ describe("Local Agent plugin admission", () => {
         ?.replay
     ).toEqual({ allowed: false, reason: "original_account_unverified" });
     expect(
-      await env.OPENMELD_DB.prepare(
-        "SELECT audit.id FROM center_agent_audit_journal audit JOIN center_agent_connector_action_operations operation ON audit.id = operation.id || ':replay_attempted' WHERE operation.operation_id = ?"
-      )
-        .bind(body.operationId)
-        .first()
+      await getPostgresDatabase(env)
+        .query({
+          text: 'SELECT audit.id FROM "openmeld"."center_agent_audit_journal" audit JOIN "openmeld"."center_agent_connector_action_operations" operation ON audit.id = operation.id || \':replay_attempted\' WHERE operation.operation_id = $1',
+          values: [body.operationId],
+        })
+        .then((result) => result.rows[0] ?? null)
     ).toBeNull();
   });
 
@@ -673,11 +677,10 @@ describe("Local Agent plugin admission", () => {
       },
     });
     expect(executeCalls()).toHaveLength(2);
-    await env.OPENMELD_DB.prepare(
-      "UPDATE agent_delegations SET state = 'cancelled' WHERE delegation_id = ?"
-    )
-      .bind(delegated.delegationId)
-      .run();
+    await getPostgresDatabase(env).query({
+      text: 'UPDATE "openmeld"."agent_delegations" SET state = \'cancelled\' WHERE delegation_id = $1',
+      values: [delegated.delegationId],
+    });
     await expect(rpcPluginAction(fixture.core, verification)).rejects.toThrow(
       "recorded delegation"
     );
@@ -691,10 +694,12 @@ describe("Local Agent plugin admission", () => {
       service: "posthog",
       userId: fixture.ownerA,
     });
-    await env.OPENMELD_DB.prepare(
-      "INSERT INTO connector_connections (connection_name, organization_id, user_id, scope, service, status, access_policy, created_at_ms, updated_at_ms) VALUES (?, ?, ?, 'member', 'posthog', 'active', ?, 1, 1)"
-    )
-      .bind(
+    await getPostgresDatabase(env).query({
+      ...{
+        text: "INSERT INTO \"openmeld\".\"connector_connections\" (connection_name, organization_id, user_id, scope, service, status, access_policy, created_at_ms, updated_at_ms) VALUES ($1, $2, $3, 'member', 'posthog', 'active', $4, 1, 1)",
+        values: [],
+      },
+      values: [
         privateConnection,
         fixture.organizationA,
         fixture.ownerA,
@@ -702,9 +707,9 @@ describe("Local Agent plugin admission", () => {
           center_agent: "none",
           local_agent: "read",
           remote_agent: "none",
-        })
-      )
-      .run();
+        }),
+      ],
+    });
     const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
     const stub = namespace.get(namespace.newUniqueId());
     const spaceId = stub.id.toString();
@@ -736,23 +741,27 @@ describe("Local Agent plugin admission", () => {
       });
     });
     const dispatchId = crypto.randomUUID();
-    await env.OPENMELD_DB.prepare(
-      "INSERT INTO space_index_spaces (space_id, organization_id, organization_visibility, status, source_updated_at_ms, projected_at_ms, projection_event_id) VALUES (?, ?, 'private', 'active', 1, 1, ?)"
-    )
-      .bind(spaceId, fixture.organizationA, crypto.randomUUID())
-      .run();
-    await env.OPENMELD_DB.prepare(
-      "INSERT INTO openMeldDaemon_dispatch_ledger (idempotency_key, dispatch_id, space_id, source_event_id, source_profile_id, target_profile_id, status, first_seen_at_ms, last_attempt_at_ms, attempt_count) VALUES (?, ?, ?, ?, ?, ?, 'accepted', 1, 1, 1)"
-    )
-      .bind(
+    await getPostgresDatabase(env).query({
+      ...{
+        text: "INSERT INTO \"openmeld\".\"space_index_spaces\" (space_id, organization_id, organization_visibility, status, source_updated_at_ms, projected_at_ms, projection_event_id) VALUES ($1, $2, 'private', 'active', 1, 1, $3)",
+        values: [],
+      },
+      values: [spaceId, fixture.organizationA, crypto.randomUUID()],
+    });
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'INSERT INTO "openmeld"."openMeldDaemon_dispatch_ledger" (idempotency_key, dispatch_id, space_id, source_event_id, source_profile_id, target_profile_id, status, first_seen_at_ms, last_attempt_at_ms, attempt_count) VALUES ($1, $2, $3, $4, $5, $6, \'accepted\', 1, 1, 1)',
+        values: [],
+      },
+      values: [
         dispatchId,
         dispatchId,
         spaceId,
         sourceId,
         fixture.requesterProfileId,
-        fixture.actor
-      )
-      .run();
+        fixture.actor,
+      ],
+    });
     const request = {
       ...fixture.input,
       request: {
@@ -769,11 +778,15 @@ describe("Local Agent plugin admission", () => {
         request: { dispatchId, action: fixture.action },
       })
     ).toMatchObject({ status: "completed" });
-    const audit = await env.OPENMELD_DB.prepare(
-      "SELECT represented_user_id FROM center_agent_connector_action_operations WHERE actor_profile_id = ?"
-    )
-      .bind(fixture.actor)
-      .first();
+    const audit = await getPostgresDatabase(env)
+      .query({
+        ...{
+          text: 'SELECT represented_user_id FROM "openmeld"."center_agent_connector_action_operations" WHERE actor_profile_id = $1',
+          values: [],
+        },
+        values: [fixture.actor],
+      })
+      .then((result) => result.rows[0] ?? null);
     expect(audit).toEqual({ represented_user_id: fixture.otherMemberA });
     expect(
       await rpcPluginAction(fixture.core, {
@@ -818,18 +831,20 @@ describe("Local Agent plugin admission", () => {
       status: "completed",
       replayed: false,
     });
-    await env.OPENMELD_DB.prepare(
-      "UPDATE connector_connections SET access_policy = ?, access_revision = access_revision + 1 WHERE connection_name = ?"
-    )
-      .bind(
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'UPDATE "openmeld"."connector_connections" SET access_policy = $1, access_revision = access_revision + 1 WHERE connection_name = $2',
+        values: [],
+      },
+      values: [
         JSON.stringify({
           center_agent: "none",
           local_agent: "none",
           remote_agent: "none",
         }),
-        fixture.connection
-      )
-      .run();
+        fixture.connection,
+      ],
+    });
     await expect(rpcPluginAction(fixture.core, fixture.input)).rejects.toThrow(
       "Local Agent access was revoked"
     );
@@ -853,7 +868,6 @@ describe("Local Agent plugin admission", () => {
       })
     ).rejects.toThrow("different");
   });
-
   it("binds destructive confirmation to the exact action and current access revision", async () => {
     const fixture = await seedHumanPluginRequestFixture("destructive");
     const pending = await fixture.pending();
@@ -896,11 +910,13 @@ describe("Local Agent plugin admission", () => {
         },
       })
     ).rejects.toThrow("confirmation expired");
-    await env.OPENMELD_DB.prepare(
-      "UPDATE connector_connections SET access_revision = access_revision + 1 WHERE connection_name = ?"
-    )
-      .bind(fixture.connection)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'UPDATE "openmeld"."connector_connections" SET access_revision = access_revision + 1 WHERE connection_name = $1',
+        values: [],
+      },
+      values: [fixture.connection],
+    });
     await expect(rpcPluginAction(fixture.core, confirmed)).rejects.toThrow(
       "no longer matches"
     );
@@ -930,7 +946,6 @@ describe("Local Agent plugin admission", () => {
       })
     ).toMatchObject({ status: "completed" });
   });
-
   it("denies mismatched organization, account ownership, and missing Wake provenance", async () => {
     const fixture = await seedLocalPluginFixture("read", "read");
     await expect(
@@ -959,7 +974,6 @@ describe("Local Agent plugin admission", () => {
     ).rejects.toThrow("Wake requester");
     expect(fixture.runtime).not.toHaveBeenCalled();
   });
-
   it("does not turn an unknown provider result into an automatic second execution", async () => {
     const fixture = await seedLocalPluginFixture("read", "read");
     fixture.runtime.mockImplementation((request) => {
@@ -990,7 +1004,7 @@ describe("Local Agent plugin admission", () => {
 async function seedLocalRecordedDelegation(
   fixture: Awaited<ReturnType<typeof seedLocalPluginFixture>>
 ) {
-  const db = env.OPENMELD_DB;
+  const db = getPostgresDatabase(env);
   const center = `agt_${crypto.randomUUID()}`;
   const spaces = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
   const spaceId = spaces.newUniqueId().toString();
@@ -1037,37 +1051,33 @@ async function seedLocalRecordedDelegation(
     }
   );
   const member = await db
-    .prepare("SELECT id FROM members WHERE organization_id = ? AND user_id = ?")
-    .bind(fixture.organizationA, fixture.ownerA)
-    .first<{ id: string }>();
+    .query<{ id: string }>({
+      text: 'SELECT id FROM "openmeld"."members" WHERE organization_id = $1 AND user_id = $2',
+      values: [fixture.organizationA, fixture.ownerA],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!member) {
     throw new Error("Missing original member fixture");
   }
-  await db
-    .prepare(
-      "INSERT INTO openmeld_profiles (profile_id, profile_name, profile_handle, profile_kind, organization_id, owner_user_id, source) VALUES (?, 'Synthetic Center', ?, 'agent', ?, ?, 'cli_create')"
-    )
-    .bind(center, center, fixture.organizationA, fixture.ownerA)
-    .run();
-  await db
-    .prepare(
-      "INSERT INTO center_agent_designations (organization_id, agent_profile_id, operating_state, created_at) VALUES (?, ?, 'active', ?)"
-    )
-    .bind(fixture.organizationA, center, nowMs)
-    .run();
-  await db
-    .prepare(
-      "UPDATE connector_connections SET access_policy = ? WHERE connection_name = ?"
-    )
-    .bind(
+  await db.query({
+    text: "INSERT INTO \"openmeld\".\"openmeld_profiles\" (profile_id, profile_name, profile_handle, profile_kind, organization_id, owner_user_id, source) VALUES ($1, 'Synthetic Center', $2, 'agent', $3, $4, 'cli_create')",
+    values: [center, center, fixture.organizationA, fixture.ownerA],
+  });
+  await db.query({
+    text: 'INSERT INTO "openmeld"."center_agent_designations" (organization_id, agent_profile_id, operating_state, created_at) VALUES ($1, $2, \'active\', $3)',
+    values: [fixture.organizationA, center, nowMs],
+  });
+  await db.query({
+    text: 'UPDATE "openmeld"."connector_connections" SET access_policy = $1 WHERE connection_name = $2',
+    values: [
       JSON.stringify({
         center_agent: "write",
         local_agent: "write",
         remote_agent: "none",
       }),
-      fixture.connection
-    )
-    .run();
+      fixture.connection,
+    ],
+  });
   const auth = fixture.core.OPENMELD_AUTH_WORKER;
   if (!auth?.resolveProfileById) {
     throw new Error("Missing identity fixture");
@@ -1261,11 +1271,9 @@ async function seedLocalRecordedDelegation(
       pluginActions,
     },
   });
-  await db
-    .prepare(
-      "UPDATE center_agent_wake_publications SET state = 'completed', accepted_at_ms = ?, completed_at_ms = ?, signal_json = ? WHERE publication_id = ?"
-    )
-    .bind(
+  await db.query({
+    text: 'UPDATE "openmeld"."center_agent_wake_publications" SET state = \'completed\', accepted_at_ms = $1, completed_at_ms = $2, signal_json = $3 WHERE publication_id = $4',
+    values: [
       nowMs,
       nowMs,
       JSON.stringify({
@@ -1289,20 +1297,16 @@ async function seedLocalRecordedDelegation(
           },
         },
       }),
-      clientMessageId
-    )
-    .run();
-  await db
-    .prepare(
-      "INSERT INTO space_index_spaces (space_id, organization_id, organization_visibility, status, source_updated_at_ms, projected_at_ms, projection_event_id) VALUES (?, ?, 'private', 'active', ?, ?, ?)"
-    )
-    .bind(spaceId, fixture.organizationA, nowMs, nowMs, crypto.randomUUID())
-    .run();
-  await db
-    .prepare(
-      "INSERT INTO openMeldDaemon_dispatch_ledger (idempotency_key, dispatch_id, space_id, source_event_id, source_profile_id, source_client_message_id, target_profile_id, status, first_seen_at_ms, last_attempt_at_ms, attempt_count) VALUES (?, ?, ?, ?, ?, ?, ?, 'accepted', ?, ?, 1)"
-    )
-    .bind(
+      clientMessageId,
+    ],
+  });
+  await db.query({
+    text: "INSERT INTO \"openmeld\".\"space_index_spaces\" (space_id, organization_id, organization_visibility, status, source_updated_at_ms, projected_at_ms, projection_event_id) VALUES ($1, $2, 'private', 'active', $3, $4, $5)",
+    values: [spaceId, fixture.organizationA, nowMs, nowMs, crypto.randomUUID()],
+  });
+  await db.query({
+    text: 'INSERT INTO "openmeld"."openMeldDaemon_dispatch_ledger" (idempotency_key, dispatch_id, space_id, source_event_id, source_profile_id, source_client_message_id, target_profile_id, status, first_seen_at_ms, last_attempt_at_ms, attempt_count) VALUES ($1, $2, $3, $4, $5, $6, $7, \'accepted\', $8, $9, 1)',
+    values: [
       dispatchId,
       dispatchId,
       spaceId,
@@ -1311,15 +1315,15 @@ async function seedLocalRecordedDelegation(
       clientMessageId,
       fixture.actor,
       nowMs,
-      nowMs
-    )
-    .run();
+      nowMs,
+    ],
+  });
   const binding = await db
-    .prepare(
-      "SELECT binding_id FROM openMeldDaemon_agent_profile_bindings WHERE agent_profile_id = ?"
-    )
-    .bind(fixture.actor)
-    .first<{ binding_id: string }>();
+    .query<{ binding_id: string }>({
+      text: 'SELECT binding_id FROM "openmeld"."openMeldDaemon_agent_profile_bindings" WHERE agent_profile_id = $1',
+      values: [fixture.actor],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!binding) {
     throw new Error("Missing Local binding fixture");
   }
@@ -1375,39 +1379,53 @@ async function seedLocalPluginFixture(
   const fixture = await seedConnectorFixture();
   const actor = `agt_${crypto.randomUUID()}`;
   const requesterProfileId = crypto.randomUUID();
-  await env.OPENMELD_DB.prepare(
-    "INSERT INTO openmeld_profiles (profile_id, profile_name, profile_handle, profile_kind, is_default, status, owner_user_id, created_by_user_id, source, created_at, updated_at) VALUES (?, 'Other requester', ?, 'human', 1, 'active', ?, ?, 'auth_bootstrap', 1, 1)"
-  )
-    .bind(
+  await getPostgresDatabase(env).query({
+    ...{
+      text: "INSERT INTO \"openmeld\".\"openmeld_profiles\" (profile_id, profile_name, profile_handle, profile_kind, is_default, status, owner_user_id, created_by_user_id, source, created_at, updated_at) VALUES ($1, 'Other requester', $2, 'human', 1, 'active', $3, $4, 'auth_bootstrap', 1, 1)",
+      values: [],
+    },
+    values: [
       requesterProfileId,
       requesterProfileId,
       fixture.otherMemberA,
-      fixture.otherMemberA
-    )
-    .run();
-  await env.OPENMELD_DB.prepare(
-    "INSERT INTO openmeld_profiles (profile_id, profile_name, profile_handle, profile_kind, is_default, status, organization_id, owner_user_id, created_by_user_id, source, created_at, updated_at) VALUES (?, 'Local test Agent', ?, 'agent', 0, 'active', ?, ?, ?, 'auth_bootstrap', 1, 1)"
-  )
-    .bind(actor, actor, fixture.organizationA, fixture.ownerA, fixture.ownerA)
-    .run();
+      fixture.otherMemberA,
+    ],
+  });
+  await getPostgresDatabase(env).query({
+    ...{
+      text: "INSERT INTO \"openmeld\".\"openmeld_profiles\" (profile_id, profile_name, profile_handle, profile_kind, is_default, status, organization_id, owner_user_id, created_by_user_id, source, created_at, updated_at) VALUES ($1, 'Local test Agent', $2, 'agent', 0, 'active', $3, $4, $5, 'auth_bootstrap', 1, 1)",
+      values: [],
+    },
+    values: [
+      actor,
+      actor,
+      fixture.organizationA,
+      fixture.ownerA,
+      fixture.ownerA,
+    ],
+  });
   const connection = await seedSharedConnectorConnection(fixture, "posthog");
-  await env.OPENMELD_DB.prepare(
-    "UPDATE connector_connections SET access_policy = ? WHERE connection_name = ?"
-  )
-    .bind(
+  await getPostgresDatabase(env).query({
+    ...{
+      text: 'UPDATE "openmeld"."connector_connections" SET access_policy = $1 WHERE connection_name = $2',
+      values: [],
+    },
+    values: [
       JSON.stringify({
         center_agent: "none",
         local_agent: permission,
         remote_agent: "none",
       }),
-      connection
-    )
-    .run();
-  await env.OPENMELD_DB.prepare(
-    "INSERT INTO openMeldDaemon_agent_profile_bindings (binding_id, owner_kind, owner_id, agent_profile_id, openmeld_service_runtime_id, runtime_kind, agent_controller_ref, binding_state, created_at_ms, updated_at_ms) VALUES (?, 'owner_account', ?, ?, 'test-local-runtime', 'openmeld_service', 'codex', 'enabled_primary', 1, 1)"
-  )
-    .bind(crypto.randomUUID(), fixture.ownerA, actor)
-    .run();
+      connection,
+    ],
+  });
+  await getPostgresDatabase(env).query({
+    ...{
+      text: "INSERT INTO \"openmeld\".\"openMeldDaemon_agent_profile_bindings\" (binding_id, owner_kind, owner_id, agent_profile_id, openmeld_service_runtime_id, runtime_kind, agent_controller_ref, binding_state, created_at_ms, updated_at_ms) VALUES ($1, 'owner_account', $2, $3, 'test-local-runtime', 'openmeld_service', 'codex', 'enabled_primary', 1, 1)",
+      values: [],
+    },
+    values: [crypto.randomUUID(), fixture.ownerA, actor],
+  });
   const captured = capturedActions.data[0];
   if (!captured) {
     throw new Error("Missing captured provider action");
@@ -1429,7 +1447,7 @@ async function seedLocalPluginFixture(
         }
   );
   const core = {
-    OPENMELD_DB: env.OPENMELD_DB,
+    OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL,
     OPENMELD_REMOTE_AGENT_WORKER: { pluginRuntime: runtime },
     OPENMELD_AUTH_WORKER: {
       resolveProfileById: (input: {
@@ -1460,7 +1478,10 @@ async function seedLocalPluginFixture(
         });
       },
       resolveOrganizationAccountIdentity: async (input: {
-        account?: { kind: string; userId?: string };
+        account?: {
+          kind: string;
+          userId?: string;
+        };
       }) => ({
         ok: true,
         organization: {
@@ -1524,7 +1545,6 @@ const SHARED_CONNECTOR_CONNECTION_NAME_PATTERN =
   /^org_[A-Za-z0-9_-]{18}__shared__github$/u;
 const OPENCONNECTOR_CONNECTION_NAME_PATTERN =
   /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/u;
-
 describe("Core connector connection ownership", () => {
   it.each([
     ["member", "github"],
@@ -1551,11 +1571,18 @@ describe("Core connector connection ownership", () => {
         : rpcBeginCurrentMemberConnectorAuthorization(core, request);
     const created = await begin();
     const row = () =>
-      env.OPENMELD_DB.prepare(
-        "SELECT access_policy, access_revision FROM connector_connections WHERE connection_name = ?"
-      )
-        .bind(created.connectionName)
-        .first<{ access_policy: string | null; access_revision: number }>();
+      getPostgresDatabase(env)
+        .query<{
+          access_policy: string | null;
+          access_revision: number;
+        }>({
+          ...{
+            text: 'SELECT access_policy, access_revision FROM "openmeld"."connector_connections" WHERE connection_name = $1',
+            values: [],
+          },
+          values: [created.connectionName],
+        })
+        .then((result) => result.rows[0] ?? null);
     const none = {
       center_agent: "none",
       local_agent: "none",
@@ -1577,7 +1604,7 @@ describe("Core connector connection ownership", () => {
       policy: none,
     });
     const access = {
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       organizationId: fixture.organizationA,
       connectionName: created.connectionName,
     };
@@ -1676,16 +1703,17 @@ describe("Core connector connection ownership", () => {
         effect: "read",
       })
     ).rejects.toThrow("permission");
-    const events = await env.OPENMELD_DB.prepare(
-      "SELECT previous_policy FROM connector_access_events WHERE connection_name = ? ORDER BY revision"
-    )
-      .bind(created.connectionName)
-      .all<{ previous_policy: string }>();
-    expect(JSON.parse(events.results[0]?.previous_policy ?? "null")).toEqual(
-      none
-    );
+    const events = await getPostgresDatabase(env).query<{
+      previous_policy: string;
+    }>({
+      ...{
+        text: 'SELECT previous_policy FROM "openmeld"."connector_access_events" WHERE connection_name = $1 ORDER BY revision',
+        values: [],
+      },
+      values: [created.connectionName],
+    });
+    expect(JSON.parse(events.rows[0]?.previous_policy ?? "null")).toEqual(none);
   });
-
   it("rejects an old permission draft when reauthorization starts between its read and atomic save", async () => {
     const fixture = await seedConnectorFixture();
     const core = connectorCoreEnv();
@@ -1706,18 +1734,13 @@ describe("Core connector connection ownership", () => {
       ...request,
       availableConnectionNames: [created.connectionName],
     });
-    const db = new Proxy(env.OPENMELD_DB, {
-      get(target, property) {
-        if (property === "batch") {
-          return async (statements: D1PreparedStatement[]) => {
-            await rpcBeginCurrentMemberConnectorAuthorization(core, request);
-            return await target.batch(statements);
-          };
-        }
-        const value = Reflect.get(target, property);
-        return typeof value === "function" ? value.bind(target) : value;
-      },
-    });
+    const db = observePostgresDatabase(
+      getPostgresDatabase(env),
+      () => undefined,
+      async () => {
+        await rpcBeginCurrentMemberConnectorAuthorization(core, request);
+      }
+    );
     await expect(
       updatePluginAccess({
         db,
@@ -1735,25 +1758,34 @@ describe("Core connector connection ownership", () => {
     ).rejects.toThrow("changed");
     expect(
       (
-        await env.OPENMELD_DB.prepare(
-          "SELECT COUNT(*) AS n FROM connector_access_events WHERE connection_name = ?"
-        )
-          .bind(created.connectionName)
-          .first()
+        await getPostgresDatabase(env)
+          .query({
+            ...{
+              text: 'SELECT COUNT(*) AS n FROM "openmeld"."connector_access_events" WHERE connection_name = $1',
+              values: [],
+            },
+            values: [created.connectionName],
+          })
+          .then((result) => result.rows[0] ?? null)
       )?.n
     ).toBe(0);
-    const stored = await env.OPENMELD_DB.prepare(
-      "SELECT access_policy FROM connector_connections WHERE connection_name = ?"
-    )
-      .bind(created.connectionName)
-      .first<{ access_policy: string }>();
+    const stored = await getPostgresDatabase(env)
+      .query<{
+        access_policy: string;
+      }>({
+        ...{
+          text: 'SELECT access_policy FROM "openmeld"."connector_connections" WHERE connection_name = $1',
+          values: [],
+        },
+        values: [created.connectionName],
+      })
+      .then((result) => result.rows[0] ?? null);
     expect(JSON.parse(stored?.access_policy ?? "null")).toEqual({
       center_agent: "none",
       local_agent: "none",
       remote_agent: "none",
     });
   });
-
   it("preserves legacy null grants on the same registration without lending them to a new member", async () => {
     const fixture = await seedConnectorFixture();
     const core = connectorCoreEnv();
@@ -1774,11 +1806,15 @@ describe("Core connector connection ownership", () => {
     expect(policy.connections[0]?.policy.center_agent).toBe("write");
     expect(
       (
-        await env.OPENMELD_DB.prepare(
-          "SELECT access_policy FROM connector_connections WHERE connection_name = ?"
-        )
-          .bind(fixture.connectionA)
-          .first()
+        await getPostgresDatabase(env)
+          .query({
+            ...{
+              text: 'SELECT access_policy FROM "openmeld"."connector_connections" WHERE connection_name = $1',
+              values: [],
+            },
+            values: [fixture.connectionA],
+          })
+          .then((result) => result.rows[0] ?? null)
       )?.access_policy
     ).toBeNull();
     const created = await rpcBeginCurrentMemberConnectorAuthorization(core, {
@@ -1792,11 +1828,17 @@ describe("Core connector connection ownership", () => {
     expect(
       JSON.parse(
         (
-          await env.OPENMELD_DB.prepare(
-            "SELECT access_policy FROM connector_connections WHERE connection_name = ?"
-          )
-            .bind(created.connectionName)
-            .first<{ access_policy: string }>()
+          await getPostgresDatabase(env)
+            .query<{
+              access_policy: string;
+            }>({
+              ...{
+                text: 'SELECT access_policy FROM "openmeld"."connector_connections" WHERE connection_name = $1',
+                values: [],
+              },
+              values: [created.connectionName],
+            })
+            .then((result) => result.rows[0] ?? null)
         )?.access_policy ?? "null"
       )
     ).toEqual({
@@ -1805,23 +1847,24 @@ describe("Core connector connection ownership", () => {
       local_agent: "none",
     });
   });
-
   it("requires both the personal Remote Agent owner and the represented requester for private access", async () => {
     const fixture = await seedConnectorFixture();
-    await env.OPENMELD_DB.prepare(
-      "UPDATE connector_connections SET access_policy = ? WHERE connection_name = ?"
-    )
-      .bind(
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'UPDATE "openmeld"."connector_connections" SET access_policy = $1 WHERE connection_name = $2',
+        values: [],
+      },
+      values: [
         JSON.stringify({
           center_agent: "none",
           local_agent: "none",
           remote_agent: "read",
         }),
-        fixture.connectionA
-      )
-      .run();
+        fixture.connectionA,
+      ],
+    });
     const input = {
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       organizationId: fixture.organizationA,
       connectionName: fixture.connectionA,
       service: "github" as const,
@@ -1850,16 +1893,17 @@ describe("Core connector connection ownership", () => {
     await expect(
       requireRemotePluginConnection({ ...input, effect: "write" })
     ).rejects.toThrow("permission");
-    await env.OPENMELD_DB.prepare(
-      "UPDATE connector_connections SET status = 'disconnected', disconnected_at_ms = updated_at_ms WHERE connection_name = ?"
-    )
-      .bind(fixture.connectionA)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'UPDATE "openmeld"."connector_connections" SET status = \'disconnected\', disconnected_at_ms = updated_at_ms WHERE connection_name = $1',
+        values: [],
+      },
+      values: [fixture.connectionA],
+    });
     await expect(
       requirePluginPermission({ ...input, consumer: "remote_agent" })
     ).rejects.toThrow("no longer available");
   });
-
   it("persists owner-managed Agent access with an atomic revision and audit history", async () => {
     const fixture = await seedConnectorFixture();
     const request = {
@@ -1899,7 +1943,7 @@ describe("Core connector connection ownership", () => {
       rpcUpdatePluginAccess(connectorCoreEnv(), update)
     ).rejects.toThrow("Plugin access changed");
     const access = {
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       organizationId: fixture.organizationA,
       connectionName: fixture.connectionA,
       consumer: "local_agent" as const,
@@ -1910,12 +1954,14 @@ describe("Core connector connection ownership", () => {
     await expect(
       requirePluginPermission({ ...access, effect: "write" })
     ).rejects.toThrow("permission");
-    const events = await env.OPENMELD_DB.prepare(
-      "SELECT actor_user_id, revision, previous_policy, policy FROM connector_access_events WHERE connection_name = ?"
-    )
-      .bind(fixture.connectionA)
-      .all();
-    expect(events.results).toEqual([
+    const events = await getPostgresDatabase(env).query({
+      ...{
+        text: 'SELECT actor_user_id, revision, previous_policy, policy FROM "openmeld"."connector_access_events" WHERE connection_name = $1',
+        values: [],
+      },
+      values: [fixture.connectionA],
+    });
+    expect(events.rows).toEqual([
       {
         actor_user_id: fixture.memberA,
         revision: 1,
@@ -1924,7 +1970,6 @@ describe("Core connector connection ownership", () => {
       },
     ]);
   });
-
   it("denies personal access grants to other members and admins and shared grants to members", async () => {
     const fixture = await seedConnectorFixture();
     const shared = await seedSharedConnectorConnection(fixture);
@@ -1952,7 +1997,6 @@ describe("Core connector connection ownership", () => {
       ).rejects.toThrow("Only the account owner");
     }
   });
-
   it("owns connector action retries and terminal outcomes in one durable operation", async () => {
     const fixture = await seedConnectorFixture();
     const baseInput = {
@@ -1967,7 +2011,7 @@ describe("Core connector connection ownership", () => {
         },
       },
       connectionName: fixture.connectionA,
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       executionConnection: {
         connectionName: fixture.connectionA,
         ownerDisplayName: fixture.memberA,
@@ -1987,7 +2031,6 @@ describe("Core connector connection ownership", () => {
       sourceNativeDeliveryId: "delivery-original-request-continuation",
       sourceSpaceId: "space-authorized",
     } as const;
-
     const claimed = await recordCenterAgentConnectorActionOperation({
       ...baseInput,
       nowMs: Date.now(),
@@ -1998,7 +2041,6 @@ describe("Core connector connection ownership", () => {
       nowMs: Date.now() + 1,
       outcome: "attempted",
     });
-
     expect(claimed).toMatchObject({
       operation: { status: "pending" },
       replayed: false,
@@ -2008,12 +2050,16 @@ describe("Core connector connection ownership", () => {
       replayed: true,
     });
     await expect(
-      env.OPENMELD_DB.prepare(
-        `SELECT on_behalf_of_user_id, source_native_delivery_id
-         FROM center_agent_audit_journal WHERE resource_id = ? AND action = 'execute_connector_action'`
-      )
-        .bind(`github:github.create_issue:${baseInput.operationId}`)
-        .first()
+      getPostgresDatabase(env)
+        .query({
+          ...{
+            text: `SELECT on_behalf_of_user_id, source_native_delivery_id
+         FROM "openmeld"."center_agent_audit_journal" WHERE resource_id = $1 AND action = 'execute_connector_action'`,
+            values: [],
+          },
+          values: [`github:github.create_issue:${baseInput.operationId}`],
+        })
+        .then((result) => result.rows[0] ?? null)
     ).resolves.toEqual({
       on_behalf_of_user_id: fixture.ownerA,
       source_native_delivery_id: baseInput.sourceNativeDeliveryId,
@@ -2029,7 +2075,6 @@ describe("Core connector connection ownership", () => {
       code: "center_agent.connector_action_operation_conflict",
       status: 409,
     });
-
     const completed = await recordCenterAgentConnectorActionOperation({
       ...baseInput,
       nowMs: Date.now() + 3,
@@ -2043,7 +2088,6 @@ describe("Core connector connection ownership", () => {
       outcome: "completed",
       providerExecutionId: "provider-execution-1",
     });
-
     expect(completed).toMatchObject({
       operation: {
         providerExecutionId: "provider-execution-1",
@@ -2053,12 +2097,16 @@ describe("Core connector connection ownership", () => {
     });
     expect(replayedCompletion.replayed).toBe(true);
     await expect(
-      env.OPENMELD_DB.prepare(
-        `SELECT source_native_delivery_id FROM center_agent_audit_journal
-         WHERE resource_id = ? AND action = 'complete_connector_action'`
-      )
-        .bind(`github:github.create_issue:${baseInput.operationId}`)
-        .first()
+      getPostgresDatabase(env)
+        .query({
+          ...{
+            text: `SELECT source_native_delivery_id FROM "openmeld"."center_agent_audit_journal"
+         WHERE resource_id = $1 AND action = 'complete_connector_action'`,
+            values: [],
+          },
+          values: [`github:github.create_issue:${baseInput.operationId}`],
+        })
+        .then((result) => result.rows[0] ?? null)
     ).resolves.toEqual({
       source_native_delivery_id: baseInput.sourceNativeDeliveryId,
     });
@@ -2073,32 +2121,41 @@ describe("Core connector connection ownership", () => {
       code: "center_agent.connector_action_operation_conflict",
       status: 409,
     });
-
-    const auditCount = await env.OPENMELD_DB.prepare(
-      `
+    const auditCount = await getPostgresDatabase(env)
+      .query<{
+        count: number;
+      }>({
+        ...{
+          text: `
         SELECT count(*) AS count
-        FROM center_agent_audit_journal
-        WHERE resource_id = ?
-      `
-    )
-      .bind(
-        `${baseInput.service}:${baseInput.actionId}:${baseInput.operationId}`
-      )
-      .first<{ count: number }>();
+        FROM "openmeld"."center_agent_audit_journal"
+        WHERE resource_id = $1
+      `,
+          values: [],
+        },
+        values: [
+          `${baseInput.service}:${baseInput.actionId}:${baseInput.operationId}`,
+        ],
+      })
+      .then((result) => result.rows[0] ?? null);
     expect(Number(auditCount?.count ?? 0)).toBe(2);
-    const sourceSpaces = await env.OPENMELD_DB.prepare(
-      `
+    const sourceSpaces = await getPostgresDatabase(env).query<{
+      source_space_id: string | null;
+    }>({
+      ...{
+        text: `
         SELECT source_space_id
-        FROM center_agent_audit_journal
-        WHERE resource_id = ?
+        FROM "openmeld"."center_agent_audit_journal"
+        WHERE resource_id = $1
         ORDER BY created_at ASC
-      `
-    )
-      .bind(
-        `${baseInput.service}:${baseInput.actionId}:${baseInput.operationId}`
-      )
-      .all<{ source_space_id: string | null }>();
-    expect(sourceSpaces.results).toEqual([
+      `,
+        values: [],
+      },
+      values: [
+        `${baseInput.service}:${baseInput.actionId}:${baseInput.operationId}`,
+      ],
+    });
+    expect(sourceSpaces.rows).toEqual([
       { source_space_id: "space-authorized" },
       { source_space_id: "space-authorized" },
     ]);
@@ -2130,7 +2187,6 @@ describe("Core connector connection ownership", () => {
           `${baseInput.service}:${baseInput.actionId}:${baseInput.operationId}`
       )
     ).toMatchObject({ sourceSpaceId: "space-authorized" });
-
     const concurrentInput = {
       ...baseInput,
       operationId: `connector-operation-race-${crypto.randomUUID()}`,
@@ -2160,25 +2216,28 @@ describe("Core connector connection ownership", () => {
     expect(
       terminalRace.filter((result) => result.status === "rejected")
     ).toHaveLength(1);
-    const raceAuditRows = await env.OPENMELD_DB.prepare(
-      `
+    const raceAuditRows = await getPostgresDatabase(env).query<{
+      action: string;
+    }>({
+      ...{
+        text: `
         SELECT action
-        FROM center_agent_audit_journal
-        WHERE resource_id = ?
+        FROM "openmeld"."center_agent_audit_journal"
+        WHERE resource_id = $1
         ORDER BY created_at ASC
-      `
-    )
-      .bind(
-        `${concurrentInput.service}:${concurrentInput.actionId}:${concurrentInput.operationId}`
-      )
-      .all<{ action: string }>();
-    expect(raceAuditRows.results).toHaveLength(2);
-    expect(raceAuditRows.results[0]?.action).toBe("execute_connector_action");
+      `,
+        values: [],
+      },
+      values: [
+        `${concurrentInput.service}:${concurrentInput.actionId}:${concurrentInput.operationId}`,
+      ],
+    });
+    expect(raceAuditRows.rows).toHaveLength(2);
+    expect(raceAuditRows.rows[0]?.action).toBe("execute_connector_action");
     expect(["complete_connector_action", "fail_connector_action"]).toContain(
-      raceAuditRows.results[1]?.action
+      raceAuditRows.rows[1]?.action
     );
   });
-
   it("uses the native delivery as the only requester for a connected Message Channel member", async () => {
     const fixture = await seedConnectorFixture();
     const sharedConnection = await seedSharedConnectorConnection(
@@ -2187,7 +2246,6 @@ describe("Core connector connection ownership", () => {
     );
     const sourceNativeDeliveryId = `delivery-${crypto.randomUUID()}`;
     const operationId = `connector-channel-member-${crypto.randomUUID()}`;
-
     const result = await recordCenterAgentConnectorActionOperation({
       actionId: "gmail.fetch_emails",
       actorProfileId: fixture.ownerProfileId,
@@ -2196,7 +2254,7 @@ describe("Core connector connection ownership", () => {
         onBehalfOf: null,
       },
       connectionName: sharedConnection,
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       executionConnection: {
         connectionName: sharedConnection,
         ownerDisplayName: fixture.ownerA,
@@ -2216,7 +2274,6 @@ describe("Core connector connection ownership", () => {
       requestSignature: "e".repeat(64),
       service: "gmail",
     });
-
     expect(result.operation).toMatchObject({
       representedUserId: null,
       requesterAttributionKey: `delivery:${sourceNativeDeliveryId}`,
@@ -2224,21 +2281,24 @@ describe("Core connector connection ownership", () => {
       status: "pending",
     });
     await expect(
-      env.OPENMELD_DB.prepare(
-        `
+      getPostgresDatabase(env)
+        .query({
+          ...{
+            text: `
           SELECT on_behalf_of_user_id, source_native_delivery_id
-          FROM center_agent_audit_journal
-          WHERE resource_id = ?
-        `
-      )
-        .bind(`gmail:gmail.fetch_emails:${operationId}`)
-        .first()
+          FROM "openmeld"."center_agent_audit_journal"
+          WHERE resource_id = $1
+        `,
+            values: [],
+          },
+          values: [`gmail:gmail.fetch_emails:${operationId}`],
+        })
+        .then((result) => result.rows[0] ?? null)
     ).resolves.toEqual({
       on_behalf_of_user_id: null,
       source_native_delivery_id: sourceNativeDeliveryId,
     });
   });
-
   it("authorizes the represented member and selected connection before recording an operation", async () => {
     const fixture = await seedConnectorFixture();
     const sharedConnection = await seedSharedConnectorConnection(fixture);
@@ -2247,53 +2307,72 @@ describe("Core connector connection ownership", () => {
     const representedProfileId = crypto.randomUUID();
     const centerAgentMemberId = `member-center-agent-${crypto.randomUUID()}`;
     const nowMs = Date.now();
-    await env.OPENMELD_DB.batch([
-      env.OPENMELD_DB.prepare(
-        `
-          INSERT INTO openmeld_profiles (
+    await getPostgresDatabase(env).transaction(async (client) =>
+      (async () => {
+        const results: QueryResult[] = [];
+        for (const query of [
+          {
+            ...{
+              text: `
+          INSERT INTO "openmeld"."openmeld_profiles" (
             profile_id, profile_name, profile_handle, profile_kind, is_default,
             status, organization_id, owner_user_id, created_by_user_id, source,
             managed_role, created_at, updated_at
-          ) VALUES (?, 'Center Agent', ?, 'agent', 0, 'active', ?, NULL, ?, 'auth_bootstrap', 'center_agent', ?, ?)
-        `
-      ).bind(
-        centerAgentProfileId,
-        `center-agent-${crypto.randomUUID()}`,
-        fixture.organizationA,
-        fixture.ownerA,
-        nowMs,
-        nowMs
-      ),
-      env.OPENMELD_DB.prepare(
-        `
-          INSERT INTO openmeld_profiles (
+          ) VALUES ($1, 'Center Agent', $2, 'agent', 0, 'active', $3, NULL, $4, 'auth_bootstrap', 'center_agent', $5, $6)
+        `,
+              values: [],
+            },
+            values: [
+              centerAgentProfileId,
+              `center-agent-${crypto.randomUUID()}`,
+              fixture.organizationA,
+              fixture.ownerA,
+              nowMs,
+              nowMs,
+            ],
+          },
+          {
+            ...{
+              text: `
+          INSERT INTO "openmeld"."openmeld_profiles" (
             profile_id, profile_name, profile_handle, profile_kind, is_default,
             status, organization_id, owner_user_id, created_by_user_id, source,
             created_at, updated_at
-          ) VALUES (?, 'Represented member', ?, 'human', 1, 'active', NULL, ?, ?, 'auth_bootstrap', ?, ?)
-        `
-      ).bind(
-        representedProfileId,
-        `represented-${crypto.randomUUID()}`,
-        fixture.memberA,
-        fixture.memberA,
-        nowMs,
-        nowMs
-      ),
-      env.OPENMELD_DB.prepare(
-        `
-          INSERT INTO center_agent_designations (
+          ) VALUES ($1, 'Represented member', $2, 'human', 1, 'active', NULL, $3, $4, 'auth_bootstrap', $5, $6)
+        `,
+              values: [],
+            },
+            values: [
+              representedProfileId,
+              `represented-${crypto.randomUUID()}`,
+              fixture.memberA,
+              fixture.memberA,
+              nowMs,
+              nowMs,
+            ],
+          },
+          {
+            ...{
+              text: `
+          INSERT INTO "openmeld"."center_agent_designations" (
             organization_id, agent_profile_id, duty, designated_by, created_at
-          ) VALUES (?, ?, NULL, ?, ?)
-        `
-      ).bind(
-        fixture.organizationA,
-        centerAgentProfileId,
-        fixture.ownerA,
-        nowMs
-      ),
-    ]);
-
+          ) VALUES ($1, $2, NULL, $3, $4)
+        `,
+              values: [],
+            },
+            values: [
+              fixture.organizationA,
+              centerAgentProfileId,
+              fixture.ownerA,
+              nowMs,
+            ],
+          },
+        ]) {
+          results.push(await client.query(query));
+        }
+        return results;
+      })()
+    );
     const context = {
       activeOrganizationId: fixture.organizationA,
       agentControllerConversationId: await seedConnectorTaskSource(
@@ -2331,10 +2410,8 @@ describe("Core connector connection ownership", () => {
     }));
     const coreEnv = {
       OPENMELD_AUTH_WORKER: { resolveUserDisplayName },
-      OPENMELD_DB: env.OPENMELD_DB,
-      OPENMELD_WAKE_EVIDENCE_DB: env.OPENMELD_DB,
+      OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL,
     } as unknown as CoreBindings;
-
     await expect(
       rpcCenterAgentRecordConnectorActionOperation(coreEnv, {
         ...body,
@@ -2401,15 +2478,19 @@ describe("Core connector connection ownership", () => {
         })
       ).rejects.toThrow("connector.connection_owner_unavailable");
       await expect(
-        env.OPENMELD_DB.prepare(
-          `
+        getPostgresDatabase(env)
+          .query({
+            ...{
+              text: `
             SELECT operation_id
-            FROM center_agent_connector_action_operations
-            WHERE operation_id = ?
-          `
-        )
-          .bind(rejectedOperationId)
-          .first()
+            FROM "openmeld"."center_agent_connector_action_operations"
+            WHERE operation_id = $1
+          `,
+              values: [],
+            },
+            values: [rejectedOperationId],
+          })
+          .then((result) => result.rows[0] ?? null)
       ).resolves.toBeNull();
     }
     resolveUserDisplayName.mockRejectedValueOnce(
@@ -2425,17 +2506,20 @@ describe("Core connector connection ownership", () => {
       })
     ).rejects.toThrow("Auth identity storage failed");
     await expect(
-      env.OPENMELD_DB.prepare(
-        `
+      getPostgresDatabase(env)
+        .query({
+          ...{
+            text: `
           SELECT operation_id
-          FROM center_agent_connector_action_operations
-          WHERE operation_id = ?
-        `
-      )
-        .bind(unrelatedFailureOperationId)
-        .first()
+          FROM "openmeld"."center_agent_connector_action_operations"
+          WHERE operation_id = $1
+        `,
+            values: [],
+          },
+          values: [unrelatedFailureOperationId],
+        })
+        .then((result) => result.rows[0] ?? null)
     ).resolves.toBeNull();
-
     resolveUserDisplayName.mockRejectedValueOnce(
       new Error(
         'The RPC receiver does not implement the method "resolveUserDisplayName".'
@@ -2451,17 +2535,20 @@ describe("Core connector connection ownership", () => {
       })
     ).rejects.toThrow("connector.connection_owner_unavailable");
     await expect(
-      env.OPENMELD_DB.prepare(
-        `
+      getPostgresDatabase(env)
+        .query({
+          ...{
+            text: `
           SELECT operation_id
-          FROM center_agent_connector_action_operations
-          WHERE operation_id = ?
-        `
-      )
-        .bind(missingMethodOperationId)
-        .first()
+          FROM "openmeld"."center_agent_connector_action_operations"
+          WHERE operation_id = $1
+        `,
+            values: [],
+          },
+          values: [missingMethodOperationId],
+        })
+        .then((result) => result.rows[0] ?? null)
     ).resolves.toBeNull();
-
     await expect(
       rpcCenterAgentRecordConnectorActionOperation(coreEnv, {
         ...body,
@@ -2476,23 +2563,41 @@ describe("Core connector connection ownership", () => {
       code: "center_agent.member_actor_required",
       status: 403,
     });
-
-    await env.OPENMELD_DB.batch([
-      env.OPENMELD_DB.prepare(
-        `
-          UPDATE connector_connections
-          SET status = 'disconnected', disconnected_at_ms = ?, updated_at_ms = ?
-          WHERE connection_name = ?
-        `
-      ).bind(nowMs + 1, nowMs + 1, fixture.connectionA),
-      env.OPENMELD_DB.prepare(
-        "DELETE FROM members WHERE id = ? AND organization_id = ?"
-      ).bind(fixture.memberAId, fixture.organizationA),
-      env.OPENMELD_DB.prepare("UPDATE users SET name = ? WHERE id = ?").bind(
-        "Changed connector owner",
-        fixture.memberA
-      ),
-    ]);
+    await getPostgresDatabase(env).transaction(async (client) =>
+      (async () => {
+        const results: QueryResult[] = [];
+        for (const query of [
+          {
+            ...{
+              text: `
+          UPDATE "openmeld"."connector_connections"
+          SET status = 'disconnected', disconnected_at_ms = $1, updated_at_ms = $2
+          WHERE connection_name = $3
+        `,
+              values: [],
+            },
+            values: [nowMs + 1, nowMs + 1, fixture.connectionA],
+          },
+          {
+            ...{
+              text: 'DELETE FROM "openmeld"."members" WHERE id = $1 AND organization_id = $2',
+              values: [],
+            },
+            values: [fixture.memberAId, fixture.organizationA],
+          },
+          {
+            ...{
+              text: 'UPDATE "openmeld"."users" SET name = $1 WHERE id = $2',
+              values: [],
+            },
+            values: ["Changed connector owner", fixture.memberA],
+          },
+        ]) {
+          results.push(await client.query(query));
+        }
+        return results;
+      })()
+    );
     await expect(
       rpcCenterAgentReadConnectorActionOperation(coreEnv, body)
     ).rejects.toThrow("center_agent.member_actor_required");
@@ -2504,21 +2609,24 @@ describe("Core connector connection ownership", () => {
       })
     ).rejects.toThrow("center_agent.member_actor_required");
     await expect(
-      env.OPENMELD_DB.prepare(
-        `
+      getPostgresDatabase(env)
+        .query({
+          ...{
+            text: `
           SELECT provider_execution_id, status
-          FROM center_agent_connector_action_operations
-          WHERE operation_id = ?
-        `
-      )
-        .bind(operationId)
-        .first()
+          FROM "openmeld"."center_agent_connector_action_operations"
+          WHERE operation_id = $1
+        `,
+            values: [],
+          },
+          values: [operationId],
+        })
+        .then((result) => result.rows[0] ?? null)
     ).resolves.toEqual({
       provider_execution_id: null,
       status: "pending",
     });
   });
-
   it.each([
     "github",
     "posthog",
@@ -2529,11 +2637,17 @@ describe("Core connector connection ownership", () => {
       fixture,
       service
     );
-    const member = await env.OPENMELD_DB.prepare(
-      "SELECT id FROM members WHERE organization_id = ? AND user_id = ?"
-    )
-      .bind(fixture.organizationA, fixture.ownerA)
-      .first<{ id: string }>();
+    const member = await getPostgresDatabase(env)
+      .query<{
+        id: string;
+      }>({
+        ...{
+          text: 'SELECT id FROM "openmeld"."members" WHERE organization_id = $1 AND user_id = $2',
+          values: [],
+        },
+        values: [fixture.organizationA, fixture.ownerA],
+      })
+      .then((result) => result.rows[0] ?? null);
     if (!member) {
       throw new Error("Missing requester member");
     }
@@ -2566,60 +2680,76 @@ describe("Core connector connection ownership", () => {
       executionAllowed: false,
     });
     for (const permission of ["read", "none"] as const) {
-      await env.OPENMELD_DB.prepare(
-        "UPDATE connector_connections SET access_policy = ? WHERE connection_name = ?"
-      )
-        .bind(
+      await getPostgresDatabase(env).query({
+        ...{
+          text: 'UPDATE "openmeld"."connector_connections" SET access_policy = $1 WHERE connection_name = $2',
+          values: [],
+        },
+        values: [
           JSON.stringify({
             center_agent: permission,
             local_agent: "none",
             remote_agent: "none",
           }),
-          connectionName
-        )
-        .run();
+          connectionName,
+        ],
+      });
       await expect(
         rpcCenterAgentRecordConnectorActionOperation(core, body)
       ).rejects.toThrow("plugin.action_forbidden");
     }
-    await env.OPENMELD_DB.prepare(
-      "UPDATE connector_connections SET access_policy = NULL, status = 'disconnected', disconnected_at_ms = updated_at_ms WHERE connection_name = ?"
-    )
-      .bind(connectionName)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'UPDATE "openmeld"."connector_connections" SET access_policy = NULL, status = \'disconnected\', disconnected_at_ms = updated_at_ms WHERE connection_name = $1',
+        values: [],
+      },
+      values: [connectionName],
+    });
     await expect(
       rpcCenterAgentRecordConnectorActionOperation(core, body)
     ).rejects.toThrow("center_agent.connector_action_connection_invalid");
-    await env.OPENMELD_DB.prepare(
-      "UPDATE connector_connections SET status = 'active', disconnected_at_ms = NULL, user_id = ? WHERE connection_name = ?"
-    )
-      .bind(fixture.otherMemberA, connectionName)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'UPDATE "openmeld"."connector_connections" SET status = \'active\', disconnected_at_ms = NULL, user_id = $1 WHERE connection_name = $2',
+        values: [],
+      },
+      values: [fixture.otherMemberA, connectionName],
+    });
     await expect(
       rpcCenterAgentRecordConnectorActionOperation(core, body)
     ).rejects.toThrow("center_agent.connector_action_connection_invalid");
-    await env.OPENMELD_DB.prepare(
-      "UPDATE connector_connections SET user_id = ? WHERE connection_name = ?"
-    )
-      .bind(fixture.ownerA, connectionName)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'UPDATE "openmeld"."connector_connections" SET user_id = $1 WHERE connection_name = $2',
+        values: [],
+      },
+      values: [fixture.ownerA, connectionName],
+    });
     await expect(
       rpcCenterAgentRecordConnectorActionOperation(core, {
         ...body,
         connectionName: "another-account",
       })
     ).rejects.toThrow("center_agent.connector_action_connection_invalid");
-    await env.OPENMELD_DB.prepare("DELETE FROM members WHERE id = ?")
-      .bind(member.id)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'DELETE FROM "openmeld"."members" WHERE id = $1',
+        values: [],
+      },
+      values: [member.id],
+    });
     await expect(
       rpcCenterAgentRecordConnectorActionOperation(core, body)
     ).rejects.toThrow("center_agent.member_actor_required");
-    const retained = await env.OPENMELD_DB.prepare(
-      "SELECT status, connection_name, connection_owner_user_id, connection_scope FROM center_agent_connector_action_operations WHERE operation_id = ?"
-    )
-      .bind(body.operationId)
-      .first();
+    const retained = await getPostgresDatabase(env)
+      .query({
+        ...{
+          text: 'SELECT status, connection_name, connection_owner_user_id, connection_scope FROM "openmeld"."center_agent_connector_action_operations" WHERE operation_id = $1',
+          values: [],
+        },
+        values: [body.operationId],
+      })
+      .then((result) => result.rows[0] ?? null);
     expect(retained).toMatchObject({
       status: "pending",
       connection_name: connectionName,
@@ -2629,7 +2759,6 @@ describe("Core connector connection ownership", () => {
       connection_scope: "shared",
     });
   });
-
   it("uses the represented user as the only requester for a linked native-delivery action", async () => {
     const fixture = await seedConnectorFixture();
     const centerAgent = await seedDesignatedCenterAgent(fixture);
@@ -2644,45 +2773,49 @@ describe("Core connector connection ownership", () => {
       service: "gmail",
       userId: fixture.memberA,
     });
-    await env.OPENMELD_DB.prepare(
-      `
-        INSERT INTO openmeld_profiles (
+    await getPostgresDatabase(env).query({
+      ...{
+        text: `
+        INSERT INTO "openmeld"."openmeld_profiles" (
           profile_id, profile_name, profile_handle, profile_kind, is_default,
           status, organization_id, owner_user_id, created_by_user_id, source,
           created_at, updated_at
-        ) VALUES (?, 'Represented member', ?, 'human', 1, 'active', NULL, ?, ?, 'auth_bootstrap', ?, ?)
-      `
-    )
-      .bind(
+        ) VALUES ($1, 'Represented member', $2, 'human', 1, 'active', NULL, $3, $4, 'auth_bootstrap', $5, $6)
+      `,
+        values: [],
+      },
+      values: [
         representedProfileId,
         `represented-${crypto.randomUUID()}`,
         fixture.memberA,
         fixture.memberA,
         nowMs,
-        nowMs
-      )
-      .run();
-    await env.OPENMELD_DB.prepare(
-      `
-        INSERT INTO connector_connections (
+        nowMs,
+      ],
+    });
+    await getPostgresDatabase(env).query({
+      ...{
+        text: `
+        INSERT INTO "openmeld"."connector_connections" (
           connection_name, organization_id, user_id, service, status,
           created_at_ms, updated_at_ms, disconnected_at_ms
-        ) VALUES (?, ?, ?, 'gmail', 'active', ?, ?, NULL)
-      `
-    )
-      .bind(
+        ) VALUES ($1, $2, $3, 'gmail', 'active', $4, $5, NULL)
+      `,
+        values: [],
+      },
+      values: [
         gmailConnection,
         fixture.organizationA,
         fixture.memberA,
         nowMs,
-        nowMs
-      )
-      .run();
+        nowMs,
+      ],
+    });
     const sourceSpaceId = `space-${crypto.randomUUID()}`;
     await upsertRemoteAgentNativeDeliveryRecord({
       attemptId: null,
       bindingId: `binding-${crypto.randomUUID()}`,
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       deliveryId,
       dispatchId: `dispatch-${crypto.randomUUID()}`,
       idempotencyKey,
@@ -2698,12 +2831,11 @@ describe("Core connector connection ownership", () => {
     });
     await markRemoteAgentNativeDeliveryAck({
       accepted: true,
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       idempotencyKey,
       nowMs: nowMs + 1,
       submissionId,
     });
-
     const input = {
       actionId: "gmail.fetch_emails",
       connectionName: gmailConnection,
@@ -2721,7 +2853,6 @@ describe("Core connector connection ownership", () => {
         userId: fixture.memberA,
       },
     };
-
     await expect(
       rpcCenterAgentRecordConnectorActionAudit(connectorCoreEnv(), {
         ...input,
@@ -2730,29 +2861,32 @@ describe("Core connector connection ownership", () => {
     ).rejects.toMatchObject({
       cause: expect.objectContaining({ code: "plugin.connection_required" }),
     });
-    await env.OPENMELD_DB.prepare(
-      "UPDATE connector_connections SET access_policy = ? WHERE connection_name = ?"
-    )
-      .bind(
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'UPDATE "openmeld"."connector_connections" SET access_policy = $1 WHERE connection_name = $2',
+        values: [],
+      },
+      values: [
         JSON.stringify({
           center_agent: "read",
           local_agent: "none",
           remote_agent: "none",
         }),
-        gmailConnection
-      )
-      .run();
+        gmailConnection,
+      ],
+    });
     await expect(
       rpcCenterAgentRecordConnectorActionAudit(connectorCoreEnv(), input)
     ).rejects.toMatchObject({
       cause: expect.objectContaining({ code: "plugin.action_forbidden" }),
     });
-    await env.OPENMELD_DB.prepare(
-      "UPDATE connector_connections SET access_policy = NULL WHERE connection_name = ?"
-    )
-      .bind(gmailConnection)
-      .run();
-
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'UPDATE "openmeld"."connector_connections" SET access_policy = NULL WHERE connection_name = $1',
+        values: [],
+      },
+      values: [gmailConnection],
+    });
     await expect(
       rpcCenterAgentRecordConnectorActionOperation(connectorCoreEnv(), input)
     ).resolves.toMatchObject({
@@ -2766,30 +2900,38 @@ describe("Core connector connection ownership", () => {
       status: "pending",
     });
     await expect(
-      env.OPENMELD_DB.prepare(
-        `
+      getPostgresDatabase(env)
+        .query({
+          ...{
+            text: `
           SELECT requester_attribution_key, represented_user_id, source_native_delivery_id
-          FROM center_agent_connector_action_operations
-          WHERE operation_id = ?
-        `
-      )
-        .bind(operationId)
-        .first()
+          FROM "openmeld"."center_agent_connector_action_operations"
+          WHERE operation_id = $1
+        `,
+            values: [],
+          },
+          values: [operationId],
+        })
+        .then((result) => result.rows[0] ?? null)
     ).resolves.toEqual({
       represented_user_id: fixture.memberA,
       requester_attribution_key: `user:${fixture.memberA}`,
       source_native_delivery_id: null,
     });
     await expect(
-      env.OPENMELD_DB.prepare(
-        `
+      getPostgresDatabase(env)
+        .query({
+          ...{
+            text: `
           SELECT source_space_id
-          FROM center_agent_audit_journal
-          WHERE resource_id = ?
-        `
-      )
-        .bind(`gmail:gmail.fetch_emails:${operationId}`)
-        .first()
+          FROM "openmeld"."center_agent_audit_journal"
+          WHERE resource_id = $1
+        `,
+            values: [],
+          },
+          values: [`gmail:gmail.fetch_emails:${operationId}`],
+        })
+        .then((result) => result.rows[0] ?? null)
     ).resolves.toEqual({ source_space_id: sourceSpaceId });
     await expect(
       rpcCenterAgentReadConnectorActionOperation(connectorCoreEnv(), input)
@@ -2797,7 +2939,6 @@ describe("Core connector connection ownership", () => {
       operation: { operationId, status: "pending" },
     });
   });
-
   it.each([
     "slack",
     "message_channel",
@@ -2810,29 +2951,31 @@ describe("Core connector connection ownership", () => {
     const deliveryId = crypto.randomUUID();
     const nowMs = Date.now();
     const externalConversationId = `${conversationKind}-${crypto.randomUUID()}`;
-    await env.OPENMELD_DB.prepare(
-      `
-          INSERT INTO openmeld_profiles (
+    await getPostgresDatabase(env).query({
+      ...{
+        text: `
+          INSERT INTO "openmeld"."openmeld_profiles" (
             profile_id, profile_name, profile_handle, profile_kind, is_default,
             status, organization_id, owner_user_id, created_by_user_id, source,
             created_at, updated_at
-          ) VALUES (?, 'Represented member', ?, 'human', 1, 'active', NULL, ?, ?, 'auth_bootstrap', ?, ?)
-        `
-    )
-      .bind(
+          ) VALUES ($1, 'Represented member', $2, 'human', 1, 'active', NULL, $3, $4, 'auth_bootstrap', $5, $6)
+        `,
+        values: [],
+      },
+      values: [
         representedProfileId,
         `represented-${crypto.randomUUID()}`,
         fixture.memberA,
         fixture.memberA,
         nowMs,
-        nowMs
-      )
-      .run();
+        nowMs,
+      ],
+    });
     await upsertRemoteAgentNativeDeliveryRecord({
       attemptId: null,
       bindingId: `binding-${crypto.randomUUID()}`,
       conversationKind,
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       deliveryId,
       dispatchId: `dispatch-${crypto.randomUUID()}`,
       idempotencyKey,
@@ -2866,12 +3009,11 @@ describe("Core connector connection ownership", () => {
     });
     await markRemoteAgentNativeDeliveryAck({
       accepted: true,
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       idempotencyKey,
       nowMs: nowMs + 1,
       submissionId,
     });
-
     await expect(
       prepareCenterAgentRepresentedMemberRequest(
         connectorCoreEnv(),
@@ -2889,10 +3031,8 @@ describe("Core connector connection ownership", () => {
       sourceSpaceId: null,
     });
   });
-
   it("rejects a connector write when the page organization no longer matches the active session", async () => {
     const fixture = await seedConnectorFixture();
-
     await expect(
       rpcBeginCurrentMemberConnectorAuthorization(connectorCoreEnv(), {
         context: connectorRequestContext({
@@ -2909,14 +3049,17 @@ describe("Core connector connection ownership", () => {
       }),
     });
     await expect(
-      env.OPENMELD_DB.prepare(
-        "SELECT status FROM connector_connections WHERE connection_name = ?"
-      )
-        .bind(fixture.connectionA)
-        .first()
+      getPostgresDatabase(env)
+        .query({
+          ...{
+            text: 'SELECT status FROM "openmeld"."connector_connections" WHERE connection_name = $1',
+            values: [],
+          },
+          values: [fixture.connectionA],
+        })
+        .then((result) => result.rows[0] ?? null)
     ).resolves.toMatchObject({ status: "active" });
   });
-
   it("creates deterministic OpenConnector-safe names without exposing raw ids", async () => {
     const organizationId = "org_12345678-1234-4234-8234-123456789012";
     const userId = "user_12345678-1234-4234-8234-123456789012";
@@ -2930,25 +3073,21 @@ describe("Core connector connection ownership", () => {
       service: "github",
       userId,
     });
-
     expect(first).toBe(second);
     expect(first).toMatch(CONNECTOR_CONNECTION_NAME_PATTERN);
     expect(first.length).toBeLessThanOrEqual(64);
     expect(first).not.toContain(organizationId);
     expect(first).not.toContain(userId);
   });
-
   it("keeps long provider service names within the OpenConnector name limit", async () => {
     const connectionName = await createConnectorConnectionName({
       organizationId: "org_12345678-1234-4234-8234-123456789012",
       service: "cloudflare_browser_rendering",
       userId: "user_12345678-1234-4234-8234-123456789012",
     });
-
     expect(connectionName.length).toBeLessThanOrEqual(64);
     expect(connectionName).toMatch(OPENCONNECTOR_CONNECTION_NAME_PATTERN);
   });
-
   it("creates one deterministic shared connection name per organization and service", async () => {
     const organizationId = "org_12345678-1234-4234-8234-123456789012";
     const first = await createSharedConnectorConnectionName({
@@ -2959,35 +3098,31 @@ describe("Core connector connection ownership", () => {
       organizationId,
       service: "github",
     });
-
     expect(first).toBe(second);
     expect(first).toMatch(SHARED_CONNECTOR_CONNECTION_NAME_PATTERN);
     expect(first.length).toBeLessThanOrEqual(64);
     expect(first).not.toContain(organizationId);
   });
-
   it("selects only active connections registered to the requested organization", async () => {
     const fixture = await seedConnectorFixture();
     const selectedForA = await selectActiveConnectorConnection({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       organizationId: fixture.organizationA,
       preference: "automatic",
       requesterUserId: fixture.memberA,
       service: "github",
     });
     const selectedForB = await selectActiveConnectorConnection({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       organizationId: fixture.organizationB,
       preference: "automatic",
       requesterUserId: fixture.ownerB,
       service: "github",
     });
-
     expect(selectedForA?.connection.organizationId).toBe(fixture.organizationA);
     expect(selectedForA?.connection.connectionName).toBe(fixture.connectionA);
     expect(selectedForB).toBeNull();
   });
-
   it("resolves requester membership and connection owner identity through their owner boundaries", async () => {
     const fixture = await seedConnectorFixture();
     const centerAgent = await seedDesignatedCenterAgent(fixture);
@@ -2998,7 +3133,7 @@ describe("Core connector connection ownership", () => {
     }));
     const coreEnv = {
       OPENMELD_AUTH_WORKER: { resolveUserDisplayName },
-      OPENMELD_DB: env.OPENMELD_DB,
+      OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL,
     } as unknown as CoreBindings;
     const input = {
       connectionPreference: "requester" as const,
@@ -3006,7 +3141,6 @@ describe("Core connector connection ownership", () => {
       requesterUserId: fixture.memberA,
       service: "github" as const,
     };
-
     await expect(
       rpcCenterAgentResolveConnectorConnection(coreEnv, input)
     ).resolves.toMatchObject({
@@ -3031,13 +3165,13 @@ describe("Core connector connection ownership", () => {
         includeAccessPolicy: true,
       })
     ).resolves.toMatchObject({ permission: "write" });
-
-    await env.OPENMELD_DB.prepare(
-      "DELETE FROM members WHERE organization_id = ? AND user_id = ?"
-    )
-      .bind(fixture.organizationA, fixture.memberA)
-      .run();
-
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'DELETE FROM "openmeld"."members" WHERE organization_id = $1 AND user_id = $2',
+        values: [],
+      },
+      values: [fixture.organizationA, fixture.memberA],
+    });
     await expect(
       rpcCenterAgentResolveConnectorConnection(coreEnv, input)
     ).rejects.toMatchObject({
@@ -3047,7 +3181,6 @@ describe("Core connector connection ownership", () => {
       }),
     });
   });
-
   it("makes registered connections absent from each successful provider inventory ineligible", async () => {
     const fixture = await seedConnectorFixture();
     const availableConnection = await createConnectorConnectionName({
@@ -3061,28 +3194,29 @@ describe("Core connector connection ownership", () => {
       userId: fixture.ownerA,
     });
     const nowMs = Date.now();
-    await env.OPENMELD_DB.prepare(
-      `
-        INSERT INTO connector_connections (
+    await getPostgresDatabase(env).query({
+      ...{
+        text: `
+        INSERT INTO "openmeld"."connector_connections" (
           connection_name, organization_id, user_id, service, status,
           created_at_ms, updated_at_ms, disconnected_at_ms
-        ) VALUES (?, ?, ?, 'github', 'pending', ?, ?, NULL)
-      `
-    )
-      .bind(
+        ) VALUES ($1, $2, $3, 'github', 'pending', $4, $5, NULL)
+      `,
+        values: [],
+      },
+      values: [
         availableConnection,
         fixture.organizationA,
         fixture.otherMemberA,
         nowMs,
-        nowMs
-      )
-      .run();
+        nowMs,
+      ],
+    });
     const context = connectorRequestContext({
       organizationId: fixture.organizationA,
       profileId: fixture.ownerProfileId,
       userId: fixture.ownerA,
     });
-
     const partialInventory =
       await rpcReconcileCurrentOrganizationConnectorConnections(
         connectorCoreEnv(),
@@ -3093,7 +3227,6 @@ describe("Core connector connection ownership", () => {
           service: "github",
         }
       );
-
     expect(partialInventory.connections).toHaveLength(2);
     expect(partialInventory.connections).toEqual(
       expect.arrayContaining([
@@ -3107,7 +3240,6 @@ describe("Core connector connection ownership", () => {
         }),
       ])
     );
-
     const emptyInventory =
       await rpcReconcileCurrentOrganizationConnectorConnections(
         connectorCoreEnv(),
@@ -3118,7 +3250,6 @@ describe("Core connector connection ownership", () => {
           service: "github",
         }
       );
-
     expect(emptyInventory.connections).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -3132,13 +3263,11 @@ describe("Core connector connection ownership", () => {
       ])
     );
   });
-
   it("never lends a member connection to another organization member", async () => {
     const fixture = await seedConnectorFixture();
-
     await expect(
       selectActiveConnectorConnection({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         organizationId: fixture.organizationA,
         preference: "automatic",
         requesterUserId: fixture.otherMemberA,
@@ -3146,14 +3275,12 @@ describe("Core connector connection ownership", () => {
       })
     ).resolves.toBeNull();
   });
-
   it("uses a shared connection only when the requester has no member connection", async () => {
     const fixture = await seedConnectorFixture();
     const sharedConnection = await seedSharedConnectorConnection(fixture);
-
     await expect(
       selectActiveConnectorConnection({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         organizationId: fixture.organizationA,
         preference: "automatic",
         requesterUserId: fixture.memberA,
@@ -3165,7 +3292,7 @@ describe("Core connector connection ownership", () => {
     });
     await expect(
       selectActiveConnectorConnection({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         organizationId: fixture.organizationA,
         preference: "automatic",
         requesterUserId: fixture.otherMemberA,
@@ -3176,14 +3303,12 @@ describe("Core connector connection ownership", () => {
       selection: "shared",
     });
   });
-
   it("selects exactly the requested GitHub identity without fallback", async () => {
     const fixture = await seedConnectorFixture();
     const sharedConnection = await seedSharedConnectorConnection(fixture);
-
     await expect(
       selectActiveConnectorConnection({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         organizationId: fixture.organizationA,
         preference: "requester",
         requesterUserId: fixture.memberA,
@@ -3195,7 +3320,7 @@ describe("Core connector connection ownership", () => {
     });
     await expect(
       selectActiveConnectorConnection({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         organizationId: fixture.organizationA,
         preference: "shared",
         requesterUserId: fixture.memberA,
@@ -3207,28 +3332,30 @@ describe("Core connector connection ownership", () => {
     });
     await expect(
       selectActiveConnectorConnection({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         organizationId: fixture.organizationA,
         preference: "requester",
         requesterUserId: fixture.otherMemberA,
         service: "github",
       })
     ).resolves.toBeNull();
-    await env.OPENMELD_DB.prepare(
-      `
-        UPDATE connector_connections
+    await getPostgresDatabase(env).query({
+      ...{
+        text: `
+        UPDATE "openmeld"."connector_connections"
         SET status = 'disconnected',
             disconnected_at_ms = updated_at_ms + 1,
             updated_at_ms = updated_at_ms + 1
-        WHERE organization_id = ?
-          AND connection_name = ?
-      `
-    )
-      .bind(fixture.organizationA, sharedConnection)
-      .run();
+        WHERE organization_id = $1
+          AND connection_name = $2
+      `,
+        values: [],
+      },
+      values: [fixture.organizationA, sharedConnection],
+    });
     await expect(
       selectActiveConnectorConnection({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         organizationId: fixture.organizationA,
         preference: "shared",
         requesterUserId: fixture.memberA,
@@ -3236,14 +3363,12 @@ describe("Core connector connection ownership", () => {
       })
     ).resolves.toBeNull();
   });
-
   it("allows unattended work to resolve only a shared connection", async () => {
     const fixture = await seedConnectorFixture();
     const sharedConnection = await seedSharedConnectorConnection(fixture);
-
     await expect(
       selectActiveConnectorConnection({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         organizationId: fixture.organizationA,
         preference: "automatic",
         requesterUserId: null,
@@ -3254,19 +3379,18 @@ describe("Core connector connection ownership", () => {
       selection: "shared",
     });
   });
-
   it("leaves requester membership decisions outside connector storage", async () => {
     const fixture = await seedConnectorFixture();
-
-    await env.OPENMELD_DB.prepare(
-      "DELETE FROM members WHERE organization_id = ? AND user_id = ?"
-    )
-      .bind(fixture.organizationA, fixture.memberA)
-      .run();
-
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'DELETE FROM "openmeld"."members" WHERE organization_id = $1 AND user_id = $2',
+        values: [],
+      },
+      values: [fixture.organizationA, fixture.memberA],
+    });
     await expect(
       selectActiveConnectorConnection({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         organizationId: fixture.organizationA,
         preference: "requester",
         requesterUserId: fixture.memberA,
@@ -3277,11 +3401,9 @@ describe("Core connector connection ownership", () => {
       selection: "requester",
     });
   });
-
   it("allows disconnect only for the connection owner or an organization owner or admin", async () => {
     const fixture = await seedConnectorFixture();
     const coreEnv = connectorCoreEnv();
-
     await expect(
       rpcAuthorizeConnectorDisconnect(coreEnv, {
         context: connectorRequestContext({
@@ -3299,7 +3421,6 @@ describe("Core connector connection ownership", () => {
         status: 403,
       }),
     });
-
     await expect(
       rpcAuthorizeConnectorDisconnect(coreEnv, {
         context: connectorRequestContext({
@@ -3314,7 +3435,6 @@ describe("Core connector connection ownership", () => {
       connectionName: fixture.connectionA,
       userId: fixture.memberA,
     });
-
     await expect(
       rpcAuthorizeConnectorDisconnect(coreEnv, {
         context: connectorRequestContext({
@@ -3331,11 +3451,9 @@ describe("Core connector connection ownership", () => {
       userId: fixture.memberA,
     });
   });
-
   it("reserves shared app management for organization owners and admins", async () => {
     const fixture = await seedConnectorFixture();
     const coreEnv = connectorCoreEnv();
-
     await expect(
       rpcBeginCurrentOrganizationSharedConnectorAuthorization(coreEnv, {
         context: connectorRequestContext({
@@ -3352,7 +3470,6 @@ describe("Core connector connection ownership", () => {
         status: 403,
       }),
     });
-
     const ownerContext = connectorRequestContext({
       organizationId: fixture.organizationA,
       profileId: fixture.ownerProfileId,
@@ -3369,23 +3486,26 @@ describe("Core connector connection ownership", () => {
       userId: fixture.ownerA,
     });
     await expect(
-      env.OPENMELD_DB.prepare(
-        `
+      getPostgresDatabase(env)
+        .query({
+          ...{
+            text: `
           SELECT action, actor_profile_id, resource_type
-          FROM center_agent_audit_journal
-          WHERE organization_id = ?
+          FROM "openmeld"."center_agent_audit_journal"
+          WHERE organization_id = $1
             AND action = 'start_shared_app_authorization'
           LIMIT 1
-        `
-      )
-        .bind(fixture.organizationA)
-        .first()
+        `,
+            values: [],
+          },
+          values: [fixture.organizationA],
+        })
+        .then((result) => result.rows[0] ?? null)
     ).resolves.toMatchObject({
       action: "start_shared_app_authorization",
       actor_profile_id: fixture.ownerProfileId,
       resource_type: "app_connection",
     });
-
     await expect(
       rpcCompleteConnectorDisconnect(coreEnv, {
         connectionName: sharedConnection.connectionName,
@@ -3399,20 +3519,23 @@ describe("Core connector connection ownership", () => {
       status: "disconnected",
     });
     await expect(
-      env.OPENMELD_DB.prepare(
-        `
+      getPostgresDatabase(env)
+        .query({
+          ...{
+            text: `
           SELECT action
-          FROM center_agent_audit_journal
-          WHERE organization_id = ?
+          FROM "openmeld"."center_agent_audit_journal"
+          WHERE organization_id = $1
             AND action = 'disconnect_shared_app'
           LIMIT 1
-        `
-      )
-        .bind(fixture.organizationA)
-        .first()
+        `,
+            values: [],
+          },
+          values: [fixture.organizationA],
+        })
+        .then((result) => result.rows[0] ?? null)
     ).resolves.toMatchObject({ action: "disconnect_shared_app" });
   });
-
   it("rechecks shared app management permission before reading or completing a GitHub App installation", async () => {
     const fixture = await seedConnectorFixture();
     const coreEnv = connectorCoreEnv();
@@ -3438,13 +3561,13 @@ describe("Core connector connection ownership", () => {
     if (verification.status !== "valid") {
       throw new Error("Expected a valid GitHub App installation state.");
     }
-
-    await env.OPENMELD_DB.prepare(
-      "UPDATE members SET role = 'member' WHERE organization_id = ? AND user_id = ?"
-    )
-      .bind(fixture.organizationA, fixture.ownerA)
-      .run();
-
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'UPDATE "openmeld"."members" SET role = \'member\' WHERE organization_id = $1 AND user_id = $2',
+        values: [],
+      },
+      values: [fixture.organizationA, fixture.ownerA],
+    });
     await expect(
       rpcReadPendingGitHubAppInstallation(coreEnv, {
         context: ownerContext,
@@ -3472,7 +3595,6 @@ describe("Core connector connection ownership", () => {
     });
   });
 });
-
 async function seedConnectorFixture() {
   const suffix = crypto.randomUUID();
   const organizationA = `org_connector_a_${suffix}`;
@@ -3486,82 +3608,122 @@ async function seedConnectorFixture() {
   const nowMs = Date.now();
   const users = [ownerA, memberA, otherMemberA, ownerB];
   for (const userId of users) {
-    await env.OPENMELD_DB.prepare(
-      `
-        INSERT INTO users (id, name, email, email_verified, created_at, updated_at)
-        VALUES (?, ?, ?, 1, ?, ?)
-      `
-    )
-      .bind(userId, userId, `${userId}@example.com`, nowMs, nowMs)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: `
+        INSERT INTO "openmeld"."users" (id, name, email, email_verified, created_at, updated_at)
+        VALUES ($1, $2, $3, 1, $4, $5)
+      `,
+        values: [],
+      },
+      values: [userId, userId, `${userId}@example.com`, nowMs, nowMs],
+    });
   }
-  await env.OPENMELD_DB.batch([
-    env.OPENMELD_DB.prepare(
-      "INSERT INTO organizations (id, name, slug, created_at) VALUES (?, ?, ?, ?)"
-    ).bind(organizationA, "Connector A", `connector-a-${suffix}`, nowMs),
-    env.OPENMELD_DB.prepare(
-      "INSERT INTO organizations (id, name, slug, created_at) VALUES (?, ?, ?, ?)"
-    ).bind(organizationB, "Connector B", `connector-b-${suffix}`, nowMs),
-  ]);
-  await env.OPENMELD_DB.prepare(
-    `
-      INSERT INTO openmeld_profiles (
+  await getPostgresDatabase(env).transaction(async (client) =>
+    (async () => {
+      const results: QueryResult[] = [];
+      for (const query of [
+        {
+          ...{
+            text: 'INSERT INTO "openmeld"."organizations" (id, name, slug, created_at) VALUES ($1, $2, $3, $4)',
+            values: [],
+          },
+          values: [
+            organizationA,
+            "Connector A",
+            `connector-a-${suffix}`,
+            nowMs,
+          ],
+        },
+        {
+          ...{
+            text: 'INSERT INTO "openmeld"."organizations" (id, name, slug, created_at) VALUES ($1, $2, $3, $4)',
+            values: [],
+          },
+          values: [
+            organizationB,
+            "Connector B",
+            `connector-b-${suffix}`,
+            nowMs,
+          ],
+        },
+      ]) {
+        results.push(await client.query(query));
+      }
+      return results;
+    })()
+  );
+  await getPostgresDatabase(env).query({
+    ...{
+      text: `
+      INSERT INTO "openmeld"."openmeld_profiles" (
         profile_id, profile_name, profile_handle, profile_kind, is_default,
         status, organization_id, owner_user_id, created_by_user_id, source,
         created_at, updated_at
-      ) VALUES (?, 'Connector owner', ?, 'human', 1, 'active', NULL, ?, ?, 'auth_bootstrap', ?, ?)
-    `
-  )
-    .bind(
+      ) VALUES ($1, 'Connector owner', $2, 'human', 1, 'active', NULL, $3, $4, 'auth_bootstrap', $5, $6)
+    `,
+      values: [],
+    },
+    values: [
       ownerProfileId,
       `connector-owner-${suffix}`,
       ownerA,
       ownerA,
       nowMs,
-      nowMs
-    )
-    .run();
-  await env.OPENMELD_DB.batch([
-    memberStatement({
-      id: `member_connector_owner_a_${suffix}`,
-      organizationId: organizationA,
-      role: "owner",
-      userId: ownerA,
-    }),
-    memberStatement({
-      id: memberAId,
-      organizationId: organizationA,
-      role: "member",
-      userId: memberA,
-    }),
-    memberStatement({
-      id: `member_connector_other_a_${suffix}`,
-      organizationId: organizationA,
-      role: "member",
-      userId: otherMemberA,
-    }),
-    memberStatement({
-      id: `member_connector_owner_b_${suffix}`,
-      organizationId: organizationB,
-      role: "owner",
-      userId: ownerB,
-    }),
-  ]);
+      nowMs,
+    ],
+  });
+  await getPostgresDatabase(env).transaction(async (client) =>
+    (async () => {
+      const results: QueryResult[] = [];
+      for (const query of [
+        memberStatement({
+          id: `member_connector_owner_a_${suffix}`,
+          organizationId: organizationA,
+          role: "owner",
+          userId: ownerA,
+        }),
+        memberStatement({
+          id: memberAId,
+          organizationId: organizationA,
+          role: "member",
+          userId: memberA,
+        }),
+        memberStatement({
+          id: `member_connector_other_a_${suffix}`,
+          organizationId: organizationA,
+          role: "member",
+          userId: otherMemberA,
+        }),
+        memberStatement({
+          id: `member_connector_owner_b_${suffix}`,
+          organizationId: organizationB,
+          role: "owner",
+          userId: ownerB,
+        }),
+      ]) {
+        results.push(await client.query(query));
+      }
+      return results;
+    })()
+  );
   const connectionA = await createConnectorConnectionName({
     organizationId: organizationA,
     service: "github",
     userId: memberA,
   });
-  await env.OPENMELD_DB.prepare(
-    `
-      INSERT INTO connector_connections (
+  await getPostgresDatabase(env).query({
+    ...{
+      text: `
+      INSERT INTO "openmeld"."connector_connections" (
         connection_name, organization_id, user_id, service, status,
         created_at_ms, updated_at_ms, disconnected_at_ms
-      ) VALUES (?, ?, ?, 'github', 'active', ?, ?, NULL)
-    `
-  )
-    .bind(connectionA, organizationA, memberA, nowMs, nowMs)
-    .run();
+      ) VALUES ($1, $2, $3, 'github', 'active', $4, $5, NULL)
+    `,
+      values: [],
+    },
+    values: [connectionA, organizationA, memberA, nowMs, nowMs],
+  });
   return {
     connectionA,
     memberA,
@@ -3574,7 +3736,6 @@ async function seedConnectorFixture() {
     ownerProfileId,
   };
 }
-
 async function seedSharedConnectorConnection(
   fixture: Awaited<ReturnType<typeof seedConnectorFixture>>,
   service: Parameters<
@@ -3585,56 +3746,73 @@ async function seedSharedConnectorConnection(
     organizationId: fixture.organizationA,
     service,
   });
-  await env.OPENMELD_DB.prepare(
-    `
-      INSERT INTO connector_connections (
+  await getPostgresDatabase(env).query({
+    ...{
+      text: `
+      INSERT INTO "openmeld"."connector_connections" (
         connection_name, organization_id, user_id, scope, service, status,
         created_at_ms, updated_at_ms, disconnected_at_ms
-      ) VALUES (?, ?, ?, 'shared', ?, 'active', ?, ?, NULL)
-    `
-  )
-    .bind(
+      ) VALUES ($1, $2, $3, 'shared', $4, 'active', $5, $6, NULL)
+    `,
+      values: [],
+    },
+    values: [
       connectionName,
       fixture.organizationA,
       fixture.ownerA,
       service,
       Date.now(),
-      Date.now()
-    )
-    .run();
+      Date.now(),
+    ],
+  });
   return connectionName;
 }
-
 async function seedDesignatedCenterAgent(
   fixture: Awaited<ReturnType<typeof seedConnectorFixture>>
 ) {
   const profileId = `agt_${crypto.randomUUID()}`;
   const nowMs = Date.now();
-  await env.OPENMELD_DB.batch([
-    env.OPENMELD_DB.prepare(
-      `
-        INSERT INTO openmeld_profiles (
+  await getPostgresDatabase(env).transaction(async (client) =>
+    (async () => {
+      const results: QueryResult[] = [];
+      for (const query of [
+        {
+          ...{
+            text: `
+        INSERT INTO "openmeld"."openmeld_profiles" (
           profile_id, profile_name, profile_handle, profile_kind, is_default,
           status, organization_id, owner_user_id, created_by_user_id, source,
           managed_role, created_at, updated_at
-        ) VALUES (?, 'Center Agent', ?, 'agent', 0, 'active', ?, NULL, ?, 'auth_bootstrap', 'center_agent', ?, ?)
-      `
-    ).bind(
-      profileId,
-      `center-agent-${crypto.randomUUID()}`,
-      fixture.organizationA,
-      fixture.ownerA,
-      nowMs,
-      nowMs
-    ),
-    env.OPENMELD_DB.prepare(
-      `
-        INSERT INTO center_agent_designations (
+        ) VALUES ($1, 'Center Agent', $2, 'agent', 0, 'active', $3, NULL, $4, 'auth_bootstrap', 'center_agent', $5, $6)
+      `,
+            values: [],
+          },
+          values: [
+            profileId,
+            `center-agent-${crypto.randomUUID()}`,
+            fixture.organizationA,
+            fixture.ownerA,
+            nowMs,
+            nowMs,
+          ],
+        },
+        {
+          ...{
+            text: `
+        INSERT INTO "openmeld"."center_agent_designations" (
           organization_id, agent_profile_id, duty, designated_by, created_at
-        ) VALUES (?, ?, NULL, ?, ?)
-      `
-    ).bind(fixture.organizationA, profileId, fixture.ownerA, nowMs),
-  ]);
+        ) VALUES ($1, $2, NULL, $3, $4)
+      `,
+            values: [],
+          },
+          values: [fixture.organizationA, profileId, fixture.ownerA, nowMs],
+        },
+      ]) {
+        results.push(await client.query(query));
+      }
+      return results;
+    })()
+  );
   return {
     context: {
       activeOrganizationId: fixture.organizationA,
@@ -3664,7 +3842,7 @@ async function seedConnectorTaskSource(
   const submissionId = crypto.randomUUID();
   const nowMs = Date.now();
   await upsertRemoteAgentNativeDeliveryRecord({
-    db: env.OPENMELD_DB,
+    db: getPostgresDatabase(env),
     attemptId: null,
     bindingId: crypto.randomUUID(),
     dispatchId: crypto.randomUUID(),
@@ -3681,7 +3859,7 @@ async function seedConnectorTaskSource(
   });
   await markRemoteAgentNativeDeliveryAck({
     accepted: true,
-    db: env.OPENMELD_DB,
+    db: getPostgresDatabase(env),
     idempotencyKey,
     nowMs,
     submissionId,
@@ -3693,16 +3871,24 @@ function connectorCoreEnv(): CoreBindings {
   return {
     OPENMELD_AUTH_WORKER: {
       resolveUserDisplayName: async (input: { userId: string }) => {
-        const row = await env.OPENMELD_DB.prepare(
-          `
+        const row = await getPostgresDatabase(env)
+          .query<{
+            email: string;
+            id: string;
+            name: string | null;
+          }>({
+            ...{
+              text: `
             SELECT id, name, email
-            FROM users
-            WHERE id = ?
+            FROM "openmeld"."users"
+            WHERE id = $1
             LIMIT 1
-          `
-        )
-          .bind(input.userId)
-          .first<{ email: string; id: string; name: string | null }>();
+          `,
+              values: [],
+            },
+            values: [input.userId],
+          })
+          .then((result) => result.rows[0] ?? null);
         const displayName = row?.name?.trim() || row?.email.trim();
         return row?.id === input.userId && displayName
           ? { displayName, ok: true as const, userId: row.id }
@@ -3713,24 +3899,32 @@ function connectorCoreEnv(): CoreBindings {
             };
       },
     },
-    OPENMELD_DB: env.OPENMELD_DB,
+    OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL,
   } as unknown as CoreBindings;
 }
-
 function memberStatement(input: {
   id: string;
   organizationId: string;
   role: string;
   userId: string;
-}): D1PreparedStatement {
-  return env.OPENMELD_DB.prepare(
-    `
-      INSERT INTO members (id, organization_id, user_id, role, created_at)
-      VALUES (?, ?, ?, ?, ?)
-    `
-  ).bind(input.id, input.organizationId, input.userId, input.role, Date.now());
+}): QueryConfig {
+  return {
+    ...{
+      text: `
+      INSERT INTO "openmeld"."members" (id, organization_id, user_id, role, created_at)
+      VALUES ($1, $2, $3, $4, $5)
+    `,
+      values: [],
+    },
+    values: [
+      input.id,
+      input.organizationId,
+      input.userId,
+      input.role,
+      Date.now(),
+    ],
+  };
 }
-
 function connectorRequestContext(input: {
   organizationId: string;
   profileId?: string;

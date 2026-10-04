@@ -1,4 +1,5 @@
 import { env, runInDurableObject, SELF } from "cloudflare:test";
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import {
   applyOpenMeldRequestContextHeaders,
   OPENMELD_EXPECTED_FORWARDED_BY,
@@ -28,7 +29,6 @@ import {
 import { hashSpaceFileStream } from "../src/space/application/space-file-stream";
 
 const FORBIDDEN_RPC_ERROR = /HTTP 403/u;
-
 async function fixture() {
   const suffix = crypto.randomUUID();
   const organizationId = `file_org_${suffix}`;
@@ -36,51 +36,59 @@ async function fixture() {
     { id: `file_user_a_${suffix}`, name: "Alex" },
     { id: `file_user_b_${suffix}`, name: "Blair" },
   ];
-  await env.OPENMELD_DB.prepare(
-    "INSERT INTO organizations (id, name, slug, created_at) VALUES (?, ?, ?, ?)"
-  )
-    .bind(organizationId, "Files Test", `files-${suffix}`, Date.now())
-    .run();
+  await getPostgresDatabase(env).query({
+    ...{
+      text: 'INSERT INTO "openmeld"."organizations" (id, name, slug, created_at) VALUES ($1, $2, $3, $4)',
+      values: [],
+    },
+    values: [organizationId, "Files Test", `files-${suffix}`, Date.now()],
+  });
   const contexts: OpenMeldRequestContext[] = [];
   for (const [index, user] of users.entries()) {
     const profileId = crypto.randomUUID();
-    await env.OPENMELD_DB.prepare(
-      "INSERT INTO users (id, name, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)"
-    )
-      .bind(
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'INSERT INTO "openmeld"."users" (id, name, email, email_verified, created_at, updated_at) VALUES ($1, $2, $3, 1, $4, $5)',
+        values: [],
+      },
+      values: [
         user.id,
         user.name,
         `files-${index}-${suffix}@example.com`,
         Date.now(),
-        Date.now()
-      )
-      .run();
-    await env.OPENMELD_DB.prepare(
-      "INSERT INTO members (id, organization_id, user_id, role, created_at) VALUES (?, ?, ?, 'member', ?)"
-    )
-      .bind(
+        Date.now(),
+      ],
+    });
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'INSERT INTO "openmeld"."members" (id, organization_id, user_id, role, created_at) VALUES ($1, $2, $3, \'member\', $4)',
+        values: [],
+      },
+      values: [
         `file_member_${index}_${suffix}`,
         organizationId,
         user.id,
-        Date.now()
-      )
-      .run();
-    await env.OPENMELD_DB.prepare(
-      `INSERT INTO openmeld_profiles (
+        Date.now(),
+      ],
+    });
+    await getPostgresDatabase(env).query({
+      ...{
+        text: `INSERT INTO "openmeld"."openmeld_profiles" (
         profile_id, profile_name, profile_handle, profile_kind, is_default,
         status, owner_user_id, created_by_user_id, source, created_at, updated_at
-      ) VALUES (?, ?, ?, 'human', 1, 'active', ?, ?, 'auth_bootstrap', ?, ?)`
-    )
-      .bind(
+      ) VALUES ($1, $2, $3, 'human', 1, 'active', $4, $5, 'auth_bootstrap', $6, $7)`,
+        values: [],
+      },
+      values: [
         profileId,
         user.name,
         `file-profile-${index}-${suffix}`,
         user.id,
         user.id,
         Date.now(),
-        Date.now()
-      )
-      .run();
+        Date.now(),
+      ],
+    });
     contexts.push({
       activeOrganizationId: organizationId,
       actorContext: {
@@ -99,7 +107,6 @@ async function fixture() {
     contexts: contexts as [OpenMeldRequestContext, OpenMeldRequestContext],
   };
 }
-
 describe("Team and member Files roots", () => {
   it("copies only the author's selected version and preserves the lawful Files copy after recall", async () => {
     const { contexts } = await fixture();
@@ -299,7 +306,9 @@ describe("Team and member Files roots", () => {
       }),
     });
     expect(space.status).toBe(200);
-    const { spaceId } = (await space.json()) as { spaceId: string };
+    const { spaceId } = (await space.json()) as {
+      spaceId: string;
+    };
     const sourceWrite = await SELF.fetch(
       `http://localhost/v1/organizations/current/files/my?name=private-source.txt&clientMutationId=${crypto.randomUUID()}`,
       {
@@ -313,7 +322,9 @@ describe("Team and member Files roots", () => {
     );
     expect(sourceWrite.status).toBe(201);
     const { file: sourceFile } = (await sourceWrite.json()) as {
-      file: { id: string };
+      file: {
+        id: string;
+      };
     };
     const body = {
       sourceLocation: "my",
@@ -337,7 +348,10 @@ describe("Team and member Files roots", () => {
     const first = await copy(contexts[0]);
     expect(first.status).toBe(201);
     const result = (await first.json()) as {
-      file: { id: string; name: string };
+      file: {
+        id: string;
+        name: string;
+      };
     };
     expect(result.file.name).toBe("space-copy.txt");
     const replay = await copy(contexts[0]);
@@ -357,7 +371,6 @@ describe("Team and member Files roots", () => {
       "Private source version one"
     );
   });
-
   it("copies an authorized Space revision into Team Files without granting other members access to its source", async () => {
     const { organizationId, contexts } = await fixture();
     const headersFor = (context: OpenMeldRequestContext) => {
@@ -379,7 +392,9 @@ describe("Team and member Files roots", () => {
       }),
     });
     expect(created.status).toBe(200);
-    const { spaceId } = (await created.json()) as { spaceId: string };
+    const { spaceId } = (await created.json()) as {
+      spaceId: string;
+    };
     const bytes = new TextEncoder().encode("Space source revision");
     const clientMutationId = crypto.randomUUID();
     const fileId = await buildSpaceFileEntryIdForMutation(clientMutationId);
@@ -433,8 +448,14 @@ describe("Team and member Files roots", () => {
     const first = await copy(contexts[0]);
     expect(first.status).toBe(201);
     const result = (await first.json()) as {
-      file: { id: string; root: unknown };
-      source: { root: unknown; revisionId: string };
+      file: {
+        id: string;
+        root: unknown;
+      };
+      source: {
+        root: unknown;
+        revisionId: string;
+      };
     };
     expect(result.source).toMatchObject({
       root: { kind: "space", organizationId, spaceId },
@@ -453,7 +474,6 @@ describe("Team and member Files roots", () => {
     expect(sharedRead.status).toBe(200);
     expect(await sharedRead.text()).toBe("Space source revision");
   });
-
   it("copies an exact private revision to Team Files without changing its source or retry target", async () => {
     const { organizationId, contexts } = await fixture();
     const headersFor = (context: OpenMeldRequestContext) => {
@@ -478,7 +498,9 @@ describe("Team and member Files roots", () => {
     );
     expect(original.status).toBe(201);
     const { file: privateFile } = (await original.json()) as {
-      file: { id: string };
+      file: {
+        id: string;
+      };
     };
     const updated = await SELF.fetch(
       `http://localhost/v1/organizations/current/files/my/${privateFile.id}/content?baseRevision=1&clientMutationId=${crypto.randomUUID()}`,
@@ -514,8 +536,13 @@ describe("Team and member Files roots", () => {
     const first = await copy(copyBody);
     expect(first.status).toBe(201);
     const result = (await first.json()) as {
-      file: { id: string; root: unknown };
-      source: { revision: number };
+      file: {
+        id: string;
+        root: unknown;
+      };
+      source: {
+        revision: number;
+      };
     };
     expect(result.file.root).toEqual({ kind: "team", organizationId });
     expect(result.source.revision).toBe(1);
@@ -532,7 +559,6 @@ describe("Team and member Files roots", () => {
     expect(teamRead.status).toBe(200);
     expect(await teamRead.text()).toBe("first version");
   });
-
   it("shares Team folders, isolates private folders, and revokes reads with membership", async () => {
     const { organizationId, users, contexts } = await fixture();
     const teamRoot = { kind: "team" as const, organizationId };
@@ -582,11 +608,13 @@ describe("Team and member Files roots", () => {
       }
     );
     expect(privateDenial).toMatch(FORBIDDEN_RPC_ERROR);
-    await env.OPENMELD_DB.prepare(
-      "DELETE FROM members WHERE organization_id = ? AND user_id = ?"
-    )
-      .bind(organizationId, users[1]?.id)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'DELETE FROM "openmeld"."members" WHERE organization_id = $1 AND user_id = $2',
+        values: [],
+      },
+      values: [organizationId, users[1]?.id],
+    });
     const revokedDenial = await runInDurableObject(team, async (instance) => {
       try {
         await (instance as OrganizationFileRoot).list({
@@ -600,7 +628,6 @@ describe("Team and member Files roots", () => {
     });
     expect(revokedDenial).toMatch(FORBIDDEN_RPC_ERROR);
   });
-
   it("serves an authorized Team listing without exposing its internal writer ID", async () => {
     const { organizationId, contexts } = await fixture();
     const headers = new Headers();
@@ -623,7 +650,10 @@ describe("Team and member Files roots", () => {
     );
     expect(created.status).toBe(200);
     const createdPayload = (await created.json()) as {
-      folder: { id: string; root: unknown };
+      folder: {
+        id: string;
+        root: unknown;
+      };
     };
     expect(createdPayload.folder.root).toEqual({
       kind: "team",
@@ -645,7 +675,6 @@ describe("Team and member Files roots", () => {
     ]);
     expect(payload).not.toHaveProperty("spaceId");
   });
-
   it("writes immutable Team revisions, supports ranges, and checks access on reads", async () => {
     const { organizationId, users, contexts } = await fixture();
     const requestHeaders = () => {
@@ -672,7 +701,13 @@ describe("Team and member Files roots", () => {
     );
     expect(create.status).toBe(201);
     const initial = (await create.json()) as {
-      file: { id: string; latestRevision: { revision: number }; root: unknown };
+      file: {
+        id: string;
+        latestRevision: {
+          revision: number;
+        };
+        root: unknown;
+      };
     };
     expect(initial.file.latestRevision.revision).toBe(1);
     expect(initial.file.root).toEqual({ kind: "team", organizationId });
@@ -683,7 +718,11 @@ describe("Team and member Files roots", () => {
     );
     expect(update.status).toBe(200);
     const updated = (await update.json()) as {
-      file: { latestRevision: { revision: number } };
+      file: {
+        latestRevision: {
+          revision: number;
+        };
+      };
     };
     expect(updated.file.latestRevision.revision).toBe(2);
     const stale = await SELF.fetch(
@@ -713,15 +752,16 @@ describe("Team and member Files roots", () => {
       headers: requestHeaders(),
     });
     expect(wrongRoot.status).toBe(404);
-    await env.OPENMELD_DB.prepare(
-      "DELETE FROM members WHERE organization_id = ? AND user_id = ?"
-    )
-      .bind(organizationId, users[0]?.id)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'DELETE FROM "openmeld"."members" WHERE organization_id = $1 AND user_id = $2',
+        values: [],
+      },
+      values: [organizationId, users[0]?.id],
+    });
     const revoked = await SELF.fetch(contentUrl, { headers: requestHeaders() });
     expect(revoked.status).toBe(403);
   });
-
   it("commits a multipart Team upload only after its verified parts arrive", async () => {
     const { organizationId, contexts } = await fixture();
     const headers = new Headers();
@@ -787,7 +827,9 @@ describe("Team and member Files roots", () => {
     const payload = (await complete.json()) as {
       file: {
         id: string;
-        latestRevision: { sizeBytes: number };
+        latestRevision: {
+          sizeBytes: number;
+        };
         root: unknown;
       };
     };

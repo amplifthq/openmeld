@@ -534,6 +534,16 @@ test("parses the local production release command", () => {
       scope: "web,core",
     }
   );
+  assert.equal(
+    parseProductionReleaseArgs(["plan", "--database-cutover"]).databaseCutover,
+    true
+  );
+  for (const command of ["deploy", "preflight", "verify"]) {
+    assert.throws(
+      () => parseProductionReleaseArgs([command, "--database-cutover"]),
+      { message: "Unknown production release option: --database-cutover" }
+    );
+  }
 });
 
 test("identifies a local release owner across computers", () => {

@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   AGENT_ACTIVITY_DIGEST_EVIDENCE_MAX_ITEMS,
   AGENT_ACTIVITY_EVENT_RETENTION_MS,
@@ -13,7 +14,6 @@ const DIGEST_TIME_THRESHOLD_MS = 30 * 60_000;
 const DIGEST_PENDING_TIMEOUT_MS = 10 * 60_000;
 const DIGEST_RETENTION_MS = 90 * 24 * 60 * 60_000;
 const DIGEST_PROJECTS_PER_TICK = 10;
-
 type EligibleWindow = {
   event_count: number;
   organization_id: string;
@@ -23,7 +23,6 @@ type EligibleWindow = {
   window_ended_at_ms: number;
   window_started_at_ms: number;
 };
-
 type EvidenceRow = {
   event_id: string;
   event_type: AgentActivityDigestEvidence["eventType"];
@@ -33,9 +32,8 @@ type EvidenceRow = {
   status: AgentActivityDigestEvidence["status"];
   title: string | null;
 };
-
 export async function runAgentActivityDigestTick(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs: number;
   summarize: (
     request: SummarizeAgentActivityDigestRpcInput
@@ -54,23 +52,21 @@ export async function runAgentActivityDigestTick(input: {
       continue;
     }
     const digestId = await buildDigestId(window);
-    const claim = await input.db
-      .prepare(
-        `
-          INSERT INTO agent_activity_digests (
+    const claim = await input.db.query({
+      text: `
+          INSERT INTO "openmeld"."agent_activity_digests" (
             id, organization_id, project_id,
             source_cursor_accepted_sequence,
             window_started_at_ms,
             window_ended_at_ms, event_count, citations_json,
             summary, status, failure_reason,
             created_at_ms, expires_at_ms
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, '[]', NULL, 'pending', NULL, ?, ?)
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, '[]', NULL, 'pending', NULL, $8, $9)
           ON CONFLICT(
             organization_id, project_id, source_cursor_accepted_sequence
           ) DO NOTHING
-        `
-      )
-      .bind(
+        `,
+      values: [
         digestId,
         window.organization_id,
         window.project_id,
@@ -79,10 +75,10 @@ export async function runAgentActivityDigestTick(input: {
         Number(window.window_ended_at_ms),
         Number(window.event_count),
         input.nowMs,
-        input.nowMs + DIGEST_RETENTION_MS
-      )
-      .run();
-    if (Number(claim.meta.changes ?? 0) !== 1) {
+        input.nowMs + DIGEST_RETENTION_MS,
+      ],
+    });
+    if (Number(claim.rowCount ?? 0) !== 1) {
       continue;
     }
     try {
@@ -97,17 +93,15 @@ export async function runAgentActivityDigestTick(input: {
         })
       );
       const citations = requireEvidenceCitations(response.citations, evidence);
-      const completion = await input.db
-        .prepare(
-          `
-            UPDATE agent_activity_digests
-            SET summary = ?, citations_json = ?, status = 'completed', failure_reason = NULL
-            WHERE id = ? AND status = 'pending'
-          `
-        )
-        .bind(response.summary, JSON.stringify(citations), digestId)
-        .run();
-      if (Number(completion.meta.changes ?? 0) === 1) {
+      const completion = await input.db.query({
+        text: `
+            UPDATE "openmeld"."agent_activity_digests"
+            SET summary = $1, citations_json = $2, status = 'completed', failure_reason = NULL
+            WHERE id = $3 AND status = 'pending'
+          `,
+        values: [response.summary, JSON.stringify(citations), digestId],
+      });
+      if (Number(completion.rowCount ?? 0) === 1) {
         completed += 1;
       }
     } catch (error) {
@@ -119,26 +113,26 @@ export async function runAgentActivityDigestTick(input: {
         organizationId: window.organization_id,
         projectId: window.project_id,
       });
-      const failure = await input.db
-        .prepare(
-          `
-            UPDATE agent_activity_digests
-            SET status = 'failed', failure_reason = ?
-            WHERE id = ? AND status = 'pending'
-          `
-        )
-        .bind(failureReason, digestId)
-        .run();
-      if (Number(failure.meta.changes ?? 0) === 1) {
+      const failure = await input.db.query({
+        text: `
+            UPDATE "openmeld"."agent_activity_digests"
+            SET status = 'failed', failure_reason = $1
+            WHERE id = $2 AND status = 'pending'
+          `,
+        values: [failureReason, digestId],
+      });
+      if (Number(failure.rowCount ?? 0) === 1) {
         failed += 1;
       }
     }
   }
   return { completed, failed, inspected: windows.length, recoveredPending };
 }
-
 function requireEvidenceCitations(
-  citations: readonly { eventId: string; observedAtMs: number }[],
+  citations: readonly {
+    eventId: string;
+    observedAtMs: number;
+  }[],
   evidence: readonly AgentActivityDigestEvidence[]
 ) {
   const evidenceById = new Map(
@@ -153,7 +147,6 @@ function requireEvidenceCitations(
   }
   return citations;
 }
-
 function classifyDigestFailure(error: unknown) {
   if (
     error instanceof Error &&
@@ -166,33 +159,31 @@ function classifyDigestFailure(error: unknown) {
   }
   return "summarization_unavailable";
 }
-
-async function failAbandonedPendingDigests(db: D1Database, nowMs: number) {
-  const result = await db
-    .prepare(
-      `
-        UPDATE agent_activity_digests
+async function failAbandonedPendingDigests(
+  db: PostgresDatabase,
+  nowMs: number
+) {
+  const result = await db.query({
+    text: `
+        UPDATE "openmeld"."agent_activity_digests"
         SET status = 'failed', failure_reason = 'summarization_interrupted'
-        WHERE status = 'pending' AND created_at_ms < ?
-      `
-    )
-    .bind(nowMs - DIGEST_PENDING_TIMEOUT_MS)
-    .run();
-  return Number(result.meta.changes ?? 0);
+        WHERE status = 'pending' AND created_at_ms < $1
+      `,
+    values: [nowMs - DIGEST_PENDING_TIMEOUT_MS],
+  });
+  return Number(result.rowCount ?? 0);
 }
-
-async function readEligibleWindows(db: D1Database, nowMs: number) {
-  const result = await db
-    .prepare(
-      `
+async function readEligibleWindows(db: PostgresDatabase, nowMs: number) {
+  const result = await db.query<EligibleWindow>({
+    text: `
         WITH latest_ranked AS (
           SELECT organization_id, project_id,
             source_cursor_accepted_sequence,
             row_number() OVER (
               PARTITION BY organization_id, project_id
-              ORDER BY source_cursor_accepted_sequence DESC
+              ORDER BY source_cursor_accepted_sequence DESC NULLS LAST
             ) AS cursor_rank
-          FROM agent_activity_digests
+          FROM "openmeld"."agent_activity_digests"
         ), latest AS (
           SELECT organization_id, project_id,
             source_cursor_accepted_sequence
@@ -206,54 +197,54 @@ async function readEligibleWindows(db: D1Database, nowMs: number) {
           min(events.observed_at_ms) AS window_started_at_ms,
           max(events.observed_at_ms) AS window_ended_at_ms,
           count(*) AS event_count
-        FROM agent_activity_events AS events
+        FROM "openmeld"."agent_activity_events" AS events
         LEFT JOIN latest
           ON latest.organization_id = events.organization_id
           AND latest.project_id = events.project_id
-        WHERE events.accepted_at_ms >= ?
+        WHERE events.accepted_at_ms >= $1
           AND events.accepted_sequence >
             coalesce(latest.source_cursor_accepted_sequence, 0)
-        GROUP BY events.organization_id, events.project_id
-        HAVING count(*) >= ? OR min(events.observed_at_ms) <= ?
-        ORDER BY window_ended_at_ms ASC
-        LIMIT ?
-      `
-    )
-    .bind(
+        GROUP BY events.organization_id, events.project_id,
+          latest.source_cursor_accepted_sequence
+        HAVING count(*) >= $2 OR min(events.observed_at_ms) <= $3
+        ORDER BY window_ended_at_ms ASC NULLS FIRST
+        LIMIT $4
+      `,
+    values: [
       nowMs - AGENT_ACTIVITY_EVENT_RETENTION_MS,
       DIGEST_EVENT_THRESHOLD,
       nowMs - DIGEST_TIME_THRESHOLD_MS,
-      DIGEST_PROJECTS_PER_TICK
-    )
-    .all<EligibleWindow>();
-  return result.results ?? [];
+      DIGEST_PROJECTS_PER_TICK,
+    ],
+  });
+  return result.rows ?? [];
 }
-
-async function readDigestEvidence(db: D1Database, window: EligibleWindow) {
-  const result = await db
-    .prepare(
-      `
+async function readDigestEvidence(
+  db: PostgresDatabase,
+  window: EligibleWindow
+) {
+  const result = await db.query<EvidenceRow>({
+    text: `
         SELECT events.event_id, events.event_type, events.observed_at_ms,
           events.provider, events.status, events.title,
           coalesce(users.name, 'Organization member') AS member_name
-        FROM agent_activity_events AS events
-        LEFT JOIN users ON users.id = events.member_user_id
-        WHERE events.organization_id = ? AND events.project_id = ?
-          AND events.accepted_sequence > ?
-          AND events.accepted_sequence <= ?
-        ORDER BY events.accepted_sequence ASC
-        LIMIT ?
-      `
-    )
-    .bind(
+        FROM "openmeld"."agent_activity_events" AS events
+        LEFT JOIN "openmeld"."users" ON users.id = events.member_user_id
+        WHERE events.organization_id = $1 AND events.project_id = $2
+          AND events.accepted_sequence > $3
+          AND events.accepted_sequence <= $4
+        ORDER BY events.accepted_sequence ASC NULLS FIRST
+        LIMIT $5
+      `,
+    values: [
       window.organization_id,
       window.project_id,
       window.previous_cursor_sequence,
       window.source_cursor_sequence,
-      AGENT_ACTIVITY_DIGEST_EVIDENCE_MAX_ITEMS
-    )
-    .all<EvidenceRow>();
-  return (result.results ?? []).map((row) => ({
+      AGENT_ACTIVITY_DIGEST_EVIDENCE_MAX_ITEMS,
+    ],
+  });
+  return (result.rows ?? []).map((row) => ({
     eventId: row.event_id,
     eventType: row.event_type,
     memberName: row.member_name,
@@ -263,7 +254,6 @@ async function readDigestEvidence(db: D1Database, window: EligibleWindow) {
     title: row.title,
   }));
 }
-
 async function buildDigestId(window: EligibleWindow) {
   const digest = await crypto.subtle.digest(
     "SHA-256",

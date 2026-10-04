@@ -6,6 +6,18 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { readCutoverTarget } from "../../tooling/postgresql/remote-target.mjs";
+import {
+  admitPostgresqlProductRelease,
+  readPostgresqlCutoverPreparation,
+  restoreProductCrons,
+  verifyProductCrons,
+} from "./database-backend-admission.mjs";
+import {
+  cutoverConfigArgs,
+  cutoverDeploySteps,
+  withPostgresqlCutoverConfig,
+} from "./postgresql-cutover-config.mjs";
 import { executeRecordedProductionDeploySteps } from "./production-release-receipts.mjs";
 import {
   acquireProductionScopeLease,
@@ -568,9 +580,11 @@ function isReviewedWindowsPreviewOnlyNpmSetupDiff(paths, context) {
 }
 
 function isInboxNotificationObservationDiff(paths) {
+  // Storage-only receiver changes do not introduce a new observation caller.
+  // Other Inbox schema additions still keep their reader-before-writer order.
   return [
     INBOX_SCHEMA_PATH,
-    "services/core/src/inbox/application/inbox-notification-observations.ts",
+    "clients/web/src/lib/inbox/notification-observer.ts",
   ].every((file) => paths.includes(file));
 }
 const RETIRED_TASK_INBOX_PRODUCER_PATH =
@@ -622,14 +636,55 @@ const REMOTE_AGENT_RECEIVER_FIRST_CONTRACT_PATHS = new Set([
   "services/remote-agent/flue-adapter/cloudflare-entrypoint.ts",
   "services/remote-agent/flue-adapter/execution-reconciliation.ts",
 ]);
+const REMOTE_AI_USAGE_PRODUCER_CONTRACT_PATHS = new Set([
+  "packages/schemas/src/schemas/ai-usage.ts",
+  "services/remote-agent/agent-core/ai-usage.ts",
+]);
+const CENTER_AGENT_CONTEXT_MANIFEST_CONTRACT_PATHS = new Set([
+  "packages/schemas/src/schemas/http/center-agent-context-manifest.ts",
+  "packages/schemas/src/types/http/center-agent-context-manifest.ts",
+  "services/core/src/center-agent/application/center-agent-context-manifest-service.ts",
+]);
 function isRemoteAiUsageDiff(changedPaths) {
+  // A receiver-only edit does not introduce a new Remote producer contract.
   return changedPaths.some((path) =>
-    [
-      "packages/schemas/src/schemas/ai-usage.ts",
-      "services/core/src/usage/ai-usage-rpc.ts",
-      "services/remote-agent/agent-core/ai-usage.ts",
-    ].includes(path)
+    REMOTE_AI_USAGE_PRODUCER_CONTRACT_PATHS.has(path)
   );
+}
+
+// Explain these directional signals at the same owner that classifies them.
+// These are source-path observations, not deployed receiver compatibility proof.
+function describeCompatibilityPathSignals(changedPaths) {
+  return [
+    {
+      contract: "remote-ai-usage",
+      dependency: ["core", "remote-agent"],
+      matchedPaths: changedPaths.filter((path) =>
+        REMOTE_AI_USAGE_PRODUCER_CONTRACT_PATHS.has(path)
+      ),
+      nonTriggerPaths: changedPaths.filter(
+        (path) => path === "services/core/src/usage/ai-usage-rpc.ts"
+      ),
+      reason:
+        "The changed shared contract or Remote producer requires Core first. A Core receiver-only edit does not establish a changed Remote producer contract.",
+    },
+    {
+      contract: "center-agent-context-manifest",
+      dependency: ["remote-agent", "core"],
+      matchedPaths: changedPaths.filter(
+        (path) =>
+          path.startsWith("services/core/") &&
+          isCenterAgentContextManifestContractPath(path)
+      ),
+      nonTriggerPaths: changedPaths.filter(
+        (path) =>
+          path ===
+          "services/core/src/center-agent/center-agent-context-manifest-repository.ts"
+      ),
+      reason:
+        "The Core context projection produces Remote context entries. Its persistence repository does not define that wire contract.",
+    },
+  ];
 }
 const REMOTE_AGENT_WORKER_RESPONSE_SCHEMA_PATH =
   "packages/schemas/src/schemas/runtime/remote-agent-worker.ts";
@@ -733,19 +788,23 @@ export function parseProductionReleaseArgs(argv) {
     if (arg === "--") {
       continue;
     }
-    if (arg === "--base") {
-      index += 1;
-      options.base = readRequiredArgument(argv, index, arg);
+    if (arg === "--database-cutover" && command === "plan") {
+      options.databaseCutover = true;
       continue;
     }
-    if (arg === "--scope") {
-      index += 1;
-      options.scope = readRequiredArgument(argv, index, arg);
+    if (arg === "--database-cutover-restore-crons" && command === "deploy") {
+      options.databaseCutoverRestoreCrons = true;
       continue;
     }
-    if (["--domain-evidence", "--domain-phase"].includes(arg)) {
-      options[arg === "--domain-evidence" ? "domainEvidence" : "domainPhase"] =
-        readRequiredArgument(argv, ++index, arg);
+    const valueOption = new Map([
+      ["--base", "base"],
+      ["--scope", "scope"],
+      ["--domain-evidence", "domainEvidence"],
+      ["--domain-phase", "domainPhase"],
+      ["--database-cutover-snapshot", "databaseCutoverSnapshot"],
+    ]).get(arg);
+    if (valueOption) {
+      options[valueOption] = readRequiredArgument(argv, ++index, arg);
       continue;
     }
     if (arg === "--redeploy" && command === "deploy") {
@@ -759,7 +818,32 @@ export function parseProductionReleaseArgs(argv) {
     throw new Error(`Unknown production release option: ${arg}`);
   }
   validateDomainReleaseOptions(options);
+  validateDatabaseCutoverOptions(options);
   return options;
+}
+
+function validateDatabaseCutoverOptions(options) {
+  if (
+    options.databaseCutoverRestoreCrons &&
+    (options.scope !== "auth,core" ||
+      options.databaseCutoverSnapshot ||
+      options.domainEvidence ||
+      options.domainPhase)
+  ) {
+    throw new Error(
+      "Cron restoration requires deploy --scope auth,core without snapshot or domain options"
+    );
+  }
+  if (
+    options.databaseCutoverSnapshot &&
+    (!["deploy", "preflight"].includes(options.command) ||
+      options.domainEvidence ||
+      options.domainPhase)
+  ) {
+    throw new Error(
+      "A cutover snapshot applies only to deploy or preflight, without domain changes"
+    );
+  }
 }
 
 function validateDomainReleaseOptions(options) {
@@ -1166,6 +1250,8 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
   for (const scope of orderedScopes) {
     const start = steps.length;
     appendProductionDeployScopeSteps({
+      databaseBackend: input.databaseBackend,
+      databaseCutoverSnapshot: input.databaseCutoverSnapshot,
       coreReceiverFirst: isWorkingFolderRecoveryDiff(changedPaths),
       deployOrderProfile,
       releaseSha: input.releaseSha,
@@ -1263,13 +1349,29 @@ function appendRendererDeploySteps(input) {
   );
 }
 
+function appendDatabaseDeploySteps(input) {
+  if (input.databaseBackend === "postgresql") {
+    for (const command of input.databaseCutoverSnapshot
+      ? ["verify"]
+      : ["migrate", "grant-runtime", "verify"]) {
+      input.steps.push({
+        command: "node",
+        args: ["tooling/postgresql/cutover.mjs", command],
+        label: `PostgreSQL database: ${command}`,
+      });
+    }
+    return;
+  }
+  input.steps.push({
+    args: ["db:release:prod"],
+    command: "pnpm",
+    label: "Synchronize production database",
+  });
+}
+
 function appendProductionDeployScopeSteps(input) {
   if (input.scope === "db") {
-    input.steps.push({
-      args: ["db:release:prod"],
-      command: "pnpm",
-      label: "Synchronize production database",
-    });
+    appendDatabaseDeploySteps(input);
     return;
   }
   if (input.scope === "cli") {
@@ -2279,6 +2381,9 @@ function describeProductionReleaseImpact(context) {
       context.taskInboxRetired,
       context.compatibilityContext
     ),
+    compatibilityPathSignals: describeCompatibilityPathSignals(
+      context.compatibilityChangedPaths
+    ),
     compatibilityReceiverWitnesses:
       resolveProductionCompatibilityReceiverWitnesses(
         context.compatibilityChangedPaths
@@ -2353,6 +2458,8 @@ export function buildProductionReleasePlan(input) {
     deployOrderProfile,
     deployScopeOrder,
     deploySteps: buildProductionDeployStepSpecs(scopes, {
+      databaseBackend: input.databaseBackend,
+      databaseCutoverSnapshot: input.databaseCutoverSnapshot,
       compatibilityContext,
       changedPaths,
       compatibilityChangedPaths,
@@ -2754,18 +2861,52 @@ function runReadOnlyCommand(input) {
   };
 }
 
+function formatCompatibilityPathSignals(signals = []) {
+  return signals
+    .filter(
+      (signal) => signal.matchedPaths.length || signal.nonTriggerPaths.length
+    )
+    .map(
+      (signal) =>
+        `Compatibility path signal (${signal.contract}): ${signal.matchedPaths.join(", ") || "no changed producer/contract"}. Non-trigger paths: ${signal.nonTriggerPaths.join(", ") || "none"}. ${signal.reason}`
+    );
+}
+
 function printPlan(plan, json) {
   if (json) {
     process.stdout.write(`${JSON.stringify(plan, null, 2)}\n`);
     return;
   }
   const lines = [
-    "Production release plan",
-    `Source: ${plan.sourceSha}`,
+    plan.databaseCutover
+      ? "PostgreSQL cutover preparation — promotion blocked"
+      : "Production release plan",
+    `Source: ${plan.sourceSha}${plan.worktreeDirty ? " (includes uncommitted changes)" : ""}`,
     `Base: ${plan.base}`,
     `Scopes: ${plan.scopes.length > 0 ? plan.scopes.join(", ") : "none"}`,
-    `Deploy order: ${plan.deployScopeOrder.join(", ")}`,
+    `Deploy order: ${plan.deployScopeOrder.join(", ") || "none"}`,
   ];
+  if (plan.databaseCutover) {
+    const cutover = plan.databaseCutover;
+    lines.push(
+      `Target inventory: ${cutover.target.organization}/${cutover.target.database}, PostgreSQL ${cutover.target.majorVersion}`,
+      `Evidence: ${cutover.evidenceStatus}; executor: ${cutover.executor}`,
+      `Rolling release ordering: ${plan.rollingRelease.status}${plan.rollingRelease.reason ? ` (${plan.rollingRelease.reason})` : ""}`,
+      "Compatibility baseline: source comparison only; deployed component receipts not inspected.",
+      "",
+      "Required before promotion:",
+      ...cutover.requiredBeforePromotion.map(
+        (requirement) => `- ${requirement}`
+      ),
+      "",
+      "Maintenance sequence (not executable):",
+      ...cutover.maintenanceSequence.map((stage) => `- ${stage}`),
+      "",
+      `Before the first PostgreSQL write: ${cutover.recovery.beforeFirstPostgresqlWrite}`,
+      `After the first PostgreSQL write: ${cutover.recovery.afterFirstPostgresqlWrite}`
+    );
+  }
+  lines.push(...formatCompatibilityPathSignals(plan.compatibilityPathSignals));
   for (const bridge of plan.compatibilityBridges ?? []) {
     lines.push(
       `Compatibility bridge: ${bridge.kind} from ${bridge.baselineSha} (${bridge.evidence}).`
@@ -2802,7 +2943,59 @@ function printPlan(plan, json) {
 }
 
 async function main(argv) {
-  const options = parseProductionReleaseArgs(argv);
+  const options = {
+    ...parseProductionReleaseArgs(argv),
+    databaseBackend: "postgresql",
+  };
+  if (options.databaseCutover) {
+    if (options.scope !== "auto") {
+      throw new Error(
+        "Cutover preparation reviews the complete source impact; keep --scope auto."
+      );
+    }
+    const databaseCutover = await readPostgresqlCutoverPreparation();
+    const impact = buildProductionReleaseImpact(options);
+    let rollingRelease;
+    try {
+      const ordinary = buildProductionReleasePlan({
+        ...options,
+        changedPaths: impact.changedPaths,
+        affectedPackages: impact.affectedPackages,
+      });
+      rollingRelease = {
+        status: "ordering_resolved_only",
+        deployScopeOrder: ordinary.deployScopeOrder,
+      };
+    } catch (error) {
+      rollingRelease = {
+        status: "blocked",
+        reason: error instanceof Error ? error.message : String(error),
+      };
+    }
+    printPlan(
+      {
+        ...impact,
+        databaseCutover,
+        rollingRelease,
+        compatibilityEvidence: {
+          basis: "source_comparison_only",
+          deployedComponentReceipts: "not_inspected",
+        },
+        worktreeDirty: runGit(["status", "--porcelain=v1"]).trim().length > 0,
+        coordinatedScopeReview: sortScopes([
+          "db",
+          ...CLOUD_SCOPES,
+          ...impact.scopes,
+        ]),
+        deployScopeOrder: [],
+        deploySteps: [],
+        preflightSteps: [],
+        verifySteps: [],
+      },
+      options.json
+    );
+    return;
+  }
   const plan = buildProductionReleasePlan(options);
   printPlan(plan, options.json);
   if (options.command === "plan") {
@@ -2829,6 +3022,12 @@ async function main(argv) {
     runStep(step);
   }
   assertSourceStillMatches(plan.sourceSha);
+  if (options.command === "preflight" && options.databaseCutoverSnapshot) {
+    await admitPostgresqlProductRelease({
+      snapshot: options.databaseCutoverSnapshot,
+      scopes: plan.scopes,
+    });
+  }
   if (options.command === "verify" || options.command === "preflight") {
     return;
   }
@@ -2848,18 +3047,54 @@ async function main(argv) {
         process.stdout.write(`${JSON.stringify(result)}\n`);
         return;
       }
+      const databaseAdmission = await admitPostgresqlProductRelease({
+        snapshot: options.databaseCutoverSnapshot,
+        scopes: plan.scopes,
+        sourceSha: plan.sourceSha,
+        restoreCrons: options.databaseCutoverRestoreCrons,
+      });
+      process.stdout.write(`${JSON.stringify({ databaseAdmission })}\n`);
+      if (options.databaseCutoverRestoreCrons) {
+        await restoreProductCrons({
+          runStep: (step) => {
+            assertSourceStillMatches(plan.sourceSha);
+            runStep(step);
+            assertSourceStillMatches(plan.sourceSha);
+          },
+        });
+        return;
+      }
       const admission = await admitWebsiteDomainRelease(domainInput);
-      await executeObservedDomainRelease(domainInput, admission, () =>
-        executeRecordedProductionDeploySteps({
-          sourceSha: plan.sourceSha,
-          executeSteps: executeProductionDeploySteps,
-          redeploy: options.redeploy ?? false,
-          beforeStep: () => assertSourceStillMatches(plan.sourceSha),
-          runCommand: runReadOnlyCommand,
-          afterStep: () => assertSourceStillMatches(plan.sourceSha),
-          steps: plan.deploySteps,
-        })
+      await withPostgresqlCutoverConfig(
+        process.cwd(),
+        Boolean(options.databaseCutoverSnapshot),
+        (env) =>
+          executeObservedDomainRelease(domainInput, admission, () =>
+            executeRecordedProductionDeploySteps({
+              env,
+              sourceSha: plan.sourceSha,
+              executeSteps: executeProductionDeploySteps,
+              redeploy: options.redeploy ?? false,
+              beforeStep: () => {
+                assertSourceStillMatches(plan.sourceSha);
+                for (const scope of ["auth", "core"]) {
+                  cutoverConfigArgs(scope, { env });
+                }
+              },
+              runCommand: runReadOnlyCommand,
+              afterStep: () => assertSourceStillMatches(plan.sourceSha),
+              steps: options.databaseCutoverSnapshot
+                ? cutoverDeploySteps(plan.deploySteps)
+                : plan.deploySteps,
+            })
+          )
       );
+      if (options.databaseCutoverSnapshot) {
+        await verifyProductCrons({
+          registered: await readCutoverTarget(),
+          paused: true,
+        });
+      }
     },
     owner: resolveLocalReleaseOwner(),
     scopes: options.domainEvidence
@@ -2959,7 +3194,10 @@ function workerDeploymentHealthStep(input) {
 }
 
 function isDatabaseSchemaPath(path) {
-  if (path.startsWith(DB_MIGRATION_PATH_PREFIX)) {
+  if (
+    path.startsWith(DB_MIGRATION_PATH_PREFIX) ||
+    path.startsWith("packages/db/postgresql/migrations/")
+  ) {
     return path.endsWith(".sql") || path.endsWith(".json");
   }
   return (
@@ -2996,10 +3234,7 @@ function isCenterAgentCliReceiverFirstContractPath(path) {
 }
 
 function isCenterAgentContextManifestContractPath(path) {
-  return (
-    path.includes("center-agent-context-manifest") ||
-    path.includes("center_agent_context_manifest")
-  );
+  return CENTER_AGENT_CONTEXT_MANIFEST_CONTRACT_PATHS.has(path);
 }
 
 function isWorkspaceRuntimePath(relativePath) {

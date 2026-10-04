@@ -1,15 +1,15 @@
 import { desc, sql } from "drizzle-orm";
 import {
+  bigint,
   check,
   index,
-  integer,
   primaryKey,
-  sqliteTable,
   text,
   uniqueIndex,
-} from "drizzle-orm/sqlite-core";
+} from "drizzle-orm/pg-core";
+import { applicationTable } from "../postgresql/schema.ts";
 
-export const agentControllerTasks = sqliteTable(
+export const agentControllerTasks = applicationTable(
   "agent_controller_tasks",
   {
     taskKey: text("task_key").primaryKey(),
@@ -22,9 +22,9 @@ export const agentControllerTasks = sqliteTable(
     taskHandleJson: text("task_handle_json").notNull(),
     registrationEventId: text("registration_event_id").notNull(),
     registrationSource: text("registration_source").notNull(),
-    occurredAtMs: integer("occurred_at_ms").notNull(),
-    observedAtMs: integer("observed_at_ms").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    occurredAtMs: bigint("occurred_at_ms", { mode: "number" }).notNull(),
+    observedAtMs: bigint("observed_at_ms", { mode: "number" }).notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     uniqueIndex("agent_controller_tasks_registration_event_unique").on(
@@ -71,7 +71,7 @@ export const agentControllerTasks = sqliteTable(
   ]
 );
 
-export const agentControllerTaskLifecycleEvents = sqliteTable(
+export const agentControllerTaskLifecycleEvents = applicationTable(
   "agent_controller_task_lifecycle_events",
   {
     eventId: text("event_id").primaryKey(),
@@ -79,9 +79,9 @@ export const agentControllerTaskLifecycleEvents = sqliteTable(
     eventType: text("event_type").notNull(),
     source: text("source").notNull(),
     payloadJson: text("payload_json").notNull(),
-    occurredAtMs: integer("occurred_at_ms").notNull(),
-    observedAtMs: integer("observed_at_ms").notNull(),
-    processedAtMs: integer("processed_at_ms"),
+    occurredAtMs: bigint("occurred_at_ms", { mode: "number" }).notNull(),
+    observedAtMs: bigint("observed_at_ms", { mode: "number" }).notNull(),
+    processedAtMs: bigint("processed_at_ms", { mode: "number" }),
   },
   (table) => [
     index("agent_controller_task_events_task_observed_idx").on(
@@ -115,7 +115,7 @@ export const agentControllerTaskLifecycleEvents = sqliteTable(
   ]
 );
 
-export const agentTaskTerminalOutcomes = sqliteTable(
+export const agentTaskTerminalOutcomes = applicationTable(
   "agent_task_terminal_outcomes",
   {
     taskKey: text("task_key").primaryKey(),
@@ -123,8 +123,8 @@ export const agentTaskTerminalOutcomes = sqliteTable(
     status: text("status").notNull(),
     eventId: text("event_id").notNull(),
     outcomeJson: text("outcome_json").notNull(),
-    occurredAtMs: integer("occurred_at_ms").notNull(),
-    observedAtMs: integer("observed_at_ms").notNull(),
+    occurredAtMs: bigint("occurred_at_ms", { mode: "number" }).notNull(),
+    observedAtMs: bigint("observed_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     index("agent_task_terminal_outcomes_event_idx").on(table.eventId),
@@ -160,7 +160,7 @@ export const agentTaskTerminalOutcomes = sqliteTable(
   ]
 );
 
-export const agentTaskNeedsAttentionObservations = sqliteTable(
+export const agentTaskNeedsAttentionObservations = applicationTable(
   "agent_task_needs_attention_observations",
   {
     taskKey: text("task_key").notNull(),
@@ -168,8 +168,8 @@ export const agentTaskNeedsAttentionObservations = sqliteTable(
     taskHandleJson: text("task_handle_json").notNull(),
     status: text("status").notNull(),
     observationJson: text("observation_json").notNull(),
-    occurredAtMs: integer("occurred_at_ms").notNull(),
-    observedAtMs: integer("observed_at_ms").notNull(),
+    occurredAtMs: bigint("occurred_at_ms", { mode: "number" }).notNull(),
+    observedAtMs: bigint("observed_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     primaryKey({
@@ -202,7 +202,7 @@ export const agentTaskNeedsAttentionObservations = sqliteTable(
   ]
 );
 
-export const agentTaskCompletionSubscriptions = sqliteTable(
+export const agentTaskCompletionSubscriptions = applicationTable(
   "agent_task_completion_subscriptions",
   {
     subscriptionId: text("subscription_id").primaryKey(),
@@ -219,12 +219,12 @@ export const agentTaskCompletionSubscriptions = sqliteTable(
     outcomeJson: text("outcome_json"),
     lastEventId: text("last_event_id"),
     claimId: text("claim_id"),
-    claimExpiresAtMs: integer("claim_expires_at_ms"),
+    claimExpiresAtMs: bigint("claim_expires_at_ms", { mode: "number" }),
     continuationTaskKey: text("continuation_task_key"),
     continuationTaskHandleJson: text("continuation_task_handle_json"),
-    createdAtMs: integer("created_at_ms").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
-    settledAtMs: integer("settled_at_ms"),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
+    settledAtMs: bigint("settled_at_ms", { mode: "number" }),
   },
   (table) => [
     uniqueIndex("agent_task_completion_subscriptions_idempotency_unique").on(
@@ -305,7 +305,7 @@ export const agentTaskCompletionSubscriptions = sqliteTable(
   ]
 );
 
-export const agentDelegations = sqliteTable(
+export const agentDelegations = applicationTable(
   "agent_delegations",
   {
     delegationId: text("delegation_id").primaryKey(),
@@ -316,10 +316,10 @@ export const agentDelegations = sqliteTable(
     parentTaskHandleJson: text("parent_task_handle_json").notNull(),
     completionPolicyJson: text("completion_policy_json").notNull(),
     state: text("state").notNull(),
-    generation: integer("generation").notNull(),
-    createdAtMs: integer("created_at_ms").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
-    completedAtMs: integer("completed_at_ms"),
+    generation: bigint("generation", { mode: "number" }).notNull(),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
+    completedAtMs: bigint("completed_at_ms", { mode: "number" }),
   },
   (table) => [
     uniqueIndex("agent_delegations_idempotency_unique").on(
@@ -362,7 +362,7 @@ export const agentDelegations = sqliteTable(
   ]
 );
 
-export const centerAgentWakePublications = sqliteTable(
+export const centerAgentWakePublications = applicationTable(
   "center_agent_wake_publications",
   {
     publicationId: text("publication_id").primaryKey(),
@@ -371,16 +371,16 @@ export const centerAgentWakePublications = sqliteTable(
     spaceId: text("space_id").notNull(),
     commandJson: text("command_json").notNull(),
     state: text("state").notNull(),
-    attemptCount: integer("attempt_count").notNull(),
-    nextAttemptAtMs: integer("next_attempt_at_ms").notNull(),
+    attemptCount: bigint("attempt_count", { mode: "number" }).notNull(),
+    nextAttemptAtMs: bigint("next_attempt_at_ms", { mode: "number" }).notNull(),
     lastError: text("last_error"),
     claimId: text("claim_id"),
-    claimExpiresAtMs: integer("claim_expires_at_ms"),
-    acceptedAtMs: integer("accepted_at_ms"),
+    claimExpiresAtMs: bigint("claim_expires_at_ms", { mode: "number" }),
+    acceptedAtMs: bigint("accepted_at_ms", { mode: "number" }),
     signalJson: text("signal_json"),
-    completedAtMs: integer("completed_at_ms"),
-    createdAtMs: integer("created_at_ms").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    completedAtMs: bigint("completed_at_ms", { mode: "number" }),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     index("center_agent_wake_publications_delegation_idx").on(
@@ -434,21 +434,21 @@ export const centerAgentWakePublications = sqliteTable(
   ]
 );
 
-export const agentDelegationChildren = sqliteTable(
+export const agentDelegationChildren = applicationTable(
   "agent_delegation_children",
   {
     delegationId: text("delegation_id").notNull(),
-    childIndex: integer("child_index").notNull(),
+    childIndex: bigint("child_index", { mode: "number" }).notNull(),
     taskKey: text("task_key").notNull(),
     taskHandleJson: text("task_handle_json").notNull(),
     role: text("role").notNull(),
     agentProfileId: text("agent_profile_id").notNull(),
     state: text("state").notNull(),
     terminalOutcomeJson: text("terminal_outcome_json"),
-    activatedAtMs: integer("activated_at_ms"),
-    terminalAtMs: integer("terminal_at_ms"),
-    createdAtMs: integer("created_at_ms").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    activatedAtMs: bigint("activated_at_ms", { mode: "number" }),
+    terminalAtMs: bigint("terminal_at_ms", { mode: "number" }),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     primaryKey({

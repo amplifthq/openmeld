@@ -1,4 +1,8 @@
 import {
+  getPostgresDatabase,
+  type PostgresDatabase,
+} from "@openmeld/db/postgresql";
+import {
   centerAgentListOpportunitiesToolResponseSchema,
   centerAgentListOpportunitiesToolRpcInputSchema,
   centerAgentRecommendOpportunityToolResponseSchema,
@@ -17,14 +21,13 @@ import type {
   OpportunityStatus,
 } from "@openmeld/schemas/types";
 import { prepareCenterAgentRepresentedMemberRequest } from "../center-agent/application/represented-member-request";
-import { type CoreBindings, opportunityDb } from "../lib/bindings";
+import type { CoreBindings } from "../lib/bindings";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import {
   createOpportunityService,
   OpportunityConflictError,
   OpportunityNotFoundError,
 } from "./application/opportunity-service";
-
 export async function rpcCenterAgentRecommendOpportunity(
   env: CoreBindings,
   input: CenterAgentRecommendOpportunityToolRpcInput
@@ -60,7 +63,6 @@ export async function rpcCenterAgentRecommendOpportunity(
     ),
   });
 }
-
 export async function rpcCenterAgentListOpportunities(
   env: CoreBindings,
   input: CenterAgentListOpportunitiesToolRpcInput
@@ -89,7 +91,6 @@ export async function rpcCenterAgentListOpportunities(
     organizationId,
   });
 }
-
 export async function rpcCenterAgentRespondToOpportunity(
   env: CoreBindings,
   input: CenterAgentRespondToOpportunityToolRpcInput
@@ -120,9 +121,8 @@ export async function rpcCenterAgentRespondToOpportunity(
     instruction: responseInstruction(body.decision),
   });
 }
-
-function requireOpportunityDb(env: CoreBindings): D1Database {
-  const db = opportunityDb(env);
+function requireOpportunityDb(env: CoreBindings): PostgresDatabase {
+  const db = getPostgresDatabase(env);
   if (!db) {
     throw createCoreRpcHttpError({
       code: "opportunity.store_unavailable",
@@ -132,7 +132,6 @@ function requireOpportunityDb(env: CoreBindings): D1Database {
   }
   return db;
 }
-
 function recommendInstruction(
   created: boolean,
   status: OpportunityStatus
@@ -145,7 +144,6 @@ function recommendInstruction(
   }
   return `This opportunity is already ${status}. Do not present it again unless the member explicitly asks to review past opportunities.`;
 }
-
 function responseInstruction(decision: OpportunityDecision): string {
   switch (decision) {
     case "accepted":
@@ -158,9 +156,13 @@ function responseInstruction(decision: OpportunityDecision): string {
       return assertNever(decision);
   }
 }
-
 function parseInput<T>(
-  schema: { safeParse(value: unknown): { data?: T; success: boolean } },
+  schema: {
+    safeParse(value: unknown): {
+      data?: T;
+      success: boolean;
+    };
+  },
   input: unknown,
   reason: string
 ): T {
@@ -174,7 +176,6 @@ function parseInput<T>(
   }
   return parsed.data;
 }
-
 async function mapOpportunityError<T>(operation: () => Promise<T>): Promise<T> {
   try {
     return await operation();
@@ -196,7 +197,6 @@ async function mapOpportunityError<T>(operation: () => Promise<T>): Promise<T> {
     throw error;
   }
 }
-
 function assertNever(value: never): never {
   throw new Error(`Unsupported Opportunity decision: ${String(value)}`);
 }

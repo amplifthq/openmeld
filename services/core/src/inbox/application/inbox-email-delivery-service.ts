@@ -1,3 +1,4 @@
+import type { PostgresDatabase, QueryResult } from "@openmeld/db/postgresql";
 import { authRpcSendInboxUrgentEmailResultSchema } from "@openmeld/schemas";
 import type {
   AuthRpcSendInboxUrgentEmailInput,
@@ -10,11 +11,9 @@ const MAX_BATCH_LIMIT = 100;
 const CLAIM_TTL_MS = 2 * 60 * 1000;
 const MAX_ATTEMPTS = 5;
 const RETRY_BACKOFF_MS = [60_000, 5 * 60_000, 30 * 60_000, 2 * 60 * 60_000];
-
 type DeliveryCandidateRow = {
   id: string;
 };
-
 type ClaimedDeliveryRow = {
   attempt_count: number;
   attention: "action_required" | "update";
@@ -33,26 +32,22 @@ type ClaimedDeliveryRow = {
   urgent_email_enabled: number;
   requires_organization_manager?: number;
 };
-
 export type SendInboxUrgentEmail = (
   input: AuthRpcSendInboxUrgentEmailInput
 ) => Promise<AuthRpcSendInboxUrgentEmailResult>;
-
 export type ResolveInboxOrganizationAccess = (input: {
   organizationId: string;
   recipientUserId: string;
   requireOrganizationManager?: boolean;
 }) => Promise<"allowed" | "denied" | "unavailable">;
-
 export type InboxEmailDeliveryTickResult = {
   attempted: number;
   failed: number;
   sent: number;
   suppressed: number;
 };
-
 export async function retryInboxUrgentEmailDeliveries(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs: number;
   resolveOrganizationAccess: ResolveInboxOrganizationAccess;
   send: SendInboxUrgentEmail;
@@ -61,34 +56,31 @@ export async function retryInboxUrgentEmailDeliveries(input: {
 }): Promise<InboxEmailDeliveryTickResult> {
   assertTimestamp(input.nowMs);
   const limit = normalizeLimit(input.limit);
-  const candidates = await input.db
-    .prepare(
-      `
+  const candidates = await input.db.query<DeliveryCandidateRow>({
+    text: `
         SELECT id
-        FROM inbox_email_deliveries
-        WHERE next_attempt_at_ms <= ?
+        FROM "openmeld"."inbox_email_deliveries"
+        WHERE next_attempt_at_ms <= $1
           AND (
             state = 'pending'
             OR (
               state = 'sending'
               AND claim_expires_at_ms IS NOT NULL
-              AND claim_expires_at_ms <= ?
+              AND claim_expires_at_ms <= $2
             )
           )
-        ORDER BY next_attempt_at_ms ASC, id ASC
-        LIMIT ?
-      `
-    )
-    .bind(input.nowMs, input.nowMs, limit)
-    .all<DeliveryCandidateRow>();
+        ORDER BY next_attempt_at_ms ASC NULLS FIRST, id ASC NULLS FIRST
+        LIMIT $3
+      `,
+    values: [input.nowMs, input.nowMs, limit],
+  });
   const result: InboxEmailDeliveryTickResult = {
     attempted: 0,
     failed: 0,
     sent: 0,
     suppressed: 0,
   };
-
-  for (const candidate of candidates.results ?? []) {
+  for (const candidate of candidates.rows ?? []) {
     const claimId =
       input.createClaimId?.() ?? `inbox_email_claim_${crypto.randomUUID()}`;
     const claimed = await claimDelivery({
@@ -133,7 +125,6 @@ export async function retryInboxUrgentEmailDeliveries(input: {
       result.suppressed += 1;
       continue;
     }
-
     const outcome = await sendUrgentEmail({
       claimed,
       send: input.send,
@@ -171,54 +162,50 @@ export async function retryInboxUrgentEmailDeliveries(input: {
     });
     result.failed += 1;
   }
-
   return result;
 }
-
 async function claimDelivery(input: {
   claimId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   deliveryId: string;
   nowMs: number;
 }): Promise<ClaimedDeliveryRow | null> {
   const claimExpiresAtMs = input.nowMs + CLAIM_TTL_MS;
-  const update = await input.db
-    .prepare(
-      `
-        UPDATE inbox_email_deliveries
+  const update = await input.db.query({
+    text: `
+        UPDATE "openmeld"."inbox_email_deliveries"
         SET
           state = 'sending',
           attempt_count = attempt_count + 1,
-          claim_id = ?,
-          claim_expires_at_ms = ?,
-          updated_at_ms = max(updated_at_ms, ?)
-        WHERE id = ?
-          AND next_attempt_at_ms <= ?
+          claim_id = $1,
+          claim_expires_at_ms = $2,
+          updated_at_ms = GREATEST(updated_at_ms, $3)
+        WHERE id = $4
+          AND next_attempt_at_ms <= $5
           AND (
             state = 'pending'
             OR (
               state = 'sending'
               AND claim_expires_at_ms IS NOT NULL
-              AND claim_expires_at_ms <= ?
+              AND claim_expires_at_ms <= $6
             )
           )
-      `
-    )
-    .bind(
+      `,
+    values: [
       input.claimId,
       claimExpiresAtMs,
       input.nowMs,
       input.deliveryId,
       input.nowMs,
-      input.nowMs
-    )
-    .run();
+      input.nowMs,
+    ],
+  });
   if (changedRows(update) === 0) {
     return null;
   }
   const claimed = await input.db
-    .prepare(
-      `
+    .query<ClaimedDeliveryRow>({
+      text: `
         SELECT
           deliveries.id AS delivery_id,
           deliveries.attempt_count,
@@ -227,35 +214,34 @@ async function claimDelivery(input: {
           items.recipient_user_id,
           items.attention,
           items.importance,
-          json_extract(items.source_target_json, '$.kind') AS source_target_kind,
-          json_extract(items.source_target_json, '$.requestId') AS invitation_request_id,
+          ((items.source_target_json)::jsonb #>> '{kind}') AS source_target_kind,
+          ((items.source_target_json)::jsonb #>> '{requestId}') AS invitation_request_id,
           items.title,
           items.preview,
           items.resolution_status,
           items.cleared_at_ms,
-          CASE WHEN items.source_kind = 'system_attention_event' AND items.source_key LIKE 'authorization-update:%' THEN 1 ELSE 0 END AS requires_organization_manager,
+          CASE WHEN items.source_kind = 'system_attention_event' AND items.source_key ILIKE 'authorization-update:%' THEN 1 ELSE 0 END AS requires_organization_manager,
           CASE WHEN ${buildCurrentInboxSourceAccessSql("items", true)}
             THEN 1 ELSE 0 END AS source_accessible,
           coalesce(preferences.urgent_email_enabled, 1) AS urgent_email_enabled
-        FROM inbox_email_deliveries AS deliveries
-        INNER JOIN inbox_items AS items
+        FROM "openmeld"."inbox_email_deliveries" AS deliveries
+        INNER JOIN "openmeld"."inbox_items" AS items
           ON items.id = deliveries.inbox_item_id
-        LEFT JOIN inbox_notification_preferences AS preferences
+        LEFT JOIN "openmeld"."inbox_notification_preferences" AS preferences
           ON preferences.user_id = items.recipient_user_id
-        WHERE deliveries.id = ?
+        WHERE deliveries.id = $1
           AND deliveries.state = 'sending'
-          AND deliveries.claim_id = ?
+          AND deliveries.claim_id = $2
         LIMIT 1
-      `
-    )
-    .bind(input.deliveryId, input.claimId)
-    .first<ClaimedDeliveryRow>();
+      `,
+      values: [input.deliveryId, input.claimId],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!claimed) {
     throw new Error("Claimed Inbox email delivery could not be read");
   }
   return claimed;
 }
-
 async function resolveOrganizationAccess(input: {
   claimed: ClaimedDeliveryRow;
   resolve: ResolveInboxOrganizationAccess;
@@ -278,7 +264,6 @@ async function resolveOrganizationAccess(input: {
     return "unavailable";
   }
 }
-
 function resolveSuppressionReason(input: {
   organizationAccess: "allowed" | "denied";
   row: ClaimedDeliveryRow;
@@ -310,7 +295,6 @@ function resolveSuppressionReason(input: {
   }
   return null;
 }
-
 async function sendUrgentEmail(input: {
   claimed: ClaimedDeliveryRow;
   send: SendInboxUrgentEmail;
@@ -353,78 +337,71 @@ async function sendUrgentEmail(input: {
     status: "failed",
   };
 }
-
 async function markDeliverySent(input: {
   claimId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   deliveryId: string;
   messageId: string;
   nowMs: number;
 }): Promise<void> {
-  await input.db
-    .prepare(
-      `
-        UPDATE inbox_email_deliveries
+  await input.db.query({
+    text: `
+        UPDATE "openmeld"."inbox_email_deliveries"
         SET
           state = 'sent',
-          message_id = ?,
-          sent_at_ms = ?,
+          message_id = $1,
+          sent_at_ms = $2,
           claim_id = NULL,
           claim_expires_at_ms = NULL,
-          updated_at_ms = max(updated_at_ms, ?)
-        WHERE id = ?
+          updated_at_ms = GREATEST(updated_at_ms, $3)
+        WHERE id = $4
           AND state = 'sending'
-          AND claim_id = ?
-      `
-    )
-    .bind(
+          AND claim_id = $5
+      `,
+    values: [
       input.messageId,
       input.nowMs,
       input.nowMs,
       input.deliveryId,
-      input.claimId
-    )
-    .run();
+      input.claimId,
+    ],
+  });
 }
-
 async function suppressDelivery(input: {
   claimId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   deliveryId: string;
   nowMs: number;
   reason: string;
 }): Promise<void> {
-  await input.db
-    .prepare(
-      `
-        UPDATE inbox_email_deliveries
+  await input.db.query({
+    text: `
+        UPDATE "openmeld"."inbox_email_deliveries"
         SET
           state = 'suppressed',
-          suppressed_reason = ?,
-          suppressed_at_ms = ?,
+          suppressed_reason = $1,
+          suppressed_at_ms = $2,
           claim_id = NULL,
           claim_expires_at_ms = NULL,
-          updated_at_ms = max(updated_at_ms, ?)
-        WHERE id = ?
+          updated_at_ms = GREATEST(updated_at_ms, $3)
+        WHERE id = $4
           AND state = 'sending'
-          AND claim_id = ?
-      `
-    )
-    .bind(
+          AND claim_id = $5
+      `,
+    values: [
       input.reason,
       input.nowMs,
       input.nowMs,
       input.deliveryId,
-      input.claimId
-    )
-    .run();
+      input.claimId,
+    ],
+  });
 }
-
 async function recordDeliveryFailure(input: {
   attemptCount: number;
   claimId: string;
   code: string;
-  db: D1Database;
+  db: PostgresDatabase;
   deliveryId: string;
   nowMs: number;
   retryable: boolean;
@@ -435,25 +412,23 @@ async function recordDeliveryFailure(input: {
       RETRY_BACKOFF_MS.at(-1) ??
       60_000)
     : 0;
-  await input.db
-    .prepare(
-      `
-        UPDATE inbox_email_deliveries
+  await input.db.query({
+    text: `
+        UPDATE "openmeld"."inbox_email_deliveries"
         SET
-          state = ?,
-          next_attempt_at_ms = ?,
-          last_error_code = ?,
-          last_error_retryable = ?,
-          failed_at_ms = ?,
+          state = $1,
+          next_attempt_at_ms = $2,
+          last_error_code = $3,
+          last_error_retryable = $4,
+          failed_at_ms = $5,
           claim_id = NULL,
           claim_expires_at_ms = NULL,
-          updated_at_ms = max(updated_at_ms, ?)
-        WHERE id = ?
+          updated_at_ms = GREATEST(updated_at_ms, $6)
+        WHERE id = $7
           AND state = 'sending'
-          AND claim_id = ?
-      `
-    )
-    .bind(
+          AND claim_id = $8
+      `,
+    values: [
       retryable ? "pending" : "failed",
       input.nowMs + backoffMs,
       input.code,
@@ -461,11 +436,10 @@ async function recordDeliveryFailure(input: {
       retryable ? null : input.nowMs,
       input.nowMs,
       input.deliveryId,
-      input.claimId
-    )
-    .run();
+      input.claimId,
+    ],
+  });
 }
-
 function normalizeLimit(value: number | undefined): number {
   const limit = value ?? DEFAULT_BATCH_LIMIT;
   if (
@@ -475,13 +449,11 @@ function normalizeLimit(value: number | undefined): number {
   }
   return limit;
 }
-
 function assertTimestamp(value: number): void {
   if (!(Number.isSafeInteger(value) && value >= 0)) {
     throw new TypeError("Inbox email tick timestamp is invalid");
   }
 }
-
-function changedRows(result: D1Result<unknown>): number {
-  return Math.max(0, Math.trunc(Number(result.meta.changes ?? 0)));
+function changedRows(result: QueryResult<Record<string, unknown>>): number {
+  return Math.max(0, Math.trunc(Number(result.rowCount ?? 0)));
 }

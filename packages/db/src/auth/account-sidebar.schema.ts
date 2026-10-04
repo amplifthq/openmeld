@@ -1,12 +1,8 @@
-import {
-  integer,
-  primaryKey,
-  sqliteTable,
-  text,
-} from "drizzle-orm/sqlite-core";
+import { bigint, primaryKey, text } from "drizzle-orm/pg-core";
+import { applicationTable } from "../postgresql/schema.ts";
 import { organizations, users } from "./auth.schema.ts";
 
-export const accountSidebarPreferences = sqliteTable(
+export const accountSidebarPreferences = applicationTable(
   "account_sidebar_preferences",
   {
     userId: text("user_id")
@@ -15,7 +11,7 @@ export const accountSidebarPreferences = sqliteTable(
     organizationId: text("organization_id")
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
-    revision: integer("revision").notNull(),
+    revision: bigint("revision", { mode: "number" }).notNull(),
     preferences: text("preferences").notNull(),
   },
   (table) => [primaryKey({ columns: [table.userId, table.organizationId] })]

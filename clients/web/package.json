@@ -7,7 +7,8 @@
   },
   "scripts": {
     "dev": "node ./scripts/dev-runtime-preflight.mjs && vite dev --port 3000",
-    "dev:isolated": "node ./scripts/dev-runtime-preflight.mjs && vite dev",
+    "dev:isolated": "node ../../scripts/dev/dev-isolated-web.mjs --runtime",
+    "dev:isolated:runtime": "node ./scripts/dev-runtime-preflight.mjs && vite dev",
     "dev:prod": "CLOUDFLARE_ENV=prod vite dev --port 3434",
     "build": "vite build",
     "build:prod": "pnpm -C ../.. exec turbo run build --filter=openmeld-web^... && CLOUDFLARE_ENV=prod node ./scripts/build-production.mjs",

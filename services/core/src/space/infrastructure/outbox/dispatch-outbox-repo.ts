@@ -13,7 +13,6 @@ import {
   createNextDispatchChainContext,
 } from "../../../dispatch/rules/dispatch-chain-context";
 import { buildIdempotencyKey } from "../../../dispatch/rules/dispatch-idempotency";
-
 export const OPENMELD_DAEMON_OUTBOX_STATUS_PENDING = "pending" as const;
 export const OPENMELD_DAEMON_OUTBOX_STATUS_HANDED_OFF = "handed_off" as const;
 export const OPENMELD_DAEMON_OUTBOX_STATUS_CANCELLED = "cancelled" as const;
@@ -26,19 +25,16 @@ export const OPENMELD_DAEMON_DISPATCH_SNAPSHOT_OVERSIZE_ERROR_CODE =
   "dispatch.snapshot.oversize" as const;
 const MAX_CLIENT_MESSAGE_OUTBOX_SCAN_ROWS = 500;
 const MAX_ACTIVE_SPACE_OUTBOX_SCAN_ROWS = 500;
-
 export type OpenMeldDaemonOutboxStatus =
   | typeof OPENMELD_DAEMON_OUTBOX_STATUS_PENDING
   | typeof OPENMELD_DAEMON_OUTBOX_STATUS_HANDED_OFF
   | typeof OPENMELD_DAEMON_OUTBOX_STATUS_CANCELLED;
-
 export type OpenMeldDaemonDispatchOutboxRecoveryCandidate =
   OpenMeldDaemonDispatchQueueMessage & {
     outboxStatus: OpenMeldDaemonOutboxStatus;
     createdAtMs: number;
     handedOffAtMs: number | null;
   };
-
 export type OpenMeldDaemonDispatchOutboxRecord =
   OpenMeldDaemonDispatchQueueMessage & {
     status: OpenMeldDaemonOutboxStatus;
@@ -46,14 +42,12 @@ export type OpenMeldDaemonDispatchOutboxRecord =
     createdAtMs: number;
     handedOffAtMs: number | null;
   };
-
 export type DispatchSourceSignalSnapshotInput = Omit<
   NonNullable<OpenMeldDaemonDispatchQueueMessage["sourceSignalSnapshot"]>,
   "profileMentionLabel"
 > & {
   profileMentionLabel?: string | null;
 };
-
 export type OpenMeldDaemonDispatchOutboxHandoffSeedInsertResult =
   | {
       status: "inserted";
@@ -70,23 +64,19 @@ export type OpenMeldDaemonDispatchOutboxHandoffSeedInsertResult =
         | "handoff_seed_existing_unreadable";
       status: "conflict";
     };
-
 type OpenMeldDaemonDispatchOutboxPersistedRow = {
   payload_json: string;
   status: string;
   created_at_ms: number;
   queued_at_ms: number | null;
 };
-
 export type OpenMeldDaemonDispatchOutboxPoisonFailureState = {
   failureCount: number;
   poisoned: boolean;
 };
-
 class DispatchSnapshotOversizeError extends Error {
   readonly code = OPENMELD_DAEMON_DISPATCH_SNAPSHOT_OVERSIZE_ERROR_CODE;
 }
-
 export const createDispatchOutboxRecord = (input: {
   contextSelection?: OpenMeldDaemonDispatchQueueMessage["contextSelection"];
   bindingState: "bound" | "missing";
@@ -177,7 +167,6 @@ export const createDispatchOutboxRecord = (input: {
     text: sourceSignalText,
   });
   const replyToSnapshot = buildReplyToSnapshot(input.replyToSnapshot);
-
   const message: OpenMeldDaemonDispatchQueueMessage = {
     ...(input.contextSelection
       ? { contextSelection: input.contextSelection }
@@ -244,7 +233,6 @@ export const createDispatchOutboxRecord = (input: {
     outboxCreatedAtMs: input.nowMs,
     enqueuedAtMs: input.nowMs,
   };
-
   return {
     ...message,
     status: OPENMELD_DAEMON_OUTBOX_STATUS_PENDING,
@@ -253,7 +241,6 @@ export const createDispatchOutboxRecord = (input: {
     handedOffAtMs: null,
   };
 };
-
 const normalizeOptionalSnapshot = (value: unknown): string | null => {
   if (typeof value !== "string") {
     return null;
@@ -261,7 +248,6 @@ const normalizeOptionalSnapshot = (value: unknown): string | null => {
   const normalized = value.trim();
   return normalized.length > 0 ? normalized : null;
 };
-
 const resolveDispatchChainContextForOutbox = (input: {
   dispatchId: string;
   senderProfileId: string;
@@ -290,7 +276,6 @@ const resolveDispatchChainContextForOutbox = (input: {
     dispatchId: input.dispatchId,
   });
 };
-
 const buildSourceSignalSnapshot = (input: {
   evidenceRefs?: DispatchSourceSignalSnapshotInput["evidenceRefs"];
   workHandoff?: DispatchSourceSignalSnapshotInput["workHandoff"];
@@ -339,7 +324,6 @@ const buildSourceSignalSnapshot = (input: {
     ...(profileMentionLabel ? { profileMentionLabel } : {}),
   };
 };
-
 const buildReplyToSnapshot = (
   value:
     | OpenMeldDaemonDispatchQueueMessage["replyToSnapshot"]
@@ -353,7 +337,6 @@ const buildReplyToSnapshot = (
   if (!(signalId && profileId && profileName && previewText)) {
     return undefined;
   }
-
   return {
     signalId,
     profileId,
@@ -367,7 +350,6 @@ const buildReplyToSnapshot = (
     previewText,
   };
 };
-
 const buildOutboxObservabilitySnapshotFields = (input: {
   spaceNameSnapshot?: string | null;
   sourceProfileNameSnapshot?: string | null;
@@ -385,14 +367,12 @@ const buildOutboxObservabilitySnapshotFields = (input: {
   const targetProfileNameSnapshot = normalizeOptionalSnapshot(
     input.targetProfileNameSnapshot
   );
-
   return {
     ...(spaceNameSnapshot ? { spaceNameSnapshot } : {}),
     ...(sourceProfileNameSnapshot ? { sourceProfileNameSnapshot } : {}),
     ...(targetProfileNameSnapshot ? { targetProfileNameSnapshot } : {}),
   };
 };
-
 export const insertDispatchOutboxRecord = (
   sql: SqlStorage,
   record: OpenMeldDaemonDispatchOutboxRecord
@@ -426,7 +406,6 @@ export const insertDispatchOutboxRecord = (
   );
   return Number(result.rowsWritten ?? 0) > 0;
 };
-
 export const insertDispatchOutboxHandoffSeed = (
   sql: SqlStorage,
   record: OpenMeldDaemonDispatchOutboxRecord
@@ -437,7 +416,6 @@ export const insertDispatchOutboxHandoffSeed = (
       record,
     };
   }
-
   const existing = readDispatchOutboxRecordByIdempotencyKey(
     sql,
     record.idempotencyKey
@@ -449,21 +427,18 @@ export const insertDispatchOutboxHandoffSeed = (
       status: "conflict",
     };
   }
-
   if (isEquivalentDispatchOutboxHandoffSeed(existing, record)) {
     return {
       status: "idempotent_existing",
       record: existing,
     };
   }
-
   return {
     existing,
     reasonCode: "handoff_seed_existing_mismatch",
     status: "conflict",
   };
 };
-
 export const markDispatchOutboxHandedOff = (
   sql: SqlStorage,
   input: {
@@ -490,7 +465,6 @@ export const markDispatchOutboxHandedOff = (
     PERSISTED_OUTBOX_STATUS_QUEUED
   );
 };
-
 export const markDispatchOutboxCancelled = (
   sql: SqlStorage,
   input: {
@@ -514,13 +488,14 @@ export const markDispatchOutboxCancelled = (
     PERSISTED_OUTBOX_STATUS_QUEUED
   );
 };
-
 export const listPendingDispatchOutboxMessages = (
   sql: SqlStorage,
   limit: number
 ): OpenMeldDaemonDispatchQueueMessage[] => {
   const rows = sql
-    .exec<{ payload_json: string }>(
+    .exec<{
+      payload_json: string;
+    }>(
       `
         SELECT payload_json
         FROM openMeldDaemon_outbox
@@ -532,7 +507,6 @@ export const listPendingDispatchOutboxMessages = (
       Math.max(1, limit)
     )
     .toArray();
-
   const messages: OpenMeldDaemonDispatchQueueMessage[] = [];
   for (const row of rows) {
     const rawJson = String(row.payload_json ?? "");
@@ -553,10 +527,11 @@ export const listPendingDispatchOutboxMessages = (
   }
   return messages;
 };
-
 export const hasPendingDispatchOutboxRecords = (sql: SqlStorage): boolean => {
   const rows = sql
-    .exec<{ dispatch_id: string }>(
+    .exec<{
+      dispatch_id: string;
+    }>(
       `
         SELECT dispatch_id
         FROM openMeldDaemon_outbox
@@ -567,10 +542,8 @@ export const hasPendingDispatchOutboxRecords = (sql: SqlStorage): boolean => {
       OPENMELD_DAEMON_OUTBOX_STATUS_PENDING
     )
     .toArray();
-
   return rows.length > 0;
 };
-
 export const listDispatchOutboxRecoveryCandidates = (
   sql: SqlStorage,
   input: {
@@ -600,7 +573,6 @@ export const listDispatchOutboxRecoveryCandidates = (
       Math.max(1, input.limit)
     )
     .toArray();
-
   const candidates: OpenMeldDaemonDispatchOutboxRecoveryCandidate[] = [];
   for (const row of rows) {
     const rawJson = String(row.payload_json ?? "");
@@ -634,7 +606,6 @@ export const listDispatchOutboxRecoveryCandidates = (
   }
   return candidates;
 };
-
 export const clearDispatchOutboxPoisonFailure = (
   sql: SqlStorage,
   input: {
@@ -658,7 +629,6 @@ export const clearDispatchOutboxPoisonFailure = (
     input.dispatchId
   );
 };
-
 export const recordDispatchOutboxCandidateFailure = (
   sql: SqlStorage,
   input: {
@@ -677,7 +647,6 @@ export const recordDispatchOutboxCandidateFailure = (
   );
   return readDispatchOutboxPoisonFailureState(sql, input.dispatchId);
 };
-
 export const markDispatchOutboxPoisoned = (
   sql: SqlStorage,
   input: {
@@ -704,7 +673,6 @@ export const markDispatchOutboxPoisoned = (
   );
   return readDispatchOutboxPoisonFailureState(sql, input.dispatchId);
 };
-
 const readDispatchOutboxPoisonFailureState = (
   sql: SqlStorage,
   dispatchId: string
@@ -729,7 +697,6 @@ const readDispatchOutboxPoisonFailureState = (
     poisoned: row?.poisoned_at_ms !== null && row?.poisoned_at_ms !== undefined,
   };
 };
-
 export const listActiveDispatchOutboxRecordsBySpace = (
   sql: SqlStorage,
   input: {
@@ -783,7 +750,6 @@ export const listActiveDispatchOutboxRecordsBySpace = (
       ...bindings
     )
     .toArray();
-
   const records: OpenMeldDaemonDispatchOutboxRecoveryCandidate[] = [];
   for (const row of rows) {
     const candidate = parseDispatchOutboxPersistedRow(row);
@@ -806,7 +772,6 @@ export const listActiveDispatchOutboxRecordsBySpace = (
   }
   return records;
 };
-
 export const listDispatchOutboxRecordsByClientMessageId = (
   sql: SqlStorage,
   clientMessageId: string
@@ -815,7 +780,6 @@ export const listDispatchOutboxRecordsByClientMessageId = (
   if (!normalizedClientMessageId) {
     return [];
   }
-
   const rows = sql
     .exec<{
       payload_json: string;
@@ -836,7 +800,6 @@ export const listDispatchOutboxRecordsByClientMessageId = (
       MAX_CLIENT_MESSAGE_OUTBOX_SCAN_ROWS
     )
     .toArray();
-
   const records: OpenMeldDaemonDispatchOutboxRecoveryCandidate[] = [];
   for (const row of rows) {
     const candidate = parseDispatchOutboxPersistedRow(row);
@@ -846,7 +809,6 @@ export const listDispatchOutboxRecordsByClientMessageId = (
   }
   return records;
 };
-
 export const listDispatchOutboxRecordsBySourceSignalId = (
   sql: SqlStorage,
   sourceSignalId: string
@@ -855,7 +817,6 @@ export const listDispatchOutboxRecordsBySourceSignalId = (
   if (!normalizedSourceSignalId) {
     return [];
   }
-
   const rows = sql
     .exec<{
       payload_json: string;
@@ -877,7 +838,6 @@ export const listDispatchOutboxRecordsBySourceSignalId = (
       MAX_CLIENT_MESSAGE_OUTBOX_SCAN_ROWS
     )
     .toArray();
-
   const records: OpenMeldDaemonDispatchOutboxRecoveryCandidate[] = [];
   for (const row of rows) {
     const candidate = parseDispatchOutboxPersistedRow(row);
@@ -887,7 +847,6 @@ export const listDispatchOutboxRecordsBySourceSignalId = (
   }
   return records;
 };
-
 export const listDispatchOutboxTargetWakeLifecycleIdentitiesByClientMessageId =
   (
     sql: SqlStorage,
@@ -910,7 +869,6 @@ export const listDispatchOutboxTargetWakeLifecycleIdentitiesByClientMessageId =
       )
       .map(projectDispatchOutboxTargetWakeLifecycleIdentity);
   };
-
 export const readDispatchOutboxTargetWakeLifecycleIdentityBySource = (
   sql: SqlStorage,
   input: {
@@ -923,7 +881,6 @@ export const readDispatchOutboxTargetWakeLifecycleIdentityBySource = (
   if (!(sourceSignalId && targetProfileId)) {
     return null;
   }
-
   const record = readDispatchOutboxRecordByIdempotencyKey(
     sql,
     buildIdempotencyKey({
@@ -935,7 +892,6 @@ export const readDispatchOutboxTargetWakeLifecycleIdentityBySource = (
     ? projectDispatchOutboxTargetWakeLifecycleIdentity(record)
     : null;
 };
-
 export const projectDispatchOutboxTargetWakeLifecycleIdentity = (
   record: Pick<
     OpenMeldDaemonDispatchQueueMessage,
@@ -953,7 +909,6 @@ export const projectDispatchOutboxTargetWakeLifecycleIdentity = (
     spaceId: record.spaceId,
     targetProfileId: record.targetProfileId,
   });
-
 export const readDispatchOutboxRecordByDispatchId = (
   sql: SqlStorage,
   dispatchId: string
@@ -962,7 +917,6 @@ export const readDispatchOutboxRecordByDispatchId = (
   if (!normalizedDispatchId) {
     return null;
   }
-
   const row = sql
     .exec<OpenMeldDaemonDispatchOutboxPersistedRow>(
       `
@@ -977,10 +931,8 @@ export const readDispatchOutboxRecordByDispatchId = (
   if (!row) {
     return null;
   }
-
   return parseDispatchOutboxPersistedRow(row);
 };
-
 export const readDispatchOutboxRecordByIdempotencyKey = (
   sql: SqlStorage,
   idempotencyKey: string
@@ -989,7 +941,6 @@ export const readDispatchOutboxRecordByIdempotencyKey = (
   if (!normalizedIdempotencyKey) {
     return null;
   }
-
   const row = sql
     .exec<OpenMeldDaemonDispatchOutboxPersistedRow>(
       `
@@ -1004,10 +955,8 @@ export const readDispatchOutboxRecordByIdempotencyKey = (
   if (!row) {
     return null;
   }
-
   return parseDispatchOutboxPersistedRow(row);
 };
-
 const isEquivalentDispatchOutboxHandoffSeed = (
   existing: OpenMeldDaemonDispatchOutboxRecoveryCandidate,
   next: OpenMeldDaemonDispatchOutboxRecord
@@ -1021,7 +970,6 @@ const isEquivalentDispatchOutboxHandoffSeed = (
       (next.sourceClientMessageId ?? null)
   );
 };
-
 function parseDispatchOutboxPersistedRow(
   row: OpenMeldDaemonDispatchOutboxPersistedRow
 ): OpenMeldDaemonDispatchOutboxRecoveryCandidate | null {
@@ -1029,20 +977,17 @@ function parseDispatchOutboxPersistedRow(
   if (rawJson.length === 0) {
     return null;
   }
-
   let parsedJson: unknown;
   try {
     parsedJson = JSON.parse(rawJson);
   } catch {
     return null;
   }
-
   const parsed = parseOpenMeldDaemonDispatchQueueIngress(parsedJson);
   const outboxStatus = normalizeOpenMeldDaemonOutboxStatus(row.status);
   if (parsed.kind !== "current_v2" || !outboxStatus) {
     return null;
   }
-
   return {
     ...parsed.message,
     outboxStatus,
@@ -1051,7 +996,6 @@ function parseDispatchOutboxPersistedRow(
       typeof row.queued_at_ms === "number" ? row.queued_at_ms : null,
   };
 }
-
 function normalizeOpenMeldDaemonOutboxStatus(
   value: string
 ): OpenMeldDaemonOutboxStatus | null {
@@ -1066,7 +1010,6 @@ function normalizeOpenMeldDaemonOutboxStatus(
   }
   return null;
 }
-
 function toPersistedOpenMeldDaemonOutboxStatus(
   value: OpenMeldDaemonOutboxStatus
 ): "pending" | "queued" | "cancelled" {
@@ -1074,7 +1017,6 @@ function toPersistedOpenMeldDaemonOutboxStatus(
     ? PERSISTED_OUTBOX_STATUS_QUEUED
     : value;
 }
-
 export const deleteDispatchOutboxRecord = (
   sql: SqlStorage,
   input: {
@@ -1091,7 +1033,6 @@ export const deleteDispatchOutboxRecord = (
     OPENMELD_DAEMON_OUTBOX_STATUS_CANCELLED
   );
 };
-
 const assertDispatchSnapshotWithinBudget = (
   snapshot: OpenMeldDaemonDispatchQueueMessage["dispatchSnapshot"]
 ): void => {

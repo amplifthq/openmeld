@@ -1,22 +1,35 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import { messageChannelCardControlSchema } from "@openmeld/schemas";
 import type { NormalizedMessageChannelEvent } from "@openmeld/schemas/types";
 import type { CoreBindings } from "../../lib/bindings";
-import { readRemoteAgentNativeDeliveryByDeliveryId } from "../infrastructure/d1/native-delivery-ledger-repo";
+import { readRemoteAgentNativeDeliveryByDeliveryId } from "../infrastructure/postgresql/native-delivery-ledger-repo";
 import type { MessageChannelTurnParticipant } from "./message-channel-turn-resolution";
 import { requestRemoteAgentWorkerCancellation } from "./native-delivery-cancellation-service";
-
 export async function processMessageChannelCardControl(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
-  event: Extract<NormalizedMessageChannelEvent, { kind: "card_action" }>;
+  event: Extract<
+    NormalizedMessageChannelEvent,
+    {
+      kind: "card_action";
+    }
+  >;
   organizationId: string;
   participant: MessageChannelTurnParticipant;
   nowMs: number;
 }): Promise<
-  | { reasonCode: string; status: "ignored" | "rejected" }
+  | {
+      reasonCode: string;
+      status: "ignored" | "rejected";
+    }
   | {
       status: "continue";
-      event: Extract<NormalizedMessageChannelEvent, { kind: "card_action" }>;
+      event: Extract<
+        NormalizedMessageChannelEvent,
+        {
+          kind: "card_action";
+        }
+      >;
     }
 > {
   let value: unknown;
@@ -108,14 +121,15 @@ export async function processMessageChannelCardControl(input: {
     reasonCode: `message_channel.control.${outcome.status}`,
   };
 }
-
-function reject(reason: string): { reasonCode: string; status: "rejected" } {
+function reject(reason: string): {
+  reasonCode: string;
+  status: "rejected";
+} {
   return {
     status: "rejected",
     reasonCode: `message_channel.control.${reason}`,
   };
 }
-
 async function buildFollowUpOperationId(
   deliveryId: string,
   text: string

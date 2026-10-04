@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import type {
   AgentTaskContinuation,
   AgentTaskHandle,
@@ -8,16 +9,13 @@ import { acceptAgentControllerTaskLifecycleEventBatch } from "../src/agent-task-
 import {
   listRegisteredAgentControllerTasks,
   registerAgentControllerTask,
-} from "../src/agent-task-coordination/infrastructure/d1/agent-controller-task-lifecycle-repo";
+} from "../src/agent-task-coordination/infrastructure/postgresql/agent-controller-task-lifecycle-repo";
 import {
   readAgentTaskCompletionSubscription,
   registerAgentTaskCompletionSubscription,
-} from "../src/agent-task-coordination/infrastructure/d1/agent-task-coordination-repo";
+} from "../src/agent-task-coordination/infrastructure/postgresql/agent-task-coordination-repo";
 import type { CoreBindings } from "../src/lib/bindings";
-import {
-  applyDrizzleMigrationForTable,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 const NOW_MS = 2_000_000;
 const runtime = {
@@ -44,7 +42,7 @@ const taskWatchContinuation: Extract<
 
 describe("Agent Controller task lifecycle service", () => {
   it("lists only the requester's recent tasks with terminal evidence", async () => {
-    const harness = createLifecycleHarness();
+    const harness = await createLifecycleHarness();
     try {
       await acceptBatch({
         db: harness.db,
@@ -133,12 +131,12 @@ describe("Agent Controller task lifecycle service", () => {
         },
       ]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("resumes an attention watch exactly once across event replay", async () => {
-    const harness = createLifecycleHarness();
+    const harness = await createLifecycleHarness();
     const queued: unknown[] = [];
     try {
       const registeredEvent = buildEvent({
@@ -223,12 +221,12 @@ describe("Agent Controller task lifecycle service", () => {
       });
       expect(queued).toHaveLength(1);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("persists controller completion for a later terminal watch", async () => {
-    const harness = createLifecycleHarness();
+    const harness = await createLifecycleHarness();
     try {
       await acceptBatch({
         db: harness.db,
@@ -280,12 +278,12 @@ describe("Agent Controller task lifecycle service", () => {
         state: "ready",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("records response-stop evidence as completed without claiming success", async () => {
-    const harness = createLifecycleHarness();
+    const harness = await createLifecycleHarness();
     try {
       await acceptBatch({
         db: harness.db,
@@ -359,12 +357,12 @@ describe("Agent Controller task lifecycle service", () => {
         state: "settled",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("does not let a delayed old attention event settle a later watch", async () => {
-    const harness = createLifecycleHarness();
+    const harness = await createLifecycleHarness();
     try {
       const attentionEvent = buildEvent({
         attentionCode: "permission_request",
@@ -443,12 +441,12 @@ describe("Agent Controller task lifecycle service", () => {
         state: "pending",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("retries a previously admitted lifecycle event after its normal age window", async () => {
-    const harness = createLifecycleHarness();
+    const harness = await createLifecycleHarness();
     try {
       const completionEvent = buildEvent({
         eventId: "codex:turn-retry:completed",
@@ -498,12 +496,12 @@ describe("Agent Controller task lifecycle service", () => {
         events: [{ outcome: "accepted", status: "accepted" }],
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("fails closed for source mismatches and retries missing registration", async () => {
-    const harness = createLifecycleHarness();
+    const harness = await createLifecycleHarness();
     try {
       await expect(
         acceptBatch({
@@ -538,12 +536,12 @@ describe("Agent Controller task lifecycle service", () => {
         status: "rejected",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("rejects completion from a different Runtime or registration source", async () => {
-    const harness = createLifecycleHarness();
+    const harness = await createLifecycleHarness();
     try {
       await acceptBatch({
         db: harness.db,
@@ -607,7 +605,7 @@ describe("Agent Controller task lifecycle service", () => {
         ],
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });
@@ -629,7 +627,7 @@ function buildEvent(
 }
 
 async function acceptBatch(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   events: SubmitAgentControllerTaskLifecycleEventItem[];
   nowMs?: number;
@@ -644,7 +642,7 @@ async function acceptBatch(input: {
 }
 
 async function registerAttentionWatch(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   id: string;
   watchedTask: AgentTaskHandle;
 }) {
@@ -679,20 +677,8 @@ function createEnv(queued: unknown[]): CoreBindings {
   } as unknown as CoreBindings;
 }
 
-function createLifecycleHarness() {
-  const harness = createSqliteD1Harness();
-  applyDrizzleMigrationForTable(
-    harness,
-    "agent_controller_task_lifecycle_events"
-  );
-  applyDrizzleMigrationForTable(harness, "agent_controller_tasks");
-  applyDrizzleMigrationForTable(harness, "agent_task_terminal_outcomes");
-  applyDrizzleMigrationForTable(
-    harness,
-    "agent_task_needs_attention_observations"
-  );
-  applyDrizzleMigrationForTable(harness, "agent_task_completion_subscriptions");
-  applyDrizzleMigrationForTable(harness, "agent_delegations");
-  applyDrizzleMigrationForTable(harness, "agent_delegation_children");
+async function createLifecycleHarness() {
+  const harness = await createPostgresHarness();
+
   return harness;
 }

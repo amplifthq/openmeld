@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { readOrganizationInformationProtectionForPrompt } from "../src/organizations/organization-information-protection-prompt";
+import { createProjectionPostgresDatabase } from "../test-support/postgresql-query.test-support";
 
 describe("Organization information protection prompt projection", () => {
   afterEach(() => {
@@ -8,11 +9,9 @@ describe("Organization information protection prompt projection", () => {
 
   it("falls back to built-in protection when the optional policy read fails", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    const db = {
-      prepare: vi.fn(() => {
-        throw new Error("D1 table unavailable");
-      }),
-    } as unknown as D1Database;
+    const db = createProjectionPostgresDatabase(() => {
+      throw new Error("PostgreSQL table unavailable");
+    });
 
     await expect(
       readOrganizationInformationProtectionForPrompt({
@@ -23,7 +22,7 @@ describe("Organization information protection prompt projection", () => {
     expect(warn).toHaveBeenCalledWith(
       "[core.organization_information_protection.prompt_policy_unavailable]",
       {
-        error: "D1 table unavailable",
+        error: "PostgreSQL table unavailable",
         event:
           "core.organization_information_protection.prompt_policy_unavailable",
         organizationId: "org-1",
@@ -33,11 +32,9 @@ describe("Organization information protection prompt projection", () => {
 
   it("keeps failure evidence bounded and on one line", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    const db = {
-      prepare: vi.fn(() => {
-        throw new Error(`D1 unavailable\n${"x".repeat(400)}`);
-      }),
-    } as unknown as D1Database;
+    const db = createProjectionPostgresDatabase(() => {
+      throw new Error(`PostgreSQL unavailable\n${"x".repeat(400)}`);
+    });
 
     await readOrganizationInformationProtectionForPrompt({
       db,

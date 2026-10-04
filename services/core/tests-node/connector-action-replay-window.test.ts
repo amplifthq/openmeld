@@ -1,13 +1,11 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import { describe, expect, it } from "vitest";
 import {
   readConnectorActionReplayPermission,
   recordCenterAgentConnectorActionOperation,
   resolveConnectorActionReplayWindowRemainingMs,
 } from "../src/center-agent/connector-action-operation-repository";
-import {
-  applyDrizzleMigrationsForTables,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 describe("original provider replay window", () => {
   const hour = 60 * 60 * 1000;
@@ -28,7 +26,7 @@ describe("original provider replay window", () => {
 });
 
 describe("durable connector execution admission", () => {
-  const fixture = (db: D1Database) => ({
+  const fixture = (db: PostgresDatabase) => ({
     db,
     actionId: "linear.create_issue",
     actorProfileId: "agt_00000000-0000-4000-8000-000000000001",
@@ -62,33 +60,30 @@ describe("durable connector execution admission", () => {
     providerExecutionId: null,
     nowMs: 10_000,
   });
-  const storage = () => {
-    const harness = createSqliteD1Harness();
-    applyDrizzleMigrationsForTables(harness, [
-      "users",
-      "organizations",
-      "members",
-      "openmeld_profiles",
-      "center_agent_connector_action_operations",
-      "center_agent_audit_journal",
-    ]);
-    harness.run({
-      sql: "INSERT INTO users (id, name, email, created_at, updated_at) VALUES ('user-1', 'Synthetic member', 'synthetic@example.test', 1000, 1000)",
+  const storage = async () => {
+    const harness = await createPostgresHarness();
+
+    await harness.query({
+      text: "INSERT INTO \"openmeld\".\"users\" (id, name, email, created_at, updated_at) VALUES ('user-1', 'Synthetic member', 'synthetic@example.test', 1000, 1000)",
+      values: [],
     });
-    harness.run({
-      sql: "INSERT INTO organizations (id, name, slug, created_at) VALUES ('org-1', 'Synthetic organization', 'synthetic', 1000)",
+    await harness.query({
+      text: "INSERT INTO \"openmeld\".\"organizations\" (id, name, slug, created_at) VALUES ('org-1', 'Synthetic organization', 'synthetic', 1000)",
+      values: [],
     });
-    harness.run({
-      sql: "INSERT INTO openmeld_profiles (profile_id, profile_name, profile_handle, profile_kind, organization_id, owner_user_id, source) VALUES ('agt_00000000-0000-4000-8000-000000000001', 'Synthetic Agent', 'synthetic-agent', 'agent', 'org-1', 'user-1', 'cli_create')",
+    await harness.query({
+      text: "INSERT INTO \"openmeld\".\"openmeld_profiles\" (profile_id, profile_name, profile_handle, profile_kind, organization_id, owner_user_id, source) VALUES ('agt_00000000-0000-4000-8000-000000000001', 'Synthetic Agent', 'synthetic-agent', 'agent', 'org-1', 'user-1', 'cli_create')",
+      values: [],
     });
-    harness.run({
-      sql: "INSERT INTO openmeld_profiles (profile_id, profile_name, profile_handle, profile_kind, organization_id, owner_user_id, source) VALUES ('22222222-2222-4222-8222-222222222222', 'Synthetic member', 'synthetic-member', 'human', NULL, 'user-1', 'cli_create')",
+    await harness.query({
+      text: "INSERT INTO \"openmeld\".\"openmeld_profiles\" (profile_id, profile_name, profile_handle, profile_kind, organization_id, owner_user_id, source) VALUES ('22222222-2222-4222-8222-222222222222', 'Synthetic member', 'synthetic-member', 'human', NULL, 'user-1', 'cli_create')",
+      values: [],
     });
     return harness;
   };
 
   it("admits one initial attempt and one replay across concurrency and fresh reads", async () => {
-    const harness = storage();
+    const harness = await storage();
     try {
       const operation = fixture(harness.db);
       const attempt = () =>
@@ -152,7 +147,7 @@ describe("durable connector execution admission", () => {
       });
       expect(newRequest.executionAllowed).toBe(true);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
@@ -162,7 +157,7 @@ describe("durable connector execution admission", () => {
     "at_24h",
     "after_24h",
   ] as const)("does not consume provider work for %s", async (scenario) => {
-    const harness = storage();
+    const harness = await storage();
     try {
       const operation = fixture(harness.db);
       await recordCenterAgentConnectorActionOperation({
@@ -174,8 +169,9 @@ describe("durable connector execution admission", () => {
         outcome: "outcome_unknown",
       });
       if (scenario === "missing_account_version") {
-        harness.run({
-          sql: "UPDATE center_agent_connector_action_operations SET connection_updated_at_ms = NULL",
+        await harness.query({
+          text: 'UPDATE "openmeld"."center_agent_connector_action_operations" SET connection_updated_at_ms = NULL',
+          values: [],
         });
         expect(
           await readConnectorActionReplayPermission({
@@ -203,12 +199,14 @@ describe("durable connector execution admission", () => {
       expect(result.executionAllowed).toBe(false);
       expect(
         await harness.db
-          .prepare("SELECT id FROM center_agent_audit_journal WHERE id = ?")
-          .bind(`${result.operation.id}:replay_attempted`)
-          .first()
+          .query({
+            text: 'SELECT id FROM "openmeld"."center_agent_audit_journal" WHERE id = $1',
+            values: [`${result.operation.id}:replay_attempted`],
+          })
+          .then((result) => result.rows[0] ?? null)
       ).toBeNull();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });

@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { createAuthConfig } from "../src/configs/auth.config";
 import { sendCloudflareEmail } from "../src/utils/email";
 import {
   buildMagicLinkEmailContent,
   buildSpaceInvitationEmailContent,
 } from "../src/utils/email-templates";
+import { createAuthConfigForTest } from "./auth-config.test-support";
 
 describe("sendCloudflareEmail", () => {
   it("sends lightweight HTML payloads through the Cloudflare Email Service binding", async () => {
@@ -46,7 +46,7 @@ describe("auth verification email config", () => {
       text?: unknown;
       to?: unknown;
     }> = [];
-    const config = createAuthConfig({
+    const config = createAuthConfigForTest({
       AUTH_EMAIL: {
         send(message) {
           sentMessages.push(message);

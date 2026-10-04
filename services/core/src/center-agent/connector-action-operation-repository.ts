@@ -1,3 +1,4 @@
+import type { PostgresDatabase, QueryConfig } from "@openmeld/db/postgresql";
 import type {
   CenterAgentAction,
   CenterAgentAttribution,
@@ -6,7 +7,7 @@ import type {
 } from "@openmeld/schemas/types";
 import type { PluginRequestExecutionGuard } from "../connectors/plugin-action-requests";
 import { createCoreRpcHttpError } from "../rpc/errors";
-
+import { prepareCenterAgentAuditJournalEntryIfMissingStatement } from "./center-agent-repository";
 /** The pinned OpenConnector reserves an action before execution for 24 hours. */
 export function resolveConnectorActionReplayWindowRemainingMs(
   createdAtMs: number,
@@ -15,13 +16,11 @@ export function resolveConnectorActionReplayWindowRemainingMs(
   const elapsedMs = nowMs - createdAtMs;
   return elapsedMs < 0 ? 0 : Math.max(0, 24 * 60 * 60 * 1000 - elapsedMs);
 }
-
 export type CenterAgentConnectorActionOperationScope = {
   actorProfileId: string;
   operationId: string;
   organizationId: string;
 } & CenterAgentConnectorActionRequesterAttribution;
-
 export type CenterAgentConnectorActionRequester =
   | {
       kind: "represented_member";
@@ -31,7 +30,6 @@ export type CenterAgentConnectorActionRequester =
       kind: "connected_message_channel_member";
       sourceNativeDeliveryId: string;
     };
-
 type CenterAgentConnectorActionRequesterAttribution =
   | {
       representedUserId: string;
@@ -43,7 +41,6 @@ type CenterAgentConnectorActionRequesterAttribution =
       requesterAttributionKey: string;
       sourceNativeDeliveryId: string;
     };
-
 export type CenterAgentConnectorActionOperationRecord =
   CenterAgentConnectorActionOperationScope & {
     actionId: string;
@@ -58,7 +55,6 @@ export type CenterAgentConnectorActionOperationRecord =
     status: CenterAgentConnectorActionOperationStatus;
     updatedAtMs: number;
   };
-
 type CenterAgentConnectorActionOperationRow = {
   action_id: string;
   actor_profile_id: string;
@@ -80,7 +76,6 @@ type CenterAgentConnectorActionOperationRow = {
   status: CenterAgentConnectorActionOperationStatus;
   updated_at_ms: number;
 };
-
 type CenterAgentConnectorActionOperationAttributionRow = {
   actor_profile_id: string;
   on_behalf_of_display_name: string | null;
@@ -89,20 +84,17 @@ type CenterAgentConnectorActionOperationAttributionRow = {
   source_native_delivery_id: string | null;
   source_space_id: string | null;
 };
-
 type CenterAgentConnectorActionOperationProvenance = {
   attribution: CenterAgentAttribution;
   sourceNativeDeliveryId: string | null;
   sourceSpaceId: string | null;
 };
-
 function auditSourceNativeDeliveryId(
   deliveryId: string | null | undefined,
   requesterDeliveryId: string | null
 ): string | null {
   return deliveryId ?? requesterDeliveryId;
 }
-
 export function buildCenterAgentConnectorActionOperationScope(input: {
   actorProfileId: string;
   operationId: string;
@@ -116,10 +108,9 @@ export function buildCenterAgentConnectorActionOperationScope(input: {
     ...resolveRequesterAttribution(input.requester),
   };
 }
-
 /** Bounded evidence for continuation, never a new operation or execution owner. */
 export async function listConnectorOperationReceiptsForContinuation(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   actorProfileId: string;
   representedUserId: string;
@@ -133,37 +124,36 @@ export async function listConnectorOperationReceiptsForContinuation(input: {
     status: CenterAgentConnectorActionOperationStatus;
   }[]
 > {
-  const rows = await input.db
-    .prepare(`
-    SELECT operation.operation_id AS operationId,
-      operation.action_id AS actionId, operation.status AS status
-    FROM center_agent_connector_action_operations operation
-    JOIN center_agent_audit_journal audit ON audit.id = operation.id || ':attempted'
-    WHERE operation.organization_id = ? AND operation.actor_profile_id = ?
-      AND operation.represented_user_id = ? AND audit.source_space_id = ?
-      AND operation.created_at_ms >= ? AND operation.created_at_ms <= ?
+  const rows = await input.db.query<{
+    operationId: string;
+    actionId: string;
+    status: CenterAgentConnectorActionOperationStatus;
+  }>({
+    text: `
+    SELECT operation.operation_id AS "operationId",
+      operation.action_id AS "actionId", operation.status AS status
+    FROM "openmeld"."center_agent_connector_action_operations" operation
+    JOIN "openmeld"."center_agent_audit_journal" audit ON audit.id = operation.id || ':attempted'
+    WHERE operation.organization_id = $1 AND operation.actor_profile_id = $2
+      AND operation.represented_user_id = $3 AND audit.source_space_id = $4
+      AND operation.created_at_ms >= $5 AND operation.created_at_ms <= $6
     ORDER BY operation.created_at_ms, operation.id
     LIMIT 101
-  `)
-    .bind(
+  `,
+    values: [
       input.organizationId,
       input.actorProfileId,
       input.representedUserId,
       input.sourceSpaceId,
       input.fromMs,
-      input.throughMs
-    )
-    .all<{
-      operationId: string;
-      actionId: string;
-      status: CenterAgentConnectorActionOperationStatus;
-    }>();
-  return rows.results;
+      input.throughMs,
+    ],
+  });
+  return rows.rows;
 }
-
 export async function readCenterAgentConnectorActionOperationForRecovery(input: {
   actionId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   scope: CenterAgentConnectorActionOperationScope;
   service: string;
 }): Promise<CenterAgentConnectorActionOperationRecord | null> {
@@ -184,10 +174,9 @@ export async function readCenterAgentConnectorActionOperationForRecovery(input: 
   }
   return operation;
 }
-
 export async function readCenterAgentConnectorActionOperationForRequest(input: {
   actionId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   requestSignature: string;
   scope: CenterAgentConnectorActionOperationScope;
   service: string;
@@ -212,14 +201,13 @@ export async function readCenterAgentConnectorActionOperationForRequest(input: {
     operation,
   };
 }
-
 export async function recordCenterAgentConnectorActionOperation(input: {
   connectionUpdatedAtMs?: number | null;
   actionId: string;
   actorProfileId: string;
   attribution?: CenterAgentAttribution;
   connectionName: string;
-  db: D1Database;
+  db: PostgresDatabase;
   executionConnection?: CenterAgentConnectorActionExecutionConnection;
   nowMs: number;
   operationId: string;
@@ -252,7 +240,6 @@ export async function recordCenterAgentConnectorActionOperation(input: {
   });
   const recordId = await buildOperationRecordId(scope, input);
   const existing = await readOperation({ db: input.db, scope });
-
   if (existing) {
     assertSameRequest(existing, input);
     assertOperationConnectionVersion(existing, input);
@@ -261,7 +248,6 @@ export async function recordCenterAgentConnectorActionOperation(input: {
     ? await requireOperationProvenance({ db: input.db, operation: existing })
     : null;
   const existingAttribution = existingProvenance?.attribution ?? null;
-
   if (input.outcome === "attempted") {
     if (existing) {
       return {
@@ -283,34 +269,41 @@ export async function recordCenterAgentConnectorActionOperation(input: {
     });
     const executionConnection = requireNewOperationExecutionConnection(input);
     const auditAction = resolveAuditAction(input.outcome);
-    const [insertResult] = await input.db.batch([
-      prepareInsertOperationStatement({
-        ...input,
-        attribution,
-        executionConnection,
-        id: recordId,
-        requesterAttributionKey: scope.requesterAttributionKey,
-        representedUserId: scope.representedUserId,
-        sourceNativeDeliveryId: scope.sourceNativeDeliveryId,
-        status: "pending",
-      }),
-      prepareFinalizeAuditStatement({
-        action: auditAction,
-        attribution,
-        db: input.db,
-        id: `${recordId}:attempted`,
-        operationRecordId: recordId,
-        nowMs: input.nowMs,
-        organizationId: input.organizationId,
-        resource: operationAuditResource(input),
-        sourceNativeDeliveryId: auditSourceNativeDeliveryId(
-          input.sourceNativeDeliveryId,
-          scope.sourceNativeDeliveryId
-        ),
-        sourceSpaceId: input.sourceSpaceId ?? null,
-        executionGuard: input.executionGuard,
-      }),
-    ]);
+    const [insertResult] = await input.db.transaction(
+      async (client) =>
+        [
+          await client.query(
+            prepareInsertOperationStatement({
+              ...input,
+              attribution,
+              executionConnection,
+              id: recordId,
+              requesterAttributionKey: scope.requesterAttributionKey,
+              representedUserId: scope.representedUserId,
+              sourceNativeDeliveryId: scope.sourceNativeDeliveryId,
+              status: "pending",
+            })
+          ),
+          await client.query(
+            prepareFinalizeAuditStatement({
+              action: auditAction,
+              operationRecordId: recordId,
+              executionGuard: input.executionGuard,
+              attribution,
+              db: input.db,
+              id: `${recordId}:attempted`,
+              nowMs: input.nowMs,
+              organizationId: input.organizationId,
+              resource: operationAuditResource(input),
+              sourceNativeDeliveryId: auditSourceNativeDeliveryId(
+                input.sourceNativeDeliveryId,
+                scope.sourceNativeDeliveryId
+              ),
+              sourceSpaceId: input.sourceSpaceId ?? null,
+            })
+          ),
+        ] as const
+    );
     // The row ID also fences a new operation ID for the same task/effect.
     // Read the winning row, preserving its original account and operation ID.
     const operation = await readClaimedOperation({ ...input, scope, recordId });
@@ -319,11 +312,10 @@ export async function recordCenterAgentConnectorActionOperation(input: {
         await requireOperationProvenance({ db: input.db, operation })
       ).attribution,
       operation,
-      replayed: Number(insertResult?.meta.changes ?? 0) !== 1,
-      executionAllowed: Number(insertResult?.meta.changes ?? 0) === 1,
+      replayed: Number(insertResult.rowCount ?? 0) !== 1,
+      executionAllowed: Number(insertResult.rowCount ?? 0) === 1,
     };
   }
-
   if (!existing) {
     throw operationConflict(
       "This connector action operation has not been claimed."
@@ -353,31 +345,40 @@ export async function recordCenterAgentConnectorActionOperation(input: {
       "This connector action operation already has different provider evidence."
     );
   }
-
-  const [, updateResult] = await input.db.batch([
-    prepareFinalizeAuditStatement({
-      action: resolveAuditAction(input.outcome),
-      attribution: requireExistingAttribution(existingAttribution),
-      db: input.db,
-      id: `${existing.id}:${input.outcome}`,
-      nowMs: input.nowMs,
-      operationRecordId: existing.id,
-      organizationId: input.organizationId,
-      resource: operationAuditResource(input),
-      sourceNativeDeliveryId: auditSourceNativeDeliveryId(
-        existingProvenance?.sourceNativeDeliveryId,
-        existing.sourceNativeDeliveryId
-      ),
-      sourceSpaceId: existingProvenance?.sourceSpaceId ?? null,
-    }),
-    prepareFinalizeOperationStatement({
-      db: input.db,
-      id: existing.id,
-      nowMs: input.nowMs,
-      outcome: input.outcome,
-      providerExecutionId: input.providerExecutionId,
-    }),
-  ]);
+  const outcome = input.outcome;
+  const updateResult = await input.db.transaction(async (client) => {
+    const result = await client.query(
+      prepareFinalizeOperationStatement({
+        db: input.db,
+        id: existing.id,
+        nowMs: input.nowMs,
+        outcome,
+        providerExecutionId: input.providerExecutionId,
+      })
+    );
+    // The guarded update locks the operation and selects its terminal writer.
+    // Only that writer may add the receipt, in the same rollback boundary.
+    if (result.rowCount === 1) {
+      await client.query(
+        prepareCenterAgentAuditJournalEntryIfMissingStatement({
+          actorProfileId: input.actorProfileId,
+          action: resolveAuditAction(input.outcome),
+          attribution: requireExistingAttribution(existingAttribution),
+          db: input.db,
+          id: `${existing.id}:${input.outcome}`,
+          nowMs: input.nowMs,
+          organizationId: input.organizationId,
+          resource: operationAuditResource(input),
+          sourceNativeDeliveryId: auditSourceNativeDeliveryId(
+            existingProvenance?.sourceNativeDeliveryId,
+            existing.sourceNativeDeliveryId
+          ),
+          sourceSpaceId: existingProvenance?.sourceSpaceId ?? null,
+        })
+      );
+    }
+    return result;
+  });
   const operation = await requireOperation({ db: input.db, scope });
   assertSameRequest(operation, input);
   if (
@@ -391,7 +392,7 @@ export async function recordCenterAgentConnectorActionOperation(input: {
   return {
     attribution: requireExistingAttribution(existingAttribution),
     operation,
-    replayed: Number(updateResult?.meta.changes ?? 0) !== 1,
+    replayed: Number(updateResult.rowCount ?? 0) !== 1,
     executionAllowed: false,
   };
 }
@@ -403,11 +404,11 @@ async function readClaimedOperation(
   }
 ) {
   const row = await input.db
-    .prepare(
-      "SELECT * FROM center_agent_connector_action_operations WHERE id = ?"
-    )
-    .bind(input.recordId)
-    .first<CenterAgentConnectorActionOperationRow>();
+    .query<CenterAgentConnectorActionOperationRow>({
+      text: 'SELECT * FROM "openmeld"."center_agent_connector_action_operations" WHERE id = $1',
+      values: [input.recordId],
+    })
+    .then((result) => result.rows[0] ?? null);
   const operation = row ? mapOperation(row) : await requireOperation(input);
   if (
     operation.actorProfileId === input.actorProfileId &&
@@ -422,7 +423,7 @@ async function claimConnectorReplay(input: {
   executionGuard?: PluginRequestExecutionGuard;
   allowReplay?: boolean;
   effect?: "read" | "write" | "destructive" | "unspecified";
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs: number;
   operation: CenterAgentConnectorActionOperationRecord;
   provenance: CenterAgentConnectorActionOperationProvenance | null;
@@ -433,27 +434,29 @@ async function claimConnectorReplay(input: {
   if (!(input.allowReplay && input.provenance)) {
     return false;
   }
-  const result = await prepareFinalizeAuditStatement({
-    action: resolveAuditAction("attempted"),
-    attribution: input.provenance.attribution,
-    db: input.db,
-    id: `${input.operation.id}:replay_attempted`,
-    nowMs: input.nowMs,
-    operationRecordId: input.operation.id,
-    organizationId: input.operation.organizationId,
-    resource: operationAuditResource(input.operation),
-    sourceNativeDeliveryId: input.provenance.sourceNativeDeliveryId,
-    sourceSpaceId: input.provenance.sourceSpaceId,
-    replayClaim: true,
-    executionGuard: input.executionGuard,
-  }).run();
-  return Number(result.meta.changes ?? 0) === 1;
+  const result = await input.db.query(
+    prepareFinalizeAuditStatement({
+      action: resolveAuditAction("attempted"),
+      attribution: input.provenance.attribution,
+      db: input.db,
+      id: `${input.operation.id}:replay_attempted`,
+      nowMs: input.nowMs,
+      operationRecordId: input.operation.id,
+      organizationId: input.operation.organizationId,
+      resource: operationAuditResource(input.operation),
+      sourceNativeDeliveryId: input.provenance.sourceNativeDeliveryId,
+      sourceSpaceId: input.provenance.sourceSpaceId,
+      replayClaim: true,
+      executionGuard: input.executionGuard,
+    })
+  );
+  return Number(result.rowCount ?? 0) === 1;
 }
 
 /** The existing operation journal owns the single durable replay allowance. */
 export async function readConnectorActionReplayPermission(input: {
   actorProfileId?: string;
-  db: D1Database;
+  db: PostgresDatabase;
   operation: CenterAgentConnectorActionOperationRecord;
   nowMs: number;
 }): Promise<
@@ -477,9 +480,11 @@ export async function readConnectorActionReplayPermission(input: {
     return { allowed: false, reason: "original_account_unverified" };
   }
   const replay = await input.db
-    .prepare("SELECT id FROM center_agent_audit_journal WHERE id = ?")
-    .bind(`${input.operation.id}:replay_attempted`)
-    .first();
+    .query({
+      text: 'SELECT id FROM "openmeld"."center_agent_audit_journal" WHERE id = $1',
+      values: [`${input.operation.id}:replay_attempted`],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (replay) {
     return { allowed: false, reason: "already_replayed" };
   }
@@ -518,7 +523,6 @@ function requireNewOperationAttribution(input: {
   }
   return input.attribution;
 }
-
 function requireNewOperationExecutionConnection(input: {
   connectionName: string;
   executionConnection?: CenterAgentConnectorActionExecutionConnection;
@@ -535,7 +539,6 @@ function requireNewOperationExecutionConnection(input: {
   }
   return input.executionConnection;
 }
-
 function requireExistingAttribution(
   attribution: CenterAgentAttribution | null
 ): CenterAgentAttribution {
@@ -551,7 +554,7 @@ function prepareFinalizeAuditStatement(input: {
   executionGuard?: PluginRequestExecutionGuard;
   action: CenterAgentAction;
   attribution: CenterAgentAttribution;
-  db: D1Database;
+  db: PostgresDatabase;
   id: string;
   nowMs: number;
   operationRecordId: string;
@@ -560,12 +563,11 @@ function prepareFinalizeAuditStatement(input: {
   sourceNativeDeliveryId: string | null;
   sourceSpaceId: string | null;
   replayClaim?: boolean;
-}): D1PreparedStatement {
+}): QueryConfig {
   const onBehalfOf = input.attribution.onBehalfOf;
-  return input.db
-    .prepare(
-      `
-        INSERT OR IGNORE INTO center_agent_audit_journal (
+  return {
+    text: `
+        INSERT INTO "openmeld"."center_agent_audit_journal" (
           id,
           organization_id,
           actor_profile_id,
@@ -579,20 +581,20 @@ function prepareFinalizeAuditStatement(input: {
           source_space_id,
           created_at
         )
-        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+        SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
         WHERE EXISTS (
           SELECT 1
-          FROM center_agent_connector_action_operations
-          WHERE id = ?
+          FROM "openmeld"."center_agent_connector_action_operations"
+          WHERE id = $13
             AND status IN ('pending', 'outcome_unknown')
-            AND (? = 0 OR (status = 'outcome_unknown'
+            AND ($14 = 0 OR (status = 'outcome_unknown'
               AND connection_updated_at_ms IS NOT NULL
-              AND created_at_ms <= ? AND created_at_ms > ?))
+              AND created_at_ms <= $15 AND created_at_ms > $16))
         )
-        AND (${input.executionGuard?.sql ?? "1"})
-      `
-    )
-    .bind(
+        AND (${input.executionGuard?.sql(17) ?? "TRUE"})
+        ON CONFLICT DO NOTHING
+      `,
+    values: [
       input.id,
       input.organizationId,
       input.attribution.actorProfileId,
@@ -609,8 +611,9 @@ function prepareFinalizeAuditStatement(input: {
       input.replayClaim ? 1 : 0,
       input.nowMs,
       input.nowMs - 86_400_000,
-      ...(input.executionGuard?.bindings ?? [])
-    );
+      ...(input.executionGuard?.bindings ?? []),
+    ],
+  };
 }
 
 function prepareInsertOperationStatement(input: {
@@ -618,7 +621,7 @@ function prepareInsertOperationStatement(input: {
   connectionUpdatedAtMs?: number | null;
   actionId: string;
   connectionName: string;
-  db: D1Database;
+  db: PostgresDatabase;
   executionConnection: CenterAgentConnectorActionExecutionConnection;
   id: string;
   nowMs: number;
@@ -632,11 +635,10 @@ function prepareInsertOperationStatement(input: {
   sourceNativeDeliveryId: string | null;
   status: CenterAgentConnectorActionOperationStatus;
   attribution: CenterAgentAttribution;
-}): D1PreparedStatement {
-  return input.db
-    .prepare(
-      `
-        INSERT OR IGNORE INTO center_agent_connector_action_operations (
+}): QueryConfig {
+  return {
+    text: `
+        INSERT INTO "openmeld"."center_agent_connector_action_operations" (
           id,
           organization_id,
           actor_profile_id,
@@ -656,11 +658,10 @@ function prepareInsertOperationStatement(input: {
           provider_execution_id,
           created_at_ms,
           updated_at_ms
-        ) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-          WHERE ${input.executionGuard?.sql ?? "1"}
-      `
-    )
-    .bind(
+        ) SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
+          WHERE ${input.executionGuard?.sql(20) ?? "TRUE"}
+          ON CONFLICT DO NOTHING`,
+    values: [
       input.id,
       input.organizationId,
       input.attribution.actorProfileId,
@@ -680,31 +681,29 @@ function prepareInsertOperationStatement(input: {
       input.providerExecutionId,
       input.nowMs,
       input.nowMs,
-      ...(input.executionGuard?.bindings ?? [])
-    );
+      ...(input.executionGuard?.bindings ?? []),
+    ],
+  };
 }
-
 function prepareFinalizeOperationStatement(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   id: string;
   nowMs: number;
   outcome: Exclude<CenterAgentConnectorActionOperationStatus, "pending">;
   providerExecutionId: string | null;
-}): D1PreparedStatement {
-  return input.db
-    .prepare(
-      `
-        UPDATE center_agent_connector_action_operations
-        SET status = ?, provider_execution_id = ?, updated_at_ms = ?
-        WHERE id = ?
+}): QueryConfig {
+  return {
+    text: `
+        UPDATE "openmeld"."center_agent_connector_action_operations"
+        SET status = $1, provider_execution_id = $2, updated_at_ms = $3
+        WHERE id = $4
           AND status IN ('pending', 'outcome_unknown')
-      `
-    )
-    .bind(input.outcome, input.providerExecutionId, input.nowMs, input.id);
+      `,
+    values: [input.outcome, input.providerExecutionId, input.nowMs, input.id],
+  };
 }
-
 async function requireOperation(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   scope: CenterAgentConnectorActionOperationScope;
 }): Promise<CenterAgentConnectorActionOperationRecord> {
   const operation = await readOperation(input);
@@ -713,33 +712,31 @@ async function requireOperation(input: {
   }
   return operation;
 }
-
 async function readOperation(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   scope: CenterAgentConnectorActionOperationScope;
 }): Promise<CenterAgentConnectorActionOperationRecord | null> {
   const row = await input.db
-    .prepare(
-      `
+    .query<CenterAgentConnectorActionOperationRow>({
+      text: `
         SELECT *
-        FROM center_agent_connector_action_operations
-        WHERE organization_id = ?
-          AND actor_profile_id = ?
-          AND requester_attribution_key = ?
-          AND operation_id = ?
+        FROM "openmeld"."center_agent_connector_action_operations"
+        WHERE organization_id = $1
+          AND actor_profile_id = $2
+          AND requester_attribution_key = $3
+          AND operation_id = $4
         LIMIT 1
-      `
-    )
-    .bind(
-      input.scope.organizationId,
-      input.scope.actorProfileId,
-      input.scope.requesterAttributionKey,
-      input.scope.operationId
-    )
-    .first<CenterAgentConnectorActionOperationRow>();
+      `,
+      values: [
+        input.scope.organizationId,
+        input.scope.actorProfileId,
+        input.scope.requesterAttributionKey,
+        input.scope.operationId,
+      ],
+    })
+    .then((result) => result.rows[0] ?? null);
   return row ? mapOperation(row) : null;
 }
-
 function assertSameRequest(
   operation: CenterAgentConnectorActionOperationRecord,
   input: {
@@ -758,14 +755,13 @@ function assertSameRequest(
     );
   }
 }
-
 async function requireOperationProvenance(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   operation: CenterAgentConnectorActionOperationRecord;
 }): Promise<CenterAgentConnectorActionOperationProvenance> {
   const row = await input.db
-    .prepare(
-      `
+    .query<CenterAgentConnectorActionOperationAttributionRow>({
+      text: `
         SELECT
           actor_profile_id,
           on_behalf_of_profile_id,
@@ -773,15 +769,18 @@ async function requireOperationProvenance(input: {
           on_behalf_of_display_name,
           source_native_delivery_id,
           source_space_id
-        FROM center_agent_audit_journal
-        WHERE id = ?
-          AND organization_id = ?
+        FROM "openmeld"."center_agent_audit_journal"
+        WHERE id = $1
+          AND organization_id = $2
           AND action = 'execute_connector_action'
         LIMIT 1
-      `
-    )
-    .bind(`${input.operation.id}:attempted`, input.operation.organizationId)
-    .first<CenterAgentConnectorActionOperationAttributionRow>();
+      `,
+      values: [
+        `${input.operation.id}:attempted`,
+        input.operation.organizationId,
+      ],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!row || row.actor_profile_id !== input.operation.actorProfileId) {
     throw new Error(
       "Center Agent connector action operation attribution was not stored."
@@ -830,7 +829,6 @@ async function requireOperationProvenance(input: {
     sourceSpaceId: row.source_space_id,
   };
 }
-
 function mapOperation(
   row: CenterAgentConnectorActionOperationRow
 ): CenterAgentConnectorActionOperationRecord {
@@ -864,7 +862,6 @@ function mapOperation(
     updatedAtMs: Number(row.updated_at_ms),
   };
 }
-
 function mapExecutionConnection(
   row: CenterAgentConnectorActionOperationRow
 ): CenterAgentConnectorActionExecutionConnection | null {
@@ -894,7 +891,6 @@ function mapExecutionConnection(
       row.service as CenterAgentConnectorActionExecutionConnection["service"],
   };
 }
-
 function operationAuditResource(input: {
   actionId: string;
   operationId: string;
@@ -905,7 +901,6 @@ function operationAuditResource(input: {
     type: "connector_action",
   };
 }
-
 function resolveAuditAction(
   outcome: "attempted" | "completed" | "failed" | "outcome_unknown"
 ): CenterAgentAction {
@@ -922,7 +917,6 @@ function resolveAuditAction(
       throw new Error(`Unsupported connector action outcome: ${outcome}`);
   }
 }
-
 async function buildOperationRecordId(
   scope: CenterAgentConnectorActionOperationScope,
   effect: {
@@ -959,7 +953,6 @@ async function buildOperationRecordId(
   ).join("");
   return `center_agent_connector_action_operation_${hash}`;
 }
-
 function resolveRequesterAttribution(
   input: CenterAgentConnectorActionRequester
 ): CenterAgentConnectorActionRequesterAttribution {
@@ -984,7 +977,6 @@ function resolveRequesterAttribution(
     "A connector action operation requires one valid requester attribution source."
   );
 }
-
 function resolveStoredRequesterAttribution(input: {
   representedUserId: string | null;
   sourceNativeDeliveryId: string | null;
@@ -1005,7 +997,6 @@ function resolveStoredRequesterAttribution(input: {
     "Center Agent connector action requester attribution is inconsistent."
   );
 }
-
 function operationConflict(reason: string): Error {
   return createCoreRpcHttpError({
     code: "center_agent.connector_action_operation_conflict",

@@ -1,4 +1,8 @@
 import {
+  getPostgresDatabase,
+  type PostgresDatabase,
+} from "@openmeld/db/postgresql";
+import {
   pluginActionRequestCommandRpcSchema,
   pluginActionRequestIntentSchema,
 } from "@openmeld/schemas";
@@ -12,7 +16,7 @@ import {
   prepareEnsureInboxItemStatements,
   prepareResolveInboxItemsBySourceStatements,
 } from "../inbox/application/inbox-item-service";
-import { type CoreBindings, identityDb } from "../lib/bindings";
+import type { CoreBindings } from "../lib/bindings";
 import { requireExpectedOrganizationContext } from "../organizations/expected-organization-context";
 import { resolveActiveOrganizationMembership } from "../organizations/organization-context";
 import { createCoreRpcHttpError } from "../rpc/errors";
@@ -42,7 +46,7 @@ const sourceKey = (id: string) => `plugin-action-request:${id}`;
 
 /** Called only after current account, catalog effect and Plugin admission. */
 export async function preparePluginActionRequest(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   intent: PluginActionRequestIntent;
   requestId?: string;
 }): Promise<{
@@ -58,13 +62,9 @@ export async function preparePluginActionRequest(input: {
     row = await readRequest(input.db, input.requestId);
   } else {
     const now = Date.now();
-    await input.db
-      .prepare(
-        `INSERT INTO plugin_action_requests (id, organization_id, user_id, actor_profile_id, operation_id, source_request_key, request_digest, request_json, state, created_at_ms, expires_at_ms)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
-       ON CONFLICT (organization_id, user_id, actor_profile_id, operation_id) DO NOTHING`
-      )
-      .bind(
+    await input.db.query({
+      text: 'INSERT INTO "openmeld"."plugin_action_requests" (id, organization_id, user_id, actor_profile_id, operation_id, source_request_key, request_digest, request_json, state, created_at_ms, expires_at_ms)\n       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, \'pending\', $9, $10)\n       ON CONFLICT (organization_id, user_id, actor_profile_id, operation_id) DO NOTHING',
+      values: [
         crypto.randomUUID(),
         intent.organizationId,
         intent.userId,
@@ -74,20 +74,20 @@ export async function preparePluginActionRequest(input: {
         digest,
         JSON.stringify(intent),
         now,
-        now + REQUEST_LIFETIME_MS
-      )
-      .run();
+        now + REQUEST_LIFETIME_MS,
+      ],
+    });
     row = await input.db
-      .prepare(
-        "SELECT * FROM plugin_action_requests WHERE organization_id = ? AND user_id = ? AND actor_profile_id = ? AND operation_id = ?"
-      )
-      .bind(
-        intent.organizationId,
-        intent.userId,
-        intent.actorProfileId,
-        intent.operationId
-      )
-      .first<RequestRow>();
+      .query<RequestRow>({
+        text: 'SELECT * FROM "openmeld"."plugin_action_requests" WHERE organization_id = $1 AND user_id = $2 AND actor_profile_id = $3 AND operation_id = $4',
+        values: [
+          intent.organizationId,
+          intent.userId,
+          intent.actorProfileId,
+          intent.operationId,
+        ],
+      })
+      .then((result) => result.rows[0] ?? null);
   }
   if (!row || row.request_digest !== digest) {
     throw denied(
@@ -104,39 +104,26 @@ export async function preparePluginActionRequest(input: {
 }
 
 export type PluginRequestExecutionGuard = {
-  sql: string;
+  sql: (firstParameter: number) => string;
   bindings: (string | number)[];
 };
 
 /** The request owner resolves expired/revoked attention on recipient reads. */
 export async function reconcilePluginActionRequestInbox(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   userId: string;
 }) {
-  await input.db
-    .prepare(`UPDATE inbox_items AS item SET resolution_status = 'resolved', resolved_at_ms = ?, updated_at_ms = max(updated_at_ms, ?)
-    WHERE item.organization_id = ? AND item.recipient_user_id = ? AND item.resolution_status = 'open'
-      AND item.source_kind = 'system_attention_event' AND EXISTS (
-        SELECT 1 FROM plugin_action_requests AS request
-        WHERE item.source_key = 'plugin-action-request:' || request.id
-          AND request.organization_id = item.organization_id AND request.user_id = item.recipient_user_id
-          AND (request.state != 'pending' OR request.expires_at_ms <= ? OR NOT EXISTS (
-            SELECT 1 FROM connector_connections AS connection WHERE connection.organization_id = request.organization_id
-              AND connection.connection_name = json_extract(request.request_json, '$.connection.connectionName')
-              AND connection.status = 'active'
-              AND connection.updated_at_ms = json_extract(request.request_json, '$.connectionUpdatedAtMs')
-              AND connection.access_revision = json_extract(request.request_json, '$.accessRevision')
-          ))
-      )`)
-    .bind(
+  await input.db.query({
+    text: "UPDATE \"openmeld\".\"inbox_items\" AS item SET resolution_status = 'resolved', resolved_at_ms = $1, updated_at_ms = greatest(updated_at_ms, $2)\n    WHERE item.organization_id = $3 AND item.recipient_user_id = $4 AND item.resolution_status = 'open'\n      AND item.source_kind = 'system_attention_event' AND EXISTS (\n        SELECT 1 FROM \"openmeld\".\"plugin_action_requests\" AS request\n        WHERE item.source_key = 'plugin-action-request:' || request.id\n          AND request.organization_id = item.organization_id AND request.user_id = item.recipient_user_id\n          AND (request.state != 'pending' OR request.expires_at_ms <= $5 OR NOT EXISTS (\n            SELECT 1 FROM \"openmeld\".\"connector_connections\" AS connection WHERE connection.organization_id = request.organization_id\n              AND connection.connection_name = (request.request_json::jsonb #>> '{connection,connectionName}')\n              AND connection.status = 'active'\n              AND connection.updated_at_ms = (request.request_json::jsonb ->> 'connectionUpdatedAtMs')::bigint\n              AND connection.access_revision = (request.request_json::jsonb ->> 'accessRevision')::bigint\n          ))\n      )",
+    values: [
       Date.now(),
       Date.now(),
       input.organizationId,
       input.userId,
-      Date.now()
-    )
-    .run();
+      Date.now(),
+    ],
+  });
 }
 
 function requestExecutionGuard(row: RequestRow): PluginRequestExecutionGuard {
@@ -144,11 +131,13 @@ function requestExecutionGuard(row: RequestRow): PluginRequestExecutionGuard {
     JSON.parse(row.request_json)
   );
   return {
-    sql: `EXISTS (SELECT 1 FROM plugin_action_requests AS request
-      INNER JOIN members ON members.organization_id = request.organization_id AND members.user_id = request.user_id
-      INNER JOIN connector_connections AS connection ON connection.organization_id = request.organization_id AND connection.connection_name = ?
-      WHERE request.id = ? AND request.state = 'approved' AND request.expires_at_ms > ?
-        AND connection.status = 'active' AND connection.updated_at_ms = ? AND connection.access_revision = ?)`,
+    sql: (
+      first
+    ) => `EXISTS (SELECT 1 FROM "openmeld"."plugin_action_requests" AS request
+      INNER JOIN "openmeld"."members" ON members.organization_id = request.organization_id AND members.user_id = request.user_id
+      INNER JOIN "openmeld"."connector_connections" AS connection ON connection.organization_id = request.organization_id AND connection.connection_name = $${first}
+      WHERE request.id = $${first + 1} AND request.state = 'approved' AND request.expires_at_ms > $${first + 2}
+        AND connection.status = 'active' AND connection.updated_at_ms = $${first + 3} AND connection.access_revision = $${first + 4})`,
     bindings: [
       intent.connection.connectionName,
       row.id,
@@ -161,23 +150,23 @@ function requestExecutionGuard(row: RequestRow): PluginRequestExecutionGuard {
 
 /** Reads authority for a retained operation. It never creates a new request. */
 export async function readPluginActionRequestForOperation(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   userId: string;
   actorProfileId: string;
   operationId: string;
 }) {
   const row = await input.db
-    .prepare(
-      "SELECT * FROM plugin_action_requests WHERE organization_id = ? AND user_id = ? AND actor_profile_id = ? AND operation_id = ?"
-    )
-    .bind(
-      input.organizationId,
-      input.userId,
-      input.actorProfileId,
-      input.operationId
-    )
-    .first<RequestRow>();
+    .query<RequestRow>({
+      text: 'SELECT * FROM "openmeld"."plugin_action_requests" WHERE organization_id = $1 AND user_id = $2 AND actor_profile_id = $3 AND operation_id = $4',
+      values: [
+        input.organizationId,
+        input.userId,
+        input.actorProfileId,
+        input.operationId,
+      ],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!row) {
     return null;
   }
@@ -216,7 +205,7 @@ export async function rpcPluginActionRequest(
     expectedOrganizationId,
     errorCode: "plugin.request_organization_changed",
   });
-  const db = identityDb(env);
+  const db = getPostgresDatabase(env);
   if (!db) {
     throw denied(
       "state_unavailable",
@@ -264,7 +253,7 @@ export async function rpcPluginActionRequest(
 }
 
 async function decideRequest(
-  db: D1Database,
+  db: PostgresDatabase,
   row: RequestRow,
   command: Extract<
     PluginActionRequestCommandRpc["command"],
@@ -277,36 +266,39 @@ async function decideRequest(
   );
   // The decision and its Inbox resolution are one transaction. A concurrent
   // rejection or lost approval response cannot mint a second request identity.
-  await db.batch([
-    db
-      .prepare(`UPDATE plugin_action_requests SET state = ?, decided_at_ms = ?
-      WHERE id = ? AND state = 'pending' AND expires_at_ms > ?
-        AND EXISTS (SELECT 1 FROM members WHERE organization_id = ? AND user_id = ?)
-        AND EXISTS (SELECT 1 FROM connector_connections WHERE organization_id = ? AND connection_name = ? AND status = 'active' AND updated_at_ms = ? AND access_revision = ?)`)
-      .bind(
-        wanted,
-        Date.now(),
-        row.id,
-        Date.now(),
-        row.organization_id,
-        row.user_id,
-        row.organization_id,
-        intent.connection.connectionName,
-        intent.connectionUpdatedAtMs,
-        intent.accessRevision
-      ),
-    ...prepareResolveInboxItemsBySourceStatements({
-      db,
-      organizationId: row.organization_id,
-      sourceKind: "system_attention_event",
-      sourceKey: sourceKey(row.id),
-      resolvedAtMs: Date.now(),
-      sourceGuard: {
-        sql: "EXISTS (SELECT 1 FROM plugin_action_requests WHERE id = ? AND state != 'pending')",
-        bindings: [row.id],
+  await db.transaction(async (client) => {
+    for (const query of [
+      {
+        text: 'UPDATE "openmeld"."plugin_action_requests" SET state = $1, decided_at_ms = $2\n      WHERE id = $3 AND state = \'pending\' AND expires_at_ms > $4\n        AND EXISTS (SELECT 1 FROM "openmeld"."members" WHERE organization_id = $5 AND user_id = $6)\n        AND EXISTS (SELECT 1 FROM "openmeld"."connector_connections" WHERE organization_id = $7 AND connection_name = $8 AND status = \'active\' AND updated_at_ms = $9 AND access_revision = $10)',
+        values: [
+          wanted,
+          Date.now(),
+          row.id,
+          Date.now(),
+          row.organization_id,
+          row.user_id,
+          row.organization_id,
+          intent.connection.connectionName,
+          intent.connectionUpdatedAtMs,
+          intent.accessRevision,
+        ],
       },
-    }),
-  ]);
+      ...prepareResolveInboxItemsBySourceStatements({
+        db,
+        organizationId: row.organization_id,
+        sourceKind: "system_attention_event",
+        sourceKey: sourceKey(row.id),
+        resolvedAtMs: Date.now(),
+        sourceGuard: {
+          sql: (offset) =>
+            `EXISTS (SELECT 1 FROM "openmeld"."plugin_action_requests" WHERE id = $${offset + 1} AND state != 'pending')`,
+          bindings: [row.id],
+        },
+      }),
+    ]) {
+      await client.query(query);
+    }
+  });
   const result = await projectRequest(db, await requireRequest(db, row.id));
   if (result.state !== wanted) {
     throw denied(
@@ -318,7 +310,7 @@ async function decideRequest(
 }
 
 async function projectRequest(
-  db: D1Database,
+  db: PostgresDatabase,
   row: RequestRow
 ): Promise<PluginActionRequestView> {
   const intent = pluginActionRequestIntentSchema.parse(
@@ -349,20 +341,25 @@ async function projectRequest(
         "An Agent needs your confirmation for a new operation. Open the request to review it.",
     },
   });
-  await db.batch([
-    ...prepared.statements,
-    ...prepareResolveInboxItemsBySourceStatements({
-      db,
-      organizationId: row.organization_id,
-      sourceKind: "system_attention_event",
-      sourceKey: sourceKey(row.id),
-      resolvedAtMs: Date.now(),
-      sourceGuard: {
-        sql: "EXISTS (SELECT 1 FROM plugin_action_requests WHERE id = ? AND (state != 'pending' OR expires_at_ms <= ? OR ?))",
-        bindings: [row.id, Date.now(), state === "revoked" ? 1 : 0],
-      },
-    }),
-  ]);
+  await db.transaction(async (client) => {
+    for (const query of [
+      ...prepared.statements,
+      ...prepareResolveInboxItemsBySourceStatements({
+        db,
+        organizationId: row.organization_id,
+        sourceKind: "system_attention_event",
+        sourceKey: sourceKey(row.id),
+        resolvedAtMs: Date.now(),
+        sourceGuard: {
+          sql: (offset) =>
+            `EXISTS (SELECT 1 FROM "openmeld"."plugin_action_requests" WHERE id = $${offset + 1} AND (state != 'pending' OR expires_at_ms <= $${offset + 2} OR $${offset + 3} = 1))`,
+          bindings: [row.id, Date.now(), state === "revoked" ? 1 : 0],
+        },
+      }),
+    ]) {
+      await client.query(query);
+    }
+  });
   const targets: PluginActionRequestView["targets"] = [];
   // This action's name is the proposed resource label, not a credential or
   // message body. Keep it in the private detail, never the Inbox projection.
@@ -406,7 +403,7 @@ async function projectRequest(
 }
 
 async function currentState(
-  db: D1Database,
+  db: PostgresDatabase,
   row: RequestRow,
   intent: PluginActionRequestIntent
 ): Promise<PluginActionRequestView["state"]> {
@@ -417,9 +414,11 @@ async function currentState(
     return "expired";
   }
   const membership = await db
-    .prepare("SELECT id FROM members WHERE organization_id = ? AND user_id = ?")
-    .bind(row.organization_id, row.user_id)
-    .first();
+    .query({
+      text: 'SELECT id FROM "openmeld"."members" WHERE organization_id = $1 AND user_id = $2',
+      values: [row.organization_id, row.user_id],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!membership) {
     return "revoked";
   }
@@ -450,13 +449,15 @@ async function currentState(
   return row.state;
 }
 
-function readRequest(db: D1Database, id: string) {
+function readRequest(db: PostgresDatabase, id: string) {
   return db
-    .prepare("SELECT * FROM plugin_action_requests WHERE id = ?")
-    .bind(id)
-    .first<RequestRow>();
+    .query<RequestRow>({
+      text: 'SELECT * FROM "openmeld"."plugin_action_requests" WHERE id = $1',
+      values: [id],
+    })
+    .then((result) => result.rows[0] ?? null);
 }
-async function requireRequest(db: D1Database, id: string) {
+async function requireRequest(db: PostgresDatabase, id: string) {
   const row = await readRequest(db, id);
   if (!row) {
     throw denied("request_missing", "This request is no longer available.");

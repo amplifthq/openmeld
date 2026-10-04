@@ -1,7 +1,8 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import { buildAgentTaskKey } from "@openmeld/schemas";
-import { readAgentDelegationByChildTask } from "../../agent-task-coordination/infrastructure/d1/agent-delegation-repo";
+import { readAgentDelegationByChildTask } from "../../agent-task-coordination/infrastructure/postgresql/agent-delegation-repo";
 import { readActiveRepresentedHumanSender } from "../../remote-agent/application/turn-envelope";
-import { readRemoteAgentNativeDeliveryByDeliveryId } from "../../remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+import { readRemoteAgentNativeDeliveryByDeliveryId } from "../../remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import {
   isCenterAgentDesignationActive,
   readCenterAgentDesignationRecord,
@@ -9,8 +10,8 @@ import {
 
 /** Current one-hop requester projection shared by Local and Remote admission. */
 export async function readRecordedDelegationRequester(input: {
-  identityDb: D1Database;
-  evidenceDb: D1Database;
+  identityDb: PostgresDatabase;
+  evidenceDb: PostgresDatabase;
   organizationId: string;
   spaceId: string;
   sourceClientMessageId: string;
@@ -91,15 +92,15 @@ export async function readRecordedDelegationRequester(input: {
       userId: represented.ownerUserId,
     }),
     input.identityDb
-      .prepare(
-        "SELECT profile_id FROM openmeld_profiles WHERE profile_id = ? AND organization_id = ? AND owner_user_id = ? AND profile_kind = 'agent' AND managed_role IS NULL AND status = 'active' LIMIT 1"
-      )
-      .bind(
-        input.targetProfileId,
-        input.organizationId,
-        represented.ownerUserId
-      )
-      .first(),
+      .query({
+        text: "SELECT profile_id FROM \"openmeld\".\"openmeld_profiles\" WHERE profile_id = $1 AND organization_id = $2 AND owner_user_id = $3 AND profile_kind = 'agent' AND managed_role IS NULL AND status = 'active' LIMIT 1",
+        values: [
+          input.targetProfileId,
+          input.organizationId,
+          represented.ownerUserId,
+        ],
+      })
+      .then((result) => result.rows[0] ?? null),
   ]);
   if (!member?.member_id || member.member_id !== represented.id || !agent) {
     return null;
