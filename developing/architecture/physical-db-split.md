@@ -19,11 +19,15 @@ PlanetScale organization (`amplift`), with separate staging and production
 resources and credentials. This supersedes D1-first planning, the 6 GB migration
 trigger, and the observability-only split as the future target.
 
-Current product production and shared staging still use D1. Production's
-`OPENMELD_DB` resolves to `openmeld-db-prod`
-(`15f16284-5240-4675-b626-3b7144e1d684`); staging uses `openmeld-db-stg`
-(`10da3483-0644-459a-8523-381a2a17ac39`). PostgreSQL foundation resources are
-isolated and contain no production user data. Provisioning is not product cutover.
+Production completed the authorized cutover on 2026-10-04. Its shared relational
+authority is `openmeld-postgresql-prod` on PlanetScale PostgreSQL 18, through
+cache-disabled Hyperdrive. The frozen `openmeld-db-prod` D1 database
+(`15f16284-5240-4675-b626-3b7144e1d684`) is retained as migration and recovery
+evidence, not a live writer or fallback. See the
+[production cutover record](../engineering/postgresql-cutover.md#current-production-state).
+Shared staging was not migrated: its deployed D1 database remains
+`openmeld-db-stg` (`10da3483-0644-459a-8523-381a2a17ac39`), separate from the
+isolated PostgreSQL foundation resources.
 
 Use standard PostgreSQL drivers through cache-disabled Hyperdrive for Workers
 and direct TLS connections for migration and backup owners. Do not build a
@@ -40,10 +44,10 @@ outside this migration. Retention follows business owners, not physical storage.
 Cutover must establish one relational authority without prolonged dual writes,
 preserving IDs and DO/R2 references.
 
-The PostgreSQL candidate's shared consumers use one native Hyperdrive binding;
-physical-domain D1 aliases are removed with their consumers. The deployed D1
-revision remains unchanged until the authorized cutover. Operational dispatch
-recovery is product state; the Auth-owned
+Production's shared consumers use one native Hyperdrive binding;
+physical-domain D1 aliases are removed with their consumers. PostgreSQL has
+accepted new product writes; recovery cannot simply switch back to frozen D1.
+Operational dispatch recovery is product state; the Auth-owned
 `openmeld_profile_deletion_outbox` and account notification preferences are
 product state. Neither becomes time-decaying evidence merely by sharing a database.
 Diagnostics-owned connection incidents retain their own bounded retention.
