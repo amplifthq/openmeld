@@ -203,6 +203,75 @@ test("keeps Inbox readers before a new target writer during a storage migration"
   ]);
 });
 
+for (const remoteReceiver of [false, true]) {
+  test(`preserves the published CLI during an Inbox cloud stage${remoteReceiver ? " with a Remote receiver" : ""}`, () => {
+    const sourceSha = "a".repeat(40);
+    const plan = buildProductionReleasePlan({
+      changedPaths: [
+        "packages/schemas/src/schemas/http/inbox.ts",
+        "services/core/src/remote-agent/application/native-delivery-service.ts",
+        "release/local-components.json",
+        "clients/openmeld-cli/package.json",
+        ...(remoteReceiver
+          ? ["services/remote-agent/.flue/cloudflare.ts"]
+          : []),
+      ],
+      sourceSha,
+      scope: `db,auth,web,gateway,core${remoteReceiver ? ",remote-agent" : ""}`,
+    });
+    assert.deepEqual(plan.deployScopeOrder, [
+      "db",
+      ...(remoteReceiver ? ["remote-agent"] : []),
+      "auth",
+      "web",
+      "gateway",
+      "core",
+    ]);
+    const core = plan.deploySteps.filter(
+      (step) => step.releaseScope === "core"
+    );
+    assert.deepEqual(
+      core.map((step) => step.args),
+      [
+        [
+          "scripts/release/deploy-core-current-cli-projection.mjs",
+          "--deployment-only",
+          "--release-sha",
+          sourceSha,
+        ],
+        [
+          "scripts/release/deploy-core-current-cli-projection.mjs",
+          "--verify-only",
+          "--release-sha",
+          sourceSha,
+        ],
+      ]
+    );
+    assert.equal(core[0].completesReleaseScope, false);
+    assert.equal(core[1].completesReleaseScope, true);
+    assert.ok(
+      !plan.deploySteps.some((step) => step.internalOperation === "publish-cli")
+    );
+    for (const steps of [plan.preflightSteps, plan.verifySteps]) {
+      assert.ok(
+        !steps.some(
+          (step) => step.label === "Verify Core CLI channel compatibility"
+        )
+      );
+    }
+    assert.ok(
+      plan.preflightSteps.some(
+        (step) => step.label === "Admit receipt-based Production train stage"
+      )
+    );
+    assert.ok(
+      plan.preflightSteps.some(
+        (step) => step.label === "Verify declared Production train artifacts"
+      )
+    );
+  });
+}
+
 test("deploys Inbox observation receivers before callers, composed with Remote titles", () => {
   const plan = buildProductionReleasePlan({
     changedPaths: [
