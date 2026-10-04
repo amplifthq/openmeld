@@ -24,6 +24,7 @@ import {
 } from "./database-backend-admission.mjs";
 import {
   buildProductionDeployStepSpecs,
+  buildProductionReleasePlan,
   parseProductionReleaseArgs,
 } from "./production-release.mjs";
 
@@ -402,6 +403,31 @@ test("Hyperdrive inspection rejects cache, target and runtime role drift", async
 
 test("ordinary PostgreSQL releases cannot resume paused crons and explicit restoration requires the exact deployed candidate", async () => {
   const sourceSha = "a".repeat(40);
+  const planInput = {
+    base: "previous-release",
+    sourceSha,
+    scope: "auth,core",
+    changedPaths: ["services/core/src/index.ts"],
+    affectedPackages: [],
+    databaseBackend: "postgresql",
+  };
+  const ordinary = buildProductionReleasePlan(planInput);
+  assert.ok(
+    ordinary.preflightSteps.some((step) =>
+      step.args.includes("--channel-sync-check")
+    )
+  );
+  const restoration = buildProductionReleasePlan({
+    ...planInput,
+    databaseCutoverRestoreCrons: true,
+  });
+  assert.deepEqual(
+    restoration.preflightSteps.map((step) => step.controlPath),
+    [
+      "scripts/cloudflare/verify-worker-env-contract.mjs",
+      "scripts/ci/check-retired-identifiers.sh",
+    ]
+  );
   const receipts = new Map(
     ["auth", "core"].map((scope) => [
       scope,
