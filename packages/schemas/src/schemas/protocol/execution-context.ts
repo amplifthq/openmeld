@@ -42,7 +42,7 @@ export const executionContextScopeSchema = z.strictObject({
 // Created by Core from an authorized Space message, never supplied by a client.
 export const executionContextRequestSchema = z.strictObject({
   required: z.boolean().optional(),
-  // Core resolves this from current identity or recorded delegation, not text.
+  // Retained for persisted snapshots from older Core versions. Not a permission gate.
   ownerRequested: z.literal(true).optional(),
   scope: executionContextScopeSchema,
   selection: executionContextSelectionSchema,

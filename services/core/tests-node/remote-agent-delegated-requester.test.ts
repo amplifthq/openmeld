@@ -14,7 +14,7 @@ import {
   createAgentDelegation,
 } from "../src/agent-task-coordination/infrastructure/d1/agent-delegation-repo";
 import { prepareCenterAgentWakePublicationRecord } from "../src/center-agent/infrastructure/d1/center-agent-wake-publication-repo";
-import { buildAcceptedDispatchSnapshot } from "../src/dispatch/application/accepted-dispatch-snapshot";
+import { isDispatchRequestedByAgentOwner } from "../src/dispatch/application/accepted-dispatch-snapshot";
 import type { CoreBindings } from "../src/lib/bindings";
 import { readRemoteAgentDelegatedRequester } from "../src/remote-agent/application/delegated-requester";
 import { prepareRemoteAgentMemberRequest } from "../src/remote-agent/application/remote-agent-member-request";
@@ -262,14 +262,12 @@ describe("delegated requester is a current projection of exact owner records", (
         includeDelegatedRequester: true as const,
         connectionPreference: "requester" as const,
       };
-      const localSnapshot = async (
+      const localOwnerRequest = async (
         sourceProfileId = input.request.author.profileId
       ) =>
-        await buildAcceptedDispatchSnapshot({
+        await isDispatchRequestedByAgentOwner({
           env: rpcEnv,
           targetOwnerUserId: input.request.agentProfileOwnerUserId ?? undefined,
-          openMeldServiceRuntimeId: "fixture-runtime",
-          runtimeKind: "openmeld_service",
           message: openMeldDaemonDispatchQueueMessageSchema.parse({
             v: 2,
             dispatchId: "local-child-dispatch",
@@ -321,12 +319,8 @@ describe("delegated requester is a current projection of exact owner records", (
             enqueuedAtMs: Date.now(),
           }),
         });
-      expect((await localSnapshot())?.contextRequest?.ownerRequested).toBe(
-        true
-      );
-      expect((await localSnapshot(HUMAN))?.contextRequest?.ownerRequested).toBe(
-        true
-      );
+      expect(await localOwnerRequest()).toBe(true);
+      expect(await localOwnerRequest(HUMAN)).toBe(true);
       const pluginAction = await seedPluginGrant({
         harness,
         parentSubmissionId: parent.submissionId,
@@ -489,9 +483,7 @@ describe("delegated requester is a current projection of exact owner records", (
         });
       }
       expect(await readRemoteAgentDelegatedRequester(input)).toBeNull();
-      expect(
-        (await localSnapshot())?.contextRequest?.ownerRequested
-      ).toBeUndefined();
+      expect(await localOwnerRequest()).toBe(false);
       await expect(
         prepareRemoteAgentMemberRequest(
           rpcEnv,

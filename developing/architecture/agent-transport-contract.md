@@ -344,9 +344,9 @@ Independent workstation tasks use Core-assigned Execution Contexts. Core admits
 at most five contexts for one Agent Profile, with one writer per context and
 at most 50 waiting Wakes. Legacy work without a context drains exclusively.
 New work and forks may select a context explicitly. An ordinary Claude Code
-Wake in parallel mode implicitly selects a new isolated Space-only context when
-it has no retained context; a retained or explicitly Space-only context keeps
-its selected access. An ordinary Codex Wake with no retained context keeps the
+Wake in parallel mode implicitly selects an independent native context when
+it has no retained context; a retained or explicitly restricted context keeps
+its selected access. An ordinary Codex or Claude Wake with no retained context keeps the
 Profile's effective working folder through a current-folder workspace context;
 it never silently changes to a Space-only scratch directory merely because the
 Profile has already entered context mode. Every selection is scoped to the exact requester,
@@ -355,16 +355,17 @@ Admission freezes both the context assignment and a decision to retain legacy
 continuity. Linking an execution or redriving a Wake cannot assign it again.
 
 Conversation isolation does not imply a new filesystem boundary. For a new
-Codex context requested by its owner, directly or through the existing recorded
-Center delegation, omitted access preferences inherit the Profile's current
+Codex or Claude context, omitted access preferences inherit the Profile's current
 native permission mode intersected with the current Computer File Access policy.
 Core records `permissionSource: agent_settings` independently of workspace and
 conversation identity. A current folder is a starting location, not an implicit
 allowlist. Explicit `space_context`, `read_only`, and `workspace` preferences
 retain their existing task boundary. A fork retains its source restriction;
 legacy assignments without a permission source are never silently widened.
-Core rechecks the current owner/requester relationship before delivery, and
-requires the Service's `executionContextPermissionInheritance` capability.
+This default applies to every authorized requester, including teammates and
+Agent delegation. Requester ownership informs disclosure judgment, not native
+tool availability. Core requires the Service's
+`executionContextPermissionInheritance` capability.
 The Service reuses ordinary Computer policy admission for inherited permissions.
 Context identity, history-loss failure, writer admission, and process ownership
 remain enforced even when no extra filesystem boundary is required.

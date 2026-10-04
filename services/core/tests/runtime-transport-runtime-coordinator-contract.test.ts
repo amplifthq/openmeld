@@ -2424,6 +2424,7 @@ const createContextHarness = (
         adapterId: input?.bindingControllerRef?.split(":").at(-1) ?? "codex",
         capabilityDeclaration: {
           ...codexRuntimeAdapterCapability.capabilityDeclaration,
+          executionContextPermissionInheritance: true,
           ...(input?.contextVersion === null
             ? {}
             : {
@@ -4071,7 +4072,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ).toMatchObject({ allowed: false });
     expect([...harness.storageRecords.entries()]).toEqual(before);
   });
-  it("assigns ordinary Claude Wakes independent Space contexts in parallel mode", async () => {
+  it("keeps independent ordinary Claude tasks native in parallel mode", async () => {
     const { hub } = createContextHarness({
       bindingControllerRef: "builtin:claude-code",
     });
@@ -4136,19 +4137,11 @@ describe("runtime transport runtime coordinator transport contract", () => {
       "accepted",
       "queued",
     ]);
-    expect(
-      replies
-        .slice(0, 5)
-        .every(
-          (reply) =>
-            reply.executionContext?.access === "space_context" &&
-            reply.executionContext.workspace === "isolated"
-        )
-    ).toBe(true);
-    expect(
-      new Set(replies.slice(0, 5).map((reply) => reply.executionContext?.id))
-        .size
-    ).toBe(5);
+    expect(replies[0]?.executionContext).toMatchObject({
+      access: "workspace",
+      workspace: "current",
+      permissionSource: "agent_settings",
+    });
     if (!firstRequest) {
       throw new Error("Expected the first ordinary Wake fixture");
     }
@@ -4166,8 +4159,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
       status: string;
       executionContext?: { access: string };
     };
+    // Before context activation an old Service keeps its ordinary native
+    // Binding conversation, rather than silently creating a restricted task.
     expect(olderResponse.status).toBe("accepted");
-    expect(olderResponse.executionContext?.access).toBe("space_context");
+    expect(olderResponse.executionContext).toBeUndefined();
     const legacyService = createContextHarness({
       bindingControllerRef: "builtin:claude-code",
       contextVersion: 1,
@@ -4228,16 +4223,18 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it.each([
-    false,
-    true,
-  ])("keeps an ordinary Codex Wake in the Profile's current working folder after context activation (owner request: %s)", async (ownerRequested) => {
+    ["builtin:codex", false],
+    ["builtin:codex", true],
+    ["builtin:claude-code", false],
+    ["builtin:claude-code", true],
+  ] as const)("inherits native settings for %s regardless of requester ownership (%s)", async (agentControllerRef, ownerRequested) => {
     const { hub, storageRecords } = createContextHarness({
-      bindingControllerRef: "builtin:codex",
+      bindingControllerRef: agentControllerRef,
     });
     const firstRequest = buildRuntimeCoordinatorHeadAcceptRequest({
       acceptedDispatchSnapshot: {
         ...buildAcceptedDispatchSnapshot({
-          agentControllerRef: "builtin:codex",
+          agentControllerRef,
           fingerprint: "a",
         }),
         contextRequest: {
@@ -4265,14 +4262,27 @@ describe("runtime transport runtime coordinator transport contract", () => {
       executionContext?: unknown;
     };
     expect(firstResponse.status).toBe("accepted");
-    expect(firstResponse.executionContext).toBeUndefined();
+    if (agentControllerRef === "builtin:claude-code") {
+      expect(firstResponse.executionContext).toMatchObject({
+        permissionSource: "agent_settings",
+        access: "workspace",
+        workspace: "current",
+      });
+    } else {
+      expect(firstResponse.executionContext).toBeUndefined();
+    }
 
     const firstHead = storageRecords.get(
       buildRuntimeCoordinatorHeadLifecycleStorageKey(
         firstRequest.targetWakeLifecycleIdentity.targetWakeLifecycleId
       )
     ) as RuntimeCoordinatorHeadLifecycleRecord;
-    const firstSnapshot = firstHead.acceptedDispatchSnapshot;
+    const firstSnapshot = {
+      ...firstHead.acceptedDispatchSnapshot,
+      executionContext: undefined,
+    } as NonNullable<
+      RuntimeCoordinatorHeadLifecycleRecord["acceptedDispatchSnapshot"]
+    >;
     if (!firstSnapshot?.contextRequest) {
       throw new Error("Expected an accepted ordinary Codex Wake");
     }
@@ -4309,13 +4319,15 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ).toMatchObject({ access: "workspace", workspace: "current" });
     expect(
       plan.record.acceptedDispatchSnapshot?.executionContext?.permissionSource
-    ).toBe(ownerRequested ? "agent_settings" : undefined);
-    for (const access of [
-      undefined,
-      "workspace",
-      "read_only",
-      "space_context",
-    ] as const) {
+    ).toBe("agent_settings");
+    for (const access of (agentControllerRef === "builtin:codex"
+      ? [undefined, "workspace", "read_only", "space_context"]
+      : [undefined, "workspace", "space_context"]) as readonly (
+      | "workspace"
+      | "read_only"
+      | "space_context"
+      | undefined
+    )[]) {
       const next = await storage.transaction((transaction) =>
         prepareExecutionContextAssignment({
           contextModeActive: true,
@@ -4335,7 +4347,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       );
       expect(
         next.record.acceptedDispatchSnapshot?.executionContext?.permissionSource
-      ).toBe(ownerRequested && !access ? "agent_settings" : undefined);
+      ).toBe(access ? undefined : "agent_settings");
       if (access) {
         expect(
           next.record.acceptedDispatchSnapshot?.executionContext?.access
@@ -4466,7 +4478,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
             targetProfileId: TARGET_AGENT_PROFILE_ID,
             threadId: null,
           },
-          selection: { mode: "new" },
+          selection: { mode: "new", access: "space_context" },
         },
       },
     });
@@ -4619,7 +4631,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
             targetProfileId: TARGET_AGENT_PROFILE_ID,
             threadId: null,
           },
-          selection: { mode: "new" },
+          selection: { mode: "new", access: "space_context" },
         },
       },
     });
