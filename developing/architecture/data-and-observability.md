@@ -1120,6 +1120,10 @@ not become a second in-flight execution state machine beside Remote Agent.
 `routine_runs.continuation_delegation_id` is the atomic one-continuation fence:
 the same delegation id may replay, while a different second id conflicts before
 child work is created.
+Multi-Space Wake acceptance persists the complete publication manifest and its
+continuation subscriptions before returning `queued`. Space publication remains
+asynchronous; an immediate initial-delivery callback must already see the
+continuation and leave the Run open for its final result.
 
 Each successful human- or Center-Agent-initiated Routine create, update, pause,
 resume, or delete appends one audit row in the same D1 batch as the mutation.

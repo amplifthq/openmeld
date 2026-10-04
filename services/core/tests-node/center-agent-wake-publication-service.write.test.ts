@@ -5,6 +5,7 @@ import type {
 import { describe, expect, it, vi } from "vitest";
 import { readAgentDelegation } from "../src/agent-task-coordination/infrastructure/d1/agent-delegation-repo";
 import {
+  hasAgentTaskResumeContinuationByObserverTask,
   readAgentTaskCompletionSubscription,
   recordAgentTaskTerminalOutcome,
 } from "../src/agent-task-coordination/infrastructure/d1/agent-task-coordination-repo";
@@ -12,6 +13,7 @@ import { planCenterAgentWakeDelegation } from "../src/center-agent/application/c
 import {
   executeCenterAgentWakePublication,
   prepareCenterAgentWakePublication,
+  prepareCenterAgentWakePublicationBatch,
   retryPendingCenterAgentWakePublications,
 } from "../src/center-agent/application/center-agent-wake-publication-service";
 import {
@@ -32,13 +34,28 @@ const CLIENT_MESSAGE_ID = "ca-wake:durable-publication";
 
 describe("Center Agent Wake publication recovery", () => {
   it.each([
-    "accepted",
-    "rejected",
-  ])("recovers an unattempted second Space (%s) without repeating the first or losing its result", async (secondOutcome) => {
+    { secondOutcome: "accepted", routine: false },
+    { secondOutcome: "rejected", routine: false },
+    { secondOutcome: "accepted", routine: true },
+    { secondOutcome: "rejected", routine: true },
+  ])("recovers an unattempted second Space ($secondOutcome, routine=$routine) without repeating the first or losing its result", async ({
+    secondOutcome,
+    routine,
+  }) => {
     const harness = createHarness();
     try {
       await insertAuditIdentity(harness.db);
       await insertParentDelivery(harness.db);
+      if (routine) {
+        await harness.db.batch([
+          harness.db.prepare(
+            "INSERT INTO routine_runs (id, routine_id, organization_id, scheduled_for, status, target_space_id_snapshot, execution_engine, native_delivery_id, started_at_ms) VALUES ('routine-run-1', 'routine-1', 'org-1', 900, 'submitted', 'space-parent', 'workflow', 'delivery-parent', 900)"
+          ),
+          harness.db.prepare(
+            "UPDATE openMeldRemoteAgent_native_delivery_ledger SET routine_run_id = 'routine-run-1', idempotency_key = 'routine-run-1' WHERE delivery_id = 'delivery-parent'"
+          ),
+        ]);
+      }
       const ids = ["ca-wake:batch-alpha", "ca-wake:batch-beta"] as const;
       const plans = ids.map((clientMessageId, index) =>
         planCenterAgentWakeDelegation({
@@ -63,11 +80,33 @@ describe("Center Agent Wake publication recovery", () => {
         ...(index === 0 ? { batchPublicationIds: [...ids] } : {}),
         spaceId: index === 0 ? "space-alpha" : "space-beta",
       }));
-      await prepareCenterAgentWakePublicationRecords({
+      const prepare = routine
+        ? prepareCenterAgentWakePublicationBatch
+        : prepareCenterAgentWakePublicationRecords;
+      await prepare({
         commands,
         db: harness.db,
         nowMs: 1000,
       });
+      if (routine) {
+        // The initial callback checks this persisted predicate. It must see
+        // the continuation before any background Space publication starts.
+        await expect(
+          hasAgentTaskResumeContinuationByObserverTask({
+            db: harness.db,
+            observerTask: {
+              deliveryId: "delivery-parent",
+              kind: "native_delivery",
+              v: 1,
+            },
+          })
+        ).resolves.toBe(true);
+        await harness.db
+          .prepare(
+            "UPDATE openMeldRemoteAgent_native_delivery_ledger SET status = 'completed' WHERE delivery_id = 'delivery-parent'"
+          )
+          .run();
+      }
       const publishSignal = vi.fn(
         (command: CenterAgentWakePublicationCommand) => {
           if (
@@ -901,6 +940,10 @@ function createHarness() {
   applyDrizzleMigrationForTable(harness, "agent_delegations");
   applyDrizzleMigrationForTable(harness, "agent_delegation_children");
   applyDrizzleMigrationForTable(harness, "center_agent_wake_publications");
+  harness.run({
+    sql: "CREATE TABLE routines (id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL, target_space_id TEXT)",
+  });
+  applyDrizzleMigrationForTable(harness, "routine_runs");
   return harness;
 }
 

@@ -39,6 +39,22 @@ export type CenterAgentParentDelivery = NonNullable<
   Awaited<ReturnType<typeof readRemoteAgentNativeDeliveryBySubmissionId>>
 >;
 
+export function buildDelegatedTaskText(
+  text: string,
+  replyLanguageTag?: string
+): string {
+  if (!replyLanguageTag) {
+    return text;
+  }
+  const language =
+    new Intl.DisplayNames(["en"], { type: "language" }).of(
+      new Intl.Locale(replyLanguageTag).baseName
+    ) ?? replyLanguageTag;
+  // Keep this decision in the durable, visible task brief. Both Local and
+  // Remote Agents already receive it, including older supported carriers.
+  return `${text}\n\nThe original requester’s reply language is ${language}. Keep that language even if this delegated brief uses another language, unless the requester explicitly changes it.`;
+}
+
 export function planCenterAgentWakeDelegation(input: {
   additionalDestinations?: Array<{
     childSpaceId: string;

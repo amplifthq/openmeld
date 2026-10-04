@@ -840,6 +840,7 @@ import {
   validateCenterAgentContextManifestResponse,
 } from "../center-agent/application/center-agent-context-manifest-service";
 import {
+  buildDelegatedTaskText,
   CenterAgentDelegationPreparationError,
   planCenterAgentWakeDelegation,
   requireCenterAgentContinuationParent,
@@ -862,6 +863,7 @@ import { prepareCenterAgentTaskWatch } from "../center-agent/application/center-
 import {
   executeCenterAgentWakePublication,
   prepareCenterAgentWakePublication,
+  prepareCenterAgentWakePublicationBatch,
 } from "../center-agent/application/center-agent-wake-publication-service";
 import { isHostedCenterAgentExecutionTarget } from "../center-agent/application/hosted-center-agent-binding";
 import {
@@ -926,7 +928,6 @@ import {
   requireCurrentDesignatedCenterAgentCaller,
 } from "../center-agent/current-designated-center-agent";
 import type { CenterAgentWakePublicationCommand } from "../center-agent/infrastructure/d1/center-agent-wake-publication-repo";
-import { prepareCenterAgentWakePublicationRecords } from "../center-agent/infrastructure/d1/center-agent-wake-publication-repo";
 import { startCenterAgentMemberResearch } from "../center-agent-member-research/member-research-service";
 import type { CenterAgentMemoryEpisodeOrigin } from "../center-agent-memory/contract";
 import { createCoreCenterAgentMemoryService } from "../center-agent-memory/core-memory-service";
@@ -16607,7 +16608,7 @@ export async function rpcCenterAgentWakeAgentProfilesInSpaces(
     profileKind: "agent",
     profileName: member.profileName,
   });
-  await prepareCenterAgentWakePublicationRecords({
+  await prepareCenterAgentWakePublicationBatch({
     commands: destinations.map((destination, index) => ({
       activationTargets: destination.agentProfileIds,
       attribution,
@@ -16633,8 +16634,11 @@ export async function rpcCenterAgentWakeAgentProfilesInSpaces(
       v: 1,
     })),
     db,
+    destinationNeutralContinuations:
+      shouldWriteDestinationNeutralTaskContinuations(env),
     nowMs: Date.now(),
   });
+  // Persist the continuation before queued can end the parent turn.
   // This is an acceptance receipt for the entire durable plan. Each Space's
   // exact publication is independently redriven by the existing scheduler.
   waitUntil(
@@ -17479,21 +17483,6 @@ export async function rpcPostCenterAgentWakePublicationSignal(
     spaceId: command.spaceId,
     text: command.text,
   });
-}
-
-function buildDelegatedTaskText(
-  text: string,
-  replyLanguageTag?: string
-): string {
-  if (!replyLanguageTag) {
-    return text;
-  }
-  const language =
-    new Intl.DisplayNames(["en"], { type: "language" }).of(replyLanguageTag) ??
-    replyLanguageTag;
-  // Keep this decision in the durable, visible task brief. Both Local and
-  // Remote Agents already receive it, including older supported carriers.
-  return `${text}\n\nThe original requester’s reply language is ${language}. Keep that language even if this delegated brief uses another language, unless the requester explicitly changes it.`;
 }
 
 export async function rpcResolveCenterAgentWakePublicationSignal(

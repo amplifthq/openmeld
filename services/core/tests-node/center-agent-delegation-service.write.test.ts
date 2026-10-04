@@ -1,3 +1,4 @@
+import { workingLanguageTagSchema } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
 import {
   activateAgentDelegationChildren,
@@ -10,6 +11,7 @@ import {
   settleAgentTaskCompletionSubscription,
 } from "../src/agent-task-coordination/infrastructure/d1/agent-task-coordination-repo";
 import {
+  buildDelegatedTaskText,
   type CenterAgentDelegationPreparationError,
   cancelPreparedCenterAgentWakeDelegation,
   prepareCenterAgentWakeDelegation,
@@ -26,6 +28,19 @@ const CENTER_AGENT_PROFILE_ID = "agt_00000000-0000-4000-8000-000000000001";
 const CHILD_PROFILE_ID = "agt_00000000-0000-4000-8000-000000000002";
 
 describe("Center Agent delegation preparation", () => {
+  it.each([
+    ["en-u-ca-gregory", "English"],
+    ["en-x-private", "English"],
+    ["zh-Hant-TW", "Chinese (Traditional, Taiwan)"],
+  ])("renders a delegated brief for the valid language tag %s", (tag, language) => {
+    const text = buildDelegatedTaskText(
+      "Review the report.",
+      workingLanguageTagSchema.parse(tag)
+    );
+    expect(text).toContain("Review the report.");
+    expect(text).toContain(`reply language is ${language}.`);
+  });
+
   it.each([
     undefined,
     "zh-Hans",

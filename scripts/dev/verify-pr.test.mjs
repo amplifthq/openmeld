@@ -24,7 +24,7 @@ test("validation subprocesses cannot inherit a live dispatch's authority", () =>
     VALIDATION_FIXTURE_SECRET: "keep-test-configuration",
     PATH: [
       "/synthetic/live-home/runtime/daemon/dispatch-space-actions/dispatch-1/bin",
-      process.env.PATH,
+      "/synthetic/toolchain/bin",
     ].join(path.delimiter),
   };
   const output = execFileSync(
@@ -48,7 +48,7 @@ test("validation subprocesses cannot inherit a live dispatch's authority", () =>
   assert.equal(source.OPENMELD_DISPATCH_RUNTIME_MODE, "dispatch-owned-runtime");
   assert.equal(
     buildValidationEnvironment(source, "/synthetic/test-home", []).PATH,
-    process.env.PATH
+    "/synthetic/toolchain/bin"
   );
 });
 

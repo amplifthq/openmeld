@@ -14,6 +14,7 @@ import {
   markCenterAgentWakePublicationCompleted,
   markCenterAgentWakePublicationFailed,
   prepareCenterAgentWakePublicationRecord,
+  prepareCenterAgentWakePublicationRecords,
   readCenterAgentWakePublication,
   rescheduleCenterAgentWakePublication,
 } from "../infrastructure/d1/center-agent-wake-publication-repo";
@@ -58,6 +59,58 @@ export async function prepareCenterAgentWakePublication(input: {
   return await prepareCenterAgentWakePublicationRecord(input);
 }
 
+export async function prepareCenterAgentWakePublicationBatch(input: {
+  commands: CenterAgentWakePublicationCommand[];
+  db: D1Database;
+  destinationNeutralContinuations?: boolean;
+  nowMs: number;
+}): Promise<void> {
+  const [publication] = await prepareCenterAgentWakePublicationRecords(input);
+  if (!publication) {
+    throw new Error("Wake delegation has no publication destinations");
+  }
+  // queued can end the parent turn immediately. Its callback must already
+  // see the subscriptions even when no Space publication has started.
+  await prepareCenterAgentWakePublicationDelegation({ ...input, publication });
+}
+
+async function prepareCenterAgentWakePublicationDelegation(input: {
+  db: D1Database;
+  destinationNeutralContinuations?: boolean;
+  nowMs: number;
+  publication: CenterAgentWakePublicationRecord;
+}): Promise<void> {
+  const { publication } = input;
+  const destinations = await readDelegationDestinations(input.db, publication);
+  const root = destinations[0];
+  if (!root) {
+    throw new Error("Wake delegation has no publication destinations");
+  }
+  await prepareCenterAgentWakeDelegation({
+    actorProfileId: root.attribution.actorProfileId,
+    childSpaceId: root.spaceId,
+    clientMessageId: root.clientMessageId,
+    completionMode: root.completionMode,
+    replyLanguageTag: root.replyLanguageTag,
+    additionalDestinations: destinations.slice(1).map((command) => ({
+      childSpaceId: command.spaceId,
+      clientMessageId: command.clientMessageId,
+      targetProfileIds: command.activationTargets,
+    })),
+    db: input.db,
+    destinationNeutralContinuations:
+      input.destinationNeutralContinuations === true,
+    ...(publication.command.fallbackAgentProfileId
+      ? { fallbackAgentProfileId: publication.command.fallbackAgentProfileId }
+      : {}),
+    nowMs: input.nowMs,
+    organizationId: publication.command.organizationId,
+    parentSubmissionId: publication.command.parentSubmissionId,
+    targetProfileIds: root.activationTargets,
+    text: publication.command.text,
+  });
+}
+
 export async function executeCenterAgentWakePublication(input: {
   db: D1Database;
   destinationNeutralContinuations?: boolean;
@@ -91,38 +144,12 @@ export async function executeCenterAgentWakePublication(input: {
   let signalAccepted = publication.signal !== null;
   let stage: "prepare" | "publish" | "finalize" = "prepare";
   try {
-    const destinations = await readDelegationDestinations(
-      input.db,
-      publication
-    );
-    const root = destinations[0];
-    if (!root) {
-      throw new Error("Wake delegation has no publication destinations");
-    }
-    await prepareCenterAgentWakeDelegation({
-      actorProfileId: root.attribution.actorProfileId,
-      childSpaceId: root.spaceId,
-      clientMessageId: root.clientMessageId,
-      completionMode: root.completionMode,
-      replyLanguageTag: root.replyLanguageTag,
-      additionalDestinations: destinations.slice(1).map((command) => ({
-        childSpaceId: command.spaceId,
-        clientMessageId: command.clientMessageId,
-        targetProfileIds: command.activationTargets,
-      })),
+    await prepareCenterAgentWakePublicationDelegation({
       db: input.db,
       destinationNeutralContinuations:
         input.destinationNeutralContinuations === true,
-      ...(publication.command.fallbackAgentProfileId
-        ? {
-            fallbackAgentProfileId: publication.command.fallbackAgentProfileId,
-          }
-        : {}),
       nowMs: input.nowMs,
-      organizationId: publication.command.organizationId,
-      parentSubmissionId: publication.command.parentSubmissionId,
-      targetProfileIds: root.activationTargets,
-      text: publication.command.text,
+      publication,
     });
     let signal = publication.signal;
     if (!signal) {
