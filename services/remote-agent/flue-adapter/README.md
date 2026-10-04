@@ -85,6 +85,9 @@ is not a future release strategy.
    public Node-runtime boundary tests are in `working-context.test.ts`; paid supplier
    comparisons are opt-in in `live-context-cost.test.ts`. No transcript or
    search index is copied into an application-owned store.
+   Working-context and recent-tail estimates share the native 1,200-token
+   image heuristic; Base64 bytes are not text tokens. Original image bytes
+   remain intact and the provider's physical-capacity guard still runs.
 
 Beta registry initialization, async defineAgent, implicit sandbox discovery,
 global provider registration, and permissive orphan-record reduction are not

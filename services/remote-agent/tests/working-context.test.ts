@@ -56,6 +56,62 @@ it("refuses an irreducible oversized current input before any supplier call", as
   }
 });
 
+it("counts image context separately from base64 size and preserves provider bytes", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "flue-image-context-"));
+  const provider = fauxProvider({
+    provider: "image-context",
+    tokensPerSecond: Number.POSITIVE_INFINITY,
+  });
+  const model = provider.getModel();
+  // Pi's ImageContent contract; the faux provider checks byte preservation,
+  // not image decoding or a vendor's pixel-to-token formula.
+  const image = {
+    type: "image" as const,
+    mimeType: "image/png",
+    data: "AQID".repeat(75_000),
+  };
+  function ImageContext() {
+    useModel(`${model.provider}/${model.id}`, {
+      compaction: { workingContextTokens: 6000 },
+    });
+    return "Inspect the supplied image.";
+  }
+  const runtime = await start({
+    agents: [ImageContext],
+    providers: [provider.provider],
+    db: sqlite(join(directory, "history.sqlite")),
+  });
+  try {
+    provider.setResponses([
+      (context) => {
+        const message = context.messages.findLast(
+          (entry) => entry.role === "user"
+        );
+        expect(message?.content).toEqual(expect.arrayContaining([image]));
+        return fauxAssistantMessage("Image received.");
+      },
+    ]);
+    const agent = init(ImageContext, { id: "history" });
+    expect(
+      (
+        await agent.read(
+          await agent.dispatch({
+            message: {
+              kind: "user",
+              body: "Describe this image.",
+              attachments: [image],
+            },
+          })
+        )
+      ).text
+    ).toBe("Image received.");
+    expect(provider.state.callCount).toBe(1);
+  } finally {
+    await runtime.stop();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 it("checks the next tool-loop call and ignores inflated supplier usage afterward", async () => {
   const directory = await mkdtemp(join(tmpdir(), "flue-tool-preflight-"));
   const provider = fauxProvider({

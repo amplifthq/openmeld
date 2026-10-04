@@ -2111,8 +2111,11 @@ OpenMeld configures compaction with four explicit budgets:
 - `maxSummaryTokens = 4,096` caps each summary completion independently of the
   physical model reserve. Reasoning tokens count toward this limit.
 
-The working-context budget uses the shared four-bytes-per-token estimate, not
-an exact vendor tokenizer. Flue commits its normal compaction checkpoint and
+The working-context budget uses the shared four-bytes-per-token text estimate
+and Flue's 1,200-token image heuristic, not an exact vendor tokenizer. Base64
+image bytes are preserved for inference and excluded from text estimation;
+the separate final payload-capacity and media-admission guards remain intact.
+Flue commits its normal compaction checkpoint and
 rebuilds its active projection before inference. The original canonical entries
 remain intact. An incomplete or empty summary cannot replace that projection.
 The working checkpoint preserves active constraints, corrections, unresolved

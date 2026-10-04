@@ -287,16 +287,17 @@ index 0000000000000000000000000000000000000000..3abc3bc6a00d2fd717fb9093182fc444
 +  };
 +}
 diff --git a/dist/conversation-stream-store-B2RVviYM.mjs b/dist/conversation-stream-store-B2RVviYM.mjs
-index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..637e14f0408fdfc916f574f7d029e9703028c92d 100644
+index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..e35627a79df85b629d63fd3a2dea4aaa50a9b240 100644
 --- a/dist/conversation-stream-store-B2RVviYM.mjs
 +++ b/dist/conversation-stream-store-B2RVviYM.mjs
-@@ -1,4 +1,5 @@
+@@ -1,4 +1,6 @@
  import { c as encodeBase64, d as abortErrorFor, f as composeTimeoutSignal, m as raceToolWithDeadline, p as createCallHandle, r as createCwdSandbox, s as decodeBase64, u as abandonToolOnAbort } from "./sandbox-CR3o1Qmd.mjs";
 +import { buildCanonicalActionEvidence, collectRecordedSubmissionMetadata, projectSubmissionRetryTextPrefix } from "./dispatch-Dohpn4Ea.mjs";
++import { measureWorkingContext } from "./working-context.mjs";
  import { A as createEditTool, D as READ_SKILL_RESOURCE_TOOL_NAME, E as redactObservationDetailImages, F as createTaskTool, I as createWriteTool, L as formatBashResult, M as createGrepTool, N as createPackagedSkillReadTool, O as createActivateSkillTool, P as createReadTool, R as overlayPackagedSkills, S as renderWithFrame, T as redactEventImages, _ as packageSkillDefinition, a as buildPromptText, b as getSkillReferenceDirectory, c as buildWorkspaceSkillPrompt, d as parseSkillMarkdown, f as getPreparedToolAdapter, g as isSkillDefinition, i as buildPackagedSkillPrompt, j as createGlobTool, k as createBashTool, l as createResultTools, n as GIVE_UP_TOOL_NAME, o as buildResultFollowUpPrompt, r as ResultUnavailableError, s as buildSkillByPathlessNamePrompt, t as FINISH_TOOL_NAME, u as prepareResultTool, w as IMAGE_DATA_OMITTED } from "./result-D9Q9s-LD.mjs";
  import { $ as generateIncarnationId, A as SubmissionConflictError, F as ToolNameConflictError, J as createConversationIdentity, K as serializeEventError, M as SubmissionRetryExhaustedError, N as SubmissionTimeoutError, O as SubagentNotDeclaredError, S as SessionBusyError, T as SkillNotRegisteredError, W as normalizeLogAttributes, X as generateAttemptId, Y as deriveKeyedSubmissionId, Z as generateBlockId, a as AttachmentNotAvailableError, c as ConversationRecordInvariantError, ct as generateToolCallId, d as FlueError, ft as interceptExecution, h as OperationFailedError, j as SubmissionInterruptedError, k as SubmissionAbortedError, l as ConversationStreamStoreError, lt as generateTurnId, n as AgentInstanceNotFoundError, nt as generateInvocationId, ot as generateSubmissionId, p as InvalidRequestError, rt as generateOperationId, st as generateTaskId, t as AgentInstanceExistsError, tt as generateInstanceUid, u as DelegationDepthExceededError, z as classifyError } from "./errors-CsDcT_C4.mjs";
  import { $ as MAX_READ_LIMIT, B as DEFAULT_COMPACTION_SETTINGS, C as DeliveredMessageSchema, Ct as generateConversationEntryId, E as assertDurability, F as getActiveConversationPathSince, G as prepareCompaction, H as compact, I as getLatestConversationCompaction, J as emptyUsage, K as shouldCompact, L as countConsecutiveRetryableModelErrors, N as aggregateConversationUsageSince, P as classifyConversationSubmission, R as findTrailingPartialToolBatch, St as encodeCanonicalId, Tt as toolStepRecordId, U as deriveCompactionDefaults, V as calculateContextTokens, W as isAssistantContextOverflow, Y as fromProviderUsage, _t as assertAppendMessage, bt as fnv1a64, ct as toolOutcomeKey, d as resolveAgentInitialDataSchema, et as agentStreamPath, ft as createSessionStorageKey, gt as renderSignalMessage, ht as createUserContextMessage, it as buildConversationContextEntries, lt as toolResultEntryId, mt as parseSessionStorageKey, nt as parseOffset, ot as getActiveConversationPath, q as addUsage, rt as buildConversationContext, tt as formatOffset, w as MAX_IMAGE_DATA_LENGTH, wt as generateConversationRecordId, xt as RESERVED_SIGNAL_TYPES, yt as runResponseMetadataHooks, z as isRetryableModelError } from "./dispatch-Dohpn4Ea.mjs";
-@@ -9,6 +10,7 @@ import { n as readProviderResponseDiagnostics } from "./provider-diagnostics-C8i
+@@ -9,6 +11,7 @@ import { n as readProviderResponseDiagnostics } from "./provider-diagnostics-C8i
  import { r as migrateFlueSqlSchema, s as createAttachmentRef } from "./format-version-Bmc1L_3t.mjs";
  import * as v from "valibot";
  import { Agent } from "@earendil-works/pi-agent-core";
@@ -304,7 +305,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..637e14f0408fdfc916f574f7d029e970
  //#region src/agent-execution-store.ts
  /** Default maximum total attempts before terminalization. */
  const DURABILITY_DEFAULT_MAX_ATTEMPTS = 10;
-@@ -1128,6 +1130,8 @@ var Session = class {
+@@ -1128,6 +1131,8 @@ var Session = class {
  	conversationWriter;
  	attachmentStore;
  	canonicalAssistant;
@@ -313,7 +314,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..637e14f0408fdfc916f574f7d029e970
  	canonicalToolRequestMessageId;
  	/**
  	* The just-committed tool batch, stashed by the `turn_end` handler for the
-@@ -1536,7 +1540,7 @@ var Session = class {
+@@ -1536,7 +1541,7 @@ var Session = class {
  			content: signal.body,
  			attributes: signal.attributes,
  			timestamp: new Date(timestamp).getTime()
@@ -322,7 +323,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..637e14f0408fdfc916f574f7d029e970
  		if (options?.advance === false) return;
  		this.advanceDelivery?.({
  			kind: "signal",
-@@ -1823,11 +1827,11 @@ var Session = class {
+@@ -1823,11 +1828,11 @@ var Session = class {
  		const entryId = submissionEntryId(input.kind, input.submissionId);
  		if (!await this.conversationWriter.hasConversationEntry(this.conversationId, entryId)) {
  			const parentId = await this.conversationWriter.getConversationLeaf(this.conversationId);
@@ -336,7 +337,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..637e14f0408fdfc916f574f7d029e970
  		await source.finalize(input.submissionId);
  	}
  	/**
-@@ -1839,7 +1843,7 @@ var Session = class {
+@@ -1839,7 +1844,7 @@ var Session = class {
  	async steerJoinedEntry(entryId) {
  		const conversation = await this.requireConversation();
  		const resolved = await this.resolveCanonicalContextAttachments(conversation);
@@ -345,7 +346,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..637e14f0408fdfc916f574f7d029e970
  			const image = resolved.get(attachment.id);
  			if (!image) throw new AttachmentNotAvailableError({ attachmentId: attachment.id });
  			return image;
-@@ -1864,13 +1868,13 @@ var Session = class {
+@@ -1864,13 +1869,13 @@ var Session = class {
  			if (submission.status === "joining") {
  				if (await this.conversationWriter.hasConversationEntry(this.conversationId, entryId)) {
  					this.advanceDelivery?.(input.message);
@@ -361,7 +362,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..637e14f0408fdfc916f574f7d029e970
  		}
  		await this.restoreDeliveryCursor();
  	}
-@@ -2014,6 +2018,7 @@ var Session = class {
+@@ -2014,6 +2019,7 @@ var Session = class {
  	* adopts them instead: the wake hooks ran on the original attempt.
  	*/
  	async beginResponseOutput() {
@@ -369,7 +370,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..637e14f0408fdfc916f574f7d029e970
  		this.responseMessageId = void 0;
  		this.responseHasCompletedStep = false;
  		this.responseUsage = void 0;
-@@ -2190,6 +2195,7 @@ var Session = class {
+@@ -2190,6 +2196,7 @@ var Session = class {
  				thinkingLevel: this.config.thinkingLevel ?? "medium"
  			},
  			streamFn: this.emitTurnRequestAndStream,
@@ -377,7 +378,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..637e14f0408fdfc916f574f7d029e970
  			toolExecution: "parallel",
  			steeringMode: "all",
  			followUpMode: "all",
-@@ -2232,6 +2238,10 @@ var Session = class {
+@@ -2232,6 +2239,10 @@ var Session = class {
  							modelInfo,
  							...isResponseFirstMessage && this.responseStartMetadata ? { responseMetadata: this.responseStartMetadata } : {}
  						}]);
@@ -388,7 +389,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..637e14f0408fdfc916f574f7d029e970
  					}
  					this.emit({
  						type: "message_start",
-@@ -2261,6 +2271,8 @@ var Session = class {
+@@ -2261,6 +2272,8 @@ var Session = class {
  					} else if (assistant && aEvent.type === "text_delta") {
  						const block = assistant.blocks.get(aEvent.contentIndex);
  						if (block?.type !== "text") throw new Error("[flue] Canonical text delta has no started block.");
@@ -397,7 +398,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..637e14f0408fdfc916f574f7d029e970
  						this.enqueueCanonical([{
  							...this.canonicalEnvelope("assistant_text_delta"),
  							type: "assistant_text_delta",
-@@ -2270,7 +2282,8 @@ var Session = class {
+@@ -2270,7 +2283,8 @@ var Session = class {
  							delta: aEvent.delta
  						}], () => this.emit({
  							type: "text_delta",
@@ -407,7 +408,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..637e14f0408fdfc916f574f7d029e970
  						}));
  					} else if (assistant && aEvent.type === "text_end") {
  						const block = assistant.blocks.get(aEvent.contentIndex);
-@@ -2546,9 +2559,32 @@ var Session = class {
+@@ -2546,9 +2560,32 @@ var Session = class {
  		return {
  			enabled: true,
  			reserveTokens: cc.reserveTokens ?? defaults.reserveTokens,
@@ -421,11 +422,11 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..637e14f0408fdfc916f574f7d029e970
 +	async prepareWorkingContext(messages, signal) {
 +		const config = this.config.compaction;
 +		if (!config || !config.workingContextTokens) return messages;
-+		const measure = () => Math.ceil(new TextEncoder().encode(JSON.stringify({
++		const measure = () => measureWorkingContext({
 +			systemPrompt: this.agentLoop.state.systemPrompt,
 +			tools: this.agentLoop.state.tools.map(({ name, description, parameters }) => ({ name, description, parameters })),
 +			messages
-+		})).byteLength / 4);
++		});
 +		if (measure() <= config.workingContextTokens) return messages;
 +		if (signal?.aborted) throw abortErrorFor(signal);
 +		await this.flushCanonical();
@@ -441,7 +442,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..637e14f0408fdfc916f574f7d029e970
  	async initializeCanonicalContext() {
  		await this.rebuildCanonicalContext();
  	}
-@@ -2574,7 +2610,7 @@ var Session = class {
+@@ -2574,7 +2611,7 @@ var Session = class {
  	}
  	processSubmissionInput(input, options) {
  		return createCallHandle(void 0, async (signal) => {
@@ -450,7 +451,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..637e14f0408fdfc916f574f7d029e970
  		});
  	}
  	/**
-@@ -3544,7 +3580,8 @@ var Session = class {
+@@ -3544,7 +3581,8 @@ var Session = class {
  		const activateSkillTool = Object.keys(this.liveSkills).length > 0 ? createActivateSkillTool((name) => this.activateSkillForTool(name)) : void 0;
  		const packagedRead = Object.values(packagedSkills).some((skill) => Object.keys(skill.files).some((path) => path !== "SKILL.md")) ? createPackagedSkillReadTool(packagedSkills) : void 0;
  		const frameworkTools = () => [
@@ -460,7 +461,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..637e14f0408fdfc916f574f7d029e970
  			...activateSkillTool ? [activateSkillTool] : [],
  			...packagedRead ? [packagedRead] : []
  		];
-@@ -3747,7 +3784,7 @@ var Session = class {
+@@ -3747,7 +3785,7 @@ var Session = class {
  			}
  		}
  	}
@@ -469,7 +470,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..637e14f0408fdfc916f574f7d029e970
  		const operationSignal = signal && this.scopeSignal ? AbortSignal.any([signal, this.scopeSignal]) : signal ?? this.scopeSignal;
  		return this.runExclusive(operation, async () => {
  			if (operationSignal?.aborted) throw abortErrorFor(operationSignal);
-@@ -3783,12 +3820,25 @@ var Session = class {
+@@ -3783,12 +3821,25 @@ var Session = class {
  				return result;
  			} catch (error) {
  				const surfaced = operationSignal?.aborted ? abortErrorFor(operationSignal) : error;
@@ -495,7 +496,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..637e14f0408fdfc916f574f7d029e970
  					error: serializeEventError(surfaced)
  				}, operation === "prompt" || operation === "skill" ? {
  					agentInput: this.activeAgentInput,
-@@ -4015,7 +4065,7 @@ var Session = class {
+@@ -4015,7 +4066,7 @@ var Session = class {
  	async rebuildCanonicalContext() {
  		const conversation = await this.requireConversation();
  		const resolved = await this.resolveCanonicalContextAttachments(conversation);
@@ -504,7 +505,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..637e14f0408fdfc916f574f7d029e970
  			const image = resolved.get(attachment.id);
  			if (!image) throw new AttachmentNotAvailableError({ attachmentId: attachment.id });
  			return image;
-@@ -4050,7 +4100,7 @@ var Session = class {
+@@ -4050,7 +4101,7 @@ var Session = class {
  		};
  		const throwIfHalted = () => {
  			if (options.signal.aborted) throw abortErrorFor(options.signal);
@@ -513,7 +514,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..637e14f0408fdfc916f574f7d029e970
  		};
  		while (true) {
  			const overflow = assistant !== void 0 && isAssistantContextOverflow(assistant, this.agentLoop.state.model.contextWindow ?? 0);
-@@ -4133,6 +4183,10 @@ var Session = class {
+@@ -4133,6 +4184,10 @@ var Session = class {
  	}
  	async checkCompaction(assistantMessage) {
  		if (assistantMessage.stopReason === "aborted" || assistantMessage.stopReason === "error") return;
@@ -524,7 +525,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..637e14f0408fdfc916f574f7d029e970
  		const model = this.agentLoop.state.model;
  		const settings = this.resolveCompactionSettings(model);
  		if (!settings.enabled) return;
-@@ -4162,7 +4216,7 @@ var Session = class {
+@@ -4162,7 +4217,7 @@ var Session = class {
  			const summarizationModel = compactionConfig?.model ? this.resolveModelForCall(compactionConfig.model) : sessionModel;
  			const canonicalConversation = await this.requireConversation();
  			const resolvedAttachments = await this.resolveCanonicalContextAttachments(canonicalConversation);
@@ -533,7 +534,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..637e14f0408fdfc916f574f7d029e970
  				const image = resolvedAttachments.get(attachment.id);
  				if (!image) throw new AttachmentNotAvailableError({ attachmentId: attachment.id });
  				return image;
-@@ -4183,6 +4237,7 @@ var Session = class {
+@@ -4183,6 +4238,7 @@ var Session = class {
  				this.internalLog("info", "[flue:compaction] Nothing to compact (first kept message has no entry)");
  				return false;
  			}
@@ -541,7 +542,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..637e14f0408fdfc916f574f7d029e970
  			this.internalLog("info", `[flue:compaction] Summarizing ${preparation.messagesToSummarize.length} messages` + (preparation.isSplitTurn ? ` (split turn: ${preparation.turnPrefixMessages.length} prefix messages)` : "") + `, keeping messages from index ${preparation.firstKeptIndex}`);
  			const estimatedTokens = preparation.tokensBefore;
  			this.emit({
-@@ -4536,7 +4591,7 @@ var Session = class {
+@@ -4536,7 +4592,7 @@ var Session = class {
  	resolveSubmissionDurability(startedAt, timeoutAt) {
  		return {
  			maxAttempts: this.config.durability?.maxAttempts ?? 10,
@@ -550,7 +551,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..637e14f0408fdfc916f574f7d029e970
  		};
  	}
  	async runPersistedContextInput(options) {
-@@ -4578,12 +4633,19 @@ var Session = class {
+@@ -4578,12 +4634,19 @@ var Session = class {
  					signal: options.signal
  				});
  				await this.flushResponseOutput();
@@ -571,7 +572,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..637e14f0408fdfc916f574f7d029e970
  				this.activeSubmissionAttemptId = void 0;
  				this.activeJoinSource = void 0;
  				this.activeJoinSignal = void 0;
-@@ -4976,7 +5038,18 @@ async function materializeSubmissionAttachments(input, conversationId, attachmen
+@@ -4976,7 +5039,18 @@ async function materializeSubmissionAttachments(input, conversationId, attachmen
  }
  function createAgentSubmissionSessionHandler(agent, input, execute) {
  	return async (ctx) => {
@@ -591,7 +592,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..637e14f0408fdfc916f574f7d029e970
  	};
  }
  /**
-@@ -4997,10 +5070,26 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
+@@ -4997,10 +5071,26 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
  	const { input } = submission;
  	const attempt = submissionAttemptRef(submission);
  	if (!attempt) return void 0;
@@ -619,7 +620,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..637e14f0408fdfc916f574f7d029e970
  	} catch (renderError) {
  		if (submission.timeoutAt > 0 && Date.now() >= submission.timeoutAt) {
  			await failInterruptedSubmission(submissions, submission, attempt, agent, "exceeded_timeout", () => new SubmissionTimeoutError(), createContext, conversationWriter, emitCoordinatorEvent);
-@@ -5014,7 +5103,7 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
+@@ -5014,7 +5104,7 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
  		return;
  	}
  	if (submission.abortRequestedAt !== void 0) {
@@ -628,7 +629,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..637e14f0408fdfc916f574f7d029e970
  		return;
  	}
  	if (submission.attemptCount >= submission.maxAttempts) {
-@@ -5040,6 +5129,16 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
+@@ -5040,6 +5130,16 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
  	}
  	await submissions.requeueSubmission(attempt);
  }
@@ -645,7 +646,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..637e14f0408fdfc916f574f7d029e970
  /**
  * The wall-clock deadline after which a queued submission that never became
  * claimable (materialization permanently failing, agent definition
-@@ -5056,7 +5155,7 @@ function unreadySubmissionDeadline(submission, agent) {
+@@ -5056,7 +5156,7 @@ function unreadySubmissionDeadline(submission, agent) {
  		assertDurability(agent.durability, `[agent "${submission.input.agent}"]`);
  		timeoutMs = agent.durability?.timeoutMs ?? 36e5;
  	} catch {}
@@ -654,7 +655,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..637e14f0408fdfc916f574f7d029e970
  }
  /**
  * Settle a queued submission that can never be claimed — a durable abort on
-@@ -5071,6 +5170,10 @@ function unreadySubmissionDeadline(submission, agent) {
+@@ -5071,6 +5171,10 @@ function unreadySubmissionDeadline(submission, agent) {
  */
  async function settleUnclaimableSubmission(submissions, submission, outcome, error, emitCoordinatorEvent) {
  	if (!await submissions.settleQueuedSubmission(submission.submissionId, outcome, error)) return false;
@@ -665,7 +666,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..637e14f0408fdfc916f574f7d029e970
  	const errorInfo = { errorInfo: classifyError(error) };
  	emitCoordinatorEvent({
  		type: "submission_settled",
-@@ -5084,8 +5187,30 @@ async function settleUnclaimableSubmission(submissions, submission, outcome, err
+@@ -5084,8 +5188,30 @@ async function settleUnclaimableSubmission(submissions, submission, outcome, err
  		kind: submission.kind,
  		operation: "materialize_submission",
  		outcome: "terminated",
@@ -696,7 +697,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..637e14f0408fdfc916f574f7d029e970
  	return true;
  }
  /** Synthetic request for the submission's kind: an agent route for direct prompts, the dispatch path for dispatches. */
-@@ -5117,11 +5242,32 @@ async function processSubmission(opts) {
+@@ -5117,11 +5243,32 @@ async function processSubmission(opts) {
  		attemptCount: submission.attemptCount,
  		maxAttempts: submission.maxAttempts
  	});
@@ -733,7 +734,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..637e14f0408fdfc916f574f7d029e970
  	};
  	const execute = () => createAgentSubmissionSessionHandler(agent, input, (session) => {
  		const handle = session.processSubmissionInput(input, {
-@@ -5151,17 +5297,7 @@ async function processSubmission(opts) {
+@@ -5151,17 +5298,7 @@ async function processSubmission(opts) {
  		return;
  	}
  	try {
@@ -752,7 +753,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..637e14f0408fdfc916f574f7d029e970
  	} catch (error) {
  		if (opts.isShutdownAbort?.(error)) throw error;
  		if (opts.signal?.reason instanceof SubmissionAbortedError) {
-@@ -5181,7 +5317,11 @@ async function failInterruptedSubmission(submissions, submission, attempt, agent
+@@ -5181,7 +5318,11 @@ async function failInterruptedSubmission(submissions, submission, attempt, agent
  	const ctx = createContext(input.submissionId);
  	let interruptedTools;
  	try {
@@ -765,7 +766,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..637e14f0408fdfc916f574f7d029e970
  			submissionId: submission.submissionId,
  			kind: submission.kind,
  			reason,
-@@ -5215,10 +5355,10 @@ async function failInterruptedSubmission(submissions, submission, attempt, agent
+@@ -5215,10 +5356,10 @@ async function failInterruptedSubmission(submissions, submission, attempt, agent
  * through the two-phase outbox with `outcome: 'aborted'` — the durable
  * terminal record a reconnecting waiter observes.
  */
@@ -779,10 +780,14 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..637e14f0408fdfc916f574f7d029e970
  			kind: submission.kind,
  			reason: "aborted",
 diff --git a/dist/dispatch-Dohpn4Ea.mjs b/dist/dispatch-Dohpn4Ea.mjs
-index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..d609f72e6149a9d7ec1e193bd6840bbc42036e97 100644
+index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..28d7c68d29e223a9c906fedf1016ef7ca4291576 100644
 --- a/dist/dispatch-Dohpn4Ea.mjs
 +++ b/dist/dispatch-Dohpn4Ea.mjs
-@@ -4,6 +4,7 @@ import { n as isValibotSchema } from "./schema-DIDpvZZa.mjs";
+@@ -1,9 +1,11 @@
+ import { B as configureErrorRendering, D as StreamOffsetGoneError, E as StreamNotFoundError, G as parseJsonBody, Q as generateEntryId, Y as deriveKeyedSubmissionId, a as AttachmentNotAvailableError, at as generateRecordId, c as ConversationRecordInvariantError, dt as extractTraceCarrier, m as MethodNotAllowedError, o as AttachmentNotFoundError, ot as generateSubmissionId, p as InvalidRequestError, q as toHttpResponse, v as RouteNotFoundError } from "./errors-CsDcT_C4.mjs";
+ import { n as getRuntimeModels } from "./providers-8VayQV37.mjs";
++import { COMPACTION_IMAGE_TOKENS } from "./working-context.mjs";
+ import { n as isValibotSchema } from "./schema-DIDpvZZa.mjs";
  import { isContextOverflow } from "@earendil-works/pi-ai";
  import * as v from "valibot";
  import { Hono } from "hono";
@@ -790,7 +795,7 @@ index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..d609f72e6149a9d7ec1e193bd6840bbc
  //#region src/conversation-records.ts
  /**
  * Signal types reserved as framework vocabulary: `dispatch()` admission and
-@@ -177,9 +178,14 @@ function toolResultOutput(content) {
+@@ -177,9 +179,14 @@ function toolResultOutput(content) {
  function toolResultText(content) {
  	return content.filter((block) => block.type === "text").map((block) => block.text ?? "").join("\n");
  }
@@ -807,7 +812,7 @@ index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..d609f72e6149a9d7ec1e193bd6840bbc
  }
  function escapeXmlText(value) {
  	return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
-@@ -748,7 +754,7 @@ function pathToContextEntries(path, options) {
+@@ -748,7 +755,7 @@ function pathToContextEntries(path, options) {
  		const message = resolveMessageAttachments(entry, options);
  		if (message.role === "signal") {
  			messages.push({
@@ -816,7 +821,24 @@ index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..d609f72e6149a9d7ec1e193bd6840bbc
  				sourceEntry: entry
  			});
  			index += 1;
-@@ -1611,6 +1617,8 @@ function formatFileOperations(readFiles, modifiedFiles) {
+@@ -1529,6 +1536,7 @@ function estimateTokens(message) {
+ 			if (typeof content === "string") chars = content.length;
+ 			else if (Array.isArray(content)) {
+ 				for (const block of content) if (block.type === "text") chars += block.text.length;
++				else if (block.type === "image") chars += COMPACTION_IMAGE_TOKENS * 4;
+ 			}
+ 			return Math.ceil(chars / 4);
+ 		}
+@@ -1542,7 +1550,7 @@ function estimateTokens(message) {
+ 		case "toolResult": {
+ 			const { content } = message;
+ 			for (const block of content) if (block.type === "text") chars += block.text.length;
+-			else if (block.type === "image") chars += 4800;
++			else if (block.type === "image") chars += COMPACTION_IMAGE_TOKENS * 4;
+ 			return Math.ceil(chars / 4);
+ 		}
+ 	}
+@@ -1611,6 +1619,8 @@ function formatFileOperations(readFiles, modifiedFiles) {
  	return `\n\n${sections.join("\n\n")}`;
  }
  const TOOL_RESULT_MAX_CHARS = 2e3;
@@ -825,7 +847,7 @@ index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..d609f72e6149a9d7ec1e193bd6840bbc
  function truncateForSummary(text, maxChars) {
  	if (text.length <= maxChars) return text;
  	const truncatedChars = text.length - maxChars;
-@@ -1644,6 +1652,60 @@ function serializeConversation(messages) {
+@@ -1644,6 +1654,60 @@ function serializeConversation(messages) {
  	}
  	return parts.join("\n\n");
  }
@@ -886,7 +908,7 @@ index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..d609f72e6149a9d7ec1e193bd6840bbc
  const SUMMARIZATION_SYSTEM_PROMPT = "You are a context summarization assistant. Your task is to read a conversation between a user and an AI coding assistant, then produce a structured summary following the exact format specified.\n\nDo NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary.";
  const SUMMARIZATION_PROMPT = `The messages above are a conversation to summarize. Create a structured context checkpoint summary that another LLM will use to continue the work.
  
-@@ -1656,36 +1718,45 @@ Use this EXACT format:
+@@ -1656,36 +1720,45 @@ Use this EXACT format:
  - [Any constraints, preferences, or requirements mentioned by user]
  - [Or "(none)" if none were mentioned]
  
@@ -946,7 +968,7 @@ index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..d609f72e6149a9d7ec1e193bd6840bbc
  
  Use this EXACT format:
  
-@@ -1695,22 +1766,18 @@ Use this EXACT format:
+@@ -1695,22 +1768,18 @@ Use this EXACT format:
  ## Constraints & Preferences
  - [Preserve existing, add new ones discovered]
  
@@ -975,7 +997,7 @@ index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..d609f72e6149a9d7ec1e193bd6840bbc
  ## Critical Context
  - [Preserve important context, add new if needed]
  
-@@ -1723,12 +1790,18 @@ Summarize the prefix to provide context for the retained suffix:
+@@ -1723,12 +1792,18 @@ Summarize the prefix to provide context for the retained suffix:
  [What did the user ask for in this turn?]
  
  ## Early Progress
@@ -996,7 +1018,7 @@ index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..d609f72e6149a9d7ec1e193bd6840bbc
  /** Valid cut points: user or assistant messages. Never cut at toolResult. */
  function findValidCutPoints(messages, start, end) {
  	const cutPoints = [];
-@@ -1757,10 +1830,10 @@ function findCutPoint(messages, start, end, keepRecentTokens) {
+@@ -1757,10 +1832,10 @@ function findCutPoint(messages, start, end, keepRecentTokens) {
  		const messageTokens = estimateTokens(message);
  		accumulatedTokens += messageTokens;
  		if (accumulatedTokens >= keepRecentTokens) {
@@ -1011,7 +1033,7 @@ index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..d609f72e6149a9d7ec1e193bd6840bbc
  			break;
  		}
  	}
-@@ -1833,26 +1906,34 @@ async function runSummarizationCall(purpose, promptText, maxTokens, model, signa
+@@ -1833,26 +1908,34 @@ async function runSummarizationCall(purpose, promptText, maxTokens, model, signa
  		observer.end(purpose, handle, void 0, error);
  		throw error;
  	}
@@ -1055,7 +1077,7 @@ index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..d609f72e6149a9d7ec1e193bd6840bbc
  	let summary;
  	let aggregateUsage;
  	const addCallUsage = (usage) => {
-@@ -1861,18 +1942,20 @@ async function compact(preparation, model, signal, observer) {
+@@ -1861,18 +1944,20 @@ async function compact(preparation, model, signal, observer) {
  		aggregateUsage = aggregateUsage ? addUsage(aggregateUsage, normalized) : normalized;
  	};
  	if (isSplitTurn && turnPrefixMessages.length > 0) {
@@ -1079,7 +1101,7 @@ index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..d609f72e6149a9d7ec1e193bd6840bbc
  	const { readFiles, modifiedFiles } = computeFileLists(fileOps);
  	summary += formatFileOperations(readFiles, modifiedFiles);
  	return {
-@@ -2220,6 +2303,17 @@ function supersededAssistantErrorEntryIds(conversation) {
+@@ -2220,6 +2305,17 @@ function supersededAssistantErrorEntryIds(conversation) {
  	}
  	return superseded;
  }
@@ -1097,7 +1119,7 @@ index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..d609f72e6149a9d7ec1e193bd6840bbc
  function projectConversationUi(conversation, streamOffset) {
  	const messages = [];
  	const byId = /* @__PURE__ */ new Map();
-@@ -2879,6 +2973,44 @@ async function readSubmissionReply(options) {
+@@ -2879,6 +2975,44 @@ async function readSubmissionReply(options) {
  	};
  	return replyFromSnapshot(snapshot, options.submissionId);
  }
@@ -1142,7 +1164,7 @@ index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..d609f72e6149a9d7ec1e193bd6840bbc
  /**
  * Extract a submission's reply from a materialized conversation snapshot.
  * Shared by {@link readSubmissionReply} and the Cloudflare client, which reads
-@@ -2932,9 +3064,11 @@ function assertThinkingLevel(value, label) {
+@@ -2932,9 +3066,11 @@ function assertThinkingLevel(value, label) {
  function assertCompaction(definition, label) {
  	if (definition === void 0 || definition === false) return;
  	if (typeof definition !== "object" || definition === null || Array.isArray(definition)) throw new Error(`[flue] ${label} compaction must be a configuration object or \`false\`.`);
@@ -1155,7 +1177,7 @@ index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..d609f72e6149a9d7ec1e193bd6840bbc
  	if (definition.model !== void 0 && typeof definition.model !== "string") throw new Error(`[flue] ${label} compaction.model must be a string.`);
  }
  function assertDurability(definition, label) {
-@@ -2942,7 +3076,7 @@ function assertDurability(definition, label) {
+@@ -2942,7 +3078,7 @@ function assertDurability(definition, label) {
  	if (typeof definition !== "object" || definition === null || Array.isArray(definition)) throw new Error(`[flue] ${label} durability must be a configuration object.`);
  	for (const key of Object.keys(definition)) if (key !== "maxAttempts" && key !== "timeoutMs") throw new Error(`[flue] ${label} durability received unknown field "${key}".`);
  	assertPositiveInteger(definition.maxAttempts, `${label} durability.maxAttempts`);
@@ -1302,3 +1324,28 @@ index 49effc41c60e5f07d406e315146add31fb6b3ae8..b43e71c22b7d29f6a9c6c26220414c3a
  } | {
    type: 'thinking_start';
    contentIndex?: number;
+diff --git a/dist/working-context.mjs b/dist/working-context.mjs
+new file mode 100644
+index 0000000000000000000000000000000000000000..311fdd9a1fed779eb0bcc623f48d50f0bf16c2fa
+--- /dev/null
++++ b/dist/working-context.mjs
+@@ -0,0 +1,19 @@
++// Keep the native compactor's image heuristic in one place. This is an
++// economic projection, not vendor tokenization or physical image admission.
++export const COMPACTION_IMAGE_TOKENS = 1200;
++
++export function measureWorkingContext(input) {
++  let imageTokens = 0;
++  const messages = input.messages.map((message) => {
++    if (!Array.isArray(message.content)) return message;
++    return {
++      ...message,
++      content: message.content.map((block) => {
++        if (block.type !== "image") return block;
++        imageTokens += COMPACTION_IMAGE_TOKENS;
++        return { type: "image", mimeType: block.mimeType };
++      })
++    };
++  });
++  return Math.ceil(new TextEncoder().encode(JSON.stringify({ ...input, messages })).byteLength / 4) + imageTokens;
++}
