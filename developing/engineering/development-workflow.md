@@ -1126,6 +1126,114 @@ Answer these questions in the PR, task handoff, or release note:
   separately; a single generic "Core before Remote Agent" statement is not a
   Contract Impact Audit.
 
+### Trusted Delegation Contract Impact Audit
+
+The Local task permission correction also adds an optional Core-owned requester
+fact and assignment permission source. Roll out schema readers and Core before
+the new Service: an old strict capability reader cannot accept the new
+`executionContextPermissionInheritance` declaration. New Core accepts old
+Services, but refuses inherited-permission contexts on those Services instead
+of silently imposing a directory boundary. Retained bounded contexts and legacy
+serial Wakes keep their previous contracts. New Web's **New task** uses the
+existing `{ mode: new }` selection shape; old Core can parse it but does not
+provide the corrected permission behavior, so expose this entry with the Core
+rollout. Gateway passes no caller-supplied owner fact. Auth, Remote Agent and
+Skills do not grant filesystem authority. Native permission settings, explicit
+Computer policy, and task restrictions remain intersecting constraints.
+This rollout order is required; it is not an assertion that a new Service can
+register against an old Core or permission to update an installed Service.
+
+The exact-evidence, ordinary Plugin delegation, excerpt-copy, and replay changes
+touch shared schemas, Core RPC/HTTP, native Remote tools, the packaged CLI,
+Service dispatch context, and the managed Plugin playbook.
+
+- Existing setup, Service status, trace, rescue, token issuance/retirement, and
+  finalization contracts remain unchanged. Ordinary human-source Plugin calls
+  keep their prior response shape unless the caller opts into recovery receipts.
+- New Local evidence tools and excerpt/verification commands require the new
+  CLI. Older Core rejects unsupported exact-evidence/selection requests; clients
+  must not substitute a latest version or broader history. Older Services receive
+  the structured references rendered into source text without a new strict wire
+  field. They cannot run delegated Plugin actions without the new private token
+  forwarding and fail closed. Existing Wake/setup paths can continue, so local
+  CLI, Service, and Skills updates are advisory (`available`). No token or
+  permission floor is weakened and no automatic update is initiated.
+- New Remote callers opt into Core delegation/permit projections and use new
+  evidence read variants. Center's existing Space-context RPC adds opt-in
+  `source_evidence` and `thread_evidence` scopes with a fixed version and offset;
+  existing scope responses are unchanged. Older Core rejects these new scopes,
+  so a caller cannot turn an unavailable exact read into a latest-version read.
+  Personal Remote and Center share the same message-page response contract and
+  Protocol version builders. Missing projections refuse the new path. Deploy the
+  additive D1 migration before Core, Core receivers before Remote callers, and
+  publish new Local artifacts only after Core is ready. Keep the mixed window
+  short; old callers cannot use the new evidence or verification features.
+- The immutable task/effect fence applies to newly recorded operations. Legacy
+  Local operation signatures included the caller-chosen operation ID and did
+  not retain the original input or dispatch identity. They cannot be safely
+  reverse-mapped to the new effect key. Legacy unknown receipts remain unknown
+  and receive no replay permit without a frozen account version. Before rollout,
+  legacy active requests with unresolved writes need an explicit reconciliation
+  boundary; do not claim cross-version new-ID deduplication for those rows or
+  block unrelated later requests by guessing their task identity.
+- Replay projection and the atomic journal claim both require a frozen original
+  account version. A denied legacy replay cannot consume a claim through the
+  execution RPC. Remote duplicate claims return the existing completed/failed
+  receipt, original operation and account attribution through both direct tools
+  and Code Mode; they do not reconstruct provider result data. The terminal
+  receipt is a shared schema, not a new operation state or writer.
+- Local writes without a trusted exact request now retain a private pending
+  Plugin request before provider execution. The same operation, actor, account,
+  input and permission revision reuse that request. Only the request owner's
+  authenticated account with a Human Profile can approve its stable root.
+  An Agent credential, selected Profile name, caller-issued confirmation token,
+  new dispatch ID, restart or fork does not supply this authority. A manual
+  approval remains bound to its executor. A recorded delegation can carry its
+  original request root to its admitted child without another approval.
+  An independently approved request may intentionally have identical content.
+- Excerpt copies use the existing Files reservation, R2 object, revision commit,
+  and audience owner. The new optional expected audience is checked synchronously
+  at the destination commit. Completed copies have independent Files lifecycles.
+
+#### Manual request authority and private Inbox confirmation
+
+The approved threat model uses existing account credentials. An Agent's
+delegation/execution credential cannot approve a Plugin request. The owner's
+independently authenticated account can. The product does not claim human
+presence when an Agent has been given the owner's full account credentials.
+Do not add independent factor enrollment, email codes, or new recovery machinery
+to this task.
+
+Verified owner Wakes and recorded Center delegations reuse their Core-derived
+original request root. Cold continuation and selected child execution preserve
+the same task/effect fence. A new operation ID or executor cannot repeat the
+write. Current access, membership, delegation, exact input and account version
+are still checked. Only the original executor can claim a permitted provider
+replay; other executors receive its original receipt.
+
+A manual Local call with no verified request provenance creates a private
+`plugin_action_requests` record (migration 0192). It freezes the actor, original
+requester, account version, access revision, action, effect and input. Inbox
+holds an opaque request ID and input-free preview. The inline detail shows
+bounded reviewed labels and identifies omitted input. Core requires a Human
+Profile and an authenticated account principal matching the request owner
+before approving or declining. Agent-supplied identity text is not authority.
+
+Approval and Inbox resolution use one conditional D1 batch. Repeated decisions
+return retained state; conflicting decisions fail. Execution rechecks approval,
+membership and connection/access revisions. Requests expire after one hour.
+Replay retains the operation's single durable allowance and original 24-hour
+maximum window. A separately approved new request does not resolve an older
+unknown result.
+
+Deploy current Gateway/shared schema and replay readers before the Core writer,
+apply migration 0192, then deliver Web/CLI consumers. The unreleased email-code
+prototype has no supported installed consumer and is removed. Inbox capability
+10 adds request details; older consumers receive guidance to current Web.
+This is a rollout dependency, not permission to deploy. Stamp the final local
+components and verify release readiness. Storage tests, browser smoke, native
+model execution and actual provider writes remain separate evidence.
+
 ### Active-Wake Agent Settings Contract Impact Audit
 
 Active-Wake Agent settings change Web behavior, Core Binding writers,
@@ -2426,6 +2534,10 @@ Service health, Space truth, and Wake execution truth remain owned by their
 normal contracts.
 
 ## Database Workflow
+
+For the decided PostgreSQL target, use [the PostgreSQL workflow](postgresql.md)
+and `pnpm pg plan` / `pnpm pg:check`. It has independent migration history and
+isolated targets. The commands below continue to own D1 product deployments.
 
 Run shared D1 workflow commands from the repo root through the `pnpm db:*`
 command family.

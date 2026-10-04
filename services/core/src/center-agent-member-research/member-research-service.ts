@@ -1,3 +1,9 @@
+import type { QueryResult } from "@openmeld/db/postgresql";
+import {
+  getPostgresDatabase,
+  type PostgresDatabase,
+  type QueryConfig,
+} from "@openmeld/db/postgresql";
 import {
   getCenterAgentMemberResearchStatusResponseSchema,
   getCenterAgentMemberResearchStatusRpcInputSchema,
@@ -15,14 +21,14 @@ import {
   readCenterAgentDesignationRecord,
   resolveCenterAgentAttribution,
 } from "../center-agent/center-agent-repository";
-import { type CoreBindings, localStateDb } from "../lib/bindings";
+import type { CoreBindings } from "../lib/bindings";
 import { requireExpectedOrganizationContext } from "../organizations/expected-organization-context";
 import { resolveActiveOrganizationMembership } from "../organizations/organization-context";
 import {
   type RemoteAgentMemberResearchDeliveryInput,
   submitRemoteAgentMemberResearchDelivery,
 } from "../remote-agent/application/native-delivery-service";
-import { readRemoteAgentNativeDeliveryByIdempotencyKey } from "../remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+import { readRemoteAgentNativeDeliveryByIdempotencyKey } from "../remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import {
   type ResearchBatchRow,
@@ -36,13 +42,14 @@ import {
 
 type SubmitMemberResearchDelivery = (
   input: RemoteAgentMemberResearchDeliveryInput
-) => Promise<{ failureCode?: string; status: "failed" | "submitted" }>;
-
+) => Promise<{
+  failureCode?: string;
+  status: "failed" | "submitted";
+}>;
 type StartCenterAgentMemberResearchOptions = {
   acceptanceIdempotencyKey?: string;
   nowMs?: number;
 };
-
 export async function startCenterAgentMemberResearch(
   env: CoreBindings,
   input: StartCenterAgentMemberResearchRpcInput,
@@ -166,7 +173,6 @@ export async function startCenterAgentMemberResearch(
       status: 409,
     });
   }
-
   const nowMs = options.nowMs ?? Date.now();
   const batchId = crypto.randomUUID();
   const attribution = await resolveCenterAgentAttribution({
@@ -175,21 +181,19 @@ export async function startCenterAgentMemberResearch(
     onBehalfOfProfileId: requester.profileId,
     organizationId: membership.organizationId,
   });
-  const statements: D1PreparedStatement[] = [
-    db
-      .prepare(
-        `
-          INSERT INTO center_agent_member_research_batches (
+  const statements: QueryConfig[] = [
+    {
+      text: `
+          INSERT INTO "openmeld"."center_agent_member_research_batches" (
             id, organization_id, scope, status,
             requested_by_user_id, requested_by_member_id,
             requested_by_profile_id, requested_by_display_name,
             direct_message_space_id, acceptance_idempotency_key,
             created_at_ms, updated_at_ms
           )
-          VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?)
-        `
-      )
-      .bind(
+          VALUES ($1, $2, $3, 'queued', $4, $5, $6, $7, $8, $9, $10, $11)
+        `,
+      values: [
         batchId,
         membership.organizationId,
         request.scope,
@@ -200,30 +204,30 @@ export async function startCenterAgentMemberResearch(
         directMessageSpaceId,
         acceptanceIdempotencyKey,
         nowMs,
-        nowMs
-      ),
+        nowMs,
+      ],
+    },
   ];
   subjects.forEach((subject, index) => {
     const taskId = crypto.randomUUID();
     statements.push(
-      db
-        .prepare(
-          `
-            INSERT INTO center_agent_member_research_tasks (
+      {
+        text: `
+            INSERT INTO "openmeld"."center_agent_member_research_tasks" (
               id, batch_id, subject_user_id, subject_display_name,
               position, status, created_at_ms
             )
-            VALUES (?, ?, ?, ?, ?, 'queued', ?)
-          `
-        )
-        .bind(
+            VALUES ($1, $2, $3, $4, $5, 'queued', $6)
+          `,
+        values: [
           taskId,
           batchId,
           subject.userId,
           subject.displayName,
           index + 1,
-          nowMs
-        ),
+          nowMs,
+        ],
+      },
       prepareCenterAgentAuditJournalEntryStatement({
         action: "research_member",
         actorProfileId: designation.agentProfileId,
@@ -237,7 +241,13 @@ export async function startCenterAgentMemberResearch(
     );
   });
   try {
-    await db.batch(statements);
+    await db.transaction(async (client) => {
+      const results: QueryResult[] = [];
+      for (const query of statements) {
+        results.push(await client.query(query));
+      }
+      return results;
+    });
   } catch (acceptanceError) {
     const concurrentlyAcceptedBatch =
       await recoverAcceptedResearchBatchAfterWriteFailure({
@@ -254,7 +264,6 @@ export async function startCenterAgentMemberResearch(
   }
   return startCenterAgentMemberResearchResponseSchema.parse({ batch });
 }
-
 function requireAcceptanceIdempotencyKey(
   value: string | undefined
 ): string | null {
@@ -267,10 +276,9 @@ function requireAcceptanceIdempotencyKey(
   }
   return normalized;
 }
-
 async function readAcceptedResearchBatch(input: {
   acceptanceIdempotencyKey: string | null;
-  db: D1Database;
+  db: PostgresDatabase;
   directMessageSpaceId: string;
   organizationId: string;
   requesterProfileId: string;
@@ -282,28 +290,28 @@ async function readAcceptedResearchBatch(input: {
     return null;
   }
   const existingAcceptance = await input.db
-    .prepare(
-      `
+    .query<{
+      direct_message_space_id: string;
+      id: string;
+      requested_by_profile_id: string;
+      requested_by_user_id: string;
+      scope: "all" | "member";
+    }>({
+      text: `
         SELECT
           id,
           direct_message_space_id,
           requested_by_profile_id,
           requested_by_user_id,
           scope
-        FROM center_agent_member_research_batches
-        WHERE organization_id = ?
-          AND acceptance_idempotency_key = ?
+        FROM "openmeld"."center_agent_member_research_batches"
+        WHERE organization_id = $1
+          AND acceptance_idempotency_key = $2
         LIMIT 1
-      `
-    )
-    .bind(input.organizationId, input.acceptanceIdempotencyKey)
-    .first<{
-      direct_message_space_id: string;
-      id: string;
-      requested_by_profile_id: string;
-      requested_by_user_id: string;
-      scope: "all" | "member";
-    }>();
+      `,
+      values: [input.organizationId, input.acceptanceIdempotencyKey],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!existingAcceptance) {
     return null;
   }
@@ -337,7 +345,6 @@ async function readAcceptedResearchBatch(input: {
   }
   return existingBatch;
 }
-
 async function recoverAcceptedResearchBatchAfterWriteFailure(input: {
   acceptanceError: unknown;
   acceptanceLookup: Parameters<typeof readAcceptedResearchBatch>[0];
@@ -360,7 +367,6 @@ async function recoverAcceptedResearchBatchAfterWriteFailure(input: {
   }
   return concurrentlyAcceptedBatch;
 }
-
 export async function getCenterAgentMemberResearchStatus(
   env: CoreBindings,
   input: GetCenterAgentMemberResearchStatusRpcInput
@@ -386,17 +392,17 @@ export async function getCenterAgentMemberResearchStatus(
   }
   const db = requireResearchDb(env);
   const latest = await db
-    .prepare(
-      `
+    .query<ResearchBatchRow>({
+      text: `
         SELECT *
-        FROM center_agent_member_research_batches
-        WHERE organization_id = ?
-        ORDER BY created_at_ms DESC
+        FROM "openmeld"."center_agent_member_research_batches"
+        WHERE organization_id = $1
+        ORDER BY created_at_ms DESC NULLS LAST
         LIMIT 1
-      `
-    )
-    .bind(membership.organizationId)
-    .first<ResearchBatchRow>();
+      `,
+      values: [membership.organizationId],
+    })
+    .then((result) => result.rows[0] ?? null);
   return getCenterAgentMemberResearchStatusResponseSchema.parse({
     latestBatch: latest
       ? await readResearchBatchById({ batchId: latest.id, db })
@@ -404,25 +410,25 @@ export async function getCenterAgentMemberResearchStatus(
     organizationId: membership.organizationId,
   });
 }
-
 export async function runCenterAgentMemberResearchTick(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   nowMs?: number;
   submitDelivery?: SubmitMemberResearchDelivery;
 }): Promise<void> {
-  const activeBatches = await input.db
-    .prepare(
-      `
+  const activeBatches = await input.db.query<{
+    id: string;
+  }>({
+    text: `
         SELECT id
-        FROM center_agent_member_research_batches
+        FROM "openmeld"."center_agent_member_research_batches"
         WHERE status IN ('queued', 'running')
-        ORDER BY updated_at_ms ASC
+        ORDER BY updated_at_ms ASC NULLS FIRST
         LIMIT 25
-      `
-    )
-    .all<{ id: string }>();
-  for (const row of activeBatches.results) {
+      `,
+    values: [],
+  });
+  for (const row of activeBatches.rows) {
     await processResearchBatch({
       ...input,
       batchId: row.id,
@@ -432,15 +438,13 @@ export async function runCenterAgentMemberResearchTick(input: {
     });
   }
 }
-
 type ResearchBatchProcessorInput = {
   batchId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   nowMs: number;
   submitDelivery: SubmitMemberResearchDelivery;
 };
-
 async function processResearchBatch(
   input: ResearchBatchProcessorInput
 ): Promise<void> {
@@ -452,84 +456,83 @@ async function processResearchBatch(
     return;
   }
   const running = await input.db
-    .prepare(
-      `
+    .query<ResearchTaskRow>({
+      text: `
         SELECT *
-        FROM center_agent_member_research_tasks
-        WHERE batch_id = ? AND status = 'running'
-        ORDER BY position ASC
+        FROM "openmeld"."center_agent_member_research_tasks"
+        WHERE batch_id = $1 AND status = 'running'
+        ORDER BY position ASC NULLS FIRST
         LIMIT 1
-      `
-    )
-    .bind(input.batchId)
-    .first<ResearchTaskRow>();
+      `,
+      values: [input.batchId],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (running) {
     await processRunningResearchTask({ ...input, batch, task: running });
     return;
   }
-
   const next = await input.db
-    .prepare(
-      `
+    .query<{
+      id: string;
+    }>({
+      text: `
         SELECT id
-        FROM center_agent_member_research_tasks
-        WHERE batch_id = ? AND status = 'queued'
-        ORDER BY position ASC
+        FROM "openmeld"."center_agent_member_research_tasks"
+        WHERE batch_id = $1 AND status = 'queued'
+        ORDER BY position ASC NULLS FIRST
         LIMIT 1
-      `
-    )
-    .bind(input.batchId)
-    .first<{ id: string }>();
+      `,
+      values: [input.batchId],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!next) {
-    await input.db
-      .prepare(
-        `
-          UPDATE center_agent_member_research_batches
-          SET status = 'completed', updated_at_ms = ?
-          WHERE id = ?
+    await input.db.query({
+      text: `
+          UPDATE "openmeld"."center_agent_member_research_batches"
+          SET status = 'completed', updated_at_ms = $1
+          WHERE id = $2
             AND status IN ('queued', 'running')
             AND NOT EXISTS (
-              SELECT 1 FROM center_agent_member_research_tasks
-              WHERE batch_id = ? AND status IN ('queued', 'running')
+              SELECT 1 FROM "openmeld"."center_agent_member_research_tasks"
+              WHERE batch_id = $3 AND status IN ('queued', 'running')
             )
-        `
-      )
-      .bind(input.nowMs, input.batchId, input.batchId)
-      .run();
+        `,
+      values: [input.nowMs, input.batchId, input.batchId],
+    });
     return;
   }
-  const claimed = await input.db.batch([
-    input.db
-      .prepare(
-        `
-          UPDATE center_agent_member_research_tasks
-          SET status = 'running', started_at_ms = ?
-          WHERE id = ?
-            AND batch_id = ?
+  const claimed = await input.db.transaction(
+    async (client) =>
+      [
+        await client.query({
+          text: `
+          UPDATE "openmeld"."center_agent_member_research_tasks"
+          SET status = 'running', started_at_ms = $1
+          WHERE id = $2
+            AND batch_id = $3
             AND status = 'queued'
             AND NOT EXISTS (
-              SELECT 1 FROM center_agent_member_research_tasks
-              WHERE batch_id = ? AND status = 'running'
+              SELECT 1 FROM "openmeld"."center_agent_member_research_tasks"
+              WHERE batch_id = $4 AND status = 'running'
             )
-        `
-      )
-      .bind(input.nowMs, next.id, input.batchId, input.batchId),
-    input.db
-      .prepare(
-        `
-          UPDATE center_agent_member_research_batches
-          SET status = 'running', updated_at_ms = ?
-          WHERE id = ? AND status IN ('queued', 'running')
-        `
-      )
-      .bind(input.nowMs, input.batchId),
-  ]);
-  if (Number(claimed[0]?.meta?.changes ?? 0) !== 1) {
+        `,
+          values: [input.nowMs, next.id, input.batchId, input.batchId],
+        }),
+        await client.query({
+          text: `
+          UPDATE "openmeld"."center_agent_member_research_batches"
+          SET status = 'running', updated_at_ms = $1
+          WHERE id = $2 AND status IN ('queued', 'running')
+        `,
+          values: [input.nowMs, input.batchId],
+        }),
+      ] as const
+  );
+  if (Number(claimed[0].rowCount ?? 0) !== 1) {
     return;
   }
   await processResearchBatch(input);
 }
-
 async function processRunningResearchTask(
   input: {
     batch: ResearchBatchRow;
@@ -542,27 +545,29 @@ async function processRunningResearchTask(
   });
   if (delivery?.status === "completed") {
     const reportEvidence = await input.db
-      .prepare(
-        `
+      .query<{
+        1: number;
+      }>({
+        text: `
           SELECT 1
-          FROM organization_documents AS documents
-          INNER JOIN center_agent_member_research_computer_files AS files
+          FROM "openmeld"."organization_documents" AS documents
+          INNER JOIN "openmeld"."center_agent_member_research_computer_files" AS files
             ON files.document_id = documents.id
            AND files.task_id = documents.last_member_research_task_id
            AND files.subject_user_id = documents.subject_user_id
-          WHERE documents.organization_id = ?
+          WHERE documents.organization_id = $1
             AND documents.kind = 'member_profile'
-            AND documents.subject_user_id = ?
-            AND documents.last_member_research_task_id = ?
+            AND documents.subject_user_id = $2
+            AND documents.last_member_research_task_id = $3
           LIMIT 1
-        `
-      )
-      .bind(
-        input.batch.organization_id,
-        input.task.subject_user_id,
-        input.task.id
-      )
-      .first<{ 1: number }>();
+        `,
+        values: [
+          input.batch.organization_id,
+          input.task.subject_user_id,
+          input.task.id,
+        ],
+      })
+      .then((result) => result.rows[0] ?? null);
     await finishResearchTask({
       db: input.db,
       failureCode: reportEvidence
@@ -615,42 +620,41 @@ async function processRunningResearchTask(
     await processResearchBatch(input);
   }
 }
-
 async function finishResearchTask(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   failureCode: string | null;
   nowMs: number;
   taskId: string;
 }): Promise<void> {
-  await input.db.batch([
-    input.db
-      .prepare(
-        `
-          UPDATE center_agent_member_research_tasks
-          SET status = ?, failure_code = ?, finished_at_ms = ?
-          WHERE id = ? AND status = 'running'
-        `
-      )
-      .bind(
-        input.failureCode ? "failed" : "completed",
-        input.failureCode,
-        input.nowMs,
-        input.taskId
-      ),
-    input.db
-      .prepare(
-        `
-          UPDATE center_agent_member_research_batches
-          SET updated_at_ms = ?
+  await input.db.transaction(
+    async (client) =>
+      [
+        await client.query({
+          text: `
+          UPDATE "openmeld"."center_agent_member_research_tasks"
+          SET status = $1, failure_code = $2, finished_at_ms = $3
+          WHERE id = $4 AND status = 'running'
+        `,
+          values: [
+            input.failureCode ? "failed" : "completed",
+            input.failureCode,
+            input.nowMs,
+            input.taskId,
+          ],
+        }),
+        await client.query({
+          text: `
+          UPDATE "openmeld"."center_agent_member_research_batches"
+          SET updated_at_ms = $1
           WHERE id = (
-            SELECT batch_id FROM center_agent_member_research_tasks WHERE id = ?
+            SELECT batch_id FROM "openmeld"."center_agent_member_research_tasks" WHERE id = $2
           )
-        `
-      )
-      .bind(input.nowMs, input.taskId),
-  ]);
+        `,
+          values: [input.nowMs, input.taskId],
+        }),
+      ] as const
+  );
 }
-
 function toDeliveryInput(input: {
   batch: ResearchBatchRow;
   env: CoreBindings;
@@ -669,9 +673,8 @@ function toDeliveryInput(input: {
     taskId: input.task.id,
   };
 }
-
-function requireResearchDb(env: CoreBindings): D1Database {
-  const db = localStateDb(env);
+function requireResearchDb(env: CoreBindings): PostgresDatabase {
+  const db = getPostgresDatabase(env);
   if (!db) {
     throw createCoreRpcHttpError({
       code: "center_agent_member_research.store_unavailable",

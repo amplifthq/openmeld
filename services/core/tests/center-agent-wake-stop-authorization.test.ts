@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { Space } from "../src/space/transport/do/space";
+import { createProjectionPostgresBinding } from "../test-support/postgresql-query.test-support";
 
 const CENTER_ID = "agt_center";
 const SOURCE_ID = "sig-source";
@@ -13,27 +14,23 @@ function createSpace(
   const space = Object.create(Space.prototype) as Space;
   Reflect.set(space, "spaceId", "space-1");
   Reflect.set(space, "bindings", {
-    OPENMELD_DB: {
-      prepare: vi.fn(() => ({
-        bind: vi.fn(() => ({
-          first: vi.fn(async () =>
-            provenance !== "missing"
-              ? {
-                  action: "wake_agent_profiles_in_space",
-                  actor_profile_id: CENTER_ID,
-                  organization_id: "org-1",
-                  resource_type: "space",
-                  resource_id: "space-1",
-                  on_behalf_of_profile_id:
-                    provenance === "attributed" ? "human-1" : null,
-                  on_behalf_of_user_id:
-                    provenance === "attributed" ? "user-1" : null,
-                }
-              : null
-          ),
-        })),
-      })),
-    },
+    OPENMELD_POSTGRESQL: createProjectionPostgresBinding(() =>
+      provenance === "missing"
+        ? []
+        : [
+            {
+              action: "wake_agent_profiles_in_space",
+              actor_profile_id: CENTER_ID,
+              organization_id: "org-1",
+              resource_type: "space",
+              resource_id: "space-1",
+              on_behalf_of_profile_id:
+                provenance === "attributed" ? "human-1" : null,
+              on_behalf_of_user_id:
+                provenance === "attributed" ? "user-1" : null,
+            },
+          ]
+    ),
   });
   Reflect.set(
     space,

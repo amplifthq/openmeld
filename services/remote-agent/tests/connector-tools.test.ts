@@ -15,6 +15,7 @@ import {
   listOpenConnectorActions,
   searchOpenConnectorActions,
 } from "../connectors/open-connector-runtime";
+import { executeRemoteAgentToolDefinition } from "../flue-adapter/tool-execution";
 import {
   createRoutineTurnEnvelope,
   createSubmitTurnRequest,
@@ -45,6 +46,198 @@ const CONNECTOR_OPERATION_ATTRIBUTION = {
   },
 } as const;
 describe("Remote Agent generic App tools", () => {
+  it.each([
+    ["completed", "direct"],
+    ["failed", "direct"],
+    ["completed", "code_mode"],
+    ["failed", "code_mode"],
+  ] as const)("preserves a durable %s duplicate receipt through %s", async (status, source) => {
+    const action = {
+      ...capturedExecutableOpenConnectorAction,
+      effect: "write",
+      operationType: "write",
+    };
+    const provider = vi.fn<typeof fetch>(async () =>
+      Response.json({
+        success: true,
+        message: "OK",
+        data: [action],
+        meta: {},
+      })
+    );
+    const executionConnection = {
+      connectionName: "original-account",
+      service: "posthog" as const,
+      scope: "member" as const,
+      ownerUserId: "user_1",
+      ownerDisplayName: "Felix",
+    };
+    const storage = await createStorage(createSubmitTurnRequest());
+    const tools = getRemoteAgentConnectorToolDefinitions({
+      connectorExecution: {
+        baseUrl: "https://connectors.example.test",
+        fetch: provider,
+        runtimeToken: "fixture",
+      },
+      coreWorker: {
+        centerAgentReadConnectorActionOperation: vi.fn(async () => ({
+          operation: null,
+        })),
+        centerAgentResolveConnectorConnection: vi.fn(async () =>
+          connectionSelection({
+            ownerDisplayName: "Felix",
+            service: "posthog",
+            userId: "user_1",
+          })
+        ),
+        centerAgentRecordConnectorActionOperation: vi.fn(async () => ({
+          attribution: CONNECTOR_OPERATION_ATTRIBUTION,
+          executionConnection,
+          operationId: "original-write",
+          providerExecutionId: "provider-execution",
+          recorded: true,
+          replayed: true,
+          status,
+          executionAllowed: false,
+          replay: { allowed: false, reason: "operation_terminal" },
+        })) as never,
+      },
+      storage,
+      submissionId: ACK.submissionId,
+    });
+    const definition = tools.find(
+      (tool) => tool.name === "openmeld_execute_app_action"
+    );
+    if (!definition) {
+      throw new Error("Missing action tool");
+    }
+    const receipt = await executeRemoteAgentToolDefinition({
+      definition,
+      storage,
+      submissionId: ACK.submissionId,
+      source,
+      toolInput: {
+        service: "posthog",
+        actionId: action.id,
+        operationId: "replacement-id",
+        input: {},
+      },
+    });
+    expect(
+      provider.mock.calls.filter(([, init]) => init?.method === "POST")
+    ).toHaveLength(0);
+    expect(receipt).toMatchObject({
+      status,
+      operationId: "original-write",
+      executionConnection,
+      attribution: CONNECTOR_OPERATION_ATTRIBUTION,
+    });
+    expect(receipt).not.toHaveProperty("data");
+    expect(receipt).not.toHaveProperty("executionConfirmation", "executed");
+  });
+
+  it.each([
+    true,
+    false,
+  ])("requires Core's original-operation association before a verification read (supported: %s)", async (supported) => {
+    const action = {
+      ...capturedExecutableOpenConnectorAction,
+      effect: "read",
+      operationType: "read",
+    };
+    const reference = {
+      operationId: "original-write",
+      actionId: "posthog.create_dashboard",
+    };
+    const verification = {
+      ...reference,
+      requestSignature: "a".repeat(64),
+      status: "outcome_unknown",
+      interpretation: "read_evidence_only",
+      connection: {
+        connectionName: "org_aaaaaaaaaaaaaaaaaa__member__user_1__posthog",
+        ownerDisplayName: "Felix",
+        ownerUserId: "user_1",
+        scope: "member",
+        service: "posthog",
+      },
+    };
+    const provider = vi.fn<typeof fetch>((_url, init) =>
+      Promise.resolve(
+        Response.json(
+          init?.method === "POST"
+            ? {
+                success: true,
+                message: "OK",
+                data: [],
+                meta: {
+                  actionId: action.id,
+                  executionId: "verification-read",
+                  auditPersisted: true,
+                },
+                outputSchema: action.outputSchema,
+              }
+            : { success: true, message: "OK", data: [action], meta: {} }
+        )
+      )
+    );
+    const record = vi.fn(async (entry: { outcome: string }) => ({
+      attribution: CONNECTOR_OPERATION_ATTRIBUTION,
+      operationId: "verification-read",
+      providerExecutionId: null,
+      recorded: true,
+      replayed: false,
+      status: entry.outcome === "attempted" ? "pending" : "completed",
+      ...(supported ? { verificationOf: verification } : {}),
+    }));
+    const tools = getRemoteAgentConnectorToolDefinitions({
+      connectorExecution: {
+        baseUrl: "https://connectors.example.test",
+        fetch: provider,
+        runtimeToken: "fixture",
+      },
+      coreWorker: {
+        centerAgentReadConnectorActionOperation: vi.fn(async () => ({
+          operation: null,
+        })),
+        centerAgentRecordConnectorActionOperation: record as never,
+        centerAgentResolveConnectorConnection: vi.fn(async () =>
+          connectionSelection({
+            ownerDisplayName: "Felix",
+            service: "posthog",
+            userId: "user_1",
+          })
+        ),
+      },
+      storage: await createStorage(createSubmitTurnRequest()),
+      submissionId: ACK.submissionId,
+    });
+    const invoke = executeTool(tools, "openmeld_execute_app_action", {
+      service: "posthog",
+      actionId: action.id,
+      operationId: "verification-read",
+      input: {},
+      verificationOf: reference,
+    });
+    if (supported) {
+      await expect(invoke).resolves.toMatchObject({
+        data: [],
+        verificationOf: verification,
+      });
+    } else {
+      await expect(invoke).rejects.toThrow("plugin.verification_unavailable");
+    }
+    expect(record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        verificationOf: reference,
+        effect: "read",
+        outcome: "attempted",
+      })
+    );
+    expect(
+      provider.mock.calls.filter(([, init]) => init?.method === "POST")
+    ).toHaveLength(supported ? 1 : 0);
+  });
   it.each([
     "old_core",
     "expired",
@@ -887,6 +1080,7 @@ describe("Remote Agent generic App tools", () => {
         centerAgentRecordConnectorActionOperation: vi.fn(
           async (input: { outcome: string }) => ({
             attribution: CONNECTOR_OPERATION_ATTRIBUTION,
+            executionAllowed: input.outcome === "attempted",
             operationId: "identity-operation",
             providerExecutionId:
               input.outcome === "attempted" ? null : "provider-identity-test",
@@ -971,6 +1165,7 @@ describe("Remote Agent generic App tools", () => {
     const centerAgentRecordConnectorActionOperation = vi.fn(
       async (entry: { outcome: string }) => ({
         attribution: CONNECTOR_OPERATION_ATTRIBUTION,
+        executionAllowed: entry.outcome === "attempted",
         operationId,
         providerExecutionId:
           entry.outcome === "attempted" ? null : providerExecutionId,
@@ -1208,6 +1403,7 @@ describe("Remote Agent generic App tools", () => {
     const centerAgentRecordConnectorActionOperation = vi.fn(
       async (entry: { outcome: string }) => ({
         replayWindowRemainingMs,
+        executionAllowed: entry.outcome === "attempted",
         attribution: CONNECTOR_OPERATION_ATTRIBUTION,
         executionConnection: {
           connectionName,
@@ -1479,6 +1675,7 @@ describe("Remote Agent generic App tools", () => {
       async (entry: { outcome: string }) => ({
         attribution: CONNECTOR_OPERATION_ATTRIBUTION,
         operationId,
+        executionAllowed: entry.outcome === "attempted",
         providerExecutionId:
           entry.outcome === "attempted" ? null : providerExecutionId,
         recorded: true,
@@ -1575,6 +1772,7 @@ describe("Remote Agent generic App tools", () => {
     const centerAgentRecordConnectorActionOperation = vi.fn(
       async (entry: { outcome: string }) => ({
         attribution: CONNECTOR_OPERATION_ATTRIBUTION,
+        executionAllowed: entry.outcome === "attempted",
         operationId,
         providerExecutionId:
           entry.outcome === "attempted" ? null : providerExecutionId,
@@ -1679,7 +1877,7 @@ describe("Remote Agent generic App tools", () => {
     const centerAgentReadConnectorActionOperation = vi
       .fn()
       .mockResolvedValueOnce({ operation: null })
-      .mockResolvedValueOnce({
+      .mockResolvedValue({
         operation: {
           actionId: action.id,
           connectionName,
@@ -1784,7 +1982,7 @@ describe("Remote Agent generic App tools", () => {
         })
       );
     }
-    expect(centerAgentReadConnectorActionOperation).toHaveBeenCalledTimes(2);
+    expect(centerAgentReadConnectorActionOperation).toHaveBeenCalledTimes(3);
     expect(centerAgentResolveConnectorConnection).toHaveBeenCalledTimes(1);
     expect(centerAgentRecordConnectorActionOperation).toHaveBeenCalledTimes(4);
     expect(

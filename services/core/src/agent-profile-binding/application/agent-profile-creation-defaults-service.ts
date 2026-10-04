@@ -1,4 +1,5 @@
 import { parseAgentControllerRef } from "@openmeld/agent-runtime";
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import type {
   AgentProfileCreationPreferenceSelection,
   ModelCatalog,
@@ -9,8 +10,7 @@ import { createCoreRpcHttpError } from "../../rpc/errors";
 import {
   type AgentProfileCreationDefaultsRecord,
   upsertAgentProfileCreationDefaultsRecord,
-} from "../infrastructure/d1/agent-profile-creation-defaults-repo";
-
+} from "../infrastructure/postgresql/agent-profile-creation-defaults-repo";
 export function resolveFirstUseAgentProfileCreationDefaults(input: {
   agentControllerRef: string;
   modelCatalog: ModelCatalog;
@@ -41,10 +41,9 @@ export function resolveFirstUseAgentProfileCreationDefaults(input: {
       : null;
   return { modelId: defaultModel.id, reasoningLevel };
 }
-
 export async function rememberAgentProfileCreationDefaults(input: {
   agentControllerRef: string;
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs: number;
   organizationId: string;
   selection: AgentProfileCreationPreferenceSelection;
@@ -67,7 +66,6 @@ export async function rememberAgentProfileCreationDefaults(input: {
       });
     }
   }
-
   return await upsertAgentProfileCreationDefaultsRecord({
     ...input.selection,
     agentControllerRef: input.agentControllerRef,

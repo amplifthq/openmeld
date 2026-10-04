@@ -1006,6 +1006,11 @@ free):
   different `agentControllerRef`, clear `model_id` / `reasoning_level` (they
   reset to the new controller's default).
 
+When a Local Agent has no saved model selection, its configuration summary says
+`Controller default`. The catalog default describes new chats, not an observed
+model in an existing chat. The configuration explanation makes this distinction
+explicit. Only execution evidence may identify the model actually used by a turn.
+
 These are **optional, additive** fields. Because the catalog is a separate file
 and `conversationPolicy` already has the `model`/`reasoningLevel` slots, this
 feature does **not** add a field to a strict shared schema in a way that could

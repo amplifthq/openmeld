@@ -43,6 +43,73 @@ afterEach(() => {
 });
 
 describe("Gateway connector connection routes", () => {
+  it("routes only typed JSON Plugin decisions to the current account's Core owner", async () => {
+    const requestId = "00000000-0000-4000-8000-000000000001";
+    const pluginActionRequest = vi.fn(async () => ({
+      requestId,
+      inboxItemId: "private-inbox-item",
+      state: "pending",
+      service: "posthog",
+      actionId: "create_project",
+      effect: "write",
+      accountName: "Synthetic member",
+      accountScope: "member",
+      actorProfileId: "agent",
+      inputFieldCount: 1,
+      targets: [{ label: "project", value: "synthetic" }],
+      createdAtMs: 1,
+      expiresAtMs: 2,
+    }));
+    const environment = makeEnv({ pluginActionRequest });
+    const invoke = (body: unknown, contentType = "application/json") =>
+      app.fetch(
+        new Request(
+          "http://local/v1/organizations/current/plugins/action-requests?expectedOrganizationId=org-1",
+          {
+            method: "POST",
+            headers: { "content-type": contentType },
+            body: JSON.stringify(body),
+          }
+        ),
+        environment,
+        TEST_EXECUTION_CONTEXT
+      );
+    expect((await invoke({ operation: "read", requestId })).status).toBe(200);
+    expect(pluginActionRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedOrganizationId: "org-1",
+        command: { operation: "read", requestId },
+        context: expect.objectContaining({ activeOrganizationId: "org-1" }),
+      })
+    );
+    pluginActionRequest.mockClear();
+    for (const body of [
+      { operation: "send_code", requestId },
+      {
+        operation: "approve",
+        requestId,
+        code: "synthetic",
+        userId: "another-user",
+      },
+      {
+        operation: "approve",
+        requestId,
+        code: "synthetic",
+        input: { target: "other" },
+      },
+    ]) {
+      expect((await invoke(body)).status).toBe(400);
+    }
+    expect(
+      (
+        await invoke(
+          { operation: "approve", requestId, code: "synthetic" },
+          "text/plain"
+        )
+      ).status
+    ).toBe(400);
+    expect(pluginActionRequest).not.toHaveBeenCalled();
+  });
   it("scopes a private channel request to the authenticated organization and keeps preview separate from explicit continuation", async () => {
     const previewPluginChannelConnection = vi.fn(async () => ({
       requestId: "request",

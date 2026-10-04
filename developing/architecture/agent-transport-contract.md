@@ -344,15 +344,31 @@ Independent workstation tasks use Core-assigned Execution Contexts. Core admits
 at most five contexts for one Agent Profile, with one writer per context and
 at most 50 waiting Wakes. Legacy work without a context drains exclusively.
 New work and forks may select a context explicitly. An ordinary Claude Code
-Wake in parallel mode implicitly selects a new isolated Space-only context when
-it has no retained context; a retained or explicitly Space-only context keeps
-its selected access. An ordinary Codex Wake with no retained context keeps the
+Wake in parallel mode implicitly selects an independent native context when
+it has no retained context; a retained or explicitly restricted context keeps
+its selected access. An ordinary Codex or Claude Wake with no retained context keeps the
 Profile's effective working folder through a current-folder workspace context;
 it never silently changes to a Space-only scratch directory merely because the
 Profile has already entered context mode. Every selection is scoped to the exact requester,
 Organization, Space, discussion, Profile, Binding, and Runtime.
 Admission freezes both the context assignment and a decision to retain legacy
 continuity. Linking an execution or redriving a Wake cannot assign it again.
+
+Conversation isolation does not imply a new filesystem boundary. For a new
+Codex or Claude context, omitted access preferences inherit the Profile's current
+native permission mode intersected with the current Computer File Access policy.
+Core records `permissionSource: agent_settings` independently of workspace and
+conversation identity. A current folder is a starting location, not an implicit
+allowlist. Explicit `space_context`, `read_only`, and `workspace` preferences
+retain their existing task boundary. A fork retains its source restriction;
+legacy assignments without a permission source are never silently widened.
+This default applies to every authorized requester, including teammates and
+Agent delegation. Requester ownership informs disclosure judgment, not native
+tool availability. Core requires the Service's
+`executionContextPermissionInheritance` capability.
+The Service reuses ordinary Computer policy admission for inherited permissions.
+Context identity, history-loss failure, writer admission, and process ownership
+remain enforced even when no extra filesystem boundary is required.
 
 Core retains each accepted Wake's context association and completed native
 history checkpoint independently of the in-flight Head lifecycle. Head retirement
@@ -736,6 +752,17 @@ Important execution rules:
   member names, and other signed-in accounts are not ownership evidence. Use
   this ordinary policy for viewer-scoped progress eligibility and the ordinary
   Stop mutation, before native or workstation cancellation side effects.
+- Progress may carry an exact `dispatchId` within the source/Profile selector.
+  Space verifies that dispatch against the same source, Space and target before
+  invoking its existing execution owner. This lets a resumed parent stop its
+  current native continuation without selecting the completed original turn.
+  An exact miss never falls back to another Wake or a pre-send fence. Stop
+  acceptance remains distinct from an acknowledged stopped outcome and does
+  not undo external effects that already occurred.
+- Local queued input may reserve the exact admitted run during startup. That
+  read supplies the existing Space queue's identity and never sends input to
+  the controller. Applying a steer still requires the current run to be running.
+  Terminal, withdrawn, stopped, replaced and mismatched runs remain rejected.
 - A designated Organization Center Agent may request Stop for a member
   verified by its current native delivery. Space grants the represented member
   ordinary source-account or target-owner authority, or authority over an exact

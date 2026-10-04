@@ -7,8 +7,6 @@ const SLUG_EDGE_SEPARATOR_PATTERN = /^-|-$/g;
 const SLUG_PART_PATTERN = /[^a-z0-9]+/g;
 const SLUG_REPEAT_SEPARATOR_PATTERN = /-+/g;
 const SLUG_SEPARATOR = "-";
-const SQLITE_ORGANIZATION_SLUG_CONSTRAINT =
-  "UNIQUE constraint failed: organizations.slug";
 
 const RESERVED_ORGANIZATION_SLUGS = new Set([
   "accept-invitation",
@@ -135,9 +133,7 @@ export function isOrganizationSlugConflictError(error: unknown): boolean {
     return true;
   }
 
-  return readErrorMessages(error).some((message) =>
-    message.includes(SQLITE_ORGANIZATION_SLUG_CONSTRAINT)
-  );
+  return isPostgresUniqueViolation(error, "organizations_slug_uidx");
 }
 
 export function assertManualOrganizationSlugAllowed(slug: unknown): string {
@@ -212,23 +208,4 @@ function readErrorText(error: unknown, key: string): string | null {
   return typeof value === "string" ? value : null;
 }
 
-function readErrorMessages(error: unknown): string[] {
-  const messages: string[] = [];
-  let current = error;
-  for (let depth = 0; depth < 3; depth += 1) {
-    if (current instanceof Error) {
-      messages.push(current.message);
-      current = current.cause;
-      continue;
-    }
-    if (!(current && typeof current === "object")) {
-      break;
-    }
-    const message = readErrorText(current, "message");
-    if (message) {
-      messages.push(message);
-    }
-    current = "cause" in current ? current.cause : null;
-  }
-  return messages;
-}
+import { isPostgresUniqueViolation } from "@openmeld/db/postgresql";

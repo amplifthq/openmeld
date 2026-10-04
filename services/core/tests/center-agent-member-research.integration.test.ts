@@ -1,4 +1,6 @@
 import { env } from "cloudflare:test";
+import type { QueryResult } from "@openmeld/db/postgresql";
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import {
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
   HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
@@ -29,7 +31,7 @@ import {
   markRemoteAgentNativeDeliveryAck,
   markRemoteAgentNativeDeliveryCompleted,
   upsertRemoteAgentNativeDeliveryRecord,
-} from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+} from "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import { rpcCenterAgentStartSelfMemberResearch } from "../src/rpc/methods";
 
 describe("Center Agent member research", () => {
@@ -39,7 +41,6 @@ describe("Center Agent member research", () => {
       subjectDisplayName: "Morgan Lee",
       subjectUserId: "user-morgan",
     });
-
     expect(instructions).toContain("Morgan Lee (userId: user-morgan)");
     expect(instructions).toContain("shared GitHub connection");
     expect(instructions).toContain("Slack workspace directory metadata");
@@ -84,12 +85,12 @@ describe("Center Agent member research", () => {
     );
     expect(instructions).toContain("For insufficient_evidence");
   });
-
   it("lets any active human Organization member accept a single-member research task and audits it", async () => {
     const fixture = await seedResearchFixture();
-    const coreEnv = { OPENMELD_DB: env.OPENMELD_DB } as CoreBindings;
+    const coreEnv = {
+      OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL,
+    } as CoreBindings;
     const nowMs = Date.UTC(2026, 7, 14, 3, 45);
-
     const accepted = await startCenterAgentMemberResearch(
       coreEnv,
       {
@@ -101,7 +102,6 @@ describe("Center Agent member research", () => {
       `ca_dm_${fixture.suffix}`,
       { nowMs }
     );
-
     expect(accepted.batch).toMatchObject({
       completedCount: 0,
       failedCount: 0,
@@ -116,27 +116,30 @@ describe("Center Agent member research", () => {
     });
     expect(accepted.batch.createdAt).toBe(new Date(nowMs).toISOString());
     expect(accepted.batch.updatedAt).toBe(new Date(nowMs).toISOString());
-    const audit = await env.OPENMELD_DB.prepare(
-      `
-        SELECT action, on_behalf_of_user_id, resource_type, resource_id
-        FROM center_agent_audit_journal
-        WHERE organization_id = ?
-      `
-    )
-      .bind(fixture.organizationId)
-      .first<{
+    const audit = await getPostgresDatabase(env)
+      .query<{
         action: string;
         on_behalf_of_user_id: string;
         resource_id: string;
         resource_type: string;
-      }>();
+      }>({
+        ...{
+          text: `
+        SELECT action, on_behalf_of_user_id, resource_type, resource_id
+        FROM "openmeld"."center_agent_audit_journal"
+        WHERE organization_id = $1
+      `,
+          values: [],
+        },
+        values: [fixture.organizationId],
+      })
+      .then((result) => result.rows[0] ?? null);
     expect(audit).toEqual({
       action: "research_member",
       on_behalf_of_user_id: fixture.requester.userId,
       resource_id: accepted.batch.tasks[0]?.id,
       resource_type: "member_research_task",
     });
-
     await expect(
       startCenterAgentMemberResearch(
         coreEnv,
@@ -156,16 +159,19 @@ describe("Center Agent member research", () => {
         `ca_dm_${fixture.suffix}`
       )
     ).rejects.toMatchObject({ cause: { status: 403 } });
-    await env.OPENMELD_DB.prepare(
-      "DELETE FROM center_agent_member_research_batches WHERE id = ?"
-    )
-      .bind(accepted.batch.id)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'DELETE FROM "openmeld"."center_agent_member_research_batches" WHERE id = $1',
+        values: [],
+      },
+      values: [accepted.batch.id],
+    });
   });
-
   it("returns the same accepted research task for one internal onboarding request", async () => {
     const fixture = await seedResearchFixture();
-    const coreEnv = { OPENMELD_DB: env.OPENMELD_DB } as CoreBindings;
+    const coreEnv = {
+      OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL,
+    } as CoreBindings;
     const request = {
       context: humanContext(fixture, fixture.requester),
       expectedOrganizationId: fixture.organizationId,
@@ -173,53 +179,76 @@ describe("Center Agent member research", () => {
       subjectUserId: fixture.requester.userId,
     };
     const acceptanceIdempotencyKey = `slack-welcome:${fixture.suffix}`;
-
     const first = await startCenterAgentMemberResearch(
       coreEnv,
       request,
       `ca_dm_${fixture.suffix}`,
       { acceptanceIdempotencyKey, nowMs: 1000 }
     );
-    await env.OPENMELD_DB.batch([
-      env.OPENMELD_DB.prepare(
-        `UPDATE center_agent_member_research_tasks
+    await getPostgresDatabase(env).transaction(async (client) =>
+      (async () => {
+        const results: QueryResult[] = [];
+        for (const query of [
+          {
+            ...{
+              text: `UPDATE "openmeld"."center_agent_member_research_tasks"
          SET status = 'completed', started_at_ms = 2000, finished_at_ms = 3000
-         WHERE batch_id = ?`
-      ).bind(first.batch.id),
-      env.OPENMELD_DB.prepare(
-        `UPDATE center_agent_member_research_batches
+         WHERE batch_id = $1`,
+              values: [],
+            },
+            values: [first.batch.id],
+          },
+          {
+            ...{
+              text: `UPDATE "openmeld"."center_agent_member_research_batches"
          SET status = 'completed', updated_at_ms = 3000
-         WHERE id = ?`
-      ).bind(first.batch.id),
-    ]);
+         WHERE id = $1`,
+              values: [],
+            },
+            values: [first.batch.id],
+          },
+        ]) {
+          results.push(await client.query(query));
+        }
+        return results;
+      })()
+    );
     const recovered = await startCenterAgentMemberResearch(
       coreEnv,
       request,
       `ca_dm_${fixture.suffix}`,
       { acceptanceIdempotencyKey }
     );
-
     expect(recovered.batch.id).toBe(first.batch.id);
     expect(recovered.batch.status).toBe("completed");
     expect(recovered.batch.tasks[0]?.id).toBe(first.batch.tasks[0]?.id);
-    const batchCount = await env.OPENMELD_DB.prepare(
-      `SELECT COUNT(*) AS count
-        FROM center_agent_member_research_batches
-        WHERE organization_id = ?`
-    )
-      .bind(fixture.organizationId)
-      .first<{ count: number }>();
+    const batchCount = await getPostgresDatabase(env)
+      .query<{
+        count: number;
+      }>({
+        ...{
+          text: `SELECT COUNT(*) AS count
+        FROM "openmeld"."center_agent_member_research_batches"
+        WHERE organization_id = $1`,
+          values: [],
+        },
+        values: [fixture.organizationId],
+      })
+      .then((result) => result.rows[0] ?? null);
     expect(batchCount?.count).toBe(1);
-    await env.OPENMELD_DB.prepare(
-      "DELETE FROM center_agent_member_research_batches WHERE id = ?"
-    )
-      .bind(first.batch.id)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'DELETE FROM "openmeld"."center_agent_member_research_batches" WHERE id = $1',
+        values: [],
+      },
+      values: [first.batch.id],
+    });
   });
-
   it("returns one accepted research task when the same onboarding request races", async () => {
     const fixture = await seedResearchFixture();
-    const coreEnv = { OPENMELD_DB: env.OPENMELD_DB } as CoreBindings;
+    const coreEnv = {
+      OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL,
+    } as CoreBindings;
     const request = {
       context: humanContext(fixture, fixture.requester),
       expectedOrganizationId: fixture.organizationId,
@@ -227,7 +256,6 @@ describe("Center Agent member research", () => {
       subjectUserId: fixture.requester.userId,
     };
     const acceptanceIdempotencyKey = `slack-welcome-race:${fixture.suffix}`;
-
     const [first, second] = await Promise.all([
       startCenterAgentMemberResearch(
         coreEnv,
@@ -242,29 +270,34 @@ describe("Center Agent member research", () => {
         { acceptanceIdempotencyKey, nowMs: 1001 }
       ),
     ]);
-
     expect(second.batch.id).toBe(first.batch.id);
     expect(second.batch.tasks[0]?.id).toBe(first.batch.tasks[0]?.id);
-    const batchCount = await env.OPENMELD_DB.prepare(
-      `SELECT COUNT(*) AS count
-        FROM center_agent_member_research_batches
-        WHERE organization_id = ?`
-    )
-      .bind(fixture.organizationId)
-      .first<{ count: number }>();
+    const batchCount = await getPostgresDatabase(env)
+      .query<{
+        count: number;
+      }>({
+        ...{
+          text: `SELECT COUNT(*) AS count
+        FROM "openmeld"."center_agent_member_research_batches"
+        WHERE organization_id = $1`,
+          values: [],
+        },
+        values: [fixture.organizationId],
+      })
+      .then((result) => result.rows[0] ?? null);
     expect(batchCount?.count).toBe(1);
-    await env.OPENMELD_DB.prepare(
-      "DELETE FROM center_agent_member_research_batches WHERE id = ?"
-    )
-      .bind(first.batch.id)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'DELETE FROM "openmeld"."center_agent_member_research_batches" WHERE id = $1',
+        values: [],
+      },
+      values: [first.batch.id],
+    });
   });
-
   it("lets a verified member ask the hosted Center Agent to learn about themselves", async () => {
     const fixture = await seedResearchFixture();
     const coreEnv = buildResearchDeliveryEnv(fixture);
     const nowMs = Date.UTC(2026, 7, 15, 3, 45);
-
     const accepted = await rpcCenterAgentStartSelfMemberResearch(
       coreEnv,
       {
@@ -281,7 +314,6 @@ describe("Center Agent member research", () => {
         }),
       }
     );
-
     expect(accepted.batch).toMatchObject({
       organizationId: fixture.organizationId,
       scope: "member",
@@ -302,16 +334,19 @@ describe("Center Agent member research", () => {
         },
       })
     ).rejects.toMatchObject({ cause: { status: 403 } });
-    await env.OPENMELD_DB.prepare(
-      "DELETE FROM center_agent_member_research_batches WHERE id = ?"
-    )
-      .bind(accepted.batch.id)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'DELETE FROM "openmeld"."center_agent_member_research_batches" WHERE id = $1',
+        values: [],
+      },
+      values: [accepted.batch.id],
+    });
   });
-
   it("runs all members serially and continues after one delivery fails", async () => {
     const fixture = await seedResearchFixture();
-    const coreEnv = { OPENMELD_DB: env.OPENMELD_DB } as CoreBindings;
+    const coreEnv = {
+      OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL,
+    } as CoreBindings;
     const accepted = await startCenterAgentMemberResearch(
       coreEnv,
       {
@@ -328,14 +363,12 @@ describe("Center Agent member research", () => {
         status: "failed" as const,
       })
       .mockResolvedValueOnce({ status: "submitted" as const });
-
     await runCenterAgentMemberResearchTick({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       env: coreEnv,
       nowMs: Date.now() + 1000,
       submitDelivery,
     });
-
     expect(submitDelivery).toHaveBeenCalledTimes(2);
     expect(submitDelivery.mock.calls[0]?.[0].subjectUserId).toBe(
       accepted.batch.tasks[0]?.subjectUserId
@@ -360,27 +393,31 @@ describe("Center Agent member research", () => {
         { failureCode: null, status: "queued" },
       ],
     });
-    const auditCount = await env.OPENMELD_DB.prepare(
-      `
+    const auditCount = await getPostgresDatabase(env)
+      .query<{
+        count: number;
+      }>({
+        ...{
+          text: `
         SELECT COUNT(*) AS count
-        FROM center_agent_audit_journal
-        WHERE organization_id = ? AND action = 'research_member'
-      `
-    )
-      .bind(fixture.organizationId)
-      .first<{ count: number }>();
+        FROM "openmeld"."center_agent_audit_journal"
+        WHERE organization_id = $1 AND action = 'research_member'
+      `,
+          values: [],
+        },
+        values: [fixture.organizationId],
+      })
+      .then((result) => result.rows[0] ?? null);
     expect(auditCount?.count).toBe(4);
   });
-
   it("returns a terminal failure when member research selects an unknown model", async () => {
     const fixture = await seedResearchFixture();
     const authority = await seedResearchDeliveryAuthority(fixture, {
       modelId: "openrouter/not-in-the-catalog",
     });
-
     await expect(
       submitRemoteAgentMemberResearchDelivery({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         directMessageSpaceId: authority.directMessageSpaceId,
         env: buildResearchDeliveryEnv(fixture),
         nowMs: 2000,
@@ -395,10 +432,11 @@ describe("Center Agent member research", () => {
       status: "failed",
     });
   });
-
   it("retries an unacknowledged member research submission with the same task identity", async () => {
     const fixture = await seedResearchFixture();
-    const coreEnv = { OPENMELD_DB: env.OPENMELD_DB } as CoreBindings;
+    const coreEnv = {
+      OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL,
+    } as CoreBindings;
     const accepted = await startCenterAgentMemberResearch(
       coreEnv,
       {
@@ -414,9 +452,8 @@ describe("Center Agent member research", () => {
       throw new Error("Expected one accepted member research task.");
     }
     const submitDelivery = vi.fn().mockResolvedValue({ status: "submitted" });
-
     await runCenterAgentMemberResearchTick({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       env: coreEnv,
       nowMs: Date.now() + 1000,
       submitDelivery,
@@ -424,7 +461,7 @@ describe("Center Agent member research", () => {
     await upsertRemoteAgentNativeDeliveryRecord({
       attemptId: null,
       bindingId: `binding_${fixture.suffix}`,
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       dispatchId: task.id,
       idempotencyKey: task.id,
       nowMs: Date.now() + 1001,
@@ -434,21 +471,18 @@ describe("Center Agent member research", () => {
       status: "submitted",
       triggerMessageId: task.id,
     });
-
     await runCenterAgentMemberResearchTick({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       env: coreEnv,
       nowMs: Date.now() + 2000,
       submitDelivery,
     });
-
     const taskSubmissions = submitDelivery.mock.calls.filter(
       ([input]) => input.taskId === task.id
     );
     expect(taskSubmissions).toHaveLength(2);
     expect(taskSubmissions[1]?.[0].taskId).toBe(task.id);
   });
-
   it("keeps durable draft-origin evidence after the reviewable draft is cleared", async () => {
     const fixture = await seedResearchFixture();
     const coreEnv = buildResearchDeliveryEnv(fixture);
@@ -469,7 +503,7 @@ describe("Center Agent member research", () => {
       throw new Error("Expected one accepted member research task.");
     }
     await runCenterAgentMemberResearchTick({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       env: coreEnv,
       nowMs: startedAtMs,
       submitDelivery: vi.fn().mockResolvedValue({ status: "submitted" }),
@@ -477,7 +511,7 @@ describe("Center Agent member research", () => {
     await upsertRemoteAgentNativeDeliveryRecord({
       attemptId: null,
       bindingId: `binding_${fixture.suffix}`,
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       dispatchId: task.id,
       idempotencyKey: task.id,
       nowMs: startedAtMs,
@@ -490,14 +524,14 @@ describe("Center Agent member research", () => {
     const submissionId = `submission_${fixture.suffix}`;
     await markRemoteAgentNativeDeliveryAck({
       accepted: true,
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       idempotencyKey: task.id,
       nowMs: startedAtMs + 1,
       submissionId,
     });
     await expect(
       requireCenterAgentMemberResearchDraftTarget({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         kind: "member_profile",
         organizationId: fixture.organizationId,
         submissionId,
@@ -506,7 +540,7 @@ describe("Center Agent member research", () => {
       })
     ).rejects.toMatchObject({ cause: { status: 409 } });
     await requireCenterAgentMemberResearchDraftTarget({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       kind: "member_profile",
       organizationId: fixture.organizationId,
       submissionId,
@@ -514,7 +548,7 @@ describe("Center Agent member research", () => {
       taskId: task.id,
     });
     const documentService = createOrganizationDocumentService({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       now: () => documentNowMs,
     });
     const draftInput = {
@@ -555,11 +589,17 @@ describe("Center Agent member research", () => {
         status: 422,
       },
     });
-    const unauthorizedDraftCount = await env.OPENMELD_DB.prepare(
-      "SELECT COUNT(*) AS count FROM organization_documents WHERE organization_id = ? AND kind = 'member_profile'"
-    )
-      .bind(fixture.organizationId)
-      .first<{ count: number }>();
+    const unauthorizedDraftCount = await getPostgresDatabase(env)
+      .query<{
+        count: number;
+      }>({
+        ...{
+          text: 'SELECT COUNT(*) AS count FROM "openmeld"."organization_documents" WHERE organization_id = $1 AND kind = \'member_profile\'',
+          values: [],
+        },
+        values: [fixture.organizationId],
+      })
+      .then((result) => result.rows[0] ?? null);
     expect(unauthorizedDraftCount?.count).toBe(0);
     const drafted = await rpcCenterAgentDraftOrganizationDocument(coreEnv, {
       context: {
@@ -583,11 +623,17 @@ describe("Center Agent member research", () => {
     expect(drafted.memberResearchDraft?.content).toContain(
       "## Research coverage"
     );
-    const storedTaskResult = await env.OPENMELD_DB.prepare(
-      "SELECT report_result FROM center_agent_member_research_tasks WHERE id = ?"
-    )
-      .bind(task.id)
-      .first<{ report_result: string }>();
+    const storedTaskResult = await getPostgresDatabase(env)
+      .query<{
+        report_result: string;
+      }>({
+        ...{
+          text: 'SELECT report_result FROM "openmeld"."center_agent_member_research_tasks" WHERE id = $1',
+          values: [],
+        },
+        values: [task.id],
+      })
+      .then((result) => result.rows[0] ?? null);
     expect(storedTaskResult).toEqual({
       report_result: "insufficient_evidence",
     });
@@ -595,43 +641,54 @@ describe("Center Agent member research", () => {
     if (!expectedReportDate) {
       throw new Error("Expected the Profile Report date.");
     }
-    const storedReport = await env.OPENMELD_DB.prepare(
-      `
-        SELECT title, folder_id, profile_report_date, profile_report_type
-        FROM organization_documents
-        WHERE id = ?
-      `
-    )
-      .bind(drafted.document.id)
-      .first<{
+    const storedReport = await getPostgresDatabase(env)
+      .query<{
         folder_id: string;
         profile_report_date: string;
         profile_report_type: string;
         title: string;
-      }>();
+      }>({
+        ...{
+          text: `
+        SELECT title, folder_id, profile_report_date, profile_report_type
+        FROM "openmeld"."organization_documents"
+        WHERE id = $1
+      `,
+          values: [],
+        },
+        values: [drafted.document.id],
+      })
+      .then((result) => result.rows[0] ?? null);
     expect(storedReport).toMatchObject({
       profile_report_date: expectedReportDate,
       profile_report_type: "work_profile",
       title: `${expectedReportDate} — Work Profile`,
     });
-    const folderPath = await env.OPENMELD_DB.prepare(
-      `
+    const folderPath = await getPostgresDatabase(env)
+      .query<{
+        person_name: string;
+        root_name: string;
+      }>({
+        ...{
+          text: `
         SELECT person.name AS person_name, root.name AS root_name
-        FROM organization_document_folders person
-        INNER JOIN organization_document_folders root
+        FROM "openmeld"."organization_document_folders" person
+        INNER JOIN "openmeld"."organization_document_folders" root
           ON root.id = person.parent_folder_id
-        WHERE person.id = ?
-      `
-    )
-      .bind(storedReport?.folder_id)
-      .first<{ person_name: string; root_name: string }>();
+        WHERE person.id = $1
+      `,
+          values: [],
+        },
+        values: [storedReport?.folder_id],
+      })
+      .then((result) => result.rows[0] ?? null);
     expect(folderPath).toEqual({
       person_name: fixture.requester.displayName,
       root_name: "Profile Reports",
     });
     await expect(
       recordCenterAgentMemberResearchComputerFile({
-        db: env.OPENMELD_DB,
+        db: getPostgresDatabase(env),
         documentId: drafted.document.id,
         nowMs: startedAtMs + 2,
         organizationId: fixture.organizationId,
@@ -647,7 +704,7 @@ describe("Center Agent member research", () => {
       },
     });
     await recordCenterAgentMemberResearchComputerFile({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       documentId: drafted.document.id,
       nowMs: startedAtMs + 2,
       organizationId: fixture.organizationId,
@@ -656,22 +713,34 @@ describe("Center Agent member research", () => {
       submissionId,
       taskId: task.id,
     });
-    const draftVersion = await env.OPENMELD_DB.prepare(
-      "SELECT draft_created_at FROM organization_documents WHERE id = ?"
-    )
-      .bind(drafted.document.id)
-      .first<{ draft_created_at: number }>();
+    const draftVersion = await getPostgresDatabase(env)
+      .query<{
+        draft_created_at: number;
+      }>({
+        ...{
+          text: 'SELECT draft_created_at FROM "openmeld"."organization_documents" WHERE id = $1',
+          values: [],
+        },
+        values: [drafted.document.id],
+      })
+      .then((result) => result.rows[0] ?? null);
     if (!draftVersion) {
       throw new Error("Expected the member research draft version.");
     }
     // The RPC uses the real clock, while this direct service keeps an injected
     // clock. Advance it to the persisted draft before resolving that draft.
     documentNowMs = Math.max(documentNowMs, draftVersion.draft_created_at + 1);
-    const renderedDraft = await env.OPENMELD_DB.prepare(
-      "SELECT draft_content FROM organization_documents WHERE id = ?"
-    )
-      .bind(drafted.document.id)
-      .first<{ draft_content: string }>();
+    const renderedDraft = await getPostgresDatabase(env)
+      .query<{
+        draft_content: string;
+      }>({
+        ...{
+          text: 'SELECT draft_content FROM "openmeld"."organization_documents" WHERE id = $1',
+          values: [],
+        },
+        values: [drafted.document.id],
+      })
+      .then((result) => result.rows[0] ?? null);
     expect(drafted.memberResearchDraft?.content).toBe(
       renderedDraft?.draft_content
     );
@@ -696,18 +765,16 @@ describe("Center Agent member research", () => {
       id: drafted.document.id,
     });
     await markRemoteAgentNativeDeliveryCompleted({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       nowMs: startedAtMs + 3,
       publishedSignalId: null,
       submissionId,
     });
-
     await runCenterAgentMemberResearchTick({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       env: coreEnv,
       nowMs: startedAtMs + 4,
     });
-
     const status = await getCenterAgentMemberResearchStatus(coreEnv, {
       context: humanContext(fixture, fixture.requester),
     });
@@ -719,7 +786,6 @@ describe("Center Agent member research", () => {
     });
   });
 });
-
 async function seedResearchFixture() {
   const suffix = crypto.randomUUID();
   const organizationId = `org_member_research_${suffix}`;
@@ -746,48 +812,76 @@ async function seedResearchFixture() {
       userId: `user_morgan_${suffix}`,
     },
   ] as const;
-  await env.OPENMELD_DB.prepare(
-    "INSERT INTO organizations (id, name, slug, created_at) VALUES (?, ?, ?, ?)"
-  )
-    .bind(
+  await getPostgresDatabase(env).query({
+    ...{
+      text: 'INSERT INTO "openmeld"."organizations" (id, name, slug, created_at) VALUES ($1, $2, $3, $4)',
+      values: [],
+    },
+    values: [
       organizationId,
       "Member Research Org",
       `member-research-${suffix}`,
-      1000
-    )
-    .run();
+      1000,
+    ],
+  });
   for (const [index, user] of users.entries()) {
-    await env.OPENMELD_DB.batch([
-      env.OPENMELD_DB.prepare(
-        "INSERT INTO users (id, name, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)"
-      ).bind(
-        user.userId,
-        user.displayName,
-        `member-research-${index}-${suffix}@example.com`,
-        1000,
-        1000
-      ),
-      env.OPENMELD_DB.prepare(
-        "INSERT INTO members (id, organization_id, user_id, role, created_at) VALUES (?, ?, ?, ?, ?)"
-      ).bind(user.memberId, organizationId, user.userId, user.role, 1000),
-      env.OPENMELD_DB.prepare(
-        `
-          INSERT INTO openmeld_profiles (
+    await getPostgresDatabase(env).transaction(async (client) =>
+      (async () => {
+        const results: QueryResult[] = [];
+        for (const query of [
+          {
+            ...{
+              text: 'INSERT INTO "openmeld"."users" (id, name, email, email_verified, created_at, updated_at) VALUES ($1, $2, $3, 1, $4, $5)',
+              values: [],
+            },
+            values: [
+              user.userId,
+              user.displayName,
+              `member-research-${index}-${suffix}@example.com`,
+              1000,
+              1000,
+            ],
+          },
+          {
+            ...{
+              text: 'INSERT INTO "openmeld"."members" (id, organization_id, user_id, role, created_at) VALUES ($1, $2, $3, $4, $5)',
+              values: [],
+            },
+            values: [
+              user.memberId,
+              organizationId,
+              user.userId,
+              user.role,
+              1000,
+            ],
+          },
+          {
+            ...{
+              text: `
+          INSERT INTO "openmeld"."openmeld_profiles" (
             profile_id, profile_name, profile_handle, profile_kind,
             is_default, status, owner_user_id, created_by_user_id,
             source, created_at, updated_at
-          ) VALUES (?, ?, ?, 'human', 1, 'active', ?, ?, 'auth_bootstrap', ?, ?)
-        `
-      ).bind(
-        user.profileId,
-        user.displayName,
-        `member-research-${index}-${suffix}`,
-        user.userId,
-        user.userId,
-        1000,
-        1000
-      ),
-    ]);
+          ) VALUES ($1, $2, $3, 'human', 1, 'active', $4, $5, 'auth_bootstrap', $6, $7)
+        `,
+              values: [],
+            },
+            values: [
+              user.profileId,
+              user.displayName,
+              `member-research-${index}-${suffix}`,
+              user.userId,
+              user.userId,
+              1000,
+              1000,
+            ],
+          },
+        ]) {
+          results.push(await client.query(query));
+        }
+        return results;
+      })()
+    );
   }
   const membershipOnlyUser = {
     displayName: "No Profile Subject",
@@ -795,52 +889,84 @@ async function seedResearchFixture() {
     role: "member",
     userId: `user_no_profile_${suffix}`,
   } as const;
-  await env.OPENMELD_DB.batch([
-    env.OPENMELD_DB.prepare(
-      "INSERT INTO users (id, name, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)"
-    ).bind(
-      membershipOnlyUser.userId,
-      membershipOnlyUser.displayName,
-      `member-research-no-profile-${suffix}@example.com`,
-      1000,
-      1000
-    ),
-    env.OPENMELD_DB.prepare(
-      "INSERT INTO members (id, organization_id, user_id, role, created_at) VALUES (?, ?, ?, ?, ?)"
-    ).bind(
-      membershipOnlyUser.memberId,
-      organizationId,
-      membershipOnlyUser.userId,
-      membershipOnlyUser.role,
-      1000
-    ),
-  ]);
+  await getPostgresDatabase(env).transaction(async (client) =>
+    (async () => {
+      const results: QueryResult[] = [];
+      for (const query of [
+        {
+          ...{
+            text: 'INSERT INTO "openmeld"."users" (id, name, email, email_verified, created_at, updated_at) VALUES ($1, $2, $3, 1, $4, $5)',
+            values: [],
+          },
+          values: [
+            membershipOnlyUser.userId,
+            membershipOnlyUser.displayName,
+            `member-research-no-profile-${suffix}@example.com`,
+            1000,
+            1000,
+          ],
+        },
+        {
+          ...{
+            text: 'INSERT INTO "openmeld"."members" (id, organization_id, user_id, role, created_at) VALUES ($1, $2, $3, $4, $5)',
+            values: [],
+          },
+          values: [
+            membershipOnlyUser.memberId,
+            organizationId,
+            membershipOnlyUser.userId,
+            membershipOnlyUser.role,
+            1000,
+          ],
+        },
+      ]) {
+        results.push(await client.query(query));
+      }
+      return results;
+    })()
+  );
   const centerAgentProfileId = `agt_${crypto.randomUUID()}`;
-  await env.OPENMELD_DB.batch([
-    env.OPENMELD_DB.prepare(
-      `
-        INSERT INTO openmeld_profiles (
+  await getPostgresDatabase(env).transaction(async (client) =>
+    (async () => {
+      const results: QueryResult[] = [];
+      for (const query of [
+        {
+          ...{
+            text: `
+        INSERT INTO "openmeld"."openmeld_profiles" (
           profile_id, profile_name, profile_handle, profile_kind,
           is_default, status, organization_id, owner_user_id,
           created_by_user_id, source, managed_role, created_at, updated_at
-        ) VALUES (?, 'Center Agent', ?, 'agent', 0, 'active', ?, NULL, ?, 'cli_create', 'center_agent', ?, ?)
-      `
-    ).bind(
-      centerAgentProfileId,
-      `member-research-ca-${suffix}`,
-      organizationId,
-      users[0].userId,
-      1000,
-      1000
-    ),
-    env.OPENMELD_DB.prepare(
-      `
-        INSERT INTO center_agent_designations (
+        ) VALUES ($1, 'Center Agent', $2, 'agent', 0, 'active', $3, NULL, $4, 'cli_create', 'center_agent', $5, $6)
+      `,
+            values: [],
+          },
+          values: [
+            centerAgentProfileId,
+            `member-research-ca-${suffix}`,
+            organizationId,
+            users[0].userId,
+            1000,
+            1000,
+          ],
+        },
+        {
+          ...{
+            text: `
+        INSERT INTO "openmeld"."center_agent_designations" (
           organization_id, agent_profile_id, duty, designated_by, created_at
-        ) VALUES (?, ?, NULL, ?, ?)
-      `
-    ).bind(organizationId, centerAgentProfileId, users[0].userId, 1000),
-  ]);
+        ) VALUES ($1, $2, NULL, $3, $4)
+      `,
+            values: [],
+          },
+          values: [organizationId, centerAgentProfileId, users[0].userId, 1000],
+        },
+      ]) {
+        results.push(await client.query(query));
+      }
+      return results;
+    })()
+  );
   return {
     centerAgentProfileId,
     organizationId,
@@ -849,64 +975,84 @@ async function seedResearchFixture() {
     suffix,
   };
 }
-
 async function seedResearchDeliveryAuthority(
   fixture: Awaited<ReturnType<typeof seedResearchFixture>>,
-  input: { modelId: string }
+  input: {
+    modelId: string;
+  }
 ) {
   const bindingId = `binding_member_research_${fixture.suffix}`;
   const directMessageSpaceId = `ca_dm_${fixture.suffix}`;
-  await env.OPENMELD_DB.batch([
-    env.OPENMELD_DB.prepare(
-      `
-        INSERT INTO space_index_spaces (
+  await getPostgresDatabase(env).transaction(async (client) =>
+    (async () => {
+      const results: QueryResult[] = [];
+      for (const query of [
+        {
+          ...{
+            text: `
+        INSERT INTO "openmeld"."space_index_spaces" (
           space_id, organization_id, organization_visibility, status, space_name,
           source_updated_at_ms, projected_at_ms, projection_event_id
-        ) VALUES (?, ?, 'private', 'active', 'Center Agent', 1000, 1000, ?)
-      `
-    ).bind(
-      directMessageSpaceId,
-      fixture.organizationId,
-      `member_research_space_${fixture.suffix}`
-    ),
-    env.OPENMELD_DB.prepare(
-      `
-        INSERT INTO space_index_memberships (
+        ) VALUES ($1, $2, 'private', 'active', 'Center Agent', 1000, 1000, $3)
+      `,
+            values: [],
+          },
+          values: [
+            directMessageSpaceId,
+            fixture.organizationId,
+            `member_research_space_${fixture.suffix}`,
+          ],
+        },
+        {
+          ...{
+            text: `
+        INSERT INTO "openmeld"."space_index_memberships" (
           space_id, profile_id, profile_kind_snapshot, profile_name_snapshot,
           owner_user_id_snapshot, controller_ref_snapshot, status, member_source,
           added_at_ms, source_updated_at_ms, projected_at_ms, projection_event_id
-        ) VALUES (?, ?, 'agent', 'Center Agent', NULL, ?, 'active', 'member_add',
-          1000, 1000, 1000, ?)
-      `
-    ).bind(
-      directMessageSpaceId,
-      fixture.centerAgentProfileId,
-      HOSTED_CENTER_AGENT_CONTROLLER_REF,
-      `member_research_membership_${fixture.suffix}`
-    ),
-    env.OPENMELD_DB.prepare(
-      `
-        INSERT INTO openMeldDaemon_agent_profile_bindings (
+        ) VALUES ($1, $2, 'agent', 'Center Agent', NULL, $3, 'active', 'member_add',
+          1000, 1000, 1000, $4)
+      `,
+            values: [],
+          },
+          values: [
+            directMessageSpaceId,
+            fixture.centerAgentProfileId,
+            HOSTED_CENTER_AGENT_CONTROLLER_REF,
+            `member_research_membership_${fixture.suffix}`,
+          ],
+        },
+        {
+          ...{
+            text: `
+        INSERT INTO "openmeld"."openMeldDaemon_agent_profile_bindings" (
           binding_id, owner_kind, owner_id, agent_profile_id,
           openmeld_service_runtime_id, runtime_kind, hosted_runtime_identity_json,
           agent_controller_ref, agent_controller_conversation_id, binding_state,
           model_id, created_at_ms, updated_at_ms
-        ) VALUES (?, 'organization', ?, ?, ?, 'hosted_center_agent', ?, ?,
-          NULL, 'enabled_primary', ?, 1000, 1000)
-      `
-    ).bind(
-      bindingId,
-      fixture.organizationId,
-      fixture.centerAgentProfileId,
-      HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
-      JSON.stringify(HOSTED_CENTER_AGENT_RUNTIME_IDENTITY),
-      HOSTED_CENTER_AGENT_CONTROLLER_REF,
-      input.modelId
-    ),
-  ]);
+        ) VALUES ($1, 'organization', $2, $3, $4, 'hosted_center_agent', $5, $6,
+          NULL, 'enabled_primary', $7, 1000, 1000)
+      `,
+            values: [],
+          },
+          values: [
+            bindingId,
+            fixture.organizationId,
+            fixture.centerAgentProfileId,
+            HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
+            JSON.stringify(HOSTED_CENTER_AGENT_RUNTIME_IDENTITY),
+            HOSTED_CENTER_AGENT_CONTROLLER_REF,
+            input.modelId,
+          ],
+        },
+      ]) {
+        results.push(await client.query(query));
+      }
+      return results;
+    })()
+  );
   return { bindingId, directMessageSpaceId };
 }
-
 function buildResearchDeliveryEnv(
   fixture: Awaited<ReturnType<typeof seedResearchFixture>>
 ): CoreBindings {
@@ -970,10 +1116,9 @@ function buildResearchDeliveryEnv(
           organizationId,
         }),
     },
-    OPENMELD_DB: env.OPENMELD_DB,
+    OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL,
   } as CoreBindings;
 }
-
 function humanContext(
   fixture: Awaited<ReturnType<typeof seedResearchFixture>>,
   actor: Awaited<ReturnType<typeof seedResearchFixture>>["requester"]
@@ -990,7 +1135,6 @@ function humanContext(
     },
   };
 }
-
 function hostedCenterAgentContext(
   fixture: Awaited<ReturnType<typeof seedResearchFixture>>
 ) {
@@ -1006,7 +1150,6 @@ function hostedCenterAgentContext(
     },
   };
 }
-
 function memberResearchDocumentReviewerUserIds(
   fixture: Awaited<ReturnType<typeof seedResearchFixture>>
 ): string[] {
@@ -1014,7 +1157,6 @@ function memberResearchDocumentReviewerUserIds(
     .filter((member) => member.role === "admin")
     .map((member) => member.userId);
 }
-
 function insufficientEvidenceReport() {
   return {
     coverage: [

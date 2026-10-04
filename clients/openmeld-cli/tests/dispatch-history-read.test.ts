@@ -7,6 +7,7 @@ import type { SpaceApi } from "@openmeld/api-client";
 import {
   dispatchSpaceReadResultPageSchema,
   dispatchSpaceReadResultSchema,
+  signalTextEnvelopeSchema,
 } from "@openmeld/schemas";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenMeldProfile } from "../src/config/openmeld-profiles-api";
@@ -19,14 +20,21 @@ import {
   createDispatchSpaceTools,
   createSpaceActionMcpServer,
 } from "../src/space/action-mcp-server";
-import { readDispatchSpaceHistory } from "../src/space/dispatch-history-read";
+import {
+  readDispatchSpaceEvidence,
+  readDispatchSpaceHistory,
+  readDispatchSpaceThreadEvidence,
+} from "../src/space/dispatch-history-read";
 
-const { listSignals, requireProfile } = vi.hoisted(() => ({
-  listSignals: vi.fn<SpaceApi["listSignals"]>(),
-  requireProfile: vi.fn(),
-}));
+const { listSignals, requireProfile, getThread, listThreadSignals } =
+  vi.hoisted(() => ({
+    getThread: vi.fn<SpaceApi["getThread"]>(),
+    listThreadSignals: vi.fn<SpaceApi["listThreadSignals"]>(),
+    listSignals: vi.fn<SpaceApi["listSignals"]>(),
+    requireProfile: vi.fn(),
+  }));
 vi.mock("../src/space/cli-space-api", () => ({
-  createCliSpaceApi: () => ({ listSignals }),
+  createCliSpaceApi: () => ({ listSignals, getThread, listThreadSignals }),
 }));
 vi.mock("../src/config/resolve-openmeld-profile", () => ({
   requireOpenMeldProfile: requireProfile,
@@ -119,6 +127,53 @@ function setup(ttlMs = 60_000) {
 }
 
 describe("dispatch Space history reader", () => {
+  it("pins a named thread and reauthorizes a continuation before disclosing any bytes", async () => {
+    setup();
+    const threadSignal = signalTextEnvelopeSchema.parse(signal);
+    const thread = {
+      threadId: "thr_11111111-1111-4111-8111-111111111111",
+      spaceId: signal.spaceId,
+      rootSignalId: signal.id,
+      createdByProfileId: signal.profile.profileId,
+      createdAt: new Date(1).toISOString(),
+      updatedAt: new Date(2).toISOString(),
+    };
+    getThread
+      .mockReset()
+      .mockResolvedValue({ thread, rootSignal: threadSignal });
+    listThreadSignals.mockReset().mockResolvedValue({
+      signals: [threadSignal],
+      placements: [
+        {
+          threadId: thread.threadId,
+          signalId: signal.id,
+          placement: "root",
+          createdAt: thread.createdAt,
+        },
+      ],
+    });
+    const result = await readDispatchSpaceThreadEvidence({
+      threadId: thread.threadId,
+    });
+    expect(result.messages[0]?.content.text).toBe(signal.data.text);
+    getThread.mockRejectedValueOnce(new Error("space.access_revoked"));
+    await expect(
+      readDispatchSpaceThreadEvidence({
+        threadId: thread.threadId,
+        version: result.sourceRef.version,
+        offset: 1,
+      })
+    ).rejects.toThrow("access_revoked");
+    expect(listThreadSignals).toHaveBeenCalledTimes(1);
+    getThread.mockResolvedValueOnce({
+      thread: { ...thread, spaceId: "other-space" },
+      rootSignal: threadSignal,
+    });
+    await expect(
+      readDispatchSpaceThreadEvidence({ threadId: thread.threadId })
+    ).rejects.toThrow("source_mismatch");
+  });
+
   it("reads a fixed current-Wake window through MCP as the current Agent without finalizing", async () => {
     const { context } = setup();
     const [clientTransport, serverTransport] =
@@ -225,6 +280,7 @@ describe("dispatch Space history reader", () => {
       expect(page?.resultId).toBeTruthy();
       let reconstructed = page.text;
       let nextOffset = page.nextOffset;
+      let pages = 1;
       while (nextOffset !== null) {
         const response = await call("read_result", {
           resultId: page.resultId,
@@ -239,9 +295,10 @@ describe("dispatch Space history reader", () => {
         );
         reconstructed += next.text;
         nextOffset = next.nextOffset;
+        pages += 1;
       }
       expect(JSON.parse(reconstructed).signals[0].data.text).toBe(text);
-      expect(listSignals).toHaveBeenCalledTimes(1);
+      expect(listSignals).toHaveBeenCalledTimes(pages);
       expect(readDispatchSpaceActionRecord({ context }).status).toBe("missing");
       const replay = await call("read_result", {
         resultId: page.resultId,
@@ -274,6 +331,106 @@ describe("dispatch Space history reader", () => {
       await client.close();
       await server.close();
     }
+  });
+
+  it.each([
+    "revoked",
+    "changed",
+  ])("rechecks source access and version before a cached page when %s", async (change) => {
+    setup();
+    const secret = "Synthetic private continuation ".repeat(1000);
+    listSignals.mockResolvedValue({
+      signals: [
+        {
+          ...signal,
+          data: {
+            ...signal.data,
+            text: secret,
+            messageEnvelope: { ...signal.data.messageEnvelope, text: secret },
+          },
+        },
+      ],
+      nextCursor: null,
+    });
+    const tools = createDispatchSpaceTools();
+    try {
+      const first = await tools.call("read_history", {});
+      const page = dispatchSpaceReadResultPageSchema.parse(
+        dispatchSpaceReadResultSchema.parse(first.structuredContent).page
+      );
+      if (change === "revoked") {
+        listSignals.mockRejectedValue(new Error("space.access_denied"));
+      } else {
+        listSignals.mockResolvedValue({ signals: [signal], nextCursor: null });
+      }
+      const next = await tools.call("read_result", {
+        resultId: page.resultId,
+        offset: page.nextOffset,
+      });
+      expect(next.isError).toBe(true);
+      expect(JSON.stringify(next)).not.toContain(
+        "Synthetic private continuation"
+      );
+      expect(listSignals).toHaveBeenCalledTimes(2);
+    } finally {
+      tools.close();
+    }
+  });
+
+  it("reads a selected message in fixed-version pages and never substitutes changed or neighboring text", async () => {
+    setup();
+    const text = "😀".repeat(4500);
+    const selected = {
+      ...signal,
+      data: {
+        ...signal.data,
+        text,
+        messageEnvelope: { ...signal.data.messageEnvelope, text },
+      },
+    };
+    listSignals.mockResolvedValue({ signals: [selected], nextCursor: null });
+    const first = await readDispatchSpaceEvidence({
+      sourceSignalId: signal.id,
+    });
+    const second = await readDispatchSpaceEvidence({
+      sourceSignalId: signal.id,
+      version: first.message.sourceRef.version,
+      offset: first.nextOffset ?? 0,
+    });
+    expect(first.message.content.text + second.message.content.text).toBe(text);
+    expect(second.nextOffset).toBeNull();
+    expect(listSignals).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        query: {
+          aroundSignalId: signal.id,
+          beforeCount: 0,
+          afterCount: 0,
+          kinds: ["text"],
+        },
+      })
+    );
+    listSignals.mockResolvedValue({ signals: [signal], nextCursor: null });
+    await expect(
+      readDispatchSpaceEvidence({
+        sourceSignalId: signal.id,
+        version: first.message.sourceRef.version,
+      })
+    ).rejects.toThrow("evidence_version_unavailable");
+    listSignals.mockResolvedValue({
+      signals: [{ ...selected, id: "neighbor" }],
+      nextCursor: null,
+    });
+    await expect(
+      readDispatchSpaceEvidence({ sourceSignalId: signal.id })
+    ).rejects.toThrow("evidence_unavailable");
+    listSignals.mockRejectedValue(new Error("space.access_denied"));
+    await expect(
+      readDispatchSpaceEvidence({
+        sourceSignalId: signal.id,
+        version: first.message.sourceRef.version,
+        offset: 4000,
+      })
+    ).rejects.toThrow("space.access_denied");
   });
 
   it.each([

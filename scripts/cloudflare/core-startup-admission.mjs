@@ -11,6 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { cutoverConfigArgs } from "../release/postgresql-cutover-config.mjs";
 import { requireProductionDatabaseCurrent } from "../release/require-production-db-current.mjs";
 import { validateCoreVersionReleaseConfig } from "./core-version-deployment.mjs";
 
@@ -121,6 +122,7 @@ export function buildCoreStartupAdmissionStepSpec(input) {
       "prod",
       ...(input.tag ? ["--tag", input.tag] : []),
       ...input.defines.flatMap((definition) => ["--define", definition]),
+      ...(input.configArgs ?? []),
     ],
     command: "pnpm",
   };
@@ -157,6 +159,10 @@ export function runCoreStartupAdmission(input) {
   );
   try {
     const step = buildCoreStartupAdmissionStepSpec({
+      configArgs: cutoverConfigArgs("core", {
+        cwd: input.cwd ?? REPOSITORY_ROOT,
+        env: input.env ?? process.env,
+      }),
       defines: input.defines ?? [],
       tag: input.tag,
     });

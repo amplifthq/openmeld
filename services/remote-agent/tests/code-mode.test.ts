@@ -130,6 +130,7 @@ describe("Remote Agent Code Mode", () => {
         {
           status: "outcome_unknown",
           operationId: "comment-2",
+          replay: { allowed: false, reason: "window_unverified" },
           message: expect.stringContaining("Do not retry this write"),
         },
         { status: "completed", operationId: "comment-3" },

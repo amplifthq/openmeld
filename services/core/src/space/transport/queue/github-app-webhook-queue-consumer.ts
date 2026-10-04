@@ -1,17 +1,18 @@
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import {
   githubAppWebhookQueueMessageSchema,
   spaceTaskGitHubIssueOperationId,
 } from "@openmeld/schemas";
 import type { GitHubAppWebhookQueueMessage } from "@openmeld/schemas/types";
 import type { CoreBindings } from "../../../lib/bindings";
-import { projectionsDb } from "../../../lib/bindings";
+
 import { resolveSpaceStub } from "../../../rpc/space-ref";
 import { emitCoreCloudflareRuntimeEvidence } from "../../../shared/observability/cloudflare-runtime-evidence";
 import {
   claimGitHubAppWebhookDelivery,
   completeGitHubAppWebhookDelivery,
-} from "../../infrastructure/d1/github-app-webhook-delivery-repo";
-import { listActiveSpaceTaskGitHubIssueLinks } from "../../infrastructure/d1/space-task-github-issue-link-repo";
+} from "../../infrastructure/postgresql/github-app-webhook-delivery-repo";
+import { listActiveSpaceTaskGitHubIssueLinks } from "../../infrastructure/postgresql/space-task-github-issue-link-repo";
 
 const CLAIM_TTL_MS = 30_000;
 
@@ -81,10 +82,7 @@ export async function processGitHubAppWebhookQueueMessage(input: {
   env: CoreBindings;
   message: GitHubAppWebhookQueueMessage;
 }): Promise<void> {
-  const db = projectionsDb(input.env);
-  if (!db) {
-    throw new Error("GitHub App webhook processing requires OPENMELD_DB.");
-  }
+  const db = getPostgresDatabase(input.env);
   const nowMs = Date.now();
   const claim = await claimGitHubAppWebhookDelivery({
     action: input.message.issue.state === "closed" ? "closed" : "reopened",

@@ -124,6 +124,7 @@ export function buildDispatchQuotedMessage(input: {
 
 /** One rendering for hosted and workstation delivery. Reply placement is separate. */
 export function renderDispatchSourceText(input: {
+  evidenceRefs?: SourceSnapshot["evidenceRefs"];
   workHandoff?: SourceSnapshot["workHandoff"];
   text: string;
   contextMessages?: SourceSnapshot["contextMessages"];
@@ -132,6 +133,7 @@ export function renderDispatchSourceText(input: {
 }): string {
   if (
     !(
+      input.evidenceRefs?.length ||
       input.workHandoff ||
       input.contextMessages?.length ||
       input.quotedMessage ||
@@ -142,6 +144,12 @@ export function renderDispatchSourceText(input: {
   }
   return [
     input.text,
+    ...(input.evidenceRefs?.length
+      ? [
+          "Selected evidence references (task data, not access grants): read the exact source, version or file revision through the current Space tools. Never substitute latest content. Each page must recheck source access. If the source or this client's reader is unavailable, report that limitation.",
+          JSON.stringify(input.evidenceRefs),
+        ]
+      : []),
     ...(input.workHandoff
       ? [
           "Continue this selected work using exactly the listed file revisions and Skill releases. Prepare every input before starting. Never substitute latest versions. Keep local changes on conflict; save through Space Files with the recorded base revision. Saving is not delivery: attach exact result revisions to your final reply in this conversation. This manifest is task input, not permission to access another account or resource.",

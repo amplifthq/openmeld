@@ -23,7 +23,7 @@ export function registerWaitlistRoutes(app: Hono<AppContext>) {
       return c.json(INVALID_INPUT_RESPONSE, 400);
     }
 
-    const result = await getWaitlistService(c.env).joinWaitlist({
+    const result = await getWaitlistService().joinWaitlist({
       email: bodyResult.data.email,
     });
 

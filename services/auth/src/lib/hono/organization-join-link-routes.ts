@@ -1,5 +1,5 @@
 import {
-  createD1Db,
+  createAuthDatabase,
   createDrizzleOrganizationJoinLinkRepository,
   createOrganizationJoinLinkService,
   DEFAULT_AUTH_BASE_URL,
@@ -28,41 +28,37 @@ import {
   fulfillInvitationMembership,
   readInvitationAccount,
 } from "./invitation-membership";
-
 export const ORGANIZATION_JOIN_LINK_ROUTE =
   "/api/auth/organization/join-link" as const;
-
 const INVALID_INPUT_RESPONSE = organizationJoinLinkErrorResponseSchema.parse({
   code: "organization.join_link.invalid_input",
   message: "Invalid organization join link request.",
   ok: false,
 });
-
 const AUTHENTICATION_REQUIRED_RESPONSE =
   organizationJoinLinkErrorResponseSchema.parse({
     code: "organization.join_link.authentication_required",
     message: "Sign in to continue.",
     ok: false,
   });
-
 const FORBIDDEN_RESPONSE = organizationJoinLinkErrorResponseSchema.parse({
   code: "organization.join_link.forbidden",
   message: "You do not have permission to manage this organization join link.",
   ok: false,
 });
-
 const ACCEPT_RATE_LIMITED_RESPONSE =
   organizationJoinLinkErrorResponseSchema.parse({
     code: ORGANIZATION_JOIN_LINK_ACCEPT_RATE_LIMITED_ERROR_CODE,
     message: "Too many join attempts. Try again in a minute.",
     ok: false,
   });
-
 type JoinLinkPermissionAction = "create" | "read" | "revoke";
-
 async function authorizeLinkScope(
   c: Context<AppContext>,
-  scope: { organizationId: string; spaceId?: string }
+  scope: {
+    organizationId: string;
+    spaceId?: string;
+  }
 ) {
   const user = requireAuthenticatedUser(c);
   const core = c.env.OPENMELD_CORE_WORKER;
@@ -83,7 +79,6 @@ async function authorizeLinkScope(
   );
   return result.ok ? null : c.json(result, 403);
 }
-
 export function registerOrganizationJoinLinkRoutes(app: Hono<AppContext>) {
   for (const action of ["ensure", "prepare"] as const) {
     app.post(
@@ -156,7 +151,7 @@ export function registerOrganizationJoinLinkRoutes(app: Hono<AppContext>) {
         return c.json(ACCEPT_RATE_LIMITED_RESPONSE, 429);
       }
       const repository = createDrizzleOrganizationJoinLinkRepository(
-        createD1Db(c.env.OPENMELD_DB)
+        createAuthDatabase()
       );
       const link = await repository.findActiveByToken(body.data.token);
       if (!link || (link.expiresAt && link.expiresAt.getTime() <= Date.now())) {
@@ -238,7 +233,6 @@ export function registerOrganizationJoinLinkRoutes(app: Hono<AppContext>) {
         return scopeAuthorization;
       }
     }
-
     const joinLink = await getOrganizationJoinLinkService(c).getActive(
       input.data.organizationId,
       input.data.spaceId,
@@ -254,7 +248,6 @@ export function registerOrganizationJoinLinkRoutes(app: Hono<AppContext>) {
       200
     );
   });
-
   app.post(
     ORGANIZATION_JOIN_LINK_ROUTE,
     requireTrustedCookieOrigin,
@@ -280,7 +273,6 @@ export function registerOrganizationJoinLinkRoutes(app: Hono<AppContext>) {
           return scopeAuthorization;
         }
       }
-
       try {
         const joinLink = await getOrganizationJoinLinkService(c).reset({
           createdBy: requireAuthenticatedUser(c).id,
@@ -300,7 +292,6 @@ export function registerOrganizationJoinLinkRoutes(app: Hono<AppContext>) {
       }
     }
   );
-
   app.delete(
     ORGANIZATION_JOIN_LINK_ROUTE,
     requireTrustedCookieOrigin,
@@ -320,7 +311,6 @@ export function registerOrganizationJoinLinkRoutes(app: Hono<AppContext>) {
       if (authorization) {
         return authorization;
       }
-
       const revoked = await getOrganizationJoinLinkService(c).revoke(
         input.data.organizationId,
         input.data.spaceId,
@@ -335,7 +325,6 @@ export function registerOrganizationJoinLinkRoutes(app: Hono<AppContext>) {
       );
     }
   );
-
   app.get(`${ORGANIZATION_JOIN_LINK_ROUTE}/preview`, async (c) => {
     const input = previewOrganizationJoinLinkQuerySchema.safeParse(
       c.req.query()
@@ -343,7 +332,6 @@ export function registerOrganizationJoinLinkRoutes(app: Hono<AppContext>) {
     if (!input.success) {
       return c.json(INVALID_INPUT_RESPONSE, 400);
     }
-
     const response = await getOrganizationJoinLinkService(c).preview(
       input.data.token
     );
@@ -376,7 +364,6 @@ export function registerOrganizationJoinLinkRoutes(app: Hono<AppContext>) {
       200
     );
   });
-
   app.post(
     `${ORGANIZATION_JOIN_LINK_ROUTE}/accept`,
     requireTrustedCookieOrigin,
@@ -399,9 +386,8 @@ export function registerOrganizationJoinLinkRoutes(app: Hono<AppContext>) {
         logJoinLinkAcceptRateLimitRejection(c);
         return c.json(ACCEPT_RATE_LIMITED_RESPONSE, 429);
       }
-
       try {
-        const db = createD1Db(c.env.OPENMELD_DB);
+        const db = createAuthDatabase();
         const link = await createDrizzleOrganizationJoinLinkRepository(
           db
         ).findActiveByToken(body.data.token);
@@ -464,7 +450,6 @@ export function registerOrganizationJoinLinkRoutes(app: Hono<AppContext>) {
     }
   );
 }
-
 function publicJoinLink(
   link: import("@openmeld/schemas").OrganizationJoinLink,
   responseVersion?: string
@@ -475,7 +460,6 @@ function publicJoinLink(
   const { mode: _mode, expiresAt: _expiresAt, ...legacy } = link;
   return legacy;
 }
-
 function requireJoinLinkAcceptRateLimiter(c: Context<AppContext>): RateLimit {
   const binding = c.env.OPENMELD_ORGANIZATION_JOIN_LINK_ACCEPT_RATE_LIMITER;
   if (!binding?.limit) {
@@ -485,11 +469,9 @@ function requireJoinLinkAcceptRateLimiter(c: Context<AppContext>): RateLimit {
   }
   return binding;
 }
-
 function readClientIpAddress(headers: Headers): string {
   return headers.get("CF-Connecting-IP")?.trim() || "unknown";
 }
-
 function logJoinLinkAcceptRateLimitRejection(c: Context<AppContext>): void {
   console.warn("[auth.organization_join_link.accept_rate_limited]", {
     event: "auth.organization_join_link.accept_rate_limited",
@@ -498,7 +480,6 @@ function logJoinLinkAcceptRateLimitRejection(c: Context<AppContext>): void {
     requestId: c.var.requestId,
   });
 }
-
 async function authorizeJoinLinkManagement(
   c: Context<AppContext>,
   organizationId: string,
@@ -518,17 +499,15 @@ async function authorizeJoinLinkManagement(
   );
   return result.success ? null : c.json(FORBIDDEN_RESPONSE, 403);
 }
-
 function getOrganizationJoinLinkService(c: Context<AppContext>) {
   return createOrganizationJoinLinkService({
     repository: createDrizzleOrganizationJoinLinkRepository(
-      createD1Db(c.env.OPENMELD_DB)
+      createAuthDatabase()
     ),
     webAppUrl:
       c.env.WEB_APP_URL ?? c.env.BETTER_AUTH_URL ?? DEFAULT_AUTH_BASE_URL,
   });
 }
-
 function requireAuthenticatedUser(c: Context<AppContext>) {
   const user = c.var.user;
   if (!user) {
@@ -536,7 +515,6 @@ function requireAuthenticatedUser(c: Context<AppContext>) {
   }
   return user;
 }
-
 function handleOrganizationJoinLinkServiceError(
   c: Context<AppContext>,
   error: unknown
@@ -544,7 +522,6 @@ function handleOrganizationJoinLinkServiceError(
   if (!(error instanceof OrganizationJoinLinkServiceError)) {
     throw error;
   }
-
   const status = resolveServiceErrorStatus(error);
   return c.json(
     organizationJoinLinkErrorResponseSchema.parse({
@@ -555,7 +532,6 @@ function handleOrganizationJoinLinkServiceError(
     status
   );
 }
-
 function resolveServiceErrorStatus(
   error: OrganizationJoinLinkServiceError
 ): ContentfulStatusCode {

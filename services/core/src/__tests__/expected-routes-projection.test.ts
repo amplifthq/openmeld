@@ -4,7 +4,7 @@ import {
   buildUnresolvedExpectedRoutesResponse,
   type ExpectedRouteProfileFact,
 } from "../agent-profile-binding/application/expected-routes-projection";
-import type { AgentProfileBindingRecord } from "../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
+import type { AgentProfileBindingRecord } from "../agent-profile-binding/infrastructure/postgresql/agent-profile-binding-repo";
 
 const RUNTIME_ID = "runtime-this-device";
 

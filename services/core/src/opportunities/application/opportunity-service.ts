@@ -1,3 +1,4 @@
+import type { PostgresDatabase, QueryResult } from "@openmeld/db/postgresql";
 import {
   centerAgentListOpportunitiesBodySchema,
   centerAgentRecommendOpportunityBodySchema,
@@ -20,25 +21,22 @@ import {
   prepareRecordOpportunityDecisionStatement,
   readOrganizationOpportunityByKey,
   readOrganizationOpportunityForRecipient,
-} from "../infrastructure/d1/opportunity-repository";
+} from "../infrastructure/postgresql/opportunity-repository";
 
 const INBOX_SOURCE_KIND = "organization_opportunity" as const;
-
 export class OpportunityConflictError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "OpportunityConflictError";
   }
 }
-
 export class OpportunityNotFoundError extends Error {
   constructor() {
     super("Opportunity not found for this member.");
     this.name = "OpportunityNotFoundError";
   }
 }
-
-export function createOpportunityService(db: D1Database) {
+export function createOpportunityService(db: PostgresDatabase) {
   return {
     list: async (input: {
       organizationId: string;
@@ -64,7 +62,10 @@ export function createOpportunityService(db: D1Database) {
       recipientUserId: string;
       request: CenterAgentRecommendOpportunityBody;
       sourceNativeDeliveryId: string | null;
-    }): Promise<{ created: boolean; opportunity: OrganizationOpportunity }> => {
+    }): Promise<{
+      created: boolean;
+      opportunity: OrganizationOpportunity;
+    }> => {
       const request = centerAgentRecommendOpportunityBodySchema.parse(
         input.request
       );
@@ -78,7 +79,6 @@ export function createOpportunityService(db: D1Database) {
         assertSameRecommendation(existing, request);
         return { created: false, opportunity: toPublicOpportunity(existing) };
       }
-
       const opportunityId = `opp_${crypto.randomUUID()}`;
       const preparedInbox = await prepareEnsureInboxItemStatements({
         candidate: {
@@ -114,7 +114,12 @@ export function createOpportunityService(db: D1Database) {
         title: request.title,
       });
       try {
-        await db.batch([insert, ...preparedInbox.statements]);
+        await db.transaction(async (client) =>
+          Promise.all([
+            client.query(insert),
+            ...preparedInbox.statements.map((query) => client.query(query)),
+          ])
+        );
       } catch (error) {
         const raced = await readOrganizationOpportunityByKey({
           db,
@@ -144,7 +149,10 @@ export function createOpportunityService(db: D1Database) {
       organizationId: string;
       recipientUserId: string;
       request: CenterAgentRespondToOpportunityBody;
-    }): Promise<{ changed: boolean; opportunity: OrganizationOpportunity }> => {
+    }): Promise<{
+      changed: boolean;
+      opportunity: OrganizationOpportunity;
+    }> => {
       const request = centerAgentRespondToOpportunityBodySchema.parse(
         input.request
       );
@@ -162,7 +170,6 @@ export function createOpportunityService(db: D1Database) {
           `This opportunity was already ${existing.status}.`
         );
       }
-
       const changed = existing.status !== request.decision;
       const statements = changed
         ? [
@@ -178,7 +185,13 @@ export function createOpportunityService(db: D1Database) {
           ]
         : [];
       if (statements.length > 0) {
-        await db.batch(statements);
+        await db.transaction(async (client) => {
+          const results: QueryResult[] = [];
+          for (const query of statements) {
+            results.push(await client.query(query));
+          }
+          return results;
+        });
       }
       const updated = await readOrganizationOpportunityForRecipient({
         db,
@@ -198,7 +211,6 @@ export function createOpportunityService(db: D1Database) {
     },
   };
 }
-
 function assertSameRecommendation(
   existing: OrganizationOpportunityRecord,
   request: CenterAgentRecommendOpportunityBody
@@ -216,18 +228,15 @@ function assertSameRecommendation(
     "This opportunity key already identifies different recommendation content."
   );
 }
-
 function arraysEqual(left: readonly string[], right: readonly string[]) {
   return (
     left.length === right.length &&
     left.every((value, index) => value === right[index])
   );
 }
-
 function isTerminal(status: OpportunityStatus): boolean {
   return status === "accepted" || status === "dismissed";
 }
-
 function toPublicOpportunity(
   record: OrganizationOpportunityRecord
 ): OrganizationOpportunity {

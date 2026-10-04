@@ -1,5 +1,6 @@
 import type { SpaceLiveInvalidationFrame } from "@openmeld/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createProjectionPostgresBinding } from "../../test-support/postgresql-query.test-support";
 import { Space } from "../space/transport/do/space";
 
 type SpaceMemberSqlRow = {
@@ -96,6 +97,9 @@ function buildSpaceTestDouble(rows: readonly SpaceMemberSqlRow[]) {
     rpcBroadcastWakeProgressChanged: Space["rpcBroadcastWakeProgressChanged"];
   };
   Object.defineProperties(space, {
+    bindings: {
+      value: { OPENMELD_POSTGRESQL: createProjectionPostgresBinding(() => []) },
+    },
     broadcast: { value: broadcast },
     ctx: {
       value: {

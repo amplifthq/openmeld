@@ -1,4 +1,5 @@
 import { env, runInDurableObject } from "cloudflare:test";
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import type { SignalEnvelope } from "@openmeld/protocol";
 import {
   AGENT_REPLY_FINAL_PURPOSE,
@@ -6,8 +7,8 @@ import {
 } from "@openmeld/schemas";
 import { describe, expect, it } from "vitest";
 import type { CoreBindings } from "../src/lib/bindings";
-import { upsertRemoteAgentNativeDeliveryRecord } from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
-import { readSpaceDispatchTrace } from "../src/space/infrastructure/d1/space-dispatch-read-repo";
+import { upsertRemoteAgentNativeDeliveryRecord } from "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
+import { readSpaceDispatchTrace } from "../src/space/infrastructure/postgresql/space-dispatch-read-repo";
 import { ensureSpaceSqlSchema } from "../src/space/infrastructure/sql/space-schema-repo";
 import {
   insertSignalRecord,
@@ -32,10 +33,7 @@ const TARGET_PROFILE_ID = "agt_33333333-3333-4333-8333-333333333333";
 describe("dispatch final visible message trace", () => {
   it("reads a native continuation's persisted final Space message without a workstation dispatch", async () => {
     const bindings = env as CoreBindings;
-    const db = bindings.OPENMELD_DB;
-    if (!db) {
-      throw new Error("expected test D1 binding");
-    }
+    const db = getPostgresDatabase(bindings);
     const stub = bindings.OPENMELD_SPACES.get(
       bindings.OPENMELD_SPACES.newUniqueId()
     );

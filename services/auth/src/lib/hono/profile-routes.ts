@@ -3,6 +3,10 @@ import type {
   OpenMeldProfileManagedRole,
 } from "@openmeld/auth/server";
 import { ProfileValidationError } from "@openmeld/auth/server";
+import {
+  getPostgresDatabase,
+  type PostgresDatabase,
+} from "@openmeld/db/postgresql";
 import { readOpenMeldRequestedOrganizationSelector } from "@openmeld/gateway-contract";
 import { agentAvatarStyleSchema } from "@openmeld/schemas";
 import type { OpenMeldRequestedOrganizationSelector } from "@openmeld/schemas/types";
@@ -20,28 +24,23 @@ type ResolveProfileRequestBody = {
   openMeldProfileId?: string;
   profileKind?: AuthProfileKind;
 };
-
 type CreateProfileRequestBody = {
   profileName: string;
   creatorProfileId?: string;
 };
-
 type CreateAgentProfileRequestBody = {
   profileName: string;
   creatorProfileId?: string;
   idempotencyKey?: string;
 };
-
 type EnsureManagedAgentProfileRequestBody = {
   profileName: string;
   managedRole: OpenMeldProfileManagedRole;
   creatorProfileId?: string;
 };
-
 type UpdateProfileRequestBody = {
   profileName?: string;
 };
-
 const RESOLVE_PROFILE_REQUEST_BODY_KEYS = new Set([
   "openMeldProfileId",
   "profileKind",
@@ -61,9 +60,7 @@ const MANAGED_AGENT_PROFILE_REQUEST_BODY_KEYS = new Set([
   "creatorProfileId",
 ]);
 const PROFILE_PATCH_REQUEST_BODY_KEYS = new Set(["profileName"]);
-
 export const PROFILE_ROUTE_BASE = "/v1/profiles";
-
 export function registerProfileRoutes(app: Hono<AppContext>) {
   app.patch(
     `${PROFILE_ROUTE_BASE}/agents/:openMeldProfileId/avatar`,
@@ -131,19 +128,16 @@ export function registerProfileRoutes(app: Hono<AppContext>) {
     if (!authenticated.ok) {
       return authenticated.response;
     }
-
     return c.json({
       ok: true,
       ...c.var.profileService.getProfileCapabilities(),
     });
   });
-
   app.get(PROFILE_ROUTE_BASE, async (c) => {
     const authenticated = requireAuthenticatedUser(c);
     if (!authenticated.ok) {
       return authenticated.response;
     }
-
     try {
       const profiles =
         await c.var.profileService.listProfilesForOwnerEnsuringPrimaryHumanProfile(
@@ -154,7 +148,6 @@ export function registerProfileRoutes(app: Hono<AppContext>) {
           }
         );
       const ownerName = normalizeOptionalText(authenticated.user.name);
-
       return c.json({
         ok: true,
         profiles: profiles.map((profile) =>
@@ -169,13 +162,11 @@ export function registerProfileRoutes(app: Hono<AppContext>) {
       return c.json(failure.body, failure.status);
     }
   });
-
   app.post(`${PROFILE_ROUTE_BASE}/resolve`, async (c) => {
     const authenticated = requireAuthenticatedUser(c);
     if (!authenticated.ok) {
       return authenticated.response;
     }
-
     try {
       const body = parseResolveProfileRequestBody(await readJsonBody(c));
       const profile = await c.var.profileService.resolveProfileForOwner({
@@ -185,7 +176,6 @@ export function registerProfileRoutes(app: Hono<AppContext>) {
         fallbackUserName: String(authenticated.user.name ?? ""),
         fallbackUserEmail: String(authenticated.user.email ?? ""),
       });
-
       return c.json({
         ok: true,
         profile: toProfileView(profile, {
@@ -197,7 +187,6 @@ export function registerProfileRoutes(app: Hono<AppContext>) {
       return c.json(failure.body, failure.status);
     }
   });
-
   app.post(
     `${PROFILE_ROUTE_BASE}/agents`,
     requireTrustedCookieOrigin,
@@ -206,13 +195,12 @@ export function registerProfileRoutes(app: Hono<AppContext>) {
       if (!authenticated.ok) {
         return authenticated.response;
       }
-
       try {
         const body = parseCreateAgentProfileRequestBody(await readJsonBody(c));
         const profile = await c.var.profileService.createAgentProfile({
           ownerUserId: String(authenticated.user.id),
           organizationId: await resolveAgentProfileOrganizationId({
-            db: c.env.OPENMELD_DB,
+            db: getPostgresDatabase(c.env),
             headers: c.req.raw.headers,
             sessionActiveOrganizationId: readSessionActiveOrganizationId(c),
             userId: String(authenticated.user.id),
@@ -226,7 +214,6 @@ export function registerProfileRoutes(app: Hono<AppContext>) {
           profileName: body.profileName,
           source: resolveDirectAgentProfileCreationSource(c.req.raw.headers),
         });
-
         return c.json(
           {
             ok: true,
@@ -242,13 +229,11 @@ export function registerProfileRoutes(app: Hono<AppContext>) {
       }
     }
   );
-
   app.post(`${PROFILE_ROUTE_BASE}/agents/managed/ensure`, async (c) => {
     const authenticated = requireAuthenticatedUser(c);
     if (!authenticated.ok) {
       return authenticated.response;
     }
-
     try {
       const body = parseEnsureManagedAgentProfileRequestBody(
         await readJsonBody(c)
@@ -256,7 +241,7 @@ export function registerProfileRoutes(app: Hono<AppContext>) {
       const profile = await c.var.profileService.ensureManagedAgentProfile({
         ownerUserId: String(authenticated.user.id),
         organizationId: await resolveAgentProfileOrganizationId({
-          db: c.env.OPENMELD_DB,
+          db: getPostgresDatabase(c.env),
           headers: c.req.raw.headers,
           sessionActiveOrganizationId: readSessionActiveOrganizationId(c),
           userId: String(authenticated.user.id),
@@ -266,7 +251,6 @@ export function registerProfileRoutes(app: Hono<AppContext>) {
         managedRole: body.managedRole,
         profileName: body.profileName,
       });
-
       return c.json({
         ok: true,
         profile: toProfileView(profile, {
@@ -278,7 +262,6 @@ export function registerProfileRoutes(app: Hono<AppContext>) {
       return c.json(failure.body, failure.status);
     }
   });
-
   app.post(
     `${PROFILE_ROUTE_BASE}/humans`,
     requireTrustedCookieOrigin,
@@ -287,7 +270,6 @@ export function registerProfileRoutes(app: Hono<AppContext>) {
       if (!authenticated.ok) {
         return authenticated.response;
       }
-
       try {
         const body = parseProfileNameRequestBody(await readJsonBody(c));
         const profile = await c.var.profileService.createHumanProfile({
@@ -296,7 +278,6 @@ export function registerProfileRoutes(app: Hono<AppContext>) {
           creatorProfileId: body.creatorProfileId,
           profileName: body.profileName,
         });
-
         return c.json(
           {
             ok: true,
@@ -312,7 +293,6 @@ export function registerProfileRoutes(app: Hono<AppContext>) {
       }
     }
   );
-
   app.patch(
     `${PROFILE_ROUTE_BASE}/:openMeldProfileId`,
     requireTrustedCookieOrigin,
@@ -321,7 +301,6 @@ export function registerProfileRoutes(app: Hono<AppContext>) {
       if (!authenticated.ok) {
         return authenticated.response;
       }
-
       const openMeldProfileId = c.req.param("openMeldProfileId");
       try {
         const body = parseProfilePatchRequestBody(await readJsonBody(c));
@@ -333,7 +312,6 @@ export function registerProfileRoutes(app: Hono<AppContext>) {
         if (profile.profileKind === "human" && profile.isDefault) {
           await refreshAuthSessionCookie(c);
         }
-
         return c.json({
           ok: true,
           profile: toProfileView(profile, {
@@ -349,22 +327,18 @@ export function registerProfileRoutes(app: Hono<AppContext>) {
       }
     }
   );
-
   app.delete(`${PROFILE_ROUTE_BASE}/:openMeldProfileId`, async (c) => {
     const authenticated = requireAuthenticatedUser(c);
     if (!authenticated.ok) {
       return authenticated.response;
     }
-
     const openMeldProfileId = c.req.param("openMeldProfileId");
-
     try {
       const profile = await c.var.profileService.deleteProfileForOwner({
         ownerUserId: String(authenticated.user.id),
         profileId: openMeldProfileId,
       });
       await reconcileDeletedAgentProfileMemberships(c.env, profile);
-
       return c.json({
         ok: true,
         profile: toProfileView(profile, {
@@ -377,7 +351,6 @@ export function registerProfileRoutes(app: Hono<AppContext>) {
     }
   });
 }
-
 function resolveDirectAgentProfileCreationSource(
   headers: Headers
 ): "cli_create" | "web_create" {
@@ -385,25 +358,21 @@ function resolveDirectAgentProfileCreationSource(
     ? "cli_create"
     : "web_create";
 }
-
 function normalizeOptionalText(value: unknown): string | null {
   const normalized = String(value ?? "").trim();
   return normalized.length > 0 ? normalized : null;
 }
-
 async function readJsonBody(c: Context<AppContext>): Promise<unknown> {
   const raw = await c.req.text();
   if (raw.trim().length === 0) {
     return {};
   }
-
   try {
     return JSON.parse(raw) as unknown;
   } catch {
     throw new ProfileValidationError("request body must be valid JSON");
   }
 }
-
 function parseResolveProfileRequestBody(
   value: unknown
 ): ResolveProfileRequestBody {
@@ -417,13 +386,11 @@ function parseResolveProfileRequestBody(
     "openMeldProfileId"
   );
   const profileKind = readOptionalProfileKind(record, "profileKind");
-
   return {
     ...(openMeldProfileId ? { openMeldProfileId } : {}),
     ...(profileKind ? { profileKind } : {}),
   };
 }
-
 function parseProfileNameRequestBody(value: unknown): CreateProfileRequestBody {
   const record = parseStrictObject(
     value,
@@ -439,7 +406,6 @@ function parseProfileNameRequestBody(value: unknown): CreateProfileRequestBody {
     ...(creatorProfileId ? { creatorProfileId } : {}),
   };
 }
-
 function parseCreateAgentProfileRequestBody(
   value: unknown
 ): CreateAgentProfileRequestBody {
@@ -459,7 +425,6 @@ function parseCreateAgentProfileRequestBody(
     ...(idempotencyKey ? { idempotencyKey } : {}),
   };
 }
-
 function parseEnsureManagedAgentProfileRequestBody(
   value: unknown
 ): EnsureManagedAgentProfileRequestBody {
@@ -478,7 +443,6 @@ function parseEnsureManagedAgentProfileRequestBody(
     ...(creatorProfileId ? { creatorProfileId } : {}),
   };
 }
-
 function parseProfilePatchRequestBody(
   value: unknown
 ): UpdateProfileRequestBody {
@@ -495,7 +459,6 @@ function parseProfilePatchRequestBody(
     ...(profileName ? { profileName } : {}),
   };
 }
-
 function parseStrictObject(
   value: unknown,
   allowedKeys: ReadonlySet<string>,
@@ -504,7 +467,6 @@ function parseStrictObject(
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new ProfileValidationError(`${field} must be a JSON object`);
   }
-
   const record = value as Record<string, unknown>;
   for (const key of Object.keys(record)) {
     if (!allowedKeys.has(key)) {
@@ -513,7 +475,6 @@ function parseStrictObject(
   }
   return record;
 }
-
 function readRequiredNonEmptyString(
   input: Record<string, unknown>,
   field: string
@@ -524,7 +485,6 @@ function readRequiredNonEmptyString(
   }
   return value;
 }
-
 function readOptionalNonEmptyString(
   input: Record<string, unknown>,
   field: string
@@ -542,7 +502,6 @@ function readOptionalNonEmptyString(
   }
   return normalized;
 }
-
 function readManagedRole(
   input: Record<string, unknown>,
   field: string
@@ -553,7 +512,6 @@ function readManagedRole(
   }
   throw new ProfileValidationError(`${field} is invalid`);
 }
-
 function readOptionalProfileKind(
   input: Record<string, unknown>,
   field: string
@@ -569,9 +527,8 @@ function readOptionalProfileKind(
     `${field} must be one of human|agent|system`
   );
 }
-
 export async function resolveAgentProfileOrganizationId(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   headers: Headers;
   sessionActiveOrganizationId: unknown;
   userId: string;
@@ -610,8 +567,10 @@ export async function resolveAgentProfileOrganizationId(input: {
   }
   return activeOrganizationId;
 }
-
 function readSessionActiveOrganizationId(c: Context<AppContext>): unknown {
-  return (c.var.session as { activeOrganizationId?: unknown } | null)
-    ?.activeOrganizationId;
+  return (
+    c.var.session as {
+      activeOrganizationId?: unknown;
+    } | null
+  )?.activeOrganizationId;
 }

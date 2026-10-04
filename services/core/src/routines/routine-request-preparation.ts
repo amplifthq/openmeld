@@ -1,4 +1,8 @@
 import {
+  getPostgresDatabase,
+  type PostgresDatabase,
+} from "@openmeld/db/postgresql";
+import {
   HOSTED_REMOTE_AGENT_CONTROLLER_REF,
   openMeldRequestContextSchema,
 } from "@openmeld/schemas";
@@ -7,7 +11,7 @@ import type {
   OpenMeldRequestContext,
 } from "@openmeld/schemas/types";
 import { prepareCenterAgentRepresentedMemberRequest } from "../center-agent/application/represented-member-request";
-import { type CoreBindings, projectionsDb, routineDb } from "../lib/bindings";
+import type { CoreBindings } from "../lib/bindings";
 import { resolveActiveOrganizationMembership } from "../organizations/organization-context";
 import { prepareRemoteAgentMemberRequest } from "../remote-agent/application/remote-agent-member-request";
 import { createCoreRpcHttpError } from "../rpc/errors";
@@ -22,7 +26,6 @@ type PreparedRoutineRequest = {
   };
   service: ReturnType<typeof createRoutineService>;
 };
-
 export async function prepareHumanRoutineRequest(
   env: CoreBindings,
   contextInput: OpenMeldRequestContext | undefined
@@ -72,7 +75,6 @@ export async function prepareHumanRoutineRequest(
     service: createRoutineService(stores),
   };
 }
-
 export async function prepareCenterAgentRoutineRequest(
   env: CoreBindings,
   context: OpenMeldRequestContext,
@@ -161,36 +163,38 @@ export async function prepareCenterAgentRoutineRequest(
     service: createRoutineService(stores),
   };
 }
-
 async function requireHumanProfileAuthority(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   profileId: string;
   userId: string;
-}): Promise<{ profileName: string }> {
+}): Promise<{
+  profileName: string;
+}> {
   const profile = await input.db
-    .prepare(
-      `
+    .query<{
+      profile_name: string;
+    }>({
+      text: `
         SELECT profile_name
-        FROM openmeld_profiles
-        WHERE profile_id = ?
-          AND owner_user_id = ?
+        FROM "openmeld"."openmeld_profiles"
+        WHERE profile_id = $1
+          AND owner_user_id = $2
           AND profile_kind = 'human'
           AND status = 'active'
         LIMIT 1
-      `
-    )
-    .bind(input.profileId, input.userId)
-    .first<{ profile_name: string }>();
+      `,
+      values: [input.profileId, input.userId],
+    })
+    .then((result) => result.rows[0] ?? null);
   const profileName = profile?.profile_name.trim();
   if (!profileName) {
     throw memberActorRequiredError();
   }
   return { profileName };
 }
-
 function requireRoutineStores(env: CoreBindings) {
-  const db = routineDb(env);
-  const projectionStore = projectionsDb(env);
+  const db = getPostgresDatabase(env);
+  const projectionStore = getPostgresDatabase(env);
   if (!(db && projectionStore)) {
     throw createCoreRpcHttpError({
       status: 503,
@@ -200,7 +204,6 @@ function requireRoutineStores(env: CoreBindings) {
   }
   return { db, projectionsDb: projectionStore };
 }
-
 function memberActorRequiredError(override?: {
   code: string;
   reason: string;

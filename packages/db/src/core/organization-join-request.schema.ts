@@ -1,15 +1,10 @@
 import { sql } from "drizzle-orm";
-import {
-  index,
-  integer,
-  sqliteTable,
-  text,
-  uniqueIndex,
-} from "drizzle-orm/sqlite-core";
+import { bigint, index, text, uniqueIndex } from "drizzle-orm/pg-core";
 import { organizations, users } from "../auth/auth.schema.ts";
+import { applicationTable } from "../postgresql/schema.ts";
 
 // Core owns the decision. Better Auth remains the only membership writer.
-export const organizationJoinRequests = sqliteTable(
+export const organizationJoinRequests = applicationTable(
   "organization_join_requests",
   {
     id: text("id").primaryKey(),
@@ -21,19 +16,17 @@ export const organizationJoinRequests = sqliteTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     email: text("email").notNull(),
-    applicantUserId: text("applicant_user_id").references(() => users.id, {
-      onDelete: "cascade",
-    }),
-    joinedAt: integer("joined_at"),
+    applicantUserId: text("applicant_user_id").references(() => users.id),
+    joinedAt: bigint("joined_at", { mode: "number" }),
     status: text("status", {
       enum: ["pending", "approved", "rejected", "cancelled"],
     }).notNull(),
     reviewedByUserId: text("reviewed_by_user_id").references(() => users.id, {
       onDelete: "set null",
     }),
-    createdAt: integer("created_at").notNull(),
-    reviewedAt: integer("reviewed_at"),
-    invitationSentAt: integer("invitation_sent_at"),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    reviewedAt: bigint("reviewed_at", { mode: "number" }),
+    invitationSentAt: bigint("invitation_sent_at", { mode: "number" }),
   },
   (table) => [
     index("organization_join_requests_review_idx").on(

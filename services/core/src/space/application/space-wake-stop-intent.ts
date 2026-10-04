@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
   HOSTED_REMOTE_AGENT_CONTROLLER_REF,
@@ -12,20 +13,19 @@ import type {
 import {
   type RemoteAgentNativeDeliveryRecord,
   readRemoteAgentNativeDeliveryByExecution,
-} from "../../remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+} from "../../remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import {
   createDispatchOutboxRecord,
   insertDispatchOutboxRecord,
   readDispatchOutboxRecordByDispatchId,
 } from "../infrastructure/outbox/dispatch-outbox-repo";
-
 /** Old Core versions retired handed-off payloads before execution ended.
  * Absence is not permission by itself: require the exact persisted native
  * delivery, then re-read Space after the asynchronous boundary. Unknown or
  * mismatched requests remain not_found; neither absence nor this read proves
  * execution stopped. Final publication still meets Stop atomically in Space. */
 export async function readNativeSpaceWakeStopIntent(input: {
-  db: D1Database | null | undefined;
+  db: PostgresDatabase | null | undefined;
   query: SpaceWakeStopIntentQuery;
   sql: SqlStorage;
 }): Promise<SpaceWakeStopIntentResponse> {
@@ -65,7 +65,6 @@ export async function readNativeSpaceWakeStopIntent(input: {
         : "not_requested",
   };
 }
-
 function hasStoredOutboxFence(sql: SqlStorage, dispatchId: string): boolean {
   // A malformed or mismatched stored fence is not the same as normal conveyor
   // retirement. Never authorize through it by falling back to another store.
@@ -78,7 +77,6 @@ function hasStoredOutboxFence(sql: SqlStorage, dispatchId: string): boolean {
       .toArray().length > 0
   );
 }
-
 /** Reconstitute only a cancelled control record for a retired legacy payload.
  * This record cannot enter dispatch recovery or replay the diagnostic text.
  * Execution identity is still taken from the native ledger, never this seed. */
@@ -137,7 +135,6 @@ export function retainRetiredNativeWakeStopFence(
   });
   return readDispatchOutboxRecordByDispatchId(sql, delivery.dispatchId);
 }
-
 /** Every saved native Stop lacking a final claim has a recovery owner, even
  * when admission evidence is NULL or has not arrived yet. The cursor is only
  * scan scheduling; it never decides execution or cancellation truth. */
@@ -147,7 +144,9 @@ export function listPendingNativeWakeStops(
   afterDispatchId = ""
 ) {
   return sql
-    .exec<{ dispatch_id: string }>(
+    .exec<{
+      dispatch_id: string;
+    }>(
       `
     SELECT dispatch_id FROM openMeldDaemon_outbox AS outbox
     WHERE status = 'cancelled' AND dispatch_id > ?
@@ -169,7 +168,6 @@ export function listPendingNativeWakeStops(
         : [];
     });
 }
-
 export function isMatchingNativeStopTerminal(
   response: RemoteAgentWorkerCancellationResponse,
   target: Omit<RemoteAgentWorkerCancellationRequest, "v" | "reason">
@@ -193,7 +191,6 @@ export function isMatchingNativeStopTerminal(
     execution.idempotencyKey === target.idempotencyKey
   );
 }
-
 /** Projection of Space's existing durable Stop intent, not execution settlement. */
 export function readSpaceWakeStopIntent(
   sql: SqlStorage,
@@ -211,7 +208,6 @@ export function readSpaceWakeStopIntent(
     status: record.outboxStatus === "cancelled" ? "requested" : "not_requested",
   };
 }
-
 /** Admission and Stop meet in the existing Space outbox. This synchronous
  * evidence records possible exposure to execution, never execution outcome. */
 export function authorizeSpaceNativeWakeAdmission(
@@ -234,13 +230,14 @@ export function authorizeSpaceNativeWakeAdmission(
   );
   return intent;
 }
-
 export function isSpaceNativeWakeUnexposed(
   sql: SqlStorage,
   query: SpaceWakeStopIntentQuery
 ): boolean {
   const row = sql
-    .exec<{ native_admission_started_at_ms: number | null }>(
+    .exec<{
+      native_admission_started_at_ms: number | null;
+    }>(
       `SELECT native_admission_started_at_ms FROM openMeldDaemon_outbox
      WHERE dispatch_id = ? AND space_id = ? AND target_profile_id = ?`,
       query.dispatchId,

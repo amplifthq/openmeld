@@ -3,10 +3,11 @@ import {
   createAuthorityOpenMeldServiceRuntimeId,
   createRuntimeLookupInput,
 } from "@openmeld/agent-runtime";
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { describe, expect, it, vi } from "vitest";
 import { createAgentExecutionReadinessReads } from "../src/agent-execution/application/agent-execution-readiness-reads";
 import type { AuthProfileFacts } from "../src/auth/application/profile-facts-reader";
-import { registerRuntimeRegistryRecord } from "../src/runtime-registry/infrastructure/d1/runtime-registry-repo";
+import { registerRuntimeRegistryRecord } from "../src/runtime-registry/infrastructure/postgresql/runtime-registry-repo";
 
 describe("request-scoped readiness reads", () => {
   it("preserves missing, disabled and unavailable Auth facts without scalar retries", async () => {
@@ -64,14 +65,8 @@ describe("request-scoped readiness reads", () => {
       openMeldServiceRuntimeId: runtimeId,
       source: "runtime_registry_authority",
     });
-    let queryCount = 0;
-    // Count real D1 reads; no repository result is mocked.
-    const db = {
-      prepare(query: string) {
-        queryCount += 1;
-        return env.OPENMELD_DB.prepare(query);
-      },
-    } as D1Database;
+    const db = getPostgresDatabase(env);
+    const query = vi.spyOn(db, "query");
     const reads = createAgentExecutionReadinessReads();
     const before = await Promise.all(
       Array.from({ length: 50 }, async () => {
@@ -90,15 +85,14 @@ describe("request-scoped readiness reads", () => {
         return { byId, byLookup, reports };
       })
     );
-    expect(queryCount).toBe(3);
+    expect(query).toHaveBeenCalledTimes(3);
     for (const result of before) {
       expect(result.byId.status).toBe("missing");
       expect(result.byLookup.status).toBe("missing");
       expect(result.reports).toEqual([]);
     }
-
     await registerRuntimeRegistryRecord({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       record: {
         nowMs: Date.now(),
         runtimeLookupInput: lookup,
@@ -139,6 +133,7 @@ describe("request-scoped readiness reads", () => {
         runtimeLookupInput: { ...lookup, lane: "prod" },
       })
     ).toMatchObject({ status: "missing" });
-    expect(queryCount).toBe(8);
+    expect(query).toHaveBeenCalledTimes(8);
+    query.mockRestore();
   });
 });

@@ -1,3 +1,4 @@
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import {
   centerAgentRequestMemberAttentionResponseSchema,
   centerAgentRequestMemberAttentionRpcInputSchema,
@@ -7,13 +8,12 @@ import type {
   CenterAgentRequestMemberAttentionRpcInput,
   InboxSourceCandidate,
 } from "@openmeld/schemas/types";
-import { type CoreBindings, inboxDb, wakeEvidenceDb } from "../../lib/bindings";
-import { readRemoteAgentNativeDeliveryBySubmissionId } from "../../remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+import type { CoreBindings } from "../../lib/bindings";
+import { readRemoteAgentNativeDeliveryBySubmissionId } from "../../remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import { createCoreRpcHttpError } from "../../rpc/errors";
 import { prepareSpaceInboxCandidateForCenterAgent } from "../../space/application/space-inbox-center-agent-candidate";
 import { createCenterAgentAttentionRequest } from "./center-agent-attention-service";
 import { prepareHostedCenterAgentRequest } from "./represented-member-request";
-
 export async function rpcCenterAgentRequestMemberAttention(
   env: CoreBindings,
   input: CenterAgentRequestMemberAttentionRpcInput
@@ -25,15 +25,14 @@ export async function rpcCenterAgentRequestMemberAttention(
   );
   const conversationSubmissionId =
     request.context.agentControllerConversationId?.trim();
-  const deliveryDb = wakeEvidenceDb(env);
-  const attentionDb = inboxDb(env);
+  const deliveryDb = getPostgresDatabase(env);
+  const attentionDb = getPostgresDatabase(env);
   if (!(conversationSubmissionId && deliveryDb && attentionDb)) {
     throw attentionRequestUnavailableError();
   }
   if (conversationSubmissionId !== request.submissionId) {
     throw attentionRequestMismatchError();
   }
-
   const delivery = await readRemoteAgentNativeDeliveryBySubmissionId({
     db: deliveryDb,
     submissionId: conversationSubmissionId,
@@ -53,23 +52,23 @@ export async function rpcCenterAgentRequestMemberAttention(
   if (delivery.conversationKind !== "space") {
     throw attentionRequestMismatchError();
   }
-
   const activeMember = await authorization.db
-    .prepare(
-      `
+    .query<{
+      active: number;
+    }>({
+      text: `
         SELECT 1 AS active
-        FROM members
-        WHERE organization_id = ?
-          AND user_id = ?
+        FROM "openmeld"."members"
+        WHERE organization_id = $1
+          AND user_id = $2
         LIMIT 1
-      `
-    )
-    .bind(delivery.organizationId, delivery.onBehalfOfUserId)
-    .first<{ active: number }>();
+      `,
+      values: [delivery.organizationId, delivery.onBehalfOfUserId],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!activeMember) {
     throw attentionRequestMemberRequiredError();
   }
-
   const nowMs = Date.now();
   const sourceCandidate: InboxSourceCandidate = {
     attention: "action_required",
@@ -107,7 +106,6 @@ export async function rpcCenterAgentRequestMemberAttention(
     title: request.title,
     triggerSignalId: delivery.triggerMessageId,
   });
-
   return centerAgentRequestMemberAttentionResponseSchema.parse({
     importance: created.importance,
     instruction:
@@ -118,7 +116,6 @@ export async function rpcCenterAgentRequestMemberAttention(
     requestId: created.requestId,
   });
 }
-
 function attentionRequestUnavailableError() {
   return createCoreRpcHttpError({
     code: "center_agent.attention_request_unavailable",
@@ -126,7 +123,6 @@ function attentionRequestUnavailableError() {
     status: 503,
   });
 }
-
 function attentionRequestMismatchError() {
   return createCoreRpcHttpError({
     code: "center_agent.attention_request_delivery_mismatch",
@@ -135,7 +131,6 @@ function attentionRequestMismatchError() {
     status: 403,
   });
 }
-
 function attentionRequestMemberRequiredError() {
   return createCoreRpcHttpError({
     code: "center_agent.attention_request_member_required",

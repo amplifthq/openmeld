@@ -4,10 +4,7 @@ import {
   OpportunityConflictError,
   OpportunityNotFoundError,
 } from "../src/opportunities/application/opportunity-service";
-import {
-  applyDrizzleMigrationsForTables,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 const RECOMMENDATION = {
   evidence: ["The Organization does not have a recurring release review."],
@@ -20,7 +17,7 @@ const RECOMMENDATION = {
 
 describe("Opportunity service", () => {
   it("creates one quiet private Inbox update and deduplicates exact retries", async () => {
-    const harness = createOpportunityHarness();
+    const harness = await createOpportunityHarness();
     try {
       const service = createOpportunityService(harness.db);
       const first = await service.recommend({
@@ -46,21 +43,23 @@ describe("Opportunity service", () => {
         opportunity: { id: first.opportunity.id, status: "open" },
       });
       expect(
-        harness.queryFirst<{ count: number }>({
-          sql: "SELECT count(*) AS count FROM organization_opportunities",
-        })?.count
+        (
+          await harness.queryFirst<{ count: number }>({
+            text: 'SELECT count(*) AS count FROM "openmeld"."organization_opportunities"',
+          })
+        )?.count
       ).toBe(1);
       expect(
-        harness.queryFirst<{
+        await harness.queryFirst<{
           attention: string;
           importance: string;
           recipient_user_id: string;
           source_kind: string;
           source_target_json: string;
         }>({
-          sql: `
+          text: `
             SELECT attention, importance, recipient_user_id, source_kind, source_target_json
-            FROM inbox_items
+            FROM "openmeld"."inbox_items"
           `,
         })
       ).toEqual({
@@ -71,12 +70,12 @@ describe("Opportunity service", () => {
         source_target_json: '{"kind":"center_agent"}',
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("fails fast when a stable key is reused for different content", async () => {
-    const harness = createOpportunityHarness();
+    const harness = await createOpportunityHarness();
     try {
       const service = createOpportunityService(harness.db);
       await service.recommend({
@@ -102,12 +101,12 @@ describe("Opportunity service", () => {
         })
       ).rejects.toBeInstanceOf(OpportunityConflictError);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("lets only the recipient decide without turning Inbox into decision truth", async () => {
-    const harness = createOpportunityHarness();
+    const harness = await createOpportunityHarness();
     try {
       const service = createOpportunityService(harness.db);
       const { opportunity } = await service.recommend({
@@ -147,9 +146,11 @@ describe("Opportunity service", () => {
       });
       expect(replay.changed).toBe(false);
       expect(
-        harness.queryFirst<{ resolution_status: string }>({
-          sql: "SELECT resolution_status FROM inbox_items",
-        })?.resolution_status
+        (
+          await harness.queryFirst<{ resolution_status: string }>({
+            text: 'SELECT resolution_status FROM "openmeld"."inbox_items"',
+          })
+        )?.resolution_status
       ).toBe("not_applicable");
       await expect(
         service.respond({
@@ -160,12 +161,12 @@ describe("Opportunity service", () => {
         })
       ).rejects.toBeInstanceOf(OpportunityConflictError);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("treats not now as a reversible decision without reopening Inbox", async () => {
-    const harness = createOpportunityHarness();
+    const harness = await createOpportunityHarness();
     try {
       const service = createOpportunityService(harness.db);
       const { opportunity } = await service.recommend({
@@ -193,57 +194,39 @@ describe("Opportunity service", () => {
       expect(deferred.opportunity.status).toBe("deferred");
       expect(acceptedLater.opportunity.status).toBe("accepted");
       expect(
-        harness.queryFirst<{ count: number }>({
-          sql: "SELECT count(*) AS count FROM inbox_items",
-        })?.count
+        (
+          await harness.queryFirst<{ count: number }>({
+            text: 'SELECT count(*) AS count FROM "openmeld"."inbox_items"',
+          })
+        )?.count
       ).toBe(1);
       expect(
-        harness.queryFirst<{ resolution_status: string }>({
-          sql: "SELECT resolution_status FROM inbox_items",
-        })?.resolution_status
+        (
+          await harness.queryFirst<{ resolution_status: string }>({
+            text: 'SELECT resolution_status FROM "openmeld"."inbox_items"',
+          })
+        )?.resolution_status
       ).toBe("not_applicable");
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });
 
-function createOpportunityHarness() {
-  const harness = createSqliteD1Harness();
-  harness.run({
-    sql: `
-      CREATE TABLE organizations (
-        id TEXT PRIMARY KEY NOT NULL,
-        name TEXT NOT NULL,
-        slug TEXT NOT NULL,
-        created_at INTEGER NOT NULL
-      )
-    `,
-  });
-  harness.run({
-    sql: `
-      CREATE TABLE users (
-        id TEXT PRIMARY KEY NOT NULL,
-        name TEXT NOT NULL,
-        email TEXT NOT NULL
-      )
-    `,
-  });
-  applyDrizzleMigrationsForTables(harness, [
-    "organization_opportunities",
-    "inbox_items",
-  ]);
-  harness.run({
-    params: ["org-opportunity", "Opportunity Org", "opportunity-org", 1000],
-    sql: "INSERT INTO organizations (id, name, slug, created_at) VALUES (?, ?, ?, ?)",
+async function createOpportunityHarness() {
+  const harness = await createPostgresHarness();
+
+  await harness.query({
+    values: ["org-opportunity", "Opportunity Org", "opportunity-org", 1000],
+    text: 'INSERT INTO "openmeld"."organizations" (id, name, slug, created_at) VALUES ($1, $2, $3, $4)',
   });
   for (const [id, name, email] of [
     ["user-one", "One", "one@example.com"],
     ["user-two", "Two", "two@example.com"],
   ] as const) {
-    harness.run({
-      params: [id, name, email],
-      sql: "INSERT INTO users (id, name, email) VALUES (?, ?, ?)",
+    await harness.query({
+      values: [id, name, email],
+      text: 'INSERT INTO "openmeld"."users" (id, name, email) VALUES ($1, $2, $3)',
     });
   }
   return harness;

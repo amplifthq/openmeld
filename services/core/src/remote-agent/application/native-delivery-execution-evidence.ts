@@ -1,4 +1,4 @@
-import type { RemoteAgentNativeDeliveryRecord } from "../infrastructure/d1/native-delivery-ledger-repo";
+import type { RemoteAgentNativeDeliveryRecord } from "../infrastructure/postgresql/native-delivery-ledger-repo";
 
 export const REMOTE_AGENT_ACTIVE_EXECUTION_EVIDENCE_FRESHNESS_MS = 30 * 60_000;
 

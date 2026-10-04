@@ -1,4 +1,6 @@
 import { env } from "cloudflare:test";
+import type { QueryResult } from "@openmeld/db/postgresql";
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
 import { runAgentProfileCreationPostBindingFollowUps } from "../src/agent-profile-creation-request/agent-profile-creation-post-binding-follow-ups";
@@ -6,7 +8,7 @@ import {
   checkpointAgentProfileCreationPostBindingStep,
   readAgentProfileCreationPostBindingProgress,
 } from "../src/agent-profile-creation-request/agent-profile-creation-post-binding-progress";
-import { createD1AgentProfileCreationRequestRepository } from "../src/agent-profile-creation-request/agent-profile-creation-request-repository";
+import { createPostgresAgentProfileCreationRequestRepository } from "../src/agent-profile-creation-request/agent-profile-creation-request-repository";
 import {
   AGENT_PROFILE_CREATION_STALE_AFTER_MS,
   type AgentProfileCreationRequestRecord,
@@ -20,8 +22,8 @@ describe("Agent Profile creation request repository", () => {
     const requesterUserId = `user-requester-${suffix}`;
     const targetOwnerUserId = `user-target-${suffix}`;
     await seedIdentity({ organizationId, requesterUserId, targetOwnerUserId });
-    const repository = createD1AgentProfileCreationRequestRepository(
-      env.OPENMELD_DB
+    const repository = createPostgresAgentProfileCreationRequestRepository(
+      getPostgresDatabase(env)
     );
     const agentProfileId = `agt_${crypto.randomUUID()}`;
     const request = {
@@ -50,21 +52,20 @@ describe("Agent Profile creation request repository", () => {
           checkpoint: async (step) =>
             await checkpointAgentProfileCreationPostBindingStep({
               agentProfileId,
-              db: env.OPENMELD_DB,
+              db: getPostgresDatabase(env),
               profileCreationAttempt,
               requestId: request.id,
               step,
             }),
           completed: await readAgentProfileCreationPostBindingProgress({
             agentProfileId,
-            db: env.OPENMELD_DB,
+            db: getPostgresDatabase(env),
             profileCreationAttempt,
             requestId: request.id,
           }),
           setWorkspace,
           updateDefaultProject,
         });
-
       await expect(run(1)).rejects.toThrow("temporarily unavailable");
       const failed = await repository.transition({
         expectedProfileCreationAttempt: 1,
@@ -100,28 +101,29 @@ describe("Agent Profile creation request repository", () => {
       await expect(
         readAgentProfileCreationPostBindingProgress({
           agentProfileId,
-          db: env.OPENMELD_DB,
+          db: getPostgresDatabase(env),
           profileCreationAttempt: 2,
           requestId: request.id,
         })
       ).resolves.toEqual({ workspace: true, defaultProject: true });
     } finally {
-      await env.OPENMELD_DB.prepare(
-        "DELETE FROM agent_profile_creation_requests WHERE id = ?"
-      )
-        .bind(request.id)
-        .run();
+      await getPostgresDatabase(env).query({
+        ...{
+          text: 'DELETE FROM "openmeld"."agent_profile_creation_requests" WHERE id = $1',
+          values: [],
+        },
+        values: [request.id],
+      });
     }
   });
-
   it("persists participant visibility, idempotency, transitions, and preferences", async () => {
     const suffix = crypto.randomUUID();
     const organizationId = `org-apcr-${suffix}`;
     const requesterUserId = `user-requester-${suffix}`;
     const targetOwnerUserId = `user-target-${suffix}`;
     await seedIdentity({ organizationId, requesterUserId, targetOwnerUserId });
-    const repository = createD1AgentProfileCreationRequestRepository(
-      env.OPENMELD_DB
+    const repository = createPostgresAgentProfileCreationRequestRepository(
+      getPostgresDatabase(env)
     );
     const record = buildRequestRecord({
       organizationId,
@@ -129,7 +131,6 @@ describe("Agent Profile creation request repository", () => {
       suffix,
       targetOwnerUserId,
     });
-
     await expect(
       repository.insert(record, { inboxProjection: "project" })
     ).resolves.toEqual(record);
@@ -181,7 +182,6 @@ describe("Agent Profile creation request repository", () => {
         nowMs: record.updatedAtMs + 200,
       })
     ).resolves.toHaveLength(1);
-
     const approved = await repository.transition({
       expectedStatuses: ["pending"],
       expectedUpdatedAtMs: record.updatedAtMs,
@@ -200,7 +200,6 @@ describe("Agent Profile creation request repository", () => {
       requestId: record.id,
       startedAtMs: 1_787_220_002_000,
     });
-
     await expect(
       repository.listStaleProfileCreations({
         limit: 10,
@@ -213,7 +212,6 @@ describe("Agent Profile creation request repository", () => {
         staleBeforeMs: 1_787_220_002_000,
       })
     ).resolves.toEqual([claimed]);
-
     const completed = await repository.transition({
       expectedProfileCreationAttempt: claimed?.profileCreationAttempt,
       expectedStatuses: ["approved"],
@@ -227,7 +225,6 @@ describe("Agent Profile creation request repository", () => {
         updatedAtMs: 1_787_220_003_000,
       },
     });
-
     expect(completed).toMatchObject({
       status: "completed",
       statusReason: "profile_created",
@@ -265,7 +262,6 @@ describe("Agent Profile creation request repository", () => {
         update: { status: "cancelled" },
       })
     ).resolves.toBeNull();
-
     await expect(
       repository.upsertPreference({
         existingSessionPolicy: "never_allow",
@@ -285,15 +281,14 @@ describe("Agent Profile creation request repository", () => {
       newSessionPolicy: "automatically_allow",
     });
   });
-
   it("repairs projection intent for requests written without the new outbox columns", async () => {
     const suffix = crypto.randomUUID();
     const organizationId = `org-apcr-legacy-${suffix}`;
     const requesterUserId = `user-requester-${suffix}`;
     const targetOwnerUserId = `user-target-${suffix}`;
     await seedIdentity({ organizationId, requesterUserId, targetOwnerUserId });
-    const repository = createD1AgentProfileCreationRequestRepository(
-      env.OPENMELD_DB
+    const repository = createPostgresAgentProfileCreationRequestRepository(
+      getPostgresDatabase(env)
     );
     const record = buildRequestRecord({
       organizationId,
@@ -302,7 +297,6 @@ describe("Agent Profile creation request repository", () => {
       targetOwnerUserId,
     });
     await repository.insert(record);
-
     await expect(
       repository.synchronizeInboxProjectionIntents({ requestId: record.id })
     ).resolves.toBe(1);
@@ -313,7 +307,6 @@ describe("Agent Profile creation request repository", () => {
       operation: "project",
       status: "pending",
     });
-
     const declined = await repository.transition({
       expectedStatuses: ["pending"],
       expectedUpdatedAtMs: record.updatedAtMs,
@@ -337,15 +330,14 @@ describe("Agent Profile creation request repository", () => {
       status: "pending",
     });
   });
-
   it("recovers an approved durable request abandoned before its creation claim", async () => {
     const suffix = crypto.randomUUID();
     const organizationId = `org-apcr-unclaimed-${suffix}`;
     const requesterUserId = `user-requester-${suffix}`;
     const targetOwnerUserId = `user-target-${suffix}`;
     await seedIdentity({ organizationId, requesterUserId, targetOwnerUserId });
-    const repository = createD1AgentProfileCreationRequestRepository(
-      env.OPENMELD_DB
+    const repository = createPostgresAgentProfileCreationRequestRepository(
+      getPostgresDatabase(env)
     );
     const pending = buildRequestRecord({
       organizationId,
@@ -372,7 +364,6 @@ describe("Agent Profile creation request repository", () => {
       profileCreationStartedAtMs: null,
       status: "approved",
     });
-
     await expect(
       failStaleAgentProfileCreationRequests({
         nowMs: approvedAtMs + AGENT_PROFILE_CREATION_STALE_AFTER_MS - 1,
@@ -403,7 +394,6 @@ describe("Agent Profile creation request repository", () => {
     ).resolves.toEqual({ markedFailed: 0, scanned: 0, superseded: 0 });
   });
 });
-
 function buildRequestRecord(input: {
   organizationId: string;
   requesterUserId: string;
@@ -435,26 +425,45 @@ function buildRequestRecord(input: {
     updatedAtMs: 1_787_220_000_000,
   };
 }
-
 async function seedIdentity(input: {
   organizationId: string;
   requesterUserId: string;
   targetOwnerUserId: string;
 }): Promise<void> {
   const createdAt = 1_787_220_000_000;
-  await env.OPENMELD_DB.batch([
-    env.OPENMELD_DB.prepare(
-      "INSERT INTO organizations (id, name, slug, created_at) VALUES (?, ?, ?, ?)"
-    ).bind(
-      input.organizationId,
-      "Agent Profile Creation Request Test",
-      input.organizationId,
-      createdAt
-    ),
-    ...[input.requesterUserId, input.targetOwnerUserId].map((userId) =>
-      env.OPENMELD_DB.prepare(
-        "INSERT INTO users (id, name, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)"
-      ).bind(userId, userId, `${userId}@openmeld.invalid`, createdAt, createdAt)
-    ),
-  ]);
+  await getPostgresDatabase(env).transaction(async (client) =>
+    (async () => {
+      const results: QueryResult[] = [];
+      for (const query of [
+        {
+          ...{
+            text: 'INSERT INTO "openmeld"."organizations" (id, name, slug, created_at) VALUES ($1, $2, $3, $4)',
+            values: [],
+          },
+          values: [
+            input.organizationId,
+            "Agent Profile Creation Request Test",
+            input.organizationId,
+            createdAt,
+          ],
+        },
+        ...[input.requesterUserId, input.targetOwnerUserId].map((userId) => ({
+          ...{
+            text: 'INSERT INTO "openmeld"."users" (id, name, email, email_verified, created_at, updated_at) VALUES ($1, $2, $3, 1, $4, $5)',
+            values: [],
+          },
+          values: [
+            userId,
+            userId,
+            `${userId}@openmeld.invalid`,
+            createdAt,
+            createdAt,
+          ],
+        })),
+      ]) {
+        results.push(await client.query(query));
+      }
+      return results;
+    })()
+  );
 }

@@ -1,0 +1,2 @@
+DROP INDEX `center_agent_wake_publications_delegation_unique`;--> statement-breakpoint
+CREATE INDEX `center_agent_wake_publications_delegation_idx` ON `center_agent_wake_publications` (`delegation_id`);

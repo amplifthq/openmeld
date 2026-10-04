@@ -1,14 +1,14 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import { INBOX_CONTEXT_LABEL_MAX_CHARS } from "@openmeld/schemas";
 import {
   type AgentModelInboxScope,
   readAgentModelInboxRecords,
-} from "../infrastructure/d1/agent-model-inbox-repo";
+} from "../infrastructure/postgresql/agent-model-inbox-repo";
 import {
   ensureInboxItem,
   resolveInboxItemsBySource,
 } from "./inbox-item-service";
 import { truncateInboxText } from "./inbox-text";
-
 /** Projection input from the model/binding owner, not another execution policy. */
 export type AgentModelInboxSnapshot = AgentModelInboxScope & {
   identity: string;
@@ -17,9 +17,8 @@ export type AgentModelInboxSnapshot = AgentModelInboxScope & {
   message: string;
   profileName: string;
 };
-
 export async function reconcileAgentModelInboxProjection(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs: number;
   readCurrent: () => Promise<AgentModelInboxSnapshot | null>;
 }): Promise<void> {
@@ -105,7 +104,6 @@ export async function reconcileAgentModelInboxProjection(input: {
     });
   }
 }
-
 function sameSource(
   a: AgentModelInboxSnapshot,
   b: AgentModelInboxSnapshot | null

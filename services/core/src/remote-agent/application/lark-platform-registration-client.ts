@@ -1,5 +1,5 @@
 import { LARK_PLATFORM_REGISTRATION_DOMAINS } from "@openmeld/schemas";
-import type { RemoteAgentLarkPlatformProvider } from "../infrastructure/d1/lark-platform-channel-connection-repo";
+import type { RemoteAgentLarkPlatformProvider } from "../infrastructure/postgresql/lark-platform-channel-connection-repo";
 import {
   encodeLarkPlatformRegistrationAddons,
   LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE,

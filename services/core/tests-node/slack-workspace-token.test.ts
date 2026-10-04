@@ -8,8 +8,8 @@ import {
   hasSlackDirectMessageScopes,
   readSlackWorkspaceToken,
   upsertSlackWorkspaceToken,
-} from "../src/remote-agent/infrastructure/d1/slack-workspace-token-repo";
-import { createSqliteD1Harness } from "./helpers/sqlite-d1-harness.test-support";
+} from "../src/remote-agent/infrastructure/postgresql/slack-workspace-token-repo";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 const CRYPTO_KEY = btoa(String.fromCharCode(...new Uint8Array(32).fill(7)));
 const NOW_MS = Date.parse("2026-07-10T00:00:00.000Z");
@@ -17,27 +17,13 @@ const SLACK_TOKEN_CIPHERTEXT_PATTERN =
   /^aesgcm:v1:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+$/u;
 
 describe("Slack workspace bot tokens", () => {
-  let harness: ReturnType<typeof createSqliteD1Harness>;
+  let harness: Awaited<ReturnType<typeof createPostgresHarness>>;
 
-  beforeEach(() => {
-    harness = createSqliteD1Harness();
-    harness.run({
-      sql: `
-        CREATE TABLE slack_workspace_tokens (
-          slack_team_id TEXT PRIMARY KEY,
-          encrypted_bot_token TEXT NOT NULL,
-          bot_user_id TEXT NOT NULL,
-          granted_bot_scopes TEXT,
-          installed_by_user_id TEXT NOT NULL,
-          organization_id TEXT NOT NULL,
-          created_at_ms INTEGER NOT NULL,
-          updated_at_ms INTEGER NOT NULL
-        )
-      `,
-    });
+  beforeEach(async () => {
+    harness = await createPostgresHarness();
   });
 
-  afterEach(() => harness.close());
+  afterEach(async () => await harness.close());
 
   it("round-trips a bot token with AES-GCM without storing plaintext", async () => {
     const encrypted = await encryptSlackBotToken({
@@ -179,7 +165,7 @@ describe("Slack workspace bot tokens", () => {
         }),
         grantedBotScopes,
         installedByUserId: "user-1",
-        organizationId: "org-1",
+        organizationId: `org-${slackTeamId}`,
         slackTeamId,
         updatedAtMs: NOW_MS,
       },

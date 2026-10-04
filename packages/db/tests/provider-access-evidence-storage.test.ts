@@ -3,6 +3,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { assertNativeStorageContract } from "./native-storage.test-support";
 
 const repoRootDirectoryPath = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -11,13 +12,6 @@ const repoRootDirectoryPath = path.resolve(
 
 const TABLE_NAME = "openMeldDaemon_provider_access_evidence";
 const UNIQUE_ERROR_PATTERN = /UNIQUE/;
-
-const readRepoFile = (relativePath: string): string => {
-  return fs.readFileSync(
-    path.resolve(repoRootDirectoryPath, relativePath),
-    "utf8"
-  );
-};
 
 const readMigrationStatementsForTable = (
   tableName: string
@@ -58,35 +52,60 @@ const applyMigrationForTable = (database: DatabaseSync, tableName: string) => {
 };
 
 describe("Provider access evidence storage schema", () => {
-  it("stores one fresh provider account blocker per matching execution target", () => {
-    const schemaSource = readRepoFile(
-      "packages/db/src/core/provider-access-evidence.schema.ts"
-    );
-    const coreIndexSource = readRepoFile("packages/db/src/core/index.ts");
-    const coreSchemaSource = readRepoFile(
-      "packages/db/src/core/dispatch.schema.ts"
-    );
-    const sharedSchemaSource = readRepoFile("packages/db/src/schema.ts");
-
-    expect(schemaSource).toContain(
-      "export const openMeldDaemonProviderAccessEvidence = sqliteTable("
-    );
-    expect(schemaSource).toContain(`"${TABLE_NAME}"`);
-    expect(schemaSource).toContain(
-      "openMeldDaemon_provider_access_evidence_execution_provider_unique"
-    );
-    expect(schemaSource).toContain(
-      "idx_openMeldDaemon_provider_access_evidence_readiness"
-    );
-    expect(schemaSource).toContain(
-      "idx_openMeldDaemon_provider_access_evidence_source_dispatch"
-    );
-
-    expect(coreIndexSource).toContain("openMeldDaemonProviderAccessEvidence");
-    expect(coreSchemaSource).toContain("openMeldDaemonProviderAccessEvidence");
-    expect(sharedSchemaSource).toContain(
-      "openMeldDaemonProviderAccessEvidence"
-    );
+  it("stores one fresh provider account blocker per matching execution target", async () => {
+    await assertNativeStorageContract({
+      table: "openMeldDaemon_provider_access_evidence",
+      uniqueKey: [
+        "agent_profile_id",
+        "binding_id",
+        "openmeld_service_runtime_id",
+        "agent_controller_ref",
+        "provider",
+      ],
+      epochColumns: [
+        "observed_at_ms",
+        "expires_at_ms",
+        "cleared_at_ms",
+        "created_at_ms",
+        "updated_at_ms",
+      ],
+      record: {
+        evidence_id: "evidence-a",
+        provider: "claude-code",
+        agent_profile_id: "agent-a",
+        binding_id: "binding-a",
+        openmeld_service_runtime_id: "runtime-a",
+        agent_controller_ref: "builtin:claude-code",
+        reason_code: "provider_account.subscription_access_unavailable",
+        source: "wake_failure",
+        source_dispatch_id: "dispatch-a",
+        source_attempt_id: "attempt-a",
+        observed_at_ms: 1_700_000_000_000,
+        expires_at_ms: 1_700_000_001_000,
+        cleared_at_ms: null,
+        cleared_by_dispatch_id: null,
+        created_at_ms: 1_700_000_000_000,
+        updated_at_ms: 1_700_000_000_000,
+      },
+      distinctRecord: {
+        evidence_id: "evidence-b",
+        provider: "claude-code",
+        agent_profile_id: "agent-a",
+        binding_id: "binding-a",
+        openmeld_service_runtime_id: "runtime-b",
+        agent_controller_ref: "builtin:claude-code",
+        reason_code: "provider_account.subscription_access_unavailable",
+        source: "wake_failure",
+        source_dispatch_id: "dispatch-a",
+        source_attempt_id: "attempt-a",
+        observed_at_ms: 1_700_000_000_000,
+        expires_at_ms: 1_700_000_001_000,
+        cleared_at_ms: null,
+        cleared_by_dispatch_id: null,
+        created_at_ms: 1_700_000_000_000,
+        updated_at_ms: 1_700_000_000_000,
+      },
+    });
 
     const database = new DatabaseSync(":memory:");
     try {

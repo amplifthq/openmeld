@@ -718,6 +718,15 @@ Profile UI must not copy the Computer policy or offer a profile-level override;
 the current Computer detail is its one management home. Direct user-launched
 controller sessions remain governed by the controller's own settings.
 
+Starting a new Codex task for its owner does not add a single-folder restriction.
+The same rule applies to a currently verified Center delegation from that owner.
+With no explicit task access choice, the new task uses the current Profile
+permission mode and Computer policy. The Task menu's **New task** starts a
+separate conversation without choosing a narrower file scope. Explicit project,
+read-only, and Space-only tasks keep their selected restrictions. Continuing or
+forking an older restricted task does not reinterpret that restriction as a
+default; the owner can start a new task to use their current settings.
+
 Grok Build's current controller sandbox is too coarse to prove
 `only_selected_folders` or `block_selected_folders`. Its adapter therefore
 reports the Computer file access boundary as unsupported and uses the existing
@@ -1096,13 +1105,15 @@ them; a thread alone does not opt an unsupported harness into the new protocol.
 This compatibility rule does not enable suspended controllers or bypass current
 connection, permissions, or readiness requirements.
 
-In parallel mode, an ordinary Claude Code Wake starts a new isolated Space-only
-context when no retained context has been selected. It does not require a Git
-repository or container engine. A Wake continuing a retained context keeps that
-context's access; select a new project task to work in a repository. Space-only
-tasks have no local code tools. Forks inherit the source context's access unless an
-explicit supported choice changes it. An ordinary Codex Wake with no retained
-context uses the Profile's effective working folder. Explicit task choices may
+New Codex and Claude tasks keep the Agent's native tools and permission mode,
+whether requested by the owner, a teammate, or another Agent. Projects select
+the starting folder; they do not restrict the Agent to that folder. In parallel
+mode, an ordinary Claude Wake starts an independent native context when no
+retained context has been selected. It needs neither Git nor a container engine.
+A Wake continuing a retained context keeps its existing access. Forks preserve
+the source restriction unless an explicit supported choice changes it.
+The Task menu makes New task the default choice and groups optional restrictions
+under Limit task access. Explicit task choices may
 instead select Space-only access, an independent project worktree, or read-only
 current-folder access. Codex App Server also supports independent
 project worktrees or read-only/current-folder access. The CLI options
@@ -1120,7 +1131,7 @@ commit; it does not discover a source by searching the computer.
 
 The task boundary confines project files and Git metadata. Codex retains its
 native runtime's platform temporary-directory rules; that is not a promise of
-complete temporary-directory isolation. Claude Code project tasks require a
+complete temporary-directory isolation. Explicit isolated Claude project tasks require a
 running Docker or Podman Linux-container engine on macOS, Linux, or Windows.
 The Service mounts only the task-owned repository and worktree, disables
 container networking, runs as a non-root user, and gives Claude restricted file

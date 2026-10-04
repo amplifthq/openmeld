@@ -1,17 +1,19 @@
+import {
+  getPostgresDatabase,
+  type PostgresDatabase,
+} from "@openmeld/db/postgresql";
 import type {
   RemoteAgentTurnEnvelope,
   RemoteAgentWorkerSubmitTurnRequest,
 } from "@openmeld/schemas/types";
-import { type CoreBindings, wakeEvidenceDb } from "../lib/bindings";
+import type { CoreBindings } from "../lib/bindings";
 import type { CenterAgentMemoryEpisodeOrigin } from "./contract";
 import { resolveCenterAgentMemoryFrozenTurnContext } from "./frozen-turn-context";
-
 export function resolveExplicitMemorySourceDeliveryDb(
-  env: Pick<CoreBindings, "OPENMELD_DB" | "OPENMELD_WAKE_EVIDENCE_DB">
-): D1Database | undefined {
-  return wakeEvidenceDb(env);
+  env: Pick<CoreBindings, "OPENMELD_POSTGRESQL">
+): PostgresDatabase {
+  return getPostgresDatabase(env);
 }
-
 export function resolveExplicitMemorySourceTurnRequest(input: {
   executionRecoverySubmitRequest: RemoteAgentWorkerSubmitTurnRequest | null;
   workerSubmitRequest: RemoteAgentWorkerSubmitTurnRequest | null;
@@ -25,7 +27,6 @@ export function resolveExplicitMemorySourceTurnRequest(input: {
   }
   throw new Error("Remote Agent source delivery request is unavailable");
 }
-
 export function resolveExplicitMemoryEpisodeOrigin(input: {
   createdAtMs: number;
   expectedOrganizationId: string;
@@ -61,7 +62,6 @@ export function resolveExplicitMemoryEpisodeOrigin(input: {
       "Explicit memory source profile identity does not match the designated Center Agent"
     );
   }
-
   const base = {
     occurredAtMs: requireDateTimestamp(input.createdAtMs),
     sourceConversationId: input.turnEnvelope.space.id,
@@ -106,7 +106,6 @@ export function resolveExplicitMemoryEpisodeOrigin(input: {
       );
   }
 }
-
 function requireDateTimestamp(value: number): number {
   if (!(Number.isSafeInteger(value) && value >= 0)) {
     throw new Error("Explicit memory source occurrence time is invalid");
@@ -116,7 +115,6 @@ function requireDateTimestamp(value: number): number {
   }
   return value;
 }
-
 function requireNonEmptyText(value: string, message: string): string {
   const normalized = value.trim();
   if (!normalized) {

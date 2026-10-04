@@ -1,4 +1,8 @@
 import {
+  getPostgresDatabase,
+  type PostgresDatabase,
+} from "@openmeld/db/postgresql";
+import {
   FEEDBACK_ISSUE_INVALID_INPUT_ERROR_CODE,
   FEEDBACK_ISSUE_INVALID_TRANSITION_ERROR_CODE,
   FEEDBACK_ISSUE_NOT_FOUND_ERROR_CODE,
@@ -18,22 +22,20 @@ import type {
   ReadFeedbackReportingPolicyRequest,
   UpdateFeedbackIssueStatusForOrganizationRequest,
 } from "@openmeld/schemas/types";
-import { type CoreBindings, feedbackDb } from "../../../lib/bindings";
+import type { CoreBindings } from "../../../lib/bindings";
 import { createCoreRpcHttpError } from "../../../rpc/errors";
 import {
   createFeedbackIssueService,
   FeedbackIssueServiceError,
 } from "../../application/feedback-issue-service";
 import { createFeedbackReportingPolicyService } from "../../application/feedback-reporting-policy-service";
-import { createD1FeedbackIssueRepository } from "../../infrastructure/d1/feedback-issue-repo";
-import { createD1FeedbackReportingPolicyRepository } from "../../infrastructure/d1/feedback-reporting-policy-repo";
-
+import { createPostgresFeedbackIssueRepository } from "../../infrastructure/postgresql/feedback-issue-repo";
+import { createPostgresFeedbackReportingPolicyRepository } from "../../infrastructure/postgresql/feedback-reporting-policy-repo";
 export type SetFeedbackReportingPolicyForOrganizationInput = {
   organizationId: string;
   reportingEnabled: boolean;
   updatedByUserId: string | null;
 };
-
 export async function rpcListFeedbackIssuesForOrganization(
   env: CoreBindings,
   input: ListFeedbackIssuesForOrganizationRequest
@@ -51,7 +53,6 @@ export async function rpcListFeedbackIssuesForOrganization(
     throwFeedbackIssueServiceError(error);
   }
 }
-
 export async function rpcUpdateFeedbackIssueStatusForOrganization(
   env: CoreBindings,
   input: UpdateFeedbackIssueStatusForOrganizationRequest
@@ -71,7 +72,6 @@ export async function rpcUpdateFeedbackIssueStatusForOrganization(
     throwFeedbackIssueServiceError(error);
   }
 }
-
 export async function rpcReadFeedbackReportingPolicy(
   env: CoreBindings,
   input: ReadFeedbackReportingPolicyRequest
@@ -90,7 +90,6 @@ export async function rpcReadFeedbackReportingPolicy(
     ).readFeedbackReportingPolicy(request.data)
   );
 }
-
 export async function rpcSetFeedbackReportingPolicy(
   env: CoreBindings,
   input: SetFeedbackReportingPolicyForOrganizationInput
@@ -118,31 +117,27 @@ export async function rpcSetFeedbackReportingPolicy(
     })
   );
 }
-
 function createCoreFeedbackIssueService(env: CoreBindings) {
   const db = requireFeedbackDb(env);
   return createFeedbackIssueService({
     generateIssueId: () => `feedback_issue_${crypto.randomUUID()}`,
-    repository: createD1FeedbackIssueRepository({ db }),
+    repository: createPostgresFeedbackIssueRepository({ db }),
   });
 }
-
 function createCoreFeedbackReportingPolicyService(env: CoreBindings) {
   return createFeedbackReportingPolicyService({
-    repository: createD1FeedbackReportingPolicyRepository({
+    repository: createPostgresFeedbackReportingPolicyRepository({
       db: requireFeedbackDb(env),
     }),
   });
 }
-
-function requireFeedbackDb(env: CoreBindings): D1Database {
-  const db = feedbackDb(env);
+function requireFeedbackDb(env: CoreBindings): PostgresDatabase {
+  const db = getPostgresDatabase(env);
   if (!db) {
     throw new Error("Feedback D1 binding is unavailable");
   }
   return db;
 }
-
 function invalidFeedbackIssueInputError(reason: string): Error {
   return createCoreRpcHttpError({
     status: 400,
@@ -150,7 +145,6 @@ function invalidFeedbackIssueInputError(reason: string): Error {
     code: FEEDBACK_ISSUE_INVALID_INPUT_ERROR_CODE,
   });
 }
-
 function throwFeedbackIssueServiceError(error: unknown): never {
   if (!(error instanceof FeedbackIssueServiceError)) {
     throw error;

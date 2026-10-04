@@ -12,6 +12,7 @@ describe("resolve local service capabilities", () => {
       agentReplyContextReview: true,
       informationProtectionPrompt: true,
       workingLanguagePrompt: true,
+      verifiedRequesterContext: true,
       localAgentControl: {
         cancel: true,
         forkSession: true,
@@ -45,6 +46,7 @@ describe("resolve local service capabilities", () => {
           capabilityDeclaration: {
             continuationCapability: "standard",
             executionContextVersion: 2,
+            executionContextPermissionInheritance: true,
             imageInputCapability: "local_file_path",
             preparationRequirement: "none",
             runtimeWorkingDirectoryMode: "spawn_cwd",
@@ -79,6 +81,7 @@ describe("resolve local service capabilities", () => {
       agentReplyContextReview: true,
       informationProtectionPrompt: true,
       workingLanguagePrompt: true,
+      verifiedRequesterContext: true,
       localAgentControl: {
         cancel: true,
         forkSession: true,

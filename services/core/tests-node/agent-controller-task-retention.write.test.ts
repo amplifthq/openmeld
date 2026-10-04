@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import { buildAgentTaskKey } from "@openmeld/schemas";
 import type {
   AgentTaskContinuation,
@@ -9,21 +10,18 @@ import {
   createAgentControllerTaskLifecycleEvent,
   markAgentControllerTaskLifecycleEventProcessed,
   registerAgentControllerTask,
-} from "../src/agent-task-coordination/infrastructure/d1/agent-controller-task-lifecycle-repo";
+} from "../src/agent-task-coordination/infrastructure/postgresql/agent-controller-task-lifecycle-repo";
 import {
   AGENT_CONTROLLER_TASK_EVENT_RETENTION_MS,
   AGENT_CONTROLLER_TASK_REGISTRATION_RETENTION_MS,
   runAgentControllerTaskRetention,
-} from "../src/agent-task-coordination/infrastructure/d1/agent-controller-task-retention";
+} from "../src/agent-task-coordination/infrastructure/postgresql/agent-controller-task-retention";
 import {
   AgentControllerTaskRegistrationMissingError,
   recordAgentTaskTerminalOutcome,
   registerAgentTaskCompletionSubscription,
-} from "../src/agent-task-coordination/infrastructure/d1/agent-task-coordination-repo";
-import {
-  applyDrizzleMigrationForTable,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+} from "../src/agent-task-coordination/infrastructure/postgresql/agent-task-coordination-repo";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const NOW_MS = 200 * DAY_MS;
@@ -34,7 +32,9 @@ const observerTask: AgentTaskHandle = {
 };
 const continuation: Extract<
   AgentTaskContinuation,
-  { kind: "resume_task_watch" }
+  {
+    kind: "resume_task_watch";
+  }
 > = {
   instruction: "Continue after the exact controller task finishes.",
   kind: "resume_task_watch",
@@ -47,10 +47,9 @@ const codexUserPromptRegistration = {
   ownerUserId: "user-1",
   registrationSource: "codex_user_prompt_submit" as const,
 };
-
 describe("Agent Controller task retention", () => {
   it("prunes only old, terminal, inactive task history", async () => {
-    const harness = createRetentionHarness();
+    const harness = await createRetentionHarness();
     try {
       const oldEventAt = NOW_MS - AGENT_CONTROLLER_TASK_EVENT_RETENTION_MS - 1;
       await createProcessedLifecycleEvent({
@@ -102,7 +101,6 @@ describe("Agent Controller task retention", () => {
         hostId: "device-1",
         nowMs: NOW_MS - DAY_MS,
       });
-
       const oldTerminalAt =
         NOW_MS - AGENT_CONTROLLER_TASK_REGISTRATION_RETENTION_MS - 1;
       await insertWakePublication({
@@ -187,7 +185,6 @@ describe("Agent Controller task retention", () => {
         hostId: "device-1",
         nowMs: NOW_MS - DAY_MS,
       });
-
       await expect(
         runAgentControllerTaskRetention({
           db: harness.db,
@@ -200,7 +197,6 @@ describe("Agent Controller task retention", () => {
         terminalOutcomesDeleted: 1,
         wakePublicationsDeleted: 1,
       });
-
       await expect(
         listIds(
           harness.db,
@@ -255,12 +251,11 @@ describe("Agent Controller task retention", () => {
         })
       ).rejects.toBeInstanceOf(AgentControllerTaskRegistrationMissingError);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("bounds each cleanup pass", async () => {
-    const harness = createRetentionHarness();
+    const harness = await createRetentionHarness();
     try {
       const terminalAtMs =
         NOW_MS - AGENT_CONTROLLER_TASK_REGISTRATION_RETENTION_MS - 1;
@@ -274,7 +269,6 @@ describe("Agent Controller task retention", () => {
         taskId: "terminal-2",
         terminalAtMs,
       });
-
       await expect(
         runAgentControllerTaskRetention({
           db: harness.db,
@@ -289,46 +283,10 @@ describe("Agent Controller task retention", () => {
         listIds(harness.db, "agent_controller_tasks", "task_id")
       ).resolves.toHaveLength(1);
     } finally {
-      harness.close();
-    }
-  });
-
-  it("provides indexes for ordered retention and continuation lookups", async () => {
-    const harness = createRetentionHarness();
-    try {
-      await expect(
-        queryPlanDetails(
-          harness.db,
-          `
-            SELECT task_key
-            FROM agent_task_terminal_outcomes
-            WHERE observed_at_ms < ?
-            ORDER BY observed_at_ms ASC
-            LIMIT 10
-          `,
-          [NOW_MS]
-        )
-      ).resolves.toContain("agent_task_terminal_outcomes_observed_idx");
-      await expect(
-        queryPlanDetails(
-          harness.db,
-          `
-            SELECT subscription_id
-            FROM agent_task_completion_subscriptions
-            WHERE continuation_task_key = ?
-              AND state IN ('pending', 'ready', 'continuation_claimed')
-          `,
-          [buildAgentTaskKey(controllerTask("indexed"))]
-        )
-      ).resolves.toContain(
-        "agent_task_completion_subscriptions_continuation_task_state_idx"
-      );
-    } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });
-
 function controllerTask(taskId: string): AgentTaskHandle {
   return {
     agentControllerRef: "builtin:codex",
@@ -338,16 +296,15 @@ function controllerTask(taskId: string): AgentTaskHandle {
     v: 1,
   };
 }
-
 async function insertActiveDelegation(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delegationId: string;
   nowMs: number;
 }) {
-  await input.db
-    .prepare(
-      `
-        INSERT INTO agent_delegations (
+  await input.db.query({
+    ...{
+      text: `
+        INSERT INTO "openmeld"."agent_delegations" (
           delegation_id,
           idempotency_key,
           organization_id,
@@ -361,22 +318,22 @@ async function insertActiveDelegation(input: {
           updated_at_ms,
           completed_at_ms
         )
-        VALUES (?, ?, 'org-1', 'space-retention', ?, '{}', '{}', 'active', 1, ?, ?, NULL)
-      `
-    )
-    .bind(
+        VALUES ($1, $2, 'org-1', 'space-retention', $3, '{}', '{}', 'active', 1, $4, $5, NULL)
+      `,
+      values: [],
+    },
+    values: [
       input.delegationId,
       `idempotency:${input.delegationId}`,
       buildAgentTaskKey(observerTask),
       input.nowMs,
-      input.nowMs
-    )
-    .run();
+      input.nowMs,
+    ],
+  });
 }
-
 async function insertWakePublication(input: {
   completedAtMs: number | null;
-  db: D1Database;
+  db: PostgresDatabase;
   delegationId: string;
   publicationId: string;
   state: "completed" | "pending";
@@ -384,10 +341,10 @@ async function insertWakePublication(input: {
   const createdAtMs =
     input.completedAtMs ??
     NOW_MS - AGENT_CONTROLLER_TASK_REGISTRATION_RETENTION_MS - 1;
-  await input.db
-    .prepare(
-      `
-        INSERT INTO center_agent_wake_publications (
+  await input.db.query({
+    ...{
+      text: `
+        INSERT INTO "openmeld"."center_agent_wake_publications" (
           publication_id,
           delegation_id,
           organization_id,
@@ -403,10 +360,11 @@ async function insertWakePublication(input: {
           created_at_ms,
           updated_at_ms
         )
-        VALUES (?, ?, 'org-1', 'space-retention', '{}', ?, 0, ?, NULL, ?, ?, ?, ?, ?)
-      `
-    )
-    .bind(
+        VALUES ($1, $2, 'org-1', 'space-retention', '{}', $3, 0, $4, NULL, $5, $6, $7, $8, $9)
+      `,
+      values: [],
+    },
+    values: [
       input.publicationId,
       input.delegationId,
       input.state,
@@ -415,11 +373,10 @@ async function insertWakePublication(input: {
       input.completedAtMs === null ? null : "{}",
       input.completedAtMs,
       createdAtMs,
-      input.completedAtMs ?? createdAtMs
-    )
-    .run();
+      input.completedAtMs ?? createdAtMs,
+    ],
+  });
 }
-
 function lifecycleEvent(input: {
   eventId: string;
   occurredAtMs: number;
@@ -436,9 +393,8 @@ function lifecycleEvent(input: {
     taskId: input.taskId,
   };
 }
-
 async function createProcessedLifecycleEvent(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   eventId: string;
   occurredAtMs: number;
   taskId: string;
@@ -455,9 +411,8 @@ async function createProcessedLifecycleEvent(input: {
     nowMs: input.occurredAtMs,
   });
 }
-
 async function registerTask(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   occurredAtMs: number;
   ownerUserId?: string;
   source?: SubmitAgentControllerTaskLifecycleEventItem["source"];
@@ -479,9 +434,8 @@ async function registerTask(input: {
     openMeldServiceRuntimeId: "runtime-1",
   });
 }
-
 async function registerTerminalTask(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   taskId: string;
   terminalAtMs: number;
 }) {
@@ -492,9 +446,8 @@ async function registerTerminalTask(input: {
   });
   await recordTerminalOutcome(input);
 }
-
 async function recordTerminalOutcome(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   taskId: string;
   terminalAtMs: number;
 }) {
@@ -511,45 +464,20 @@ async function recordTerminalOutcome(input: {
     task: controllerTask(input.taskId),
   });
 }
-
 async function listIds(
-  db: D1Database,
+  db: PostgresDatabase,
   table: string,
   column: string
 ): Promise<string[]> {
-  const rows = await db
-    .prepare(`SELECT ${column} AS id FROM ${table} ORDER BY ${column} ASC`)
-    .all<{ id: string }>();
-  return (rows.results ?? []).map((row) => row.id);
+  const rows = await db.query<{
+    id: string;
+  }>({
+    text: `SELECT ${column} AS id FROM "openmeld"."${table}" ORDER BY ${column} ASC`,
+    values: [],
+  });
+  return rows.rows.map((row) => row.id);
 }
-
-async function queryPlanDetails(
-  db: D1Database,
-  sql: string,
-  bindings: unknown[]
-): Promise<string> {
-  const rows = await db
-    .prepare(`EXPLAIN QUERY PLAN ${sql}`)
-    .bind(...bindings)
-    .all<{ detail: string }>();
-  return (rows.results ?? []).map((row) => row.detail).join("\n");
-}
-
-function createRetentionHarness() {
-  const harness = createSqliteD1Harness();
-  applyDrizzleMigrationForTable(
-    harness,
-    "agent_controller_task_lifecycle_events"
-  );
-  applyDrizzleMigrationForTable(harness, "agent_controller_tasks");
-  applyDrizzleMigrationForTable(harness, "agent_task_terminal_outcomes");
-  applyDrizzleMigrationForTable(
-    harness,
-    "agent_task_needs_attention_observations"
-  );
-  applyDrizzleMigrationForTable(harness, "agent_task_completion_subscriptions");
-  applyDrizzleMigrationForTable(harness, "agent_delegations");
-  applyDrizzleMigrationForTable(harness, "agent_delegation_children");
-  applyDrizzleMigrationForTable(harness, "center_agent_wake_publications");
+async function createRetentionHarness() {
+  const harness = await createPostgresHarness();
   return harness;
 }

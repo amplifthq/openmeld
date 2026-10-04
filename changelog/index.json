@@ -110,6 +110,27 @@
       "body": "Desktop 0.1.18 brings the latest conversation, Inbox, and Skills improvements\nto Mac and the Windows x64 preview, alongside OpenMeld Tools 0.3.238.\n\nThe Mac release is signed by OpenMeld and notarized by Apple. Existing installations can\nupdate from Settings without signing in again. Windows x64 remains an unsigned\ninternal preview with a downloadable installer and no automatic updates."
     },
     {
+      "id": "desktop-connected-computer-state",
+      "title": "Desktop recognizes an already connected computer",
+      "kind": "fixed",
+      "areas": [
+        "desktop",
+        "computers"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-10-03",
+      "release": "v0.3.240",
+      "evidence": [
+        "pr:1483",
+        "commit:15549cc047d90f90edfbe2a1209919681a1e7e24",
+        "workflow:37138467122",
+        "https://openmeld.ai/desktop?candidate=d26801c5b9439dfe0f47eea747d50c22157b2ff729c31fd4b0b864d40faa3d69"
+      ],
+      "body": "Desktop’s Computer entry checks this Mac’s existing connection before offering\nsetup. Connected computers show their connection status, and a completed\nreconnection returns to connection management instead of offering Connect again.\nAfter disconnecting, Desktop no longer describes the signed-out computer as\nconnected to another account."
+    },
+    {
       "id": "consistent-inline-mention-badges",
       "title": "Keep mention badges consistent before and after sending",
       "kind": "fixed",
@@ -147,6 +168,27 @@
         "workflow:37112710810"
       ],
       "body": "Restored or stopped computer connections and resolved system requests now appear\nunder System updates instead of crowding the Inbox with separate rows. Requests\nthat still need attention and important execution outcomes remain separate."
+    },
+    {
+      "id": "center-agent-chat-welcome",
+      "title": "Keep welcome greetings out of Center Agent chat history",
+      "kind": "fixed",
+      "areas": [
+        "center-agent",
+        "spaces"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-10-03",
+      "release": "v0.3.240",
+      "evidence": [
+        "pr:1483",
+        "commit:15549cc047d90f90edfbe2a1209919681a1e7e24",
+        "commit:a76ffd7eb654e78ad0be127cea8deb944c18d10f",
+        "commit:5f5ec1d00ab8dc7f6d7bf8e00a912cd03a93abb2"
+      ],
+      "body": "Opening or preparing a Center Agent chat no longer adds a template greeting to\nthe conversation. Starting guidance stays in the chat introduction, so an\nexisting conversation cannot receive a welcome message that looks like an\nunsolicited Agent reply. Previous messages remain available."
     },
     {
       "id": "space-reading-position-ownership",
@@ -379,6 +421,27 @@
       "body": "Development cleanup preserves nested registered workspaces instead of deleting\ntheir local files with a parent directory. Core deployments check that the\nrelease source's database migrations have completed before changing production.\nFocused validation runs selected unit and integration tests with their owning\nconfigurations and reports an error when a selected file cannot be run."
     },
     {
+      "id": "center-agent-reasoning-save",
+      "title": "Save Center Agent reasoning effort",
+      "kind": "fixed",
+      "areas": [
+        "center-agent",
+        "settings"
+      ],
+      "audiences": [
+        "admins"
+      ],
+      "publishedAt": "2026-10-03",
+      "release": "v0.3.240",
+      "evidence": [
+        "pr:1486",
+        "commit:15549cc047d90f90edfbe2a1209919681a1e7e24",
+        "commit:a76ffd7eb654e78ad0be127cea8deb944c18d10f",
+        "commit:5f5ec1d00ab8dc7f6d7bf8e00a912cd03a93abb2"
+      ],
+      "body": "Center Agent model settings now save your selected reasoning effort and keep it\nafter you reload. Choosing an effort while using OpenMeld default saves it with\nthe current model. You can return to OpenMeld default to follow the recommended\nmodel and reasoning effort again."
+    },
+    {
       "id": "immediate-agent-stop",
       "title": "Stop an Agent as soon as you send",
       "kind": "improved",
@@ -403,6 +466,28 @@
         "workflow:37113245618"
       ],
       "body": "Stop is available from the first optimistic message, including new-chat\npreparation. A single click shows Stopping immediately, keeps the partial\nanswer, and waits for confirmation before showing Stopped. Unconfirmed stops\nremain retryable when the connection fails.\n\nConversation progress uses Thinking instead of exposing internal Wake and\nconnection steps, while useful tool activity, waiting, and approval states\nremain visible. CLI and personal Remote Agents can stop the same exact request\nbefore its first progress snapshot exists."
+    },
+    {
+      "id": "one-to-one-space-wake-and-progress",
+      "title": "Talk directly to the only Agent in a Space",
+      "kind": "improved",
+      "areas": [
+        "spaces",
+        "agents"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-03",
+      "release": "v0.3.240",
+      "evidence": [
+        "pr:1487",
+        "commit:15549cc047d90f90edfbe2a1209919681a1e7e24",
+        "commit:a76ffd7eb654e78ad0be127cea8deb944c18d10f",
+        "commit:5f5ec1d00ab8dc7f6d7bf8e00a912cd03a93abb2",
+        "workflow:37138463357"
+      ],
+      "body": "In a Space with one person and one Agent, messages can reach the Agent without\nan @mention. Adding another member restores explicit addressing; one-person,\none-Agent Threads keep their independent automatic addressing.\n\nWorking status stays visible while a Center Agent chooses where to reply.\nThinking updates no longer create an empty Thread before an answer appears in\nthe main conversation.\n\nCenter and Remote Agents can choose main or Thread to match your instructions\nand the task, and change that choice before final publication. Live work and\nthe reply draft follow the current choice together.\n\nReplies show live work and elapsed time in the conversation. Short answers\nappear as soon as they arrive, without waiting for conversation compaction."
     },
     {
       "id": "native-continuation-trace",

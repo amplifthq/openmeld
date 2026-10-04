@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   inboxSourceCandidateSchema,
   isCenterAgentDirectMessageSpaceProjection,
@@ -10,10 +11,9 @@ type CenterAgentDirectMessageRow = {
   organization_id: string;
   space_purpose: string | null;
 };
-
 export async function prepareSpaceInboxCandidateForCenterAgent(input: {
   candidate: InboxSourceCandidate;
-  db: D1Database;
+  db: PostgresDatabase;
 }): Promise<InboxSourceCandidate> {
   const { candidate } = input;
   if (
@@ -22,26 +22,25 @@ export async function prepareSpaceInboxCandidateForCenterAgent(input: {
   ) {
     return candidate;
   }
-
   const row = await input.db
-    .prepare(
-      `
+    .query<CenterAgentDirectMessageRow>({
+      text: `
         SELECT
           designation.agent_profile_id,
           space.direct_message_pair_key,
           space.organization_id,
           space.space_purpose
-        FROM space_index_spaces AS space
-        LEFT JOIN center_agent_designations AS designation
+        FROM "openmeld"."space_index_spaces" AS space
+        LEFT JOIN "openmeld"."center_agent_designations" AS designation
           ON designation.organization_id = space.organization_id
-        WHERE space.space_id = ?
-          AND space.organization_id = ?
+        WHERE space.space_id = $1
+          AND space.organization_id = $2
           AND space.status = 'active'
         LIMIT 1
-      `
-    )
-    .bind(candidate.sourceTarget.spaceId, candidate.organizationId)
-    .first<CenterAgentDirectMessageRow>();
+      `,
+      values: [candidate.sourceTarget.spaceId, candidate.organizationId],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!row) {
     throw new Error("space_inbox_projection.space_index_unavailable");
   }
@@ -54,7 +53,6 @@ export async function prepareSpaceInboxCandidateForCenterAgent(input: {
   ) {
     return candidate;
   }
-
   return inboxSourceCandidateSchema.parse({
     ...candidate,
     contextLabel: "Center Agent",

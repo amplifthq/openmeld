@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import { APIError } from "better-auth";
 
 const CENTER_AGENT_MEMBER_REMOVAL_GUARD_FAILED = {
@@ -5,7 +6,6 @@ const CENTER_AGENT_MEMBER_REMOVAL_GUARD_FAILED = {
   message:
     "OpenMeld couldn't verify that this member can be removed. The member was not removed.",
 } as const;
-
 type CenterAgentIdentityRow = {
   profile_id: string | null;
   organization_id: string | null;
@@ -13,9 +13,8 @@ type CenterAgentIdentityRow = {
   managed_role: string | null;
   owner_user_id: string | null;
 };
-
 export async function assertCenterAgentIdentityBeforeMemberRemoval(input: {
-  db?: D1Database;
+  db?: PostgresDatabase;
   organizationId: string;
   userId: string;
 }): Promise<void> {
@@ -26,27 +25,26 @@ export async function assertCenterAgentIdentityBeforeMemberRemoval(input: {
       userId: input.userId,
     });
   }
-
   let identity: CenterAgentIdentityRow | null;
   try {
     identity = await input.db
-      .prepare(
-        `
+      .query<CenterAgentIdentityRow>({
+        text: `
           SELECT
             profiles.profile_id,
             profiles.organization_id,
             profiles.profile_kind,
             profiles.managed_role,
             profiles.owner_user_id
-          FROM center_agent_designations AS designations
-          LEFT JOIN openmeld_profiles AS profiles
+          FROM "openmeld"."center_agent_designations" AS designations
+          LEFT JOIN "openmeld"."openmeld_profiles" AS profiles
             ON profiles.profile_id = designations.agent_profile_id
-          WHERE designations.organization_id = ?
+          WHERE designations.organization_id = $1
           LIMIT 1
-        `
-      )
-      .bind(input.organizationId)
-      .first<CenterAgentIdentityRow>();
+        `,
+        values: [input.organizationId],
+      })
+      .then((result) => result.rows[0] ?? null);
   } catch (error) {
     failClosed({
       error,
@@ -55,7 +53,6 @@ export async function assertCenterAgentIdentityBeforeMemberRemoval(input: {
       userId: input.userId,
     });
   }
-
   if (!identity) {
     return;
   }
@@ -79,7 +76,6 @@ export async function assertCenterAgentIdentityBeforeMemberRemoval(input: {
     });
   }
 }
-
 function failClosed(input: {
   error?: unknown;
   organizationId: string;

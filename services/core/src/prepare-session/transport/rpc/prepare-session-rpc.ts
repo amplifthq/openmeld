@@ -1,4 +1,8 @@
 import {
+  getPostgresDatabase,
+  type PostgresDatabase,
+} from "@openmeld/db/postgresql";
+import {
   createPrepareSessionRequestSchema,
   openMeldRequestContextSchema,
   prepareOpaqueTokenSchema,
@@ -19,10 +23,10 @@ import type {
   TerminalStepWrite,
   WebAgentSelectionWrite,
 } from "@openmeld/schemas/types";
-import { type CoreBindings, localStateDb } from "../../../lib/bindings";
+import type { CoreBindings } from "../../../lib/bindings";
 import { createCoreRpcHttpError } from "../../../rpc/errors";
 import type { CoreRpcContextInput } from "../../../rpc/methods";
-import { readConnectedComputerIdentityRecord } from "../../../start/infrastructure/d1/connected-computer-repo";
+import { readConnectedComputerIdentityRecord } from "../../../start/infrastructure/postgresql/connected-computer-repo";
 import {
   createPrepareSessionUseCase,
   mintPrepareSessionReconnectTokenUseCase,
@@ -40,37 +44,29 @@ import {
   writeTerminalStepUseCase,
   writeWebAgentSelectionUseCase,
 } from "../../application/prepare-session-service";
-
 export type CreatePrepareSessionInput = CreatePrepareSessionRequest & {
   context?: CoreRpcContextInput;
 };
-
 export type GetPrepareSessionInput = {
   prepareSessionId: string;
   context?: CoreRpcContextInput;
 };
-
 export type MintPrepareSessionReconnectTokenInput = {
   prepareSessionId: string;
   context?: CoreRpcContextInput;
 };
-
 export type ResolvePrepareSessionTokenInput = {
   opaqueToken: PrepareOpaqueToken;
 };
-
 export type WritePrepareAgentSelectionInput = WebAgentSelectionWrite & {
   context?: CoreRpcContextInput;
 };
-
 export type WritePrepareSetupBootstrapInput = PrepareSetupBootstrapWrite & {
   context?: CoreRpcContextInput;
 };
-
 export type WritePrepareTerminalStepInput = TerminalStepWrite;
 export type WritePrepareTerminalLocalAgentCatalogInput =
   TerminalLocalAgentCatalogWrite;
-
 export async function rpcCreatePrepareSession(
   env: CoreBindings,
   input: CreatePrepareSessionInput
@@ -123,7 +119,6 @@ export async function rpcCreatePrepareSession(
     opaqueTokenExpiresAt: result.opaqueTokenExpiresAt,
   };
 }
-
 export async function rpcGetPrepareSession(
   env: CoreBindings,
   input: GetPrepareSessionInput
@@ -135,7 +130,6 @@ export async function rpcGetPrepareSession(
   });
   return { snapshot };
 }
-
 export async function rpcMintPrepareSessionReconnectToken(
   env: CoreBindings,
   input: MintPrepareSessionReconnectTokenInput
@@ -159,7 +153,6 @@ export async function rpcMintPrepareSessionReconnectToken(
     opaqueTokenExpiresAt: token.opaqueTokenExpiresAt,
   };
 }
-
 export async function rpcResolvePrepareSessionToken(
   env: CoreBindings,
   input: ResolvePrepareSessionTokenInput
@@ -180,7 +173,6 @@ export async function rpcResolvePrepareSessionToken(
   });
   return { snapshot };
 }
-
 export async function rpcWritePrepareAgentSelection(
   env: CoreBindings,
   input: WritePrepareAgentSelectionInput
@@ -219,7 +211,6 @@ export async function rpcWritePrepareAgentSelection(
   });
   return { snapshot };
 }
-
 export async function rpcWritePrepareSetupBootstrap(
   env: CoreBindings,
   input: WritePrepareSetupBootstrapInput
@@ -247,7 +238,6 @@ export async function rpcWritePrepareSetupBootstrap(
   });
   return { snapshot };
 }
-
 export async function rpcWritePrepareTerminalStep(
   env: CoreBindings,
   input: WritePrepareTerminalStepInput
@@ -269,7 +259,6 @@ export async function rpcWritePrepareTerminalStep(
   });
   return { snapshot };
 }
-
 export async function rpcWritePrepareTerminalLocalAgentCatalog(
   env: CoreBindings,
   input: WritePrepareTerminalLocalAgentCatalogInput
@@ -292,7 +281,6 @@ export async function rpcWritePrepareTerminalLocalAgentCatalog(
   });
   return { snapshot };
 }
-
 export async function rpcGetPrepareDiagnostic(
   env: CoreBindings,
   input: GetPrepareSessionInput
@@ -310,7 +298,6 @@ export async function rpcGetPrepareDiagnostic(
     });
   });
 }
-
 async function readPrepareSessionSnapshot(
   env: CoreBindings,
   input: {
@@ -329,9 +316,8 @@ async function readPrepareSessionSnapshot(
   }
   return snapshot;
 }
-
-function requirePrepareSessionDb(env: CoreBindings): D1Database {
-  const db = localStateDb(env);
+function requirePrepareSessionDb(env: CoreBindings): PostgresDatabase {
+  const db = getPostgresDatabase(env);
   if (!db) {
     throw createCoreRpcHttpError({
       status: 503,
@@ -341,7 +327,6 @@ function requirePrepareSessionDb(env: CoreBindings): D1Database {
   }
   return db;
 }
-
 function requireRpcContext(
   context?: CoreRpcContextInput
 ): OpenMeldRequestContext {
@@ -355,7 +340,6 @@ function requireRpcContext(
   }
   return parsed.data;
 }
-
 function requireAuthenticatedOwnerUserId(
   context: OpenMeldRequestContext
 ): string {
@@ -369,7 +353,6 @@ function requireAuthenticatedOwnerUserId(
   }
   return ownerUserId;
 }
-
 function normalizePrepareSessionId(value: unknown): string {
   const normalized = String(value ?? "").trim();
   if (!normalized) {
@@ -381,7 +364,6 @@ function normalizePrepareSessionId(value: unknown): string {
   }
   return normalized;
 }
-
 async function mapPrepareSessionErrors<T>(
   execute: () => Promise<T>
 ): Promise<T> {

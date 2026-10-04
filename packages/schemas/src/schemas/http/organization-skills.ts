@@ -482,6 +482,17 @@ export const centerAgentReadOrganizationSkillsRpcInputSchema =
     centerAgentGetOrganizationSkillRpcInputSchema,
     centerAgentPreviewOrganizationSkillFromGitHubRpcInputSchema,
     centerAgentPreviewOrganizationSkillRepositoryRpcInputSchema,
+    z.strictObject({
+      action: z.literal("get_import_batch"),
+      batchId: operationIdSchema,
+      context: openMeldRequestContextSchema,
+      speakerMember: centerAgentToolSpeakerSchema,
+    }),
+    z.strictObject({
+      action: z.literal("list_import_batches"),
+      context: openMeldRequestContextSchema,
+      speakerMember: centerAgentToolSpeakerSchema,
+    }),
   ]);
 export const centerAgentReadOrganizationSkillsResponseSchema =
   z.discriminatedUnion("action", [
@@ -505,6 +516,13 @@ export const centerAgentReadOrganizationSkillsResponseSchema =
       action: z.literal("preview_github_repository"),
       organizationId: identifierSchema,
       preview: organizationSkillGitHubRepositoryPreviewSchema,
+    }),
+    getOrganizationSkillImportBatchResponseSchema.extend({
+      action: z.literal("get_import_batch"),
+      organizationId: identifierSchema,
+    }),
+    listOrganizationSkillImportBatchesResponseSchema.extend({
+      action: z.literal("list_import_batches"),
     }),
   ]);
 
@@ -533,6 +551,21 @@ export const centerAgentInstallOrganizationSkillRpcInputSchema =
     centerAgentCreateOrganizationSkillRpcInputSchema,
     centerAgentImportOrganizationSkillFromGitHubRpcInputSchema,
     centerAgentImportOrganizationSkillWithReportRpcInputSchema,
+    beginOrganizationSkillImportBatchBodySchema
+      .omit({ expectedOrganizationId: true })
+      .extend({
+        action: z.literal("begin_import_batch"),
+        expectedCommitSha: z.string().regex(/^[a-f0-9]{40}$/),
+        context: openMeldRequestContextSchema,
+        speakerMember: centerAgentToolSpeakerSchema,
+      }),
+    z.strictObject({
+      action: z.literal("install_batch_item"),
+      batchId: operationIdSchema,
+      path: z.string().max(1024),
+      context: openMeldRequestContextSchema,
+      speakerMember: centerAgentToolSpeakerSchema,
+    }),
   ]);
 export const centerAgentInstallOrganizationSkillResponseSchema =
   z.discriminatedUnion("action", [
@@ -548,6 +581,17 @@ export const centerAgentInstallOrganizationSkillResponseSchema =
     }),
     z.strictObject({
       action: z.literal("import_github_with_report"),
+      organizationId: identifierSchema,
+      skill: organizationSkillSummarySchema,
+      warnings: z.array(z.string().trim().min(1).max(1024)),
+      storedButNotExecutable: z.array(z.string().max(1024)),
+    }),
+    beginOrganizationSkillImportBatchResponseSchema.extend({
+      action: z.literal("begin_import_batch"),
+      organizationId: identifierSchema,
+    }),
+    z.strictObject({
+      action: z.literal("install_batch_item"),
       organizationId: identifierSchema,
       skill: organizationSkillSummarySchema,
       warnings: z.array(z.string().trim().min(1).max(1024)),

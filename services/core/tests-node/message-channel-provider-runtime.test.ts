@@ -1,8 +1,11 @@
+import { PostgresDatabase } from "@openmeld/db/postgresql";
 import { describe, expect, it } from "vitest";
 import type { CoreBindings } from "../src/lib/bindings";
 import { createConfiguredMessageChannelProviderRegistry } from "../src/remote-agent/application/message-channel-provider-runtime";
 
-const DB = {} as D1Database;
+const DB = new PostgresDatabase({
+  connectionString: "postgresql://127.0.0.1:1/unexpected_test_database_access",
+});
 
 describe("configured Message Channel provider registry", () => {
   it("stays absent while both provider gates are disabled", () => {

@@ -7,6 +7,7 @@ import {
 } from "../src/space/application/space-bootstrap-timing";
 import { readSpaceStatusSummaryFromMembersSnapshotUseCase } from "../src/space/application/space-status-service";
 import type { SpaceMetaRecord } from "../src/space/infrastructure/sql/space-meta-repo";
+import { createProjectionPostgresBinding } from "../test-support/postgresql-query.test-support";
 
 describe("space bootstrap server timing", () => {
   it("formats stable Server-Timing metrics with total first", () => {
@@ -99,7 +100,9 @@ describe("space bootstrap server timing", () => {
 
     const response = await readSpaceStatusSummaryFromMembersSnapshotUseCase({
       sql,
-      env: {} as CoreBindings,
+      env: {
+        OPENMELD_POSTGRESQL: createProjectionPostgresBinding(() => []),
+      } as CoreBindings,
       spaceId: membersSnapshot.spaceId,
       metaRecord: {
         spaceId: membersSnapshot.spaceId,

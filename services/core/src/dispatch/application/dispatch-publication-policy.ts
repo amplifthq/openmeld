@@ -29,7 +29,6 @@ import {
   resolveResultArchiveBehavior,
   resolveSpacePublicationRequirement,
 } from "@openmeld/space-mesh";
-
 export type DispatchPublicationPlan =
   | {
       archiveMode: ResultArchiveMode;
@@ -74,7 +73,6 @@ export type DispatchPublicationPlan =
       publicOutcome: "internal_only";
       shouldArchive: boolean;
     };
-
 type DispatchPublicationPayload = {
   errorCode?: string | undefined;
   errorMessage?: string | undefined;
@@ -87,11 +85,9 @@ type DispatchPublicationPayload = {
   status: OpenMeldDaemonTaskResultPayload["status"];
   suppressPublicOutcome?: boolean | undefined;
 };
-
 export function buildDispatchResultRef(dispatchId: string): string {
   return `dispatch-result:${dispatchId}`;
 }
-
 export function resolveDispatchPublicationPlan(input: {
   actorName?: string | null;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
@@ -115,7 +111,6 @@ export function resolveDispatchPublicationPlan(input: {
         ? explicitAction.action?.saveResult
         : undefined,
   });
-
   const selfWake = isSelfWakeSpaceAction(
     input.payload.spaceAction,
     input.dispatchMessage.targetProfileId
@@ -152,7 +147,6 @@ export function resolveDispatchPublicationPlan(input: {
       replyText: input.replyText,
     });
   }
-
   return {
     ...plan,
     archiveMode: archiveBehavior.mode,
@@ -163,7 +157,6 @@ export function resolveDispatchPublicationPlan(input: {
     }),
   };
 }
-
 export function buildDispatchResultRecord(input: {
   archivedMessageEnvelope?: MessageEnvelope | null;
   dispatchId: string;
@@ -181,7 +174,6 @@ export function buildDispatchResultRecord(input: {
   if (!input.plan.shouldArchive) {
     return null;
   }
-
   const archivedMessageEnvelope =
     input.archivedMessageEnvelope ??
     (input.plan.kind === "message" ? input.plan.messageEnvelope : null);
@@ -208,7 +200,6 @@ export function buildDispatchResultRecord(input: {
     spaceId: input.spaceId,
     threadContext: input.threadContext ?? null,
   });
-
   if (input.plan.archiveMode === "all_final_results") {
     return buildArchivedFinalDispatchResultRecord({
       baseRecord,
@@ -216,14 +207,12 @@ export function buildDispatchResultRecord(input: {
       runtimeOutput: input.runtimeOutput,
     });
   }
-
   return buildPlannedDispatchResultRecord({
     baseRecord,
     plan: input.plan,
     runtimeOutput: input.runtimeOutput,
   });
 }
-
 export function resolveArchivedReplyToSignalId(input: {
   dispatchReplyToSignalId: string | null;
   emittedSignal: SignalEnvelope | null;
@@ -240,7 +229,6 @@ export function resolveArchivedReplyToSignalId(input: {
   }
   return normalizeOptionalText(input.dispatchReplyToSignalId);
 }
-
 function resolveEmittedSignalReplyToSignalId(
   signal: SignalEnvelope | null
 ): string | null {
@@ -264,7 +252,6 @@ function resolveEmittedSignalReplyToSignalId(
   }
   return null;
 }
-
 type DispatchResultRecordBase = {
   actorProfileId: string;
   actorName?: string;
@@ -277,7 +264,6 @@ type DispatchResultRecordBase = {
   spaceId: string;
   threadContext: SpaceThreadContext | null;
 };
-
 function buildDispatchResultRecordBase(input: {
   actorProfileId: string;
   actorName?: string | null;
@@ -303,7 +289,6 @@ function buildDispatchResultRecordBase(input: {
     threadContext: input.threadContext,
   };
 }
-
 function buildPlannedDispatchResultRecord(input: {
   baseRecord: DispatchResultRecordBase;
   plan: DispatchPublicationPlan;
@@ -339,7 +324,6 @@ function buildPlannedDispatchResultRecord(input: {
       return assertUnexpectedPlan(input.plan);
   }
 }
-
 function buildArchivedFinalDispatchResultRecord(input: {
   baseRecord: DispatchResultRecordBase;
   plan: DispatchPublicationPlan;
@@ -354,7 +338,6 @@ function buildArchivedFinalDispatchResultRecord(input: {
       text: input.plan.text,
     });
   }
-
   if (input.plan.kind === "message") {
     return buildTextDispatchResultRecord({
       ...input.baseRecord,
@@ -362,14 +345,12 @@ function buildArchivedFinalDispatchResultRecord(input: {
       publicOutcome: input.plan.publicOutcome,
     });
   }
-
   return buildTextDispatchResultRecord({
     ...input.baseRecord,
     finalText: input.runtimeOutput,
     publicOutcome: input.plan.publicOutcome,
   });
 }
-
 function buildTextDispatchResultRecord(
   input: DispatchResultRecordBase & {
     finalText: string;
@@ -398,7 +379,6 @@ function buildTextDispatchResultRecord(
     createdAt: input.createdAt,
   };
 }
-
 function buildStatusDispatchResultRecord(
   input: DispatchResultRecordBase & {
     finalText?: string;
@@ -427,24 +407,26 @@ function buildStatusDispatchResultRecord(
     createdAt: input.createdAt,
   };
 }
-
 function resolveExplicitActionDecision(input: {
   action: OpenMeldSpaceEgressAction | undefined;
   allowedActions: SpaceAllowedAction[];
 }):
-  | { kind: "allowed"; action: OpenMeldSpaceEgressAction | undefined }
-  | { actionType: SpaceAllowedAction; kind: "blocked" } {
+  | {
+      kind: "allowed";
+      action: OpenMeldSpaceEgressAction | undefined;
+    }
+  | {
+      actionType: SpaceAllowedAction;
+      kind: "blocked";
+    } {
   if (!input.action) {
     return { kind: "allowed", action: undefined };
   }
-
   if (input.allowedActions.includes(input.action.type)) {
     return { kind: "allowed", action: input.action };
   }
-
   return { kind: "blocked", actionType: input.action.type };
 }
-
 function resolveExplicitActionPlan(input: {
   action: OpenMeldSpaceEgressAction;
   actorName?: string | null;
@@ -493,7 +475,6 @@ function resolveExplicitActionPlan(input: {
       return assertUnexpectedAction(input.action);
   }
 }
-
 function resolveImplicitPlan(input: {
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   actorName?: string | null;
@@ -510,7 +491,6 @@ function resolveImplicitPlan(input: {
       shouldArchive: false,
     };
   }
-
   if (
     input.publicationRequirement.allowsRawReplyWithoutAction &&
     canPublishRawContextSharingReply(input.payload)
@@ -533,7 +513,6 @@ function resolveImplicitPlan(input: {
       };
     }
   }
-
   return buildSystemNoticePlan({
     actorName: input.actorName,
     noticeType: "terminal_failure",
@@ -542,13 +521,11 @@ function resolveImplicitPlan(input: {
     reasonCode: input.payload.errorCode,
   });
 }
-
 function canPublishRawContextSharingReply(
   payload: DispatchPublicationPayload
 ): boolean {
   return payload.status === "success";
 }
-
 function resolvePublicStaySilentReason(input: {
   actionReason?: string | null;
   actionProvenance?: OpenMeldDaemonTaskResultPayload["spaceActionProvenance"];
@@ -565,7 +542,6 @@ function resolvePublicStaySilentReason(input: {
   }
   return reason;
 }
-
 function buildSystemNoticePlan(input: {
   actorName?: string | null;
   noticeType: "policy_blocked" | "stay_silent" | "terminal_failure";
@@ -596,7 +572,6 @@ function buildSystemNoticePlan(input: {
           }),
   };
 }
-
 function resolveShouldArchive(input: {
   archiveMode: ResultArchiveMode;
   planKind: DispatchPublicationPlan["kind"];
@@ -609,7 +584,6 @@ function resolveShouldArchive(input: {
   }
   return input.planKind !== "none";
 }
-
 function resolveFailureReason(
   payload: DispatchPublicationPayload,
   targetProfileName?: string | null
@@ -622,7 +596,6 @@ function resolveFailureReason(
   if (payload.status !== "failed") {
     return "OpenMeld did not receive a message it could post in this space.";
   }
-
   const providerReason = resolveRuntimeProviderFailureReason(payload);
   if (providerReason) {
     return providerReason;
@@ -637,7 +610,6 @@ function resolveFailureReason(
   });
   return reason;
 }
-
 // Only classify the provider error envelope. Never publish its message, request,
 // or prompt: these may contain private content even after ordinary redaction.
 function resolveRuntimeProviderFailureReason(
@@ -680,7 +652,6 @@ function resolveRuntimeProviderFailureReason(
   }
   return null;
 }
-
 function buildImplicitPublicMessageEnvelope(input: {
   replyText: string;
   replyToSignalId: string | null;
@@ -694,7 +665,6 @@ function buildImplicitPublicMessageEnvelope(input: {
     text: input.replyText,
   });
 }
-
 function buildPreviewText(value: string): string {
   const normalized = normalizeOptionalText(value) ?? "";
   if (normalized.length <= 220) {
@@ -702,7 +672,6 @@ function buildPreviewText(value: string): string {
   }
   return `${normalized.slice(0, 217).trimEnd()}...`;
 }
-
 function buildStatusSignalText(value: string): string {
   const normalized = normalizeOptionalText(value) ?? "";
   if (normalized.length <= MAX_SIGNAL_REPLY_TO_PREVIEW_LENGTH) {
@@ -712,7 +681,6 @@ function buildStatusSignalText(value: string): string {
     .slice(0, MAX_SIGNAL_REPLY_TO_PREVIEW_LENGTH - 1)
     .trimEnd()}…`;
 }
-
 function resolvePublicationActorName(input: {
   actorName?: string | null;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
@@ -726,20 +694,17 @@ function resolvePublicationActorName(input: {
     normalizeOptionalText(input.dispatchMessage.targetProfileId)
   );
 }
-
 function normalizeOptionalText(
   value: string | null | undefined
 ): string | null {
   const normalized = value?.trim() ?? "";
   return normalized.length > 0 ? normalized : null;
 }
-
 function assertUnexpectedAction(value: never): never {
   throw new Error(
     `unsupported OpenMeld Space action: ${JSON.stringify(value)}`
   );
 }
-
 function assertUnexpectedPlan(value: never): never {
   throw new Error(`unsupported publication plan: ${JSON.stringify(value)}`);
 }

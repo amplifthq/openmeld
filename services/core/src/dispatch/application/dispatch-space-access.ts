@@ -11,7 +11,6 @@ import {
   DISPATCH_HINT_SYSTEM_PROFILE_ID,
   DISPATCH_HINT_SYSTEM_PROFILE_NAME,
 } from "../rules/dispatch-hint-policy";
-
 export function buildDispatchContinuationSpaceAccess(input: {
   attemptId?: string | null;
   message: OpenMeldDaemonDispatchQueueMessage;
@@ -27,7 +26,6 @@ export function buildDispatchContinuationSpaceAccess(input: {
     targetProfileId: input.message.targetProfileId,
   });
 }
-
 export function buildDispatchSystemSpaceAccess(input: {
   message: OpenMeldDaemonDispatchQueueMessage;
   requestIdPrefix: string;
@@ -37,7 +35,6 @@ export function buildDispatchSystemSpaceAccess(input: {
     requestContext: buildDispatchSystemRequestContext(input),
   });
 }
-
 export function buildDispatchSystemRequestContext(input: {
   message: OpenMeldDaemonDispatchQueueMessage;
   requestIdPrefix: string;
@@ -55,7 +52,6 @@ export function buildDispatchSystemRequestContext(input: {
     },
   };
 }
-
 export function isDispatchMessageProtectedSpace(
   message: OpenMeldDaemonDispatchQueueMessage
 ): boolean {
