@@ -822,6 +822,9 @@ function parseAgentsRegistryRuntimeCapabilityDeclaration(
 
   return {
     continuationCapability,
+    ...(objectValue.executionContextPermissionInheritance === true
+      ? { executionContextPermissionInheritance: true as const }
+      : {}),
     ...(objectValue.executionContextVersion === 1 ||
     objectValue.executionContextVersion === 2 ||
     objectValue.executionContextVersion === 3

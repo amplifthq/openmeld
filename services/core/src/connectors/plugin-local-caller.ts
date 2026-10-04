@@ -135,10 +135,26 @@ export async function requireLocalPluginCaller(
     sourceRequestKey: input.request.dispatchId
       ? `dispatch:${input.request.dispatchId}`
       : undefined,
+    // This identity comes from admitted, immutable request provenance. A model
+    // supplied dispatch ID or an Agent's claim about the owner is not a root.
+    authorizedRequestRoot: resolvePluginRequestRoot(provenance, delegated),
     human: identity.account.defaultHumanProfile,
     personalAllowed: representedUserId === member.userId,
     delegatedPluginActions: delegated?.actions,
   };
+}
+
+function resolvePluginRequestRoot(
+  provenance: Awaited<ReturnType<typeof readPluginDispatchRequester>> | null,
+  delegated: Awaited<ReturnType<typeof requireLocalDelegation>> | null
+) {
+  if (delegated) {
+    return delegated.requester.parentDeliveryId;
+  }
+  // requireLocalPluginCaller already rejected an unverified Agent sender.
+  return provenance
+    ? `space-message:${provenance.spaceId}:${provenance.sourceSignalId}`
+    : undefined;
 }
 
 async function requireLocalDelegation(input: {

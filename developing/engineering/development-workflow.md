@@ -1128,6 +1128,21 @@ Answer these questions in the PR, task handoff, or release note:
 
 ### Trusted Delegation Contract Impact Audit
 
+The Local task permission correction also adds an optional Core-owned requester
+fact and assignment permission source. Roll out schema readers and Core before
+the new Service: an old strict capability reader cannot accept the new
+`executionContextPermissionInheritance` declaration. New Core accepts old
+Services, but refuses inherited-permission contexts on those Services instead
+of silently imposing a directory boundary. Retained bounded contexts and legacy
+serial Wakes keep their previous contracts. New Web's **New task** uses the
+existing `{ mode: new }` selection shape; old Core can parse it but does not
+provide the corrected permission behavior, so expose this entry with the Core
+rollout. Gateway passes no caller-supplied owner fact. Auth, Remote Agent and
+Skills do not grant filesystem authority. Native permission settings, explicit
+Computer policy, and task restrictions remain intersecting constraints.
+This rollout order is required; it is not an assertion that a new Service can
+register against an old Core or permission to update an installed Service.
+
 The exact-evidence, ordinary Plugin delegation, excerpt-copy, and replay changes
 touch shared schemas, Core RPC/HTTP, native Remote tools, the packaged CLI,
 Service dispatch context, and the managed Plugin playbook.
@@ -1181,110 +1196,42 @@ Service dispatch context, and the managed Plugin playbook.
 
 #### Manual request authority and private Inbox confirmation
 
-The previous credential proved account access, but not that the human initiated
-this particular request. These two histories previously produced the same
-admitted request:
+The approved threat model uses existing account credentials. An Agent's
+delegation/execution credential cannot approve a Plugin request. The owner's
+independently authenticated account can. The product does not claim human
+presence when an Agent has been given the owner's full account credentials.
+Do not add independent factor enrollment, email codes, or new recovery machinery
+to this task.
 
-1. A human asks a Local Agent to perform an independent manual write. The CLI
-   sends the current account credential, its owned Agent Profile, selected
-   account, action, input, and a new operation ID, without a dispatch. Core
-   resolves membership, Binding, and Plugin permission, then admits the write.
-2. An old Local execution has an unknown write. Without another human request,
-   the caller sends the same account credential and fields, omits the dispatch,
-   and changes the operation ID. The same admission succeeds. Persisting a
-   server-generated root in response to this request would bless both histories.
+Verified owner Wakes and recorded Center delegations reuse their Core-derived
+original request root. Cold continuation and selected child execution preserve
+the same task/effect fence. A new operation ID or executor cannot repeat the
+write. Current access, membership, delegation, exact input and account version
+are still checked. Only the original executor can claim a permitted provider
+replay; other executors receive its original receipt.
 
-The existing credentials alone do not supply that distinction:
-
-| Existing owner | Verified fact | Missing fact |
-| --- | --- | --- |
-| Auth `resolveProfileForOwner` and Gateway request context | The authenticated account owns the selected active Profile; omitting the Profile selects its default Human Profile. | Selecting a Human Profile is not a fresh human action. |
-| `plugin-action-confirmation.ts` | A short-lived token binds the action signature, actor, Organization, and access revision. The same caller receives and submits it. | No separate human acceptance is recorded. Promoting this token to a request root permits self-authorization. |
-| CLI interactive terminal | A terminal is available for prompts. | A terminal answer is not a Core-verifiable human-request credential. |
-| Auth device authorization | Approval authorizes a CLI login session. | The approval does not bind a Plugin account, action, target, effect, or input. |
-| RuntimeCoordinator interaction response | The owner answers a pending interaction for one retained execution. | There is no standalone manual execution to attach to, and this is not a generic approval or request-root issuer. |
-
-A bounded Core/workerd diagnostic at `8944033bc` exercised real Local admission,
-connection policy, D1 migrations, confirmation storage, and operation storage.
-With a legacy unknown row and no dispatch, changing the operation ID reached the
-synthetic provider twice. This happened for both an ordinary write and a
-destructive action whose token was obtained and submitted by the same caller,
-with zero human responses. The provider and Auth service boundary used synthetic
-fixtures; this is not an authenticated CLI or real-provider smoke. Both
-zero-duplicate assertions failed. The existing exact-input/access-revision
-confirmation test passed; that narrower contract does not prove human intent.
-
-The Plugin request owner now retains the exact account version, access revision,
-actor, original requester, action, effect and input in `plugin_action_requests`
-(additive migration 0192). Inbox holds only a private recipient projection and
-an opaque request ID. It never receives action input or a verification code.
-The single inline Web detail uses the existing Inbox destination and shared UI.
-Auth's service-binding RPC derives a request-specific code, delivers it only to
-the current verified account email, and verifies the same immutable request.
-This works with the existing password, OAuth and passkey login paths; a verified
-email is required. Possession of an independent mailbox remains the verification
-boundary. A separately authorized Agent that can read that mailbox is not
-distinguished from its owner by email verification alone.
-
-This is still a blocking acceptance condition, not merely an operational note.
-For example, an Agent with an existing Gmail read grant can request a code, read
-that email, select the account's Human Profile using the same account credential,
-and submit the code. The current owner cannot prove mailbox independence from
-that account credential. The UI and independent-mailbox cases do not certify the
-unqualified requirement that a controller cannot approve itself. Closing that
-case requires request-bound authentication evidence unavailable to the Agent,
-including a supported path for accounts that currently use only email login;
-it must not silently require a passkey or claim that a browser session suffices.
-
-The existing Auth configuration does not yet supply an independently enrolled
-confirmation factor. Better Auth 1.6.30 passkey registration uses a fresh session;
-OpenMeld adds no previous-factor requirement or trusted-enrollment provenance.
-The passkey table retains credential material and creation time, not who proved
-the enrollment. Password creation accepts the existing session, and password
-recovery and magic-link login use the same verified email. Consequently, simply
-changing the request challenge to a password, a recent cookie, or any currently
-registered passkey would not close self-enrollment from an Agent-held account.
-This is an unresolved release blocker, not a claim that existing login is broken.
-
-Two different guarantees must remain explicit: the operation owner can prevent
-repeat effects for the same authorized root; identifying a new human request
-also requires authority the old caller cannot manufacture. A future Auth-owned
-request challenge can reuse the pending request digest, but its enrollment,
-replacement and recovery must require a separately established trusted root.
-An email-only account with delegated mailbox access has no such independent root
-in the current model. Supporting that account requires a concrete initial trust
-establishment/recovery product decision; a client flag, timestamp cutoff, new
-factor registered with the same session, or new operation ID cannot supply it.
-Do not convert this missing boundary into permanent manual-write removal or a
-global same-content fence. Keep the candidate Draft pending that decision.
-
-Private request detail may expose explicitly reviewed, bounded resource labels
-from the immutable intent (currently the PostHog dashboard name), alongside
-bounded target identifiers. Inbox previews and email remain input-free. The Web
-detail must identify omitted input and must not claim omitted content was
-reviewed. This is not a generic raw-input preview or a complete safe-summary
-catalog for every Plugin action.
+A manual Local call with no verified request provenance creates a private
+`plugin_action_requests` record (migration 0192). It freezes the actor, original
+requester, account version, access revision, action, effect and input. Inbox
+holds an opaque request ID and input-free preview. The inline detail shows
+bounded reviewed labels and identifies omitted input. Core requires a Human
+Profile and an authenticated account principal matching the request owner
+before approving or declining. Agent-supplied identity text is not authority.
 
 Approval and Inbox resolution use one conditional D1 batch. Repeated decisions
-return the retained state, conflicting decisions fail, and execution claims
-recheck the approved request, membership and frozen connection/access revisions.
-Requests expire after one hour. Replay additionally requires the existing
-operation's single durable allowance and original 24-hour maximum window;
-approval never resolves an older unknown. A separately approved new request is
-a new operation, not evidence that an earlier operation did not execute.
-New Local commands opt into the typed `authorization_required` result. Older
-commands receive an actionable failure and can retry the same operation after
-the owner approves in Web. Reads and receipt reconciliation stay available.
+return retained state; conflicting decisions fail. Execution rechecks approval,
+membership and connection/access revisions. Requests expire after one hour.
+Replay retains the operation's single durable allowance and original 24-hour
+maximum window. A separately approved new request does not resolve an older
+unknown result.
 
-Rollout must update Gateway/shared schema readers and Auth before enabling the
-Core writer, apply migration 0192 before that Core version, then deliver Web and
-CLI consumers. Inbox source-target capability 10 adds Plugin request details;
-older consumers receive a safe instruction to use current Web, with no approval
-control. This is a future deployment order, not permission to deploy or apply a
-production migration. The candidate needs fresh local-component stamping and
-release-readiness verification after its final CLI/schema changes. Storage tests,
-browser evidence, real model execution and real provider writes are separate
-acceptance claims.
+Deploy current Gateway/shared schema and replay readers before the Core writer,
+apply migration 0192, then deliver Web/CLI consumers. The unreleased email-code
+prototype has no supported installed consumer and is removed. Inbox capability
+10 adds request details; older consumers receive guidance to current Web.
+This is a rollout dependency, not permission to deploy. Stamp the final local
+components and verify release readiness. Storage tests, browser smoke, native
+model execution and actual provider writes remain separate evidence.
 
 ### Active-Wake Agent Settings Contract Impact Audit
 

@@ -980,7 +980,7 @@ describe("Remote Agent native delivery callback service", () => {
       });
       expect(replyPlacement).toMatchObject({
         kind: "reply_placement",
-        placement: { dispatchId: "dispatch_1", locked: true },
+        placement: { dispatchId: "dispatch_1", locked: false },
       });
       expect(
         env.__spaceStub.rpcResolveNativeReplyPlacement
@@ -990,7 +990,7 @@ describe("Remote Agent native delivery callback service", () => {
           sourceSignalId: "signal_1",
           profileId: AGENT_PROFILE_ID,
           placement: "conversation",
-          lock: true,
+          lock: false,
         })
       );
       for (const kind of ["board", "updates", "authorize"] as const) {

@@ -354,6 +354,21 @@ Organization, Space, discussion, Profile, Binding, and Runtime.
 Admission freezes both the context assignment and a decision to retain legacy
 continuity. Linking an execution or redriving a Wake cannot assign it again.
 
+Conversation isolation does not imply a new filesystem boundary. For a new
+Codex context requested by its owner, directly or through the existing recorded
+Center delegation, omitted access preferences inherit the Profile's current
+native permission mode intersected with the current Computer File Access policy.
+Core records `permissionSource: agent_settings` independently of workspace and
+conversation identity. A current folder is a starting location, not an implicit
+allowlist. Explicit `space_context`, `read_only`, and `workspace` preferences
+retain their existing task boundary. A fork retains its source restriction;
+legacy assignments without a permission source are never silently widened.
+Core rechecks the current owner/requester relationship before delivery, and
+requires the Service's `executionContextPermissionInheritance` capability.
+The Service reuses ordinary Computer policy admission for inherited permissions.
+Context identity, history-loss failure, writer admission, and process ownership
+remain enforced even when no extra filesystem boundary is required.
+
 Core retains each accepted Wake's context association and completed native
 history checkpoint independently of the in-flight Head lifecycle. Head retirement
 must not erase a source needed for continuation or a completed-prefix fork.

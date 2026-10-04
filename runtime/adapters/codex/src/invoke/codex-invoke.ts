@@ -134,6 +134,7 @@ export async function invokeCodexWithSingleContextHeal(input: {
 }
 
 export async function invokeCodexAppServer(input: {
+  executionContext?: AdapterDispatchRequest["executionContext"];
   launchContract: RuntimeAgentControllerLaunchContract;
   spaceActionTools?: AdapterDispatchRequest["spaceActionTools"];
   agentControllerPermissionMode?: AgentControllerPermissionMode;
@@ -161,6 +162,7 @@ export async function invokeCodexAppServer(input: {
   const result = await invokeWithSingleContextHeal({
     contextId: input.threadId,
     contextLossPolicy:
+      input.executionContext ||
       input.computerFileAccessBoundary?.executionContextAccess ||
       input.executionMode === "repair"
         ? "fail"

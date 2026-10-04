@@ -37,7 +37,6 @@ export const pluginActionRequestViewSchema = z.strictObject({
     .max(12),
   createdAtMs: z.number().int(),
   expiresAtMs: z.number().int(),
-  verificationRequested: z.boolean(),
 });
 export const pluginActionRequestCommandSchema = z.discriminatedUnion(
   "operation",
@@ -47,18 +46,12 @@ export const pluginActionRequestCommandSchema = z.discriminatedUnion(
       requestId: z.string().uuid(),
     }),
     z.strictObject({
-      operation: z.literal("send_code"),
-      requestId: z.string().uuid(),
-    }),
-    z.strictObject({
       operation: z.literal("reject"),
       requestId: z.string().uuid(),
-      code: z.string().trim().min(1).max(128),
     }),
     z.strictObject({
       operation: z.literal("approve"),
       requestId: z.string().uuid(),
-      code: z.string().trim().min(1).max(128),
     }),
   ]
 );

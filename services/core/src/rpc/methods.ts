@@ -16361,12 +16361,14 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
     service: parsed.data.service,
     sourceNativeDeliveryId: member.sourceNativeDeliveryId,
     sourceSpaceId: member.sourceSpaceId,
-    sourceRequestKey: member.sourceNativeDeliveryId ?? undefined,
+    sourceRequestKey:
+      member.sourceRequestKey ?? member.sourceNativeDeliveryId ?? undefined,
     effectSignature: parsed.data.requestSignature,
     effect: parsed.data.effect,
     allowReplay: parsed.data.includeExecutionPermit === true,
   });
   return await presentConnectorOperationResult({
+    actorProfileId: authorization.actorProfileId,
     result,
     db: authorization.db,
     request: parsed.data,
@@ -16375,6 +16377,7 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
 }
 
 async function presentConnectorOperationResult(input: {
+  actorProfileId: string;
   verificationOf?: Awaited<ReturnType<typeof requireConnectorVerificationRead>>;
   db: D1Database;
   request: ReturnType<
@@ -16400,6 +16403,7 @@ async function presentConnectorOperationResult(input: {
       ? {
           executionAllowed: result.executionAllowed,
           replay: await readConnectorActionReplayPermission({
+            actorProfileId: input.actorProfileId,
             db: input.db,
             operation: result.operation,
             nowMs: Date.now(),

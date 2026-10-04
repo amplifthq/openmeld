@@ -14,6 +14,7 @@ export const connectorActionReplayPermissionSchema = z.discriminatedUnion(
       reason: z.enum([
         "window_unverified",
         "original_account_unverified",
+        "original_executor_required",
         "window_expired",
         "already_replayed",
         "operation_in_progress",

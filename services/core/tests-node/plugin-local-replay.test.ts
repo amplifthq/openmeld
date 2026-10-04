@@ -9,11 +9,6 @@ import type {
 } from "@openmeld/schemas/types";
 import { digestCanonicalJson } from "@openmeld/utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AuthBindings } from "../../auth/src/lib/bindings";
-import {
-  checkPluginRequestVerification,
-  sendPluginRequestVerification,
-} from "../../auth/src/lib/plugin-request-verification";
 import capturedActions from "../../remote-agent/tests/fixtures/openconnector-runtime-actions.json";
 import { rpcPluginActionRequest } from "../src/connectors/plugin-action-requests";
 import { rpcPluginAction } from "../src/connectors/plugin-actions";
@@ -44,7 +39,6 @@ vi.mock("../src/rpc/methods", () => ({
 const profileId = "agt_00000000-0000-4000-8000-000000000001";
 const humanId = "22222222-2222-4222-8222-222222222222";
 const connectionName = "synthetic-posthog-personal";
-const REQUEST_CODE_PATTERN = /[a-f0-9]{8}(?:-[a-f0-9]{8}){3}/u;
 const action = openConnectorRuntimeActionSchema.parse({
   ...capturedActions.data[1],
   effect: "write",
@@ -59,9 +53,10 @@ let harness: ReturnType<typeof createSqliteD1Harness>;
 let providerCalls: PluginRuntimeRequest[];
 let effects: Set<string>;
 let submission: string;
+let authorizedRequestRoot: string | undefined;
+let actorProfileId: string;
 let providerResult: "outcome_unknown" | "completed";
 let env: CoreBindings;
-let deliveredEmail: string;
 let grants:
   | ReturnType<typeof pluginDelegationAuthorizationSchema.parse>[]
   | undefined;
@@ -130,16 +125,19 @@ beforeEach(() => {
     sql: `INSERT INTO connector_connections (connection_name, organization_id, user_id, scope, service, status, created_at_ms, updated_at_ms, access_policy) VALUES ('${connectionName}', 'org-1', 'user-1', 'member', 'posthog', 'active', 1000, 1000, '{"local_agent":"write","remote_agent":"none","center_agent":"none"}')`,
   });
   submission = "dispatch:original-request";
+  authorizedRequestRoot = undefined;
+  actorProfileId = profileId;
   grants = undefined;
   admission.caller.mockImplementation(async () => ({
     db: harness.db,
     organizationId: "org-1",
-    actorProfileId: profileId,
+    actorProfileId,
     ownerUserId: "user-1",
     representedUserId: "user-1",
     sourceSpaceId: null,
     sourceSignalId: null,
     sourceRequestKey: submission,
+    authorizedRequestRoot,
     personalAllowed: true,
     delegatedPluginActions: grants,
     human: { profileId: humanId, profileName: "Synthetic member" },
@@ -154,12 +152,6 @@ beforeEach(() => {
   providerResult = "outcome_unknown";
   env = {
     OPENMELD_DB: harness.db,
-    OPENMELD_AUTH_WORKER: {
-      sendPluginRequestVerification: (value: unknown) =>
-        sendPluginRequestVerification(authEnv(), value),
-      checkPluginRequestVerification: (value: unknown) =>
-        checkPluginRequestVerification(authEnv(), value),
-    },
     OPENMELD_REMOTE_AGENT_WORKER: {
       pluginRuntime: (
         input: PluginRuntimeRequest
@@ -200,20 +192,6 @@ beforeEach(() => {
 });
 afterEach(() => harness.close());
 
-function authEnv(): AuthBindings {
-  return {
-    OPENMELD_DB: harness.db,
-    AUTH_FROM_EMAIL: "test@example.test",
-    BETTER_AUTH_OPENMELD_SECRET: "synthetic-email-verification-key",
-    AUTH_EMAIL: {
-      send: (message: { text: string }) => {
-        deliveredEmail = message.text;
-        return Promise.resolve();
-      },
-    },
-  } as unknown as AuthBindings;
-}
-
 async function approveRequest(input = request()) {
   const pending = await rpcPluginAction(env, input);
   if (pending.kind !== "authorization_required") {
@@ -225,28 +203,55 @@ async function approveRequest(input = request()) {
       ...input.context.actorContext,
       openMeldProfileId: humanId,
       profileKind: "human" as const,
+      callerPrincipalId: "user-1",
     },
   };
   const scope = { context, expectedOrganizationId: "org-1" };
   await rpcPluginActionRequest(env, {
     ...scope,
-    command: { operation: "send_code", requestId: pending.request.requestId },
-  });
-  const code = deliveredEmail.match(REQUEST_CODE_PATTERN)?.[0];
-  if (!code) {
-    throw new Error("Expected separately delivered synthetic code");
-  }
-  await rpcPluginActionRequest(env, {
-    ...scope,
     command: {
       operation: "approve",
       requestId: pending.request.requestId,
-      code,
     },
   });
 }
 
 describe("Local plugin replay through real operation and connection storage", () => {
+  it("reuses a verified task across cold continuations and selected executors without another approval or write", async () => {
+    authorizedRequestRoot = "verified-parent-delivery";
+    expect(await rpcPluginAction(env, request())).toMatchObject({
+      status: "outcome_unknown",
+    });
+    expect(
+      await rpcPluginAction({ ...env }, request("new-operation-id"))
+    ).toMatchObject({
+      status: "outcome_unknown",
+      operationId: "original-operation",
+      replayed: true,
+    });
+    actorProfileId = "agt_00000000-0000-4000-8000-000000000002";
+    expect(
+      await rpcPluginAction(env, request("child-operation"))
+    ).toMatchObject({
+      status: "outcome_unknown",
+      operationId: "original-operation",
+      replay: { allowed: false },
+    });
+    expect(providerCalls).toHaveLength(1);
+    expect(
+      await harness.db.prepare("SELECT id FROM plugin_action_requests").all()
+    ).toMatchObject({ results: [] });
+    actorProfileId = profileId;
+    await rpcPluginAction(env, request("original-operation", true));
+    expect(providerCalls).toHaveLength(2);
+    expect(effects.size).toBe(1);
+    authorizedRequestRoot = "independent-human-request";
+    providerResult = "completed";
+    expect(
+      await rpcPluginAction(env, request("independent-operation"))
+    ).toMatchObject({ status: "completed" });
+    expect(effects.size).toBe(2);
+  });
   it.each([
     "allowed",
     "target",

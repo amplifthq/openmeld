@@ -362,6 +362,11 @@ const COMMAND_ENTRY_COPY_BY_NAME: Readonly<
     signInAction: "listing available plugin accounts",
     profileAction: null,
   },
+  "plugins.connect": {
+    ...DEFAULT_COPY,
+    signInAction: "connecting a plugin account",
+    profileAction: null,
+  },
   "plugins.actions": {
     ...DEFAULT_COPY,
     signInAction: "discovering plugin actions",

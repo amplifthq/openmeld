@@ -72,6 +72,7 @@ export async function prepareRemoteAgentMemberRequest(
     member: {
       ...member,
       sourceNativeDeliveryId: delivery.deliveryId,
+      sourceRequestKey: delegated?.parentDeliveryId ?? delivery.deliveryId,
       sourceSpaceId: delivery.spaceId,
     },
   };

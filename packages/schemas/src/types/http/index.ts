@@ -13,11 +13,6 @@ export type {
   PluginActionRequestView,
 } from "../../schemas/http/plugin-action-requests";
 export type {
-  PluginRequestVerification,
-  PluginRequestVerificationCheck,
-  PluginRequestVerificationResult,
-} from "../../schemas/http/plugin-request-authorization";
-export type {
   AccountDisplayName,
   SelectLastSelectedOrganizationBody,
   SelectLastSelectedOrganizationErrorCode,

@@ -2522,6 +2522,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     targetProfileId: string;
     agentControllerRef: string;
     requiredContextVersion?: 2 | 3;
+    requirePermissionInheritance?: boolean;
   }): string | null {
     const route = lookupRoute(
       this.state,
@@ -2545,6 +2546,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     return route.capabilities.runtimeAdapters?.some(
       (adapter) =>
         adapter.adapterId === adapterId &&
+        (!input.requirePermissionInheritance ||
+          adapter.capabilityDeclaration
+            .executionContextPermissionInheritance === true) &&
         (adapter.capabilityDeclaration.executionContextVersion ?? 0) >=
           (input.requiredContextVersion ?? 2)
     )
@@ -12420,6 +12424,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
               "workspace"
               ? 3
               : 2,
+          requirePermissionInheritance:
+            record.acceptedDispatchSnapshot?.executionContext
+              ?.permissionSource === "agent_settings",
         }),
       blockForExecutionTargetMutation: true,
       nowMs,

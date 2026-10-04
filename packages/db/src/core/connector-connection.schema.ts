@@ -323,7 +323,6 @@ export const pluginActionRequests = sqliteTable(
     createdAtMs: integer("created_at_ms").notNull(),
     expiresAtMs: integer("expires_at_ms").notNull(),
     decidedAtMs: integer("decided_at_ms"),
-    verificationRequestedAtMs: integer("verification_requested_at_ms"),
   },
   (table) => [
     uniqueIndex("plugin_action_requests_operation_idx").on(

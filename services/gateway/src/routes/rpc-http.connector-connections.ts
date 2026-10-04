@@ -202,7 +202,7 @@ export function registerConnectorConnectionRoutes(
       return organization.response;
     }
     // Requiring the non-simple JSON content type prevents form-based cross-site
-    // submissions. The request-specific email proof remains the authority.
+    // submissions. Core verifies the authenticated account principal and owner.
     const command =
       c.req.header("content-type")?.split(";")[0] === "application/json"
         ? pluginActionRequestCommandSchema.safeParse(

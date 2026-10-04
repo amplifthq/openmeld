@@ -1,7 +1,6 @@
 import {
   pluginActionRequestCommandRpcSchema,
   pluginActionRequestIntentSchema,
-  pluginRequestVerificationResultSchema,
 } from "@openmeld/schemas";
 import type {
   PluginActionRequestCommandRpc,
@@ -17,7 +16,6 @@ import { type CoreBindings, identityDb } from "../lib/bindings";
 import { requireExpectedOrganizationContext } from "../organizations/expected-organization-context";
 import { resolveActiveOrganizationMembership } from "../organizations/organization-context";
 import { createCoreRpcHttpError } from "../rpc/errors";
-import { callRequiredAuthWorkerRpc } from "../rpc/required-auth-worker-rpc";
 import { readConnectorConnectionForExecution } from "./connector-connection-repository";
 import { pluginPermissionAllows, readPluginAccess } from "./plugin-access";
 
@@ -39,7 +37,6 @@ type RequestRow = {
   created_at_ms: number;
   expires_at_ms: number;
   decided_at_ms: number | null;
-  verification_requested_at_ms: number | null;
 };
 const sourceKey = (id: string) => `plugin-action-request:${id}`;
 
@@ -244,7 +241,10 @@ export async function rpcPluginActionRequest(
   if (command.operation === "read") {
     return current;
   }
-  if (context.actorContext.profileKind !== "human") {
+  if (
+    context.actorContext.profileKind !== "human" ||
+    context.actorContext.callerPrincipalId !== member.userId
+  ) {
     throw denied(
       "human_required",
       "Open this request in your Inbox to respond."
@@ -252,7 +252,7 @@ export async function rpcPluginActionRequest(
   }
   const wanted = command.operation === "approve" ? "approved" : "rejected";
   if (current.state !== "pending") {
-    if (command.operation !== "send_code" && current.state === wanted) {
+    if (current.state === wanted) {
       return current;
     }
     throw denied(
@@ -260,91 +260,18 @@ export async function rpcPluginActionRequest(
       "This request has expired, changed, or already been handled. Refresh to see its status."
     );
   }
-  const verification = {
-    requestId: row.id,
-    organizationId: row.organization_id,
-    userId: row.user_id,
-    requestDigest: row.request_digest,
-    expiresAtMs: row.expires_at_ms,
-  };
-  if (command.operation === "send_code") {
-    return await sendRequestVerification(env, db, row, verification);
-  }
-  return await decideRequest(env, db, row, command, verification);
-}
-
-async function sendRequestVerification(
-  env: CoreBindings,
-  db: D1Database,
-  row: RequestRow,
-  verification: import("@openmeld/schemas/types").PluginRequestVerification
-) {
-  // A lost response cannot automatically send another email. An explicit
-  // later request may resend the same code, never a new request/root.
-  const claimed = await db
-    .prepare(
-      "UPDATE plugin_action_requests SET verification_requested_at_ms = ? WHERE id = ? AND state = 'pending' AND expires_at_ms > ? AND (verification_requested_at_ms IS NULL OR verification_requested_at_ms < ?)"
-    )
-    .bind(Date.now(), row.id, Date.now(), Date.now() - 60_000)
-    .run();
-  if (claimed.meta.changes === 1) {
-    const result = pluginRequestVerificationResultSchema.parse(
-      await callRequiredAuthWorkerRpc({
-        authWorker: env.OPENMELD_AUTH_WORKER,
-        call: (auth) => auth.sendPluginRequestVerification(verification),
-        unavailable: {
-          code: "plugin.verification_unavailable",
-          reason: "Email confirmation is not available yet. Try again later.",
-        },
-      })
-    );
-    if (result.status !== "sent") {
-      throw denied(
-        "verification_delivery_unconfirmed",
-        "Email delivery could not be confirmed. Check your email before requesting another code."
-      );
-    }
-  }
-  return projectRequest(db, await requireRequest(db, row.id));
+  return await decideRequest(db, row, command);
 }
 
 async function decideRequest(
-  env: CoreBindings,
   db: D1Database,
   row: RequestRow,
   command: Extract<
-    import("@openmeld/schemas/types").PluginActionRequestCommand,
+    PluginActionRequestCommandRpc["command"],
     { operation: "approve" | "reject" }
-  >,
-  verification: import("@openmeld/schemas/types").PluginRequestVerification
+  >
 ) {
   const wanted = command.operation === "approve" ? "approved" : "rejected";
-  if (row.verification_requested_at_ms === null) {
-    throw denied(
-      "verification_required",
-      "Request a confirmation code from this page first."
-    );
-  }
-  const verified = pluginRequestVerificationResultSchema.parse(
-    await callRequiredAuthWorkerRpc({
-      authWorker: env.OPENMELD_AUTH_WORKER,
-      call: (auth) =>
-        auth.checkPluginRequestVerification({
-          ...verification,
-          code: command.code,
-        }),
-      unavailable: {
-        code: "plugin.verification_unavailable",
-        reason: "Email confirmation is not available yet. Try again later.",
-      },
-    })
-  );
-  if (verified.status !== "verified") {
-    throw denied(
-      "verification_invalid",
-      "This code is invalid or expired. Check the code for this request."
-    );
-  }
   const intent = pluginActionRequestIntentSchema.parse(
     JSON.parse(row.request_json)
   );
@@ -475,7 +402,6 @@ async function projectRequest(
     targets,
     createdAtMs: row.created_at_ms,
     expiresAtMs: row.expires_at_ms,
-    verificationRequested: row.verification_requested_at_ms !== null,
   };
 }
 

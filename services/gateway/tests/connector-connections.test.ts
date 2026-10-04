@@ -59,7 +59,6 @@ describe("Gateway connector connection routes", () => {
       targets: [{ label: "project", value: "synthetic" }],
       createdAtMs: 1,
       expiresAtMs: 2,
-      verificationRequested: false,
     }));
     const environment = makeEnv({ pluginActionRequest });
     const invoke = (body: unknown, contentType = "application/json") =>
@@ -85,7 +84,7 @@ describe("Gateway connector connection routes", () => {
     );
     pluginActionRequest.mockClear();
     for (const body of [
-      { operation: "approve", requestId },
+      { operation: "send_code", requestId },
       {
         operation: "approve",
         requestId,

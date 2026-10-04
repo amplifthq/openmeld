@@ -3159,7 +3159,10 @@ async function resolveDispatchComputerFileAccess(input: {
   const verifier =
     input.runtimeControllerSupport.localAdapterEntry.adapter
       .verifyComputerFileAccessBoundary;
-  if (input.parsedTask.executionContext) {
+  if (
+    input.parsedTask.executionContext &&
+    input.parsedTask.executionContext.permissionSource !== "agent_settings"
+  ) {
     const context = input.parsedTask.executionContext;
     if (
       input.parsedTask.agentControllerRef === "builtin:claude-code" &&

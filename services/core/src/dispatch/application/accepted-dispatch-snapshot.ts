@@ -2,8 +2,17 @@ import type {
   OpenMeldDaemonAcceptedDispatchSnapshot,
   OpenMeldDaemonDispatchQueueMessage,
 } from "@openmeld/schemas/types";
+import { readRecordedDelegationRequester } from "../../center-agent/application/recorded-delegation-requester";
+import {
+  type CoreBindings,
+  identityDb,
+  wakeEvidenceDb,
+} from "../../lib/bindings";
+import { readActiveRepresentedHumanSender } from "../../remote-agent/application/turn-envelope";
 
 export async function buildAcceptedDispatchSnapshot(input: {
+  env?: CoreBindings;
+  targetOwnerUserId?: string;
   message: OpenMeldDaemonDispatchQueueMessage;
   openMeldServiceRuntimeId?: string | null;
   runtimeKind?:
@@ -31,6 +40,9 @@ export async function buildAcceptedDispatchSnapshot(input: {
     input.message.sourceSignalSnapshot?.profileId
       ? {
           contextRequest: {
+            ...((await isExecutionContextOwnerRequested(input))
+              ? { ownerRequested: true as const }
+              : {}),
             // Explicit intent must never fall back to a Binding conversation.
             // Core chooses implicit thread isolation only for supported harnesses.
             required: Boolean(input.message.contextSelection),
@@ -61,6 +73,56 @@ export async function buildAcceptedDispatchSnapshot(input: {
     payloadFingerprint: await fingerprintAcceptedDispatchPayload(input.message),
     runtimeKind: input.runtimeKind,
   };
+}
+
+export async function isExecutionContextOwnerRequested(input: {
+  env?: CoreBindings;
+  targetOwnerUserId?: string;
+  message: OpenMeldDaemonDispatchQueueMessage;
+}): Promise<boolean> {
+  const { env, message, targetOwnerUserId } = input;
+  const source = message.sourceSignalSnapshot;
+  if (
+    !(env && targetOwnerUserId && message.organizationId && source?.profileId)
+  ) {
+    return false;
+  }
+  const db = identityDb(env);
+  if (!db) {
+    return false;
+  }
+  if (source.profileKind === "human") {
+    return Boolean(
+      await readActiveRepresentedHumanSender({
+        db,
+        organizationId: message.organizationId,
+        profileId: source.profileId,
+        userId: targetOwnerUserId,
+      })
+    );
+  }
+  const evidenceDb = wakeEvidenceDb(env);
+  if (
+    !(
+      source.profileKind === "agent" &&
+      evidenceDb &&
+      message.sourceClientMessageId
+    )
+  ) {
+    return false;
+  }
+  return Boolean(
+    await readRecordedDelegationRequester({
+      identityDb: db,
+      evidenceDb,
+      organizationId: message.organizationId,
+      spaceId: message.spaceId,
+      sourceClientMessageId: message.sourceClientMessageId,
+      sourceProfileId: source.profileId,
+      targetProfileId: message.targetProfileId,
+      targetOwnerUserId,
+    })
+  );
 }
 
 export function applyAcceptedDispatchSnapshotToMessage(input: {

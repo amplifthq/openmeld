@@ -182,7 +182,7 @@ async function executeSelectedAction(
     action,
     connection.connectionName
   );
-  let requestRoot: string | undefined;
+  let requestRoot = caller.authorizedRequestRoot;
   let executionGuard: PluginRequestExecutionGuard | undefined;
   if (effect !== "read") {
     const current = await requireConnectorConnectionForExecution({
@@ -204,40 +204,42 @@ async function executeSelectedAction(
         connectionUpdatedAtMs: current.updatedAtMs,
       });
     }
-    const { permission: _permission, ...executionConnection } = connection;
-    const authorization = await preparePluginActionRequest({
-      db: caller.db,
-      requestId: action.authorizationRequestId,
-      intent: {
-        organizationId: caller.organizationId,
-        userId: caller.representedUserId,
-        actorProfileId: caller.actorProfileId,
-        operationId: action.operationId,
-        sourceRequestKey: caller.sourceRequestKey ?? null,
-        connection: executionConnection,
-        connectionUpdatedAtMs: current.updatedAtMs,
-        accessRevision: access.revision,
-        service: action.service,
-        actionId: action.actionId,
-        effect,
-        input: action.input,
-      },
-    });
-    if (!authorization.root) {
-      if (input.request.includeRequestAuthorization) {
-        return {
-          kind: "authorization_required",
-          request: authorization.request,
-        };
+    if (!requestRoot) {
+      const { permission: _permission, ...executionConnection } = connection;
+      const authorization = await preparePluginActionRequest({
+        db: caller.db,
+        requestId: action.authorizationRequestId,
+        intent: {
+          organizationId: caller.organizationId,
+          userId: caller.representedUserId,
+          actorProfileId: caller.actorProfileId,
+          operationId: action.operationId,
+          sourceRequestKey: caller.sourceRequestKey ?? null,
+          connection: executionConnection,
+          connectionUpdatedAtMs: current.updatedAtMs,
+          accessRevision: access.revision,
+          service: action.service,
+          actionId: action.actionId,
+          effect,
+          input: action.input,
+        },
+      });
+      if (!authorization.root) {
+        if (input.request.includeRequestAuthorization) {
+          return {
+            kind: "authorization_required",
+            request: authorization.request,
+          };
+        }
+        throw failure(
+          "request_authorization_required",
+          "Open your Inbox in OpenMeld to review this Plugin request, then repeat the same command and operation ID.",
+          409
+        );
       }
-      throw failure(
-        "request_authorization_required",
-        "Open your Inbox in OpenMeld to review this Plugin request, then repeat the same command and operation ID.",
-        409
-      );
+      requestRoot = authorization.root;
+      executionGuard = authorization.executionGuard;
     }
-    requestRoot = authorization.root;
-    executionGuard = authorization.executionGuard;
   }
   if (effect === "destructive" || effect === "unspecified") {
     const { revision } = await readPluginAccess({
@@ -717,11 +719,15 @@ async function readLocalReplayPermission(
   >
 ) {
   const replay = await readConnectorActionReplayPermission({
+    actorProfileId: caller.actorProfileId,
     db: caller.db,
     operation,
     nowMs: Date.now(),
   });
   if (!replay.allowed) {
+    return replay;
+  }
+  if (caller.authorizedRequestRoot) {
     return replay;
   }
   const authority = await readPluginActionRequestForOperation({

@@ -25,9 +25,20 @@ version. Duplicate claims preserve known completion or failure, the original
 operation, and account attribution without inventing missing result data.
 
 Local Plugin writes that need fresh authorization appear privately in your
-Inbox. Review the account and action, then use the code sent to your verified
-email to approve or decline the request. You can continue a manual CLI request
+Inbox. Review the account and action, then approve or decline with your signed-in
+account. You can continue a manual CLI request
 without creating a Space. Retrying the same approved request keeps its original
 identity; approving a new request does not resolve an older uncertain result.
 Private request details show the proposed PostHog dashboard name and identify
 when other input is omitted from the review summary.
+
+Verified owner requests and recorded delegations reuse their original task
+authorization. Continuing a task or handing its exact action to a selected
+Agent does not require another Inbox approval or repeat a completed write.
+Unknown results retain the original operation and account. Only the original
+executor can claim its permitted replay.
+
+New Codex tasks started by their owner, including recorded Center delegation,
+keep the Agent's permission settings and the Computer's file-access policy.
+Starting a separate conversation no longer adds an automatic single-folder
+restriction. Explicit task restrictions and older restricted tasks stay in place.

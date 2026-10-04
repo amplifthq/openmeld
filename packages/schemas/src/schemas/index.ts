@@ -68,11 +68,6 @@ export {
   pluginActionRequestViewSchema,
 } from "./http/plugin-action-requests";
 export {
-  pluginRequestVerificationCheckSchema,
-  pluginRequestVerificationResultSchema,
-  pluginRequestVerificationSchema,
-} from "./http/plugin-request-authorization";
-export {
   resolveSpaceFileStreamMetadata,
   spaceFileStreamMetadataSchema,
   spaceFileStreamOptionsSchema,

@@ -7,11 +7,6 @@ import type {
   PluginRuntimeResponse,
 } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
-import type { AuthBindings } from "../../auth/src/lib/bindings";
-import {
-  checkPluginRequestVerification,
-  sendPluginRequestVerification,
-} from "../../auth/src/lib/plugin-request-verification";
 import { createSubmitTurnRequestV2 } from "../../remote-agent/tests/fixtures";
 import capturedActions from "../../remote-agent/tests/fixtures/openconnector-runtime-actions.json";
 import {
@@ -72,7 +67,6 @@ import type { Space } from "../src/space/transport/do/space";
 
 const CONNECTOR_CONNECTION_NAME_PATTERN =
   /^org_[A-Za-z0-9_-]{18}__user_[A-Za-z0-9_-]{18}__github$/u;
-const REQUEST_CODE_PATTERN = /[a-f0-9]{8}(?:-[a-f0-9]{8}){3}/u;
 
 describe("Local Plugin human request authority", () => {
   it("distinguishes proposed dashboard names without disclosing bodies or secrets", async () => {
@@ -106,18 +100,25 @@ describe("Local Plugin human request authority", () => {
     expect(f.executions()).toHaveLength(0);
   });
 
-  it("blocks self-issued tokens and changing IDs, but executes two independently approved identical manual requests", async () => {
+  it("requires the owner account principal and executes two independently approved manual requests", async () => {
     const f = await seedHumanPluginRequestFixture();
     const first = await f.pending();
     expect(f.executions()).toHaveLength(0);
-    await expect(
-      f.decide(first.requestId, "approve", first.requestId)
-    ).rejects.toThrow();
-    await f.send(first.requestId);
-    expect(JSON.stringify(first)).not.toContain(f.code());
-    await expect(
-      f.decide(first.requestId, "approve", "agent-self-issued-token")
-    ).rejects.toThrow();
+    for (const callerPrincipalId of [undefined, "delegated-agent-principal"]) {
+      await expect(
+        rpcPluginActionRequest(f.core, {
+          ...f.command(first.requestId),
+          context: {
+            ...f.command(first.requestId).context,
+            actorContext: {
+              ...f.command(first.requestId).context.actorContext,
+              callerPrincipalId,
+            },
+          },
+          command: { operation: "approve", requestId: first.requestId },
+        })
+      ).rejects.toThrow();
+    }
     await expect(
       rpcPluginActionRequest(f.core, {
         ...f.command(first.requestId),
@@ -125,21 +126,18 @@ describe("Local Plugin human request authority", () => {
         command: {
           operation: "approve",
           requestId: first.requestId,
-          code: f.code(),
         },
       })
     ).rejects.toThrow();
     const approved = await Promise.all([
-      f.decide(first.requestId, "approve", f.code()),
-      f.decide(first.requestId, "approve", f.code()),
+      f.decide(first.requestId, "approve"),
+      f.decide(first.requestId, "approve"),
     ]);
     expect(approved.map((request) => request.requestId)).toEqual([
       first.requestId,
       first.requestId,
     ]);
-    expect(
-      (await f.decide(first.requestId, "approve", "response-was-lost")).state
-    ).toBe("approved");
+    expect((await f.decide(first.requestId, "approve")).state).toBe("approved");
     await Promise.all([
       rpcPluginAction(f.core, f.input),
       rpcPluginAction(f.core, f.input),
@@ -152,11 +150,7 @@ describe("Local Plugin human request authority", () => {
     const second = await f.pending();
     expect(second.requestId).not.toBe(first.requestId);
     expect(f.executions()).toHaveLength(1);
-    await f.send(second.requestId);
-    await expect(
-      f.decide(second.requestId, "approve", approved[0].requestId)
-    ).rejects.toThrow();
-    await f.decide(second.requestId, "approve", f.code());
+    await f.decide(second.requestId, "approve");
     await rpcPluginAction(f.core, f.input);
     expect(f.executions()).toHaveLength(2);
     const rows = await env.OPENMELD_DB.prepare(
@@ -182,8 +176,7 @@ describe("Local Plugin human request authority", () => {
           }
     );
     const original = await f.pending();
-    await f.send(original.requestId);
-    await f.decide(original.requestId, "approve", f.code());
+    await f.decide(original.requestId, "approve");
     await rpcPluginAction(f.core, f.input);
     expect(f.executions()).toHaveLength(1);
     // A retained pre-contract unknown has no request/root record. Do not
@@ -242,9 +235,8 @@ describe("Local Plugin human request authority", () => {
   ] as const)("refuses %s changes without a provider call", async (mode) => {
     const f = await seedHumanPluginRequestFixture();
     const pending = await f.pending();
-    await f.send(pending.requestId);
     if (mode === "reject") {
-      await f.decide(pending.requestId, "reject", f.code());
+      await f.decide(pending.requestId, "reject");
     } else if (mode === "expire") {
       await env.OPENMELD_DB.prepare(
         "UPDATE plugin_action_requests SET expires_at_ms = 1 WHERE id = ?"
@@ -258,7 +250,7 @@ describe("Local Plugin human request authority", () => {
         .bind(f.connection)
         .run();
     } else {
-      await f.decide(pending.requestId, "approve", f.code());
+      await f.decide(pending.requestId, "approve");
       if (mode === "input") {
         f.input.request.action = {
           ...f.action,
@@ -329,15 +321,12 @@ describe("Local Plugin human request authority", () => {
     expect(inbox).toMatchObject({ recipient_user_id: f.ownerA });
     expect(JSON.stringify(inbox)).not.toContain("synthetic-private-secret");
     expect(JSON.stringify(pending)).not.toContain("synthetic-private-secret");
-    await f.send(pending.requestId);
     await env.OPENMELD_DB.prepare(
       "UPDATE connector_connections SET access_revision = access_revision + 1 WHERE connection_name = ?"
     )
       .bind(f.connection)
       .run();
-    await expect(
-      f.decide(pending.requestId, "approve", f.code())
-    ).rejects.toThrow();
+    await expect(f.decide(pending.requestId, "approve")).rejects.toThrow();
     expect(f.executions()).toHaveLength(0);
   });
 });
@@ -346,31 +335,6 @@ async function seedHumanPluginRequestFixture(
   effect: "write" | "destructive" = "write"
 ) {
   const f = await seedLocalPluginFixture(effect, "write");
-  await env.OPENMELD_DB.prepare(
-    "UPDATE users SET email_verified = 1 WHERE id = ?"
-  )
-    .bind(f.ownerA)
-    .run();
-  const emails: string[] = [];
-  const auth = {
-    OPENMELD_DB: env.OPENMELD_DB,
-    AUTH_FROM_EMAIL: "fixture@example.test",
-    BETTER_AUTH_OPENMELD_SECRET: "synthetic-plugin-request-verification-secret",
-    AUTH_EMAIL: {
-      send: (message: { text: string }) => {
-        emails.push(message.text);
-        return Promise.resolve();
-      },
-    },
-  } as unknown as AuthBindings;
-  const authWorker = f.core.OPENMELD_AUTH_WORKER;
-  if (!authWorker) {
-    throw new Error("Synthetic Auth binding is required");
-  }
-  authWorker.sendPluginRequestVerification = (value) =>
-    sendPluginRequestVerification(auth, value);
-  authWorker.checkPluginRequestVerification = (value) =>
-    checkPluginRequestVerification(auth, value);
   f.input.request.includeRequestAuthorization = true;
   f.input.request.includeRecoveryReceipt = true;
   const command = (requestId: string) => ({
@@ -381,6 +345,7 @@ async function seedHumanPluginRequestFixture(
         ...f.input.context.actorContext,
         profileKind: "human" as const,
         openMeldProfileId: f.ownerProfileId,
+        callerPrincipalId: f.ownerA,
       },
     },
     command: { operation: "read" as const, requestId },
@@ -392,13 +357,6 @@ async function seedHumanPluginRequestFixture(
       f.runtime.mock.calls.filter(
         ([request]) => request.operation === "execute"
       ),
-    code: () => {
-      const code = emails.at(-1)?.match(REQUEST_CODE_PATTERN)?.[0];
-      if (!code) {
-        throw new Error("No synthetic verification email");
-      }
-      return code;
-    },
     pending: async () => {
       const reply = await rpcPluginAction(f.core, f.input);
       if (reply.kind !== "authorization_required") {
@@ -406,19 +364,10 @@ async function seedHumanPluginRequestFixture(
       }
       return reply.request;
     },
-    send: (requestId: string) =>
+    decide: (requestId: string, operation: "approve" | "reject") =>
       rpcPluginActionRequest(f.core, {
         ...command(requestId),
-        command: { operation: "send_code", requestId },
-      }),
-    decide: (
-      requestId: string,
-      operation: "approve" | "reject",
-      code: string
-    ) =>
-      rpcPluginActionRequest(f.core, {
-        ...command(requestId),
-        command: { operation, requestId, code },
+        command: { operation, requestId },
       }),
   };
 }
@@ -572,13 +521,6 @@ describe("Local Agent plugin admission", () => {
       expect(executeCalls()).toHaveLength(0);
       expect(effects.size).toBe(0);
     }
-    fixture.input.request = {
-      ...input.request,
-      includeRequestAuthorization: true,
-    };
-    const pending = await fixture.pending();
-    await fixture.send(pending.requestId);
-    await fixture.decide(pending.requestId, "approve", fixture.code());
     expect(await rpcPluginAction(fixture.core, input)).toMatchObject({
       status: "completed",
       replayed: false,
@@ -794,8 +736,7 @@ describe("Local Agent plugin admission", () => {
   it("binds destructive confirmation to the exact action and current access revision", async () => {
     const fixture = await seedHumanPluginRequestFixture("destructive");
     const pending = await fixture.pending();
-    await fixture.send(pending.requestId);
-    await fixture.decide(pending.requestId, "approve", fixture.code());
+    await fixture.decide(pending.requestId, "approve");
     const preview = await rpcPluginAction(fixture.core, fixture.input);
     expect(preview.kind).toBe("confirmation_required");
     if (preview.kind !== "confirmation_required") {
@@ -851,8 +792,7 @@ describe("Local Agent plugin admission", () => {
       action: nextAction,
     };
     const newPending = await fixture.pending();
-    await fixture.send(newPending.requestId);
-    await fixture.decide(newPending.requestId, "approve", fixture.code());
+    await fixture.decide(newPending.requestId, "approve");
     const next = await rpcPluginAction(fixture.core, fixture.input);
     if (next.kind !== "confirmation_required") {
       throw new Error("Expected confirmation");

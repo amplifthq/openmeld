@@ -1,5 +1,16 @@
 # Shared Contracts
 
+## Task permission inheritance
+
+Core alone derives `ExecutionContextRequest.ownerRequested` from current owner
+identity or the recorded Center delegation. Message content cannot provide it.
+An assignment may carry `permissionSource: agent_settings` only with workspace
+access. Absence preserves the previous bounded-task contract. The Service uses
+its current Computer policy and Profile-native permission intent; this field is
+not a full-access grant. `executionContextPermissionInheritance` is an explicit
+adapter capability, separate from workspace protocol versions. Core checks it
+before delivering such an assignment and revalidates the original requester.
+
 Ordinary Plugin delegation is an additive constraint on the existing recorded
 Wake publication command (`pluginActions`). Core alone resolves the original
 human and one-hop task chain. Local clients privately forward the admitted
@@ -731,22 +742,36 @@ application boundary. It does not establish execution liveness or replace
 RuntimeCoordinator authority. The local account and Service remain the local
 trust boundary; a dispatch identifier is not a secret execution capability.
 
-Local non-read calls now also require the exact durable human request owned by
-Core. `includeRequestAuthorization` opts into the shared `authorization_required`
-projection; older callers receive an actionable failure and may repeat the same
-operation after Web confirmation. `plugin-action-requests` owns the private
-read/send-code/approve/reject DTOs. Auth's `plugin-request-authorization` RPCs
-return only sent/verified/denied, never a code to the caller. Only the approved
-stored request can supply `plugin-request:<id>` as an execution root. An executor
-change cannot borrow that root. Native Remote admission and its recorded request
-contracts remain unchanged; this does not claim cross-executor approval transfer.
+Local non-read calls reuse a Core-verified original request. Direct human Wakes
+use the immutable Space message identity. Recorded Center delegations use the
+parent native delivery identity. Current execution admission, membership, exact
+delegated input, selected account, connection version, and Plugin permission are
+checked again. A continuation or specified child shares that root; changing an
+operation ID or executor does not create another write for the same task/effect.
+The original operation and account remain the receipt owner. Only its original
+executor can claim the one provider replay, preserving its idempotency key.
+
+A manual Local call without verified request provenance creates one exact private
+Inbox request. `includeRequestAuthorization` opts into the shared
+`authorization_required` projection. Other callers receive an actionable error.
+`plugin-action-requests` owns read/approve/reject DTOs. Approval requires the
+authenticated account principal to match the request owner and a Human Profile.
+A delegated Agent principal cannot approve, even if it supplies a Human Profile
+identifier. This uses the existing account credential boundary; it does not
+claim to distinguish a human from an Agent given that human's full credentials.
+No email code or separate factor enrollment is added. An approved manual request
+supplies `plugin-request:<id>`; its exact actor, account and input remain bound.
+A genuinely new manual request can be approved separately without resolving an
+older unknown result.
 
 Inbox source-target capability 10 adds `plugin_action_request`; version 9 retains
-account-scoped notifications but receives an instruction to use current Web for
-this new detail. Rollout requires migration 0192, Auth and Gateway/schema readers
-before Core creates these rows, then Web/CLI consumers. The existing fifteen-minute
-destructive token remains distinct from the one-hour human request and the
-operation's single replay allowance within its original 24-hour maximum window.
+account-scoped notifications but directs users to current Web for this detail.
+Rollout requires migration 0192 and current Gateway/schema readers before Core
+creates these rows, followed by Web/CLI consumers. The unreleased email-code
+prototype is removed from Auth, schemas and Web. Replay readers must understand
+`original_executor_required` before Core emits cross-executor receipts. The
+fifteen-minute destructive token remains distinct from the one-hour manual
+request and the operation's single replay within its original 24-hour window.
 
 ### Contract impact and rollout
 

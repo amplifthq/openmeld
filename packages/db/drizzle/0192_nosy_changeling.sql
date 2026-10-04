@@ -11,7 +11,6 @@ CREATE TABLE `plugin_action_requests` (
 	`created_at_ms` integer NOT NULL,
 	`expires_at_ms` integer NOT NULL,
 	`decided_at_ms` integer,
-	`verification_requested_at_ms` integer,
 	FOREIGN KEY (`organization_id`) REFERENCES `organizations`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint

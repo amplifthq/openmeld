@@ -18432,13 +18432,6 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
-        },
-        "verification_requested_at_ms": {
-          "name": "verification_requested_at_ms",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
         }
       },
       "indexes": {

@@ -1,8 +1,6 @@
 import { Button } from "@openmeld/ui/components/button";
-import { Input } from "@openmeld/ui/components/input";
-import { Label } from "@openmeld/ui/components/label";
 import { SkeletonRows } from "@openmeld/ui/components/skeleton-content";
-import { useId, useState } from "react";
+import { useState } from "react";
 import { usePluginActionRequest } from "#/query/organizations/plugin-action-requests";
 
 const STATE_COPY = {
@@ -23,21 +21,13 @@ const EFFECT_COPY = {
 
 export function PluginActionRequest({ requestId }: { requestId: string }) {
 	const { query, mutation } = usePluginActionRequest(requestId);
-	const [code, setCode] = useState("");
 	const [error, setError] = useState<string | null>(null);
-	const codeId = useId();
-	const descriptionId = useId();
 	const request = query.data;
 	const disabled = mutation.isPending || query.isRefetchError;
-	async function respond(operation: "send_code" | "approve" | "reject") {
+	async function respond(operation: "approve" | "reject") {
 		setError(null);
 		try {
-			await mutation.mutateAsync(
-				operation === "send_code"
-					? { operation, requestId }
-					: { operation, requestId, code }
-			);
-			setCode("");
+			await mutation.mutateAsync({ operation, requestId });
 		} catch (failure) {
 			setError(
 				failure instanceof Error
@@ -45,7 +35,6 @@ export function PluginActionRequest({ requestId }: { requestId: string }) {
 					: "Your response could not be confirmed. Refresh this request before trying again."
 			);
 		} finally {
-			// Do not retain a submitted email code in the mutation cache.
 			mutation.reset();
 		}
 	}
@@ -106,67 +95,33 @@ export function PluginActionRequest({ requestId }: { requestId: string }) {
 					: " Review the details before approving."}
 			</p>
 			{request.state === "pending" ? (
-				<form
-					className="space-y-3 border-border/70 border-t pt-4"
-					onSubmit={(event) => {
-						event.preventDefault();
-						respond("approve");
-					}}
-				>
-					<p className="text-muted-foreground text-sm" id={descriptionId}>
-						Request a code at your verified account email, then enter it here.
-						This request expires at{" "}
+				<div className="space-y-3 border-border/70 border-t pt-4">
+					<p className="text-muted-foreground text-sm">
+						Only your signed-in account can approve this request. It expires at{" "}
 						{new Date(request.expiresAtMs).toLocaleTimeString([], {
 							hour: "numeric",
 							minute: "2-digit",
 						})}
 						.
 					</p>
-					<Button
-						disabled={disabled}
-						onClick={() => respond("send_code")}
-						size="sm"
-						type="button"
-						variant="outline"
-					>
-						{request.verificationRequested ? "Resend code" : "Email me a code"}
-					</Button>
-					{request.verificationRequested ? (
-						<>
-							<div className="max-w-md space-y-1.5">
-								<Label htmlFor={codeId}>Confirmation code</Label>
-								<Input
-									aria-describedby={descriptionId}
-									autoComplete="one-time-code"
-									disabled={disabled}
-									id={codeId}
-									maxLength={128}
-									onChange={(event) => setCode(event.target.value)}
-									spellCheck={false}
-									value={code}
-								/>
-							</div>
-							<div className="flex flex-wrap gap-2">
-								<Button
-									disabled={disabled || !code.trim()}
-									size="sm"
-									type="submit"
-								>
-									Approve action
-								</Button>
-								<Button
-									disabled={disabled || !code.trim()}
-									onClick={() => respond("reject")}
-									size="sm"
-									type="button"
-									variant="outline"
-								>
-									Decline request
-								</Button>
-							</div>
-						</>
-					) : null}
-				</form>
+					<div className="flex flex-wrap gap-2">
+						<Button
+							disabled={disabled}
+							onClick={() => respond("approve")}
+							size="sm"
+						>
+							Approve action
+						</Button>
+						<Button
+							disabled={disabled}
+							onClick={() => respond("reject")}
+							size="sm"
+							variant="outline"
+						>
+							Decline request
+						</Button>
+					</div>
+				</div>
 			) : (
 				<output className="block border-border/70 border-t pt-3 text-sm">
 					{STATE_COPY[request.state]}

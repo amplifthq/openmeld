@@ -1901,6 +1901,14 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       recoveryTarget: "computer",
     },
     {
+      body: "The Agent owner's request can no longer be verified. The task did not start. Ask the owner to send the task again.",
+      kind: "local_agent_prepare",
+      patterns: ["=execution_context.owner_request_unavailable"],
+      primaryActionId: "check_status",
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: "computer",
+    },
+    {
       body: "OpenMeld couldn't verify this task's project file boundary. Check this computer's file-access settings and use a task workspace outside system temporary folders, then start a new task.",
       kind: "local_agent_prepare",
       patterns: [

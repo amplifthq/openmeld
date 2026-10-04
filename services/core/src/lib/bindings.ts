@@ -52,12 +52,6 @@ type AuthAgentProfileRpcResult =
     };
 
 type CoreAuthDispatchBindingRpc = {
-  sendPluginRequestVerification?(
-    input: import("@openmeld/schemas/types").PluginRequestVerification
-  ): Promise<import("@openmeld/schemas/types").PluginRequestVerificationResult>;
-  checkPluginRequestVerification?(
-    input: import("@openmeld/schemas/types").PluginRequestVerificationCheck
-  ): Promise<import("@openmeld/schemas/types").PluginRequestVerificationResult>;
   sendInboxUrgentEmail?(
     input: AuthRpcSendInboxUrgentEmailInput
   ): Promise<AuthRpcSendInboxUrgentEmailResult>;

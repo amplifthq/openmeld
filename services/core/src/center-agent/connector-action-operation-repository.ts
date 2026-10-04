@@ -409,7 +409,10 @@ async function readClaimedOperation(
     .bind(input.recordId)
     .first<CenterAgentConnectorActionOperationRow>();
   const operation = row ? mapOperation(row) : await requireOperation(input);
-  if (operation.operationId === input.operationId) {
+  if (
+    operation.actorProfileId === input.actorProfileId &&
+    operation.operationId === input.operationId
+  ) {
     assertSameRequest(operation, input);
   }
   return operation;
@@ -449,6 +452,7 @@ async function claimConnectorReplay(input: {
 
 /** The existing operation journal owns the single durable replay allowance. */
 export async function readConnectorActionReplayPermission(input: {
+  actorProfileId?: string;
   db: D1Database;
   operation: CenterAgentConnectorActionOperationRecord;
   nowMs: number;
@@ -457,6 +461,12 @@ export async function readConnectorActionReplayPermission(input: {
     typeof import("@openmeld/schemas").connectorActionReplayPermissionSchema.parse
   >
 > {
+  if (
+    input.actorProfileId &&
+    input.actorProfileId !== input.operation.actorProfileId
+  ) {
+    return { allowed: false, reason: "original_executor_required" };
+  }
   if (
     input.operation.status === "completed" ||
     input.operation.status === "failed"
@@ -924,16 +934,24 @@ async function buildOperationRecordId(
   const digest = await crypto.subtle.digest(
     "SHA-256",
     new TextEncoder().encode(
-      JSON.stringify([
-        scope.organizationId,
-        scope.actorProfileId,
-        scope.requesterAttributionKey,
-        ...(effect.sourceRequestKey &&
-        effect.effectSignature &&
-        effect.effect !== "read"
-          ? ["task_effect.v1", effect.sourceRequestKey, effect.effectSignature]
-          : [scope.operationId]),
-      ])
+      JSON.stringify(
+        effect.sourceRequestKey &&
+          effect.effectSignature &&
+          effect.effect !== "read"
+          ? [
+              scope.organizationId,
+              scope.requesterAttributionKey,
+              "task_effect.v2",
+              effect.sourceRequestKey,
+              effect.effectSignature,
+            ]
+          : [
+              scope.organizationId,
+              scope.actorProfileId,
+              scope.requesterAttributionKey,
+              scope.operationId,
+            ]
+      )
     )
   );
   const hash = Array.from(new Uint8Array(digest), (byte) =>

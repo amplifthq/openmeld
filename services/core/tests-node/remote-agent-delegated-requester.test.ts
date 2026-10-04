@@ -2,6 +2,7 @@ import {
   buildPersonalRemoteAgentConversationId,
   buildRemoteAgentRuntimeConversationId,
   HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+  openMeldDaemonDispatchQueueMessageSchema,
   remoteAgentWorkerSubmitTurnRequestSchema,
 } from "@openmeld/schemas";
 import type { RemoteAgentWorkerSubmitTurnRequest } from "@openmeld/schemas/types";
@@ -13,6 +14,7 @@ import {
   createAgentDelegation,
 } from "../src/agent-task-coordination/infrastructure/d1/agent-delegation-repo";
 import { prepareCenterAgentWakePublicationRecord } from "../src/center-agent/infrastructure/d1/center-agent-wake-publication-repo";
+import { buildAcceptedDispatchSnapshot } from "../src/dispatch/application/accepted-dispatch-snapshot";
 import type { CoreBindings } from "../src/lib/bindings";
 import { readRemoteAgentDelegatedRequester } from "../src/remote-agent/application/delegated-requester";
 import { prepareRemoteAgentMemberRequest } from "../src/remote-agent/application/remote-agent-member-request";
@@ -243,6 +245,71 @@ describe("delegated requester is a current projection of exact owner records", (
         includeDelegatedRequester: true as const,
         connectionPreference: "requester" as const,
       };
+      const localSnapshot = async (
+        sourceProfileId = input.request.author.profileId
+      ) =>
+        await buildAcceptedDispatchSnapshot({
+          env: rpcEnv,
+          targetOwnerUserId: input.request.agentProfileOwnerUserId ?? undefined,
+          openMeldServiceRuntimeId: "fixture-runtime",
+          runtimeKind: "openmeld_service",
+          message: openMeldDaemonDispatchQueueMessageSchema.parse({
+            v: 2,
+            dispatchId: "local-child-dispatch",
+            spaceId: input.delivery.spaceId,
+            organizationId: input.delivery.organizationId,
+            sourceEventId: "child-signal",
+            sourceClientMessageId: input.delivery.sourceClientMessageId,
+            targetProfileId: CHILD,
+            dispatchOwner: { kind: "owner_account", id: "user_1" },
+            dispatchChainId: "chain",
+            autoRelayDepth: 0,
+            visitedProfileIds: [],
+            visitedProfileIdsHash: "stable32:11111111",
+            dispatchContractVersion: 2,
+            dispatchPolicy: "mention_only",
+            ruleSource: "registry",
+            ruleId: "registry.default.all_members.v1",
+            ruleReason: "fixture",
+            taskId: "child-task",
+            transportMode: "codex-app-server",
+            contextIdMappingSpec: null,
+            controllerSnapshot: {
+              bindingId: "child-binding",
+              configurationRevision: 1,
+              targetBindingState: "bound",
+              targetBindingEnabled: true,
+              agentControllerRef: "builtin:codex",
+            },
+            sourceSignalSnapshot: {
+              profileId: sourceProfileId,
+              profileKind: sourceProfileId === HUMAN ? "human" : "agent",
+              text: "Continue the authorized task.",
+            },
+            dispatchRulesSnapshot: {
+              dispatchPolicy: "mention_only",
+              ruleSource: "registry",
+              ruleId: "registry.default.all_members.v1",
+              ruleReason: "fixture",
+            },
+            dispatchSnapshot: {
+              dispatchPolicy: "mention_only",
+              ruleSource: "registry",
+              ruleId: "registry.default.all_members.v1",
+              ruleReason: "fixture",
+              targetBindingState: "bound",
+              targetBindingEnabled: true,
+            },
+            idempotencyKey: "local-child",
+            enqueuedAtMs: Date.now(),
+          }),
+        });
+      expect((await localSnapshot())?.contextRequest?.ownerRequested).toBe(
+        true
+      );
+      expect((await localSnapshot(HUMAN))?.contextRequest?.ownerRequested).toBe(
+        true
+      );
       const pluginAction = await seedPluginGrant({
         harness,
         parentSubmissionId: parent.submissionId,
@@ -402,6 +469,9 @@ describe("delegated requester is a current projection of exact owner records", (
         });
       }
       expect(await readRemoteAgentDelegatedRequester(input)).toBeNull();
+      expect(
+        (await localSnapshot())?.contextRequest?.ownerRequested
+      ).toBeUndefined();
       await expect(
         prepareRemoteAgentMemberRequest(
           rpcEnv,
