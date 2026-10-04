@@ -1,4 +1,8 @@
 import {
+  getPostgresDatabase,
+  type PostgresDatabase,
+} from "@openmeld/db/postgresql";
+import {
   REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_PUBLIC_COPY,
   REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_REASON_CODE,
   remoteAgentWorkerCancellationResponseSchema,
@@ -19,7 +23,7 @@ import {
   readCenterAgentDesignationRecord,
 } from "../../center-agent/center-agent-repository";
 import type { CoreBindings } from "../../lib/bindings";
-import { identityDb } from "../../lib/bindings";
+
 import {
   isRpcReceiverMethodNotImplementedError,
   isRpcReceiverMethodNotImplementedErrorForMethod,
@@ -34,9 +38,9 @@ import {
   markRemoteAgentConversationGenerationStarted,
   type RemoteAgentConversationGeneration,
   readRemoteAgentConversationGeneration,
-} from "../infrastructure/d1/conversation-generation-repo";
-import type { RemoteAgentNativeDeliveryRecord } from "../infrastructure/d1/native-delivery-ledger-repo";
-import { replaceRemoteAgentWorkerSubmitRequestForGeneration } from "../infrastructure/d1/native-delivery-ledger-repo";
+} from "../infrastructure/postgresql/conversation-generation-repo";
+import type { RemoteAgentNativeDeliveryRecord } from "../infrastructure/postgresql/native-delivery-ledger-repo";
+import { replaceRemoteAgentWorkerSubmitRequestForGeneration } from "../infrastructure/postgresql/native-delivery-ledger-repo";
 import { reportNativeDeliveryAdmissionEvidence } from "./native-delivery-admission-evidence";
 import { requirePersonalRemoteAgentBinding } from "./personal-remote-agent-binding";
 import {
@@ -52,7 +56,6 @@ import {
   RemoteAgentWakeStoppedBeforeAdmissionError,
 } from "./space-wake-stop-intent";
 import { requireTaskContinuationSummaryPolicy } from "./task-continuation-summary-policy";
-
 export type RemoteAgentWorkerAdmission =
   | {
       ack: RemoteAgentWorkerSubmitMessagesResult;
@@ -77,13 +80,11 @@ export type RemoteAgentWorkerAdmission =
       error: unknown;
       status: "receiver_unavailable";
     };
-
 type RequiredRemoteAgentWorkerSubmitter = {
   submitConversationTurn(
     input: RemoteAgentWorkerSubmitTurnRequest
   ): Promise<RemoteAgentWorkerSubmitTurnResponse>;
 };
-
 const CENTER_AGENT_PAUSED_ADMISSION_RESPONSE = {
   message:
     "Center Agent is paused. Ask the Organization owner or admin to resume it before trying again.",
@@ -91,18 +92,18 @@ const CENTER_AGENT_PAUSED_ADMISSION_RESPONSE = {
 } as const;
 const REMOTE_AGENT_ADMISSION_FALLBACK_PUBLIC_COPY =
   "Center Agent could not start this request. Please try again.";
-
 const ROUTINE_RUN_HISTORY_LIMIT_RESPONSE = {
   message:
     "This Routine Run could not continue after its execution history reached the safety limit.",
   reasonCode: REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_REASON_CODE,
 } as const;
-
 /** Select optional fields only before the owning ledger freezes a new request. */
 export async function resolveRemoteAgentWorkerTaskAttribution(
   worker: NonNullable<CoreBindings["OPENMELD_REMOTE_AGENT_WORKER"]>,
   taskId: string | undefined
-): Promise<{ taskId?: string }> {
+): Promise<{
+  taskId?: string;
+}> {
   if (!(taskId && worker.readSubmitTurnCapabilities)) {
     return {};
   }
@@ -123,7 +124,6 @@ export async function resolveRemoteAgentWorkerTaskAttribution(
   remoteAgentWorkerSubmitCapabilitiesSchema.parse(value);
   return { taskId };
 }
-
 /** null means an older receiver; not_found means a current owner has no fence. */
 export async function readRemoteAgentWorkerAdmissionStop(input: {
   request: RemoteAgentWorkerSubmitTurnRequest;
@@ -164,7 +164,6 @@ export async function readRemoteAgentWorkerAdmissionStop(input: {
   }
   return response;
 }
-
 /** Recover the original ACK without replaying an admission request. */
 export async function readRemoteAgentWorkerAdmission(input: {
   admissionDelivery?: RemoteAgentNativeDeliveryRecord;
@@ -195,7 +194,6 @@ export async function readRemoteAgentWorkerAdmission(input: {
   });
   return response.ack;
 }
-
 function cannotResumeRoutineRunGeneration(input: {
   generation: RemoteAgentConversationGeneration;
   request: RemoteAgentWorkerSubmitTurnRequest;
@@ -206,7 +204,6 @@ function cannotResumeRoutineRunGeneration(input: {
     isRemoteAgentRoutineRunConversation(input.request)
   );
 }
-
 export function resolveRemoteAgentAdmissionPublicCopy(input: {
   conversationKind: "message_channel" | "slack" | "space";
   reasonCode: string;
@@ -229,13 +226,14 @@ export function resolveRemoteAgentAdmissionPublicCopy(input: {
     REMOTE_AGENT_ADMISSION_FALLBACK_PUBLIC_COPY
   );
 }
-
 async function validatePersonalRemoteAgentAdmission(input: {
   env: CoreBindings;
   request: RemoteAgentWorkerSubmitTurnRequest;
 }): Promise<Extract<
   RemoteAgentWorkerAdmission,
-  { status: "rejected" }
+  {
+    status: "rejected";
+  }
 > | null> {
   const request = input.request;
   if (
@@ -245,7 +243,7 @@ async function validatePersonalRemoteAgentAdmission(input: {
     return null;
   }
   try {
-    const db = identityDb(input.env);
+    const db = getPostgresDatabase(input.env);
     if (!(db && request.agentProfileOwnerUserId)) {
       throw new Error("remote_agent.personal_profile_unavailable");
     }
@@ -271,11 +269,10 @@ async function validatePersonalRemoteAgentAdmission(input: {
     };
   }
 }
-
 export async function submitRemoteAgentWorkerAdmission(input: {
   admissionDelivery?: RemoteAgentNativeDeliveryRecord;
   continuitySourceDispatchId?: string;
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   nowMs: number;
   organizationId: string;
@@ -311,11 +308,10 @@ export async function submitRemoteAgentWorkerAdmission(input: {
     throw error;
   }
 }
-
 async function performRemoteAgentWorkerAdmission(
   input: Parameters<typeof submitRemoteAgentWorkerAdmission>[0]
 ): Promise<RemoteAgentWorkerAdmission> {
-  const centerAgentDb = identityDb(input.env);
+  const centerAgentDb = getPostgresDatabase(input.env);
   const personalRejection = await validatePersonalRemoteAgentAdmission(input);
   if (personalRejection) {
     return personalRejection;
@@ -335,7 +331,6 @@ async function performRemoteAgentWorkerAdmission(
       };
     }
   }
-
   // A previously saved Stop must not spend an admission or be reported as a
   // quota failure. Keep the authorization fence immediately before submission
   // as well: this read-only preflight does not close the concurrent Stop race.
@@ -370,7 +365,6 @@ async function performRemoteAgentWorkerAdmission(
       status: "rejected",
     };
   }
-
   let generation: RemoteAgentConversationGeneration | null = null;
   let request = input.request;
   if (input.request.v !== 1) {
@@ -399,7 +393,6 @@ async function performRemoteAgentWorkerAdmission(
       return { error, status: "protocol_error" };
     }
   }
-
   let parsed: ReturnType<
     typeof remoteAgentWorkerSubmitTurnResponseSchema.safeParse
   >;
@@ -415,7 +408,6 @@ async function performRemoteAgentWorkerAdmission(
   } catch (error) {
     return resolveWorkerSubmitFailure(error);
   }
-
   if (!parsed.success) {
     return { error: parsed.error, status: "protocol_error" };
   }
@@ -433,14 +425,15 @@ async function performRemoteAgentWorkerAdmission(
     request,
   });
 }
-
 async function handleRejectedWorkerOutcome(input: {
   admissionInput: Parameters<typeof submitRemoteAgentWorkerAdmission>[0];
   generation: RemoteAgentConversationGeneration | null;
   request: RemoteAgentWorkerSubmitTurnRequest;
   response: Extract<
     RemoteAgentWorkerSubmitTurnResponse,
-    { outcome: "rejected" }
+    {
+      outcome: "rejected";
+    }
   >;
 }): Promise<RemoteAgentWorkerAdmission> {
   if (
@@ -466,14 +459,18 @@ async function handleRejectedWorkerOutcome(input: {
     request: rolloverAdmission.request,
   });
 }
-
 async function prepareGenerationRequest(input: {
   continuitySourceDispatchId?: string;
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   generation: RemoteAgentConversationGeneration;
   nowMs: number;
-  request: Exclude<RemoteAgentWorkerSubmitTurnRequest, { v: 1 }>;
+  request: Exclude<
+    RemoteAgentWorkerSubmitTurnRequest,
+    {
+      v: 1;
+    }
+  >;
 }): Promise<RemoteAgentWorkerSubmitTurnRequest> {
   let continuityContext =
     input.request.v === 4 &&
@@ -513,23 +510,31 @@ async function prepareGenerationRequest(input: {
   }
   return request;
 }
-
 async function rolloverRemoteAgentConversation(input: {
   admissionDelivery?: RemoteAgentNativeDeliveryRecord;
   currentGeneration: RemoteAgentConversationGeneration;
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   nowMs: number;
   organizationId: string;
-  request: RemoteAgentWorkerSubmitTurnRequest & { v: 4 };
+  request: RemoteAgentWorkerSubmitTurnRequest & {
+    v: 4;
+  };
   worker: NonNullable<CoreBindings["OPENMELD_REMOTE_AGENT_WORKER"]>;
 }): Promise<
   | {
       ack: RemoteAgentWorkerSubmitMessagesResult;
-      request: RemoteAgentWorkerSubmitTurnRequest & { v: 4 };
+      request: RemoteAgentWorkerSubmitTurnRequest & {
+        v: 4;
+      };
       status: "acknowledged";
     }
-  | Exclude<RemoteAgentWorkerAdmission, { status: "acknowledged" }>
+  | Exclude<
+      RemoteAgentWorkerAdmission,
+      {
+        status: "acknowledged";
+      }
+    >
 > {
   let request: RemoteAgentWorkerSubmitTurnRequest;
   try {
@@ -551,7 +556,6 @@ async function rolloverRemoteAgentConversation(input: {
   } catch (error) {
     return { error, status: "protocol_error" };
   }
-
   let parsed: ReturnType<
     typeof remoteAgentWorkerSubmitTurnResponseSchema.safeParse
   >;
@@ -573,15 +577,16 @@ async function rolloverRemoteAgentConversation(input: {
   }
   return {
     ack: parsed.data,
-    request: request as RemoteAgentWorkerSubmitTurnRequest & { v: 4 },
+    request: request as RemoteAgentWorkerSubmitTurnRequest & {
+      v: 4;
+    },
     status: "acknowledged",
   };
 }
-
 export async function finishAcknowledgedAdmission(input: {
   admissionDelivery?: RemoteAgentNativeDeliveryRecord;
   ack: RemoteAgentWorkerSubmitMessagesResult;
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   nowMs: number;
   organizationId: string;
@@ -618,7 +623,6 @@ export async function finishAcknowledgedAdmission(input: {
     throw error;
   }
 }
-
 async function performAcknowledgedAdmissionPostprocessing(
   input: Parameters<typeof finishAcknowledgedAdmission>[0]
 ): Promise<RemoteAgentWorkerAdmission> {
@@ -646,14 +650,13 @@ async function performAcknowledgedAdmissionPostprocessing(
   await forwardSpaceStopAfterRemoteAgentAdmission(input);
   const pauseFenceFailure = await requestCancellationWhenPausedAfterAdmission({
     ...input,
-    centerAgentDb: identityDb(input.env),
+    centerAgentDb: getPostgresDatabase(input.env),
   });
   return pauseFenceFailure ?? { ack: input.ack, status: "acknowledged" };
 }
-
 async function requestCancellationWhenPausedAfterAdmission(input: {
   ack: RemoteAgentWorkerSubmitMessagesResult;
-  centerAgentDb: D1Database | undefined;
+  centerAgentDb: PostgresDatabase | undefined;
   organizationId: string;
   request: RemoteAgentWorkerSubmitTurnRequest;
   worker: NonNullable<CoreBindings["OPENMELD_REMOTE_AGENT_WORKER"]>;
@@ -714,10 +717,12 @@ async function requestCancellationWhenPausedAfterAdmission(input: {
     return { error, status: "outcome_unknown" };
   }
 }
-
-function resolveWorkerSubmitFailure(
-  error: unknown
-): Exclude<RemoteAgentWorkerAdmission, { status: "acknowledged" }> {
+function resolveWorkerSubmitFailure(error: unknown): Exclude<
+  RemoteAgentWorkerAdmission,
+  {
+    status: "acknowledged";
+  }
+> {
   if (error instanceof RemoteAgentWakeStoppedBeforeAdmissionError) {
     return {
       status: "rejected",
@@ -734,7 +739,6 @@ function resolveWorkerSubmitFailure(
       : "outcome_unknown",
   };
 }
-
 async function submitRemoteAgentWorkerTurn(
   worker: NonNullable<CoreBindings["OPENMELD_REMOTE_AGENT_WORKER"]>,
   request: RemoteAgentWorkerSubmitTurnRequest,

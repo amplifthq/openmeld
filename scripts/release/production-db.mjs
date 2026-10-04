@@ -3,6 +3,7 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
+import { assertProductDatabaseReleaseSupported } from "./database-backend-admission.mjs";
 import { admitProductionTrainArtifacts } from "./production-train-artifact-admission.mjs";
 import { decideD1MigrationStage } from "./release-stage-probes.mjs";
 
@@ -257,6 +258,7 @@ function resolveCommandBinary(command) {
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
+    assertProductDatabaseReleaseSupported();
     await runProductionDbRelease();
   } catch (error) {
     process.stderr.write(

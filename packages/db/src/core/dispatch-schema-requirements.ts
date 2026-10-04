@@ -1,12 +1,14 @@
-import {
-  buildSqliteSchemaRequirements,
-  type SqliteRequiredNamedIndex,
-  type SqliteRequiredNamedIndexColumn,
-  type SqliteRequiredSchemaObject,
-  type SqliteRequiredTableColumn,
-  type SqliteRequiredUniqueConstraint,
+import history from "../../d1-history/physical-requirements.json" with {
+  type: "json",
+};
+import type {
+  SqliteRequiredNamedIndex,
+  SqliteRequiredNamedIndexColumn,
+  SqliteRequiredSchemaObject,
+  SqliteRequiredTableColumn,
+  SqliteRequiredUniqueConstraint,
+  SqliteSchemaRequirements,
 } from "../shared/sqlite-schema-requirements.ts";
-import { coreSchema } from "./dispatch.schema.ts";
 
 export type CoreRequiredSchemaObject = SqliteRequiredSchemaObject;
 export type CoreRequiredTableColumn = SqliteRequiredTableColumn;
@@ -14,7 +16,8 @@ export type CoreRequiredNamedIndexColumn = SqliteRequiredNamedIndexColumn;
 export type CoreRequiredNamedIndex = SqliteRequiredNamedIndex;
 export type CoreRequiredUniqueConstraint = SqliteRequiredUniqueConstraint;
 
-const coreRequirements = buildSqliteSchemaRequirements(coreSchema);
+// Frozen pre-port D1 contract; current PostgreSQL journal owns native admission.
+const coreRequirements = history.core as SqliteSchemaRequirements;
 
 export const CORE_DISPATCH_REQUIRED_SCHEMA_OBJECTS =
   coreRequirements.schemaObjects;

@@ -866,6 +866,7 @@ const resolveDefaultCodexAppServerInvoke = (input: {
         dispatchInput.agentControllerPermissionMode,
       cancellationSignal: dispatchInput.cancellationSignal,
       computerFileAccessBoundary: dispatchInput.computerFileAccessBoundary,
+      executionContext: dispatchInput.executionContext,
       launchContract,
       codexTimeoutMs,
       codexWorkdir:

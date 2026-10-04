@@ -35,7 +35,7 @@ vi.mock("../src/center-agent/connector-action-operation-repository", () => ({
   listConnectorOperationReceiptsForContinuation: owner.receipts,
 }));
 vi.mock(
-  "../src/remote-agent/infrastructure/d1/plugin-channel-metadata-repo",
+  "../src/remote-agent/infrastructure/postgresql/plugin-channel-metadata-repo",
   () => ({ selectPluginChannelAccount: owner.select })
 );
 vi.mock("../src/remote-agent/application/native-delivery-service", () => ({

@@ -1,16 +1,10 @@
 import { WORKING_LANGUAGE_TAG_MAX_CHARS } from "@openmeld/schemas";
 import { asc, desc, sql } from "drizzle-orm";
-import {
-  check,
-  index,
-  integer,
-  sqliteTable,
-  text,
-  uniqueIndex,
-} from "drizzle-orm/sqlite-core";
+import { bigint, check, index, text, uniqueIndex } from "drizzle-orm/pg-core";
 import { organizations } from "../auth/auth.schema.ts";
+import { applicationTable } from "../postgresql/schema.ts";
 
-export const centerAgentMemberResearchBatches = sqliteTable(
+export const centerAgentMemberResearchBatches = applicationTable(
   "center_agent_member_research_batches",
   {
     id: text("id").primaryKey(),
@@ -25,8 +19,8 @@ export const centerAgentMemberResearchBatches = sqliteTable(
     requestedByDisplayName: text("requested_by_display_name").notNull(),
     directMessageSpaceId: text("direct_message_space_id").notNull(),
     acceptanceIdempotencyKey: text("acceptance_idempotency_key"),
-    createdAtMs: integer("created_at_ms").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     uniqueIndex("center_agent_member_research_one_active_batch_per_org")
@@ -58,7 +52,7 @@ export const centerAgentMemberResearchBatches = sqliteTable(
   ]
 );
 
-export const centerAgentMemberResearchTasks = sqliteTable(
+export const centerAgentMemberResearchTasks = applicationTable(
   "center_agent_member_research_tasks",
   {
     id: text("id").primaryKey(),
@@ -69,14 +63,14 @@ export const centerAgentMemberResearchTasks = sqliteTable(
       }),
     subjectUserId: text("subject_user_id").notNull(),
     subjectDisplayName: text("subject_display_name").notNull(),
-    position: integer("position").notNull(),
+    position: bigint("position", { mode: "number" }).notNull(),
     status: text("status").default("queued").notNull(),
     failureCode: text("failure_code"),
     reportResult: text("report_result"),
     observedLanguageTag: text("observed_language_tag"),
-    createdAtMs: integer("created_at_ms").notNull(),
-    startedAtMs: integer("started_at_ms"),
-    finishedAtMs: integer("finished_at_ms"),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    startedAtMs: bigint("started_at_ms", { mode: "number" }),
+    finishedAtMs: bigint("finished_at_ms", { mode: "number" }),
   },
   (table) => [
     uniqueIndex("center_agent_member_research_tasks_batch_subject_unique").on(
@@ -120,7 +114,7 @@ export const centerAgentMemberResearchTasks = sqliteTable(
   ]
 );
 
-export const centerAgentMemberResearchComputerFiles = sqliteTable(
+export const centerAgentMemberResearchComputerFiles = applicationTable(
   "center_agent_member_research_computer_files",
   {
     taskId: text("task_id")
@@ -131,7 +125,7 @@ export const centerAgentMemberResearchComputerFiles = sqliteTable(
     documentId: text("document_id").notNull(),
     subjectUserId: text("subject_user_id").notNull(),
     path: text("path").notNull(),
-    createdAtMs: integer("created_at_ms").notNull(),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     uniqueIndex(

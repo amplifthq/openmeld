@@ -1,4 +1,5 @@
 import { env, runInDurableObject } from "cloudflare:test";
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { buildAgentTaskKey } from "@openmeld/schemas";
 import type {
   OpenMeldRequestContext,
@@ -7,7 +8,7 @@ import type {
   SignalEnvelope,
 } from "@openmeld/schemas/types";
 import { expect, it } from "vitest";
-import { readAgentTaskTerminalOutcome } from "../src/agent-task-coordination/infrastructure/d1/agent-task-coordination-repo";
+import { readAgentTaskTerminalOutcome } from "../src/agent-task-coordination/infrastructure/postgresql/agent-task-coordination-repo";
 import {
   createDispatchOutboxRecord,
   readDispatchOutboxRecordByDispatchId,
@@ -73,17 +74,20 @@ it.each([
       } as const;
       upsertSpaceMetaRecord(state.storage.sql, meta);
       if (centerSender) {
-        await env.OPENMELD_DB.batch([
-          env.OPENMELD_DB.prepare(
-            "INSERT INTO organizations (id, name, slug, created_at) VALUES (?, 'Stop test', ?, 1)"
-          ).bind(organizationId, organizationId),
-          env.OPENMELD_DB.prepare(
-            "INSERT INTO openmeld_profiles (profile_id, profile_name, profile_handle, profile_kind, is_default, status, organization_id, owner_user_id, source, managed_role, created_at, updated_at) VALUES (?, 'Center Agent', ?, 'agent', 0, 'active', ?, NULL, 'cli_create', 'center_agent', 1, 1)"
-          ).bind(senderProfileId, senderProfileId, organizationId),
-          env.OPENMELD_DB.prepare(
-            "INSERT INTO center_agent_designations (organization_id, agent_profile_id, duty, created_at) VALUES (?, ?, NULL, 1)"
-          ).bind(organizationId, senderProfileId),
-        ]);
+        await getPostgresDatabase(env).transaction(async (client) => {
+          await client.query({
+            text: 'INSERT INTO "openmeld"."organizations" (id, name, slug, created_at) VALUES ($1, \'Stop test\', $2, 1)',
+            values: [organizationId, organizationId],
+          });
+          await client.query({
+            text: "INSERT INTO \"openmeld\".\"openmeld_profiles\" (profile_id, profile_name, profile_handle, profile_kind, is_default, status, organization_id, owner_user_id, source, managed_role, created_at, updated_at) VALUES ($1, 'Center Agent', $2, 'agent', 0, 'active', $3, NULL, 'cli_create', 'center_agent', 1, 1)",
+            values: [senderProfileId, senderProfileId, organizationId],
+          });
+          await client.query({
+            text: 'INSERT INTO "openmeld"."center_agent_designations" (organization_id, agent_profile_id, duty, created_at) VALUES ($1, $2, NULL, 1)',
+            values: [organizationId, senderProfileId],
+          });
+        });
       }
       upsertSpaceMemberRecord(state.storage.sql, {
         spaceId: state.id.toString(),
@@ -200,7 +204,7 @@ it.each([
       await internal.flushPendingWakeStopOutcomes();
       expect(
         await readAgentTaskTerminalOutcome({
-          db: env.OPENMELD_DB,
+          db: getPostgresDatabase(env),
           taskKey: buildAgentTaskKey({
             v: 1,
             kind: "space_wake",

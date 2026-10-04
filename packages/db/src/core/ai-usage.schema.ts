@@ -1,28 +1,23 @@
-import {
-  index,
-  integer,
-  primaryKey,
-  sqliteTable,
-  text,
-} from "drizzle-orm/sqlite-core";
+import { bigint, index, primaryKey, text } from "drizzle-orm/pg-core";
 import { organizations } from "../auth/auth.schema.ts";
+import { applicationTable } from "../postgresql/schema.ts";
 
 // No row (or a null limit) means unlimited. Keeping policy separate from usage
 // lets later entitlements change the allowance without rewriting consumption.
-export const organizationAiUsagePolicies = sqliteTable(
+export const organizationAiUsagePolicies = applicationTable(
   "organization_ai_usage_policies",
   {
     organizationId: text("organization_id")
       .primaryKey()
       .references(() => organizations.id, { onDelete: "cascade" }),
-    dailyLimitNanoUsd: integer("daily_limit_nano_usd"),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    dailyLimitNanoUsd: bigint("daily_limit_nano_usd", { mode: "number" }),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   }
 );
 
 // Core owns the durable consumption facts. Execution and billing policy have
 // independent owners; neither is inferred from this ledger.
-export const aiUsageRecords = sqliteTable(
+export const aiUsageRecords = applicationTable(
   "ai_usage_records",
   {
     organizationId: text("organization_id")
@@ -39,11 +34,11 @@ export const aiUsageRecords = sqliteTable(
     attemptId: text("attempt_id"),
     computerId: text("computer_id"),
     controller: text("controller"),
-    occurredAtMs: integer("occurred_at_ms").notNull(),
-    inputTokens: integer("input_tokens"),
-    outputTokens: integer("output_tokens"),
-    totalTokens: integer("total_tokens"),
-    costNanoUsd: integer("cost_nano_usd"),
+    occurredAtMs: bigint("occurred_at_ms", { mode: "number" }).notNull(),
+    inputTokens: bigint("input_tokens", { mode: "number" }),
+    outputTokens: bigint("output_tokens", { mode: "number" }),
+    totalTokens: bigint("total_tokens", { mode: "number" }),
+    costNanoUsd: bigint("cost_nano_usd", { mode: "number" }),
     costKind: text("cost_kind"),
     recordJson: text("record_json").notNull(),
   },

@@ -1,4 +1,5 @@
 import { env } from "cloudflare:test";
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { HOSTED_CENTER_AGENT_CONTROLLER_REF } from "@openmeld/schemas";
 import { describe, expect, it } from "vitest";
 import { requireCurrentDesignatedCenterAgentCaller } from "../src/center-agent/current-designated-center-agent";
@@ -14,7 +15,7 @@ import type { CoreBindings } from "../src/lib/bindings";
 describe("Organization Center Agent principal", () => {
   it("authorizes the designated Organization identity without a creator account and rejects impersonation", async () => {
     const bindings = env as unknown as CoreBindings;
-    const db = bindings.OPENMELD_DB;
+    const db = getPostgresDatabase(bindings);
     if (!db) {
       throw new Error("Identity database is required");
     }
@@ -23,42 +24,48 @@ describe("Organization Center Agent principal", () => {
     const userId = `user_${crypto.randomUUID()}`;
     const memberId = `member_${crypto.randomUUID()}`;
     const speakerMember = { memberId, userId };
-    await db
-      .prepare(
-        "INSERT INTO organizations (id, name, slug, created_at) VALUES (?, 'Ownership test', ?, 1)"
-      )
-      .bind(organizationId, organizationId)
-      .run();
-    await db
-      .prepare(
-        "INSERT INTO openmeld_profiles (profile_id, profile_name, profile_handle, profile_kind, organization_id, owner_user_id, managed_role, source, created_at, updated_at) VALUES (?, 'Center Agent', 'center-agent', 'agent', ?, NULL, 'center_agent', 'auth_bootstrap', 1, 1)"
-      )
-      .bind(profileId, organizationId)
-      .run();
-    await db
-      .prepare(
-        "INSERT INTO center_agent_designations (organization_id, agent_profile_id, designated_by, created_at) VALUES (?, ?, NULL, 1)"
-      )
-      .bind(organizationId, profileId)
-      .run();
-    await db
-      .prepare(
-        "INSERT INTO users (id, name, email, email_verified, created_at, updated_at) VALUES (?, 'Member', ?, 1, 1, 1)"
-      )
-      .bind(userId, `${userId}@example.com`)
-      .run();
-    await db
-      .prepare(
-        "INSERT INTO members (id, organization_id, user_id, role, created_at) VALUES (?, ?, ?, 'member', 1)"
-      )
-      .bind(memberId, organizationId, userId)
-      .run();
-    await db
-      .prepare(
-        "INSERT INTO openmeld_profiles (profile_id, profile_name, profile_handle, profile_kind, is_default, status, owner_user_id, created_by_user_id, source, created_at, updated_at) VALUES (?, 'Member', ?, 'human', 1, 'active', ?, ?, 'auth_bootstrap', 1, 1)"
-      )
-      .bind(crypto.randomUUID(), `member-${userId}`, userId, userId)
-      .run();
+    await db.query({
+      ...{
+        text: 'INSERT INTO "openmeld"."organizations" (id, name, slug, created_at) VALUES ($1, \'Ownership test\', $2, 1)',
+        values: [],
+      },
+      values: [organizationId, organizationId],
+    });
+    await db.query({
+      ...{
+        text: "INSERT INTO \"openmeld\".\"openmeld_profiles\" (profile_id, profile_name, profile_handle, profile_kind, organization_id, owner_user_id, managed_role, source, created_at, updated_at) VALUES ($1, 'Center Agent', 'center-agent', 'agent', $2, NULL, 'center_agent', 'auth_bootstrap', 1, 1)",
+        values: [],
+      },
+      values: [profileId, organizationId],
+    });
+    await db.query({
+      ...{
+        text: 'INSERT INTO "openmeld"."center_agent_designations" (organization_id, agent_profile_id, designated_by, created_at) VALUES ($1, $2, NULL, 1)',
+        values: [],
+      },
+      values: [organizationId, profileId],
+    });
+    await db.query({
+      ...{
+        text: 'INSERT INTO "openmeld"."users" (id, name, email, email_verified, created_at, updated_at) VALUES ($1, \'Member\', $2, 1, 1, 1)',
+        values: [],
+      },
+      values: [userId, `${userId}@example.com`],
+    });
+    await db.query({
+      ...{
+        text: 'INSERT INTO "openmeld"."members" (id, organization_id, user_id, role, created_at) VALUES ($1, $2, $3, \'member\', 1)',
+        values: [],
+      },
+      values: [memberId, organizationId, userId],
+    });
+    await db.query({
+      ...{
+        text: "INSERT INTO \"openmeld\".\"openmeld_profiles\" (profile_id, profile_name, profile_handle, profile_kind, is_default, status, owner_user_id, created_by_user_id, source, created_at, updated_at) VALUES ($1, 'Member', $2, 'human', 1, 'active', $3, $4, 'auth_bootstrap', 1, 1)",
+        values: [],
+      },
+      values: [crypto.randomUUID(), `member-${userId}`, userId, userId],
+    });
     const context = {
       activeOrganizationId: organizationId,
       actorContext: {
@@ -163,7 +170,13 @@ describe("Organization Center Agent principal", () => {
     await expect(
       rpcRemoteAgentReadTeamFile(bindings, { context, fileId, speakerMember })
     ).resolves.toMatchObject({ content: "Updated team note" });
-    await db.prepare("DELETE FROM members WHERE id = ?").bind(memberId).run();
+    await db.query({
+      ...{
+        text: 'DELETE FROM "openmeld"."members" WHERE id = $1',
+        values: [],
+      },
+      values: [memberId],
+    });
     await expect(
       rpcRemoteAgentReadTeamFile(bindings, { context, fileId, speakerMember })
     ).rejects.toThrow("center_agent.member_actor_required");
@@ -176,12 +189,13 @@ describe("Organization Center Agent principal", () => {
         clientMutationId: crypto.randomUUID(),
       })
     ).rejects.toThrow("center_agent.member_actor_required");
-    await db
-      .prepare(
-        "INSERT INTO members (id, organization_id, user_id, role, created_at) VALUES (?, ?, ?, 'member', 1)"
-      )
-      .bind(memberId, organizationId, userId)
-      .run();
+    await db.query({
+      ...{
+        text: 'INSERT INTO "openmeld"."members" (id, organization_id, user_id, role, created_at) VALUES ($1, $2, $3, \'member\', 1)',
+        values: [],
+      },
+      values: [memberId, organizationId, userId],
+    });
     const privateRoot = {
       kind: "member" as const,
       organizationId,
@@ -222,12 +236,13 @@ describe("Organization Center Agent principal", () => {
         },
       })
     ).rejects.toMatchObject({ status: 403 });
-    await db
-      .prepare(
-        "UPDATE center_agent_designations SET operating_state = 'paused', paused_at = 2 WHERE organization_id = ?"
-      )
-      .bind(organizationId)
-      .run();
+    await db.query({
+      ...{
+        text: 'UPDATE "openmeld"."center_agent_designations" SET operating_state = \'paused\', paused_at = 2 WHERE organization_id = $1',
+        values: [],
+      },
+      values: [organizationId],
+    });
     await expect(
       requireCurrentDesignatedCenterAgentCaller({ env: bindings, context })
     ).rejects.toMatchObject({ status: 409, code: "center_agent.paused" });

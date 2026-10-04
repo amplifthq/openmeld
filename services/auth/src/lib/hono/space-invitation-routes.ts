@@ -2,6 +2,7 @@ import {
   buildSpaceInvitationEmailContent,
   sendCloudflareEmail,
 } from "@openmeld/auth/server";
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import {
   type SpaceInvitation,
   type SpaceInvitationRpcInput,
@@ -23,7 +24,6 @@ type CallNative = (
   spaceInvitationId?: string,
   ownsOrganizationInvitation?: boolean
 ) => Promise<Response>;
-
 export function registerSpaceInvitationRoutes(app: Hono<AppContext>) {
   app.post(
     "/api/auth/space-invitations",
@@ -91,7 +91,6 @@ export function registerSpaceInvitationRoutes(app: Hono<AppContext>) {
     }
   );
 }
-
 async function acceptSpaceInvitation(
   c: Context<AppContext>,
   call: CallCore,
@@ -162,11 +161,12 @@ async function cancelUnusedOrganizationInvitation(
       invitationId: result.organizationInvitationId,
     });
     if (!cancelled.ok) {
-      const pending = await c.env.OPENMELD_DB.prepare(
-        "SELECT id FROM invitations WHERE id = ? AND status = 'pending'"
-      )
-        .bind(result.organizationInvitationId)
-        .first();
+      const pending = await getPostgresDatabase(c.env)
+        .query({
+          text: 'SELECT id FROM "openmeld"."invitations" WHERE id = $1 AND status = \'pending\'',
+          values: [result.organizationInvitationId],
+        })
+        .then((result) => result.rows[0] ?? null);
       if (pending) {
         return c.json(
           {
@@ -199,11 +199,12 @@ export async function sendSpaceInvitation(
   }
   if (invitation.audience !== "guest") {
     // Native Better Auth remains the only Organization invitation writer.
-    const existing = await c.env.OPENMELD_DB.prepare(
-      "SELECT id FROM invitations WHERE organization_id = ? AND lower(email) = ? AND status = 'pending' LIMIT 1"
-    )
-      .bind(invitation.organizationId, invitation.email)
-      .first();
+    const existing = await getPostgresDatabase(c.env)
+      .query({
+        text: 'SELECT id FROM "openmeld"."invitations" WHERE organization_id = $1 AND lower(email) = $2 AND status = \'pending\' LIMIT 1',
+        values: [invitation.organizationId, invitation.email],
+      })
+      .then((result) => result.rows[0] ?? null);
     const response = await native(
       "invite-member",
       {
@@ -253,7 +254,6 @@ export async function sendSpaceInvitation(
   }
   return c.json(result.result);
 }
-
 export function createNativeInvitationCaller(
   c: Context<AppContext>
 ): CallNative {
@@ -283,7 +283,6 @@ export function createNativeInvitationCaller(
     );
   };
 }
-
 async function sendInvitationEmail(
   env: AppContext["Bindings"],
   invitation: SpaceInvitation

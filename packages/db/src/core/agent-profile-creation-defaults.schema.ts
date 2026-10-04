@@ -1,16 +1,10 @@
 import { sql } from "drizzle-orm";
-import {
-  check,
-  index,
-  integer,
-  sqliteTable,
-  text,
-  uniqueIndex,
-} from "drizzle-orm/sqlite-core";
+import { bigint, check, index, text, uniqueIndex } from "drizzle-orm/pg-core";
 import { organizations, users } from "../auth/auth.schema.ts";
+import { applicationTable } from "../postgresql/schema.ts";
 import { projects } from "./project.schema.ts";
 
-export const agentProfileCreationDefaults = sqliteTable(
+export const agentProfileCreationDefaults = applicationTable(
   "agent_profile_creation_defaults",
   {
     id: text("id").primaryKey(),
@@ -31,8 +25,8 @@ export const agentProfileCreationDefaults = sqliteTable(
     reasoningLevel: text("reasoning_level"),
     agentControllerPermissionMode: text("agent_controller_permission_mode"),
     openCodePermissionJson: text("open_code_permission_json"),
-    createdAtMs: integer("created_at_ms").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     uniqueIndex("agent_profile_creation_defaults_scope_uq_idx").on(

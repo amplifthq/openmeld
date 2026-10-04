@@ -1,15 +1,10 @@
 import type { OpenMeldDaemonDispatchQueueMessage } from "@openmeld/schemas/types";
-import { describe, expect, it, vi } from "vitest";
-import { readDispatchSourceSignalContext } from "../dispatch/infrastructure/d1/dispatch-source-signal-context";
+import { describe, expect, it } from "vitest";
+import { readDispatchSourceSignalContext } from "../dispatch/application/dispatch-source-signal-context";
 
-describe("dispatch source signal context", () => {
-  it("prefers the queue snapshot when it already carries source signal text", async () => {
-    const db = {
-      prepare: vi.fn(),
-    } as unknown as D1Database;
-
+describe("Space-owned dispatch source context", () => {
+  it("preserves the dispatch snapshot's author and text", async () => {
     const result = await readDispatchSourceSignalContext({
-      db,
       message: createQueueMessage({
         sourceSignalSnapshot: {
           profileId: "usr-source-1",
@@ -19,8 +14,6 @@ describe("dispatch source signal context", () => {
         },
       }),
     });
-
-    expect(db.prepare).not.toHaveBeenCalled();
     expect(result).toEqual({
       profileId: "usr-source-1",
       profileKind: "human",
@@ -30,56 +23,10 @@ describe("dispatch source signal context", () => {
     });
   });
 
-  it("reads the stored source signal payload when the queue snapshot is absent", async () => {
-    const db = {
-      prepare: vi.fn(() => ({
-        bind: vi.fn().mockReturnValue({
-          first: vi.fn().mockResolvedValue({
-            payloadJson: JSON.stringify({
-              data: { text: "Reply context text" },
-              profile: {
-                kind: "agent",
-                profileHandle: "codex",
-                profileId: "agt-source-1",
-              },
-            }),
-          }),
-        }),
-      })),
-    } as unknown as D1Database;
-
+  it("retains the source selector without inventing an author for a legacy dispatch", async () => {
     const result = await readDispatchSourceSignalContext({
-      db,
-      message: createQueueMessage(),
+      message: createQueueMessage({ sourceEventId: "sig-source-404" }),
     });
-
-    expect(result).toEqual({
-      profileId: "agt-source-1",
-      profileKind: "agent",
-      profileHandle: "codex",
-      profileMentionLabel: null,
-      text: "Reply context text",
-    });
-  });
-
-  it("falls back to a synthetic source text when the stored payload is unavailable", async () => {
-    const db = {
-      prepare: vi.fn(() => ({
-        bind: vi.fn().mockReturnValue({
-          first: vi.fn().mockResolvedValue({
-            payloadJson: "{not-json",
-          }),
-        }),
-      })),
-    } as unknown as D1Database;
-
-    const result = await readDispatchSourceSignalContext({
-      db,
-      message: createQueueMessage({
-        sourceEventId: "sig-source-404",
-      }),
-    });
-
     expect(result).toEqual({
       profileId: null,
       profileKind: null,
@@ -90,10 +37,10 @@ describe("dispatch source signal context", () => {
   });
 });
 
-const createQueueMessage = (
+function createQueueMessage(
   overrides: Partial<OpenMeldDaemonDispatchQueueMessage> = {}
-): OpenMeldDaemonDispatchQueueMessage =>
-  ({
+): OpenMeldDaemonDispatchQueueMessage {
+  return {
     dispatchId: "dispatch-1",
     idempotencyKey: "idem-1",
     queueAttempt: 1,
@@ -101,4 +48,5 @@ const createQueueMessage = (
     targetProfileId: "agt-target-1",
     v: "openMeldDaemon.dispatch.v1",
     ...overrides,
-  }) as OpenMeldDaemonDispatchQueueMessage;
+  } as OpenMeldDaemonDispatchQueueMessage;
+}

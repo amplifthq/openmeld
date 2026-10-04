@@ -22,6 +22,7 @@ import {
   type WakeRouteLane,
   type WakeRouteStatus,
 } from "@openmeld/agent-runtime";
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import {
   HOSTED_REMOTE_AGENT_CONTROLLER_REF,
   isHostedAgentControllerRef,
@@ -40,7 +41,7 @@ import type {
 } from "@openmeld/schemas/types";
 import { createAgentProfileBindingProjectionFromRecord } from "../../agent-profile-binding/application/agent-profile-binding-lookup-service";
 import { resolveCurrentWorkingFolderObservation } from "../../agent-profile-binding/application/current-working-folder-observation";
-import { readPrimaryAgentProfileBindingRecordByControllerConversation } from "../../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
+import { readPrimaryAgentProfileBindingRecordByControllerConversation } from "../../agent-profile-binding/infrastructure/postgresql/agent-profile-binding-repo";
 import {
   isAgentProfileEligibleForOrganization,
   readAgentProfileOrganizationContext,
@@ -54,29 +55,25 @@ import {
   lookupRuntimeTransportOwnerService,
   lookupRuntimeTransportRoute,
 } from "../../dispatch/infrastructure/runtime-transport/runtime-transport-client";
-import {
-  type CoreBindings,
-  identityDb,
-  localStateDb,
-} from "../../lib/bindings";
+import type { CoreBindings } from "../../lib/bindings";
 import { resolveCoreRuntimeContractRollout } from "../../local-components/runtime-contract-rollout";
 import { resolveLocalComponentUpdateProjection } from "../../local-components/update-projection";
 import { resolveRemoteAgentRuntimeAvailability } from "../../remote-agent/application/remote-agent-runtime-policy";
 import {
   listOwnedDeviceExecutionTargetRecords,
   type RuntimeRegistryRecord,
-} from "../../runtime-registry/infrastructure/d1/runtime-registry-repo";
+} from "../../runtime-registry/infrastructure/postgresql/runtime-registry-repo";
 import { CORE_LOG_EVENTS } from "../../shared/observability/log-events";
 import {
   resolveConnectedLocalRuntimeDisplayNamesUseCase,
   resolveConnectedLocalRuntimeDisplayNameUseCase,
 } from "../../start/application/current-device-target-service";
-import { resolveCurrentDeviceFromBindings } from "../../start/infrastructure/d1/current-device-derivation-repo";
-import { listOwnedDeviceRegistryRecords } from "../../start/infrastructure/d1/owned-device-registry-repo";
+import { resolveCurrentDeviceFromBindings } from "../../start/infrastructure/postgresql/current-device-derivation-repo";
+import { listOwnedDeviceRegistryRecords } from "../../start/infrastructure/postgresql/owned-device-registry-repo";
 import { RUNTIME_TRANSPORT_LEASE_TTL_MS } from "../../strategy-constants";
-import { readFreshAgentExecutionReadinessImpactForBinding } from "../infrastructure/d1/agent-execution-readiness-impact-repo";
-import { readFreshProviderAccessEvidenceForBinding } from "../infrastructure/d1/provider-access-evidence-repo";
-import { readFreshProviderConversationProofForBinding } from "../infrastructure/d1/provider-conversation-proof-repo";
+import { readFreshAgentExecutionReadinessImpactForBinding } from "../infrastructure/postgresql/agent-execution-readiness-impact-repo";
+import { readFreshProviderAccessEvidenceForBinding } from "../infrastructure/postgresql/provider-access-evidence-repo";
+import { readFreshProviderConversationProofForBinding } from "../infrastructure/postgresql/provider-conversation-proof-repo";
 import {
   type AgentExecutionReadinessReads,
   createAgentExecutionReadinessReads,
@@ -1037,7 +1034,7 @@ async function resolveHostedCenterAgentReadiness(input: {
       reasonCodes: ["remote_agent.organization_context_missing"],
     };
   }
-  const db = identityDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (!db) {
     return {
       available: false,
@@ -1133,7 +1130,7 @@ async function resolveAgentExecutionBindingEvidence(input: {
   configurationRevision: number | null;
   evidence: AgentExecutionBindingEvidence;
 }> {
-  const domainDb = localStateDb(input.env);
+  const domainDb = getPostgresDatabase(input.env);
   if (!domainDb) {
     return {
       configurationRevision: null,
@@ -1150,7 +1147,6 @@ async function resolveAgentExecutionBindingEvidence(input: {
       : await readAgentProfileOrganizationContext({
           agentProfileId: input.agentProfileId,
           db: domainDb,
-          readBatch: input.reads.readBatch,
         });
     let owner: { id: string; kind: "owner_account" | "organization" } | null =
       null;
@@ -1177,12 +1173,10 @@ async function resolveAgentExecutionBindingEvidence(input: {
         agentProfileId: input.agentProfileId,
         db: domainDb,
         owner,
-        readBatch: input.reads.readBatch,
       });
     if (bindingRecord?.agentControllerConversationId && input.ownerUserId) {
       const conflictingBinding =
         await readPrimaryAgentProfileBindingRecordByControllerConversation({
-          readBatch: input.reads.readBatch,
           agentControllerConversationId:
             bindingRecord.agentControllerConversationId,
           agentControllerRef: bindingRecord.agentControllerRef,
@@ -1302,7 +1296,7 @@ async function resolveAgentRuntimeReadiness(input: {
   if (!executionTarget) {
     return null;
   }
-  const domainDb = localStateDb(input.env);
+  const domainDb = getPostgresDatabase(input.env);
   if (!domainDb) {
     return {
       displayState: "unavailable",
@@ -1506,7 +1500,7 @@ async function resolveAgentProviderAccountEvidence(input: {
   const executionTarget = input.binding.executionTarget;
   const bindingId =
     input.binding.bindingId ?? input.binding.dispatchReadableFacts?.bindingId;
-  const domainDb = localStateDb(input.env);
+  const domainDb = getPostgresDatabase(input.env);
   if (!(bindingId && executionTarget && domainDb)) {
     return null;
   }
@@ -1595,7 +1589,7 @@ async function resolveAgentProviderConversationEvidence(input: {
     required: true,
   };
 
-  const domainDb = localStateDb(input.env);
+  const domainDb = getPostgresDatabase(input.env);
   if (!domainDb) {
     return {
       ...requiredBase,
@@ -1703,7 +1697,7 @@ async function resolveAgentReadinessImpactEvidence(input: {
   const executionTarget = input.binding.executionTarget;
   const bindingId =
     input.binding.bindingId ?? input.binding.dispatchReadableFacts?.bindingId;
-  const domainDb = localStateDb(input.env);
+  const domainDb = getPostgresDatabase(input.env);
   if (!(bindingId && executionTarget && domainDb)) {
     return null;
   }
@@ -1764,7 +1758,7 @@ async function resolveAgentClaimDiagnostics(input: {
   ) {
     return null;
   }
-  const domainDb = localStateDb(input.env);
+  const domainDb = getPostgresDatabase(input.env);
   if (!domainDb) {
     return claimDiagnosticsUnavailable("claim_eligibility.runtime_unavailable");
   }
@@ -1866,7 +1860,7 @@ export async function resolveAgentProfileOrganizationClaimDiagnostics(input: {
     return runtimeClaimDiagnostics;
   }
 
-  const db = identityDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (!db) {
     return mergeAgentProfileOrganizationClaimFailure({
       reasonCode: "agent_profile.organization_lookup_failed",
@@ -1879,7 +1873,6 @@ export async function resolveAgentProfileOrganizationClaimDiagnostics(input: {
     const profileContext = await readAgentProfileOrganizationContext({
       agentProfileId: input.binding.agentProfileId,
       db,
-      readBatch: input.reads?.readBatch,
     });
     if (!profileContext) {
       return mergeAgentProfileOrganizationClaimFailure({
@@ -1975,7 +1968,7 @@ async function resolveAgentLocalExecutionServiceEvidence(input: {
     };
   }
 
-  const domainDb = localStateDb(input.env);
+  const domainDb = getPostgresDatabase(input.env);
   if (!domainDb) {
     return {
       localService: {
@@ -2930,7 +2923,7 @@ async function readRuntimeDeviceDisplayName(input: {
   profileId: string;
   runtimeLane: DaemonServiceLane;
 }): Promise<string | null> {
-  const db = localStateDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (!db) {
     return null;
   }
@@ -2978,7 +2971,7 @@ export async function preloadRuntimeDeviceDisplayNamesForOwner(input: {
     runtimeLane: DaemonServiceLane;
   }[];
 }): Promise<ReadonlyMap<string, string | null> | null> {
-  const db = localStateDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (!db) {
     return null;
   }

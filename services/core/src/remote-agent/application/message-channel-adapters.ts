@@ -10,7 +10,7 @@ import type {
   NormalizedMessageChannelEvent,
   SpaceMessageAttachment,
 } from "@openmeld/schemas/types";
-import type { RemoteAgentLarkPlatformChannelConnectionRecord } from "../infrastructure/d1/lark-platform-channel-connection-repo";
+import type { RemoteAgentLarkPlatformChannelConnectionRecord } from "../infrastructure/postgresql/lark-platform-channel-connection-repo";
 
 export type LarkPlatformMessageChannelProvider = Extract<
   MessageChannelProvider,

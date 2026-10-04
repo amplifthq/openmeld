@@ -6,5 +6,6 @@
 
 // biome-ignore-all lint/performance/noBarrelFile: This entrypoint intentionally isolates runtime metadata from the schema barrel.
 export { buildDbFactSnapshot } from "./diagnostics/fact-builders.ts";
+export { buildPostgresRuntimeDbFactSnapshot } from "./postgresql/facts.ts";
 export { LATEST_SHARED_MIGRATION_ID } from "./shared/fact-metadata.ts";
 export { buildSharedRuntimeDbTarget } from "./shared/runtime-target.ts";

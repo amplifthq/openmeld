@@ -80,6 +80,7 @@ type AgentStreamTerminalGuard = {
   streamId: string;
   lastSequence: number;
   expiresAtMs: number;
+  stoppedReply?: SpaceAgentStreamSnapshot;
 };
 
 type StoredAgentToolActivity = {
@@ -335,6 +336,11 @@ export async function closeAgentStreamProjection(input: {
       streamId: input.streamId,
       lastSequence,
       expiresAtMs: input.nowMs + AGENT_STREAM_PROJECTION_RETENTION_MS,
+      stoppedReply: resolveStoppedReplySnapshot(
+        terminal,
+        snapshot,
+        storedGuard
+      ),
     };
     await transaction.put(terminalKey, terminalGuard);
     if (terminal.kind === "final_message" && storedWorkingDetails) {
@@ -395,6 +401,64 @@ export async function closeAgentStreamProjection(input: {
       terminal,
     };
   });
+}
+
+function resolveStoppedReplySnapshot(
+  terminal: SpaceAgentStreamTerminal,
+  snapshot: SpaceAgentStreamSnapshot | null,
+  guard: AgentStreamTerminalGuard | undefined
+): SpaceAgentStreamSnapshot | undefined {
+  if (terminal.kind !== "stopped") {
+    return undefined;
+  }
+  return snapshot ?? guard?.stoppedReply;
+}
+
+export async function attachStoppedReplyText(input: {
+  signal: SignalEnvelope;
+  storage: AgentStreamProjectionStorage;
+  nowMs: number;
+}): Promise<SignalEnvelope> {
+  const { signal } = input;
+  if (
+    signal.type !== "signal.system_notice" ||
+    signal.data.noticeType !== "wake_stopped"
+  ) {
+    return signal;
+  }
+  const { stoppedReplyText: _callerText, ...notice } = signal;
+  const data = notice.data;
+  const [active, guards] = await Promise.all([
+    input.storage.list<unknown>({ prefix: ACTIVE_STREAM_STORAGE_PREFIX }),
+    input.storage.list<AgentStreamTerminalGuard>({
+      prefix: TERMINAL_GUARD_STORAGE_PREFIX,
+    }),
+  ]);
+  const candidates = [
+    ...active.values(),
+    ...[...guards.values()]
+      .filter((guard) => guard.expiresAtMs > input.nowMs)
+      .map((guard) => guard.stoppedReply),
+  ].flatMap((value) => {
+    const parsed = spaceAgentStreamSnapshotSchema.safeParse(value);
+    return parsed.success &&
+      parsed.data.expiresAtMs > input.nowMs &&
+      parsed.data.spaceId === signal.spaceId &&
+      parsed.data.dispatchId === data.dispatchId &&
+      parsed.data.profileId === data.actorProfileId &&
+      (!data.replyTo || parsed.data.triggerMessageId === data.replyTo.signalId)
+      ? [parsed.data]
+      : [];
+  });
+  const snapshot = candidates.sort(
+    (left, right) => right.updatedAtMs - left.updatedAtMs
+  )[0];
+  return {
+    ...notice,
+    ...(snapshot?.textSnapshot
+      ? { stoppedReplyText: snapshot.textSnapshot }
+      : {}),
+  };
 }
 
 export async function readAgentWorkingDetailsForSignal(input: {

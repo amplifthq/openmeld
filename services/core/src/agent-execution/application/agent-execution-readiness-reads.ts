@@ -1,14 +1,13 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import type { AuthRpcResolveProfileByIdResult } from "@openmeld/schemas/types";
-import { readPrimaryAgentProfileBindingRecord } from "../../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
+import { readPrimaryAgentProfileBindingRecord } from "../../agent-profile-binding/infrastructure/postgresql/agent-profile-binding-repo";
 import type { AuthProfileFacts } from "../../auth/application/profile-facts-reader";
 import type { CoreBindings } from "../../lib/bindings";
-import { createD1ReadBatch } from "../../lib/d1-read-batch";
-import { readCurrentRuntimeAgentControllerReports } from "../../runtime-registry/infrastructure/d1/runtime-agent-controller-report-repo";
+import { readCurrentRuntimeAgentControllerReports } from "../../runtime-registry/infrastructure/postgresql/runtime-agent-controller-report-repo";
 import {
   readRuntimeRegistryRecord,
   readRuntimeRegistryRecordByRuntimeId,
-} from "../../runtime-registry/infrastructure/d1/runtime-registry-repo";
-
+} from "../../runtime-registry/infrastructure/postgresql/runtime-registry-repo";
 // One read set belongs to one readiness request. Profiles sharing a Runtime or
 // Controller share in-flight reads, including failures, but no result survives
 // into another request. The repositories still validate every stored fact.
@@ -16,31 +15,28 @@ export function createAgentExecutionReadinessReads(input?: {
   // Validated Auth facts from this request, never client state. Undefined means
   // not read; null means the batch failed and must not fan out into scalar reads.
   profileFacts?: AuthProfileFacts | null;
-  batchProfileReads?: boolean;
 }) {
-  const readBatch = input?.batchProfileReads ? createD1ReadBatch() : undefined;
   const profiles = new Map<
     object,
     Map<string, Promise<AuthRpcResolveProfileByIdResult>>
   >();
   const bindings = new Map<
-    D1Database,
+    PostgresDatabase,
     Map<string, ReturnType<typeof readPrimaryAgentProfileBindingRecord>>
   >();
   const runtimeById = new Map<
-    D1Database,
+    PostgresDatabase,
     Map<string, ReturnType<typeof readRuntimeRegistryRecordByRuntimeId>>
   >();
   const runtimeByLookup = new Map<
-    D1Database,
+    PostgresDatabase,
     Map<string, ReturnType<typeof readRuntimeRegistryRecord>>
   >();
   const controllerReports = new Map<
-    D1Database,
+    PostgresDatabase,
     Map<string, ReturnType<typeof readCurrentRuntimeAgentControllerReports>>
   >();
   return {
-    readBatch,
     async resolveProfileById(request: {
       authWorker: Required<
         Pick<
@@ -89,11 +85,7 @@ export function createAgentExecutionReadinessReads(input?: {
           request.owner.kind,
           request.owner.id,
         ]),
-        () =>
-          readPrimaryAgentProfileBindingRecord({
-            ...request,
-            readBatch: request.readBatch ?? readBatch,
-          })
+        () => readPrimaryAgentProfileBindingRecord(request)
       );
     },
     readRuntimeRegistryRecordByRuntimeId(
@@ -137,11 +129,9 @@ export function createAgentExecutionReadinessReads(input?: {
     },
   };
 }
-
 export type AgentExecutionReadinessReads = ReturnType<
   typeof createAgentExecutionReadinessReads
 >;
-
 function shareRead<Key, T>(
   reads: Map<Key, Map<string, Promise<T>>>,
   db: Key,

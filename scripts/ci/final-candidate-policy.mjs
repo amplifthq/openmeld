@@ -73,7 +73,11 @@ const DEPENDENCY_CONTROL_PATHS = new Set([
   "pnpm-workspace.yaml",
   "turbo.json",
 ]);
-const DATABASE_PREFIXES = ["packages/db/drizzle/", "packages/db/src/"];
+const DATABASE_PREFIXES = [
+  "packages/db/drizzle/",
+  "packages/db/postgresql/migrations/",
+  "packages/db/src/",
+];
 
 const check = (id, command, reason) => ({ command, id, reason });
 

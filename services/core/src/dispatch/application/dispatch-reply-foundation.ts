@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import type { Profile, SignalEnvelope } from "@openmeld/protocol";
 import {
   AGENT_REPLY_FINAL_PURPOSE,
@@ -17,7 +18,7 @@ import {
   claimFinalReplyEmission,
   rollbackFinalReplyEmissionClaim,
   writeOpenMeldDaemonOpsDecision,
-} from "../infrastructure/d1/dispatch-ledger-d1";
+} from "../infrastructure/postgresql/dispatch-ledger-postgresql";
 import type { DispatchExecutionContext } from "./dispatch-execution-service";
 import {
   buildDispatchContinuationSpaceAccess,
@@ -29,15 +30,13 @@ const DISPATCH_REPLY_DUPLICATE_BLOCKED_DECISION_CODE =
 const DISPATCH_REPLY_CLAIM_MISSING_LEDGER_DECISION_CODE =
   "dispatch.reply.claim_missing_ledger";
 const DISPATCH_REPLY_PERSISTED_DECISION_CODE = "dispatch.reply.persisted";
-
 export const DISPATCH_REPLY_SIGNAL_ID_MISMATCH_ERROR =
   "dispatch reply messageEnvelope.replyToSignalId must match dispatchMessage.replyToSnapshot.signalId";
-
 export async function emitDispatchTextReplySignal(input: {
   agentControllerConversationId: string | null;
   attemptId: string;
   agentControllerRef: string;
-  db: D1Database;
+  db: PostgresDatabase;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   env: CoreBindings;
   executionContext: DispatchExecutionContext;
@@ -64,7 +63,6 @@ export async function emitDispatchTextReplySignal(input: {
     idempotencyKey: input.dispatchMessage.idempotencyKey,
     nowMs: replyClaimedAtMs,
   });
-
   if (replyClaimState === "already_claimed") {
     await writeReplyOpsDecisionSafely({
       ...replyDecisionLogContext,
@@ -77,7 +75,6 @@ export async function emitDispatchTextReplySignal(input: {
     });
     return null;
   }
-
   if (replyClaimState === "missing_ledger_row") {
     console.warn(
       "[core.openMeldDaemon.dispatch_execution.reply_claim_missing_ledger]",
@@ -97,10 +94,8 @@ export async function emitDispatchTextReplySignal(input: {
       },
     });
   }
-
   const shouldRollbackReplyClaim = replyClaimState === "claimed";
   let emittedSignal: SignalEnvelope | null = null;
-
   try {
     const publishedProfile = await buildDispatchPublishedAgentProfile({
       agentControllerConversationId: input.agentControllerConversationId,
@@ -120,7 +115,6 @@ export async function emitDispatchTextReplySignal(input: {
         replyText: input.replyText,
       }
     );
-
     const requestContext = buildDispatchReplyContext({
       message: input.dispatchMessage,
       targetProfileName: input.targetProfileName,
@@ -174,7 +168,6 @@ export async function emitDispatchTextReplySignal(input: {
     }
     throw error;
   }
-
   await writeReplyOpsDecisionSafely({
     ...replyDecisionLogContext,
     db: input.db,
@@ -188,7 +181,6 @@ export async function emitDispatchTextReplySignal(input: {
   });
   return emittedSignal;
 }
-
 export function buildCanonicalDispatchReplyMessageEnvelope(input: {
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   messageEnvelope?: MessageEnvelope | null;
@@ -200,7 +192,6 @@ export function buildCanonicalDispatchReplyMessageEnvelope(input: {
   const envelopeReplyToSignalId = normalizeOptionalText(
     input.messageEnvelope?.replyToSignalId
   );
-
   if (
     dispatchReplyToSignalId &&
     envelopeReplyToSignalId &&
@@ -208,10 +199,8 @@ export function buildCanonicalDispatchReplyMessageEnvelope(input: {
   ) {
     throw new Error(DISPATCH_REPLY_SIGNAL_ID_MISMATCH_ERROR);
   }
-
   const resolvedReplyToSignalId =
     dispatchReplyToSignalId ?? envelopeReplyToSignalId;
-
   return {
     activationTargets: [...(input.messageEnvelope?.activationTargets ?? [])],
     referenceTargets: [...(input.messageEnvelope?.referenceTargets ?? [])],
@@ -222,10 +211,9 @@ export function buildCanonicalDispatchReplyMessageEnvelope(input: {
     text: input.replyText,
   };
 }
-
 async function writeReplyOpsDecisionSafely(input: {
   attemptId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   decisionCode: string;
   decisionPayload: Record<string, unknown>;
   dispatchId: string;
@@ -258,7 +246,6 @@ async function writeReplyOpsDecisionSafely(input: {
     );
   }
 }
-
 export function buildDispatchReplyTargetProfile(input: {
   targetProfileId: string;
   profileHandle: string | null;
@@ -294,7 +281,6 @@ export function buildDispatchReplyTargetProfile(input: {
     profileName,
   };
 }
-
 export function buildDispatchPublishedAgentProfile(input: {
   agentControllerConversationId: string | null;
   agentControllerRef: string | null;
@@ -321,7 +307,6 @@ export function buildDispatchPublishedAgentProfile(input: {
     workingDirectory: input.workingDirectory,
   });
 }
-
 export function buildDispatchReplyContext(input: {
   message: OpenMeldDaemonDispatchQueueMessage;
   targetProfileName: string | null;
@@ -351,23 +336,19 @@ export function buildDispatchReplyContext(input: {
       : {}),
   };
 }
-
 function normalizeText(value: unknown): string {
   return String(value ?? "").trim();
 }
-
 function normalizeOptionalText(value: unknown): string | null {
   const normalized = normalizeText(value);
   return normalized.length > 0 ? normalized : null;
 }
-
 function toErrorMessage(error: unknown): string {
   if (error instanceof Error) {
     return error.message;
   }
   return String(error);
 }
-
 function resolvePublishedAgentControllerConversationId(input: {
   agentControllerConversationId: string | null;
   agentControllerConversation: AgentControllerConversationRef | null;

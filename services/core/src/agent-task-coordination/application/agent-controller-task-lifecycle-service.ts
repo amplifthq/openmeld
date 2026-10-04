@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   submitAgentControllerTaskLifecycleEventItemSchema,
   submitAgentControllerTaskLifecycleEventsResponseSchema,
@@ -17,39 +18,42 @@ import {
   markAgentControllerTaskLifecycleEventProcessed,
   readRegisteredAgentControllerTask,
   registerAgentControllerTask,
-} from "../infrastructure/d1/agent-controller-task-lifecycle-repo";
+} from "../infrastructure/postgresql/agent-controller-task-lifecycle-repo";
 import { recordAndEnqueueAgentTaskNeedsAttentionObservation } from "./agent-task-needs-attention-observation-service";
 import { recordAndEnqueueAgentTaskTerminalOutcome } from "./agent-task-terminal-outcome-service";
 
 const CONTROLLER_TASK_EVENT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const CONTROLLER_TASK_EVENT_MAX_FUTURE_SKEW_MS = 5 * 60 * 1000;
-
 type VerifiedControllerTaskRuntime = {
   deviceId: string;
   ownerUserId: string;
   openMeldServiceRuntimeId: string;
 };
-
 type ControllerTaskHandle = Extract<
   AgentTaskHandle,
-  { kind: "controller_task" }
+  {
+    kind: "controller_task";
+  }
 >;
-
 type MembershipEvidence =
-  | { ok: true; userId: string }
-  | { ok: false; unavailable: boolean };
-
+  | {
+      ok: true;
+      userId: string;
+    }
+  | {
+      ok: false;
+      unavailable: boolean;
+    };
 type EventProcessingInput = {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   event: SubmitAgentControllerTaskLifecycleEventItem;
   nowMs: number;
   resolveMembership: (organizationId: string) => Promise<MembershipEvidence>;
   runtime: VerifiedControllerTaskRuntime;
 };
-
 export async function acceptAgentControllerTaskLifecycleEventBatch(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   events: readonly SubmitAgentControllerTaskLifecycleEventItem[];
   now?: () => number;
@@ -77,7 +81,6 @@ export async function acceptAgentControllerTaskLifecycleEventBatch(input: {
     status: summarizeBatchStatus(results),
   });
 }
-
 async function acceptValidatedEvent(
   input: EventProcessingInput
 ): Promise<SubmitAgentControllerTaskLifecycleEventResult> {
@@ -101,7 +104,6 @@ async function acceptValidatedEvent(
     task: lifecycleEvent.task,
   });
 }
-
 async function rejectInvalidEventAuthority(
   input: EventProcessingInput
 ): Promise<SubmitAgentControllerTaskLifecycleEventResult | null> {
@@ -137,7 +139,6 @@ async function rejectInvalidEventAuthority(
         "permanently_rejected"
       );
 }
-
 async function createLifecycleEvent(input: EventProcessingInput): Promise<
   | {
       lifecycleEvent: Awaited<
@@ -145,7 +146,10 @@ async function createLifecycleEvent(input: EventProcessingInput): Promise<
       >;
       ok: true;
     }
-  | { ok: false; result: SubmitAgentControllerTaskLifecycleEventResult }
+  | {
+      ok: false;
+      result: SubmitAgentControllerTaskLifecycleEventResult;
+    }
 > {
   try {
     return {
@@ -173,7 +177,6 @@ async function createLifecycleEvent(input: EventProcessingInput): Promise<
     };
   }
 }
-
 async function acceptRegistrationEvent(
   input: EventProcessingInput
 ): Promise<SubmitAgentControllerTaskLifecycleEventResult> {
@@ -195,7 +198,6 @@ async function acceptRegistrationEvent(
   await markProcessed(input);
   return accepted(input.event, "accepted");
 }
-
 async function acceptCompletionObservation(
   input: EventProcessingInput & {
     task: ControllerTaskHandle;
@@ -228,7 +230,6 @@ async function acceptCompletionObservation(
   ) {
     return reject(input.event, "event_source_invalid", "permanently_rejected");
   }
-
   if (input.event.eventType === "completed") {
     await recordAndEnqueueAgentTaskTerminalOutcome({
       db: input.db,
@@ -263,7 +264,6 @@ async function acceptCompletionObservation(
   await markProcessed(input);
   return accepted(input.event, "accepted");
 }
-
 function doesRegistrationSourceAllowEvent(
   registrationSource: SubmitAgentControllerTaskLifecycleEventItem["source"],
   event: SubmitAgentControllerTaskLifecycleEventItem
@@ -299,9 +299,8 @@ function doesRegistrationSourceAllowEvent(
       return false;
   }
 }
-
 async function markProcessed(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   event: SubmitAgentControllerTaskLifecycleEventItem;
   nowMs: number;
 }): Promise<void> {
@@ -311,7 +310,6 @@ async function markProcessed(input: {
     nowMs: input.nowMs,
   });
 }
-
 function isEventSourceValid(
   event: SubmitAgentControllerTaskLifecycleEventItem
 ): boolean {
@@ -353,21 +351,18 @@ function isEventSourceValid(
   }
   return false;
 }
-
 function isEventTimeAcceptable(occurredAtMs: number, nowMs: number): boolean {
   return (
     occurredAtMs >= nowMs - CONTROLLER_TASK_EVENT_MAX_AGE_MS &&
     occurredAtMs <= nowMs + CONTROLLER_TASK_EVENT_MAX_FUTURE_SKEW_MS
   );
 }
-
 function accepted(
   event: SubmitAgentControllerTaskLifecycleEventItem,
   outcome: "accepted" | "reused"
 ): SubmitAgentControllerTaskLifecycleEventResult {
   return { eventId: event.eventId, outcome, status: "accepted" };
 }
-
 function reject(
   event: SubmitAgentControllerTaskLifecycleEventItem,
   reason: AgentControllerTaskLifecycleEventRejectedReason,
@@ -375,7 +370,6 @@ function reject(
 ): SubmitAgentControllerTaskLifecycleEventResult {
   return { eventId: event.eventId, reason, status };
 }
-
 function summarizeBatchStatus(
   results: readonly SubmitAgentControllerTaskLifecycleEventResult[]
 ): "accepted" | "partial" | "rejected" {
@@ -387,7 +381,6 @@ function summarizeBatchStatus(
   }
   return acceptedCount === 0 ? "rejected" : "partial";
 }
-
 function parseResponse(
   value: unknown
 ): SubmitAgentControllerTaskLifecycleEventsResponse {

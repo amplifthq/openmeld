@@ -51,7 +51,6 @@ export type CenterAgentMemoryService = {
     updatedByUserId: string;
   }): Promise<CenterAgentMemoryPolicy>;
 };
-
 export function createCenterAgentMemoryService(input: {
   adapter: CenterAgentMemoryAdapter;
   logger?: CenterAgentMemoryLogger;
@@ -132,7 +131,6 @@ export function createCenterAgentMemoryService(input: {
         throw error;
       }
     },
-
     async deleteOrganizationMemory(deleteInput) {
       const ref = buildCenterAgentOrganizationMemoryRef({
         organizationId: deleteInput.organizationId,
@@ -162,19 +160,15 @@ export function createCenterAgentMemoryService(input: {
         throw error;
       }
     },
-
     async recallForTurn(recallInput) {
       return await recallRetained(recallInput);
     },
-
     async recallForOrganization(recallInput) {
       return await recallRetained(recallInput);
     },
-
     async readOrganizationMemoryPolicy(organizationId) {
       return await input.repository.readPolicy(organizationId);
     },
-
     async rememberFactForOrganization(factInput) {
       const policy = await input.repository.readPolicy(
         factInput.organizationId
@@ -205,7 +199,6 @@ export function createCenterAgentMemoryService(input: {
         "center_agent_memory.organization_write_timeout"
       );
     },
-
     async rememberTurn(rememberInput) {
       // Shared conversations require an explicit organization save. Never
       // reinterpret shared chatter as a private member episode.
@@ -242,7 +235,6 @@ export function createCenterAgentMemoryService(input: {
         "center_agent_memory.member_write_timeout"
       );
     },
-
     async setOrganizationMemoryPolicy(policyInput) {
       return await input.repository.upsertPolicy({
         nowMs: nowMs(),
@@ -253,7 +245,6 @@ export function createCenterAgentMemoryService(input: {
     },
   };
 }
-
 async function recallMemory(input: {
   adapter: CenterAgentMemoryAdapter;
   limit: number;
@@ -281,18 +272,13 @@ async function recallMemory(input: {
     return [];
   }
 }
-
 function truncateMemorySearchQuery(query: string): string {
   const normalized = query.trim();
   if (normalized.length <= CENTER_AGENT_MEMORY_SEARCH_QUERY_MAX_CHARS) {
     return normalized;
   }
-  return `${normalized.slice(
-    0,
-    CENTER_AGENT_MEMORY_SEARCH_QUERY_MAX_CHARS - 3
-  )}...`;
+  return `${normalized.slice(0, CENTER_AGENT_MEMORY_SEARCH_QUERY_MAX_CHARS - 3)}...`;
 }
-
 function projectMemoryEnvelope(
   results: CenterAgentMemorySearchResult[]
 ): RecallCenterAgentMemoryForTurnResult {
@@ -328,10 +314,8 @@ function projectMemoryEnvelope(
     items.push(buildMemoryEnvelopeItem({ result, text }));
     remainingChars -= text.length;
   }
-
   return { items, truncated };
 }
-
 function buildMemoryEnvelopeItem(input: {
   result: CenterAgentMemorySearchResult;
   text: string;
@@ -355,7 +339,6 @@ function buildMemoryEnvelopeItem(input: {
     text: input.text,
   };
 }
-
 function formatMemoryText(input: {
   captureMethod: CenterAgentMemorySearchResult["captureMethod"];
   occurredAtMs: number;
@@ -365,16 +348,17 @@ function formatMemoryText(input: {
     input.captureMethod === "explicit_save" ? " [Explicitly saved]" : "";
   return `[Recorded ${new Date(input.occurredAtMs).toISOString()}]${captureLabel} ${input.text}`;
 }
-
 function normalizeMemoryText(value: string): string | null {
   const normalized = value.trim().replace(/\s+/gu, " ");
   return normalized.length > 0 ? normalized : null;
 }
-
 function truncateMemoryText(
   text: string,
   maxChars: number
-): { text: string; truncated: boolean } {
+): {
+  text: string;
+  truncated: boolean;
+} {
   if (text.length <= maxChars) {
     return { text, truncated: false };
   }
@@ -383,9 +367,7 @@ function truncateMemoryText(
     truncated: true,
   };
 }
-
 export { withTimeout as withCenterAgentMemoryTimeout };
-
 async function withTimeout<T>(
   promise: Promise<T>,
   timeoutMs: number,
@@ -397,7 +379,6 @@ async function withTimeout<T>(
       reject(new Error(reasonCode));
     }, timeoutMs);
   });
-
   try {
     return await Promise.race([promise, timeoutPromise]);
   } finally {
@@ -406,7 +387,6 @@ async function withTimeout<T>(
     }
   }
 }
-
 function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }

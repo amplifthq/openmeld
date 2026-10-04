@@ -1,16 +1,20 @@
+import {
+  getPostgresDatabase,
+  type PostgresDatabase,
+} from "@openmeld/db/postgresql";
 import type { PluginConnectionContinuationBinding } from "@openmeld/schemas";
 import type {
   ConnectorConnectionPreference,
   OpenMeldRequestContext,
 } from "@openmeld/schemas/types";
-import { type CoreBindings, wakeEvidenceDb } from "../lib/bindings";
+import type { CoreBindings } from "../lib/bindings";
 import { isNativeDeliveryExecutingStatus } from "../remote-agent/application/native-delivery-execution-status";
 import {
   type RemoteAgentNativeDeliveryRecord,
   readRemoteAgentNativeDeliveryByDeliveryId,
   readRemoteAgentNativeDeliveryBySubmissionId,
-} from "../remote-agent/infrastructure/d1/native-delivery-ledger-repo";
-import { readPluginChannelMetadata } from "../remote-agent/infrastructure/d1/plugin-channel-metadata-repo";
+} from "../remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
+import { readPluginChannelMetadata } from "../remote-agent/infrastructure/postgresql/plugin-channel-metadata-repo";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import { rpcReadPluginConnectionContinuationBinding } from "../rpc/methods";
 
@@ -18,7 +22,6 @@ type ExecutionConnectionBinding = Pick<
   PluginConnectionContinuationBinding,
   "service" | "scope" | "connectionName" | "connectionUpdatedAtMs"
 >;
-
 /** The selection belongs to the actual admitted Message, not a model argument,
  * prompt sentence or mutable conversation preference. Existing Core permissions
  * are still required; this constraint never grants a capability. */
@@ -31,7 +34,7 @@ export async function readPluginConnectionExecutionBinding(
   if (!submissionId) {
     return null;
   }
-  const db = wakeEvidenceDb(env);
+  const db = getPostgresDatabase(env);
   if (!db) {
     throw unavailable();
   }
@@ -82,7 +85,6 @@ export async function readPluginConnectionExecutionBinding(
     service
   );
 }
-
 // Walk only authenticated continuation ancestry, not unrelated conversation
 // history. A second Plugin setup retains an earlier explicit account choice.
 export async function readSpacePluginConnectionBinding(
@@ -108,9 +110,8 @@ export async function readSpacePluginConnectionBinding(
   }
   throw unavailable();
 }
-
 async function readChannelBindingChain(
-  db: D1Database,
+  db: PostgresDatabase,
   current: RemoteAgentNativeDeliveryRecord,
   userId: string,
   profileId: string | null,
@@ -161,7 +162,6 @@ async function readChannelBindingChain(
   }
   throw unavailable();
 }
-
 export function boundPluginConnectionPreference(
   binding: ExecutionConnectionBinding | null,
   service: string,
@@ -176,11 +176,13 @@ export function boundPluginConnectionPreference(
   }
   return selected;
 }
-
 export function assertBoundPluginConnection(
   binding: ExecutionConnectionBinding | null,
   service: string,
-  connection: { connectionName: string; updatedAtMs: number } | null
+  connection: {
+    connectionName: string;
+    updatedAtMs: number;
+  } | null
 ) {
   if (!binding || binding.service !== service) {
     return;
@@ -193,7 +195,6 @@ export function assertBoundPluginConnection(
     throw unavailable();
   }
 }
-
 function unavailable() {
   return createCoreRpcHttpError({
     code: "plugin.continue.execution_identity_changed",

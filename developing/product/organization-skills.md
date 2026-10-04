@@ -626,6 +626,15 @@ Mutation retries use an immutable request signature and operation id. An exact
 replay returns the prior result; conflicting input under one operation id is
 rejected before GitHub, R2, or D1 mutation.
 
+Repository imports use the existing member-owned batch plan. The Center Agent
+previews a commit, begins a batch with its exact commit and selected paths, and
+installs individual items through the same import operation as Web and CLI.
+It can list the represented member's unfinished batches and read an exact batch
+before continuing pending or failed items. Completed items replay their existing
+result, including when Web installed them or the original receipt was lost.
+Current management permission and the initiating member remain required; the
+Center Agent does not gain access to another member's batches.
+
 ## CLI And Local Agents
 
 `openmeld skills` is the canonical Organization Skills command group.
@@ -666,7 +675,7 @@ The saved selection remains authoritative when a batch moves between Web and
 CLI: unselected candidates are never installed or counted as failures.
 The batch freezes the member's selected Skill paths; retries cannot install paths
 that were not selected. It is scoped to its initiating member and current Team
-authority. This does
+authority. Center Agent management uses this same plan and item owner. This does
 not remove package-level limits.
 
 Without `--release`, loading selects the active enabled release. An explicit

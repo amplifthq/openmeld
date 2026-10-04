@@ -3,27 +3,19 @@ import {
   listOnlineOrganizationMembers,
   recordOrganizationMemberPresence,
 } from "../src/organizations/organization-member-presence-repository";
-import {
-  applyDrizzleMigrationsForTables,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 describe("Organization member presence", () => {
   it("aggregates independent sessions, rejects old reports and expires idle or disconnected pages", async () => {
-    const harness = createSqliteD1Harness();
-    applyDrizzleMigrationsForTables(harness, [
-      "users",
-      "organizations",
-      "members",
-      "organization_member_presence_sessions",
-    ]);
-    harness.run({
-      sql: "INSERT INTO users (id, name, email, email_verified, created_at, updated_at) VALUES ('u', 'Person', 'person@example.com', true, 1, 1)",
+    const harness = await createPostgresHarness();
+
+    await harness.query({
+      text: "INSERT INTO \"openmeld\".\"users\" (id, name, email, email_verified, created_at, updated_at) VALUES ('u', 'Person', 'person@example.com', 1, 1, 1)",
     });
     for (const org of ["a", "b"]) {
-      harness.run({
-        sql: "INSERT INTO organizations (id, name, slug, created_at) VALUES (?, ?, ?, 1)",
-        params: [org, org, org],
+      await harness.query({
+        text: 'INSERT INTO "openmeld"."organizations" (id, name, slug, created_at) VALUES ($1, $2, $3, 1)',
+        values: [org, org, org],
       });
     }
     const base = {
@@ -71,7 +63,7 @@ describe("Organization member presence", () => {
       await write("phone", 14, 1_350_000);
       expect(await online(1_350_000)).toHaveLength(1);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });

@@ -3,22 +3,29 @@ import {
   classifyDispatchError,
   DISPATCH_STORAGE_OVERLOADED_ERROR_CODE,
   DISPATCH_STORAGE_SCHEMA_MISSING_ERROR_CODE,
-  isD1SchemaError,
   isDispatchAttemptTimeoutErrorCode,
   isOfflineRetryErrorCode,
+  isPostgresSchemaError,
   isRuntimeTaskDedupedErrorCode,
   resolveDispatchErrorCode,
 } from "../dispatch/rules/dispatch-error-policy";
 
+// This consumed error shape was captured through the PostgreSQL wire protocol.
+// Codes follow https://www.postgresql.org/docs/18/errcodes-appendix.html;
+// classification must not depend on potentially localized message text.
+function postgresError(code: string) {
+  return Object.assign(new Error("native fixture failure"), { code });
+}
+
 describe("dispatch error policy timeout/runtime classifications", () => {
   it.each([
-    "D1_ERROR: D1 DB is overloaded. Requests queued for too long.",
-    "D1_ERROR: D1 DB is overloaded. Too many requests queued.",
-  ])("preserves D1 backpressure as retryable storage evidence: %s", (message) => {
-    expect(classifyDispatchError(new Error(message), message)).toBe(
-      "retryable"
-    );
-    expect(resolveDispatchErrorCode(new Error(message), message)).toBe(
+    "53300", // too_many_connections
+    "53400", // configuration_limit_exceeded
+    "57P03", // cannot_connect_now
+  ])("preserves PostgreSQL backpressure as retryable storage evidence: %s", (code) => {
+    const error = postgresError(code);
+    expect(classifyDispatchError(error, String(error))).toBe("retryable");
+    expect(resolveDispatchErrorCode(error, String(error))).toBe(
       DISPATCH_STORAGE_OVERLOADED_ERROR_CODE
     );
     expect(
@@ -236,31 +243,34 @@ describe("dispatch error policy timeout/runtime classifications", () => {
 // Fail-loud contract for the physical DB split (physical-db-split.md Stage B):
 // the per-batch hot-path storage probe was removed, so a missing table now
 // reaches the dispatch query and must fail terminal, not burn the retry budget.
-describe("dispatch error policy treats D1 schema faults as terminal", () => {
-  it("classifies a missing table/column/index as non_retryable", () => {
-    for (const message of [
-      "D1_ERROR: no such table: openMeldDaemon_dispatch_ledger: SQLITE_ERROR",
-      "D1_ERROR: no such column: overlay_gateway_host: SQLITE_ERROR",
-      "D1_ERROR: no such index: idx_openMeldDaemon_dispatch_attempts: SQLITE_ERROR",
+describe("dispatch error policy treats PostgreSQL schema faults as terminal", () => {
+  it("classifies a missing table/column/object/schema as non_retryable", () => {
+    for (const code of [
+      "42P01", // undefined_table
+      "42703", // undefined_column
+      "42704", // undefined_object
+      "3F000", // invalid_schema_name
     ]) {
-      expect(classifyDispatchError(new Error(message), message)).toBe(
-        "non_retryable"
-      );
+      const error = postgresError(code);
+      expect(classifyDispatchError(error, String(error))).toBe("non_retryable");
     }
   });
 
-  it("resolves a D1 schema fault to the terminal schema-missing code", () => {
-    const message =
-      "D1_ERROR: no such table: openMeldDaemon_ops_decisions: SQLITE_ERROR";
-    expect(resolveDispatchErrorCode(new Error(message), message)).toBe(
+  it("resolves a native schema fault through an ORM cause to the terminal schema-missing code", () => {
+    const error = new Error("Query failed", {
+      cause: postgresError("42P01"),
+    });
+    expect(resolveDispatchErrorCode(error, error.message)).toBe(
       DISPATCH_STORAGE_SCHEMA_MISSING_ERROR_CODE
     );
   });
 
-  it("does not mistake ordinary dispatch errors for schema faults", () => {
-    expect(isD1SchemaError("daemon.profile.offline: route is offline")).toBe(
-      false
-    );
-    expect(isD1SchemaError("D1_ERROR: no such table: x")).toBe(true);
+  it("does not mistake ordinary dispatch errors or message text for schema faults", () => {
+    expect(
+      isPostgresSchemaError("daemon.profile.offline: route is offline")
+    ).toBe(false);
+    expect(isPostgresSchemaError("D1_ERROR: no such table: x")).toBe(false);
+    expect(isPostgresSchemaError("42P01: relation does not exist")).toBe(false);
+    expect(isPostgresSchemaError(postgresError("42P01"))).toBe(true);
   });
 });

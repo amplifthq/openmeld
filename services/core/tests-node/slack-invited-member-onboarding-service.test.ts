@@ -5,28 +5,28 @@ import {
   runSlackInvitedMemberOnboardingTick,
 } from "../src/remote-agent/application/slack-invited-member-onboarding-service";
 import {
-  createFaultInjectingD1Database,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+  createFaultInjectingPostgresDatabase,
+  createPostgresHarness,
+} from "./helpers/postgresql-harness.test-support";
 
 describe("Slack invited member onboarding", () => {
-  let harness: ReturnType<typeof createSqliteD1Harness>;
+  let harness: Awaited<ReturnType<typeof createPostgresHarness>>;
   let slackFetch: ReturnType<typeof vi.fn>;
 
-  beforeEach(() => {
-    harness = createSqliteD1Harness();
-    createTables(harness);
-    seedWaitingInvitation(harness);
-    seedExplicitIdentityLink(harness);
+  beforeEach(async () => {
+    harness = await createPostgresHarness();
+
+    await seedWaitingInvitation(harness);
+    await seedExplicitIdentityLink(harness);
     slackFetch = vi.fn(async () =>
       Response.json({ channel: "D_MAYA", ok: true, ts: "1723.0002" })
     );
     vi.stubGlobal("fetch", slackFetch);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     vi.unstubAllGlobals();
-    harness.close();
+    await harness.close();
   });
 
   it("localizes a joined-member welcome from the frozen Traditional Chinese observation", () => {
@@ -60,8 +60,8 @@ describe("Slack invited member onboarding", () => {
   });
 
   it("learns a joined Slack invitee, sends one trust-first DM, and completes exactly once", async () => {
-    harness.run({
-      sql: `UPDATE slack_teammate_invitation_deliveries
+    await harness.query({
+      text: `UPDATE "openmeld"."slack_teammate_invitation_deliveries"
         SET target_email = 'different-from-member@example.com'`,
     });
     const startResearch = vi.fn(async () => ({ taskId: "research-task-1" }));
@@ -83,10 +83,10 @@ describe("Slack invited member onboarding", () => {
       })
     );
     expect(
-      harness.queryFirst({
-        sql: `
+      await harness.queryFirst({
+        text: `
           SELECT onboarding_status, joined_user_id, joined_profile_id, research_task_id
-          FROM slack_teammate_invitation_deliveries
+          FROM "openmeld"."slack_teammate_invitation_deliveries"
         `,
       })
     ).toEqual({
@@ -96,10 +96,10 @@ describe("Slack invited member onboarding", () => {
       research_task_id: "research-task-1",
     });
     expect(
-      harness.queryFirst({
-        sql: `
+      await harness.queryFirst({
+        text: `
           SELECT organization_id, slack_team_id, slack_user_id, openmeld_user_id, source
-          FROM slack_user_identity_links
+          FROM "openmeld"."slack_user_identity_links"
         `,
       })
     ).toEqual({
@@ -111,10 +111,10 @@ describe("Slack invited member onboarding", () => {
     });
     expect(slackFetch).not.toHaveBeenCalled();
 
-    seedCompletedResearch(harness);
-    harness.run({
-      sql: `INSERT INTO organization_working_language_preferences
-        (organization_id, language_tag) VALUES ('org-1', 'zh-CN')`,
+    await seedCompletedResearch(harness);
+    await harness.query({
+      text: `INSERT INTO "openmeld"."organization_working_language_preferences"
+        (organization_id, language_tag, mode, created_at_ms, updated_at_ms) VALUES ('org-1', 'zh-CN', 'automatic', 1000, 1000)`,
     });
     await runSlackInvitedMemberOnboardingTick({
       db: harness.db,
@@ -149,10 +149,10 @@ describe("Slack invited member onboarding", () => {
       ])
     );
     expect(
-      harness.queryFirst({
-        sql: `
+      await harness.queryFirst({
+        text: `
           SELECT onboarding_status, welcome_message_ts, onboarding_failure_code
-          FROM slack_teammate_invitation_deliveries
+          FROM "openmeld"."slack_teammate_invitation_deliveries"
         `,
       })
     ).toEqual({
@@ -161,9 +161,9 @@ describe("Slack invited member onboarding", () => {
       welcome_message_ts: "1723.0002",
     });
     expect(
-      harness.queryFirst({
-        sql: `SELECT status, message_ts, failure_code
-          FROM slack_invited_member_welcome_deliveries`,
+      await harness.queryFirst({
+        text: `SELECT status, message_ts, failure_code
+          FROM "openmeld"."slack_invited_member_welcome_deliveries"`,
       })
     ).toEqual({
       failure_code: null,
@@ -183,7 +183,9 @@ describe("Slack invited member onboarding", () => {
   });
 
   it("does not turn a matching invitation email into identity authority", async () => {
-    harness.run({ sql: "DELETE FROM slack_user_identity_links" });
+    await harness.query({
+      text: 'DELETE FROM "openmeld"."slack_user_identity_links"',
+    });
     const startResearch = vi.fn(async () => ({ taskId: "research-task-1" }));
 
     await runSlackInvitedMemberOnboardingTick({
@@ -195,9 +197,9 @@ describe("Slack invited member onboarding", () => {
 
     expect(startResearch).not.toHaveBeenCalled();
     expect(
-      harness.queryFirst({
-        sql: `SELECT onboarding_status, joined_user_id, joined_profile_id
-          FROM slack_teammate_invitation_deliveries`,
+      await harness.queryFirst({
+        text: `SELECT onboarding_status, joined_user_id, joined_profile_id
+          FROM "openmeld"."slack_teammate_invitation_deliveries"`,
       })
     ).toEqual({
       joined_profile_id: null,
@@ -205,15 +207,15 @@ describe("Slack invited member onboarding", () => {
       onboarding_status: "waiting_for_join",
     });
     expect(
-      harness.queryFirst({
-        sql: "SELECT openmeld_user_id FROM slack_user_identity_links",
+      await harness.queryFirst({
+        text: 'SELECT openmeld_user_id FROM "openmeld"."slack_user_identity_links"',
       })
     ).toBeNull();
   });
 
   it("reconciles a confirmed private invitation before starting joined-member onboarding", async () => {
-    harness.run({
-      sql: `UPDATE slack_teammate_invitation_deliveries
+    await harness.query({
+      text: `UPDATE "openmeld"."slack_teammate_invitation_deliveries"
         SET status = 'pending', message_ts = NULL, failure_code = NULL,
           onboarding_status = NULL, updated_at_ms = 1000`,
     });
@@ -249,9 +251,9 @@ describe("Slack invited member onboarding", () => {
 
     expect(startResearch).toHaveBeenCalledOnce();
     expect(
-      harness.queryFirst({
-        sql: `SELECT status, message_ts, failure_code, onboarding_status
-          FROM slack_teammate_invitation_deliveries`,
+      await harness.queryFirst({
+        text: `SELECT status, message_ts, failure_code, onboarding_status
+          FROM "openmeld"."slack_teammate_invitation_deliveries"`,
       })
     ).toEqual({
       failure_code: null,
@@ -267,10 +269,12 @@ describe("Slack invited member onboarding", () => {
   });
 
   it("waits when the Slack identity does not map to a current Organization member", async () => {
-    harness.run({ sql: "DELETE FROM slack_user_identity_links" });
-    harness.run({
-      sql: `
-        INSERT INTO slack_user_identity_links (
+    await harness.query({
+      text: 'DELETE FROM "openmeld"."slack_user_identity_links"',
+    });
+    await harness.query({
+      text: `
+        INSERT INTO "openmeld"."slack_user_identity_links" (
           organization_id, slack_team_id, slack_user_id,
           openmeld_user_id, source, created_at_ms
         )
@@ -288,11 +292,11 @@ describe("Slack invited member onboarding", () => {
 
     expect(startResearch).not.toHaveBeenCalled();
     expect(
-      harness.queryFirst({
-        sql: `
+      await harness.queryFirst({
+        text: `
           SELECT onboarding_status, onboarding_failure_code,
             joined_user_id, joined_profile_id
-          FROM slack_teammate_invitation_deliveries
+          FROM "openmeld"."slack_teammate_invitation_deliveries"
         `,
       })
     ).toEqual({
@@ -302,10 +306,10 @@ describe("Slack invited member onboarding", () => {
       onboarding_status: "waiting_for_join",
     });
     expect(
-      harness.queryFirst({
-        sql: `
+      await harness.queryFirst({
+        text: `
           SELECT openmeld_user_id
-          FROM slack_user_identity_links
+          FROM "openmeld"."slack_user_identity_links"
           WHERE slack_team_id = 'T123' AND slack_user_id = 'U_MAYA'
         `,
       })
@@ -341,9 +345,9 @@ describe("Slack invited member onboarding", () => {
     expect(body.text).toContain("couldn’t finish your first Profile Report");
     expect(body.text).toContain("Reply “try again”");
     expect(
-      harness.queryFirst({
-        sql: `SELECT onboarding_status, onboarding_failure_code
-          FROM slack_teammate_invitation_deliveries`,
+      await harness.queryFirst({
+        text: `SELECT onboarding_status, onboarding_failure_code
+          FROM "openmeld"."slack_teammate_invitation_deliveries"`,
       })
     ).toEqual({
       onboarding_failure_code: "member_research_start_failed",
@@ -355,13 +359,14 @@ describe("Slack invited member onboarding", () => {
     const startResearch = vi.fn(async () => ({
       taskId: "research-task-accepted",
     }));
-    const checkpointDb = createFaultInjectingD1Database({
+    const checkpointDb = createFaultInjectingPostgresDatabase({
       db: harness.db,
-      matches: (sql, operation) =>
-        operation === "run" &&
-        sql.includes("UPDATE slack_teammate_invitation_deliveries") &&
+      matches: (sql) =>
+        sql.includes(
+          'UPDATE "openmeld"."slack_teammate_invitation_deliveries"'
+        ) &&
         sql.includes("onboarding_status = 'researching'") &&
-        sql.includes("research_task_id = ?"),
+        sql.includes("research_task_id = $1"),
     });
 
     await runSlackInvitedMemberOnboardingTick({
@@ -373,9 +378,9 @@ describe("Slack invited member onboarding", () => {
 
     expect(slackFetch).not.toHaveBeenCalled();
     expect(
-      harness.queryFirst({
-        sql: `SELECT onboarding_status, research_task_id, onboarding_failure_code
-          FROM slack_teammate_invitation_deliveries`,
+      await harness.queryFirst({
+        text: `SELECT onboarding_status, research_task_id, onboarding_failure_code
+          FROM "openmeld"."slack_teammate_invitation_deliveries"`,
       })
     ).toEqual({
       onboarding_failure_code: null,
@@ -393,9 +398,9 @@ describe("Slack invited member onboarding", () => {
     expect(startResearch).toHaveBeenCalledTimes(2);
     expect(slackFetch).not.toHaveBeenCalled();
     expect(
-      harness.queryFirst({
-        sql: `SELECT onboarding_status, research_task_id, onboarding_failure_code
-          FROM slack_teammate_invitation_deliveries`,
+      await harness.queryFirst({
+        text: `SELECT onboarding_status, research_task_id, onboarding_failure_code
+          FROM "openmeld"."slack_teammate_invitation_deliveries"`,
       })
     ).toEqual({
       onboarding_failure_code: null,
@@ -405,7 +410,7 @@ describe("Slack invited member onboarding", () => {
   });
 
   it("starts one onboarding when the same Slack member has duplicate invitations", async () => {
-    seedDuplicateWaitingInvitation(harness);
+    await seedDuplicateWaitingInvitation(harness);
     const startResearch = vi.fn(async () => ({ taskId: "research-task-1" }));
 
     await runSlackInvitedMemberOnboardingTick({
@@ -417,11 +422,11 @@ describe("Slack invited member onboarding", () => {
 
     expect(startResearch).toHaveBeenCalledOnce();
     expect(
-      harness.queryAll({
-        sql: `
+      await harness.queryAll({
+        text: `
           SELECT interaction_id, onboarding_status, onboarding_failure_code,
             joined_user_id, joined_profile_id
-          FROM slack_teammate_invitation_deliveries
+          FROM "openmeld"."slack_teammate_invitation_deliveries"
           ORDER BY interaction_id
         `,
       })
@@ -452,8 +457,8 @@ describe("Slack invited member onboarding", () => {
       nowMs: 2000,
       startResearch,
     });
-    seedCompletedResearch(harness);
-    seedWelcomeDelivery(harness, {
+    await seedCompletedResearch(harness);
+    await seedWelcomeDelivery(harness, {
       messageTs: null,
       status: "pending",
       updatedAtMs: 2500,
@@ -468,8 +473,8 @@ describe("Slack invited member onboarding", () => {
 
     expect(slackFetch).not.toHaveBeenCalled();
     expect(
-      harness.queryFirst({
-        sql: "SELECT onboarding_status FROM slack_teammate_invitation_deliveries",
+      await harness.queryFirst({
+        text: 'SELECT onboarding_status FROM "openmeld"."slack_teammate_invitation_deliveries"',
       })
     ).toEqual({ onboarding_status: "researching" });
 
@@ -482,9 +487,9 @@ describe("Slack invited member onboarding", () => {
 
     expect(slackFetch).not.toHaveBeenCalled();
     expect(
-      harness.queryFirst({
-        sql: `SELECT onboarding_status, onboarding_failure_code
-          FROM slack_teammate_invitation_deliveries`,
+      await harness.queryFirst({
+        text: `SELECT onboarding_status, onboarding_failure_code
+          FROM "openmeld"."slack_teammate_invitation_deliveries"`,
       })
     ).toEqual({
       onboarding_failure_code: "welcome_delivery_outcome_unknown",
@@ -500,7 +505,7 @@ describe("Slack invited member onboarding", () => {
       nowMs: 2000,
       startResearch,
     });
-    seedCompletedResearch(harness);
+    await seedCompletedResearch(harness);
     slackFetch.mockResolvedValueOnce(
       Response.json({ error: "channel_not_found", ok: false })
     );
@@ -514,9 +519,9 @@ describe("Slack invited member onboarding", () => {
 
     expect(slackFetch).toHaveBeenCalledOnce();
     expect(
-      harness.queryFirst({
-        sql: `SELECT status, failure_code
-          FROM slack_invited_member_welcome_deliveries`,
+      await harness.queryFirst({
+        text: `SELECT status, failure_code
+          FROM "openmeld"."slack_invited_member_welcome_deliveries"`,
       })
     ).toEqual({
       failure_code: "channel_not_found",
@@ -532,9 +537,9 @@ describe("Slack invited member onboarding", () => {
 
     expect(slackFetch).toHaveBeenCalledTimes(2);
     expect(
-      harness.queryFirst({
-        sql: `SELECT onboarding_status, welcome_message_ts
-          FROM slack_teammate_invitation_deliveries`,
+      await harness.queryFirst({
+        text: `SELECT onboarding_status, welcome_message_ts
+          FROM "openmeld"."slack_teammate_invitation_deliveries"`,
       })
     ).toEqual({
       onboarding_status: "completed",
@@ -550,8 +555,8 @@ describe("Slack invited member onboarding", () => {
       nowMs: 2000,
       startResearch,
     });
-    seedCompletedResearch(harness);
-    seedWelcomeDelivery(harness, {
+    await seedCompletedResearch(harness);
+    await seedWelcomeDelivery(harness, {
       messageTs: "1723.0002",
       status: "delivered",
       updatedAtMs: 2500,
@@ -566,9 +571,9 @@ describe("Slack invited member onboarding", () => {
 
     expect(slackFetch).not.toHaveBeenCalled();
     expect(
-      harness.queryFirst({
-        sql: `SELECT onboarding_status, welcome_message_ts
-          FROM slack_teammate_invitation_deliveries`,
+      await harness.queryFirst({
+        text: `SELECT onboarding_status, welcome_message_ts
+          FROM "openmeld"."slack_teammate_invitation_deliveries"`,
       })
     ).toEqual({
       onboarding_status: "completed",
@@ -614,123 +619,15 @@ function buildOnboardingEnv() {
   } as const;
 }
 
-function createTables(harness: ReturnType<typeof createSqliteD1Harness>): void {
-  const statements = [
-    `
-      CREATE TABLE slack_teammate_invitation_deliveries (
-        interaction_id TEXT NOT NULL,
-        slack_team_id TEXT NOT NULL,
-        organization_id TEXT NOT NULL,
-        actor_slack_user_id TEXT NOT NULL,
-        actor_user_id TEXT NOT NULL,
-        target_slack_user_id TEXT NOT NULL,
-        target_email TEXT,
-        target_display_name TEXT NOT NULL,
-        status TEXT NOT NULL,
-        message_ts TEXT,
-        failure_code TEXT,
-        onboarding_status TEXT,
-        joined_user_id TEXT,
-        joined_profile_id TEXT,
-        research_task_id TEXT,
-        welcome_message_ts TEXT,
-        onboarding_failure_code TEXT,
-        created_at_ms INTEGER NOT NULL,
-        updated_at_ms INTEGER NOT NULL,
-        PRIMARY KEY (interaction_id, target_slack_user_id)
-      )
-    `,
-    `
-      CREATE TABLE slack_user_identity_links (
-        organization_id TEXT NOT NULL,
-        slack_team_id TEXT NOT NULL,
-        slack_user_id TEXT NOT NULL,
-        openmeld_user_id TEXT NOT NULL,
-        source TEXT NOT NULL,
-        created_at_ms INTEGER NOT NULL,
-        PRIMARY KEY (slack_team_id, slack_user_id)
-      )
-    `,
-    `
-      CREATE TABLE center_agent_member_research_tasks (
-        id TEXT PRIMARY KEY,
-        status TEXT NOT NULL,
-        failure_code TEXT,
-        observed_language_tag TEXT,
-        report_result TEXT
-      )
-    `,
-    `
-      CREATE TABLE center_agent_member_research_computer_files (
-        task_id TEXT NOT NULL,
-        subject_user_id TEXT NOT NULL,
-        document_id TEXT NOT NULL
-      )
-    `,
-    `
-      CREATE TABLE organization_documents (
-        id TEXT PRIMARY KEY,
-        organization_id TEXT NOT NULL,
-        last_member_research_task_id TEXT,
-        content TEXT NOT NULL DEFAULT '',
-        draft_content TEXT NOT NULL
-      )
-    `,
-    `
-      CREATE TABLE organizations (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        slug TEXT NOT NULL
-      )
-    `,
-    `
-      CREATE TABLE organization_working_language_preferences (
-        organization_id TEXT PRIMARY KEY,
-        language_tag TEXT NOT NULL
-      )
-    `,
-    `
-      CREATE TABLE slack_workspace_tokens (
-        slack_team_id TEXT PRIMARY KEY,
-        encrypted_bot_token TEXT NOT NULL,
-        bot_user_id TEXT NOT NULL,
-        granted_bot_scopes TEXT,
-        installed_by_user_id TEXT NOT NULL,
-        organization_id TEXT NOT NULL,
-        created_at_ms INTEGER NOT NULL,
-        updated_at_ms INTEGER NOT NULL
-      )
-    `,
-    `
-      CREATE TABLE slack_invited_member_welcome_deliveries (
-        interaction_id TEXT NOT NULL,
-        target_slack_user_id TEXT NOT NULL,
-        research_task_id TEXT,
-        status TEXT NOT NULL,
-        claim_id TEXT NOT NULL,
-        attempt_count INTEGER NOT NULL,
-        message_ts TEXT,
-        failure_code TEXT,
-        created_at_ms INTEGER NOT NULL,
-        updated_at_ms INTEGER NOT NULL,
-        PRIMARY KEY (interaction_id, target_slack_user_id)
-      )
-    `,
-  ];
-  for (const sql of statements) {
-    harness.run({ sql });
-  }
-}
-
-function seedWaitingInvitation(
-  harness: ReturnType<typeof createSqliteD1Harness>
-): void {
-  harness.run({
-    sql: `INSERT INTO organizations (id, name, slug)
-      VALUES ('org-1', 'Ampli Lift', 'ampli-lift')`,
+async function seedWaitingInvitation(
+  harness: Awaited<ReturnType<typeof createPostgresHarness>>
+): Promise<void> {
+  await harness.query({
+    text: `INSERT INTO "openmeld"."organizations" (id, name, slug, "created_at")
+      VALUES ('org-1', 'Ampli Lift', 'ampli-lift', 1700000000000)`,
   });
-  harness.run({
-    params: [
+  await harness.query({
+    values: [
       "invite-1",
       "T123",
       "org-1",
@@ -742,8 +639,8 @@ function seedWaitingInvitation(
       1000,
       1000,
     ],
-    sql: `
-      INSERT INTO slack_teammate_invitation_deliveries (
+    text: `
+      INSERT INTO "openmeld"."slack_teammate_invitation_deliveries" (
         interaction_id,
         slack_team_id,
         organization_id,
@@ -764,18 +661,18 @@ function seedWaitingInvitation(
         created_at_ms,
         updated_at_ms
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'delivered', '1723.0001', NULL,
-        'waiting_for_join', NULL, NULL, NULL, NULL, NULL, ?, ?)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'delivered', '1723.0001', NULL,
+        'waiting_for_join', NULL, NULL, NULL, NULL, NULL, $9, $10)
     `,
   });
 }
 
-function seedExplicitIdentityLink(
-  harness: ReturnType<typeof createSqliteD1Harness>
-): void {
-  harness.run({
-    sql: `
-      INSERT INTO slack_user_identity_links (
+async function seedExplicitIdentityLink(
+  harness: Awaited<ReturnType<typeof createPostgresHarness>>
+): Promise<void> {
+  await harness.query({
+    text: `
+      INSERT INTO "openmeld"."slack_user_identity_links" (
         organization_id,
         slack_team_id,
         slack_user_id,
@@ -788,11 +685,11 @@ function seedExplicitIdentityLink(
   });
 }
 
-function seedDuplicateWaitingInvitation(
-  harness: ReturnType<typeof createSqliteD1Harness>
-): void {
-  harness.run({
-    params: [
+async function seedDuplicateWaitingInvitation(
+  harness: Awaited<ReturnType<typeof createPostgresHarness>>
+): Promise<void> {
+  await harness.query({
+    values: [
       "invite-2",
       "T123",
       "org-1",
@@ -804,34 +701,40 @@ function seedDuplicateWaitingInvitation(
       1100,
       1100,
     ],
-    sql: `
-      INSERT INTO slack_teammate_invitation_deliveries (
+    text: `
+      INSERT INTO "openmeld"."slack_teammate_invitation_deliveries" (
         interaction_id, slack_team_id, organization_id,
         actor_slack_user_id, actor_user_id, target_slack_user_id,
         target_email, target_display_name, status, message_ts, failure_code,
         onboarding_status, joined_user_id, joined_profile_id, research_task_id,
         welcome_message_ts, onboarding_failure_code, created_at_ms, updated_at_ms
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'delivered', '1723.0002', NULL,
-        'waiting_for_join', NULL, NULL, NULL, NULL, NULL, ?, ?)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'delivered', '1723.0002', NULL,
+        'waiting_for_join', NULL, NULL, NULL, NULL, NULL, $9, $10)
     `,
   });
 }
 
-function seedCompletedResearch(
-  harness: ReturnType<typeof createSqliteD1Harness>
-): void {
-  harness.run({
-    params: ["research-task-1"],
-    sql: `
-      INSERT INTO center_agent_member_research_tasks (
-        id, status, failure_code, observed_language_tag, report_result
+async function seedCompletedResearch(
+  harness: Awaited<ReturnType<typeof createPostgresHarness>>
+): Promise<void> {
+  await harness.query({
+    text: `INSERT INTO "openmeld"."users" (id,name,email) VALUES ('user-maya','Maya Chen','maya@example.test')`,
+  });
+  await harness.query({
+    text: `INSERT INTO "openmeld"."center_agent_member_research_batches" (id,organization_id,scope,status,requested_by_user_id,requested_by_member_id,requested_by_profile_id,requested_by_display_name,direct_message_space_id,created_at_ms,updated_at_ms) VALUES ('research-batch-1','org-1','member','completed','user-installer','member-installer','11111111-1111-4111-8111-111111111111','Alex','research-dm',1000,1100)`,
+  });
+  await harness.query({
+    values: ["research-task-1"],
+    text: `
+      INSERT INTO "openmeld"."center_agent_member_research_tasks" (
+        id, status, failure_code, observed_language_tag, report_result, batch_id, subject_user_id, subject_display_name, position, created_at_ms, started_at_ms, finished_at_ms
       )
-      VALUES (?, 'completed', NULL, NULL, 'evidence_backed')
+      VALUES ($1, 'completed', NULL, NULL, 'evidence_backed', 'research-batch-1', 'user-maya', 'Maya Chen', 1, 1000, 1000, 1100)
     `,
   });
-  harness.run({
-    params: [
+  await harness.query({
+    values: [
       "document-maya",
       "org-1",
       "research-task-1",
@@ -841,53 +744,52 @@ function seedCompletedResearch(
 - 2026-08-15 — Improving the customer feedback loop. Source: Slack #product
 `,
     ],
-    sql: `
-      INSERT INTO organization_documents (
-        id, organization_id, last_member_research_task_id, draft_content
+    text: `
+      INSERT INTO "openmeld"."organization_documents" (
+        id, organization_id, last_member_research_task_id, draft_content, kind, subject_user_id, title, draft_created_by, draft_created_at
       )
-      VALUES (?, ?, ?, ?)
+      VALUES ($1, $2, $3, $4, 'member_profile', 'user-maya', 'Profile Report', 'center_agent', 1000)
     `,
   });
-  harness.run({
-    params: ["research-task-1", "user-maya", "document-maya"],
-    sql: `
-      INSERT INTO center_agent_member_research_computer_files (
-        task_id, subject_user_id, document_id
+  await harness.query({
+    values: ["research-task-1", "user-maya", "document-maya"],
+    text: `
+      INSERT INTO "openmeld"."center_agent_member_research_computer_files" (
+        task_id, subject_user_id, document_id, path, created_at_ms
       )
-      VALUES (?, ?, ?)
+      VALUES ($1, $2, $3, 'Profile Reports/Maya Chen.md', 1000)
     `,
   });
-  harness.run({
-    sql: `
-      INSERT OR IGNORE INTO organizations (id, name, slug)
-      VALUES ('org-1', 'Ampli Lift', 'ampli-lift')
-    `,
+  await harness.query({
+    text: `
+      INSERT INTO "openmeld"."organizations" (id, name, slug, "created_at")
+      VALUES ('org-1', 'Ampli Lift', 'ampli-lift', 1700000000000) ON CONFLICT DO NOTHING`,
   });
 }
 
-function seedWelcomeDelivery(
-  harness: ReturnType<typeof createSqliteD1Harness>,
+async function seedWelcomeDelivery(
+  harness: Awaited<ReturnType<typeof createPostgresHarness>>,
   input: {
     messageTs: string | null;
     status: "delivered" | "pending";
     updatedAtMs: number;
   }
-): void {
-  harness.run({
-    params: [
+): Promise<void> {
+  await harness.query({
+    values: [
       input.status,
       input.messageTs,
       input.status === "pending" ? null : null,
       input.updatedAtMs,
     ],
-    sql: `
-      INSERT INTO slack_invited_member_welcome_deliveries (
+    text: `
+      INSERT INTO "openmeld"."slack_invited_member_welcome_deliveries" (
         interaction_id, target_slack_user_id, research_task_id,
         status, claim_id, attempt_count, message_ts, failure_code,
         created_at_ms, updated_at_ms
       ) VALUES (
         'invite-1', 'U_MAYA', 'research-task-1',
-        ?, 'claim-1', 1, ?, ?, 2500, ?
+        $1, 'claim-1', 1, $2, $3, 2500, $4
       )
     `,
   });

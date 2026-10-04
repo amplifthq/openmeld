@@ -1,9 +1,9 @@
-import { readSlackWorkspaceToken } from "../infrastructure/d1/slack-workspace-token-repo";
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
+import { readSlackWorkspaceToken } from "../infrastructure/postgresql/slack-workspace-token-repo";
 import { decryptSlackBotToken } from "./slack-token-crypto";
-
 export async function resolveSlackBotToken(input: {
   cryptoKey?: string | null;
-  db: D1Database;
+  db: PostgresDatabase;
   expectedOrganizationId?: string;
   fallbackBotToken?: string | null;
   slackTeamId: string;
@@ -30,14 +30,12 @@ export async function resolveSlackBotToken(input: {
       encryptedBotToken: record.encryptedBotToken,
     });
   }
-
   const fallbackBotToken = normalizeOptionalText(input.fallbackBotToken);
   if (fallbackBotToken) {
     return fallbackBotToken;
   }
   throw new Error("Slack bot token is not configured for this workspace");
 }
-
 function normalizeOptionalText(value: unknown): string | null {
   const normalized = String(value ?? "").trim();
   return normalized.length > 0 ? normalized : null;

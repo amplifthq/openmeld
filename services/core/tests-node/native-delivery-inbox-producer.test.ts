@@ -6,12 +6,8 @@ import {
   markRemoteAgentNativeDeliveryAck,
   markRemoteAgentNativeDeliveryCompleted,
   upsertRemoteAgentNativeDeliveryRecord,
-} from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
-import {
-  applyDrizzleMigrationForTable,
-  applyDrizzleMigrationsForTables,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+} from "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 const SLACK_INBOX_SOURCE_TARGET = {
   channelId: "channel_one",
@@ -69,7 +65,7 @@ describe("Slack native delivery Inbox producer", () => {
   });
 
   it("delivers to the exact linked user without requiring an Auth directory lookup", async () => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
       const delivery = {
         conversationKind: "slack",
@@ -94,15 +90,15 @@ describe("Slack native delivery Inbox producer", () => {
       });
 
       expect(
-        harness.queryAll<{
+        await harness.queryAll<{
           recipient_user_id: string;
           source_key: string;
           source_target_json: string;
           title: string;
         }>({
-          sql: `
+          text: `
             SELECT recipient_user_id, source_key, source_target_json, title
-            FROM inbox_items
+            FROM "openmeld"."inbox_items"
           `,
         })
       ).toEqual([
@@ -114,12 +110,12 @@ describe("Slack native delivery Inbox producer", () => {
         },
       ]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("ignores anonymous and non-Slack deliveries", async () => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
       await projectLinkedSlackNativeDeliveryInboxItem({
         db: harness.db,
@@ -147,17 +143,19 @@ describe("Slack native delivery Inbox producer", () => {
       });
 
       expect(
-        harness.queryFirst<{ count: number }>({
-          sql: "SELECT count(*) AS count FROM inbox_items",
-        })?.count
+        (
+          await harness.queryFirst<{ count: number }>({
+            text: 'SELECT count(*) AS count FROM "openmeld"."inbox_items"',
+          })
+        )?.count
       ).toBe(0);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("resolves an unknown publication card and creates the immutable confirmed terminal card", async () => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
       const delivery = {
         conversationKind: "slack",
@@ -188,15 +186,15 @@ describe("Slack native delivery Inbox producer", () => {
       });
 
       expect(
-        harness.queryAll<{
+        await harness.queryAll<{
           attention: string;
           resolution_status: string;
           source_key: string;
           title: string;
         }>({
-          sql: `
+          text: `
             SELECT attention, resolution_status, source_key, title
-            FROM inbox_items
+            FROM "openmeld"."inbox_items"
             ORDER BY source_key
           `,
         })
@@ -215,12 +213,12 @@ describe("Slack native delivery Inbox producer", () => {
         },
       ]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("reconciles a missing item from the durable terminal delivery ledger", async () => {
-    const harness = createInboxHarness({ nativeDeliveryLedger: true });
+    const harness = await createInboxHarness();
     try {
       await upsertRemoteAgentNativeDeliveryRecord({
         attemptId: "attempt_one",
@@ -269,8 +267,8 @@ describe("Slack native delivery Inbox producer", () => {
         })
       ).resolves.toEqual({ attempted: 1, errors: 1, projected: 0 });
       expect(
-        harness.queryFirst<{ count: number }>({
-          sql: "SELECT count(*) AS count FROM inbox_items",
+        await harness.queryFirst<{ count: number }>({
+          text: 'SELECT count(*) AS count FROM "openmeld"."inbox_items"',
         })
       ).toEqual({ count: 0 });
       await expect(
@@ -288,37 +286,37 @@ describe("Slack native delivery Inbox producer", () => {
         })
       ).resolves.toEqual({ attempted: 0, errors: 0, projected: 0 });
       expect(
-        harness.queryFirst<{
+        await harness.queryFirst<{
           recipient_user_id: string;
           source_key: string;
         }>({
-          sql: "SELECT recipient_user_id, source_key FROM inbox_items",
+          text: 'SELECT recipient_user_id, source_key FROM "openmeld"."inbox_items"',
         })
       ).toEqual({
         recipient_user_id: "user_two",
         source_key: "delivery_reconcile:terminal",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("upgrades a legacy Slack target without resetting the user's Inbox state", async () => {
-    const harness = createInboxHarness({ nativeDeliveryLedger: true });
+    const harness = await createInboxHarness();
     try {
-      insertTerminalSlackDelivery(harness, {
+      await insertTerminalSlackDelivery(harness, {
         deliveryId: "delivery_legacy_target",
         recipientUserId: "user_two",
         updatedAtMs: 1000,
       });
-      harness.run({
-        params: [
+      await harness.query({
+        values: [
           "legacy_item",
           "delivery_legacy_target:terminal",
           JSON.stringify({ kind: "center_agent" }),
         ],
-        sql: `
-          INSERT INTO inbox_items (
+        text: `
+          INSERT INTO "openmeld"."inbox_items" (
             id,
             organization_id,
             recipient_user_id,
@@ -339,22 +337,22 @@ describe("Slack native delivery Inbox producer", () => {
             created_at_ms,
             updated_at_ms
           ) VALUES (
-            ?, 'org_one', 'user_two', 'center_agent_update', 'update',
+            $1, 'org_one', 'user_two', 'center_agent_update', 'update',
             'normal', 'Center Agent replied in Slack',
             'The Center Agent posted a reply in Slack.',
-            'Center Agent · Slack', 'remote_agent_native_delivery', ?, ?,
+            'Center Agent · Slack', 'remote_agent_native_delivery', $2, $3,
             'not_applicable', 1100, 1200, NULL, 1000, 1000, 1200
           )
         `,
       });
-      harness.run({
-        params: [
+      await harness.query({
+        values: [
           "legacy_action_item",
           "delivery_legacy_target:publication_unknown",
           JSON.stringify({ kind: "center_agent" }),
         ],
-        sql: `
-          INSERT INTO inbox_items (
+        text: `
+          INSERT INTO "openmeld"."inbox_items" (
             id,
             organization_id,
             recipient_user_id,
@@ -375,10 +373,10 @@ describe("Slack native delivery Inbox producer", () => {
             created_at_ms,
             updated_at_ms
           ) VALUES (
-            ?, 'org_one', 'user_two', 'center_agent_update',
+            $1, 'org_one', 'user_two', 'center_agent_update',
             'action_required', 'normal', 'Check the Center Agent reply in Slack',
             'Check the Slack thread before trying again.',
-            'Center Agent · Slack', 'remote_agent_native_delivery', ?, ?,
+            'Center Agent · Slack', 'remote_agent_native_delivery', $2, $3,
             'resolved', 1100, 1200, 1150, 1000, 1000, 1200
           )
         `,
@@ -392,7 +390,7 @@ describe("Slack native delivery Inbox producer", () => {
         })
       ).resolves.toEqual({ attempted: 1, errors: 0, projected: 1 });
       expect(
-        harness.queryAll<{
+        await harness.queryAll<{
           cleared_at_ms: number | null;
           id: string;
           read_at_ms: number | null;
@@ -402,7 +400,7 @@ describe("Slack native delivery Inbox producer", () => {
           source_target_json: string;
           updated_at_ms: number;
         }>({
-          sql: `
+          text: `
             SELECT
               id,
               source_key,
@@ -412,7 +410,7 @@ describe("Slack native delivery Inbox producer", () => {
               read_at_ms,
               cleared_at_ms,
               updated_at_ms
-            FROM inbox_items
+            FROM "openmeld"."inbox_items"
             ORDER BY source_key
           `,
         })
@@ -446,19 +444,19 @@ describe("Slack native delivery Inbox producer", () => {
         })
       ).resolves.toEqual({ attempted: 0, errors: 0, projected: 0 });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("moves a failed permalink repair behind unattempted deliveries", async () => {
-    const harness = createInboxHarness({ nativeDeliveryLedger: true });
+    const harness = await createInboxHarness();
     try {
-      insertTerminalSlackDelivery(harness, {
+      await insertTerminalSlackDelivery(harness, {
         deliveryId: "delivery_permanent_failure",
         recipientUserId: "user_two",
         updatedAtMs: 1000,
       });
-      insertTerminalSlackDelivery(harness, {
+      await insertTerminalSlackDelivery(harness, {
         deliveryId: "delivery_after_failure",
         recipientUserId: "user_two",
         updatedAtMs: 2000,
@@ -485,26 +483,26 @@ describe("Slack native delivery Inbox producer", () => {
         })
       ).resolves.toEqual({ attempted: 1, errors: 0, projected: 1 });
       expect(
-        harness.queryFirst<{ source_key: string }>({
-          sql: "SELECT source_key FROM inbox_items",
+        await harness.queryFirst<{ source_key: string }>({
+          text: 'SELECT source_key FROM "openmeld"."inbox_items"',
         })
       ).toEqual({ source_key: "delivery_after_failure:terminal" });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("suppresses permanently missing recipients without starving later deliveries", async () => {
-    const harness = createInboxHarness({ nativeDeliveryLedger: true });
+    const harness = await createInboxHarness();
     try {
       for (let index = 0; index < 100; index += 1) {
-        insertTerminalSlackDelivery(harness, {
+        await insertTerminalSlackDelivery(harness, {
           deliveryId: `delivery_missing_${index.toString().padStart(3, "0")}`,
           recipientUserId: `deleted_user_${index.toString().padStart(3, "0")}`,
           updatedAtMs: 1000 + index,
         });
       }
-      insertTerminalSlackDelivery(harness, {
+      await insertTerminalSlackDelivery(harness, {
         deliveryId: "delivery_valid_after_missing_page",
         recipientUserId: "user_two",
         updatedAtMs: 2000,
@@ -522,17 +520,17 @@ describe("Slack native delivery Inbox producer", () => {
         projected: 0,
       });
       expect(
-        harness.queryFirst<{
+        await harness.queryFirst<{
           count: number;
           source_rows_changed: number;
         }>({
-          sql: `
+          text: `
             SELECT
               count(*) AS count,
               count(*) FILTER (
                 WHERE status <> 'completed' OR updated_at_ms <> completed_at_ms
               ) AS source_rows_changed
-            FROM openMeldRemoteAgent_native_delivery_ledger
+            FROM "openmeld"."openMeldRemoteAgent_native_delivery_ledger"
             WHERE inbox_projection_suppressed_reason = 'recipient_not_found'
               AND inbox_projection_suppressed_at_ms = 3000
           `,
@@ -550,13 +548,13 @@ describe("Slack native delivery Inbox producer", () => {
         projected: 1,
       });
       expect(
-        harness.queryFirst<{
+        await harness.queryFirst<{
           recipient_user_id: string;
           source_key: string;
         }>({
-          sql: `
+          text: `
             SELECT recipient_user_id, source_key
-            FROM inbox_items
+            FROM "openmeld"."inbox_items"
           `,
         })
       ).toEqual({
@@ -564,21 +562,21 @@ describe("Slack native delivery Inbox producer", () => {
         source_key: "delivery_valid_after_missing_page:terminal",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });
 
-function insertTerminalSlackDelivery(
-  harness: ReturnType<typeof createSqliteD1Harness>,
+async function insertTerminalSlackDelivery(
+  harness: Awaited<ReturnType<typeof createPostgresHarness>>,
   input: {
     deliveryId: string;
     recipientUserId: string;
     updatedAtMs: number;
   }
-): void {
-  harness.run({
-    params: [
+): Promise<void> {
+  await harness.query({
+    values: [
       input.deliveryId,
       `slack:team_one:channel_one:${input.deliveryId}`,
       `trigger_${input.deliveryId}`,
@@ -589,8 +587,8 @@ function insertTerminalSlackDelivery(
       input.updatedAtMs,
       input.updatedAtMs,
     ],
-    sql: `
-      INSERT INTO openMeldRemoteAgent_native_delivery_ledger (
+    text: `
+      INSERT INTO "openmeld"."openMeldRemoteAgent_native_delivery_ledger" (
         delivery_id,
         organization_id,
         conversation_kind,
@@ -609,55 +607,27 @@ function insertTerminalSlackDelivery(
         updated_at_ms,
         completed_at_ms
       ) VALUES (
-        ?, 'org_one', 'slack', ?, 'agent_one', 'binding_one', ?, ?, ?,
-        'completed', ?, 'team_one', 'channel_one', '1000.0001', ?, ?, ?
+        $1, 'org_one', 'slack', $2, 'agent_one', 'binding_one', $3, $4, $5,
+        'completed', $6, 'team_one', 'channel_one', '1000.0001', $7, $8, $9
       )
     `,
   });
 }
 
-function createInboxHarness(options: { nativeDeliveryLedger?: boolean } = {}) {
-  const harness = createSqliteD1Harness();
-  harness.run({
-    sql: `
-      CREATE TABLE organizations (
-        id TEXT PRIMARY KEY NOT NULL,
-        name TEXT NOT NULL,
-        slug TEXT NOT NULL,
-        created_at INTEGER NOT NULL
-      )
-    `,
+async function createInboxHarness() {
+  const harness = await createPostgresHarness();
+
+  await harness.query({
+    values: ["org_one", "One", "one", 1000],
+    text: 'INSERT INTO "openmeld"."organizations" (id, name, slug, created_at) VALUES ($1, $2, $3, $4)',
   });
-  harness.run({
-    sql: `
-      CREATE TABLE users (
-        id TEXT PRIMARY KEY NOT NULL,
-        name TEXT NOT NULL,
-        email TEXT NOT NULL
-      )
-    `,
+  await harness.query({
+    values: ["user_one", "One", "one@example.test"],
+    text: 'INSERT INTO "openmeld"."users" (id, name, email) VALUES ($1, $2, $3)',
   });
-  applyDrizzleMigrationsForTables(harness, [
-    "inbox_items",
-    "inbox_email_deliveries",
-  ]);
-  if (options.nativeDeliveryLedger) {
-    applyDrizzleMigrationForTable(
-      harness,
-      "openMeldRemoteAgent_native_delivery_ledger"
-    );
-  }
-  harness.run({
-    params: ["org_one", "One", "one", 1000],
-    sql: "INSERT INTO organizations (id, name, slug, created_at) VALUES (?, ?, ?, ?)",
-  });
-  harness.run({
-    params: ["user_one", "One", "one@example.test"],
-    sql: "INSERT INTO users (id, name, email) VALUES (?, ?, ?)",
-  });
-  harness.run({
-    params: ["user_two", "Two", "two@example.test"],
-    sql: "INSERT INTO users (id, name, email) VALUES (?, ?, ?)",
+  await harness.query({
+    values: ["user_two", "Two", "two@example.test"],
+    text: 'INSERT INTO "openmeld"."users" (id, name, email) VALUES ($1, $2, $3)',
   });
   return harness;
 }

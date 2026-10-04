@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   beginCenterAgentPublicationOperation,
@@ -6,21 +7,18 @@ import {
   completeCenterAgentPublicationOperation,
   failCenterAgentPublicationOperation,
 } from "../src/center-agent/center-agent-publication-operation-repository";
-import {
-  applyDrizzleMigrationForTable,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 describe("Center Agent publication operation repository", () => {
-  let harness: ReturnType<typeof createSqliteD1Harness> | null = null;
+  let harness: Awaited<ReturnType<typeof createPostgresHarness>> | null = null;
 
-  afterEach(() => {
-    harness?.close();
+  afterEach(async () => {
+    await harness?.close();
     harness = null;
   });
 
   it("replays one completed source publication without a second claim", async () => {
-    harness = createHarness();
+    harness = await createHarness();
     const input = await publicationInput(harness.db);
     const first = await beginCenterAgentPublicationOperation(input);
 
@@ -55,7 +53,7 @@ describe("Center Agent publication operation repository", () => {
   });
 
   it("rejects changed content or represented identity for the same source publication", async () => {
-    harness = createHarness();
+    harness = await createHarness();
     const input = await publicationInput(harness.db);
     await beginCenterAgentPublicationOperation(input);
 
@@ -84,7 +82,7 @@ describe("Center Agent publication operation repository", () => {
   });
 
   it("reclaims a confirmed non-publication and fences the stale claimant", async () => {
-    harness = createHarness();
+    harness = await createHarness();
     const input = await publicationInput(harness.db);
     const first = await beginCenterAgentPublicationOperation(input);
     const firstClaimId = requireClaimId(first.operation.claimId);
@@ -120,7 +118,7 @@ describe("Center Agent publication operation repository", () => {
   });
 
   it("claims more than one Slack file from the same execution", async () => {
-    harness = createHarness();
+    harness = await createHarness();
     const input = await publicationInput(harness.db);
 
     await expect(
@@ -141,7 +139,7 @@ describe("Center Agent publication operation repository", () => {
   });
 
   it("keeps an active claim in progress and closes an expired claim as outcome unknown", async () => {
-    harness = createHarness();
+    harness = await createHarness();
     const input = await publicationInput(harness.db);
     const first = await beginCenterAgentPublicationOperation(input);
 
@@ -167,7 +165,7 @@ describe("Center Agent publication operation repository", () => {
   });
 
   it("reports an unexpired concurrent claim without changing it", async () => {
-    harness = createHarness();
+    harness = await createHarness();
     const input = await publicationInput(harness.db);
     const first = await beginCenterAgentPublicationOperation(input);
 
@@ -186,23 +184,22 @@ describe("Center Agent publication operation repository", () => {
   });
 });
 
-function createHarness(): ReturnType<typeof createSqliteD1Harness> {
-  const created = createSqliteD1Harness();
+async function createHarness(): Promise<
+  Awaited<ReturnType<typeof createPostgresHarness>>
+> {
+  const created = await createPostgresHarness();
   for (const sql of [
-    "CREATE TABLE users (id text PRIMARY KEY NOT NULL)",
-    "CREATE TABLE organizations (id text PRIMARY KEY NOT NULL)",
-    "CREATE TABLE openmeld_profiles (profile_id text PRIMARY KEY NOT NULL)",
-    "INSERT INTO users (id) VALUES ('user-a'), ('user-b')",
-    "INSERT INTO organizations (id) VALUES ('org-a')",
-    "INSERT INTO openmeld_profiles (profile_id) VALUES ('profile-center')",
+    "INSERT INTO \"openmeld\".\"users\" (id, \"name\", \"email\") VALUES ('user-a', 'Test User', ('user-a')::text || '@example.com'),\n('user-b', 'Test User', ('user-b')::text || '@example.com')",
+    'INSERT INTO "openmeld"."organizations" (id, "name", "slug", "created_at") VALUES (\'org-a\', \'Test Organization\', (\'org-a\')::text, 1700000000000)',
+    `INSERT INTO "openmeld"."openmeld_profiles" (profile_id, profile_name, profile_handle, profile_kind, organization_id, owner_user_id, created_by_user_id, managed_role, source, status) VALUES ('agt_11111111-1111-4111-8111-111111111111', 'Center Agent', 'center-agent', 'agent', 'org-a', NULL, 'user-a', 'center_agent', 'auth_bootstrap', 'active')`,
   ]) {
-    created.run({ sql });
+    await created.query({ text: sql });
   }
-  applyDrizzleMigrationForTable(created, "center_agent_publication_operations");
+
   return created;
 }
 
-async function publicationInput(db: D1Database) {
+async function publicationInput(db: PostgresDatabase) {
   return {
     db,
     destinationId: "C_RELEASE",
@@ -219,7 +216,7 @@ async function publicationInput(db: D1Database) {
       sourceId: "document-daily-journal",
       sourceRevision: "a".repeat(64),
     },
-    actorProfileId: "profile-center",
+    actorProfileId: "agt_11111111-1111-4111-8111-111111111111",
     organizationId: "org-a",
   };
 }

@@ -107,8 +107,9 @@ is retained without inventing an execution receipt. These paths use
 the upstream Agent's semantic reply-language decision when the Run is a
 delegated or watched continuation carrying that fact. They use the Organization
 working-language preference as an explicit fallback when the task fact is absent,
-then English. Initial Run failures do not yet receive a task language fact;
-other pre-admission failure notices still use the legacy English presentation.
+then English. Initial Run failures use the same fallback rather than always
+using English. Deterministic pre-admission failure notices preserve the original
+reason and use that selected language when a localized presentation exists.
 
 A **Routine** is an organization-owned instruction that asks the designated
 Center Agent to do work once or on an explicit recurring schedule. A **Run** is one

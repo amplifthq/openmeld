@@ -2,14 +2,13 @@ import {
   isPersonalOrganization,
   memberRoleHasOrganizationPermission,
 } from "@openmeld/auth/organization-policy";
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { authRpcResolveOrganizationAccountIdentityResultSchema } from "@openmeld/schemas";
 import type {
   AuthRpcResolveOrganizationAccountIdentityInput,
   AuthRpcResolveOrganizationAccountIdentityResult,
 } from "@openmeld/schemas/types";
-
-import { type CoreBindings, identityDb } from "../lib/bindings";
-
+import type { CoreBindings } from "../lib/bindings";
 export type ActiveOrganizationMembership =
   | {
       ok: true;
@@ -28,7 +27,6 @@ export type ActiveOrganizationMembership =
       ok: false;
       status: 403 | 503;
     };
-
 export async function readOrganizationAccountIdentityProjection(input: {
   account?: AuthRpcResolveOrganizationAccountIdentityInput["account"];
   authWorker: CoreBindings["OPENMELD_AUTH_WORKER"];
@@ -70,7 +68,6 @@ export async function readOrganizationAccountIdentityProjection(input: {
     return null;
   }
 }
-
 export async function resolveActiveOrganizationMembership(input: {
   context: {
     activeOrganizationId?: string | null;
@@ -95,7 +92,6 @@ export async function resolveActiveOrganizationMembership(input: {
       status: 403,
     };
   }
-
   return await resolveOrganizationMembership({
     env: input.env,
     organizationId: activeOrganizationId,
@@ -103,9 +99,8 @@ export async function resolveActiveOrganizationMembership(input: {
     userId,
   });
 }
-
 export async function resolveOrganizationOwnerOrAdminMembership(input: {
-  env: Pick<CoreBindings, "OPENMELD_DB">;
+  env: Pick<CoreBindings, "OPENMELD_POSTGRESQL">;
   organizationId: string;
   requestId?: string | null;
   userId: string;
@@ -129,37 +124,37 @@ export async function resolveOrganizationOwnerOrAdminMembership(input: {
   }
   return membership;
 }
-
 export async function resolveOrganizationMembershipById(input: {
-  env: Pick<CoreBindings, "OPENMELD_DB">;
+  env: Pick<CoreBindings, "OPENMELD_POSTGRESQL">;
   organizationId: string;
   requestId?: string | null;
   userId: string;
 }): Promise<ActiveOrganizationMembership> {
   return await resolveOrganizationMembership(input);
 }
-
 export async function readOrganizationRouteSlug(input: {
-  env: Pick<CoreBindings, "OPENMELD_DB">;
+  env: Pick<CoreBindings, "OPENMELD_POSTGRESQL">;
   organizationId: string;
   requestId?: string | null;
 }): Promise<string | null> {
-  const db = identityDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (!db) {
     return null;
   }
   try {
     const organization = await db
-      .prepare(
-        `
+      .query<{
+        slug: string;
+      }>({
+        text: `
           SELECT slug
-          FROM organizations
-          WHERE id = ?
+          FROM "openmeld"."organizations"
+          WHERE id = $1
           LIMIT 1
-        `
-      )
-      .bind(input.organizationId)
-      .first<{ slug: string }>();
+        `,
+        values: [input.organizationId],
+      })
+      .then((result) => result.rows[0] ?? null);
     return normalizeOptionalText(organization?.slug);
   } catch (error) {
     console.warn("[core.organization_context.route_slug_lookup_failed]", {
@@ -170,28 +165,38 @@ export async function readOrganizationRouteSlug(input: {
     return null;
   }
 }
-
 export async function readOrganizationPersonalClassification(input: {
-  env: Pick<CoreBindings, "OPENMELD_DB">;
+  env: Pick<CoreBindings, "OPENMELD_POSTGRESQL">;
   organizationId: string;
   requestId?: string | null;
-}): Promise<{ ok: true; personal: boolean } | { ok: false }> {
-  const db = identityDb(input.env);
+}): Promise<
+  | {
+      ok: true;
+      personal: boolean;
+    }
+  | {
+      ok: false;
+    }
+> {
+  const db = getPostgresDatabase(input.env);
   if (!db) {
     return { ok: false };
   }
   try {
     const organization = await db
-      .prepare(
-        `
+      .query<{
+        metadata: string | null;
+        slug: string;
+      }>({
+        text: `
           SELECT slug, metadata
-          FROM organizations
-          WHERE id = ?
+          FROM "openmeld"."organizations"
+          WHERE id = $1
           LIMIT 1
-        `
-      )
-      .bind(input.organizationId)
-      .first<{ metadata: string | null; slug: string }>();
+        `,
+        values: [input.organizationId],
+      })
+      .then((result) => result.rows[0] ?? null);
     if (!organization) {
       return { ok: false };
     }
@@ -220,31 +225,31 @@ export async function readOrganizationPersonalClassification(input: {
     return { ok: false };
   }
 }
-
 export async function readOrganizationCreatorUserId(input: {
-  env: Pick<CoreBindings, "OPENMELD_DB">;
+  env: Pick<CoreBindings, "OPENMELD_POSTGRESQL">;
   organizationId: string;
 }): Promise<string | null> {
-  const db = identityDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (!db) {
     return null;
   }
   const organization = await db
-    .prepare(
-      `
+    .query<{
+      created_by_user_id: string | null;
+    }>({
+      text: `
         SELECT created_by_user_id
-        FROM organizations
-        WHERE id = ?
+        FROM "openmeld"."organizations"
+        WHERE id = $1
         LIMIT 1
-      `
-    )
-    .bind(input.organizationId)
-    .first<{ created_by_user_id: string | null }>();
+      `,
+      values: [input.organizationId],
+    })
+    .then((result) => result.rows[0] ?? null);
   return normalizeOptionalText(organization?.created_by_user_id);
 }
-
 async function resolveOrganizationMembership(input: {
-  env: Pick<CoreBindings, "OPENMELD_DB">;
+  env: Pick<CoreBindings, "OPENMELD_POSTGRESQL">;
   organizationId: string;
   requestId?: string | null;
   userId: string;
@@ -259,8 +264,7 @@ async function resolveOrganizationMembership(input: {
       status: 403,
     };
   }
-
-  const db = identityDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (!db) {
     return {
       ok: false,
@@ -269,20 +273,22 @@ async function resolveOrganizationMembership(input: {
       status: 503,
     };
   }
-
   try {
     const membership = await db
-      .prepare(
-        `
+      .query<{
+        id: string;
+        role: string;
+      }>({
+        text: `
           SELECT id, role
-          FROM members
-          WHERE organization_id = ?
-            AND user_id = ?
+          FROM "openmeld"."members"
+          WHERE organization_id = $1
+            AND user_id = $2
           LIMIT 1
-        `
-      )
-      .bind(activeOrganizationId, userId)
-      .first<{ id: string; role: string }>();
+        `,
+        values: [activeOrganizationId, userId],
+      })
+      .then((result) => result.rows[0] ?? null);
     if (membership?.id && membership.role) {
       return {
         ok: true,
@@ -306,7 +312,6 @@ async function resolveOrganizationMembership(input: {
       status: 503,
     };
   }
-
   return {
     ok: false,
     code: "organization.membership_required",
@@ -314,7 +319,6 @@ async function resolveOrganizationMembership(input: {
     status: 403,
   };
 }
-
 function normalizeOptionalText(value: unknown): string | null {
   const normalized = String(value ?? "").trim();
   return normalized.length > 0 ? normalized : null;

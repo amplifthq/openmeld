@@ -10,7 +10,7 @@ import type {
 } from "@openmeld/schemas/types";
 import type { CoreBindings } from "../../lib/bindings";
 import { resolveSpaceStub } from "../../rpc/space-ref";
-import type { RemoteAgentNativeDeliveryRecord } from "../infrastructure/d1/native-delivery-ledger-repo";
+import type { RemoteAgentNativeDeliveryRecord } from "../infrastructure/postgresql/native-delivery-ledger-repo";
 import {
   resolveRemoteAgentNativeDeliveryRuntimeConversationId,
   resolveRemoteAgentRuntimeConversationId,

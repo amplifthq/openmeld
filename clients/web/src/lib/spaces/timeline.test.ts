@@ -982,10 +982,11 @@ describe("space timeline helpers", () => {
 		});
 	});
 
-	it("parses reasonCode and failureStage off a system notice signal", () => {
+	it("projects stopped notices with the target Agent, retained text, and stopped semantics", () => {
 		const notice = {
 			v: 1,
 			id: "signal-notice-1",
+			stoppedReplyText: "First finding",
 			spaceId: "space-123",
 			ts: 10,
 			profile: {
@@ -1010,6 +1011,10 @@ describe("space timeline helpers", () => {
 		});
 
 		expect(items[0]).toMatchObject({
+			actorProfileKind: "agent",
+			actorProfileId: "agt_33333333-3333-3333-3333-333333333333",
+			text: "First finding",
+			isAgentFinalReply: false,
 			systemNoticeFailureStage: null,
 			systemNoticeReasonCode: "wake_stop.user_requested",
 			systemNoticeType: "wake_stopped",

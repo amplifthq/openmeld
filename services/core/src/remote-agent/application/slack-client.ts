@@ -7,7 +7,6 @@ import {
 import { toSlackMrkdwn } from "./slack-mrkdwn";
 
 type FetchLike = typeof fetch;
-
 type SlackApiFile = {
   channels?: string[] | null;
   groups?: string[] | null;
@@ -24,7 +23,6 @@ type SlackApiFile = {
   url_private?: string | null;
   url_private_download?: string | null;
 };
-
 type SlackApiResponse = {
   channel?: {
     id?: string | null;
@@ -69,7 +67,9 @@ type SlackApiResponse = {
     text?: string | null;
     ts?: string | null;
     user?: string | null;
-    edited?: { ts?: string | null } | null;
+    edited?: {
+      ts?: string | null;
+    } | null;
     username?: string | null;
     metadata?: {
       event_payload?: Record<string, unknown> | null;
@@ -152,7 +152,6 @@ type SlackApiResponse = {
     team_id?: string | null;
   } | null;
 };
-
 const SLACK_API_BASE_URL = "https://slack.com/api";
 const SLACK_CHANNEL_LIST_PAGE_LIMIT = 200;
 const SLACK_CHANNEL_LIST_MAX_PAGES = 100;
@@ -168,7 +167,6 @@ const SLACK_BLOCK_VALIDATION_ERROR_CODES = new Set([
   "invalid_blocks_format",
   "msg_blocks_too_long",
 ]);
-
 export type SlackBlockKitBlock = Record<string, unknown>;
 export type SlackChannel = {
   channelId: string;
@@ -195,7 +193,10 @@ export type SlackUserIdentity = {
 };
 export type SlackThreadMessage = {
   editedTs?: string;
-  richContent?: { text: string; incomplete: boolean };
+  richContent?: {
+    text: string;
+    incomplete: boolean;
+  };
   botId: string | null;
   displayName: string | null;
   files: SlackFileMetadata[];
@@ -248,7 +249,6 @@ export type SlackWorkspaceMember = {
   slackUserId: string;
   title: string | null;
 };
-
 export async function getSlackMessagePermalink(input: {
   botToken: string;
   channelId: string;
@@ -276,12 +276,10 @@ export async function getSlackMessagePermalink(input: {
   }
   return permalink.data;
 }
-
 export class SlackMessagePublicationError extends Error {
   readonly errorCode: string | null;
   readonly publicationOutcome: SlackMessagePublicationOutcome;
   readonly retryAfterSeconds: number | null;
-
   constructor(input: {
     cause?: unknown;
     errorCode?: string | null;
@@ -299,12 +297,10 @@ export class SlackMessagePublicationError extends Error {
     this.retryAfterSeconds = input.retryAfterSeconds ?? null;
   }
 }
-
 export class SlackApiError extends Error {
   readonly errorCode: string;
   readonly retryAfterSeconds: number | null;
   readonly status: number;
-
   constructor(input: {
     errorCode: string;
     methodName: string;
@@ -318,7 +314,6 @@ export class SlackApiError extends Error {
     this.status = input.status;
   }
 }
-
 export async function listSlackChannels(input: {
   botToken: string;
   cursor?: string;
@@ -372,7 +367,6 @@ export async function listSlackChannels(input: {
     nextCursor: normalizeOptionalText(data.response_metadata?.next_cursor),
   };
 }
-
 export async function listSlackChannelMemberIds(input: {
   botToken: string;
   channelId: string;
@@ -413,7 +407,6 @@ export async function listSlackChannelMemberIds(input: {
     nextCursor: normalizeOptionalText(data.response_metadata?.next_cursor),
   };
 }
-
 export async function listSlackWorkspaceMembers(input: {
   botToken: string;
   cursor?: string;
@@ -484,7 +477,6 @@ export async function listSlackWorkspaceMembers(input: {
     nextCursor: normalizeOptionalText(data.response_metadata?.next_cursor),
   };
 }
-
 export async function searchSlackPublicMessages(input: {
   actionToken: string;
   botToken: string;
@@ -546,7 +538,6 @@ export async function searchSlackPublicMessages(input: {
     ),
   };
 }
-
 function normalizeSlackSearchContextEvidenceItem(input: {
   contextMessage: {
     author_name?: string | null;
@@ -582,7 +573,6 @@ function normalizeSlackSearchContextEvidenceItem(input: {
     permalink,
   };
 }
-
 function buildSlackContextMessagePermalink(input: {
   channelId: string;
   messageTs: string;
@@ -601,7 +591,6 @@ function buildSlackContextMessagePermalink(input: {
     return null;
   }
 }
-
 function normalizeSlackSearchEvidenceItem(message: {
   author_name?: string | null;
   author_user_id?: string | null;
@@ -643,7 +632,6 @@ function normalizeSlackSearchEvidenceItem(message: {
     permalink,
   };
 }
-
 export async function postSlackThreadMessage(input: {
   blocks?: readonly SlackBlockKitBlock[];
   botToken: string;
@@ -657,13 +645,14 @@ export async function postSlackThreadMessage(input: {
   signal?: AbortSignal;
   text: string;
   threadTs: string;
-}): Promise<{ id: string }> {
+}): Promise<{
+  id: string;
+}> {
   return await postSlackMessage({
     ...input,
     threadTs: input.threadTs,
   });
 }
-
 export async function findSlackThreadMessageByMetadata(input: {
   botToken: string;
   channelId: string;
@@ -673,7 +662,9 @@ export async function findSlackThreadMessageByMetadata(input: {
   fetchImpl?: FetchLike;
   signal?: AbortSignal;
   threadTs: string;
-}): Promise<{ id: string } | null> {
+}): Promise<{
+  id: string;
+} | null> {
   return await findSlackMessageByMetadata({
     ...input,
     methodName: "conversations.replies",
@@ -685,7 +676,6 @@ export async function findSlackThreadMessageByMetadata(input: {
     }),
   });
 }
-
 export async function findSlackTopLevelMessageByMetadata(input: {
   botToken: string;
   channelId: string;
@@ -694,7 +684,9 @@ export async function findSlackTopLevelMessageByMetadata(input: {
   eventType: string;
   fetchImpl?: FetchLike;
   signal?: AbortSignal;
-}): Promise<{ id: string } | null> {
+}): Promise<{
+  id: string;
+} | null> {
   return await findSlackMessageByMetadata({
     ...input,
     methodName: "conversations.history",
@@ -705,7 +697,6 @@ export async function findSlackTopLevelMessageByMetadata(input: {
     }),
   });
 }
-
 async function findSlackMessageByMetadata(input: {
   botToken: string;
   eventPayloadKey: string;
@@ -715,7 +706,9 @@ async function findSlackMessageByMetadata(input: {
   methodName: "conversations.history" | "conversations.replies";
   params: URLSearchParams;
   signal?: AbortSignal;
-}): Promise<{ id: string } | null> {
+}): Promise<{
+  id: string;
+} | null> {
   let cursor: string | null = null;
   for (let page = 0; page < 10; page += 1) {
     const params = new URLSearchParams(input.params);
@@ -749,7 +742,6 @@ async function findSlackMessageByMetadata(input: {
   }
   throw new Error("Slack recovery metadata scan exceeded the page limit");
 }
-
 export async function readSlackThreadMessages(input: {
   botToken: string;
   channelId: string;
@@ -788,7 +780,6 @@ export async function readSlackThreadMessages(input: {
     messages: toSlackThreadMessages(data.messages),
   };
 }
-
 export async function readSlackChannelHistory(input: {
   botToken: string;
   channelId: string;
@@ -828,7 +819,6 @@ export async function readSlackChannelHistory(input: {
     nextCursor: normalizeOptionalText(data.response_metadata?.next_cursor),
   };
 }
-
 export async function readSlackMessageByTimestamp(input: {
   botToken: string;
   channelId: string;
@@ -873,7 +863,6 @@ export async function readSlackMessageByTimestamp(input: {
     observation: buildSlackMessageHistoryObservation(messages, input.messageTs),
   };
 }
-
 export async function readSlackFile(input: {
   botToken: string;
   expectedChannelId: string;
@@ -930,7 +919,6 @@ export async function readSlackFile(input: {
   }
   return { bytes, file };
 }
-
 export async function postSlackTopLevelMessage(input: {
   blocks?: readonly SlackBlockKitBlock[];
   botToken: string;
@@ -942,7 +930,9 @@ export async function postSlackTopLevelMessage(input: {
   };
   signal?: AbortSignal;
   text: string;
-}): Promise<{ id: string }> {
+}): Promise<{
+  id: string;
+}> {
   return await postSlackMessage({
     blocks: input.blocks,
     botToken: input.botToken,
@@ -953,7 +943,6 @@ export async function postSlackTopLevelMessage(input: {
     text: input.text,
   });
 }
-
 export async function postSlackDirectMessage(input: {
   blocks?: readonly SlackBlockKitBlock[];
   botToken: string;
@@ -965,7 +954,9 @@ export async function postSlackDirectMessage(input: {
   recipientUserId: string;
   signal?: AbortSignal;
   text: string;
-}): Promise<{ id: string }> {
+}): Promise<{
+  id: string;
+}> {
   return await postSlackTopLevelMessage({
     blocks: input.blocks,
     botToken: input.botToken,
@@ -976,13 +967,14 @@ export async function postSlackDirectMessage(input: {
     text: input.text,
   });
 }
-
 export async function openSlackDirectMessage(input: {
   botToken: string;
   fetchImpl?: FetchLike;
   recipientUserId: string;
   signal?: AbortSignal;
-}): Promise<{ channelId: string }> {
+}): Promise<{
+  channelId: string;
+}> {
   const response = await (input.fetchImpl ?? fetch)(
     `${SLACK_API_BASE_URL}/conversations.open`,
     {
@@ -1004,14 +996,16 @@ export async function openSlackDirectMessage(input: {
   }
   return { channelId };
 }
-
 export async function openSlackModal(input: {
   botToken: string;
   fetchImpl?: FetchLike;
   signal?: AbortSignal;
   triggerId: string;
   view: Record<string, unknown>;
-}): Promise<{ hash: string; viewId: string }> {
+}): Promise<{
+  hash: string;
+  viewId: string;
+}> {
   const response = await (input.fetchImpl ?? fetch)(
     `${SLACK_API_BASE_URL}/views.open`,
     {
@@ -1028,7 +1022,6 @@ export async function openSlackModal(input: {
   assertSlackOk(response, data, "views.open");
   return readSlackModalIdentity(response, data, "views.open");
 }
-
 export async function updateSlackModal(input: {
   botToken: string;
   fetchImpl?: FetchLike;
@@ -1036,7 +1029,9 @@ export async function updateSlackModal(input: {
   signal?: AbortSignal;
   view: Record<string, unknown>;
   viewId: string;
-}): Promise<{ hash: string }> {
+}): Promise<{
+  hash: string;
+}> {
   const response = await (input.fetchImpl ?? fetch)(
     `${SLACK_API_BASE_URL}/views.update`,
     {
@@ -1056,12 +1051,14 @@ export async function updateSlackModal(input: {
     hash: readSlackModalIdentity(response, data, "views.update").hash,
   };
 }
-
 function readSlackModalIdentity(
   response: Response,
   data: SlackApiResponse,
   methodName: "views.open" | "views.update"
-): { hash: string; viewId: string } {
+): {
+  hash: string;
+  viewId: string;
+} {
   const viewId = normalizeOptionalText(data.view?.id);
   if (!viewId) {
     throw new SlackApiError({
@@ -1080,7 +1077,6 @@ function readSlackModalIdentity(
   }
   return { hash, viewId };
 }
-
 export async function setSlackThreadStatus(input: {
   botToken: string;
   channelId: string;
@@ -1110,7 +1106,6 @@ export async function setSlackThreadStatus(input: {
       { cause: error }
     );
   }
-
   let data: SlackApiResponse;
   try {
     data = await readSlackApiResponse(response);
@@ -1122,7 +1117,6 @@ export async function setSlackThreadStatus(input: {
   }
   assertSlackOk(response, data, "assistant.threads.setStatus");
 }
-
 export async function postSlackChannelMessageByName(input: {
   blocks?: readonly SlackBlockKitBlock[];
   botToken: string;
@@ -1154,7 +1148,6 @@ export async function postSlackChannelMessageByName(input: {
     ...publication,
   };
 }
-
 export async function resolveSlackChannelMessageTarget(input: {
   botToken: string;
   channelName: string;
@@ -1185,7 +1178,6 @@ export async function resolveSlackChannelMessageTarget(input: {
     isPrivate: channel.isPrivate,
   };
 }
-
 export async function resolveSlackConversationMessageTargetById(input: {
   botToken: string;
   conversationId: string;
@@ -1224,7 +1216,6 @@ export async function resolveSlackConversationMessageTargetById(input: {
     isPrivate: data.channel?.is_private === true || isDirectConversation,
   };
 }
-
 export async function postSlackChannelMessage(input: {
   blocks?: readonly SlackBlockKitBlock[];
   botToken: string;
@@ -1233,7 +1224,10 @@ export async function postSlackChannelMessage(input: {
   target: SlackChannelMessageTarget;
   text: string;
   threadTs?: string;
-}): Promise<{ joinedChannel: boolean; messageTs: string }> {
+}): Promise<{
+  joinedChannel: boolean;
+  messageTs: string;
+}> {
   let joinedChannel = false;
   if (!input.target.isMember) {
     if (input.target.isPrivate) {
@@ -1258,7 +1252,6 @@ export async function postSlackChannelMessage(input: {
     }
     joinedChannel = true;
   }
-
   const publication = await postSlackMessage({
     blocks: input.blocks,
     botToken: input.botToken,
@@ -1273,7 +1266,6 @@ export async function postSlackChannelMessage(input: {
     messageTs: publication.id,
   };
 }
-
 export async function postSlackFile(input: {
   botToken: string;
   bytes: Uint8Array;
@@ -1284,7 +1276,10 @@ export async function postSlackFile(input: {
   threadTs?: string;
   title?: string;
   fileName: string;
-}): Promise<{ fileId: string; joinedChannel: boolean }> {
+}): Promise<{
+  fileId: string;
+  joinedChannel: boolean;
+}> {
   if (
     input.bytes.byteLength < 1 ||
     input.bytes.byteLength > CENTER_AGENT_SLACK_FILE_MAX_SIZE_BYTES
@@ -1328,7 +1323,6 @@ export async function postSlackFile(input: {
       error
     );
   }
-
   try {
     const uploadBody = new ArrayBuffer(input.bytes.byteLength);
     new Uint8Array(uploadBody).set(input.bytes);
@@ -1347,7 +1341,6 @@ export async function postSlackFile(input: {
       error
     );
   }
-
   let completeResponse: Response;
   try {
     completeResponse = await fetchImpl(
@@ -1397,7 +1390,6 @@ export async function postSlackFile(input: {
   }
   return { fileId, joinedChannel };
 }
-
 async function postSlackMessage(input: {
   blocks?: readonly SlackBlockKitBlock[];
   botToken: string;
@@ -1411,7 +1403,9 @@ async function postSlackMessage(input: {
   signal?: AbortSignal;
   text: string;
   threadTs?: string;
-}): Promise<{ id: string }> {
+}): Promise<{
+  id: string;
+}> {
   try {
     return await postSlackMessageOnce(input);
   } catch (error) {
@@ -1424,7 +1418,6 @@ async function postSlackMessage(input: {
     throw error;
   }
 }
-
 async function postSlackMessageOnce(input: {
   blocks?: readonly SlackBlockKitBlock[];
   botToken: string;
@@ -1438,7 +1431,9 @@ async function postSlackMessageOnce(input: {
   signal?: AbortSignal;
   text: string;
   threadTs?: string;
-}): Promise<{ id: string }> {
+}): Promise<{
+  id: string;
+}> {
   let response: Response;
   try {
     response = await (input.fetchImpl ?? fetch)(
@@ -1467,7 +1462,6 @@ async function postSlackMessageOnce(input: {
   } catch (error) {
     throw createUnknownSlackPublicationError(toErrorMessage(error));
   }
-
   let data: SlackApiResponse;
   try {
     data = await readSlackApiResponse(response);
@@ -1497,7 +1491,6 @@ async function postSlackMessageOnce(input: {
   }
   throw createUnknownSlackPublicationError(`HTTP ${response.status}`);
 }
-
 function isSlackPresentationValidationError(
   error: unknown
 ): error is SlackMessagePublicationError {
@@ -1509,7 +1502,6 @@ function isSlackPresentationValidationError(
       error.errorCode === "msg_blocks_too_long")
   );
 }
-
 async function findSlackChannelByName(input: {
   botToken: string;
   channelName: string;
@@ -1574,7 +1566,6 @@ async function findSlackChannelByName(input: {
     `Slack conversations.list exceeded ${SLACK_CHANNEL_LIST_MAX_PAGES} pages while looking for #${input.channelName}`
   );
 }
-
 export async function joinSlackPublicChannel(input: {
   botToken: string;
   channelId: string;
@@ -1593,7 +1584,6 @@ export async function joinSlackPublicChannel(input: {
   const data = await readSlackApiResponse(response);
   assertSlackOk(response, data, "conversations.join");
 }
-
 export async function postSlackEphemeralMessage(input: {
   blocks?: readonly SlackBlockKitBlock[];
   botToken: string;
@@ -1603,7 +1593,9 @@ export async function postSlackEphemeralMessage(input: {
   text: string;
   threadTs?: string;
   userId: string;
-}): Promise<{ id: string | null }> {
+}): Promise<{
+  id: string | null;
+}> {
   try {
     return await postSlackEphemeralMessageOnce(input);
   } catch (error) {
@@ -1627,7 +1619,6 @@ export async function postSlackEphemeralMessage(input: {
     });
   }
 }
-
 async function postSlackEphemeralMessageOnce(input: {
   blocks?: readonly SlackBlockKitBlock[];
   botToken: string;
@@ -1637,7 +1628,9 @@ async function postSlackEphemeralMessageOnce(input: {
   text: string;
   threadTs?: string;
   userId: string;
-}): Promise<{ id: string | null }> {
+}): Promise<{
+  id: string | null;
+}> {
   const response = await (input.fetchImpl ?? fetch)(
     `${SLACK_API_BASE_URL}/chat.postEphemeral`,
     {
@@ -1657,7 +1650,6 @@ async function postSlackEphemeralMessageOnce(input: {
   assertSlackOk(response, data, "chat.postEphemeral");
   return { id: normalizeOptionalText(data.message_ts ?? data.ts) };
 }
-
 export async function readSlackUserIdentity(input: {
   botToken: string;
   fetchImpl?: FetchLike;
@@ -1698,7 +1690,6 @@ export async function readSlackUserIdentity(input: {
     teamId: normalizeOptionalText(data.user?.team_id),
   };
 }
-
 export function isSlackFullWorkspaceMember(input: {
   identity: SlackUserIdentity;
   slackTeamId: string;
@@ -1711,7 +1702,6 @@ export function isSlackFullWorkspaceMember(input: {
     input.identity.teamId === input.slackTeamId
   );
 }
-
 export type SlackConversationInfo = {
   channelName: string | null;
   interactionEnvironment:
@@ -1719,7 +1709,6 @@ export type SlackConversationInfo = {
     | "organization_shared"
     | "requester_private";
 };
-
 export async function readSlackConversationInfo(input: {
   botToken: string;
   channelId: string;
@@ -1742,7 +1731,6 @@ export async function readSlackConversationInfo(input: {
     interactionEnvironment: resolveSlackInteractionEnvironment(data.channel),
   };
 }
-
 function resolveSlackInteractionEnvironment(
   channel: SlackApiResponse["channel"]
 ): SlackConversationInfo["interactionEnvironment"] {
@@ -1760,7 +1748,6 @@ function resolveSlackInteractionEnvironment(
   }
   return "organization_shared";
 }
-
 export async function readSlackUserEmail(input: {
   botToken: string;
   fetchImpl?: FetchLike;
@@ -1774,7 +1761,6 @@ export async function readSlackUserEmail(input: {
     })
   ).email;
 }
-
 function toSlackThreadMessages(
   messages: SlackApiResponse["messages"]
 ): SlackThreadMessage[] {
@@ -1819,7 +1805,6 @@ function toSlackThreadMessages(
     ];
   });
 }
-
 // Slack attachment text/fallback are documented provider content, never a new
 // request. Preserve their provenance; unknown rich structures stay incomplete.
 function normalizeSlackRichContent(
@@ -1851,7 +1836,6 @@ function normalizeSlackRichContent(
   // blocks, and provider-specific previews. Do not call this a complete copy.
   return { richContent: { text, incomplete: true } };
 }
-
 function buildSlackMessageHistoryObservation(
   messages: NonNullable<SlackApiResponse["messages"]>,
   messageTs: string
@@ -1873,14 +1857,12 @@ function buildSlackMessageHistoryObservation(
     })),
   };
 }
-
 function buildSlackHeaders(botToken: string): HeadersInit {
   return {
     authorization: `Bearer ${botToken}`,
     "content-type": "application/json; charset=utf-8",
   };
 }
-
 async function readSlackApiResponse(
   response: Response
 ): Promise<SlackApiResponse> {
@@ -1894,7 +1876,6 @@ async function readSlackApiResponse(
     throw new Error("Slack API returned invalid JSON");
   }
 }
-
 function assertSlackOk(
   response: Response,
   data: SlackApiResponse,
@@ -1913,7 +1894,6 @@ function assertSlackOk(
     status: response.status,
   });
 }
-
 function parseRetryAfterSeconds(value: string | null): number | null {
   if (!value) {
     return null;
@@ -1921,12 +1901,10 @@ function parseRetryAfterSeconds(value: string | null): number | null {
   const seconds = Number.parseInt(value, 10);
   return Number.isInteger(seconds) && seconds >= 0 ? seconds : null;
 }
-
 function normalizeOptionalText(value: unknown): string | null {
   const normalized = String(value ?? "").trim();
   return normalized.length > 0 ? normalized : null;
 }
-
 function normalizeSlackSearchContent(value: unknown): string | null {
   const normalized = normalizeOptionalText(value);
   if (
@@ -1944,7 +1922,6 @@ function normalizeSlackSearchContent(value: unknown): string | null {
     : body;
   return `${safeBody}…`;
 }
-
 function normalizeSlackPermalink(value: unknown): string | null {
   const normalized = normalizeOptionalText(value);
   if (!normalized) {
@@ -1953,7 +1930,6 @@ function normalizeSlackPermalink(value: unknown): string | null {
   const parsed = slackMessagePermalinkSchema.safeParse(normalized);
   return parsed.success ? parsed.data : null;
 }
-
 function normalizeSlackChannelName(value: string): string {
   const normalized = value
     .trim()
@@ -1964,14 +1940,12 @@ function normalizeSlackChannelName(value: string): string {
   }
   return normalized;
 }
-
 function normalizeSlackConversationId(value: string): string | null {
   const normalized = value
     .trim()
     .replace(SLACK_CHANNEL_NAME_PREFIX_PATTERN, "");
   return SLACK_CONVERSATION_ID_PATTERN.test(normalized) ? normalized : null;
 }
-
 async function ensureSlackChannelJoinedForPublication(input: {
   botToken: string;
   fetchImpl?: FetchLike;
@@ -2004,7 +1978,6 @@ async function ensureSlackChannelJoinedForPublication(input: {
   }
   return true;
 }
-
 function requireSlackFileMetadata(
   file: SlackApiFile | null | undefined
 ): SlackFileMetadata {
@@ -2025,7 +1998,6 @@ function requireSlackFileMetadata(
         : null,
   };
 }
-
 function requireSlackPrivateFileDownloadUrl(
   file: SlackApiFile | null | undefined
 ): string {
@@ -2035,7 +2007,6 @@ function requireSlackPrivateFileDownloadUrl(
   );
   return url.toString();
 }
-
 function slackFileIsSharedInChannel(
   file: SlackApiFile | null | undefined,
   expectedChannelId: string
@@ -2051,14 +2022,12 @@ function slackFileIsSharedInChannel(
     (conversationIds) => conversationIds?.includes(expectedChannelId) === true
   );
 }
-
 function requireSlackUploadUrl(value: unknown): string {
   return requireSlackOwnedHttpsUrl(
     value,
     "Slack files.getUploadURLExternal returned no safe upload URL."
   ).toString();
 }
-
 function requireSlackOwnedHttpsUrl(value: unknown, errorMessage: string): URL {
   const normalized = normalizeOptionalText(value);
   if (!normalized) {
@@ -2080,7 +2049,6 @@ function requireSlackOwnedHttpsUrl(value: unknown, errorMessage: string): URL {
   }
   return url;
 }
-
 function normalizeHttpsUrl(value: unknown): string | null {
   const normalized = normalizeOptionalText(value);
   if (!normalized) {
@@ -2095,7 +2063,6 @@ function normalizeHttpsUrl(value: unknown): string | null {
     return null;
   }
 }
-
 function requireSlackFileId(value: unknown): string {
   const fileId = normalizeOptionalText(value);
   if (!fileId) {
@@ -2105,7 +2072,6 @@ function requireSlackFileId(value: unknown): string {
   }
   return fileId;
 }
-
 async function readBoundedResponseBytes(
   response: Response,
   maxBytes: number
@@ -2140,7 +2106,6 @@ async function readBoundedResponseBytes(
   }
   return bytes;
 }
-
 function createNotPublishedSlackFileError(
   message: string,
   error: unknown
@@ -2156,7 +2121,6 @@ function createNotPublishedSlackFileError(
     publicationOutcome: "not_published",
   });
 }
-
 function createUnknownSlackPublicationError(
   detail: string
 ): SlackMessagePublicationError {
@@ -2165,7 +2129,6 @@ function createUnknownSlackPublicationError(
     publicationOutcome: "unknown",
   });
 }
-
 function createUnknownSlackFilePublicationError(
   detail: string
 ): SlackMessagePublicationError {
@@ -2174,7 +2137,6 @@ function createUnknownSlackFilePublicationError(
     publicationOutcome: "unknown",
   });
 }
-
 function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }

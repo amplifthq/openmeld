@@ -8,11 +8,8 @@ import { describe, expect, it } from "vitest";
 import {
   readRuntimeRegistryRecord,
   registerRuntimeRegistryRecord,
-} from "../src/runtime-registry/infrastructure/d1/runtime-registry-repo";
-import {
-  applyDrizzleMigrationForTable,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+} from "../src/runtime-registry/infrastructure/postgresql/runtime-registry-repo";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 const lookupInput = (input?: {
   deviceId?: string;
@@ -40,11 +37,8 @@ const openMeldServiceRuntimeId = (
 
 describe("runtime registry repo write-side", () => {
   it("creates and reads one authoritative Runtime Registry openMeldServiceRuntimeId", async () => {
-    const harness = createSqliteD1Harness();
-    applyDrizzleMigrationForTable(
-      harness,
-      "openMeldDaemon_runtime_registry_records"
-    );
+    const harness = await createPostgresHarness();
+
     try {
       const runtimeLookupInput = lookupInput();
       const created = await registerRuntimeRegistryRecord({
@@ -79,16 +73,13 @@ describe("runtime registry repo write-side", () => {
         ),
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("reuses the existing openMeldServiceRuntimeId for duplicate registration and retry", async () => {
-    const harness = createSqliteD1Harness();
-    applyDrizzleMigrationForTable(
-      harness,
-      "openMeldDaemon_runtime_registry_records"
-    );
+    const harness = await createPostgresHarness();
+
     try {
       const runtimeLookupInput = lookupInput();
       await registerRuntimeRegistryRecord({
@@ -123,16 +114,16 @@ describe("runtime registry repo write-side", () => {
         ),
       });
       expect(
-        harness.queryAll<{
+        await harness.queryAll<{
           openmeld_service_runtime_id: string;
           last_registered_at_ms: number;
         }>({
-          sql: `
+          text: `
               SELECT openmeld_service_runtime_id, last_registered_at_ms
-              FROM openMeldDaemon_runtime_registry_records
-              WHERE owner_kind = ? AND owner_id = ? AND device_id = ? AND lane = ?
+              FROM "openmeld"."openMeldDaemon_runtime_registry_records"
+              WHERE owner_kind = $1 AND owner_id = $2 AND device_id = $3 AND lane = $4
             `,
-          params: ["owner_account", "owner-1", "device-1", "openmeld-dev"],
+          values: ["owner_account", "owner-1", "device-1", "openmeld-dev"],
         })
       ).toEqual([
         {
@@ -141,16 +132,13 @@ describe("runtime registry repo write-side", () => {
         },
       ]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("keeps lane, owner, and device identity isolated", async () => {
-    const harness = createSqliteD1Harness();
-    applyDrizzleMigrationForTable(
-      harness,
-      "openMeldDaemon_runtime_registry_records"
-    );
+    const harness = await createPostgresHarness();
+
     try {
       const baseLookup = lookupInput();
       const otherLaneLookup = lookupInput({ lane: "openmeld-canary" });
@@ -177,10 +165,10 @@ describe("runtime registry repo write-side", () => {
       }
 
       expect(
-        harness.queryAll<{ openmeld_service_runtime_id: string }>({
-          sql: `
+        await harness.queryAll<{ openmeld_service_runtime_id: string }>({
+          text: `
             SELECT openmeld_service_runtime_id
-            FROM openMeldDaemon_runtime_registry_records
+            FROM "openmeld"."openMeldDaemon_runtime_registry_records"
             ORDER BY openmeld_service_runtime_id
           `,
         })
@@ -191,16 +179,13 @@ describe("runtime registry repo write-side", () => {
         { openmeld_service_runtime_id: "runtime_other_owner" },
       ]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("converges concurrent duplicate registration to one openMeldServiceRuntimeId", async () => {
-    const harness = createSqliteD1Harness();
-    applyDrizzleMigrationForTable(
-      harness,
-      "openMeldDaemon_runtime_registry_records"
-    );
+    const harness = await createPostgresHarness();
+
     try {
       const runtimeLookupInput = lookupInput();
       const results = await Promise.all([
@@ -234,8 +219,10 @@ describe("runtime registry repo write-side", () => {
           : result.status
       );
       expect(new Set(values).size).toBe(1);
-      const rows = harness.queryAll<{ openmeld_service_runtime_id: string }>({
-        sql: "SELECT openmeld_service_runtime_id FROM openMeldDaemon_runtime_registry_records",
+      const rows = await harness.queryAll<{
+        openmeld_service_runtime_id: string;
+      }>({
+        text: 'SELECT openmeld_service_runtime_id FROM "openmeld"."openMeldDaemon_runtime_registry_records"',
       });
       expect(rows).toHaveLength(1);
       expect(rows[0]?.openmeld_service_runtime_id).toBe(values[0]);
@@ -244,16 +231,13 @@ describe("runtime registry repo write-side", () => {
         "reused",
       ]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("reports a conflict when an opaque openMeldServiceRuntimeId collides with another identity", async () => {
-    const harness = createSqliteD1Harness();
-    applyDrizzleMigrationForTable(
-      harness,
-      "openMeldDaemon_runtime_registry_records"
-    );
+    const harness = await createPostgresHarness();
+
     try {
       const firstLookup = lookupInput();
       const secondLookup = lookupInput({ lane: "openmeld-canary" });
@@ -286,29 +270,26 @@ describe("runtime registry repo write-side", () => {
         reason: "openmeld_service_runtime_id_collision",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("blocks forgotten owner-account devices without creating Runtime Registry truth", async () => {
-    const harness = createSqliteD1Harness();
-    applyDrizzleMigrationForTable(
-      harness,
-      "openMeldDaemon_runtime_registry_records"
-    );
+    const harness = await createPostgresHarness();
+
     try {
       const runtimeLookupInput = lookupInput();
-      harness.run({
-        sql: `
-          INSERT INTO openMeldDaemon_forgotten_devices (
+      await harness.query({
+        text: `
+          INSERT INTO "openmeld"."openMeldDaemon_forgotten_devices" (
             owner_user_id,
             device_id,
             forgotten_at_ms,
             updated_at_ms
           )
-          VALUES (?, ?, ?, ?)
+          VALUES ($1, $2, $3, $4)
         `,
-        params: ["owner-1", "device-1", 100, 100],
+        values: ["owner-1", "device-1", 100, 100],
       });
 
       await expect(
@@ -328,21 +309,18 @@ describe("runtime registry repo write-side", () => {
         reason: "device_forgotten",
       });
       expect(
-        harness.queryAll<{ openmeld_service_runtime_id: string }>({
-          sql: "SELECT openmeld_service_runtime_id FROM openMeldDaemon_runtime_registry_records",
+        await harness.queryAll<{ openmeld_service_runtime_id: string }>({
+          text: 'SELECT openmeld_service_runtime_id FROM "openmeld"."openMeldDaemon_runtime_registry_records"',
         })
       ).toEqual([]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("does not refresh an existing Runtime Registry row after the device is forgotten", async () => {
-    const harness = createSqliteD1Harness();
-    applyDrizzleMigrationForTable(
-      harness,
-      "openMeldDaemon_runtime_registry_records"
-    );
+    const harness = await createPostgresHarness();
+
     try {
       const runtimeLookupInput = lookupInput();
       await registerRuntimeRegistryRecord({
@@ -356,17 +334,17 @@ describe("runtime registry repo write-side", () => {
           runtimeLookupInput,
         },
       });
-      harness.run({
-        sql: `
-          INSERT INTO openMeldDaemon_forgotten_devices (
+      await harness.query({
+        text: `
+          INSERT INTO "openmeld"."openMeldDaemon_forgotten_devices" (
             owner_user_id,
             device_id,
             forgotten_at_ms,
             updated_at_ms
           )
-          VALUES (?, ?, ?, ?)
+          VALUES ($1, $2, $3, $4)
         `,
-        params: ["owner-1", "device-1", 150, 150],
+        values: ["owner-1", "device-1", 150, 150],
       });
 
       await expect(
@@ -386,14 +364,14 @@ describe("runtime registry repo write-side", () => {
         reason: "device_forgotten",
       });
       expect(
-        harness.queryAll<{
+        await harness.queryAll<{
           last_registered_at_ms: number;
           openmeld_service_runtime_id: string;
           updated_at_ms: number;
         }>({
-          sql: `
+          text: `
             SELECT openmeld_service_runtime_id, last_registered_at_ms, updated_at_ms
-            FROM openMeldDaemon_runtime_registry_records
+            FROM "openmeld"."openMeldDaemon_runtime_registry_records"
           `,
         })
       ).toEqual([
@@ -404,21 +382,18 @@ describe("runtime registry repo write-side", () => {
         },
       ]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("rejects stored lookup-derived openMeldServiceRuntimeId values during lookup", async () => {
-    const harness = createSqliteD1Harness();
-    applyDrizzleMigrationForTable(
-      harness,
-      "openMeldDaemon_runtime_registry_records"
-    );
+    const harness = await createPostgresHarness();
+
     try {
       const runtimeLookupInput = lookupInput();
-      harness.run({
-        sql: `
-          INSERT INTO openMeldDaemon_runtime_registry_records (
+      await harness.query({
+        text: `
+          INSERT INTO "openmeld"."openMeldDaemon_runtime_registry_records" (
             openmeld_service_runtime_id,
             owner_kind,
             owner_id,
@@ -428,9 +403,9 @@ describe("runtime registry repo write-side", () => {
             last_registered_at_ms,
             updated_at_ms
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         `,
-        params: [
+        values: [
           "owner_account:owner-1:device-1:openmeld-dev",
           "owner_account",
           "owner-1",
@@ -452,7 +427,7 @@ describe("runtime registry repo write-side", () => {
         reason: "openmeld_service_runtime_id_not_opaque",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });

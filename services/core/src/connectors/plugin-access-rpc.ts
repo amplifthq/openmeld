@@ -1,4 +1,5 @@
 import { memberRoleHasOrganizationPermission } from "@openmeld/auth/organization-policy";
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import {
   pluginAccessListRpcInputSchema,
   pluginAccessUpdateRpcInputSchema,
@@ -7,7 +8,7 @@ import type {
   PluginAccessListRpcInput,
   PluginAccessUpdateRpcInput,
 } from "@openmeld/schemas/types";
-import { type CoreBindings, identityDb } from "../lib/bindings";
+import type { CoreBindings } from "../lib/bindings";
 import { requireExpectedOrganizationContext } from "../organizations/expected-organization-context";
 import { resolveActiveOrganizationMembership } from "../organizations/organization-context";
 import { createCoreRpcHttpError } from "../rpc/errors";
@@ -120,7 +121,7 @@ async function prepareRequest(
     expectedOrganizationId: request.expectedOrganizationId,
     errorCode: "connector.organization_context_changed",
   });
-  const db = identityDb(env);
+  const db = getPostgresDatabase(env);
   if (!db) {
     throw createCoreRpcHttpError({
       code: "plugin.state_unavailable",

@@ -107,7 +107,7 @@ The main provider-specific seams that still require generalization are:
 - `services/core/src/remote-agent/application/native-delivery-service.ts`,
   which branches directly on the Slack conversation kind and publication
   surface;
-- `services/core/src/remote-agent/infrastructure/d1/native-delivery-ledger-repo.ts`,
+- `services/core/src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo.ts`,
   whose locator projection includes Slack-specific columns;
 - `clients/web/src/components/organizations/organization-message-channels-page.tsx`,
   whose current user experience is effectively a Slack connection surface.

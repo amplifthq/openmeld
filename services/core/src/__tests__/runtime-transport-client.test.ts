@@ -6,6 +6,7 @@ import {
 } from "@openmeld/schemas";
 import type { OpenMeldDaemonDispatchQueueMessage } from "@openmeld/schemas/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createProjectionPostgresBinding } from "../../test-support/postgresql-query.test-support";
 import {
   acceptRuntimeTransportRuntimeCoordinatorHead,
   buildRuntimeTransportDeliverDispatchRequest,
@@ -38,8 +39,6 @@ import { createSpaceBootstrapTimingCollector } from "../space/application/space-
 type RuntimeTransportStub = {
   fetch: ReturnType<typeof vi.fn>;
 };
-
-type D1DatabaseMock = Pick<D1Database, "prepare">;
 
 const createDeliverDispatchPayload = () => ({
   attemptId: "attempt-1",
@@ -136,34 +135,28 @@ const createEnv = (input?: {
     idFromName: vi.fn().mockReturnValue("owner-shard"),
     get: vi.fn().mockReturnValue(stub),
   };
-  const db: D1DatabaseMock = {
-    prepare: vi.fn(() => {
-      if (input?.forgottenReadError) {
-        throw input.forgottenReadError;
-      }
-      return {
-        bind: vi.fn(() => ({
-          first: vi.fn(async () =>
-            input?.forgottenDeviceId
-              ? {
-                  owner_user_id: "owner",
-                  device_id: input.forgottenDeviceId,
-                  forgotten_at_ms: 1,
-                  updated_at_ms: 1,
-                }
-              : null
-          ),
-        })),
-      } as unknown as D1PreparedStatement;
-    }),
-  };
+  const binding = createProjectionPostgresBinding(() => {
+    if (input?.forgottenReadError) {
+      throw input.forgottenReadError;
+    }
+    return input?.forgottenDeviceId
+      ? [
+          {
+            owner_user_id: "owner",
+            device_id: input.forgottenDeviceId,
+            forgotten_at_ms: 1,
+            updated_at_ms: 1,
+          },
+        ]
+      : [];
+  });
 
   return {
     env: {
       ...(input?.omitTransport
         ? {}
         : { OPENMELD_RUNTIME_TRANSPORT: namespace }),
-      ...(input?.omitDb ? {} : { OPENMELD_DB: db }),
+      ...(input?.omitDb ? {} : { OPENMELD_POSTGRESQL: binding }),
     } as unknown as CoreBindings,
     stub,
   };
@@ -1042,7 +1035,7 @@ describe("runtime transport split clients call fallback behavior", () => {
     warnSpy.mockRestore();
   });
 
-  it("keeps owner-service sessions when no local state DB is bound", async () => {
+  it("rejects an environment without the required PostgreSQL owner", async () => {
     const { env, stub } = createEnv({ omitDb: true });
     const ownerServiceResponse = {
       online: true as const,
@@ -1068,7 +1061,7 @@ describe("runtime transport split clients call fallback behavior", () => {
         env,
         ownerUserId: "owner",
       })
-    ).resolves.toEqual(ownerServiceResponse);
+    ).rejects.toThrow("OPENMELD_POSTGRESQL Hyperdrive binding is required");
   });
 
   it("propagates a missing transport binding from the owner-service lookup", async () => {

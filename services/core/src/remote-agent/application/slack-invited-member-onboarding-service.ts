@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import type { CenterAgentMemberResearchReport } from "@openmeld/schemas";
 import type { CoreBindings } from "../../lib/bindings";
 import { resolveOrganizationDirectoryMembers } from "../../organizations/organization-directory";
@@ -7,7 +8,7 @@ import {
   readSlackInvitedMemberWelcomeDelivery,
   type SlackInvitedMemberWelcomeDelivery,
   type SlackInvitedMemberWelcomeDeliveryKey,
-} from "../infrastructure/d1/slack-invited-member-welcome-delivery-repo";
+} from "../infrastructure/postgresql/slack-invited-member-welcome-delivery-repo";
 import {
   attachSlackInvitedMemberResearchTask,
   claimJoinedSlackInvitedMembers,
@@ -17,7 +18,7 @@ import {
   listActiveSlackInvitedMemberOnboardings,
   listPendingSlackTeammateInvitationDeliveries,
   type SlackInvitedMemberOnboarding,
-} from "../infrastructure/d1/slack-teammate-invitation-delivery-repo";
+} from "../infrastructure/postgresql/slack-teammate-invitation-delivery-repo";
 import { resolveSlackBotToken } from "./slack-bot-token";
 import {
   findSlackTopLevelMessageByMetadata,
@@ -42,40 +43,41 @@ import {
 } from "./slack-onboarding-publication-identity";
 
 const STALE_TEAMMATE_INVITATION_CHECKPOINT_MS = 5 * 60_000;
-
 export async function runSlackInvitedMemberOnboardingTick(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   nowMs: number;
-  startResearch: (
-    onboarding: SlackInvitedMemberOnboarding
-  ) => Promise<{ taskId: string }>;
+  startResearch: (onboarding: SlackInvitedMemberOnboarding) => Promise<{
+    taskId: string;
+  }>;
 }): Promise<void> {
   await reconcilePendingSlackTeammateInvitationDeliveries(input);
-  const waiting = await input.db
-    .prepare(
-      `
+  const waiting = await input.db.query<{
+    organization_id: string;
+  }>({
+    text: `
         SELECT DISTINCT organization_id
-        FROM slack_teammate_invitation_deliveries
+        FROM "openmeld"."slack_teammate_invitation_deliveries"
         WHERE status = 'delivered'
           AND onboarding_status = 'waiting_for_join'
         LIMIT 10
-      `
-    )
-    .all<{ organization_id: string }>();
-  for (const row of waiting.results) {
+      `,
+    values: [],
+  });
+  for (const row of waiting.rows) {
     await claimJoinedMembersForOrganization({
       ...input,
       organizationId: row.organization_id,
     });
   }
-
   const active = await listActiveSlackInvitedMemberOnboardings({
     db: input.db,
   });
   for (const onboarding of active) {
     if (!onboarding.researchTaskId) {
-      let research: { taskId: string };
+      let research: {
+        taskId: string;
+      };
       try {
         research = await input.startResearch(onboarding);
       } catch (error) {
@@ -125,9 +127,8 @@ export async function runSlackInvitedMemberOnboardingTick(input: {
     }
   }
 }
-
 async function reconcilePendingSlackTeammateInvitationDeliveries(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   nowMs: number;
 }): Promise<void> {
@@ -174,37 +175,34 @@ async function reconcilePendingSlackTeammateInvitationDeliveries(input: {
     }
   }
 }
-
 async function claimJoinedMembersForOrganization(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   nowMs: number;
   organizationId: string;
 }): Promise<void> {
   const [invitations, members] = await Promise.all([
-    input.db
-      .prepare(
-        `
+    input.db.query<{
+      interaction_id: string;
+      openmeld_user_id: string;
+      target_slack_user_id: string;
+    }>({
+      text: `
           SELECT
             invitation.interaction_id,
             invitation.target_slack_user_id,
             identity_link.openmeld_user_id
-          FROM slack_teammate_invitation_deliveries AS invitation
-          INNER JOIN slack_user_identity_links AS identity_link
+          FROM "openmeld"."slack_teammate_invitation_deliveries" AS invitation
+          INNER JOIN "openmeld"."slack_user_identity_links" AS identity_link
             ON identity_link.organization_id = invitation.organization_id
             AND identity_link.slack_team_id = invitation.slack_team_id
             AND identity_link.slack_user_id = invitation.target_slack_user_id
-          WHERE invitation.organization_id = ?
+          WHERE invitation.organization_id = $1
             AND invitation.status = 'delivered'
             AND invitation.onboarding_status = 'waiting_for_join'
-        `
-      )
-      .bind(input.organizationId)
-      .all<{
-        interaction_id: string;
-        openmeld_user_id: string;
-        target_slack_user_id: string;
-      }>(),
+        `,
+      values: [input.organizationId],
+    }),
     resolveOrganizationDirectoryMembers({
       authWorker: input.env.OPENMELD_AUTH_WORKER,
       organizationId: input.organizationId,
@@ -213,7 +211,7 @@ async function claimJoinedMembersForOrganization(input: {
   const memberByUserId = new Map(
     members.map((member) => [member.userId, member] as const)
   );
-  const candidates = invitations.results.flatMap((invitation) => {
+  const candidates = invitations.rows.flatMap((invitation) => {
     const member = memberByUserId.get(invitation.openmeld_user_id);
     const profile = member?.humanProfile;
     return member && profile?.status === "active"
@@ -233,9 +231,8 @@ async function claimJoinedMembersForOrganization(input: {
     nowMs: input.nowMs,
   });
 }
-
 async function advanceResearchingOnboarding(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   nowMs: number;
   onboarding: SlackInvitedMemberOnboarding;
@@ -245,16 +242,16 @@ async function advanceResearchingOnboarding(input: {
     return;
   }
   const task = await input.db
-    .prepare(
-      "SELECT status, failure_code, observed_language_tag, report_result FROM center_agent_member_research_tasks WHERE id = ? LIMIT 1"
-    )
-    .bind(taskId)
-    .first<{
+    .query<{
       failure_code: string | null;
       observed_language_tag: string | null;
       report_result: CenterAgentMemberResearchReport["result"] | null;
       status: string;
-    }>();
+    }>({
+      text: 'SELECT status, failure_code, observed_language_tag, report_result FROM "openmeld"."center_agent_member_research_tasks" WHERE id = $1 LIMIT 1',
+      values: [taskId],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!task) {
     await failOnboarding({
       ...input,
@@ -283,27 +280,30 @@ async function advanceResearchingOnboarding(input: {
     return;
   }
   const report = await input.db
-    .prepare(
-      `
+    .query<{
+      document_id: string;
+      report_content: string;
+    }>({
+      text: `
         SELECT
           documents.id AS document_id,
           COALESCE(documents.draft_content, documents.content) AS report_content
-        FROM center_agent_member_research_computer_files AS files
-        INNER JOIN organization_documents AS documents
+        FROM "openmeld"."center_agent_member_research_computer_files" AS files
+        INNER JOIN "openmeld"."organization_documents" AS documents
           ON documents.id = files.document_id
          AND documents.last_member_research_task_id = files.task_id
-        WHERE files.task_id = ?
-          AND files.subject_user_id = ?
-          AND documents.organization_id = ?
+        WHERE files.task_id = $1
+          AND files.subject_user_id = $2
+          AND documents.organization_id = $3
         LIMIT 1
-      `
-    )
-    .bind(
-      taskId,
-      input.onboarding.joinedUserId,
-      input.onboarding.organizationId
-    )
-    .first<{ document_id: string; report_content: string }>();
+      `,
+      values: [
+        taskId,
+        input.onboarding.joinedUserId,
+        input.onboarding.organizationId,
+      ],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!report) {
     await failOnboarding({
       ...input,
@@ -313,9 +313,14 @@ async function advanceResearchingOnboarding(input: {
     return;
   }
   const organization = await input.db
-    .prepare("SELECT name, slug FROM organizations WHERE id = ? LIMIT 1")
-    .bind(input.onboarding.organizationId)
-    .first<{ name: string; slug: string }>();
+    .query<{
+      name: string;
+      slug: string;
+    }>({
+      text: 'SELECT name, slug FROM "openmeld"."organizations" WHERE id = $1 LIMIT 1',
+      values: [input.onboarding.organizationId],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!organization) {
     throw new Error("Invited member Organization is unavailable.");
   }
@@ -380,9 +385,8 @@ async function advanceResearchingOnboarding(input: {
     });
   }
 }
-
 async function deliverJoinedMemberWelcome(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   key: SlackInvitedMemberWelcomeDeliveryKey;
   nowMs: number;
   publish: () => Promise<string>;
@@ -403,7 +407,6 @@ async function deliverJoinedMemberWelcome(input: {
     }
     return existing;
   }
-
   let messageTs: string;
   try {
     messageTs = await input.publish();
@@ -429,7 +432,6 @@ async function deliverJoinedMemberWelcome(input: {
       status: outcomeUnknown ? "outcome_unknown" : "failed",
     };
   }
-
   await completeSlackInvitedMemberWelcomeDelivery({
     claim,
     db: input.db,
@@ -440,7 +442,6 @@ async function deliverJoinedMemberWelcome(input: {
   });
   return { failureCode: null, messageTs, status: "delivered" };
 }
-
 export function buildJoinedMemberWelcomeMessage(input: {
   hasUsefulEvidence: boolean;
   languageTag?: string | null;
@@ -450,7 +451,6 @@ export function buildJoinedMemberWelcomeMessage(input: {
 }): string {
   return buildLocalizedJoinedMemberWelcomeMessage(input);
 }
-
 export function buildJoinedMemberWelcomeBlocks(input: {
   documentId: string;
   languageTag?: string | null;
@@ -493,9 +493,8 @@ export function buildJoinedMemberWelcomeBlocks(input: {
     },
   ];
 }
-
 async function failOnboarding(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   error?: unknown;
   failureCode: string;
@@ -531,25 +530,26 @@ async function failOnboarding(input: {
     targetSlackUserId: input.onboarding.targetSlackUserId,
   });
 }
-
 async function deliverResearchUnavailableWelcome(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   nowMs: number;
   onboarding: SlackInvitedMemberOnboarding;
 }): Promise<void> {
   const organization = await input.db
-    .prepare(
-      `
+    .query<{
+      name: string;
+    }>({
+      text: `
         SELECT
           organizations.name
-        FROM organizations
-        WHERE organizations.id = ?
+        FROM "openmeld"."organizations"
+        WHERE organizations.id = $1
         LIMIT 1
-      `
-    )
-    .bind(input.onboarding.organizationId)
-    .first<{ name: string }>();
+      `,
+      values: [input.onboarding.organizationId],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!organization) {
     throw new Error("Invited member Organization is unavailable.");
   }

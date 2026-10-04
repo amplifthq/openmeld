@@ -2,7 +2,7 @@ import {
   remoteAgentAdmissionAttemptEvidenceSchema,
   remoteAgentTaskContinuationEvidenceSchema,
 } from "@openmeld/schemas";
-import type { RemoteAgentNativeDeliveryRecord } from "../infrastructure/d1/native-delivery-ledger-repo";
+import type { RemoteAgentNativeDeliveryRecord } from "../infrastructure/postgresql/native-delivery-ledger-repo";
 
 type AdmissionEvidence = ReturnType<
   typeof remoteAgentAdmissionAttemptEvidenceSchema.parse

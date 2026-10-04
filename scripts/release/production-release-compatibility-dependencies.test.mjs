@@ -130,40 +130,147 @@ for (const fault of ["source_drift", "missing_history", "unknown_baseline"]) {
   });
 }
 
-test("does not hide the Core metering receiver behind Remote request receiver order", () => {
-  const paths = [
-    ...REMOTE_AI_USAGE,
-    "services/remote-agent/.flue/cloudflare.ts",
-  ];
-  const edges = resolveProductionCompatibilityDependencies(paths);
-  assert.ok(
-    edges.some(
-      ([receiver, producer]) =>
-        receiver === "core" && producer === "remote-agent"
-    )
-  );
-  assert.ok(
-    edges.some(
-      ([receiver, producer]) =>
-        receiver === "remote-agent" && producer === "core"
-    )
-  );
-  assert.throws(
-    () =>
-      buildProductionReleasePlan({
-        changedPaths: paths,
-        sourceSha: "a".repeat(40),
-        scope: "core,remote-agent",
-      }),
-    CONTRACT_CYCLE
-  );
+test("does not invent a protocol cycle from Core receiver and persistence edits", () => {
+  const plan = buildProductionReleasePlan({
+    changedPaths: [
+      "services/core/src/usage/ai-usage-rpc.ts",
+      "services/core/src/center-agent/center-agent-context-manifest-repository.ts",
+    ],
+    sourceSha: "a".repeat(40),
+    scope: "core,remote-agent",
+  });
+  assert.deepEqual(plan.compatibilityDependencies, []);
+  assert.equal(plan.deployScopeOrder.length, 2);
+  for (const signal of plan.compatibilityPathSignals) {
+    assert.deepEqual(signal.matchedPaths, []);
+    assert.equal(signal.nonTriggerPaths.length, 1);
+  }
 });
+
+for (const receiverPath of [
+  "services/remote-agent/.flue/cloudflare.ts",
+  "services/core/src/center-agent/application/center-agent-context-manifest-service.ts",
+]) {
+  test(`does not hide the Core metering receiver behind ${receiverPath}`, () => {
+    const paths = [...REMOTE_AI_USAGE, receiverPath];
+    const edges = resolveProductionCompatibilityDependencies(paths);
+    assert.ok(
+      edges.some(
+        ([receiver, producer]) =>
+          receiver === "core" && producer === "remote-agent"
+      )
+    );
+    assert.ok(
+      edges.some(
+        ([receiver, producer]) =>
+          receiver === "remote-agent" && producer === "core"
+      )
+    );
+    assert.throws(
+      () =>
+        buildProductionReleasePlan({
+          changedPaths: paths,
+          sourceSha: "a".repeat(40),
+          scope: "core,remote-agent",
+        }),
+      CONTRACT_CYCLE
+    );
+  });
+}
 const INBOX_OBSERVATIONS = [
   "packages/schemas/src/schemas/http/inbox.ts",
   "services/core/src/inbox/application/inbox-notification-observations.ts",
   "services/gateway/src/routes/rpc-http.inbox.ts",
   "clients/web/src/lib/inbox/notification-observer.ts",
 ];
+
+test("keeps Inbox readers before a new target writer during a storage migration", () => {
+  const plan = buildProductionReleasePlan({
+    changedPaths: [
+      "packages/schemas/src/schemas/http/inbox.ts",
+      "services/core/src/inbox/application/inbox-notification-observations.ts",
+      "services/core/src/remote-agent/application/native-delivery-service.ts",
+      "services/gateway/src/routes/rpc-http.inbox.ts",
+      "clients/web/src/components/inbox/inbox-page.tsx",
+    ],
+    sourceSha: "a".repeat(40),
+    scope: "web,gateway,core,cli",
+  });
+  assert.deepEqual(plan.deployScopeOrder, ["web", "gateway", "core", "cli"]);
+  assert.deepEqual(plan.compatibilityDependencies, [
+    ["web", "core"],
+    ["gateway", "core"],
+  ]);
+});
+
+for (const remoteReceiver of [false, true]) {
+  test(`preserves the published CLI during an Inbox cloud stage${remoteReceiver ? " with a Remote receiver" : ""}`, () => {
+    const sourceSha = "a".repeat(40);
+    const plan = buildProductionReleasePlan({
+      changedPaths: [
+        "packages/schemas/src/schemas/http/inbox.ts",
+        "services/core/src/remote-agent/application/native-delivery-service.ts",
+        "release/local-components.json",
+        "clients/openmeld-cli/package.json",
+        ...(remoteReceiver
+          ? ["services/remote-agent/.flue/cloudflare.ts"]
+          : []),
+      ],
+      sourceSha,
+      scope: `db,auth,web,gateway,core${remoteReceiver ? ",remote-agent" : ""}`,
+    });
+    assert.deepEqual(plan.deployScopeOrder, [
+      "db",
+      ...(remoteReceiver ? ["remote-agent"] : []),
+      "auth",
+      "web",
+      "gateway",
+      "core",
+    ]);
+    const core = plan.deploySteps.filter(
+      (step) => step.releaseScope === "core"
+    );
+    assert.deepEqual(
+      core.map((step) => step.args),
+      [
+        [
+          "scripts/release/deploy-core-current-cli-projection.mjs",
+          "--deployment-only",
+          "--release-sha",
+          sourceSha,
+        ],
+        [
+          "scripts/release/deploy-core-current-cli-projection.mjs",
+          "--verify-only",
+          "--release-sha",
+          sourceSha,
+        ],
+      ]
+    );
+    assert.equal(core[0].completesReleaseScope, false);
+    assert.equal(core[1].completesReleaseScope, true);
+    assert.ok(
+      !plan.deploySteps.some((step) => step.internalOperation === "publish-cli")
+    );
+    for (const steps of [plan.preflightSteps, plan.verifySteps]) {
+      assert.ok(
+        !steps.some(
+          (step) => step.label === "Verify Core CLI channel compatibility"
+        )
+      );
+    }
+    assert.ok(
+      plan.preflightSteps.some(
+        (step) => step.label === "Admit receipt-based Production train stage"
+      )
+    );
+    assert.ok(
+      plan.preflightSteps.some(
+        (step) => step.label === "Verify declared Production train artifacts"
+      )
+    );
+  });
+}
 
 test("deploys Inbox observation receivers before callers, composed with Remote titles", () => {
   const plan = buildProductionReleasePlan({

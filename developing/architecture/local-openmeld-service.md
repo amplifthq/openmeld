@@ -683,6 +683,13 @@ their controller-native tool extension point and the same
 dispatch-owned action writer. Controllers without a proven structured-tool
 surface continue to use the exact dispatch-scoped CLI fallback.
 
+Codex native-tool admission reads MCP tools and authentication status when it
+only needs to exclude an alternate OpenMeld carrier. Unrelated resource discovery
+must not block that turn. Scoped MCP carriers still request the full inventory
+and verify tools, resources and resource templates, including delivery-only
+recovery. Narrowing ordinary inventory does not weaken the scoped isolation
+contract or increase initialization timeouts.
+
 Antigravity CLI does not currently expose a proven per-invocation structured-
 tool configuration surface. During an action-enabled dispatch, the adapter
 therefore appends the dispatch publication contract to the invocation prompt,
@@ -1201,6 +1208,13 @@ use a context-specific local lane and ledger key. The Service must not search
 the Profile's other contexts as a fallback or heal a missing scoped conversation
 by silently starting another one. Ledger v2 reads valid v1 state without resetting
 its native conversation mappings. Corrupt scoped evidence fails closed.
+
+New Codex and Claude contexts with `permissionSource: agent_settings` use the
+ordinary native tool, settings, hooks, MCP, and permission-mode path. The starting
+Project folder does not create a filesystem boundary. Computer File Access still
+applies when configured. Only explicit or retained bounded Claude project tasks
+prepare a container and replace native shell tools; creating a new conversation
+alone must not do either. Delivery-only correction retains its narrow purpose.
 
 The existing local slot owner enforces the five-context Profile cap and local
 resource exclusions. Isolated task folders have distinct canonical roots and

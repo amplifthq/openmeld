@@ -5,7 +5,6 @@ import {
   resolveAuthDrizzleConfigInput as resolveAuthDrizzleConfigInputFromDb,
   resolveAuthToolingDbTarget as resolveAuthToolingDbTargetFromDb,
 } from "@openmeld/db/tooling";
-
 export type AuthToolingDbTargetInput = AuthToolingDbTargetInputFromDb;
 export const findLocalD1DatabasePath = findLocalD1DatabasePathFromDb;
 export const isAuthToolingProductionMode = isAuthToolingProductionModeFromDb;

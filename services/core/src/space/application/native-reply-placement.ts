@@ -4,7 +4,8 @@ import type {
   ResolveNativeReplyPlacementInput,
   SpaceThreadContext,
 } from "@openmeld/schemas/types";
-import { z } from "zod/v4";
+// biome-ignore lint/performance/noNamespaceImport: Zod namespace calls let Workers exclude unused locales.
+import * as z from "zod/v4";
 
 // Storage-only revision; the selection RPC retains its existing wire shape.
 export const nativeReplyPlacementRecordSchema =

@@ -7,16 +7,16 @@ type SpacePublicationModeAuthorizationFailureCode =
   | "space.password_required"
   | "space.publication_mode.owner_required"
   | "space.publication_mode.password_not_configured";
-
 export type SpacePublicationModeAuthorizationResult =
-  | { ok: true }
+  | {
+      ok: true;
+    }
   | {
       code: SpacePublicationModeAuthorizationFailureCode;
       message: string;
       ok: false;
       status: 401 | 403 | 409;
     };
-
 export async function authorizeSpacePublicationModeChange(input: {
   context: OpenMeldRequestContext;
   meta: SpaceMetaRecord;
@@ -33,7 +33,6 @@ export async function authorizeSpacePublicationModeChange(input: {
   if (!ownerAuthorization.ok) {
     return ownerAuthorization;
   }
-
   if (!input.meta.passwordProof) {
     return {
       code: "space.publication_mode.password_not_configured",
@@ -43,7 +42,6 @@ export async function authorizeSpacePublicationModeChange(input: {
       status: 409,
     };
   }
-
   if (input.spacePassword === undefined) {
     return {
       code: "space.password_required",
@@ -52,7 +50,6 @@ export async function authorizeSpacePublicationModeChange(input: {
       status: 401,
     };
   }
-
   const valid = await input.verifySpacePasswordProof(
     input.spacePassword,
     input.meta.passwordProof
@@ -65,7 +62,6 @@ export async function authorizeSpacePublicationModeChange(input: {
       status: 401,
     };
   }
-
   return { ok: true };
 }
 function authorizePublicationModeOwner(input: {

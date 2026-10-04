@@ -877,6 +877,10 @@ test("keeps Deep Confidence setup and sharding intentional", () => {
     )
   );
   assert.ok(workersIntegrationJob);
+  assert.ok(workersIntegrationJob.includes("runs-on: ubuntu-24.04"));
+  assert.ok(
+    workersIntegrationJob.includes("uses: ./.github/actions/setup-postgresql")
+  );
   assert.ok(
     workersIntegrationJob.includes(
       `name: Deep Confidence / Workers Integration ${GITHUB_EXPRESSION_PREFIX} matrix.shard }}/8`
@@ -885,7 +889,7 @@ test("keeps Deep Confidence setup and sharding intentional", () => {
   assert.ok(workersIntegrationJob.includes("shard: [1, 2, 3, 4, 5, 6, 7, 8]"));
   assert.ok(
     workersIntegrationJob.includes(
-      `run: pnpm exec vitest run --config vitest.config.ts --shard=${GITHUB_EXPRESSION_PREFIX} matrix.shard }}/8`
+      `run: node ../../tooling/postgresql/local.mjs run pnpm exec vitest run --config vitest.config.ts --shard=${GITHUB_EXPRESSION_PREFIX} matrix.shard }}/8`
     )
   );
   assert.equal(
@@ -895,7 +899,7 @@ test("keeps Deep Confidence setup and sharding intentional", () => {
   for (const shard of [1, 2, 3, 4, 5, 6, 7, 8]) {
     assert.equal(
       corePackage.scripts[`test:integration:shard-${shard}`],
-      `vitest run --config vitest.config.ts --shard=${shard}/8`
+      `node ../../tooling/postgresql/local.mjs run pnpm exec vitest run --config vitest.config.ts --shard=${shard}/8`
     );
   }
   assert.ok(cliIntegrationJob);

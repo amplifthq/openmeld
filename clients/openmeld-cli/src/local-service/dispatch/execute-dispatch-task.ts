@@ -2943,6 +2943,7 @@ function buildDispatchRuntimePrompt(input: {
   return buildDispatchPromptPlan({
     executionContextAccess: input.parsedTask.executionContext?.access,
     callerContext: input.parsedTask.callerContext,
+    requesterIsAgentOwner: input.parsedTask.requesterIsAgentOwner,
     shouldInjectBootstrap: input.shouldInjectBootstrap,
     shouldInjectCenterAgentRoleTemplate:
       input.parsedTask.targetProfileIsCenterAgent,
@@ -3028,6 +3029,7 @@ async function prepareDispatchClaudeProjectContainer(input: {
   const context = input.parsedTask.executionContext;
   if (
     input.parsedTask.agentControllerRef !== "builtin:claude-code" ||
+    context?.permissionSource === "agent_settings" ||
     context?.access !== "workspace" ||
     context.workspace !== "isolated"
   ) {
@@ -3159,7 +3161,10 @@ async function resolveDispatchComputerFileAccess(input: {
   const verifier =
     input.runtimeControllerSupport.localAdapterEntry.adapter
       .verifyComputerFileAccessBoundary;
-  if (input.parsedTask.executionContext) {
+  if (
+    input.parsedTask.executionContext &&
+    input.parsedTask.executionContext.permissionSource !== "agent_settings"
+  ) {
     const context = input.parsedTask.executionContext;
     if (
       input.parsedTask.agentControllerRef === "builtin:claude-code" &&
@@ -3271,6 +3276,7 @@ function createDispatchSpaceActionRuntimeContext(input: {
   runtimeEnvOverrides: Record<string, string | undefined> | undefined;
 } {
   const contextResult = createDispatchSpaceActionContext({
+    executionTokenEcho: input.parsedTask.executionTokenEcho,
     organizationSkillReleases: input.bootstrapContext.organizationSkillReleases,
     ...(input.claudeProjectRuntime && input.parsedTask.executionContext
       ? {

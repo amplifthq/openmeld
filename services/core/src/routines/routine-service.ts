@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   CENTER_AGENT_ROUTINE_LIMIT,
   CENTER_AGENT_ROUTINE_RUN_LIST_MAX_LIMIT,
@@ -24,7 +25,7 @@ import {
   canGrantRoutineApprovedKnowledge,
   requireRoutineApprovedKnowledgeGrantAuthority,
 } from "../organization-documents/routine-approved-knowledge-grant-policy";
-import { readRemoteAgentSlackWorkspaceBinding } from "../remote-agent/infrastructure/d1/slack-workspace-binding-repo";
+import { readRemoteAgentSlackWorkspaceBinding } from "../remote-agent/infrastructure/postgresql/slack-workspace-binding-repo";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import {
   requireMessageChannelRoutineConnection,
@@ -57,22 +58,19 @@ import {
 } from "./routine-target-space-eligibility";
 
 const ROUTINE_RUN_DEFAULT_LIMIT = 25;
-
 export type RoutineActor = {
   attribution: CenterAgentAttribution;
   authority: RoutineAuthority;
   creationDisplayName: string;
   sourceNativeDeliveryId: string | null;
 };
-
 export type RoutineService = ReturnType<typeof createRoutineService>;
-
 export function createRoutineService(input: {
   agentProfileId?: string;
-  db: D1Database;
+  db: PostgresDatabase;
   generateId?: () => string;
   now?: () => number;
-  projectionsDb: D1Database;
+  projectionsDb: PostgresDatabase;
 }) {
   const generateId =
     input.generateId ?? (() => `routine_${crypto.randomUUID()}`);
@@ -82,7 +80,6 @@ export function createRoutineService(input: {
     db: input.db,
     projectionsDb: input.projectionsDb,
   });
-
   return {
     async list(actor: RoutineActor): Promise<ListCenterAgentRoutinesResponse> {
       const routines = await listRoutineRecords({
@@ -98,7 +95,6 @@ export function createRoutineService(input: {
         ),
       };
     },
-
     async listManagementV1(
       actor: RoutineActor
     ): Promise<ListCenterAgentRoutinesManagementV1Response> {
@@ -115,7 +111,6 @@ export function createRoutineService(input: {
         ),
       };
     },
-
     async listManagement(
       actor: RoutineActor
     ): Promise<ListCenterAgentRoutinesManagementResponse> {
@@ -132,7 +127,6 @@ export function createRoutineService(input: {
         ),
       };
     },
-
     async listTargetSpaces(
       actor: RoutineActor,
       representedHuman: RoutineRepresentedHuman
@@ -147,7 +141,6 @@ export function createRoutineService(input: {
         }),
       };
     },
-
     async create(
       actor: RoutineActor,
       representedHuman: RoutineRepresentedHuman,
@@ -234,7 +227,6 @@ export function createRoutineService(input: {
       });
       return toRoutine(created, actor.authority);
     },
-
     async update(
       actor: RoutineActor,
       representedHuman: RoutineRepresentedHuman,
@@ -339,7 +331,6 @@ export function createRoutineService(input: {
       });
       return toRoutine(updated, actor.authority);
     },
-
     async pause(
       actor: RoutineActor,
       routineId: string
@@ -385,7 +376,6 @@ export function createRoutineService(input: {
       });
       return toRoutine(paused, actor.authority);
     },
-
     async resume(
       actor: RoutineActor,
       representedHuman: RoutineRepresentedHuman,
@@ -443,7 +433,6 @@ export function createRoutineService(input: {
       });
       return toRoutine(resumed, actor.authority);
     },
-
     async delete(
       actor: RoutineActor,
       routineId: string
@@ -482,7 +471,6 @@ export function createRoutineService(input: {
         routineId,
       };
     },
-
     async listRuns(
       actor: RoutineActor,
       routineId: string,
@@ -507,10 +495,12 @@ export function createRoutineService(input: {
     },
   };
 }
-
 function requirePersonalRoutineCapabilities(
   agentProfileId: string | undefined,
-  body: { destinationKind: string; authorizedActions?: readonly string[] }
+  body: {
+    destinationKind: string;
+    authorizedActions?: readonly string[];
+  }
 ) {
   if (
     agentProfileId &&
@@ -525,10 +515,9 @@ function requirePersonalRoutineCapabilities(
     });
   }
 }
-
 async function requireRoutine(input: {
   agentProfileId?: string;
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   routineId: string;
 }): Promise<StoredRoutine> {
@@ -541,9 +530,8 @@ async function requireRoutine(input: {
   }
   return routine;
 }
-
 async function requireRoutineAfterSuccessfulMutation(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   routineId: string;
 }): Promise<StoredRoutine> {
@@ -553,9 +541,8 @@ async function requireRoutineAfterSuccessfulMutation(input: {
   }
   return routine;
 }
-
 async function requireRoutineAfterFailedMutation(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   routineId: string;
 }): Promise<StoredRoutine> {
@@ -565,7 +552,6 @@ async function requireRoutineAfterFailedMutation(input: {
   }
   return routine;
 }
-
 async function requireValidSchedule(
   input: {
     cronExpression: string | null;
@@ -640,9 +626,11 @@ async function requireValidSchedule(
     throw error;
   }
 }
-
 async function nextRecurringDueAt(
-  schedule: { cronExpression: string; timezone: string },
+  schedule: {
+    cronExpression: string;
+    timezone: string;
+  },
   afterMs: number
 ): Promise<number> {
   const routineSchedule = await loadRoutineSchedule();
@@ -653,7 +641,6 @@ async function nextRecurringDueAt(
     })
     .getTime();
 }
-
 async function requireValidDestination(input: {
   body: Pick<
     CreateCenterAgentRoutineBody,
@@ -665,7 +652,7 @@ async function requireValidDestination(input: {
     | "slackThreadTs"
     | "targetSpaceId"
   >;
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   representedHuman: RoutineRepresentedHuman;
   targetSpaceEligibility: ReturnType<
@@ -695,7 +682,6 @@ async function requireValidDestination(input: {
     });
     return;
   }
-
   const { slackChannelId, slackConversationId, slackTeamId, slackThreadTs } =
     input.body;
   if (
@@ -722,9 +708,8 @@ async function requireValidDestination(input: {
     });
   }
 }
-
 async function throwRoutineQuotaError(
-  db: D1Database,
+  db: PostgresDatabase,
   organizationId: string
 ): Promise<never> {
   const counts = await countRoutineRecords({ db, organizationId });
@@ -737,7 +722,6 @@ async function throwRoutineQuotaError(
   }
   throw routineStatusConflictError("Routine could not be created.");
 }
-
 function routineNotFoundError(): Error {
   return createCoreRpcHttpError({
     status: 404,
@@ -745,7 +729,6 @@ function routineNotFoundError(): Error {
     code: "routine.not_found",
   });
 }
-
 function routineStatusConflictError(reason: string): Error {
   return createCoreRpcHttpError({
     status: 409,
@@ -753,7 +736,6 @@ function routineStatusConflictError(reason: string): Error {
     code: "routine.status_conflict",
   });
 }
-
 function toRoutine(
   routine: StoredRoutine,
   authority: RoutineAuthority
@@ -775,7 +757,6 @@ function toRoutine(
     }),
   };
 }
-
 function toManagementRoutineV1(
   routine: StoredRoutine,
   authority: RoutineAuthority
@@ -800,7 +781,6 @@ function toManagementRoutineV1(
     },
   };
 }
-
 function toManagementRoutine(
   routine: StoredRoutine,
   authority: RoutineAuthority
@@ -812,7 +792,6 @@ function toManagementRoutine(
     creationAttribution,
   };
 }
-
 function toAuditActor(actor: RoutineActor): RoutineAuditActor {
   return {
     ...actor.attribution,

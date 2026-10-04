@@ -116,6 +116,16 @@ export const runtimeCoordinatorExecutionTokenEchoSchema = z.strictObject({
   tokenFingerprint: runtimeCoordinatorTokenFingerprintSchema,
 });
 
+export const runtimeCoordinatorExecutionAccessRequestSchema = z.strictObject({
+  executionTokenEcho: runtimeCoordinatorExecutionTokenEchoSchema,
+  expectedAuthorityScope: runtimeCoordinatorTokenAuthorityScopeSchema,
+  expectedExecutionScope: runtimeCoordinatorTokenExecutionScopeSchema,
+});
+export const runtimeCoordinatorExecutionAccessResponseSchema = z.strictObject({
+  allowed: z.boolean(),
+  reasonCode: z.string().optional(),
+});
+
 export const runtimeCoordinatorTokenProjectionSchema = z.strictObject({
   deliveryIdempotencyKey: boundedIdentifierSchema,
   expiresAtMs: nullableTimestampSchema,

@@ -13,6 +13,8 @@ const CONTROL_PATH =
 const SOURCE_PATH = /\.[cm]?[jt]sx?$/u;
 const NODE_SOURCE_PATH = /^scripts\/.*\.mjs$/u;
 const VITEST_SCRIPT = /^vitest run(?: --(?:config|environment) [\w./-]+)*$/u;
+const NATIVE_POSTGRESQL_VITEST_SCRIPT =
+  /^node \.\.\/\.\.\/tooling\/postgresql\/local\.mjs run pnpm exec (vitest run.*)$/u;
 const WHITESPACE = /\s+/u;
 const NODE_EXTENSION = /\.mjs$/u;
 const VITEST_TEST_FILE = /\.(?:test|spec)\.[cm]?[jt]sx?$/u;
@@ -27,6 +29,8 @@ const VITEST_TEST_SUFFIXES = [
   ".spec.jsx",
 ];
 const SCRIPT_ALIAS = /^pnpm run ([\w:-]+)$/u;
+const DISPATCH_COMMAND_PATH =
+  /[\\/]runtime[\\/]daemon[\\/](?:dispatch-space-actions[\\/][^\\/]+[\\/]bin|bin[\\/]dispatch-owned-cli)$/u;
 
 // Resolve plain unit-test aliases, never reinterpret shell pipelines or Worker
 // integration commands. Unsupported runners retain their package-owned command.
@@ -42,6 +46,28 @@ export function resolveUnitTestScript(
   const command = scripts?.[name];
   const alias = SCRIPT_ALIAS.exec(command ?? "");
   return alias ? resolveUnitTestScript(scripts, alias[1], seen) : command;
+}
+
+export function buildValidationEnvironment(source, lane, gitLocalNames) {
+  const environment = { ...source, OPENMELD_HOME: lane };
+  if (source.PATH) {
+    // A dispatch shim embeds its original authority and can restore it even
+    // after the environment markers are removed.
+    environment.PATH = source.PATH.split(path.delimiter)
+      .filter((entry) => !DISPATCH_COMMAND_PATH.test(entry))
+      .join(path.delimiter);
+  }
+  for (const name of Object.keys(environment)) {
+    if (
+      name.startsWith("OPENMELD_DISPATCH_") ||
+      name.startsWith("OPENMELD_SPACE_ACTION_") ||
+      name === "OPENMELD_USER_FACING_CLI_COMMAND" ||
+      gitLocalNames.includes(name)
+    ) {
+      delete environment[name];
+    }
+  }
+  return environment;
 }
 
 export function planPrChecks(paths, options = {}) {
@@ -179,7 +205,9 @@ function focusedWorkspaceCommands(paths, workspace, existingFiles) {
         existingFiles.has(file)
     )
     .map((file) => file.slice(workspace.directory.length + 1));
-  if (!VITEST_SCRIPT.test(workspace.test)) {
+  const nativeCommand = NATIVE_POSTGRESQL_VITEST_SCRIPT.exec(workspace.test);
+  const unitCommand = nativeCommand?.[1] ?? workspace.test;
+  if (!VITEST_SCRIPT.test(unitCommand)) {
     return [];
   }
   const tests = new Set();
@@ -201,11 +229,14 @@ function focusedWorkspaceCommands(paths, workspace, existingFiles) {
   }
   return [
     [
+      ...(nativeCommand
+        ? ["exec", "node", "tooling/postgresql/local.mjs", "run", "pnpm"]
+        : []),
       "exec",
       "node",
       "scripts/dev/run-focused-workspace-tests.mjs",
       workspace.directory,
-      workspace.test,
+      unitCommand,
       ...tests,
     ],
   ];
@@ -281,14 +312,13 @@ export function runVerification(options = {}) {
     return 0;
   }
   const lane = mkdtempSync(path.join(tmpdir(), "openmeld-focused-checks-"));
-  const validationEnv = { ...process.env, OPENMELD_HOME: lane };
   // Hooks export repository-local Git state. Tests that create temporary repos
-  // must not inherit the pushed worktree's GIT_DIR/GIT_INDEX_FILE, etc.
-  for (const name of git(["rev-parse", "--local-env-vars"])
-    .trim()
-    .split(WHITESPACE)) {
-    delete validationEnv[name];
-  }
+  // must not inherit it or the launching Agent's live dispatch authority.
+  const validationEnv = buildValidationEnvironment(
+    process.env,
+    lane,
+    git(["rev-parse", "--local-env-vars"]).trim().split(WHITESPACE)
+  );
   try {
     console.log(
       `Focused validation: ${base}...HEAD; isolated OPENMELD_HOME=${lane}`

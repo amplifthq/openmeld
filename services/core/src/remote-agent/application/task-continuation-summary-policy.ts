@@ -1,6 +1,7 @@
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import type { RemoteAgentWorkerSubmitTurnRequest } from "@openmeld/schemas/types";
-import { readAgentTaskCompletionSubscription } from "../../agent-task-coordination/infrastructure/d1/agent-task-coordination-repo";
-import { agentTaskCoordinationDb, type CoreBindings } from "../../lib/bindings";
+import { readAgentTaskCompletionSubscription } from "../../agent-task-coordination/infrastructure/postgresql/agent-task-coordination-repo";
+import type { CoreBindings } from "../../lib/bindings";
 
 /** Validate frozen envelopes against the existing task owner's recovery intent. */
 export async function requireTaskContinuationSummaryPolicy(input: {
@@ -19,7 +20,7 @@ export async function requireTaskContinuationSummaryPolicy(input: {
     ) {
       continue;
     }
-    const db = agentTaskCoordinationDb(input.env);
+    const db = getPostgresDatabase(input.env);
     if (!db) {
       throw new Error("agent_task_continuation.owner_store_unavailable");
     }
