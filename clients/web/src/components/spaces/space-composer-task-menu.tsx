@@ -180,7 +180,7 @@ export function SpaceComposerTaskMenu(input: {
 						<DropdownMenuSeparator />
 						<DropdownMenuSub>
 							<DropdownMenuSubTrigger>Limit task access</DropdownMenuSubTrigger>
-							<FluidDropdownMenuSubContent>
+							<FluidDropdownMenuSubContent className="w-80 max-w-[calc(100vw-2rem)]">
 								<FluidDropdownMenuItem
 									index={0}
 									onClick={() => changeAccess("space_context", "isolated")}
