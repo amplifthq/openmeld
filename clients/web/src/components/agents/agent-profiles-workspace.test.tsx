@@ -287,7 +287,7 @@ describe("AgentProfilesWorkspace", () => {
 		expect(item.textContent).toContain("high");
 	});
 
-	it("shows the Controller default model when no model is explicitly selected", () => {
+	it("labels an unselected model as Controller default without guessing the active conversation model", () => {
 		const readiness = createReadiness();
 		if (!readiness.primaryBinding) {
 			throw new Error("Expected a primary Binding fixture");
@@ -309,7 +309,7 @@ describe("AgentProfilesWorkspace", () => {
 		});
 
 		const item = screen.getByRole("button", { name: "Open Felix Agent" });
-		expect(item.textContent).toContain("Codex · GPT-5.6 Sol · model default");
+		expect(item.textContent).toContain("Codex · Controller default");
 	});
 
 	it("keeps Controller branding without repeating an initial runtime check", () => {
@@ -734,6 +734,15 @@ function renderWorkspace(
 			<QueryClientProvider client={client}>{children}</QueryClientProvider>
 		),
 	});
+	// These cases inspect individual cards. The directory now starts with
+	// collapsed controller folders; select the public flat view first.
+	const viewSettings = screen.queryByRole("button", {
+		name: "Agent view settings",
+	});
+	if (viewSettings) {
+		fireEvent.click(viewSettings);
+		fireEvent.click(screen.getByRole("menuitemradio", { name: "None" }));
+	}
 	return {
 		...rendered,
 		rerenderWorkspace: (

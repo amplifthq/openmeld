@@ -202,9 +202,14 @@ export async function activateAgentDelegationChildren(input: {
   db: D1Database;
   delegationId: string;
   nowMs: number;
+  tasks?: AgentTaskHandle[];
 }): Promise<AgentDelegationRecord | null> {
   const delegationId = requireNonEmpty(input.delegationId, "delegationId");
   const nowMs = requireTimestamp(input.nowMs, "nowMs");
+  const taskKeys = input.tasks?.map(buildAgentTaskKey);
+  if (taskKeys?.length === 0) {
+    return await readAgentDelegation({ db: input.db, delegationId });
+  }
   await input.db
     .prepare(
       `
@@ -216,9 +221,10 @@ export async function activateAgentDelegationChildren(input: {
         WHERE delegation_id = ?
           AND role = 'primary'
           AND state = 'planned'
+          ${taskKeys ? `AND task_key IN (${taskKeys.map(() => "?").join(", ")})` : ""}
       `
     )
-    .bind(nowMs, nowMs, delegationId)
+    .bind(nowMs, nowMs, delegationId, ...(taskKeys ?? []))
     .run();
   return await readAgentDelegation({ db: input.db, delegationId });
 }

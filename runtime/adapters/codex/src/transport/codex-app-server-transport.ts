@@ -1980,7 +1980,10 @@ class CodexAppServerSession {
     }
     const inventory = await this.requestControl(
       "mcpServerStatus/list",
-      { threadId, detail: "full", limit: 100 },
+      // Scoped execution must also prove that resources are not exposed. A
+      // normal native-tool turn only checks the alternate carrier; unrelated
+      // MCP resource catalogs must not hold up that admission check.
+      { threadId, detail: scoped ? "full" : "toolsAndAuthOnly", limit: 100 },
       {
         code: "execution_context.mcp_inventory_timeout",
         operation: "mcpServerStatus/list",

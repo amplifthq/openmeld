@@ -286,6 +286,8 @@ export type {
   CenterAgentUpdateSpaceSettingsResponse,
   CenterAgentWakeAgentProfilesInSpaceBody,
   CenterAgentWakeAgentProfilesInSpaceResponse,
+  CenterAgentWakeAgentProfilesInSpacesBody,
+  CenterAgentWakeAgentProfilesInSpacesResponse,
   CenterAgentWakePublicationCommand,
   CenterAgentWatchAgentTaskBody,
   CenterAgentWatchAgentTaskResponse,

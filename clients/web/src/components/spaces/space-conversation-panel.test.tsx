@@ -5126,7 +5126,7 @@ describe("SpaceConversationPanel", () => {
 		).toBeNull();
 	});
 
-	it("requests Stop immediately from the stable client selector", async () => {
+	it("requests Stop immediately for the displayed execution and its source", async () => {
 		const onWakeStopRequest = vi
 			.fn()
 			.mockResolvedValue(createWakeStopResponse());
@@ -5163,6 +5163,7 @@ describe("SpaceConversationPanel", () => {
 					selector: {
 						by: "client_message",
 						clientMessageId: "client-message-1",
+						dispatchId: "dispatch-1",
 						targetProfileId: TARGET_PROFILE_ID,
 					},
 					status: "active",
@@ -5267,6 +5268,7 @@ describe("SpaceConversationPanel", () => {
 		const selector = {
 			by: "client_message" as const,
 			clientMessageId: "client-message-1",
+			dispatchId: "dispatch-1",
 			targetProfileId: TARGET_PROFILE_ID,
 		};
 		renderSpaceConversationPanel({
@@ -5284,7 +5286,7 @@ describe("SpaceConversationPanel", () => {
 			],
 			wakeStopRequestStatusBySelectorKey: new Map([
 				[
-					`client_message:${selector.clientMessageId}:${selector.targetProfileId}`,
+					`dispatch:${selector.dispatchId}:${selector.targetProfileId}`,
 					"cancellation_requested",
 				],
 			]),

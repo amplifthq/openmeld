@@ -196,6 +196,11 @@ conversation is displayed, view navigation pins its resolved Space ID in the
 URL so Files/Messages cannot reselect a different conversation. Explicit
 session links always select their exact identity, including after reload.
 
+The resolved conversation's component identity uses its canonical Space ID.
+Pinning that same ID into the URL must not remount the conversation and discard
+an attachment-open request. Opening a final-message attachment therefore retains
+its selected file revision while switching from Messages to Files.
+
 Web uses three navigation levels: a 76px application rail (52px in Icons only), a contextual
 list inside the inset surface, and the current work area. Inbox, Spaces, and
 Team are the rail's destinations, in that order. Desk is temporarily hidden
