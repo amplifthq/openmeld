@@ -1228,6 +1228,7 @@ import {
 import { resolveRuntimePrepareReadinessFromPostgres } from "../runtime-registry/infrastructure/postgresql/runtime-prepare-readiness-postgresql";
 import {
   listOwnedDeviceExecutionTargetRecords,
+  listOwnedDeviceExecutionTargetRecordsForUsers,
   readRuntimeRegistryRecord,
   readRuntimeRegistryRecordByRuntimeId,
   registerRuntimeRegistryRecord,
@@ -1325,6 +1326,7 @@ import {
 } from "../start/infrastructure/postgresql/forgotten-device-repo";
 import {
   listOwnedDeviceRegistryRecords,
+  listOwnedDeviceRegistryRecordsForUsers,
   readOwnedDeviceRegistryRecord,
   upsertOwnedDeviceRegistryRecord,
 } from "../start/infrastructure/postgresql/owned-device-registry-repo";
@@ -6724,6 +6726,24 @@ async function resolveOrganizationAgentReadinessByProfileId(input: {
     [...profilesByOwner],
     ORGANIZATION_AGENT_RUNTIME_OWNER_CONCURRENCY,
     async ([ownerUserId, profiles]) => {
+      const db = getPostgresDatabase(input.env);
+      if (db && ownerUserId) {
+        await reads
+          .preloadPrimaryBindings({
+            db,
+            nowMs: Date.parse(input.generatedAt),
+            owner: { id: ownerUserId, kind: "owner_account" },
+            profileIds: profiles.map((profile) => profile.profileId),
+          })
+          .catch((error) => {
+            // Preserve the per-Profile readiness owner's unavailable outcome.
+            // An optional batch preload must not fail the entire Team directory.
+            console.warn("[core.organization.readiness_preload_failed]", {
+              ownerUserId,
+              error,
+            });
+          });
+      }
       const [preloadedRoutes, preloadedOwnerService] = ownerUserId
         ? await Promise.all([
             lookupRuntimeTransportRoutesBatch({
@@ -7106,14 +7126,19 @@ async function buildOrganizationComputersResponse(input: {
       status: 503,
     });
   }
+  const [devices, targetsByOwner] = await Promise.all([
+    listOwnedDeviceRegistryRecordsForUsers({ db, userIds: memberUserIds }),
+    listOwnedDeviceExecutionTargetRecordsForUsers({
+      db,
+      nowMs,
+      userIds: memberUserIds,
+    }),
+  ]);
+  const devicesByOwner = Map.groupBy(devices, (device) => device.ownerUserId);
   const response = await listOrganizationComputers({
     generatedAt,
     includeUsageLimits: input.includeUsageLimits,
     lookupMemberComputerInventory: async ({ userId }) => {
-      const [devices, executionTargets] = await Promise.all([
-        listOwnedDeviceRegistryRecords({ db, userId }),
-        listOwnedDeviceExecutionTargetRecords({ db, nowMs, userId }),
-      ]);
       let liveSessions: Awaited<
         ReturnType<typeof lookupRuntimeTransportOwnerService>
       > | null = null;
@@ -7132,8 +7157,8 @@ async function buildOrganizationComputersResponse(input: {
         });
       }
       return {
-        devices,
-        executionTargets,
+        devices: devicesByOwner.get(userId) ?? [],
+        executionTargets: targetsByOwner.get(userId) ?? [],
         liveSessions: projectOrganizationComputerLiveSessions({
           generatedAt,
           liveSessions,
