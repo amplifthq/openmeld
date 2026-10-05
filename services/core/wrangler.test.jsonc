@@ -56,6 +56,10 @@
   },
   "r2_buckets": [
     {
+      "binding": "OPENMELD_ACCOUNT_AVATARS",
+      "bucket_name": "openmeld-account-avatars-test"
+    },
+    {
       "binding": "OPENMELD_SPACE_ATTACHMENTS",
       "bucket_name": "openmeld-space-attachments-test"
     },

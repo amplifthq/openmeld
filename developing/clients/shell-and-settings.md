@@ -162,6 +162,13 @@ Collapse the overloaded concepts (Account Profile / Agent Profile / Local Agent 
 Computer / OpenMeld Service / Service Profile) into stable user-facing nouns keyed to
 mental verbs:
 
+Account deletion lives below Sessions in Web Settings > Account. Its shared
+Dialog identifies the signed-in email and lists deleted assets, retained team
+work, and required ownership handoffs. Confirm the current password (or a recent
+passwordless sign-in), then type DELETE. Recheck the inventory on submission.
+Cancel clears both inputs. Desktop opens the same Web owner through its existing
+account-settings handoff. The signed-out result states that cleanup continues.
+
 1. **Account** — "who I am to the cloud": identity, sign-in/providers, sessions,
    CLI tokens. (= today's `account.tsx`, moved under Settings, largely unchanged.)
 2. **Computers** — "my machines": Computer cards live inside the owning Human

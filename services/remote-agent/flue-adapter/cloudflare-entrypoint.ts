@@ -30,6 +30,9 @@ import {
 } from "../agent-core/submission";
 
 type CenterAgentStub = DurableObjectStub & {
+  eraseAccountConversation(
+    input: import("@openmeld/schemas").AccountDeletionConversation
+  ): Promise<void>;
   readAdmission(input: unknown): Promise<unknown>;
   readAdmissionStop(input: unknown): Promise<unknown>;
   generateCenterAgentSessionTitle(input: unknown): Promise<unknown>;

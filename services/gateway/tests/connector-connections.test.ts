@@ -519,6 +519,70 @@ describe("Gateway connector connection routes", () => {
     );
   });
 
+  it("registers durable cleanup when credential configuration finishes after account closure", async () => {
+    const configured = Promise.withResolvers<Response>();
+    const started = Promise.withResolvers<void>();
+    const target = SHARED_POSTHOG_CONNECTION.connectionName;
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockImplementationOnce(async () => {
+        started.resolve();
+        return await configured.promise;
+      })
+      .mockResolvedValueOnce(
+        Response.json([
+          { configured: true, connectionName: target, service: "posthog" },
+        ])
+      )
+      .mockRejectedValueOnce(
+        new Error("Disconnect is temporarily unavailable")
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const requestAccountConnectionCleanup = vi.fn(async () => true);
+    const responsePromise = app.fetch(
+      new Request(
+        "http://local/v1/organizations/current/connectors/posthog/shared-credential?expectedOrganizationId=org-1",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            authType: "api_key",
+            values: { apiKey: "test-only", baseUrl: "https://us.posthog.com" },
+          }),
+        }
+      ),
+      makeEnv(
+        {
+          beginCurrentOrganizationSharedConnectorAuthorization: async () =>
+            SHARED_POSTHOG_CONNECTION,
+          reconcileCurrentOrganizationConnectorConnections: () =>
+            Promise.reject(new Error("account_unavailable")),
+        },
+        { requestAccountConnectionCleanup }
+      ),
+      TEST_EXECUTION_CONTEXT
+    );
+    await started.promise;
+    // The account cleanup has completed while the external write was pending.
+    configured.resolve(
+      Response.json({
+        configured: true,
+        connectionName: target,
+        service: "posthog",
+      })
+    );
+    expect((await responsePromise).status).toBeGreaterThanOrEqual(400);
+    expect(requestAccountConnectionCleanup).toHaveBeenCalledWith({
+      userId: "user-1",
+      connectionName: target,
+      service: "posthog",
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      expect.stringContaining("/api/connections/posthog"),
+      expect.objectContaining({ method: "DELETE" })
+    );
+  });
+
   it("starts a selected-repository GitHub App installation through Core", async () => {
     const expiresAtMs = Date.now() + 600_000;
     const beginCurrentOrganizationGitHubAppInstallation = vi.fn(async () => ({
@@ -1108,8 +1172,13 @@ describe("Gateway connector connection routes", () => {
   });
 });
 
-function makeEnv(coreOverrides: Record<string, unknown>): CloudflareBindings {
+function makeEnv(
+  coreOverrides: Record<string, unknown>,
+  authOverrides: Record<string, unknown> = {}
+): CloudflareBindings {
   const authRpc = {
+    requestAccountConnectionCleanup: vi.fn(async () => false),
+    ...authOverrides,
     resolveRequestAuthWithProfile: vi.fn(async () => ({
       claims: {
         activeOrganizationId: "org-1",

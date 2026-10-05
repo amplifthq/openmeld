@@ -36,6 +36,7 @@ import {
 } from "@openmeld/space";
 import { describe, expect, it, vi } from "vitest";
 import {
+  cancelAgentTaskCompletionSubscription,
   recordAgentTaskTerminalOutcome,
   registerAgentTaskCompletionSubscription,
 } from "../src/agent-task-coordination/infrastructure/postgresql/agent-task-coordination-repo";
@@ -48,6 +49,10 @@ import {
   readRemoteAgentNativeDeliveryBySubmissionId,
   upsertRemoteAgentNativeDeliveryRecord,
 } from "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
+import {
+  markFailedRoutineRunPublished,
+  projectRoutineRunTerminal,
+} from "../src/routines/routine-repository";
 import {
   rpcAddSpaceMembers,
   rpcCenterAgentCreateSpace,
@@ -73,6 +78,8 @@ import {
   insertDispatchOutboxRecord,
   markDispatchOutboxCancelled,
   markDispatchOutboxHandedOff,
+  markDispatchOutboxPoisoned,
+  recordDispatchOutboxCandidateFailure,
 } from "../src/space/infrastructure/outbox/dispatch-outbox-repo";
 import { SpaceFileRepository } from "../src/space/infrastructure/sql/space-file-repo";
 import { readSpaceMemberRecord } from "../src/space/infrastructure/sql/space-member-repo";
@@ -3639,6 +3646,29 @@ describe("OpenMeld Core", () => {
     );
     expect(addResponse.status).toBe(200);
     await addResponse.json();
+    const messageResponse = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/signals`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          profile: {
+            kind: "human",
+            profileId: THIRD_HUMAN_PROFILE_ID,
+            profileName: "Departing member",
+          },
+          type: "signal.text",
+          data: { text: "Retain this shared work record after I leave." },
+        }),
+      },
+      {
+        profileId: THIRD_HUMAN_PROFILE_ID,
+        openMeldProfileId: THIRD_HUMAN_PROFILE_ID,
+        profileKind: "human",
+      }
+    );
+    expect(messageResponse.status).toBe(200);
+    const retainedMessage = (await messageResponse.json()) as { id: string };
     const removeResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/members/remove`,
       {
@@ -3658,6 +3688,22 @@ describe("OpenMeld Core", () => {
     expect(removePayload).toEqual({
       removedMemberIds: [THIRD_HUMAN_PROFILE_ID],
       alreadyAbsentMemberIds: [],
+    });
+    const historyResponse = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/signals`,
+      undefined,
+      creatorProfile
+    );
+    expect(historyResponse.status).toBe(200);
+    expect(await historyResponse.json()).toMatchObject({
+      signals: expect.arrayContaining([
+        expect.objectContaining({
+          id: retainedMessage.id,
+          data: expect.objectContaining({
+            text: "Retain this shared work record after I leave.",
+          }),
+        }),
+      ]),
     });
     const listResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/members`,
@@ -4548,7 +4594,10 @@ describe("OpenMeld Core", () => {
     expect(streamPayload.code).toBe("space.not_found");
     expect(streamPayload.message).toBe("space not found");
   });
-  it("allows human creator to delete a space and makes it unavailable", async () => {
+  it.each([
+    "cancelled",
+    "poisoned",
+  ] as const)("blocks Space deletion until Wake work settles, including %s outbox history", async (outboxOutcome) => {
     const creatorProfile = {
       profileId: "hum-delete-creator",
       profileKind: "human" as const,
@@ -4560,6 +4609,191 @@ describe("OpenMeld Core", () => {
       { name: "delete-target" },
       creatorProfile
     );
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const stub = namespace.get(namespace.idFromString(spaceId));
+    const dispatch = await runInDurableObject(stub, (_instance, state) => {
+      const record = createDispatchOutboxRecord({
+        bindingEnabled: true,
+        bindingState: "bound",
+        dispatchPolicy: "mention_only",
+        nowMs: Date.now(),
+        ruleId: "wake_explicit_activation",
+        ruleReason: "Explicit Wake target",
+        ruleSource: "registry",
+        senderProfileId: creatorProfile.profileId,
+        sourceEventId: "source-before-delete",
+        sourceSignalSnapshot: {
+          profileId: creatorProfile.profileId,
+          profileKind: "human",
+          text: "Work that must not be orphaned.",
+        },
+        spaceId,
+        targetProfileId: "agt_99999999-9999-4999-8999-999999999999",
+      });
+      insertDispatchOutboxRecord(state.storage.sql, record);
+      return record;
+    });
+    const blocked = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}`,
+      { method: "DELETE" },
+      creatorProfile
+    );
+    expect(blocked.status).toBe(409);
+    expect(await blocked.json()).toMatchObject({ code: "space.wakes_pending" });
+    const retainedMeta = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/meta`,
+      undefined,
+      creatorProfile
+    );
+    expect(retainedMeta.status).toBe(200);
+    await runInDurableObject(stub, (_instance, state) => {
+      if (outboxOutcome === "cancelled") {
+        markDispatchOutboxCancelled(state.storage.sql, {
+          dispatchId: dispatch.dispatchId,
+        });
+      } else {
+        // The poison owner retains this seed after publishing terminal failure.
+        recordDispatchOutboxCandidateFailure(state.storage.sql, {
+          dispatchId: dispatch.dispatchId,
+        });
+        markDispatchOutboxPoisoned(state.storage.sql, {
+          dispatchId: dispatch.dispatchId,
+          poisonAfterFailureCount: 1,
+          poisonedAtMs: Date.now(),
+          reasonCode: "dispatch.failed",
+        });
+      }
+    });
+    // Native submission can exist without a workstation outbox entry.
+    const nativeKey = `delete-native-${randomUUID()}`;
+    const observerDeliveryId = `delete-observer-${randomUUID()}`;
+    const submissionId = `delete-submission-${randomUUID()}`;
+    await upsertRemoteAgentNativeDeliveryRecord({
+      deliveryId: observerDeliveryId,
+      attemptId: null,
+      bindingId: `binding-${randomUUID()}`,
+      db: getPostgresDatabase(env),
+      dispatchId: `dispatch-${randomUUID()}`,
+      idempotencyKey: nativeKey,
+      nowMs: Date.now(),
+      organizationId: DEFAULT_TEST_ORGANIZATION_ID,
+      profileId: dispatch.targetProfileId,
+      spaceId,
+      status: "submitted",
+      triggerMessageId: "source-before-delete",
+    });
+    expect(
+      (
+        await fetchWithOpenMeldAuth(
+          `${BASE_URL}/v1/spaces/${spaceId}`,
+          { method: "DELETE" },
+          creatorProfile
+        )
+      ).status
+    ).toBe(409);
+    await markRemoteAgentNativeDeliveryAck({
+      accepted: true,
+      db: getPostgresDatabase(env),
+      idempotencyKey: nativeKey,
+      nowMs: Date.now(),
+      submissionId,
+      workerRequestId: `request-${randomUUID()}`,
+    });
+    expect(
+      (
+        await fetchWithOpenMeldAuth(
+          `${BASE_URL}/v1/spaces/${spaceId}`,
+          { method: "DELETE" },
+          creatorProfile
+        )
+      ).status
+    ).toBe(409);
+    await markRemoteAgentNativeDeliveryCompleted({
+      db: getPostgresDatabase(env),
+      submissionId,
+      publishedSignalId: null,
+      nowMs: Date.now(),
+    });
+    const subscription = await registerAgentTaskCompletionSubscription({
+      db: getPostgresDatabase(env),
+      nowMs: Date.now(),
+      completionCondition: "terminal",
+      continuation: {
+        kind: "resume_agent",
+        delegationId: `delegation-${randomUUID()}`,
+        instruction: "Summarize the result.",
+      },
+      observerTask: {
+        v: 1,
+        kind: "native_delivery",
+        deliveryId: observerDeliveryId,
+      },
+      watchedTask: {
+        v: 1,
+        kind: "native_delivery",
+        deliveryId: `child-${randomUUID()}`,
+      },
+      organizationId: DEFAULT_TEST_ORGANIZATION_ID,
+      idempotencyKey: `subscription-${randomUUID()}`,
+      subscriptionId: `subscription-${randomUUID()}`,
+    });
+    expect(
+      (
+        await fetchWithOpenMeldAuth(
+          `${BASE_URL}/v1/spaces/${spaceId}`,
+          { method: "DELETE" },
+          creatorProfile
+        )
+      ).status
+    ).toBe(409);
+    await cancelAgentTaskCompletionSubscription({
+      db: getPostgresDatabase(env),
+      nowMs: Date.now(),
+      subscriptionId: subscription.subscriptionId,
+    });
+    const runId = `delete-run-${randomUUID()}`;
+    await getPostgresDatabase(env).query({
+      text: `INSERT INTO "openmeld"."routine_runs" (id, routine_id, organization_id, scheduled_for, status, routine_name_snapshot, destination_kind_snapshot, target_space_id_snapshot)
+        VALUES ($1, $2, $3, $4, 'claimed', 'Daily check', 'space', $5)`,
+      values: [
+        runId,
+        `routine-${randomUUID()}`,
+        DEFAULT_TEST_ORGANIZATION_ID,
+        Date.now(),
+        spaceId,
+      ],
+    });
+    expect(
+      (
+        await fetchWithOpenMeldAuth(
+          `${BASE_URL}/v1/spaces/${spaceId}`,
+          { method: "DELETE" },
+          creatorProfile
+        )
+      ).status
+    ).toBe(409);
+    await projectRoutineRunTerminal({
+      db: getPostgresDatabase(env),
+      nowMs: Date.now(),
+      runId,
+      status: "failed",
+      failureCode: "remote_agent.worker_unavailable",
+      failureDetail: "Worker unavailable.",
+    });
+    expect(
+      (
+        await fetchWithOpenMeldAuth(
+          `${BASE_URL}/v1/spaces/${spaceId}`,
+          { method: "DELETE" },
+          creatorProfile
+        )
+      ).status
+    ).toBe(409);
+    await markFailedRoutineRunPublished({
+      db: getPostgresDatabase(env),
+      runId,
+      publishedSignalId: "routine-failure-published",
+    });
     const deleteResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}`,
       { method: "DELETE" },
@@ -10582,7 +10816,7 @@ describe("OpenMeld Core", () => {
           result: "succeeded",
         }),
         expect.objectContaining({
-          error_code: "space_file.name_conflict",
+          error_code: "space_file.invalid_parent",
           operation: "entry_update",
           request_id: failedRenameRequestId,
           result: "failed",

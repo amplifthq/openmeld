@@ -118,7 +118,9 @@ export async function requestAgentActivitySessionInventoryMemberCleanup(input: {
            last_attempt_at_ms,
            attempt_count,
            last_error
-         ) VALUES ($1, $2, $3, $4, 0, NULL)
+         ) SELECT id, $2, $3, $4, 0, NULL
+           FROM "openmeld"."organizations" WHERE id = $1
+           FOR KEY SHARE
          ON CONFLICT (organization_id, owner_user_id) DO UPDATE SET
            requested_at_ms = excluded.requested_at_ms,
            last_attempt_at_ms = excluded.last_attempt_at_ms,

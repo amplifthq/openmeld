@@ -22,6 +22,7 @@ import {
   readCloudflareRequestEvidence,
 } from "../observability/cloudflare-runtime-evidence";
 import { profileServiceMiddleware } from "../profiles/service";
+import { registerAccountDeletionRoutes } from "./account-deletion-routes";
 import {
   ACCOUNT_DISPLAY_NAME_COMPATIBILITY_ROUTE,
   registerAccountDisplayNameRoutes,
@@ -119,6 +120,7 @@ export function createHonoApp() {
   );
 
   registerAccountDisplayNameRoutes(app);
+  registerAccountDeletionRoutes(app);
   registerAccountOrganizationPreferenceRoutes(app);
   registerAccountSidebarRoutes(app);
   registerAccountOrganizationContextRoutes(app);

@@ -401,7 +401,9 @@ records Dismiss in `clearedAt`; the item row is not hard-deleted. The retained
 recipient/source uniqueness row is the durable replay fence that prevents a
 source reconciler from recreating the item or resending delivery. Dismiss is
 idempotent and authorized against the recipient's current source access.
-Organization and account deletion still follow their canonical cascade. A
+Organization deletion follows its canonical cascade. Account deletion explicitly
+purges the recipient's Inbox through the durable cleanup owner while retaining a
+non-signable identity tombstone for shared work attribution. A
 future payload-retention pass must first preserve a content-free source receipt
 or tombstone.
 
