@@ -130,19 +130,27 @@ export function createInboxFeedService(input: {
       throughRowId: Number.MAX_SAFE_INTEGER,
     } as const;
     const cte = inboxFeedCte(seedScope, input.canManageOrganization === true);
-    return input.db.transaction(async (client) => {
-      await client.query({
-        text: 'DELETE FROM "openmeld"."inbox_feed_snapshots" WHERE id IN (SELECT id FROM "openmeld"."inbox_feed_snapshots" WHERE expires_at_ms <= $1 LIMIT 100)',
-        values: [created],
-      });
-      const inserted = await client.query<SnapshotRow>({
-        text: `INSERT INTO "openmeld"."inbox_feed_snapshots"
-        (id, organization_id, recipient_user_id, category, unread_only, agents_only, people_only, conversation_type, through_row_id, created_at_ms, expires_at_ms)
-        SELECT $1, $2, $3, $4, $5, $6, $7, $8, coalesce(max(sequence), 0), $9, $10 FROM "openmeld"."inbox_items" RETURNING *`,
+    // One statement is atomic and shares one MVCC snapshot. RETURNING links
+    // the header to its members without five serial transaction round trips.
+    return input.db
+      .query<SnapshotRow>({
+        text: `${cte.sql},
+        expired AS (
+          DELETE FROM "openmeld"."inbox_feed_snapshots"
+          WHERE id IN (SELECT id FROM "openmeld"."inbox_feed_snapshots" WHERE expires_at_ms <= $10 LIMIT 100)
+        ), header AS (
+          INSERT INTO "openmeld"."inbox_feed_snapshots"
+          (id, organization_id, recipient_user_id, category, unread_only, agents_only, people_only, conversation_type, through_row_id, created_at_ms, expires_at_ms)
+          SELECT $4, $1, $2, $5, $6, $7, $8, $9, coalesce(max(sequence), 0), $10, $11
+          FROM "openmeld"."inbox_items" RETURNING *
+        ), members AS (
+          INSERT INTO "openmeld"."inbox_feed_snapshot_members" (snapshot_id, item_id)
+          SELECT header.id, filtered.id FROM filtered CROSS JOIN header
+        )
+        SELECT * FROM header`,
         values: [
+          ...cte.bindings,
           id,
-          identity.organizationId,
-          identity.recipientUserId,
           query.category ?? "all",
           query.unreadOnly === "true" ? 1 : 0,
           query.agentsOnly === "true" ? 1 : 0,
@@ -151,23 +159,14 @@ export function createInboxFeedService(input: {
           created,
           created + SNAPSHOT_TTL_MS,
         ],
+      })
+      .then(({ rows }) => {
+        const row = rows[0];
+        if (!row) {
+          throw new Error("Inbox snapshot insert did not return its header");
+        }
+        return mapSnapshot(row);
       });
-      const row = inserted.rows[0];
-      if (!row) {
-        throw new Error("Inbox snapshot insert did not return its header");
-      }
-      await client.query({
-        text: `${cte.sql} INSERT INTO "openmeld"."inbox_feed_snapshot_members" (snapshot_id, item_id)
-        SELECT $4, id FROM filtered`,
-        values: [
-          identity.organizationId,
-          identity.recipientUserId,
-          row.through_row_id,
-          id,
-        ],
-      });
-      return mapSnapshot(row);
-    });
   }
   return {
     async list(

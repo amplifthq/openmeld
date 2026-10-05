@@ -542,6 +542,10 @@ import {
   rpcUpdateOrganizationSkill,
 } from "./organization-skills/organization-skill-rpc";
 import {
+  cleanupDeletedAccount,
+  cleanupDeletedAccountConnection,
+} from "./organizations/account-deletion";
+import {
   rpcCenterAgentCreateOrganizationInviteLink,
   rpcCenterAgentGetOrganizationInviteLink,
 } from "./organizations/center-agent-organization-invite-link-rpc";
@@ -1209,6 +1213,14 @@ export class ProfileLifecycleEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
       checkSpaceOwnerDeparture(this.env, input)
     );
+  }
+  cleanupDeletedAccount(
+    input: import("@openmeld/schemas").AccountDeletionCleanupInput
+  ) {
+    return cleanupDeletedAccount(this.env, input);
+  }
+  cleanupDeletedAccountConnection(input: unknown) {
+    return cleanupDeletedAccountConnection(this.env, input);
   }
   spaceInvitation(
     input: import("@openmeld/schemas").SpaceInvitationRpcInput

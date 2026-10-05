@@ -13,6 +13,7 @@ import {
 	listCurrentInboxFeed,
 	mutateCurrentInboxFeed,
 } from "#/lib/organizations/inbox";
+import { DISPLAY_REVISIT_GC_TIME_MS } from "#/query/query-config";
 import { inboxQueryKeys, invalidateInboxFacts } from "./inbox";
 
 export type InboxFeedFilters = {
@@ -62,7 +63,7 @@ export function organizationInboxFeedQueryOptions(
 		initialPageParam: undefined as string | undefined,
 		getNextPageParam: (page) => page.nextCursor ?? undefined,
 		staleTime: 10_000,
-		gcTime: 60_000,
+		gcTime: DISPLAY_REVISIT_GC_TIME_MS,
 	});
 }
 

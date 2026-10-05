@@ -14,10 +14,12 @@ import {
 } from "@openmeld/schemas";
 import type { OpenMeldRequestContext } from "@openmeld/schemas/types";
 import { createAuthenticatedSpaceAccessContext } from "@openmeld/space";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { ensurePersonalComputer } from "../src/computer/personal-computer";
 import { organizationFileRootName } from "../src/files/file-root-identity";
-import type { OrganizationFileRoot } from "../src/files/organization-file-root";
+import { OrganizationFileRoot } from "../src/files/organization-file-root";
 import type { CoreBindings } from "../src/lib/bindings";
+import { cleanupDeletedAccount } from "../src/organizations/account-deletion";
 import {
   rpcAddSpaceMembers,
   rpcListSignals,
@@ -108,6 +110,264 @@ async function fixture() {
   };
 }
 describe("Team and member Files roots", () => {
+  it("waits for an admitted R2 write before reporting private-root erasure complete", async () => {
+    const { organizationId, users, contexts } = await fixture();
+    const userId = users[0]?.id;
+    if (!userId) {
+      throw new Error("Missing user");
+    }
+    const root = {
+      kind: "member" as const,
+      organizationId,
+      memberUserId: userId,
+    };
+    const stub = env.OPENMELD_FILE_ROOTS.get(
+      env.OPENMELD_FILE_ROOTS.idFromName(organizationFileRootName(root))
+    );
+    await runInDurableObject(stub, async (_instance, state) => {
+      const started = Promise.withResolvers<void>();
+      const released = Promise.withResolvers<void>();
+      const bucket = new Proxy(env.OPENMELD_SPACE_ATTACHMENTS, {
+        get(target, key) {
+          if (key === "put") {
+            return async (...args: Parameters<R2Bucket["put"]>) => {
+              started.resolve();
+              await released.promise;
+              return target.put(...args);
+            };
+          }
+          const value = Reflect.get(target, key);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      });
+      const owner = new OrganizationFileRoot(state, {
+        ...env,
+        OPENMELD_SPACE_ATTACHMENTS: bucket,
+      } as CoreBindings);
+      const bytes = new TextEncoder().encode("private in-flight content");
+      const mutation = crypto.randomUUID();
+      const fileId = await buildSpaceFileEntryIdForMutation(mutation);
+      const revisionId = await buildSpaceFileRevisionIdFromDigest({
+        baseRevision: null,
+        clientMutationId: mutation,
+        mimeType: "text/plain",
+        name: "private.txt",
+        parentId: null,
+        contentDigest: await hashSpaceFileStream(new Blob([bytes]).stream()),
+      });
+      const writing = owner
+        .writeContent({
+          root,
+          context: contexts[0],
+          bytes: bytes.slice().buffer,
+          write: {
+            spaceId: state.id.toString(),
+            fileId,
+            revisionId,
+            clientMutationId: mutation,
+            name: "private.txt",
+            parentId: null,
+            baseRevision: null,
+            mimeType: "text/plain",
+            sizeBytes: bytes.byteLength,
+          },
+        })
+        .then(
+          () => "accepted",
+          (error) => String(error)
+        );
+      await started.promise;
+      await getPostgresDatabase(env).query({
+        text: 'UPDATE "openmeld"."users" SET deleted_at = $2 WHERE id = $1',
+        values: [userId, Date.now()],
+      });
+      expect(await owner.purgeDeletedAccountRoot({ root, userId })).toBe(false);
+      released.resolve();
+      expect(await writing).not.toBe("accepted");
+      expect(await owner.purgeDeletedAccountRoot({ root, userId })).toBe(true);
+      expect(
+        (
+          await bucket.list({
+            prefix: `org/${organizationId}/file-roots/member/${userId}/`,
+          })
+        ).objects
+      ).toEqual([]);
+    });
+  });
+  it("finishes account cleanup after another tenant has disappeared and preserves the surviving team's files and Slack connection", async () => {
+    const { organizationId, users } = await fixture();
+    const userId = users[0]?.id;
+    const teammateId = users[1]?.id;
+    if (!(userId && teammateId)) {
+      throw new Error("Missing account fixture");
+    }
+    const db = getPostgresDatabase(env);
+    const closed = `closed-${crypto.randomUUID()}`;
+    const personalComputer = await ensurePersonalComputer(db, userId);
+    const teammateComputer = await ensurePersonalComputer(db, teammateId);
+    const eraseAccountComputer = vi
+      .fn<
+        NonNullable<
+          NonNullable<
+            CoreBindings["OPENMELD_REMOTE_AGENT_WORKER"]
+          >["eraseAccountComputer"]
+        >
+      >()
+      .mockRejectedValueOnce(new Error("Computer temporarily unavailable"))
+      .mockResolvedValue(undefined);
+    const cleanupEnv = {
+      ...env,
+      OPENMELD_REMOTE_AGENT_WORKER: { eraseAccountComputer },
+    } as CoreBindings;
+    const gone = `gone-${crypto.randomUUID()}`;
+    await db.query({
+      text: 'INSERT INTO "openmeld"."organizations" (id,name,slug,created_at,deletion_requested_at) VALUES ($1,$1,$1,$2,$2)',
+      values: [closed, Date.now()],
+    });
+    for (const id of [closed, organizationId]) {
+      await db.query({
+        text: 'INSERT INTO "openmeld"."slack_workspace_tokens" (slack_team_id,encrypted_bot_token,bot_user_id,installed_by_user_id,organization_id,created_at_ms,updated_at_ms) VALUES ($1,$2,$3,$4,$1,1,1)',
+        values: [id, "encrypted-fixture", "bot", userId],
+      });
+      await db.query({
+        text: 'INSERT INTO "openmeld"."openMeldRemoteAgent_slack_workspace_bindings" (slack_team_id,organization_id,created_at_ms,updated_at_ms) VALUES ($1,$1,1,1)',
+        values: [id],
+      });
+    }
+    const privateKey = `org/${gone}/file-roots/member/${userId}/files/private/revisions/old`;
+    const closedKey = `org/${closed}/file-roots/team/files/shared/revisions/one`;
+    const retainedKey = `org/${organizationId}/file-roots/team/files/shared/revisions/one`;
+    for (const key of [privateKey, closedKey, retainedKey]) {
+      await env.OPENMELD_SPACE_ATTACHMENTS.put(key, "work");
+    }
+    await db.query({
+      text: 'UPDATE "openmeld"."users" SET deleted_at = $2 WHERE id = $1',
+      values: [userId, Date.now()],
+    });
+    const humanCleanupId = crypto.randomUUID();
+    await db.query({
+      text: 'INSERT INTO "openmeld"."openmeld_profile_deletion_outbox" (profile_id,owner_user_id,profile_kind) VALUES ($1,$2,\'human\')',
+      values: [humanCleanupId, userId],
+    });
+    const plan = {
+      deleteOrganizationIds: [closed],
+      privateOrganizationIds: [gone, organizationId, closed],
+      profileIds: [humanCleanupId],
+    };
+    await db.query({
+      text: 'INSERT INTO "openmeld"."account_deletion_requests" (user_id,plan_json,created_at_ms,next_attempt_at_ms) VALUES ($1,$2,1,1)',
+      values: [userId, JSON.stringify(plan)],
+    });
+    await expect(
+      cleanupDeletedAccount(cleanupEnv, { userId, privateRootIndex: 0 })
+    ).rejects.toThrow("Computer temporarily unavailable");
+    expect(
+      (
+        await db.query({
+          text: 'SELECT id FROM "openmeld"."cloud_computers" WHERE owner_user_id = $1',
+          values: [userId],
+        })
+      ).rows
+    ).toEqual([{ id: personalComputer.id }]);
+    expect(
+      await cleanupDeletedAccount(cleanupEnv, {
+        userId,
+        privateRootIndex: 0,
+      })
+    ).toEqual({ complete: false, privateRootIndex: 3 });
+    expect(eraseAccountComputer).toHaveBeenLastCalledWith({
+      computerId: personalComputer.id,
+    });
+    expect(
+      (
+        await db.query({
+          text: 'SELECT id FROM "openmeld"."cloud_computers" WHERE owner_user_id = ANY($1::text[])',
+          values: [[userId, teammateId]],
+        })
+      ).rows
+    ).toEqual([{ id: teammateComputer.id }]);
+    await db.query({
+      text: 'DELETE FROM "openmeld"."openmeld_profile_deletion_outbox" WHERE profile_id = $1',
+      values: [humanCleanupId],
+    });
+    expect(
+      await cleanupDeletedAccount(cleanupEnv, { userId, privateRootIndex: 0 })
+    ).toEqual({ complete: true, privateRootIndex: 3 });
+    expect(await env.OPENMELD_SPACE_ATTACHMENTS.get(privateKey)).toBeNull();
+    expect(await env.OPENMELD_SPACE_ATTACHMENTS.get(closedKey)).toBeNull();
+    expect(
+      await (await env.OPENMELD_SPACE_ATTACHMENTS.get(retainedKey))?.text()
+    ).toBe("work");
+    for (const table of [
+      "slack_workspace_tokens",
+      "openMeldRemoteAgent_slack_workspace_bindings",
+    ]) {
+      expect(
+        (
+          await db.query({
+            text: `SELECT 1 FROM "openmeld"."${table}" WHERE organization_id = $1`,
+            values: [closed],
+          })
+        ).rows
+      ).toEqual([]);
+      expect(
+        (
+          await db.query({
+            text: `SELECT 1 FROM "openmeld"."${table}" WHERE organization_id = $1`,
+            values: [organizationId],
+          })
+        ).rows
+      ).toHaveLength(1);
+    }
+  });
+  it("erases a deleted account's private root and orphan revisions without deleting team files", async () => {
+    const { organizationId, users, contexts } = await fixture();
+    const userId = users[0]?.id;
+    if (!userId) {
+      throw new Error("Missing account fixture");
+    }
+    const root = {
+      kind: "member" as const,
+      organizationId,
+      memberUserId: userId,
+    };
+    const personal = env.OPENMELD_FILE_ROOTS.get(
+      env.OPENMELD_FILE_ROOTS.idFromName(organizationFileRootName(root))
+    );
+    await personal.createFolder({
+      root,
+      context: contexts[0],
+      body: { name: "Private", clientMutationId: crypto.randomUUID() },
+    });
+    const privateKey = `org/${organizationId}/file-roots/member/${userId}/files/private/revisions/old`;
+    const teamKey = `org/${organizationId}/file-roots/team/files/shared/revisions/one`;
+    await env.OPENMELD_SPACE_ATTACHMENTS.put(privateKey, "private revision");
+    await env.OPENMELD_SPACE_ATTACHMENTS.put(teamKey, "shared revision");
+    await expect(
+      (async () => await personal.purgeDeletedAccountRoot({ root, userId }))()
+    ).rejects.toThrow("not authorized");
+    await getPostgresDatabase(env).query({
+      text: 'UPDATE "openmeld"."users" SET deleted_at = $2 WHERE id = $1',
+      values: [userId, Date.now()],
+    });
+    expect(await personal.purgeDeletedAccountRoot({ root, userId })).toBe(true);
+    expect(await personal.purgeDeletedAccountRoot({ root, userId })).toBe(true);
+    expect(await env.OPENMELD_SPACE_ATTACHMENTS.get(privateKey)).toBeNull();
+    expect(
+      await (await env.OPENMELD_SPACE_ATTACHMENTS.get(teamKey))?.text()
+    ).toBe("shared revision");
+    await expect(
+      (async () => await personal.list({ root, context: contexts[0] }))()
+    ).rejects.toThrow("being deleted");
+    const team = { kind: "team" as const, organizationId };
+    const shared = env.OPENMELD_FILE_ROOTS.get(
+      env.OPENMELD_FILE_ROOTS.idFromName(organizationFileRootName(team))
+    );
+    await expect(
+      (async () =>
+        await shared.purgeDeletedAccountRoot({ root: team, userId }))()
+    ).rejects.toThrow("not authorized");
+  });
   it("copies only the author's selected version and preserves the lawful Files copy after recall", async () => {
     const { contexts } = await fixture();
     const context = contexts[0];

@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-05T12:40:33.846Z",
+  "updatedAt": "2026-10-05T18:16:27.157Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
-      "packageVersion": "0.3.243",
+      "packageVersion": "0.3.244",
       "updatePolicy": "available",
-      "reason": "Existing CLI commands remain compatible; the optional cloud Computer command is published after its Core, Remote Agent and Gateway receivers."
+      "reason": "Existing CLI commands remain compatible with both cloud versions; this release carries additive account-deletion schema exports."
     },
     "service": {
-      "bundleHash": "fe08c0b5a25a2a7dc72a4dea3bca21a37d55764aaa4355589d6de070840d880f",
-      "portableBundleHash": "eaece1fa12a29c573206f218eb568ac8cbe09f5ea559b00859f28b3138a2ade3",
-      "bundleVersion": "0.3.243",
+      "bundleHash": "b20d300b8fad317ecf3974b6237b6853acc40dfdd651795440fc40c06626d3bf",
+      "portableBundleHash": "0186abf4ee8299d5315da0968ad558b06645225cbcf092fa83654d4551036f64",
+      "bundleVersion": "0.3.244",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
       "serviceContractVersion": "openmeld-service-contract-2026-09-local-install-recovery-v1",
       "updatePolicy": "available",
-      "reason": "No workstation execution or lifecycle contract changed; existing Services retain setup, Wake, Space actions and diagnostics compatibility."
+      "reason": "Account-deletion schemas are additive; workstation setup, Wake, execution and reply contracts remain compatible in both directions."
     },
     "skills": {
       "bundleHash": "c041258bd2098c01e98130579c12a11217b17de6f3c8e0b966a1e1001ad46bd3",

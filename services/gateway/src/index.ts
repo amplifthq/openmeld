@@ -1,6 +1,12 @@
+import { WorkerEntrypoint } from "cloudflare:workers";
+import {
+  type AccountDeletionConnection,
+  accountDeletionConnectionSchema,
+} from "@openmeld/schemas";
 import { Hono } from "hono";
 import { parseAnonymousSpaceReadRoute } from "./lib/anonymous-space-read-routes";
 import type { HonoBindings } from "./lib/bindings";
+import { OpenConnectorClient } from "./lib/openconnector-client";
 import { gatewayAuthMiddleware } from "./middlewares/auth";
 import { gatewayContextMiddleware } from "./middlewares/context";
 import { registerDaemonStreamRoute } from "./routes/daemon-stream";
@@ -48,3 +54,19 @@ registerAccountInvalidationStreamRoute(app);
 registerDaemonStreamRoute(app);
 
 export default app;
+
+/** Internal Core lifecycle binding. Connection administration remains in Gateway. */
+export class AccountDeletionEntrypoint extends WorkerEntrypoint<CloudflareBindings> {
+  async disconnectAccountConnection(
+    raw: AccountDeletionConnection
+  ): Promise<void> {
+    const input = accountDeletionConnectionSchema.parse(raw);
+    if (!this.env.OPEN_CONNECTOR_OPENMELD_ADMIN_TOKEN) {
+      throw new Error("App connection cleanup is unavailable.");
+    }
+    await new OpenConnectorClient({
+      adminToken: this.env.OPEN_CONNECTOR_OPENMELD_ADMIN_TOKEN,
+      baseUrl: this.env.OPENMELD_CONNECTORS_BASE_URL,
+    }).disconnect(input);
+  }
+}

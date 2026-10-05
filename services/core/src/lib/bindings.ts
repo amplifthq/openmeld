@@ -131,6 +131,12 @@ type CoreAuthDispatchBindingRpc = {
   ): Promise<AuthRpcResolveProfilesByIdsResult>;
 };
 export type RemoteAgentWorkerBindingRpc = {
+  eraseAccountConversation?(
+    input: import("@openmeld/schemas").AccountDeletionConversation
+  ): Promise<void>;
+  eraseAccountComputer?(
+    input: import("@openmeld/schemas").AccountDeletionComputer
+  ): Promise<void>;
   cloudComputerOperation?(input: unknown): Promise<unknown>;
   generateCenterAgentSessionTitle?(
     input: import("@openmeld/schemas/types").GenerateCenterAgentSessionTitleInput
@@ -200,6 +206,11 @@ export type RemoteAgentWorkerBindingRpc = {
 // CloudflareBindings. Gateway typegen imports core source for service RPC
 // typing; using a global env type here causes cross-worker type collisions.
 export type CoreBindings = {
+  OPENMELD_ACCOUNT_DELETION_GATEWAY?: {
+    disconnectAccountConnection(
+      input: import("@openmeld/schemas").AccountDeletionConnection
+    ): Promise<void>;
+  };
   OPENMELD_ACCOUNT_INVALIDATIONS?: DurableObjectNamespace<AccountInvalidationHub>;
   OPENMELD_LARK_CHANNEL_CONNECTOR?: DurableObjectNamespace<LarkChannelConnector>;
   OPENMELD_SPACES: DurableObjectNamespace<Space>;
@@ -212,6 +223,7 @@ export type CoreBindings = {
   OPENMELD_REMOTE_AGENT_WORKER?: RemoteAgentWorkerBindingRpc;
   OPENMELD_SPACE_ATTACHMENTS?: R2Bucket;
   OPENMELD_ORGANIZATION_SKILLS?: R2Bucket;
+  OPENMELD_ACCOUNT_AVATARS?: R2Bucket;
   OPENMELD_SKILL_FILE_BACKED_WRITES?: string;
   OPENMELD_ROUTINE_RUN_WORKFLOW?: Workflow<{
     runId: string;

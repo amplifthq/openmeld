@@ -28,7 +28,8 @@ import {
 } from "./release-stage-probes.mjs";
 
 const CLI_BINARY_PLATFORM = "darwin-arm64";
-const ARTIFACT_PROBE_TIMEOUT_MS = 60_000;
+const ARTIFACT_BODY_PROBE_TIMEOUT_MS = 180_000;
+const ARTIFACT_HEADER_PROBE_TIMEOUT_MS = 60_000;
 const COMPLETION_PROBE_TIMEOUT_MS = 30_000;
 const NPM_PROPAGATION_DELAYS_MS = [
   10_000,
@@ -595,7 +596,9 @@ export async function probeCliBinaryStage(input) {
       const controller = new AbortController();
       const timeout = setTimeout(
         () => controller.abort(),
-        ARTIFACT_PROBE_TIMEOUT_MS
+        archive
+          ? ARTIFACT_BODY_PROBE_TIMEOUT_MS
+          : ARTIFACT_HEADER_PROBE_TIMEOUT_MS
       );
       try {
         const response = await input.adapters.fetch(url, {

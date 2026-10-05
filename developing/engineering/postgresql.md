@@ -35,6 +35,14 @@ sequence and native Auth UUID defaults. Production Auth and Core use native
 PostgreSQL SQL and one Hyperdrive binding. Preserve immutable D1 history and the
 frozen source. New production writes belong only to PostgreSQL.
 
+Production Gateway uses Cloudflare's `placement.region: aws:us-east-1` to run
+the HTTP request chain near PlanetScale. Gateway invokes Core through a Service
+Binding; placing only Core's fetch handler does not cover those RPC methods.
+Keep the hint aligned with the database region. Durable Object placement remains
+independent, and this setting does not change database capacity or query caching.
+See [Cloudflare Placement](https://developers.cloudflare.com/workers/configuration/placement/)
+and [Service Bindings](https://developers.cloudflare.com/workers/runtime-apis/bindings/service-bindings/).
+
 ## Tools and local development
 
 The isolated staging, production, and local/CI baseline is PostgreSQL 18. Use the current

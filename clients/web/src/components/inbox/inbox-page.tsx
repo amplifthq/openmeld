@@ -257,6 +257,10 @@ export function InboxPage(input: {
 		);
 	}, [feed.data, sourceItem?.id, input.requestId]);
 	const firstPage = feed.data?.pages[0];
+	const snapshotExpired = firstPage
+		? Date.parse(firstPage.snapshotExpiresAt) <= Date.now()
+		: false;
+	const selectionPending = selection.isPending || snapshotExpired;
 	const selectionUnreadCount = firstPage?.selectionUnreadCount ?? null;
 	const selectionAction = (
 		<InboxSelectionActions
@@ -268,7 +272,7 @@ export function InboxPage(input: {
 					});
 				}
 			}}
-			pending={selection.isPending}
+			pending={selectionPending}
 			unreadCount={selectionUnreadCount}
 		/>
 	);
@@ -276,7 +280,7 @@ export function InboxPage(input: {
 		0,
 		INBOX_TABS.findIndex((tab) => tab.view === input.view)
 	);
-	const loadMoreState = resolveInboxFeedLoadMoreState(feed);
+	const loadMoreState = resolveInboxFeedLoadMoreState(feed, snapshotExpired);
 	const openItem = (item: InboxItem) => setRead(item, true);
 	const confirmationLabel = markReadLabel(confirmation?.unreadCount ?? null);
 	return (
@@ -400,7 +404,7 @@ export function InboxPage(input: {
 										accountId={currentUserId}
 										expansion={expansion}
 										filters={filters}
-										isMutating={selection.isPending}
+										isMutating={selectionPending}
 										onDismiss={requestRemoval}
 										onOpenItem={openItem}
 										onSelection={requestSelection}
@@ -424,7 +428,11 @@ export function InboxPage(input: {
 								) : null}
 								{loadMoreState ? (
 									<InboxInfiniteScrollTrigger
-										onLoadMore={() => feed.fetchNextPage()}
+										onLoadMore={async () => {
+											if (!feed.isFetching) {
+												await feed.fetchNextPage();
+											}
+										}}
 										state={loadMoreState}
 									/>
 								) : null}

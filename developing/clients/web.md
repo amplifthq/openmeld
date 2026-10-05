@@ -401,8 +401,11 @@ the shared Fluid moving hover highlight, and Fluid ScrollArea edge fading.
 
 Your Spaces and the sidebar render active memberships from the account Space
 index. The Organization discovery snapshot must not veto a newer account index
-entry. The account index refreshes every five seconds in the foreground so a
-newly added Human or Agent owner can discover a Space without reloading. Unread
+entry. The account invalidation stream refreshes the index after membership or
+message-preview projection, including Spaces not currently open. A 30-second
+foreground poll repairs missed events; focus and stream reconnect also refresh
+immediately. A newly added Human or Agent owner can discover a Space without
+reloading. Unread
 counts continue to come from Inbox; joining does not fabricate unread history.
 
 Contract impact: the shared account-sidebar payload adds an optional `chats`
@@ -3523,6 +3526,11 @@ This includes the bounded Space bootstrap, status, recent history, and members.
 Thread catalogs and opened replies use the same 30-minute in-memory revisit
 window. Returning to a Space must not replace a newer Thread catalog with an
 older cached bootstrap.
+Inbox feeds, Profile directory display rows, account Space lists, and Center
+Agent session lists remain in memory for 24 hours after their last observer,
+so an overnight return can retain content during refresh. Their short freshness
+windows and existing invalidation still apply. This does not add disk persistence
+or extend readiness, membership authority, or Inbox snapshot validity.
 After the entry access gate permits a cold conversation, route classification
 uses status already returned by its bounded bootstrap or the mounted conversation.
 It does not issue a separate full status request to distinguish Spaces from

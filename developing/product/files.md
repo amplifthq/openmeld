@@ -27,6 +27,12 @@ The user must always see the current location and audience before adding content
 
 ## Ordinary file contract
 
+Account deletion erases the member's private roots and their revision objects;
+it does not copy them into Team Files. The File Root owner fences new writes and
+waits for admitted writes to settle before deleting R2 prefixes. Retry interrupted
+cleanup through the account job. Team roots are erased only when their sole-member
+workspace closes; shared copies in surviving teams remain independent assets.
+
 - A file or folder has a stable identity and one root. Folder placement does not grant access to another root.
 - Content revisions are immutable. Writes state the expected current revision; a conflicting write fails visibly. An exact revision can be read again if current authorization still permits access.
 - Upload sessions, chunks, checksums, resumability, and retry handling use the shared file transport. A completed upload is not reported before its metadata revision is committed.

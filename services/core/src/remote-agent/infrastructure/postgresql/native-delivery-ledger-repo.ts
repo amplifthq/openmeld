@@ -454,6 +454,22 @@ const REMOTE_AGENT_NATIVE_DELIVERY_SELECT = `
     retired_deadline_failure_reconciled_at_ms
   FROM "openmeld"."openMeldRemoteAgent_native_delivery_ledger"
 `;
+/** Deletion must also wait for submission, Routines, and uncertain publication. */
+export async function hasUnsettledSpaceNativeDelivery(input: {
+  db: Pick<PostgresDatabase, "query">;
+  spaceId: string;
+}): Promise<boolean> {
+  const result = await input.db.query({
+    text: `SELECT 1 FROM "openmeld"."openMeldRemoteAgent_native_delivery_ledger"
+      WHERE conversation_kind = 'space' AND space_id = $1
+        AND (status IN ('submitted', 'accepted', 'retry_observed')
+          OR final_publication_state IN ('claimed', 'outcome_unknown'))
+      LIMIT 1`,
+    values: [input.spaceId],
+  });
+  return result.rows.length > 0;
+}
+
 export async function listActiveRemoteAgentNativeDeliveryWakeProgressEvidenceBySpace(input: {
   nowMs?: number;
   db: PostgresDatabase;
