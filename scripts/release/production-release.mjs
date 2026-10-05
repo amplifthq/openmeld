@@ -30,7 +30,10 @@ import {
   isSkillsReleasePath,
 } from "./release-ready-paths.mjs";
 import { readCurrentWorkerVersionIds } from "./release-stage-probes.mjs";
-import { resolveRemoteAgentRequestCompatibilityBridge } from "./remote-agent-request-compatibility.mjs";
+import {
+  resolvePersonalCloudComputerRequestCompatibility,
+  resolveRemoteAgentRequestCompatibilityBridge,
+} from "./remote-agent-request-compatibility.mjs";
 import { requireMainlineReleaseSha } from "./require-mainline-release-sha.mjs";
 import {
   admitWebsiteDomainRelease,
@@ -193,6 +196,16 @@ const DEPLOY_SCOPE_ORDER_BY_PROFILE = {
     "web",
   ],
   "personal-remote-tools-receivers-first": SCOPE_ORDER,
+  "personal-cloud-computer-receivers-first": [
+    "db",
+    "auth",
+    "core",
+    "remote-agent",
+    "gateway",
+    "web",
+    "cli",
+    "website",
+  ],
   "inbox-task-retirement-producer-first": [
     "db",
     "core",
@@ -338,6 +351,19 @@ export function resolveProductionCompatibilityDependencies(
     {
       enabled: isPersonalRemoteToolsReceiverFirstDiff(changedPaths),
       edges: [["core", "remote-agent"]],
+    },
+    {
+      enabled: isPersonalCloudComputerDiff(changedPaths),
+      edges: [
+        ["db", "core"],
+        ["core", "remote-agent"],
+        ["remote-agent", "gateway"],
+        ["db", "cli"],
+        ["auth", "cli"],
+        ["core", "cli"],
+        ["remote-agent", "cli"],
+        ["gateway", "cli"],
+      ],
     },
     {
       enabled: taskInboxRetired,
@@ -1018,6 +1044,7 @@ export function buildProductionVerifyStepSpecs(input) {
       !isLocalServiceRuntimeReceiverFirstDiff(input.changedPaths) &&
       !isWorkingFolderRecoveryDiff(input.changedPaths) &&
       !isPersonalRemoteToolsReceiverFirstDiff(input.changedPaths) &&
+      !isPersonalCloudComputerDiff(input.changedPaths) &&
       !isSpaceTaskReceiverFirstDiff(input.changedPaths) &&
       !isSpaceInvitationReceiverFirstDiff(input.changedPaths)
     ) {
@@ -1119,6 +1146,7 @@ export function buildProductionPreflightStepSpecs(input) {
     !isLocalServiceRuntimeReceiverFirstDiff(input.changedPaths) &&
     !isWorkingFolderRecoveryDiff(input.changedPaths) &&
     !isPersonalRemoteToolsReceiverFirstDiff(input.changedPaths) &&
+    !isPersonalCloudComputerDiff(input.changedPaths) &&
     !isPeopleComputersReceiverFirstDiff(input.changedPaths) &&
     !isSpaceTaskReceiverFirstDiff(input.changedPaths) &&
     !isSpaceInvitationReceiverFirstDiff(input.changedPaths)
@@ -1428,6 +1456,7 @@ function appendProductionDeployScopeSteps(input) {
       input.deployOrderProfile === "device-wait-receivers-first" ||
       input.deployOrderProfile === "people-computers-receivers-first" ||
       input.deployOrderProfile === "personal-remote-tools-receivers-first" ||
+      input.deployOrderProfile === "personal-cloud-computer-receivers-first" ||
       input.deployOrderProfile === "local-service-runtime-receiver-first" ||
       input.deployOrderProfile === "space-task-receivers-first" ||
       input.deployOrderProfile === "space-invitation-receivers-first"
@@ -1555,6 +1584,20 @@ function resolveProductionDeployOrderProfile(
   changedPaths,
   taskInboxRetired = false
 ) {
+  if (isPersonalCloudComputerDiff(changedPaths)) {
+    const profile = resolveProductionDeployOrderProfile(
+      changedPaths.filter(
+        (file) => !PERSONAL_CLOUD_COMPUTER_CONTRACT_PATHS.has(file)
+      ),
+      taskInboxRetired
+    );
+    if (profile !== "default-auth-receiver-first") {
+      throw new Error(
+        `Personal cloud Computer requires Core before Remote and conflicts with ${profile}; split the release.`
+      );
+    }
+    return "personal-cloud-computer-receivers-first";
+  }
   const evidence = isCenterAgentEvidenceDiff(changedPaths);
   const spaceMessageSearch =
     isSpaceMessageSearchReceiverFirstDiff(changedPaths);
@@ -1754,6 +1797,21 @@ function isPersonalRemoteToolsReceiverFirstDiff(changedPaths) {
     "services/core/src/remote-agent/application/remote-agent-tool-caller.ts",
     "services/remote-agent/agent-core/personal-remote-agent-tools.ts",
   ].every((file) => changedPaths.includes(file));
+}
+
+const PERSONAL_CLOUD_COMPUTER_CONTRACT_PATHS = new Set([
+  "packages/schemas/src/schemas/runtime/cloud-computer.ts",
+  "packages/schemas/src/schemas/runtime/remote-agent-execution-access.ts",
+  "services/core/src/computer/computer-rpc.ts",
+  "services/core/src/remote-agent/application/remote-agent-execution-access.ts",
+  "services/remote-agent/agent-core/execution-access.ts",
+  "services/gateway/src/routes/rpc-http.cloud-computer.ts",
+]);
+
+function isPersonalCloudComputerDiff(changedPaths) {
+  return [...PERSONAL_CLOUD_COMPUTER_CONTRACT_PATHS].every((file) =>
+    changedPaths.includes(file)
+  );
 }
 
 function isPeopleComputersReceiverFirstDiff(changedPaths) {
@@ -2337,23 +2395,37 @@ function resolveProductionReleaseContext(input) {
     readGitFile:
       input.readGitFile ?? ((ref, path) => runGit(["show", `${ref}:${path}`])),
   };
+  const computerBridge = isPersonalCloudComputerDiff(changedPaths)
+    ? resolvePersonalCloudComputerRequestCompatibility(compatibilityContext)
+    : null;
+  if (isPersonalCloudComputerDiff(changedPaths) && !computerBridge) {
+    throw new Error(
+      "Personal cloud Computer release requires proven unchanged native Core-to-Remote requests and only the reviewed additive Remote receiver changes. Missing history or unknown owner changes require a separate compatibility review."
+    );
+  }
   const requestBridge =
-    isRemoteAgentWorkerRequestReceiverFirstDiff(changedPaths) ||
+    computerBridge ??
+    (isRemoteAgentWorkerRequestReceiverFirstDiff(changedPaths) ||
     changedPaths.some(isRemoteAgentReceiverFirstContractPath)
       ? resolveRemoteAgentRequestCompatibilityBridge(compatibilityContext)
-      : null;
-  const compatibilityChangedPaths = isReviewedHostedProgressCompatibilityBridge(
-    {
-      base: input.base,
-      changedPaths,
-      readGitFile: input.readGitFile,
-      sourceSha,
-    }
-  )
+      : null);
+  let compatibilityChangedPaths = isReviewedHostedProgressCompatibilityBridge({
+    base: input.base,
+    changedPaths,
+    readGitFile: input.readGitFile,
+    sourceSha,
+  })
     ? changedPaths.filter(
         (path) => path !== REMOTE_AGENT_WORKER_RESPONSE_SCHEMA_PATH
       )
     : changedPaths;
+  if (computerBridge) {
+    compatibilityChangedPaths = compatibilityChangedPaths.filter(
+      (file) =>
+        file !== "services/remote-agent/.flue/cloudflare.ts" &&
+        file !== "services/remote-agent/.flue/agents/center-agent.ts"
+    );
+  }
   const taskInboxRetired = inspectTaskInboxRetirement({
     base: input.base,
     changedPaths,
