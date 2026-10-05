@@ -60,6 +60,15 @@ vi.mock("../src/space/meta-api", async (importOriginal) => {
   };
 });
 
+vi.mock("../src/config/resolve-openmeld-profile", () => ({
+  requireOpenMeldProfile: async () => ({
+    openMeldProfileId: "agent-profile-1",
+    profileKind: "agent",
+    ownerUserId: "owner-1",
+    profileName: "Agent",
+  }),
+}));
+
 vi.mock("../src/space/updates-api", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("../src/space/updates-api")>();
@@ -102,7 +111,6 @@ vi.mock("../src/provider-hosts/prepare-provider-runtime", () => ({
 }));
 
 const tempDirs: string[] = [];
-const CLI_SPACE_ACTION_FINALIZATION_TIMEOUT_MS = 15_000;
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -136,6 +144,7 @@ function createAcceptedSettlementSocket(input: {
   ledgerPaths: LedgerPaths;
   presenter: Presenter;
   reviewFirst?: boolean;
+  beforeResult?: () => void;
 }): { send: ReturnType<typeof vi.fn> } {
   let acknowledgementQueued = false;
   return {
@@ -152,6 +161,7 @@ function createAcceptedSettlementSocket(input: {
       ) {
         return;
       }
+      input.beforeResult?.();
       acknowledgementQueued = true;
       queueMicrotask(() => {
         acknowledgeDispatchResultOutboxRecord({
@@ -1544,13 +1554,15 @@ describe("dispatch result outbox around preview teardown", () => {
     });
   });
 
-  it("publishes a legacy CLI action while retaining carrier ownership until its runtime ends", async () => {
+  it("retains a legacy CLI proposal and carrier ownership until the native turn completes", async () => {
     await withTempHome(async () => {
       const ledgerPaths = createLedgerPaths();
       const presenter = createPresenter();
+      let nativeTurnCompleted = false;
       const settlementSocket = createAcceptedSettlementSocket({
         ledgerPaths,
         presenter,
+        beforeResult: () => expect(nativeTurnCompleted).toBe(true),
       });
       const socket = settlementSocket as never;
       const currentSocketRef: CurrentDaemonSocketRef = {
@@ -1626,18 +1638,19 @@ describe("dispatch result outbox around preview teardown", () => {
         return result;
       });
       try {
-        await vi.waitFor(
-          () => {
-            expect(readSentTaskResultPayload(settlementSocket)).toMatchObject({
-              status: "success",
-              spaceActionProvenance: "cli_action",
-            });
-          },
-          { timeout: CLI_SPACE_ACTION_FINALIZATION_TIMEOUT_MS }
-        );
+        await vi.waitFor(() => {
+          expect(presenter.events).toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({
+                code: "daemon.run.cli_space_action_finalized",
+              }),
+            ])
+          );
+        });
         expect(carrierReleased).toBe(false);
         expect(currentSocketRef.reasoningPreferenceListeners?.size).toBe(1);
       } finally {
+        nativeTurnCompleted = true;
         finishRuntime(createRuntimeSuccessResult());
       }
       const result = await carrierResult;
@@ -2338,6 +2351,8 @@ describe("dispatch result outbox around preview teardown", () => {
       expect(localPhases).toEqual([
         "task_started",
         "preflight_ready",
+        "bootstrap_read_completed",
+        "bootstrap_read_completed",
         "bootstrap_context_ready",
         "send_target_reference_ready",
         "runtime_context_ready",

@@ -10,6 +10,62 @@ import { readDispatchSpaceActionContextFromEnv } from "../runtime/dispatch-space
 import { createCliApiClientFoundation } from "./api-client-foundation";
 import { fetchSpaceMeta } from "./meta-api";
 
+type TaskKnowledgeScope = {
+  spaceId: string;
+  targetProfileId: string;
+  spacePassword?: string;
+  onRead?: (read: {
+    operation: "identity" | "space_metadata" | "documents" | "skills";
+    durationMs: number;
+    status: "loaded" | "failed";
+  }) => void;
+};
+
+async function observeRead<T>(
+  input: TaskKnowledgeScope,
+  operation: Parameters<
+    NonNullable<TaskKnowledgeScope["onRead"]>
+  >[0]["operation"],
+  read: () => Promise<T>
+): Promise<T> {
+  const startedAt = performance.now();
+  let status: "loaded" | "failed" = "failed";
+  try {
+    const result = await read();
+    status = "loaded";
+    return result;
+  } finally {
+    input.onRead?.({
+      operation,
+      durationMs: Math.round(performance.now() - startedAt),
+      status,
+    });
+  }
+}
+
+/** Share identity and Space scope only for this preparation, never across Wakes. */
+export async function readTaskKnowledge(
+  input: TaskKnowledgeScope & {
+    skillSelections?: OrganizationSkillRuntimeReleaseSelection[];
+  }
+) {
+  const { foundation, requestContext, spaceMeta } =
+    await createTaskKnowledgeReader(input);
+  const [documents, skills] = await Promise.all([
+    observeRead(input, "documents", () =>
+      createOrganizationDocumentsApi(foundation).list({ requestContext })
+    )
+      .then((result) => result.documents)
+      .catch(() => null),
+    input.skillSelections !== undefined
+      ? Promise.resolve(input.skillSelections)
+      : observeRead(input, "skills", () =>
+          readSkillSelections({ foundation, requestContext })
+        ).catch(() => null),
+  ]);
+  return { documents, skills, spaceMeta };
+}
+
 /** Existing member API, with the Agent identity and the Space's Organization. */
 export async function readTaskDocuments(input: {
   spaceId: string;
@@ -23,16 +79,15 @@ export async function readTaskDocuments(input: {
     : await api.list({ requestContext });
 }
 
-async function createTaskKnowledgeReader(input: {
-  spaceId: string;
-  targetProfileId: string;
-}) {
-  const profile = await requireOpenMeldProfile({
-    openMeldProfileId: input.targetProfileId,
-    profileKind: "agent",
-    persistSelection: false,
-    authAction: "reading task documents",
-  });
+async function createTaskKnowledgeReader(input: TaskKnowledgeScope) {
+  const profile = await observeRead(input, "identity", () =>
+    requireOpenMeldProfile({
+      openMeldProfileId: input.targetProfileId,
+      profileKind: "agent",
+      persistSelection: false,
+      authAction: "reading task documents",
+    })
+  );
   if (
     profile.openMeldProfileId !== input.targetProfileId ||
     profile.profileKind !== "agent"
@@ -43,12 +98,16 @@ async function createTaskKnowledgeReader(input: {
     openMeldProfile: profile,
   });
   const baseUrl = await resolveBaseUrl();
-  const meta = await fetchSpaceMeta({
-    baseUrl,
-    requestContext,
-    space: input.spaceId,
-  });
+  const meta = await observeRead(input, "space_metadata", () =>
+    fetchSpaceMeta({
+      baseUrl,
+      requestContext,
+      space: input.spaceId,
+      ...(input.spacePassword ? { password: input.spacePassword } : {}),
+    })
+  );
   return {
+    spaceMeta: meta,
     requestContext,
     foundation: createCliApiClientFoundation(baseUrl, {
       organizationId: meta.organizationId,
@@ -56,11 +115,13 @@ async function createTaskKnowledgeReader(input: {
   };
 }
 
-export async function readTaskSkillSelections(input: {
-  spaceId: string;
-  targetProfileId: string;
+async function readSkillSelections({
+  foundation,
+  requestContext,
+}: {
+  foundation: ReturnType<typeof createCliApiClientFoundation>;
+  requestContext: ReturnType<typeof buildOpenMeldRequestContextFromProfile>;
 }): Promise<OrganizationSkillRuntimeReleaseSelection[]> {
-  const { foundation, requestContext } = await createTaskKnowledgeReader(input);
   const result = await createOrganizationSkillsApi(foundation).list({
     requestContext,
   });

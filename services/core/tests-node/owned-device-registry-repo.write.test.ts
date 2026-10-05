@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   listOwnedDeviceRegistryRecords,
+  listOwnedDeviceRegistryRecordsForUsers,
   readOwnedDeviceRegistryRecord,
   upsertOwnedDeviceRegistryRecord,
 } from "../src/start/infrastructure/postgresql/owned-device-registry-repo";
@@ -117,6 +118,22 @@ describe("owned device registry repo write-side", () => {
           updatedAtMs: Date.parse("2026-04-14T09:00:00.000Z"),
         },
       ]);
+      const records = await listOwnedDeviceRegistryRecordsForUsers({
+        db: harness.db,
+        userIds: ["owner-1", "missing-owner"],
+      });
+      expect(
+        records.map((record) => [record.ownerUserId, record.deviceId])
+      ).toEqual([
+        ["owner-1", "device-newer"],
+        ["owner-1", "device-older"],
+      ]);
+      expect(
+        await listOwnedDeviceRegistryRecordsForUsers({
+          db: harness.db,
+          userIds: ["other-owner"],
+        })
+      ).toEqual([]);
     } finally {
       await harness.close();
     }
