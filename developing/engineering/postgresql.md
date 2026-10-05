@@ -185,11 +185,17 @@ Origin connection establishment is bounded; lost connections fail the operation.
 Reconcile uncertain commit outcomes by domain idempotency keys before retrying.
 
 Request-local `pg.Pool` scopes may be reused by nested calls in the same request.
-Core's navigation, Inbox and runtime-report RPC boundaries explicitly enter
+Core's database-owning RPC, queue and scheduled boundaries explicitly enter
 `withPostgresRequest`, just as its HTTP boundary does. A service-binding RPC does
 not pass through `fetch`; relying on the HTTP wrapper creates a new pool for each
 SQL statement. Keep these scopes at the request owner, including the entire
 runtime report batch, and keep transaction clients explicit.
+Pure forwarding entrypoints reuse the receiving owner rather than opening
+another scope. Deferred work retains its own lifetime; a finished request does
+not leave a reusable pool behind. Team reads preload bindings and current
+conversation proofs within that request only, preserving exact owner, runtime,
+conversation and expiry checks. Inbox page counts and rows share one SQL
+statement snapshot; frozen membership still governs pagination and bulk actions.
 The request owner also supplies one stable database façade to its consumers.
 Readiness reads can share in-flight reads by database identity without retaining
 facts or failures in the next request. Separate request and protected-gate scopes

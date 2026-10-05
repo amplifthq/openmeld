@@ -73,7 +73,6 @@ import { listOwnedDeviceRegistryRecords } from "../../start/infrastructure/postg
 import { RUNTIME_TRANSPORT_LEASE_TTL_MS } from "../../strategy-constants";
 import { readFreshAgentExecutionReadinessImpactForBinding } from "../infrastructure/postgresql/agent-execution-readiness-impact-repo";
 import { readFreshProviderAccessEvidenceForBinding } from "../infrastructure/postgresql/provider-access-evidence-repo";
-import { readFreshProviderConversationProofForBinding } from "../infrastructure/postgresql/provider-conversation-proof-repo";
 import {
   type AgentExecutionReadinessReads,
   createAgentExecutionReadinessReads,
@@ -851,6 +850,7 @@ async function enrichAgentBindingSnapshot(input: {
       "provider_conversation_evidence_read",
       () =>
         resolveAgentProviderConversationEvidence({
+          reads: input.reads,
           agentProfileId: input.agent.profileId,
           binding: agentExecutionBinding,
           env: input.env,
@@ -1557,6 +1557,7 @@ async function resolveAgentProviderAccountEvidence(input: {
 }
 
 async function resolveAgentProviderConversationEvidence(input: {
+  reads: AgentExecutionReadinessReads;
   agentProfileId: string;
   binding: AgentExecutionBindingEvidence | null;
   env: CoreBindings;
@@ -1606,17 +1607,18 @@ async function resolveAgentProviderConversationEvidence(input: {
   }
 
   try {
-    const proof = await readFreshProviderConversationProofForBinding({
-      agentProfileId: input.agentProfileId,
-      bindingId,
-      agentControllerRef: executionTarget.agentControllerRef,
-      agentControllerConversationId,
-      db: domainDb,
-      method: "codex_app_server_thread_resume",
-      nowMs: parseGeneratedAtMs(input.generatedAt),
-      provider: "codex",
-      openMeldServiceRuntimeId: executionTarget.openMeldServiceRuntimeId,
-    });
+    const proof =
+      await input.reads.readFreshProviderConversationProofForBinding({
+        agentProfileId: input.agentProfileId,
+        bindingId,
+        agentControllerRef: executionTarget.agentControllerRef,
+        agentControllerConversationId,
+        db: domainDb,
+        method: "codex_app_server_thread_resume",
+        nowMs: parseGeneratedAtMs(input.generatedAt),
+        provider: "codex",
+        openMeldServiceRuntimeId: executionTarget.openMeldServiceRuntimeId,
+      });
     if (!proof) {
       return {
         ...requiredBase,

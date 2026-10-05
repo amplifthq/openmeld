@@ -17258,8 +17258,18 @@ export class Space extends DurableObject<CoreBindings> {
     if (!metaRecord) {
       return this.spaceNotFoundResponse();
     }
-    await this.ensureAgentOwnerMembershipPolicy(metaRecord);
-    const profileFacts = await this.refreshMemberNamesFromAuth();
+    await this.measureBootstrapBranchTiming(
+      bootstrapTiming,
+      "membership_policy",
+      "reconcile member ownership",
+      () => this.ensureAgentOwnerMembershipPolicy(metaRecord)
+    );
+    const profileFacts = await this.measureBootstrapBranchTiming(
+      bootstrapTiming,
+      "member_names",
+      "refresh member names from Auth",
+      () => this.refreshMemberNamesFromAuth()
+    );
     const snapshot = await listSpaceMembersSnapshotUseCase({
       includeAgentReadiness,
       profileFacts,
