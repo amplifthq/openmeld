@@ -279,6 +279,12 @@ sets its verification root to the product source. Worker target resolution loads
 the pinned Wrangler parser from that source's installed dependencies; the
 minimal trusted-control checkout does not own product tool dependencies.
 
+The current environment verifier requires Core Account avatar storage only when
+that product source includes the Core account-deletion owner. Historical sources
+without that feature keep their existing binding contract; sources with the
+feature must declare the exact avatar bucket. Auth and Gateway requirements do
+not change, and this does not waive any deployment or receipt identity check.
+
 Core receiver deployment uses the current trusted control's two-step receipt
 executor. After Cloudflare confirms the newly admitted version at 100% traffic,
 it persists `applied` before checking stable channel alignment. An alignment
