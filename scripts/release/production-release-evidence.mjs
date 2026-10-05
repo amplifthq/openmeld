@@ -143,29 +143,36 @@ export function readGuardedLocalReleaseSources(input = {}) {
     gitEnvironment: input.gitEnvironment,
   };
   return new Map(
-    [...readGuardedLocalReleaseEvidence(context)].map(([scope, evidence]) => [
-      scope,
-      {
-        recordedAt: evidence.metadata.recordedAt,
-        ...(evidence.metadata.receipt
-          ? {
-              receipt: evidence.metadata.receipt,
-              evidenceSha: evidence.evidenceSha,
-            }
-          : {}),
-        sha: evidence.metadata.sourceSha,
-        source: "guarded-local",
-        url: evidence.reconciliation
-          ? `https://github.com/${evidence.reconciliation.repository}/actions/runs/${evidence.reconciliation.runId}`
-          : undefined,
-        ...(evidence.reconciliation
-          ? {
-              reconciliation: evidence.reconciliation,
-              reconciliationEvidenceSha: evidence.reconciliationProofSha,
-            }
-          : {}),
-      },
-    ])
+    [...readGuardedLocalReleaseEvidence(context)].map(([scope, evidence]) => {
+      const verifiedHistoryBaseline = readVerifiedHistoryBaseline(
+        context,
+        evidence
+      );
+      return [
+        scope,
+        {
+          recordedAt: evidence.metadata.recordedAt,
+          ...(evidence.metadata.receipt
+            ? {
+                receipt: evidence.metadata.receipt,
+                evidenceSha: evidence.evidenceSha,
+              }
+            : {}),
+          sha: evidence.metadata.sourceSha,
+          source: "guarded-local",
+          url: evidence.reconciliation
+            ? `https://github.com/${evidence.reconciliation.repository}/actions/runs/${evidence.reconciliation.runId}`
+            : undefined,
+          ...(evidence.reconciliation
+            ? {
+                reconciliation: evidence.reconciliation,
+                reconciliationEvidenceSha: evidence.reconciliationProofSha,
+              }
+            : {}),
+          ...(verifiedHistoryBaseline ? { verifiedHistoryBaseline } : {}),
+        },
+      ];
+    })
   );
 }
 
@@ -199,35 +206,83 @@ function readGuardedLocalReleaseEvidence(context, selectedScopes) {
       shaValue
     );
     runGit(context, ["fetch", "--quiet", "--no-tags", context.remote, ref]);
-    const message = runGit(context, [
-      "show",
-      "-s",
-      "--format=%B",
-      evidenceSha,
-    ]).stdout.trim();
-    const metadata = parseEvidenceMetadata({ evidenceSha, message, scope });
-    runGit(context, ["cat-file", "-e", `${metadata.sourceSha}^{commit}`]);
-    const evidenceTree = runGit(context, [
-      "rev-parse",
-      `${evidenceSha}^{tree}`,
-    ]).stdout.trim();
-    const sourceTree = runGit(context, [
-      "rev-parse",
-      `${metadata.sourceSha}^{tree}`,
-    ]).stdout.trim();
-    if (evidenceTree !== sourceTree) {
-      throw new Error(
-        `Guarded local release evidence ${evidenceSha} does not preserve the exact released source tree.`
-      );
-    }
     evidenceByScope.set(scope, {
-      evidenceSha,
-      metadata,
       ref,
-      ...readReconciliationProof(context, evidenceSha, metadata),
+      ...readEvidenceCommit(context, evidenceSha, scope),
     });
   }
   return evidenceByScope;
+}
+
+function readEvidenceCommit(context, evidenceSha, scope) {
+  const message = runGit(context, [
+    "show",
+    "-s",
+    "--format=%B",
+    evidenceSha,
+  ]).stdout.trim();
+  const metadata = parseEvidenceMetadata({ evidenceSha, message, scope });
+  runGit(context, ["cat-file", "-e", `${metadata.sourceSha}^{commit}`]);
+  const evidenceTree = runGit(context, [
+    "rev-parse",
+    `${evidenceSha}^{tree}`,
+  ]).stdout.trim();
+  const sourceTree = runGit(context, [
+    "rev-parse",
+    `${metadata.sourceSha}^{tree}`,
+  ]).stdout.trim();
+  if (evidenceTree !== sourceTree) {
+    throw new Error(
+      `Guarded local release evidence ${evidenceSha} does not preserve the exact released source tree.`
+    );
+  }
+  return {
+    evidenceSha,
+    metadata,
+    ...readReconciliationProof(context, evidenceSha, metadata),
+  };
+}
+
+function readVerifiedHistoryBaseline(context, latest) {
+  if (
+    !latest.metadata.receipt ||
+    latest.metadata.receipt.status === "verified"
+  ) {
+    return undefined;
+  }
+  let current = latest;
+  for (;;) {
+    // The first parent is receipt chronology; a second parent is a recovery
+    // proof. The first receipt points directly to its released source commit.
+    const parentSha = runGit(context, [
+      "rev-parse",
+      `${current.evidenceSha}^1`,
+    ]).stdout.trim();
+    if (parentSha === current.metadata.sourceSha) {
+      return undefined;
+    }
+    const previous = readEvidenceCommit(
+      context,
+      parentSha,
+      latest.metadata.scope
+    );
+    if (
+      Date.parse(previous.metadata.recordedAt) >
+      Date.parse(current.metadata.recordedAt)
+    ) {
+      throw new Error(
+        "Guarded local release evidence history moves backward in time."
+      );
+    }
+    if (previous.metadata.receipt?.status === "verified") {
+      return {
+        evidenceSha: previous.evidenceSha,
+        recordedAt: previous.metadata.recordedAt,
+        sha: previous.metadata.sourceSha,
+      };
+    }
+    current = previous;
+  }
 }
 
 function createReconciliationProofMetadata(
