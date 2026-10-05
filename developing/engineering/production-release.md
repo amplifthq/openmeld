@@ -263,6 +263,14 @@ the current contract, use an evidence-backed forward fix or a documented
 component-specific recovery; never run older guards, replace the receipt, or
 bypass admission to force a rollback.
 
+Ordinary local PostgreSQL deployment admission can inspect an applied or failed
+Auth/Core health-resume candidate only when that component is selected and its
+source matches the release. It still verifies the retained active deployment,
+PostgreSQL binding, Hyperdrive target and normal Cron configuration. Before any
+component effects, the receipt executor must match the operation key, target and
+live identity; admission does not promote the failed receipt. Cron restoration
+requires verified receipts and cannot use this health-resume path.
+
 For local recovery after a control-only fix, keep the approved product checkout
 clean and invoke the current-main `scripts/release/production-release.mjs` by
 absolute path with the product checkout as the working directory. The executor

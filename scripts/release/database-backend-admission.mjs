@@ -128,9 +128,10 @@ async function requireActivePostgresqlReceipts(input, registered) {
     if (
       !(
         source?.receipt?.status === "verified" ||
-        (input.hostedCli &&
-          scope === "core" &&
-          isHostedCoreRecovery(source, input.sourceSha))
+        (isSameSourceGuardedRecovery(source, input.sourceSha) &&
+          ((input.hostedCli && scope === "core") ||
+            (!(input.hostedCli || input.restoreCrons) &&
+              input.scopes?.includes(scope))))
       ) ||
       identity?.kind !== "worker-deployment" ||
       identity.sourceSha !== source.sha ||
@@ -256,7 +257,8 @@ function requireMatchingPostgresqlContract(receipts, sourceSha, readObject) {
       !(
         deployed?.sha &&
         (deployed.receipt?.status === "verified" ||
-          (scope === "core" && isHostedCoreRecovery(deployed, sourceSha)))
+          (scope === "core" &&
+            isSameSourceGuardedRecovery(deployed, sourceSha)))
       )
     ) {
       throw new Error(
@@ -273,7 +275,7 @@ function requireMatchingPostgresqlContract(receipts, sourceSha, readObject) {
   }
 }
 
-function isHostedCoreRecovery(source, sourceSha) {
+function isSameSourceGuardedRecovery(source, sourceSha) {
   return (
     source?.sha === sourceSha &&
     describeGuardedReceiptRecoveryCandidate(source) !== null
