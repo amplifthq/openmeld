@@ -30,7 +30,6 @@ import { isReadPositionWithinAllowedFutureSkew } from "../../shared/read-positio
 import { personalAgentOwnerAccessSql } from "./inbox-agent-owner-access";
 import {
   INBOX_OPEN_REVIEW,
-  INBOX_PRIORITY,
   INBOX_UNREAD_PRIORITY_UPDATE,
   inboxMentionSql,
 } from "./inbox-attention-predicates";
@@ -876,31 +875,31 @@ export function createInboxService(input: {
           urgent_update_count: number;
         }>({
           text: `
+            WITH classified AS MATERIALIZED (
+              SELECT read_at_ms IS NULL AS unread,
+                attention = 'action_required' AND resolution_status = 'open' AS open_action,
+                importance = 'urgent' AS urgent,
+                (${INBOX_OPEN_REVIEW}) AS open_review,
+                (${INBOX_UNREAD_PRIORITY_UPDATE}) AS priority_update,
+                (${UNREAD_URGENT_UPDATE_FILTER}) AS urgent_update,
+                (${UNREAD_MENTION_UPDATE_FILTER}) AS mention_update
+              FROM "openmeld"."inbox_items"
+              WHERE ${ITEM_SCOPE_FILTER}
+                AND recipient_user_id = $2
+                AND cleared_at_ms IS NULL
+                AND ${CURRENT_SOURCE_ACCESS_FILTER}
+                ${summaryInput.presentation === "attention" ? `AND ${INBOX_ATTENTION_PRESENTATION_FILTER}` : ""}
+            )
             SELECT
-              coalesce(sum(CASE WHEN read_at_ms IS NULL THEN 1 ELSE 0 END), 0)
-                AS unread_count,
-              coalesce(sum(CASE WHEN ${INBOX_PRIORITY} THEN 1 ELSE 0 END), 0) AS priority_count,
-              coalesce(sum(CASE WHEN ${INBOX_OPEN_REVIEW} THEN 1 ELSE 0 END), 0) AS review_count,
-              coalesce(sum(CASE WHEN ${INBOX_UNREAD_PRIORITY_UPDATE} THEN 1 ELSE 0 END), 0) AS priority_update_count,
-              coalesce(sum(CASE
-                WHEN attention = 'action_required' AND resolution_status = 'open'
-                THEN 1 ELSE 0 END), 0) AS action_count,
-              coalesce(sum(CASE WHEN ${UNREAD_URGENT_UPDATE_FILTER}
-                THEN 1 ELSE 0 END), 0) AS urgent_update_count,
-              coalesce(sum(CASE WHEN ${UNREAD_MENTION_UPDATE_FILTER}
-                THEN 1 ELSE 0 END), 0) AS mention_count,
-              coalesce(sum(CASE WHEN ${ORDINARY_UNREAD_ATTENTION_FILTER}
-                THEN 1 ELSE 0 END), 0) AS ordinary_unread_count
-            FROM "openmeld"."inbox_items"
-            WHERE ${ITEM_SCOPE_FILTER}
-              AND recipient_user_id = $2
-              AND cleared_at_ms IS NULL
-              AND ${CURRENT_SOURCE_ACCESS_FILTER}
-              ${
-                summaryInput.presentation === "attention"
-                  ? `AND ${INBOX_ATTENTION_PRESENTATION_FILTER}`
-                  : ""
-              }
+              count(*) FILTER (WHERE unread) AS unread_count,
+              count(*) FILTER (WHERE (open_action AND urgent) OR priority_update) AS priority_count,
+              count(*) FILTER (WHERE open_review) AS review_count,
+              count(*) FILTER (WHERE priority_update) AS priority_update_count,
+              count(*) FILTER (WHERE open_action) AS action_count,
+              count(*) FILTER (WHERE urgent_update) AS urgent_update_count,
+              count(*) FILTER (WHERE mention_update) AS mention_count,
+              count(*) FILTER (WHERE unread AND NOT open_action AND NOT urgent_update AND NOT mention_update) AS ordinary_unread_count
+            FROM classified
           `,
           values: [summaryInput.organizationId, summaryInput.recipientUserId],
         })
@@ -1337,12 +1336,6 @@ const UNREAD_URGENT_UPDATE_FILTER =
 const UNREAD_MENTION_UPDATE_FILTER = `(${inboxMentionSql()}) AND importance = 'normal' AND attention = 'update' AND read_at_ms IS NULL`;
 const LEGACY_UNREAD_MENTION_UPDATE_FILTER =
   "kind IN ('space_mention', 'space_reference') AND importance = 'normal' AND attention = 'update' AND read_at_ms IS NULL";
-const ORDINARY_UNREAD_ATTENTION_FILTER = `
-  read_at_ms IS NULL
-  AND NOT (attention = 'action_required' AND resolution_status = 'open')
-  AND NOT (${UNREAD_URGENT_UPDATE_FILTER})
-  AND NOT (${UNREAD_MENTION_UPDATE_FILTER})
-`;
 function appendViewFilter(
   filters: string[],
   view: InboxView,

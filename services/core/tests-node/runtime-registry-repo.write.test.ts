@@ -6,6 +6,7 @@ import {
 } from "@openmeld/agent-runtime";
 import { describe, expect, it } from "vitest";
 import {
+  listOwnedDeviceExecutionTargetRecordsForUsers,
   readRuntimeRegistryRecord,
   registerRuntimeRegistryRecord,
 } from "../src/runtime-registry/infrastructure/postgresql/runtime-registry-repo";
@@ -40,7 +41,7 @@ describe("runtime registry repo write-side", () => {
     const harness = await createPostgresHarness();
 
     try {
-      const runtimeLookupInput = lookupInput();
+      const runtimeLookupInput = lookupInput({ lane: "dev-local" });
       const created = await registerRuntimeRegistryRecord({
         db: harness.db,
         record: {
@@ -60,6 +61,24 @@ describe("runtime registry repo write-side", () => {
           "runtime_opaque_1"
         ),
       });
+      const targets = await listOwnedDeviceExecutionTargetRecordsForUsers({
+        db: harness.db,
+        nowMs: 100,
+        userIds: ["owner-1", "missing-owner"],
+      });
+      expect(targets.get("owner-1")).toMatchObject([
+        { deviceId: "device-1", openMeldServiceRuntimeId: "runtime_opaque_1" },
+      ]);
+      expect(targets.has("missing-owner")).toBe(false);
+      expect(
+        (
+          await listOwnedDeviceExecutionTargetRecordsForUsers({
+            db: harness.db,
+            nowMs: 100,
+            userIds: ["other-owner"],
+          })
+        ).size
+      ).toBe(0);
       await expect(
         readRuntimeRegistryRecord({
           db: harness.db,

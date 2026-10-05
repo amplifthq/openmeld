@@ -2,6 +2,8 @@ import type { InboxItem } from "@openmeld/schemas/types";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { useLayoutEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// biome-ignore lint/performance/noNamespaceImport: Spy on the owned transport boundary, while retaining its default implementation in other cases.
+import * as accountStream from "#/lib/inbox/account-invalidation-transport";
 import { requestInboxSourceFocus } from "#/lib/inbox/source-focus-request";
 import { InboxNotificationListener } from "./inbox-notification-listener";
 
@@ -1138,6 +1140,37 @@ describe("InboxNotificationListener", () => {
 		expect(showInboxNotificationMock).toHaveBeenCalledOnce();
 	});
 
+	it("uses push while connected, drains pending observations and resumes polling on disconnect", () => {
+		vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+		const socket = Object.assign(new EventTarget(), {
+			send: vi.fn(),
+			close: vi.fn(),
+		});
+		vi.spyOn(
+			accountStream,
+			"createAccountInvalidationTransport"
+		).mockReturnValue(socket);
+		renderListener();
+		const interval = (hasMore = false) =>
+			itemsQueryMock.mock.lastCall?.[0].refetchInterval({
+				state: { data: { hasMore } },
+			});
+		expect(interval()).toBe(1000);
+		act(() => socket.dispatchEvent(new Event("open")));
+		expect(interval()).toBe(30_000);
+		expect(interval(true)).toBe(1000);
+		const reads = itemsRefetch.mock.calls.length;
+		act(() =>
+			socket.dispatchEvent(
+				new MessageEvent("message", {
+					data: JSON.stringify({ type: "inbox.changed" }),
+				})
+			)
+		);
+		expect(itemsRefetch.mock.calls.length).toBeGreaterThan(reads);
+		act(() => socket.dispatchEvent(new Event("close")));
+		expect(interval()).toBe(1000);
+	});
 	it("refreshes an active Space directory from a new Inbox message even when notifications are off", () => {
 		notificationSettingsByUserId.set("user-123", false);
 		vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
