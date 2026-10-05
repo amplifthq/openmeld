@@ -731,15 +731,19 @@ export async function readLatestSuccessfulReleaseSources(input) {
 }
 
 function successfulSourceTime(source) {
-  if (
-    source?.conflict ||
-    !(source?.receipt
-      ? source.receipt.status === "verified"
-      : source?.source === "github")
-  ) {
+  if (source?.conflict) {
     return Number.NEGATIVE_INFINITY;
   }
-  const value = Date.parse(source.recordedAt);
+  let recordedAt;
+  if (
+    source?.receipt?.status === "verified" ||
+    (!source?.receipt && source?.source === "github")
+  ) {
+    recordedAt = source.recordedAt;
+  } else if (source?.receipt && source.source === "guarded-local") {
+    recordedAt = source.verifiedHistoryBaseline?.recordedAt;
+  }
+  const value = Date.parse(recordedAt);
   return Number.isFinite(value) ? value : Number.NEGATIVE_INFINITY;
 }
 

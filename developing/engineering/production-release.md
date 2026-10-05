@@ -197,8 +197,13 @@ the same completion-time source selector for both lanes. A successful,
 non-conflicting receipt can bound job history only when every component has a
 known successful baseline. Completed runs strictly older than that bound need
 no job or checkout-log query. Active runs, missing update times and updates at
-or after the bound remain inspected. Failed, started, applied, conflicting or
-legacy unverified local records do not provide this cutoff and remain visible.
+or after the bound remain inspected. A failed, started or applied local record
+can use its most recent verified first-parent receipt only as the history bound;
+the same evidence reader validates its metadata, scope, exact source tree,
+provenance and chronological order. The latest record remains the current
+deployment state and does not become verified. A missing verified baseline,
+conflict or legacy unverified record cannot bound history, and an invalid chain
+blocks admission.
 Workflow-listing failures still block admission, including when local receipts
 are available; this bound does not turn an unreadable newer history into success.
 
@@ -1758,6 +1763,11 @@ state; it never publishes or changes real Service state. A visible but invalid
 immutable package fails closed and requires a corrected new release, not a
 republish or a user reset. This check is distinct from native Windows signed-in
 setup/Wake acceptance after release.
+
+The R2 binary body probe allows 180 seconds because a valid 26.7 MB compressed
+artifact exceeded the previous 60-second download budget. Artifact HEAD probes
+retain 60 seconds and command metadata probes retain 30 seconds; artifact size
+and hash checks still fail closed.
 
 `npm publish` can succeed while npm is still processing the package and exact
 version queries return 404. Submission is not availability. Both release lanes
