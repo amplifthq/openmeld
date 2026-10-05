@@ -1375,15 +1375,21 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   listAccountSpaces(
     input: ListAccountSpacesInput
   ): Promise<AccountSpaceIndexResponse> {
-    return rpcListAccountSpaces(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListAccountSpaces(this.env, input)
+    );
   }
   listAccountSpaceActiveWakeSummary(
     input: ListAccountSpaceActiveWakeSummaryInput
   ): Promise<AccountSpaceActiveWakeSummaryResponse> {
-    return rpcListAccountSpaceActiveWakeSummary(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListAccountSpaceActiveWakeSummary(this.env, input)
+    );
   }
   listProjects(input: ListProjectsInput) {
-    return rpcListProjects(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListProjects(this.env, input)
+    );
   }
   createProject(input: CreateProjectInput) {
     return rpcCreateProject(this.env, input);
@@ -1485,27 +1491,41 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return rpcSubmitAgentControllerTaskLifecycleEvents(this.env, input);
   }
   readAgentActivitySnapshot(input: ReadAgentActivitySnapshotInput) {
-    return rpcReadAgentActivitySnapshot(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcReadAgentActivitySnapshot(this.env, input)
+    );
   }
   readAgentActivitySessionInventory(
     input: ReadAgentActivitySessionInventoryInput
   ) {
-    return rpcReadAgentActivitySessionInventory(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcReadAgentActivitySessionInventory(this.env, input)
+    );
   }
   readAgentActivityStats(input: ReadAgentActivityStatsInput) {
-    return rpcReadAgentActivityStats(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcReadAgentActivityStats(this.env, input)
+    );
   }
   readOrganizationUsageOverview(input: ReadOrganizationUsageOverviewInput) {
-    return rpcReadOrganizationUsageOverview(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcReadOrganizationUsageOverview(this.env, input)
+    );
   }
   readOrganizationAiUsage(input: OrganizationAiUsageRpcInput) {
-    return rpcReadOrganizationAiUsage(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcReadOrganizationAiUsage(this.env, input)
+    );
   }
   listRoutines(input: ListRoutinesInput) {
-    return rpcListRoutines(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListRoutines(this.env, input)
+    );
   }
   listRoutineTargetSpaces(input: ListRoutineTargetSpacesInput) {
-    return rpcListRoutineTargetSpaces(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListRoutineTargetSpaces(this.env, input)
+    );
   }
   createRoutine(input: CreateRoutineInput) {
     return rpcCreateRoutine(this.env, input);
@@ -1523,10 +1543,14 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return rpcDeleteRoutine(this.env, input);
   }
   listRoutineRuns(input: ListRoutineRunsInput) {
-    return rpcListRoutineRuns(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListRoutineRuns(this.env, input)
+    );
   }
   listInboxFeed(input: ListInboxFeedRpcInput): Promise<InboxFeedResponse> {
-    return rpcListInboxFeed(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListInboxFeed(this.env, input)
+    );
   }
   searchMessages(
     input: import("@openmeld/schemas").MessageSearchRpcInput,
@@ -1540,85 +1564,119 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   mutateInboxFeed(
     input: MutateInboxFeedRpcInput
   ): Promise<MutateInboxFeedResponse> {
-    return rpcMutateInboxFeed(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcMutateInboxFeed(this.env, input)
+    );
   }
   mutateSpaceInboxRead(
     input: import("@openmeld/schemas/types").MutateSpaceInboxReadRpcInput
   ) {
-    return rpcMutateSpaceInboxRead(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcMutateSpaceInboxRead(this.env, input)
+    );
   }
   listInboxItems(
     input: ListInboxItemsRpcInput
   ): Promise<ListInboxItemsResponse> {
-    return rpcListInboxItems(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListInboxItems(this.env, input)
+    );
   }
   observeInboxNotifications(
     input: import("@openmeld/schemas/types").ObserveInboxNotificationsRpcInput
   ) {
-    return rpcObserveInboxNotifications(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcObserveInboxNotifications(this.env, input)
+    );
   }
   dismissInboxItem(
     input: DismissInboxItemRpcInput
   ): Promise<DismissInboxItemResponse> {
-    return rpcDismissInboxItem(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcDismissInboxItem(this.env, input)
+    );
   }
   getInboxItem(input: GetInboxItemRpcInput): Promise<GetInboxItemResponse> {
-    return rpcGetInboxItem(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetInboxItem(this.env, input)
+    );
   }
   getInboxSummary(
     input: GetInboxSummaryRpcInput
   ): Promise<InboxSummaryResponse> {
-    return rpcGetInboxSummary(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetInboxSummary(this.env, input)
+    );
   }
   getCenterAgentInboxSummary(
     input: GetCenterAgentInboxSummaryRpcInput
   ): Promise<CenterAgentInboxSummaryResponse> {
-    return rpcGetCenterAgentInboxSummary(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetCenterAgentInboxSummary(this.env, input)
+    );
   }
   getSpaceInboxSummary(
     input: GetSpaceInboxSummaryRpcInput
   ): Promise<SpaceInboxSummaryResponse> {
-    return rpcGetSpaceInboxSummary(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetSpaceInboxSummary(this.env, input)
+    );
   }
   getSpaceInboxUnreadTargets(
     input: GetSpaceInboxUnreadTargetsRpcInput
   ): Promise<SpaceInboxUnreadTargetsResponse> {
-    return rpcGetSpaceInboxUnreadTargets(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetSpaceInboxUnreadTargets(this.env, input)
+    );
   }
   markCenterAgentInboxReadThrough(
     input: MarkCenterAgentInboxReadThroughRpcInput
   ): Promise<MarkCenterAgentInboxReadThroughResponse> {
-    return rpcMarkCenterAgentInboxReadThrough(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcMarkCenterAgentInboxReadThrough(this.env, input)
+    );
   }
   markSpaceInboxReadThrough(
     input: MarkSpaceInboxReadThroughRpcInput
   ): Promise<MarkSpaceInboxReadThroughResponse> {
-    return rpcMarkSpaceInboxReadThrough(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcMarkSpaceInboxReadThrough(this.env, input)
+    );
   }
   markInboxItemRead(
     input: MarkInboxItemReadRpcInput
   ): Promise<MarkInboxItemReadResponse> {
-    return rpcMarkInboxItemRead(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcMarkInboxItemRead(this.env, input)
+    );
   }
   markAllInboxItemsRead(
     input: MarkAllInboxItemsReadRpcInput
   ): Promise<MarkAllInboxItemsReadResponse> {
-    return rpcMarkAllInboxItemsRead(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcMarkAllInboxItemsRead(this.env, input)
+    );
   }
   getInboxNotificationPreferences(
     input: GetInboxNotificationPreferencesRpcInput
   ): Promise<InboxNotificationPreferencesResponse> {
-    return rpcGetInboxNotificationPreferences(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetInboxNotificationPreferences(this.env, input)
+    );
   }
   getInboxMessageNotificationPreferences(
     input: GetInboxMessageNotificationPreferencesRpcInput
   ) {
-    return rpcGetInboxMessageNotificationPreferences(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetInboxMessageNotificationPreferences(this.env, input)
+    );
   }
   updateInboxMessageNotificationPreferences(
     input: UpdateInboxMessageNotificationPreferencesRpcInput
   ) {
-    return rpcUpdateInboxMessageNotificationPreferences(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcUpdateInboxMessageNotificationPreferences(this.env, input)
+    );
   }
   localAgentReasoningPreferences(input: LocalAgentReasoningPreferencesRpc) {
     return reasoningPreferences(this.env, input);
@@ -1626,12 +1684,16 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   updateInboxNotificationPreferences(
     input: UpdateInboxNotificationPreferencesRpcInput
   ): Promise<InboxNotificationPreferencesResponse> {
-    return rpcUpdateInboxNotificationPreferences(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcUpdateInboxNotificationPreferences(this.env, input)
+    );
   }
   listOrganizationDocuments(
     input: ListOrganizationDocumentsRpcInput
   ): Promise<ListOrganizationDocumentsResponse> {
-    return rpcListOrganizationDocuments(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListOrganizationDocuments(this.env, input)
+    );
   }
   centerAgentReadOrganizationSkills(
     input: CenterAgentReadOrganizationSkillsRpcInput
@@ -1646,7 +1708,9 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   listOrganizationSkills(
     input: ListOrganizationSkillsRpcInput
   ): Promise<ListOrganizationSkillsResponse> {
-    return rpcListOrganizationSkills(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListOrganizationSkills(this.env, input)
+    );
   }
   getOrganizationSkill(
     input: GetOrganizationSkillRpcInput
@@ -1656,7 +1720,9 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   getOrganizationSkillCatalog(
     input: GetOrganizationSkillRpcInput
   ): Promise<OrganizationSkillRuntimeCatalogResponse> {
-    return rpcGetOrganizationSkillCatalog(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetOrganizationSkillCatalog(this.env, input)
+    );
   }
   createOrganizationSkill(
     input: CreateOrganizationSkillRpcInput
@@ -1726,17 +1792,23 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   readOrganizationSkillRuntimeSnapshot(
     input: ReadOrganizationSkillRuntimeSnapshotRpcInput
   ): Promise<OrganizationSkillRuntimeSnapshotResponse> {
-    return rpcReadOrganizationSkillRuntimeSnapshot(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcReadOrganizationSkillRuntimeSnapshot(this.env, input)
+    );
   }
   readOrganizationSkillRuntimeCatalog(
     input: ReadOrganizationSkillRuntimeCatalogRpcInput
   ): Promise<OrganizationSkillRuntimeCatalogResponse> {
-    return rpcReadOrganizationSkillRuntimeCatalog(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcReadOrganizationSkillRuntimeCatalog(this.env, input)
+    );
   }
   readOrganizationSkillRuntimeResource(
     input: ReadOrganizationSkillRuntimeResourceRpcInput
   ): Promise<ReadOrganizationSkillRuntimeResourceResponse> {
-    return rpcReadOrganizationSkillRuntimeResource(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcReadOrganizationSkillRuntimeResource(this.env, input)
+    );
   }
   recordOrganizationSkillActivation(
     input: RecordOrganizationSkillActivationRpcInput
@@ -1746,7 +1818,9 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   getOrganizationDocument(
     input: GetOrganizationDocumentRpcInput
   ): Promise<GetOrganizationDocumentResponse> {
-    return rpcGetOrganizationDocument(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetOrganizationDocument(this.env, input)
+    );
   }
   createOrganizationDocument(
     input: CreateOrganizationDocumentRpcInput
@@ -1962,17 +2036,23 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return rpcPostTransientSignal(this.env, input);
   }
   getSpaceMembers(input: GetSpaceMembersInput): Promise<SpaceMembersSnapshot> {
-    return rpcGetSpaceMembers(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetSpaceMembers(this.env, input)
+    );
   }
   getSpaceHistoryNavigation(
     input: GetSpaceMembersInput & SpaceHistoryNavigationQuery
   ): Promise<SpaceHistoryNavigation> {
-    return rpcGetSpaceHistoryNavigation(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetSpaceHistoryNavigation(this.env, input)
+    );
   }
   getSpaceIdentityDirectory(
     input: GetSpaceMembersInput
   ): Promise<SpaceIdentityDirectory> {
-    return rpcGetSpaceIdentityDirectory(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetSpaceIdentityDirectory(this.env, input)
+    );
   }
   getSpaceMemberDirectory(
     input: GetSpaceMembersInput,
@@ -1980,7 +2060,9 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     spaceImageGeometryVersion?: string
   ): Promise<SpaceMemberDirectory> {
     return withSpaceAddressingRpcOutput(
-      rpcGetSpaceMemberDirectory(this.env, input),
+      withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+        rpcGetSpaceMemberDirectory(this.env, input)
+      ),
       spaceAddressingVersion,
       spaceImageGeometryVersion
     );
@@ -1988,7 +2070,9 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   getSpaceViewerMembership(
     input: GetSpaceViewerMembershipInput
   ): Promise<SpaceViewerMembershipResponse> {
-    return rpcGetSpaceViewerMembership(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetSpaceViewerMembership(this.env, input)
+    );
   }
   recordSpaceAttachment(
     input: RecordSpaceAttachmentInput
@@ -2231,17 +2315,23 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   getSpaceDispatchLookup(
     input: GetSpaceDispatchLookupInput
   ): Promise<GetSpaceDispatchLookupResponse> {
-    return rpcGetSpaceDispatchLookup(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetSpaceDispatchLookup(this.env, input)
+    );
   }
   getActiveSpaceWakeProgress(
     input: GetActiveSpaceWakeProgressInput
   ): Promise<GetActiveSpaceWakeProgressResponse> {
-    return rpcGetActiveSpaceWakeProgress(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetActiveSpaceWakeProgress(this.env, input)
+    );
   }
   getSpaceWakeProgress(
     input: GetSpaceWakeProgressInput
   ): Promise<GetSpaceWakeProgressResponse> {
-    return rpcGetSpaceWakeProgress(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetSpaceWakeProgress(this.env, input)
+    );
   }
   postSpaceWakeStop(
     input: PostSpaceWakeStopInput
@@ -2343,7 +2433,9 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return rpcLeaveSpace(this.env, input);
   }
   getSpaceMeta(input: GetSpaceMetaInput): Promise<SpaceMeta> {
-    return rpcGetSpaceMeta(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetSpaceMeta(this.env, input)
+    );
   }
   spaceFilePins(
     input: SpaceFilePinsInput,
@@ -2396,12 +2488,16 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   getSpaceEntryResolution(
     input: GetSpaceEntryResolutionRpcInput
   ): Promise<GetSpaceEntryResolutionResponse> {
-    return rpcGetSpaceEntryResolution(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetSpaceEntryResolution(this.env, input)
+    );
   }
   getSpaceConversationState(
     input: GetSpaceConversationStateRpcInput
   ): Promise<GetSpaceConversationStateResponse> {
-    return rpcGetSpaceConversationState(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetSpaceConversationState(this.env, input)
+    );
   }
   getSpaceBootstrap(
     input: GetSpaceBootstrapInput,
@@ -2409,7 +2505,9 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     spaceImageGeometryVersion?: string
   ): Promise<SpaceBootstrapResponse> {
     return withSpaceAddressingRpcOutput(
-      rpcGetSpaceBootstrap(this.env, input),
+      withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+        rpcGetSpaceBootstrap(this.env, input)
+      ),
       spaceAddressingVersion,
       spaceImageGeometryVersion
     );
@@ -2420,7 +2518,9 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     spaceImageGeometryVersion?: string
   ): Promise<SpaceBootstrapWithTiming> {
     return withSpaceAddressingRpcOutput(
-      rpcGetSpaceBootstrapWithTiming(this.env, input),
+      withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+        rpcGetSpaceBootstrapWithTiming(this.env, input)
+      ),
       spaceAddressingVersion,
       spaceImageGeometryVersion
     );
@@ -2431,7 +2531,9 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     spaceImageGeometryVersion?: string
   ): Promise<GetSpaceUpdatesResponse> {
     return withSpaceAddressingRpcOutput(
-      rpcGetSpaceUpdates(this.env, input),
+      withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+        rpcGetSpaceUpdates(this.env, input)
+      ),
       spaceAddressingVersion,
       spaceImageGeometryVersion
     );
@@ -2546,7 +2648,9 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   getCurrentAgentProfileSession(
     input: GetCurrentAgentProfileSessionInput
   ): Promise<CurrentAgentProfileSessionLookupResponse> {
-    return rpcGetCurrentAgentProfileSession(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetCurrentAgentProfileSession(this.env, input)
+    );
   }
   executeAgentProfileWorkRecovery(
     input: ExecuteAgentProfileWorkRecoveryInput
@@ -2571,12 +2675,16 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   getAgentExecutionReadiness(
     input: GetAgentExecutionReadinessInput
   ): Promise<GetAgentExecutionReadinessResponse> {
-    return rpcGetAgentExecutionReadiness(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetAgentExecutionReadiness(this.env, input)
+    );
   }
   getAgentExecutionReadinessBatch(
     input: GetAgentExecutionReadinessBatchInput
   ): Promise<GetAgentExecutionReadinessBatchResponse> {
-    return rpcGetAgentExecutionReadinessBatch(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetAgentExecutionReadinessBatch(this.env, input)
+    );
   }
   ensureAgentProfilePrimaryBinding(
     input: EnsureAgentProfilePrimaryBindingInput
@@ -2696,22 +2804,30 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   getCurrentOrganizationDirectory(
     input: GetCurrentOrganizationDirectoryInput
   ): Promise<OrganizationDirectoryResponse> {
-    return rpcGetCurrentOrganizationDirectory(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetCurrentOrganizationDirectory(this.env, input)
+    );
   }
   getCurrentOrganizationProfileDirectory(
     input: GetCurrentOrganizationProfileDirectoryInput
   ): Promise<OrganizationProfileDirectoryResponse> {
-    return rpcGetCurrentOrganizationProfileDirectory(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetCurrentOrganizationProfileDirectory(this.env, input)
+    );
   }
   getCurrentOrganizationAgentRuntimeOverview(
     input: GetCurrentOrganizationAgentRuntimeOverviewInput
   ): Promise<OrganizationAgentRuntimeOverviewResponse> {
-    return rpcGetCurrentOrganizationAgentRuntimeOverview(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetCurrentOrganizationAgentRuntimeOverview(this.env, input)
+    );
   }
   getCurrentOrganizationMemberPresence(input: {
     context?: CoreRpcContextInput;
   }) {
-    return rpcGetCurrentOrganizationMemberPresence(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetCurrentOrganizationMemberPresence(this.env, input)
+    );
   }
   recordCurrentOrganizationMemberPresence(
     input: RecordCurrentOrganizationMemberPresenceInput
@@ -2726,27 +2842,29 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   getCurrentOrganizationComputers(
     input: GetCurrentOrganizationComputersInput
   ): Promise<OrganizationComputersResponse> {
-    return rpcGetCurrentOrganizationComputers(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetCurrentOrganizationComputers(this.env, input)
+    );
   }
   getCurrentOrganizationMemberOpenMeldServiceStatuses(
     input: GetCurrentOrganizationMemberOpenMeldServiceStatusesInput
   ): Promise<OrganizationMemberOpenMeldServiceStatusesResponse> {
-    return rpcGetCurrentOrganizationMemberOpenMeldServiceStatuses(
-      this.env,
-      input
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetCurrentOrganizationMemberOpenMeldServiceStatuses(this.env, input)
     );
   }
   getCurrentOrganizationSpaceDirectory(
     input: GetCurrentOrganizationSpaceDirectoryInput
   ): Promise<OrganizationSpaceDirectoryResponse> {
-    return rpcGetCurrentOrganizationSpaceDirectory(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetCurrentOrganizationSpaceDirectory(this.env, input)
+    );
   }
   getCurrentOrganizationSpaceDirectoryWithMemberCounts(
     input: GetCurrentOrganizationSpaceDirectoryInput
   ): Promise<OrganizationSpaceDirectoryWithMemberCountsResponse> {
-    return rpcGetCurrentOrganizationSpaceDirectoryWithMemberCounts(
-      this.env,
-      input
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetCurrentOrganizationSpaceDirectoryWithMemberCounts(this.env, input)
     );
   }
   joinOrganizationPublicSpace(
@@ -2805,10 +2923,14 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   listCurrentOrganizationConnectorConnections(
     input: ListCurrentOrganizationConnectorConnectionsInput
   ): Promise<ConnectorConnectionListResponse> {
-    return rpcListCurrentOrganizationConnectorConnections(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListCurrentOrganizationConnectorConnections(this.env, input)
+    );
   }
   listPluginAccess(input: PluginAccessListRpcInput) {
-    return rpcListPluginAccess(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListPluginAccess(this.env, input)
+    );
   }
   pluginAction(input: import("@openmeld/schemas/types").PluginActionRpcInput) {
     return rpcPluginAction(this.env, input);
@@ -3038,7 +3160,9 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   readOrganizationInformationProtectionPolicy(
     input: ReadOrganizationInformationProtectionPolicyInput
   ): Promise<OrganizationInformationProtectionPolicyResponse> {
-    return rpcReadOrganizationInformationProtectionPolicy(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcReadOrganizationInformationProtectionPolicy(this.env, input)
+    );
   }
   setOrganizationInformationProtectionPolicy(
     input: SetOrganizationInformationProtectionPolicyInput
@@ -3552,27 +3676,37 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   submitRuntimeRegistration(
     input: SubmitRuntimeRegistrationInput
   ): Promise<SubmitRuntimeRegistrationResponse> {
-    return rpcSubmitRuntimeRegistration(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcSubmitRuntimeRegistration(this.env, input)
+    );
   }
   submitRuntimeAgentControllerReports(
     input: SubmitRuntimeAgentControllerReportsInput
   ): Promise<SubmitRuntimeAgentControllerReportsResponse> {
-    return rpcSubmitRuntimeAgentControllerReports(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcSubmitRuntimeAgentControllerReports(this.env, input)
+    );
   }
   submitRuntimeProviderConversationProofs(
     input: SubmitRuntimeProviderConversationProofsInput
   ): Promise<SubmitRuntimeProviderConversationProofsResponse> {
-    return rpcSubmitRuntimeProviderConversationProofs(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcSubmitRuntimeProviderConversationProofs(this.env, input)
+    );
   }
   listLocalRuntimes(
     input: GetLocalRuntimesInput
   ): Promise<LocalRuntimesResponse> {
-    return rpcListLocalRuntimes(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListLocalRuntimes(this.env, input)
+    );
   }
   listPeopleComputers(
     input: GetLocalRuntimesInput
   ): Promise<PeopleComputersResponse> {
-    return rpcListPeopleComputers(this.env, input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListPeopleComputers(this.env, input)
+    );
   }
   readServiceConnectionIncidents(
     input: ServiceConnectionIncidentsReadRpcInput
