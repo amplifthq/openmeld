@@ -41,11 +41,7 @@ import type {
 } from "@openmeld/schemas/types";
 import { createAgentProfileBindingProjectionFromRecord } from "../../agent-profile-binding/application/agent-profile-binding-lookup-service";
 import { resolveCurrentWorkingFolderObservation } from "../../agent-profile-binding/application/current-working-folder-observation";
-import { readPrimaryAgentProfileBindingRecordByControllerConversation } from "../../agent-profile-binding/infrastructure/postgresql/agent-profile-binding-repo";
-import {
-  isAgentProfileEligibleForOrganization,
-  readAgentProfileOrganizationContext,
-} from "../../center-agent/center-agent-organization-scope";
+import { isAgentProfileEligibleForOrganization } from "../../center-agent/center-agent-organization-scope";
 import {
   isCenterAgentDesignationActive,
   readCenterAgentDesignationRecord,
@@ -71,9 +67,6 @@ import {
 import { resolveCurrentDeviceFromBindings } from "../../start/infrastructure/postgresql/current-device-derivation-repo";
 import { listOwnedDeviceRegistryRecords } from "../../start/infrastructure/postgresql/owned-device-registry-repo";
 import { RUNTIME_TRANSPORT_LEASE_TTL_MS } from "../../strategy-constants";
-import { readFreshAgentExecutionReadinessImpactForBinding } from "../infrastructure/postgresql/agent-execution-readiness-impact-repo";
-import { readFreshProviderAccessEvidenceForBinding } from "../infrastructure/postgresql/provider-access-evidence-repo";
-import { readFreshProviderConversationProofForBinding } from "../infrastructure/postgresql/provider-conversation-proof-repo";
 import {
   type AgentExecutionReadinessReads,
   createAgentExecutionReadinessReads,
@@ -840,6 +833,7 @@ async function enrichAgentBindingSnapshot(input: {
     }),
     measureReadinessStep(input.timing, "provider_account_evidence_read", () =>
       resolveAgentProviderAccountEvidence({
+        reads: input.reads,
         agentProfileId: input.agent.profileId,
         binding: agentExecutionBinding,
         env: input.env,
@@ -851,6 +845,7 @@ async function enrichAgentBindingSnapshot(input: {
       "provider_conversation_evidence_read",
       () =>
         resolveAgentProviderConversationEvidence({
+          reads: input.reads,
           agentProfileId: input.agent.profileId,
           binding: agentExecutionBinding,
           env: input.env,
@@ -859,6 +854,7 @@ async function enrichAgentBindingSnapshot(input: {
     ),
     measureReadinessStep(input.timing, "readiness_impact_evidence_read", () =>
       resolveAgentReadinessImpactEvidence({
+        reads: input.reads,
         agentProfileId: input.agent.profileId,
         binding: agentExecutionBinding,
         env: input.env,
@@ -1144,7 +1140,7 @@ async function resolveAgentExecutionBindingEvidence(input: {
   try {
     const organizationProfile = input.ownerUserId
       ? null
-      : await readAgentProfileOrganizationContext({
+      : await input.reads.readAgentProfileOrganizationContext({
           agentProfileId: input.agentProfileId,
           db: domainDb,
         });
@@ -1176,17 +1172,19 @@ async function resolveAgentExecutionBindingEvidence(input: {
       });
     if (bindingRecord?.agentControllerConversationId && input.ownerUserId) {
       const conflictingBinding =
-        await readPrimaryAgentProfileBindingRecordByControllerConversation({
-          agentControllerConversationId:
-            bindingRecord.agentControllerConversationId,
-          agentControllerRef: bindingRecord.agentControllerRef,
-          db: domainDb,
-          excludeAgentProfileId: input.agentProfileId,
-          owner: {
-            id: input.ownerUserId,
-            kind: "owner_account",
-          },
-        });
+        await input.reads.readPrimaryAgentProfileBindingRecordByControllerConversation(
+          {
+            agentControllerConversationId:
+              bindingRecord.agentControllerConversationId,
+            agentControllerRef: bindingRecord.agentControllerRef,
+            db: domainDb,
+            excludeAgentProfileId: input.agentProfileId,
+            owner: {
+              id: input.ownerUserId,
+              kind: "owner_account",
+            },
+          }
+        );
       if (conflictingBinding) {
         const conflictingProfileIsCurrent =
           await isCurrentConflictingAgentProfile({
@@ -1489,6 +1487,7 @@ function mergeCurrentWorkingFolderReadiness(input: {
 }
 
 async function resolveAgentProviderAccountEvidence(input: {
+  reads: AgentExecutionReadinessReads;
   agentProfileId: string;
   binding: AgentExecutionBindingEvidence | null;
   env: CoreBindings;
@@ -1506,14 +1505,15 @@ async function resolveAgentProviderAccountEvidence(input: {
   }
 
   try {
-    const evidence = await readFreshProviderAccessEvidenceForBinding({
-      agentProfileId: input.agentProfileId,
-      bindingId,
-      agentControllerRef: executionTarget.agentControllerRef,
-      db: domainDb,
-      nowMs: parseGeneratedAtMs(input.generatedAt),
-      openMeldServiceRuntimeId: executionTarget.openMeldServiceRuntimeId,
-    });
+    const evidence =
+      await input.reads.readFreshProviderAccessEvidenceForBinding({
+        agentProfileId: input.agentProfileId,
+        bindingId,
+        agentControllerRef: executionTarget.agentControllerRef,
+        db: domainDb,
+        nowMs: parseGeneratedAtMs(input.generatedAt),
+        openMeldServiceRuntimeId: executionTarget.openMeldServiceRuntimeId,
+      });
     if (!evidence) {
       return null;
     }
@@ -1557,6 +1557,7 @@ async function resolveAgentProviderAccountEvidence(input: {
 }
 
 async function resolveAgentProviderConversationEvidence(input: {
+  reads: AgentExecutionReadinessReads;
   agentProfileId: string;
   binding: AgentExecutionBindingEvidence | null;
   env: CoreBindings;
@@ -1606,17 +1607,18 @@ async function resolveAgentProviderConversationEvidence(input: {
   }
 
   try {
-    const proof = await readFreshProviderConversationProofForBinding({
-      agentProfileId: input.agentProfileId,
-      bindingId,
-      agentControllerRef: executionTarget.agentControllerRef,
-      agentControllerConversationId,
-      db: domainDb,
-      method: "codex_app_server_thread_resume",
-      nowMs: parseGeneratedAtMs(input.generatedAt),
-      provider: "codex",
-      openMeldServiceRuntimeId: executionTarget.openMeldServiceRuntimeId,
-    });
+    const proof =
+      await input.reads.readFreshProviderConversationProofForBinding({
+        agentProfileId: input.agentProfileId,
+        bindingId,
+        agentControllerRef: executionTarget.agentControllerRef,
+        agentControllerConversationId,
+        db: domainDb,
+        method: "codex_app_server_thread_resume",
+        nowMs: parseGeneratedAtMs(input.generatedAt),
+        provider: "codex",
+        openMeldServiceRuntimeId: executionTarget.openMeldServiceRuntimeId,
+      });
     if (!proof) {
       return {
         ...requiredBase,
@@ -1686,6 +1688,7 @@ async function resolveAgentProviderConversationEvidence(input: {
 }
 
 async function resolveAgentReadinessImpactEvidence(input: {
+  reads: AgentExecutionReadinessReads;
   agentProfileId: string;
   binding: AgentExecutionBindingEvidence | null;
   env: CoreBindings;
@@ -1703,14 +1706,15 @@ async function resolveAgentReadinessImpactEvidence(input: {
   }
 
   try {
-    const impact = await readFreshAgentExecutionReadinessImpactForBinding({
-      agentProfileId: input.agentProfileId,
-      bindingId,
-      agentControllerRef: executionTarget.agentControllerRef,
-      db: domainDb,
-      nowMs: parseGeneratedAtMs(input.generatedAt),
-      openMeldServiceRuntimeId: executionTarget.openMeldServiceRuntimeId,
-    });
+    const impact =
+      await input.reads.readFreshAgentExecutionReadinessImpactForBinding({
+        agentProfileId: input.agentProfileId,
+        bindingId,
+        agentControllerRef: executionTarget.agentControllerRef,
+        db: domainDb,
+        nowMs: parseGeneratedAtMs(input.generatedAt),
+        openMeldServiceRuntimeId: executionTarget.openMeldServiceRuntimeId,
+      });
     if (!impact) {
       return null;
     }
@@ -1870,7 +1874,9 @@ export async function resolveAgentProfileOrganizationClaimDiagnostics(input: {
   }
 
   try {
-    const profileContext = await readAgentProfileOrganizationContext({
+    const profileContext = await (
+      input.reads ?? createAgentExecutionReadinessReads()
+    ).readAgentProfileOrganizationContext({
       agentProfileId: input.binding.agentProfileId,
       db,
     });

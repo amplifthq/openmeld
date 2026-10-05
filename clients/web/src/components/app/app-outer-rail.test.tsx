@@ -233,6 +233,15 @@ const TOGGLE_TRIGGER_NAME_PATTERN = /Hide sidebar|Show sidebar/;
 
 describe("AppOuterRail", () => {
 	beforeEach(() => {
+		// jsdom does not load images. Model the browser's cached-image contract
+		// so assertions can inspect the real shared Avatar instead of mocking it.
+		vi.stubGlobal(
+			"Image",
+			class {
+				complete = true;
+				naturalWidth = 96;
+			}
+		);
 		vi.stubGlobal(
 			"matchMedia",
 			vi.fn((media: string) => ({
@@ -1079,8 +1088,17 @@ describe("AppOuterRail", () => {
 		});
 	});
 
-	it("does not restore a stale session avatar after the canonical avatar was removed", () => {
+	it.each([
+		true,
+		false,
+	])("keeps the bootstrap avatar only while its canonical read is pending (%s)", (pending) => {
 		const staleSessionAvatar = "https://lh3.googleusercontent.com/stale-photo";
+		if (pending) {
+			useAccountAvatarMock.mockReturnValue({
+				data: undefined,
+				isPending: true,
+			});
+		}
 		appOrganization = {
 			activeOrganization: null,
 			currentOrganization: {
@@ -1116,10 +1134,16 @@ describe("AppOuterRail", () => {
 		const personalAvatar = screen.getByTestId(
 			"personal-workspace-human-profile-avatar"
 		);
-		expect(personalAvatar.querySelector("img")).toBeNull();
-		expect(personalAvatar.getAttribute("style")).not.toContain(
-			staleSessionAvatar
-		);
+		if (pending) {
+			expect(personalAvatar.querySelector("img")?.getAttribute("src")).toBe(
+				staleSessionAvatar
+			);
+		} else {
+			expect(personalAvatar.querySelector("img")).toBeNull();
+			expect(personalAvatar.getAttribute("style")).not.toContain(
+				staleSessionAvatar
+			);
+		}
 	});
 
 	it("opens organization management for the current workspace", async () => {
