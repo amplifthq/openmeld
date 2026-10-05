@@ -206,7 +206,7 @@ async function prepareCenterAgentRender() {
       executionContext &&
       !executionContext.replyRecovery &&
       !summaryOnly &&
-      executionContext.computerIsolationVersion === 2 &&
+      executionContext.computerIsolationVersion === 3 &&
       isRemoteAgentComputerEnabled(env)
         ? await createRemoteAgentComputerCapability({
             connectorExecution: {
@@ -375,6 +375,7 @@ async function prepareCenterAgentRender() {
           >[0]["finish"]
         ) =>
           checkRemoteAgentExecutionFinish({
+            env,
             context: executionContext,
             storage,
             finish,

@@ -68,6 +68,7 @@ import {
   centerAgentTaskEvents,
   centerAgentTasks,
 } from "./center-agent-tasks.schema.ts";
+import { cloudComputers } from "./cloud-computer.schema.ts";
 import { openMeldDaemonConnectedComputers } from "./connected-computer.schema.ts";
 import {
   connectorAccessEvents,
@@ -1846,6 +1847,7 @@ export const coreSchema = {
   openMeldFeedbackInboxes,
   openMeldFeedbackIssues,
   openMeldDaemonConnectedComputers,
+  cloudComputers,
   openMeldDaemonPreHeadFailurePublicationOutbox,
   openMeldDaemonOpsDecisions,
   openMeldDaemonDispatchLedger,

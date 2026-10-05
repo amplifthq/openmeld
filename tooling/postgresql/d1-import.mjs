@@ -25,6 +25,9 @@ import {
 } from "./database.mjs";
 import { readCutoverTarget, verifyRemoteCredential } from "./remote-target.mjs";
 
+// Reviewed additions after the frozen D1 journal. These have no source rows.
+const postgresqlOnlyTables = [{ name: "cloud_computers" }];
+
 function csv(value) {
   if (value === null) {
     return "";
@@ -153,7 +156,7 @@ async function readNativeImportLayout(client, catalog) {
   ).rows;
   requireEqual(
     [...new Set(columns.map((column) => column.table_name))].sort(),
-    catalog.map(({ name }) => name).sort(),
+    [...catalog, ...postgresqlOnlyTables].map(({ name }) => name).sort(),
     "Native table inventory mismatch"
   );
   const identities = (
@@ -161,7 +164,13 @@ async function readNativeImportLayout(client, catalog) {
       "SELECT c.relname AS table_name,a.attname AS column_name,pg_get_serial_sequence(format('%I.%I',n.nspname,c.relname),a.attname) AS sequence FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='openmeld' AND a.attidentity<>'' ORDER BY c.relname,a.attname"
     )
   ).rows;
-  return { columns, identities };
+  const importedTables = new Set(catalog.map(({ name }) => name));
+  return {
+    columns,
+    identities: identities.filter(({ table_name }) =>
+      importedTables.has(table_name)
+    ),
+  };
 }
 
 async function importTargetIdentity(client, directory) {
@@ -524,7 +533,7 @@ async function processD1Snapshot(
       remote
     );
     if (importData) {
-      await lockEmptyTarget(client, catalog);
+      await lockEmptyTarget(client, [...catalog, ...postgresqlOnlyTables]);
     } else {
       await lockMigrationTarget(client);
     }
