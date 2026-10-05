@@ -111,6 +111,43 @@ afterEach(() => {
 });
 
 describe("Bot avatar interaction", () => {
+  it("disables working, click, and pointer motion together and can resume", () => {
+    const open = vi.fn();
+    const view = render(
+      <BotAvatar followPointer onClick={open} size={24} type="star" working />
+    );
+    advance(120);
+    expect(frames.size).toBe(1);
+    view.rerender(
+      <BotAvatar
+        followPointer
+        motionEnabled={false}
+        onClick={open}
+        size={24}
+        type="star"
+        working
+      />
+    );
+    const canvas = view.container.querySelector("canvas");
+    if (!canvas) {
+      throw new Error("Missing avatar canvas");
+    }
+    const still = canvas.dataset.pose;
+    fireEvent.click(canvas);
+    fireEvent.pointerMove(canvas, {
+      pointerType: "mouse",
+      clientX: 30,
+      clientY: 15,
+    });
+    advance(500);
+    expect(open).toHaveBeenCalledOnce();
+    expect(frames.size).toBe(0);
+    expect(canvas.dataset.pose).toBe(still);
+    view.rerender(<BotAvatar motionEnabled size={24} type="star" working />);
+    advance(120);
+    expect(frames.size).toBe(1);
+    expect(canvas.dataset.pose).not.toBe(still);
+  });
   it.each([
     "natural finish",
     "offscreen",

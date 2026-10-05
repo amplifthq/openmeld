@@ -1507,6 +1507,14 @@ Rounded-default rollout uses a versioned browser preference key so existing
 users receive the new default once; a Square selection made afterward remains
 explicit and persistent.
 
+Appearance's **Animate Bot avatars** switch is enabled by default and uses one
+browser-local preference across Organizations and all Bot avatar entrances.
+Turning it off stops working animation, click interaction, pointer following,
+and editor previews immediately. The shared Bot primitive combines this setting
+with the operating system's reduced-motion preference; enabling the switch
+does not override reduced motion. Navigation or selection actions on an avatar
+remain available independently of animation.
+
 Appearance's **Sidebar** group offers **Icons and text** and **Icons only**
 preview cards for the outer app rail. The rail's **Show** context menu changes
 the same `openmeld.appearance.sidebar-display` preference. Web restores its

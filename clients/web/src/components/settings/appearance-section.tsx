@@ -25,6 +25,7 @@ import {
 	useSyncExternalStore,
 } from "react";
 import { AppPageHeader } from "#/components/app/app-page-header";
+import { useBotAnimationPreference } from "#/lib/appearance/bot-animation-preference";
 import {
 	SIDEBAR_DISPLAY_CHOICES,
 	type SidebarDisplay,
@@ -141,6 +142,7 @@ export function AppearanceSection() {
 	const sidebar = useSidebarDisplayPreference();
 	const toolbar = useToolbarPreference();
 	const historySlider = useHistorySliderPreference();
+	const botAnimation = useBotAnimationPreference();
 	const { setTheme, theme } = useTheme();
 	const { setShape, shape } = useShapeContext();
 	const choiceOrientation = useMediaQuery(PHONE_APPEARANCE_CHOICES_QUERY)
@@ -394,6 +396,17 @@ export function AppearanceSection() {
 					description="Choose which shortcuts appear in the bottom toolbar. Saved in this browser."
 					label="Toolbar shortcuts"
 					layout="stacked"
+				/>
+				<SettingsRow
+					control={
+						<Switch
+							aria-label="Animate Bot avatars"
+							checked={botAnimation.enabled}
+							onCheckedChange={botAnimation.setEnabled}
+						/>
+					}
+					description="Animate Bot avatars while they work and when you interact with them. Saved in this browser."
+					label="Animate Bot avatars"
 				/>
 			</section>
 		</>

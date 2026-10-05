@@ -61,6 +61,7 @@ type BotAvatarProps = Omit<ComponentPropsWithoutRef<"canvas">, "type"> & {
   type: BotAvatarType;
   size: number;
   working?: boolean;
+  motionEnabled?: boolean;
   followPointer?: boolean;
   /** Keep the library's existing full interaction in the avatar editor. */
   preview?: boolean;
@@ -68,10 +69,13 @@ type BotAvatarProps = Omit<ComponentPropsWithoutRef<"canvas">, "type"> & {
 
 export const BotAvatar = forwardRef<HTMLCanvasElement, BotAvatarProps>(
   function BotAvatar(
-    { preview, working = false, followPointer, ...props },
+    { preview, working = false, motionEnabled = true, followPointer, ...props },
     ref
   ) {
-    const reducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
+    const prefersReducedMotion = useMediaQuery(
+      "(prefers-reduced-motion: reduce)"
+    );
+    const reducedMotion = prefersReducedMotion || !motionEnabled;
     if (preview) {
       return (
         <NativeBotAvatar

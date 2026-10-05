@@ -23,6 +23,7 @@ import { cn } from "@openmeld/ui/lib/utils";
 import { RobotIcon } from "@phosphor-icons/react";
 import { useRef } from "react";
 import { ModelBrandIcon } from "#/components/models/model-brand-icon";
+import { useBotAnimationPreference } from "#/lib/appearance/bot-animation-preference";
 import { useAgentAvatarProfile } from "#/query/profiles/agent-avatar-context";
 import { resolveAgentAvatarIdentity } from "./agent-avatar-identity";
 
@@ -97,6 +98,7 @@ function AgentAvatarPresentation({
 	...props
 }: AgentAvatarProps) {
 	const botCanvas = useRef<HTMLCanvasElement>(null);
+	const { enabled: motionEnabled } = useBotAnimationPreference();
 	const identity = resolveAgentAvatarIdentity({
 		agentControllerRef,
 		avatarStyle,
@@ -127,8 +129,8 @@ function AgentAvatarPresentation({
 			<FluidAvatar
 				{...props}
 				{...identityAttributes}
-				animated={animated}
-				animateOnHover={animateOnHover}
+				animated={animated && motionEnabled}
+				animateOnHover={animateOnHover && motionEnabled}
 				aria-hidden="true"
 				className={className}
 				fallback={<RobotIcon className="h-1/2 w-1/2 text-white/80" />}
@@ -143,6 +145,7 @@ function AgentAvatarPresentation({
 			<BotAvatar
 				aria-hidden="true"
 				followPointer={followPointer}
+				motionEnabled={motionEnabled}
 				preview={clickable && followPointer === undefined}
 				ref={botCanvas}
 				size={size}
@@ -151,7 +154,7 @@ function AgentAvatarPresentation({
 				working={working}
 			/>
 		);
-		return clickable ? (
+		return clickable && motionEnabled ? (
 			<button
 				{...props}
 				aria-label={`Animate ${profileName}'s avatar`}
