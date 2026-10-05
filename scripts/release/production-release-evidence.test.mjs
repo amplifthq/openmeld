@@ -295,6 +295,15 @@ for (const status of ["applied", "failed"]) {
         status: "applied",
         identity: identity(nextSource),
       };
+      publish(
+        {
+          ...receipt,
+          status: "failed",
+          application: "unknown",
+          identity: undefined,
+        },
+        "2026-09-27T12:00:30.000Z"
+      );
       publish(applied, "2026-09-27T12:01:00.000Z");
       if (status === "failed") {
         publish({ ...applied, status }, "2026-09-27T12:02:00.000Z");
@@ -305,6 +314,7 @@ for (const status of ["applied", "failed"]) {
       assert.deepEqual(current.verifiedHistoryBaseline, {
         evidenceSha: baseline.evidenceSha,
         recordedAt: baselineTime,
+        receipt: baselineReceipt,
         sha: fixture.sourceSha,
       });
       const jobsRead = [];

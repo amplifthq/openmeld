@@ -220,7 +220,15 @@ the guarded `deploy` command only after the prior attempt is resolved; that flag
 cannot override an unresolved attempt. A different-source release or rollback
 still follows ordinary source, channel and lease guards.
 
-Unknown application, missing output, unreadable receipts, mismatched targets and
+Core can retry a failed upload under the same source, operation and attempt when
+the previous verified deployment ID and version still serve 100% of traffic.
+The executor verifies that identity under the Core lease before effects and
+requires fresh command-correlated activation evidence afterward. PostgreSQL
+admission checks that active baseline's bindings; it does not mark the failed
+attempt successful. An intervening deployment, including a rollback to the same
+version, blocks this retry.
+
+Other unknown application, missing output, unreadable receipts, mismatched targets and
 unresolved legacy records block before a new attempt or deployment. They require
 separate evidence-backed reconciliation, not a new UUID or a status override.
 Recovery always runs current-main guarded control against the retained source
@@ -1396,11 +1404,13 @@ dev-tmp/core-startup-admission.json
 dev-tmp/core-startup.cpuprofile
 ```
 
-If Cloudflare rejects the zero-traffic version with `10021`, do not retry the
-unchanged source hoping for a faster Cloudflare machine. Keep the current
-production version active, use the bundle and CPU profile evidence to remove
-eager global initialization, and rerun admission only after a reviewed source
-change. A version above OpenMeld's `500 ms` performance target may continue
+If Cloudflare rejects the zero-traffic version with `10021`, keep the current
+production version active and compare bundle and startup profiles with the last
+accepted source on the same machine. Fix a measured initialization regression
+before another upload. If that comparison shows no regression, one diagnosed
+retry may distinguish a transient admission failure; repeated rejection requires
+startup optimization. Local timings do not prove Cloudflare admission. A version
+above OpenMeld's `500 ms` performance target may continue
 through the guarded release when Cloudflare accepts it, but the warning remains
 actionable optimization evidence. Raising request CPU limits does not change
 the startup limit. Cloudflare's current startup and version upload contracts
