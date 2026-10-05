@@ -23,7 +23,7 @@ import { cn } from "@openmeld/ui/lib/utils";
 import { RobotIcon } from "@phosphor-icons/react";
 import { useRef } from "react";
 import { ModelBrandIcon } from "#/components/models/model-brand-icon";
-import { useBotAnimationPreference } from "#/lib/appearance/bot-animation-preference";
+import { useBotAvatarPreference } from "#/lib/appearance/bot-avatar-preference";
 import { useAgentAvatarProfile } from "#/query/profiles/agent-avatar-context";
 import { resolveAgentAvatarIdentity } from "./agent-avatar-identity";
 
@@ -98,7 +98,7 @@ function AgentAvatarPresentation({
 	...props
 }: AgentAvatarProps) {
 	const botCanvas = useRef<HTMLCanvasElement>(null);
-	const { enabled: motionEnabled } = useBotAnimationPreference();
+	const { motionEnabled, shading } = useBotAvatarPreference();
 	const identity = resolveAgentAvatarIdentity({
 		agentControllerRef,
 		avatarStyle,
@@ -148,6 +148,7 @@ function AgentAvatarPresentation({
 				motionEnabled={motionEnabled}
 				preview={clickable && followPointer === undefined}
 				ref={botCanvas}
+				shading={shading}
 				size={size}
 				tabIndex={-1}
 				type={selectedStyle}

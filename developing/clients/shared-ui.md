@@ -459,7 +459,10 @@ hint. Other tabs re-read their own authorized directory; the hint carries no
 avatar data and does not add directories to browser persistence. Model saves
 refresh the same directory projection and update automatic Remote logos.
 Shared `BotAvatar` composes the public `bot-avatars` simulation and renderer so
-click feedback and pointer following are independent. Space/sidebar avatars
+click feedback and pointer following are independent. The shared default is Fabric;
+its `shading` prop also supports Plastic. Both rendering paths use the same palette
+and the library's material-specific lighting defaults. Still-frame cache keys include
+the material so changing it cannot reuse an old finish. Space/sidebar avatars
 and profile popovers play one small hop on an explicit click without following
 the pointer; popover opening and navigation still belong to their existing
 controls. The Team Center Agent card has a separate avatar button that also

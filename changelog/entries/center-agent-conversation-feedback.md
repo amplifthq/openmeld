@@ -17,3 +17,5 @@ conversation.
 
 Appearance settings includes one switch for Bot avatar animations. Turn it off
 to keep avatars still while Agents work and when you interact with them.
+Bot avatars now use a soft Fabric finish by default. Compare Fabric and Plastic
+previews in Appearance and choose a finish for this browser.
