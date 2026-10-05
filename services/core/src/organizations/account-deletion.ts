@@ -318,6 +318,21 @@ export async function cleanupDeletedAccount(
     ) {
       return pending();
     }
+    const computers = await db.query<{ id: string }>({
+      text: 'SELECT id FROM "openmeld"."cloud_computers" WHERE owner_user_id = $1',
+      values: [input.userId],
+    });
+    for (const computer of computers.rows) {
+      const erase = env.OPENMELD_REMOTE_AGENT_WORKER?.eraseAccountComputer;
+      if (!erase) {
+        throw new Error("Personal Computer cleanup is unavailable.");
+      }
+      await erase({ computerId: computer.id });
+      await db.query({
+        text: 'DELETE FROM "openmeld"."cloud_computers" WHERE id = $1 AND owner_user_id = $2',
+        values: [computer.id, input.userId],
+      });
+    }
     for (const [column, tables] of Object.entries({
       user_id: [
         "account_sidebar_preferences",

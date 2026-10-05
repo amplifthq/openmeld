@@ -1,6 +1,6 @@
 {
-  "id": "f803b8c2-855b-4eb1-93e6-a649f9b8ba4d",
-  "prevId": "14f53215-5709-4251-9b5c-7d6eaaf4cd02",
+  "id": "91726edf-f6e9-4abc-8910-6d07d9af7c86",
+  "prevId": "d3a9b8e5-2d52-4c78-aa47-8c48f397fdd4",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -19,6 +19,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "pending_connections_json": {
+          "name": "pending_connections_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'"
         },
         "created_at_ms": {
           "name": "created_at_ms",
@@ -40,6 +47,13 @@
         },
         "attempt_count": {
           "name": "attempt_count",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "private_root_index": {
+          "name": "private_root_index",
           "type": "bigint",
           "primaryKey": false,
           "notNull": true,
@@ -8782,6 +8796,59 @@
           "value": "(\n        (\"state\" = 'pending' and \"accepted_at_ms\" is null and \"signal_json\" is null and \"completed_at_ms\" is null)\n        or (\"state\" = 'accepted' and \"accepted_at_ms\" is not null and length(trim(\"signal_json\")) > 0 and \"completed_at_ms\" is null)\n        or (\"state\" = 'completed' and \"accepted_at_ms\" is not null and length(trim(\"signal_json\")) > 0 and \"completed_at_ms\" is not null)\n        or (\"state\" = 'failed' and \"completed_at_ms\" is not null)\n      )"
         }
       },
+      "isRLSEnabled": false
+    },
+    "openmeld.cloud_computers": {
+      "name": "cloud_computers",
+      "schema": "openmeld",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "owner_user_id": {
+          "name": "owner_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "provider": {
+          "name": "provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at_ms": {
+          "name": "created_at_ms",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "cloud_computers_owner_unique": {
+          "name": "cloud_computers_owner_unique",
+          "columns": [
+            {
+              "expression": "owner_user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "openmeld.connector_access_events": {

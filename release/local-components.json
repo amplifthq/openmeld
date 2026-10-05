@@ -1,28 +1,28 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-04T08:24:19.966Z",
+  "updatedAt": "2026-10-05T12:40:33.846Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
-      "packageVersion": "0.3.241",
+      "packageVersion": "0.3.243",
       "updatePolicy": "available",
-      "reason": "Existing commands, setup, status, trace, and self-rescue remain supported. New evidence and Plugin commands fail closed on old receivers; publish only after the new Core and Auth receivers."
+      "reason": "Existing CLI commands remain compatible; the optional cloud Computer command is published after its Core, Remote Agent and Gateway receivers."
     },
     "service": {
-      "bundleHash": "39a42ca8843a799a74cbc7cac40dc34f75346526ec6327c4a6a67cb664f7e96d",
-      "portableBundleHash": "ee9ce121263393b8c5048eba927f6cbe39943f557815498d3f10b0967f16852e",
-      "bundleVersion": "0.3.241",
+      "bundleHash": "fe08c0b5a25a2a7dc72a4dea3bca21a37d55764aaa4355589d6de070840d880f",
+      "portableBundleHash": "eaece1fa12a29c573206f218eb568ac8cbe09f5ea559b00859f28b3138a2ade3",
+      "bundleVersion": "0.3.243",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
       "serviceContractVersion": "openmeld-service-contract-2026-09-local-install-recovery-v1",
       "updatePolicy": "available",
-      "reason": "New Core preserves legacy Wake and bounded-context contracts for installed Services and gates new fields by capability. Deploy Core before this Service because old strict capability readers reject its new declarations."
+      "reason": "No workstation execution or lifecycle contract changed; existing Services retain setup, Wake, Space actions and diagnostics compatibility."
     },
     "skills": {
-      "bundleHash": "3969dce0d427bd0801a57f0094526322712f3d5f87dcf0d6d0c410eb4b3d3e78",
+      "bundleHash": "c041258bd2098c01e98130579c12a11217b17de6f3c8e0b966a1e1001ad46bd3",
       "skillContractVersion": "openmeld-skills-contract-2026-09-explicit-space-recipients-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Existing Skills remain usable. The revised Plugin evidence and verification guide is distributed with the matching CLI after the Core receivers are deployed."
+      "reason": "The added cloud Computer guidance is optional and ships with its CLI command after the cloud receivers; existing workstation instructions remain compatible."
     }
   }
 }

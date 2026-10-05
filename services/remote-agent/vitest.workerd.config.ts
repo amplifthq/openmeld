@@ -24,9 +24,14 @@ export default defineWorkersConfig({
         isolatedStorage: false,
         main: "./tests/workerd/worker.ts",
         miniflare: {
+          workerLoaders: { LOADER: {} },
           compatibilityDate: "2026-07-15",
           compatibilityFlags: ["nodejs_compat"],
           durableObjects: {
+            AGENT_COMPUTER: {
+              className: "AgentComputer",
+              useSQLite: true,
+            },
             ACCOUNT_ERASURE_PROBE: {
               className: "AccountErasureProbe",
               useSQLite: true,

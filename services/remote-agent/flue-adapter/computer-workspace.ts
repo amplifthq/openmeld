@@ -1,14 +1,15 @@
 import { DurableObject } from "cloudflare:workers";
 import {
   type DurableObjectStorageLike,
+  getWorkspace,
   Workspace,
   type WorkspaceClient,
   type WorkspaceStub,
 } from "@cloudflare/computer";
 import {
-  CloudflareContainerBackend,
-  withWorkspaceContainer,
-} from "@cloudflare/computer/backends/container";
+  LegacyContainerBackend,
+  withLegacyWorkspaceContainer,
+} from "@cloudflare/computer/backends/container-legacy";
 import { WorkerShellBackend } from "@cloudflare/computer/backends/worker-shell";
 import curlModules from "@cloudflare/computer/shell/curl";
 import fileModules from "@cloudflare/computer/shell/file";
@@ -19,10 +20,10 @@ import pythonModules from "@cloudflare/computer/shell/python";
 import sqliteModules from "@cloudflare/computer/shell/sqlite";
 import xanModules from "@cloudflare/computer/shell/xan";
 import yqModules from "@cloudflare/computer/shell/yq";
-import type { RemoteAgentResultSource } from "@openmeld/schemas";
 import {
   agentComputerBrowserRequestSchema,
   agentComputerPreviewRequestSchema,
+  cloudComputerOperationSchema,
   type RemoteAgentGitPackStart,
   type RemoteAgentGitPackStatus,
   type RemoteAgentGitTransferGrant,
@@ -37,7 +38,12 @@ import {
   eraseAccountStorage,
   requireRetainedAccountStorage,
 } from "./account-deletion";
-import { ComputerDataSourceStore } from "./computer-data-sources";
+import {
+  createComputerCommandTool,
+  listPendingRemoteAgentComputerCommands,
+  stopStoredComputerCommands,
+} from "./computer-command";
+import { ComputerFiles, resolveComputerPath } from "./computer-files";
 import {
   inspectComputerPreview,
   type PreviewBrowserBinding,
@@ -48,9 +54,10 @@ import {
   gitUploadPackBytes,
   gitUploadPackRequest,
 } from "./git-upload-pack-stream";
+import { RemoteAgentSqlStorage } from "./storage";
 
 /**
- * The hosted Agent's computer: an identity-scoped durable workspace backed by
+ * The human account's Computer: a durable workspace backed by
  * the Durable Object's SQLite storage via `@cloudflare/computer`.
  *
  * Files live in the DO (durable across restarts and independent of any
@@ -78,6 +85,7 @@ export const AGENT_COMPUTER_LAYOUT_DIRECTORIES = [
   `${AGENT_COMPUTER_ROOT}/spaces`,
   `${AGENT_COMPUTER_ROOT}/routines`,
   `${AGENT_COMPUTER_ROOT}/home`,
+  `${AGENT_COMPUTER_ROOT}/tasks`,
 ] as const;
 
 type AgentComputerEnv = {
@@ -170,7 +178,9 @@ function workspaceRef(ctx: DurableObjectState) {
   return { binding: AGENT_COMPUTER_BINDING, id: ctx.id.toString() };
 }
 
-export class AgentComputer extends withWorkspaceContainer(AgentComputerBase) {
+export class AgentComputer extends withLegacyWorkspaceContainer(
+  AgentComputerBase
+) {
   async eraseAccountSpaceDirectory(spaceId: string): Promise<void> {
     await requireRetainedAccountStorage(this.ctx.storage);
     await this.workspace.ready();
@@ -189,8 +199,78 @@ export class AgentComputer extends withWorkspaceContainer(AgentComputerBase) {
       await eraseAccountStorage(this.ctx);
     });
   }
-  // Created before Workspace and never exposed by Workspace.stub().
-  readonly #dataSources = new ComputerDataSourceStore(this.ctx.storage);
+  readonly #commands = new RemoteAgentSqlStorage(this.ctx.storage.sql);
+
+  async computerOperation(value: unknown) {
+    await requireRetainedAccountStorage(this.ctx.storage);
+    const request = cloudComputerOperationSchema.parse(value);
+    await this.workspace.ready();
+    if (request.action !== "command") {
+      return await this.#files.execute(request);
+    }
+    const workingDirectory = resolveComputerPath(
+      request.cwd ??
+        `/computer/tasks/${encodeURIComponent(request.invocationId)}`
+    );
+    await this.workspace.fs.mkdir(workingDirectory, { recursive: true });
+    return await createComputerCommandTool({
+      context: { submissionId: request.invocationId },
+      storage: this.#commands,
+      workingDirectory,
+      assertCanStart: async () => {
+        await requireRetainedAccountStorage(this.ctx.storage);
+        if (
+          await this.#commands.get(
+            `computer-invocation-stopped:${request.invocationId}`
+          )
+        ) {
+          throw new Error("computer.invocation_stopped");
+        }
+      },
+      workspaceAccess: {
+        withWorkspace: async (operation) => {
+          using workspace = await getWorkspace(this);
+          return await operation(workspace);
+        },
+      },
+    }).execute(request.command);
+  }
+
+  async writeComputerFile(path: string, content: string | Uint8Array) {
+    await requireRetainedAccountStorage(this.ctx.storage);
+    await this.workspace.ready();
+    await this.#files.write(path, content);
+  }
+
+  async pendingComputerCommands(invocationId: string) {
+    await requireRetainedAccountStorage(this.ctx.storage);
+    return await listPendingRemoteAgentComputerCommands({
+      context: { submissionId: invocationId },
+      storage: this.#commands,
+    });
+  }
+
+  async stopComputerCommands(invocationId: string) {
+    await requireRetainedAccountStorage(this.ctx.storage);
+    // Fence delayed/in-flight starts before enumerating receipts. Each launched
+    // command also checks its Stop receipt after native dispatch completes.
+    await this.#commands.putExpiring(
+      `computer-invocation-stopped:${invocationId}`,
+      true,
+      Date.now() + 7 * 24 * 60 * 60 * 1000
+    );
+    return await stopStoredComputerCommands({
+      reportConfirmedLoss: true,
+      context: { submissionId: invocationId },
+      storage: this.#commands,
+      access: () => ({
+        withWorkspace: async (operation) => {
+          using workspace = await getWorkspace(this);
+          return await operation(workspace);
+        },
+      }),
+    });
+  }
 
   async registerGitTransferGrant(value: unknown): Promise<void> {
     await requireRetainedAccountStorage(this.ctx.storage);
@@ -473,15 +553,6 @@ export class AgentComputer extends withWorkspaceContainer(AgentComputerBase) {
     );
   }
 
-  readDataSources(): Promise<RemoteAgentResultSource[]> {
-    return Promise.resolve(this.#dataSources.read());
-  }
-
-  recordDataSource(source: RemoteAgentResultSource): Promise<void> {
-    this.#dataSources.record(source);
-    return Promise.resolve();
-  }
-
   private browserTool(spaceId: string) {
     if (!(this.env.BROWSER && spaceId)) {
       throw new Error(
@@ -541,7 +612,7 @@ export class AgentComputer extends withWorkspaceContainer(AgentComputerBase) {
     });
   }
 
-  readonly #containerBackend = new CloudflareContainerBackend({
+  readonly #containerBackend = new LegacyContainerBackend({
     container: () => this,
     // Preserve the native Computer's existing public-network capability.
     egress: { mode: "direct" },
@@ -579,12 +650,13 @@ export class AgentComputer extends withWorkspaceContainer(AgentComputerBase) {
     sessionId: this.ctx.id.toString(),
     storage: this.ctx.storage as unknown as DurableObjectStorageLike,
   });
+  readonly #files = new ComputerFiles(this.workspace.fs);
 
-  /** WorkspaceProxy forwards the container's outbound /ws egress here. */
+  /** WorkspaceProxy forwards the container's outbound /api egress here. */
   override async fetch(request: Request): Promise<Response> {
     await requireRetainedAccountStorage(this.ctx.storage);
     const url = new URL(request.url);
-    if (url.pathname === "/ws") {
+    if (url.pathname === "/api") {
       return await this.#containerBackend.handleFetch(request);
     }
     const preview = COMPUTER_PREVIEW_PATH.exec(url.pathname);
@@ -626,10 +698,14 @@ export function buildAgentComputerRoutineDirectory(routineId: string): string {
 }
 
 export function resolveAgentComputerWorkingDirectory(input: {
+  taskId?: string;
   conversationId?: string | null;
   routineId?: string | null;
   spaceId: string | null;
 }): string {
+  if (input.taskId) {
+    return `${AGENT_COMPUTER_ROOT}/tasks/${encodePathIdentity(input.taskId)}`;
+  }
   if (input.routineId) {
     return buildAgentComputerRoutineDirectory(input.routineId);
   }
@@ -645,6 +721,7 @@ export function resolveAgentComputerWorkingDirectory(input: {
 export async function ensureAgentComputerLayout(
   workspace: Pick<WorkspaceClient, "fs">,
   input: {
+    taskId?: string;
     conversationId?: string | null;
     routineId?: string | null;
     spaceId: string | null;

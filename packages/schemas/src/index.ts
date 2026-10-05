@@ -3,6 +3,7 @@
 export {
   type AccountDeletionCleanupInput,
   type AccountDeletionCleanupResult,
+  type AccountDeletionComputer,
   type AccountDeletionConnection,
   type AccountDeletionConversation,
   type AccountDeletionFileRoot,
@@ -12,6 +13,7 @@ export {
   accountDeletionAcceptedSchema,
   accountDeletionCleanupInputSchema,
   accountDeletionCleanupResultSchema,
+  accountDeletionComputerSchema,
   accountDeletionConnectionCleanupSchema,
   accountDeletionConnectionSchema,
   accountDeletionConversationSchema,
@@ -385,6 +387,18 @@ export {
 } from "./schemas/http/space-message-search";
 export * from "./schemas/index";
 export { agentControllerSessionTitleSchema } from "./schemas/runtime/agent-controller-session";
+export {
+  type CloudComputer,
+  type CloudComputerOperation,
+  cloudComputerCleanupResultSchema,
+  cloudComputerCommandSchema,
+  cloudComputerOperationResultSchema,
+  cloudComputerOperationSchema,
+  cloudComputerResponseSchema,
+  cloudComputerRpcRequestSchema,
+  cloudComputerSchema,
+  cloudComputerWorkerRequestSchema,
+} from "./schemas/runtime/cloud-computer";
 export {
   type RemoteAgentExecutionAccessRequest,
   type RemoteAgentExecutionAccessResponse,

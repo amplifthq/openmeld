@@ -250,6 +250,7 @@ function CenterAgentDirectMessageEntry(input: {
 				pendingSend.preparing ?? pendingMessage ?? pendingSend.stopped
 			}
 			presentation={input.presentation}
+			selfAvatarImageUrl={input.currentUserAvatarImageUrl}
 			selfProfile={defaultHumanProfile}
 			stopStatus={pendingSend.stopped ? "stopped" : undefined}
 		/>

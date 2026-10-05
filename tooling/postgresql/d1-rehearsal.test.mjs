@@ -7,7 +7,7 @@ import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { verifyPassword } from "better-auth/crypto";
-import { importD1Snapshot } from "./d1-import.mjs";
+import { importD1Snapshot, reconcileD1Snapshot } from "./d1-import.mjs";
 import { createLocalD1FromSqlite } from "./d1-local-fixture.mjs";
 import { rehearseFrozenD1Capture } from "./d1-maintenance.test-support.mjs";
 import { rehearseD1Recovery } from "./d1-recovery.test-support.mjs";
@@ -17,6 +17,7 @@ import { connect, migrate, quoteIdentifier as quote } from "./database.mjs";
 
 const ownerGuardError = /canonical_enabled/u;
 const populatedTargetError = /not empty/u;
+const populatedComputerError = /Import target is not empty: cloud_computers/u;
 const inventoryError = /table inventory/u;
 const storedValueError = /Unsupported stored value/u;
 const safeRangeError = /safe range/u;
@@ -125,6 +126,45 @@ test("historical D1 capture to native PG18 preserves business data and rolls bac
     const manifest = await capture("baseline");
     evidence.capture = manifest;
     const baselineCapturedMs = performance.now();
+    await t.test(
+      "PostgreSQL-only data blocks fresh import and survives reconciliation",
+      async () => {
+        const connectionString = await freshTarget(admin, targetIndex++);
+        const client = await connect(connectionString, true);
+        const computer = {
+          id: "personal-computer",
+          owner_user_id: fixture.owner,
+          provider: "cloudflare",
+          created_at_ms: "1",
+        };
+        const insertComputer = () =>
+          client.query(
+            "INSERT INTO openmeld.cloud_computers(id,owner_user_id,provider,created_at_ms) VALUES($1,$2,$3,$4)",
+            Object.values(computer)
+          );
+        try {
+          await insertComputer();
+          await assert.rejects(
+            importD1Snapshot({ snapshot, connectionString }),
+            populatedComputerError
+          );
+          await client.query("DELETE FROM openmeld.cloud_computers");
+          await importD1Snapshot({ snapshot, connectionString });
+          await insertComputer();
+          await reconcileD1Snapshot({ snapshot, connectionString });
+          assert.deepEqual(
+            (
+              await client.query(
+                "SELECT id,owner_user_id,provider,created_at_ms::text FROM openmeld.cloud_computers"
+              )
+            ).rows,
+            [computer]
+          );
+        } finally {
+          await client.end();
+        }
+      }
+    );
     await t.test(
       "all fields, credentials, owner guards, generated folders, pages and identity high-water marks",
       async () => {

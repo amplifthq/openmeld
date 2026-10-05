@@ -1,4 +1,8 @@
 import { DurableObject, RpcTarget } from "cloudflare:workers";
+
+// biome-ignore lint/performance/noBarrelFile: Workerd test entrypoint exposes the production Computer owner.
+export { AgentComputer } from "../../flue-adapter/computer-workspace";
+
 import {
   ACCOUNT_ERASED_KEY,
   eraseAccountStorage,

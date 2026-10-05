@@ -14,7 +14,8 @@ import {
 } from "@openmeld/schemas";
 import type { OpenMeldRequestContext } from "@openmeld/schemas/types";
 import { createAuthenticatedSpaceAccessContext } from "@openmeld/space";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { ensurePersonalComputer } from "../src/computer/personal-computer";
 import { organizationFileRootName } from "../src/files/file-root-identity";
 import { OrganizationFileRoot } from "../src/files/organization-file-root";
 import type { CoreBindings } from "../src/lib/bindings";
@@ -158,7 +159,7 @@ describe("Team and member Files roots", () => {
         .writeContent({
           root,
           context: contexts[0],
-          bytes: bytes.buffer,
+          bytes: bytes.slice().buffer,
           write: {
             spaceId: state.id.toString(),
             fileId,
@@ -196,11 +197,28 @@ describe("Team and member Files roots", () => {
   it("finishes account cleanup after another tenant has disappeared and preserves the surviving team's files and Slack connection", async () => {
     const { organizationId, users } = await fixture();
     const userId = users[0]?.id;
-    if (!userId) {
+    const teammateId = users[1]?.id;
+    if (!(userId && teammateId)) {
       throw new Error("Missing account fixture");
     }
     const db = getPostgresDatabase(env);
     const closed = `closed-${crypto.randomUUID()}`;
+    const personalComputer = await ensurePersonalComputer(db, userId);
+    const teammateComputer = await ensurePersonalComputer(db, teammateId);
+    const eraseAccountComputer = vi
+      .fn<
+        NonNullable<
+          NonNullable<
+            CoreBindings["OPENMELD_REMOTE_AGENT_WORKER"]
+          >["eraseAccountComputer"]
+        >
+      >()
+      .mockRejectedValueOnce(new Error("Computer temporarily unavailable"))
+      .mockResolvedValue(undefined);
+    const cleanupEnv = {
+      ...env,
+      OPENMELD_REMOTE_AGENT_WORKER: { eraseAccountComputer },
+    } as CoreBindings;
     const gone = `gone-${crypto.randomUUID()}`;
     await db.query({
       text: 'INSERT INTO "openmeld"."organizations" (id,name,slug,created_at,deletion_requested_at) VALUES ($1,$1,$1,$2,$2)',
@@ -235,12 +253,34 @@ describe("Team and member Files roots", () => {
       text: 'INSERT INTO "openmeld"."account_deletion_requests" (user_id,plan_json,created_at_ms,next_attempt_at_ms) VALUES ($1,$2,1,1)',
       values: [userId, JSON.stringify(plan)],
     });
+    await expect(
+      cleanupDeletedAccount(cleanupEnv, { userId, privateRootIndex: 0 })
+    ).rejects.toThrow("Computer temporarily unavailable");
     expect(
-      await cleanupDeletedAccount(env as CoreBindings, {
+      (
+        await db.query({
+          text: 'SELECT id FROM "openmeld"."cloud_computers" WHERE owner_user_id = $1',
+          values: [userId],
+        })
+      ).rows
+    ).toEqual([{ id: personalComputer.id }]);
+    expect(
+      await cleanupDeletedAccount(cleanupEnv, {
         userId,
         privateRootIndex: 0,
       })
     ).toEqual({ complete: true, privateRootIndex: 3 });
+    expect(eraseAccountComputer).toHaveBeenLastCalledWith({
+      computerId: personalComputer.id,
+    });
+    expect(
+      (
+        await db.query({
+          text: 'SELECT id FROM "openmeld"."cloud_computers" WHERE owner_user_id = ANY($1::text[])',
+          values: [[userId, teammateId]],
+        })
+      ).rows
+    ).toEqual([{ id: teammateComputer.id }]);
     expect(await env.OPENMELD_SPACE_ATTACHMENTS.get(privateKey)).toBeNull();
     expect(await env.OPENMELD_SPACE_ATTACHMENTS.get(closedKey)).toBeNull();
     expect(

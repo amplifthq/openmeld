@@ -1,87 +1,9 @@
 {
-  "id": "14f53215-5709-4251-9b5c-7d6eaaf4cd02",
+  "id": "d3a9b8e5-2d52-4c78-aa47-8c48f397fdd4",
   "prevId": "20295de0-c57d-4abf-8431-c9db6eacde0f",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
-    "openmeld.account_deletion_requests": {
-      "name": "account_deletion_requests",
-      "schema": "openmeld",
-      "columns": {
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "plan_json": {
-          "name": "plan_json",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at_ms": {
-          "name": "created_at_ms",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "completed_at_ms": {
-          "name": "completed_at_ms",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "next_attempt_at_ms": {
-          "name": "next_attempt_at_ms",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "attempt_count": {
-          "name": "attempt_count",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "last_error": {
-          "name": "last_error",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "account_deletion_requests_due_idx": {
-          "name": "account_deletion_requests_due_idx",
-          "columns": [
-            {
-              "expression": "completed_at_ms",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "next_attempt_at_ms",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "openmeld.account_sidebar_preferences": {
       "name": "account_sidebar_preferences",
       "schema": "openmeld",
@@ -8782,6 +8704,59 @@
           "value": "(\n        (\"state\" = 'pending' and \"accepted_at_ms\" is null and \"signal_json\" is null and \"completed_at_ms\" is null)\n        or (\"state\" = 'accepted' and \"accepted_at_ms\" is not null and length(trim(\"signal_json\")) > 0 and \"completed_at_ms\" is null)\n        or (\"state\" = 'completed' and \"accepted_at_ms\" is not null and length(trim(\"signal_json\")) > 0 and \"completed_at_ms\" is not null)\n        or (\"state\" = 'failed' and \"completed_at_ms\" is not null)\n      )"
         }
       },
+      "isRLSEnabled": false
+    },
+    "openmeld.cloud_computers": {
+      "name": "cloud_computers",
+      "schema": "openmeld",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "owner_user_id": {
+          "name": "owner_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "provider": {
+          "name": "provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at_ms": {
+          "name": "created_at_ms",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "cloud_computers_owner_unique": {
+          "name": "cloud_computers_owner_unique",
+          "columns": [
+            {
+              "expression": "owner_user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "openmeld.connector_access_events": {
@@ -26831,12 +26806,6 @@
         "last_selected_organization_id": {
           "name": "last_selected_organization_id",
           "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "deleted_at": {
-          "name": "deleted_at",
-          "type": "bigint",
           "primaryKey": false,
           "notNull": false
         }

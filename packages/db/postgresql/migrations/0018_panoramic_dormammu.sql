@@ -1,1 +1,0 @@
-ALTER TABLE "openmeld"."account_deletion_requests" ADD COLUMN "private_root_index" bigint DEFAULT 0 NOT NULL;

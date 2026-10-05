@@ -48,6 +48,7 @@ export {
   centerAgentTaskEvents,
   centerAgentTasks,
 } from "./center-agent-tasks.schema.ts";
+export { cloudComputers } from "./cloud-computer.schema.ts";
 export { openMeldDaemonConnectedComputers } from "./connected-computer.schema.ts";
 export {
   connectorAccessEvents,

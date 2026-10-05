@@ -176,8 +176,8 @@ export function DeleteAccountSection() {
 											profiles.
 										</li>
 										<li>
-											Your private files, private Agent chats, synced sessions,
-											and saved personal Agent memory.
+											Your private files, personal Computer, private Agent
+											chats, synced sessions, and saved personal Agent memory.
 										</li>
 										{details.deleteOrganizations.length > 0 && (
 											<li>

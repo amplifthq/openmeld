@@ -1,1 +1,0 @@
-ALTER TABLE "openmeld"."account_deletion_requests" ADD COLUMN "pending_connections_json" text DEFAULT '[]' NOT NULL;

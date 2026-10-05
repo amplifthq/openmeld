@@ -134,6 +134,10 @@ export type RemoteAgentWorkerBindingRpc = {
   eraseAccountConversation?(
     input: import("@openmeld/schemas").AccountDeletionConversation
   ): Promise<void>;
+  eraseAccountComputer?(
+    input: import("@openmeld/schemas").AccountDeletionComputer
+  ): Promise<void>;
+  cloudComputerOperation?(input: unknown): Promise<unknown>;
   generateCenterAgentSessionTitle?(
     input: import("@openmeld/schemas/types").GenerateCenterAgentSessionTitleInput
   ): Promise<

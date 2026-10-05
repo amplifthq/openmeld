@@ -38,7 +38,9 @@ export function inboxFeedCte(
       ...(scope.snapshotId ? [scope.snapshotId] : []),
     ],
     sql: `WITH source_rows AS (
-      SELECT inbox_items.*
+      SELECT id, organization_id, recipient_user_id, source_kind,
+        source_target_json, source_facts_json, kind, attention, importance,
+        read_at_ms, resolution_status, occurred_at_ms
       FROM "openmeld"."inbox_items"
       WHERE (organization_id = $1 OR organization_id IS NULL) AND recipient_user_id = $2 AND cleared_at_ms IS NULL AND sequence <= $3
         ${scope.snapshotId ? 'AND EXISTS (SELECT 1 FROM "openmeld"."inbox_feed_snapshot_members" WHERE snapshot_id = $4 AND item_id = inbox_items.id)' : ""}
@@ -164,9 +166,19 @@ export function inboxFeedRowsSql(
       row_number() OVER (PARTITION BY ${partition} ORDER BY priority_rank, occurred_at_ms DESC, id) AS anchor_index,
       ${key} AS sort_key
     FROM selected JOIN collection_counts USING (collection_key) ${expanded ? `WHERE ${membership} = $${groupParameter}` : ""}
-  ) SELECT items.*, ${currentInboxSourceFactsSql("items")} AS current_source_facts
+  ), anchors AS (SELECT *
     FROM grouped AS items WHERE anchor_index = 1
     AND ($${cursorParameter}::integer IS NULL OR section_rank > $${cursorParameter + 1} OR (section_rank = $${cursorParameter + 2} AND latest_occurred_at_ms < $${cursorParameter + 3})
       OR (section_rank = $${cursorParameter + 4} AND latest_occurred_at_ms = $${cursorParameter + 5} AND sort_key > $${cursorParameter + 6}))
-    ORDER BY section_rank, latest_occurred_at_ms DESC, sort_key LIMIT $${cursorParameter + 7}`;
+    ORDER BY section_rank, latest_occurred_at_ms DESC, sort_key LIMIT $${cursorParameter + 7}
+  ), page AS (
+    SELECT items.*, anchors.raw_group_key, anchors.sort_key,
+      anchors.section_rank, anchors.item_count, anchors.unread_count,
+      anchors.latest_occurred_at_ms, anchors.request_category,
+      anchors.conversation_count,
+      ${currentInboxSourceFactsSql("items")} AS current_source_facts
+    FROM anchors JOIN "openmeld"."inbox_items" AS items ON items.id = anchors.id
+  ) SELECT page.*, to_jsonb(feed_counts) AS feed_counts
+    FROM feed_counts LEFT JOIN page ON true
+    ORDER BY section_rank, latest_occurred_at_ms DESC, sort_key`;
 }

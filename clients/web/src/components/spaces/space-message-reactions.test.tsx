@@ -7,10 +7,12 @@ import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import type { PropsWithChildren } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
+import { buildSpaceTimelineItems } from "#/lib/spaces/timeline";
 import type { SpaceHistorySnapshot } from "#/query/spaces/history";
 import { spaceQueryKeys } from "#/query/spaces/status";
 import {
 	messageReactionsKey,
+	resolveMessageReactionInput,
 	useMessageReactions,
 } from "./space-message-reactions";
 
@@ -53,6 +55,33 @@ const signal: SignalEnvelope = {
 };
 
 describe("message reaction cache", () => {
+	it("does not treat an unfinished Agent answer as a saved reaction target", () => {
+		const [message] = buildSpaceTimelineItems({
+			envelopes: [signal],
+			membersSnapshot: null,
+		});
+		expect(resolveMessageReactionInput(message, "profile-a")).toBeDefined();
+		expect(
+			resolveMessageReactionInput(
+				{
+					...message,
+					id: "active-wake:request:agent",
+					activeWakeProgress: {
+						clientMessageId: "request",
+						sourceSignalId: message.id,
+						dispatchId: null,
+						targetProfileId: "agent",
+						targetLabel: "Agent",
+						phase: "sending",
+						message: "Thinking…",
+						updatedAtMs: 1,
+						terminal: false,
+					},
+				},
+				"profile-a"
+			)
+		).toBeUndefined();
+	});
 	it.each([
 		"removed",
 		"unchanged",

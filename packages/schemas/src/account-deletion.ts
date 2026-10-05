@@ -62,6 +62,12 @@ export const accountDeletionConversationSchema = z.strictObject({
 export type AccountDeletionConversation = z.infer<
   typeof accountDeletionConversationSchema
 >;
+export const accountDeletionComputerSchema = z.strictObject({
+  computerId: z.string().min(1),
+});
+export type AccountDeletionComputer = z.infer<
+  typeof accountDeletionComputerSchema
+>;
 export const accountDeletionSpaceSchema = z.strictObject({
   userId: z.string().min(1),
   spaceId: z.string().min(1),

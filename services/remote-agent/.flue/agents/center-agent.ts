@@ -215,7 +215,7 @@ async function prepareCenterAgentRender() {
       executionContext &&
       !executionContext.replyRecovery &&
       !summaryOnly &&
-      executionContext.computerIsolationVersion === 2 &&
+      executionContext.computerIsolationVersion === 3 &&
       isRemoteAgentComputerEnabled(env)
         ? await createRemoteAgentComputerCapability({
             connectorExecution: {
@@ -384,6 +384,7 @@ async function prepareCenterAgentRender() {
           >[0]["finish"]
         ) =>
           checkRemoteAgentExecutionFinish({
+            env,
             context: executionContext,
             storage,
             finish,
@@ -465,6 +466,7 @@ export const cloudflare = extend<Agent<CloudflareBindings>>({
     class extends Base {
       async eraseAccountConversation(raw: unknown) {
         const request = accountDeletionConversationSchema.parse(raw);
+        // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Historical Computer generations have distinct ownership boundaries; keep erasure decisions together.
         return await this.ctx.blockConcurrencyWhile(async () => {
           if (await this.ctx.storage.get(ACCOUNT_ERASED_KEY)) {
             return;
@@ -481,6 +483,11 @@ export const cloudflare = extend<Agent<CloudflareBindings>>({
             }
             // The legacy Center computer is a team workspace shared across Spaces.
             // A private Space cannot erase the team's shared disk.
+            // Current personal Computers belong to the account, not a conversation.
+            // Core erases them from the account's Computer inventory.
+            if (context.computerIsolationVersion === 3) {
+              continue;
+            }
             const namespace = (this.env as CloudflareBindings).AGENT_COMPUTER;
             const computer = namespace.get(
               namespace.idFromName(resolveRemoteAgentComputerName(context))

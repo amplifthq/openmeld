@@ -13,7 +13,6 @@ import type { WorkspaceClient } from "@cloudflare/computer";
 import {
   buildPersonalRemoteAgentConversationId,
   type RemoteAgentGitTransferGrant,
-  type RemoteAgentResultSource,
   remoteAgentExecutionAccessRequestSchema,
   remoteAgentExecutionScopeKey,
   resolveRemoteAgentExecutionScope,
@@ -362,7 +361,6 @@ describe("recorded delegation reaches GitHub reads without impersonating its req
         centerAgentResolveConnectorConnection: f.selection,
       };
       let grant: RemoteAgentGitTransferGrant | undefined;
-      const sources: RemoteAgentResultSource[] = [];
       const dependencies = {
         context: f.context,
         storage: f.storage,
@@ -399,12 +397,6 @@ describe("recorded delegation reaches GitHub reads without impersonating its req
           rm: async (path: string) =>
             await Promise.resolve(rmSync(path, { force: true })),
           exec,
-        },
-        dataSources: {
-          readDataSources: async () => await Promise.resolve(sources),
-          recordDataSource: async (source: RemoteAgentResultSource) => {
-            await Promise.resolve(sources.push(source));
-          },
         },
         workspaceAccess: {
           withWorkspace: async <T>(
