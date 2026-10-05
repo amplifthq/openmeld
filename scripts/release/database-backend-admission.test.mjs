@@ -108,7 +108,7 @@ test("hosted CLI reuses only the deployed PostgreSQL contract and current live s
         message:
           scope === "db"
             ? "Hosted CLI requires a verified PostgreSQL database release. Complete the guarded local database release first."
-            : `Hosted CLI requires a verified PostgreSQL ${scope} release. Complete the guarded local release first.`,
+            : `PostgreSQL ${scope} has no verified active deployment receipt. Complete or recover its guarded release before continuing.`,
       });
       receipts.set(scope, {
         ...saved,
@@ -153,6 +153,20 @@ test("hosted CLI reuses only the deployed PostgreSQL contract and current live s
         sourceSha: git("rev-parse", "HEAD"),
       }),
       DEPLOYED_POSTGRESQL_CONTRACT_PATTERN
+    );
+    // Applying an additive migration does not change either deployed Worker.
+    // Only the database receipt advances; active Worker identity and bindings
+    // still pass through their independent live admission checks.
+    const migratedSha = git("rev-parse", "HEAD");
+    receipts.set("db", { ...receipts.get("db"), sha: migratedSha });
+    assert.equal(
+      (
+        await verifyHostedPostgresqlCliDatabase({
+          ...input,
+          sourceSha: migratedSha,
+        })
+      ).status,
+      "current"
     );
   } finally {
     rmSync(cwd, { recursive: true, force: true });
@@ -256,7 +270,7 @@ test("cutover preparation reports the native target without executable promotion
 
 const cutoverScopes = ["db", "auth", "core"];
 const coordinationRequired = /coordinated db,auth,core/u;
-const initialCutoverRequired = /First PostgreSQL release/u;
+const activeDeploymentRequired = /no verified active deployment receipt/u;
 const hyperdriveMismatch = /Hyperdrive target/u;
 const cutoverOptionError = /cutover snapshot applies only/u;
 const cronMismatch = /Cron configuration differs/u;
@@ -348,7 +362,7 @@ test("local PostgreSQL health recovery requires the selected exact source and ev
   ]) {
     await assert.rejects(
       admitPostgresqlProductRelease({ ...recovery, ...denied }),
-      initialCutoverRequired
+      activeDeploymentRequired
     );
   }
   for (const receipt of [
@@ -368,7 +382,7 @@ test("local PostgreSQL health recovery requires the selected exact source and ev
     receipts.set("core", { ...core, receipt });
     await assert.rejects(
       admitPostgresqlProductRelease(recovery),
-      initialCutoverRequired
+      activeDeploymentRequired
     );
   }
   receipts.set("core", {
@@ -461,7 +475,7 @@ test("cutover admission reads committed import and full reconciliation between t
       scopes: ["core"],
       readReceipts: () => new Map(),
     }),
-    initialCutoverRequired
+    activeDeploymentRequired
   );
 });
 

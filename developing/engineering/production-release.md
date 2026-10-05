@@ -25,55 +25,22 @@ used to invent a second merge or evidence contract.
 
 Release only what changed.
 
-The PostgreSQL candidate uses the guarded local release lane and requires frozen
-import evidence for first production promotion. Hosted Auth/Core/database releases
-and shared-staging promotion remain closed: those lanes do not carry the private
-capture and maintenance admission. After cutover and Cron restoration, the existing
-GitHub CLI workflow can publish with npm Trusted Publishing. It requires verified
-Database/Auth/Core receipts with the same native schema, journal, target and grant
-contract as the CLI source, plus matching active Worker deployments, PostgreSQL
-bindings and cache-disabled Hyperdrive. It checks before publication and again
-before Core activation. Database changes still require the guarded local lane;
-hosted CLI does not receive migration credentials or snapshots. GitHub write
-credentials remain confined to trusted Git operations. Unrelated hosted release
-targets retain their existing admission.
+Production uses PostgreSQL. Use the guarded local lane for Database, Auth and
+Core, and the GitHub CLI workflow for npm Trusted Publishing. Other hosted
+scopes remain available. The database receipt proves the applied schema, journal,
+target and grants. Auth and Core receipts prove their active deployments and
+PostgreSQL bindings. A database migration alone does not require redeploying
+both services. CLI admission checks these facts before publication and Core
+activation.
 
 The CLI workflow records Core activation through the existing component receipt
 owner. If a prior attempt applied this exact source but failed its remaining
 health checks, database admission checks that recorded identity against the live
 deployment and the workflow resumes the original receipt before publication.
 Unknown deployments and different source attempts remain blocked.
-For a read-only maintenance preparation plan through this same release owner:
-
-```bash
-pnpm release:plan -- --database-cutover --base <fixed-reviewed-baseline> --json
-```
-
-This reads local source impact, the registered PostgreSQL 18 target and native
-migration hashes. It reports the ordinary rolling-release ordering or its blocker,
-the complete coordinated scope to review, freeze/drain requirements, retained
-DO/R2 obligations and the before/after-first-write recovery boundary. It does not
-read production data, inspect live cloud resources, collect acceptance evidence,
-acquire a release lease or execute a step. `evidenceStatus: not_evaluated` and
-`promotionAllowed: false` are explicit; a successful plan is not a cutover pass.
-The option is accepted only by `plan`, with automatic impact discovery. It does
-not waive incompatible receiver-first dependencies or itself enable deployment.
-Its compatibility baseline is a source comparison only; deployed component
-receipts remain `not_inspected`. The actual release must establish each live
-component's source and receipt before deciding mixed-version compatibility.
-See [PostgreSQL cutover preparation](postgresql-cutover.md) for current evidence
-and the executable data/maintenance runbook. Deploy/preflight accept the separate
-`--database-cutover-snapshot <snapshot>` option. It requires coordinated
-`db,auth,core` scopes, live frozen-source/import reconciliation, native journal
-and grants, cache-disabled Hyperdrive and paused Cron under existing leases.
-Auth/Core use a checked temporary config whose only change is empty production
-Cron. After product acceptance, `deploy --scope auth,core
---database-cutover-restore-crons` explicitly restores and reads back the same
-candidate's normal schedules. Cleanup and failed deployment never restore Cron.
-Restoration publishes no Worker or CLI bytes. It retains common environment and
-source checks, then requires the exact active Auth/Core receipts, Hyperdrive,
-native journal and grants under the production leases. It does not require an
-unpublished CLI candidate or run a new artifact deployment preflight.
+First-cutover capture, import and Cron controls belong to the
+[cutover runbook](postgresql-cutover.md). Routine releases use the normal commands
+below.
 
 - A Web fix releases Web.
 - A public website fix releases Website, without rebuilding or deploying Web.
@@ -1584,53 +1551,24 @@ Never cancel a running production job.
 
 ## Production Database Release
 
-This section owns the currently deployed D1 product database. PostgreSQL
-foundation preparation is owned by [postgresql.md](postgresql.md). Empty
-production-destination resources do not authorize cutover. Future PostgreSQL
-promotion must extend this guarded control plane and prove cutover/recovery
-conditions before changing product bindings; foundation commands cannot apply
-production migrations.
-
-Production database work has one implementation entrypoint:
+Apply committed PostgreSQL migrations through the scoped release owner:
 
 ```sh
-pnpm run db:release:prod
+pnpm run release:deploy:local -- --scope db
 ```
 
-`pnpm db:sync:prod` is an alias to the same command. Do not maintain another
-sequence in a workflow or service package.
+The executor applies pending migrations, grants runtime access, verifies the
+native journal and target, and records completion under the database lease.
+Select `db,core` or `db,auth` when a service change requires the new schema.
+Unchanged services retain their existing deployments. Migration credentials
+come from the [PostgreSQL owner](postgresql.md); normal Workers use the runtime
+role through Hyperdrive.
 
-The command requires a clean worktree and runs exactly this sequence:
-
-1. build the Auth code-generation dependency;
-2. run `db:generate` against the local tooling target;
-3. stop before production if generation changes any tracked or untracked file;
-4. run `db:check` against the local tooling target so a resumable skip never bypasses committed schema and migration truth;
-5. read the remote pending list and apply production migrations through Wrangler `--remote` only when entries remain;
-6. verify the production physical database contract;
-7. run plain `PRAGMA optimize` once after synchronization.
-
-Local release operators may authenticate Wrangler with its supported OAuth
-login. Automated release lanes provide `CLOUDFLARE_ACCOUNT_ID` and
-`CLOUDFLARE_API_TOKEN` instead. `db:release:prod` proves access to the configured
-production D1 target with the read-only remote migration list. It does not require local
-schema generation or `db:check` to use production Drizzle HTTP credentials.
-
-Database release is selected only when committed schema or migration truth
-changed, or when an operator explicitly requests database repair. A normal Web,
-Gateway, Auth, Core, or Remote Agent release does not run migrations and does
-not run `PRAGMA optimize`.
-
-Plain `PRAGMA optimize` is intentional. Cloudflare D1 supports it as the safe
-post-schema synchronization operation, and it may be a no-op when statistics
-are already current. Do not add a scheduled optimize job, run it after every
-Worker deploy, replace it with a long manual `ANALYZE`, or use unsupported
-SQLite-only flag variants. D1 Time Travel is automatic; do not add a routine
-full export before every release.
-
-Never rewrite an applied migration. A failed production migration stops the
-release. Preserve its output, inspect the D1 migration ledger and Time Travel
-state, and decide recovery explicitly instead of continuing to Workers.
+Applied migrations are immutable. A migration failure stops the release before
+dependent services. Inspect the native journal and recover through the same
+owner. D1 is the frozen pre-cutover source; it is not a rollback target after
+PostgreSQL writes. The old `db:release:prod` and `db:sync:prod` commands are D1
+commands and reject the PostgreSQL production manifest.
 
 ## CLI Release
 
@@ -1870,7 +1808,7 @@ rebuilding or overwriting that version.
 The built-in production order is:
 
 ```text
-production D1 -> CLI/Service channel -> scoped Worker verify/deploy -> R2/npm/Core alignment
+selected database migrations -> CLI/Service channel -> scoped Worker verify/deploy -> R2/npm/Core alignment
 ```
 
 The CLI release creates its required Core projection before other selected

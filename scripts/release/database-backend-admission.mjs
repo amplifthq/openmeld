@@ -138,7 +138,7 @@ async function requireActivePostgresqlReceipts(input, registered) {
       identity.workerName !== `openmeld-${scope}-prod`
     ) {
       throw new Error(
-        "First PostgreSQL release requires --database-cutover-snapshot and the coordinated Auth/Core/database scopes"
+        `PostgreSQL ${scope} has no verified active deployment receipt. Complete or recover its guarded release before continuing.`
       );
     }
     const file = `services/${scope}/wrangler.jsonc`;
@@ -251,26 +251,11 @@ function requireMatchingPostgresqlContract(receipts, sourceSha, readObject) {
     "tooling/postgresql/remote-target.mjs",
     "tooling/postgresql/cutover.mjs",
   ];
-  for (const scope of ["db", "auth", "core"]) {
-    const deployed = receipts.get(scope);
-    if (
-      !(
-        deployed?.sha &&
-        (deployed.receipt?.status === "verified" ||
-          (scope === "core" &&
-            isSameSourceGuardedRecovery(deployed, sourceSha)))
-      )
-    ) {
+  for (const name of contractPaths) {
+    if (readObject(database.sha, name) !== readObject(sourceSha, name)) {
       throw new Error(
-        `Hosted CLI requires a verified PostgreSQL ${scope} release. Complete the guarded local release first.`
+        `Hosted CLI requires the deployed PostgreSQL contract: db differs at ${name}. Complete the guarded database release first.`
       );
-    }
-    for (const name of contractPaths) {
-      if (readObject(deployed.sha, name) !== readObject(sourceSha, name)) {
-        throw new Error(
-          `Hosted CLI requires the deployed PostgreSQL contract: ${scope} differs at ${name}. Complete the guarded local database/Worker release first.`
-        );
-      }
     }
   }
 }
