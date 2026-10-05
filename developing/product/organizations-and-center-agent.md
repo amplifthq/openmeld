@@ -42,6 +42,60 @@ through W-NAV1..5. Further implementation must follow this baseline; deviations
 require Felix, and the change must land here and in `developing/decisions.md` in
 the same PR.
 
+## Member departure and asset boundaries
+
+Leaving an Organization and being removed by an administrator use the same
+member-departure lifecycle. Check Space ownership handoff and Center Agent
+identity, durably prepare private Session Inventory cleanup, then remove the
+membership. Finalize cleanup only after the native membership operation succeeds.
+Failed authorization or a rejected departure must not purge personal memory.
+The inventory cleanup waits for authoritative membership removal and retains its
+existing retry path. Center Agent member memory uses the existing provider
+deletion path and failure logs; this is not a guarantee of completed remote
+erasure when that provider is unavailable.
+
+| Operation / asset | Boundary |
+| --- | --- |
+| Leave a Space or Organization; revoke membership | Remove the access grant, not shared messages, files, revisions, or attribution. Public link access remains an independent grant; close it separately when confidentiality requires it. |
+| Space ownership | Hand over management before leaving. Creator attribution alone grants no access. Keep the existing last-owner protection and restrictive membership references. |
+| Team Files, Space Files, Organization Skills, Center Agent | Keep them with their owning Organization or Space. A creator's departure must not delete them or create a second ownership model. |
+| Member-private Files and local agent sessions | Do not transfer them into Team Files or grant administrators ordinary read access. Private file retention is separate from member removal; see `files.md`. |
+| Private Session Inventory and member-specific Center Agent memory | Use the shared departure cleanup. This does not delete work already published into a shared Space. |
+| Explicit file deletion | Use the existing trash and restore mechanism. An independent copied revision is not deleted with its source. |
+| Explicit Skill removal | Disable use while retaining immutable releases and audit evidence under the existing Skill lifecycle. |
+| Explicit Space deletion | A human Space owner confirms permanent deletion for everyone. Pending Wake work blocks deletion; see `space-collaboration.md`. |
+
+This deliberately separates access revocation, shared work retention, and explicit
+content deletion. It follows the purpose of
+[Slack deactivation](https://slack.com/help/articles/204475027-Deactivate-a-members-account),
+[Slack channel deletion](https://slack.com/help/articles/213185307-Archive-or-delete-a-channel),
+[Lark offboarding](https://www.larksuite.com/hc/en-US/articles/360048487851-admin-delete-members-and-reallocate-resources),
+and [Feishu offboarding](https://www.feishu.cn/hc/zh-CN/articles/360043223853-管理员操作成员离职及转移资源).
+It does not copy their enterprise resource-transfer consoles or promise indefinite
+retention. Existing recall, trash, retention, and permanent deletion rules still apply.
+
+Account deletion is an account-wide operation in Settings > Account. The server
+previews the affected workspaces and checks the same inventory again at acceptance.
+A workspace with other members remains; its last owner must first appoint another
+owner, and Space owners must complete the existing ownership handoff. A workspace
+with no other members closes, including its shared links and guest content.
+
+Acceptance revokes sessions, sign-in credentials, device codes, personal profiles,
+and memberships, and replaces the account identity with a non-signable tombstone.
+Shared messages, published files, Skills, revisions, and audit attribution remain
+with surviving teams. Historical text and author snapshots are not rewritten.
+Private Files roots (including former memberships), personal Computers, private Agent conversations,
+synced Session Inventory, personal memory, and personal App connections are erased
+through their existing owners. Team-level connections remain with a surviving team.
+Closing a workspace also disconnects its Channels and Apps and deletes its assets.
+
+Auth owns acceptance and the durable cleanup request; Core coordinates owner-specific
+erasure. Storage or provider failures remain pending and retry. The success page
+says that the account is closed and cleanup continues, not that every remote byte
+has already disappeared. Legacy Center Agent Computers shared across conversations
+remain team assets while that team exists; isolated private Computers are erased.
+Membership departure alone is not account deletion or complete personal-data erasure.
+
 ## Reading Order For A Fresh Session
 
 1. `AGENTS.md` — repo rules and routing.

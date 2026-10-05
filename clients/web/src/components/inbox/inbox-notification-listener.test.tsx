@@ -1171,6 +1171,37 @@ describe("InboxNotificationListener", () => {
 		act(() => socket.dispatchEvent(new Event("close")));
 		expect(interval()).toBe(1000);
 	});
+	it("refreshes unopened Space membership from account push without waiting for a poll", async () => {
+		vi.useFakeTimers();
+		notificationSettingsByUserId.set("user-123", false);
+		const socket = Object.assign(new EventTarget(), {
+			send: vi.fn(),
+			close: vi.fn(),
+		});
+		vi.spyOn(
+			accountStream,
+			"createAccountInvalidationTransport"
+		).mockReturnValue(socket);
+		renderListener();
+		act(() => socket.dispatchEvent(new Event("open")));
+		queryClientMock.invalidateQueries.mockClear();
+		act(() =>
+			socket.dispatchEvent(
+				new MessageEvent("message", {
+					data: JSON.stringify({ type: "space_index.changed" }),
+				})
+			)
+		);
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(100);
+		});
+		expect(queryClientMock.invalidateQueries).toHaveBeenCalledWith(
+			expect.objectContaining({
+				queryKey: ["spaces", "account-spaces"],
+			})
+		);
+	});
+
 	it("refreshes an active Space directory from a new Inbox message even when notifications are off", () => {
 		notificationSettingsByUserId.set("user-123", false);
 		vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");

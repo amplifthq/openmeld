@@ -1064,6 +1064,20 @@ Before Organization departure or account removal, the departing person must
 hand over every owned Space and become a Member. Organization deletion requires
 its ordinary Spaces to be deleted first; it cannot strand their history.
 
+Leaving or removing a member preserves shared history and files. Permanent Space
+deletion is a separate, human-owner-confirmed action affecting everyone. It must
+reject with `space.wakes_pending` while dispatch handoff/recovery, a workstation
+execution, a native delivery (including Routine runs and uncertain publication),
+an admitted Routine awaiting delivery or failure publication, a task continuation,
+or a stopped-outcome publication is unsettled. Users stop work through the existing
+Stop action or wait for its outcome, then retry deletion. Deletion does not invent
+an execution timeout or a second cancellation mechanism. The Space serializes the
+check and deletion through its existing concurrency gate; the runtime owners retain
+their execution authority. An unavailable owner store must not permit deletion.
+PostgreSQL checks share one repeatable-read snapshot so a continuation-to-delivery
+handoff cannot fall between independently read states. Rejected deletion logs the
+pending owner categories and request ID without message contents.
+
 Share or invite and Settings compose different task-focused views from one
 canonical snapshot and one local draft. Link reading, Organization visibility,
 joining, and guest access commit together so the UI never reports a partially

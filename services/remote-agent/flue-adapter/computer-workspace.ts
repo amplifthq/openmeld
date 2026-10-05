@@ -34,6 +34,11 @@ import type { BrowserBinding } from "agents/browser";
 import { createBrowserTools } from "agents/browser/ai";
 import type { RemoteAgentCoreWorkerBinding } from "../agent-core/callback-context";
 import {
+  ACCOUNT_ERASED_KEY,
+  eraseAccountStorage,
+  requireRetainedAccountStorage,
+} from "./account-deletion";
+import {
   createComputerCommandTool,
   listPendingRemoteAgentComputerCommands,
   stopStoredComputerCommands,
@@ -176,9 +181,28 @@ function workspaceRef(ctx: DurableObjectState) {
 export class AgentComputer extends withLegacyWorkspaceContainer(
   AgentComputerBase
 ) {
+  async eraseAccountSpaceDirectory(spaceId: string): Promise<void> {
+    await requireRetainedAccountStorage(this.ctx.storage);
+    await this.workspace.ready();
+    await this.workspace.fs.rm(buildAgentComputerSpaceDirectory(spaceId), {
+      recursive: true,
+      force: true,
+    });
+  }
+  async eraseAccountComputer(): Promise<void> {
+    return await this.ctx.blockConcurrencyWhile(async () => {
+      if (await this.ctx.storage.get(ACCOUNT_ERASED_KEY)) {
+        return;
+      }
+      await this.ctx.container?.destroy();
+      await this.workspace.close();
+      await eraseAccountStorage(this.ctx);
+    });
+  }
   readonly #commands = new RemoteAgentSqlStorage(this.ctx.storage.sql);
 
   async computerOperation(value: unknown) {
+    await requireRetainedAccountStorage(this.ctx.storage);
     const request = cloudComputerOperationSchema.parse(value);
     await this.workspace.ready();
     if (request.action !== "command") {
@@ -194,6 +218,7 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
       storage: this.#commands,
       workingDirectory,
       assertCanStart: async () => {
+        await requireRetainedAccountStorage(this.ctx.storage);
         if (
           await this.#commands.get(
             `computer-invocation-stopped:${request.invocationId}`
@@ -212,11 +237,13 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
   }
 
   async writeComputerFile(path: string, content: string | Uint8Array) {
+    await requireRetainedAccountStorage(this.ctx.storage);
     await this.workspace.ready();
     await this.#files.write(path, content);
   }
 
   async pendingComputerCommands(invocationId: string) {
+    await requireRetainedAccountStorage(this.ctx.storage);
     return await listPendingRemoteAgentComputerCommands({
       context: { submissionId: invocationId },
       storage: this.#commands,
@@ -224,6 +251,7 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
   }
 
   async stopComputerCommands(invocationId: string) {
+    await requireRetainedAccountStorage(this.ctx.storage);
     // Fence delayed/in-flight starts before enumerating receipts. Each launched
     // command also checks its Stop receipt after native dispatch completes.
     await this.#commands.putExpiring(
@@ -245,6 +273,7 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
   }
 
   async registerGitTransferGrant(value: unknown): Promise<void> {
+    await requireRetainedAccountStorage(this.ctx.storage);
     const grant = remoteAgentGitTransferGrantSchema.parse(value);
     if (
       grant.expiresAtMs <= Date.now() ||
@@ -280,6 +309,7 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
   async startGitPackTransfer(
     value: unknown
   ): Promise<RemoteAgentGitPackStatus> {
+    await requireRetainedAccountStorage(this.ctx.storage);
     const request = remoteAgentGitPackStartSchema.parse(value);
     if (
       !request.transportDirectory.startsWith("/computer/") ||
@@ -330,6 +360,7 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
   }
 
   async alarm(): Promise<void> {
+    await requireRetainedAccountStorage(this.ctx.storage);
     const jobs = await this.ctx.storage.list<GitPackJob>({
       prefix: GIT_PACK_JOB_PREFIX,
     });
@@ -549,6 +580,7 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
   }
 
   async executeBrowser(input: unknown): Promise<unknown> {
+    await requireRetainedAccountStorage(this.ctx.storage);
     const { spaceId, code } = agentComputerBrowserRequestSchema.parse(input);
     return await this.browserTool(spaceId).execute(
       { code },
@@ -564,6 +596,7 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
     path: string;
     port: number;
   }) {
+    await requireRetainedAccountStorage(this.ctx.storage);
     if (!this.env.BROWSER) {
       throw new Error("The Computer browser binding is unavailable.");
     }
@@ -621,6 +654,7 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
 
   /** WorkspaceProxy forwards the container's outbound /api egress here. */
   override async fetch(request: Request): Promise<Response> {
+    await requireRetainedAccountStorage(this.ctx.storage);
     const url = new URL(request.url);
     if (url.pathname === "/api") {
       return await this.#containerBackend.handleFetch(request);
@@ -649,6 +683,7 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
    * egress, and the Flue adapter all land here.
    */
   async __getWorkspaceStub(): Promise<WorkspaceStub> {
+    await requireRetainedAccountStorage(this.ctx.storage);
     await this.workspace.ready();
     return this.workspace.stub();
   }

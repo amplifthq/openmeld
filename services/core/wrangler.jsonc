@@ -58,6 +58,11 @@
   ],
   "r2_buckets": [
     {
+      "binding": "OPENMELD_ACCOUNT_AVATARS",
+      "bucket_name": "openmeld-organization-logos-preview",
+      "preview_bucket_name": "openmeld-organization-logos-preview"
+    },
+    {
       "binding": "OPENMELD_SPACE_ATTACHMENTS",
       "bucket_name": "openmeld-space-attachments-preview",
       "preview_bucket_name": "openmeld-space-attachments-preview"
@@ -133,6 +138,11 @@
     ]
   },
   "services": [
+    {
+      "binding": "OPENMELD_ACCOUNT_DELETION_GATEWAY",
+      "service": "openmeld-gateway",
+      "entrypoint": "AccountDeletionEntrypoint"
+    },
     {
       "binding": "OPENMELD_AUTH_WORKER",
       "service": "openmeld-auth"
@@ -228,6 +238,11 @@
       ],
       "r2_buckets": [
         {
+          "binding": "OPENMELD_ACCOUNT_AVATARS",
+          "bucket_name": "openmeld-organization-logos-stg",
+          "preview_bucket_name": "openmeld-organization-logos-stg"
+        },
+        {
           "binding": "OPENMELD_SPACE_ATTACHMENTS",
           "bucket_name": "openmeld-space-attachments-stg",
           "preview_bucket_name": "openmeld-space-attachments-stg"
@@ -311,6 +326,11 @@
       },
       "services": [
         {
+          "binding": "OPENMELD_ACCOUNT_DELETION_GATEWAY",
+          "service": "openmeld-gateway-stg",
+          "entrypoint": "AccountDeletionEntrypoint"
+        },
+        {
           "binding": "OPENMELD_AUTH_WORKER",
           "service": "openmeld-auth-stg"
         },
@@ -376,6 +396,11 @@
         }
       ],
       "r2_buckets": [
+        {
+          "binding": "OPENMELD_ACCOUNT_AVATARS",
+          "bucket_name": "openmeld-organization-logos-prod",
+          "preview_bucket_name": "openmeld-organization-logos-preview"
+        },
         {
           "binding": "OPENMELD_SPACE_ATTACHMENTS",
           "bucket_name": "openmeld-space-attachments-prod",
@@ -452,6 +477,11 @@
         ]
       },
       "services": [
+        {
+          "binding": "OPENMELD_ACCOUNT_DELETION_GATEWAY",
+          "service": "openmeld-gateway-prod",
+          "entrypoint": "AccountDeletionEntrypoint"
+        },
         {
           "binding": "OPENMELD_AUTH_WORKER",
           "service": "openmeld-auth-prod"
