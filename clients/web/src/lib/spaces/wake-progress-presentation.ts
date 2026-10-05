@@ -312,6 +312,7 @@ export function resolveSpaceMessageStopFeedback(
 export function resolveWakeProgressThinkingEntry(input: {
 	item: WakeProgressItem;
 	showElapsedTime: boolean;
+	showTargetName?: boolean;
 	requestStartedAtMs?: number;
 }): SpaceMessageWakeThinkingEntry[] {
 	const item = input.item;
@@ -319,7 +320,9 @@ export function resolveWakeProgressThinkingEntry(input: {
 		return [];
 	}
 
-	const step = resolveWakeProgressStatus(item);
+	const step = resolveWakeProgressStatus(item, {
+		showTargetName: input.showTargetName,
+	});
 	if (!step) {
 		return [];
 	}

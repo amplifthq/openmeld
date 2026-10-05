@@ -15,6 +15,11 @@ Agent conversations. One-to-one direct messages omit redundant reply quotations,
 and new arrivals do not introduce a New messages divider while you remain in the
 conversation.
 
+Ordinary Spaces use the same compact progress for Center Agent and local Agents,
+without repeating their names. Stop remains available as Hosted tasks start,
+and unfinished replies no longer request message reactions.
+The work disclosure opens when content arrives, without an empty reasoning placeholder.
+
 Appearance settings includes one switch for Bot avatar animations. Turn it off
 to keep avatars still while Agents work and when you interact with them.
 Bot avatars now use a soft Fabric finish by default. Compare Fabric and Plastic

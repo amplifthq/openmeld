@@ -24,10 +24,10 @@ describe("resolveWakeProgressStatus", () => {
 		).toBe("Agent · Working…");
 	});
 	it.each([
-		["sending", "runner · Working…", "starting"],
-		["request_sent", "runner · Working…", "sent"],
+		["sending", "runner · Thinking…", "starting"],
+		["request_sent", "runner · Thinking…", "sent"],
 		["queued", "runner · Waiting for earlier tasks", "queued"],
-		["connecting", "runner · Working…", "connecting"],
+		["connecting", "runner · Thinking…", "connecting"],
 		["retrying", "runner · Working…", "retrying"],
 		["running", "runner · Working…", "working"],
 		["writing", "runner · Replying…", "replying"],

@@ -61,7 +61,7 @@ export function SpaceAgentToolActivity(input: {
 		}
 		wasLive.current = isLive;
 	}, [isLive]);
-	if (!(latestStep || progress || reasoning || reasoningNotice)) {
+	if (!(latestStep || progress || reasoning)) {
 		return null;
 	}
 
@@ -332,8 +332,6 @@ function resolveReasoningNotice(
 			return "Live reasoning is turned off by this Agent’s owner.";
 		case "unavailable":
 			return "This Agent connection doesn’t support live reasoning.";
-		case "waiting":
-			return "Waiting for reasoning output…";
 		default:
 			return null;
 	}

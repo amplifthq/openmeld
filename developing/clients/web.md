@@ -4721,6 +4721,17 @@ severity. Web must never deep-link to a retired authorization surface.
 
 Thread placement is conversation placement. It is not execution truth.
 
+Direct Messages and ordinary Spaces share the same unfinished Agent answer row.
+Before execution starts, its compact progress reads **Thinking…**; active work
+reads **Working…**. The elapsed request time begins with submission. The row's
+avatar and identity header name the Agent once, while source-level summaries
+still name each target when multiple Agents are involved. The work disclosure
+opens only when reasoning, public progress, or tool steps arrive; reasoning
+capability alone must not produce an empty panel. An unfinished answer
+is not a saved Signal and must not request message reactions. Stop eligibility
+comes from the current owner evidence, including Hosted admission that completes
+while a progress read awaits remote dispatch evidence.
+
 For hosted Center Agent and Remote Agent Space replies, Web may overlay
 explicit public progress updates and accumulated stream text while the turn is
 active. Neither live projection is a Space message or final outcome. Public

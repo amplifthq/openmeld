@@ -60,7 +60,7 @@ const CREATE_SPACE_BUTTON_NAME_PATTERN = /Create a Space/;
 const CONNECT_MY_COMPUTER_BUTTON_NAME_PATTERN = /Connect my computer/;
 const MESSAGES_FROM_DATE_MARKER_NAME_PATTERN = /Messages from/;
 const OPEN_DATE_NAVIGATION_NAME_PATTERN = /Open date navigation for/;
-const RUNNER_WORKING_NAME_PATTERN = /runner · Working…/u;
+const RUNNER_WORKING_NAME_PATTERN = /Working…/u;
 
 // The Message Details dialog fetches through `useQuery`. Every test in this
 // file except the ones that open that dialog only checks for the trigger
@@ -3497,7 +3497,7 @@ describe("SpaceConversationPanel", () => {
 		const wakeIcon = wakeIndicator.querySelector("canvas");
 
 		expect(screen.queryByText("Sending...")).toBeNull();
-		expect(wakeIndicator.textContent).toContain("runner · Working…");
+		expect(wakeIndicator.textContent).toContain("Thinking…");
 		expect(wakeIcon).toBeTruthy();
 		expect(wakeIcon?.dataset.spaceAgentOrbState).toBe("connecting");
 		expect(
@@ -3541,7 +3541,7 @@ describe("SpaceConversationPanel", () => {
 		expect(screen.queryByText("Still sending...")).toBeNull();
 		expect(screen.queryByText("Starting Wake…")).toBeNull();
 		expect(screen.getByTestId("space-wake-thinking-row").textContent).toContain(
-			"Working… · 8s"
+			"Thinking… · 8s"
 		);
 	});
 
@@ -3603,9 +3603,9 @@ describe("SpaceConversationPanel", () => {
 		expect(within(optimisticReply).getByText("Center Agent")).toBeTruthy();
 		expect(
 			within(progressRow).getByRole("status", {
-				name: "runner · Working… · 2s",
+				name: "Thinking… · 2s",
 			}).textContent
-		).toContain("runner · Working…");
+		).toContain("Thinking…");
 		expect(
 			progressRow.querySelector('[data-space-agent-orb-state="connecting"]')
 		).toBeTruthy();
@@ -3650,9 +3650,9 @@ describe("SpaceConversationPanel", () => {
 		expect(persistedSendingReply).toBe(optimisticReply);
 		expect(
 			within(persistedSendingReply as HTMLElement).getByRole("status", {
-				name: "runner · Working… · 2s",
+				name: "Thinking… · 2s",
 			}).textContent
-		).toContain("runner · Working…");
+		).toContain("Thinking…");
 
 		view.rerender(
 			<SpaceConversationPanel
@@ -3697,7 +3697,7 @@ describe("SpaceConversationPanel", () => {
 			within(updatedOptimisticReply as HTMLElement).getByRole("status", {
 				name: RUNNER_WORKING_NAME_PATTERN,
 			}).textContent
-		).toContain("runner · Working…");
+		).toContain("Working…");
 		expect(
 			within(updatedOptimisticReply as HTMLElement).getByRole("button", {
 				name: "Stop @runner",
@@ -3749,7 +3749,7 @@ describe("SpaceConversationPanel", () => {
 			within(optimisticReply).getByRole("status", {
 				name: RUNNER_WORKING_NAME_PATTERN,
 			}).textContent
-		).toContain("runner · Working…");
+		).toContain("Working…");
 	});
 
 	it.each([
@@ -5237,17 +5237,13 @@ describe("SpaceConversationPanel", () => {
 				.querySelector("canvas")
 				?.getAttribute("data-space-agent-orb-state")
 		).toBe("solving");
-		expect(thinkingIndicator.textContent).toContain(
-			"runner · Working… · 1m 12s"
-		);
+		expect(thinkingIndicator.textContent).toContain("Working… · 1m 12s");
 
 		act(() => {
 			vi.advanceTimersByTime(1000);
 		});
 
-		expect(thinkingIndicator.textContent).toContain(
-			"runner · Working… · 1m 13s"
-		);
+		expect(thinkingIndicator.textContent).toContain("Working… · 1m 13s");
 	});
 
 	it("does not offer another viewer Stop without Core eligibility", () => {

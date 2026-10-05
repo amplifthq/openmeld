@@ -22533,7 +22533,6 @@ export class Space extends DurableObject<CoreBindings> {
             nativeDeliveryEvidence: activeNativeDeliveryByTarget.get(
               buildDispatchTargetKey(lookupMatch)
             ),
-            outboxRecord,
             sourceSignal,
             targetLabel,
             terminalFailureNotices,
@@ -23017,7 +23016,6 @@ export class Space extends DurableObject<CoreBindings> {
     includeWakeStopEligibility?: boolean;
     lookupMatch: SpaceDispatchLookupMatch;
     nativeDeliveryEvidence?: ActiveRemoteAgentNativeDeliveryWakeProgressEvidence;
-    outboxRecord: OpenMeldDaemonDispatchOutboxRecoveryCandidate | null;
     sourceSignal: Extract<
       SignalEnvelope,
       {
@@ -23056,6 +23054,13 @@ export class Space extends DurableObject<CoreBindings> {
     }
     const runtimeDeviceDisplayName =
       await this.readWakeProgressRuntimeDeviceDisplayName(trace);
+    // Admission can finish during the remote lookup/trace reads. Use the
+    // current local owner record, not the snapshot from before those awaits,
+    // so a newly admitted Hosted task retains its real early Stop authority.
+    const outboxRecord = readDispatchOutboxRecordByDispatchId(
+      this.ctx.storage.sql,
+      input.lookupMatch.dispatchId
+    );
     let wakeStopEligibility:
       | WakeProgressItem["wakeStopEligibility"]
       | undefined;
@@ -23065,7 +23070,7 @@ export class Space extends DurableObject<CoreBindings> {
         : await this.readWakeProgressPreAgentWakeStopEligibility({
             clientMessageId: input.clientMessageId,
             lookupMatch: input.lookupMatch,
-            outboxRecord: input.outboxRecord,
+            outboxRecord,
             trace,
           });
     }
@@ -23098,7 +23103,7 @@ export class Space extends DurableObject<CoreBindings> {
       includeDeviceWait: input.includeDeviceWait === true,
       lookupMatch: input.lookupMatch,
       nativeDeliveryEvidence: input.nativeDeliveryEvidence,
-      outboxRecord: input.outboxRecord,
+      outboxRecord,
       pendingInteraction,
       runtimeDeviceDisplayName,
       runtimeCoordinatorExecutionId:
@@ -23191,20 +23196,9 @@ export class Space extends DurableObject<CoreBindings> {
     ) {
       return null;
     }
-    if (
-      isHostedAgentControllerRef(
-        input.outboxRecord?.controllerSnapshot?.agentControllerRef
-      )
-    ) {
-      // A cancelled outbox is intent, not terminal execution evidence. Keep
-      // retryable native control until Space has a persisted final outcome.
-      // Preparing a Hosted Wake never requires a workstation owner or Service.
-      return {
-        controlMode: "cancel",
-        reliability: "native_cancel",
-        reasonCode: null,
-        status: "eligible",
-      };
+    const hostedEligibility = preAgentHostedWakeStopEligibility(input);
+    if (hostedEligibility !== undefined) {
+      return hostedEligibility;
     }
     if (input.outboxRecord?.outboxStatus === "cancelled") {
       return null;
@@ -25357,9 +25351,39 @@ function buildWakeProgressItemFromOutbox(input: {
 function nativeDeliveryWakeStopEligibility(
   evidence: ActiveRemoteAgentNativeDeliveryWakeProgressEvidence
 ): WakeProgressItem["wakeStopEligibility"] {
+  return hostedWakeStopEligibility(evidence.phase === "running");
+}
+function preAgentHostedWakeStopEligibility(input: {
+  outboxRecord: OpenMeldDaemonDispatchOutboxRecoveryCandidate | null;
+  trace: SpaceDispatchTraceSnapshot | null;
+}): WakeProgressItem["wakeStopEligibility"] | undefined {
+  const nativeDelivery = input.trace?.nativeDelivery;
+  if (nativeDelivery) {
+    // Submitted Hosted work already has a cancellable native owner, before
+    // acceptance populates the active-stream projection or controller ref.
+    return hostedWakeStopEligibility(
+      ["submitted", "accepted", "retry_observed"].includes(
+        nativeDelivery.status
+      )
+    );
+  }
+  if (
+    isHostedAgentControllerRef(
+      input.outboxRecord?.controllerSnapshot?.agentControllerRef
+    )
+  ) {
+    // A cancelled outbox is intent, not terminal execution evidence. Keep
+    // native control until a persisted outcome; no workstation owner is needed.
+    return hostedWakeStopEligibility(true);
+  }
+  return undefined;
+}
+function hostedWakeStopEligibility(
+  active: boolean
+): WakeProgressItem["wakeStopEligibility"] {
   // The accepted native delivery owns this execution, not a workstation head.
   // Viewer authorization and the mutation's current delivery check still apply.
-  return evidence.phase === "running"
+  return active
     ? {
         controlMode: "cancel",
         reasonCode: null,

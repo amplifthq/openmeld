@@ -178,6 +178,8 @@ function resolveActiveWakeEntries(
 			? { ...item.activeWakeProgress, previewText: undefined }
 			: item.activeWakeProgress,
 		showElapsedTime: true,
+		// The Agent reply already owns the avatar and identity header.
+		showTargetName: false,
 		requestStartedAtMs,
 	});
 }
@@ -261,12 +263,7 @@ function hasLiveSpaceAgentWork(item: SpaceTimelineItem): boolean {
 	return (
 		hasLiveSpaceAgentToolActivity(item) ||
 		(item.agentStreamState?.status === "streaming" &&
-			Boolean(
-				item.agentStreamState.progress ||
-					item.agentStreamState.thinking ||
-					(item.agentStreamState.reasoningState?.status &&
-						item.agentStreamState.reasoningState.status !== "streaming")
-			))
+			Boolean(item.agentStreamState.progress || item.agentStreamState.thinking))
 	);
 }
 

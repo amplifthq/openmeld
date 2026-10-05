@@ -24,6 +24,38 @@ afterEach(() => {
 });
 
 describe("SpaceMessageProgressStatus", () => {
+	it.each([
+		"waiting",
+		"disabled",
+		"unavailable",
+	] as const)("keeps one compact starting status when reasoning is %s without content", (status) => {
+		const item = createStartingItem();
+		if (!item.activeWakeProgress) {
+			throw new Error("Expected active Wake progress.");
+		}
+		item.activeWakeProgress.phase = "connecting";
+		const stream = createStreamingItem().agentStreamState;
+		if (!stream) {
+			throw new Error("Expected Agent stream state.");
+		}
+		item.agentStreamState = {
+			...stream,
+			reasoningState: { status },
+		};
+		render(
+			<SpaceMessageProgressStatus
+				control={<button type="button">Stop</button>}
+				entries={[]}
+				item={item}
+			/>
+		);
+		expect(screen.getByTestId("space-wake-thinking-row").textContent).toContain(
+			"Thinking…"
+		);
+		expect(screen.queryByTestId("space-agent-tool-activity")).toBeNull();
+		expect(screen.queryByText("Waiting for reasoning output…")).toBeNull();
+		expect(screen.getByRole("button", { name: "Stop" })).toBeTruthy();
+	});
 	it("does not let a late Stop receipt replace an already published reply", () => {
 		const source = {
 			...createStartingItem(),
@@ -125,7 +157,7 @@ describe("SpaceMessageProgressStatus", () => {
 		);
 		expect(
 			screen.getByRole("status", {
-				name: "Runner · Result awaiting confirmation",
+				name: "Result awaiting confirmation",
 			})
 		).toBeTruthy();
 		expect(screen.getByRole("button", { name: "Stop" })).toBeTruthy();
@@ -145,9 +177,9 @@ describe("SpaceMessageProgressStatus", () => {
 		);
 
 		const startingStatus = screen.getByRole("status", {
-			name: "Runner · Working… · 3s",
+			name: "Working… · 3s",
 		});
-		expect(startingStatus.textContent).toBe("Runner · Working… · 3s");
+		expect(startingStatus.textContent).toBe("Working… · 3s");
 		expect(
 			startingStatus.querySelector('[data-slot="agent-thinking-elapsed"]')
 		).toBeNull();
@@ -190,9 +222,7 @@ describe("SpaceMessageProgressStatus", () => {
 				}}
 			/>
 		);
-		expect(
-			screen.getByRole("status", { name: "Runner · Working… · 1s" })
-		).toBeTruthy();
+		expect(screen.getByRole("status", { name: "Working… · 1s" })).toBeTruthy();
 	});
 
 	it.each([

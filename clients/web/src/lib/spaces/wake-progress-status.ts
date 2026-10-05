@@ -60,7 +60,8 @@ type PresentableWakeProgress = Pick<
  * Surfaces may choose a different density, but must not reinterpret the phase.
  */
 export function resolveWakeProgressStatus(
-	item: PresentableWakeProgress
+	item: PresentableWakeProgress,
+	options: { showTargetName?: boolean } = {}
 ): WakeProgressStatusPresentation | null {
 	// A final outcome takes precedence over interaction/queue evidence retained
 	// on the snapshot. That earlier evidence must never revive an ended Wake.
@@ -73,6 +74,9 @@ export function resolveWakeProgressStatus(
 		return null;
 	}
 	const targetName = formatWakeTargetName(item.targetLabel);
+	const showTargetName = options.showTargetName !== false;
+	const formatLabel = (text: string, namedText = `${targetName} · ${text}`) =>
+		showTargetName ? namedText : text;
 	if (
 		item.phase === "running" &&
 		item.failureReasonCode ===
@@ -80,7 +84,7 @@ export function resolveWakeProgressStatus(
 	) {
 		return {
 			kind: "confirmation_pending",
-			label: `${targetName} · Result awaiting confirmation`,
+			label: formatLabel("Result awaiting confirmation"),
 			status: "pending",
 			description:
 				"Later work in this conversation may be waiting. Stop this request to release it once the Agent confirms execution has ended. Do not resend the original request.",
@@ -90,20 +94,29 @@ export function resolveWakeProgressStatus(
 		item.deviceWait &&
 		(item.phase === "request_sent" || item.phase === "queued")
 	) {
-		return resolveDeviceWaitStatus(item.deviceWait, targetName);
+		return resolveDeviceWaitStatus(
+			item.deviceWait,
+			showTargetName ? targetName : null
+		);
 	}
 	if (item.pendingInteraction) {
 		return item.pendingInteraction.canRespond
 			? {
 					description: "The Agent is waiting for your response.",
 					kind: "needs_input",
-					label: `${targetName} needs your input`,
+					label: formatLabel(
+						"Needs your input",
+						`${targetName} needs your input`
+					),
 					status: "pending",
 				}
 			: {
 					description: "The Agent is waiting for its owner to respond.",
 					kind: "waiting_for_owner",
-					label: `${targetName} is waiting for its owner`,
+					label: formatLabel(
+						"Waiting for the owner",
+						`${targetName} is waiting for its owner`
+					),
 					status: "pending",
 				};
 	}
@@ -115,7 +128,10 @@ export function resolveWakeProgressStatus(
 		return {
 			description: "Another app is using this conversation.",
 			kind: "waiting_for_controller",
-			label: `Waiting for ${targetName}`,
+			label: formatLabel(
+				"Waiting for an earlier task",
+				`Waiting for ${targetName}`
+			),
 			status: "active",
 		};
 	}
@@ -125,56 +141,56 @@ export function resolveWakeProgressStatus(
 			return {
 				description: "The Agent is processing your request.",
 				kind: "starting",
-				label: `${targetName} · Working…`,
+				label: formatLabel("Thinking…"),
 				status: "active",
 			};
 		case "request_sent":
 			return {
 				description: "The Agent is processing your request.",
 				kind: "sent",
-				label: `${targetName} · Working…`,
+				label: formatLabel("Thinking…"),
 				status: "active",
 			};
 		case "queued":
 			return {
 				description: "The Agent will start when its earlier work finishes.",
 				kind: "queued",
-				label: `${targetName} · Waiting for earlier tasks`,
+				label: formatLabel("Waiting for earlier tasks"),
 				status: "active",
 			};
 		case "connecting":
 			return {
 				description: "The Agent is processing your request.",
 				kind: "connecting",
-				label: `${targetName} · Working…`,
+				label: formatLabel("Thinking…"),
 				status: "active",
 			};
 		case "running":
 			return {
 				description: "The Agent is processing your request.",
 				kind: "working",
-				label: `${targetName} · Working…`,
+				label: formatLabel("Working…"),
 				status: "active",
 			};
 		case "writing":
 			return {
 				description: "The Agent has started its reply.",
 				kind: "replying",
-				label: `${targetName} · Replying…`,
+				label: formatLabel("Replying…"),
 				status: "active",
 			};
 		case "publishing":
 			return {
 				description: "The Agent is finishing its reply.",
 				kind: "posting",
-				label: `${targetName} · Replying…`,
+				label: formatLabel("Replying…"),
 				status: "active",
 			};
 		case "retrying":
 			return {
 				description: "The Agent is processing your request.",
 				kind: "retrying",
-				label: `${targetName} · Working…`,
+				label: formatLabel("Working…"),
 				status: "active",
 			};
 		default: {
@@ -193,22 +209,24 @@ function formatWakeTargetName(targetLabel: string): string {
 
 function resolveDeviceWaitStatus(
 	wait: NonNullable<WakeProgressItem["deviceWait"]>,
-	targetName: string
+	targetName: string | null
 ): WakeProgressStatusPresentation {
-	let label = `${targetName} · Waiting for earlier tasks`;
+	let label = `${targetName ? `${targetName} · ` : ""}Waiting for earlier tasks`;
 	let reason = "Earlier work must finish first.";
 	if (wait.reason === "device_offline") {
-		label = `Waiting for ${targetName}’s computer to come online`;
+		label = `Waiting for ${targetName ? `${targetName}’s` : "the"} computer to come online`;
 		reason = "The computer is offline.";
 	} else if (wait.reason === "agent_not_ready") {
-		label = `Waiting for ${targetName} to become ready`;
+		label = `Waiting for ${targetName ?? "the Agent"} to become ready`;
 		reason = "OpenMeld has not confirmed that the Agent is ready to run.";
 	} else if (wait.reason === "access_check_unavailable") {
-		label = `Waiting to verify access for ${targetName}`;
+		label = targetName
+			? `Waiting to verify access for ${targetName}`
+			: "Waiting to verify access";
 		reason =
 			"OpenMeld could not verify current Space access. It will check again before starting.";
 	} else if (wait.reason === "service_draining") {
-		label = `Waiting for ${targetName} to accept new work`;
+		label = `Waiting for ${targetName ?? "the Agent"} to accept new work`;
 		reason =
 			"OpenMeld on this computer is finishing existing work and is not accepting new tasks yet.";
 	}
