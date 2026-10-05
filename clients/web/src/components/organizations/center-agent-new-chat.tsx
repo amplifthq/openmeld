@@ -16,6 +16,7 @@ import {
 	ComposerFileDiscoveryError,
 	useSpaceComposerFiles,
 } from "#/components/spaces/use-space-composer-attachments";
+import { useAccountAvatar } from "#/hooks/account.hooks";
 import { useComposerDraft } from "#/hooks/use-composer-draft";
 import {
 	type ComposerDraftScope,
@@ -67,6 +68,7 @@ export function CenterAgentNewChat({
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
 	const { defaultHumanProfile } = useDefaultHumanProfile();
+	const { data: accountAvatar } = useAccountAvatar();
 	const sidebar = useSidebarPreferences(organization.id);
 	const [message, setMessage] = useState<ReturnType<
 		typeof createPendingCenterAgentMessage
@@ -403,6 +405,7 @@ export function CenterAgentNewChat({
 				}}
 				onStop={stopSend}
 				pendingMessage={message}
+				selfAvatarImageUrl={accountAvatar?.avatar}
 				selfProfile={defaultHumanProfile}
 				stopStatus={stopStatus}
 			/>

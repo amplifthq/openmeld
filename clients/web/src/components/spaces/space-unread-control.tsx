@@ -10,12 +10,53 @@ import {
 } from "@openmeld/ui/components/dialog";
 import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { ChatCircleIcon, XIcon } from "@phosphor-icons/react";
-import { useRef, useState } from "react";
+import { useMessageScrollerScrollable } from "@shadcn/react/message-scroller";
+import {
+	type ComponentProps,
+	useRef,
+	useState,
+	useSyncExternalStore,
+} from "react";
+import { isInboxDocumentFocused } from "#/lib/inbox/desktop-notifications";
 
 type Selection = { unreadCount: number; commit: () => Promise<void> };
 
+function subscribeDocumentFocus(notify: () => void) {
+	window.addEventListener("focus", notify);
+	window.addEventListener("blur", notify);
+	document.addEventListener("visibilitychange", notify);
+	return () => {
+		window.removeEventListener("focus", notify);
+		window.removeEventListener("blur", notify);
+		document.removeEventListener("visibilitychange", notify);
+	};
+}
+
+export function SpaceConversationUnreadControl(
+	input: ComponentProps<typeof SpaceUnreadControl> & {
+		firstUnreadSignalId: string | null;
+	}
+) {
+	const { end: canScrollToEnd } = useMessageScrollerScrollable();
+	const focused = useSyncExternalStore(
+		subscribeDocumentFocus,
+		isInboxDocumentFocused,
+		() => false
+	);
+	// The read observer still owns acknowledgements. Only suppress redundant
+	// navigation while every outstanding update is arriving in this live view.
+	const followingArrivals =
+		focused &&
+		!canScrollToEnd &&
+		input.firstUnreadSignalId === null &&
+		input.count === input.targets.length &&
+		input.targets.every((target) => target.threadRootSignalId === null);
+	return <SpaceUnreadControl {...input} hideNavigation={followingArrivals} />;
+}
+
 export function SpaceUnreadControl(input: {
 	count: number;
+	hideNavigation?: boolean;
 	targets: readonly SpaceInboxUnreadTarget[];
 	onNavigate: (target: SpaceInboxUnreadTarget) => Promise<boolean>;
 	onPrepareMarkAllRead?: () => Promise<Selection>;
@@ -81,7 +122,7 @@ export function SpaceUnreadControl(input: {
 	}
 	return (
 		<>
-			{input.count > 0 && (
+			{input.count > 0 && !input.hideNavigation && (
 				<div
 					className="pointer-events-auto inline-flex self-center overflow-hidden rounded-full border border-blue-200 bg-blue-50 text-blue-800 shadow-xs dark:border-blue-800 dark:bg-blue-950 dark:text-blue-200"
 					data-unread-navigation=""

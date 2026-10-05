@@ -302,6 +302,11 @@
       }
     },
     "prod": {
+      // Place the HTTP entrypoint near PlanetScale. Core is called through RPC,
+      // so placing only Core's fetch handler would not move these database reads.
+      "placement": {
+        "region": "aws:us-east-1"
+      },
       "observability": {
         "enabled": true,
         "logs": {

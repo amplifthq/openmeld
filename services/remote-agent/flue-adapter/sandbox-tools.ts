@@ -113,6 +113,12 @@ export function getRemoteAgentSandboxToolDefinitions(input: {
   computerExec?: RemoteAgentComputerExec;
   computerSearch?: RemoteAgentComputerSearch;
   workingDirectory?: string;
+  computerEdit?: (request: {
+    path: string;
+    oldText: string;
+    newText: string;
+    replaceAll?: boolean;
+  }) => Promise<unknown>;
 }): RemoteAgentToolDefinition<RemoteAgentSandboxToolName>[] {
   return [
     {
@@ -153,6 +159,9 @@ export function getRemoteAgentSandboxToolDefinitions(input: {
       input: editInputSchema,
       execute: async (rawInput) => {
         const request = parse(editInputSchema, rawInput);
+        if (input.computerEdit) {
+          return await input.computerEdit(request);
+        }
         const content = await input.env.readFile(request.path);
         const occurrences = countOccurrences(content, request.oldText);
         if (occurrences === 0) {

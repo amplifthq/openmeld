@@ -35,7 +35,15 @@ export async function reconcileAgentModelInboxProjection(input: {
     profileId: source.profileId,
   };
   const open = await readAgentModelInboxRecords(scope);
-  const latest = (await readAgentModelInboxRecords({ ...scope, prefix }))[0];
+  // Normal reports usually have no model notice to change. With no write to
+  // perform, there is no stale projection to fence with another owner read.
+  if (source.verdict !== "blocked" && open.length === 0) {
+    return;
+  }
+  const latest =
+    source.verdict === "blocked"
+      ? (await readAgentModelInboxRecords({ ...scope, prefix }))[0]
+      : undefined;
   // Re-read the owner after asynchronous projection reads; old reports cannot
   // restore an issue for a model the user has already changed.
   if (!sameSource(source, await input.readCurrent())) {

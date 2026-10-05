@@ -17,6 +17,7 @@ export const schema = {
 } as const;
 
 export const {
+  accountDeletionRequests,
   accountSidebarPreferences,
   accounts,
   accountsRelations,
@@ -135,6 +136,7 @@ export const {
   openMeldFeedbackInboxes,
   openMeldFeedbackIssues,
   openMeldDaemonConnectedComputers,
+  cloudComputers,
   openMeldDaemonPreHeadFailurePublicationOutbox,
   openMeldDaemonOpsDecisions,
   openMeldDaemonDispatchLedger,

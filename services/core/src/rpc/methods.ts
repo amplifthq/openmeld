@@ -777,7 +777,10 @@ import {
 } from "../agent-activity/activity-session-inventory-rpc";
 import { rpcReadAgentActivitySnapshot as readAgentActivitySnapshot } from "../agent-activity/activity-snapshot-rpc";
 import { rpcReadAgentActivityStats as readAgentActivityStats } from "../agent-activity/activity-stats-rpc";
-import { createAgentExecutionReadinessReads } from "../agent-execution/application/agent-execution-readiness-reads";
+import {
+  type AgentExecutionReadinessReads,
+  createAgentExecutionReadinessReads,
+} from "../agent-execution/application/agent-execution-readiness-reads";
 import {
   type AgentExecutionTargetRuntimeContext,
   type CoreAgentExecutionReadiness,
@@ -1228,6 +1231,7 @@ import {
 import { resolveRuntimePrepareReadinessFromPostgres } from "../runtime-registry/infrastructure/postgresql/runtime-prepare-readiness-postgresql";
 import {
   listOwnedDeviceExecutionTargetRecords,
+  listOwnedDeviceExecutionTargetRecordsForUsers,
   readRuntimeRegistryRecord,
   readRuntimeRegistryRecordByRuntimeId,
   registerRuntimeRegistryRecord,
@@ -1325,6 +1329,7 @@ import {
 } from "../start/infrastructure/postgresql/forgotten-device-repo";
 import {
   listOwnedDeviceRegistryRecords,
+  listOwnedDeviceRegistryRecordsForUsers,
   readOwnedDeviceRegistryRecord,
   upsertOwnedDeviceRegistryRecord,
 } from "../start/infrastructure/postgresql/owned-device-registry-repo";
@@ -6324,15 +6329,34 @@ export async function rpcGetCurrentOrganizationProfileDirectory(
       requestId,
     }),
   ]);
-  const configurationsByProfileId =
-    await readProfileDirectoryAgentConfigurations({
+  const directory = {
+    agentProfiles: eligibleAgentProfiles,
+    generatedAt,
+    members,
+    organizationId,
+  };
+  const activityDb =
+    input.includeTaskActivity === true ? getPostgresDatabase(env) : null;
+  if (input.includeTaskActivity === true && !activityDb) {
+    throw new Error("Agent task activity evidence store is unavailable.");
+  }
+  const [configurationsByProfileId, directoryWithActivity] = await Promise.all([
+    readProfileDirectoryAgentConfigurations({
       agentProfiles: eligibleAgentProfiles,
       includeModelSelection: input.includeModelSelection === true,
       env,
       organizationId,
-    });
+    }),
+    activityDb
+      ? withOrganizationAgentTaskActivity({
+          db: activityDb,
+          overview: directory,
+        })
+      : directory,
+  ]);
   const response = {
-    agentProfiles: eligibleAgentProfiles.map((profile) => ({
+    ...directoryWithActivity,
+    agentProfiles: directoryWithActivity.agentProfiles.map((profile) => ({
       ...profile,
       agentControllerRef:
         configurationsByProfileId?.get(profile.profileId)?.agentControllerRef ??
@@ -6353,23 +6377,9 @@ export async function rpcGetCurrentOrganizationProfileDirectory(
           }
         : {}),
     })),
-    generatedAt,
-    members,
-    organizationId,
   };
-  let result = response;
-  if (input.includeTaskActivity === true) {
-    const db = getPostgresDatabase(env);
-    if (!db) {
-      throw new Error("Agent task activity evidence store is unavailable.");
-    }
-    result = await withOrganizationAgentTaskActivity({
-      db,
-      overview: response,
-    });
-  }
   const validated =
-    organizationProfileDirectoryResponseSchema.safeParse(result);
+    organizationProfileDirectoryResponseSchema.safeParse(response);
   if (!validated.success) {
     throw new Error(
       `failed to build Organization Profile Directory response: ${validated.error.message}`
@@ -6724,6 +6734,25 @@ async function resolveOrganizationAgentReadinessByProfileId(input: {
     [...profilesByOwner],
     ORGANIZATION_AGENT_RUNTIME_OWNER_CONCURRENCY,
     async ([ownerUserId, profiles]) => {
+      const db = getPostgresDatabase(input.env);
+      const readinessPreload =
+        db && ownerUserId
+          ? reads
+              .preloadPrimaryBindings({
+                db,
+                nowMs: Date.parse(input.generatedAt),
+                owner: { id: ownerUserId, kind: "owner_account" },
+                profileIds: profiles.map((profile) => profile.profileId),
+              })
+              .catch((error) => {
+                // Preserve the per-Profile readiness owner's unavailable outcome.
+                // An optional batch preload must not fail the entire Team directory.
+                console.warn("[core.organization.readiness_preload_failed]", {
+                  ownerUserId,
+                  error,
+                });
+              })
+          : null;
       const [preloadedRoutes, preloadedOwnerService] = ownerUserId
         ? await Promise.all([
             lookupRuntimeTransportRoutesBatch({
@@ -6754,6 +6783,7 @@ async function resolveOrganizationAgentReadinessByProfileId(input: {
               targets: onlineTargets,
             })
           : null;
+      await readinessPreload;
       return await mapWithConcurrency(
         profiles,
         ORGANIZATION_AGENT_RUNTIME_PROFILE_CONCURRENCY,
@@ -7106,14 +7136,19 @@ async function buildOrganizationComputersResponse(input: {
       status: 503,
     });
   }
+  const [devices, targetsByOwner] = await Promise.all([
+    listOwnedDeviceRegistryRecordsForUsers({ db, userIds: memberUserIds }),
+    listOwnedDeviceExecutionTargetRecordsForUsers({
+      db,
+      nowMs,
+      userIds: memberUserIds,
+    }),
+  ]);
+  const devicesByOwner = Map.groupBy(devices, (device) => device.ownerUserId);
   const response = await listOrganizationComputers({
     generatedAt,
     includeUsageLimits: input.includeUsageLimits,
     lookupMemberComputerInventory: async ({ userId }) => {
-      const [devices, executionTargets] = await Promise.all([
-        listOwnedDeviceRegistryRecords({ db, userId }),
-        listOwnedDeviceExecutionTargetRecords({ db, nowMs, userId }),
-      ]);
       let liveSessions: Awaited<
         ReturnType<typeof lookupRuntimeTransportOwnerService>
       > | null = null;
@@ -7132,8 +7167,8 @@ async function buildOrganizationComputersResponse(input: {
         });
       }
       return {
-        devices,
-        executionTargets,
+        devices: devicesByOwner.get(userId) ?? [],
+        executionTargets: targetsByOwner.get(userId) ?? [],
         liveSessions: projectOrganizationComputerLiveSessions({
           generatedAt,
           liveSessions,
@@ -18208,16 +18243,32 @@ export async function rpcGetAgentExecutionReadinessBatch(
   input: GetAgentExecutionReadinessBatchInput
 ): Promise<GetAgentExecutionReadinessBatchResponse> {
   const request = requireAgentExecutionReadinessBatchRequest(input);
+  const reads = createAgentExecutionReadinessReads({
+    profileFacts: await readAuthProfileFacts({
+      authWorker: env.OPENMELD_AUTH_WORKER,
+      profileIds: request.agentProfileIds,
+    }),
+  });
   await Promise.all(
     request.agentProfileIds.map((agentProfileId) =>
       assertAgentProfileOwnerMatchesRequest({
         agentProfileId,
         env,
         owner: request.owner,
+        reads,
       })
     )
   );
   const generatedAt = new Date().toISOString();
+  const db = getPostgresDatabase(env);
+  if (db) {
+    await reads.preloadPrimaryBindings({
+      db,
+      nowMs: Date.parse(generatedAt),
+      owner: request.owner,
+      profileIds: request.agentProfileIds,
+    });
+  }
   const targetRuntime = await resolveAgentExecutionTargetRuntimeContext({
     env,
     owner: request.owner,
@@ -18231,9 +18282,18 @@ export async function rpcGetAgentExecutionReadinessBatch(
     ownerUserId: request.owner.id,
     profileIds: request.agentProfileIds,
   });
-  const readinessItems = await Promise.all(
-    request.agentProfileIds.map((profileId) =>
+  const preloadedOwnerService = await lookupRuntimeTransportOwnerService({
+    blockForgottenDevices: true,
+    env,
+    ownerUserId: request.owner.id,
+  }).catch(() => null);
+  const readinessItems = await mapWithConcurrency(
+    request.agentProfileIds,
+    ORGANIZATION_AGENT_RUNTIME_PROFILE_CONCURRENCY,
+    (profileId) =>
       resolveCoreAgentExecutionReadinessForProfile({
+        reads,
+        preloadedOwnerService,
         activeOrganizationId: normalizeOptionalText(
           request.context.activeOrganizationId
         ),
@@ -18245,7 +18305,6 @@ export async function rpcGetAgentExecutionReadinessBatch(
         profileId,
         targetRuntime,
       })
-    )
   );
   return buildGetAgentExecutionReadinessBatchResponse({
     generatedAt,
@@ -24270,10 +24329,12 @@ async function assertAgentProfileOwnerMatchesRequest(input: {
   agentProfileId: string;
   env: CoreBindings;
   owner: AgentProfileBindingOwner;
+  reads?: AgentExecutionReadinessReads;
 }): Promise<void> {
   const profileOwnerValidation = await resolveProfileOwnerValidationEvidence({
     agentProfileId: input.agentProfileId,
     authWorker: input.env.OPENMELD_AUTH_WORKER,
+    reads: input.reads,
   });
   if (
     profileOwnerValidation.status === "unavailable" ||
@@ -24370,7 +24431,7 @@ function assertWritableRpcSpaceAccess(input: CoreRpcSpaceAccessInput): void {
     requireWritableSpaceActor(input.spaceAccess);
   }
 }
-function requireAuthenticatedOwnerUserId(
+export function requireAuthenticatedOwnerUserId(
   context?: CoreRpcContextInput
 ): string {
   const requestContext = requireRpcContext(context);
@@ -25288,6 +25349,7 @@ function throwAgentProfileBindingCommandHttpError(error: unknown): never {
 async function resolveProfileOwnerValidationEvidence(input: {
   agentProfileId: string;
   authWorker: CoreBindings["OPENMELD_AUTH_WORKER"] | undefined;
+  reads?: AgentExecutionReadinessReads;
 }): Promise<AgentProfileBindingProfileOwnerValidationEvidence> {
   if (!input.authWorker?.resolveProfileById) {
     return {
@@ -25303,9 +25365,16 @@ async function resolveProfileOwnerValidationEvidence(input: {
     >
   >;
   try {
-    result = await input.authWorker.resolveProfileById({
-      openMeldProfileId: input.agentProfileId,
-    });
+    result = input.reads
+      ? await input.reads.resolveProfileById({
+          authWorker: input.authWorker as Parameters<
+            AgentExecutionReadinessReads["resolveProfileById"]
+          >[0]["authWorker"],
+          profileId: input.agentProfileId,
+        })
+      : await input.authWorker.resolveProfileById({
+          openMeldProfileId: input.agentProfileId,
+        });
   } catch {
     return {
       reasonCode: "agent_profile_binding.profile_owner_unavailable",

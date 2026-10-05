@@ -49,77 +49,119 @@ test("finds an old deployment without spending its window on unrelated CI runs",
   assert.equal(requested.length, 2);
 });
 
-test("stops reading old jobs once every scope has a newer successful receipt", async () => {
-  const scopes = [
-    "db",
-    "web",
-    "gateway",
-    "auth",
-    "cli",
-    "core",
-    "remote-agent",
-  ];
-  const names = [
-    "Release Production Database",
-    "Deploy Web",
-    "Deploy Gateway Worker",
-    "Deploy Auth Worker",
-    "Publish CLI And Release Core",
-    "Deploy Core Worker",
-    "Deploy Remote Agent Worker",
-  ];
-  const runs = Array.from({ length: 40 }, (_, index) => ({
-    databaseId: index + 1,
-    status: "completed",
-    updatedAt: index === 0 ? "2026-09-27T12:00:00Z" : "2026-09-26T12:00:00Z",
-    workflowName: "Scoped Production Release",
-  }));
-  runs.at(-1).updatedAt = undefined;
-  runs.at(-2).status = "in_progress";
-  const jobsRead = [];
-  const issues = [];
-  const sources = await readLatestSuccessfulReleaseSources({
-    issues,
-    readJobReleaseSha: async () => "a".repeat(40),
-    readReleaseJobs: (id) => {
-      jobsRead.push(id);
-      if (id === 39) {
+for (const scenario of [
+  { name: "hosted receipts", jobs: 16 },
+  { name: "PostgreSQL database local receipt", jobs: 16 },
+  { name: "verified local receipts", jobs: 3 },
+  { name: "failed local receipts", jobs: 40, status: "failed" },
+  { name: "applied local receipts", jobs: 40, status: "applied" },
+  { name: "conflicting local receipts", jobs: 40, conflict: true },
+]) {
+  test(`bounds old job reads with ${scenario.name} while inspecting active and unknown-time runs`, async () => {
+    const scopes = [
+      "db",
+      "web",
+      "website",
+      "gateway",
+      "auth",
+      "cli",
+      "core",
+      "remote-agent",
+    ];
+    const names = [
+      "Release Production Database",
+      "Deploy Web",
+      "Deploy Website",
+      "Deploy Gateway Worker",
+      "Deploy Auth Worker",
+      "Publish CLI And Release Core",
+      "Deploy Core Worker",
+      "Deploy Remote Agent Worker",
+    ];
+    const runs = Array.from({ length: 40 }, (_, index) => ({
+      databaseId: index + 1,
+      status: "completed",
+      updatedAt: index === 0 ? "2026-09-27T12:00:00Z" : "2026-09-26T12:00:00Z",
+      workflowName: "Scoped Production Release",
+    }));
+    runs.at(-1).updatedAt = undefined;
+    runs.at(-2).status = "in_progress";
+    const jobsRead = [];
+    const issues = [];
+    const databaseOnly = scenario.name === "PostgreSQL database local receipt";
+    const unverified = scenario.status || scenario.conflict;
+    const initialSources = new Map(
+      scenario.name === "hosted receipts"
+        ? []
+        : (databaseOnly ? ["db"] : scopes).map((scope) => [
+            scope,
+            {
+              sha: "a".repeat(40),
+              source: "guarded-local",
+              recordedAt: unverified
+                ? "2026-09-27T13:00:00Z"
+                : "2026-09-27T11:00:00Z",
+              receipt: { status: scenario.status ?? "verified" },
+              ...(scenario.conflict ? { conflict: true } : {}),
+            },
+          ])
+    );
+    const sources = await readLatestSuccessfulReleaseSources({
+      issues,
+      initialSources,
+      readJobReleaseSha: async () => "a".repeat(40),
+      readReleaseJobs: (id) => {
+        jobsRead.push(id);
+        if (id === 39) {
+          return {
+            complete: true,
+            jobs: [
+              {
+                id: 100,
+                name: "Deploy Web",
+                conclusion: "success",
+                completed_at: "2026-09-27T13:00:00Z",
+              },
+            ],
+          };
+        }
         return {
           complete: true,
-          jobs: [
-            {
-              id: 100,
-              name: "Deploy Web",
-              conclusion: "success",
-              completed_at: "2026-09-27T13:00:00Z",
-            },
-          ],
+          jobs:
+            id === 1
+              ? names
+                  .filter(
+                    (name) =>
+                      !(databaseOnly && name === "Release Production Database")
+                  )
+                  .map((name, index) => ({
+                    id: index + 1,
+                    name,
+                    conclusion: "success",
+                    completed_at: "2026-09-27T11:00:00Z",
+                  }))
+              : [],
         };
-      }
-      return {
-        complete: true,
-        jobs:
-          id === 1
-            ? names.map((name, index) => ({
-                id: index + 1,
-                name,
-                conclusion: "success",
-                completed_at: "2026-09-27T11:00:00Z",
-              }))
-            : [],
-      };
-    },
-    repo: "test/repo",
-    runs,
-    sourceIsAncestor: () => true,
+      },
+      repo: "test/repo",
+      runs,
+      sourceIsAncestor: () => true,
+    });
+    assert.deepEqual([...sources.keys()].sort(), scopes.sort());
+    assert.equal(jobsRead.length, scenario.jobs);
+    assert.ok(jobsRead.includes(40));
+    assert.ok(jobsRead.includes(39));
+    assert.equal(sources.get("web").recordedAt, "2026-09-27T13:00:00Z");
+    assert.deepEqual(issues, []);
+    if (unverified) {
+      assert.equal(
+        sources.get("db").receipt.status,
+        scenario.status ?? "verified"
+      );
+      assert.equal(sources.get("db").conflict, scenario.conflict);
+    }
   });
-  assert.deepEqual([...sources.keys()].sort(), scopes.sort());
-  assert.equal(jobsRead.length, 16);
-  assert.ok(jobsRead.includes(40));
-  assert.ok(jobsRead.includes(39));
-  assert.equal(sources.get("web").recordedAt, "2026-09-27T13:00:00Z");
-  assert.deepEqual(issues, []);
-});
+}
 
 test("reads every job page and every attempt instead of losing a previously successful job", async () => {
   const jobs = Array.from({ length: 101 }, (_, index) => ({

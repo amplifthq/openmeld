@@ -28,6 +28,7 @@ import {
 import type { OrganizationRole } from "#/lib/organizations/organization-types";
 import {
 	baseQueryOptions,
+	DISPLAY_REVISIT_GC_TIME_MS,
 	PERSISTED_DISPLAY_QUERY_GC_TIME_MS,
 	ROUTE_REVISIT_GC_TIME_MS,
 } from "#/query/query-config";
@@ -220,7 +221,7 @@ export function organizationProfileDirectoryQueryOptions(input: {
 		OrganizationDirectoryFailure
 	>({
 		enabled: input.enabled,
-		gcTime: ROUTE_REVISIT_GC_TIME_MS,
+		gcTime: DISPLAY_REVISIT_GC_TIME_MS,
 		queryFn: async ({ signal }) =>
 			await readCurrentOrganizationProfileDirectory({
 				organizationId: input.organizationId,

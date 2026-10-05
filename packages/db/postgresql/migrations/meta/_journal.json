@@ -113,6 +113,27 @@
       "when": 1791093824967,
       "tag": "0015_plugin_action_requests",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1791192247019,
+      "tag": "0016_open_tomorrow_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1791204757872,
+      "tag": "0017_account_deletion",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1791204781698,
+      "tag": "0018_account_deletion_guards",
+      "breakpoints": true
     }
   ]
 }

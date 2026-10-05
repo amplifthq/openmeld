@@ -658,26 +658,49 @@ async function configureCredential(
               expectedOrganizationId: request.expectedOrganizationId,
               service: request.service,
             });
-      await createOpenConnectorClient(c.env).configureConnection({
-        ...credential.body,
-        connectionName: pendingConnection.connectionName,
-        service: request.service,
-      });
-      const reconciled = await reconcileConnectorConnections(c, {
-        expectedOrganizationId: request.expectedOrganizationId,
-        service: request.service,
-      });
-      const connection = reconciled.connections.find(
-        (candidate) =>
-          candidate.connectionName === pendingConnection.connectionName &&
-          candidate.status === "active"
-      );
-      if (!connection) {
-        throw new Error(
-          "The configured connector connection was not activated by Core."
+      try {
+        await createOpenConnectorClient(c.env).configureConnection({
+          ...credential.body,
+          connectionName: pendingConnection.connectionName,
+          service: request.service,
+        });
+        const reconciled = await reconcileConnectorConnections(c, {
+          expectedOrganizationId: request.expectedOrganizationId,
+          service: request.service,
+        });
+        const connection = reconciled.connections.find(
+          (candidate) =>
+            candidate.connectionName === pendingConnection.connectionName &&
+            candidate.status === "active"
         );
+        if (!connection) {
+          throw new Error(
+            "The configured connector connection was not activated by Core."
+          );
+        }
+        return { connection };
+      } catch (error) {
+        // A configuration may complete after its account was closed. Register
+        // durable compensation before attempting the immediate disconnect.
+        const scheduled = await c.var.authRpc.requestAccountConnectionCleanup({
+          userId: context.actorContext.ownerUserId,
+          connectionName: pendingConnection.connectionName,
+          service: request.service,
+        });
+        if (scheduled) {
+          await createOpenConnectorClient(c.env)
+            .disconnect({
+              connectionName: pendingConnection.connectionName,
+              service: request.service,
+            })
+            .catch(() => {
+              console.warn("[gateway.account.connection_cleanup_pending]", {
+                userId: context.actorContext.ownerUserId,
+              });
+            });
+        }
+        throw error;
       }
-      return { connection };
     },
     method: "POST",
     responseSchema: connectorCredentialConnectResponseSchema,
