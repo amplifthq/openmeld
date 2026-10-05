@@ -24,6 +24,7 @@ import {
   organization,
   username,
 } from "better-auth/plugins";
+import { requireActiveAccount } from "../account/active-account";
 import { createAuthCodegenDatabase, createAuthDatabase } from "../db";
 import { schema } from "../db/schema";
 import {
@@ -50,6 +51,7 @@ import {
   resolvePersonalOrganizationName,
   resolveUserDisplayName,
 } from "../organization/personal-organization";
+import { createActiveAccountPlugin } from "../plugins/active-account";
 import { createOpenMeldEmailIdentityPlugin } from "../plugins/openmeld-email-identity";
 import { createOrganizationMemberDeparturePlugin } from "../plugins/organization-member-departure";
 import { createDrizzleOpenMeldProfileRepository } from "../profiles/profile-repository";
@@ -946,6 +948,7 @@ export function createAuthConfig(
               session.userId,
               "Session user id"
             );
+            await requireActiveAccount(getPostgresDatabase(env), userId);
             const organizationContext = requireOrganizationHookContext(
               context,
               "set the active organization"
@@ -1019,6 +1022,9 @@ export function createAuthConfig(
       },
     },
     plugins: [
+      ...(env.AUTH_SCHEMA_CODEGEN
+        ? []
+        : [createActiveAccountPlugin(getPostgresDatabase(env))]),
       electron({
         clientID: desktopAuthIdentity(
           validated.AUTH_WORKER_NODE_ENV === "production",

@@ -33,7 +33,9 @@ import {
   SPACE_STREAM_KEEPALIVE_PONG,
 } from "@openmeld/protocol";
 import {
+  type AccountDeletionSpace,
   AGENT_REPLY_FINAL_PURPOSE,
+  accountDeletionSpaceSchema,
   agentStreamForReplyPlacementReader,
   agentWorkloadSnapshotSchema,
   buildSpaceComposerUploadObjectKey,
@@ -376,9 +378,14 @@ import { publishExecutionRecoveryToOrigin } from "../../../execution-recovery/ap
 import { inspectExecutionRecovery } from "../../../execution-recovery/application/execution-recovery-service";
 import { reserveFileCopyRequest } from "../../../files/file-copy-request";
 import { FileUploadSessions } from "../../../files/file-upload-sessions";
+import { purgeFileObjectPrefix } from "../../../files/purge-file-objects";
 import { canReceivePersonalAgentActivity } from "../../../inbox/application/inbox-agent-owner-access";
 import type { CoreBindings } from "../../../lib/bindings";
 import { verifySpacePasswordProof } from "../../../lib/space-password-proof";
+import {
+  eraseAccountConversation,
+  stopAccountConversation,
+} from "../../../organizations/account-conversation-deletion";
 import {
   readOrganizationAccountIdentityProjection,
   resolveOrganizationMembershipById,
@@ -12547,6 +12554,108 @@ export class Space extends DurableObject<CoreBindings> {
       }
     );
   }
+  /** Trusted account cleanup only; the public DM delete contract stays unchanged. */
+  async rpcPurgeDeletedAccountSpace(
+    raw: AccountDeletionSpace
+  ): Promise<boolean> {
+    const input = accountDeletionSpaceSchema.parse(raw);
+    this.applySpaceRef(input.spaceId);
+    const authorize = async () => {
+      const db = this.requireSpaceIndexDb();
+      const account = await db.query({
+        text: 'SELECT 1 FROM "openmeld"."users" WHERE id = $1 AND deleted_at IS NOT NULL',
+        values: [input.userId],
+      });
+      if (!account.rows.length) {
+        throw new Error("Account deletion is not authorized.");
+      }
+      const meta = this.readSpaceMetaRecord();
+      if (!meta) {
+        return null;
+      }
+      const organization = await db.query({
+        text: 'SELECT 1 FROM "openmeld"."organizations" WHERE id = $1 AND deletion_requested_at IS NOT NULL',
+        values: [meta.organizationId],
+      });
+      const humans = listSpaceMemberRecords(this.ctx.storage.sql).filter(
+        (member) => member.profileKindSnapshot === "human"
+      );
+      const privateAgentConversation = Boolean(
+        meta.directMessage &&
+          !meta.directMessage.convertedAt &&
+          humans.length &&
+          humans.every((member) => member.ownerUserIdSnapshot === input.userId)
+      );
+      if (!(organization.rows.length || privateAgentConversation)) {
+        throw new Error("Shared Space history must be retained.");
+      }
+      return { db, meta, organization };
+    };
+    // Stop can call back into this Space to close its stream. Do not hold the
+    // Space concurrency gate while waiting for that callback.
+    await withPostgresRequest(this.bindings.OPENMELD_POSTGRESQL, async () => {
+      const authorized = await authorize();
+      if (authorized) {
+        await stopAccountConversation({
+          db: authorized.db,
+          env: this.bindings,
+          spaceId: this.spaceId,
+        });
+      }
+    });
+    return this.blockConcurrencyWithPostgres(async () => {
+      const authorized = await authorize();
+      if (!authorized) {
+        return true;
+      }
+      const { db, meta, organization } = authorized;
+      const pending = await readSpaceDeletionPendingWork({
+        db,
+        spaceId: this.spaceId,
+      });
+      if (
+        Object.values(pending).some(Boolean) ||
+        hasUnsettledDispatchOutboxRecords(this.ctx.storage.sql) ||
+        listPendingWakeStopOutcomes(this.ctx.storage.sql, 1).length
+      ) {
+        return false;
+      }
+      await eraseAccountConversation({
+        db,
+        env: this.bindings,
+        organizationId: meta.organizationId,
+        spaceId: this.spaceId,
+        deleteSharedComputer: organization.rows.length > 0,
+      });
+      const bucket = this.bindings.OPENMELD_SPACE_ATTACHMENTS;
+      if (!bucket) {
+        throw new Error("File storage unavailable.");
+      }
+      const uploads = new FileUploadSessions(this.ctx.storage.sql, bucket);
+      await uploads.cleanup(true);
+      if (uploads.hasUploads()) {
+        return false;
+      }
+      if (
+        !(await purgeFileObjectPrefix(
+          bucket,
+          `org/${meta.organizationId}/space/${this.spaceId}/`
+        ))
+      ) {
+        return false;
+      }
+      if (
+        !(await purgeFileObjectPrefix(
+          bucket,
+          `composer-uploads/v1/org/${encodeURIComponent(meta.organizationId)}/space/${encodeURIComponent(this.spaceId)}/`
+        ))
+      ) {
+        return false;
+      }
+      await this.deleteSpaceStorage(meta, { ownerUserId: input.userId });
+      return true;
+    });
+  }
   async rpcGetCursor(input: GetSpaceCursorInput): Promise<SpaceCursor> {
     return await withPostgresRequest(
       this.bindings.OPENMELD_POSTGRESQL,
@@ -18550,12 +18659,27 @@ export class Space extends DurableObject<CoreBindings> {
         { status: 409 }
       );
     }
+    await this.deleteSpaceStorage(existing, {
+      ownerUserId: context.actorContext.ownerUserId,
+      profileId: context.actorContext.openMeldProfileId,
+      profileName:
+        context.actorContext.profileName ?? context.actorContext.ownerName,
+    });
+    return Response.json({ spaceId: this.spaceId, deleted: true as const });
+  }
+  private async deleteSpaceStorage(
+    existing: SpaceMetaRecord,
+    actor: {
+      ownerUserId?: string | null;
+      profileId?: string | null;
+      profileName?: string | null;
+    }
+  ): Promise<void> {
     await this.projectDeletedSpaceIndexSnapshot({
       deletedAt: new Date().toISOString(),
-      deletedByOwnerUserId: context.actorContext.ownerUserId,
-      deletedByProfileId: context.actorContext.openMeldProfileId,
-      deletedByProfileName:
-        context.actorContext.profileName ?? context.actorContext.ownerName,
+      deletedByOwnerUserId: actor.ownerUserId,
+      deletedByProfileId: actor.profileId,
+      deletedByProfileName: actor.profileName,
       metaRecord: existing,
     });
     this.closeAllSessions("space_deleted");
@@ -18573,10 +18697,6 @@ export class Space extends DurableObject<CoreBindings> {
     this.lastTimestamp = 0;
     this.lastPostCleanupAtMs = 0;
     this.lastRetentionWarningAtMs = 0;
-    return Response.json({
-      spaceId: this.spaceId,
-      deleted: true as const,
-    });
   }
   private async initializeOwnedSpace(
     record: SpaceMetaRecord,

@@ -216,11 +216,11 @@ export class FileUploadSessions {
     );
   }
 
-  async cleanup(): Promise<void> {
+  async cleanup(all = false): Promise<void> {
     const rows = this.sql
       .exec<{ id: string; state: string }>(
-        "SELECT id, state FROM space_file_upload_sessions WHERE expires_at <= ? LIMIT 32",
-        Date.now()
+        `SELECT id, state FROM space_file_upload_sessions ${all ? "" : "WHERE expires_at <= ?"} LIMIT 32`,
+        ...(all ? [] : [Date.now()])
       )
       .toArray();
     for (const row of rows) {
@@ -236,6 +236,14 @@ export class FileUploadSessions {
         row.id
       );
     }
+  }
+
+  hasUploads(): boolean {
+    return (
+      this.sql
+        .exec("SELECT 1 FROM space_file_upload_sessions LIMIT 1")
+        .toArray().length > 0
+    );
   }
 
   private read(id: string): UploadState | undefined {

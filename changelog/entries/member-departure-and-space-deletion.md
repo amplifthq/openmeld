@@ -1,6 +1,6 @@
 ---
 id: member-departure-and-space-deletion
-title: Safer Organization exits and Space deletion
+title: Delete your account while keeping your team's work
 kind: fixed
 areas: ["organizations", "spaces", "privacy"]
 audiences: ["members", "admins"]
@@ -11,4 +11,10 @@ cleanup as being removed by an administrator. Shared work stays with its Space
 or Organization.
 
 Space deletion waits for pending Wakes and their outcomes. Stop the work or wait
-for it to finish, then retry deletion. Account deletion is not enabled.
+for it to finish, then retry deletion.
+
+Settings > Account now shows what account deletion removes and what stays with
+your teams. Transfer ownership where needed, confirm your identity, and close
+the account across all devices. Private data cleanup retries in the background.
+Workspaces where you are the only member are deleted; shared work in surviving
+teams stays available to their members.

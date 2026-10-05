@@ -1,5 +1,6 @@
 import { env as workerEnv } from "cloudflare:workers";
 import { executePluginRuntime } from "../connectors/plugin-runtime";
+import { acknowledgeAccountErasure } from "../flue-adapter/account-deletion";
 
 // biome-ignore lint/performance/noBarrelFile: Native browser code execution uses a Durable Object facet.
 export { CodemodeRuntime } from "@cloudflare/codemode";
@@ -11,6 +12,7 @@ export { ComputerPreviewOutbound } from "../flue-adapter/computer-preview";
 export { AgentComputer } from "../flue-adapter/computer-workspace";
 
 import {
+  accountDeletionConversationSchema,
   remoteAgentWorkerCancellationRequestSchema,
   remoteAgentWorkerExecutionInputQuerySchema,
   remoteAgentWorkerExecutionInputRequestSchema,
@@ -43,6 +45,16 @@ import {
 const env = workerEnv as unknown as CloudflareBindings;
 
 export default {
+  async eraseAccountConversation(input: unknown) {
+    const request = accountDeletionConversationSchema.parse(input);
+    const namespace = env.FLUE_CENTER_AGENT_V2_AGENT as CenterAgentNamespace;
+    await acknowledgeAccountErasure(
+      async () =>
+        await namespace
+          .get(namespace.idFromName(request.runtimeConversationId))
+          .eraseAccountConversation(request)
+    );
+  },
   readSubmitTurnCapabilities(input: unknown) {
     const request =
       remoteAgentWorkerSubmitCapabilitiesRequestSchema.safeParse(input);

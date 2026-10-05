@@ -74,10 +74,27 @@ and [Feishu offboarding](https://www.feishu.cn/hc/zh-CN/articles/360043223853-ç®
 It does not copy their enterprise resource-transfer consoles or promise indefinite
 retention. Existing recall, trash, retention, and permanent deletion rules still apply.
 
-Account deletion remains disabled. Before enabling it, define a user-visible
-retain/delete inventory, member-private file disposition, identity anonymization,
-credential revocation, and durable remote-object erasure. Membership departure
-alone must never be presented as account deletion or complete personal-data erasure.
+Account deletion is an account-wide operation in Settings > Account. The server
+previews the affected workspaces and checks the same inventory again at acceptance.
+A workspace with other members remains; its last owner must first appoint another
+owner, and Space owners must complete the existing ownership handoff. A workspace
+with no other members closes, including its shared links and guest content.
+
+Acceptance revokes sessions, sign-in credentials, device codes, personal profiles,
+and memberships, and replaces the account identity with a non-signable tombstone.
+Shared messages, published files, Skills, revisions, and audit attribution remain
+with surviving teams. Historical text and author snapshots are not rewritten.
+Private Files roots (including former memberships), private Agent conversations,
+synced Session Inventory, personal memory, and personal App connections are erased
+through their existing owners. Team-level connections remain with a surviving team.
+Closing a workspace also disconnects its Channels and Apps and deletes its assets.
+
+Auth owns acceptance and the durable cleanup request; Core coordinates owner-specific
+erasure. Storage or provider failures remain pending and retry. The success page
+says that the account is closed and cleanup continues, not that every remote byte
+has already disappeared. Legacy Center Agent Computers shared across conversations
+remain team assets while that team exists; isolated private Computers are erased.
+Membership departure alone is not account deletion or complete personal-data erasure.
 
 ## Reading Order For A Fresh Session
 

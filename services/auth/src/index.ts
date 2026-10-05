@@ -1,4 +1,5 @@
 import { withPostgresRequest } from "@openmeld/db/postgresql";
+import { runAccountDeletionCleanup } from "./lib/account/deletion-service";
 import { runDeletedProfileReconcileOutbox } from "./lib/profiles/deleted-profile-reconcile";
 import { runSpaceIndexMembershipOverlayReconcile } from "./lib/profiles/overlay-reconcile";
 import { AuthRpcEntrypoint } from "./lib/rpc/entrypoint";
@@ -14,6 +15,7 @@ class AuthEntrypoint extends AuthRpcEntrypoint {
         runSpaceIndexMembershipOverlayReconcile(this.env),
         runDeletedProfileReconcileOutbox(this.env),
       ]);
+      await runAccountDeletionCleanup(this.env);
     });
   }
 }

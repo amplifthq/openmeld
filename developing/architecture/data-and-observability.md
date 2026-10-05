@@ -4123,6 +4123,25 @@ PostgreSQL transaction or row lock.
 
 ### RuntimeCoordinator execution projection writes
 
+The account-deletion workflow does not change this execution authority. Auth owns
+irreversible acceptance and `account_deletion_requests`; Core coordinates cleanup
+through the existing profile, Space, Files, Session Inventory, memory, and Channel
+owners. Gateway keeps its Open Connector secret and owns external disconnects.
+Failures remain pending with an attempt count, next attempt time, private-root
+cursor, and error. `auth.account.deletion_*` events expose progress without private
+content. Auth removes closing Organizations only after Core reports completion.
+
+Space requests Stop outside its concurrency gate because Stop can call back into
+the same Space. Inside the gate it rechecks scope and pending work. Remote owners
+erase private conversation content and keep an admission fence; object abortion
+revokes old capabilities. A retry acknowledges erasure. Legacy shared Computers
+retain the team disk but remove the deleted private Space's known directory.
+
+Contract impact: the new HTTP/private RPC contracts leave CLI, Service, setup,
+Wake, and publication payloads unchanged. Apply database migrations and deploy
+Remote Agent, Gateway, and Core cleanup owners before Auth/Web enable deletion.
+Old clients remain compatible. Do not enable the entry point against old owners.
+
 The shared PostgreSQL execution projection advances in one atomic write.
 PostgreSQL evaluates the existing status and observation time while holding the
 row lock, so a concurrent earlier delivery projection cannot discard accepted

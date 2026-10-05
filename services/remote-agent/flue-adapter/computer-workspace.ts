@@ -32,6 +32,11 @@ import {
 import type { BrowserBinding } from "agents/browser";
 import { createBrowserTools } from "agents/browser/ai";
 import type { RemoteAgentCoreWorkerBinding } from "../agent-core/callback-context";
+import {
+  ACCOUNT_ERASED_KEY,
+  eraseAccountStorage,
+  requireRetainedAccountStorage,
+} from "./account-deletion";
 import { ComputerDataSourceStore } from "./computer-data-sources";
 import {
   inspectComputerPreview,
@@ -166,10 +171,29 @@ function workspaceRef(ctx: DurableObjectState) {
 }
 
 export class AgentComputer extends withWorkspaceContainer(AgentComputerBase) {
+  async eraseAccountSpaceDirectory(spaceId: string): Promise<void> {
+    await requireRetainedAccountStorage(this.ctx.storage);
+    await this.workspace.ready();
+    await this.workspace.fs.rm(buildAgentComputerSpaceDirectory(spaceId), {
+      recursive: true,
+      force: true,
+    });
+  }
+  async eraseAccountComputer(): Promise<void> {
+    return await this.ctx.blockConcurrencyWhile(async () => {
+      if (await this.ctx.storage.get(ACCOUNT_ERASED_KEY)) {
+        return;
+      }
+      await this.ctx.container?.destroy();
+      await this.workspace.close();
+      await eraseAccountStorage(this.ctx);
+    });
+  }
   // Created before Workspace and never exposed by Workspace.stub().
   readonly #dataSources = new ComputerDataSourceStore(this.ctx.storage);
 
   async registerGitTransferGrant(value: unknown): Promise<void> {
+    await requireRetainedAccountStorage(this.ctx.storage);
     const grant = remoteAgentGitTransferGrantSchema.parse(value);
     if (
       grant.expiresAtMs <= Date.now() ||
@@ -205,6 +229,7 @@ export class AgentComputer extends withWorkspaceContainer(AgentComputerBase) {
   async startGitPackTransfer(
     value: unknown
   ): Promise<RemoteAgentGitPackStatus> {
+    await requireRetainedAccountStorage(this.ctx.storage);
     const request = remoteAgentGitPackStartSchema.parse(value);
     if (
       !request.transportDirectory.startsWith("/computer/") ||
@@ -255,6 +280,7 @@ export class AgentComputer extends withWorkspaceContainer(AgentComputerBase) {
   }
 
   async alarm(): Promise<void> {
+    await requireRetainedAccountStorage(this.ctx.storage);
     const jobs = await this.ctx.storage.list<GitPackJob>({
       prefix: GIT_PACK_JOB_PREFIX,
     });
@@ -483,6 +509,7 @@ export class AgentComputer extends withWorkspaceContainer(AgentComputerBase) {
   }
 
   async executeBrowser(input: unknown): Promise<unknown> {
+    await requireRetainedAccountStorage(this.ctx.storage);
     const { spaceId, code } = agentComputerBrowserRequestSchema.parse(input);
     return await this.browserTool(spaceId).execute(
       { code },
@@ -498,6 +525,7 @@ export class AgentComputer extends withWorkspaceContainer(AgentComputerBase) {
     path: string;
     port: number;
   }) {
+    await requireRetainedAccountStorage(this.ctx.storage);
     if (!this.env.BROWSER) {
       throw new Error("The Computer browser binding is unavailable.");
     }
@@ -554,6 +582,7 @@ export class AgentComputer extends withWorkspaceContainer(AgentComputerBase) {
 
   /** WorkspaceProxy forwards the container's outbound /ws egress here. */
   override async fetch(request: Request): Promise<Response> {
+    await requireRetainedAccountStorage(this.ctx.storage);
     const url = new URL(request.url);
     if (url.pathname === "/ws") {
       return await this.#containerBackend.handleFetch(request);
@@ -582,6 +611,7 @@ export class AgentComputer extends withWorkspaceContainer(AgentComputerBase) {
    * egress, and the Flue adapter all land here.
    */
   async __getWorkspaceStub(): Promise<WorkspaceStub> {
+    await requireRetainedAccountStorage(this.ctx.storage);
     await this.workspace.ready();
     return this.workspace.stub();
   }

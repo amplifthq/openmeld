@@ -19,11 +19,18 @@ export default defineWorkersConfig({
     },
     poolOptions: {
       workers: {
+        // Explicit DO abort/restart cannot unwind Vitest's SQLite storage stack.
+        // Tests allocate unique object IDs, so their state remains independent.
+        isolatedStorage: false,
         main: "./tests/workerd/worker.ts",
         miniflare: {
           compatibilityDate: "2026-07-15",
           compatibilityFlags: ["nodejs_compat"],
           durableObjects: {
+            ACCOUNT_ERASURE_PROBE: {
+              className: "AccountErasureProbe",
+              useSQLite: true,
+            },
             COMPUTER_PROBE: {
               className: "ComputerCommandProbe",
               useSQLite: true,

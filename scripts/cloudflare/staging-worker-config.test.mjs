@@ -108,7 +108,7 @@ test("keeps staging service bindings, queues, and storage inside staging", () =>
   ]);
   assert.deepEqual(
     configs.core.env.stg.services.map((binding) => binding.service),
-    ["openmeld-auth-stg", "openmeld-remote-agent-stg"]
+    ["openmeld-gateway-stg", "openmeld-auth-stg", "openmeld-remote-agent-stg"]
   );
   assert.deepEqual(
     configs.gateway.env.stg.services.map((binding) => binding.service),

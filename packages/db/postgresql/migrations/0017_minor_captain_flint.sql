@@ -1,0 +1,1 @@
+ALTER TABLE "openmeld"."organizations" ADD COLUMN "deletion_requested_at" bigint;

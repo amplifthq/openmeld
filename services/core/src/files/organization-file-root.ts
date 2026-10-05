@@ -1,6 +1,11 @@
 import { DurableObject } from "cloudflare:workers";
-import { withPostgresRequest } from "@openmeld/db/postgresql";
 import {
+  getPostgresDatabase,
+  withPostgresRequest,
+} from "@openmeld/db/postgresql";
+import {
+  type AccountDeletionFileRoot,
+  accountDeletionFileRootSchema,
   buildSpaceFileEntryIdForMutation,
   buildSpaceFileRevisionIdFromDigest,
   commitSpaceFileWriteInputSchema,
@@ -48,6 +53,7 @@ import {
 } from "./file-root-identity";
 import { ensureFileRepositorySchema } from "./file-schema-repo";
 import { FileUploadSessions } from "./file-upload-sessions";
+import { purgeFileObjectPrefix } from "./purge-file-objects";
 
 type RootRequest = {
   context: OpenMeldRequestContext;
@@ -56,6 +62,89 @@ type RootRequest = {
 };
 /** The single SQLite metadata writer for one Team or member Files root. */
 export class OrganizationFileRoot extends DurableObject<CoreBindings> {
+  private accountDeletionPending = false;
+  private activeContentWrites = 0;
+  private async withContentWrite<T>(operation: () => Promise<T>): Promise<T> {
+    this.activeContentWrites++;
+    try {
+      return await operation();
+    } finally {
+      this.activeContentWrites--;
+    }
+  }
+  /** Internal lifecycle RPC. A live account or Organization can never be purged. */
+  async purgeDeletedAccountRoot(
+    raw: AccountDeletionFileRoot
+  ): Promise<boolean> {
+    const parsed = accountDeletionFileRootSchema.parse(raw);
+    if (parsed.root.kind === "space") {
+      throw new Error("Space Files belong to the Space owner.");
+    }
+    const input = { userId: parsed.userId, root: parsed.root };
+    return await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
+      const db = getPostgresDatabase(this.env);
+      const allowed = await db.query({
+        text: `SELECT 1 FROM "openmeld"."users" u WHERE u.id = $1 AND u.deleted_at IS NOT NULL
+          AND ($3 = 'member' OR EXISTS (SELECT 1 FROM "openmeld"."organizations" o WHERE o.id = $2 AND o.deletion_requested_at IS NOT NULL))`,
+        values: [input.userId, input.root.organizationId, input.root.kind],
+      });
+      if (
+        !allowed.rows.length ||
+        (input.root.kind === "member" &&
+          input.root.memberUserId !== input.userId)
+      ) {
+        throw new Error("File root deletion is not authorized.");
+      }
+      // Deletion is irreversible, so authorization cannot revert while this
+      // request waits for the root gate. Reject invalid callers outside it.
+      return this.ctx.blockConcurrencyWhile(async () => {
+        const name = organizationFileRootName(input.root);
+        const identity = this.ctx.storage.sql
+          .exec<{ root_json: string }>(
+            "SELECT root_json FROM file_root_identity WHERE id = 1"
+          )
+          .toArray()[0];
+        if (identity && identity.root_json !== name) {
+          throw new Error("File root identity mismatch.");
+        }
+        await this.ctx.storage.put("accountDeletionPending", true);
+        this.accountDeletionPending = true;
+        // Existing R2 puts may finish after the fence. Let them settle before
+        // erasing their prefixes or reporting completion; new writes are denied.
+        if (this.activeContentWrites > 0) {
+          return false;
+        }
+        const bucket = this.env.OPENMELD_SPACE_ATTACHMENTS;
+        if (!bucket) {
+          throw new Error("File storage unavailable.");
+        }
+        const uploads = new FileUploadSessions(this.ctx.storage.sql, bucket);
+        await uploads.cleanup(true);
+        if (uploads.hasUploads()) {
+          return false;
+        }
+        const location =
+          input.root.kind === "team"
+            ? "team"
+            : `member/${encodeURIComponent(input.userId)}`;
+        if (
+          !(await purgeFileObjectPrefix(
+            bucket,
+            `org/${encodeURIComponent(input.root.organizationId)}/file-roots/${location}/`
+          ))
+        ) {
+          return false;
+        }
+        await this.ctx.storage.deleteAll();
+        await this.ctx.storage.put("accountDeletionPending", true);
+        ensureFileRepositorySchema(this.ctx.storage.sql);
+        this.ctx.storage.sql.exec(
+          "CREATE TABLE IF NOT EXISTS file_root_identity (id INTEGER PRIMARY KEY CHECK (id = 1), root_json TEXT NOT NULL)"
+        );
+        return true;
+      });
+    });
+  }
   constructor(ctx: DurableObjectState, env: CoreBindings) {
     super(ctx, env);
     ensureFileRepositorySchema(this.ctx.storage.sql);
@@ -222,61 +311,63 @@ export class OrganizationFileRoot extends DurableObject<CoreBindings> {
       write: CommitSpaceFileWriteInput;
     }
   ): Promise<SpaceFileDescriptor> {
-    return await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
-      const write = this.requireRootWrite(input.write);
-      if (
-        !(input.bytes instanceof ArrayBuffer) ||
-        input.bytes.byteLength !== write.sizeBytes ||
-        input.bytes.byteLength > SPACE_FILE_RAW_UPLOAD_MAX_BYTES
-      ) {
-        throw createCoreRpcHttpError({
-          code: "file_root.invalid_content",
-          reason: "The file content does not match its declared size.",
-          status: 400,
-        });
-      }
-      const committed = await this.prepareWrite(input);
-      if (committed) {
-        return committed;
-      }
-      const bucket = this.env.OPENMELD_SPACE_ATTACHMENTS;
-      if (!bucket) {
-        throw createCoreRpcHttpError({
-          code: "file_root.storage_unavailable",
-          reason: "Files are temporarily unavailable.",
-          status: 503,
-        });
-      }
-      const key = buildOrganizationFileObjectKey({
-        root: input.root,
-        fileId: write.fileId,
-        revisionId: write.revisionId,
-      });
-      try {
-        await bucket.put(key, input.bytes, {
-          httpMetadata: { contentType: write.mimeType },
-          customMetadata: {
-            fileId: write.fileId,
-            revisionId: write.revisionId,
-          },
-        });
-      } catch {
-        await this.recordContentAudit({
-          ...input,
-          entryId: write.fileId,
+    return await this.withContentWrite(() =>
+      withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
+        const write = this.requireRootWrite(input.write);
+        if (
+          !(input.bytes instanceof ArrayBuffer) ||
+          input.bytes.byteLength !== write.sizeBytes ||
+          input.bytes.byteLength > SPACE_FILE_RAW_UPLOAD_MAX_BYTES
+        ) {
+          throw createCoreRpcHttpError({
+            code: "file_root.invalid_content",
+            reason: "The file content does not match its declared size.",
+            status: 400,
+          });
+        }
+        const committed = await this.prepareWrite(input);
+        if (committed) {
+          return committed;
+        }
+        const bucket = this.env.OPENMELD_SPACE_ATTACHMENTS;
+        if (!bucket) {
+          throw createCoreRpcHttpError({
+            code: "file_root.storage_unavailable",
+            reason: "Files are temporarily unavailable.",
+            status: 503,
+          });
+        }
+        const key = buildOrganizationFileObjectKey({
+          root: input.root,
+          fileId: write.fileId,
           revisionId: write.revisionId,
-          operation: "content_write",
-          operationId: write.clientMutationId,
-          errorCode: "file_root.storage_failed",
         });
-        throw createCoreRpcHttpError({
-          code: "file_root.storage_failed",
-          reason: "This file could not be stored right now.",
-          status: 503,
-        });
-      }
-      return await this.commitWrite(input);
-    });
+        try {
+          await bucket.put(key, input.bytes, {
+            httpMetadata: { contentType: write.mimeType },
+            customMetadata: {
+              fileId: write.fileId,
+              revisionId: write.revisionId,
+            },
+          });
+        } catch {
+          await this.recordContentAudit({
+            ...input,
+            entryId: write.fileId,
+            revisionId: write.revisionId,
+            operation: "content_write",
+            operationId: write.clientMutationId,
+            errorCode: "file_root.storage_failed",
+          });
+          throw createCoreRpcHttpError({
+            code: "file_root.storage_failed",
+            reason: "This file could not be stored right now.",
+            status: 503,
+          });
+        }
+        return await this.commitWrite(input);
+      })
+    );
   }
   async upload(
     input: RootRequest & {
@@ -285,55 +376,67 @@ export class OrganizationFileRoot extends DurableObject<CoreBindings> {
       body?: ReadableStream<Uint8Array>;
     }
   ): Promise<SpaceFileUploadResponse> {
-    return await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
-      const actor = await this.authorize(input);
-      const command = spaceFileUploadCommandSchema.parse(input.command);
-      if (
-        command.action === "start" &&
-        (command.metadata.target.kind === "composer" ||
-          (command.metadata.target.kind === "file" &&
-            command.metadata.target.origin === "chat_upload"))
-      ) {
-        throw createCoreRpcHttpError({
-          code: "invalid_payload",
-          reason: "This Files location accepts ordinary files only.",
-          status: 400,
-        });
-      }
-      const bucket = this.env.OPENMELD_SPACE_ATTACHMENTS;
-      if (!bucket) {
-        throw createCoreRpcHttpError({
-          code: "file_root.storage_unavailable",
-          reason: "Files are temporarily unavailable.",
-          status: 503,
-        });
-      }
-      const uploads = new FileUploadSessions(this.ctx.storage.sql, bucket);
-      try {
-        return await uploads.execute({
-          actorId: actor.profileId,
-          scope: organizationFileRootName(input.root),
-          uploadId: input.uploadId,
-          command,
-          body: input.body,
-          prepare: async (metadata) => {
-            const write = await this.uploadWrite(
-              metadata,
-              `upload-${input.uploadId}`
-            );
-            await this.prepareWrite({ ...input, write });
-          },
-          finish: async (metadata, key) => ({
-            file: await this.finishUpload({ ...input, metadata, key, bucket }),
-          }),
-        });
-      } finally {
-        const expiry = uploads.nextExpiry();
-        if (expiry !== null) {
-          await this.ctx.storage.setAlarm(expiry);
+    return await this.withContentWrite(() =>
+      withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
+        const actor = await this.authorize(input);
+        const command = spaceFileUploadCommandSchema.parse(input.command);
+        if (
+          command.action === "start" &&
+          (command.metadata.target.kind === "composer" ||
+            (command.metadata.target.kind === "file" &&
+              command.metadata.target.origin === "chat_upload"))
+        ) {
+          throw createCoreRpcHttpError({
+            code: "invalid_payload",
+            reason: "This Files location accepts ordinary files only.",
+            status: 400,
+          });
         }
-      }
-    });
+        const bucket = this.env.OPENMELD_SPACE_ATTACHMENTS;
+        if (!bucket) {
+          throw createCoreRpcHttpError({
+            code: "file_root.storage_unavailable",
+            reason: "Files are temporarily unavailable.",
+            status: 503,
+          });
+        }
+        const uploads = new FileUploadSessions(this.ctx.storage.sql, bucket);
+        try {
+          const result = await uploads.execute({
+            actorId: actor.profileId,
+            scope: organizationFileRootName(input.root),
+            uploadId: input.uploadId,
+            command,
+            body: input.body,
+            prepare: async (metadata) => {
+              const write = await this.uploadWrite(
+                metadata,
+                `upload-${input.uploadId}`
+              );
+              await this.prepareWrite({ ...input, write });
+            },
+            finish: async (metadata, key) => ({
+              file: await this.finishUpload({
+                ...input,
+                metadata,
+                key,
+                bucket,
+              }),
+            }),
+          });
+          if (this.accountDeletionPending) {
+            await uploads.cleanup(true);
+            throw new Error("This Files location has been deleted.");
+          }
+          return result;
+        } finally {
+          const expiry = uploads.nextExpiry();
+          if (expiry !== null) {
+            await this.ctx.storage.setAlarm(expiry);
+          }
+        }
+      })
+    );
   }
   async alarm(): Promise<void> {
     return await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
@@ -603,6 +706,12 @@ export class OrganizationFileRoot extends DurableObject<CoreBindings> {
     });
   }
   private async authorize(input: RootRequest): Promise<SpaceFileActor> {
+    if (
+      this.accountDeletionPending ||
+      (await this.ctx.storage.get("accountDeletionPending"))
+    ) {
+      throw new Error("This Files location is being deleted.");
+    }
     const name = organizationFileRootName(input.root);
     const { actor } = await prepareOrganizationFileRootAccess({
       context: input.context,
@@ -665,6 +774,9 @@ export class OrganizationFileRoot extends DurableObject<CoreBindings> {
     });
   }
   private get repository(): SpaceFileRepository {
+    if (this.accountDeletionPending) {
+      throw new Error("This Files location is being deleted.");
+    }
     return new SpaceFileRepository(this.ctx.storage, {
       enqueueSpaceUpdate: false,
     });
