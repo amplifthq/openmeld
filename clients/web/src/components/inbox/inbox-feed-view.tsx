@@ -348,11 +348,17 @@ function InboxFeedItem(input: FeedViewProps & { row: InboxFeedRow }) {
 
 export function resolveInboxFeedLoadMoreState(input: {
 	hasNextPage: boolean;
+	isFetching: boolean;
 	isFetchingNextPage: boolean;
 	isFetchNextPageError: boolean;
 }): "idle" | "loading" | "error" | undefined {
 	if (input.isFetchingNextPage) {
 		return "loading";
+	}
+	// A refresh replaces the snapshot and its cursors. Do not let pagination
+	// cancel that refresh or append a page from the previous snapshot.
+	if (input.isFetching) {
+		return undefined;
 	}
 	if (input.isFetchNextPageError) {
 		return "error";

@@ -424,7 +424,11 @@ export function InboxPage(input: {
 								) : null}
 								{loadMoreState ? (
 									<InboxInfiniteScrollTrigger
-										onLoadMore={() => feed.fetchNextPage()}
+										onLoadMore={async () => {
+											if (!feed.isFetching) {
+												await feed.fetchNextPage();
+											}
+										}}
 										state={loadMoreState}
 									/>
 								) : null}

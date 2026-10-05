@@ -13,10 +13,7 @@ import {
 	listCurrentInboxFeed,
 	mutateCurrentInboxFeed,
 } from "#/lib/organizations/inbox";
-import {
-	baseQueryOptions,
-	ROUTE_REVISIT_GC_TIME_MS,
-} from "#/query/query-config";
+import { ROUTE_REVISIT_GC_TIME_MS } from "#/query/query-config";
 import { inboxQueryKeys, invalidateInboxFacts } from "./inbox";
 
 export type InboxFeedFilters = {
@@ -67,7 +64,6 @@ export function organizationInboxFeedQueryOptions(
 		getNextPageParam: (page) => page.nextCursor ?? undefined,
 		staleTime: 10_000,
 		gcTime: ROUTE_REVISIT_GC_TIME_MS,
-		retry: baseQueryOptions.retry,
 	});
 }
 
