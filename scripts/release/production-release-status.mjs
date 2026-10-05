@@ -157,24 +157,28 @@ export async function collectProductionReleaseStatus(input = {}) {
     changeBase: options.changeBase,
     sourceSha,
   });
-  const { sources, history } = await readHostedReleaseState(
-    adapters,
-    repo,
-    sourceSha
-  );
+  const localSources = new Map();
+  const localIssues = [];
   try {
     mergeGuardedLocalReleaseSources({
       localSources: await adapters.readLocalReleaseSources(repo),
       sourceIsAncestor: adapters.sourceIsAncestor,
       sourceSha,
-      sources,
+      sources: localSources,
     });
   } catch (error) {
-    history.issues.push({
+    localIssues.push({
       scopes: RELEASE_SCOPES,
       detail: `Local deployment evidence unavailable: ${error.message}`,
     });
   }
+  const { sources, history } = await readHostedReleaseState(
+    adapters,
+    repo,
+    sourceSha,
+    localSources
+  );
+  history.issues.push(...localIssues);
   applyDeployedOverrides({
     deployed: options.deployed,
     sourceIsAncestor: adapters.sourceIsAncestor,
@@ -366,7 +370,12 @@ function buildCurrentChangeFacts(input) {
   };
 }
 
-async function readHostedReleaseState(adapters, repo, sourceSha) {
+async function readHostedReleaseState(
+  adapters,
+  repo,
+  sourceSha,
+  initialSources
+) {
   let response;
   try {
     response = await adapters.readReleaseRuns(repo);
@@ -396,6 +405,7 @@ async function readHostedReleaseState(adapters, repo, sourceSha) {
     runs,
     repo,
     issues: history.issues,
+    initialSources,
     sourceIsAncestor: (sha) => adapters.sourceIsAncestor(sha, sourceSha),
   });
   return { sources, history };
@@ -658,7 +668,7 @@ function describeComponentEvidence(releaseSource) {
 }
 
 export async function readLatestSuccessfulReleaseSources(input) {
-  const sources = new Map();
+  const sources = new Map(input.initialSources);
   // Completed runs are ordered by their last update. Active runs and runs
   // without a trustworthy update time must always have their jobs inspected:
   // an active run can finish a deployment after the history snapshot was read.
@@ -674,16 +684,14 @@ export async function readLatestSuccessfulReleaseSources(input) {
   ) {
     const remaining = runsByUpdate.slice(offset);
     const oldestReceipt = Math.min(
-      ...RELEASE_SCOPES.map((scope) =>
-        sources.has(scope)
-          ? Date.parse(sources.get(scope).recordedAt)
-          : Number.NEGATIVE_INFINITY
-      )
+      ...RELEASE_SCOPES.map((scope) => successfulSourceTime(sources.get(scope)))
     );
     if (runUpdateTime(remaining[0]) < oldestReceipt) {
       break;
     }
-    const runs = remaining.slice(0, RELEASE_JOB_BATCH_SIZE);
+    const runs = remaining
+      .slice(0, RELEASE_JOB_BATCH_SIZE)
+      .filter((run) => runUpdateTime(run) >= oldestReceipt);
     const jobsByRun = await Promise.all(
       runs.map(async (run) => {
         try {
@@ -720,6 +728,19 @@ export async function readLatestSuccessfulReleaseSources(input) {
     }
   }
   return sources;
+}
+
+function successfulSourceTime(source) {
+  if (
+    source?.conflict ||
+    !(source?.receipt
+      ? source.receipt.status === "verified"
+      : source?.source === "github")
+  ) {
+    return Number.NEGATIVE_INFINITY;
+  }
+  const value = Date.parse(source.recordedAt);
+  return Number.isFinite(value) ? value : Number.NEGATIVE_INFINITY;
 }
 
 function runUpdateTime(run) {
