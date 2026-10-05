@@ -11,7 +11,7 @@ export function getLocalAuthUserStore(env: AuthBindings): LocalAuthUserStore {
         .query<{
           present?: number;
         }>({
-          text: 'select 1 as present from "openmeld"."users" where id = $1 limit 1',
+          text: 'select 1 as present from "openmeld"."users" where id = $1 and deleted_at is null limit 1',
           values: [userId],
         })
         .then((result) => result.rows[0] ?? null);

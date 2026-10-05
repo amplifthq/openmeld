@@ -176,6 +176,10 @@ When no human owner is established, Computer tools are unavailable; other
 conversation tools remain usable. Never select the last speaker or an admin.
 
 Core still verifies the active delivery, Binding and Space participants.
+Account deletion erases the personal Computer through its runtime owner, including
+its files, processes, and private command receipts. The account admission guard
+blocks recreation after closure. Shared Space records and files already published
+to a team remain governed by their own retention rules.
 Computer tools carry owner, task and audience context. Agents use these facts
 to decide whether to use or disclose personal files. Access to a filesystem is
 not permission to publish all its contents. Files publication retains its own

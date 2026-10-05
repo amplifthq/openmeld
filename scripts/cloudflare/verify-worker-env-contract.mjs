@@ -339,6 +339,19 @@ const workerPackages = [
         }),
       },
       {
+        binding: ACCOUNT_AVATARS_R2_BINDING,
+        bucket_name: expectedResourceName(environment, {
+          local: ORGANIZATION_LOGOS_R2_PREVIEW_BUCKET,
+          prod: ORGANIZATION_LOGOS_R2_BUCKET,
+          stg: ORGANIZATION_LOGOS_R2_STAGING_BUCKET,
+        }),
+        preview_bucket_name: expectedResourceName(environment, {
+          local: ORGANIZATION_LOGOS_R2_PREVIEW_BUCKET,
+          prod: ORGANIZATION_LOGOS_R2_PREVIEW_BUCKET,
+          stg: ORGANIZATION_LOGOS_R2_STAGING_BUCKET,
+        }),
+      },
+      {
         binding: ORGANIZATION_SKILLS_R2_BINDING,
         bucket_name: expectedResourceName(environment, {
           local: ORGANIZATION_SKILLS_R2_PREVIEW_BUCKET,

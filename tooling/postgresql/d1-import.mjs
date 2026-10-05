@@ -26,7 +26,10 @@ import {
 import { readCutoverTarget, verifyRemoteCredential } from "./remote-target.mjs";
 
 // Reviewed additions after the frozen D1 journal. These have no source rows.
-const postgresqlOnlyTables = [{ name: "cloud_computers" }];
+const postgresqlOnlyTables = [
+  { name: "cloud_computers" },
+  { name: "account_deletion_requests" },
+];
 
 function csv(value) {
   if (value === null) {
@@ -36,7 +39,7 @@ function csv(value) {
 }
 
 function sourceColumn(column) {
-  if (column.source === "new_nullable_claim") {
+  if (column.source === "new_nullable") {
     return `NULL AS ${quote(column.name)}`;
   }
   if (column.source === "inbox_rowid") {
@@ -257,6 +260,19 @@ async function lockEmptyTarget(client, catalog) {
 
 function nativeColumns(table, targetColumns) {
   const columns = [...table.columns];
+  // Historical accounts and Organizations have not requested deletion.
+  const deletionColumn = {
+    users: "deleted_at",
+    organizations: "deletion_requested_at",
+  }[table.name];
+  if (deletionColumn) {
+    columns.push({
+      name: deletionColumn,
+      type: "INTEGER",
+      hidden: 0,
+      source: "new_nullable",
+    });
+  }
   if (table.name === "inbox_items") {
     columns.push({
       name: "sequence",
@@ -273,13 +289,13 @@ function nativeColumns(table, targetColumns) {
         name: "worker_submit_claim_id",
         type: "TEXT",
         hidden: 0,
-        source: "new_nullable_claim",
+        source: "new_nullable",
       },
       {
         name: "worker_submit_claim_expires_at_ms",
         type: "INTEGER",
         hidden: 0,
-        source: "new_nullable_claim",
+        source: "new_nullable",
       }
     );
   }

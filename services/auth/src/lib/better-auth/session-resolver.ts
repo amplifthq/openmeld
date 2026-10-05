@@ -1,3 +1,4 @@
+import { isAPIError } from "better-auth/api";
 import type { createAuth } from ".";
 
 type AuthInstance = ReturnType<typeof createAuth>;
@@ -67,6 +68,9 @@ export async function resolveSessionFromHeaders(input: {
       sessionData = await input.auth.api.getSession(options);
     }
   } catch (cause) {
+    if (isAPIError(cause) && cause.body?.code === "account.unavailable") {
+      return { status: "unauthenticated", reason: "missing_session" };
+    }
     return {
       status: "upstream_error",
       cause,

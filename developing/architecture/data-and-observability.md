@@ -4140,6 +4140,34 @@ finalizes nor fails an execution; the worker acknowledgement/callback and
 RuntimeCoordinator keep their established authority. Network calls hold no
 PostgreSQL transaction or row lock.
 
+### Account deletion ownership
+
+Auth owns
+irreversible acceptance and `account_deletion_requests`; Core coordinates cleanup
+through the existing profile, Space, Files, Session Inventory, memory, and Channel
+owners. Gateway keeps its Open Connector secret and owns external disconnects.
+Connection cleanup targets have independent attempt identities. Auth retries them
+even after Organization cleanup completes. A late external configuration failure
+registers compensation with that same owner. An external success followed by a
+process crash before compensation registration remains an external-owner limit.
+Failures remain pending with an attempt count, next attempt time, private-root
+cursor, and error. `auth.account.deletion_*` events expose progress without private
+content. Auth removes closing Organizations only after Core reports completion.
+
+Space requests Stop outside its concurrency gate because Stop can call back into
+the same Space. Inside the gate it rechecks scope and pending work. Remote owners
+erase private conversation content and keep an admission fence; object abortion
+revokes old capabilities. A retry acknowledges erasure. Legacy shared Computers
+retain the team disk but remove the deleted private Space's known directory.
+Current personal Computers are erased from Core's account inventory independently
+of conversations. A database admission guard prevents their recreation after
+account closure.
+
+Contract impact: the new HTTP/private RPC contracts leave CLI, Service, setup,
+Wake, and publication payloads unchanged. Apply database migrations and deploy
+Remote Agent, Gateway, and Core cleanup owners before Auth/Web enable deletion.
+Old clients remain compatible. Do not enable the entry point against old owners.
+
 ### RuntimeCoordinator execution projection writes
 
 The shared PostgreSQL execution projection advances in one atomic write.

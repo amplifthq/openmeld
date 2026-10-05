@@ -17,7 +17,8 @@ import { connect, migrate, quoteIdentifier as quote } from "./database.mjs";
 
 const ownerGuardError = /canonical_enabled/u;
 const populatedTargetError = /not empty/u;
-const populatedComputerError = /Import target is not empty: cloud_computers/u;
+const populatedDeletionError =
+  /Import target is not empty: account_deletion_requests/u;
 const inventoryError = /table inventory/u;
 const storedValueError = /Unsupported stored value/u;
 const safeRangeError = /safe range/u;
@@ -143,12 +144,15 @@ test("historical D1 capture to native PG18 preserves business data and rolls bac
             Object.values(computer)
           );
         try {
-          await insertComputer();
+          await client.query(
+            "INSERT INTO openmeld.account_deletion_requests(user_id,plan_json,created_at_ms,next_attempt_at_ms) VALUES($1,'{}',1,1)",
+            [fixture.owner]
+          );
           await assert.rejects(
             importD1Snapshot({ snapshot, connectionString }),
-            populatedComputerError
+            populatedDeletionError
           );
-          await client.query("DELETE FROM openmeld.cloud_computers");
+          await client.query("DELETE FROM openmeld.account_deletion_requests");
           await importD1Snapshot({ snapshot, connectionString });
           await insertComputer();
           await reconcileD1Snapshot({ snapshot, connectionString });
