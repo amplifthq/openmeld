@@ -6,31 +6,31 @@ import {
   sanitizeSignalTextPreview,
 } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
-import { truncateInboxText } from "../inbox/application/inbox-text";
+import { truncateInboxText } from "../src/inbox/application/inbox-text";
 import {
   buildSpaceInboxProjectionOutboxRecord,
   buildSpaceReactionInboxProjectionOutboxRecord,
-} from "../space/application/space-inbox-projection";
+} from "../src/space/application/space-inbox-projection";
 import {
   attemptSpaceInboxProjectionOutboxRecord,
   resolveSpaceInboxRecipientEligibility,
   selectSpaceInboxRecipients,
-} from "../space/application/space-inbox-projection-outbox-service";
+} from "../src/space/application/space-inbox-projection-outbox-service";
 import {
   createDispatchOutboxRecord,
   insertDispatchOutboxRecord,
-} from "../space/infrastructure/outbox/dispatch-outbox-repo";
+} from "../src/space/infrastructure/outbox/dispatch-outbox-repo";
 import {
   listDueSpaceInboxProjectionOutboxRecords,
   type SpaceInboxProjectionOutboxRecord,
-} from "../space/infrastructure/sql/space-inbox-projection-outbox-repo";
+} from "../src/space/infrastructure/sql/space-inbox-projection-outbox-repo";
 import {
   type SpaceMemberRecord,
   upsertSpaceMemberRecord,
-} from "../space/infrastructure/sql/space-member-repo";
-import { upsertSpaceMetaRecord } from "../space/infrastructure/sql/space-meta-repo";
-import { insertSignalRecord } from "../space/infrastructure/sql/space-signal-repo";
-import { Space } from "../space/transport/do/space";
+} from "../src/space/infrastructure/sql/space-member-repo";
+import { upsertSpaceMetaRecord } from "../src/space/infrastructure/sql/space-meta-repo";
+import { insertSignalRecord } from "../src/space/infrastructure/sql/space-signal-repo";
+import { Space } from "../src/space/transport/do/space";
 
 const publishTextSignal = (
   Space.prototype as unknown as {
