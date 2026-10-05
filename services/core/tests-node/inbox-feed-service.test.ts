@@ -8,8 +8,31 @@ import { createInboxFeedService } from "../src/inbox/application/inbox-feed-serv
 import { resolveInboxItemsBySource } from "../src/inbox/application/inbox-item-service";
 import { createInboxService } from "../src/inbox/application/inbox-service";
 import { createInboxFeedFixture } from "./helpers/inbox-feed.test-support";
+import { installPostgresWriteFailure } from "./helpers/postgresql-harness.test-support";
 
 describe("canonical Inbox attention feed", () => {
+  it("rolls back the snapshot header when freezing its members fails", async () => {
+    const f = await createInboxFeedFixture();
+    try {
+      await f.item("visible");
+      await installPostgresWriteFailure({
+        harness: f,
+        table: "inbox_feed_snapshot_members",
+        operation: "INSERT",
+        message: "snapshot member write failed",
+      });
+      const feed = createInboxFeedService({ db: f.db, nowMs: () => 11_000 });
+      await expect(feed.list(f.identity)).rejects.toThrow(
+        "snapshot member write failed"
+      );
+      const result = await f.query({
+        text: 'SELECT count(*) AS count FROM "openmeld"."inbox_feed_snapshots"',
+      });
+      expect(Number(result.rows[0]?.count)).toBe(0);
+    } finally {
+      await f.close();
+    }
+  });
   it("limits Thread reads to ordinary updates in the selected category, including when urgent replies share the Thread", async () => {
     const f = await createInboxFeedFixture();
     try {
