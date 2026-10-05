@@ -2333,15 +2333,20 @@ probe without imposing a total execution deadline.
 
 ### Space reply streaming (shipped 2026-07-10)
 
-Space conversations may show accumulated assistant text, explicit public progress,
-and privacy-bounded tool progress before the final reply is published. Private model reasoning is never
-published to clients. Streaming is a bounded, best-effort presentation
+Space conversations may show accumulated assistant text, model-emitted reasoning,
+explicit public progress, and privacy-bounded tool progress before the final
+reply is published. Hosted reasoning uses the same authorized conversation
+audience in Direct Messages, shared Spaces, and Threads. It is not an
+Organization-wide broadcast. Streaming is a bounded, best-effort presentation
 projection; it is not a second message writer, native-delivery status, or
 final-outcome authority.
 
-- The worker uses provider reasoning deltas only as private execution-progress
-  evidence. It never sends their content to Core, Space, Web, or a Message
-  Channel. For active Space and Web direct-message deliveries, the Agent may call
+- The worker forwards provider-emitted reasoning through the existing typed
+  thinking callback after the same execution, cancellation, delivery identity,
+  and audience checks used for text. Reasoning buffers are bounded and transient;
+  they are not durable reply history or a reconstruction of hidden provider state.
+  Prompt disclosure rules apply to reasoning as well as the final answer.
+  For active Space and Web direct-message deliveries, the Agent may call
   `openmeld_report_progress` to share a short public update. The update is a
   separate transient stream kind, not provider reasoning or final reply text.
   The worker also emits accumulated text snapshots and privacy-bounded tool
@@ -2392,7 +2397,9 @@ disclosure above the streaming answer. The same placement and disclosure are
 used for Center Agent, personal Remote Agent, and Local Agent replies in main
 conversations and Threads. Public updates are milestone explanations, not
 execution heartbeats. Local Agent reasoning uses the same disclosure and
-Markdown viewport without changing its transient privacy boundary. The stream
+Markdown viewport. Hosted reasoning uses that same disclosure: open while
+streaming, collapsed when the retained local projection completes. Local Agent
+owner preferences and authorization remain unchanged. The stream
 kinds keep distinct privacy boundaries.
 Rollback removes the Remote Agent producer before Core or Web
 consumers.

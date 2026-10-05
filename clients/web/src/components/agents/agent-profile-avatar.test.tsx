@@ -351,11 +351,13 @@ describe("Agent avatar identity across entrances", () => {
 		undefined,
 		null,
 		"automatic",
-	] as const)("does not invent a saved Center bot for missing or automatic style %s", (style) => {
+	] as const)("uses the Center Bot default for missing or automatic style %s", (style) => {
 		const client = new QueryClient();
 		seed(client, style);
 		const view = renderEntrances(client);
-		expect(view.container.querySelector("canvas[data-bot-avatar]")).toBeNull();
+		expect(
+			view.container.querySelectorAll('canvas[data-bot-avatar="clover"]')
+		).toHaveLength(6);
 		expect(
 			view.container.querySelectorAll('[data-avatar-icon="agent"]')
 		).toHaveLength(6);
