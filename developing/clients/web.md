@@ -401,8 +401,11 @@ the shared Fluid moving hover highlight, and Fluid ScrollArea edge fading.
 
 Your Spaces and the sidebar render active memberships from the account Space
 index. The Organization discovery snapshot must not veto a newer account index
-entry. The account index refreshes every five seconds in the foreground so a
-newly added Human or Agent owner can discover a Space without reloading. Unread
+entry. The account invalidation stream refreshes the index after membership or
+message-preview projection, including Spaces not currently open. A 30-second
+foreground poll repairs missed events; focus and stream reconnect also refresh
+immediately. A newly added Human or Agent owner can discover a Space without
+reloading. Unread
 counts continue to come from Inbox; joining does not fabricate unread history.
 
 Contract impact: the shared account-sidebar payload adds an optional `chats`

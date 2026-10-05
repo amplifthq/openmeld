@@ -110,7 +110,7 @@ describe("account Space Index refresh", () => {
 		const unsubscribe = observer.subscribe(onDataChange);
 		await vi.advanceTimersByTimeAsync(0);
 		expect(listAccountSpaceItemsMock).toHaveBeenCalledOnce();
-		await vi.advanceTimersByTimeAsync(ACCOUNT_SPACE_ITEMS_POLL_INTERVAL_MS - 1);
+		await vi.advanceTimersByTimeAsync(29_999);
 		expect(listAccountSpaceItemsMock).toHaveBeenCalledOnce();
 		await vi.advanceTimersByTimeAsync(1);
 		expect(listAccountSpaceItemsMock).toHaveBeenCalledTimes(2);
