@@ -12,10 +12,7 @@ import {
   readPrimaryAgentProfileBindingRecord,
   reconnectPrimaryAgentProfileBindingRecord,
 } from "../src/agent-profile-binding/infrastructure/postgresql/agent-profile-binding-repo";
-import {
-  reconcileAgentModelInbox,
-  reconcileRuntimeAgentModelInboxes,
-} from "../src/config/agent-model-inbox-reconciliation";
+import { reconcileRuntimeAgentModelInboxes } from "../src/config/agent-model-inbox-reconciliation";
 import { ensureInboxItem } from "../src/inbox/application/inbox-item-service";
 import { createInboxService } from "../src/inbox/application/inbox-service";
 import type { CoreBindings } from "../src/lib/bindings";
@@ -1252,7 +1249,11 @@ describe("agent profile binding Core RPC", () => {
         agentProfileId: AGENT_PROFILE_ID,
         nowMs: Date.now(),
       };
-      await reconcileAgentModelInbox(reconcileInput);
+      await reconcileRuntimeAgentModelInboxes({
+        ...reconcileInput,
+        agentControllerRef: "builtin:codex",
+        openMeldServiceRuntimeId: registeredRuntimeId,
+      });
       const inbox = createInboxService({ db: harness.db, nowMs: () => 2100 });
       const reader = {
         organizationId: "org-personal-owner-1",

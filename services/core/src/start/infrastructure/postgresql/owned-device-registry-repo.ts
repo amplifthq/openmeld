@@ -54,6 +54,18 @@ export async function listOwnedDeviceRegistryRecords(input: {
   db: PostgresDatabase;
   userId: string;
 }): Promise<readonly OwnedDeviceRegistryRecord[]> {
+  return await listOwnedDeviceRegistryRecordsForUsers({
+    db: input.db,
+    userIds: [input.userId],
+  });
+}
+export async function listOwnedDeviceRegistryRecordsForUsers(input: {
+  db: PostgresDatabase;
+  userIds: readonly string[];
+}): Promise<readonly OwnedDeviceRegistryRecord[]> {
+  if (input.userIds.length === 0) {
+    return [];
+  }
   const rows = await input.db.query<OwnedDeviceRegistryRow>({
     text: `
         SELECT
@@ -69,10 +81,10 @@ export async function listOwnedDeviceRegistryRecords(input: {
           last_observed_at_ms,
           updated_at_ms
         FROM "openmeld"."openMeldDaemon_owned_devices"
-        WHERE owner_user_id = $1
+        WHERE owner_user_id = ANY($1::text[])
         ORDER BY updated_at_ms DESC NULLS LAST, device_id ASC NULLS FIRST
       `,
-    values: [input.userId],
+    values: [input.userIds],
   });
   return (rows.rows ?? []).map((row) => mapOwnedDeviceRegistryRow(row));
 }

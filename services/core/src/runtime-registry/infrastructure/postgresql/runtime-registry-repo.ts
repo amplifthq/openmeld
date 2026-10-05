@@ -333,9 +333,27 @@ export async function listOwnedDeviceExecutionTargetRecords(input: {
   nowMs: number;
   userId: string;
 }): Promise<readonly OwnedDeviceExecutionTargetRecord[]> {
-  const rows = await input.db.query<OwnedDeviceExecutionTargetRow>({
+  const records = await listOwnedDeviceExecutionTargetRecordsForUsers({
+    ...input,
+    userIds: [input.userId],
+  });
+  return records.get(input.userId) ?? [];
+}
+export async function listOwnedDeviceExecutionTargetRecordsForUsers(input: {
+  db: PostgresDatabase;
+  nowMs: number;
+  userIds: readonly string[];
+}): Promise<Map<string, OwnedDeviceExecutionTargetRecord[]>> {
+  const records = new Map<string, OwnedDeviceExecutionTargetRecord[]>();
+  if (input.userIds.length === 0) {
+    return records;
+  }
+  const rows = await input.db.query<
+    OwnedDeviceExecutionTargetRow & { owner_id: string }
+  >({
     text: `
         SELECT
+          runtime.owner_id,
           runtime.openmeld_service_runtime_id,
           runtime.device_id,
           runtime.lane,
@@ -350,17 +368,22 @@ export async function listOwnedDeviceExecutionTargetRecords(input: {
         LEFT JOIN "openmeld"."openMeldDaemon_runtime_agent_controller_reports" capability
           ON capability.openmeld_service_runtime_id = runtime.openmeld_service_runtime_id
         WHERE runtime.owner_kind = 'owner_account'
-          AND runtime.owner_id = $1
+          AND runtime.owner_id = ANY($1::text[])
         ORDER BY runtime.device_id ASC NULLS FIRST, runtime.lane ASC NULLS FIRST, capability.agent_controller_ref ASC NULLS FIRST
       `,
-    values: [input.userId],
+    values: [input.userIds],
   });
-  return rows.rows.flatMap((row) =>
-    mapOwnedDeviceExecutionTargetRow({
-      nowMs: input.nowMs,
-      row,
-    })
-  );
+  for (const row of rows.rows) {
+    const targets = records.get(row.owner_id) ?? [];
+    targets.push(
+      ...mapOwnedDeviceExecutionTargetRow({
+        nowMs: input.nowMs,
+        row,
+      })
+    );
+    records.set(row.owner_id, targets);
+  }
+  return records;
 }
 function mapRuntimeRegistryRow(input: {
   row: RuntimeRegistryRow;

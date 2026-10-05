@@ -109,8 +109,51 @@ describe("agent execution readiness through the PostgreSQL binding", () => {
           transportMode: "codex-app-server",
         },
       });
+      const reads = createAgentExecutionReadinessReads();
+      await reads.preloadPrimaryBindings({
+        db: harness.db,
+        nowMs: GENERATED_AT_MS,
+        owner: { id: OWNER_USER_ID, kind: "owner_account" },
+        profileIds: [AGENT_PROFILE_ID, "missing-profile"],
+      });
+      expect(
+        await reads.readPrimaryAgentProfileBindingRecord({
+          db: harness.db,
+          owner: { id: OWNER_USER_ID, kind: "owner_account" },
+          agentProfileId: "missing-profile",
+        })
+      ).toBeNull();
+      const proofRead = {
+        db: harness.db,
+        agentProfileId: AGENT_PROFILE_ID,
+        bindingId,
+        agentControllerRef: "builtin:codex",
+        agentControllerConversationId,
+        openMeldServiceRuntimeId: openMeldServiceRuntimeId.value,
+        provider: "codex" as const,
+        method: "codex_app_server_thread_resume" as const,
+        nowMs: GENERATED_AT_MS,
+      };
+      const queryCount = vi.spyOn(harness.db, "query");
+      expect(
+        await reads.readFreshProviderConversationProofForBinding(proofRead)
+      ).toMatchObject({ status: "passed" });
+      expect(
+        await reads.readFreshProviderConversationProofForBinding({
+          ...proofRead,
+          agentControllerConversationId: "different-conversation",
+        })
+      ).toBeNull();
+      expect(
+        await reads.readFreshProviderConversationProofForBinding({
+          ...proofRead,
+          nowMs: GENERATED_AT_MS + 60_000,
+        })
+      ).toBeNull();
+      expect(queryCount).not.toHaveBeenCalled();
+      queryCount.mockRestore();
       const readiness = await resolveCoreAgentExecutionReadinessForProfile({
-        reads: createAgentExecutionReadinessReads(),
+        reads,
         activeOrganizationId: ORGANIZATION_ID,
         env: createLocalStateRoutedEnv({
           db: harness.db,
