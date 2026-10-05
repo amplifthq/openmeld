@@ -262,6 +262,151 @@ const cutoverOptionError = /cutover snapshot applies only/u;
 const cronMismatch = /Cron configuration differs/u;
 const restorationMismatch = /Cron restoration requires/u;
 
+test("local PostgreSQL health recovery requires the selected exact source and every active-service check", async () => {
+  const sourceSha = "a".repeat(40);
+  const receipts = new Map(
+    ["auth", "core"].map((scope) => [
+      scope,
+      {
+        sha: sourceSha,
+        receipt: {
+          attemptId: "00000000-0000-4000-8000-000000000001",
+          componentIndex: 0,
+          operationKey: "b".repeat(64),
+          startedAt: "2026-10-05T10:00:00.000Z",
+          status: "verified",
+          application: "applied",
+          identity: {
+            kind: "worker-deployment",
+            sourceSha,
+            workerName: `openmeld-${scope}-prod`,
+            environment: "prod",
+            deploymentId: `${scope}-deployment`,
+            versionId: `${scope}-version`,
+            proof: "command-output",
+          },
+        },
+      },
+    ])
+  );
+  const checks = [];
+  const input = {
+    root,
+    sourceSha,
+    readReceipts: () => receipts,
+    readGitFile: (sha, name) => {
+      assert.equal(sha, sourceSha);
+      return readFileSync(path.join(root, name), "utf8");
+    },
+    verifyDeployment: ({ expected }) => checks.push(expected.workerName),
+    verifyHyperdrive: () => checks.push("hyperdrive"),
+    verifyCrons: ({ paused }) => {
+      assert.equal(paused, false);
+      checks.push("crons");
+    },
+    runData: () => {
+      throw new Error("recovery must not import or migrate data");
+    },
+  };
+  for (const scope of ["auth", "core"]) {
+    const saved = receipts.get(scope);
+    for (const status of ["applied", "failed"]) {
+      const retained = { ...saved, receipt: { ...saved.receipt, status } };
+      receipts.set(scope, retained);
+      checks.length = 0;
+      assert.deepEqual(
+        await admitPostgresqlProductRelease({ ...input, scopes: [scope] }),
+        {
+          mode: "native_postgresql_release",
+        }
+      );
+      assert.deepEqual(checks, [
+        "openmeld-auth-prod",
+        "openmeld-core-prod",
+        "hyperdrive",
+        "crons",
+      ]);
+      assert.deepEqual(
+        receipts.get(scope),
+        retained,
+        "database admission cannot promote the receipt"
+      );
+    }
+    receipts.set(scope, saved);
+  }
+  const core = receipts.get("core");
+  receipts.set("core", {
+    ...core,
+    receipt: { ...core.receipt, status: "failed" },
+  });
+  const recovery = { ...input, scopes: ["core"] };
+  for (const denied of [
+    { scopes: ["web"] },
+    { scopes: ["auth"] },
+    { sourceSha: "c".repeat(40) },
+    { restoreCrons: true },
+  ]) {
+    await assert.rejects(
+      admitPostgresqlProductRelease({ ...recovery, ...denied }),
+      initialCutoverRequired
+    );
+  }
+  for (const receipt of [
+    {
+      ...core.receipt,
+      status: "failed",
+      application: "unknown",
+      identity: undefined,
+    },
+    { ...core.receipt, status: "failed", operationKey: undefined },
+    {
+      ...core.receipt,
+      status: "failed",
+      identity: { ...core.receipt.identity, workerName: "openmeld-auth-prod" },
+    },
+  ]) {
+    receipts.set("core", { ...core, receipt });
+    await assert.rejects(
+      admitPostgresqlProductRelease(recovery),
+      initialCutoverRequired
+    );
+  }
+  receipts.set("core", {
+    ...core,
+    receipt: { ...core.receipt, status: "failed" },
+  });
+  for (const guard of ["verifyDeployment", "verifyHyperdrive", "verifyCrons"]) {
+    await assert.rejects(
+      admitPostgresqlProductRelease({
+        ...recovery,
+        [guard]: () => {
+          throw new Error(`Changed ${guard}`);
+        },
+      }),
+      { message: `Changed ${guard}` }
+    );
+  }
+  await assert.rejects(
+    admitPostgresqlProductRelease({
+      ...recovery,
+      readGitFile: () =>
+        JSON.stringify({
+          env: {
+            prod: {
+              hyperdrive: [
+                { binding: "OPENMELD_POSTGRESQL", id: "wrong-target" },
+              ],
+            },
+          },
+        }),
+    }),
+    {
+      message:
+        "Auth and Core must use only the registered PostgreSQL Hyperdrive binding",
+    }
+  );
+});
+
 test("cutover admission reads committed import and full reconciliation between two frozen-source checks", async () => {
   const calls = [];
   const input = {
