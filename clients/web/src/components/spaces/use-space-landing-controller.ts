@@ -1123,10 +1123,16 @@ function shouldShowSpaceLandingLoading(input: {
 	bootstrapPending: boolean;
 	currentStatusConfirmationPending: boolean;
 	hasDisplayStatus: boolean;
+	hasPendingMessage: boolean;
+	membershipState: CurrentProfileSpaceMembershipState;
+	membersError: unknown;
 }): boolean {
 	return (
-		!input.hasDisplayStatus &&
-		(input.currentStatusConfirmationPending || input.bootstrapPending)
+		(input.hasPendingMessage &&
+			input.membershipState === "unknown" &&
+			!input.membersError) ||
+		(!input.hasDisplayStatus &&
+			(input.currentStatusConfirmationPending || input.bootstrapPending))
 	);
 }
 
@@ -2617,6 +2623,9 @@ export function useSpaceLandingController(input: {
 			bootstrapPending: bootstrapQuery.isPending,
 			currentStatusConfirmationPending,
 			hasDisplayStatus: statusSnapshot !== null,
+			hasPendingMessage: input.initialPendingMessage != null,
+			membershipState: currentProfileMembershipState,
+			membersError,
 		})
 	) {
 		return {

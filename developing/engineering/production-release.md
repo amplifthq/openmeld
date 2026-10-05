@@ -26,11 +26,23 @@ used to invent a second merge or evidence contract.
 Release only what changed.
 
 The PostgreSQL candidate uses the guarded local release lane and requires frozen
-import evidence for first production promotion. Hosted Auth/Core/CLI releases and
-shared-staging promotion remain closed: those lanes do not yet carry the private
-capture and maintenance admission. This window does not add hosted credentials
-or a separate migration channel. Unrelated hosted release targets retain their
-existing admission.
+import evidence for first production promotion. Hosted Auth/Core/database releases
+and shared-staging promotion remain closed: those lanes do not carry the private
+capture and maintenance admission. After cutover and Cron restoration, the existing
+GitHub CLI workflow can publish with npm Trusted Publishing. It requires verified
+Database/Auth/Core receipts with the same native schema, journal, target and grant
+contract as the CLI source, plus matching active Worker deployments, PostgreSQL
+bindings and cache-disabled Hyperdrive. It checks before publication and again
+before Core activation. Database changes still require the guarded local lane;
+hosted CLI does not receive migration credentials or snapshots. GitHub write
+credentials remain confined to trusted Git operations. Unrelated hosted release
+targets retain their existing admission.
+
+The CLI workflow records Core activation through the existing component receipt
+owner. If a prior attempt applied this exact source but failed its remaining
+health checks, database admission checks that recorded identity against the live
+deployment and the workflow resumes the original receipt before publication.
+Unknown deployments and different source attempts remain blocked.
 For a read-only maintenance preparation plan through this same release owner:
 
 ```bash
@@ -58,6 +70,10 @@ Auth/Core use a checked temporary config whose only change is empty production
 Cron. After product acceptance, `deploy --scope auth,core
 --database-cutover-restore-crons` explicitly restores and reads back the same
 candidate's normal schedules. Cleanup and failed deployment never restore Cron.
+Restoration publishes no Worker or CLI bytes. It retains common environment and
+source checks, then requires the exact active Auth/Core receipts, Hyperdrive,
+native journal and grants under the production leases. It does not require an
+unpublished CLI candidate or run a new artifact deployment preflight.
 
 - A Web fix releases Web.
 - A public website fix releases Website, without rebuilding or deploying Web.
@@ -175,6 +191,16 @@ Read-only GitHub history requests retry a failed page at most twice for HTTP
 500, 502, 503, or 504, retaining pages already read. Exhausted retries,
 permissions failures and malformed collections remain incomplete evidence and
 fail closed; no mutation receives this retry policy.
+
+The reader merges validated local receipts before inspecting hosted jobs, using
+the same completion-time source selector for both lanes. A successful,
+non-conflicting receipt can bound job history only when every component has a
+known successful baseline. Completed runs strictly older than that bound need
+no job or checkout-log query. Active runs, missing update times and updates at
+or after the bound remain inspected. Failed, started, applied, conflicting or
+legacy unverified local records do not provide this cutoff and remain visible.
+Workflow-listing failures still block admission, including when local receipts
+are available; this bound does not turn an unreadable newer history into success.
 
 In GitHub Actions, the status reader uses the step's `GH_TOKEN` with the
 workflow repository and server identity to read private Git receipt refs.
@@ -540,6 +566,26 @@ Gateway, Web, then CLI. This installs strict Remote Agent RPC receivers before
 Core callers and keeps a selected CLI unpublished until every cloud receiver is
 ready. Shared schemas and Core's native-delivery service are intentionally not
 directional path signals because they carry contracts in both directions.
+
+Personal cloud Computer has the opposite capability direction: its Remote
+Agent requires Core's account Computer identity response. The planner selects
+`personal-cloud-computer-receivers-first` only after comparing the actual
+component receipt baseline with the candidate. Existing native request schemas,
+Core request producers and strict Remote receivers must be unchanged; the two
+changed Remote entry owners may contain only the reviewed additive Computer RPC
+and hosted Computer initialization changes. Missing history or any other owner
+change blocks this classification. This proof removes only the misleading
+Remote-first path signal; it is not a release override.
+
+The guarded stages are Database/Auth, Core, Remote Agent/Gateway/Web, then CLI.
+Database must precede Core's new table reads. Remote's stage requires a verified
+Core receiver, and Gateway's new public route waits for Remote's Computer RPC.
+The early Core stage keeps the currently published CLI projection. CLI
+publication waits for Database, Auth, Core, Remote and Gateway receipts; hosted
+CLI also checks the exact PostgreSQL schema/journal contract in Database, Auth
+and Core receipts. Web may share the third stage and does not create a new
+Computer protocol dependency. Declare the same complete train at every stage;
+do not use a different base or a raw deploy to evade a pending receiver.
 
 Remote AI usage adds the opposite dependency: Core's `recordRemoteAiUsage`
 receiver precedes its Remote producer when the shared AI usage schema or Remote

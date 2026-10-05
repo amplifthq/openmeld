@@ -41,10 +41,6 @@ import {
 } from "../connectors/github-working-copy-provider";
 import type { ConnectorExecutionConfig } from "../connectors/open-connector-runtime";
 import type { AgentComputerWorkspaceAccess } from "./agent-computer-workspace-access";
-import {
-  type ComputerDataSourceAccess,
-  recordComputerDataSource,
-} from "./computer-data-sources";
 import { createAgentComputerFileHandoff } from "./computer-file-handoff";
 import {
   GitWorkingCopyComputer,
@@ -67,7 +63,6 @@ type Dependencies = {
   storage: RemoteAgentStorage;
   connectorExecution: ConnectorExecutionConfig;
   computer: GitWorkingCopyComputerApi;
-  dataSources: ComputerDataSourceAccess;
   workingDirectory: string;
   workspaceAccess: AgentComputerWorkspaceAccess;
 };
@@ -996,15 +991,6 @@ async function checkoutRepositoryBatch(
       identity,
     });
   }
-  await recordComputerDataSource({
-    ...input,
-    source: {
-      kind: "plugin_connection",
-      service: "github",
-      connectionName: record.connectionName,
-      connectionUpdatedAtMs: record.connectionUpdatedAtMs,
-    },
-  });
   if (!cached) {
     await measureComputer("computerWrite", () =>
       computer.writeManifest(record, entries, baselineEntries)

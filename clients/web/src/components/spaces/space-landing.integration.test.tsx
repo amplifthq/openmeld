@@ -3727,7 +3727,7 @@ describe("SpaceLanding", () => {
 			const thinkingIndicator = screen.getByTestId(
 				"space-wake-thinking-indicator"
 			);
-			expect(thinkingIndicator.textContent).toContain("runner · Thinking…");
+			expect(thinkingIndicator.textContent).toContain("runner · Working…");
 		});
 	});
 
@@ -3841,7 +3841,7 @@ describe("SpaceLanding", () => {
 		const thinkingIndicator = screen.getByTestId(
 			"space-wake-thinking-indicator"
 		);
-		expect(thinkingIndicator.textContent).toContain("runner · Thinking…");
+		expect(thinkingIndicator.textContent).toContain("runner · Working…");
 
 		await act(async () => {
 			resolveDetailedWakeProgress({
@@ -4519,7 +4519,7 @@ describe("SpaceLanding", () => {
 			const thinkingIndicator = screen.getByTestId(
 				"space-wake-thinking-indicator"
 			);
-			expect(thinkingIndicator.textContent).toContain("runner · Thinking…");
+			expect(thinkingIndicator.textContent).toContain("runner · Working…");
 		});
 	});
 
@@ -15148,13 +15148,7 @@ describe("SpaceLanding", () => {
 		expect(
 			await screen.findByText("The message could not be sent.")
 		).toBeTruthy();
-		expect(
-			readComposerValue(
-				screen.getByRole("textbox", {
-					name: "Message this space",
-				})
-			)
-		).toBe("");
+		expect(readComposerValue(screen.getByRole("textbox"))).toBe("");
 		expect(screen.getByText("Keep this draft")).toBeTruthy();
 		expect(onConsumed).toHaveBeenCalledTimes(1);
 	});
@@ -15226,7 +15220,7 @@ describe("SpaceLanding", () => {
 		const wakeThinkingIndicator = screen.getByTestId(
 			"space-wake-thinking-indicator"
 		);
-		expect(wakeThinkingIndicator.textContent).toContain("runner · Thinking…");
+		expect(wakeThinkingIndicator.textContent).toContain("runner · Working…");
 
 		await act(async () => {
 			resolvePost?.(
@@ -16103,7 +16097,7 @@ describe("SpaceLanding", () => {
 		const wakeThinkingIndicator = screen.getByTestId(
 			"space-wake-thinking-indicator"
 		);
-		expect(wakeThinkingIndicator.textContent).toContain("watcher · Thinking…");
+		expect(wakeThinkingIndicator.textContent).toContain("watcher · Working…");
 		fireEvent.click(wakeThinkingIndicator);
 		expect(
 			await screen.findByRole("heading", { name: "Message details" })

@@ -107,6 +107,10 @@ describe("Center Agent stream observation", () => {
         nowMs: TEST_NOW_MS + 15,
         storage,
       });
+      await observe(
+        thinkingDeltaObservation("This reasoning arrived after Stop.")
+      );
+      expect(submitRemoteAgentStreamDelta).toHaveBeenCalledTimes(1);
     }
     await observe({
       agentName: "center-agent-v2",
@@ -225,7 +229,7 @@ describe("Center Agent stream observation", () => {
     "space_wake",
     "task_continuation",
     "task_watch_continuation",
-  ] as const)("publishes %s tool progress and answer text without private reasoning or arguments", async (source) => {
+  ] as const)("publishes %s reasoning, tool progress and answer text without tool arguments", async (source) => {
     const storage = new InMemoryDurableObjectStorage();
     const request = createSubmitTurnRequest();
     if (source !== "space_wake") {
@@ -325,7 +329,7 @@ describe("Center Agent stream observation", () => {
       firstVisibleContentAtMs: expect.any(Number),
     });
     await handleCenterAgentObservation({
-      event: thinkingDeltaObservation("Private reasoning"),
+      event: thinkingDeltaObservation("Checking the available options."),
       resolveDependencies,
       streamPublisher: publisher,
     });
@@ -340,7 +344,8 @@ describe("Center Agent stream observation", () => {
     });
     expect(submitRemoteAgentStreamDelta).toHaveBeenCalledWith(
       expect.objectContaining({
-        snapshot: "The plan is ready.",
+        kind: "thinking",
+        snapshot: "Checking the available options.",
         sequence: 2,
         triggerMessageId: request.triggerMessageId,
         spaceId: request.spaceId,
@@ -680,7 +685,7 @@ describe("Center Agent stream observation", () => {
     expect(submitRemoteAgentStreamPart).not.toHaveBeenCalled();
   });
 
-  it("keeps private model reasoning out of the user-visible stream", async () => {
+  it("publishes model-emitted reasoning through the conversation stream", async () => {
     const storage = new InMemoryDurableObjectStorage();
     await putRemoteAgentCallbackContext(
       storage,
@@ -715,7 +720,15 @@ describe("Center Agent stream observation", () => {
       streamPublisher: createRemoteAgentStreamPublisher(),
     });
 
-    expect(submitRemoteAgentStreamDelta).not.toHaveBeenCalled();
+    expect(submitRemoteAgentStreamDelta).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "thinking",
+        source: "flue.thinking_delta",
+        delta: thinking,
+        snapshot: thinking,
+        sequence: 1,
+      })
+    );
   });
 
   it.each([

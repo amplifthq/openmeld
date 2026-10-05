@@ -123,8 +123,21 @@ describe("model recovery Inbox projection", () => {
   it("keeps a same-model issue on unknown account evidence, clears after a user change and supports a later recurrence", async () => {
     const h = await harness();
     try {
-      let source = original;
+      let source = {
+        ...original,
+        verdict: "clear" as AgentModelInboxSnapshot["verdict"],
+      };
       const input = { db: h.db, nowMs: 2000, readCurrent: async () => source };
+      // A healthy or unknown report with no existing notice must stay empty,
+      // while a later blocked report must still create its own episode.
+      for (const verdict of ["clear", "unknown"] as const) {
+        source = { ...original, verdict };
+        await reconcileAgentModelInboxProjection(input);
+        expect(
+          await h.queryAll({ text: 'SELECT * FROM "openmeld"."inbox_items"' })
+        ).toEqual([]);
+      }
+      source = original;
       await reconcileAgentModelInboxProjection(input);
       source = { ...original, verdict: "unknown" };
       await reconcileAgentModelInboxProjection({ ...input, nowMs: 2500 });

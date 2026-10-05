@@ -1507,6 +1507,14 @@ Rounded-default rollout uses a versioned browser preference key so existing
 users receive the new default once; a Square selection made afterward remains
 explicit and persistent.
 
+Appearance's **Animate Bot avatars** switch is enabled by default and uses one
+browser-local preference across Organizations and all Bot avatar entrances.
+Turning it off stops working animation, click interaction, pointer following,
+and editor previews immediately. The shared Bot primitive combines this setting
+with the operating system's reduced-motion preference; enabling the switch
+does not override reduced motion. Navigation or selection actions on an avatar
+remain available independently of animation.
+
 Appearance's **Sidebar** group offers **Icons and text** and **Icons only**
 preview cards for the outer app rail. The rail's **Show** context menu changes
 the same `openmeld.appearance.sidebar-display` preference. Web restores its
@@ -4713,11 +4721,24 @@ severity. Web must never deep-link to a retired authorization surface.
 
 Thread placement is conversation placement. It is not execution truth.
 
+Direct Messages and ordinary Spaces share the same unfinished Agent answer row.
+Before execution starts, its compact progress reads **Thinking…**; active work
+reads **Working…**. The elapsed request time begins with submission. The row's
+avatar and identity header name the Agent once, while source-level summaries
+still name each target when multiple Agents are involved. The work disclosure
+opens only when reasoning, public progress, or tool steps arrive; reasoning
+capability alone must not produce an empty panel. An unfinished answer
+is not a saved Signal and must not request message reactions. Stop eligibility
+comes from the current owner evidence, including Hosted admission that completes
+while a progress read awaits remote dispatch evidence.
+
 For hosted Center Agent and Remote Agent Space replies, Web may overlay
 explicit public progress updates and accumulated stream text while the turn is
 active. Neither live projection is a Space message or final outcome. Public
 updates appear inside the Agent bubble in the Work summary disclosure, sharing
-its bounded scroll viewport with tool steps when present. Local Agent reasoning,
+its bounded scroll viewport with tool steps when present. Hosted model-emitted
+reasoning uses the same disclosure across Direct Messages, shared Spaces, and
+Threads, with the existing conversation audience checks. Local Agent reasoning,
 when the owner permits it and the controller supplies it, uses this same
 disclosure and Markdown renderer instead of a second collapsible panel. The
 reasoning remains transient and retains its separate privacy policy; Web never
@@ -4755,7 +4776,7 @@ Unchanged work steps retain their rendered motion trees during streaming text
 updates. The shared step uses React's default prop comparison so status, label,
 icon, and content changes still render immediately.
 While the authoritative stream is
-active, that row keeps `Agent is working` as its stable primary state and shows
+active, that row keeps `Working…` as its stable primary state and shows
 the concrete current work as supporting context. Work activity must never
 replace or hide the active execution state. The live progress row belongs inside
 the Agent answer bubble after any accumulated answer text and before the
@@ -4787,8 +4808,10 @@ a separate header time. Each direct message shows its 24-hour, hour-and-minute
 time inside the floating toolbar. Message details remains available for an
 individual message. Message actions form one floating
 toolbar beside the bubble, or slightly over its upper edge when neither side
-has room. As a long message scrolls past the top of the message viewport, the
-toolbar aligns with that message's lower visible edge while it fits beside the
+has room. Individual message items must allow this overflow; paint containment
+belongs to the conversation viewport, where it cannot clip a toolbar between
+consecutive messages. As a long message scrolls past the top of the message
+viewport, the toolbar aligns with that message's lower visible edge while it fits beside the
 bubble. When it must overlap the bubble, it straddles that lower edge if there
 is room. It remains inside the viewport when the message continues beyond it.
 It prefers the opposite side of a right-aligned self message and the right side
@@ -4852,7 +4875,12 @@ one-to-one Center Agent Direct Message implicitly wakes the Center Agent, the
 Direct Message may derive one optimistic reply shell from the active Wake
 presentation immediately after the
 user sends. The shell shows only the already-known Center Agent identity and one
-compact animated status row. That row uses the existing `Agent is working`
+compact animated status row. A missing or legacy automatic Center Agent avatar
+uses the shared Clover Bot presentation until its saved style is available.
+The new-chat transcript reuses MessageScroller's follow and user-scroll behavior;
+starter cards remain in the transcript. A pending first send keeps this shell
+while membership is unknown, rather than displaying a join prompt.
+That row uses the existing `Working…`
 presentation continuously from local submission through queueing, connecting,
 admission, and active streaming, and reserves one stable Stop-control slot so
 transport evidence does not move the conversation or introduce a second
@@ -4860,29 +4888,32 @@ near-synonymous state. In this Center Agent Direct Message shell, the copy is a
 conversation-level progress placeholder, not a browser-owned claim that worker
 admission already completed. Authoritative transport diagnostics still
 distinguish direct, Queue, fallback, and admission stages. Web does not invent a
-reasoning state or a client-owned elapsed counter. The
+reasoning state. A presentation-only elapsed timer starts at the source request's
+submission time and includes delivery, preparation, and working time. It never
+determines execution health or a timeout. The
 optimistic source message itself is sufficient immediate send feedback and must
 not add a short-lived
 `Sending...` row; if delivery remains pending for eight seconds, Web may add
 `Still sending...`. The source message must not render a second Wake progress
 row while this shell is active. The shell is not a Space message, stream event,
 tool activity, reasoning claim, or execution authority; Web must never persist
-it or show it in a non-Center-Agent Space. The first authoritative stream
+it. Ordinary Spaces derive Agent progress from their existing Wake projection.
+The first authoritative stream
 projection, durable reply, stopped notice, or failure notice replaces the shell,
 and the shell must disappear when its active Wake presentation ends. An empty
-active stream keeps `Agent is working` instead of renaming that state to a
+active stream keeps `Working…` instead of renaming that state to a
 generic `Responding...`. Partial reply text,
 a transient output
 preview, and concrete live tool activity are supporting context; none means the
 active execution has ended. The row therefore keeps one explicit
-`Agent is working` presentation and the same Stop control until an
+`Working…` presentation and the same Stop control until an
 authoritative terminal outcome replaces it. A transient output preview uses one
-line as `Agent is working · <specific preview>`. Once the authoritative stream
+line as `Working… · <specific preview>`. Once the authoritative stream
 is active, its other phases use the same hierarchy, for example
-`Agent is working · Finalizing reply`; they must not replace the execution state
-with the phase alone. Outside the Center Agent Direct Message shell,
-pre-execution Wake phases such as queueing or connecting keep their exact phase
-copy and must not claim that the Agent is working. When
+`Working… · Finalizing reply`; they must not replace the execution state
+with the phase alone. The shared label describes request progress, not worker
+admission. Queue position, input requests, blocked states, and diagnostics keep
+their concrete meaning. When
 the latest admitted semantic tool step settles, the live Work summary keeps its
 concrete completed or failed meaning instead of inventing a generic
 response-preparation phase. The message toolbar owns Message details. The Work
@@ -4896,8 +4927,9 @@ keep a thinking-only or tool-only Agent row visible on the first frame after a
 refresh, and preserves its authoritative `createdAtMs` when later live frames
 arrive. A missing presence field is a mixed-version response, not proof of an
 active stream. Live frames update the seeded projection without overwriting a
-newer sequence. Private thinking and the compact live Work summary are not
-replayed on reconnect. A successfully published Agent reply may carry a durable
+newer sequence. A bounded reasoning tail can be replayed from the live Space
+instance, subject to the existing audience and Local Agent owner preferences;
+it is absent from durable bootstrap and browser caches. A successfully published Agent reply may carry a durable
 privacy-bounded work projection and public progress. Web renders the reply body
 first and then one collapsed Work summary so historical steps cannot displace
 the answer. Reopening it shows all retained grouped steps and public updates
@@ -5304,12 +5336,18 @@ advancing the read watermark past them, and temporary progress cannot advance it
 After that dwell,
 the existing optimistic Inbox projection updates before the server write settles;
 failed writes retain the existing rollback and reconciliation path.
-Web freezes each main or Thread **New messages** divider at the first Core
-unread target observed for that visit and uses Core's complete unread count for
-the navigation shortcut. Shortcut dismissal records the current server summary
-cutoff locally; it hides that batch without acknowledging it and does not depend
-on viewport geometry. Thread targets open the exact reply instead of treating
-the root message as the destination.
+Web captures each main or Thread **New messages** divider from the first ready
+Core unread snapshot for that visit, including an empty snapshot. Arrivals during
+that visit never introduce a new divider. Clearing the entry batch removes its
+divider without establishing another. A new visit or explicit unread navigation
+identity captures a fresh boundary. The unread shortcut is hidden while a focused
+main view follows the live end and all outstanding targets belong to that main
+view. Older entry unread, scrolled-away updates, and Thread targets remain
+discoverable. This presentation rule does not acknowledge anything; the visible
+message observer and explicit user actions still own read receipts.
+Thread targets open the exact reply instead of treating the root message as the
+destination. One-to-one DMs omit redundant reply quotations; ordinary Spaces and
+multi-participant conversations retain them.
 
 When the main conversation has unread targets, the existing latest-message
 control is also the explicit catch-up action. Web first reads a fresh Core Space

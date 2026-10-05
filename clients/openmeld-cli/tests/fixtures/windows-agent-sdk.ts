@@ -57,6 +57,8 @@ for await (const line of input) {
       usage: {
         input_tokens: 1,
         output_tokens: 1,
+        output_tokens_details: { thinking_tokens: 0 },
+        fallback_credit: null,
         cache_creation_input_tokens: 0,
         cache_read_input_tokens: 0,
         cache_creation: {

@@ -406,6 +406,15 @@ The Web shell is a stable two-layer composition built from the shared
 - **`aside`** — optional right drawer inside the inset app surface (Space
   members panel).
 
+### Bot appearance preferences
+
+Appearance owns browser-local Bot avatar preferences. Fabric is the default
+material; Fabric and Plastic radio choices include matching live previews and
+apply through the shared Agent avatar presentation across the app. The existing
+animation switch keeps its storage key and disables working and interaction
+motion, including the material previews. Reduced motion takes precedence.
+These preferences do not change the Organization's saved Agent identity or shape.
+
 ### Responsive shell presentation
 
 Responsive presentation does not create a second navigation model or change

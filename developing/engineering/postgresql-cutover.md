@@ -1,20 +1,78 @@
-# PostgreSQL Cutover Preparation
+# PostgreSQL Cutover And Recovery Record
 
 ## Agent Context
 
-- Purpose: Track the executable data-migration and writer-freeze preparation before a coordinated D1 cutover.
+- Purpose: Track production cutover evidence, historical rehearsals, writer-freeze procedures and recovery boundaries.
 - Read this when: Preparing a migration rehearsal, inventorying writers, or reviewing maintenance and recovery evidence.
 - Update this when: Capture/import contracts, writer coverage, rehearsal evidence or the guarded release plan change.
 - Do not use this for: Authorization to export production data, deploy, freeze active Spaces or switch database bindings.
 - Source of truth: Native and historical journals own storage; RuntimeCoordinator owns workstation execution; the existing production release owner owns deployment and leases.
 
-## Current boundary
+## Current production state
 
-The local PostgreSQL product milestone is commit
-`6f3f178e28accaec7f00dcfa8abba8a9677abeb0` in Draft PR 1460. Its real product
+The explicitly authorized maintenance window completed the production D1 to
+Hyperdrive + PlanetScale PostgreSQL cutover on 2026-10-04. Production's sole
+shared relational authority is `amplift/openmeld-postgresql-prod`, branch `main`,
+on PostgreSQL 18. Hyperdrive `dba7d43fe644409c8e1cc24c5260f289` has query caching
+disabled. Shared staging, OpenConnector's upstream database, Space Durable Object
+storage and R2 file-body ownership were not migrated by this relational cutover.
+
+The final frozen source contained 160 tables and 360,512 rows. Import
+`93374a48-9760-4482-ab89-7e2b222c3ce9` reconciled all tables and values against
+that source, with 16 native journal entries and five identity mappings. The
+frozen export SHA-256 is
+`4776b87add5053774e13ab192ea2ca6a82999ed2c2ce060f46b07794d3ad8df3`.
+The original D1 database retains 480 write guards across those 160 tables.
+PlanetScale backup `j6lskkxwdl9p` completed successfully at 10:17:09 UTC.
+Preserve this dated evidence; later PostgreSQL product writes are not expected
+to match the frozen D1 snapshot.
+
+The guarded database receipt is `7274e1c25f1461d778a6934e2a296ca4460e4950`.
+Official CLI publication [workflow 37203295108](https://github.com/amplifthq/openmeld/actions/runs/37203295108)
+published CLI and Service 0.3.241 from
+`a2a57cb3fd04b2555575b60ace25a6d6dca315a4`. Final Core source
+`585184c808cf88810acd332eef7b366883d08cfa` is deployed as version
+`204fd036-4f16-4e99-b7ec-0b5fa212d7e4`, with verified receipt
+`1f311a527f036ee3fcc9493a9702abd23f8b986d`.
+The maintenance ingress rule was disabled, both Queue consumers resumed, and
+normal Auth/Core schedules were restored. The 13:07 UTC readback confirmed
+empty Queue backlogs and the expected production bindings and deployment identities.
+
+Production acceptance includes authenticated Web reads, CLI and installed
+Service 0.3.241, My Files and Space Files upload/download integrity, and a native
+Agent reply that appeared in Inbox, opened the exact reply, and retained its
+read state across reload. Those receipts do not imply external integration or
+Team Files end-to-end coverage. Follow-up Web and Desktop publication evidence
+is recorded with the corresponding Changelog entry.
+
+A separate real workstation Wake used OpenCode's `opencode/mimo-v2.6-flash-free`
+model through installed Service 0.3.241. Dispatch
+`7830f973-8e33-4184-9bf6-a02bef50e76c` produced the exact requested marker in
+reply `03ef7923-945b-4be5-8d63-5670424dad66`; the supported CLI trace links the
+local runtime, completed process, coordinator execution and published reply.
+The post-terminal head lifecycle was unavailable, so this receipt does not
+prove a live in-flight head read.
+
+Production UI acceptance also observed a recovered initial load stall. A bounded
+13:25–13:38 UTC Core/Auth log query found successful ordinary Auth and Inbox RPCs
+taking about 10–12 seconds, without error-level logs in that sample. The latency
+root cause and its resolution remain unproved; runtime-report durations are not
+database-query durations. This occurrence is retained separately from functional
+acceptance and was not used to justify another deployment or capacity change.
+
+PostgreSQL has accepted new business writes. Do not rerun import or frozen-D1
+reconciliation against live product state, remove the D1 fence, or point readers
+and writers back to D1. Recovery now requires a fresh freeze and preservation of
+new PostgreSQL writes, including matching DO/R2 effects, or a forward fix.
+Resource deletion and shared-staging migration require separate authorization.
+
+## Historical preparation boundary
+
+The local PostgreSQL product milestone was commit
+`6f3f178e28accaec7f00dcfa8abba8a9677abeb0` while PR 1460 was a draft. Its real product
 evidence and unresolved Worker-pool limitation are in
 [the PostgreSQL workflow](postgresql.md#pre-cutover-preparation-status).
-Current work prepares a later maintenance window while production Spaces keep
+That work prepared a later maintenance window while production Spaces kept
 running on D1. There is no production data export, writer freeze, product
 deployment or database cutover authorization here.
 
@@ -466,8 +524,11 @@ mutations or a replacement for the existing release entrypoint.
 These commands are for the separately authorized window and have not run against
 production. Use the exact reviewed clean candidate, existing release credentials
 and local release leases, one operator, and a private evidence directory. Hosted
-Auth/Core/CLI releases remain blocked until they support the same maintenance
-admission. Do not add business
+Auth/Core/database releases remain blocked. After the local cutover and Cron
+restoration, the existing hosted CLI workflow can publish only against verified
+Database/Auth/Core receipts for the same native database contract and matching
+live deployments and Hyperdrive configuration. It neither performs a migration
+nor receives private capture data or migration credentials. Do not add business
 data to the repository. The data CLI resolves the fixed Amplift database/branch
 and migration role from `resources.json`, verifies live PlanetScale IDs and reads
 the scoped Doppler migration credential. Cloudflare reads require
@@ -551,7 +612,8 @@ The data bridge, local migrated product paths and isolated Worker → Hyperdrive
 PlanetScale business-owner checks above have passed. They do not prove a full
 cloud product deployment or the shutdown of a legacy D1 source. Review exact
 targets, bindings, credential scope and commands before newly required cloud
-operations; production and shared staging remain outside this preparation.
+operations. At the time of those preparation receipts, production and shared
+staging were outside their scope; the later production window is recorded above.
 
 Final acceptance covers one stable candidate's necessary database/contracts
 and main product paths, the manual runbook and unresolved evidence. Data,

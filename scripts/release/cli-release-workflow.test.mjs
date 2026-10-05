@@ -246,15 +246,15 @@ test("blocks CLI and Core publication while Production D1 migrations are pending
   assert.ok(databaseGate < publish);
   assert.ok(
     source.includes(
-      'node ../release-control/scripts/release/require-production-db-current.mjs --release-source "$PWD"'
+      'node ../release-control/scripts/release/require-production-db-current.mjs --release-source "$PWD" --hosted-cli'
     )
   );
 });
 
-test("allows CLI/Core publication only from unambiguous no-pending migration evidence", () => {
+test("allows CLI/Core publication only from unambiguous no-pending migration evidence", async () => {
   const commands = [];
   assert.deepEqual(
-    requireProductionDatabaseCurrent({
+    await requireProductionDatabaseCurrent({
       cwd: "/release-source",
       runCommand: (command) => {
         commands.push(command);
@@ -293,8 +293,8 @@ test("allows CLI/Core publication only from unambiguous no-pending migration evi
   ]);
 });
 
-test("fails closed when the migration probe contradicts itself", () => {
-  assert.throws(
+test("fails closed when the migration probe contradicts itself", async () => {
+  await assert.rejects(
     () =>
       requireProductionDatabaseCurrent({
         cwd: "/release-source",
@@ -309,7 +309,7 @@ test("fails closed when the migration probe contradicts itself", () => {
   );
 });
 
-test("native PostgreSQL publication requires its journal and runtime grant evidence without probing D1", () => {
+test("native PostgreSQL publication requires its journal and runtime grant evidence without probing D1", async () => {
   const cwd = mkdtempSync(path.join(tmpdir(), "pg-release-source-"));
   mkdirSync(path.join(cwd, "release"));
   writeFileSync(
@@ -339,7 +339,7 @@ test("native PostgreSQL publication requires its journal and runtime grant evide
       },
     });
   try {
-    assert.equal(probe().status, "current");
+    assert.equal((await probe()).status, "current");
     for (const failure of [
       { status: 1, stderr: "Native journal checksum differs" },
       {
@@ -353,15 +353,15 @@ test("native PostgreSQL publication requires its journal and runtime grant evide
       },
     ]) {
       result = failure;
-      assert.throws(probe, NATIVE_DATABASE_PROBE_ERROR);
+      await assert.rejects(probe, NATIVE_DATABASE_PROBE_ERROR);
     }
   } finally {
     rmSync(cwd, { recursive: true, force: true });
   }
 });
 
-test("fails closed when migration evidence contradicts across output streams", () => {
-  assert.throws(
+test("fails closed when migration evidence contradicts across output streams", async () => {
+  await assert.rejects(
     () =>
       requireProductionDatabaseCurrent({
         cwd: "/release-source",
@@ -375,8 +375,8 @@ test("fails closed when migration evidence contradicts across output streams", (
   );
 });
 
-test("blocks CLI/Core publication when Production D1 is behind", () => {
-  assert.throws(
+test("blocks CLI/Core publication when Production D1 is behind", async () => {
+  await assert.rejects(
     () =>
       requireProductionDatabaseCurrent({
         cwd: "/release-source",
@@ -390,8 +390,8 @@ test("blocks CLI/Core publication when Production D1 is behind", () => {
   );
 });
 
-test("fails closed when the migration probe itself fails", () => {
-  assert.throws(
+test("fails closed when the migration probe itself fails", async () => {
+  await assert.rejects(
     () =>
       requireProductionDatabaseCurrent({
         cwd: "/release-source",
@@ -405,12 +405,12 @@ test("fails closed when the migration probe itself fails", () => {
   );
 });
 
-test("fails closed when a successful migration probe has no decisive evidence", () => {
+test("fails closed when a successful migration probe has no decisive evidence", async () => {
   for (const stdout of [
     "",
     "Wrangler completed without a migration summary.\n",
   ]) {
-    assert.throws(
+    await assert.rejects(
       () =>
         requireProductionDatabaseCurrent({
           cwd: "/release-source",

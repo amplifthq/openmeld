@@ -1,16 +1,21 @@
 import { env as workerEnv } from "cloudflare:workers";
 import { executePluginRuntime } from "../connectors/plugin-runtime";
+import type { AgentComputerNamespace } from "../flue-adapter/agent-computer-workspace-access";
+import { personalComputerProviderName } from "../flue-adapter/computer-identity";
+import type { AgentComputer } from "../flue-adapter/computer-workspace";
 
 // biome-ignore lint/performance/noBarrelFile: Native browser code execution uses a Durable Object facet.
 export { CodemodeRuntime } from "@cloudflare/codemode";
-// The Center Agent's computer: org-level durable workspace DO, the
+// Account-owned personal Computers, the
 // loopback WorkerEntrypoint its worker-shell isolate dials back through,
-// and the WorkspaceProxy that carries the container's /ws egress home.
+// and the WorkspaceProxy that carries the container's /api egress home.
 export { WorkspaceProxy, WorkspaceServiceProxy } from "@cloudflare/computer";
 export { ComputerPreviewOutbound } from "../flue-adapter/computer-preview";
 export { AgentComputer } from "../flue-adapter/computer-workspace";
 
 import {
+  cloudComputerOperationResultSchema,
+  cloudComputerWorkerRequestSchema,
   remoteAgentWorkerCancellationRequestSchema,
   remoteAgentWorkerExecutionInputQuerySchema,
   remoteAgentWorkerExecutionInputRequestSchema,
@@ -43,6 +48,16 @@ import {
 const env = workerEnv as unknown as CloudflareBindings;
 
 export default {
+  async cloudComputerOperation(value: unknown) {
+    const request = cloudComputerWorkerRequestSchema.parse(value);
+    const namespace = env.AGENT_COMPUTER as AgentComputerNamespace;
+    const stub = namespace.get(
+      namespace.idFromName(personalComputerProviderName(request.computer.id))
+    ) as DurableObjectStub<AgentComputer>;
+    return cloudComputerOperationResultSchema.parse(
+      await stub.computerOperation(request.operation)
+    );
+  },
   readSubmitTurnCapabilities(input: unknown) {
     const request =
       remoteAgentWorkerSubmitCapabilitiesRequestSchema.safeParse(input);
