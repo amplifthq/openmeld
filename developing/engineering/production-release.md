@@ -192,6 +192,16 @@ Read-only GitHub history requests retry a failed page at most twice for HTTP
 permissions failures and malformed collections remain incomplete evidence and
 fail closed; no mutation receives this retry policy.
 
+The reader merges validated local receipts before inspecting hosted jobs, using
+the same completion-time source selector for both lanes. A successful,
+non-conflicting receipt can bound job history only when every component has a
+known successful baseline. Completed runs strictly older than that bound need
+no job or checkout-log query. Active runs, missing update times and updates at
+or after the bound remain inspected. Failed, started, applied, conflicting or
+legacy unverified local records do not provide this cutoff and remain visible.
+Workflow-listing failures still block admission, including when local receipts
+are available; this bound does not turn an unreadable newer history into success.
+
 In GitHub Actions, the status reader uses the step's `GH_TOKEN` with the
 workflow repository and server identity to read private Git receipt refs.
 The existing trusted HTTPS helper supplies credentials only to those Git
@@ -556,6 +566,26 @@ Gateway, Web, then CLI. This installs strict Remote Agent RPC receivers before
 Core callers and keeps a selected CLI unpublished until every cloud receiver is
 ready. Shared schemas and Core's native-delivery service are intentionally not
 directional path signals because they carry contracts in both directions.
+
+Personal cloud Computer has the opposite capability direction: its Remote
+Agent requires Core's account Computer identity response. The planner selects
+`personal-cloud-computer-receivers-first` only after comparing the actual
+component receipt baseline with the candidate. Existing native request schemas,
+Core request producers and strict Remote receivers must be unchanged; the two
+changed Remote entry owners may contain only the reviewed additive Computer RPC
+and hosted Computer initialization changes. Missing history or any other owner
+change blocks this classification. This proof removes only the misleading
+Remote-first path signal; it is not a release override.
+
+The guarded stages are Database/Auth, Core, Remote Agent/Gateway/Web, then CLI.
+Database must precede Core's new table reads. Remote's stage requires a verified
+Core receiver, and Gateway's new public route waits for Remote's Computer RPC.
+The early Core stage keeps the currently published CLI projection. CLI
+publication waits for Database, Auth, Core, Remote and Gateway receipts; hosted
+CLI also checks the exact PostgreSQL schema/journal contract in Database, Auth
+and Core receipts. Web may share the third stage and does not create a new
+Computer protocol dependency. Declare the same complete train at every stage;
+do not use a different base or a raw deploy to evade a pending receiver.
 
 Remote AI usage adds the opposite dependency: Core's `recordRemoteAiUsage`
 receiver precedes its Remote producer when the shared AI usage schema or Remote

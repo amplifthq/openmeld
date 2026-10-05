@@ -1,4 +1,3 @@
-import type { WorkspaceClient } from "@cloudflare/computer";
 import { centerAgentOrganizationDocumentsComputerSnapshotResponseSchema } from "@openmeld/schemas";
 import type { CenterAgentOrganizationDocumentsComputerSnapshotResponse } from "@openmeld/schemas/types";
 
@@ -54,17 +53,6 @@ export function prepareOrganizationDocumentsComputerSnapshot(
     organizationId: snapshot.organizationId,
     revision: snapshot.revision,
   };
-}
-
-export async function clearLegacyOrganizationDocumentsComputerProjection(
-  workspace: Pick<WorkspaceClient, "fs">
-): Promise<void> {
-  // The pinned Computer VFS removes a subtree synchronously. No chmod/mkdir
-  // sequence can race another turn; force makes an already-retired root safe.
-  await workspace.fs.rm(ORGANIZATION_DOCUMENTS_COMPUTER_ROOT, {
-    force: true,
-    recursive: true,
-  });
 }
 
 function buildFolderPaths(

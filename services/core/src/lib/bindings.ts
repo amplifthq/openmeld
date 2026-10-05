@@ -131,6 +131,7 @@ type CoreAuthDispatchBindingRpc = {
   ): Promise<AuthRpcResolveProfilesByIdsResult>;
 };
 export type RemoteAgentWorkerBindingRpc = {
+  cloudComputerOperation?(input: unknown): Promise<unknown>;
   generateCenterAgentSessionTitle?(
     input: import("@openmeld/schemas/types").GenerateCenterAgentSessionTitleInput
   ): Promise<

@@ -11,7 +11,10 @@ import { CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
 import publishedManifest from "../../../release/local-components.json";
 import { createAgentExecutionReadinessReads } from "../src/agent-execution/application/agent-execution-readiness-reads";
-import { resolveCoreAgentExecutionReadinessForProfile } from "../src/agent-execution/application/agent-execution-readiness-service";
+import {
+  preloadRuntimeDeviceDisplayNamesForOwner,
+  resolveCoreAgentExecutionReadinessForProfile,
+} from "../src/agent-execution/application/agent-execution-readiness-service";
 import { writeAcceptedAgentExecutionReadinessImpact } from "../src/agent-execution/infrastructure/postgresql/agent-execution-readiness-impact-repo";
 import {
   clearProviderAccessFailureEvidenceForExecutionSuccess,
@@ -26,6 +29,7 @@ import { createAvailableCodexAgentControllerInterface } from "./helpers/agent-co
 import {
   createFaultInjectingPostgresDatabase,
   createPostgresHarness,
+  observeNativePostgresQueries,
   postgresTestBinding,
 } from "./helpers/postgresql-harness.test-support";
 
@@ -221,6 +225,21 @@ describe("agent execution readiness through the PostgreSQL binding", () => {
       );
       expect(queryCount).toHaveBeenCalledTimes(5);
       queryCount.mockRestore();
+      const displayQueries = observeNativePostgresQueries(vi.fn());
+      try {
+        expect(
+          await preloadRuntimeDeviceDisplayNamesForOwner({
+            env: {
+              OPENMELD_POSTGRESQL: postgresTestBinding(harness.db),
+            } as CoreBindings,
+            ownerUserId: OWNER_USER_ID,
+            targets: [],
+          })
+        ).toEqual(new Map());
+        expect(displayQueries).not.toHaveBeenCalled();
+      } finally {
+        displayQueries.mockRestore();
+      }
       for (const [index, result] of results.entries()) {
         expect(result.binding?.bindingId).toBe(identityAt(index).bindingId);
         expect(result.context).toMatchObject({

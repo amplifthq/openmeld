@@ -145,7 +145,7 @@ export function getComputerSpaceFileTools(input: {
     {
       name: "openmeld_upload_computer_file",
       description:
-        "Publish one selected file from your current working directory to this Space's Files and attach it to your final reply. Supports files up to 1 GiB. Specify the correct mimeType and a stable clientMutationId; reuse that ID only when retrying the exact same upload. This creates a file, not an overwrite. Never publish unrelated private files.",
+        "Publish one explicitly selected file from this personal Computer to this Space's Files and attach it to your final reply. Relative paths start in the current task directory; absolute paths can select other files under /computer. Supports files up to 1 GiB. Specify the correct mimeType and a stable clientMutationId; reuse that ID only when retrying the exact same upload. This creates a file, not an overwrite. Check that the task and destination audience justify sharing this file.",
       input: uploadInput,
       execute: async (rawInput) => {
         const request = parse(uploadInput, rawInput);

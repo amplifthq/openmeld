@@ -133,7 +133,7 @@ describe("message-state", () => {
 
 		expect(presentation).toBe("agent_streaming");
 		expect(resolveSpaceMessageDeliveryStatusText(presentation)).toBe(
-			"Thinking…"
+			"Working…"
 		);
 	});
 

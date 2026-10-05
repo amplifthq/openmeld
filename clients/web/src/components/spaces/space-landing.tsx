@@ -2250,8 +2250,13 @@ function SpaceLandingConversation({
 	if (agentOwnerDirectMessageObserver) {
 		readOnlyComposerPlaceholder =
 			agentOwnerDirectMessageObserver.composerPlaceholder;
-	} else if (controller.isCurrentAccessConfirmed) {
+	} else if (
+		controller.isCurrentAccessConfirmed &&
+		controller.currentProfileMembershipState === "nonmember"
+	) {
 		readOnlyComposerPlaceholder = `Join as ${currentProfileName ?? "your profile"} to participate in this Space.`;
+	} else if (controller.currentProfileMembershipState === "unknown") {
+		readOnlyComposerPlaceholder = "Loading conversation…";
 	}
 	return (
 		<SpaceConversationPanel

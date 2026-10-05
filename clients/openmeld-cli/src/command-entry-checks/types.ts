@@ -123,6 +123,7 @@ export type CommandEntryName =
   | "agents.custom.remove"
   | "agents.config"
   | "computer.list"
+  | "computer.cloud"
   | "computer.current"
   | "computer.rename"
   | "computer.disconnect"

@@ -16,10 +16,11 @@ export function resolveAgentAvatarIdentity(profile: {
 	isCenterAgent?: boolean;
 	modelId?: string | null;
 }) {
-	const style = profile.avatarStyle ?? "automatic";
 	const center =
 		profile.agentControllerRef === HOSTED_CENTER_AGENT_CONTROLLER_REF ||
 		profile.isCenterAgent === true;
+	const savedStyle = profile.avatarStyle ?? "automatic";
+	const style = center && savedStyle === "automatic" ? "clover" : savedStyle;
 	const controller = parseAgentControllerRef(profile.agentControllerRef);
 	const remote = controller?.kind === HOSTED_REMOTE_AGENT_CONTROLLER_REF;
 	const brand =

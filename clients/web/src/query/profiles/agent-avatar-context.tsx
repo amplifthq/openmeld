@@ -7,6 +7,7 @@ import {
 	useEffect,
 	useMemo,
 } from "react";
+import { centerAgentDesignationQueryOptions } from "#/query/organizations/center-agent";
 import { organizationProfileDirectoryQueryOptions } from "#/query/organizations/organization-directory";
 import {
 	type AgentAvatarInvalidationScope,
@@ -18,6 +19,9 @@ type AvatarProfile =
 const AgentAvatarProfilesContext = createContext<
 	ReadonlyMap<string, AvatarProfile>
 >(new Map());
+const CenterAgentAvatarProfileContext = createContext<
+	AvatarProfile | undefined
+>(undefined);
 const AgentAvatarInvalidationScopeContext = createContext<
 	AgentAvatarInvalidationScope | undefined
 >(undefined);
@@ -60,13 +64,29 @@ export function AgentAvatarProfilesProvider(
 			),
 		[directory?.agentProfiles]
 	);
+	const designation = useQuery(
+		centerAgentDesignationQueryOptions({
+			enabled: true,
+			organizationId: input.organizationId,
+		})
+	).data?.designation;
 	return (
 		<AgentAvatarInvalidationScopeContext.Provider value={invalidationScope}>
 			<AgentAvatarProfilesContext.Provider value={profiles}>
-				{input.children}
+				<CenterAgentAvatarProfileContext.Provider
+					value={
+						designation ? profiles.get(designation.agentProfileId) : undefined
+					}
+				>
+					{input.children}
+				</CenterAgentAvatarProfileContext.Provider>
 			</AgentAvatarProfilesContext.Provider>
 		</AgentAvatarInvalidationScopeContext.Provider>
 	);
+}
+
+export function useCenterAgentAvatarProfile() {
+	return use(CenterAgentAvatarProfileContext);
 }
 
 export function useAgentAvatarInvalidationScope() {

@@ -3,6 +3,7 @@ import type {
   WorkspaceClient,
   WorkspaceRuntimeExecHandle,
 } from "@cloudflare/computer";
+import { cloudComputerCleanupResultSchema } from "@openmeld/schemas";
 import {
   integer,
   literal,
@@ -33,6 +34,39 @@ import { resolveRemoteAgentComputerName } from "./computer-identity";
 import { AGENT_COMPUTER_CONTAINER_BACKEND_ID } from "./computer-workspace";
 
 const PREFIX = "openmeld:remote-agent:computer-command:";
+const COMPUTER_TARGET_PREFIX = "openmeld:computer-target:";
+
+export async function bindComputerCommandTarget(input: {
+  storage: RemoteAgentStorage;
+  submissionId: string;
+  computerName: string;
+}) {
+  const key = `${COMPUTER_TARGET_PREFIX}${input.submissionId}`;
+  await input.storage.putIfAbsent(key, input.computerName);
+  if ((await input.storage.get(key)) !== input.computerName) {
+    throw new Error("computer.task_target_changed");
+  }
+}
+
+async function readComputerTarget(input: {
+  context: Pick<RemoteAgentCallbackContext, "submissionId">;
+  storage: RemoteAgentStorage;
+  env?: { AGENT_COMPUTER?: unknown };
+}) {
+  const name = await input.storage.get<string>(
+    `${COMPUTER_TARGET_PREFIX}${input.context.submissionId}`
+  );
+  if (!name) {
+    return null;
+  }
+  if (!input.env?.AGENT_COMPUTER) {
+    throw new Error("computer.binding_unavailable");
+  }
+  const namespace = input.env.AGENT_COMPUTER as AgentComputerNamespace;
+  return namespace.get(namespace.idFromName(name)) as DurableObjectStub<
+    import("./computer-workspace").AgentComputer
+  >;
+}
 const MAX_OUTPUT_CHARS = 50_000;
 const commandSchema = variant("action", [
   strictObject({
@@ -112,10 +146,11 @@ function commandPrefix(submissionId: string): string {
 }
 
 export function createComputerCommandTool(input: {
-  context: RemoteAgentCallbackContext;
+  context: Pick<RemoteAgentCallbackContext, "submissionId">;
   storage: RemoteAgentStorage;
   workspaceAccess: AgentComputerWorkspaceAccess;
   workingDirectory: string;
+  assertCanStart?: () => Promise<void>;
 }): RemoteAgentToolDefinition {
   const prefix = commandPrefix(input.context.submissionId);
   const read = async (key: string) => {
@@ -143,6 +178,7 @@ export function createComputerCommandTool(input: {
         ].map(({ key, id, createdAt }) => ({ key, id, createdAt }));
       }
       if (request.action === "start") {
+        await input.assertCanStart?.();
         const key = `${prefix}${encodeURIComponent(request.key)}`;
         const fingerprint = Array.from(
           new Uint8Array(
@@ -194,6 +230,7 @@ export function createComputerCommandTool(input: {
           }
           // Persist identity before dispatch. An uncertain spawn must be inspected,
           // never replayed: even a missing retained handle cannot prove no effect.
+          await input.assertCanStart?.();
           const handle = await workspace.runtime.exec(
             buildComputerCommandProcess(request.command),
             {
@@ -468,9 +505,14 @@ export async function readCommandSlice(
 }
 
 export async function listPendingRemoteAgentComputerCommands(input: {
-  context: RemoteAgentCallbackContext;
+  context: Pick<RemoteAgentCallbackContext, "submissionId">;
   storage: RemoteAgentStorage;
+  env?: { AGENT_COMPUTER?: unknown };
 }): Promise<string[]> {
+  const target = await readComputerTarget(input);
+  if (target) {
+    return await target.pendingComputerCommands(input.context.submissionId);
+  }
   const commands = await input.storage.list<Command>({
     prefix: commandPrefix(input.context.submissionId),
   });
@@ -487,19 +529,42 @@ export async function stopRemoteAgentComputerCommands(input: {
   env: { AGENT_COMPUTER?: unknown };
   storage: RemoteAgentStorage;
 }): Promise<{ unfinished: number; lostDuringCleanup: boolean }> {
+  const target = await readComputerTarget(input);
+  if (target) {
+    return cloudComputerCleanupResultSchema.parse(
+      await target.stopComputerCommands(input.context.submissionId)
+    );
+  }
+  if (input.context.computerIsolationVersion === 3) {
+    // Current invocations bind their target before any Computer operation.
+    // Ownerless/no-Computer turns therefore have nothing to clean up.
+    return { unfinished: 0, lostDuringCleanup: false };
+  }
+  const namespace = input.env.AGENT_COMPUTER as AgentComputerNamespace;
+  return await stopStoredComputerCommands({
+    ...input,
+    access: () =>
+      createAgentComputerWorkspaceAccess({
+        namespace,
+        computerId: namespace.idFromName(
+          resolveRemoteAgentComputerName(input.context)
+        ),
+      }),
+  });
+}
+
+export async function stopStoredComputerCommands(input: {
+  context: Pick<RemoteAgentCallbackContext, "submissionId">;
+  storage: RemoteAgentStorage;
+  access: (command: Command) => AgentComputerWorkspaceAccess;
+  reportConfirmedLoss?: boolean;
+}): Promise<{ unfinished: number; lostDuringCleanup: boolean }> {
   const commands = await input.storage.list<Command>({
     prefix: commandPrefix(input.context.submissionId),
   });
   if (commands.size === 0) {
     return { unfinished: 0, lostDuringCleanup: false };
   }
-  const namespace = input.env.AGENT_COMPUTER as AgentComputerNamespace;
-  const access = createAgentComputerWorkspaceAccess({
-    namespace,
-    computerId: namespace.idFromName(
-      resolveRemoteAgentComputerName(input.context)
-    ),
-  });
   let unfinished = 0;
   let lostDuringCleanup = 0;
   const previouslyLost = [...commands.values()].some(
@@ -519,7 +584,7 @@ export async function stopRemoteAgentComputerCommands(input: {
     }
     try {
       unfinished += await stopAndRecordComputerCommand({
-        access,
+        access: input.access(command),
         command,
         context: input.context,
         storage: input.storage,
@@ -533,6 +598,9 @@ export async function stopRemoteAgentComputerCommands(input: {
   }
   if (failures.length > 0) {
     if (lostDuringCleanup === failures.length) {
+      if (input.reportConfirmedLoss) {
+        return { unfinished, lostDuringCleanup: true };
+      }
       throw new ConfirmedLostComputerCommandsError(failures);
     }
     throw new AggregateError(failures, "Computer command cleanup failed.");
@@ -543,7 +611,7 @@ export async function stopRemoteAgentComputerCommands(input: {
 async function stopAndRecordComputerCommand(input: {
   access: AgentComputerWorkspaceAccess;
   command: Command;
-  context: RemoteAgentCallbackContext;
+  context: Pick<RemoteAgentCallbackContext, "submissionId">;
   storage: RemoteAgentStorage;
 }): Promise<number> {
   const key = `${commandPrefix(input.context.submissionId)}${encodeURIComponent(input.command.key)}`;

@@ -6730,23 +6730,24 @@ async function resolveOrganizationAgentReadinessByProfileId(input: {
     ORGANIZATION_AGENT_RUNTIME_OWNER_CONCURRENCY,
     async ([ownerUserId, profiles]) => {
       const db = getPostgresDatabase(input.env);
-      if (db && ownerUserId) {
-        await reads
-          .preloadPrimaryBindings({
-            db,
-            nowMs: Date.parse(input.generatedAt),
-            owner: { id: ownerUserId, kind: "owner_account" },
-            profileIds: profiles.map((profile) => profile.profileId),
-          })
-          .catch((error) => {
-            // Preserve the per-Profile readiness owner's unavailable outcome.
-            // An optional batch preload must not fail the entire Team directory.
-            console.warn("[core.organization.readiness_preload_failed]", {
-              ownerUserId,
-              error,
-            });
-          });
-      }
+      const readinessPreload =
+        db && ownerUserId
+          ? reads
+              .preloadPrimaryBindings({
+                db,
+                nowMs: Date.parse(input.generatedAt),
+                owner: { id: ownerUserId, kind: "owner_account" },
+                profileIds: profiles.map((profile) => profile.profileId),
+              })
+              .catch((error) => {
+                // Preserve the per-Profile readiness owner's unavailable outcome.
+                // An optional batch preload must not fail the entire Team directory.
+                console.warn("[core.organization.readiness_preload_failed]", {
+                  ownerUserId,
+                  error,
+                });
+              })
+          : null;
       const [preloadedRoutes, preloadedOwnerService] = ownerUserId
         ? await Promise.all([
             lookupRuntimeTransportRoutesBatch({
@@ -6777,6 +6778,7 @@ async function resolveOrganizationAgentReadinessByProfileId(input: {
               targets: onlineTargets,
             })
           : null;
+      await readinessPreload;
       return await mapWithConcurrency(
         profiles,
         ORGANIZATION_AGENT_RUNTIME_PROFILE_CONCURRENCY,
@@ -24424,7 +24426,7 @@ function assertWritableRpcSpaceAccess(input: CoreRpcSpaceAccessInput): void {
     requireWritableSpaceActor(input.spaceAccess);
   }
 }
-function requireAuthenticatedOwnerUserId(
+export function requireAuthenticatedOwnerUserId(
   context?: CoreRpcContextInput
 ): string {
   const requestContext = requireRpcContext(context);
