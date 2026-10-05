@@ -689,14 +689,55 @@ describe("organization Core RPC", () => {
         },
       ],
     });
-
-    const response = await rpcGetCurrentOrganizationAgentRuntimeOverview(env, {
+    // A slow database preload must not delay independent Runtime Transport
+    // reads. Hold the native Binding query without replacing its SQL behavior.
+    let releaseBindingRead: () => void = () => undefined;
+    const bindingReadGate = new Promise<void>((resolve) => {
+      releaseBindingRead = resolve;
+    });
+    let markBindingReadStarted: () => void = () => undefined;
+    const bindingReadStarted = new Promise<void>((resolve) => {
+      markBindingReadStarted = resolve;
+    });
+    const fixture = organizationFixture(env);
+    organizationPostgresObservers.set(
+      fixture.binding,
+      observePostgresDatabase(fixture.db, (query) => {
+        if (
+          query.text.includes(
+            'FROM "openmeld"."openMeldDaemon_agent_profile_bindings"'
+          )
+        ) {
+          markBindingReadStarted();
+          return bindingReadGate;
+        }
+      })
+    );
+    const overview = rpcGetCurrentOrganizationAgentRuntimeOverview(env, {
       includeUsageLimits,
       context: buildContext({
         activeOrganizationId: "org-a",
         userId: "user-a",
       }),
     });
+    let response: Awaited<typeof overview>;
+    try {
+      await Promise.race([
+        bindingReadStarted,
+        overview.then(() => {
+          throw new Error("The expected native Binding preload did not start.");
+        }),
+      ]);
+      expect(lookupRoutes).toHaveBeenCalledOnce();
+      expect(lookupOwnerService).toHaveBeenCalledOnce();
+    } finally {
+      releaseBindingRead();
+      try {
+        response = await overview;
+      } finally {
+        organizationPostgresObservers.set(fixture.binding, fixture.db);
+      }
+    }
 
     expect(response.agentProfiles.map((profile) => profile.profileId)).toEqual([
       AGENT_PROFILE_ID,

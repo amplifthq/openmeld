@@ -15,73 +15,30 @@
 
 ## Merge and Release Task
 
-Use this path for one PR or a compatible batch. If already merged, recover the
-pre-merge `main` commit and final product SHA, then start at step 3. Keep one
-compact record of what remains; follow the linked sections only for the
-branches used.
+For one PR or a compatible batch:
 
-1. Identify the requested PRs, their dependency order, and the `main` commit
-   before the first merge. For compatible ready changes, use [one integrated
-   Final Candidate](#final-candidate) instead of repeating the same broad checks
-   on each leaf. For a batch crossing release scopes, run
-   `pnpm run release:plan -- --base <pre-merge-sha>` on the integrated candidate
-   to inspect the changed paths and deployment order without scanning hosted
-   history. Decide intended versions for artifacts in scope. Stable local-component
-   source, its compatibility floor, and its stamp may share one PR and one Final
-   Candidate. A separate release PR is useful when the product change already
-   merged. Restamp after any later source change.
-   Resolve Core/Service version-floor changes and the
-   [Windows helper source](production-release.md#cli-release) before paying for
-   the final candidate or stamping a release manifest.
-   Branch names do not grant release permission; the actual
-   manifest diff selects strict artifact verification.
-2. [Merge](#merge) against current `main`. If a merge command fails or returns
-   an uncertain result, read the remote PR's `state` and `mergeCommit` before
-   retrying. Pin the integrated product SHA; a later release-only version
-   commit has its own publication SHA. Keep unrelated newer commits outside
-   this release.
-3. For a multi-scope batch or an unknown deployment backlog, run
-   `pnpm run release:status -- --ref <product-sha> --change-base <pre-merge-sha>`
-   once for the initial plan. When the next release scope is already known, go
-   straight to its guarded preflight: it reads the same deployment history and
-   checks that scope's prerequisites. Do not run a separate global status scan
-   before it. Guarded release commands recheck before publication.
-   Do not repeat the full history scan after each stage; use that stage's
-   workflow result, release receipt, and health evidence to track completion.
-   When every planned stage has those receipts, do not rescan solely to close
-   the task; rescan for missing, changed, or conflicting evidence.
-   If unrelated commits landed between separate merges, plan those ranges
-   separately instead of attributing them to this batch.
-   It covers Database, cloud, and CLI; read current-change scopes separately
-   from historical backlog. [Assess Desktop](production-release.md#desktop-release-coverage)
-   for the same range, and [assess OpenConnector](production-release.md#openconnector-release)
-   when that external source or its production configuration is in the batch.
-   A zero pending-scope result does not close these separate rows. Resolve the
-   Desktop platforms, signed release versus internal preview, and available
-   native build environment before starting those builds, using the Desktop
-   owner rules. This is lane selection, not an extra approval. Once the
-   exact source is pinned, start independent native artifact builds while cloud
-   stages run; promotion still waits for its own provenance and dependencies.
-4. [Release](#release) each affected component through its owner workflow,
-   respecting the planner's dependency order. If Core is selected and shared
-   schema or Service inputs changed, run the read-only
-   `pnpm release:local-components plan --next` before launching a multi-scope
-   workflow that includes Core. Choose the supported Core/CLI path from that
-   result, including receiver-first deployment with the current CLI projection
-   when needed. This avoids discovering an unstamped Service only after earlier
-   cloud stages have completed. Independent builds and deploys can still run
-   alongside release preparation once their source and lane are known.
-   Use one low-frequency workflow wait; read logs when
-   state changes or fails instead of polling unchanged output. Record each
-   component and supported Desktop platform as
-   released, pending, excluded with a concrete
-   reason, or unknown when evidence cannot be read. Promotion and [installed
-   A-to-B acceptance](../clients/desktop.md#installed-a-to-b-release-acceptance)
-   are separate Desktop states.
-5. Finish with [health and the smallest real-user smoke](#health-and-real-user-smoke)
-   for changed paths. Report the product and any release-only source SHA,
-   component evidence, pending acceptance, and unknowns. A published component
-   does not complete the batch while another affected row is unresolved.
+1. Stabilize the scope and run focused checks. Use one integrated
+   [Final Candidate](#final-candidate) for compatible changes. Pin the pre-merge
+   base and the final product SHA.
+2. [Merge](#merge) against current main. If a merge result is uncertain, read the
+   remote PR state before retrying.
+3. Plan the affected release scopes once. For an unknown backlog, run
+   `pnpm release:status -- --ref <product-sha> --change-base <pre-merge-sha>`.
+   For a known scope, go straight to its guarded release command. Resolve
+   local-component stamping and receiver-first ordering before starting a
+   Core/CLI release. See [production release](production-release.md) for the
+   commands and component rules.
+4. Release the pinned source in dependency order. Parallelize independent
+   stages. Follow workflow results and component receipts; inspect logs on a
+   failure or meaningful state change. Resume an interrupted release through
+   its original guarded command.
+5. Run health checks and real-user smoke for the changed paths. Report what
+   shipped, what was actually tested, and any remaining failure or uncertainty.
+
+Include Desktop or OpenConnector when the requested scope or changed behavior
+requires their own release. Their publication owners are linked from
+[production release](production-release.md). A later release-only version commit
+may carry the pinned product changes.
 
 ## Daily Workflow
 

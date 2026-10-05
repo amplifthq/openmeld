@@ -161,6 +161,24 @@ export async function acceptProviderConversationProofRecord(input: {
   }
   return resolveConcurrentProviderConversationProofWrite(input);
 }
+export async function readFreshProviderConversationProofsForBindings(input: {
+  bindingIds: readonly string[];
+  db: PostgresDatabase;
+  nowMs: number;
+}): Promise<AcceptedProviderConversationProof[]> {
+  if (input.bindingIds.length === 0) {
+    return [];
+  }
+  const result = await input.db.query<ProviderConversationProofRow>({
+    text: `SELECT * FROM "openmeld"."openMeldDaemon_provider_conversation_proofs"
+      WHERE binding_id = ANY($1::text[]) AND expires_at_ms > $2
+      ORDER BY observed_at_ms DESC NULLS LAST`,
+    values: [input.bindingIds, normalizeTimestampMs(input.nowMs)],
+  });
+  return result.rows
+    .map(mapProviderConversationProofRow)
+    .filter((proof) => proof !== null);
+}
 export async function readFreshProviderConversationProofForBinding(input: {
   agentProfileId: string;
   bindingId: string;

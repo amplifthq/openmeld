@@ -31,29 +31,33 @@ export function useSpaceUnread(input: {
 		: scopedTargets.length === 0;
 	const [boundary, setBoundary] = useState<{
 		identity: string;
-		signalId: string;
+		signalId: string | null;
 	} | null>(null);
-	const currentBoundary =
-		boundary?.identity === input.identity ? boundary.signalId : null;
-	const nextBoundary =
-		currentBoundary ??
-		(input.isReady ? (scopedTargets[0]?.signalId ?? null) : null);
+	const captured = boundary?.identity === input.identity;
+	const initialBoundary = input.isReady
+		? (scopedTargets[0]?.signalId ?? null)
+		: null;
+	const nextBoundary = captured ? boundary.signalId : initialBoundary;
 
 	useLayoutEffect(() => {
-		if (input.isReady && scopeIsEmpty) {
-			setBoundary(null);
+		if (!input.isReady || (!scopeIsEmpty && scopedTargets.length === 0)) {
 			return;
 		}
-		if (currentBoundary || !nextBoundary) {
+		if (captured) {
+			if (scopeIsEmpty && boundary.signalId !== null) {
+				setBoundary({ identity: input.identity, signalId: null });
+			}
 			return;
 		}
 		setBoundary({ identity: input.identity, signalId: nextBoundary });
 	}, [
-		currentBoundary,
+		boundary,
+		captured,
 		input.identity,
 		nextBoundary,
 		input.isReady,
 		scopeIsEmpty,
+		scopedTargets.length,
 	]);
 
 	return {

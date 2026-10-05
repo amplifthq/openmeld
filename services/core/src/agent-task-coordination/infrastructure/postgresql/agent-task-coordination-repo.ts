@@ -31,6 +31,27 @@ export type AgentTaskCompletionSubscriptionState =
   | "continuation_claimed"
   | "settled"
   | "cancelled";
+
+/** A continuation claim is durable before its next native delivery exists. */
+export async function hasUnsettledSpaceTaskContinuation(input: {
+  db: Pick<PostgresDatabase, "query">;
+  spaceId: string;
+}): Promise<boolean> {
+  const result = await input.db.query({
+    text: `SELECT 1
+      FROM "openmeld"."agent_task_completion_subscriptions" AS subscriptions
+      INNER JOIN "openmeld"."openMeldRemoteAgent_native_delivery_ledger" AS observer
+        ON observer.delivery_id = subscriptions.observer_task_handle_json::jsonb ->> 'deliveryId'
+        AND observer.organization_id = subscriptions.organization_id
+      WHERE observer.conversation_kind = 'space' AND observer.space_id = $1
+        AND subscriptions.observer_task_handle_json::jsonb ->> 'kind' = 'native_delivery'
+        AND subscriptions.continuation_json IS NOT NULL
+        AND subscriptions.state IN ('pending', 'ready', 'continuation_claimed')
+      LIMIT 1`,
+    values: [input.spaceId],
+  });
+  return result.rows.length > 0;
+}
 export class AgentControllerTaskRegistrationMissingError extends Error {
   constructor() {
     super(

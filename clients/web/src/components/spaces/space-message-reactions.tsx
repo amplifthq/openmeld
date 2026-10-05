@@ -68,7 +68,8 @@ export function resolveMessageReactionInput(
 		item.signalType !== "signal.text" ||
 		item.deliveryState !== "sent" ||
 		item.actorProfileKind === "system" ||
-		item.agentStreamState
+		item.agentStreamState ||
+		item.activeWakeProgress
 	) {
 		return undefined;
 	}

@@ -382,7 +382,7 @@ describe("SpaceThreadPanel", () => {
 			],
 		});
 		const activityTrigger = screen.getByRole("button", {
-			name: "Thinking…. Work summary: Reviewing source files…",
+			name: "Working…. Work summary: Reviewing source files…",
 		});
 		expect(activityTrigger.getAttribute("aria-expanded")).toBe("true");
 		const progressRow = activityTrigger.closest(
@@ -1740,7 +1740,7 @@ function createWakeProgressItem(input?: {
 		clientMessageId: "client-message-1",
 		dispatchId: "dispatch-1",
 		failureReasonCode: null,
-		message: "@runner · Thinking… on this computer...",
+		message: "@runner · Working… on this computer...",
 		phase: "running",
 		sourceSignalId: "sig-thread-wake",
 		targetLabel: "@runner",

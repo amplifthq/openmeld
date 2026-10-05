@@ -7,6 +7,7 @@ import {
   buildProductionReleaseImpact,
   buildProductionReleasePlan,
 } from "./production-release.mjs";
+import { RELEASE_SCOPES } from "./production-release-history.mjs";
 import {
   resolveLatestSuccessfulReleaseSources,
   runProductionReleaseStatus,
@@ -89,6 +90,65 @@ async function report(overrides = {}) {
 }
 
 const HISTORICAL_ORDER_CONFLICT = /Incompatible release dependencies/u;
+for (const scenario of [
+  "complete",
+  "listing-failure",
+  "unknown-time-jobs-failure",
+]) {
+  test(`uses verified local history bounds without hiding ${scenario}`, async () => {
+    const jobsRead = [];
+    const { code, result } = await report({
+      readLocalReleaseSources: async () =>
+        new Map(
+          RELEASE_SCOPES.map((scope) => [
+            scope,
+            {
+              sha: OLD,
+              source: "guarded-local",
+              recordedAt: "2026-09-18T12:00:00Z",
+              receipt: { status: "verified", application: "applied" },
+            },
+          ])
+        ),
+      readReleaseRuns: () => {
+        if (scenario === "listing-failure") {
+          throw new Error("workflow listing unavailable");
+        }
+        return [
+          { ...run(1), status: "completed", updatedAt: "2026-09-18T11:00:00Z" },
+          { ...run(2), status: "completed", updatedAt: "2026-09-18T13:00:00Z" },
+          {
+            ...run(3),
+            status: "in_progress",
+            updatedAt: "2026-09-18T08:00:00Z",
+          },
+          { ...run(4), status: "completed", updatedAt: undefined },
+        ];
+      },
+      readReleaseJobs: (id) => {
+        jobsRead.push(id);
+        if (
+          id === 1 ||
+          (id === 4 && scenario === "unknown-time-jobs-failure")
+        ) {
+          throw new Error("job history unavailable");
+        }
+        return id === 2 ? [job("Deploy Web", WEB, "2026-09-18T13:00:00Z")] : [];
+      },
+      buildPlan: () => ({ scopes: ["web"], changedPaths: [] }),
+    });
+    const web = result.components.find(
+      (component) => component.scope === "web"
+    );
+    assert.equal(code, scenario === "complete" ? 0 : 1);
+    assert.equal(web.state, scenario === "complete" ? "pending" : "unknown");
+    assert.equal(web.sha, scenario === "listing-failure" ? OLD : WEB);
+    assert.deepEqual(
+      jobsRead.sort(),
+      scenario === "listing-failure" ? [] : [2, 3, 4]
+    );
+  });
+}
 test("classifies verified component receipts without ordering an unrelated historical release train", async () => {
   // Captured from the actual production/merge sources. No historical Git
   // objects or network fetch are required in a shallow test checkout.
@@ -318,6 +378,11 @@ test("unverified local deployment replaces older hosted success without appearin
             recordedAt: "2026-09-18T13:00:00Z",
             source: "guarded-local",
             receipt: { status: "failed" },
+            verifiedHistoryBaseline: {
+              evidenceSha: "5".repeat(40),
+              recordedAt: "2026-09-18T12:00:00Z",
+              sha: OLD,
+            },
           },
         ],
       ]),

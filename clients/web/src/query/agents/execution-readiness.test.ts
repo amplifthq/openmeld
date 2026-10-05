@@ -245,6 +245,9 @@ describe("refreshWebAgentReadinessFacts", () => {
 
 	it("refreshes Core-owned readiness facts without notifying route catalog sync", async () => {
 		const queryClient = createTestQueryClient();
+		const identityKey =
+			organizationQueryKeys.profileIdentityDirectory("org-acme");
+		queryClient.setQueryData(identityKey, { agentProfiles: [] });
 		const invalidateQueriesSpy = vi.spyOn(queryClient, "invalidateQueries");
 
 		await refreshWebAgentReadinessAfterCoreFactsChanged({
@@ -258,8 +261,10 @@ describe("refreshWebAgentReadinessFacts", () => {
 		expect(notifyAgentExecutionReadinessRefreshMock).not.toHaveBeenCalled();
 		expect(invalidateQueriesSpy).toHaveBeenCalledWith({
 			queryKey: organizationQueryKeys.profileDirectory("org-acme"),
+			exact: true,
 			refetchType: "active",
 		});
+		expect(queryClient.getQueryState(identityKey)?.isInvalidated).toBe(false);
 		expect(invalidateQueriesSpy).toHaveBeenCalledWith(
 			expect.objectContaining({
 				queryKey: expect.arrayContaining([

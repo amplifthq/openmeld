@@ -152,18 +152,23 @@ describe("Center Agent Computer file handoff", () => {
     ]);
   });
 
-  it("rejects paths outside the current work and private sidecar files", async () => {
+  it("copies selected personal files across tasks but rejects paths outside the Computer and private sidecars", async () => {
     const handoff = createAgentComputerFileHandoff({
       workingDirectory: "/computer/tasks/task-1",
       workspace: createWorkspaceFake({
-        "/computer/tasks/other/secrets.md": "secret",
+        "/computer/home/report.md": "selected report",
         "/computer/tasks/task-1/note.md.openmeld.json": "{}",
       }),
     });
 
     await expect(
-      handoff.readTextFiles(["../other/secrets.md"])
-    ).rejects.toThrow("current Computer working directory");
+      handoff.readTextFiles(["/computer/home/report.md"])
+    ).resolves.toEqual([
+      { path: "home/report.md", content: "selected report" },
+    ]);
+    await expect(handoff.readTextFiles(["/etc/passwd"])).rejects.toThrow(
+      "path_outside_workspace"
+    );
     await expect(
       handoff.readTextFiles(["note.md.openmeld.json"])
     ).rejects.toThrow("Private Computer metadata");

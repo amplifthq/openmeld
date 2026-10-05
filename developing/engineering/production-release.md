@@ -25,55 +25,22 @@ used to invent a second merge or evidence contract.
 
 Release only what changed.
 
-The PostgreSQL candidate uses the guarded local release lane and requires frozen
-import evidence for first production promotion. Hosted Auth/Core/database releases
-and shared-staging promotion remain closed: those lanes do not carry the private
-capture and maintenance admission. After cutover and Cron restoration, the existing
-GitHub CLI workflow can publish with npm Trusted Publishing. It requires verified
-Database/Auth/Core receipts with the same native schema, journal, target and grant
-contract as the CLI source, plus matching active Worker deployments, PostgreSQL
-bindings and cache-disabled Hyperdrive. It checks before publication and again
-before Core activation. Database changes still require the guarded local lane;
-hosted CLI does not receive migration credentials or snapshots. GitHub write
-credentials remain confined to trusted Git operations. Unrelated hosted release
-targets retain their existing admission.
+Production uses PostgreSQL. Use the guarded local lane for Database, Auth and
+Core, and the GitHub CLI workflow for npm Trusted Publishing. Other hosted
+scopes remain available. The database receipt proves the applied schema, journal,
+target and grants. Auth and Core receipts prove their active deployments and
+PostgreSQL bindings. A database migration alone does not require redeploying
+both services. CLI admission checks these facts before publication and Core
+activation.
 
 The CLI workflow records Core activation through the existing component receipt
 owner. If a prior attempt applied this exact source but failed its remaining
 health checks, database admission checks that recorded identity against the live
 deployment and the workflow resumes the original receipt before publication.
 Unknown deployments and different source attempts remain blocked.
-For a read-only maintenance preparation plan through this same release owner:
-
-```bash
-pnpm release:plan -- --database-cutover --base <fixed-reviewed-baseline> --json
-```
-
-This reads local source impact, the registered PostgreSQL 18 target and native
-migration hashes. It reports the ordinary rolling-release ordering or its blocker,
-the complete coordinated scope to review, freeze/drain requirements, retained
-DO/R2 obligations and the before/after-first-write recovery boundary. It does not
-read production data, inspect live cloud resources, collect acceptance evidence,
-acquire a release lease or execute a step. `evidenceStatus: not_evaluated` and
-`promotionAllowed: false` are explicit; a successful plan is not a cutover pass.
-The option is accepted only by `plan`, with automatic impact discovery. It does
-not waive incompatible receiver-first dependencies or itself enable deployment.
-Its compatibility baseline is a source comparison only; deployed component
-receipts remain `not_inspected`. The actual release must establish each live
-component's source and receipt before deciding mixed-version compatibility.
-See [PostgreSQL cutover preparation](postgresql-cutover.md) for current evidence
-and the executable data/maintenance runbook. Deploy/preflight accept the separate
-`--database-cutover-snapshot <snapshot>` option. It requires coordinated
-`db,auth,core` scopes, live frozen-source/import reconciliation, native journal
-and grants, cache-disabled Hyperdrive and paused Cron under existing leases.
-Auth/Core use a checked temporary config whose only change is empty production
-Cron. After product acceptance, `deploy --scope auth,core
---database-cutover-restore-crons` explicitly restores and reads back the same
-candidate's normal schedules. Cleanup and failed deployment never restore Cron.
-Restoration publishes no Worker or CLI bytes. It retains common environment and
-source checks, then requires the exact active Auth/Core receipts, Hyperdrive,
-native journal and grants under the production leases. It does not require an
-unpublished CLI candidate or run a new artifact deployment preflight.
+First-cutover capture, import and Cron controls belong to the
+[cutover runbook](postgresql-cutover.md). Routine releases use the normal commands
+below.
 
 - A Web fix releases Web.
 - A public website fix releases Website, without rebuilding or deploying Web.
@@ -192,6 +159,21 @@ Read-only GitHub history requests retry a failed page at most twice for HTTP
 permissions failures and malformed collections remain incomplete evidence and
 fail closed; no mutation receives this retry policy.
 
+The reader merges validated local receipts before inspecting hosted jobs, using
+the same completion-time source selector for both lanes. A successful,
+non-conflicting receipt can bound job history only when every component has a
+known successful baseline. Completed runs strictly older than that bound need
+no job or checkout-log query. Active runs, missing update times and updates at
+or after the bound remain inspected. A failed, started or applied local record
+can use its most recent verified first-parent receipt only as the history bound;
+the same evidence reader validates its metadata, scope, exact source tree,
+provenance and chronological order. The latest record remains the current
+deployment state and does not become verified. A missing verified baseline,
+conflict or legacy unverified record cannot bound history, and an invalid chain
+blocks admission.
+Workflow-listing failures still block admission, including when local receipts
+are available; this bound does not turn an unreadable newer history into success.
+
 In GitHub Actions, the status reader uses the step's `GH_TOKEN` with the
 workflow repository and server identity to read private Git receipt refs.
 The existing trusted HTTPS helper supplies credentials only to those Git
@@ -248,6 +230,14 @@ the current contract, use an evidence-backed forward fix or a documented
 component-specific recovery; never run older guards, replace the receipt, or
 bypass admission to force a rollback.
 
+Ordinary local PostgreSQL deployment admission can inspect an applied or failed
+Auth/Core health-resume candidate only when that component is selected and its
+source matches the release. It still verifies the retained active deployment,
+PostgreSQL binding, Hyperdrive target and normal Cron configuration. Before any
+component effects, the receipt executor must match the operation key, target and
+live identity; admission does not promote the failed receipt. Cron restoration
+requires verified receipts and cannot use this health-resume path.
+
 For local recovery after a control-only fix, keep the approved product checkout
 clean and invoke the current-main `scripts/release/production-release.mjs` by
 absolute path with the product checkout as the working directory. The executor
@@ -255,6 +245,12 @@ honors each step's declared control interpreter, Node flags and arguments, and
 sets its verification root to the product source. Worker target resolution loads
 the pinned Wrangler parser from that source's installed dependencies; the
 minimal trusted-control checkout does not own product tool dependencies.
+
+The current environment verifier requires Core Account avatar storage only when
+that product source includes the Core account-deletion owner. Historical sources
+without that feature keep their existing binding contract; sources with the
+feature must declare the exact avatar bucket. Auth and Gateway requirements do
+not change, and this does not waive any deployment or receipt identity check.
 
 Core receiver deployment uses the current trusted control's two-step receipt
 executor. After Cloudflare confirms the newly admitted version at 100% traffic,
@@ -556,6 +552,26 @@ Gateway, Web, then CLI. This installs strict Remote Agent RPC receivers before
 Core callers and keeps a selected CLI unpublished until every cloud receiver is
 ready. Shared schemas and Core's native-delivery service are intentionally not
 directional path signals because they carry contracts in both directions.
+
+Personal cloud Computer has the opposite capability direction: its Remote
+Agent requires Core's account Computer identity response. The planner selects
+`personal-cloud-computer-receivers-first` only after comparing the actual
+component receipt baseline with the candidate. Existing native request schemas,
+Core request producers and strict Remote receivers must be unchanged; the two
+changed Remote entry owners may contain only the reviewed additive Computer RPC
+and hosted Computer initialization changes. Missing history or any other owner
+change blocks this classification. This proof removes only the misleading
+Remote-first path signal; it is not a release override.
+
+The guarded stages are Database/Auth, Core, Remote Agent/Gateway/Web, then CLI.
+Database must precede Core's new table reads. Remote's stage requires a verified
+Core receiver, and Gateway's new public route waits for Remote's Computer RPC.
+The early Core stage keeps the currently published CLI projection. CLI
+publication waits for Database, Auth, Core, Remote and Gateway receipts; hosted
+CLI also checks the exact PostgreSQL schema/journal contract in Database, Auth
+and Core receipts. Web may share the third stage and does not create a new
+Computer protocol dependency. Declare the same complete train at every stage;
+do not use a different base or a raw deploy to evade a pending receiver.
 
 Remote AI usage adds the opposite dependency: Core's `recordRemoteAiUsage`
 receiver precedes its Remote producer when the shared AI usage schema or Remote
@@ -1535,53 +1551,24 @@ Never cancel a running production job.
 
 ## Production Database Release
 
-This section owns the currently deployed D1 product database. PostgreSQL
-foundation preparation is owned by [postgresql.md](postgresql.md). Empty
-production-destination resources do not authorize cutover. Future PostgreSQL
-promotion must extend this guarded control plane and prove cutover/recovery
-conditions before changing product bindings; foundation commands cannot apply
-production migrations.
-
-Production database work has one implementation entrypoint:
+Apply committed PostgreSQL migrations through the scoped release owner:
 
 ```sh
-pnpm run db:release:prod
+pnpm run release:deploy:local -- --scope db
 ```
 
-`pnpm db:sync:prod` is an alias to the same command. Do not maintain another
-sequence in a workflow or service package.
+The executor applies pending migrations, grants runtime access, verifies the
+native journal and target, and records completion under the database lease.
+Select `db,core` or `db,auth` when a service change requires the new schema.
+Unchanged services retain their existing deployments. Migration credentials
+come from the [PostgreSQL owner](postgresql.md); normal Workers use the runtime
+role through Hyperdrive.
 
-The command requires a clean worktree and runs exactly this sequence:
-
-1. build the Auth code-generation dependency;
-2. run `db:generate` against the local tooling target;
-3. stop before production if generation changes any tracked or untracked file;
-4. run `db:check` against the local tooling target so a resumable skip never bypasses committed schema and migration truth;
-5. read the remote pending list and apply production migrations through Wrangler `--remote` only when entries remain;
-6. verify the production physical database contract;
-7. run plain `PRAGMA optimize` once after synchronization.
-
-Local release operators may authenticate Wrangler with its supported OAuth
-login. Automated release lanes provide `CLOUDFLARE_ACCOUNT_ID` and
-`CLOUDFLARE_API_TOKEN` instead. `db:release:prod` proves access to the configured
-production D1 target with the read-only remote migration list. It does not require local
-schema generation or `db:check` to use production Drizzle HTTP credentials.
-
-Database release is selected only when committed schema or migration truth
-changed, or when an operator explicitly requests database repair. A normal Web,
-Gateway, Auth, Core, or Remote Agent release does not run migrations and does
-not run `PRAGMA optimize`.
-
-Plain `PRAGMA optimize` is intentional. Cloudflare D1 supports it as the safe
-post-schema synchronization operation, and it may be a no-op when statistics
-are already current. Do not add a scheduled optimize job, run it after every
-Worker deploy, replace it with a long manual `ANALYZE`, or use unsupported
-SQLite-only flag variants. D1 Time Travel is automatic; do not add a routine
-full export before every release.
-
-Never rewrite an applied migration. A failed production migration stops the
-release. Preserve its output, inspect the D1 migration ledger and Time Travel
-state, and decide recovery explicitly instead of continuing to Workers.
+Applied migrations are immutable. A migration failure stops the release before
+dependent services. Inspect the native journal and recover through the same
+owner. D1 is the frozen pre-cutover source; it is not a rollback target after
+PostgreSQL writes. The old `db:release:prod` and `db:sync:prod` commands are D1
+commands and reject the PostgreSQL production manifest.
 
 ## CLI Release
 
@@ -1729,6 +1716,11 @@ immutable package fails closed and requires a corrected new release, not a
 republish or a user reset. This check is distinct from native Windows signed-in
 setup/Wake acceptance after release.
 
+The R2 binary body probe allows 180 seconds because a valid 26.7 MB compressed
+artifact exceeded the previous 60-second download budget. Artifact HEAD probes
+retain 60 seconds and command metadata probes retain 30 seconds; artifact size
+and hash checks still fail closed.
+
 `npm publish` can succeed while npm is still processing the package and exact
 version queries return 404. Submission is not availability. Both release lanes
 publish to and query `https://registry.npmjs.org/`, preferring an online query.
@@ -1816,7 +1808,7 @@ rebuilding or overwriting that version.
 The built-in production order is:
 
 ```text
-production D1 -> CLI/Service channel -> scoped Worker verify/deploy -> R2/npm/Core alignment
+selected database migrations -> CLI/Service channel -> scoped Worker verify/deploy -> R2/npm/Core alignment
 ```
 
 The CLI release creates its required Core projection before other selected

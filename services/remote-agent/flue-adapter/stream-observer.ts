@@ -372,9 +372,6 @@ async function handleCenterAgentStreamDelta(input: {
       input.streamDelta.kind === "thinking" ? "thinking_delta" : "text_delta",
     storage,
   });
-  if (input.streamDelta.kind === "thinking") {
-    return;
-  }
   if (context.workLoopCheckpoint) {
     return;
   }

@@ -69,33 +69,21 @@ describe("AppearanceSection", () => {
 			.closest('[data-slot="settings-row"]');
 		expect(toolbarSettingsRow?.className).toContain("hidden");
 		expect(toolbarSettingsRow?.className).toContain("lg:flex");
+		// jsdom does not apply the desktop media query. This test verifies
+		// persistence; browser smoke covers the responsive visibility.
+		const shortcut = (label: string) =>
+			screen.getByLabelText(`Show ${label} in toolbar`);
 		for (const label of ["Computer", "Center Agent", "Inbox"]) {
-			fireEvent.click(
-				screen.getByRole("switch", { name: `Show ${label} in toolbar` })
-			);
+			fireEvent.click(shortcut(label));
 		}
 		cleanup();
 		renderAppearance();
 		for (const label of ["Computer", "Center Agent", "Inbox"]) {
-			expect(
-				screen
-					.getByRole("switch", { name: `Show ${label} in toolbar` })
-					.getAttribute("aria-checked")
-			).toBe("false");
+			expect(shortcut(label).getAttribute("aria-checked")).toBe("false");
 		}
-		fireEvent.click(
-			screen.getByRole("switch", { name: "Show Computer in toolbar" })
-		);
-		expect(
-			screen
-				.getByRole("switch", { name: "Show Computer in toolbar" })
-				.getAttribute("aria-checked")
-		).toBe("true");
-		expect(
-			screen
-				.getByRole("switch", { name: "Show Inbox in toolbar" })
-				.getAttribute("aria-checked")
-		).toBe("false");
+		fireEvent.click(shortcut("Computer"));
+		expect(shortcut("Computer").getAttribute("aria-checked")).toBe("true");
+		expect(shortcut("Inbox").getAttribute("aria-checked")).toBe("false");
 	});
 
 	it("keeps the history slider setting across Appearance mounts", () => {
