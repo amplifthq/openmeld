@@ -97,17 +97,20 @@ export function releaseComponentOperationKey(input) {
     .digest("hex");
 }
 
-export function describeGuardedReceiptRecoveryCandidate(source) {
+export function describeGuardedReceiptRecoveryCandidate(source, scope) {
   const receipt = productionComponentReceiptSchema.safeParse(source?.receipt);
+  const retry =
+    scope === "core" && readUnchangedCoreRetryBaseline(source, source?.sha);
   if (
     !(
       EXACT_SOURCE_SHA.test(source?.sha ?? "") &&
       receipt.success &&
       ["applied", "failed"].includes(receipt.data.status)
     ) ||
-    receipt.data.application !== "applied" ||
-    receipt.data.identity?.kind !== "worker-deployment" ||
-    receipt.data.identity.sourceSha !== source.sha
+    (!retry &&
+      (receipt.data.application !== "applied" ||
+        receipt.data.identity?.kind !== "worker-deployment" ||
+        receipt.data.identity.sourceSha !== source.sha))
   ) {
     return null;
   }
@@ -115,7 +118,7 @@ export function describeGuardedReceiptRecoveryCandidate(source) {
     admission: "candidate",
     attemptId: receipt.data.attemptId,
     componentIndex: receipt.data.componentIndex,
-    kind: "guarded-health-resume",
+    kind: retry ? "guarded-core-upload-retry" : "guarded-health-resume",
     operationKey: receipt.data.operationKey,
     sourceSha: source.sha,
   };

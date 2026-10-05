@@ -469,10 +469,13 @@ function describeReleaseComponent(input) {
   }
   if (releaseSource.receipt && releaseSource.receipt.status !== "verified") {
     const receipt = releaseSource.receipt;
-    const recovery = describeGuardedReceiptRecoveryCandidate(releaseSource);
+    const recovery = describeGuardedReceiptRecoveryCandidate(
+      releaseSource,
+      scope
+    );
     if (recovery) {
       return unknown(
-        "Local release application is retained and eligible to enter guarded health-only recovery. The guarded executor must still match its exact operation and live deployment identity before running health and writing verified evidence.",
+        "Retained evidence permits guarded recovery admission. The executor must still verify the exact operation and live deployment before continuing the retained attempt.",
         { recovery }
       );
     }
