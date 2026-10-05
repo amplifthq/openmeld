@@ -237,7 +237,7 @@ import { SpaceGraphSkeleton } from "./space-panel-skeletons";
 import { resolveSpacePendingAgentActionIdentity } from "./space-pending-agent-action-model";
 import { SpacePinnedItemsBar } from "./space-pins";
 import { useSpaceReadingHeader } from "./space-reading-header";
-import { SpaceUnreadControl } from "./space-unread-control";
+import { SpaceConversationUnreadControl } from "./space-unread-control";
 import { getSpaceViewIndex, type SpaceView } from "./space-view";
 import { SpaceComposerActiveWakes } from "./space-wake-bookmarks";
 import { SpaceWakeRecommendationScope } from "./space-wake-recommendation";
@@ -920,8 +920,9 @@ function SpaceConversationPanelContent(
 								/>
 								<SpaceConversationStickyDate
 									afterDate={
-										<SpaceUnreadControl
+										<SpaceConversationUnreadControl
 											count={input.unreadCount}
+											firstUnreadSignalId={input.firstUnreadSignalId}
 											key={`${input.spaceId}:${input.selfProfileId}`}
 											onNavigate={revealUnreadTarget}
 											onPrepareMarkAllRead={input.onPrepareMarkAllRead}
@@ -3017,17 +3018,19 @@ function ConversationBubbleContent(input: {
 			}}
 			tabIndex={-1}
 		>
-			<ReplyPreview
-				align={input.messageAlign}
-				item={input.item}
-				loadedMainTimelineSignalIds={parent.loadedMainTimelineSignalIds}
-				onJumpToMessage={parent.onJumpToMessage}
-				profilePresentationsById={parent.profilePresentationsById}
-				sourceItem={parent.timelineItems.find(
-					(item) => item.id === input.item.replyToSignalId
-				)}
-				spaceReferencesById={parent.spaceReferencesById}
-			/>
+			{!parent.isDirectMessage && (
+				<ReplyPreview
+					align={input.messageAlign}
+					item={input.item}
+					loadedMainTimelineSignalIds={parent.loadedMainTimelineSignalIds}
+					onJumpToMessage={parent.onJumpToMessage}
+					profilePresentationsById={parent.profilePresentationsById}
+					sourceItem={parent.timelineItems.find(
+						(item) => item.id === input.item.replyToSignalId
+					)}
+					spaceReferencesById={parent.spaceReferencesById}
+				/>
+			)}
 			<SpaceMessageContinuationNotice
 				item={input.item}
 				wakeProgressItems={parent.addressingWakeProgressItems}
@@ -3154,10 +3157,9 @@ function ConversationSpeakerHeader(input: {
 				agentControllerPending={input.run.speaker.agentControllerPending}
 				agentControllerRef={input.run.speaker.agentControllerRef}
 				avatarImageUrl={
-					input.run.speaker.avatarImageUrl ??
-					(input.run.speaker.profileId === input.selfProfileId
+					input.run.speaker.profileId === input.selfProfileId
 						? input.selfAvatarImageUrl
-						: null)
+						: input.run.speaker.avatarImageUrl
 				}
 				avatarModelId={input.avatarModelId}
 				avatarStyle={input.avatarStyle}

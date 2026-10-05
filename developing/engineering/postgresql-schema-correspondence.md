@@ -61,6 +61,13 @@ migration SQL must use the actual PostgreSQL names.
 
 ## Deliberate native representations
 
+Migration `0016` adds the PostgreSQL-only `cloud_computers` account directory.
+It has no historical D1 rows. The D1 importer explicitly includes this table in
+its native inventory and fresh-target emptiness checks, while copying and
+reconciling only historical tables. Read-only reconciliation leaves new Computer
+records untouched. Unknown or missing native tables still reject the import;
+the native migration journal remains the authority for the current schema.
+
 Public text IDs, epoch milliseconds, integer `0`/`1` flags, encrypted envelopes
 and JSON text remain in their owning contracts. Five historical generated
 integer keys use PostgreSQL identity columns. Inbox's explicit sequence replaces

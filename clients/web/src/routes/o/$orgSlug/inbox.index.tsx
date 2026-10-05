@@ -5,6 +5,7 @@ import type {
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { InboxAvatarProvider } from "#/components/inbox/inbox-avatars";
 import { InboxPage } from "#/components/inbox/inbox-page";
+import { prefetchInboxRouteData } from "#/lib/organizations/app-route-prefetch";
 
 type InboxRouteView = "all" | "mentions" | "needs-action" | "needs-review";
 
@@ -44,6 +45,25 @@ export const Route = createFileRoute("/o/$orgSlug/inbox/")({
 					? true
 					: undefined,
 		};
+	},
+	loaderDeps: ({ search }) => ({
+		grouping: "space" as const,
+		category: parseInboxRouteView(search.view),
+		unreadOnly: search.unread === true,
+		agentsOnly: search.agents === true,
+		peopleOnly: search.people === true,
+		conversationType: search.conversation ?? "all",
+	}),
+	loader: ({ context, params, location, deps }) => {
+		prefetchInboxRouteData({
+			organizationSlug: params.orgSlug,
+			queryClient: context.queryClient,
+			queryPersistence: context.queryPersistence,
+			routeFamily: location.href,
+			filters: deps,
+		}).catch((error: unknown) => {
+			console.error("Failed to prefetch Inbox data.", error);
+		});
 	},
 	component: InboxIndexRoute,
 });

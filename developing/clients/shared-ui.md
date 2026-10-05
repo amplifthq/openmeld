@@ -447,9 +447,9 @@ seed. Hosted Remote Agents default to the selected model provider's existing
 Unknown providers or missing logo assets use the generic Agent mark. Saved images
 and explicitly selected fluid avatars take precedence across model changes.
 Center Agents display their saved Bot or fluid style; authorized admins can
-select either. Missing
-style displays the automatic mark and must not hash the Profile ID to invent a
-saved Bot selection. The app shell provides one read of the existing Organization
+select either. Missing or legacy automatic style uses the shared Clover Bot
+default, without persisting a selection or hashing the Profile ID to invent one.
+The app shell provides one read of the existing Organization
 Profile Directory to every avatar entrance. Saved preferences are applied to
 loaded profile caches and invalidated after a successful save. Idle and read-only
 editors use the same saved Profile; only an unsaved user selection is a preview.
@@ -459,7 +459,10 @@ hint. Other tabs re-read their own authorized directory; the hint carries no
 avatar data and does not add directories to browser persistence. Model saves
 refresh the same directory projection and update automatic Remote logos.
 Shared `BotAvatar` composes the public `bot-avatars` simulation and renderer so
-click feedback and pointer following are independent. Space/sidebar avatars
+click feedback and pointer following are independent. The shared default is Fabric;
+its `shading` prop also supports Plastic. Both rendering paths use the same palette
+and the library's material-specific lighting defaults. Still-frame cache keys include
+the material so changing it cannot reuse an old finish. Space/sidebar avatars
 and profile popovers play one small hop on an explicit click without following
 the pointer; popover opening and navigation still belong to their existing
 controls. The Team Center Agent card has a separate avatar button that also

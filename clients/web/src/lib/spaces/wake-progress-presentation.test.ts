@@ -83,7 +83,7 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 			item: createTimelineItem(),
 			items: [
 				createWakeProgressItem({
-					message: "@runner · Thinking… on this computer...",
+					message: "@runner · Working… on this computer...",
 					phase: "running",
 					startedAtMs: 1,
 					updatedAtMs: 60_001,
@@ -95,7 +95,7 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 		expect(state.thinkingEntries).toEqual([
 			expect.objectContaining({
 				elapsedStartedAtMs: 1,
-				text: "runner · Thinking…",
+				text: "runner · Working…",
 			}),
 		]);
 		expect(state.issueEntries).toEqual([]);
@@ -115,11 +115,11 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 
 		expect(state.thinkingEntries).toEqual([
 			expect.objectContaining({
-				elapsedStartedAtMs: null,
+				elapsedStartedAtMs: 1,
 				text: "runner · Replying…",
 			}),
 		]);
-		expect(state.thinkingEntries[0]?.text).not.toBe("runner · Thinking…");
+		expect(state.thinkingEntries[0]?.text).not.toBe("runner · Working…");
 	});
 
 	it("shows an outcome-unknown publication as a problem without a retry spinner", () => {
@@ -163,7 +163,7 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 
 		expect(state.thinkingEntries).toEqual([
 			expect.objectContaining({
-				elapsedStartedAtMs: null,
+				elapsedStartedAtMs: 1,
 				kind: "preview",
 				text: "I’m checking the release configuration now.",
 			}),
@@ -208,7 +208,7 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 			expect.objectContaining({
 				elapsedStartedAtMs: null,
 				targetProfileId: TARGET_PROFILE_ID,
-				text: "Thinking…",
+				text: "Working…",
 			}),
 		]);
 	});
@@ -220,13 +220,13 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 			}),
 			items: [
 				createWakeProgressItem({
-					message: "@runner · Thinking… on this computer...",
+					message: "@runner · Working… on this computer...",
 					phase: "running",
 					targetProfileId: TARGET_PROFILE_ID,
 					updatedAtMs: 1,
 				}),
 				createWakeProgressItem({
-					message: "@codex · Thinking… on this computer...",
+					message: "@codex · Working… on this computer...",
 					phase: "running",
 					targetLabel: "@codex",
 					targetProfileId: SECOND_TARGET_PROFILE_ID,
@@ -239,12 +239,12 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 			expect.objectContaining({
 				elapsedStartedAtMs: null,
 				targetProfileId: TARGET_PROFILE_ID,
-				text: "runner · Thinking…",
+				text: "runner · Working…",
 			}),
 			expect.objectContaining({
 				elapsedStartedAtMs: null,
 				targetProfileId: SECOND_TARGET_PROFILE_ID,
-				text: "codex · Thinking…",
+				text: "codex · Working…",
 			}),
 		]);
 	});
@@ -257,7 +257,7 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 			items: [
 				createWakeProgressItem({
 					clientMessageId: "active-client-message-1",
-					message: "@runner · Thinking… on this computer...",
+					message: "@runner · Working… on this computer...",
 					phase: "running",
 					sourceSignalId: "sig-source",
 					updatedAtMs: 1,
@@ -268,7 +268,7 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 		expect(state.hasProblem).toBe(false);
 		expect(state.thinkingEntries).toEqual([
 			expect.objectContaining({
-				text: "runner · Thinking…",
+				text: "runner · Working…",
 			}),
 		]);
 		expect(state.issueEntries).toEqual([]);
@@ -298,7 +298,7 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 			expect.objectContaining({
 				elapsedStartedAtMs: 1,
 				targetProfileId: TARGET_PROFILE_ID,
-				text: "runner · Thinking…",
+				text: "runner · Working…",
 			}),
 		]);
 		expect(state.issueEntries).toEqual([]);
@@ -314,7 +314,7 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 			items: [
 				createWakeProgressItem({
 					clientMessageId: "client-message-1",
-					message: "@runner · Thinking… on this computer...",
+					message: "@runner · Working… on this computer...",
 					phase: "running",
 					sourceSignalId: "sig-other",
 					updatedAtMs: 1,
@@ -365,7 +365,7 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 			item: sourceItem,
 			items: [
 				createWakeProgressItem({
-					message: "@runner · Thinking… on this computer...",
+					message: "@runner · Working… on this computer...",
 					phase: "running",
 					updatedAtMs: 2,
 				}),
@@ -387,7 +387,7 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 			item: sourceItem,
 			items: [
 				createWakeProgressItem({
-					message: "@runner · Thinking… on this computer...",
+					message: "@runner · Working… on this computer...",
 					phase: "running",
 					targetLabel: "@runner",
 					targetProfileId: TARGET_PROFILE_ID,
@@ -423,7 +423,7 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 		expect(state.thinkingEntries[0]).toEqual(
 			expect.objectContaining({
 				targetProfileId: TARGET_PROFILE_ID,
-				text: "runner · Thinking…",
+				text: "runner · Working…",
 			})
 		);
 		expect(state.issueEntries).toEqual([]);

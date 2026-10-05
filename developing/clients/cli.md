@@ -185,6 +185,14 @@ isolation, and CI/release workflow belong in
 
 ## Command Model
 
+`openmeld computer cloud` resolves the authenticated account's personal cloud
+Computer. `--operation <json>` uses the shared file/command operation schema.
+Local Agents can use the same persistent files as that account's hosted Agents
+without mounting or exposing their workstation. Keep command invocation IDs and
+keys stable across retries; poll or list after uncertain outcomes. Computer
+identity, command observations and publication remain server-owned. This command
+does not manage OpenMeld Service or change the active local Computer connection.
+
 `openmeld org invitation-requests` uses the signed-in account and the same Auth
 contract as Web. `create --email ... [--space ...]` proposes an invitation;
 `link [--space ...]` ensures an approval-required share link; `request --token ...`

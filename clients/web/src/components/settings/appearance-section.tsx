@@ -1,5 +1,6 @@
 "use client";
 
+import { BotAvatar } from "@openmeld/ui/components/bot-avatar";
 import { SettingsRow } from "@openmeld/ui/components/settings-row";
 import { Switch } from "@openmeld/ui/components/switch";
 import { RadioGroup, RadioItem } from "@openmeld/ui/fluid/radio-group";
@@ -25,6 +26,10 @@ import {
 	useSyncExternalStore,
 } from "react";
 import { AppPageHeader } from "#/components/app/app-page-header";
+import {
+	BOT_MATERIAL_CHOICES,
+	useBotAvatarPreference,
+} from "#/lib/appearance/bot-avatar-preference";
 import {
 	SIDEBAR_DISPLAY_CHOICES,
 	type SidebarDisplay,
@@ -141,6 +146,7 @@ export function AppearanceSection() {
 	const sidebar = useSidebarDisplayPreference();
 	const toolbar = useToolbarPreference();
 	const historySlider = useHistorySliderPreference();
+	const botAvatar = useBotAvatarPreference();
 	const { setTheme, theme } = useTheme();
 	const { setShape, shape } = useShapeContext();
 	const choiceOrientation = useMediaQuery(PHONE_APPEARANCE_CHOICES_QUERY)
@@ -394,6 +400,65 @@ export function AppearanceSection() {
 					description="Choose which shortcuts appear in the bottom toolbar. Saved in this browser."
 					label="Toolbar shortcuts"
 					layout="stacked"
+				/>
+				<SettingsRow
+					control={
+						<RadioGroup
+							aria-label="Bot avatar material"
+							className="w-full"
+							orientation={choiceOrientation}
+							selectedIndex={
+								mounted
+									? BOT_MATERIAL_CHOICES.findIndex(
+											(choice) => choice.value === botAvatar.shading
+										)
+									: -1
+							}
+						>
+							{BOT_MATERIAL_CHOICES.map((choice, index) => (
+								<RadioItem
+									className="min-w-0 flex-1 px-3 py-3"
+									description={
+										<span className="flex min-w-0 flex-col gap-2">
+											<span>{choice.description}</span>
+											<span
+												aria-hidden="true"
+												className="flex h-24 items-center justify-center"
+											>
+												<BotAvatar
+													motionEnabled={botAvatar.motionEnabled}
+													shading={choice.value}
+													size={56}
+													type="clover"
+													working
+												/>
+											</span>
+										</span>
+									}
+									index={index}
+									key={choice.value}
+									label={choice.label}
+									onSelect={() => botAvatar.setShading(choice.value)}
+									selected={mounted && botAvatar.shading === choice.value}
+								/>
+							))}
+						</RadioGroup>
+					}
+					description="Choose a finish for Center Agent Bot avatars across the app. Saved in this browser."
+					label="Bot avatar material"
+					layout="stacked"
+					showDivider
+				/>
+				<SettingsRow
+					control={
+						<Switch
+							aria-label="Animate Bot avatars"
+							checked={botAvatar.motionEnabled}
+							onCheckedChange={botAvatar.setMotionEnabled}
+						/>
+					}
+					description="Animate Bot avatars while they work and when you interact with them. Saved in this browser."
+					label="Animate Bot avatars"
 				/>
 			</section>
 		</>

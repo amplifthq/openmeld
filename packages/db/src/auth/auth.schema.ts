@@ -26,6 +26,8 @@ export const users = applicationTable("users", {
   displayUsername: text("display_username"),
   normalizedEmail: text("normalized_email").unique(),
   lastSelectedOrganizationId: text("last_selected_organization_id"),
+  // Retain a non-login reference for shared work; credentials and PII are erased.
+  deletedAt: epochMilliseconds("deleted_at"),
 });
 
 export const sessions = applicationTable(
@@ -104,6 +106,7 @@ export const organizations = applicationTable(
     createdAt: epochMilliseconds("created_at").notNull(),
     metadata: text("metadata"),
     createdByUserId: text("created_by_user_id"),
+    deletionRequestedAt: epochMilliseconds("deletion_requested_at"),
   },
   (table) => [
     uniqueIndex("organizations_slug_uidx").on(table.slug),

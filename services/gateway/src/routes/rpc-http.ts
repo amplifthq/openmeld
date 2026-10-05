@@ -9,6 +9,7 @@ import { registerBoardRoute } from "./rpc-http.board";
 import { registerBootstrapRoute } from "./rpc-http.bootstrap";
 import { registerCenterAgentRoutes } from "./rpc-http.center-agent";
 import { registerChangelogRoutes } from "./rpc-http.changelog";
+import { registerCloudComputerRoutes } from "./rpc-http.cloud-computer";
 import { registerConfigRoutes } from "./rpc-http.config";
 import { registerConnectorConnectionRoutes } from "./rpc-http.connector-connections";
 import { registerContractRoutes } from "./rpc-http.contract";
@@ -64,6 +65,7 @@ export function registerRpcHttpRoutes(app: Hono<HonoBindings>): void {
   registerConfigRoutes(app);
   registerCreateSpaceRoute(app);
   registerCurrentDeviceTargetRoutes(app);
+  registerCloudComputerRoutes(app);
   registerDaemonRouteObservationRoutes(app);
   registerPrepareReadinessRoutes(app);
   registerPrepareSessionRoutes(app);

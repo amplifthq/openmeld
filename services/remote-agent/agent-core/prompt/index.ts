@@ -53,8 +53,8 @@ export function buildRemoteAgentSystemPrompt(
         ? REPLY_PLACEMENT_GUIDANCE
         : null,
       "Use available tools to complete the work, including research, file editing and command execution. Discover relevant capabilities and activate matching Organization Skills before following their procedures. Use Code Mode to combine tool calls when useful; it has the same permissions as direct calls. Verify outputs before claiming success, and return useful results rather than instructions for the user to do the work themselves.",
-      "Your Computer files persist for this Agent in this conversation. Other Spaces and private chats have separate filesystems; share selected results through Space files or an explicit handoff. Prefer lightweight file tools for simple work and the container backend for real Linux programs or network commands. Report unavailable tools or failed commands honestly.",
-      "Keep private reasoning in the model's thinking stream and use your final text for the answer or useful contribution. The thinking stream is not published in Space; share only deliberate public progress through openmeld_report_progress when that tool is available.",
+      "Your personal cloud Computer belongs to your human account owner. Its files persist across this owner's Agents, conversations and Organizations; other Agents may work on it at the same time. Use the Computer identity supplied by your tools. Use your task directory or a separate Git worktree for concurrent work. Decide whether to use or disclose a file from the verified requester, delegation, task and current audience. Filesystem access alone does not justify publishing private content. Share selected results through Files or an explicit handoff. Prefer lightweight file tools for simple work and the container backend for real Linux programs or network commands. Report unavailable tools or failed commands honestly.",
+      "Model-emitted thinking is visible to the current conversation audience. Apply the same disclosure limits to thinking, public progress, and the final answer. Never put protected information or credentials into thinking. Use final text for the answer or useful contribution.",
       input.turnEnvelope?.trigger.source === "space_wake" ||
       input.turnEnvelope?.trigger.source === "web_dm"
         ? "For multi-step work in this OpenMeld conversation, call openmeld_report_progress with a short public update when you begin, establish a useful fact, change direction, or start verification. Everyone who can view the conversation can see it live. Keep private reasoning, protected information, credentials, raw commands, and unverified claims out of the update. Do not send repetitive updates or call it on a timer. Continue working after the update; your final answer remains separate."
@@ -64,7 +64,7 @@ export function buildRemoteAgentSystemPrompt(
       "Use the Space member tool to find other Agents in this conversation. Wake another Agent only when you have a concrete request for that Agent. Include the context it needs in your message. A normal reply does not wake anyone.",
       "Use openmeld_read_organization_directory to find a person or Agent outside this conversation, then openmeld_open_direct_message to open or send a Direct Message as yourself. Agent owners can observe and join. Sending does not prove completion, and unrelated private context must not be forwarded.",
       "When completing your task depends on delegated work, ask the teammate to wake your exact Profile ID once with its result. Include that return instruction and your ID in the handoff. Do not end with a promise to resume automatically unless you arranged that return Wake. When asked to return work, send the actual result in one Wake to the requesting Agent; avoid acknowledgement-only handoffs or another review cycle unless the task needs one.",
-      "You do not have access to your owner's other conversations, personal files, Organization administration, or Center Agent memory. Do not claim those capabilities or infer authorization from shared ownership.",
+      "Sharing your owner's cloud Computer does not grant access to other conversation histories, their local device files, Organization administration, or Center Agent memory. Use only capabilities actually supplied by your tools and do not infer authority to disclose information from shared ownership.",
       renderCurrentTimePrompt(),
       renderWorkingLanguagePrompt({
         workingLanguage:
@@ -82,6 +82,7 @@ export function buildRemoteAgentSystemPrompt(
     OPENMELD_KERNEL_PROMPT,
     renderCurrentTimePrompt(),
     REMOTE_AGENT_PRINCIPLES_PROMPT,
+    "Model-emitted thinking is visible to the current OpenMeld conversation audience, including in Direct Messages, shared Spaces, and Threads. Apply the same disclosure limits to thinking, public progress, and the final answer. Never put protected information or credentials into thinking.",
     renderWorkingLanguagePrompt({
       workingLanguage: input.turnEnvelope?.organization.workingLanguage ?? null,
     }),

@@ -6329,15 +6329,34 @@ export async function rpcGetCurrentOrganizationProfileDirectory(
       requestId,
     }),
   ]);
-  const configurationsByProfileId =
-    await readProfileDirectoryAgentConfigurations({
+  const directory = {
+    agentProfiles: eligibleAgentProfiles,
+    generatedAt,
+    members,
+    organizationId,
+  };
+  const activityDb =
+    input.includeTaskActivity === true ? getPostgresDatabase(env) : null;
+  if (input.includeTaskActivity === true && !activityDb) {
+    throw new Error("Agent task activity evidence store is unavailable.");
+  }
+  const [configurationsByProfileId, directoryWithActivity] = await Promise.all([
+    readProfileDirectoryAgentConfigurations({
       agentProfiles: eligibleAgentProfiles,
       includeModelSelection: input.includeModelSelection === true,
       env,
       organizationId,
-    });
+    }),
+    activityDb
+      ? withOrganizationAgentTaskActivity({
+          db: activityDb,
+          overview: directory,
+        })
+      : directory,
+  ]);
   const response = {
-    agentProfiles: eligibleAgentProfiles.map((profile) => ({
+    ...directoryWithActivity,
+    agentProfiles: directoryWithActivity.agentProfiles.map((profile) => ({
       ...profile,
       agentControllerRef:
         configurationsByProfileId?.get(profile.profileId)?.agentControllerRef ??
@@ -6358,23 +6377,9 @@ export async function rpcGetCurrentOrganizationProfileDirectory(
           }
         : {}),
     })),
-    generatedAt,
-    members,
-    organizationId,
   };
-  let result = response;
-  if (input.includeTaskActivity === true) {
-    const db = getPostgresDatabase(env);
-    if (!db) {
-      throw new Error("Agent task activity evidence store is unavailable.");
-    }
-    result = await withOrganizationAgentTaskActivity({
-      db,
-      overview: response,
-    });
-  }
   const validated =
-    organizationProfileDirectoryResponseSchema.safeParse(result);
+    organizationProfileDirectoryResponseSchema.safeParse(response);
   if (!validated.success) {
     throw new Error(
       `failed to build Organization Profile Directory response: ${validated.error.message}`
@@ -6730,23 +6735,24 @@ async function resolveOrganizationAgentReadinessByProfileId(input: {
     ORGANIZATION_AGENT_RUNTIME_OWNER_CONCURRENCY,
     async ([ownerUserId, profiles]) => {
       const db = getPostgresDatabase(input.env);
-      if (db && ownerUserId) {
-        await reads
-          .preloadPrimaryBindings({
-            db,
-            nowMs: Date.parse(input.generatedAt),
-            owner: { id: ownerUserId, kind: "owner_account" },
-            profileIds: profiles.map((profile) => profile.profileId),
-          })
-          .catch((error) => {
-            // Preserve the per-Profile readiness owner's unavailable outcome.
-            // An optional batch preload must not fail the entire Team directory.
-            console.warn("[core.organization.readiness_preload_failed]", {
-              ownerUserId,
-              error,
-            });
-          });
-      }
+      const readinessPreload =
+        db && ownerUserId
+          ? reads
+              .preloadPrimaryBindings({
+                db,
+                nowMs: Date.parse(input.generatedAt),
+                owner: { id: ownerUserId, kind: "owner_account" },
+                profileIds: profiles.map((profile) => profile.profileId),
+              })
+              .catch((error) => {
+                // Preserve the per-Profile readiness owner's unavailable outcome.
+                // An optional batch preload must not fail the entire Team directory.
+                console.warn("[core.organization.readiness_preload_failed]", {
+                  ownerUserId,
+                  error,
+                });
+              })
+          : null;
       const [preloadedRoutes, preloadedOwnerService] = ownerUserId
         ? await Promise.all([
             lookupRuntimeTransportRoutesBatch({
@@ -6777,6 +6783,7 @@ async function resolveOrganizationAgentReadinessByProfileId(input: {
               targets: onlineTargets,
             })
           : null;
+      await readinessPreload;
       return await mapWithConcurrency(
         profiles,
         ORGANIZATION_AGENT_RUNTIME_PROFILE_CONCURRENCY,
@@ -24424,7 +24431,7 @@ function assertWritableRpcSpaceAccess(input: CoreRpcSpaceAccessInput): void {
     requireWritableSpaceActor(input.spaceAccess);
   }
 }
-function requireAuthenticatedOwnerUserId(
+export function requireAuthenticatedOwnerUserId(
   context?: CoreRpcContextInput
 ): string {
   const requestContext = requireRpcContext(context);

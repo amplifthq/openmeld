@@ -98,6 +98,7 @@ import type {
   SlackOAuthOrganizationMembershipResult,
 } from "@openmeld/schemas/types";
 import { loadBetterAuthRuntime } from "../../lazy-runtime-modules";
+import { requestAccountConnectionCleanup } from "../account/deletion-service";
 import { getLocalAuthUserStore } from "../better-auth/local-auth-user-store";
 import { getOrganizationServerApi } from "../better-auth/organization-server-api";
 import { readRefreshedAuthSessionCookies } from "../better-auth/refresh-session-cookie";
@@ -500,6 +501,11 @@ type OrganizationDirectoryAgentProfileIdentityRow = {
   updated_at: number;
 };
 export class AuthRpcEntrypoint extends WorkerEntrypoint<AuthBindings> {
+  requestAccountConnectionCleanup(input: unknown): Promise<boolean> {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      requestAccountConnectionCleanup(this.env, input)
+    );
+  }
   fetch(request: Request): Promise<Response> {
     return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
       app.fetch(request, this.env, this.ctx)
