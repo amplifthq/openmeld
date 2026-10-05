@@ -340,14 +340,21 @@ export function createInboxService(input: {
           urgent: number;
         }>({
           text: `
+        -- Evaluate recipient access once. Inlining this relation can make the
+        -- planner repeat its permission checks for every direct-message Space.
+        WITH accessible_inbox AS MATERIALIZED (
+          SELECT organization_id, source_target_json, source_kind,
+            read_at_ms, attention, resolution_status, importance, kind
+          FROM "openmeld"."inbox_items"
+          WHERE organization_id = $1 AND recipient_user_id = $2
+            AND cleared_at_ms IS NULL AND ${CURRENT_SOURCE_ACCESS_FILTER}
+        )
         SELECT
           sum(CASE WHEN read_at_ms IS NULL AND ${INBOX_SPACE_MESSAGE_FILTER} THEN 1 ELSE 0 END) AS unread,
           sum(CASE WHEN attention = 'action_required' AND resolution_status = 'open' THEN 1 ELSE 0 END) AS actions,
           sum(CASE WHEN ${UNREAD_URGENT_UPDATE_FILTER} AND coalesce(source_target_json::jsonb -> 'agentOwnerActivity', 'false'::jsonb) != 'true'::jsonb THEN 1 ELSE 0 END) AS urgent
-        FROM "openmeld"."inbox_items"
-        WHERE organization_id = $1 AND recipient_user_id = $2
-          AND cleared_at_ms IS NULL AND ${CURRENT_SOURCE_ACCESS_FILTER}
-          AND ${inboxDirectMessageSpaceSql("$3")}
+        FROM accessible_inbox AS inbox_items
+        WHERE ${inboxDirectMessageSpaceSql("$3")}
       `,
           values: [
             summaryInput.organizationId,
