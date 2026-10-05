@@ -61,7 +61,12 @@ export function AppOuterRail({ account }: { account: AppOuterRailAccount }) {
 	const inboxAttention = useInboxAttention(currentOrganization.id);
 	const { defaultHumanProfile } = useDefaultHumanProfile();
 	const { data: currentAccountAvatar } = useAccountAvatar();
-	const accountAvatarImage = currentAccountAvatar?.avatar ?? null;
+	// Keep the current account's bootstrap image while its canonical read is
+	// pending. An explicit null from that read means the avatar was removed.
+	const accountAvatarImage =
+		currentAccountAvatar === undefined
+			? (account.image ?? null)
+			: currentAccountAvatar.avatar;
 	const humanProfileAvatar: HumanProfileAvatarIdentity | null =
 		defaultHumanProfile
 			? {

@@ -17258,8 +17258,18 @@ export class Space extends DurableObject<CoreBindings> {
     if (!metaRecord) {
       return this.spaceNotFoundResponse();
     }
-    await this.ensureAgentOwnerMembershipPolicy(metaRecord);
-    const profileFacts = await this.refreshMemberNamesFromAuth();
+    await this.measureBootstrapBranchTiming(
+      bootstrapTiming,
+      "membership_policy",
+      "reconcile member ownership",
+      () => this.ensureAgentOwnerMembershipPolicy(metaRecord)
+    );
+    const profileFacts = await this.measureBootstrapBranchTiming(
+      bootstrapTiming,
+      "member_names",
+      "refresh member names from Auth",
+      () => this.refreshMemberNamesFromAuth()
+    );
     const snapshot = await listSpaceMembersSnapshotUseCase({
       includeAgentReadiness,
       profileFacts,
@@ -20507,10 +20517,17 @@ export class Space extends DurableObject<CoreBindings> {
       this.ctx.storage.sql,
       dispatchId
     );
-    if (!dispatchRecord) {
+    // Native delivery has no workstation outbox. Its published reply relation
+    // identifies the source in this Space; read the author from that source.
+    const sourceSignalId =
+      dispatchRecord?.sourceEventId ??
+      (isMessageDetailsSignal(input.signal)
+        ? readMessageDetailsReplyToSignalId(input.signal)
+        : null);
+    if (!sourceSignalId) {
       return null;
     }
-    const sourceSignal = this.readSignalById(dispatchRecord.sourceEventId);
+    const sourceSignal = this.readSignalById(sourceSignalId);
     if (sourceSignal?.profile.kind !== "human") {
       return null;
     }
@@ -24949,7 +24966,12 @@ function isWakeSourceSignal(signal: SignalEnvelope | null): signal is Extract<
 function readMessageDetailsReplyToSignalId(
   signal: MessageDetailsSignal
 ): string | null {
-  return normalizeOptionalText(signal.data.replyTo?.signalId);
+  return normalizeOptionalText(
+    signal.type === "signal.text"
+      ? (signal.data.messageEnvelope?.replyToSignalId ??
+          signal.data.replyTo?.signalId)
+      : signal.data.replyTo?.signalId
+  );
 }
 function resolveMessageDetailsWakeSourceSignal(input: {
   replySignal: MessageDetailsSignal | null;

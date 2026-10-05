@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-04T08:24:19.966Z",
+  "updatedAt": "2026-10-05T10:08:58.127Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
-      "packageVersion": "0.3.241",
+      "packageVersion": "0.3.242",
       "updatePolicy": "available",
-      "reason": "Existing commands, setup, status, trace, and self-rescue remain supported. New evidence and Plugin commands fail closed on old receivers; publish only after the new Core and Auth receivers."
+      "reason": "Existing CLI commands and cloud contracts remain compatible; this release reduces preparation reads and updates controller SDKs."
     },
     "service": {
-      "bundleHash": "39a42ca8843a799a74cbc7cac40dc34f75346526ec6327c4a6a67cb664f7e96d",
-      "portableBundleHash": "ee9ce121263393b8c5048eba927f6cbe39943f557815498d3f10b0967f16852e",
-      "bundleVersion": "0.3.241",
+      "bundleHash": "571a57f9dfd1f3b260038fec319cdc18278a03c48e66774b42ba19a75977eff0",
+      "portableBundleHash": "a677463535aa58148a592bde41a2638b27adb3f894101c96ef8cc1312229b6ae",
+      "bundleVersion": "0.3.242",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
       "serviceContractVersion": "openmeld-service-contract-2026-09-local-install-recovery-v1",
       "updatePolicy": "available",
-      "reason": "New Core preserves legacy Wake and bounded-context contracts for installed Services and gates new fields by capability. Deploy Core before this Service because old strict capability readers reject its new declarations."
+      "reason": "Existing Services retain the same Wake, reporting, Stop, and reply contracts; task preparation changes are backward compatible."
     },
     "skills": {
       "bundleHash": "3969dce0d427bd0801a57f0094526322712f3d5f87dcf0d6d0c410eb4b3d3e78",

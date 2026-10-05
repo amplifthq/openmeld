@@ -2,6 +2,93 @@
   "schemaVersion": 1,
   "entries": [
     {
+      "id": "file-download-byte-integrity",
+      "title": "Download Files reliably through the CLI",
+      "kind": "fixed",
+      "areas": [
+        "files",
+        "cli"
+      ],
+      "audiences": [
+        "users",
+        "integrators"
+      ],
+      "publishedAt": "2026-10-04",
+      "release": "v0.3.241",
+      "evidence": [
+        "pr:1500",
+        "commit:6a63bd5a001137eed6f01248b01f402e2380f714",
+        "commit:0d8867a3e491b82450e2803f866ba799cd12b5d4",
+        "workflow:37203295108"
+      ],
+      "body": "CLI reads and downloads preserve the original bytes of My Files, Team Files, and Space Files. File responses now prevent edge compression from removing the length information required by the CLI's integrity check."
+    },
+    {
+      "id": "message-actions-clipping",
+      "title": "Keep message actions fully visible",
+      "kind": "fixed",
+      "areas": [
+        "spaces",
+        "web",
+        "desktop"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-10-04",
+      "evidence": [
+        "pr:1503",
+        "pr:1507",
+        "commit:88b0a3114b9894af5b748da492c62759bd4a2a81",
+        "commit:a956440cb31b9388c9f6469d5b6b7162eb9bf458",
+        "desktop-candidate:5b005262390436c05458e67a87b2051d99835eae687f3412d2fe78b6c2c20eab"
+      ],
+      "body": "Message actions remain fully visible above wide message bubbles, including\nconsecutive messages with an error. The error details and other actions are\nno longer cut off at the top of the message."
+    },
+    {
+      "id": "native-reply-inbox",
+      "title": "Keep remote Agent replies visible in Inbox",
+      "kind": "fixed",
+      "areas": [
+        "inbox",
+        "agents"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-04",
+      "release": "v0.3.241",
+      "evidence": [
+        "pr:1502",
+        "pr:1506",
+        "commit:585184c808cf88810acd332eef7b366883d08cfa",
+        "commit:1f311a527f036ee3fcc9493a9702abd23f8b986d"
+      ],
+      "body": "Replies and failure notices from remote Agents now reach the member who started the request in a Space. Other members do not receive an update unless they are addressed or participate in the relevant thread."
+    },
+    {
+      "id": "postgresql-foundation",
+      "title": "Run OpenMeld on PostgreSQL",
+      "kind": "new",
+      "areas": [
+        "database",
+        "development"
+      ],
+      "audiences": [
+        "contributors",
+        "operators"
+      ],
+      "publishedAt": "2026-10-04",
+      "release": "v0.3.241",
+      "evidence": [
+        "pr:1460",
+        "commit:d6978e1bec2ce90e27340f075a352ca978402c66",
+        "commit:a2a57cb3fd04b2555575b60ace25a6d6dca315a4",
+        "workflow:37203295108"
+      ],
+      "body": "OpenMeld now stores shared production data in PlanetScale PostgreSQL 18 through Cloudflare Hyperdrive. The cutover preserves existing accounts, organizations, Projects, Agent Profiles, and Inbox records. Space history and files retain their existing storage owners.\n\nContributors can run the complete local product on an isolated PostgreSQL database and rehearse D1 imports with synthetic data. The database preserves accounts and messages across restarts. Native migration, permission, concurrency, and recovery checks cover the shared database contracts.\n\nThe guarded production migration checks every imported field, the frozen-source write barrier, the native migration journal, and runtime permissions. Operators retain the frozen source and native backup evidence. Scheduled work resumes through an explicit restore action after product acceptance.\n\nAfter the PostgreSQL cutover is complete, operators can publish the CLI through the existing GitHub Actions workflow and npm Trusted Publishing. Publication requires matching database and live service release evidence. The workflow does not need a local npm login, database migration credentials, or a private data snapshot."
+    },
+    {
       "id": "agent-initiated-direct-messages",
       "title": "Agents can start Direct Messages",
       "kind": "new",
