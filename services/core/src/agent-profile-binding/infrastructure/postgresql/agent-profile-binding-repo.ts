@@ -1078,7 +1078,12 @@ export async function listEnabledPrimaryAgentProfileBindingRecordsForProfile(inp
 export async function listEnabledPrimaryAgentProfileBindingRecords(input: {
   db: PostgresDatabase;
   owner: AgentProfileBindingOwner;
+  orderBy?: "profile" | "controller_conversation_conflict";
 }): Promise<AgentProfileBindingRecord[]> {
+  const orderBy =
+    input.orderBy === "controller_conversation_conflict"
+      ? "updated_at_ms DESC NULLS LAST, created_at_ms DESC NULLS LAST, binding_id DESC NULLS LAST"
+      : "agent_profile_id ASC NULLS FIRST";
   const result = await input.db.query<AgentProfileBindingRow>({
     text: `
         SELECT
@@ -1107,7 +1112,7 @@ export async function listEnabledPrimaryAgentProfileBindingRecords(input: {
         WHERE owner_kind = $1
           AND owner_id = $2
           AND binding_state = 'enabled_primary'
-        ORDER BY agent_profile_id ASC NULLS FIRST
+        ORDER BY ${orderBy}
       `,
     values: [input.owner.kind, input.owner.id],
   });
