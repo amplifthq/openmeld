@@ -1,5 +1,5 @@
 import { getWorkspace } from "@cloudflare/computer";
-import { buildAgentComputerName } from "./computer-identity";
+import { personalComputerProviderName } from "./computer-identity";
 import {
   AGENT_COMPUTER_CONTAINER_BACKEND_ID,
   AGENT_COMPUTER_SHELL_BACKEND_ID,
@@ -24,7 +24,9 @@ export async function runAgentComputerSmoke(input: {
     return { error: "AGENT_COMPUTER binding is not configured", ok: false };
   }
   const stub = namespace.get(
-    namespace.idFromName(buildAgentComputerName(input.agentProfileId))
+    namespace.idFromName(
+      personalComputerProviderName(`smoke:${input.agentProfileId}`)
+    )
   );
   using workspace = await getWorkspace(
     stub as unknown as Parameters<typeof getWorkspace>[0]

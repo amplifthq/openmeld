@@ -4,6 +4,7 @@ import {
   SPACE_FILE_MAX_SIZE_BYTES,
 } from "@openmeld/schemas";
 import type { RemoteAgentComputerFileHandoff } from "../agent-core/tools";
+import { resolveComputerPath } from "./computer-files";
 
 const MAX_HANDOFF_FILE_BYTES = 32_000;
 const MAX_HANDOFF_TOTAL_BYTES = 64_000;
@@ -59,7 +60,7 @@ export function createAgentComputerFileHandoff(input: {
         });
         const declaredSize = await requireRegularFileWithoutSymlink({
           relativePath: resolved.relativePath,
-          workingDirectory,
+          workingDirectory: resolved.boundaryDirectory,
           workspace: input.workspace,
         });
         if (declaredSize > MAX_HANDOFF_FILE_BYTES) {
@@ -185,7 +186,7 @@ export async function inspectComputerFileForTransfer(input: {
   });
   const sizeBytes = await requireRegularFileWithoutSymlink({
     relativePath: resolved.relativePath,
-    workingDirectory,
+    workingDirectory: resolved.boundaryDirectory,
     workspace: input.workspace,
   });
   const maxBytes = input.maxBytes ?? SPACE_FILE_MAX_SIZE_BYTES;
@@ -204,39 +205,27 @@ export async function inspectComputerFileForTransfer(input: {
 function resolveSelectedPath(input: {
   selectedPath: string;
   workingDirectory: string;
-}): { absolutePath: string; relativePath: string } {
+}): { absolutePath: string; relativePath: string; boundaryDirectory: string } {
   const selectedPath = input.selectedPath.trim();
   if (!selectedPath || selectedPath.includes("\0")) {
     throw new Error("A Computer handoff file path must be non-empty text.");
   }
-  const rawPath = selectedPath.startsWith("/")
-    ? selectedPath
-    : `${input.workingDirectory}/${selectedPath}`;
-  const segments: string[] = [];
-  for (const segment of rawPath.split("/")) {
-    if (!segment || segment === ".") {
-      continue;
-    }
-    if (segment === "..") {
-      throw new Error(
-        "Local Agent handoff files must stay inside the current Computer working directory."
-      );
-    }
-    segments.push(segment);
-  }
-  const absolutePath = `/${segments.join("/")}`;
-  if (!absolutePath.startsWith(`${input.workingDirectory}/`)) {
-    throw new Error(
-      "Local Agent handoff files must stay inside the current Computer working directory."
-    );
-  }
-  const relativePath = absolutePath.slice(input.workingDirectory.length + 1);
+  const absolutePath = resolveComputerPath(
+    selectedPath,
+    input.workingDirectory
+  );
+  const boundaryDirectory = absolutePath.startsWith(
+    `${input.workingDirectory}/`
+  )
+    ? input.workingDirectory
+    : "/computer";
+  const relativePath = absolutePath.slice(boundaryDirectory.length + 1);
   if (relativePath.endsWith(WORKING_COPY_METADATA_SUFFIX)) {
     throw new Error(
       "Private Computer metadata cannot be copied to a Local Agent. Choose the working file instead."
     );
   }
-  return { absolutePath, relativePath };
+  return { absolutePath, relativePath, boundaryDirectory };
 }
 
 async function requireRegularFileWithoutSymlink(input: {

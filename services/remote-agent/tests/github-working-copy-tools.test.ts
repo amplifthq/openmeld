@@ -174,6 +174,7 @@ async function fixture(
         operationId: value.operationId,
         providerExecutionId: operation.providerExecutionId,
         recorded: true,
+        executionAllowed: !existing && value.outcome === "attempted",
         replayed: Boolean(existing),
         status: operation.status,
       });
@@ -271,10 +272,6 @@ async function fixture(
     context,
     storage,
     coreWorker,
-    dataSources: {
-      readDataSources: () => Promise.resolve([]),
-      recordDataSource: () => Promise.resolve(),
-    },
     workingDirectory: "/workspace",
     workspaceAccess: {
       withWorkspace: () =>
@@ -619,11 +616,21 @@ describe("bounded Git publication and receipts", () => {
   });
   it("allows concurrent identical publication calls to update the branch at most once", async () => {
     const f = await fixture();
-    const results = await Promise.all([
+    const results = await Promise.allSettled([
       publishCheckout(f.deps, publish),
       publishCheckout(f.deps, publish),
     ]);
-    expect(results.some((result) => result.status === "completed")).toBe(true);
+    expect(
+      results.some(
+        (result) =>
+          result.status === "fulfilled" && result.value.status === "completed"
+      )
+    ).toBe(true);
+    for (const result of results) {
+      if (result.status === "rejected") {
+        expect(result.reason.message).toContain("Core has not granted");
+      }
+    }
     expect(f.state.writes).toBe(1);
     expect(await publishCheckout(f.deps, publish)).toMatchObject({
       status: "completed",
@@ -752,6 +759,7 @@ describe("bounded Git publication and receipts", () => {
     } as unknown as WorkspaceClient;
     const deps = {
       ...f.deps,
+      workingDirectory: "/computer/tasks/image-publication",
       workspaceAccess: {
         withWorkspace: async <T>(
           operation: (workspace: WorkspaceClient) => Promise<T>

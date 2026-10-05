@@ -25,6 +25,36 @@
 - Source of truth: This file owns the durable boundary for shared OpenMeld contracts
   and reusable policy.
 
+## Personal cloud Computer operations
+
+`cloudComputerSchema` and `cloudComputerOperationSchema` own the account Computer
+identity and file/command operations. Core derives ownership from the authenticated
+request or persisted hosted delivery. The public `/v1/computer/cloud` endpoint
+does not accept an owner or provider resource ID. `GET` resolves the identity;
+`POST` performs one operation. `observedAtMs` dates that response, not a cached
+online flag. File reads/writes are bounded to 2 MB at this JSON boundary.
+
+Command operations use an invocation ID and stable key. Local invocation IDs are
+namespaced separately from hosted submissions. The Computer holds the command
+receipt and native execution ID. Poll and Stop address that receipt; a retry
+must not allocate another process. Different invocations may run concurrently.
+File `edit` compares exact old text under the Computer's mutation queue; `write`
+can require `expectedContent`. Arbitrary shell writes are outside that queue.
+
+Contract impact: the new CLI route is additive and does not change workstation
+Service, Wake or dispatch schemas. Core must receive the database migration and
+new RPC before the new Remote Agent or CLI uses personal Computers. An older
+Core cannot satisfy `includeComputer`; the runtime fails that capability
+explicitly. Earlier hosted context versions retain their cleanup address and
+cannot silently acquire a personal Computer. Existing CLI/Service clients keep
+their prior local operations. No production rollout is implied by this contract.
+The command and managed Skill are additive, with no CLI/Service/Skills epoch
+bump. Feature verification uses deferred release readiness; a later authorized
+release must rebuild and stamp affected local artifacts as `available`.
+Deploy the Remote Agent Computer RPC receiver before exposing the new CLI route
+to users; roll back callers before removing that receiver. Existing setup, Wake,
+Space actions, Service status, trace and self-rescue contracts stay compatible.
+
 ## Task permission inheritance
 
 Native permission inheritance is the default for new Codex and Claude tasks
@@ -3687,8 +3717,11 @@ lease, target Agent Profile, Space, and source signal against authoritative
 pending-dispatch state before Space accepts it. Space owns sequence,
 deduplication, gap evidence, expiry, and terminal guards across text and tool
 parts for both paths. Room entry recovers active stream presence and any active
-text projection through the bootstrap snapshot; private thinking and the
-compact live Work summary are not replayed. The presence rollout is Core
+text projection through the bootstrap snapshot. Reasoning is absent from durable
+bootstrap, but a bounded live tail may replay from the active Space instance
+after the existing audience and Local Agent owner-preference checks. Hosted
+provider-emitted reasoning reuses the existing v2 thinking callback and does not
+change execution, publication, or authorization ownership. The presence rollout is Core
 receiver/producer first, then Gateway forwarding, then Web opt-in. An old
 Gateway ignores the unknown browser query, and new Core omits the additive
 response field for callers that did not opt in. A successful

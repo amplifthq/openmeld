@@ -96,6 +96,7 @@ const COMMAND_ENTRY_NAME_BY_ROUTE = {
   "agents custom remove": "agents.custom.remove",
   "agents config": "agents.config",
   "computer list": "computer.list",
+  "computer cloud": "computer.cloud",
   "computer current": "computer.current",
   "computer rename": "computer.rename",
   "computer disconnect": "computer.disconnect",

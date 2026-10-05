@@ -1,28 +1,28 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-05T10:08:58.127Z",
+  "updatedAt": "2026-10-05T12:40:33.846Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
-      "packageVersion": "0.3.242",
+      "packageVersion": "0.3.243",
       "updatePolicy": "available",
-      "reason": "Existing CLI commands and cloud contracts remain compatible; this release reduces preparation reads and updates controller SDKs."
+      "reason": "Existing CLI commands remain compatible; the optional cloud Computer command is published after its Core, Remote Agent and Gateway receivers."
     },
     "service": {
-      "bundleHash": "571a57f9dfd1f3b260038fec319cdc18278a03c48e66774b42ba19a75977eff0",
-      "portableBundleHash": "a677463535aa58148a592bde41a2638b27adb3f894101c96ef8cc1312229b6ae",
-      "bundleVersion": "0.3.242",
+      "bundleHash": "fe08c0b5a25a2a7dc72a4dea3bca21a37d55764aaa4355589d6de070840d880f",
+      "portableBundleHash": "eaece1fa12a29c573206f218eb568ac8cbe09f5ea559b00859f28b3138a2ade3",
+      "bundleVersion": "0.3.243",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
       "serviceContractVersion": "openmeld-service-contract-2026-09-local-install-recovery-v1",
       "updatePolicy": "available",
-      "reason": "Existing Services retain the same Wake, reporting, Stop, and reply contracts; task preparation changes are backward compatible."
+      "reason": "No workstation execution or lifecycle contract changed; existing Services retain setup, Wake, Space actions and diagnostics compatibility."
     },
     "skills": {
-      "bundleHash": "3969dce0d427bd0801a57f0094526322712f3d5f87dcf0d6d0c410eb4b3d3e78",
+      "bundleHash": "c041258bd2098c01e98130579c12a11217b17de6f3c8e0b966a1e1001ad46bd3",
       "skillContractVersion": "openmeld-skills-contract-2026-09-explicit-space-recipients-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Existing Skills remain usable. The revised Plugin evidence and verification guide is distributed with the matching CLI after the Core receivers are deployed."
+      "reason": "The added cloud Computer guidance is optional and ships with its CLI command after the cloud receivers; existing workstation instructions remain compatible."
     }
   }
 }

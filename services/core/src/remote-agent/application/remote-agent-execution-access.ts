@@ -9,6 +9,7 @@ import {
 } from "@openmeld/schemas";
 import { readPrimaryAgentProfileBindingRecord } from "../../agent-profile-binding/infrastructure/postgresql/agent-profile-binding-repo";
 import { requireDelegatedPluginAction } from "../../center-agent/application/delegated-plugin-authorization";
+import { ensurePersonalComputer } from "../../computer/personal-computer";
 import { requireRemotePluginConnection } from "../../connectors/plugin-access";
 import type { CoreBindings } from "../../lib/bindings";
 import { resolveOrganizationMembershipById } from "../../organizations/organization-context";
@@ -22,7 +23,7 @@ import { isNativeDeliveryExecutingStatus } from "./native-delivery-execution-sta
 import { isActiveRemoteAgentRequesterProfile } from "./personal-remote-agent-space-tools";
 import { requireRemoteAgentToolCaller } from "./remote-agent-tool-caller";
 
-/** Read-only projection over the current delivery and existing identity owners. */
+/** Rechecks current delivery authority; optionally resolves its human's Computer. */
 export async function authorizeRemoteAgentExecutionAccess(
   env: CoreBindings,
   value: unknown
@@ -97,6 +98,13 @@ export async function authorizeRemoteAgentExecutionAccess(
   return remoteAgentExecutionAccessResponseSchema.parse({
     scope,
     submissionId,
+    ...(await readExecutionComputer(
+      parsed.includeComputer,
+      db,
+      caller,
+      request,
+      scope
+    )),
     ...(parsed.includePluginDelegations ? { pluginDelegations } : {}),
     ...(parsed.includeDelegatedRequester
       ? { delegatedRequesterSupported: true }
@@ -105,6 +113,29 @@ export async function authorizeRemoteAgentExecutionAccess(
       ? { delegatedRequester }
       : {}),
   });
+}
+
+async function readExecutionComputer(
+  includeComputer: boolean | undefined,
+  db: PostgresDatabase,
+  caller: Awaited<ReturnType<typeof requireRemoteAgentToolCaller>>,
+  request: Awaited<ReturnType<typeof requireActiveExecution>>["request"],
+  scope: ReturnType<typeof resolveRemoteAgentExecutionScope>
+) {
+  if (!includeComputer) {
+    return {};
+  }
+  let ownerUserId: string | null = null;
+  if ("personalExecution" in caller) {
+    ownerUserId = request.agentProfileOwnerUserId ?? null;
+  } else if (scope.principal.kind !== "agent") {
+    ownerUserId = scope.principal.userId;
+  }
+  return {
+    computer: ownerUserId
+      ? await ensurePersonalComputer(db, ownerUserId)
+      : null,
+  };
 }
 
 async function requireExecutionSpaceMembership(

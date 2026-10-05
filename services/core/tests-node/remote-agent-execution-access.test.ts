@@ -14,6 +14,10 @@ const owners = vi.hoisted(() => ({
   agent: vi.fn(),
   connection: vi.fn(),
   delegated: vi.fn(),
+  computer: vi.fn(),
+}));
+vi.mock("../src/computer/personal-computer", () => ({
+  ensurePersonalComputer: owners.computer,
 }));
 vi.mock(
   "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo",
@@ -94,6 +98,78 @@ describe("current execution access is an owner projection, not a cached grant", 
     owners.directory.mockResolvedValue(directory);
     owners.connection.mockResolvedValue({ updatedAtMs: 42 });
     owners.delegated.mockResolvedValue(null);
+    owners.computer.mockImplementation(
+      async (_db, ownerUserId) =>
+        await Promise.resolve({
+          id: `computer-${ownerUserId}`,
+          ownerUserId,
+          provider: "cloudflare",
+          createdAtMs: 1,
+        })
+    );
+  });
+
+  it.each([
+    { personal: false, agentSender: false, expectedOwner: "user_1" },
+    { personal: true, agentSender: false, expectedOwner: "remote-owner" },
+    { personal: true, agentSender: true, expectedOwner: "remote-owner" },
+    { personal: false, agentSender: true, expectedOwner: null },
+  ])("resolves the Computer from trusted execution ownership: %j", async ({
+    personal,
+    agentSender,
+    expectedOwner,
+  }) => {
+    const executionRequest = {
+      ...request,
+      agentProfileOwnerUserId: "remote-owner",
+      turnEnvelope: {
+        ...request.turnEnvelope,
+        ...(agentSender
+          ? {
+              sender: {
+                kind: "agent_profile",
+                id: request.author.profileId,
+                profileId: request.author.profileId,
+                verified: true,
+                displayName: "Requester",
+              },
+            }
+          : {}),
+      },
+    };
+    owners.delivery.mockResolvedValue({
+      ...record,
+      workerSubmitRequest: executionRequest,
+    });
+    if (personal) {
+      owners.caller.mockResolvedValue({
+        db: {},
+        personalExecution: { directory },
+      });
+    }
+    owners.agent.mockResolvedValue(true);
+    const response = await authorizeRemoteAgentExecutionAccess(
+      {
+        OPENMELD_POSTGRESQL: {
+          connectionString:
+            "postgresql://projection_fixture@127.0.0.1:1/projection_fixture",
+        },
+      } as CoreBindings,
+      { ...input, includeComputer: true }
+    );
+    expect(response.computer).toEqual(
+      expectedOwner
+        ? {
+            id: `computer-${expectedOwner}`,
+            ownerUserId: expectedOwner,
+            provider: "cloudflare",
+            createdAtMs: 1,
+          }
+        : null
+    );
+    if (!expectedOwner) {
+      expect(owners.computer).not.toHaveBeenCalled();
+    }
   });
 
   it.each([

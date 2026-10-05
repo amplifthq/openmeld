@@ -1,15 +1,15 @@
 diff --git a/dist/index.js b/dist/index.js
-index 68b728218a7a86764d78c96c0f72cdb02b249204..0e7b8ed34f2d92e59645c17228373b2571c6da36 100644
+index d2819fabab75f684d37d8ac4892517b33b3da40c..c094831e546ae94a7f933c65b44a72fad88a9069 100644
 --- a/dist/index.js
 +++ b/dist/index.js
 @@ -1,5 +1,5 @@
- import { n as runArtifactsCLI, r as ArtifactError, t as createArtifact } from "./shared-D5E8i96P.js";
--import { t as WorkspaceRuntime } from "./shared-kgWICmfl.js";
-+import { t as WorkspaceRuntime, decodeCommandEvents } from "./shared-kgWICmfl.js";
+ import { i as ArtifactError, n as runArtifactsCLI, r as ARTIFACTS_NOT_CONFIGURED_MESSAGE, t as createArtifact } from "./shared-C_QLY6ay.js";
+-import { t as WorkspaceRuntime } from "./shared-BzsX-OPg.js";
++import { t as WorkspaceRuntime, decodeCommandEvents } from "./shared-BzsX-OPg.js";
  import { i as isWorkspaceTransportFailure, n as WorkspaceTransportError, r as isWorkspacePreDispatchTransportFailure, t as WorkspacePreDispatchTransportError } from "./shared-D6R1zh4N.js";
  import { n as WORKSPACE_EGRESS_URL_HEADER, t as WORKSPACE_EGRESS_TOKEN_HEADER } from "./shared-Bzxmpfrh.js";
  import { createHash } from "node:crypto";
-@@ -3300,7 +3300,7 @@ function decodeFrame(frame) {
+@@ -4067,7 +4067,7 @@ function decodeFrame(frame) {
  function decodeRuntimeEvents(source) {
  	const decoder = new TextDecoder();
  	let buffered = "";
@@ -18,7 +18,7 @@ index 68b728218a7a86764d78c96c0f72cdb02b249204..0e7b8ed34f2d92e59645c17228373b25
  		transform(chunk, controller) {
  			buffered += decoder.decode(chunk, { stream: true });
  			const lines = buffered.split("\n");
-@@ -3311,7 +3311,7 @@ function decodeRuntimeEvents(source) {
+@@ -4078,7 +4078,7 @@ function decodeRuntimeEvents(source) {
  			buffered += decoder.decode();
  			if (buffered.trim()) controller.enqueue(decodeFrame(JSON.parse(buffered)));
  		}
@@ -27,7 +27,7 @@ index 68b728218a7a86764d78c96c0f72cdb02b249204..0e7b8ed34f2d92e59645c17228373b25
  }
  //#endregion
  //#region src/sh.ts
-@@ -3959,6 +3959,8 @@ function resumeToAfter(resume) {
+@@ -5257,6 +5257,8 @@ function resumeToAfter(resume) {
  }
  function withPostPull(source, sync, runtimeId) {
  	const reader = source.getReader();
@@ -36,7 +36,7 @@ index 68b728218a7a86764d78c96c0f72cdb02b249204..0e7b8ed34f2d92e59645c17228373b25
  	let resolveOutcome;
  	const outcome = new Promise((resolve) => {
  		resolveOutcome = resolve;
-@@ -3968,12 +3970,15 @@ function withPostPull(source, sync, runtimeId) {
+@@ -5266,12 +5268,15 @@ function withPostPull(source, sync, runtimeId) {
  			async pull(controller) {
  				try {
  					const next = await reader.read();
@@ -52,7 +52,7 @@ index 68b728218a7a86764d78c96c0f72cdb02b249204..0e7b8ed34f2d92e59645c17228373b25
  					resolveOutcome(pulled);
  					controller.close();
  				} catch (error) {
-@@ -3994,8 +3999,9 @@ function withPostPull(source, sync, runtimeId) {
+@@ -5295,8 +5300,9 @@ function withPostPull(source, sync, runtimeId) {
  				}
  			},
  			async cancel(reason) {
@@ -62,8 +62,8 @@ index 68b728218a7a86764d78c96c0f72cdb02b249204..0e7b8ed34f2d92e59645c17228373b25
 +					if (!sourceDone) await reader.cancel(reason);
  				} finally {
  					reader.releaseLock();
- 					resolveOutcome({
-@@ -5246,6 +5252,9 @@ async function rebuildExecHandle(remote, known = {}) {
+ 					try {
+@@ -6678,6 +6684,9 @@ async function rebuildExecHandle(remote, known = {}) {
  	let claimed;
  	let resultPromise;
  	let reader;
@@ -73,7 +73,7 @@ index 68b728218a7a86764d78c96c0f72cdb02b249204..0e7b8ed34f2d92e59645c17228373b25
  	const stream = new ReadableStream({
  		pull: async (controller) => {
  			if (claimed === "result") {
-@@ -5254,12 +5263,14 @@ async function rebuildExecHandle(remote, known = {}) {
+@@ -6686,12 +6695,14 @@ async function rebuildExecHandle(remote, known = {}) {
  			}
  			if (reader === void 0) {
  				claimed = "stream";
@@ -89,7 +89,7 @@ index 68b728218a7a86764d78c96c0f72cdb02b249204..0e7b8ed34f2d92e59645c17228373b25
  				if (done) {
  					activeReader.releaseLock();
  					reader = void 0;
-@@ -5268,22 +5279,21 @@ async function rebuildExecHandle(remote, known = {}) {
+@@ -6700,22 +6711,21 @@ async function rebuildExecHandle(remote, known = {}) {
  				}
  				controller.enqueue(value);
  			} catch (error) {
@@ -118,11 +118,11 @@ index 68b728218a7a86764d78c96c0f72cdb02b249204..0e7b8ed34f2d92e59645c17228373b25
  				dispose();
  			}
  		}
-diff --git a/dist/shared-kgWICmfl.js b/dist/shared-kgWICmfl.js
-index 03cabafe5fc18a37f0963aae4f7456b4d48ae958..63bbf57eb32559480fc0421c628513c930483ca4 100644
---- a/dist/shared-kgWICmfl.js
-+++ b/dist/shared-kgWICmfl.js
-@@ -84,11 +84,12 @@ function wrapModuleHandle(runtime, backend, id, source, encoding, resultMayUseSo
+diff --git a/dist/shared-BzsX-OPg.js b/dist/shared-BzsX-OPg.js
+index befbec0aa994ad6cb761767270e9533797f21e22..8e9c42066184893747ed517b57fcaf892ef1367f 100644
+--- a/dist/shared-BzsX-OPg.js
++++ b/dist/shared-BzsX-OPg.js
+@@ -85,11 +85,12 @@ function wrapModuleHandle(runtime, backend, id, source, encoding, resultMayUseSo
  		},
  		async cancel(reason) {
  			sourceCancelled = true;
@@ -139,7 +139,7 @@ index 03cabafe5fc18a37f0963aae4f7456b4d48ae958..63bbf57eb32559480fc0421c628513c9
  			}
  			else await source.cancel(reason);
  		}
-@@ -169,7 +170,7 @@ function transformModuleEvents(source, encoding) {
+@@ -170,7 +171,7 @@ function transformModuleEvents(source, encoding) {
  		stdoutMeta = void 0;
  		stderrMeta = void 0;
  	};
@@ -148,7 +148,7 @@ index 03cabafe5fc18a37f0963aae4f7456b4d48ae958..63bbf57eb32559480fc0421c628513c9
  		transform(event, controller) {
  			if (event.name === "stdout" || event.name === "stderr") {
  				if (event.name === "stdout") stdoutMeta = {
-@@ -190,7 +191,33 @@ function transformModuleEvents(source, encoding) {
+@@ -191,7 +192,33 @@ function transformModuleEvents(source, encoding) {
  			}
  		},
  		flush: flushPending
