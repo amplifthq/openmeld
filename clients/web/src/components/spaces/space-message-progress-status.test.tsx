@@ -15,7 +15,7 @@ import {
 import { SpaceMessageProgressStatus } from "./space-message-progress-status";
 import { SpaceWakeStopScope } from "./space-wake-stop-control";
 
-const AGENT_WORKING_TEXT_PATTERN = /Thinking…/;
+const AGENT_WORKING_TEXT_PATTERN = /Working…/;
 const REVIEWER_PROGRESS_PATTERN = /^Reviewer · Searching documents…/;
 
 afterEach(() => {
@@ -102,7 +102,7 @@ describe("SpaceMessageProgressStatus", () => {
 		);
 		expect(screen.getByText("Stopping…")).toBeTruthy();
 		expect(screen.getByText(REVIEWER_PROGRESS_PATTERN)).toBeTruthy();
-		expect(screen.queryByText("Thinking…")).toBeNull();
+		expect(screen.queryByText("Working…")).toBeNull();
 	});
 	it("replaces stale work and preview with awaiting confirmation while keeping Stop", () => {
 		const item = createStreamingToolActivityItem();
@@ -136,32 +136,63 @@ describe("SpaceMessageProgressStatus", () => {
 		).toBeNull();
 		expect(view.container.querySelector(".text-destructive")).toBeNull();
 	});
-	it("shows the authoritative optimistic phase without inventing elapsed time", () => {
+	it("counts the request wait before runtime admission", () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(1_800_000_000_000);
+		const item = { ...createStartingItem(), createdAtMs: Date.now() - 3000 };
 		const view = render(
-			<SpaceMessageProgressStatus entries={[]} item={createStartingItem()} />
+			<SpaceMessageProgressStatus entries={[]} item={item} />
 		);
 
 		const startingStatus = screen.getByRole("status", {
-			name: "Runner · Thinking…",
+			name: "Runner · Working… · 3s",
 		});
-		expect(
-			startingStatus.querySelector('[data-slot="thinking-indicator-word"]')
-				?.textContent
-		).toBe("Runner · Thinking…");
+		expect(startingStatus.textContent).toBe("Runner · Working… · 3s");
 		expect(
 			startingStatus.querySelector('[data-slot="agent-thinking-elapsed"]')
 		).toBeNull();
 
 		view.rerender(
-			<SpaceMessageProgressStatus entries={[]} item={createStreamingItem()} />
+			<SpaceMessageProgressStatus
+				entries={[]}
+				item={createStreamingItem()}
+				wakeSourceItem={item}
+			/>
 		);
 
 		expect(
 			document.querySelector('[data-slot="agent-thinking-elapsed"]')
 		).toBeNull();
-		expect(screen.getByRole("status", { name: "Thinking…" }).textContent).toBe(
-			"Thinking…"
+		expect(
+			screen.getByRole("status", { name: "Working…" }).textContent
+		).toContain("Working…");
+		expect(
+			screen.getByRole("status", { name: "Working…" }).textContent
+		).toContain("3s");
+
+		const retry = createStartingItem();
+		if (!retry.activeWakeProgress) {
+			throw new Error("Missing active Wake fixture.");
+		}
+		retry.activeWakeProgress = {
+			...retry.activeWakeProgress,
+			clientMessageId: "retry-request",
+			startedAtMs: Date.now() - 1000,
+		};
+		view.rerender(
+			<SpaceMessageProgressStatus
+				entries={[]}
+				item={retry}
+				wakeSourceItem={{
+					...item,
+					clientMessageId: "original-request",
+					createdAtMs: Date.now() - 3_600_000,
+				}}
+			/>
 		);
+		expect(
+			screen.getByRole("status", { name: "Runner · Working… · 1s" })
+		).toBeTruthy();
 	});
 
 	it.each([
@@ -217,7 +248,7 @@ describe("SpaceMessageProgressStatus", () => {
 		expect(controlSlot.className).not.toContain("w-20");
 
 		const activityTrigger = screen.getByRole("button", {
-			name: "Thinking…. Work summary: Reviewing source files…",
+			name: "Working…. Work summary: Reviewing source files…",
 		});
 		expect(activityTrigger).toBe(activity);
 		expect(
@@ -332,7 +363,7 @@ describe("SpaceMessageProgressStatus", () => {
 		);
 		expect(
 			screen.getByRole("button", {
-				name: "Thinking…. Work summary: Reviewing source files…",
+				name: "Working…. Work summary: Reviewing source files…",
 			})
 		).toBeTruthy();
 		expect(
@@ -360,7 +391,7 @@ describe("SpaceMessageProgressStatus", () => {
 		);
 
 		const trigger = screen.getByRole("button", {
-			name: "Thinking…. Thinking process",
+			name: "Working…. Thinking process",
 		});
 		expect(trigger.getAttribute("aria-expanded")).toBe("true");
 		expect(screen.getByText("Reviewing the request.")).toBeTruthy();
@@ -413,11 +444,11 @@ describe("SpaceMessageProgressStatus", () => {
 
 		expect(
 			screen.getByTestId("space-wake-thinking-indicator").textContent
-		).toBe(`Thinking… · ${phase} · 0s`);
+		).toBe(`Working… · ${phase} · 0s`);
 		expect(screen.getAllByText(AGENT_WORKING_TEXT_PATTERN)).toHaveLength(1);
 	});
 
-	it("does not claim the Thinking… before the stream begins", () => {
+	it("does not claim the Working… before the stream begins", () => {
 		const item = createStreamingItem();
 		item.agentStreamState = undefined;
 
@@ -443,7 +474,7 @@ describe("SpaceMessageProgressStatus", () => {
 			/>
 		);
 
-		expect(screen.getByRole("status", { name: "Thinking…" })).toBeTruthy();
+		expect(screen.getByRole("status", { name: "Working…" })).toBeTruthy();
 		expect(screen.getByRole("button", { name: "Stop" })).toBeTruthy();
 		expect(screen.queryByText("Responding...")).toBeNull();
 	});
@@ -488,7 +519,7 @@ describe("SpaceMessageProgressStatus", () => {
 		expect(screen.getAllByText(AGENT_WORKING_TEXT_PATTERN)).toHaveLength(1);
 		expect(
 			screen.getByRole("button", {
-				name: "Thinking…. Work summary: Reviewing source files…",
+				name: "Working…. Work summary: Reviewing source files…",
 			})
 		).toBeTruthy();
 		expect(screen.getByRole("button", { name: "Stop" })).toBeTruthy();
@@ -530,11 +561,11 @@ function createWakeProgressEntry(
 		step: {
 			description: "OpenMeld is running the agent.",
 			kind: "working",
-			label: "Thinking…",
+			label: "Working…",
 			status: "active",
 		},
 		targetProfileId: "agt_runner",
-		text: "Thinking…",
+		text: "Working…",
 		...overrides,
 	};
 }
@@ -548,7 +579,7 @@ function createWakePreviewEntry(): SpaceMessageWakeThinkingEntry {
 		step: {
 			description: "OpenMeld is receiving live output from the agent.",
 			kind: "replying",
-			label: "Thinking…",
+			label: "Working…",
 			status: "active",
 		},
 		targetProfileId: "agt_runner",
@@ -575,7 +606,7 @@ function createStartingItem(): SpaceTimelineItem {
 	item.activeWakeProgress = {
 		clientMessageId: "client-message-1",
 		dispatchId: "dispatch-1",
-		message: "Runner · Thinking….",
+		message: "Runner · Working….",
 		phase: "running",
 		sourceSignalId: "signal-1",
 		targetLabel: "Runner",

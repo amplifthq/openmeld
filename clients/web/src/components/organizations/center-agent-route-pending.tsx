@@ -3,6 +3,7 @@
 import { Skeleton } from "@openmeld/ui/components/skeleton";
 import { useQueryClient } from "@tanstack/react-query";
 import { useSpaceComposerFiles } from "#/components/spaces/use-space-composer-attachments";
+import { useAccountAvatar } from "#/hooks/account.hooks";
 import { useCenterAgentPendingMessage } from "#/hooks/use-center-agent-pending-message";
 import { useComposerDraft } from "#/hooks/use-composer-draft";
 import type { CenterAgentSectionId } from "#/lib/organizations/center-agent-navigation";
@@ -62,6 +63,7 @@ export function CenterAgentPendingConversation(input: {
 	organizationSlug: string;
 }) {
 	const queryClient = useQueryClient();
+	const { data: accountAvatar } = useAccountAvatar();
 	const defaultHumanProfile = findActiveDefaultHumanProfile(
 		queryClient.getQueryData(
 			buildStartProfilesQueryOptions({
@@ -128,6 +130,7 @@ export function CenterAgentPendingConversation(input: {
 			pendingMessage={
 				pendingSend.preparing ?? pendingMessage ?? pendingSend.stopped
 			}
+			selfAvatarImageUrl={accountAvatar?.avatar}
 			selfProfile={defaultHumanProfile}
 			stopStatus={pendingSend.stopped ? "stopped" : undefined}
 		/>

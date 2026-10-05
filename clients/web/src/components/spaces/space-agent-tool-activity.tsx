@@ -29,6 +29,7 @@ import {
 	type SpaceAgentWorkStep,
 } from "./space-agent-tool-activity-state";
 import { SpaceMessageProgressRow } from "./space-message-progress-row";
+import { SpaceRequestElapsedTime } from "./space-request-elapsed-time";
 
 export function SpaceAgentToolActivity(input: {
 	align?: "start" | "end";
@@ -38,6 +39,7 @@ export function SpaceAgentToolActivity(input: {
 		"agentActivity" | "agentStreamState" | "agentPublicProgress"
 	>;
 	placement?: "message" | "progress";
+	requestStartedAtMs?: number;
 }) {
 	const steps = resolveVisibleSpaceAgentWorkSteps(input.item);
 	const latestStep = steps.at(-1);
@@ -101,6 +103,14 @@ export function SpaceAgentToolActivity(input: {
 								<span className="min-w-0">
 									{SPACE_AGENT_WORKING_STATUS_TEXT}
 								</span>
+								{input.requestStartedAtMs !== undefined && (
+									<>
+										<span aria-hidden="true">·</span>
+										<SpaceRequestElapsedTime
+											startedAtMs={input.requestStartedAtMs}
+										/>
+									</>
+								)}
 							</span>
 						) : (
 							"Work summary"

@@ -60,7 +60,7 @@ const CREATE_SPACE_BUTTON_NAME_PATTERN = /Create a Space/;
 const CONNECT_MY_COMPUTER_BUTTON_NAME_PATTERN = /Connect my computer/;
 const MESSAGES_FROM_DATE_MARKER_NAME_PATTERN = /Messages from/;
 const OPEN_DATE_NAVIGATION_NAME_PATTERN = /Open date navigation for/;
-const RUNNER_WORKING_NAME_PATTERN = /runner · Thinking…/u;
+const RUNNER_WORKING_NAME_PATTERN = /runner · Working…/u;
 
 // The Message Details dialog fetches through `useQuery`. Every test in this
 // file except the ones that open that dialog only checks for the trigger
@@ -1147,7 +1147,7 @@ describe("SpaceConversationPanel", () => {
 				{
 					...createWakeProgressItem({ sourceSignalId: childResult.id }),
 					clientMessageId: null,
-					message: "@Amplift Center Agent · Thinking…...",
+					message: "@Amplift Center Agent · Working…...",
 					targetLabel: "@Amplift Center Agent",
 					targetProfileId: "agent-profile-center",
 				},
@@ -1357,6 +1357,30 @@ describe("SpaceConversationPanel", () => {
 		expect(link.closest("button")).toBeNull();
 		expect(jumpButton).toBeTruthy();
 		expect(replyProfileName.className).toContain("font-bold");
+	});
+
+	it.each([
+		true,
+		false,
+	])("only omits reply quotations in one-to-one DMs (DM=%s)", (isDirectMessage) => {
+		renderSpaceConversationPanel({
+			isDirectMessage,
+			timelineItems: [
+				createTimelineItem({ id: "original", text: "Original question" }),
+				createTimelineItem({
+					id: "reply",
+					replyToSignalId: "original",
+					replyToProfileName: "Felix",
+					replyPreviewText: "Original question",
+					text: "The answer",
+				}),
+			],
+		});
+		expect(
+			screen.queryByRole("button", { name: "Jump to original message" }) !==
+				null
+		).toBe(!isDirectMessage);
+		expect(screen.getByText("The answer")).toBeTruthy();
 	});
 
 	it("uses the shared Space reference renderer in a thread preview", () => {
@@ -2141,6 +2165,7 @@ describe("SpaceConversationPanel", () => {
 				createTimelineItem({
 					id: "signal-self",
 					text: "Self message",
+					actorAvatarImageUrl: "https://example.com/outdated-profile.png",
 				}),
 			],
 		});
@@ -3472,7 +3497,7 @@ describe("SpaceConversationPanel", () => {
 		const wakeIcon = wakeIndicator.querySelector("canvas");
 
 		expect(screen.queryByText("Sending...")).toBeNull();
-		expect(wakeIndicator.textContent).toContain("runner · Thinking…");
+		expect(wakeIndicator.textContent).toContain("runner · Working…");
 		expect(wakeIcon).toBeTruthy();
 		expect(wakeIcon?.dataset.spaceAgentOrbState).toBe("connecting");
 		expect(
@@ -3487,7 +3512,7 @@ describe("SpaceConversationPanel", () => {
 		expect(wakeIndicator.className).not.toContain("pl-1");
 	});
 
-	it("replaces optimistic Wake progress with delayed sending copy", () => {
+	it("keeps the Agent progress row stable while source delivery is delayed", () => {
 		const createdAtMs = Date.UTC(2026, 4, 27, 10, 0, 7);
 		vi.useFakeTimers();
 		vi.setSystemTime(createdAtMs + 8000);
@@ -3513,9 +3538,11 @@ describe("SpaceConversationPanel", () => {
 			],
 		});
 
-		expect(screen.getByText("Still sending...")).toBeTruthy();
+		expect(screen.queryByText("Still sending...")).toBeNull();
 		expect(screen.queryByText("Starting Wake…")).toBeNull();
-		expect(screen.queryByTestId("space-wake-thinking-row")).toBeNull();
+		expect(screen.getByTestId("space-wake-thinking-row").textContent).toContain(
+			"Working… · 8s"
+		);
 	});
 
 	it("keeps one stable Center Agent answer shell while its phase advances", () => {
@@ -3576,9 +3603,9 @@ describe("SpaceConversationPanel", () => {
 		expect(within(optimisticReply).getByText("Center Agent")).toBeTruthy();
 		expect(
 			within(progressRow).getByRole("status", {
-				name: "runner · Thinking…",
+				name: "runner · Working… · 2s",
 			}).textContent
-		).toContain("runner · Thinking…");
+		).toContain("runner · Working…");
 		expect(
 			progressRow.querySelector('[data-space-agent-orb-state="connecting"]')
 		).toBeTruthy();
@@ -3623,9 +3650,9 @@ describe("SpaceConversationPanel", () => {
 		expect(persistedSendingReply).toBe(optimisticReply);
 		expect(
 			within(persistedSendingReply as HTMLElement).getByRole("status", {
-				name: "runner · Thinking…",
+				name: "runner · Working… · 2s",
 			}).textContent
-		).toContain("runner · Thinking…");
+		).toContain("runner · Working…");
 
 		view.rerender(
 			<SpaceConversationPanel
@@ -3670,7 +3697,7 @@ describe("SpaceConversationPanel", () => {
 			within(updatedOptimisticReply as HTMLElement).getByRole("status", {
 				name: RUNNER_WORKING_NAME_PATTERN,
 			}).textContent
-		).toContain("runner · Thinking…");
+		).toContain("runner · Working…");
 		expect(
 			within(updatedOptimisticReply as HTMLElement).getByRole("button", {
 				name: "Stop @runner",
@@ -3722,7 +3749,7 @@ describe("SpaceConversationPanel", () => {
 			within(optimisticReply).getByRole("status", {
 				name: RUNNER_WORKING_NAME_PATTERN,
 			}).textContent
-		).toContain("runner · Thinking…");
+		).toContain("runner · Working…");
 	});
 
 	it.each([
@@ -3865,7 +3892,7 @@ describe("SpaceConversationPanel", () => {
 			.closest("[data-message-row-id='sig-source']");
 		expect(source).not.toBeNull();
 		expect(
-			within(source as HTMLElement).queryByLabelText("Center Agent · Thinking…")
+			within(source as HTMLElement).queryByLabelText("Center Agent · Working…")
 		).toBeNull();
 		expect(
 			document.querySelector('[data-message-id^="active-wake:"]')
@@ -3884,12 +3911,12 @@ describe("SpaceConversationPanel", () => {
 			document.querySelector('[data-message-id^="active-wake:"]')
 		).not.toBeNull();
 		expect(
-			within(source as HTMLElement).queryByLabelText("Center Agent · Thinking…")
+			within(source as HTMLElement).queryByLabelText("Center Agent · Working…")
 		).toBeNull();
 
 		view.rerender(<SpaceConversationPanel {...props} />);
 		const status = within(source as HTMLElement).getByLabelText(
-			"Center Agent · Thinking…"
+			"Center Agent · Working…"
 		);
 		const entrance = status.parentElement;
 		expect(entrance).not.toBeNull();
@@ -3941,7 +3968,7 @@ describe("SpaceConversationPanel", () => {
 			within(source as HTMLElement).getByText("Here is the answer.")
 		).toBeTruthy();
 		expect(
-			within(source as HTMLElement).queryByLabelText("Center Agent · Thinking…")
+			within(source as HTMLElement).queryByLabelText("Center Agent · Working…")
 		).toBeNull();
 		expect(
 			within(source as HTMLElement).queryByRole("button", {
@@ -3980,7 +4007,7 @@ describe("SpaceConversationPanel", () => {
 			.closest("[data-message-row-id='sig-root']");
 		expect(source).not.toBeNull();
 		expect(
-			within(source as HTMLElement).getByLabelText("Center Agent · Thinking…")
+			within(source as HTMLElement).getByLabelText("Center Agent · Working…")
 		).toBeTruthy();
 		expect(
 			document.querySelector('[data-message-id^="active-wake:"]')
@@ -4045,7 +4072,7 @@ describe("SpaceConversationPanel", () => {
 		expect(screen.getByText("Please investigate")).toBeTruthy();
 		expect(
 			screen.getByRole("button", {
-				name: "Thinking…. Work summary: Reviewing source files…",
+				name: "Working…. Work summary: Reviewing source files…",
 			})
 		).toBeTruthy();
 		expect(
@@ -4129,7 +4156,7 @@ describe("SpaceConversationPanel", () => {
 			timelineItems: [streaming],
 		});
 		const row = screen
-			.getByRole("status", { name: "Thinking…" })
+			.getByRole("status", { name: "Working…" })
 			.closest("[data-message-id]");
 		expect(row).not.toBeNull();
 		rendered.rerender(
@@ -4148,7 +4175,7 @@ describe("SpaceConversationPanel", () => {
 				})}
 			/>
 		);
-		expect(screen.queryByRole("status", { name: "Thinking…" })).toBeNull();
+		expect(screen.queryByRole("status", { name: "Working…" })).toBeNull();
 		expect(
 			screen.getByText("Ready to review.").closest("[data-message-id]")
 		).toBe(row);
@@ -4177,7 +4204,7 @@ describe("SpaceConversationPanel", () => {
 		});
 
 		const progressRow = screen.getByRole("status", {
-			name: "Thinking…",
+			name: "Working…",
 		});
 		const progressInset = progressRow.closest(
 			'[data-slot="space-message-row-progress-inset"]'
@@ -4198,7 +4225,7 @@ describe("SpaceConversationPanel", () => {
 				.closest('[data-slot="message"]')
 				?.querySelector('[data-slot="space-message-body"]') ?? null
 		).toBeNull();
-		expect(screen.getByText("Thinking…")).toBeTruthy();
+		expect(screen.getByText("Working…")).toBeTruthy();
 	});
 
 	it("does not leave an optimistic shell behind when the final Center Agent reply arrives first", () => {
@@ -4264,7 +4291,7 @@ describe("SpaceConversationPanel", () => {
 			'[data-signal-id="stream:submission-1"]'
 		);
 		const progressRow = screen.getByRole("status", {
-			name: "Thinking…",
+			name: "Working…",
 		});
 		const progressInset = progressRow.closest(
 			'[data-slot="space-message-row-progress-inset"]'
@@ -4273,7 +4300,7 @@ describe("SpaceConversationPanel", () => {
 			"I am working through the request"
 		);
 		expect(progressInset).toBeNull();
-		expect(screen.getByText("Thinking…")).toBeTruthy();
+		expect(screen.getByText("Working…")).toBeTruthy();
 		expect(messageBubble?.getAttribute("data-signal-id")).toBe(
 			"stream:submission-1"
 		);
@@ -4382,9 +4409,9 @@ describe("SpaceConversationPanel", () => {
 			],
 		});
 
-		expect(screen.getByText("Thinking…")).toBeTruthy();
+		expect(screen.getByText("Working…")).toBeTruthy();
 		const activityTrigger = screen.getByRole("button", {
-			name: "Thinking…. Work summary: Reviewing source files…",
+			name: "Working…. Work summary: Reviewing source files…",
 		});
 		expect(activityTrigger.getAttribute("aria-expanded")).toBe("true");
 		const progressRow = activityTrigger.closest(
@@ -5210,13 +5237,17 @@ describe("SpaceConversationPanel", () => {
 				.querySelector("canvas")
 				?.getAttribute("data-space-agent-orb-state")
 		).toBe("solving");
-		expect(thinkingIndicator.textContent).toContain("runner · Thinking… · 12s");
+		expect(thinkingIndicator.textContent).toContain(
+			"runner · Working… · 1m 12s"
+		);
 
 		act(() => {
 			vi.advanceTimersByTime(1000);
 		});
 
-		expect(thinkingIndicator.textContent).toContain("runner · Thinking… · 13s");
+		expect(thinkingIndicator.textContent).toContain(
+			"runner · Working… · 1m 13s"
+		);
 	});
 
 	it("does not offer another viewer Stop without Core eligibility", () => {
@@ -5765,7 +5796,7 @@ function createWakeProgressItem(input?: {
 		clientMessageId: "client-message-1",
 		dispatchId: "dispatch-1",
 		failureReasonCode: null,
-		message: "@runner · Thinking… on this computer...",
+		message: "@runner · Working… on this computer...",
 		phase: input?.phase ?? "running",
 		sourceSignalId: input?.sourceSignalId ?? "sig-source",
 		startedAtMs: input?.updatedAtMs ?? Date.UTC(2026, 4, 27, 10, 1),

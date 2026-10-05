@@ -125,14 +125,14 @@ export function resolveWakeProgressStatus(
 			return {
 				description: "The Agent is processing your request.",
 				kind: "starting",
-				label: `${targetName} · Thinking…`,
+				label: `${targetName} · Working…`,
 				status: "active",
 			};
 		case "request_sent":
 			return {
 				description: "The Agent is processing your request.",
 				kind: "sent",
-				label: `${targetName} · Thinking…`,
+				label: `${targetName} · Working…`,
 				status: "active",
 			};
 		case "queued":
@@ -146,14 +146,14 @@ export function resolveWakeProgressStatus(
 			return {
 				description: "The Agent is processing your request.",
 				kind: "connecting",
-				label: `${targetName} · Thinking…`,
+				label: `${targetName} · Working…`,
 				status: "active",
 			};
 		case "running":
 			return {
 				description: "The Agent is processing your request.",
 				kind: "working",
-				label: `${targetName} · Thinking…`,
+				label: `${targetName} · Working…`,
 				status: "active",
 			};
 		case "writing":
@@ -174,7 +174,7 @@ export function resolveWakeProgressStatus(
 			return {
 				description: "The Agent is processing your request.",
 				kind: "retrying",
-				label: `${targetName} · Thinking…`,
+				label: `${targetName} · Working…`,
 				status: "active",
 			};
 		default: {

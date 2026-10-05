@@ -21,15 +21,15 @@ describe("resolveWakeProgressStatus", () => {
 			resolveWakeProgressStatus(
 				createWakeProgressItem({ targetLabel: "@agt_legacy_name" })
 			)?.label
-		).toBe("Agent · Thinking…");
+		).toBe("Agent · Working…");
 	});
 	it.each([
-		["sending", "runner · Thinking…", "starting"],
-		["request_sent", "runner · Thinking…", "sent"],
+		["sending", "runner · Working…", "starting"],
+		["request_sent", "runner · Working…", "sent"],
 		["queued", "runner · Waiting for earlier tasks", "queued"],
-		["connecting", "runner · Thinking…", "connecting"],
-		["retrying", "runner · Thinking…", "retrying"],
-		["running", "runner · Thinking…", "working"],
+		["connecting", "runner · Working…", "connecting"],
+		["retrying", "runner · Working…", "retrying"],
+		["running", "runner · Working…", "working"],
 		["writing", "runner · Replying…", "replying"],
 		["publishing", "runner · Replying…", "posting"],
 	] as const)("presents %s without exposing transport details", (phase, label, kind) => {
@@ -38,7 +38,7 @@ describe("resolveWakeProgressStatus", () => {
 		).toEqual(expect.objectContaining({ kind, label }));
 	});
 
-	it("shows the pending owner interaction instead of claiming the Agent · Thinking…", () => {
+	it("shows the pending owner interaction instead of claiming the Agent · Working…", () => {
 		expect(
 			resolveWakeProgressStatus(
 				createWakeProgressItem({
@@ -135,7 +135,7 @@ function createWakeProgressItem(
 	return {
 		clientMessageId: "client-message-1",
 		dispatchId: "dispatch-1",
-		message: "runner · Thinking…",
+		message: "runner · Working…",
 		phase: "running",
 		sourceSignalId: "signal-1",
 		targetLabel: "@runner",

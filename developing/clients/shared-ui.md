@@ -447,9 +447,9 @@ seed. Hosted Remote Agents default to the selected model provider's existing
 Unknown providers or missing logo assets use the generic Agent mark. Saved images
 and explicitly selected fluid avatars take precedence across model changes.
 Center Agents display their saved Bot or fluid style; authorized admins can
-select either. Missing
-style displays the automatic mark and must not hash the Profile ID to invent a
-saved Bot selection. The app shell provides one read of the existing Organization
+select either. Missing or legacy automatic style uses the shared Clover Bot
+default, without persisting a selection or hashing the Profile ID to invent one.
+The app shell provides one read of the existing Organization
 Profile Directory to every avatar entrance. Saved preferences are applied to
 loaded profile caches and invalidated after a successful save. Idle and read-only
 editors use the same saved Profile; only an unsaved user selection is a preview.
