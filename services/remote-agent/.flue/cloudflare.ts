@@ -1,5 +1,6 @@
 import { env as workerEnv } from "cloudflare:workers";
 import { executePluginRuntime } from "../connectors/plugin-runtime";
+import { acknowledgeAccountErasure } from "../flue-adapter/account-deletion";
 import type { AgentComputerNamespace } from "../flue-adapter/agent-computer-workspace-access";
 import { personalComputerProviderName } from "../flue-adapter/computer-identity";
 import type { AgentComputer } from "../flue-adapter/computer-workspace";
@@ -14,6 +15,8 @@ export { ComputerPreviewOutbound } from "../flue-adapter/computer-preview";
 export { AgentComputer } from "../flue-adapter/computer-workspace";
 
 import {
+  accountDeletionComputerSchema,
+  accountDeletionConversationSchema,
   cloudComputerOperationResultSchema,
   cloudComputerWorkerRequestSchema,
   remoteAgentWorkerCancellationRequestSchema,
@@ -48,6 +51,30 @@ import {
 const env = workerEnv as unknown as CloudflareBindings;
 
 export default {
+  async eraseAccountComputer(input: unknown) {
+    const request = accountDeletionComputerSchema.parse(input);
+    const namespace = env.AGENT_COMPUTER as AgentComputerNamespace;
+    await acknowledgeAccountErasure(
+      async () =>
+        await (
+          namespace.get(
+            namespace.idFromName(
+              personalComputerProviderName(request.computerId)
+            )
+          ) as DurableObjectStub<AgentComputer>
+        ).eraseAccountComputer()
+    );
+  },
+  async eraseAccountConversation(input: unknown) {
+    const request = accountDeletionConversationSchema.parse(input);
+    const namespace = env.FLUE_CENTER_AGENT_V2_AGENT as CenterAgentNamespace;
+    await acknowledgeAccountErasure(
+      async () =>
+        await namespace
+          .get(namespace.idFromName(request.runtimeConversationId))
+          .eraseAccountConversation(request)
+    );
+  },
   async cloudComputerOperation(value: unknown) {
     const request = cloudComputerWorkerRequestSchema.parse(value);
     const namespace = env.AGENT_COMPUTER as AgentComputerNamespace;

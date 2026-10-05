@@ -544,6 +544,15 @@ export const hasPendingDispatchOutboxRecords = (sql: SqlStorage): boolean => {
     .toArray();
   return rows.length > 0;
 };
+/** Handoff is not completion. Poisoned rows already have a published failure. */
+export const hasUnsettledDispatchOutboxRecords = (sql: SqlStorage): boolean =>
+  sql
+    .exec(
+      "SELECT 1 FROM openMeldDaemon_outbox WHERE status IN (?, ?) AND poisoned_at_ms IS NULL LIMIT 1",
+      OPENMELD_DAEMON_OUTBOX_STATUS_PENDING,
+      PERSISTED_OUTBOX_STATUS_QUEUED
+    )
+    .toArray().length > 0;
 export const listDispatchOutboxRecoveryCandidates = (
   sql: SqlStorage,
   input: {

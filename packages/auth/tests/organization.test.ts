@@ -1350,9 +1350,11 @@ describe("organization identity foundation", () => {
   });
 
   it.each([
-    "creator and designator",
-    "another member",
-  ])("allows removing %s while preserving the Center Agent and member cleanup", async (removedActor) => {
+    ["remove", "creator and designator"],
+    ["remove", "another member"],
+    ["leave", "creator and designator"],
+    ["leave", "another member"],
+  ])("allows %s by %s while preserving the Center Agent and cleaning private data", async (action, removedActor) => {
     const requestSessionInventoryCleanup = vi
       .fn()
       .mockResolvedValueOnce({
@@ -1407,12 +1409,18 @@ describe("organization identity foundation", () => {
 
     const response = await postAuth(
       auth,
-      "/organization/remove-member",
+      action === "remove"
+        ? "/organization/remove-member"
+        : "/organization/leave",
       {
-        memberIdOrEmail: membership.memberId,
+        ...(action === "remove"
+          ? { memberIdOrEmail: membership.memberId }
+          : {}),
         organizationId: membership.organizationId,
       },
-      membership.ownerHeaders
+      action === "remove"
+        ? membership.ownerHeaders
+        : await signIn(auth, { email: "member@example.com", password })
     );
 
     expect(response.status).toBe(200);
@@ -1446,6 +1454,53 @@ describe("organization identity foundation", () => {
       organizationId: membership.organizationId,
       userId: membership.memberUserId,
     });
+    expect(coreWorker.deleteCenterAgentMemberMemory).toHaveBeenCalledWith({
+      organizationId: membership.organizationId,
+      userId: membership.memberUserId,
+    });
+  });
+
+  it.each([
+    "last-owner",
+    "not-member",
+    "cleanup-unavailable",
+  ] as const)("does not purge private memory when leaving fails: %s", async (reason) => {
+    const { auth, harness, coreWorker } = await createTestAuth();
+    const cleanup = vi
+      .spyOn(
+        coreWorker,
+        "requestAgentActivitySessionInventoryCleanupForOrganizationMember"
+      )
+      .mockResolvedValue({
+        ok: reason !== "cleanup-unavailable",
+        accepted: true,
+        pending: true,
+      });
+    const memoryCleanup = vi.spyOn(coreWorker, "deleteCenterAgentMemberMemory");
+    const membership = await createOrganizationWithAcceptedMember({
+      auth,
+      harness,
+    });
+    const response = await postAuth(
+      auth,
+      "/organization/leave",
+      {
+        organizationId:
+          reason === "not-member" ? "not-a-member" : membership.organizationId,
+      },
+      reason === "cleanup-unavailable"
+        ? await signIn(auth, { email: "member@example.com", password })
+        : membership.ownerHeaders
+    );
+    expect(response.status).toBe(reason === "cleanup-unavailable" ? 503 : 400);
+    expect(memoryCleanup).not.toHaveBeenCalled();
+    expect(cleanup).toHaveBeenCalledTimes(reason === "not-member" ? 0 : 1);
+    expect(
+      await harness.queryFirst({
+        text: 'select id from "openmeld"."members" where id = $1',
+        values: [membership.memberId],
+      })
+    ).not.toBeNull();
   });
 
   it("enforces the default owner, admin, and member organization statements", () => {
@@ -1521,6 +1576,7 @@ async function createTestAuth(
   auth: AuthInstance;
   harness: Awaited<ReturnType<typeof createPostgresHarness>>;
   sentEmails: SentEmail[];
+  coreWorker: NonNullable<AuthConfigEnv["OPENMELD_CORE_WORKER"]>;
 }> {
   const harness = await createPostgresHarness();
   harnesses.push(harness);
@@ -1592,7 +1648,7 @@ async function createTestAuth(
       }),
   };
 
-  return { auth, harness, sentEmails: fakeEmailSender.sentEmails };
+  return { auth, harness, sentEmails: fakeEmailSender.sentEmails, coreWorker };
 }
 
 async function createOrganizationWithAcceptedMember(input: {

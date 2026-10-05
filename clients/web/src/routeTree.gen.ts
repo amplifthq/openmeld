@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as SKILLDotmdRouteImport } from './routes/SKILL[.md]'
 import { Route as AcceptInvitationRouteImport } from './routes/accept-invitation'
 import { Route as AcceptSpaceInvitationRouteImport } from './routes/accept-space-invitation'
+import { Route as AccountDeletedRouteImport } from './routes/account-deleted'
 import { Route as AddToSlackRouteImport } from './routes/add-to-slack'
 import { Route as AgentInterfaceRouteImport } from './routes/agent-interface'
 import { Route as CallbackRouteImport } from './routes/callback'
@@ -81,6 +82,7 @@ import { Route as OOrgSlugSkillsRouteImport } from './routes/o/$orgSlug/skills'
 import { Route as SlackIdentityStartRouteImport } from './routes/slack/identity/start'
 import { Route as SlackOauthResultRouteImport } from './routes/slack/oauth/result'
 import { Route as SlackOauthStartRouteImport } from './routes/slack/oauth/start'
+import { Route as V1AccountDeletionRouteImport } from './routes/v1/account/deletion'
 import { Route as V1AccountDisplayNameRouteImport } from './routes/v1/account/display-name'
 import { Route as V1AccountInvalidationStreamRouteImport } from './routes/v1/account/invalidation-stream'
 import { Route as V1AccountLastSelectedOrganizationRouteImport } from './routes/v1/account/last-selected-organization'
@@ -199,6 +201,11 @@ const AcceptInvitationRoute = AcceptInvitationRouteImport.update({
 const AcceptSpaceInvitationRoute = AcceptSpaceInvitationRouteImport.update({
   id: '/accept-space-invitation',
   path: '/accept-space-invitation',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AccountDeletedRoute = AccountDeletedRouteImport.update({
+  id: '/account-deleted',
+  path: '/account-deleted',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AddToSlackRoute = AddToSlackRouteImport.update({
@@ -542,6 +549,11 @@ const SlackOauthResultRoute = SlackOauthResultRouteImport.update({
 const SlackOauthStartRoute = SlackOauthStartRouteImport.update({
   id: '/slack/oauth/start',
   path: '/slack/oauth/start',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const V1AccountDeletionRoute = V1AccountDeletionRouteImport.update({
+  id: '/v1/account/deletion',
+  path: '/v1/account/deletion',
   getParentRoute: () => rootRouteImport,
 } as any)
 const V1AccountDisplayNameRoute = V1AccountDisplayNameRouteImport.update({
@@ -1106,6 +1118,7 @@ export interface FileRoutesByFullPath {
   '/SKILL.md': typeof SKILLDotmdRoute
   '/accept-invitation': typeof AcceptInvitationRoute
   '/accept-space-invitation': typeof AcceptSpaceInvitationRoute
+  '/account-deleted': typeof AccountDeletedRoute
   '/add-to-slack': typeof AddToSlackRoute
   '/agent-interface': typeof AgentInterfaceRouteWithChildren
   '/callback': typeof CallbackRoute
@@ -1173,6 +1186,7 @@ export interface FileRoutesByFullPath {
   '/slack/identity/start': typeof SlackIdentityStartRoute
   '/slack/oauth/result': typeof SlackOauthResultRoute
   '/slack/oauth/start': typeof SlackOauthStartRoute
+  '/v1/account/deletion': typeof V1AccountDeletionRoute
   '/v1/account/display-name': typeof V1AccountDisplayNameRoute
   '/v1/account/invalidation-stream': typeof V1AccountInvalidationStreamRoute
   '/v1/account/last-selected-organization': typeof V1AccountLastSelectedOrganizationRoute
@@ -1278,6 +1292,7 @@ export interface FileRoutesByTo {
   '/SKILL.md': typeof SKILLDotmdRoute
   '/accept-invitation': typeof AcceptInvitationRoute
   '/accept-space-invitation': typeof AcceptSpaceInvitationRoute
+  '/account-deleted': typeof AccountDeletedRoute
   '/add-to-slack': typeof AddToSlackRoute
   '/agent-interface': typeof AgentInterfaceRouteWithChildren
   '/callback': typeof CallbackRoute
@@ -1337,6 +1352,7 @@ export interface FileRoutesByTo {
   '/slack/identity/start': typeof SlackIdentityStartRoute
   '/slack/oauth/result': typeof SlackOauthResultRoute
   '/slack/oauth/start': typeof SlackOauthStartRoute
+  '/v1/account/deletion': typeof V1AccountDeletionRoute
   '/v1/account/display-name': typeof V1AccountDisplayNameRoute
   '/v1/account/invalidation-stream': typeof V1AccountInvalidationStreamRoute
   '/v1/account/last-selected-organization': typeof V1AccountLastSelectedOrganizationRoute
@@ -1440,6 +1456,7 @@ export interface FileRoutesById {
   '/SKILL.md': typeof SKILLDotmdRoute
   '/accept-invitation': typeof AcceptInvitationRoute
   '/accept-space-invitation': typeof AcceptSpaceInvitationRoute
+  '/account-deleted': typeof AccountDeletedRoute
   '/add-to-slack': typeof AddToSlackRoute
   '/agent-interface': typeof AgentInterfaceRouteWithChildren
   '/callback': typeof CallbackRoute
@@ -1508,6 +1525,7 @@ export interface FileRoutesById {
   '/slack/identity/start': typeof SlackIdentityStartRoute
   '/slack/oauth/result': typeof SlackOauthResultRoute
   '/slack/oauth/start': typeof SlackOauthStartRoute
+  '/v1/account/deletion': typeof V1AccountDeletionRoute
   '/v1/account/display-name': typeof V1AccountDisplayNameRoute
   '/v1/account/invalidation-stream': typeof V1AccountInvalidationStreamRoute
   '/v1/account/last-selected-organization': typeof V1AccountLastSelectedOrganizationRoute
@@ -1615,6 +1633,7 @@ export interface FileRouteTypes {
     | '/SKILL.md'
     | '/accept-invitation'
     | '/accept-space-invitation'
+    | '/account-deleted'
     | '/add-to-slack'
     | '/agent-interface'
     | '/callback'
@@ -1682,6 +1701,7 @@ export interface FileRouteTypes {
     | '/slack/identity/start'
     | '/slack/oauth/result'
     | '/slack/oauth/start'
+    | '/v1/account/deletion'
     | '/v1/account/display-name'
     | '/v1/account/invalidation-stream'
     | '/v1/account/last-selected-organization'
@@ -1787,6 +1807,7 @@ export interface FileRouteTypes {
     | '/SKILL.md'
     | '/accept-invitation'
     | '/accept-space-invitation'
+    | '/account-deleted'
     | '/add-to-slack'
     | '/agent-interface'
     | '/callback'
@@ -1846,6 +1867,7 @@ export interface FileRouteTypes {
     | '/slack/identity/start'
     | '/slack/oauth/result'
     | '/slack/oauth/start'
+    | '/v1/account/deletion'
     | '/v1/account/display-name'
     | '/v1/account/invalidation-stream'
     | '/v1/account/last-selected-organization'
@@ -1948,6 +1970,7 @@ export interface FileRouteTypes {
     | '/SKILL.md'
     | '/accept-invitation'
     | '/accept-space-invitation'
+    | '/account-deleted'
     | '/add-to-slack'
     | '/agent-interface'
     | '/callback'
@@ -2016,6 +2039,7 @@ export interface FileRouteTypes {
     | '/slack/identity/start'
     | '/slack/oauth/result'
     | '/slack/oauth/start'
+    | '/v1/account/deletion'
     | '/v1/account/display-name'
     | '/v1/account/invalidation-stream'
     | '/v1/account/last-selected-organization'
@@ -2122,6 +2146,7 @@ export interface RootRouteChildren {
   SKILLDotmdRoute: typeof SKILLDotmdRoute
   AcceptInvitationRoute: typeof AcceptInvitationRoute
   AcceptSpaceInvitationRoute: typeof AcceptSpaceInvitationRoute
+  AccountDeletedRoute: typeof AccountDeletedRoute
   AddToSlackRoute: typeof AddToSlackRoute
   AgentInterfaceRoute: typeof AgentInterfaceRouteWithChildren
   CallbackRoute: typeof CallbackRoute
@@ -2165,6 +2190,7 @@ export interface RootRouteChildren {
   SlackIdentityStartRoute: typeof SlackIdentityStartRoute
   SlackOauthResultRoute: typeof SlackOauthResultRoute
   SlackOauthStartRoute: typeof SlackOauthStartRoute
+  V1AccountDeletionRoute: typeof V1AccountDeletionRoute
   V1AccountDisplayNameRoute: typeof V1AccountDisplayNameRoute
   V1AccountInvalidationStreamRoute: typeof V1AccountInvalidationStreamRoute
   V1AccountLastSelectedOrganizationRoute: typeof V1AccountLastSelectedOrganizationRoute
@@ -2207,6 +2233,13 @@ declare module '@tanstack/react-router' {
       path: '/accept-space-invitation'
       fullPath: '/accept-space-invitation'
       preLoaderRoute: typeof AcceptSpaceInvitationRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/account-deleted': {
+      id: '/account-deleted'
+      path: '/account-deleted'
+      fullPath: '/account-deleted'
+      preLoaderRoute: typeof AccountDeletedRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/add-to-slack': {
@@ -2683,6 +2716,13 @@ declare module '@tanstack/react-router' {
       path: '/slack/oauth/start'
       fullPath: '/slack/oauth/start'
       preLoaderRoute: typeof SlackOauthStartRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/v1/account/deletion': {
+      id: '/v1/account/deletion'
+      path: '/v1/account/deletion'
+      fullPath: '/v1/account/deletion'
+      preLoaderRoute: typeof V1AccountDeletionRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/v1/account/display-name': {
@@ -3886,6 +3926,7 @@ const rootRouteChildren: RootRouteChildren = {
   SKILLDotmdRoute: SKILLDotmdRoute,
   AcceptInvitationRoute: AcceptInvitationRoute,
   AcceptSpaceInvitationRoute: AcceptSpaceInvitationRoute,
+  AccountDeletedRoute: AccountDeletedRoute,
   AddToSlackRoute: AddToSlackRoute,
   AgentInterfaceRoute: AgentInterfaceRouteWithChildren,
   CallbackRoute: CallbackRoute,
@@ -3929,6 +3970,7 @@ const rootRouteChildren: RootRouteChildren = {
   SlackIdentityStartRoute: SlackIdentityStartRoute,
   SlackOauthResultRoute: SlackOauthResultRoute,
   SlackOauthStartRoute: SlackOauthStartRoute,
+  V1AccountDeletionRoute: V1AccountDeletionRoute,
   V1AccountDisplayNameRoute: V1AccountDisplayNameRoute,
   V1AccountInvalidationStreamRoute: V1AccountInvalidationStreamRoute,
   V1AccountLastSelectedOrganizationRoute:

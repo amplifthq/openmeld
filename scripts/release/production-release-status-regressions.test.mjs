@@ -378,6 +378,11 @@ test("unverified local deployment replaces older hosted success without appearin
             recordedAt: "2026-09-18T13:00:00Z",
             source: "guarded-local",
             receipt: { status: "failed" },
+            verifiedHistoryBaseline: {
+              evidenceSha: "5".repeat(40),
+              recordedAt: "2026-09-18T12:00:00Z",
+              sha: OLD,
+            },
           },
         ],
       ]),
