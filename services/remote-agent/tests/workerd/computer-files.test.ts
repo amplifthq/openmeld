@@ -63,6 +63,19 @@ it("keeps one concurrent edit, rejects the stale edit, and persists files across
     expect(
       await recreated.fs.readFile("/computer/home/shared.txt", "utf8")
     ).toBe("first");
+    for (const replaceAll of [false, true]) {
+      await files.write("/computer/home/literal.txt", "before TARGET after");
+      await files.execute({
+        action: "edit",
+        path: "/computer/home/literal.txt",
+        oldText: "TARGET",
+        newText: "literal:$&-$`-$'-$$",
+        replaceAll,
+      });
+      expect(
+        await recreated.fs.readFile("/computer/home/literal.txt", "utf8")
+      ).toBe("before literal:$&-$`-$'-$$ after");
+    }
     await expect(
       files.execute({ action: "read", path: "/computer/../../other" })
     ).rejects.toThrow("path_outside_workspace");

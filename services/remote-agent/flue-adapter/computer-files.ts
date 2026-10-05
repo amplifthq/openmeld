@@ -69,8 +69,8 @@ export class ComputerFiles {
       await this.fs.writeFile(
         path,
         request.replaceAll
-          ? content.replaceAll(request.oldText, request.newText)
-          : content.replace(request.oldText, request.newText)
+          ? content.replaceAll(request.oldText, () => request.newText)
+          : content.replace(request.oldText, () => request.newText)
       );
       return { path, replacements: request.replaceAll ? occurrences : 1 };
     });

@@ -2525,7 +2525,7 @@ surface adopts official features where they are free**:
     Corepack-managed pnpm, Python, git, curl, jq, and native build tools;
     changes sync back over capnweb). The model selects the backend
     per bash call and is prompted to prefer worker-shell. Computer SDK and
-    computerd use version 0.2.1 together. Container network access is explicitly
+    computerd use version 0.4.0 together. Container network access is explicitly
     direct; worker-shell remains network-disabled. A replaced runtime reports
     `EEXEC_LOST` for an old command instead of replaying its launch. The model
     receives that loss and may inspect durable files and choose a safe next

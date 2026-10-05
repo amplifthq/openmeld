@@ -95,7 +95,7 @@ ported. Flue 2 repairs partial streams at its execution ownership boundary.
 OpenMeld supplies authorized Computer tools and packaged Skills without a Flue
 sandbox, so shared Computer files cannot silently become instructions.
 
-`patches/@cloudflare__computer@0.2.1.patch` makes a retained command's
+`patches/@cloudflare__computer@0.4.0.patch` makes a retained command's
 `cancel()` await native output-subscription detachment over Workspace RPC.
 Upstream unread-handle cancellation only invokes synchronous disposal, which
 can return before the container releases its single subscriber. A following
@@ -128,7 +128,7 @@ acknowledgement for a silent stream producer. Consequently the native
 replayed after exit; it is never fabricated, and the process is never replayed.
 These tests do not certify the WebSocket transport; staging tests cover that
 additional boundary.
-Upstream 0.2.1 still uses the same unacknowledged unread-handle path; upgrading
+Upstream 0.4.0 still uses the same unacknowledged unread-handle path; upgrading
 alone does not establish this contract.
 
 These nine Flue adaptations are maintained integration code, not a completed
