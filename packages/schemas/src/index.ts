@@ -364,6 +364,18 @@ export {
 export * from "./schemas/index";
 export { agentControllerSessionTitleSchema } from "./schemas/runtime/agent-controller-session";
 export {
+  type CloudComputer,
+  type CloudComputerOperation,
+  cloudComputerCleanupResultSchema,
+  cloudComputerCommandSchema,
+  cloudComputerOperationResultSchema,
+  cloudComputerOperationSchema,
+  cloudComputerResponseSchema,
+  cloudComputerRpcRequestSchema,
+  cloudComputerSchema,
+  cloudComputerWorkerRequestSchema,
+} from "./schemas/runtime/cloud-computer";
+export {
   type RemoteAgentExecutionAccessRequest,
   type RemoteAgentExecutionAccessResponse,
   type RemoteAgentExecutionScope,

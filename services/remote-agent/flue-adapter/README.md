@@ -95,7 +95,7 @@ ported. Flue 2 repairs partial streams at its execution ownership boundary.
 OpenMeld supplies authorized Computer tools and packaged Skills without a Flue
 sandbox, so shared Computer files cannot silently become instructions.
 
-`patches/@cloudflare__computer@0.2.1.patch` makes a retained command's
+`patches/@cloudflare__computer@0.4.0.patch` makes a retained command's
 `cancel()` await native output-subscription detachment over Workspace RPC.
 Upstream unread-handle cancellation only invokes synchronous disposal, which
 can return before the container releases its single subscriber. A following
@@ -128,7 +128,7 @@ acknowledgement for a silent stream producer. Consequently the native
 replayed after exit; it is never fabricated, and the process is never replayed.
 These tests do not certify the WebSocket transport; staging tests cover that
 additional boundary.
-Upstream 0.2.1 still uses the same unacknowledged unread-handle path; upgrading
+Upstream 0.4.0 still uses the same unacknowledged unread-handle path; upgrading
 alone does not establish this contract.
 
 These nine Flue adaptations are maintained integration code, not a completed
@@ -210,7 +210,10 @@ diagnostic row cannot hide upstream schema drift.
 
 Long container commands use `computer_command` and the Computer SDK's retained
 `exec` / `getExec` / `killExec` handles. OpenMeld persists dispatch keys before
-spawn and scopes them to the exact submission. Repeating a key reconnects;
+spawn in the account-owned Computer and scopes them to the exact invocation.
+Hosted submissions retain only their immutable Computer target for cleanup;
+Local CLI operations reach the same owner through authenticated Core RPC.
+Repeating a key reconnects;
 it never respawns after an ambiguous transport failure or a lost container.
 Polling detaches after a bounded slice without killing the process. Completion
 requires an exit receipt and stream close (including the SDK's file sync).

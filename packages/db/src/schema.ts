@@ -135,6 +135,7 @@ export const {
   openMeldFeedbackInboxes,
   openMeldFeedbackIssues,
   openMeldDaemonConnectedComputers,
+  cloudComputers,
   openMeldDaemonPreHeadFailurePublicationOutbox,
   openMeldDaemonOpsDecisions,
   openMeldDaemonDispatchLedger,

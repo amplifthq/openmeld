@@ -24426,7 +24426,7 @@ function assertWritableRpcSpaceAccess(input: CoreRpcSpaceAccessInput): void {
     requireWritableSpaceActor(input.spaceAccess);
   }
 }
-function requireAuthenticatedOwnerUserId(
+export function requireAuthenticatedOwnerUserId(
   context?: CoreRpcContextInput
 ): string {
   const requestContext = requireRpcContext(context);

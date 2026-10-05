@@ -28,8 +28,8 @@ function context() {
 describe("Computer audience and current access", () => {
   beforeEach(() => getWorkspace.mockReset());
 
-  it("gives separate durable Computer identities to different requesters, conversations, Agents and bindings", () => {
-    const original = context();
+  it("preserves historical audience addresses for cleanup", () => {
+    const original = { ...context(), computerIsolationVersion: 2 as const };
     const envelope = original.turnEnvelope;
     if (!envelope) {
       throw new Error("Expected an admitted turn envelope");
@@ -89,11 +89,12 @@ describe("Computer audience and current access", () => {
   it.each([
     undefined,
     1 as const,
+    2 as const,
   ])("keeps legacy %s cleanup addressing separate and refuses to open that shared workspace for new tools", async (computerIsolationVersion) => {
     const legacy = { ...context(), computerIsolationVersion };
-    expect(resolveRemoteAgentComputerName(legacy)).not.toBe(
-      resolveRemoteAgentComputerName(context())
-    );
+    expect(
+      resolveRemoteAgentComputerName(legacy).startsWith("agent-computer:")
+    ).toBe(true);
     const namespace = { idFromName: vi.fn(), get: vi.fn() };
     await expect(
       createRemoteAgentComputerCapability({
