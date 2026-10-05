@@ -6,7 +6,9 @@ areas: ["inbox", "team", "spaces"]
 audiences: ["users"]
 ---
 
-Inbox starts loading earlier and retains recent views when you switch pages.
+Inbox starts loading earlier. Inbox, Team, and conversation lists retain loaded
+content through an overnight pause in the same browser tab, then refresh when
+you return.
 Background refresh keeps visible items in place and finishes before loading
 older items. Inbox and Team also make fewer sequential database requests.
 

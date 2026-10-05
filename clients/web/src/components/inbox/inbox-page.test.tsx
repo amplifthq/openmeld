@@ -485,6 +485,45 @@ describe("canonical Inbox attention page", () => {
 		expect(await screen.findByText("Older update")).toBeTruthy();
 	});
 
+	it("shows an expired saved view but waits for a fresh snapshot before bulk actions", async () => {
+		const original = row(item({ id: "saved", title: "Saved update" }));
+		const { queryClient, queryKey } = renderPage({ rows: [original] });
+		act(() =>
+			queryClient.setQueryData(queryKey, {
+				pageParams: [undefined],
+				pages: [
+					{
+						...page([original]),
+						snapshotExpiresAt: new Date(Date.now() - 1).toISOString(),
+					},
+				],
+			})
+		);
+		await waitFor(() =>
+			expect(
+				(
+					screen.getByRole("button", {
+						name: "Mark 1 item as read",
+					}) as HTMLButtonElement
+				).disabled
+			).toBe(true)
+		);
+		expect(screen.getByText("Saved update")).toBeTruthy();
+		expect(mocks.selection).not.toHaveBeenCalled();
+		await act(async () => {
+			await queryClient.invalidateQueries({ queryKey });
+		});
+		await waitFor(() =>
+			expect(
+				(
+					screen.getByRole("button", {
+						name: "Mark 1 item as read",
+					}) as HTMLButtonElement
+				).disabled
+			).toBe(false)
+		);
+	});
+
 	it("keeps loaded rows and a retry action when the next page fails", async () => {
 		const first = row(item({ id: "first", title: "Visible update" }));
 		const next = row(item({ id: "next", title: "Recovered update" }));
@@ -917,7 +956,7 @@ function page(
 	return {
 		organizationId: "organization-123",
 		snapshotId: "snapshot",
-		snapshotExpiresAt: "2026-09-18T02:00:00Z",
+		snapshotExpiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
 		nextCursor,
 		selectionUnreadCount: rows.reduce(
 			(n, current) => n + current.unreadCount,

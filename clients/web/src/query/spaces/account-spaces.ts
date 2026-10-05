@@ -19,7 +19,10 @@ import {
 	type AccountSpaceSections,
 	listAccountSpaceItems,
 } from "#/lib/spaces/account-spaces";
-import { baseQueryOptions } from "#/query/query-config";
+import {
+	baseQueryOptions,
+	DISPLAY_REVISIT_GC_TIME_MS,
+} from "#/query/query-config";
 import { spaceActiveWakeProgressSummaryQueryOptions } from "./active-wake-progress";
 
 const ACCOUNT_SPACE_ACTIVE_WAKE_POLL_INTERVAL_MS = 15_000;
@@ -89,7 +92,7 @@ export function accountSpaceItemsQueryOptions(input: {
 				scope,
 			}),
 		enabled: input.enabled,
-		gcTime: baseQueryOptions.gcTime,
+		gcTime: DISPLAY_REVISIT_GC_TIME_MS,
 		retry: baseQueryOptions.retry,
 		refetchInterval: ACCOUNT_SPACE_ITEMS_POLL_INTERVAL_MS,
 		refetchIntervalInBackground: false,
