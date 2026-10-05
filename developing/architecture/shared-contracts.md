@@ -48,6 +48,12 @@ Core cannot satisfy `includeComputer`; the runtime fails that capability
 explicitly. Earlier hosted context versions retain their cleanup address and
 cannot silently acquire a personal Computer. Existing CLI/Service clients keep
 their prior local operations. No production rollout is implied by this contract.
+The command and managed Skill are additive, with no CLI/Service/Skills epoch
+bump. Feature verification uses deferred release readiness; a later authorized
+release must rebuild and stamp affected local artifacts as `available`.
+Deploy the Remote Agent Computer RPC receiver before exposing the new CLI route
+to users; roll back callers before removing that receiver. Existing setup, Wake,
+Space actions, Service status, trace and self-rescue contracts stay compatible.
 
 ## Task permission inheritance
 

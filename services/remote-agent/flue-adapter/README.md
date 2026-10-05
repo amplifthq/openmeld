@@ -210,7 +210,10 @@ diagnostic row cannot hide upstream schema drift.
 
 Long container commands use `computer_command` and the Computer SDK's retained
 `exec` / `getExec` / `killExec` handles. OpenMeld persists dispatch keys before
-spawn and scopes them to the exact submission. Repeating a key reconnects;
+spawn in the account-owned Computer and scopes them to the exact invocation.
+Hosted submissions retain only their immutable Computer target for cleanup;
+Local CLI operations reach the same owner through authenticated Core RPC.
+Repeating a key reconnects;
 it never respawns after an ambiguous transport failure or a lost container.
 Polling detaches after a bounded slice without killing the process. Completion
 requires an exit receipt and stream close (including the SDK's file sync).

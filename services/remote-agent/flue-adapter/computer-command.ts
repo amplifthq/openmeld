@@ -535,6 +535,11 @@ export async function stopRemoteAgentComputerCommands(input: {
       await target.stopComputerCommands(input.context.submissionId)
     );
   }
+  if (input.context.computerIsolationVersion === 3) {
+    // Current invocations bind their target before any Computer operation.
+    // Ownerless/no-Computer turns therefore have nothing to clean up.
+    return { unfinished: 0, lostDuringCleanup: false };
+  }
   const namespace = input.env.AGENT_COMPUTER as AgentComputerNamespace;
   return await stopStoredComputerCommands({
     ...input,

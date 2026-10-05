@@ -140,6 +140,15 @@ function fixture() {
 }
 
 describe("retained Computer commands", () => {
+  it("finishes cleanup for a current invocation that never acquired a Computer", async () => {
+    await expect(
+      stopRemoteAgentComputerCommands({
+        context: { ...context("ownerless"), computerIsolationVersion: 3 },
+        env: {},
+        storage: new InMemoryDurableObjectStorage(),
+      })
+    ).resolves.toEqual({ unfinished: 0, lostDuringCleanup: false });
+  });
   it.each([
     1, 2,
   ])("rejects a cancelled invocation before launch at boundary %i", async (cancelAt) => {
