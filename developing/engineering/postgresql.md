@@ -185,6 +185,11 @@ Origin connection establishment is bounded; lost connections fail the operation.
 Reconcile uncertain commit outcomes by domain idempotency keys before retrying.
 
 Request-local `pg.Pool` scopes may be reused by nested calls in the same request.
+Core's navigation, Inbox and runtime-report RPC boundaries explicitly enter
+`withPostgresRequest`, just as its HTTP boundary does. A service-binding RPC does
+not pass through `fetch`; relying on the HTTP wrapper creates a new pool for each
+SQL statement. Keep these scopes at the request owner, including the entire
+runtime report batch, and keep transaction clients explicit.
 The request owner also supplies one stable database façade to its consumers.
 Readiness reads can share in-flight reads by database identity without retaining
 facts or failures in the next request. Separate request and protected-gate scopes
