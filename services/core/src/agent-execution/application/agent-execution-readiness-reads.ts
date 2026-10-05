@@ -3,14 +3,27 @@ import type { AuthRpcResolveProfileByIdResult } from "@openmeld/schemas/types";
 import {
   listEnabledPrimaryAgentProfileBindingRecords,
   readPrimaryAgentProfileBindingRecord,
+  readPrimaryAgentProfileBindingRecordByControllerConversation,
 } from "../../agent-profile-binding/infrastructure/postgresql/agent-profile-binding-repo";
 import type { AuthProfileFacts } from "../../auth/application/profile-facts-reader";
+import {
+  readAgentProfileOrganizationContext,
+  readAgentProfileOrganizationContexts,
+} from "../../center-agent/center-agent-organization-scope";
 import type { CoreBindings } from "../../lib/bindings";
 import { readCurrentRuntimeAgentControllerReports } from "../../runtime-registry/infrastructure/postgresql/runtime-agent-controller-report-repo";
 import {
   readRuntimeRegistryRecord,
   readRuntimeRegistryRecordByRuntimeId,
 } from "../../runtime-registry/infrastructure/postgresql/runtime-registry-repo";
+import {
+  readFreshAgentExecutionReadinessImpactForBinding,
+  readFreshAgentExecutionReadinessImpactsForBindings,
+} from "../infrastructure/postgresql/agent-execution-readiness-impact-repo";
+import {
+  readFreshProviderAccessEvidenceForBinding,
+  readFreshProviderAccessEvidenceForBindings,
+} from "../infrastructure/postgresql/provider-access-evidence-repo";
 import {
   readFreshProviderConversationProofForBinding,
   readFreshProviderConversationProofsForBindings,
@@ -31,6 +44,14 @@ export function createAgentExecutionReadinessReads(input?: {
     PostgresDatabase,
     Map<string, ReturnType<typeof readPrimaryAgentProfileBindingRecord>>
   >();
+  const ownerBindings = new Map<
+    PostgresDatabase,
+    Map<string, ReturnType<typeof listEnabledPrimaryAgentProfileBindingRecords>>
+  >();
+  const organizationContexts = new Map<
+    PostgresDatabase,
+    Map<string, ReturnType<typeof readAgentProfileOrganizationContexts>>
+  >();
   const runtimeById = new Map<
     PostgresDatabase,
     Map<string, ReturnType<typeof readRuntimeRegistryRecordByRuntimeId>>
@@ -47,7 +68,18 @@ export function createAgentExecutionReadinessReads(input?: {
     PostgresDatabase,
     Map<
       string,
-      Awaited<ReturnType<typeof readFreshProviderConversationProofsForBindings>>
+      ReturnType<typeof readFreshProviderConversationProofsForBindings>
+    >
+  >();
+  const providerAccessByBinding = new Map<
+    PostgresDatabase,
+    Map<string, ReturnType<typeof readFreshProviderAccessEvidenceForBindings>>
+  >();
+  const impactsByBinding = new Map<
+    PostgresDatabase,
+    Map<
+      string,
+      ReturnType<typeof readFreshAgentExecutionReadinessImpactsForBindings>
     >
   >();
   return {
@@ -59,61 +91,120 @@ export function createAgentExecutionReadinessReads(input?: {
       profileIds: readonly string[];
       nowMs: number;
     }): Promise<void> {
-      const records =
-        await listEnabledPrimaryAgentProfileBindingRecords(request);
-      const byProfile = new Map(
-        records.map((record) => [record.agentProfileId, record])
+      const recordsRead = shareRead(
+        ownerBindings,
+        request.db,
+        JSON.stringify([request.owner.kind, request.owner.id]),
+        () =>
+          listEnabledPrimaryAgentProfileBindingRecords({
+            ...request,
+            orderBy: "controller_conversation_conflict",
+          })
       );
-      let databaseReads = bindings.get(request.db);
-      if (!databaseReads) {
-        databaseReads = new Map();
-        bindings.set(request.db, databaseReads);
+      const contextsRead = readAgentProfileOrganizationContexts({
+        db: request.db,
+        agentProfileIds: request.profileIds,
+      });
+      storeBatchRead(
+        organizationContexts,
+        request.db,
+        request.profileIds,
+        contextsRead
+      );
+      // Keep successes and failures independent. A failed preload is consumed by
+      // the original per-Profile error branch, without retrying once per Profile.
+      const [recordsResult] = await Promise.allSettled([
+        recordsRead,
+        contextsRead,
+      ]);
+      if (recordsResult.status === "rejected") {
+        throw recordsResult.reason;
       }
-      for (const profileId of request.profileIds) {
-        const key = JSON.stringify([
-          profileId,
-          request.owner.kind,
-          request.owner.id,
-        ]);
-        if (!databaseReads.has(key)) {
-          databaseReads.set(
-            key,
-            Promise.resolve(byProfile.get(profileId) ?? null)
-          );
-        }
-      }
+      const records = recordsResult.value;
+      const requestedProfileIds = new Set(request.profileIds);
       const selected = records.filter((record) =>
-        request.profileIds.includes(record.agentProfileId)
+        requestedProfileIds.has(record.agentProfileId)
       );
-      const proofs = await readFreshProviderConversationProofsForBindings({
+      const proofsRead = readFreshProviderConversationProofsForBindings({
         db: request.db,
         nowMs: request.nowMs,
         bindingIds: selected.map((record) => record.bindingId),
       });
-      let databaseProofs = proofsByBinding.get(request.db);
-      if (!databaseProofs) {
-        databaseProofs = new Map();
-        proofsByBinding.set(request.db, databaseProofs);
-      }
-      for (const record of selected) {
-        databaseProofs.set(
-          record.bindingId,
-          proofs.filter((proof) => proof.bindingId === record.bindingId)
-        );
-      }
+      const accessRead = readFreshProviderAccessEvidenceForBindings({
+        db: request.db,
+        nowMs: request.nowMs,
+        bindings: selected,
+      });
+      const impactsRead = readFreshAgentExecutionReadinessImpactsForBindings({
+        db: request.db,
+        nowMs: request.nowMs,
+        bindings: selected,
+      });
+      const bindingIds = selected.map((record) => record.bindingId);
+      storeBatchRead(proofsByBinding, request.db, bindingIds, proofsRead);
+      storeBatchRead(
+        providerAccessByBinding,
+        request.db,
+        bindingIds,
+        accessRead
+      );
+      storeBatchRead(impactsByBinding, request.db, bindingIds, impactsRead);
+      await Promise.allSettled([proofsRead, accessRead, impactsRead]);
     },
-    readFreshProviderConversationProofForBinding(
+    async readAgentProfileOrganizationContext(
+      request: Parameters<typeof readAgentProfileOrganizationContext>[0]
+    ) {
+      const contexts = organizationContexts
+        .get(request.db)
+        ?.get(request.agentProfileId);
+      if (contexts) {
+        return (await contexts).get(request.agentProfileId) ?? null;
+      }
+      return readAgentProfileOrganizationContext(request);
+    },
+    async readFreshProviderAccessEvidenceForBinding(
+      request: Parameters<typeof readFreshProviderAccessEvidenceForBinding>[0]
+    ) {
+      const batch = providerAccessByBinding
+        .get(request.db)
+        ?.get(request.bindingId);
+      if (!batch) {
+        return readFreshProviderAccessEvidenceForBinding(request);
+      }
+      return (
+        (await batch).find((evidence) =>
+          matchesFreshBindingEvidence(evidence, request)
+        ) ?? null
+      );
+    },
+    async readFreshAgentExecutionReadinessImpactForBinding(
+      request: Parameters<
+        typeof readFreshAgentExecutionReadinessImpactForBinding
+      >[0]
+    ) {
+      const batch = impactsByBinding.get(request.db)?.get(request.bindingId);
+      if (!batch) {
+        return readFreshAgentExecutionReadinessImpactForBinding(request);
+      }
+      return (
+        (await batch).find((impact) =>
+          matchesFreshBindingEvidence(impact, request)
+        ) ?? null
+      );
+    },
+    async readFreshProviderConversationProofForBinding(
       request: Parameters<
         typeof readFreshProviderConversationProofForBinding
       >[0]
     ) {
-      const proofs = proofsByBinding.get(request.db)?.get(request.bindingId);
-      if (!proofs) {
+      const batch = proofsByBinding.get(request.db)?.get(request.bindingId);
+      if (!batch) {
         return readFreshProviderConversationProofForBinding(request);
       }
-      return Promise.resolve(
-        proofs.find(
+      return (
+        (await batch).find(
           (proof) =>
+            proof.bindingId === request.bindingId &&
             proof.agentProfileId === request.agentProfileId &&
             proof.openMeldServiceRuntimeId.value ===
               request.openMeldServiceRuntimeId &&
@@ -163,9 +254,19 @@ export function createAgentExecutionReadinessReads(input?: {
           })
       );
     },
-    readPrimaryAgentProfileBindingRecord(
+    async readPrimaryAgentProfileBindingRecord(
       request: Parameters<typeof readPrimaryAgentProfileBindingRecord>[0]
     ) {
+      const batch = ownerBindings
+        .get(request.db)
+        ?.get(JSON.stringify([request.owner.kind, request.owner.id]));
+      if (batch) {
+        return (
+          (await batch).find(
+            (record) => record.agentProfileId === request.agentProfileId
+          ) ?? null
+        );
+      }
       return shareRead(
         bindings,
         request.db,
@@ -175,6 +276,34 @@ export function createAgentExecutionReadinessReads(input?: {
           request.owner.id,
         ]),
         () => readPrimaryAgentProfileBindingRecord(request)
+      );
+    },
+    async readPrimaryAgentProfileBindingRecordByControllerConversation(
+      request: Parameters<
+        typeof readPrimaryAgentProfileBindingRecordByControllerConversation
+      >[0]
+    ) {
+      const batch = ownerBindings
+        .get(request.db)
+        ?.get(JSON.stringify([request.owner.kind, request.owner.id]));
+      if (!batch) {
+        return readPrimaryAgentProfileBindingRecordByControllerConversation(
+          request
+        );
+      }
+      const conversationId = request.agentControllerConversationId?.trim();
+      if (!conversationId) {
+        return null;
+      }
+      // The owner inventory is ordered by the scalar conflict query's SQL
+      // ordering. Conflicting Profiles can be outside the visible batch.
+      return (
+        (await batch).find(
+          (record) =>
+            record.agentControllerRef === request.agentControllerRef &&
+            record.agentControllerConversationId === conversationId &&
+            record.agentProfileId !== (request.excludeAgentProfileId ?? "")
+        ) ?? null
       );
     },
     readRuntimeRegistryRecordByRuntimeId(
@@ -221,6 +350,45 @@ export function createAgentExecutionReadinessReads(input?: {
 export type AgentExecutionReadinessReads = ReturnType<
   typeof createAgentExecutionReadinessReads
 >;
+function storeBatchRead<T>(
+  reads: Map<PostgresDatabase, Map<string, Promise<T>>>,
+  db: PostgresDatabase,
+  ids: readonly string[],
+  result: Promise<T>
+): void {
+  let databaseReads = reads.get(db);
+  if (!databaseReads) {
+    databaseReads = new Map();
+    reads.set(db, databaseReads);
+  }
+  for (const id of ids) {
+    databaseReads.set(id, result);
+  }
+}
+function matchesFreshBindingEvidence(
+  evidence: {
+    agentProfileId: string;
+    bindingId: string;
+    agentControllerRef: string;
+    openMeldServiceRuntimeId: string;
+    expiresAtMs: number;
+  },
+  request: {
+    agentProfileId: string;
+    bindingId: string;
+    agentControllerRef: string;
+    openMeldServiceRuntimeId: string;
+    nowMs: number;
+  }
+): boolean {
+  return (
+    evidence.agentProfileId === request.agentProfileId &&
+    evidence.bindingId === request.bindingId &&
+    evidence.agentControllerRef === request.agentControllerRef &&
+    evidence.openMeldServiceRuntimeId === request.openMeldServiceRuntimeId &&
+    evidence.expiresAtMs > request.nowMs
+  );
+}
 function shareRead<Key, T>(
   reads: Map<Key, Map<string, Promise<T>>>,
   db: Key,
