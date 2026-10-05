@@ -2989,6 +2989,9 @@ export async function preloadRuntimeDeviceDisplayNamesForOwner(input: {
       ])
     ).values(),
   ];
+  if (targets.length === 0) {
+    return new Map();
+  }
   try {
     const resolved = await resolveConnectedLocalRuntimeDisplayNamesUseCase({
       store: {
