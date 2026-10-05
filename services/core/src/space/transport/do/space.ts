@@ -551,6 +551,7 @@ import {
   readOrInitializeSpaceContractUseCase,
 } from "../../application/space-contract-service";
 import { handlePatchCursorUseCase } from "../../application/space-cursor-service";
+import { readSpaceDeletionPendingWork } from "../../application/space-deletion-work";
 import { resolveSpaceDispatchConversationContinuityScope } from "../../application/space-dispatch-conversation-continuity";
 import { buildSpaceFileAuditEvent } from "../../application/space-file-audit";
 import { readStoredSpaceFileImageDimensions } from "../../application/space-file-image-metadata";
@@ -668,6 +669,7 @@ import {
   type DispatchSourceSignalSnapshotInput,
   deleteDispatchOutboxRecord,
   hasPendingDispatchOutboxRecords,
+  hasUnsettledDispatchOutboxRecords,
   insertDispatchOutboxHandoffSeed,
   listActiveDispatchOutboxRecordsBySpace,
   listDispatchOutboxRecordsByClientMessageId,
@@ -18520,6 +18522,32 @@ export class Space extends DurableObject<CoreBindings> {
           message: authorization.message,
         },
         { status: 403 }
+      );
+    }
+    const pendingWork = {
+      ...(await readSpaceDeletionPendingWork({
+        db: this.requireSpaceIndexDb(),
+        spaceId: this.spaceId,
+      })),
+      dispatch: hasUnsettledDispatchOutboxRecords(this.ctx.storage.sql),
+      stopPublication:
+        listPendingWakeStopOutcomes(this.ctx.storage.sql, 1).length > 0,
+    };
+    if (Object.values(pendingWork).some(Boolean)) {
+      console.info("[core.space.deletion_blocked]", {
+        event: "core.space.deletion_blocked",
+        pendingWork,
+        requestId: context.actorContext.requestId,
+        spaceId: this.spaceId,
+      });
+      return Response.json(
+        {
+          ok: false,
+          code: "space.wakes_pending",
+          message:
+            "This Space still has unfinished agent work. Stop the work or wait for its results, then try again.",
+        },
+        { status: 409 }
       );
     }
     await this.projectDeletedSpaceIndexSnapshot({

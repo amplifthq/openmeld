@@ -601,7 +601,7 @@ const readRunningTimestamp = (value: unknown): number | null =>
     : null;
 export const listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace =
   async (input: {
-    db: PostgresDatabase;
+    db: Pick<PostgresDatabase, "query">;
     limit?: number;
     sourceDispatchIds?: readonly string[];
     sourceProfileId?: string;

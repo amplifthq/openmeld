@@ -30,17 +30,15 @@ import {
   organizationAccessControl,
   organizationRoles,
 } from "../organization/access-control";
-import {
-  type AgentActivitySessionInventoryLifecycleWorker,
-  finalizeAgentActivitySessionInventoryCleanupAfterOrganizationMemberRemoval,
-  requireAgentActivitySessionInventoryCleanupBeforeOrganizationMemberRemoval,
-} from "../organization/agent-activity-session-inventory-lifecycle";
-import { assertCenterAgentIdentityBeforeMemberRemoval } from "../organization/center-agent-member-removal-guard";
+import type { AgentActivitySessionInventoryLifecycleWorker } from "../organization/agent-activity-session-inventory-lifecycle";
 import {
   type CenterAgentMemoryLifecycleWorker,
-  deleteCenterAgentMemberMemoryOnOrganizationRemoval,
   deleteCenterAgentOrganizationMemoryOnOrganizationDeletion,
 } from "../organization/center-agent-memory-lifecycle";
+import {
+  finalizeOrganizationMemberDeparture,
+  prepareOrganizationMemberDeparture,
+} from "../organization/member-departure-lifecycle";
 import {
   assertManualOrganizationSlugAllowed,
   createWithGeneratedOrganizationSlug,
@@ -52,9 +50,8 @@ import {
   resolvePersonalOrganizationName,
   resolveUserDisplayName,
 } from "../organization/personal-organization";
-import { requireSpaceOwnershipHandoff } from "../organization/space-owner-departure";
 import { createOpenMeldEmailIdentityPlugin } from "../plugins/openmeld-email-identity";
-import { createSpaceOwnerDeparturePlugin } from "../plugins/space-owner-departure";
+import { createOrganizationMemberDeparturePlugin } from "../plugins/organization-member-departure";
 import { createDrizzleOpenMeldProfileRepository } from "../profiles/profile-repository";
 import { createOpenMeldProfileService } from "../profiles/profile-service";
 import { validateAuthEmailAddress } from "../utils/auth-email-validation";
@@ -773,40 +770,20 @@ export function createAuthConfig(
       },
       beforeRemoveMember: async ({ member, organization, user }) => {
         const userId = user.id ?? member.userId;
-        await requireSpaceOwnershipHandoff({
+        await prepareOrganizationMemberDeparture({
           coreWorker: env.OPENMELD_CORE_WORKER,
-          organizationId: organization.id,
-          userId,
-        });
-        await assertCenterAgentIdentityBeforeMemberRemoval({
           db: getPostgresDatabase(env),
           organizationId: organization.id,
           userId,
         });
-        await requireAgentActivitySessionInventoryCleanupBeforeOrganizationMemberRemoval(
-          {
-            coreWorker: env.OPENMELD_CORE_WORKER,
-            organizationId: organization.id,
-            userId,
-          }
-        );
       },
       afterRemoveMember: async ({ member, organization, user }) => {
         const userId = user.id ?? member.userId;
-        await Promise.all([
-          finalizeAgentActivitySessionInventoryCleanupAfterOrganizationMemberRemoval(
-            {
-              coreWorker: env.OPENMELD_CORE_WORKER,
-              organizationId: organization.id,
-              userId,
-            }
-          ),
-          deleteCenterAgentMemberMemoryOnOrganizationRemoval({
-            coreWorker: env.OPENMELD_CORE_WORKER,
-            organizationId: organization.id,
-            userId,
-          }),
-        ]);
+        await finalizeOrganizationMemberDeparture({
+          coreWorker: env.OPENMELD_CORE_WORKER,
+          organizationId: organization.id,
+          userId,
+        });
       },
       afterDeleteOrganization: ({ organization }) =>
         deleteCenterAgentOrganizationMemoryOnOrganizationDeletion({
@@ -1048,7 +1025,7 @@ export function createAuthConfig(
           validated.AUTH_DESKTOP_DEVELOPMENT_TARGET
         ).clientId,
       }),
-      createSpaceOwnerDeparturePlugin({
+      createOrganizationMemberDeparturePlugin({
         coreWorker: env.OPENMELD_CORE_WORKER,
         db: env.AUTH_SCHEMA_CODEGEN ? undefined : getPostgresDatabase(env),
       }),

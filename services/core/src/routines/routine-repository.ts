@@ -127,6 +127,27 @@ export type UnpublishedFailedRoutineRun = {
   slackThreadTs: string | null;
   targetSpaceId: string | null;
 };
+const UNPUBLISHED_FAILED_ROUTINE_RUN_SQL = `status = 'failed'
+  AND published_signal_id IS NULL
+  AND failure_code IS NOT NULL
+  AND routine_name_snapshot IS NOT NULL`;
+
+/** Run claims precede Space admission and native delivery registration. */
+export async function hasUnsettledSpaceRoutineRun(input: {
+  db: Pick<PostgresDatabase, "query">;
+  spaceId: string;
+}): Promise<boolean> {
+  const result = await input.db.query({
+    text: `SELECT 1 FROM "openmeld"."routine_runs"
+      WHERE COALESCE(destination_kind_snapshot, 'space') = 'space'
+        AND target_space_id_snapshot = $1
+        AND (status IN ('claimed', 'submitted')
+          OR (${UNPUBLISHED_FAILED_ROUTINE_RUN_SQL}))
+      LIMIT 1`,
+    values: [input.spaceId],
+  });
+  return result.rows.length > 0;
+}
 const ROUTINE_RECORD_SELECT = `
   SELECT
     routine.id AS id,
@@ -1157,10 +1178,7 @@ export async function listUnpublishedFailedRoutineRuns(input: {
           slack_thread_ts_snapshot,
           slack_conversation_id_snapshot
         FROM "openmeld"."routine_runs"
-        WHERE status = 'failed'
-          AND published_signal_id IS NULL
-          AND failure_code IS NOT NULL
-          AND routine_name_snapshot IS NOT NULL
+        WHERE ${UNPUBLISHED_FAILED_ROUTINE_RUN_SQL}
           AND (
             (
               COALESCE(destination_kind_snapshot, 'space') = 'space'
