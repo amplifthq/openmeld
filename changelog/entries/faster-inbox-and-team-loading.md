@@ -4,6 +4,8 @@ title: Faster Inbox and Team loading
 kind: improved
 areas: ["inbox", "team", "spaces"]
 audiences: ["users"]
+publishedAt: 2026-10-06
+evidence: ["pr:1524", "commit:20425528edfe6aec5b11700e52cef34735e284aa", "workflow:37365763256"]
 ---
 
 Inbox starts loading earlier. Inbox, Team, and conversation lists retain loaded
