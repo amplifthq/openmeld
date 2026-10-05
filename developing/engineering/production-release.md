@@ -192,6 +192,16 @@ Read-only GitHub history requests retry a failed page at most twice for HTTP
 permissions failures and malformed collections remain incomplete evidence and
 fail closed; no mutation receives this retry policy.
 
+The reader merges validated local receipts before inspecting hosted jobs, using
+the same completion-time source selector for both lanes. A successful,
+non-conflicting receipt can bound job history only when every component has a
+known successful baseline. Completed runs strictly older than that bound need
+no job or checkout-log query. Active runs, missing update times and updates at
+or after the bound remain inspected. Failed, started, applied, conflicting or
+legacy unverified local records do not provide this cutoff and remain visible.
+Workflow-listing failures still block admission, including when local receipts
+are available; this bound does not turn an unreadable newer history into success.
+
 In GitHub Actions, the status reader uses the step's `GH_TOKEN` with the
 workflow repository and server identity to read private Git receipt refs.
 The existing trusted HTTPS helper supplies credentials only to those Git
