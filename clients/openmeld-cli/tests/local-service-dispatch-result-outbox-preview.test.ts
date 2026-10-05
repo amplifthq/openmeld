@@ -60,6 +60,15 @@ vi.mock("../src/space/meta-api", async (importOriginal) => {
   };
 });
 
+vi.mock("../src/config/resolve-openmeld-profile", () => ({
+  requireOpenMeldProfile: async () => ({
+    openMeldProfileId: "agent-profile-1",
+    profileKind: "agent",
+    ownerUserId: "owner-1",
+    profileName: "Agent",
+  }),
+}));
+
 vi.mock("../src/space/updates-api", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("../src/space/updates-api")>();
@@ -2338,6 +2347,8 @@ describe("dispatch result outbox around preview teardown", () => {
       expect(localPhases).toEqual([
         "task_started",
         "preflight_ready",
+        "bootstrap_read_completed",
+        "bootstrap_read_completed",
         "bootstrap_context_ready",
         "send_target_reference_ready",
         "runtime_context_ready",

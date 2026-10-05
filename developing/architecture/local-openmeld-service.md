@@ -598,6 +598,19 @@ Neither event collection nor account queries start a conversation or model call.
 
 ### Agent Instruction Delivery
 
+Within one dispatch preparation, Documents, Skills, and Space instructions share
+one freshly resolved Agent identity and one authorized Space metadata response.
+Document and Skill directories load concurrently after that scope is established.
+Do not retain this context across Wakes or reuse it for later context-tool reads:
+those reads must check current authorization and Skill enablement. Explicit
+handoff Skill releases remain pinned. A failed directory read does not discard
+the other directory or the authorized Space metadata.
+
+The local dispatch journal records `bootstrap_read_completed` with the operation,
+duration, and loaded/failed status. These measurements describe preparation only;
+provider acceptance, useful first text, and final publication are separate
+milestones. Timing records do not contain directory contents or credentials.
+
 For a new Codex Session created by an ordinary Wake, Service derives an optional
 bounded title from the Agent Profile name and the current Wake text, before
 bootstrap instructions are rendered. After Codex accepts the first turn, its
