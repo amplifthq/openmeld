@@ -1,4 +1,4 @@
-import type { PostgresDatabase, QueryResult } from "@openmeld/db/postgresql";
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   inboxFeedQuerySchema,
   inboxFeedResponseSchema,
@@ -97,6 +97,9 @@ export function createInboxFeedService(input: {
           "This Inbox view has expired. Refresh before changing its items.",
       });
     }
+    return mapSnapshot(row);
+  }
+  function mapSnapshot(row: SnapshotRow): Snapshot {
     return {
       id: row.id,
       organizationId: row.organization_id,
@@ -111,7 +114,7 @@ export function createInboxFeedService(input: {
       snapshotId: row.id,
     };
   }
-  async function createSnapshot(
+  function createSnapshot(
     identity: Identity,
     query: InboxFeedQuery
   ): Promise<Snapshot> {
@@ -127,38 +130,44 @@ export function createInboxFeedService(input: {
       throughRowId: Number.MAX_SAFE_INTEGER,
     } as const;
     const cte = inboxFeedCte(seedScope, input.canManageOrganization === true);
-    await input.db.transaction(
-      async (client) =>
-        [
-          await client.query({
-            text: 'DELETE FROM "openmeld"."inbox_feed_snapshots" WHERE id IN (SELECT id FROM "openmeld"."inbox_feed_snapshots" WHERE expires_at_ms <= $1 LIMIT 100)',
-            values: [created],
-          }),
-          await client.query({
-            text: `INSERT INTO "openmeld"."inbox_feed_snapshots"
+    return input.db.transaction(async (client) => {
+      await client.query({
+        text: 'DELETE FROM "openmeld"."inbox_feed_snapshots" WHERE id IN (SELECT id FROM "openmeld"."inbox_feed_snapshots" WHERE expires_at_ms <= $1 LIMIT 100)',
+        values: [created],
+      });
+      const inserted = await client.query<SnapshotRow>({
+        text: `INSERT INTO "openmeld"."inbox_feed_snapshots"
         (id, organization_id, recipient_user_id, category, unread_only, agents_only, people_only, conversation_type, through_row_id, created_at_ms, expires_at_ms)
-        SELECT $1, $2, $3, $4, $5, $6, $7, $8, coalesce(max(sequence), 0), $9, $10 FROM "openmeld"."inbox_items"`,
-            values: [
-              id,
-              identity.organizationId,
-              identity.recipientUserId,
-              query.category ?? "all",
-              query.unreadOnly === "true" ? 1 : 0,
-              query.agentsOnly === "true" ? 1 : 0,
-              query.peopleOnly === "true" ? 1 : 0,
-              query.conversationType ?? "all",
-              created,
-              created + SNAPSHOT_TTL_MS,
-            ],
-          }),
-          await client.query({
-            text: `${cte.sql} INSERT INTO "openmeld"."inbox_feed_snapshot_members" (snapshot_id, item_id)
+        SELECT $1, $2, $3, $4, $5, $6, $7, $8, coalesce(max(sequence), 0), $9, $10 FROM "openmeld"."inbox_items" RETURNING *`,
+        values: [
+          id,
+          identity.organizationId,
+          identity.recipientUserId,
+          query.category ?? "all",
+          query.unreadOnly === "true" ? 1 : 0,
+          query.agentsOnly === "true" ? 1 : 0,
+          query.peopleOnly === "true" ? 1 : 0,
+          query.conversationType ?? "all",
+          created,
+          created + SNAPSHOT_TTL_MS,
+        ],
+      });
+      const row = inserted.rows[0];
+      if (!row) {
+        throw new Error("Inbox snapshot insert did not return its header");
+      }
+      await client.query({
+        text: `${cte.sql} INSERT INTO "openmeld"."inbox_feed_snapshot_members" (snapshot_id, item_id)
         SELECT $4, id FROM filtered`,
-            values: [...cte.bindings, id],
-          }),
-        ] as const
-    );
-    return readSnapshot(identity, id);
+        values: [
+          identity.organizationId,
+          identity.recipientUserId,
+          row.through_row_id,
+          id,
+        ],
+      });
+      return mapSnapshot(row);
+    });
   }
   return {
     async list(
@@ -187,26 +196,20 @@ export function createInboxFeedService(input: {
       const collectionKind = expandedKey
         ? readGroupKind(expandedKey)
         : undefined;
-      const results = await input.db.transaction(
-        async (client) =>
-          [
-            await client.query({
-              text: `${cte.sql} ${INBOX_FEED_COUNTS_SQL}`,
-              values: [...cte.bindings],
-            }),
-            await client.query({
-              text: `${cte.sql} ${inboxFeedRowsSql(Boolean(query.groupKey), query.grouping, collectionKind, cte.bindings.length)}`,
-              values: [
-                ...cte.bindings,
-                ...(expandedKey ? [expandedKey] : []),
-                ...cursorBindings(cursor),
-                limit + 1,
-              ],
-            }),
-          ] as const
+      const result = await input.db.query<
+        FeedItemRow & { feed_counts: CountRow }
+      >({
+        text: `${cte.sql}, feed_counts AS (${INBOX_FEED_COUNTS_SQL}) ${inboxFeedRowsSql(Boolean(query.groupKey), query.grouping, collectionKind, cte.bindings.length)}`,
+        values: [
+          ...cte.bindings,
+          ...(expandedKey ? [expandedKey] : []),
+          ...cursorBindings(cursor),
+          limit + 1,
+        ],
+      });
+      const { counts, candidates, selectionUnreadCount } = readQueryResults(
+        result.rows
       );
-      const { counts, candidates, selectionUnreadCount } =
-        readQueryResults(results);
       const page = candidates.slice(0, limit);
       return inboxFeedResponseSchema.parse({
         organizationId: identity.organizationId,
@@ -281,29 +284,21 @@ function assertMatchingSnapshot(
     throw invalidInboxFeedCursor();
   }
 }
-function readQueryResults(results: readonly QueryResult[]): {
+function readQueryResults(
+  rows: Array<FeedItemRow & { feed_counts: CountRow }>
+): {
   selectionUnreadCount: number;
   counts: InboxFeedCounts;
   candidates: FeedItemRow[];
 } {
-  const [countResult, pageResult] = results;
-  if (
-    !(
-      countResult &&
-      pageResult &&
-      Array.isArray(countResult.rows) &&
-      Array.isArray(pageResult.rows) &&
-      countResult.rows.length === 1
-    )
-  ) {
+  const countRow = rows[0]?.feed_counts;
+  if (!countRow) {
     throw new Error("Inbox query did not return a complete snapshot page");
   }
   return {
-    selectionUnreadCount: Number(
-      (countResult.rows[0] as CountRow).selection_unread_count
-    ),
-    counts: mapCounts(countResult.rows[0] as CountRow),
-    candidates: pageResult.rows as FeedItemRow[],
+    selectionUnreadCount: Number(countRow.selection_unread_count),
+    counts: mapCounts(countRow),
+    candidates: rows.filter((row) => row.id !== null),
   };
 }
 function cursorBindings(cursor: InboxFeedCursor | null) {
