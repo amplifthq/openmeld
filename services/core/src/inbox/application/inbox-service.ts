@@ -29,6 +29,7 @@ import {
 import { isReadPositionWithinAllowedFutureSkew } from "../../shared/read-position";
 import { personalAgentOwnerAccessSql } from "./inbox-agent-owner-access";
 import {
+  INBOX_OPEN_REQUEST,
   INBOX_OPEN_REVIEW,
   INBOX_UNREAD_PRIORITY_UPDATE,
   inboxMentionSql,
@@ -45,6 +46,8 @@ const BASE64_URL_PATTERN = /^[A-Za-z0-9_-]+$/u;
 const BASE64_PADDING_PATTERN = /=+$/u;
 const CURRENT_SOURCE_ACCESS_FILTER =
   buildCurrentInboxSourceAccessSql("inbox_items");
+// Read history contributes to none of these counts unless its request is open.
+const INBOX_SUMMARY_CANDIDATE_FILTER = `read_at_ms IS NULL OR (${INBOX_OPEN_REQUEST})`;
 const INBOX_SPACE_TARGET_FILTER = `
   ((source_target_json)::jsonb #>> '{kind}') IN (
     'space',
@@ -346,7 +349,9 @@ export function createInboxService(input: {
             read_at_ms, attention, resolution_status, importance, kind
           FROM "openmeld"."inbox_items"
           WHERE organization_id = $1 AND recipient_user_id = $2
-            AND cleared_at_ms IS NULL AND ${CURRENT_SOURCE_ACCESS_FILTER}
+            AND cleared_at_ms IS NULL
+            AND (${INBOX_SUMMARY_CANDIDATE_FILTER})
+            AND ${CURRENT_SOURCE_ACCESS_FILTER}
         )
         SELECT
           sum(CASE WHEN read_at_ms IS NULL AND ${INBOX_SPACE_MESSAGE_FILTER} THEN 1 ELSE 0 END) AS unread,
@@ -887,6 +892,7 @@ export function createInboxService(input: {
               WHERE ${ITEM_SCOPE_FILTER}
                 AND recipient_user_id = $2
                 AND cleared_at_ms IS NULL
+                AND (${INBOX_SUMMARY_CANDIDATE_FILTER})
                 AND ${CURRENT_SOURCE_ACCESS_FILTER}
                 ${summaryInput.presentation === "attention" ? `AND ${INBOX_ATTENTION_PRESENTATION_FILTER}` : ""}
             )

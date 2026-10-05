@@ -258,6 +258,57 @@ export const readFreshAgentExecutionReadinessImpactForBinding = async (input: {
   }
   return null;
 };
+export async function readFreshAgentExecutionReadinessImpactsForBindings(input: {
+  bindings: readonly (AgentExecutionReadinessImpactExecutionIdentity & {
+    agentProfileId: string;
+  })[];
+  db: PostgresDatabase;
+  nowMs: number;
+}): Promise<
+  (FreshAgentExecutionReadinessImpact &
+    AgentExecutionReadinessImpactExecutionIdentity & {
+      agentProfileId: string;
+    })[]
+> {
+  if (input.bindings.length === 0) {
+    return [];
+  }
+  const result = await input.db.query<
+    FreshAgentExecutionReadinessImpactRow &
+      AgentExecutionReadinessImpactExecutionIdentity & {
+        agentProfileId: string;
+      }
+  >({
+    text: `
+      SELECT impact.agent_profile_id AS "agentProfileId",
+        impact.binding_id AS "bindingId",
+        impact.openmeld_service_runtime_id AS "openMeldServiceRuntimeId",
+        impact.agent_controller_ref AS "agentControllerRef",
+        impact.impact_kind AS "impactKind", impact.reason_code AS "reasonCode", impact.source,
+        impact.observed_at_ms AS "observedAtMs", impact.expires_at_ms AS "expiresAtMs"
+      FROM "openmeld"."openMeldDaemon_agent_execution_readiness_impacts" AS impact
+      JOIN UNNEST($1::text[], $2::text[], $3::text[], $4::text[])
+        AS requested(profile_id, binding_id, runtime_id, controller_ref)
+        ON impact.agent_profile_id = requested.profile_id
+        AND impact.binding_id = requested.binding_id
+        AND impact.openmeld_service_runtime_id = requested.runtime_id
+        AND impact.agent_controller_ref = requested.controller_ref
+      WHERE impact.cleared_at_ms IS NULL AND impact.expires_at_ms > $5
+      ORDER BY impact.observed_at_ms DESC NULLS LAST
+    `,
+    values: [
+      input.bindings.map((binding) => binding.agentProfileId),
+      input.bindings.map((binding) => binding.bindingId),
+      input.bindings.map((binding) => binding.openMeldServiceRuntimeId),
+      input.bindings.map((binding) => binding.agentControllerRef),
+      normalizeTimestampMs(input.nowMs),
+    ],
+  });
+  return result.rows.flatMap((row) => {
+    const impact = normalizeFreshReadinessImpactRow(row);
+    return impact ? [{ ...row, ...impact }] : [];
+  });
+}
 function normalizeFreshReadinessImpactRow(
   row: FreshAgentExecutionReadinessImpactRow
 ): FreshAgentExecutionReadinessImpact | null {

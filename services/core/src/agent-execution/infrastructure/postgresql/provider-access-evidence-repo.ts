@@ -20,6 +20,16 @@ export type FreshProviderAccessEvidence = {
   reasonCode: OpenMeldDaemonProviderAccessEvidence["reasonCode"];
   source: "wake_failure";
 };
+type ProviderAccessEvidenceRow = {
+  expiresAtMs?: unknown;
+  observedAtMs?: unknown;
+  provider?: unknown;
+  reasonCode?: unknown;
+  source?: unknown;
+};
+type ProviderAccessBindingIdentity = ProviderAccessExecutionIdentity & {
+  agentProfileId: string;
+};
 const PROVIDER_ACCESS_SUCCESS_WATERMARK_REASON_CODE =
   "provider_account.access_confirmed";
 const PROVIDER_ACCESS_SUCCESS_WATERMARK_SOURCE = "wake_success";
@@ -205,13 +215,7 @@ export const readFreshProviderAccessEvidenceForBinding = async (input: {
     return null;
   }
   const row = await input.db
-    .query<{
-      expiresAtMs?: unknown;
-      observedAtMs?: unknown;
-      provider?: unknown;
-      reasonCode?: unknown;
-      source?: unknown;
-    }>({
+    .query<ProviderAccessEvidenceRow>({
       text: `
         SELECT
           provider,
@@ -243,6 +247,62 @@ export const readFreshProviderAccessEvidenceForBinding = async (input: {
   if (!row) {
     return null;
   }
+  return normalizeFreshProviderAccessEvidenceRow(row, provider);
+};
+export async function readFreshProviderAccessEvidenceForBindings(input: {
+  bindings: readonly ProviderAccessBindingIdentity[];
+  db: PostgresDatabase;
+  nowMs: number;
+}): Promise<(FreshProviderAccessEvidence & ProviderAccessBindingIdentity)[]> {
+  const bindings = input.bindings.flatMap((binding) => {
+    const provider = providerForExecutionIdentity(binding);
+    return provider ? [{ ...binding, provider }] : [];
+  });
+  if (bindings.length === 0) {
+    return [];
+  }
+  const result = await input.db.query<
+    ProviderAccessEvidenceRow & ProviderAccessBindingIdentity
+  >({
+    text: `
+      SELECT evidence.agent_profile_id AS "agentProfileId",
+        evidence.binding_id AS "bindingId",
+        evidence.openmeld_service_runtime_id AS "openMeldServiceRuntimeId",
+        evidence.agent_controller_ref AS "agentControllerRef",
+        evidence.provider, evidence.reason_code AS "reasonCode", evidence.source,
+        evidence.observed_at_ms AS "observedAtMs", evidence.expires_at_ms AS "expiresAtMs"
+      FROM "openmeld"."openMeldDaemon_provider_access_evidence" AS evidence
+      JOIN UNNEST($1::text[], $2::text[], $3::text[], $4::text[], $5::text[])
+        AS requested(profile_id, binding_id, runtime_id, controller_ref, provider)
+        ON evidence.agent_profile_id = requested.profile_id
+        AND evidence.binding_id = requested.binding_id
+        AND evidence.openmeld_service_runtime_id = requested.runtime_id
+        AND evidence.agent_controller_ref = requested.controller_ref
+        AND evidence.provider = requested.provider
+      WHERE evidence.cleared_at_ms IS NULL AND evidence.expires_at_ms > $6
+      ORDER BY evidence.observed_at_ms DESC NULLS LAST
+    `,
+    values: [
+      bindings.map((binding) => binding.agentProfileId),
+      bindings.map((binding) => binding.bindingId),
+      bindings.map((binding) => binding.openMeldServiceRuntimeId),
+      bindings.map((binding) => binding.agentControllerRef),
+      bindings.map((binding) => binding.provider),
+      normalizeTimestampMs(input.nowMs),
+    ],
+  });
+  return result.rows.flatMap((row) => {
+    const provider = providerForExecutionIdentity(row);
+    const evidence = provider
+      ? normalizeFreshProviderAccessEvidenceRow(row, provider)
+      : null;
+    return evidence ? [{ ...row, ...evidence }] : [];
+  });
+}
+function normalizeFreshProviderAccessEvidenceRow(
+  row: ProviderAccessEvidenceRow,
+  provider: OpenMeldDaemonProviderAccessEvidenceProvider
+): FreshProviderAccessEvidence | null {
   const reasonCode = normalizeProviderAccessReasonCode(row.reasonCode);
   const observedAtMs = parseTimestampMs(row.observedAtMs);
   const expiresAtMs = parseTimestampMs(row.expiresAtMs);
@@ -262,7 +322,7 @@ export const readFreshProviderAccessEvidenceForBinding = async (input: {
     reasonCode,
     source: "wake_failure",
   };
-};
+}
 function isProviderAccessEvidenceApplicable(input: {
   evidence: OpenMeldDaemonProviderAccessEvidence;
   executionIdentity: ProviderAccessExecutionIdentity;
