@@ -244,10 +244,15 @@ describe("Team and member Files roots", () => {
       text: 'UPDATE "openmeld"."users" SET deleted_at = $2 WHERE id = $1',
       values: [userId, Date.now()],
     });
+    const humanCleanupId = crypto.randomUUID();
+    await db.query({
+      text: 'INSERT INTO "openmeld"."openmeld_profile_deletion_outbox" (profile_id,owner_user_id,profile_kind) VALUES ($1,$2,\'human\')',
+      values: [humanCleanupId, userId],
+    });
     const plan = {
       deleteOrganizationIds: [closed],
       privateOrganizationIds: [gone, organizationId, closed],
-      profileIds: [],
+      profileIds: [humanCleanupId],
     };
     await db.query({
       text: 'INSERT INTO "openmeld"."account_deletion_requests" (user_id,plan_json,created_at_ms,next_attempt_at_ms) VALUES ($1,$2,1,1)',
@@ -269,7 +274,7 @@ describe("Team and member Files roots", () => {
         userId,
         privateRootIndex: 0,
       })
-    ).toEqual({ complete: true, privateRootIndex: 3 });
+    ).toEqual({ complete: false, privateRootIndex: 3 });
     expect(eraseAccountComputer).toHaveBeenLastCalledWith({
       computerId: personalComputer.id,
     });
@@ -281,6 +286,13 @@ describe("Team and member Files roots", () => {
         })
       ).rows
     ).toEqual([{ id: teammateComputer.id }]);
+    await db.query({
+      text: 'DELETE FROM "openmeld"."openmeld_profile_deletion_outbox" WHERE profile_id = $1',
+      values: [humanCleanupId],
+    });
+    expect(
+      await cleanupDeletedAccount(cleanupEnv, { userId, privateRootIndex: 0 })
+    ).toEqual({ complete: true, privateRootIndex: 3 });
     expect(await env.OPENMELD_SPACE_ATTACHMENTS.get(privateKey)).toBeNull();
     expect(await env.OPENMELD_SPACE_ATTACHMENTS.get(closedKey)).toBeNull();
     expect(

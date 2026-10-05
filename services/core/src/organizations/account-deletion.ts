@@ -308,16 +308,8 @@ export async function cleanupDeletedAccount(
         input.userId
       );
     }
-    if (
-      (
-        await db.query({
-          text: 'SELECT 1 FROM "openmeld"."openmeld_profile_deletion_outbox" WHERE profile_id = ANY($1::text[]) LIMIT 1',
-          values: [plan.profileIds],
-        })
-      ).rows.length
-    ) {
-      return pending();
-    }
+    // Human membership reconciliation may wait on its existing retry interval.
+    // It must not keep the account's private Computer and processes alive.
     const computers = await db.query<{ id: string }>({
       text: 'SELECT id FROM "openmeld"."cloud_computers" WHERE owner_user_id = $1',
       values: [input.userId],
@@ -332,6 +324,16 @@ export async function cleanupDeletedAccount(
         text: 'DELETE FROM "openmeld"."cloud_computers" WHERE id = $1 AND owner_user_id = $2',
         values: [computer.id, input.userId],
       });
+    }
+    if (
+      (
+        await db.query({
+          text: 'SELECT 1 FROM "openmeld"."openmeld_profile_deletion_outbox" WHERE profile_id = ANY($1::text[]) LIMIT 1',
+          values: [plan.profileIds],
+        })
+      ).rows.length
+    ) {
+      return pending();
     }
     for (const [column, tables] of Object.entries({
       user_id: [
