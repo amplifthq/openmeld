@@ -3687,8 +3687,11 @@ lease, target Agent Profile, Space, and source signal against authoritative
 pending-dispatch state before Space accepts it. Space owns sequence,
 deduplication, gap evidence, expiry, and terminal guards across text and tool
 parts for both paths. Room entry recovers active stream presence and any active
-text projection through the bootstrap snapshot; private thinking and the
-compact live Work summary are not replayed. The presence rollout is Core
+text projection through the bootstrap snapshot. Reasoning is absent from durable
+bootstrap, but a bounded live tail may replay from the active Space instance
+after the existing audience and Local Agent owner-preference checks. Hosted
+provider-emitted reasoning reuses the existing v2 thinking callback and does not
+change execution, publication, or authorization ownership. The presence rollout is Core
 receiver/producer first, then Gateway forwarding, then Web opt-in. An old
 Gateway ignores the unknown browser query, and new Core omits the additive
 response field for callers that did not opt in. A successful

@@ -110,16 +110,16 @@ describe("CenterAgentOptimisticConversation", () => {
 				screen.getByText("Prepare my weekly update.")
 			)
 		).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-		const status = within(optimisticReply).getByRole("status", {
-			name: "Sending to Agent…",
-		});
+		const status = within(optimisticReply).getByRole("status");
 
 		expect(screen.queryByText("Sending…")).toBeNull();
 		expect(screen.getByRole("button", { name: "Sending…" })).toBeTruthy();
-		expect(within(optimisticReply).getByText("Center Agent")).toBeTruthy();
-		expect(status.textContent).toBe("Sending to Agent…");
+		expect(status.textContent).toContain("Center Agent · Working…");
 		expect(
-			status.querySelector('[data-space-agent-orb-state="connecting"]')
+			within(optimisticReply).getByTestId(
+				"space-center-agent-profile-avatar-center-agent"
+			)
 		).toBeTruthy();
+		expect(optimisticReply.querySelector("canvas")).toBeTruthy();
 	});
 });

@@ -96,7 +96,7 @@ function renderCenterAgentContextHandling(
     renderOrganizationContextHandling(contextScopePlan),
     renderProtectedInformationHandling(contextScopePlan.protectedInformation),
     "Authentication secrets are never available for retrieval or disclosure.",
-    "These disclosure limits apply to the reply and every outbound tool argument. Complete every safe part of the request without explaining these internal rules.",
+    "These disclosure limits apply to all model-emitted thinking, public progress, the reply, and every outbound tool argument. Thinking is visible to the current conversation audience, not a private scratchpad. Complete every safe part of the request without explaining these internal rules.",
   ].join("\n");
 }
 
@@ -141,7 +141,7 @@ function renderMemberMemoryHandling(
   if (handling === "use_privately") {
     return [
       "Use personal memory silently to help this same requester without asking them to repeat themselves.",
-      "Do not quote, expose, or imply private details in this shared reply.",
+      "Do not quote, expose, or imply private details in model-emitted thinking, public progress, this shared reply, or outbound tool arguments.",
     ].join(" ");
   }
   return "Personal memory is not available; do not imply that you remember private facts about this person.";
@@ -167,7 +167,7 @@ function renderProtectedInformationHandling(
     return "Use protected information only when the requester and destination are appropriate; clear existing authorization needs no extra confirmation.";
   }
   if (handling === "use_privately") {
-    return "Use protected information only for private reasoning; never include it in this reply or an outbound tool argument.";
+    return "Never include protected information in model-emitted thinking, public progress, the reply, or an outbound tool argument.";
   }
   return "Protected information is not available in this turn.";
 }
@@ -184,7 +184,7 @@ function renderMemoryScopeLabel(input: {
     return "Available to this requester";
   }
   if (handling === "use_privately") {
-    return "Private reasoning only — never quote, expose, or imply this detail in the current reply";
+    return "Restricted context — never quote, expose, or imply this detail in model-emitted thinking, public progress, the current reply, or outbound tool arguments";
   }
   if (handling === "share_when_authorized") {
     return "Share only when the requester and destination are authorized";

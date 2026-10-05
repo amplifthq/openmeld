@@ -212,7 +212,10 @@ describe("Remote Agent streaming", () => {
     );
   });
 
-  it("orders public progress and text deltas without persisting progress content", async () => {
+  it.each([
+    "progress",
+    "thinking",
+  ] as const)("orders %s and text without persisting transient content", async (kind) => {
     const context = createRemoteAgentCallbackContext({
       ack: ACK,
       nowMs: TEST_NOW_MS,
@@ -231,7 +234,7 @@ describe("Remote Agent streaming", () => {
       context,
       coreWorker: { submitRemoteAgentStreamDelta },
       delta: "Checking ".repeat(25),
-      kind: "progress",
+      kind,
       observedAtMs: TEST_NOW_MS,
       storage,
     });
@@ -246,10 +249,11 @@ describe("Remote Agent streaming", () => {
 
     expect(submitRemoteAgentStreamDelta.mock.calls[0]?.[0]).toMatchObject({
       delta: "Checking ".repeat(25),
-      kind: "progress",
+      kind,
       sequence: 1,
       snapshot: "Checking ".repeat(25),
-      source: "hosted.public_progress",
+      source:
+        kind === "progress" ? "hosted.public_progress" : "flue.thinking_delta",
       v: 2,
     });
     expect(submitRemoteAgentStreamDelta.mock.calls[1]?.[0]).toMatchObject({
@@ -268,7 +272,10 @@ describe("Remote Agent streaming", () => {
     );
   });
 
-  it("keeps a bounded live progress tail and preserves text streaming during long turns", async () => {
+  it.each([
+    "progress",
+    "thinking",
+  ] as const)("keeps a bounded %s tail and preserves text during long turns", async (kind) => {
     const context = createRemoteAgentCallbackContext({
       ack: ACK,
       nowMs: TEST_NOW_MS,
@@ -290,7 +297,7 @@ describe("Remote Agent streaming", () => {
         context,
         coreWorker: { submitRemoteAgentStreamDelta },
         delta: "t".repeat(REMOTE_AGENT_STREAM_DELTA_MAX_CHARS),
-        kind: "progress",
+        kind,
         observedAtMs: TEST_NOW_MS + index * 100,
         storage,
       });
@@ -300,7 +307,7 @@ describe("Remote Agent streaming", () => {
       context,
       coreWorker: { submitRemoteAgentStreamDelta },
       delta: "overflow",
-      kind: "progress",
+      kind,
       observedAtMs: TEST_NOW_MS + fullProgressChunks * 100,
       storage,
     });
@@ -314,11 +321,11 @@ describe("Remote Agent streaming", () => {
     });
 
     expect(overflow).toMatchObject({
-      contentKind: "progress",
+      contentKind: kind,
       status: "published",
     });
     expect(submitRemoteAgentStreamDelta.mock.calls.at(-2)?.[0]).toMatchObject({
-      kind: "progress",
+      kind,
       snapshot: `${"t".repeat(AGENT_STREAM_SNAPSHOT_MAX_CHARS - "overflow".length)}overflow`,
     });
     expect(text).toMatchObject({
@@ -561,7 +568,10 @@ describe("Remote Agent streaming", () => {
     });
   });
 
-  it("applies one callback budget across alternating progress and text", async () => {
+  it.each([
+    "progress",
+    "thinking",
+  ] as const)("applies one callback budget across alternating %s and text", async (kind) => {
     const context = createRemoteAgentCallbackContext({
       ack: ACK,
       nowMs: TEST_NOW_MS,
@@ -581,7 +591,7 @@ describe("Remote Agent streaming", () => {
         context,
         coreWorker: { submitRemoteAgentStreamDelta },
         delta: "a",
-        kind: index % 2 === 0 ? "progress" : "text",
+        kind: index % 2 === 0 ? kind : "text",
         observedAtMs: TEST_NOW_MS + index * 10,
         storage,
       });
