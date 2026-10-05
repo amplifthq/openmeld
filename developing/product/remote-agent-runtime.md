@@ -165,42 +165,48 @@ settles only the published public result, not a claim that private guidance arri
 This is not a new private-message exactly-once ledger; manual investigation must
 not blindly replay an uncertain provider write.
 
-### Admitted Computer audience
+### Personal cloud Computer
 
-New Computer identities include Organization, Agent, Binding, conversation,
-Space and the admitted member/Agent/Routine principal. Different audiences use
-different durable Computers, not merely different working directories. Core
-derives the scope from the accepted native delivery and rechecks enabled
-Binding, requester membership, current Space participation and source Plugin
-permissions. Workspace reads and browser operations authorize before and after
-the operation; a revoked read must not release its output. No raw provider
-credentials are introduced by this boundary.
+Each human account owns one default Computer, across Organizations, Agents and
+conversations. Core owns its stable identity in `cloud_computers`; the provider
+adapter owns its runtime address. Tool input cannot select another owner.
+A personal Remote Agent uses its persisted owner's Computer. Center uses the
+verified represented human, including a Routine's recorded human authority.
+When no human owner is established, Computer tools are unavailable; other
+conversation tools remain usable. Never select the last speaker or an admin.
 
-New admissions use the audience-v2 Computer address. Its host-only SQL metadata
-owns the imported source set for the lifetime of that Computer, independently
-of runtime Agent generations. A missing row after initialization fails closed.
-The source set is registered before imported bytes are exposed, and final
-Computer tool results carry that provenance through direct and Code Mode paths.
-Previously admitted v1 or unversioned contexts cannot acquire the new Computer
-tools. Their old name remains available only for existing cleanup; neither
-legacy shared nor unproven v1 files are copied into a new audience. Real container,
-process termination and cross-audience export acceptance remain required.
+Core still verifies the active delivery, Binding and Space participants.
+Computer tools carry owner, task and audience context. Agents use these facts
+to decide whether to use or disclose personal files. Access to a filesystem is
+not permission to publish all its contents. Files publication retains its own
+audience contract. No new per-task permission UI is introduced.
 
-Acceptance uses disposable audiences in the documented Staging environment,
-never production data or legacy file migration. Keep the following evidence
-separate from unit and Worker-runtime regression results:
+Cloudflare Computer and computerd use 0.4.0 with the official
+`LegacyContainerBackend`. The current platform-scheduled container deployment
+is retained. Files persist; running processes, OS packages and browser login
+state are not promised to survive runtime recreation. Shared Organization or
+Space Computers, other providers and human desktop UI remain separate work.
 
-- Start real container commands for audiences A and B, including different
-  Spaces and a Direct Message. Each audience may read its own non-sensitive
-  marker; the other audience must not read its files or acquire its command.
-- Stop A through the normal product path and confirm that its command exited.
-  A Stop acknowledgement alone is insufficient; B's command must remain usable.
-- Export files, screenshots and tool results through direct tools and Code Mode.
-  Verify admitted source provenance and withhold output after source access is
-  revoked, including access revoked during an operation.
-- Verify that new admissions cannot open audience-v1 or unversioned Computers.
-  Preserve existing files for cleanup; do not copy or delete them as acceptance
-  preparation.
+The Computer owns command receipts and exact process IDs. A conversation stores
+only its frozen Computer target. Local CLI operations use this same operation
+owner. Independent tasks run commands concurrently in `/computer/tasks/<taskId>`.
+Stop signals only that task's exact processes. Repeated start with the same key
+does not execute twice; uncertain launch outcomes require inspection.
+Controlled file edits serialize short mutations and reject stale text. Shell
+writes do not participate in this check. Use separate files or Git worktrees
+when tasks modify the same repository. There is no whole-task Computer lock.
+
+Completed provider downloads are personal copies. Disconnect blocks new provider
+calls, not unrelated filesystem access. Live results and external publication
+still check current source authorization. The old whole-Computer source set and
+per-turn destructive projection cleanup are removed.
+
+New admissions use version 3 and `personal-computer:<computerId>`. Earlier
+audience and unversioned addresses remain solely for persisted command cleanup.
+Old files are neither silently migrated nor deleted. Acceptance must prove
+same-account continuation, different-account separation, concurrent commands,
+exact Stop, stale-edit rejection, persistence and explicit publication using
+disposable local data. Unit, Worker and real-container evidence are distinct.
 
 ### Retained large tool results
 
@@ -295,12 +301,10 @@ by viewers with repository access. The side branch must remain while the image
 is referenced. The operation ledger and fixed branch reconcile uncertain writes;
 the image bytes never enter the model response.
 
-Imported private repository provenance stays with the durable Computer beyond
-the 24-hour Git operation lifetime. Ordinary Computer access rechecks these
-source grants too; expiry never unlocks previously imported bytes. A revoked or
-replaced source blocks further access to that Computer. Start a fresh
-conversation for a new authorized working context; do not silently migrate the
-old bytes. Provenance is not a second permission owner: Core still authorizes.
+Downloaded repositories remain personal Computer files after provider access
+changes. Subsequent provider requests, retained live references and publication
+still use current Core authorization. A disconnected repository does not lock
+unrelated personal files or commands.
 
 The deployed connector keeps general HTTP/MCP proxy access blocked. A narrow
 OpenMeld working-copy ingress accepts only the required Git object operations
@@ -2466,28 +2470,17 @@ surface adopts official features where they are free**:
     does not retain browser sessions, expose Live View, or implement human
     browser takeover. Browser screenshots use the existing private Space
     attachment contract and are attached to the final Space reply.
-    The Computer is keyed by the admitted audience described above:
-    `agent-computer:audience-v2:<execution-scope-key>`. Organization, Agent,
-    Binding, conversation, Space and admitted principal all participate in that
-    identity. The old `agent-computer:<agentProfileId>` and audience-v1 names
-    remain cleanup addresses only; new tools cannot open them. The Computer does not
-    mount an OpenMeld host or user workstation. Files persist across turns
-    admitted to the same audience, Durable Object restarts, and deploys under the
-    fixed layout `/computer/{org,projects,spaces,routines,home}`. Ordinary Space turns
-    work under `/computer/spaces/<spaceId>`, and each Routine keeps one working set under
-    `/computer/routines/<routineId>` across runs admitted to the same audience.
-    These paths are layout conventions inside an isolated Computer, not the
-    authorization boundary. Different audiences do not share a filesystem or
-    process namespace. Cross-Space reuse requires an explicit authorized handoff;
-    neither a common Organization nor the same Agent grants access. Before each hosted turn starts, Remote Agent pulls a
+    The Computer belongs to the human account described above. Tasks use separate
+    working directories in the same account filesystem. Another account has a
+    separate filesystem and process namespace. The Computer does not mount a
+    user workstation. Before each hosted turn starts, Remote Agent pulls a
     versioned approved Organization Documents snapshot from Core when the
     current turn's `contextScopePlan` allows it. The trusted snapshot stays in
     turn-local memory; approved documents are no longer automatically copied
     onto shared disk. This removes the global refresh/clear race between
     concurrent sessions without leaving prior automatic snapshots accessible
-    to a turn that excludes Documents. Remote Agent retires the old reserved
-    `/computer/org/documents` projection before exposing Computer tools. This
-    migration cleanup never touches current session working copies.
+    to new turns. Explicit personal working copies remain on the owner's Computer;
+    preparing a turn never deletes previous personal files.
     A disallowed plan neither fetches the snapshot nor exposes Document checkout
     or submit tools. Authorized reads use the existing Core tools; explicit
     checkout writes one document into the current working directory. Working
@@ -2517,7 +2510,7 @@ surface adopts official features where they are free**:
     normal stream observer and cannot be converted into failure by this sweep.
     A Local Agent never receives an implicit mount of this private hosted
     filesystem. A Center Agent may explicitly copy at most three regular text
-    files from the current working directory into one Wake, with 32,000 bytes
+    files explicitly selected from the personal Computer into one Wake, with 32,000 bytes
     per file and 64,000 bytes total; symbolic links, private sidecars, binary
     content, and paths outside the current work fail closed. This is a one-time
     message snapshot, not filesystem access or live sync. Larger or durable

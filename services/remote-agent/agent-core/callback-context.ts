@@ -233,7 +233,7 @@ export type RemoteAgentCallbackContext = {
     { kind: "plugin_connection" }
   >;
   // Absent only on pre-isolation admissions; cleanup must retain their old address.
-  computerIsolationVersion?: 1 | 2;
+  computerIsolationVersion?: 1 | 2 | 3;
   accepted: boolean;
   acceptedAt: string;
   agentProfileId: string;
@@ -770,7 +770,7 @@ export function createRemoteAgentCallbackContext(input: {
   request: RemoteAgentWorkerSubmitTurnRequest;
 }): RemoteAgentCallbackContext {
   return {
-    computerIsolationVersion: 2,
+    computerIsolationVersion: 3,
     accepted: input.ack.accepted,
     acceptedAt: new Date(input.nowMs).toISOString(),
     ...(input.request.replyRecovery
@@ -2077,7 +2077,8 @@ function isRemoteAgentCallbackContext(
     candidate.v === 1 &&
     (candidate.computerIsolationVersion === undefined ||
       candidate.computerIsolationVersion === 1 ||
-      candidate.computerIsolationVersion === 2) &&
+      candidate.computerIsolationVersion === 2 ||
+      candidate.computerIsolationVersion === 3) &&
     typeof candidate.submissionId === "string" &&
     typeof candidate.idempotencyKey === "string" &&
     typeof candidate.organizationId === "string" &&

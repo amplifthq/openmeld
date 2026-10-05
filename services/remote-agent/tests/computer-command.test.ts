@@ -22,13 +22,11 @@ import {
   stopRemoteAgentComputerCommands,
 } from "../flue-adapter/computer-command";
 import { resolveRemoteAgentComputerName } from "../flue-adapter/computer-identity";
-import { createRemoteAgentComputerCapability } from "../flue-adapter/computer-sandbox";
 import { cancelFlueRemoteAgentExecution } from "../flue-adapter/execution-cancellation";
 import { finishRemoteAgentComputerCommands } from "../flue-adapter/execution-cleanup";
 import { checkRemoteAgentExecutionFinish } from "../flue-adapter/execution-finish";
 import { reconcileRemoteAgentExecution } from "../flue-adapter/execution-reconciliation";
 import { executeRemoteAgentToolDefinition } from "../flue-adapter/tool-execution";
-import { executionAccessFixture } from "./execution-access-fixture";
 import {
   createSubmitTurnRequest,
   createSubmitTurnRequestV2,
@@ -66,18 +64,21 @@ function context(submissionId: string, personal = false) {
         },
       }
     : createSubmitTurnRequest();
-  return createRemoteAgentCallbackContext({
-    request,
-    nowMs: TEST_NOW_MS,
-    ack: {
-      accepted: true,
-      createdAt: TEST_NOW_MS,
-      idempotencyKey: request.idempotencyKey,
-      requestId: submissionId,
-      status: "pending",
-      submissionId,
-    },
-  });
+  return {
+    ...createRemoteAgentCallbackContext({
+      request,
+      nowMs: TEST_NOW_MS,
+      ack: {
+        accepted: true,
+        createdAt: TEST_NOW_MS,
+        idempotencyKey: request.idempotencyKey,
+        requestId: submissionId,
+        status: "pending",
+        submissionId,
+      },
+    }),
+    computerIsolationVersion: 2 as const,
+  };
 }
 
 // The fake implements the installed vendor's retained event-stream contract.
@@ -140,6 +141,30 @@ function fixture() {
 
 describe("retained Computer commands", () => {
   it.each([
+    1, 2,
+  ])("rejects a cancelled invocation before launch at boundary %i", async (cancelAt) => {
+    const f = fixture();
+    let checks = 0;
+    const tool = createComputerCommandTool({
+      context: context("cancelled-task"),
+      storage: f.storage,
+      workspaceAccess: f.workspaceAccess,
+      workingDirectory: "/computer/tasks/cancelled-task",
+      assertCanStart: async () => {
+        checks += 1;
+        if (checks === cancelAt) {
+          throw new Error("computer.invocation_stopped");
+        }
+        await Promise.resolve();
+      },
+    });
+    await expect(
+      tool.execute({ action: "start", key: "late", command: "touch result" })
+    ).rejects.toThrow("computer.invocation_stopped");
+    expect(f.processes.size).toBe(0);
+  });
+
+  it.each([
     { cancel: false, personal: false },
     { cancel: true, personal: false },
     { cancel: true, personal: true },
@@ -167,25 +192,11 @@ describe("retained Computer commands", () => {
     const env = {
       AGENT_COMPUTER: {
         idFromName,
-        get: vi.fn(() => ({ readDataSources: async () => [] })),
+        get: vi.fn(() => ({})),
       },
     };
-    const capability = await createRemoteAgentComputerCapability({
-      context: executionContext,
-      coreWorker: {
-        authorizeRemoteAgentExecutionAccess:
-          executionAccessFixture(executionContext),
-      },
-      env,
-      storage: f.storage,
-      includeOrganizationDocuments: false,
-    });
-    const definition = capability.definitions.find(
-      (tool) => tool.name === "computer_command"
-    );
-    if (!definition) {
-      throw new Error("Missing Computer command tool");
-    }
+    // Historical receipts remain in execution storage and keep their old address.
+    const definition = f.tool("execution-a", personal);
     const invoke = () =>
       executeRemoteAgentToolDefinition({
         definition,

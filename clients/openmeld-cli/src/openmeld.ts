@@ -1593,6 +1593,27 @@ const computerCmd = program
   .description("Inspect and name computers in OpenMeld.");
 
 computerCmd
+  .command("cloud")
+  .description(
+    "Read your personal cloud Computer or run a file or command operation."
+  )
+  .option(
+    "--operation <json>",
+    "Computer operation: read, write, edit, list, or command. Commands require a stable invocationId and key."
+  )
+  .action(async (opts: { operation?: string }) => {
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["computer", "cloud"],
+      view,
+      run: async () => {
+        const { runCloudComputer } = await import("./commands/cloud-computer");
+        await runCloudComputer({ operation: opts.operation, view });
+      },
+    });
+  });
+
+computerCmd
   .command("disconnect")
   .description(
     "Disconnect this computer from its reviewed account without forgetting its record."

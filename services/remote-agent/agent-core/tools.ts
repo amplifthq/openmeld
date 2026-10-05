@@ -718,7 +718,7 @@ const wakeAgentProfilesInSpaceToolInputSchema = object({
       minLength(1),
       maxLength(3),
       description(
-        "Up to three text files from the current Center Agent Computer working directory to copy into this Wake as a one-time snapshot. The Local Agent does not receive filesystem access or live sync."
+        "Up to three explicitly selected text files from this personal Computer to copy into this Wake as a one-time snapshot. Use absolute paths for files outside the current task directory. This handoff does not grant the receiving Local Agent filesystem access or live sync."
       )
     )
   ),

@@ -448,6 +448,7 @@ import {
   createCoreCenterAgentMemoryService,
 } from "./center-agent-memory/core-memory-service";
 import { rpcCenterAgentSearchMemory } from "./center-agent-memory/memory-search-rpc";
+import { personalComputerRpc } from "./computer/computer-rpc";
 import { rpcReportDesktopUpdateObservation } from "./computers/desktop-update-inbox";
 import { readModelCatalog } from "./config/model-catalog";
 import {
@@ -2989,6 +2990,11 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   authorizeRemoteAgentExecutionAccess(input: unknown) {
     return authorizeRemoteAgentExecutionAccess(this.env, input);
   }
+  personalComputer(input: unknown) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      personalComputerRpc(this.env, input)
+    );
+  }
   acknowledgeRemoteAgentAdmission(input: unknown) {
     return acknowledgeRemoteAgentAdmission(this.env, input);
   }
@@ -4706,6 +4712,9 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: GetCurrentDeviceTargetInput
   ): Promise<CurrentDeviceTargetResponse> {
     return super.getCurrentDeviceTarget(input);
+  }
+  personalComputer(input: unknown) {
+    return super.personalComputer(input);
   }
   listLocalRuntimes(
     input: GetLocalRuntimesInput

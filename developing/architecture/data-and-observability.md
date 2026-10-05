@@ -20,6 +20,25 @@
 - Source of truth: This file owns the durable architecture boundary for data
   ownership and observability.
 
+## Personal cloud Computer ownership
+
+Core's PostgreSQL `cloud_computers` table owns the stable Computer ID, unique
+human account owner, provider and creation time. Concurrent first use is resolved
+by its unique owner index. Agent, Organization, Binding and Space IDs do not
+participate in personal Computer identity. A provider resource address is an
+adapter detail, not another account identity.
+
+The provider Computer owns files and command receipts. Hosted execution storage
+contains a frozen Computer target for cleanup, not a parallel command state.
+Historical commands retain their original addresses until drained. Runtime
+status comes from native command observations; identity existence and a successful
+file read are not proof that a container is running. Future human UI must consume
+these same operations and observations rather than add another status writer.
+
+Completed downloads are personal copies. Live provider grants remain with Core
+and never become credentials in the filesystem. Publication audience remains
+with Files, Space and connector action owners.
+
 ## Message search ownership
 
 Each Space owns an FTS5 trigram index over its retained `signal.text` payloads.
