@@ -28,14 +28,20 @@ it("erases the real personal Computer and rejects a delayed write through its ol
   await expect(
     (async () =>
       await original.writeComputerFile("/computer/home/late.txt", "late"))()
+  ).rejects.toThrow("Account content erased; old capabilities revoked.");
+  await expect(
+    (async () =>
+      await namespace
+        .get(id)
+        .writeComputerFile("/computer/home/late.txt", "late"))()
   ).rejects.toThrow("permanently deleted");
   await runInDurableObject(namespace.get(id), async (computer) => {
-    expect(
-      await computer.workspace.fs.exists("/computer/home/private.txt")
-    ).toBe(false);
-    expect(await computer.workspace.fs.exists("/computer/home/late.txt")).toBe(
-      false
-    );
+    await computer.workspace.ready();
+    for (const file of ["private.txt", "late.txt"]) {
+      await expect(
+        computer.workspace.fs.readFile(`/computer/home/${file}`, "utf8")
+      ).rejects.toThrow(`no such file: /computer/home/${file}`);
+    }
   });
 });
 

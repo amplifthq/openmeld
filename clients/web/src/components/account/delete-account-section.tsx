@@ -172,8 +172,8 @@ export function DeleteAccountSection() {
 									</h3>
 									<ul className="list-disc space-y-1 pl-4 text-muted-foreground">
 										<li>
-											Your sign-in details, profile photo, and personal
-											profiles.
+											Your sign-in details, profile photo, personal profiles,
+											and personal App connections.
 										</li>
 										<li>
 											Your private files, personal Computer, private Agent

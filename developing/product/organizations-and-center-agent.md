@@ -84,7 +84,7 @@ Acceptance revokes sessions, sign-in credentials, device codes, personal profile
 and memberships, and replaces the account identity with a non-signable tombstone.
 Shared messages, published files, Skills, revisions, and audit attribution remain
 with surviving teams. Historical text and author snapshots are not rewritten.
-Private Files roots (including former memberships), private Agent conversations,
+Private Files roots (including former memberships), personal Computers, private Agent conversations,
 synced Session Inventory, personal memory, and personal App connections are erased
 through their existing owners. Team-level connections remain with a surviving team.
 Closing a workspace also disconnects its Channels and Apps and deletes its assets.
