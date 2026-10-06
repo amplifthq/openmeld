@@ -61,7 +61,7 @@ Both OpenConnector configurations keep `OOMOL_CONNECT_BLOCKED_PROXIES = "*"`.
 Their entrypoint is the small `.openmeld-working-copy-worker.mjs` overlay,
 copied by the existing `scripts/cloudflare/deploy-openconnector.mjs` deployer
 alongside `github-working-copy-policy.mjs`. The deployer requires reviewed
-upstream commit `c6f45596a8e018285d2799ccd08e6a251444c25d`, refuses existing
+upstream commit `31be0d205cfd3f2b0a8f9ab5e3a54558976ed500`, refuses existing
 overlay files, and removes only its own temporary copies. No binding, resource,
 secret name, general proxy allowlist or second credential store is added.
 
@@ -74,6 +74,15 @@ to the upstream `/v1/proxy/github` handler. A request-local policy enables only
 GitHub for that call. The pinned upstream's app cache includes both allowed and
 blocked proxy policy; normal HTTP proxy and MCP requests use the unchanged
 blocked policy. Re-review that cache contract before advancing the upstream pin.
+
+The overlay also recognizes the selected-connection Git read protocol under
+`/v1/openmeld/git-connections/:owner/:repo/`: `GET info/refs` with exactly
+`service=git-upload-pack`, and `POST git-upload-pack` with the Git request
+content type and no query. It preserves the stream and the upstream runtime
+authentication checks. This requires an upstream endpoint newer than the
+current pin. Update the reviewed pin and deploy the producer before enabling
+the Computer consumer. See the selected Git connection integration contract in
+`developing/architecture/shared-contracts.md`.
 
 A separately scoped runtime token must already grant the selected connection
 and GitHub proxy. The overlay does not mint, replace or widen a runtime token.
