@@ -1052,6 +1052,7 @@ export function buildProductionVerifyStepSpecs(input) {
       !isDeviceWaitReceiverFirstDiff(input.changedPaths) &&
       !isLocalServiceRuntimeReceiverFirstDiff(input.changedPaths) &&
       !isWorkingFolderRecoveryDiff(input.changedPaths) &&
+      !input.coreCurrentCliProjection &&
       !isPersonalRemoteToolsReceiverFirstDiff(input.changedPaths) &&
       !isPersonalCloudComputerDiff(input.changedPaths) &&
       !isSpaceTaskReceiverFirstDiff(input.changedPaths) &&
@@ -1154,6 +1155,7 @@ export function buildProductionPreflightStepSpecs(input) {
     !isDeviceWaitReceiverFirstDiff(input.changedPaths) &&
     !isLocalServiceRuntimeReceiverFirstDiff(input.changedPaths) &&
     !isWorkingFolderRecoveryDiff(input.changedPaths) &&
+    !input.coreCurrentCliProjection &&
     !isPersonalRemoteToolsReceiverFirstDiff(input.changedPaths) &&
     !isPersonalCloudComputerDiff(input.changedPaths) &&
     !isPeopleComputersReceiverFirstDiff(input.changedPaths) &&
@@ -1298,6 +1300,7 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
       databaseCutoverSnapshot: input.databaseCutoverSnapshot,
       coreReceiverFirst:
         isWorkingFolderRecoveryDiff(changedPaths) ||
+        deployOrderProfile === "core-worker-response-reader-first" ||
         isInboxSourceTargetReceiverFirstDiff(changedPaths),
       deployOrderProfile,
       releaseSha: input.releaseSha,
@@ -2610,6 +2613,8 @@ export function buildProductionReleasePlan(input) {
       releaseSha: sourceSha,
     }),
     preflightSteps: buildProductionPreflightStepSpecs({
+      coreCurrentCliProjection:
+        deployOrderProfile === "core-worker-response-reader-first",
       databaseCutoverRestoreCrons: input.databaseCutoverRestoreCrons,
       changedPaths,
       releaseSha: sourceSha,
@@ -2617,6 +2622,8 @@ export function buildProductionReleasePlan(input) {
       taskInboxRetired,
     }),
     verifySteps: buildProductionVerifyStepSpecs({
+      coreCurrentCliProjection:
+        deployOrderProfile === "core-worker-response-reader-first",
       changedPaths,
       scopes,
       taskInboxRetired,

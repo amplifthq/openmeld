@@ -832,6 +832,11 @@ ledger. The Connect Computer profile is the explicit opposite direction: Web is
 the producer and CLI is the receiver, so its CLI-owned Core projection completes
 before Web deploys.
 
+The worker-response reader-first profile also uses the current stable CLI
+projection when Core is released alone. This permits a verified Core receiver
+stage before Remote Agent and later CLI publication, including the local
+PostgreSQL release lane.
+
 The planner selects `local-service-runtime-receiver-first` when one diff changes
 the strict Runtime Transport schema, a Core Runtime Transport receiver, and a
 local OpenMeld Service producer together. Within the selected scopes it deploys

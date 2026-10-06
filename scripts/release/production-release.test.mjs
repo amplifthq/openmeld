@@ -2203,6 +2203,29 @@ test("deploys worker-response and activity readers before the Remote Agent produ
   });
 
   assert.equal(plan.deployOrderProfile, "core-worker-response-reader-first");
+  const receiver = buildProductionReleasePlan({
+    base: "previous-release",
+    changedPaths: plan.changedPaths,
+    scope: "core",
+    sourceSha: REMOTE_SOURCE_SHA,
+  });
+  assert.deepEqual(
+    receiver.deploySteps.map((step) => step.label),
+    [
+      "Deploy Core with the current published CLI projection",
+      "Verify Core receiver stable identity alignment",
+    ]
+  );
+  assert.ok(
+    !receiver.preflightSteps.some(
+      (step) => step.label === "Verify Core CLI channel compatibility"
+    )
+  );
+  assert.ok(
+    !receiver.verifySteps.some(
+      (step) => step.label === "Verify Core CLI channel compatibility"
+    )
+  );
   assert.deepEqual(
     plan.deploySteps.map((step) => step.label),
     [
