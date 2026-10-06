@@ -4952,7 +4952,14 @@ arrive. A missing presence field is a mixed-version response, not proof of an
 active stream. Live frames update the seeded projection without overwriting a
 newer sequence. A bounded reasoning tail can be replayed from the live Space
 instance, subject to the existing audience and Local Agent owner preferences;
-it is absent from durable bootstrap and browser caches. A successfully published Agent reply may carry a durable
+it is absent from durable bootstrap and browser caches.
+Thinking and public progress keep independent bounded replay tails and client
+sequence checks, so a later progress frame cannot suppress reasoning recovery
+or a privacy-disable update. The same mounted conversation keeps received work
+across socket replacement; access-revocation closes still clear transient work.
+After tab suspension, probe the connection before declaring it stalled. Neither
+stream recovery nor keepalive probes block history, bootstrap, or message reads.
+A successfully published Agent reply may carry a durable
 privacy-bounded work projection and public progress. Web renders the reply body
 first and then one collapsed Work summary so historical steps cannot displace
 the answer. Reopening it shows all retained grouped steps and public updates

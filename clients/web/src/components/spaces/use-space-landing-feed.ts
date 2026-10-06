@@ -241,14 +241,16 @@ export function useSpaceLandingFeed(input: {
 				? getLatestSignalEnvelopeId(input.history.data?.envelopes ?? [])
 				: null,
 	});
-	const { agentStreamProjections, handleAgentStreamFrame } =
-		useSpaceConversation({
-			initialAgentStreamPresences: input.initialAgentStreamPresences ?? [],
-			initialAgentStreams: input.initialAgentStreams,
-			liveConnectionEpoch: reconnectKey,
-			spaceId: input.spaceId,
-			openMeldProfileId: input.openMeldProfileId,
-		});
+	const {
+		agentStreamProjections,
+		handleAgentStreamFrame,
+		clearTransientStreams,
+	} = useSpaceConversation({
+		initialAgentStreamPresences: input.initialAgentStreamPresences ?? [],
+		initialAgentStreams: input.initialAgentStreams,
+		spaceId: input.spaceId,
+		openMeldProfileId: input.openMeldProfileId,
+	});
 
 	const statusRefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
 		null
@@ -285,6 +287,7 @@ export function useSpaceLandingFeed(input: {
 	// proof the chain is still delivering). Seeded on open and read by the
 	// pong-watchdog; null means nothing has arrived on the current socket yet.
 	const lastInboundFrameTsRef = useRef<number | null>(null);
+	const probeLiveConnectionRef = useRef<(() => void) | null>(null);
 	// Whether the initial history seed has landed. The socket now connects on
 	// mount (in parallel with bootstrap), so onOpen must know if the timeline
 	// anchor exists yet without re-running the connection effect when it does.
@@ -565,9 +568,9 @@ export function useSpaceLandingFeed(input: {
 			// The UI can believe it is live while the socket has silently gone
 			// half-open, so reconcile unconditionally on refocus to close any gap —
 			// independent of the visible liveState. Reconnect only as a follow-up
-			// when the socket itself looks unhealthy (degraded, or no inbound frame
-			// within the watchdog deadline), so a healthy tab is not needlessly torn
-			// down. reconcile never rejects (it catches internally); the catch here
+			// when the socket is degraded. An old inbound timestamp after suspension
+			// triggers a fresh probe, not immediate teardown. reconcile catches internally;
+			// the catch here
 			// is a defensive backstop only.
 			reconcileConversation().catch(() => undefined);
 
@@ -575,8 +578,10 @@ export function useSpaceLandingFeed(input: {
 			const isInboundStale =
 				lastInboundFrameTs === null ||
 				Date.now() - lastInboundFrameTs > WATCHDOG_DEADLINE_MS;
-			if (liveStateRef.current === "degraded" || isInboundStale) {
+			if (liveStateRef.current === "degraded") {
 				reconnectNow();
+			} else if (isInboundStale) {
+				probeLiveConnectionRef.current?.();
 			}
 		};
 		document.addEventListener("visibilitychange", onVisibilityChange);
@@ -784,6 +789,7 @@ export function useSpaceLandingFeed(input: {
 
 	useEffect(() => {
 		if (!input.participationEnabled) {
+			clearTransientStreams();
 			currentSocketAttemptKeyRef.current = null;
 			readySocketAttemptKeyRef.current = null;
 			clearReconnectTimer(reconnectTimerRef);
@@ -809,6 +815,7 @@ export function useSpaceLandingFeed(input: {
 		let clearKeepaliveTimer: () => void = () => undefined;
 		const stopKeepalive = () => {
 			clearKeepaliveTimer();
+			probeLiveConnectionRef.current = null;
 			clearKeepaliveTimer = () => undefined;
 		};
 		const markSocketClosed = () => {
@@ -882,14 +889,23 @@ export function useSpaceLandingFeed(input: {
 			// same cadence, run the pong-watchdog: if a PING has gone out but no
 			// inbound frame has arrived within WATCHDOG_DEADLINE_MS, the socket is
 			// half-open — tear it down and let the existing reconnect path rebuild.
-			clearKeepaliveTimer = startSpaceLiveKeepaliveTimer({
+			const keepalive = startSpaceLiveKeepaliveTimer({
 				onStalled: () => {
+					console.warn("[openmeld.web.space.live_watchdog_reconnect]", {
+						spaceId: input.spaceId,
+						lastInboundAgeMs:
+							lastInboundFrameTsRef.current === null
+								? null
+								: Date.now() - lastInboundFrameTsRef.current,
+					});
 					socket.close();
 					scheduleReconnect();
 				},
 				readLastInboundFrameTs: () => lastInboundFrameTsRef.current,
 				socket,
 			});
+			clearKeepaliveTimer = keepalive.stop;
+			probeLiveConnectionRef.current = keepalive.probe;
 		};
 
 		const handleLiveSessionControlMessage = (
@@ -1012,8 +1028,14 @@ export function useSpaceLandingFeed(input: {
 			if (isDisposed) {
 				return;
 			}
+			console.info("[openmeld.web.space.live_closed]", {
+				spaceId: input.spaceId,
+				code: event.code,
+				wasClean: event.wasClean,
+			});
 
 			if (event.code === 1008) {
+				clearTransientStreams();
 				input.statusRefetch().catch((error) => {
 					console.error(
 						"Failed to refresh Space access after session closure",
@@ -1064,6 +1086,7 @@ export function useSpaceLandingFeed(input: {
 		reconnectKey,
 		advanceReconnectKey,
 		handleAgentStreamFrame,
+		clearTransientStreams,
 		queryClient,
 		// Stable across renders (depends only on spaceId/openMeldProfileId, both already
 		// here), so this adds no extra reconnect churn — it just satisfies the
@@ -1126,8 +1149,9 @@ function startSpaceLiveKeepaliveTimer(input: {
 	onStalled: () => void;
 	readLastInboundFrameTs: () => number | null;
 	socket: SpaceLiveTransport;
-}): () => void {
-	let hasSentKeepalivePing = false;
+}): { stop: () => void; probe: () => void } {
+	let unansweredSince: number | null = null;
+	let lastTickAt = Date.now();
 	let stopped = false;
 	let keepaliveTimer: ReturnType<typeof setInterval> | null = null;
 	const stop = () => {
@@ -1140,25 +1164,49 @@ function startSpaceLiveKeepaliveTimer(input: {
 			keepaliveTimer = null;
 		}
 	};
-	keepaliveTimer = setInterval(() => {
+	const sendPing = () => {
 		try {
 			input.socket.send(SPACE_STREAM_KEEPALIVE_PING);
-			hasSentKeepalivePing = true;
+			unansweredSince ??= Date.now();
 		} catch {
 			// Socket already closing; its close handler stops this timer.
 		}
-
+	};
+	const probe = () => {
+		if (stopped) {
+			return;
+		}
+		// A resumed page must allow a new ping to return before judging the socket.
+		lastTickAt = Date.now();
+		unansweredSince = null;
+		sendPing();
+	};
+	keepaliveTimer = setInterval(() => {
+		const now = Date.now();
+		if (now - lastTickAt > WATCHDOG_DEADLINE_MS) {
+			probe();
+			return;
+		}
+		lastTickAt = now;
 		const lastInboundFrameTs = input.readLastInboundFrameTs();
 		if (
-			hasSentKeepalivePing &&
 			lastInboundFrameTs !== null &&
-			Date.now() - lastInboundFrameTs > WATCHDOG_DEADLINE_MS
+			unansweredSince !== null &&
+			lastInboundFrameTs >= unansweredSince
+		) {
+			unansweredSince = null;
+		}
+		if (
+			unansweredSince !== null &&
+			now - unansweredSince > WATCHDOG_DEADLINE_MS
 		) {
 			stop();
 			input.onStalled();
+			return;
 		}
+		sendPing();
 	}, SPACE_STREAM_KEEPALIVE_INTERVAL_MS);
-	return stop;
+	return { stop, probe };
 }
 
 function clearReconnectTimer(timerRef: {
