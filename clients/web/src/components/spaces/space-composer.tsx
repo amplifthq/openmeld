@@ -424,7 +424,7 @@ export function SpaceComposer(input: SpaceComposerProps) {
 							input.capabilities?.mentions !== false ? (
 								<Button
 									aria-label="Mention a member"
-									className="size-8 text-base"
+									className="text-base"
 									onClick={input.actions.onMentionButtonClick}
 									size="icon-sm"
 									type="button"
