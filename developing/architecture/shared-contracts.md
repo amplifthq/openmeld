@@ -1062,6 +1062,17 @@ arguments and compares the result with the snapshot. Revocation, source changes,
 or an inaccessible old Files revision invalidate the page. The active Wake is
 also checked after the read. A cached result is never an authorization grant.
 
+The local `read_result` request optionally accepts a case-sensitive literal
+`query` against the retained serialized JSON. Its bounded `search` response
+contains up to two original-text excerpts and a cursor for subsequent matches;
+it is not a complete read or a semantic absence proof. Omitting `query` preserves
+the original complete pagination contract. Search uses the same Wake, connection,
+source-version, and access checks as paging. The schemas live in
+`packages/schemas`; this is a locally advertised tool extension, not a cloud
+payload change. Older local components continue to advertise ordinary paging.
+No setup, Wake, action, diagnostic, or native conversation contract changes;
+there is no required contract-floor bump or cloud rollout ordering dependency.
+
 ### Thread continuation and file working context
 
 Space owns retained quoted-message lookup and the last explicit human thread
