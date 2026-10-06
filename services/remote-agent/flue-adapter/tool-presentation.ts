@@ -12,13 +12,8 @@ const NATIVE_CAPABILITY_NAMES = new Set<string>([
   "openmeld_list_organization_members",
   "openmeld_read_skill_resource",
   "openmeld_search_task_skills",
-  "read",
-  "write",
-  "edit",
-  "bash",
-  "grep",
-  "glob",
   "computer_command",
+  "computer",
 ]);
 
 export function isRemoteAgentNativeCapability(name: string): boolean {

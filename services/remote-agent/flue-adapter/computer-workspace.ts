@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { posix } from "node:path";
 import {
   type DurableObjectStorageLike,
   getWorkspace,
@@ -10,6 +11,7 @@ import {
   LegacyContainerBackend,
   withLegacyWorkspaceContainer,
 } from "@cloudflare/computer/backends/container-legacy";
+import { WorkerJavaScriptBackend } from "@cloudflare/computer/backends/worker-javascript";
 import { WorkerShellBackend } from "@cloudflare/computer/backends/worker-shell";
 import curlModules from "@cloudflare/computer/shell/curl";
 import fileModules from "@cloudflare/computer/shell/file";
@@ -43,7 +45,8 @@ import {
   listPendingRemoteAgentComputerCommands,
   stopStoredComputerCommands,
 } from "./computer-command";
-import { ComputerFiles, resolveComputerPath } from "./computer-files";
+import { ComputerFiles } from "./computer-files";
+import { createComputerFileTools, describeComputer } from "./computer-native";
 import {
   inspectComputerPreview,
   type PreviewBrowserBinding,
@@ -61,13 +64,15 @@ import { RemoteAgentSqlStorage } from "./storage";
  * the Durable Object's SQLite storage via `@cloudflare/computer`.
  *
  * Files live in the DO (durable across restarts and independent of any
- * container lifetime). There is exactly one file world with two
+ * container lifetime). There is exactly one file world with three
  * execution engines over it:
  *
- * - worker-shell (default): just-bash in a Dynamic Worker minted
+ * - worker-shell: just-bash in a Dynamic Worker minted
  *   through `env.LOADER`, reaching this workspace over Workers RPC.
- *   Instant, no container, text tooling only.
- * - container: computerd in a Cloudflare Container, FUSE-mounting this
+ *   Built-in shell commands and HTTP, without native binaries.
+ * - worker-javascript: an ECMAScript module in a fresh Dynamic Worker,
+ *   with workspace files, fetch, and structured input and results.
+ * - container (default): computerd in a Cloudflare Container, FUSE-mounting this
  *   same workspace at /computer. Full Linux userland (python, git,
  *   real binaries); syncs changes back over capnweb.
  */
@@ -205,14 +210,58 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
     await requireRetainedAccountStorage(this.ctx.storage);
     const request = cloudComputerOperationSchema.parse(value);
     await this.workspace.ready();
+    if (request.action === "describe") {
+      return describeComputer(
+        this.#nativeFiles,
+        this.env.BROWSER ? this.describeBrowser("personal") : undefined
+      );
+    }
+    if (request.action === "files") {
+      const execute = () =>
+        this.#nativeFiles.execute({
+          id: crypto.randomUUID(),
+          name: request.tool,
+          arguments: request.input,
+        });
+      return {
+        kind: "files" as const,
+        result: await (["write", "edit", "delete"].includes(request.tool)
+          ? this.#files.mutate(execute)
+          : execute()),
+      };
+    }
+    if (request.action === "browser") {
+      return {
+        kind: "browser" as const,
+        result: await this.browserTool("personal").execute(
+          { code: request.code },
+          { messages: [], toolCallId: crypto.randomUUID() }
+        ),
+      };
+    }
+    if (request.action === "preview") {
+      return {
+        kind: "preview" as const,
+        result: await this.inspectPreview({
+          port: request.port,
+          path: request.path,
+          expectedText: request.expectedText,
+        }),
+      };
+    }
     if (request.action !== "command") {
       return await this.#files.execute(request);
     }
-    const workingDirectory = resolveComputerPath(
-      request.cwd ??
-        `/computer/tasks/${encodeURIComponent(request.invocationId)}`
+    const workingDirectory = posix.resolve(
+      `/computer/tasks/${encodeURIComponent(request.invocationId)}`,
+      request.cwd ?? "."
     );
-    await this.workspace.fs.mkdir(workingDirectory, { recursive: true });
+    if (
+      workingDirectory === "/computer" ||
+      workingDirectory.startsWith("/computer/")
+    ) {
+      await this.workspace.fs.mkdir(workingDirectory, { recursive: true });
+    }
     return await createComputerCommandTool({
       context: { submissionId: request.invocationId },
       storage: this.#commands,
@@ -627,8 +676,8 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
   readonly workspace = new Workspace({
     backends: [
       new WorkerShellBackend({
-        // SDK 0.2 makes previously bundled commands opt-in. Preserve the
-        // existing tool surface; worker-shell network access remains disabled.
+        // Both isolate engines share the same files and public network access.
+        egress: { mode: "direct" },
         commands: [
           curlModules,
           fileModules,
@@ -645,12 +694,23 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
         loader: (this.env as AgentComputerEnv).LOADER as never,
         workspace: workspaceRef(this.ctx),
       }),
+      new WorkerJavaScriptBackend({
+        id: "worker-javascript",
+        loader: this.env.LOADER as never,
+        root: "/computer",
+        egress: { mode: "direct" },
+        allowGitNetwork: true,
+        defaultTimeoutMs: 300_000,
+        maxTimeoutMs: 3_600_000,
+        maxConcurrentExecutions: 4,
+      }),
       this.#containerBackend,
     ],
     sessionId: this.ctx.id.toString(),
     storage: this.ctx.storage as unknown as DurableObjectStorageLike,
   });
   readonly #files = new ComputerFiles(this.workspace.fs);
+  readonly #nativeFiles = createComputerFileTools(this.workspace);
 
   /** WorkspaceProxy forwards the container's outbound /api egress here. */
   override async fetch(request: Request): Promise<Response> {

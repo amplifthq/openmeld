@@ -32,7 +32,20 @@ identity and file/command operations. Core derives ownership from the authentica
 request or persisted hosted delivery. The public `/v1/computer/cloud` endpoint
 does not accept an owner or provider resource ID. `GET` resolves the identity;
 `POST` performs one operation. `observedAtMs` dates that response, not a cached
-online flag. File reads/writes are bounded to 2 MB at this JSON boundary.
+online flag. Legacy file reads/writes are bounded to 2 MB at this JSON boundary.
+Official file operations retain the SDK's limits and pagination.
+
+Additive `describe`, `files`, `browser` and `preview` operations use the same
+authenticated route. `files` carries the official SDK tool name and parameters;
+`describe` publishes those exact schemas. Command start adds backend, environment,
+stdin and JSON input; exit may include a JSON result. The three backends are
+container, worker-shell and worker-javascript. Stop may select a native signal.
+The existing default Linux command behavior and legacy file operations remain
+valid. New actions fail explicitly against older receivers; deploy the Remote
+Agent receiver and Core/Gateway schemas before the updated CLI/Skills caller.
+No Service, Wake, setup, Space action or controller protocol changes. No contract
+epoch bump is needed; updated CLI/Skills are optional available artifacts in a
+later coordinated release. This feature PR uses deferred release readiness.
 
 Command operations use an invocation ID and stable key. Local invocation IDs are
 namespaced separately from hosted submissions. The Computer holds the command

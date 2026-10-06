@@ -95,7 +95,7 @@ ported. Flue 2 repairs partial streams at its execution ownership boundary.
 OpenMeld supplies authorized Computer tools and packaged Skills without a Flue
 sandbox, so shared Computer files cannot silently become instructions.
 
-`patches/@cloudflare__computer@0.4.0.patch` makes a retained command's
+`patches/@cloudflare__computer@0.4.1.patch` makes a retained command's
 `cancel()` await native output-subscription detachment over Workspace RPC.
 Upstream unread-handle cancellation only invokes synchronous disposal, which
 can return before the container releases its single subscriber. A following
@@ -128,7 +128,7 @@ acknowledgement for a silent stream producer. Consequently the native
 replayed after exit; it is never fabricated, and the process is never replayed.
 These tests do not certify the WebSocket transport; staging tests cover that
 additional boundary.
-Upstream 0.4.0 still uses the same unacknowledged unread-handle path; upgrading
+Upstream 0.4.1 still uses the same unacknowledged unread-handle path; upgrading
 alone does not establish this contract.
 
 These nine Flue adaptations are maintained integration code, not a completed
@@ -233,8 +233,10 @@ peer survives cancellation and compound commands preserve quoting and exit codes
 
 The container image includes Node.js 24 and Corepack-managed pnpm, so hosted
 turns can install dependencies, build, and run JavaScript projects in the same
-durable Computer workspace. The worker-shell backend remains network-disabled
-and does not provide Node.js. A development server listening inside this
+durable Computer workspace. All three backends have direct network access.
+The worker-shell backend runs built-in commands. The worker-javascript backend
+runs ECMAScript modules in Workers. Neither provides installed Node.js binaries.
+A development server listening inside this
 container is not automatically reachable from Browser Run; a separately
 authorized private preview route is required for browser smoke of that server.
 

@@ -185,11 +185,51 @@ to decide whether to use or disclose personal files. Access to a filesystem is
 not permission to publish all its contents. Files publication retains its own
 audience contract. No new per-task permission UI is introduced.
 
-Cloudflare Computer and computerd use 0.4.0 with the official
+Cloudflare Computer and computerd use 0.4.1 with the official
 `LegacyContainerBackend`. The current platform-scheduled container deployment
 is retained. Files persist; running processes, OS packages and browser login
 state are not promised to survive runtime recreation. Shared Organization or
 Space Computers, other providers and human desktop UI remain separate work.
+
+Center, personal Remote and optional Local Agents consume the same Computer
+operation contract. `describe` returns the official file-tool schemas and live
+browser availability. `files` invokes Cloudflare's `read`, `ls`, `find`, `grep`,
+`write`, `edit` and `delete` tools. File pagination and matching come from the
+SDK rather than a second OpenMeld implementation. The older public JSON
+read/write/edit/list actions remain compatible with installed CLI clients;
+their exact-text compare-and-write semantics are unchanged.
+
+`command` uses one launch/poll/stop/list owner for all three backends. Linux is
+the default; worker-shell runs built-in commands to completion; worker-javascript
+runs an ECMAScript module with structured input and result, durable file imports,
+Workspace-backed `node:fs/promises` and `ws:git`. All engines have direct network
+access. Shell or JavaScript handles binary files, directory operations and other
+filesystem work beyond the file tools. Linux can also work in temporary paths
+outside `/computer`. Only `/computer` is the shared persistent file tree.
+The caller can supply per-command environment, launch-time stdin and a timeout.
+The upstream API has no interactive PTY or write-to-running-stdin operation.
+There is no command or website allowlist in this Computer adapter.
+
+Worker-shell has no upstream retained process lookup or working cancellation.
+An explicit Stop reports this limitation. Task cleanup stays unfinished until
+the original call supplies an exit receipt. Use Linux or Worker JavaScript for
+long or cancellable work. The Computer preserves its
+observed terminal result with its existing command receipt so a repeated key
+does not rerun completed work. Linux and JavaScript use native retained handles;
+missing handles are explicit failures and never permission to replay a launch.
+Command replies retain the last 50,000 characters per stream and report
+`outputTruncated` when clipped. Agents can redirect large output to a file.
+The API client allows cold startup and 20-second polls. Foreground shell calls
+use their execution timeout plus a transport margin.
+`browser` runs the existing one-shot browser; `preview` inspects a local Linux
+web server through the existing private preview path. Both use the same public
+operation boundary for Local Agents. They do not create a virtual desktop or a
+persistent browser account session.
+
+Plugin account connections and execution harness context management are separate
+owners. This contract does not create a credential store or change connector
+authorization. Future human UI consumes these same capabilities and command
+observations rather than maintaining another execution state.
 
 The Computer owns command receipts and exact process IDs. A conversation stores
 only its frozen Computer target. Local CLI operations use this same operation
@@ -2004,8 +2044,8 @@ policy. Every tool-capable primary model receives
 the same stable provider bootstrap: `codemode`, the always-direct capability
 search and describe tools, the three generic Connected App tools, and the
 bounded read-only member tools, plus the
-authorized foundational Computer tools (`read`, `write`, `edit`, `bash`, `grep`,
-`glob`, and `computer_command`). Computer operations remain directly usable in
+authorized foundational Computer tools (`computer` and `computer_command`).
+Computer operations remain directly usable in
 a fresh chat without first requiring a discovery call; the registration policy
 never adds a tool absent from the authorized turn catalog. These
 foundational reads stay direct because supported models must be able to inspect
@@ -2527,17 +2567,11 @@ surface adopts official features where they are free**:
     message snapshot, not filesystem access or live sync. Larger or durable
     handoffs use formal Organization Documents or another supported shared
     surface.
-    Shell execution has two backends over the same
-    files: worker-shell (default — just-bash in a Dynamic Worker reached
-    through `env.LOADER`, instant, no container, no public network, text
-    tooling only) and container (computerd in a Cloudflare Container,
-    FUSE-mounting this same workspace at `/computer` with `MOUNT_POINT`
-    pinned for same-path fidelity; full Linux userland with Node.js 24,
-    Corepack-managed pnpm, Python, git, curl, jq, and native build tools;
-    changes sync back over capnweb). The model selects the backend
-    per bash call and is prompted to prefer worker-shell. Computer SDK and
-    computerd use version 0.4.0 together. Container network access is explicitly
-    direct; worker-shell remains network-disabled. A replaced runtime reports
+    The native `computer` tool exposes the official file tools and three
+    execution backends described under Personal cloud Computer above.
+    `computer_command` uses the same command owner and defaults to Linux.
+    Computer SDK and computerd use version 0.4.1 together. All three engines
+    have direct network access. A replaced runtime reports
     `EEXEC_LOST` for an old command instead of replaying its launch. The model
     receives that loss and may inspect durable files and choose a safe next
     action. Terminal cleanup skips only commands whose definite loss was
