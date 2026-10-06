@@ -832,6 +832,11 @@ ledger. The Connect Computer profile is the explicit opposite direction: Web is
 the producer and CLI is the receiver, so its CLI-owned Core projection completes
 before Web deploys.
 
+The worker-response reader-first profile also uses the current stable CLI
+projection when Core is released alone. This permits a verified Core receiver
+stage before Remote Agent and later CLI publication, including the local
+PostgreSQL release lane.
+
 The planner selects `local-service-runtime-receiver-first` when one diff changes
 the strict Runtime Transport schema, a Core Runtime Transport receiver, and a
 local OpenMeld Service producer together. Within the selected scopes it deploys
@@ -1316,6 +1321,13 @@ deployment identity. A stage-admission recovery candidate records that a resume
 may be possible; it never authorizes a second deploy or makes an unknown result
 verified. Identity drift keeps the component blocked for evidence-backed
 reconciliation or a legal forward fix.
+
+A native PostgreSQL stage can lose its connection after its transaction commits.
+For the exact retained source and operation, guarded recovery runs only the
+registered target's read-only journal and runtime-grant verification. It retains
+the original attempt and runs under the database lease. Verification failure
+keeps the failed receipt; success completes it without repeating migration or
+grant commands. This recovery does not apply to legacy D1 operations.
 
 Useful examples:
 
