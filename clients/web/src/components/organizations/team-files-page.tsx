@@ -203,8 +203,8 @@ export function TeamKnowledgeFilesPage(input: {
 				className="min-h-0 flex-1"
 				contentClassName={
 					input.documentId || input.create
-						? "px-[var(--app-page-inline-padding)] py-5"
-						: "px-[calc(var(--app-page-inline-padding)-0.5rem)] py-5"
+						? "px-[var(--app-page-inline-padding)] py-[var(--app-page-block-padding)]"
+						: "px-[calc(var(--app-page-inline-padding)-0.5rem)] py-[var(--app-page-block-padding)]"
 				}
 			>
 				{input.documentId ? (
@@ -626,7 +626,7 @@ function TeamFilesBrowser(input: {
 						: `Uploading ${uploadProgress.name} · ${uploadProgress.percent}%`}
 				</output>
 			) : null}
-			<div className="min-h-0 flex-1 px-[calc(var(--app-page-inline-padding)_-_0.5rem)] py-5">
+			<div className="min-h-0 flex-1 px-[calc(var(--app-page-inline-padding)_-_0.5rem)] py-[var(--app-page-block-padding)]">
 				<ContextMenu
 					key={`${currentOrganization.id}:${location}:${parentId ?? "root"}:${view}`}
 				>

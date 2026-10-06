@@ -2762,6 +2762,11 @@ existing permission-gated invitation dialog. Its directory toolbar shows member
 counts, name search, and group filters with the same gutters as Spaces.
 Shared window headers and Team/Spaces directory content use
 `--app-page-inline-padding` (24px below the desktop breakpoint, 32px above).
+Files and Routines also share `--app-page-block-padding` (20px) and the shared
+`PageToolbar` row, keeping their secondary tabs at the same position when
+switching pages. File view choices use the corresponding grid, bulleted list,
+columns, and gallery icons; the full toolbar and compact selector share the
+same option definitions.
 Conversation headers inherit this gutter rather than overriding it with the
 separate message-content padding token.
 Saved stars remain intact; historical

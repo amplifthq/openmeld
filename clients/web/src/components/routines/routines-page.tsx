@@ -12,6 +12,7 @@ import {
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
 import { Input } from "@openmeld/ui/components/input";
+import { PageToolbar } from "@openmeld/ui/components/page-toolbar";
 import {
 	Table,
 	TableBody,
@@ -197,7 +198,7 @@ function RoutinesContent(input: {
 	};
 	return (
 		<div className="flex flex-1 flex-col gap-5">
-			<div className="flex flex-wrap items-center justify-between gap-4">
+			<PageToolbar>
 				<Tabs
 					onValueChange={(value) =>
 						setScope(value === "team" ? "team" : "personal")
@@ -232,7 +233,7 @@ function RoutinesContent(input: {
 						Create
 					</Button>
 				</div>
-			</div>
+			</PageToolbar>
 			{list.isPending ? (
 				<output className="py-10 text-muted-foreground text-sm">
 					Loading routines…

@@ -40,7 +40,7 @@ function RoutinesRoute() {
 			mainSidebarContent={<TeamPeopleSidebar />}
 			showMainHeader
 		>
-			<div className="flex w-full flex-1 flex-col px-[var(--app-page-inline-padding)] py-6">
+			<div className="flex w-full flex-1 flex-col px-[var(--app-page-inline-padding)] py-[var(--app-page-block-padding)]">
 				<RoutinesPage
 					focusRoutineId={routineId}
 					focusRunId={runId}

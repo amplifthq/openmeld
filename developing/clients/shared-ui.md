@@ -364,6 +364,10 @@ The upstream hover color maps to the existing `interaction-hover` token.
 Conditional children are indexed after React removes empty slots. Value order,
 measurement registration, and the selected indicator use that same rendered
 order; hiding a tab must not leave a hole before the next selectable tab.
+`PageToolbar` owns the shared 48px minimum row height, wrapping, and vertical
+alignment for page navigation and actions. It adds no interaction roles or state;
+the composed Fluid controls retain their keyboard and pointer behavior. Files
+and Routines use this same row instead of independent toolbar geometry.
 Tab content inherits its selected substrate so nested badges can rise one step.
 The eight-level context and paired class resolver live in `@openmeld/ui/lib`;
 Web's `Elevated` consumes those same primitives.
