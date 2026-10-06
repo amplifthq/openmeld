@@ -6,7 +6,7 @@ areas: ["website"]
 audiences: ["users", "admins"]
 ---
 
-The homepage now introduces OpenMeld through three interactive example workflows:
-fixing a bug, researching a decision, and preparing a weekly update. It explains
-shared Spaces, connected tools, local execution, and how to start in your browser
-or Slack, with a responsive layout and keyboard-accessible examples.
+The homepage now shows OpenMeld's interface with a sample shared conversation
+between a teammate, Codex, and Claude Code. Separate desktop and mobile captures
+keep the product readable on smaller screens. The page explains shared Spaces,
+local agent setup, browser and Slack entry points, and current product limits.
