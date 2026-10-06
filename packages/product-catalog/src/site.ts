@@ -18,7 +18,7 @@ export const siteConfig = {
   name: "OpenMeld",
   title: "OpenMeld | People and Agents Working as One",
   description:
-    "Open-source operating system for agent-native teams of people and machines. Connect local agents, shared context, and team workflows in one place.",
+    "Bring your people, AI agents, and tools into one shared workspace. Give them a task, share the context, and get the result back in OpenMeld.",
   keywords:
     "OpenMeld, open-source operating system, agent-native teams, AI agents, local agents, Center Agent, agent collaboration, Slack",
   robots:
