@@ -4252,11 +4252,15 @@ retain the per-conversation preview read.
 
 The Space and DM title never shows a green live-connection dot: a healthy
 message stream says nothing about Human presence or Agent Wakeability. Initial
-connection and healthy live updates have no visible status indicator. Only
-interrupted updates show an amber `Reconnecting…` indicator with manual retry;
-catching up on missed messages shows amber `Syncing…`. The accessible live
-region continues to announce connection changes. These states do not derive
-Computer connectivity or override Core-owned Agent readiness.
+connection, routine history loading, and short recovery attempts stay silent,
+including for screen readers. The title has no loading or connection badge.
+After live updates or catch-up remain interrupted for 15 seconds, the Messages
+area shows one muted notice: **Messages and activity may be out of date.**
+**Retry** retries catch-up when stale or reconnects an interrupted transport.
+Keep the notice stable across retries until recovery is confirmed. Existing
+history errors take precedence; Files and Tasks do not repeat this notice.
+These states do not derive Computer connectivity or override Core-owned Agent
+readiness or execution outcomes.
 
 **Space settings** uses the shared Fluid Dialog and Settings navigation, with
 General, Members, Share & Access, and Advanced sections. General contains the
@@ -4959,7 +4963,14 @@ arrive. A missing presence field is a mixed-version response, not proof of an
 active stream. Live frames update the seeded projection without overwriting a
 newer sequence. A bounded reasoning tail can be replayed from the live Space
 instance, subject to the existing audience and Local Agent owner preferences;
-it is absent from durable bootstrap and browser caches. A successfully published Agent reply may carry a durable
+it is absent from durable bootstrap and browser caches.
+Thinking and public progress keep independent bounded replay tails and client
+sequence checks, so a later progress frame cannot suppress reasoning recovery
+or a privacy-disable update. The same mounted conversation keeps received work
+across socket replacement; access-revocation closes still clear transient work.
+After tab suspension, probe the connection before declaring it stalled. Neither
+stream recovery nor keepalive probes block history, bootstrap, or message reads.
+A successfully published Agent reply may carry a durable
 privacy-bounded work projection and public progress. Web renders the reply body
 first and then one collapsed Work summary so historical steps cannot displace
 the answer. Reopening it shows all retained grouped steps and public updates
@@ -5329,7 +5340,7 @@ directly to that recorded result; Graph must not preserve a redundant
 and system notices keep their recorded event semantics.
 
 At the latest messages, the Space header presents a two-row hierarchy. The first
-row contains the Space name, access mode, live connection indicator, and
+row contains the Space name, access mode, and
 right-aligned actions. The second row contains the available Space views
 (Messages, Tasks, and Files) below the Space name. Those view labels align with
 the Space name and use a flat active underline that overlays the header divider.

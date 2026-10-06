@@ -8,20 +8,23 @@ type TransientFrame = Extract<
 // Deliberately instance-local: never serialize reasoning or public progress
 // into durable storage or bootstrap. Eviction loses the tail.
 export class TransientAgentStreamReplay {
-  private readonly frames = new Map<string, TransientFrame>();
+  private readonly frames = new Map<
+    string,
+    Map<TransientFrame["kind"], TransientFrame>
+  >();
   revision = 0;
 
   clearProfile(profileId: string): void {
     this.revision++;
-    for (const [streamId, frame] of this.frames) {
-      if (frame.profileId === profileId) {
+    for (const [streamId, frames] of this.frames) {
+      if ([...frames.values()].some((frame) => frame.profileId === profileId)) {
         this.frames.delete(streamId);
       }
     }
   }
 
   isCurrent(frame: TransientFrame): boolean {
-    return this.frames.get(frame.streamId) === frame;
+    return this.frames.get(frame.streamId)?.get(frame.kind) === frame;
   }
 
   remember(frame: SpaceAgentStreamDeltaFrame): void {
@@ -29,13 +32,16 @@ export class TransientAgentStreamReplay {
       return;
     }
     this.prune(frame.updatedAtMs);
-    const current = this.frames.get(frame.streamId);
+    const frames =
+      this.frames.get(frame.streamId) ??
+      new Map<TransientFrame["kind"], TransientFrame>();
+    const current = frames.get(frame.kind);
     if (current && current.sequence >= frame.sequence) {
       return;
     }
     this.frames.delete(frame.streamId);
-    this.frames.set(
-      frame.streamId,
+    frames.set(
+      frame.kind,
       frame.kind === "progress"
         ? { ...frame, progressSnapshot: frame.progressSnapshot.slice(-8192) }
         : {
@@ -47,6 +53,7 @@ export class TransientAgentStreamReplay {
                 : frame.thinkingSnapshot.slice(-8192),
           }
     );
+    this.frames.set(frame.streamId, frames);
     if (this.frames.size > 128) {
       const oldest = this.frames.keys().next().value;
       if (oldest !== undefined) {
@@ -61,12 +68,19 @@ export class TransientAgentStreamReplay {
 
   read(nowMs: number): TransientFrame[] {
     this.prune(nowMs);
-    return [...this.frames.values()];
+    return [...this.frames.values()]
+      .flatMap((frames) => [...frames.values()])
+      .sort((left, right) => left.sequence - right.sequence);
   }
 
   private prune(nowMs: number): void {
-    for (const [streamId, frame] of this.frames) {
-      if (frame.updatedAtMs + 30 * 60 * 1000 <= nowMs) {
+    for (const [streamId, frames] of this.frames) {
+      for (const [kind, frame] of frames) {
+        if (frame.updatedAtMs + 30 * 60 * 1000 <= nowMs) {
+          frames.delete(kind);
+        }
+      }
+      if (frames.size === 0) {
         this.frames.delete(streamId);
       }
     }
