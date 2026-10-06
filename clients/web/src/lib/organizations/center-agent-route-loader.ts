@@ -55,11 +55,23 @@ export async function loadCenterAgentRouteData(input: {
 }
 
 export async function loadCenterAgentDirectMessageRouteData(input: {
+	forceRefresh?: boolean;
 	sessionId?: string;
 	organizationId: string;
 	queryClient: QueryClient;
 }): Promise<CenterAgentDirectMessageRouteData> {
 	try {
+		if (input.forceRefresh) {
+			await input.queryClient.invalidateQueries({
+				queryKey: centerAgentDirectMessageSpaceProjectionQueryOptions({
+					enabled: true,
+					organizationId: input.organizationId,
+					spaceId: input.sessionId,
+				}).queryKey,
+				exact: true,
+				refetchType: "none",
+			});
+		}
 		if (input.sessionId !== undefined) {
 			const projectionResponse = await input.queryClient.fetchQuery(
 				centerAgentDirectMessageSpaceProjectionQueryOptions({
@@ -69,9 +81,16 @@ export async function loadCenterAgentDirectMessageRouteData(input: {
 				})
 			);
 			if (!projectionResponse.projection) {
-				throw new Error(
-					"This chat is unavailable. Open a chat you can access."
-				);
+				return {
+					status: "error",
+					error: {
+						code: "space.not_found",
+						message: "This chat is unavailable. Open a chat you can access.",
+						requestId: null,
+						status: null,
+						upstreamCode: null,
+					},
+				};
 			}
 			if (projectionResponse.projection.spaceId !== input.sessionId) {
 				return buildCenterAgentDirectMessageIdentityMismatch();
@@ -84,7 +103,7 @@ export async function loadCenterAgentDirectMessageRouteData(input: {
 			);
 		}
 		const cachedRouteData = readCachedCenterAgentDirectMessageRouteData(input);
-		if (cachedRouteData) {
+		if (cachedRouteData && !input.forceRefresh) {
 			// Stable DM identity can render immediately. The current Space status
 			// query still confirms access, while this safe projection refreshes in
 			// the background without blocking the route or compact launcher.
