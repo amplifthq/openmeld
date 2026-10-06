@@ -244,7 +244,7 @@ describe("dispatch Space history reader", () => {
     "mcp",
   ] as const)("reads an entire large history through %s tools without a local file", async (carrier) => {
     const { context, contextPath } = setup();
-    const text = `${'Repository review: 中文 😀 \\"\n'.repeat(3000)}End of history.`;
+    const text = `${'Repository review: 中文 😀 \\"\n'.repeat(3000)}End of history. Next note. End of history.`;
     listSignals.mockResolvedValue({
       signals: [
         {
@@ -299,6 +299,43 @@ describe("dispatch Space history reader", () => {
       }
       expect(JSON.parse(reconstructed).signals[0].data.text).toBe(text);
       expect(listSignals).toHaveBeenCalledTimes(pages);
+      const found = await call("read_result", {
+        resultId: page.resultId,
+        offset: 0,
+        query: "End of history.",
+      });
+      const search = dispatchSpaceReadResultSchema.parse(
+        found.structuredContent
+      ).search;
+      expect(search?.matches).toHaveLength(2);
+      expect(search?.matches[0]?.matchOffset).toBeGreaterThan(8 * 1024);
+      expect(search?.matches[0]?.excerpt.text).toContain("End of history.");
+      expect(search?.matches[0]?.excerpt.text).not.toContain("�");
+      expect(Buffer.byteLength(JSON.stringify(found))).toBeLessThan(16 * 1024);
+      const repeated = await call("read_result", {
+        resultId: page.resultId,
+        offset: search?.nextOffset,
+        query: "End of history.",
+      });
+      const second = dispatchSpaceReadResultSchema.parse(
+        repeated.structuredContent
+      ).search;
+      // The captured history envelope contains both data.text and envelope.text.
+      expect(second?.matches).toHaveLength(2);
+      expect(second?.matches[0]?.matchOffset).toBeGreaterThan(
+        search?.matches[1]?.matchOffset ?? 0
+      );
+      expect(second?.matches[0]?.excerpt.text).toContain("End of history.");
+      expect(second?.nextOffset).toBeNull();
+      const absent = await call("read_result", {
+        resultId: page.resultId,
+        offset: 0,
+        query: "Not in this source",
+      });
+      expect(
+        dispatchSpaceReadResultSchema.parse(absent.structuredContent).search
+          ?.matches
+      ).toEqual([]);
       expect(readDispatchSpaceActionRecord({ context }).status).toBe("missing");
       const replay = await call("read_result", {
         resultId: page.resultId,
@@ -311,6 +348,7 @@ describe("dispatch Space history reader", () => {
           await foreign.call("read_result", {
             resultId: page.resultId,
             offset: 0,
+            query: "End of history.",
           })
         ).isError
       ).toBe(true);
@@ -323,6 +361,7 @@ describe("dispatch Space history reader", () => {
       const expired = await call("read_result", {
         resultId: page.resultId,
         offset: 0,
+        query: "End of history.",
       });
       expect(expired.isError).toBe(true);
       expect(JSON.stringify(expired)).not.toContain("Repository review:");
@@ -366,6 +405,7 @@ describe("dispatch Space history reader", () => {
       const next = await tools.call("read_result", {
         resultId: page.resultId,
         offset: page.nextOffset,
+        query: "Synthetic private continuation",
       });
       expect(next.isError).toBe(true);
       expect(JSON.stringify(next)).not.toContain(
