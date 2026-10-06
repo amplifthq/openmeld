@@ -2,8 +2,8 @@
 
 This fixture evaluates the proposed runtime policy that removes older tool-result
 previews while the exact result remains recoverable. The Draft PR wires this
-policy into the Hosted agent. It is not accepted for merge: the complete live
-runtime comparison remains incomplete. Flue remains the canonical history and
+policy into the Hosted agent. It is not accepted for merge: completed live
+comparisons show mixed cost benefit and output-contract failures. Flue remains the canonical history and
 compaction owner; Core access and retained-result ownership are unchanged.
 
 ## Reproduce
@@ -48,6 +48,18 @@ Both variants must finish, preserve the final facts, recover the original code,
 execute each write once, and complete at least two summaries. Cost includes
 all recorded inference and summary requests. This synthetic task does not
 measure real Core RPC latency or cloud storage cost.
+
+In runtime mode, `OPENMELD_RETAINED_CONTEXT_PROBE=1` runs one small connection
+probe instead of the task. `OPENMELD_RETAINED_CONTEXT_PAIR=1` runs baseline then
+candidate; `OPENMELD_RETAINED_CONTEXT_PAIR=reverse` runs candidate then baseline.
+The default remains all four variants. A probe is not task acceptance.
+
+The test returns the original streaming response immediately. An independent
+observer records response headers, first data, completion or transport error,
+Gateway log ID, provider response ID and supplier usage. It saves synthetic
+request bodies without credential headers so a failed request can be diagnosed
+without repeating the full task. The earlier observer buffered the full body
+before returning headers and could not distinguish connection from body failure.
 
 ## Compared behavior
 
@@ -127,7 +139,7 @@ changed byte, but its real change frequency is unknown. A personal knowledge
 index changes earlier in its prompt. These are candidates for a cache test,
 not evidence that the existing cache is broken. No prompt was reordered.
 
-## Runtime implementation and incomplete qualification
+## Runtime implementation and qualification
 
 The branch now includes the Flue-owned preflight projection seam and uses the
 production retained-result reader for eligibility. It reduces only when the
@@ -158,9 +170,69 @@ quality results. Local request and outcome files were preserved. The final
 cursor-based experiment is the reproducible acceptance path. It uses a 20,000
 token test budget to exercise repeated pressure; production uses 48,000.
 
-Keep PR #1541 Draft until the cursor-based comparison completes for both
-policies and its full cost and quality results are assessed. Do not repeat paid
-runs while the observed connection failures remain unresolved.
+These earlier interruptions are superseded by the completed comparisons below,
+but remain part of the evidence record.
+
+### Resumed streaming diagnosis and completed comparisons
+
+The connection probe completed in 2,193 ms with HTTP 200 and correct text.
+Headers arrived at 1,704 ms and first data at 1,877 ms. A subsequent candidate
+run received headers at 876 ms and first data at 1,290 ms, then failed after
+85,215 ms with `TypeError:UND_ERR_SOCKET`. It did not hit the test's 120-second
+limit or Flue's context admission guard. This proves an interrupted response
+stream, not which upstream component closed it. The inference credential received
+403 from the Gateway log-detail API, so no server-side cause is asserted.
+That interrupted candidate recorded USD 0.010000895 before failure; it is not
+included in completed-task savings. Its companion baseline completed for
+USD 0.012648990 but returned a string budget instead of the requested number.
+
+Two later pairs completed every task without a transport interruption. Their
+orders were candidate/baseline, then baseline/candidate. The production change
+was unchanged from `3a221d656`; the branch was synced with main at `7ec66d882`.
+The 20,000-token synthetic task used `openai/gpt-6-luna`, low reasoning, the
+existing Gateway route with DEV credentials, and real Flue compaction.
+
+| Run | Calls | Summaries | Input tokens | Output tokens | Cached input | Reported USD | Cumulative request ms | Strict output contract |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| Candidate, reverse pair | 12 | 3 | 94,692 | 6,953 | 19,233 | 0.013100305 | 119,564 | Pass |
+| Baseline, reverse pair | 15 | 5 | 105,651 | 7,995 | 36,973 | 0.012950855 | 145,109 | Fail: budget type |
+| Baseline, confirmation pair | 15 | 5 | 106,537 | 9,337 | 37,438 | 0.013679130 | 144,346 | Fail: field names and budget type |
+| Candidate, confirmation pair | 12 | 3 | 93,868 | 6,812 | 18,900 | 0.012965100 | 104,895 | Fail: budget type |
+
+All four tasks returned the correct owner, USD amount, absence of deployment
+permission, original archive code, observation codes and counts. Each executed
+exactly eight writes and eight observation reads with no repeated write.
+Original-code recovery can occur through a summary of canonical originals;
+these outcomes do not imply that every candidate called the retained-result
+read tool. The original reader remains covered separately.
+
+Across these two pairs, the candidate made 20% fewer inference requests and
+40% fewer summaries. Recorded cumulative request time was 22.5% lower. Cost
+was 2.1% lower in aggregate, but 1.2% higher in one pair and 5.2% lower in the
+other. The candidate had fewer cached input tokens, and fewer summaries did
+not reduce summary output proportionally. These are two pairs of one synthetic
+task, not statistically established production savings or a latency guarantee.
+No real Core RPC latency or cloud storage cost is included.
+
+Both strict comparison tests remain failed. Assertions were not loosened.
+The baseline's first saved checkpoint omitted the requested numeric budget
+type and exact JSON keys. Later checkpoints repeated that reduced contract.
+The candidate also lost the budget type in one completed run. This is a
+separate active-output-contract retention finding, not a transport failure
+or proof that preview reduction introduced the defect.
+
+Decision: retain PR #1541 as a Draft experiment. Do not enable this policy by
+merging it on the strength of the earlier 67% continuation-only result. The
+new evidence supports fewer summaries, but not a stable cost win or complete
+output-contract acceptance. Preserve the strict failure and the canonical
+checkpoint evidence for a focused investigation of active user constraints.
+Do not change production timeouts or add retries to turn these runs green.
+
+Local trace directories are `single-turn-1791298166592` (interrupted pair),
+`single-turn-1791298700387` (completed reverse pair), and
+`single-turn-1791299022980` (completed confirmation pair), under the ignored
+output root. Raw synthetic requests and local SQLite histories are diagnostic
+artifacts only; this document carries the durable result summary.
 
 ## Evidence boundaries
 

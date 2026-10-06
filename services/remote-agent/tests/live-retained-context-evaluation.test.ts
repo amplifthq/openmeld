@@ -14,6 +14,7 @@ const evaluation = vi.hoisted(() => ({
   requests: 0,
   directory: "",
   purpose: "agent",
+  pending: [] as Promise<void>[],
   rows: [] as {
     variant: string;
     bytes: number;
@@ -21,6 +22,13 @@ const evaluation = vi.hoisted(() => ({
     elapsedMs: number;
     usage: Record<string, unknown>;
     purpose: string;
+    headersMs?: number;
+    firstByteMs?: number;
+    error?: string;
+    gatewayLogId?: string;
+    cloudflareRay?: string;
+    responseId?: string;
+    responseBytes?: number;
   }[],
 }));
 vi.mock("@flue/runtime", async (original) => {
@@ -44,40 +52,91 @@ vi.mock("../flue-adapter/ai-usage", () => ({
       throw new Error("Evaluation request guard reached");
     }
     const started = Date.now();
-    const response = await fetch(url, {
-      ...options,
-      signal: AbortSignal.any([
-        ...(options.signal ? [options.signal] : []),
-        AbortSignal.timeout(120_000),
-      ]),
-    });
-    const body = await response.text();
-    let usage: Record<string, unknown> = {};
-    for (const line of body.split("\n")) {
-      if (!line.startsWith("data: ") || line === "data: [DONE]") {
-        continue;
-      }
-      const chunk = JSON.parse(line.slice(6));
-      if (chunk.usage) {
-        usage = chunk.usage;
-      }
-    }
-    evaluation.rows.push({
+    // These opt-in cases contain synthetic fixture data only. Never save headers.
+    await writeFile(
+      resolve(evaluation.directory, `request-${evaluation.requests}.json`),
+      String(options.body)
+    );
+    const row: (typeof evaluation.rows)[number] = {
       variant: evaluation.variant,
       purpose: evaluation.purpose,
       bytes,
-      status: response.status,
-      elapsedMs: Date.now() - started,
-      usage,
-    });
-    await writeFile(
-      resolve(evaluation.directory, "requests.json"),
-      JSON.stringify(evaluation.rows, null, 2)
-    );
-    return new Response(body, {
-      status: response.status,
-      headers: response.headers,
-    });
+      status: 0,
+      elapsedMs: 0,
+      usage: {},
+    };
+    evaluation.rows.push(row);
+    const save = async () => {
+      row.elapsedMs = Date.now() - started;
+      await writeFile(
+        resolve(evaluation.directory, "requests.json"),
+        JSON.stringify(evaluation.rows, null, 2)
+      );
+    };
+    const recordError = (error: unknown) => {
+      const failure = error as { name?: string; cause?: { code?: string } };
+      row.error = `${failure.name ?? "Error"}:${failure.cause?.code ?? "unknown"}`;
+    };
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        ...options,
+        signal: AbortSignal.any([
+          ...(options.signal ? [options.signal] : []),
+          AbortSignal.timeout(120_000),
+        ]),
+      });
+    } catch (error) {
+      recordError(error);
+      await save();
+      throw error;
+    }
+    row.status = response.status;
+    row.headersMs = Date.now() - started;
+    row.gatewayLogId = response.headers.get("cf-aig-log-id") ?? undefined;
+    row.cloudflareRay = response.headers.get("cf-ray") ?? undefined;
+    await save();
+    const observe = async () => {
+      let body = "";
+      try {
+        const reader = response.clone().body?.getReader();
+        if (!reader) {
+          throw new Error("Missing response stream");
+        }
+        const decoder = new TextDecoder();
+        for (;;) {
+          const next = await reader.read();
+          if (next.done) {
+            break;
+          }
+          row.firstByteMs ??= Date.now() - started;
+          body += decoder.decode(next.value, { stream: true });
+        }
+        body += decoder.decode();
+      } catch (error) {
+        recordError(error);
+      } finally {
+        row.responseBytes = Buffer.byteLength(body);
+        for (const line of body.split("\n")) {
+          if (!line.startsWith("data: ") || line === "data: [DONE]") {
+            continue;
+          }
+          let chunk: { id?: string; usage?: Record<string, unknown> };
+          try {
+            chunk = JSON.parse(line.slice(6));
+          } catch {
+            continue;
+          }
+          row.responseId ??= chunk.id;
+          if (chunk.usage) {
+            row.usage = chunk.usage;
+          }
+        }
+        await save();
+      }
+    };
+    evaluation.pending.push(observe());
+    return response;
   },
 }));
 
@@ -236,6 +295,7 @@ it.skipIf(
       );
     }
     console.info("Retained context evaluation:", evaluation.directory, results);
+    await Promise.all(evaluation.pending);
     expect(results.every((result) => result.passed)).toBe(true);
     expect(
       evaluation.rows.every(
@@ -279,6 +339,29 @@ it.skipIf(
     if (!(provider && model)) {
       throw new Error("Missing real provider");
     }
+    if (process.env.OPENMELD_RETAINED_CONTEXT_PROBE === "1") {
+      evaluation.variant = "connection-probe";
+      const reply = await provider
+        .streamSimple(
+          model,
+          {
+            messages: [
+              {
+                role: "user",
+                content: "Reply with OK only.",
+                timestamp: Date.now(),
+              },
+            ],
+          },
+          { apiKey: "unused", maxTokens: 64, reasoning: "low" }
+        )
+        .result();
+      await Promise.all(evaluation.pending);
+      expect(reply.stopReason).toBe("stop");
+      expect(JSON.stringify(reply.content)).toContain("OK");
+      console.info("Connection probe:", evaluation.directory, evaluation.rows);
+      return;
+    }
     instrument({
       key: Symbol.for("retained-runtime-purpose"),
       observe(event) {
@@ -297,12 +380,16 @@ it.skipIf(
       result?: Awaited<ReturnType<typeof runRetainedContextSingleTurn>>;
       error?: string;
     }[] = [];
-    for (const variant of [
-      "baseline-1",
-      "receipts-1",
-      "receipts-2",
-      "baseline-2",
-    ]) {
+    const variants = ["baseline-1", "receipts-1", "receipts-2", "baseline-2"];
+    const pair = process.env.OPENMELD_RETAINED_CONTEXT_PAIR;
+    let selectedVariants = variants;
+    if (pair === "1") {
+      selectedVariants = variants.slice(0, 2);
+    }
+    if (pair === "reverse") {
+      selectedVariants = variants.slice(2);
+    }
+    for (const variant of selectedVariants) {
       evaluation.variant = variant;
       let result:
         | Awaited<ReturnType<typeof runRetainedContextSingleTurn>>
@@ -351,6 +438,7 @@ it.skipIf(
         ...(result ? { result } : {}),
         ...(error ? { error } : {}),
       });
+      await Promise.all(evaluation.pending);
       await writeFile(
         resolve(evaluation.directory, "outcomes.json"),
         JSON.stringify(outcomes, null, 2)
