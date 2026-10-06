@@ -28,6 +28,8 @@ export type SaveBeforeLeaveResult = boolean | "saved-with-unsaved-changes";
 export function UnsavedChangesGuard(input: {
 	description: string;
 	hasUnsavedChanges: boolean;
+	/** Use only when query/hash navigation keeps the same mounted draft. */
+	allowSamePageNavigation?: boolean;
 	/** Omit for creation/import drafts that cannot be saved without committing. */
 	onSave?: () => Promise<SaveBeforeLeaveResult>;
 	onDiscard?: () => void;
@@ -41,7 +43,8 @@ export function UnsavedChangesGuard(input: {
 	const blocker = useBlocker({
 		disabled: !input.hasUnsavedChanges,
 		enableBeforeUnload: input.hasUnsavedChanges,
-		shouldBlockFn: () => true,
+		shouldBlockFn: ({ current, next }) =>
+			!input.allowSamePageNavigation || current.pathname !== next.pathname,
 		withResolver: true,
 	});
 	const open = blocker.status === "blocked";

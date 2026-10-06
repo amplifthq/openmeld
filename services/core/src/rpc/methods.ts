@@ -19183,6 +19183,7 @@ export async function rpcPostSignalOnceByClientMessageId(
     ...(input.spaceAccess ? { spaceAccess: input.spaceAccess } : {}),
   });
   const postInput = {
+    ...(input.deviceWait ? { deviceWait: input.deviceWait } : {}),
     ...(input.contextSelection
       ? { contextSelection: input.contextSelection }
       : {}),

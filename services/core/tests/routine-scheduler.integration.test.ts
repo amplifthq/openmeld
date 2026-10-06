@@ -368,6 +368,14 @@ describe("Core Routine scheduler", () => {
       status: "paused",
     });
     const context = await seedRoutineReader(corrupt.organizationId);
+    await getPostgresDatabase(env).query({
+      text: "UPDATE openmeld.routines SET created_by_user_id=$1 WHERE id=$2",
+      values: [context.actorContext.ownerUserId, corrupt.routineId],
+    });
+    await getPostgresDatabase(env).query({
+      text: "UPDATE openmeld.routine_runs SET created_by_user_id_snapshot=$1 WHERE routine_id=$2",
+      values: [context.actorContext.ownerUserId, corrupt.routineId],
+    });
     await expect(
       rpcListRoutineRuns(env as CoreBindings, {
         context,
@@ -403,8 +411,9 @@ describe("Core Routine scheduler", () => {
         INSERT INTO "openmeld"."routine_runs" (
           id, routine_id, organization_id, scheduled_for, status,
           routine_name_snapshot, target_space_id_snapshot,
-          started_at_ms, finished_at_ms
-        ) VALUES ($1, $2, $3, $4, 'completed', 'Recovered schedule', $5, $6, $7)
+          started_at_ms, finished_at_ms, scope_snapshot, created_by_user_id_snapshot
+        ) SELECT $1, $2, $3, $4, 'completed', 'Recovered schedule', $5, $6, $7,
+          scope, created_by_user_id FROM openmeld.routines WHERE id=$2
       `,
         values: [],
       },
@@ -462,9 +471,11 @@ describe("Core Routine scheduler", () => {
         text: `
         INSERT INTO "openmeld"."routine_runs" (
           id, routine_id, organization_id, scheduled_for, status,
-          failure_code, failure_detail, started_at_ms, finished_at_ms
-        ) VALUES ($1, $2, $3, $4, 'failed', 'remote_agent.test_failure',
-          'Invalid negative Run evidence', $5, $6)
+          failure_code, failure_detail, started_at_ms, finished_at_ms,
+          scope_snapshot,created_by_user_id_snapshot
+        ) SELECT $1, $2, $3, $4, 'failed', 'remote_agent.test_failure',
+          'Invalid negative Run evidence', $5, $6,scope,created_by_user_id
+          FROM openmeld.routines WHERE id=$2
       `,
         values: [],
       },

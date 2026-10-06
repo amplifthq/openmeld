@@ -1026,7 +1026,10 @@ function selectionIncludes(selection: number, flag: number): boolean {
   return Math.floor(selection / flag) % 2 === 1;
 }
 
-export function formatStoredRoutineSchedule(input: RoutineSchedule): string {
+export function formatStoredRoutineSchedule(
+  input: RoutineSchedule,
+  options?: { hour12?: boolean }
+): string {
   const { cronExpression, timezone } = parseStoredRoutineSchedule(input);
   const [minute, hour, dayOfMonth, month, dayOfWeek] =
     cronExpression.split(" ");
@@ -1047,7 +1050,7 @@ export function formatStoredRoutineSchedule(input: RoutineSchedule): string {
   const minuteValue = parseSingleInteger(minute, 0, 59);
   const hourValue = parseSingleInteger(hour, 0, 23);
   if (minuteValue !== null && hourValue !== null && month === "*") {
-    const time = formatTime(hourValue, minuteValue);
+    const time = formatTime(hourValue, minuteValue, options?.hour12);
     if (dayOfMonth === "*" && dayOfWeek === "*") {
       return `Every day at ${time}${timezoneSuffix}`;
     }
@@ -1209,7 +1212,10 @@ function parseSingleInteger(
   return parsed >= minimum && parsed <= maximum ? parsed : null;
 }
 
-function formatTime(hour: number, minute: number): string {
+function formatTime(hour: number, minute: number, hour12 = true): string {
+  if (!hour12) {
+    return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+  }
   const period = hour >= 12 ? "PM" : "AM";
   const displayHour = hour % 12 || 12;
   return `${displayHour}:${String(minute).padStart(2, "0")} ${period}`;

@@ -11,15 +11,15 @@ import type {
 	CreateCenterAgentRoutineResponse,
 	DeleteCenterAgentRoutineResponse,
 	ListCenterAgentRoutineRunsResponse,
-	ListCenterAgentRoutinesManagementResponse,
 	ListCenterAgentRoutineTargetSpacesResponse,
+	ListRoutineManagementResponse,
 	PauseCenterAgentRoutineResponse,
 	ResumeCenterAgentRoutineResponse,
 	UpdateCenterAgentRoutineResponse,
 } from "@openmeld/schemas/types";
 import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 
-export type CenterAgentRoutinesFailure = StructuredApiClientFailure;
+export type RoutinesFailure = StructuredApiClientFailure;
 
 function createWebRoutinesApi(organizationId: string) {
 	return createRoutinesApi(
@@ -27,14 +27,14 @@ function createWebRoutinesApi(organizationId: string) {
 	);
 }
 
-export async function listCurrentCenterAgentRoutines(input: {
+export async function listCurrentRoutines(input: {
 	organizationId: string;
 	signal?: AbortSignal;
-}): Promise<ListCenterAgentRoutinesManagementResponse> {
+}): Promise<ListRoutineManagementResponse> {
 	try {
 		const response = await createWebRoutinesApi(
 			input.organizationId
-		).listRoutineManagement({
+		).listAllRoutines({
 			signal: input.signal,
 		});
 		assertRoutineListIdentity(response, input.organizationId);
@@ -44,14 +44,16 @@ export async function listCurrentCenterAgentRoutines(input: {
 	}
 }
 
-export async function listCurrentCenterAgentRoutineTargetSpaces(input: {
+export async function listCurrentRoutineTargetSpaces(input: {
 	organizationId: string;
+	agentProfileId?: string;
 	signal?: AbortSignal;
 }): Promise<ListCenterAgentRoutineTargetSpacesResponse> {
 	try {
 		const response = await createWebRoutinesApi(
 			input.organizationId
 		).listRoutineTargetSpaces({
+			agentProfileId: input.agentProfileId,
 			signal: input.signal,
 		});
 		assertRoutineTargetSpaceListIdentity(response, input.organizationId);
@@ -61,7 +63,7 @@ export async function listCurrentCenterAgentRoutineTargetSpaces(input: {
 	}
 }
 
-export async function createCurrentCenterAgentRoutine(
+export async function createCurrentRoutine(
 	input: CreateCenterAgentRoutineBody & { organizationId: string }
 ): Promise<CreateCenterAgentRoutineResponse> {
 	try {
@@ -72,7 +74,7 @@ export async function createCurrentCenterAgentRoutine(
 	}
 }
 
-export async function updateCurrentCenterAgentRoutine(
+export async function updateCurrentRoutine(
 	input: UpdateRoutineInput & { organizationId: string }
 ): Promise<UpdateCenterAgentRoutineResponse> {
 	try {
@@ -83,7 +85,7 @@ export async function updateCurrentCenterAgentRoutine(
 	}
 }
 
-export async function pauseCurrentCenterAgentRoutine(
+export async function pauseCurrentRoutine(
 	input: RoutineMutationInput & { organizationId: string }
 ): Promise<PauseCenterAgentRoutineResponse> {
 	try {
@@ -94,7 +96,7 @@ export async function pauseCurrentCenterAgentRoutine(
 	}
 }
 
-export async function resumeCurrentCenterAgentRoutine(
+export async function resumeCurrentRoutine(
 	input: RoutineMutationInput & { organizationId: string }
 ): Promise<ResumeCenterAgentRoutineResponse> {
 	try {
@@ -105,7 +107,7 @@ export async function resumeCurrentCenterAgentRoutine(
 	}
 }
 
-export async function deleteCurrentCenterAgentRoutine(
+export async function deleteCurrentRoutine(
 	input: RoutineMutationInput & { organizationId: string }
 ): Promise<DeleteCenterAgentRoutineResponse> {
 	try {
@@ -116,7 +118,7 @@ export async function deleteCurrentCenterAgentRoutine(
 	}
 }
 
-export async function listCurrentCenterAgentRoutineRuns(
+export async function listCurrentRoutineRuns(
 	input: ListRoutineRunsInput & { organizationId: string }
 ): Promise<ListCenterAgentRoutineRunsResponse> {
 	try {
@@ -140,7 +142,7 @@ export async function listCurrentCenterAgentRoutineRuns(
 	}
 }
 
-export function resolveCenterAgentRoutineErrorMessage(
+export function resolveRoutineErrorMessage(
 	error: unknown,
 	action:
 		| "create"
@@ -219,7 +221,7 @@ function assertRoutineTargetSpaceListIdentity(
 }
 
 function assertRoutineListIdentity(
-	response: ListCenterAgentRoutinesManagementResponse,
+	response: ListRoutineManagementResponse,
 	expectedOrganizationId: string
 ): void {
 	if (response.organizationId !== expectedOrganizationId) {
@@ -285,7 +287,7 @@ function throwIdentityMismatch(input: {
 }
 
 function resolveFallbackMessage(
-	failure: CenterAgentRoutinesFailure,
+	failure: RoutinesFailure,
 	action:
 		| "create"
 		| "delete"

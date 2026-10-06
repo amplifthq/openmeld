@@ -98,7 +98,7 @@ export const centerAgentReadRoutineRunDiagnosticsResponseSchema =
     organizationId: id,
     observedAtMs: timestamp,
     run: centerAgentRoutineRunEvidenceSchema,
-    executionEngine: z.enum(["legacy", "workflow"]).nullable(),
+    executionEngine: z.enum(["legacy", "workflow", "local"]).nullable(),
     continuationRecorded: z.boolean(),
     nativeDelivery: z.strictObject({
       coverage: z.enum(["available", "not_recorded", "unavailable"]),

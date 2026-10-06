@@ -4,12 +4,15 @@ import { localProjectControlConnectionSchema } from "../daemon/local-project-con
 import { agentActivitySnapshotResponseSchema } from "../http/agent-activity";
 import { agentActivitySessionInventoryResponseSchema } from "../http/agent-activity-sessions";
 import {
+  centerAgentRoutineSchema,
   createCenterAgentRoutineResponseSchema,
   deleteCenterAgentRoutineResponseSchema,
   listCenterAgentRoutineRunsResponseSchema,
   listCenterAgentRoutinesResponseSchema,
+  listRoutineManagementResponseSchema,
   pauseCenterAgentRoutineResponseSchema,
   resumeCenterAgentRoutineResponseSchema,
+  routineManagementSchema,
   updateCenterAgentRoutineResponseSchema,
 } from "../http/center-agent-routines";
 import {
@@ -426,7 +429,13 @@ export const cliJsonAgentActivityContextEnvelopeSchema =
 
 export const cliJsonRoutinesListEnvelopeSchema = defineStrictSuccessEnvelope(
   "routines.list",
-  listCenterAgentRoutinesResponseSchema.shape
+  {
+    ...listCenterAgentRoutinesResponseSchema.shape,
+    routines: z.array(
+      z.union([routineManagementSchema, centerAgentRoutineSchema])
+    ),
+    executors: listRoutineManagementResponseSchema.shape.executors.optional(),
+  }
 );
 
 export const cliJsonRoutinesCreateEnvelopeSchema = defineStrictSuccessEnvelope(
@@ -439,7 +448,7 @@ export const cliJsonRoutinesCreateEnvelopeSchema = defineStrictSuccessEnvelope(
 // than introducing a CLI-owned Routine DTO.
 export const cliJsonRoutinesShowEnvelopeSchema = defineStrictSuccessEnvelope(
   "routines.show",
-  createCenterAgentRoutineResponseSchema.shape
+  { routine: z.union([routineManagementSchema, centerAgentRoutineSchema]) }
 );
 
 export const cliJsonRoutinesUpdateEnvelopeSchema = defineStrictSuccessEnvelope(

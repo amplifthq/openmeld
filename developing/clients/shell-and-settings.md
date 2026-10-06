@@ -42,7 +42,7 @@ content column and keeps **Center Agent / Inbox** together at the far-right
 edge, and
 the **Personal / current Organization name** Settings groups defined in
 `developing/clients/web.md`. Center Agent uses the shared Spaces list; **Messages /
-Graph / Files / Routines / Channels / Memory** live in its header. Chat
+Graph / Files / Channels / Memory** live in its header. Chat
 settings remain in the compact menu on conversation surfaces only. Center Agent settings live in
 the global App Settings destination, grouped under the current Organization
 (or Personal in a Personal Workspace).
@@ -217,7 +217,7 @@ Each domain is a **real route**, not a scroll anchor. Current Web uses the fixed
 ten-destination product rail, separated Settings utility, and **Personal /
 current Organization name** Settings groups from `developing/clients/web.md`.
 App management exists once under **Plugins** in both personal and
-multi-member workspaces. Routines is a Center Agent use-and-creation surface,
+multi-member workspaces. Routines is a Team use-and-creation surface for personal and shared work,
 not a global Settings page or root product peer.
 
 `/app/settings/service` remains a real leaf route for future hosts with

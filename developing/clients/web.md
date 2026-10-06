@@ -583,6 +583,22 @@ The original import rejection and diagnostic report remain intact; canceling
 Vite's event would instead resolve the failed import with an undefined module.
 
 The browser URL remains the navigation owner, including its search and hash.
+Page-content tabs use the root TanStack Router `NuqsAdapter` and the literal
+parsers in `lib/page-tab-search.ts`. Routines and Plugins store `scope`; Files,
+Spaces, and Inbox store `view`; Skill details store `content`; Usage stores
+`usageScope`, including when opened in App Settings above another page. A tab
+change pushes one history entry without resetting scroll. The route validator
+and the tab hook accept the same values. Files clears obsolete document/folder
+selectors and Inbox clears the focused item/request atomically with a view
+change. Other supported query fields remain intact.
+
+Canonical path tabs, including Team and conversation headers, retain their
+existing route owner. Form choices, hover previews, file display preferences,
+spreadsheet sheet selection, and temporary dialogs do not become page tabs.
+Skills content tabs retain the mounted draft and allow same-path search/hash
+navigation; navigation to another document still uses the unsaved-change guard.
+Legacy Instructions/Files section hashes redirect to the content query once.
+
 Existing Composer draft persistence remains the draft owner. Unsaved-change
 guards and pending Space sends register recovery blockers using their existing
 facts; recovery leaves those surfaces and native navigation warnings mounted
@@ -2746,6 +2762,11 @@ existing permission-gated invitation dialog. Its directory toolbar shows member
 counts, name search, and group filters with the same gutters as Spaces.
 Shared window headers and Team/Spaces directory content use
 `--app-page-inline-padding` (24px below the desktop breakpoint, 32px above).
+Files and Routines also share `--app-page-block-padding` (20px) and the shared
+`PageToolbar` row, keeping their secondary tabs at the same position when
+switching pages. File view choices use the corresponding grid, bulleted list,
+columns, and gallery icons; the full toolbar and compact selector share the
+same option definitions.
 Conversation headers inherit this gutter rather than overriding it with the
 separate message-content padding token.
 Saved stars remain intact; historical
@@ -3316,113 +3337,38 @@ current state.
 
 ### Routines
 
-The page title carries a compact created-count/limit indicator, such as **3/50**,
-from the existing organization usage overview. Its hover and keyboard-focus
-tooltip explains that paused Routines count toward the limit and all slots can
-be enabled. Routine mutations and the page Refresh action refresh the count.
-There is no separate quota card in Routines or AI usage.
+**Team → Routines** at `/o/{orgSlug}/routines` owns personal and Team management
+for Center, Remote, and Local Agents. Legacy Center URLs redirect with the exact
+Routine/Run selection. There is one page, editor, API/query owner, and Fluid Table.
+Personal and Team tabs filter authorized server results. The empty view uses a
+centered shared dashed AppEmptyState; no recommendation or Self-Evolution setup
+card is shown.
 
-**Center Agent → Routines** is present in every workspace. Every organization
-member may read Routines and create a Routine that schedules the Center Agent to
-work once or recurringly in one explicit destination. A member manages Routines with their own
-`createdByUserId`; an owner or admin manages all Routines in the Organization.
-Web presents the schedule, optional timezone, destination, next run, last-run
-summary, enabled, paused, or completed state, and paginated Run history, but it does not own or infer any of
-those facts.
+Web requests `contract=routines-v3` for management and `practical-v2` for mutations
+and history. Core supplies visibility, executor choices, authority, schedules,
+and eligible destinations. Web does not infer permissions from a Space directory.
+The creator can manage personal Routines; Team readers need destination access.
+Admins cannot edit or resume another user's explicit Agent with that user's
+authority, but can pause or delete readable Team work.
 
-Web reads Routine, Run, permission, and available-target projections through
-the shared HTTP client. The available-target projection is Core-owned and must
-already account for organization scope and the Center Agent's ability to publish;
-Web must not reconstruct that decision from the ordinary Space directory,
-membership calls, or browser state. Opening create or edit ensures the lazy
-member-to-Center-Agent Direct Message Space exists through the existing Center
-Agent DM operation, then refetches the target projection. A failed or mismatched
-projection remains visible and actionable and must not produce a guessed target.
-If a stored target no longer appears in the latest eligible projection, Web
-shows it only as the unavailable current target. The user must choose an
-eligible replacement before saving; Web must not silently retain, replace, or
-submit the unavailable target.
+The compact editor uses shared Fluid selects, a searchable Space picker inside
+Fluid ScrollArea, Calendar for one-time dates, and Advanced for name/timezone.
+Short values and chevrons stay together at the right edge. Private destinations
+name the actual Agent and explain existing-chat reuse or creation on save.
+Opening the editor never creates a chat. A personal Routine targeting a shared
+Space explains that Space members can see its results.
 
-The shared HTTP client explicitly requests `contract=management-v2` for the
-Routine management list and `contract=practical-v2` for mutations and Run
-history. Each row presents the Core-owned creation snapshot as “Created by
-you,” the frozen member display name, or an explicit organization-member
-fallback for legacy unknown data, followed by the Local Agent client when one
-was verified at creation. Web does not join current profile or audit state to
-reconstruct it. Requests without an opt-in belong to the frozen
-published-client projection and cannot represent one-time or Slack-thread
-Routines. Web must not infer practical, capability, or creation-attribution
-fields from an older shape or remove an opt-in to make a mixed-version response
-appear successful.
+Edits send only changed fields. They preserve schedules, exhausted one-time
+state, hidden capability grants, and connected-conversation destinations.
+Schedules and result destinations are explicit. An unavailable target needs a
+valid replacement; it is never silently substituted. Query caches are interaction
+aids and are invalidated after mutations. Active Run history refreshes while
+claimed/submitted, using the owner's status rather than a client timer outcome.
 
-`canManage` is the sole browser projection for update, pause, resume, and delete
-controls. When it is false, those controls are absent rather than merely disabled.
-Creating remains available to organization members, and read-only members may
-still open Run history. Web submits explicit user intent through the shared
-Routine API, invalidates its query cache after success, and rereads owner truth
-instead of presenting an optimistic mutation as final.
-
-Web create and edit support one-time and recurring Space Routines. Slack-thread
-Routines created from Slack remain readable with Run history, pause/resume when
-applicable, and delete authority, but Web hides edit until it has a durable
-Slack destination picker. It must never convert a Slack Routine to a Space by
-submitting form defaults.
-
-Run history displays only the shared Run status and publication fields. Failed
-Runs may show their failure code and detail, skipped Runs use neutral treatment,
-and claimed or submitted runs stay visibly in progress. Web must not infer a
-terminal outcome from internal delivery, ledger, or database fields. Deleting a
-Routine stops future scheduling but does not imply that existing run history was
-deleted.
-
-Web parses Run and `lastRun` `scheduledFor` through the shared signed
-safe-integer contract. A negative value is renderable only for a `skipped` Run
-with `failureCode = routine.schedule_invalid`; other negative combinations fail
-as invalid owner responses. Web must not clamp or hide valid pre-1970
-quarantine evidence. Other Routine timestamps remain nonnegative.
-
-Routine and target query caches are organization-scoped interaction aids, not
-authority. Opening create or edit refreshes eligible targets from owner truth;
-the target picker must not offer cached entries while that refresh is pending.
-Successful mutations invalidate and reread the canonical Routine and Run
-projections instead of treating an optimistic browser value as final.
-
-When the Organization has an active App or connected Slack Message Channel,
-the Routines page recommends **Center Agent Self-Evolution** unless the
-marker-bound built-in Routine already exists. A marker match alone does not
-mean the Routine is configured: Web also requires the Core-owned management
-projection to match the approved-knowledge, read-only, and optional Slack
-report capabilities expressed by the instructions. A mismatch is shown as
-**Needs repair** with guidance from the Core-owned repair-authority projection.
-Web offers the explicit repair choice only when that projection permits it and
-does not silently restore permissions during an unrelated edit. The card lists
-the qualifying
-sources and lets an owner or admin configure source scope, optional target
-Project, daily/weekly/custom cadence, timezone, target Space, and an editable
-learning focus. The target Space is labeled **Learning archive** because it
-receives the complete result. When Slack is one of the connected sources, setup
-also offers a separate optional **Team report**: the approver enters one Slack
-channel name and the Routine may publish only a concise summary there. The two
-outputs are independent choices, not a destination replacement or a hidden
-Slack-thread Routine. Personal workspaces do not show this Organization feature.
-Other Organization members see why an owner or admin must enable the Routine.
-
-The recommendation disappears when no qualifying source exists; Local Service
-presence is not a recommendation signal. Source check failures remain visible
-instead of being presented as an empty source list. The setup states that
-source selection guides the instruction rather than changing connection
-authority, and that Slack reads remain bounded by the connected Channel's
-authorized channel, member, and history tools. Web submits
-the existing approved-knowledge authorized action and, only when the Team
-report is enabled, the bounded Slack-report action through the shared Routine
-client. Create sends that explicit choice. Edit sends capability fields only
-when the user changes whether the Team report is enabled or confirms an
-authorized permission repair; changing only its Slack channel name is an
-ordinary instruction edit and preserves the canonical stored capability value.
-The shared client
-must preserve `authorizedActions` when supplied; silently dropping that field
-would create a Routine that cannot fulfill its visible document-maintenance or
-team-report promise.
+Deleting stops future scheduling and retains permitted Run history. Pause does
+not cancel an active Run. Local Agent selection explains that its computer must
+be awake and connected. No Center Agent proxy is used for local execution.
+The complete contract is in `developing/product/routines.md`.
 
 ### Desk first paint
 
@@ -6472,7 +6418,7 @@ Use the scoped owner documents for deeper rules:
   Reference, thread placement, and final visible outcome semantics.
 - `developing/product/agent-profiles.md`: Agent Profile identity, membership,
   Binding surface, and reply recovery semantics.
-- `developing/product/center-agent-routines.md`: Routine and Run semantics,
+- `developing/product/routines.md`: Routine and Run semantics,
   authority, scheduling, and result surfaces.
 - `developing/architecture/agent-transport-contract.md`: readiness, Wake
   execution, RuntimeCoordinator authority, and final outcome contract.
