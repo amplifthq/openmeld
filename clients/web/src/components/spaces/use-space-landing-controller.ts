@@ -1,3 +1,4 @@
+import { supportsLocalExecutionInput } from "@openmeld/agent-runtime";
 import type { StructuredApiClientFailure } from "@openmeld/api-client";
 import { toStructuredApiClientFailure } from "@openmeld/api-client";
 import { normalizeSpacePasswordText } from "@openmeld/schemas";
@@ -435,7 +436,7 @@ function resolveQueuedExecutionInput(input: {
 }) {
 	const localProfileIds =
 		input.members?.agents
-			.filter((agent) => agent.agentControllerRef === "builtin:codex")
+			.filter((agent) => supportsLocalExecutionInput(agent.agentControllerRef))
 			.map((agent) => agent.profileId) ?? [];
 	if (input.hasFiles) {
 		return undefined;
@@ -1188,7 +1189,6 @@ export type SpaceLandingConversationController = {
 	composerHasAuthoredMentions: boolean;
 	composerReplyToSignalId: string | null;
 	composerText: string;
-	ephemeralActivityItems: readonly SpaceEphemeralActivityItem[];
 	presentedWakeProgressItems: readonly SpaceEphemeralActivityItem[];
 	ownActiveWakesHaveMore: boolean;
 	historyNavigation: SpaceHistoryNavigationController;
@@ -2717,7 +2717,6 @@ export function useSpaceLandingController(input: {
 		composerReplyToSignalId: mentionAuthoring.replyTo?.signalId ?? null,
 		composerText: mentionAuthoring.composerText,
 		...resolveNavigationPresentation(historyNavigation, {
-			presentedWakeProgressItems,
 			hasEarlierHistory,
 			historyActionErrorMessage,
 			isLoadingEarlierHistory,
@@ -4954,16 +4953,12 @@ function useActiveSpaceHistorySync(input: {
 function resolveNavigationPresentation(
 	navigation: SpaceHistoryNavigationController,
 	live: {
-		presentedWakeProgressItems: readonly SpaceEphemeralActivityItem[];
 		hasEarlierHistory: boolean;
 		historyActionErrorMessage: string | null;
 		isLoadingEarlierHistory: boolean;
 	}
 ) {
 	return {
-		ephemeralActivityItems: navigation.activeWindow
-			? []
-			: live.presentedWakeProgressItems,
 		hasEarlierHistory:
 			navigation.activeWindow?.hasBefore ??
 			(navigation.hasHiddenLiveHistory || live.hasEarlierHistory),

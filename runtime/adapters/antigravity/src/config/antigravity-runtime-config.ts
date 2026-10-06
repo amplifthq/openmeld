@@ -1,6 +1,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
+  buildCliLaunchInvocation,
   type InstalledLaunchCandidatesOptions,
   type InstalledLaunchCandidatesResolution,
   type LaunchContractVerificationResult,
@@ -9,6 +10,10 @@ import {
   resolveLaunchCandidatesAfterVerification,
   verifyCliLaunchContract,
 } from "@openmeld/adapter-core";
+import {
+  isAntigravityAcpLaunchContract,
+  probeAntigravityAcp,
+} from "../transport/antigravity-acp-transport.js";
 
 const DEFAULT_ANTIGRAVITY_COMMAND = "agy";
 
@@ -25,11 +30,35 @@ export async function resolveInstalledAntigravityLaunchCandidates(
     displayName: "Antigravity CLI",
     preferredLaunchContract: input?.preferredLaunchContract,
   });
-  if (!installed.ok) {
-    return installed;
+  const acp = await resolveInstalledNodeScriptLaunchCandidates({
+    additionalCommandDirectories: [join(resolveHome(), ".local", "bin")],
+    commandName:
+      process.platform === "win32"
+        ? "agy_acp_server.exe"
+        : "agy_acp_server.par",
+    displayName: "Antigravity ACP",
+    preferredLaunchContract:
+      input?.preferredLaunchContract &&
+      isAntigravityAcpLaunchContract(input.preferredLaunchContract)
+        ? input.preferredLaunchContract
+        : undefined,
+  });
+  if (!(installed.ok || acp.ok)) {
+    return installed.reason === "not_launchable" ? installed : acp;
   }
+  const discovered = [
+    ...(installed.ok ? installed.candidates : []),
+    ...(acp.ok ? acp.candidates : []),
+  ];
   const candidates = await resolveLaunchCandidatesAfterVerification({
-    candidates: installed.candidates,
+    candidates: [
+      ...new Map(
+        discovered.map((candidate) => [
+          JSON.stringify(candidate.launchContract),
+          candidate,
+        ])
+      ).values(),
+    ],
     verify: async (candidate) =>
       await verifyAntigravityLaunchContract({
         launchContract: candidate.launchContract,
@@ -52,6 +81,29 @@ export async function verifyAntigravityLaunchContract(input: {
   launchContract: RuntimeAgentControllerLaunchContract;
   timeoutMs?: number | null;
 }): Promise<LaunchContractVerificationResult> {
+  if (isAntigravityAcpLaunchContract(input.launchContract)) {
+    try {
+      await probeAntigravityAcp({ ...input, cwd: input.cwd ?? process.cwd() });
+      const invocation = buildCliLaunchInvocation({
+        launchContract: input.launchContract,
+        args: [],
+      });
+      return {
+        ok: true,
+        launchCommand: {
+          bin: invocation.bin,
+          argsPrefix: invocation.args,
+          shell: invocation.shell,
+        },
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        failureKind: "incomplete_check",
+        errorMessage: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
   return await verifyCliLaunchContract({
     cwd: input.cwd ?? process.cwd(),
     displayName: "Antigravity CLI",

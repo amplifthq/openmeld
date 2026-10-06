@@ -334,7 +334,7 @@ function QueuedMessage({
 						expanded && "max-sm:justify-self-end"
 					)}
 				>
-					<TooltipHint content="Apply to the current response">
+					<TooltipHint content="Send this message while the agent is working">
 						<Button
 							className="gap-1 px-1.5 transition-colors"
 							disabled={disabled || item.blocked}
@@ -349,7 +349,7 @@ function QueuedMessage({
 							variant="ghost"
 						>
 							<ArrowBendUpRightIcon size={14} />
-							Steer
+							Send now
 						</Button>
 					</TooltipHint>
 					<Button
