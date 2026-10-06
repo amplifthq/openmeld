@@ -30,7 +30,10 @@ server's page-tree and icon registry.
 The framework owns routing. `/docs/*` renders MDX. `/api/search` uses
 Fumadocs' built-in search. `/docs/*.md`, `/llms.txt`, and `/llms-full.txt`
 expose only the same public content. Markdown negotiation varies by `Accept`.
-Build-time crawling prerenders linked HTML pages. The Worker retains search,
+Build-time crawling prerenders linked HTML pages. Cloudflare removes trailing
+slashes consistently with the router. `/docs` and `/docs/*` run through the
+Worker first to preserve `Accept` negotiation; the root and static assets can
+be served directly. The Worker retains search,
 Markdown, server functions, and real 404s. Unknown paths must not return an App
 shell. The root Website's existing `/llms.txt` protocol remains Website/App owned.
 

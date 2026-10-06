@@ -4,6 +4,10 @@
   "main": "@tanstack/react-start/server-entry",
   "compatibility_date": "2026-04-12",
   "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "html_handling": "drop-trailing-slash",
+    "run_worker_first": ["/docs", "/docs/*"]
+  },
   "observability": {
     "enabled": true,
     "logs": {
