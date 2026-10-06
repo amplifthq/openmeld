@@ -57,22 +57,7 @@ export const connectorConnections = applicationTable(
     ),
     check(
       "connector_connections_service_check",
-      sql`"service" in (
-        'github',
-        'feishu',
-        'lark',
-        'gmail',
-        'googlecalendar',
-        'googledrive',
-        'notion',
-        'linear',
-        'figma',
-        'posthog',
-        'cloudflare_browser_rendering',
-        'cloudflare_dns',
-        'cloudflare_r2',
-        'cloudflare_worker'
-      )`
+      sql`"service" ~ '^[a-z][a-z0-9_-]{0,99}$'`
     ),
     check(
       "connector_connections_status_check",

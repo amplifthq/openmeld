@@ -565,7 +565,7 @@ and can interrupt an accepted Wake. Every maintenance surface must read the
 owner-sharded RuntimeCoordinator execution state, independent of the current
 Space. That read is advisory: before committing one of these changes, the writer
 must acquire a short-lived owner-shard execution-target mutation admission and
-hold it across the D1 or local Service mutation. RuntimeCoordinator serializes
+hold it across the PostgreSQL or local Service mutation. RuntimeCoordinator serializes
 that admission with new Wake-head acceptance in the same Durable Object storage
 transaction, so a Wake that arrives after admission waits instead of racing the
 execution-target change. An active execution blocks only the disruptive
@@ -601,7 +601,7 @@ implicitly or guess identity from a computer name. A runtime reconnect preserves
 the Binding settings that are current when Core
 accepts the write. Reconnect clients must omit controller settings instead of
 replaying a previously read Binding snapshot; only an explicit settings edit
-may carry those fields and its expected `configurationRevision`. The D1 writer
+may carry those fields and its expected `configurationRevision`. The PostgreSQL writer
 uses that revision as a compare-and-set fence and re-reads before a bounded
 retry when a settings write wins the race. Reconnecting must never overwrite a
 newer permission, model, reasoning, collaboration, conversation, or OpenCode
@@ -609,7 +609,7 @@ permission choice.
 
 An explicit settings edit is successful only when the fresh Binding projection
 contains the requested value. A changed value must be fenced by both the
-Binding id and `configurationRevision` that the writer read, and the D1 update
+Binding id and `configurationRevision` that the writer read, and the PostgreSQL update
 must change that row. If a Service reconnect or another settings edit replaces
 that write target, Core returns a settings conflict instead of accepting the
 new Binding's unchanged value. Web clients also compare an accepted response
@@ -624,9 +624,9 @@ within the Profile's canonical Organization remains the action and audit actor
 and must not become a second Binding owner. A personal Agent Profile write that
 discovers an older enabled Binding under another owner must acquire mutation admission from
 every affected owner shard before changing the Binding. Disabling admitted
-legacy Bindings and installing the Profile owner's target are one atomic D1
+legacy Bindings and installing the Profile owner's target are one atomic PostgreSQL
 write; any failed step leaves the previous enabled Bindings intact. Unavailable
-admission or an incomplete reconciliation fails closed. The D1 write boundary
+admission or an incomplete reconciliation fails closed. The PostgreSQL write boundary
 rejects a new or re-enabled primary Binding when its owner is not the Profile
 owner or another enabled primary Binding already exists for that Profile. The
 migration keeps pre-existing noncanonical rows available for explicit

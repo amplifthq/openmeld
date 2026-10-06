@@ -30,6 +30,14 @@
   pinned Flue package before changing worker interfaces; method names are not
   strategic contract.
 
+## Storage and migration references
+
+Production shared relational storage is PostgreSQL. Numeric migration references
+from the original D1 rollout describe historical schema dependencies already
+absorbed into the native baseline; they are not D1 commands to run now. New
+changes use the native journal and scoped database release in the
+[PostgreSQL workflow](../engineering/postgresql.md). Receiver-first service and client compatibility requirements still apply.
+
 ## Plugin connection action boundary
 
 The existing navigation action capability can offer `plugin_connection` with
@@ -185,11 +193,51 @@ to decide whether to use or disclose personal files. Access to a filesystem is
 not permission to publish all its contents. Files publication retains its own
 audience contract. No new per-task permission UI is introduced.
 
-Cloudflare Computer and computerd use 0.4.0 with the official
+Cloudflare Computer and computerd use 0.4.1 with the official
 `LegacyContainerBackend`. The current platform-scheduled container deployment
 is retained. Files persist; running processes, OS packages and browser login
 state are not promised to survive runtime recreation. Shared Organization or
 Space Computers, other providers and human desktop UI remain separate work.
+
+Center, personal Remote and optional Local Agents consume the same Computer
+operation contract. `describe` returns the official file-tool schemas and live
+browser availability. `files` invokes Cloudflare's `read`, `ls`, `find`, `grep`,
+`write`, `edit` and `delete` tools. File pagination and matching come from the
+SDK rather than a second OpenMeld implementation. The older public JSON
+read/write/edit/list actions remain compatible with installed CLI clients;
+their exact-text compare-and-write semantics are unchanged.
+
+`command` uses one launch/poll/stop/list owner for all three backends. Linux is
+the default; worker-shell runs built-in commands to completion; worker-javascript
+runs an ECMAScript module with structured input and result, durable file imports,
+Workspace-backed `node:fs/promises` and `ws:git`. All engines have direct network
+access. Shell or JavaScript handles binary files, directory operations and other
+filesystem work beyond the file tools. Linux can also work in temporary paths
+outside `/computer`. Only `/computer` is the shared persistent file tree.
+The caller can supply per-command environment, launch-time stdin and a timeout.
+The upstream API has no interactive PTY or write-to-running-stdin operation.
+There is no command or website allowlist in this Computer adapter.
+
+Worker-shell has no upstream retained process lookup or working cancellation.
+An explicit Stop reports this limitation. Task cleanup stays unfinished until
+the original call supplies an exit receipt. Use Linux or Worker JavaScript for
+long or cancellable work. The Computer preserves its
+observed terminal result with its existing command receipt so a repeated key
+does not rerun completed work. Linux and JavaScript use native retained handles;
+missing handles are explicit failures and never permission to replay a launch.
+Command replies retain the last 50,000 characters per stream and report
+`outputTruncated` when clipped. Agents can redirect large output to a file.
+The API client allows cold startup and 20-second polls. Foreground shell calls
+use their execution timeout plus a transport margin.
+`browser` runs the existing one-shot browser; `preview` inspects a local Linux
+web server through the existing private preview path. Both use the same public
+operation boundary for Local Agents. They do not create a virtual desktop or a
+persistent browser account session.
+
+Plugin account connections and execution harness context management are separate
+owners. This contract does not create a credential store or change connector
+authorization. Future human UI consumes these same capabilities and command
+observations rather than maintaining another execution state.
 
 The Computer owns command receipts and exact process IDs. A conversation stores
 only its frozen Computer target. Local CLI operations use this same operation
@@ -238,6 +286,23 @@ unchanged active connection's version; an actual pending/reconnect transition
 does.
 
 ### Private Git working copies
+
+For ordinary native Git work, use `computer_git_connection` with the explicitly
+selected requester or Organization Plugin account, then run `git clone` or
+`git fetch` through the Computer's container command engine. The tool returns a
+temporary repository URL scoped to this Computer and execution. It does not
+download files or install credentials. The Workspace proxy routes Git's HTTP
+exchanges through the existing Plugin transport, which rechecks current access
+and keeps provider credentials inside OpenConnector. Public Git and accounts
+configured independently inside the Computer need no Plugin transport.
+
+Native Git preserves upstream history and uses Git's normal transfer protocol.
+The Plugin transport supports reads; existing GitHub write actions remain the
+publication interface. A later execution requests a fresh connection before a
+fetch. The persistent repository remains on the user's Computer.
+
+The following snapshot workflow serves bounded API-based publication. It is
+not the preferred path for a native clone and is not a full-history clone.
 
 The isolated Computer offers `github_checkout_repository` and
 `github_publish_checkout`. They compose with existing Computer edit/command
@@ -1839,13 +1904,13 @@ Agent native-delivery exception, not the workstation Wake lifecycle:
 - A Run may freeze the `legacy` or Cloudflare `workflow` execution engine. The
   Workflow instance id is the Run id. It durably owns submission retry,
   callback-event waiting, and callback finalization for that Run without a
-  fixed total callback deadline; D1 remains product truth, and the legacy
+  fixed total callback deadline; PostgreSQL remains product truth, and the legacy
   recovery scanner must not also take over that Run.
   Callback validation and final destination publication remain the existing Core
   native-delivery contract rather than Workflow-private behavior. Core records
   Workflow creation, safe restart, blocked recovery, and callback-forwarding
   evidence against the same Run id without logging the callback payload.
-- The Routine definition and Run history stay in D1. Flue session state and
+- The Routine definition and Run history stay in PostgreSQL. Flue session state and
   Durable Object alarms do not become a second Routine registry.
 - The native delivery ledger links the delivery by `routineRunId` and freezes
   exactly one result surface: `conversationKind = "space"` with a target Space,
@@ -2004,8 +2069,8 @@ policy. Every tool-capable primary model receives
 the same stable provider bootstrap: `codemode`, the always-direct capability
 search and describe tools, the three generic Connected App tools, and the
 bounded read-only member tools, plus the
-authorized foundational Computer tools (`read`, `write`, `edit`, `bash`, `grep`,
-`glob`, and `computer_command`). Computer operations remain directly usable in
+authorized foundational Computer tools (`computer` and `computer_command`).
+Computer operations remain directly usable in
 a fresh chat without first requiring a discovery call; the registration policy
 never adds a tool absent from the authorized turn catalog. These
 foundational reads stay direct because supported models must be able to inspect
@@ -2577,17 +2642,11 @@ surface adopts official features where they are free**:
     message snapshot, not filesystem access or live sync. Larger or durable
     handoffs use formal Organization Documents or another supported shared
     surface.
-    Shell execution has two backends over the same
-    files: worker-shell (default — just-bash in a Dynamic Worker reached
-    through `env.LOADER`, instant, no container, no public network, text
-    tooling only) and container (computerd in a Cloudflare Container,
-    FUSE-mounting this same workspace at `/computer` with `MOUNT_POINT`
-    pinned for same-path fidelity; full Linux userland with Node.js 24,
-    Corepack-managed pnpm, Python, git, curl, jq, and native build tools;
-    changes sync back over capnweb). The model selects the backend
-    per bash call and is prompted to prefer worker-shell. Computer SDK and
-    computerd use version 0.4.0 together. Container network access is explicitly
-    direct; worker-shell remains network-disabled. A replaced runtime reports
+    The native `computer` tool exposes the official file tools and three
+    execution backends described under Personal cloud Computer above.
+    `computer_command` uses the same command owner and defaults to Linux.
+    Computer SDK and computerd use version 0.4.1 together. All three engines
+    have direct network access. A replaced runtime reports
     `EEXEC_LOST` for an old command instead of replaying its launch. The model
     receives that loss and may inspect durable files and choose a safe next
     action. Terminal cleanup skips only commands whose definite loss was
@@ -2604,7 +2663,7 @@ surface adopts official features where they are free**:
     activation, and resource loading while workspace-written Skills remain
     invisible. The computer connects lazily: the Dynamic Worker starts only
     when a computer or Code Mode tool actually executes. Routine timing is not
-    a Tier-2 harness capability; D1 plus Core Cron owns it.
+    a Tier-2 harness capability; PostgreSQL plus Core Cron owns it.
 
 - **Tier 3 — OpenMeld product tools (Experimental, Core-backed).** The
   first shipped tool slice exposes OpenMeld org actions through Flue
@@ -2812,7 +2871,7 @@ surface adopts official features where they are free**:
   removal never offers a dead link to the removed Project.
 
   This is an additive private Worker RPC and shared-schema change. Deploy the
-  Core D1 migration first, then the Core and API/Web readers that understand
+  Core PostgreSQL migration first, then the Core and API/Web readers that understand
   Center Agent Project audit action set `v8`, and deploy Remote Agent last. New
   Core remains compatible with an old Remote Agent because no Project RPC is
   called. A new Remote Agent against an old Core fails closed with
@@ -3244,7 +3303,7 @@ Current hosted capability inventory:
 | OpenRouter web search and fetch               | OpenRouter server tools through the existing AI Gateway route           | Yes                           | Adds current public-web research without a new OpenMeld data store                                        | Provider requests and model context consumption              | Tool payload, citation, usage, and failure tests                                                              |
 | Browser Run rendered reads                    | Browser Run Quick Actions                                               | Yes                           | Reads JavaScript-rendered pages with a browser binding only                                               | Browser time and untrusted page content                      | Markdown, links, extraction, scraping, and browser-time tests                                                 |
 | Browser Run screenshots                       | Browser Run Quick Actions plus the existing Space attachment contract   | Yes for OpenMeld Space output | Lets the Center Agent return a real visual artifact                                                       | Image size, browser time, and private attachment lifecycle   | Browser response, R2 write, Core metadata, callback, and final publication tests                              |
-| Cloudflare Computer (Center Agent's computer) | `@cloudflare/computer` Workspace + worker-shell backend on `env.LOADER` | Yes                           | Gives the Center Agent one durable org-level filesystem and shell that persists across conversations      | Preview-stage API drift and Durable Object storage growth    | Computer naming/enablement, layout, SandboxApi adapter, native grep, observability, and localhost smoke tests |
+| Personal cloud Computer | `@cloudflare/computer` 0.4.1 Workspace, native tools and execution backends | Yes | Gives Center, Remote and optional Local Agents the user's persistent Computer | Preview-stage API drift and Durable Object storage growth | Native tool contracts, concurrent command receipts, shared files and real private Git clone smoke |
 | Computer container backend (computerd)        | `@cloudflare/computer/backends/container` + computerd FUSE image        | Yes                           | Full Linux userland (python3, git, curl, jq) over the same durable file world as worker-shell             | Container boot latency and standard-2 instance cost          | Backend routing tests plus local Docker smoke: python3 reads DO-written file, container write syncs back      |
 | Cloudflare Sandbox (removed)                  | Cloudflare Sandbox SDK plus Flue Cloudflare adapter                     | Removed                       | Fully superseded by the computer's container backend                                                      | None (class deleted via `v6_retire_sandbox`)                 | Dependency removed; no `SANDBOX` binding or `Sandbox` class remains                                           |
 | Browser Live View and retained sessions       | Browser Run Live View and CDP session APIs                              | No                            | Headless one-shot execution covers the current product need                                               | Human takeover and retained-session lifecycle                | No Live View URL, browser session state, or takeover surface exists                                           |
@@ -3334,7 +3393,7 @@ but not trigger.
    an active concurrent
    loser remains retryable. Core records the terminal delivery state and the
    published Slack timestamp only after Slack returns `ok: true` with a
-   non-empty `ts` and the same claim id wins the D1 finalize. Slack has no
+   non-empty `ts` and the same claim id wins the PostgreSQL finalize. Slack has no
    documented idempotency key for this call, so a network-ambiguous result, a
    failed fenced finalize, or an expired claim becomes `outcome_unknown` and is
    never automatically reposted. This is an explicit at-most-once tradeoff for
@@ -3434,7 +3493,7 @@ but not trigger.
    logs the capability gap and requeues the same probe.
    Queue retry count is not accepted-delivery liveness. Every successful probe
    enqueue or self-requeue renews the ledger's next-probe due time. Core's
-   minute scheduler scans missing or expired due times and uses one bounded D1
+   minute scheduler scans missing or expired due times and uses one bounded PostgreSQL
    compare-and-set lease before enqueueing compensation. A failed enqueue
    releases its exact lease when Core knows the preceding operation stopped. If
    the reconciliation RPC timed out, enqueue failure keeps the processing lease
@@ -3655,9 +3714,9 @@ Routine rollout has three different strict windows:
   still enter bounded ACK recovery during the forward window; it must not be
   mistaken for a deterministic rejection.
 
-Apply D1 migration `0025` before `0026`, `0035` before queued Slack ingress,
-`0036` before new Routine fields, and `0063` before Core can append a Routine
-continuation delivery. Deploy the Core queue consumer before the
+Complete native PostgreSQL migration acceptance before producers. The original
+D1 prerequisites (`0025`, `0026`, `0035`, `0036`, `0063`) are included in the
+native baseline; do not replay them. Deploy the Core queue consumer before the
 Gateway Slack queue producer; Gateway returns retryable non-2xx if enqueue is
 not available. These windows are independent; the W2
 consumer-first exception must not be replaced by the default Core-before-Remote
@@ -4030,7 +4089,7 @@ create parallel authorities or rework workstation RuntimeCoordinator semantics.
   OpenMeld secrets at any tier; widening the vetting bar or the tool tier
   requires Felix.
 - Routines are user-visible and must follow
-  `developing/product/center-agent-routines.md`: D1 plus Core Cron owns timing,
+  `developing/product/center-agent-routines.md`: PostgreSQL plus Core Cron owns timing,
   the destination is explicit, each Run has one initial native delivery and may
   have one resumed Center Agent delivery after its own all-terminal delegated
   work, `routine_runs.native_delivery_id` owns the final result, skipped Runs

@@ -6,7 +6,7 @@
   recovery for OpenMeld production releases without turning every change into
   a fleet rollout.
 - Read this when: You are planning or executing a local or GitHub production
-  deploy, a D1 migration, a CLI publish, or Desktop release assessment.
+  deploy, a relational migration, a CLI publish, or Desktop release assessment.
 - Update this when: Release scopes, workflow inputs, production ordering,
   database gates, CLI publication, Desktop coverage, health checks, or release
   evidence changes.
@@ -649,7 +649,7 @@ Organization Skills catalog RPC in the same release also has a Core receiver,
 so it follows that Core-first order.
 
 The strict version-4 Center Agent conversation contract is such a request-side
-change. Apply its D1 generation-pointer migration first, deploy Remote Agent so
+change. Apply its PostgreSQL generation-pointer migration first, deploy Remote Agent so
 it accepts version 4, and deploy Core last so it begins producing version 4.
 This request-receiver-first requirement takes precedence if the same diff also
 changes the strict worker response union; otherwise Core could deploy first and
@@ -939,7 +939,7 @@ producer, the Inbox profile already places Web and Gateway before Core and Core
 before Remote Agent. A compound release never silently discards one
 receiver-first dependency in favor of another profile name.
 
-The strict persisted-row readers are Core's D1-to-Inbox mapper and RPC response,
+The strict persisted-row readers are Core's PostgreSQL-to-Inbox mapper and RPC response,
 Gateway's response boundary, and the Web API client. Core is also the only
 writer. The receiver-first window is therefore safe in both directions: the new
 Web and Gateway continue accepting old Core responses, then the new Core writes
@@ -960,7 +960,7 @@ absent legacy thread locator rather than manufacturing main-timeline identity.
 Rollback is forward-only at the reader boundary. First stop new writes with a
 Core change that retains the new schema. Keep the compatible Core, Gateway, and
 Web readers deployed because already-written rows remain durable. Do not deploy
-an old reader, manually rewrite D1, or delete Inbox rows as a rollback shortcut.
+an old reader, manually rewrite PostgreSQL, or delete Inbox rows as a rollback shortcut.
 A full reader rollback is permitted only after an explicit migration or
 retention process verifies that no persisted `message_channel` target remains.
 The additive nullable migration remains applied during rollback.
@@ -978,7 +978,7 @@ From the same approved immutable SHA:
 
 1. deploy `web` alone so it accepts the new work-activity keys;
 2. deploy `remote-agent` alone and verify its active production version;
-3. run the normal `full` release so D1 migrations apply before Web, Gateway,
+3. run the normal `full` release so PostgreSQL migrations apply before Web, Gateway,
    Auth, Core, and the idempotent final Remote Agent deploy;
 4. publish `cli` only after the new Core Organization Skills API is active; and
 5. run the authenticated Web, Center Agent, runtime activation, and published
@@ -987,7 +987,7 @@ From the same approved immutable SHA:
 Do not allow Core to emit Organization Skill selections before step 2 completes.
 Rollback reverses the strict contract boundary: restore the previous Core
 producer first so it stops emitting the field, then restore the previous Remote
-Agent, and only then restore the previous Web. The additive D1 tables and
+Agent, and only then restore the previous Web. The additive PostgreSQL tables and
 immutable R2 release objects remain in place while Web and CLI compatibility is
 assessed; do not delete them as a rollback shortcut.
 
@@ -1028,7 +1028,7 @@ or migrate existing invitations into requests. Core reuses existing Auth identit
 and directory RPCs; native invitation delivery remains Auth-owned.
 
 After the additive migrations, the release owner must verify both counts are
-zero through the authorized read-only production D1 diagnostic path:
+zero through the authorized read-only production PostgreSQL diagnostic path:
 
 ```sql
 SELECT count(*) AS join_requests FROM organization_join_requests;
@@ -1168,9 +1168,9 @@ OPENMELD_PRODUCTION_TRAIN_SCOPES=core pnpm run release:preflight:local -- --scop
 Every preflight checks the cheap repository release contracts. Core additionally
 fails closed unless the production CLI channel can satisfy the local-component
 version it will project. The CLI publisher still owns the mandatory final
-release-readiness gate before irreversible publication. Database generation,
-migration truth, remote application, physical verification, and optimization
-remain owned by `db:release:prod` itself.
+release-readiness gate before irreversible publication. Native database migration, runtime grants, target and journal verification
+remain owned by the guarded `db` scope described in
+[Production Database Release](#production-database-release).
 
 Whole-train preflight reads every component baseline and proves that all
 pending scopes satisfy their actual receiver/producer compatibility dependencies
@@ -1455,11 +1455,10 @@ full
 - CLI publishing is not available in this workflow.
 
 The separate CLI Release workflow also deploys the Core projection required by
-the published CLI channel. It proves that the Production D1 pending migration
-list for the exact release source is empty before publishing CLI artifacts.
-Every Core deployment also repeats that read-only check in the shared Core
-startup-admission owner, before uploading a version or entering its atomic
-Durable Object migration path. This covers standard, receiver-first, current
+the published CLI channel. For PostgreSQL it verifies the deployed native
+database contract and immutable import evidence before publication. Core
+startup admission checks the registered target and native migration journal
+before uploading a version or entering its atomic Durable Object migration path. This covers standard, receiver-first, current
 stable CLI projection, and CLI projection deployment in both release lanes.
 The check is at the Core mutation boundary, not whole-train preflight: an
 ordered `database-core` or `full` release completes Database before checking
@@ -1831,7 +1830,7 @@ because they are safe, even though they create another Worker version.
 
 | Stage | `SKIP` criterion | Criterion level |
 | --- | --- | --- |
-| Production D1 migration application | `wrangler d1 migrations list --remote` reports no pending migrations | Remote pending-list truth |
+| Production PostgreSQL migration application | Native journal matches the committed migration prefix; scoped target and runtime grants verify | Native database acceptance under the database lease |
 | CLI binary, signing, notarization, and R2 | The production manifest has the target version and the exact target `minRequiredCliVersion`; the platform record is complete; the raw and gzip artifacts are downloadable with their recorded sizes; the gzip sha256 matches and reconstructs the recorded raw binary | Immutable published-record evidence; any inconclusive or inconsistent target-version record fails closed |
 | npm | The exact version and floor exist; the downloaded tarball matches integrity and source, has portable dependencies and the CLI entrypoint, and has an isolated npm consumer proof | Verified immutable artifact and consumer installation, not version existence alone |
 | Release tag | The target tag resolves to the current release commit both locally and on `origin` | Local and remote Git object identity |
@@ -1957,5 +1956,5 @@ Every production handoff must include:
   when CLI was published;
 - failures, recoveries, skipped checks, and remaining work.
 
-Never report a preview, control-plane deployment listing, direct D1 query, or
+Never report a preview, control-plane deployment listing, direct database query, or
 internal RPC call as completed real-user smoke.

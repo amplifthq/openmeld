@@ -1694,44 +1694,43 @@ describe("organization Core RPC", () => {
       ],
     });
     const env = await buildEnv({ db });
-    vi.spyOn(
-      runtimeTransportClient,
-      "lookupRuntimeTransportOwnerService"
-    ).mockResolvedValue({
-      online: true,
-      sessions: [
-        {
-          capabilities: {},
-          connectionGeneration: 2,
-          daemonSessionId: "session-current",
-          deviceId: "device-b",
-          executionCompatibility: {
-            expectedEpoch: "runtime-contract-v2",
-            observedEpoch: "runtime-contract-v1",
-            reasonCode: "daemon.runtime_contract.mismatch",
-            status: "update_required",
+    const lookupOwnerService = vi
+      .spyOn(runtimeTransportClient, "lookupRuntimeTransportOwnerService")
+      .mockResolvedValue({
+        online: true,
+        sessions: [
+          {
+            capabilities: {},
+            connectionGeneration: 2,
+            daemonSessionId: "session-current",
+            deviceId: "device-b",
+            executionCompatibility: {
+              expectedEpoch: "runtime-contract-v2",
+              observedEpoch: "runtime-contract-v1",
+              reasonCode: "daemon.runtime_contract.mismatch",
+              status: "update_required",
+            },
+            lane: "prod",
+            lastHeartbeatMs: 2000,
+            serviceVersion: "0.3.65",
           },
-          lane: "prod",
-          lastHeartbeatMs: 2000,
-          serviceVersion: "0.3.65",
-        },
-        {
-          capabilities: {},
-          connectionGeneration: 1,
-          daemonSessionId: "session-replaced",
-          deviceId: "device-b",
-          executionCompatibility: {
-            expectedEpoch: "runtime-contract-v1",
-            observedEpoch: "runtime-contract-v1",
-            reasonCode: "daemon.runtime_contract.compatible",
-            status: "compatible",
+          {
+            capabilities: {},
+            connectionGeneration: 1,
+            daemonSessionId: "session-replaced",
+            deviceId: "device-b",
+            executionCompatibility: {
+              expectedEpoch: "runtime-contract-v1",
+              observedEpoch: "runtime-contract-v1",
+              reasonCode: "daemon.runtime_contract.compatible",
+              status: "compatible",
+            },
+            lane: "prod",
+            lastHeartbeatMs: 1000,
+            serviceVersion: "0.3.64",
           },
-          lane: "prod",
-          lastHeartbeatMs: 1000,
-          serviceVersion: "0.3.64",
-        },
-      ],
-    });
+        ],
+      });
 
     await expect(
       rpcCenterAgentReadMemberOpenMeldServiceStatus(env, {
@@ -1769,6 +1768,11 @@ describe("organization Core RPC", () => {
       ],
       organizationId: "org-a",
     });
+    expect(
+      lookupOwnerService.mock.calls.every(
+        ([request]) => request.ownerUserId === "user-b"
+      )
+    ).toBe(true);
   });
 
   it("lists computer setup context for the verified represented member", async () => {

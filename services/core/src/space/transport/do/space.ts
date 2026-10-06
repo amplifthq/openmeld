@@ -17375,7 +17375,7 @@ export class Space extends DurableObject<CoreBindings> {
       "reconcile member ownership",
       () => this.ensureAgentOwnerMembershipPolicy(metaRecord)
     );
-    const profileFacts = await this.measureBootstrapBranchTiming(
+    const profileFacts = this.measureBootstrapBranchTiming(
       bootstrapTiming,
       "member_names",
       "refresh member names from Auth",

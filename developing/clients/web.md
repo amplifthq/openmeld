@@ -3579,6 +3579,9 @@ The account invalidation stream accelerates cross-Space Inbox and Space Index
 refreshes in Web and Desktop. Its frames carry no item or preview data. The
 client re-reads the owning projection on each frame and reconnect; bounded
 polling covers missed frames and older Desktop builds.
+Short-lived stream connections retain reconnect backoff until a keepalive
+round trip succeeds. Disconnect resumes polling; reconnect refreshes the owning
+projections. A disconnect alone does not trigger another full directory read.
 
 Authenticated route loaders may warm these same Query keys during SSR and let
 the existing TanStack Router SSR Query integration hydrate them on direct entry.

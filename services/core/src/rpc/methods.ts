@@ -3162,7 +3162,7 @@ export type CompleteGitHubAppInstallationInput =
 export type ListCurrentOrganizationConnectorConnectionsInput = {
   context?: CoreRpcContextInput;
   expectedOrganizationId: string;
-  service: ConnectorService;
+  service?: ConnectorService;
 };
 export type ListCurrentOrganizationConnectorAppRequestsInput = {
   context?: CoreRpcContextInput;
@@ -7156,6 +7156,13 @@ async function buildOrganizationComputersResponse(input: {
     generatedAt,
     includeUsageLimits: input.includeUsageLimits,
     lookupMemberComputerInventory: async ({ userId }) => {
+      const memberDevices = devicesByOwner.get(userId) ?? [];
+      const executionTargets = targetsByOwner.get(userId) ?? [];
+      // The registry owns the rows in this projection. Live sessions only
+      // enrich registered devices; an owner without devices has no rows.
+      if (memberDevices.length === 0) {
+        return { devices: memberDevices, executionTargets, liveSessions: [] };
+      }
       let liveSessions: Awaited<
         ReturnType<typeof lookupRuntimeTransportOwnerService>
       > | null = null;
@@ -7174,8 +7181,8 @@ async function buildOrganizationComputersResponse(input: {
         });
       }
       return {
-        devices: devicesByOwner.get(userId) ?? [],
-        executionTargets: targetsByOwner.get(userId) ?? [],
+        devices: memberDevices,
+        executionTargets,
         liveSessions: projectOrganizationComputerLiveSessions({
           generatedAt,
           liveSessions,
@@ -7806,7 +7813,10 @@ export async function rpcListCurrentOrganizationConnectorConnections(
     activeOrganization,
     db: requireConnectorConnectionDb(env),
     env,
-    service: requireConnectorService(input.service),
+    service:
+      input.service === undefined
+        ? undefined
+        : requireConnectorService(input.service),
   });
 }
 export async function rpcListCurrentOrganizationConnectorAppRequests(
@@ -8013,6 +8023,56 @@ export async function rpcCompleteConnectorDisconnect(
     env,
   });
 }
+export async function rpcCenterAgentListConnectorServices(
+  env: CoreBindings,
+  input: Pick<
+    CenterAgentResolveConnectorConnectionInput,
+    "context" | "requesterUserId" | "includeDelegatedRequester"
+  >
+) {
+  const context = requireRpcContext(input.context);
+  const authorization = await requireRemoteAgentToolCaller({ context, env });
+  const representedUserId = await resolveRemoteAgentConnectorRequester({
+    env,
+    authorization,
+    service: "github",
+    requesterUserId: input.requesterUserId,
+    includeDelegatedRequester: input.includeDelegatedRequester,
+  });
+  let requesterUserId = normalizeOptionalText(input.requesterUserId);
+  if ("personalExecution" in authorization) {
+    requesterUserId =
+      representedUserId ===
+      authorization.personalExecution.request.agentProfileOwnerUserId
+        ? representedUserId
+        : null;
+  }
+  if (requesterUserId) {
+    await requireConnectorRequesterMembership({
+      env,
+      organizationId: authorization.activeOrganization.organizationId,
+      userId: requesterUserId,
+    });
+  }
+  const records = await listConnectorConnections({
+    db: requireConnectorConnectionDb(env),
+    organizationId: authorization.activeOrganization.organizationId,
+  });
+  return {
+    services: [
+      ...new Set(
+        records
+          .filter(
+            (record) =>
+              record.status === "active" &&
+              (record.scope === "shared" || record.userId === requesterUserId)
+          )
+          .map((record) => record.service)
+      ),
+    ],
+  };
+}
+
 export async function rpcCenterAgentResolveConnectorConnection(
   env: CoreBindings,
   input: CenterAgentResolveConnectorConnectionInput
@@ -24007,7 +24067,7 @@ async function listVisibleConnectorConnections(input: {
   activeOrganization: ActiveOrganization;
   db: PostgresDatabase;
   env: CoreBindings;
-  service: ConnectorService;
+  service?: ConnectorService;
 }): Promise<ConnectorConnectionListResponse> {
   const canManageOrganization = memberRoleHasOrganizationPermission(
     input.activeOrganization.role,

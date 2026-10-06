@@ -28,6 +28,7 @@ export const pluginRuntimeRequestSchema = z.discriminatedUnion("operation", [
   z.strictObject({
     operation: z.literal("list"),
     service: connectorServiceSchema,
+    actionId: z.string().trim().min(1).optional(),
   }),
   z.strictObject({
     operation: z.literal("execute"),

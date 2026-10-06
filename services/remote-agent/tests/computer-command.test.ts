@@ -29,6 +29,7 @@ import {
   createComputerCommandTool,
   readCommandSlice,
   stopRemoteAgentComputerCommands,
+  stopStoredComputerCommands,
 } from "../flue-adapter/computer-command";
 import { resolveRemoteAgentComputerName } from "../flue-adapter/computer-identity";
 import { cancelFlueRemoteAgentExecution } from "../flue-adapter/execution-cancellation";
@@ -152,6 +153,77 @@ function fixture() {
 }
 
 describe("retained Computer commands", () => {
+  it("preserves a shell receipt that completes after cleanup takes its snapshot", async () => {
+    const f = fixture();
+    await f.tool().execute({ action: "start", key: "a", command: "sleep 20" });
+    let finishShell!: (value: WorkspaceRuntimeExecHandle<"utf8">) => void;
+    let shellId = "";
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    f.exec.mockImplementationOnce(
+      (_source, options) =>
+        new Promise((resolve) => {
+          shellId = options.id;
+          finishShell = resolve;
+          entered();
+        })
+    );
+    const shell = f.tool().execute({
+      action: "start",
+      key: "b",
+      command: "printf retained",
+      backend: "worker-shell",
+    });
+    await started;
+    f.getExec.mockImplementationOnce(async (id) => {
+      finishShell(
+        handle(
+          shellId,
+          [
+            { id: shellId, seq: 1, name: "stdout", value: "retained" },
+            { id: shellId, seq: 2, name: "exit", code: 0 },
+          ],
+          true
+        )
+      );
+      await shell;
+      return handle(id, [{ id, seq: 1, name: "exit", code: 0 }], true);
+    });
+    await expect(
+      stopStoredComputerCommands({
+        context: context("execution-a"),
+        storage: f.storage,
+        access: () => f.workspaceAccess,
+      })
+    ).resolves.toEqual({ unfinished: 0, lostDuringCleanup: false });
+    await expect(
+      f.tool().execute({ action: "poll", key: "b" })
+    ).resolves.toMatchObject({ status: "completed", stdout: "retained" });
+  });
+
+  it("reports clipped output instead of silently presenting it as complete", async () => {
+    const result = await readCommandSlice(
+      handle(
+        "large",
+        [
+          { id: "large", seq: 1, name: "stdout", value: "x".repeat(50_001) },
+          { id: "large", seq: 2, name: "exit", code: 0 },
+        ],
+        true
+      ),
+      "large",
+      0,
+      1000
+    );
+    expect(result).toMatchObject({
+      status: "completed",
+      outputTruncated: true,
+    });
+    expect(result.stdout).toHaveLength(50_000);
+  });
+
   it.each([
     false,
     true,

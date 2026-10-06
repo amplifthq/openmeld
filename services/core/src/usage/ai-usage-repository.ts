@@ -110,16 +110,20 @@ export async function queryAiUsage(input: {
   };
   const coverageStatement = {
     text: `
-    SELECT COUNT(*) FILTER (WHERE ${state} = 'reported') AS "reportedRequests",
-      COUNT(*) FILTER (WHERE ${state} = 'pending') AS "pendingRequests",
-      COUNT(*) FILTER (WHERE ${state} = 'pending' AND occurred_at_ms < $${values.length + 1}) AS "stalePendingRequests",
-      COUNT(*) FILTER (WHERE ${state} = 'unavailable') AS "unavailableRequests",
-      COUNT(*) FILTER (WHERE ${state} = 'collection_failed') AS "collectionFailedRequests",
+    WITH coverage AS MATERIALIZED (
+      SELECT ${state} AS status, occurred_at_ms, total_tokens, cost_nano_usd, task_id
+      FROM "openmeld"."ai_usage_records" WHERE ${where}
+    )
+    SELECT COUNT(*) FILTER (WHERE status = 'reported') AS "reportedRequests",
+      COUNT(*) FILTER (WHERE status = 'pending') AS "pendingRequests",
+      COUNT(*) FILTER (WHERE status = 'pending' AND occurred_at_ms < $${values.length + 1}) AS "stalePendingRequests",
+      COUNT(*) FILTER (WHERE status = 'unavailable') AS "unavailableRequests",
+      COUNT(*) FILTER (WHERE status = 'collection_failed') AS "collectionFailedRequests",
       COUNT(*) FILTER (WHERE total_tokens IS NULL) AS "missingTokenRequests",
       COUNT(*) FILTER (WHERE cost_nano_usd IS NULL) AS "missingCostRequests",
       COUNT(*) FILTER (WHERE task_id IS NULL) AS "unassignedTaskRequests",
-      MIN(CASE WHEN ${state} = 'pending' THEN occurred_at_ms END) AS "oldestPendingAtMs"
-    FROM "openmeld"."ai_usage_records" WHERE ${where}
+      MIN(CASE WHEN status = 'pending' THEN occurred_at_ms END) AS "oldestPendingAtMs"
+    FROM coverage
   `,
     values: [...values, (input.nowMs ?? Date.now()) - staleAfterMs],
   };
