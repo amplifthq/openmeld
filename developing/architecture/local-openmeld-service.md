@@ -999,7 +999,7 @@ state.
 
 Absolute paths may cross Web, Gateway, Core, RuntimeTransportHub, and Service
 only in the authenticated Computer owner's immediate request-response. They
-must not be written to D1, Organization data, Agent Activity, cloud snapshots,
+must not be written to PostgreSQL, Organization data, Agent Activity, cloud snapshots,
 Center Agent context, browser persistence, logs, traces, or failure receipts.
 Service store failures expose only stable `computer.file_access.*` codes and
 path-free messages across process boundaries. The local typed error retains its
@@ -1791,7 +1791,7 @@ Legacy current-target Project operations remain available to existing clients.
 An operation response may contain an absolute local path only for immediate
 forwarding through Core and Gateway to the authenticated owner who initiated
 that request. Immediate forwarding is not storage. Local paths must never be
-written to D1, Agent Activity events or projections, cloud snapshots,
+written to PostgreSQL, Agent Activity events or projections, cloud snapshots,
 Organization-shared Project records, or Center Agent context. Logs, traces,
 failure receipts, and diagnostics that cross the local trust boundary use
 Project ID, device ID, candidate ID, and binding generation instead of the
@@ -1900,7 +1900,7 @@ is unavailable.
 
 Selected paths may cross Web, Gateway, Core, RuntimeTransportHub, and Service
 only in the authenticated owner's immediate request-response. They must never
-enter command arguments, D1, browser persistence, logs, traces, failure
+enter command arguments, PostgreSQL, browser persistence, logs, traces, failure
 receipts, diagnostics, Agent Activity, Organization state, or Center Agent
 context. Scripts are supplied through stdin where the platform requires them,
 and the adapter returns its typed result through supervised stdout. Selected

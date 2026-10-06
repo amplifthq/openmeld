@@ -369,7 +369,7 @@ docs directly readable against our schema.
   human-only SaaS. Enable only when a real org hits that need.
 - Auto-personal-org lands via a user-create database hook calling server-side
   org creation; the session-create hook sets `activeOrganizationId`. Each Auth
-  user has at most one personal Organization. D1 enforces that invariant with a
+  user has at most one personal Organization. PostgreSQL enforces that invariant with a
   partial unique index over the existing canonical facts:
   `created_by_user_id` where valid Organization metadata has `personal: true`.
   Concurrent first sessions resolve the same winning Organization and converge
@@ -463,7 +463,7 @@ Hard boundary:
 - **Better Auth owns identity**: org, member, invitation, session, role.
 - Better Auth also owns the Organization's current `logo` reference. Gateway
   owns the referenced image bytes and transformation/storage side effects.
-- **Core (D1) owns business resources**: Spaces, Agent Profiles, Bindings,
+- **Core (PostgreSQL) owns business resources**: Spaces, Agent Profiles, Bindings,
   Center Agent designations — each carrying an `organizationId` reference.
 - Do not put business fields into Better Auth tables via `additionalFields`.
   Business mutations need our own validation, audit, and side effects; hiding
@@ -702,7 +702,7 @@ context. The UI must say **prepared** and **reported loaded** rather than imply
 that the model saw, understood, or relied on every item. Neither entry displays
 message bodies, a local thread or session locator, hidden model state, or
 authorization material. The manifest ledger keeps stable Signal refs and
-hashes instead of copying Chat text into D1. This makes the interaction
+hashes instead of copying Chat text into PostgreSQL. This makes the interaction
 discoverable without turning the Audit Log into a second transcript.
 
 Downstream provenance reuses the existing native-delivery correlation on the
@@ -2021,7 +2021,7 @@ the channel's actual work. Core freezes the selected channels as one immutable
 durable manifest before the acknowledgement is published, then submits one
 idempotent native delivery per channel and checkpoints each item separately.
 The acknowledgement and each private teammate invitation carry stable Slack
-message metadata. A confirmed Slack message followed by a failed D1 checkpoint
+message metadata. A confirmed Slack message followed by a failed PostgreSQL checkpoint
 stays recoverable rather than becoming a false terminal failure: Core first
 retries the checkpoint, then scheduled work reconciles the exact Slack message
 before continuing onboarding or channel publication. Recovery never blindly

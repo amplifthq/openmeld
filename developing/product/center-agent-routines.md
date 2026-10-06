@@ -27,6 +27,14 @@
   the implementation truth and must be reconciled with this file in the same
   change when behavior moves.
 
+## Storage and migration references
+
+Production shared relational storage is PostgreSQL. Numeric migration references
+from the original D1 rollout describe historical schema dependencies already
+absorbed into the native baseline; they are not D1 commands to run now. New
+changes use the native journal and scoped database release in the
+[PostgreSQL workflow](../engineering/postgresql.md). Receiver-first service and client compatibility requirements still apply.
+
 ## Current Implementation Status
 
 ### Personal Remote Agent Routines
@@ -67,7 +75,7 @@ product contract end to end:
 
 - shared strict Routine, Run, target-space, turn-envelope, private-tool, and
   CLI JSON contracts;
-- D1 Routine and Run ownership through migrations `0025`, `0026`, `0028`,
+- Historical D1 Routine and Run ownership through migrations `0025`, `0026`, `0028`,
   `0036`, the Routine native-delivery chain migration `0063`, and the
   unattended-action/continuation fence migration `0064`;
 - the Core minute Cron scheduler, atomic occurrence claim, catch-up and
@@ -378,7 +386,7 @@ that member could make through Web or CLI.
 
 ## Durable Ownership And Scheduling
 
-D1 is the only product truth for Routine definitions and Run history:
+PostgreSQL is the only product truth for Routine definitions and Run history:
 
 - `routines` stores definitions and the `nextDueAt` read projection.
 - `routine_runs` stores durable records for individually claimed occurrences
@@ -429,7 +437,7 @@ Core receives one Workers Cron Trigger each minute. On a Routine tick it:
 2. retries due visible failure publications;
 3. fails stale Runs that never advanced beyond `claimed`;
 4. scans a bounded global batch of enabled definitions whose `nextDueAt` is due;
-5. creates one Run and advances `nextDueAt` in one D1 atomic batch; and
+5. creates one Run and advances `nextDueAt` in one PostgreSQL transaction; and
 6. admits the claimed Run to Remote Agent native delivery.
 
 Routine execution is Workflow-first without changing that scheduling
@@ -444,7 +452,7 @@ from Workflow to Legacy.
 
 | Responsibility | Owner | Evidence required before moving on |
 | --- | --- | --- |
-| One scheduled occurrence | Core scheduler and atomic D1 claim | Unique Routine/occurrence Run and advanced schedule |
+| One scheduled occurrence | Core scheduler and atomic PostgreSQL claim | Unique Routine/occurrence Run and advanced schedule |
 | Durable admission retries | Run Workflow using shared native delivery | Confirmed submission id, or an explicit terminal/blocked outcome |
 | Agent execution and progress | Remote Agent native runtime | Exact execution lifecycle; a scheduler or wait timeout cannot override it |
 | Callback validation and publication | Shared native-delivery service | Matching identity, frozen destination, and idempotent publication receipt |
@@ -459,7 +467,7 @@ not an equivalent simplification. No new scheduler or execution framework is
 introduced for future Team or Local Agent support. A future Local executor must
 use RuntimeCoordinator for execution rather than copying the hosted runtime.
 
-Both engines keep D1 as Routine and Run product truth and use the same Remote
+Both engines keep PostgreSQL as Routine and Run product truth and use the same Remote
 Agent admission, Run idempotency key, callback validation, target snapshot, and
 Space publication code. The `legacy` engine uses Core's bounded pre-ACK
 recovery scans and the compatibility Queue for admission and publication
@@ -478,7 +486,7 @@ destination result. If the resumed turn is deterministically rejected before
 execution, Core must deliver the exact `terminal_failure` continuation event
 before projecting the Run terminal. The Workflow owns a retryable continuation
 failure finalization step that validates the failed native delivery and
-idempotently projects the D1 Run and downstream terminal effects. Caller-side
+idempotently projects the PostgreSQL Run and downstream terminal effects. Caller-side
 projection is only a latency optimization; an accepted event remains sufficient
 for the Workflow to finish after that caller write fails. A failed event send
 leaves the Run submitted; replay resends that event from the frozen terminal
@@ -509,10 +517,10 @@ ledger.
 
 New Workflow instances retain successful terminal state for one day and
 errored or terminated state for 30 days. The short success window bounds
-routine storage after D1 and the destination hold the durable outcome. The
+routine storage after PostgreSQL and the destination hold the durable outcome. The
 full paid-plan error window preserves operator inspection for failures that
 must remain fail closed. Terminal-state retention does not limit an active
-callback wait or shorten D1 Run history.
+callback wait or shorten PostgreSQL Run history.
 
 Workflow recovery scans use a bounded, least-recently-checked batch. Checking
 an already waiting instance is not starting another execution. Apply the
@@ -638,7 +646,7 @@ execution when the initial turn registered
 `resume_parent_when_all_terminal`. Regardless of that internal work, the Run
 has at most one visible destination result. The fences are layered:
 
-- D1 occurrence uniqueness and atomic initial Run/native-delivery linking
+- PostgreSQL occurrence uniqueness and atomic initial Run/native-delivery linking
   prevent a second logical Run;
 - a Routine Run may own an ordered native-delivery chain under one
   `routineRunId`; `routine_runs.native_delivery_id` points to the only delivery
@@ -661,7 +669,7 @@ has at most one visible destination result. The fences are layered:
   compatibility deadline probe for an accepted execution is ignored;
 - explicit cancellation targets one durable worker submission and cannot stop
   unrelated work in the same conversation;
-- callback and failure branches combine D1 claims or terminal compare-and-swap
+- callback and failure branches combine PostgreSQL claims or terminal compare-and-swap
   with the destination-specific publication fence; Space deduplicates by Run
   id, while Slack uses its native-delivery publication claim and records
   provider-ambiguous outcomes without automatic reposting; and
@@ -671,7 +679,7 @@ has at most one visible destination result. The fences are layered:
 Ambiguous worker submission is not immediate permission to fail or resubmit a
 new model turn. Core persists the worker request before the call, revalidates
 the current Routine admission boundary during bounded recovery, and replays the
-same Run identity. The private D1 staging value uses a versioned storage
+same Run identity. The private PostgreSQL staging value uses a versioned storage
 envelope around the shared worker-request schema. Core may read an unversioned
 historical value only when it still satisfies the current strict shared schema.
 If an older value can no longer be decoded safely, Core must not fabricate
@@ -873,7 +881,7 @@ and the six member-attributed Routine tools.
 The Remote Agent's Agents SDK/Flue alarm mechanism remains callback-only. Its
 only scheduled callback retries delivery of worker completion callbacks to
 Core. It must not store or schedule Routine definitions or create new Routine
-turns. Routine scheduling belongs exclusively to D1 plus the Core minute Cron
+turns. Routine scheduling belongs exclusively to PostgreSQL plus the Core minute Cron
 Trigger.
 
 ## Web, CLI, And Conversation Surfaces
@@ -929,7 +937,7 @@ before Core authorizes it.
 ## Observability And Audit
 
 Each successful create, update, pause, resume, or delete writes one durable
-audit row in the same D1 batch as the mutation. A direct human Web or CLI path
+audit row in the same PostgreSQL transaction as the mutation. A direct human Web or CLI path
 records the current human profile as `actorProfileId` with `onBehalfOf = null`.
 A Center Agent tool path records the designated Center Agent profile as
 `actorProfileId` and the verified represented human in `onBehalfOf`. When that
@@ -1007,17 +1015,14 @@ single owner of those effects.
 Routine rollout has three different strict mixed-version windows. Do not collapse
 them into one generic Remote Agent deploy order.
 
-1. Apply D1 migration `0025` before `0026`, and apply `0035` before enabling
-   queued Slack ingress.
-2. Apply additive migration `0028_routine_run_workflow` before selecting the
-   Workflow engine. Existing non-skipped Runs are frozen to `legacy`; skipped
-   historical evidence has no execution engine.
-3. Apply `0036_practical_center_agent_routines` before any producer sends
-   one-time or Slack-destination Routine fields.
-4. Apply `0063_crazy_nick_fury` before Core can create a Routine continuation
-   delivery. It replaces the one-delivery unique index with a non-unique Run
-   lookup index; the Run's current `native_delivery_id` remains the final-result
-   ownership fence.
+1. Complete native PostgreSQL migration acceptance before enabling consumers.
+   The baseline includes the original D1 Routine schema chain (`0025`, `0026`,
+   `0028`, `0035`, `0036`, `0063`, `0064`); do not replay those migrations.
+2. Selecting Workflow affects future claims. Existing non-skipped Runs retain
+   their frozen engine; skipped historical evidence has no execution engine.
+3. Deploy receivers for one-time and Slack-destination fields before producers.
+4. The schema permits multiple deliveries per Run. The current
+   `native_delivery_id` remains the final-result ownership fence.
 5. **W2 turn-envelope window, Core to Remote Agent:** deploy the Remote Agent
    worker that accepts `delegatedBy`, the rollout-optional frozen Routine
    destination, durable Slack locators, the optional Routine continuation
@@ -1094,7 +1099,7 @@ diagnostics remain read models, not a budget enforcement engine.
   outcome meaning.
 - `developing/product/remote-agent-runtime.md` owns native delivery, worker
   callback, and Remote Agent tool-runtime boundaries.
-- `developing/architecture/data-and-observability.md` owns D1, ledger,
+- `developing/architecture/data-and-observability.md` owns PostgreSQL, ledger,
   projection, audit, and diagnostic boundaries.
 - `developing/architecture/shared-contracts.md` owns strict Routine HTTP/RPC,
   turn-envelope, and CLI JSON schemas.
@@ -1112,7 +1117,7 @@ not by itself evidence that every writer and publication branch complies.
 - One organization owns each Routine.
 - Each individually claimed occurrence has at most one Run; one aggregate
   `skipped` Run may summarize a bounded overdue range.
-- D1 is the only Routine definition and Run-history truth.
+- PostgreSQL is the only Routine definition and Run-history truth.
 - `nextDueAt` is a projection, not a second scheduler truth.
 - A destination is explicit, organization-scoped, and frozen for one
   claimed Run across execution and every result-publication path.
