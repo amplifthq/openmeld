@@ -30,7 +30,8 @@ const cloudflareComputerMock = vi.hoisted(() => ({
   getWorkspace: vi.fn(),
 }));
 
-vi.mock("@cloudflare/computer", () => ({
+vi.mock("@cloudflare/computer", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@cloudflare/computer")>()),
   getWorkspace: cloudflareComputerMock.getWorkspace,
 }));
 
