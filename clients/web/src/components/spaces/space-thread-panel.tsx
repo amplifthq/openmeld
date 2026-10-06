@@ -1206,10 +1206,6 @@ function ThreadTimeline(input: {
 			</p>
 		);
 	}
-	if (input.isLoading) {
-		return <ThreadMessagesLoading />;
-	}
-
 	return (
 		<MessageScrollerProvider autoScroll={true} defaultScrollPosition="end">
 			<SpaceMessageScrollController
@@ -1224,6 +1220,9 @@ function ThreadTimeline(input: {
 						unreadTargets={input.unreadTargets}
 					/>
 					<MessageScrollerContent className="gap-0">
+						{input.isLoading && input.items.length === 0 ? (
+							<ThreadMessagesLoading />
+						) : null}
 						{input.items.map((item) => {
 							if (
 								isSpaceOutcomeNoticeItem(item) &&
