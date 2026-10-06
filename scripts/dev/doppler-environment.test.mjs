@@ -136,8 +136,7 @@ test("keeps the root README on the same newcomer workflow", () => {
   );
 
   assert.equal(readme.includes("pnpm dev:doctor"), true);
-  assert.equal(readme.includes("pnpm dev:worktree"), true);
-  assert.equal(readme.includes("pnpm dev:web:worktree"), true);
+  assert.equal(readme.includes("pnpm dev:postgresql"), true);
   assert.equal(readme.includes("Default local endpoints are"), false);
 });
 

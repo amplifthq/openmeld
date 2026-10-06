@@ -1,28 +1,28 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-06T11:47:43.269Z",
+  "updatedAt": "2026-10-06T14:56:27.119Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
-      "packageVersion": "0.3.245",
+      "packageVersion": "0.3.246",
       "updatePolicy": "available",
-      "reason": "Add OpenCode 2 and Antigravity ACP while retaining existing controller transports and wire contracts."
+      "reason": "Add native agent input, OpenCode 2 and Antigravity ACP with compatible existing controller and wire contracts."
     },
     "service": {
-      "bundleHash": "920d25a54f5869f8f1ee0853bdf2fe1e5d208cb060ef4414feacf4f29e78f27e",
-      "portableBundleHash": "a92590dc5f223eecf683c5ecc15ecc26a687d7d962e9847f8cb3644015bde14b",
-      "bundleVersion": "0.3.245",
+      "bundleHash": "a0044e4244ac51ffa1a79059e789310345076ce9e4b16bb86a6883ce28c5161c",
+      "portableBundleHash": "efc55e0543aa2312ddb841d35f0c46132562b02c22cd58b6ac5d5341615bb512",
+      "bundleVersion": "0.3.246",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
       "serviceContractVersion": "openmeld-service-contract-2026-09-local-install-recovery-v1",
       "updatePolicy": "available",
-      "reason": "Add native local controller protocols with existing Wake, interaction, and Space action contracts."
+      "reason": "Add native controller protocols while preserving Wake, interaction and Space action contracts."
     },
     "skills": {
-      "bundleHash": "c041258bd2098c01e98130579c12a11217b17de6f3c8e0b966a1e1001ad46bd3",
+      "bundleHash": "616672b13c7e061b01651894bcc7591b53730e3f452659adaa2fc0e7399ff36e",
       "skillContractVersion": "openmeld-skills-contract-2026-09-explicit-space-recipients-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "The added cloud Computer guidance is optional and ships with its CLI command after the cloud receivers; existing workstation instructions remain compatible."
+      "reason": "Optional native Computer guidance uses the new CLI after cloud receivers; existing workstation instructions remain valid."
     }
   }
 }

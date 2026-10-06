@@ -40,7 +40,20 @@ identity and file/command operations. Core derives ownership from the authentica
 request or persisted hosted delivery. The public `/v1/computer/cloud` endpoint
 does not accept an owner or provider resource ID. `GET` resolves the identity;
 `POST` performs one operation. `observedAtMs` dates that response, not a cached
-online flag. File reads/writes are bounded to 2 MB at this JSON boundary.
+online flag. Legacy file reads/writes are bounded to 2 MB at this JSON boundary.
+Official file operations retain the SDK's limits and pagination.
+
+Additive `describe`, `files`, `browser` and `preview` operations use the same
+authenticated route. `files` carries the official SDK tool name and parameters;
+`describe` publishes those exact schemas. Command start adds backend, environment,
+stdin and JSON input; exit may include a JSON result. The three backends are
+container, worker-shell and worker-javascript. Stop may select a native signal.
+The existing default Linux command behavior and legacy file operations remain
+valid. New actions fail explicitly against older receivers; deploy the Remote
+Agent receiver and Core/Gateway schemas before the updated CLI/Skills caller.
+No Service, Wake, setup, Space action or controller protocol changes. No contract
+epoch bump is needed; updated CLI/Skills are optional available artifacts in a
+later coordinated release. This feature PR uses deferred release readiness.
 
 Command operations use an invocation ID and stable key. Local invocation IDs are
 namespaced separately from hosted submissions. The Computer holds the command
@@ -1048,6 +1061,17 @@ discloses each cached page, it reruns the original source read with the original
 arguments and compares the result with the snapshot. Revocation, source changes,
 or an inaccessible old Files revision invalidate the page. The active Wake is
 also checked after the read. A cached result is never an authorization grant.
+
+The local `read_result` request optionally accepts a case-sensitive literal
+`query` against the retained serialized JSON. Its bounded `search` response
+contains up to two original-text excerpts and a cursor for subsequent matches;
+it is not a complete read or a semantic absence proof. Omitting `query` preserves
+the original complete pagination contract. Search uses the same Wake, connection,
+source-version, and access checks as paging. The schemas live in
+`packages/schemas`; this is a locally advertised tool extension, not a cloud
+payload change. Older local components continue to advertise ordinary paging.
+No setup, Wake, action, diagnostic, or native conversation contract changes;
+there is no required contract-floor bump or cloud rollout ordering dependency.
 
 ### Thread continuation and file working context
 
@@ -5850,6 +5874,57 @@ returns `routine_destructive_action_unsupported` before a new operation claim or
 provider execution. Recovery reads an exact existing operation before current
 catalog and policy checks, and may replay only that same idempotent provider
 operation; recovery never authorizes new destructive work.
+
+The internal `pluginRuntime` list request accepts an optional `actionId`. Core
+uses it for execution admission, and Remote Agent requests the same exact ID
+when it verifies execution metadata again. OpenConnector's additive
+`/v1/actions?service=...&actionId=...` filter preserves current policy checks.
+Remote Agent still checks the ID, service, and executable metadata if an older
+producer returns the complete catalog. No permission or connection result is
+cached. Deploy the Remote Agent receiver before the Core caller that sends this
+optional field. An older strict Remote Agent receiver rejects it. Rollback Core
+first. This changes no CLI, Service, Skills, setup, Wake, or public response
+contract and requires no local-component version bump.
+
+#### Selected Git connection transport integration
+
+`services/remote-agent/connectors/github-connection-transport.ts` owns the
+Plugins host adapter for Git read requests. It is an integration entrypoint,
+not an enabled native Computer command. The Computer owner must bind each
+request to an active operation and its exact repository before calling
+`forwardGitConnectionRequest`. Pass the connection snapshot selected by Core.
+The required `authorize` callback must recheck execution access and resolve
+that same connection through Core with `includeAccessPolicy: true` on every
+advertisement and upload-pack exchange. It returns the existing
+`centerAgentConnectorConnectionSelectionSchema` response. Never use an
+automatic connection preference after the operation selected an identity.
+
+The adapter verifies current read permission, Organization, member ownership,
+scope, alias, active status, and `updatedAtMs` against that snapshot. A changed
+or revoked connection fails the new request. OpenConnector derives the same
+canonical alias from verified Organization/requester IDs and the selected
+scope. Member connections use OAuth or API tokens. Shared GitHub connections
+use the existing App installation token resolver. Credentials stay with
+OpenConnector. The host replaces request credentials, cookies, and selector
+headers rather than forwarding them from the Computer. Both request and
+response remain byte streams. Abort signals propagate to the upstream fetch.
+
+The adapter requires the distinct OpenConnector endpoints
+`/v1/openmeld/git-connections/:owner/:repo/info/refs` and
+`/v1/openmeld/git-connections/:owner/:repo/git-upload-pack`. An older producer
+fails without substituting the legacy personal-only endpoint. The OpenMeld
+deployment overlay allows GitHub only for these fixed read-protocol routes.
+The upstream route still authenticates the configured runtime bearer and
+checks current runtime policy. Ordinary proxy and MCP policy remain blocked.
+
+Integration order: merge the OpenConnector endpoint, update the reviewed pin
+in `config/openconnector/github-working-copy-policy.mjs`, deploy that producer
+with the overlay, then enable the Computer consumer. The current pin does not
+contain the selected-connection endpoint. Keep this consumer disabled until
+that dependency is delivered. Computer owns native `git clone`/`git fetch`,
+process start, progress, cancellation, exit, and cleanup. Its integration must
+verify both member and shared connections, concurrent accounts, revocation,
+and existing independently authenticated CLI use through real commands.
 
 The Core connector-operation read must be deployed before the Remote Agent
 consumer. For the execution-connection snapshot rollout, apply the additive

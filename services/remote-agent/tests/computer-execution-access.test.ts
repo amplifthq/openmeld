@@ -7,7 +7,10 @@ import { createRemoteAgentComputerCapability } from "../flue-adapter/computer-sa
 import { createSubmitTurnRequest, TEST_NOW_MS } from "./fixtures";
 
 const getWorkspace = vi.hoisted(() => vi.fn());
-vi.mock("@cloudflare/computer", () => ({ getWorkspace }));
+vi.mock("@cloudflare/computer", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@cloudflare/computer")>()),
+  getWorkspace,
+}));
 
 function context() {
   const request = createSubmitTurnRequest();

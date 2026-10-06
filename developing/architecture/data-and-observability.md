@@ -35,6 +35,16 @@ status comes from native command observations; identity existence and a successf
 file read are not proof that a container is running. Future human UI must consume
 these same operations and observations rather than add another status writer.
 
+Worker-shell returns only after execution and provides no retained lookup. Its
+terminal output is kept with the Computer's existing command receipt. Atomic
+compare-and-set updates prevent cleanup from replacing a concurrent exit receipt.
+Worker-shell cannot be interrupted; cleanup cannot infer exit from a Stop request.
+Linux and
+Worker JavaScript use the SDK's retained handles. Backend and launch inputs are
+bound to the command key; a repeated key cannot select another engine or launch
+different work. Controlled legacy and official file mutations share the Computer
+owner's short mutation queue. Arbitrary native program writes remain outside it.
+
 Completed downloads are personal copies. Live provider grants remain with Core
 and never become credentials in the filesystem. Publication audience remains
 with Files, Space and connector action owners.

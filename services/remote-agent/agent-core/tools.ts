@@ -15,7 +15,6 @@ import {
   aiUsageQueryResponseSchema,
   buildOpenMeldNavigationAction,
   CENTER_AGENT_ANONYMOUS_MEMBER_TOOL_NAMES,
-  CENTER_AGENT_APP_CONNECTOR_SERVICES,
   CENTER_AGENT_DELEGATION_COMPLETION_MODES,
   CENTER_AGENT_MEMBER_RESEARCH_COVERAGE_SOURCES,
   CENTER_AGENT_MEMBER_RESEARCH_COVERAGE_STATUSES,
@@ -36,7 +35,6 @@ import {
   CHANGELOG_ENTRY_KINDS,
   CHANGELOG_QUERY_MAX_LIMIT,
   CHANGELOG_QUERY_MAX_OFFSET,
-  CONNECTOR_SERVICES,
   centerAgentAddAgentProfilesToSpaceResponseSchema,
   centerAgentAddMembersToSpaceResponseSchema,
   centerAgentAiUsageRpcInputSchema,
@@ -657,7 +655,7 @@ const wakeAgentProfilesInSpaceToolInputSchema = object({
       array(
         object({
           targetProfileId: nonEmptyStringSchema,
-          service: picklist(CENTER_AGENT_APP_CONNECTOR_SERVICES),
+          service: string(),
           connectionName: nonEmptyStringSchema,
           actionId: nonEmptyStringSchema,
           input: record(string(), unknownSchema()),
@@ -1373,7 +1371,7 @@ const removeProjectToolInputSchema = strictObject({
 // Flue requires a top-level object; the shared target schema enforces the exact variant at execution.
 const pluginConnectionNavigationInputSchema = strictObject({
   kind: literal("plugin_connection"),
-  service: picklist(CONNECTOR_SERVICES),
+  service: string(),
   scope: picklist(["member", "shared", "choose"]),
 });
 
@@ -1393,7 +1391,7 @@ const navigationActionToolInputSchema = strictObject({
   mode: optional(picklist(["reconnect", "setup", "update_service"])),
   purpose: optional(picklist(["continue_request", "optional_setup"])),
   projectId: optional(trimmedNonEmptyStringSchema),
-  service: optional(picklist(CONNECTOR_SERVICES)),
+  service: optional(string()),
   scope: optional(picklist(["member", "shared", "choose"])),
   spaceId: optional(trimmedNonEmptyStringSchema),
 });

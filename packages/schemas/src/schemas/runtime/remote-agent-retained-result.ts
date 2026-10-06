@@ -20,17 +20,35 @@ export type RemoteAgentResultSource = zod.infer<
   typeof remoteAgentResultSourceSchema
 >;
 
-export const remoteAgentReadToolResultRequestSchema = z.strictObject({
-  resultId: z.string().regex(/^[a-f0-9]{64}$/u),
-  offset: z.number().int().nonnegative().optional(),
-  limit: z
-    .number()
-    .int()
-    .min(1)
-    .max(REMOTE_AGENT_RETAINED_RESULT_READ_MAX_CHARS)
-    .optional(),
-  query: z.string().min(1).max(200).optional(),
-});
+export const remoteAgentReadToolResultRequestSchema = z
+  .strictObject({
+    resultId: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/u)
+      .optional(),
+    offset: z.number().int().nonnegative().optional(),
+    limit: z
+      .number()
+      .int()
+      .min(1)
+      .max(REMOTE_AGENT_RETAINED_RESULT_READ_MAX_CHARS)
+      .optional(),
+    query: z.string().min(1).max(200).optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (
+      !value.resultId &&
+      (value.offset !== undefined ||
+        value.limit !== undefined ||
+        value.query !== undefined)
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        message:
+          "Provide resultId for a result read or search; omit all fields to list recoverable references.",
+      });
+    }
+  });
 
 const resultSlice = {
   resultId: z.string().regex(/^[a-f0-9]{64}$/u),
@@ -43,6 +61,19 @@ const resultSlice = {
 export const remoteAgentReadToolResultResponseSchema = z.discriminatedUnion(
   "kind",
   [
+    z.strictObject({
+      kind: z.literal("list"),
+      results: z
+        .array(
+          z.strictObject({
+            resultId: z.string().regex(/^[a-f0-9]{64}$/u),
+            toolName: z.string().min(1),
+            totalChars: z.number().int().nonnegative(),
+            expiresAtMs: z.number().int().nonnegative(),
+          })
+        )
+        .max(REMOTE_AGENT_RETAINED_RESULT_MAX_PER_EXECUTION),
+    }),
     z.strictObject({
       ...resultSlice,
       kind: z.literal("read"),

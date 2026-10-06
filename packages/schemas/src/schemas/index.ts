@@ -1515,6 +1515,7 @@ export {
   connectorDisconnectResponseSchema,
   connectorOrganizationContextQuerySchema,
   connectorServiceSchema,
+  connectorServicesResponseSchema,
   createConnectorAppRequestBodySchema,
   githubAppInstallationIdSchema,
   githubAppInstallationSetupQuerySchema,

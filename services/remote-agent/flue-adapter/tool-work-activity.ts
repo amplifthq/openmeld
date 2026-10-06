@@ -273,6 +273,34 @@ const WEBSITE_SUBJECT_TOOL_NAMES = new Set([
   "web_fetch",
 ]);
 
+function resolveComputerWorkActivity(
+  toolInput: unknown,
+  toolResult: unknown
+): AgentWorkActivity | null {
+  const request = toRecord(toolInput);
+  if (request?.action === "files") {
+    const names: Record<string, string> = {
+      ls: "read",
+      find: "glob",
+      delete: "edit",
+    };
+    const name = typeof request.tool === "string" ? request.tool : "";
+    return resolveRemoteAgentToolWorkActivity(
+      names[name] ?? name,
+      request.input,
+      toolResult
+    );
+  }
+  if (request?.action === "command") {
+    return resolveRemoteAgentToolWorkActivity(
+      "computer_command",
+      request.input,
+      toolResult
+    );
+  }
+  return null;
+}
+
 export function resolveRemoteAgentToolWorkActivity(
   toolName: unknown,
   toolInput: unknown,
@@ -280,6 +308,16 @@ export function resolveRemoteAgentToolWorkActivity(
 ): AgentWorkActivity | null {
   if (typeof toolName !== "string") {
     return null;
+  }
+  if (toolName === "computer") {
+    return resolveComputerWorkActivity(toolInput, toolResult);
+  }
+  if (toolName === "computer_command") {
+    const request = toRecord(toolInput);
+    return request?.action === "start" &&
+      request.backend !== "worker-javascript"
+      ? resolveCommandAgentWorkActivity(readCommand(request))
+      : null;
   }
   const key =
     toolName === "openmeld_install_organization_skill" &&
