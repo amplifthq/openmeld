@@ -1,6 +1,7 @@
 import { formatStoredRoutineSchedule } from "@openmeld/routine-schedule";
 import type {
 	CreateCenterAgentRoutineBody,
+	OrganizationDirectoryMember,
 	RoutineManagement,
 	RoutineScope,
 } from "@openmeld/schemas/types";
@@ -49,10 +50,21 @@ import {
 	resumeCurrentRoutine,
 	updateCurrentRoutine,
 } from "#/lib/routines/api";
+import {
+	filterAndSortRoutines,
+	type RoutineFilter,
+	type RoutineSort,
+} from "#/lib/routines/list-view";
+import {
+	organizationDirectoryQueryOptions,
+	organizationSpacesQueryOptions,
+} from "#/query/organizations/organization-directory";
 import { invalidateRoutineFacts, routinesQueryOptions } from "#/query/routines";
 import { RoutineForm } from "./routine-form";
 import { routineFormUpdate } from "./routine-form-values";
 import { RoutineLastRun } from "./routine-last-run";
+import { RoutineCreator, RoutineDestination } from "./routine-list-details";
+import { RoutineListOptions } from "./routine-list-options";
 
 export function RoutinesPage(input: {
 	focusRoutineId?: string;
@@ -80,6 +92,26 @@ function RoutinesContent(input: {
 	const client = useQueryClient();
 	const [scope, setScope] = useState<RoutineScope>("personal");
 	const [search, setSearch] = useState("");
+	const [filter, setFilter] = useState<RoutineFilter>("all");
+	const [sort, setSort] = useState<RoutineSort>("updated");
+	const directory = useQuery(
+		organizationDirectoryQueryOptions({
+			organizationId: input.organizationId,
+			enabled: scope === "team",
+		})
+	);
+	const spaces = useQuery(
+		organizationSpacesQueryOptions({
+			organizationId: input.organizationId,
+			enabled: true,
+		})
+	);
+	const membersById = new Map(
+		directory.data?.members.map((member) => [member.userId, member])
+	);
+	const spacesById = new Map(
+		spaces.data?.spaces.map((space) => [space.spaceId, space.name])
+	);
 	const [form, setForm] = useState<RoutineManagement | "create" | null>(null);
 	const [deleting, setDeleting] = useState<RoutineManagement | null>(null);
 	const [history, setHistory] = useState<RoutineManagement | null>(null);
@@ -141,12 +173,16 @@ function RoutinesContent(input: {
 			setDeleting(null);
 		},
 	});
-	const routines = (list.data?.routines ?? []).filter(
-		(routine) =>
-			routine.scope === scope &&
-			`${routine.name} ${routine.executorName}`
-				.toLowerCase()
-				.includes(search.toLowerCase())
+	const routines = filterAndSortRoutines(
+		(list.data?.routines ?? []).filter(
+			(routine) =>
+				routine.scope === scope &&
+				`${routine.name} ${routine.executorName}`
+					.toLowerCase()
+					.includes(search.toLowerCase())
+		),
+		filter,
+		sort
 	);
 	const focused = list.data?.routines.find(
 		(routine) => routine.id === input.focusRoutineId
@@ -175,13 +211,21 @@ function RoutinesContent(input: {
 					<TabsSubtleItem index={0} label="Personal" />
 					<TabsSubtleItem index={1} label="Team" />
 				</TabsSubtle>
-				<Input
-					aria-label="Search routines"
-					className="w-56"
-					onChange={(event) => setSearch(event.target.value)}
-					placeholder="Search routines…"
-					value={search}
-				/>
+				<div className="flex items-center gap-1">
+					<Input
+						aria-label="Search routines"
+						className="w-56"
+						onChange={(event) => setSearch(event.target.value)}
+						placeholder="Search routines…"
+						value={search}
+					/>
+					<RoutineListOptions
+						filter={filter}
+						onFilter={setFilter}
+						onSort={setSort}
+						sort={sort}
+					/>
+				</div>
 			</div>
 			{list.isPending ? (
 				<output className="py-10 text-muted-foreground text-sm">
@@ -211,6 +255,8 @@ function RoutinesContent(input: {
 						<TableRow>
 							<TableHead>Routine</TableHead>
 							<TableHead>Agent</TableHead>
+							<TableHead>Results in</TableHead>
+							{scope === "team" ? <TableHead>Created by</TableHead> : null}
 							<TableHead>Next run</TableHead>
 							<TableHead>Last run</TableHead>
 							<TableHead>
@@ -221,6 +267,10 @@ function RoutinesContent(input: {
 					<TableBody>
 						{routines.map((routine, index) => (
 							<RoutineTableRow
+								creator={membersById.get(routine.createdByUserId)}
+								creatorPending={directory.isPending}
+								destinationName={spacesById.get(routine.targetSpaceId ?? "")}
+								destinationPending={spaces.isPending}
 								index={index}
 								key={routine.id}
 								onDelete={(routine) => {
@@ -240,15 +290,16 @@ function RoutinesContent(input: {
 			) : null}
 			{list.isSuccess && routines.length === 0 ? (
 				<RoutineEmptyState
+					filtered={Boolean(search) || filter !== "all"}
 					onAction={() => {
-						if (search) {
+						if (search || filter !== "all") {
 							setSearch("");
+							setFilter("all");
 						} else {
 							openForm("create");
 						}
 					}}
 					scope={scope}
-					search={search}
 				/>
 			) : null}
 			{status.isError ? (
@@ -310,6 +361,10 @@ function RoutinesContent(input: {
 }
 
 type RoutineRowProps = {
+	creator?: OrganizationDirectoryMember;
+	creatorPending: boolean;
+	destinationName?: string;
+	destinationPending: boolean;
 	routine: RoutineManagement;
 	index: number;
 	userId: string;
@@ -323,7 +378,7 @@ function RoutineTableRow(props: RoutineRowProps) {
 	const { routine, index, onHistory } = props;
 	return (
 		<TableRow index={index} key={routine.id}>
-			<TableCell className="max-w-sm">
+			<TableCell className="min-w-44 max-w-52">
 				<button
 					className="block max-w-full truncate text-left font-medium hover:underline"
 					onClick={() => onHistory(routine)}
@@ -332,7 +387,6 @@ function RoutineTableRow(props: RoutineRowProps) {
 					{routine.name}
 				</button>
 				<div className="mt-1 truncate text-muted-foreground text-xs">
-					{routine.status === "paused" ? "Paused · " : ""}
 					{routine.scheduleKind === "cron" &&
 					routine.cronExpression &&
 					routine.timezone
@@ -349,6 +403,22 @@ function RoutineTableRow(props: RoutineRowProps) {
 					{routine.executorKind === "local_agent" ? "Local" : "Cloud"}
 				</div>
 			</TableCell>
+			<TableCell>
+				<RoutineDestination
+					name={props.destinationName}
+					pending={props.destinationPending}
+					routine={routine}
+				/>
+			</TableCell>
+			{routine.scope === "team" ? (
+				<TableCell>
+					<RoutineCreator
+						member={props.creator}
+						pending={props.creatorPending}
+						routine={routine}
+					/>
+				</TableCell>
+			) : null}
 			<TableCell className="whitespace-nowrap text-muted-foreground">
 				{nextRunLabel(routine)}
 			</TableCell>
@@ -372,47 +442,21 @@ function RoutineActions({
 	onDelete,
 }: RoutineRowProps) {
 	return (
-		<TableCell className="w-10">
-			<DropdownMenu>
-				<DropdownMenuTrigger
-					render={
-						<Button
-							aria-label={`Actions for ${routine.name}`}
-							size="icon-sm"
-							variant="ghost"
-						/>
-					}
-				>
-					<DotsThreeIcon className="size-5" />
-				</DropdownMenuTrigger>
-				<FluidDropdownMenuContent align="end" gapClick={false}>
-					<FluidDropdownMenuItem index={0} onClick={() => onHistory(routine)}>
-						<ClockCounterClockwiseIcon aria-hidden="true" />
-						Run history
-					</FluidDropdownMenuItem>
-					<FluidDropdownMenuItem
+		<TableCell className="w-36">
+			<div className="flex items-center justify-end gap-1">
+				{routine.status !== "completed" ? (
+					<Button
+						aria-label={`${routine.status === "enabled" ? "Pause" : "Resume"} ${routine.name}`}
 						disabled={
 							!routine.canManage ||
-							(routine.agentProfileId !== null &&
-								routine.createdByUserId !== userId)
-						}
-						index={1}
-						onClick={() => onEdit(routine)}
-					>
-						<PencilSimpleIcon aria-hidden="true" />
-						Edit
-					</FluidDropdownMenuItem>
-					<FluidDropdownMenuItem
-						disabled={
-							!routine.canManage ||
-							routine.status === "completed" ||
+							statusPending ||
 							(routine.status === "paused" &&
 								routine.agentProfileId !== null &&
-								routine.createdByUserId !== userId) ||
-							statusPending
+								routine.createdByUserId !== userId)
 						}
-						index={2}
 						onClick={() => onStatus(routine)}
+						size="sm"
+						variant="ghost"
 					>
 						{routine.status === "enabled" ? (
 							<PauseCircleIcon aria-hidden="true" />
@@ -420,22 +464,53 @@ function RoutineActions({
 							<PlayCircleIcon aria-hidden="true" />
 						)}
 						{routine.status === "enabled" ? "Pause" : "Resume"}
-					</FluidDropdownMenuItem>
-					<DropdownMenuSeparator />
-					<FluidDropdownMenuGroup>
-						<FluidDropdownMenuItem
-							disabled={!routine.canManage}
-							index={0}
-							onClick={() => {
-								onDelete(routine);
-							}}
-						>
-							<TrashIcon aria-hidden="true" />
-							Delete
+					</Button>
+				) : null}
+				<DropdownMenu>
+					<DropdownMenuTrigger
+						render={
+							<Button
+								aria-label={`Actions for ${routine.name}`}
+								size="icon-sm"
+								variant="ghost"
+							/>
+						}
+					>
+						<DotsThreeIcon className="size-5" />
+					</DropdownMenuTrigger>
+					<FluidDropdownMenuContent align="end" gapClick={false}>
+						<FluidDropdownMenuItem index={0} onClick={() => onHistory(routine)}>
+							<ClockCounterClockwiseIcon aria-hidden="true" />
+							Run history
 						</FluidDropdownMenuItem>
-					</FluidDropdownMenuGroup>
-				</FluidDropdownMenuContent>
-			</DropdownMenu>
+						<FluidDropdownMenuItem
+							disabled={
+								!routine.canManage ||
+								(routine.agentProfileId !== null &&
+									routine.createdByUserId !== userId)
+							}
+							index={1}
+							onClick={() => onEdit(routine)}
+						>
+							<PencilSimpleIcon aria-hidden="true" />
+							Edit
+						</FluidDropdownMenuItem>
+						<DropdownMenuSeparator />
+						<FluidDropdownMenuGroup>
+							<FluidDropdownMenuItem
+								disabled={!routine.canManage}
+								index={0}
+								onClick={() => {
+									onDelete(routine);
+								}}
+							>
+								<TrashIcon aria-hidden="true" />
+								Delete
+							</FluidDropdownMenuItem>
+						</FluidDropdownMenuGroup>
+					</FluidDropdownMenuContent>
+				</DropdownMenu>
+			</div>
 		</TableCell>
 	);
 }
@@ -453,11 +528,11 @@ function nextRunLabel(routine: RoutineManagement) {
 
 function RoutineEmptyState({
 	scope,
-	search,
+	filtered,
 	onAction,
 }: {
 	scope: RoutineScope;
-	search: string;
+	filtered: boolean;
 	onAction: () => void;
 }) {
 	return (
@@ -465,17 +540,17 @@ function RoutineEmptyState({
 			<AppEmptyState
 				actions={
 					<Button onClick={onAction} size="sm" variant="outline">
-						{search ? "Clear search" : "Create routine"}
+						{filtered ? "Clear filters" : "Create routine"}
 					</Button>
 				}
 				className="w-full max-w-lg"
 				description={
-					search
-						? "Try another search."
+					filtered
+						? "Try another search or filter."
 						: "Schedule work and find each result here."
 				}
 				icon={<ClockIcon className="size-5" />}
-				title={search ? "No matching routines" : `No ${scope} routines yet`}
+				title={filtered ? "No matching routines" : `No ${scope} routines yet`}
 			/>
 		</div>
 	);

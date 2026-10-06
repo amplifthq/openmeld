@@ -760,6 +760,13 @@ preserving Routine/Run selection. The page uses a shared Fluid Table, Personal
 and Team filters, search, and a centered dashed AppEmptyState. It does not
 require a Center Agent when the user has another eligible executor.
 
+Each row exposes Pause or Resume and the current result destination. Team rows
+also show the creator's avatar and name from the authorized member directory;
+Personal rows omit that redundant column. A shared Fluid menu beside search
+filters active, paused, finished, or last-run-failed routines and sorts by recent
+updates, next run, or name. These controls use existing management projections
+and mutation authorization; they do not introduce another state owner.
+
 The name, last-run status, and action menu open Run history. A bounded shared
 Table and ScrollArea show each occurrence's time, status, failure detail, and
 authorized destination name. View result opens the existing Space and focuses

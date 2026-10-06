@@ -17,3 +17,6 @@ Self-Evolution recommendations are hidden.
 Open Run history from the list to see each run's status and destination. View
 result takes you straight to its published answer, including older runs sent to
 a different Space.
+
+Pause or resume directly from each row. See where results go and who created
+each team routine. Filter by status or sort by next run, recent updates, or name.
