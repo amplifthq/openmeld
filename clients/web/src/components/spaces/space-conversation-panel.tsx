@@ -374,6 +374,7 @@ type SpaceConversationPanelResolvedProps = {
 	) => Promise<void> | void;
 	prepareSetupHref?: string;
 	pendingActionSurface?: ReactNode;
+	liveNotice?: ReactNode;
 	readOnly?: boolean;
 	readOnlyComposerPlaceholder?: string;
 	allowSendWhileAccessSettles?: boolean;
@@ -831,6 +832,7 @@ function SpaceConversationPanelContent(
 						)}
 						scrollEdgeThreshold={SPACE_CONVERSATION_END_THRESHOLD_PX}
 					>
+						{input.liveNotice}
 						<SpaceConversationSendScrollController
 							isSendingMessage={input.isSendingMessage}
 							onSendStart={followLatest}

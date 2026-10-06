@@ -27,6 +27,14 @@
   the implementation truth and must be reconciled with this file in the same
   change when behavior moves.
 
+## Storage and migration references
+
+Production shared relational storage is PostgreSQL. Numeric migration references
+from the original D1 rollout describe historical schema dependencies already
+absorbed into the native baseline; they are not D1 commands to run now. New
+changes use the native journal and scoped database release in the
+[PostgreSQL workflow](../engineering/postgresql.md). Receiver-first service and client compatibility requirements still apply.
+
 ## Current Implementation Status
 
 Routines is a Team product at `/o/{orgSlug}/routines`. Personal and Team views
@@ -929,8 +937,8 @@ remain submitted while their owner reports active work or device waiting.
 
 ### v3 contract and rollout audit
 
-PostgreSQL migrations 0019–0022 add scope, executor kind, frozen history access,
-and local receipt/recovery columns. Apply them before Core. Deploy the v3 Core
+PostgreSQL migration 0021 adds scope, executor kind, frozen history access,
+and local receipt/recovery columns. Apply it before Core. Deploy the v3 Core
 and Gateway receivers before Web, Remote Agent tools, and the new CLI request
 `contract=routines-v3`. Older opt-in response shapes remain strict and unchanged.
 Private history is filtered before pagination; unknown deleted legacy ownership
@@ -949,7 +957,7 @@ interpret them. Retain additive migrations during rollback.
 Web opts into the shared schedule formatter's optional 24-hour presentation.
 Its default preserves older callers' display, and it does not change stored
 schedules, timezones, or execution contracts. The packaged CLI/Service artifacts
-are rebuilt and stamped with the same advisory update policy.
+must be rebuilt and stamped with the same advisory update policy before publication.
 
 Architecture acceptance: Routine storage owns schedules and history only. Space
 owns Wake publication and its outbox, RuntimeCoordinator owns accepted execution,
@@ -963,17 +971,14 @@ releases apply the PostgreSQL journal and the v3 ordering above.
 Routine rollout has three different strict mixed-version windows. Do not collapse
 them into one generic Remote Agent deploy order.
 
-1. Historical D1 rollout: apply migration `0025` before `0026`, and apply `0035` before enabling
-   queued Slack ingress.
-2. Apply additive migration `0028_routine_run_workflow` before selecting the
-   Workflow engine. Existing non-skipped Runs are frozen to `legacy`; skipped
-   historical evidence has no execution engine.
-3. Apply `0036_practical_center_agent_routines` before any producer sends
-   one-time or Slack-destination Routine fields.
-4. Apply `0063_crazy_nick_fury` before Core can create a Routine continuation
-   delivery. It replaces the one-delivery unique index with a non-unique Run
-   lookup index; the Run's current `native_delivery_id` remains the final-result
-   ownership fence.
+1. Complete native PostgreSQL migration acceptance before enabling consumers.
+   The baseline includes the original D1 Routine schema chain (`0025`, `0026`,
+   `0028`, `0035`, `0036`, `0063`, `0064`); do not replay those migrations.
+2. Selecting Workflow affects future claims. Existing non-skipped Runs retain
+   their frozen engine; skipped historical evidence has no execution engine.
+3. Deploy receivers for one-time and Slack-destination fields before producers.
+4. The schema permits multiple deliveries per Run. The current
+   `native_delivery_id` remains the final-result ownership fence.
 5. **W2 turn-envelope window, Core to Remote Agent:** deploy the Remote Agent
    worker that accepts `delegatedBy`, the rollout-optional frozen Routine
    destination, durable Slack locators, the optional Routine continuation

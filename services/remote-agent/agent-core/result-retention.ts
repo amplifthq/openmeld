@@ -17,11 +17,18 @@ export async function cleanupExpiredRemoteAgentToolResults(input: {
     limit: 64,
     nowMs: input.nowMs ?? Date.now(),
   });
-  const next = [result.nextExpiresAtMs, git.nextExpiresAtMs].filter(
-    (value): value is number => value !== null
-  );
+  const selection = await input.storage.deleteExpired({
+    prefix: "capability-selection:",
+    limit: 64,
+    nowMs: input.nowMs ?? Date.now(),
+  });
+  const next = [
+    result.nextExpiresAtMs,
+    git.nextExpiresAtMs,
+    selection.nextExpiresAtMs,
+  ].filter((value): value is number => value !== null);
   return {
-    deleted: result.deleted + git.deleted,
+    deleted: result.deleted + git.deleted + selection.deleted,
     nextCleanupAtMs: next.length ? Math.min(...next) : null,
   };
 }

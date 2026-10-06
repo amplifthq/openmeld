@@ -42,6 +42,7 @@ import {
 import type { ConnectorExecutionConfig } from "../connectors/open-connector-runtime";
 import type { AgentComputerWorkspaceAccess } from "./agent-computer-workspace-access";
 import { createAgentComputerFileHandoff } from "./computer-file-handoff";
+import { createComputerGitConnectionTool } from "./computer-git-connection";
 import {
   GitWorkingCopyComputer,
   type GitWorkingCopyComputerApi,
@@ -100,10 +101,11 @@ export function getGitHubWorkingCopyTools(
   input: Dependencies
 ): RemoteAgentToolDefinition[] {
   return [
+    createComputerGitConnectionTool(input),
     {
       name: "github_checkout_repository",
       description:
-        "Prepare a private GitHub repository snapshot in this isolated Computer using the explicitly selected Plugin account. Use one stable key and the same owner/repo/ref/githubActor for retries. A preparing result means the next bounded batch is needed: call again with the unchanged input. Ready supplies the exact source commit/tree, directory, fixed task branch and an independently authenticated default-branch baseline at origin/<default-branch>. Local commits have a synthetic comparison graph, not downloaded upstream history. LFS payloads and submodule repositories are not downloaded. Use the existing computer_command tools for editing, git commits and tests. Provider credentials never enter the Computer. No remote branch is created by checkout.",
+        "Prepare a private GitHub snapshot for bounded API-based publication with github_publish_checkout. For an ordinary native clone, use computer_git_connection and git clone instead. Select the Plugin account explicitly. Use one stable key and the same owner/repo/ref/githubActor for retries. A preparing result requires another unchanged call. Ready supplies the source commit/tree, directory, fixed task branch and authenticated default-branch baseline at origin/<default-branch>. Local commits use a synthetic comparison graph, not upstream history. LFS payloads and submodule repositories are not downloaded. Use computer for editing, commits and tests. Provider credentials never enter the Computer. Checkout does not create a remote branch.",
       input: strictObject({
         key: string(),
         owner: string(),

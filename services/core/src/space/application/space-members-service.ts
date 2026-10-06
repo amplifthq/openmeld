@@ -461,9 +461,12 @@ export const leaveSpaceUseCase = (input: {
     status: "left",
   };
 };
-export const listSpaceMembersSnapshotUseCase = async (input: {
+type SpaceMembersSnapshotInput = {
   includeAgentReadiness?: boolean;
-  profileFacts?: AuthProfileFacts | null;
+  profileFacts?:
+    | AuthProfileFacts
+    | null
+    | Promise<AuthProfileFacts | null | undefined>;
   sql: SqlStorage;
   env: CoreBindings;
   spaceId: string;
@@ -479,7 +482,10 @@ export const listSpaceMembersSnapshotUseCase = async (input: {
   lineageLoader?: (
     ownerUserId: string
   ) => Promise<Record<string, string | null> | undefined>;
-}): Promise<SpaceMembersSnapshot> => {
+};
+export const listSpaceMembersSnapshotUseCase = async (
+  input: SpaceMembersSnapshotInput
+): Promise<SpaceMembersSnapshot> => {
   const startedAtMs = Date.now();
   const liveSessions = [...input.liveSessions];
   measureSpaceMembersSnapshotTiming(
@@ -495,6 +501,39 @@ export const listSpaceMembersSnapshotUseCase = async (input: {
         nowIso: input.nowIso,
       })
   );
+  // Names and account avatars have independent owners. Start the avatar read
+  // while Auth refreshes names, then read the refreshed local member records.
+  const avatars = measureSpaceMembersSnapshotTimingAsync(
+    input.timing,
+    "human_avatar_batch",
+    "preload human member avatars",
+    () =>
+      preloadHumanMemberAvatars({
+        env: input.env,
+        records: listSpaceMemberRecords(input.sql, { status: "active" }),
+      })
+  );
+  const snapshot = Promise.resolve(input.profileFacts).then((profileFacts) =>
+    buildSpaceMembersSnapshot(
+      { ...input, liveSessions, profileFacts },
+      avatars,
+      startedAtMs
+    )
+  );
+  // Observe both branches immediately, including a failed avatar read while
+  // Auth is still pending. Readiness can start as soon as profile facts arrive.
+  return (await Promise.all([avatars, snapshot]))[1];
+};
+
+async function buildSpaceMembersSnapshot(
+  input: Omit<SpaceMembersSnapshotInput, "profileFacts"> & {
+    profileFacts: AuthProfileFacts | null | undefined;
+    liveSessions: LiveSessionLike[];
+  },
+  avatars: Promise<ReadonlyMap<string, string | null>>,
+  startedAtMs: number
+): Promise<SpaceMembersSnapshot> {
+  const { profileFacts, liveSessions } = input;
   const allRecords = measureSpaceMembersSnapshotTiming(
     input.timing,
     "records",
@@ -525,7 +564,7 @@ export const listSpaceMembersSnapshotUseCase = async (input: {
         );
   const liveProfileById = buildLiveProfileById(liveSessions);
   const readinessReads = createAgentExecutionReadinessReads({
-    profileFacts: input.profileFacts,
+    profileFacts,
   });
   const localPreloadRecords =
     input.includeAgentReadiness === false
@@ -541,31 +580,22 @@ export const listSpaceMembersSnapshotUseCase = async (input: {
     preloadedOwnerServiceByOwnerUserId,
     viewerCreatorProfileIdsByProfileId,
   ] = await Promise.all([
-    measureSpaceMembersSnapshotTimingAsync(
-      input.timing,
-      "human_avatar_batch",
-      "preload human member avatars",
-      () =>
-        preloadHumanMemberAvatars({
-          env: input.env,
-          records,
-        })
+    avatars,
+    measureSpaceMembersSnapshotTimingAsync<
+      Awaited<ReturnType<typeof preloadAgentMemberDaemonRoutes>>
+    >(input.timing, "route_batch", "preload agent member route evidence", () =>
+      input.includeAgentReadiness === false
+        ? Promise.resolve(new Map())
+        : localPreloadRecords.then((currentRecords) =>
+            preloadAgentMemberDaemonRoutes({
+              env: input.env,
+              records: currentRecords,
+            })
+          )
     ),
-    measureSpaceMembersSnapshotTimingAsync(
-      input.timing,
-      "route_batch",
-      "preload agent member route evidence",
-      () =>
-        input.includeAgentReadiness === false
-          ? Promise.resolve(new Map())
-          : localPreloadRecords.then((currentRecords) =>
-              preloadAgentMemberDaemonRoutes({
-                env: input.env,
-                records: currentRecords,
-              })
-            )
-    ),
-    measureSpaceMembersSnapshotTimingAsync(
+    measureSpaceMembersSnapshotTimingAsync<
+      Awaited<ReturnType<typeof preloadAgentMemberOwnerServices>>
+    >(
       input.timing,
       "owner_service_batch",
       "preload agent member owner service evidence",
@@ -637,7 +667,7 @@ export const listSpaceMembersSnapshotUseCase = async (input: {
         ? Promise.resolve(
             buildAgentIdentitySnapshot({
               record,
-              profileFacts: input.profileFacts,
+              profileFacts,
               liveProfileById,
               cursorSnapshots,
               latestSignalActivity,
@@ -646,7 +676,7 @@ export const listSpaceMembersSnapshotUseCase = async (input: {
           )
         : buildAgentSnapshot({
             activeOrganizationId,
-            profileFacts: input.profileFacts,
+            profileFacts,
             env: input.env,
             record,
             viewerOwnerUserId: input.viewerOwnerUserId,
@@ -762,7 +792,7 @@ export const listSpaceMembersSnapshotUseCase = async (input: {
     startedAtMs,
   });
   return snapshot;
-};
+}
 export const listSpaceIdentityDirectoryUseCase = (input: {
   sql: SqlStorage;
   spaceId: string;

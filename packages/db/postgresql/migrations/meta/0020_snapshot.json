@@ -1,6 +1,6 @@
 {
-  "id": "39098e4f-d3f4-4715-bc2f-7a87cee88d21",
-  "prevId": "4758b3c7-5f40-4002-bbcb-09b617838224",
+  "id": "b18a0887-39ac-4e95-9333-1b66617637a7",
+  "prevId": "984f5cc7-1e9a-415e-bbce-3ff49936116e",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -936,6 +936,33 @@
               "expression": "\"observed_at_ms\" desc",
               "asc": true,
               "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "agent_activity_events_org_recent_idx": {
+          "name": "agent_activity_events_org_recent_idx",
+          "columns": [
+            {
+              "expression": "organization_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "observed_at_ms",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "last"
+            },
+            {
+              "expression": "event_id",
+              "isExpression": false,
+              "asc": false,
               "nulls": "last"
             }
           ],
@@ -9435,7 +9462,7 @@
         },
         "connector_connections_service_check": {
           "name": "connector_connections_service_check",
-          "value": "\"service\" in (\n        'github',\n        'feishu',\n        'lark',\n        'gmail',\n        'googlecalendar',\n        'googledrive',\n        'notion',\n        'linear',\n        'figma',\n        'posthog',\n        'cloudflare_browser_rendering',\n        'cloudflare_dns',\n        'cloudflare_r2',\n        'cloudflare_worker'\n      )"
+          "value": "\"service\" ~ '^[a-z][a-z0-9_-]{0,99}$'"
         },
         "connector_connections_status_check": {
           "name": "connector_connections_status_check",
@@ -23371,18 +23398,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "source_signal_id": {
-          "name": "source_signal_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "local_submission_json": {
-          "name": "local_submission_json",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "published_signal_id": {
           "name": "published_signal_id",
           "type": "text",
@@ -23643,7 +23658,7 @@
         },
         "routine_runs_execution_engine_check": {
           "name": "routine_runs_execution_engine_check",
-          "value": "\"execution_engine\" is null or \"execution_engine\" in ('legacy', 'workflow', 'local')"
+          "value": "\"execution_engine\" is null or \"execution_engine\" in ('legacy', 'workflow')"
         },
         "routine_runs_finished_at_valid_check": {
           "name": "routine_runs_finished_at_valid_check",
@@ -23679,20 +23694,6 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
-        },
-        "scope": {
-          "name": "scope",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'team'"
-        },
-        "executor_kind": {
-          "name": "executor_kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'center_agent'"
         },
         "instructions": {
           "name": "instructions",
@@ -23919,14 +23920,6 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
-        "routines_scope_check": {
-          "name": "routines_scope_check",
-          "value": "\"scope\" in ('personal', 'team')"
-        },
-        "routines_executor_kind_check": {
-          "name": "routines_executor_kind_check",
-          "value": "\"executor_kind\" in ('center_agent', 'remote_agent', 'local_agent')"
-        },
         "routines_id_non_empty_check": {
           "name": "routines_id_non_empty_check",
           "value": "length(trim(\"id\")) > 0"

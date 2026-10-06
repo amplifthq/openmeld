@@ -9,7 +9,10 @@ import { createRemoteAgentComputerCapability } from "../flue-adapter/computer-sa
 import { createSubmitTurnRequest, TEST_NOW_MS } from "./fixtures";
 
 const workspace = vi.hoisted(() => ({ get: vi.fn() }));
-vi.mock("@cloudflare/computer", () => ({ getWorkspace: workspace.get }));
+vi.mock("@cloudflare/computer", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@cloudflare/computer")>()),
+  getWorkspace: workspace.get,
+}));
 
 describe("personal Computer copies", () => {
   it("keeps completed copies readable after a provider disconnect without attaching unrelated historical sources", async () => {
@@ -55,14 +58,23 @@ describe("personal Computer copies", () => {
       context,
       coreWorker: { authorizeRemoteAgentExecutionAccess: authorize },
       env: {
-        AGENT_COMPUTER: { idFromName: (name: string) => name, get: () => ({}) },
+        AGENT_COMPUTER: {
+          idFromName: (name: string) => name,
+          get: () => ({
+            computerOperation: async () => ({ content: "downloaded report" }),
+          }),
+        },
       },
       includeOrganizationDocuments: false,
     });
     disconnected = true;
     const result = await capability.definitions
-      .find((tool) => tool.name === "read")
-      ?.execute({ path: "/computer/home/report.txt" });
+      .find((tool) => tool.name === "computer")
+      ?.execute({
+        action: "files",
+        tool: "read",
+        input: { path: "/computer/home/report.txt" },
+      });
     expect(JSON.stringify(result)).toContain("downloaded report");
     expect(readRemoteAgentResultSources(result)).toEqual([]);
   });

@@ -127,6 +127,7 @@ import type { SpaceAutomaticWakeComposerHintKind } from "./space-composer-copy";
 import { SpaceConversationPanel } from "./space-conversation-panel";
 import { SpaceHeader, SpaceWindowHeader } from "./space-header";
 import { SpaceLandingErrorBoundary } from "./space-landing-error-boundary";
+import { SpaceLiveNotice } from "./space-live-notice";
 import {
 	isSameOwnerUserId,
 	resolveCurrentSpaceProfileOwnerUserId,
@@ -1744,11 +1745,8 @@ function SpaceLandingConversationShell({
 							}
 							isDeleteSpacePending={controller.isDeleteSpacePending}
 							isLeaveSpacePending={controller.isLeaveSpacePending}
-							isLoadingMessages={controller.isLoadingEarlierHistory}
 							isSpaceNamePending={controller.isSpaceNamePending}
 							leaveSpaceErrorMessage={controller.leaveSpaceErrorMessage}
-							liveErrorMessage={controller.liveErrorMessage}
-							liveState={controller.liveState}
 							managementControl={
 								<>
 									{input.conversationControl}
@@ -1767,7 +1765,6 @@ function SpaceLandingConversationShell({
 							onRecallPinnedItems={() =>
 								spaceFileNavigation.changeSpaceView("messages")
 							}
-							onReconnectLiveUpdates={controller.onReconnectLiveUpdates}
 							onSetAccessMode={controller.onSetAccessMode}
 							onUpdateSpaceName={controller.onUpdateSpaceName}
 							renderFrame={false}
@@ -2262,6 +2259,16 @@ function SpaceLandingConversation({
 			isAgentRecoveryPending={controller.isAgentRecoveryPending}
 			isDiagnosticReportPending={controller.isDiagnosticReportPending}
 			isDiagnosticReportSent={controller.isDiagnosticReportSent}
+			liveNotice={
+				<SpaceLiveNotice
+					hidden={Boolean(
+						historyErrorMessage || controller.historyActionErrorMessage
+					)}
+					key={`${controller.spaceId}::${controller.profileId}`}
+					liveState={controller.liveState}
+					onRetry={controller.onRetryLiveUpdates}
+				/>
+			}
 			membersSnapshot={controller.presentationMembersSnapshot}
 			modelCatalog={modelCatalog}
 			onAddComposerFiles={controller.onAddComposerFiles}

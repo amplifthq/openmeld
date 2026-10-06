@@ -24,7 +24,6 @@ type AgentStreamFrame =
 export function useSpaceConversation(input: {
 	initialAgentStreamPresences?: readonly SpaceAgentStreamPresence[];
 	initialAgentStreams: readonly SpaceAgentStreamSnapshot[];
-	liveConnectionEpoch: number;
 	spaceId: string;
 	openMeldProfileId: string;
 }) {
@@ -40,7 +39,6 @@ export function useSpaceConversation(input: {
 		input.initialAgentStreamPresences ?? []
 	);
 	const initialAgentStreamsRef = useRef(input.initialAgentStreams);
-	const liveConnectionEpochRef = useRef(input.liveConnectionEpoch);
 	const identityRef = useRef({
 		spaceId: input.spaceId,
 		openMeldProfileId: input.openMeldProfileId,
@@ -197,18 +195,16 @@ export function useSpaceConversation(input: {
 		};
 	}, [cancelScheduledRender, input.spaceId, input.openMeldProfileId]);
 
-	useEffect(() => {
-		if (liveConnectionEpochRef.current === input.liveConnectionEpoch) {
-			return;
-		}
-		liveConnectionEpochRef.current = input.liveConnectionEpoch;
+	const clearTransientStreams = useCallback(() => {
+		// Socket replacement does not change the conversation's identity. Only an
+		// explicit access boundary clears already displayed work during recovery.
 		pendingDeltaFramesRef.current.clear();
 		lastRenderAtMsRef.current = 0;
 		cancelScheduledRender();
 		setStreamState((current) =>
 			clearSpaceConversationTransientStreams(current)
 		);
-	}, [cancelScheduledRender, input.liveConnectionEpoch]);
+	}, [cancelScheduledRender]);
 
 	const seededStreamState = useMemo(
 		() =>
@@ -230,6 +226,7 @@ export function useSpaceConversation(input: {
 
 	return {
 		agentStreamProjections,
+		clearTransientStreams,
 		handleAgentStreamFrame,
 	};
 }

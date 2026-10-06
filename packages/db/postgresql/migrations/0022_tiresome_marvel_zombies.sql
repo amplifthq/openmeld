@@ -1,1 +1,0 @@
-ALTER TABLE "openmeld"."routine_runs" ADD COLUMN "local_last_checked_at_ms" bigint DEFAULT 0 NOT NULL;

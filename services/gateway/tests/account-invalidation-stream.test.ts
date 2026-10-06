@@ -80,7 +80,11 @@ describe("account invalidation stream", () => {
     });
     upstreamServer.send(JSON.stringify({ type: "space_index.changed" }));
     expect(await received).toBe('{"type":"space_index.changed"}');
-    client.close();
+    const closed = new Promise<CloseEvent>((resolve) => {
+      client.addEventListener("close", resolve, { once: true });
+    });
+    upstreamServer.close(1012, "reset-marker");
+    expect(await closed).toMatchObject({ code: 1012, reason: "reset-marker" });
   });
 
   it("rejects conflicting Organization selectors before opening a socket", async () => {

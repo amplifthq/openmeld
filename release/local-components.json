@@ -1,28 +1,28 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-06T08:24:31.622Z",
+  "updatedAt": "2026-10-06T08:37:35.056Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
       "packageVersion": "0.3.245",
       "updatePolicy": "available",
-      "reason": "Adds unified routine management; existing setup and Wake remain compatible."
+      "reason": "Native cloud Computer operations are optional and require new cloud receivers; existing commands remain compatible."
     },
     "service": {
-      "bundleHash": "cc778a5d7cb527dea5a6556e783368790455617fdee6e261021982bfc2e0eed1",
-      "portableBundleHash": "4344620747f2c80bda4e22005a42640155f6d9f93411f09e2f1e7e4e6848871b",
+      "bundleHash": "0dddf9e5bca4eb647826145c3b218bdb8d6901e107a40fd713be96f27b2c39ce",
+      "portableBundleHash": "2a4298c743ef7bb4dedc08791799db831f7d6db145503a1df88d1dfca0d6303f",
       "bundleVersion": "0.3.245",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
       "serviceContractVersion": "openmeld-service-contract-2026-09-local-install-recovery-v1",
       "updatePolicy": "available",
-      "reason": "Shared bundle rebuild; local execution continues to use the existing Wake contract."
+      "reason": "Shared schema additions do not change workstation setup, Wake, execution or reply contracts in either rollout direction."
     },
     "skills": {
-      "bundleHash": "2e53ad2084dd4bfc1dc58cfafba207f0739873319c97c783d75d1d3b6d1b4858",
+      "bundleHash": "616672b13c7e061b01651894bcc7591b53730e3f452659adaa2fc0e7399ff36e",
       "skillContractVersion": "openmeld-skills-contract-2026-09-explicit-space-recipients-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Documents unified routine management without changing the skill contract."
+      "reason": "Optional native Computer guidance uses the new CLI after cloud receivers; existing workstation instructions remain valid."
     }
   }
 }

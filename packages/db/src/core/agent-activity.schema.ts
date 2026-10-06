@@ -57,6 +57,11 @@ export const agentActivityEvents = applicationTable(
       table.projectId,
       desc(table.observedAtMs)
     ),
+    index("agent_activity_events_org_recent_idx").on(
+      table.organizationId,
+      table.observedAtMs.desc().nullsLast(),
+      table.eventId.desc().nullsLast()
+    ),
     index("agent_activity_events_org_member_observed_idx").on(
       table.organizationId,
       table.memberUserId,

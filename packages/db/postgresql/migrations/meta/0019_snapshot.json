@@ -1,5 +1,5 @@
 {
-  "id": "4758b3c7-5f40-4002-bbcb-09b617838224",
+  "id": "984f5cc7-1e9a-415e-bbce-3ff49936116e",
   "prevId": "38a3bfae-9a5c-4507-82c7-060de14ab87a",
   "version": "7",
   "dialect": "postgresql",
@@ -936,6 +936,33 @@
               "expression": "\"observed_at_ms\" desc",
               "asc": true,
               "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "agent_activity_events_org_recent_idx": {
+          "name": "agent_activity_events_org_recent_idx",
+          "columns": [
+            {
+              "expression": "organization_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "observed_at_ms",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "last"
+            },
+            {
+              "expression": "event_id",
+              "isExpression": false,
+              "asc": false,
               "nulls": "last"
             }
           ],
@@ -23371,12 +23398,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "source_signal_id": {
-          "name": "source_signal_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "published_signal_id": {
           "name": "published_signal_id",
           "type": "text",
@@ -23674,20 +23695,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "scope": {
-          "name": "scope",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'team'"
-        },
-        "executor_kind": {
-          "name": "executor_kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'center_agent'"
-        },
         "instructions": {
           "name": "instructions",
           "type": "text",
@@ -23913,14 +23920,6 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
-        "routines_scope_check": {
-          "name": "routines_scope_check",
-          "value": "\"scope\" in ('personal', 'team')"
-        },
-        "routines_executor_kind_check": {
-          "name": "routines_executor_kind_check",
-          "value": "\"executor_kind\" in ('center_agent', 'remote_agent', 'local_agent')"
-        },
         "routines_id_non_empty_check": {
           "name": "routines_id_non_empty_check",
           "value": "length(trim(\"id\")) > 0"

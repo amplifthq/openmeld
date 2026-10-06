@@ -1214,9 +1214,8 @@ export type SpaceLandingConversationController = {
 	leaveSpaceErrorMessage: string | null;
 	accessModeErrorMessage: string | null;
 	spaceNameErrorMessage: string | null;
-	liveErrorMessage: string | null;
 	liveState: SpaceLiveState;
-	onReconnectLiveUpdates: () => void;
+	onRetryLiveUpdates: () => void;
 	membersError: StructuredApiClientFailure | null;
 	membersSnapshot: SpaceMembersSnapshot | null;
 	presentationMembersSnapshot: SpaceMembersSnapshot | null;
@@ -1799,10 +1798,9 @@ export function useSpaceLandingController(input: {
 		wakeProgressPresentationQuery.data.createdAtMs;
 	const {
 		agentStreamProjections: liveAgentStreamProjections,
-		liveErrorMessage,
 		liveState,
 		mergePersistedIncoming,
-		reconnectNow,
+		retryLiveUpdates,
 		timelineEnvelopes,
 	} = useSpaceLandingFeed({
 		openMeldProfileId: input.profileId,
@@ -2747,9 +2745,8 @@ export function useSpaceLandingController(input: {
 		isDiagnosticReportPending,
 		isDiagnosticReportSent,
 		leaveSpaceErrorMessage,
-		liveErrorMessage,
 		liveState,
-		onReconnectLiveUpdates: reconnectNow,
+		onRetryLiveUpdates: retryLiveUpdates,
 		membersError,
 		membersSnapshot,
 		presentationMembersSnapshot,

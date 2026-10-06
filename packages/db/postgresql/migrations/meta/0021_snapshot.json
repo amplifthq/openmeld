@@ -1,6 +1,6 @@
 {
-  "id": "a5e085dd-7e89-4ae8-abf1-8435946ced57",
-  "prevId": "39098e4f-d3f4-4715-bc2f-7a87cee88d21",
+  "id": "8b6195e8-1f76-45a6-b562-08f85e809ac3",
+  "prevId": "b18a0887-39ac-4e95-9333-1b66617637a7",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -936,6 +936,33 @@
               "expression": "\"observed_at_ms\" desc",
               "asc": true,
               "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "agent_activity_events_org_recent_idx": {
+          "name": "agent_activity_events_org_recent_idx",
+          "columns": [
+            {
+              "expression": "organization_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "observed_at_ms",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "last"
+            },
+            {
+              "expression": "event_id",
+              "isExpression": false,
+              "asc": false,
               "nulls": "last"
             }
           ],
@@ -9435,7 +9462,7 @@
         },
         "connector_connections_service_check": {
           "name": "connector_connections_service_check",
-          "value": "\"service\" in (\n        'github',\n        'feishu',\n        'lark',\n        'gmail',\n        'googlecalendar',\n        'googledrive',\n        'notion',\n        'linear',\n        'figma',\n        'posthog',\n        'cloudflare_browser_rendering',\n        'cloudflare_dns',\n        'cloudflare_r2',\n        'cloudflare_worker'\n      )"
+          "value": "\"service\" ~ '^[a-z][a-z0-9_-]{0,99}$'"
         },
         "connector_connections_status_check": {
           "name": "connector_connections_status_check",
@@ -23394,6 +23421,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
+        },
+        "local_last_checked_at_ms": {
+          "name": "local_last_checked_at_ms",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
         },
         "published_signal_id": {
           "name": "published_signal_id",
