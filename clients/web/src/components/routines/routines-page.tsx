@@ -55,6 +55,7 @@ import {
 	type RoutineFilter,
 	type RoutineSort,
 } from "#/lib/routines/list-view";
+import { formatRoutineTimestamp } from "#/lib/routines/presentation";
 import {
 	organizationDirectoryQueryOptions,
 	organizationSpacesQueryOptions,
@@ -388,10 +389,13 @@ function RoutineTableRow(props: RoutineRowProps) {
 					{routine.scheduleKind === "cron" &&
 					routine.cronExpression &&
 					routine.timezone
-						? formatStoredRoutineSchedule({
-								cronExpression: routine.cronExpression,
-								timezone: routine.timezone,
-							})
+						? formatStoredRoutineSchedule(
+								{
+									cronExpression: routine.cronExpression,
+									timezone: routine.timezone,
+								},
+								{ hour12: false }
+							)
 						: "Once"}
 				</div>
 			</TableCell>
@@ -514,12 +518,7 @@ function RoutineActions({
 }
 function nextRunLabel(routine: RoutineManagement) {
 	if (routine.nextDueAt) {
-		return new Date(routine.nextDueAt).toLocaleString(undefined, {
-			month: "short",
-			day: "numeric",
-			hour: "numeric",
-			minute: "2-digit",
-		});
+		return formatRoutineTimestamp(routine.nextDueAt);
 	}
 	return routine.status === "paused" ? "Paused" : "Finished";
 }

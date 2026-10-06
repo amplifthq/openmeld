@@ -4,12 +4,19 @@ import {
 	resolveInformationStatusBadgeClassName,
 	resolveStatusToneProminentBadgeClassName,
 } from "@openmeld/ui/lib/status-tone";
+import { cn } from "@openmeld/ui/lib/utils";
 
 export function RoutineRunStatusBadge(input: {
 	status: CenterAgentRoutineRunStatus;
 }) {
 	const presentation = ROUTINE_RUN_STATUS_PRESENTATION[input.status];
-	return <Badge className={presentation.className}>{presentation.label}</Badge>;
+	return (
+		<Badge
+			className={cn(presentation.className, "h-4.5 px-1.5 py-0 text-[11px]")}
+		>
+			{presentation.label}
+		</Badge>
+	);
 }
 
 const ROUTINE_RUN_STATUS_PRESENTATION = {

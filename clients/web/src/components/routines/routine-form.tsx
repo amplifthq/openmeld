@@ -568,10 +568,7 @@ function RoutineScheduleFields({
 						.sort()
 						.map((value) => ({
 							value,
-							label: new Date(`2000-01-01T${value}`).toLocaleTimeString(
-								"en-US",
-								{ hour: "numeric", minute: "2-digit" }
-							),
+							label: value,
 						}))}
 					value={time}
 				/>

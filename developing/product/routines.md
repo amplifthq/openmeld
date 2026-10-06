@@ -767,7 +767,10 @@ filters active, paused, finished, or last-run-failed routines and sorts by recen
 updates, next run, or name. These controls use existing management projections
 and mutation authorization; they do not introduce another state owner.
 
-The name, last-run status, and action menu open Run history. A bounded shared
+The name, non-result last-run status, and action menu open Run history. A completed
+last run with published output combines its success marker and result action into
+Check result. Compact status badges and 24-hour timestamps keep the list readable;
+current-year timestamps omit the year. A bounded shared
 Table and ScrollArea show each occurrence's time, status, failure detail, and
 authorized destination name. View result opens the existing Space and focuses
 the published message. Navigation uses the Run's frozen target, never the
@@ -938,6 +941,11 @@ closed rather than inventing fields. Roll back callers before those receivers.
 Before rolling Core back past scope/local support, pause new personal Center and
 local definitions and drain in-flight local Runs; an old scheduler cannot safely
 interpret them. Retain additive migrations during rollback.
+
+Web opts into the shared schedule formatter's optional 24-hour presentation.
+Its default preserves older callers' display, and it does not change stored
+schedules, timezones, or execution contracts. The packaged CLI/Service artifacts
+are rebuilt and stamped with the same advisory update policy.
 
 Architecture acceptance: Routine storage owns schedules and history only. Space
 owns Wake publication and its outbox, RuntimeCoordinator owns accepted execution,

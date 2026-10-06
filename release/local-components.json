@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-06T07:27:30.340Z",
+  "updatedAt": "2026-10-06T08:24:31.622Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
@@ -9,8 +9,8 @@
       "reason": "Adds unified routine management; existing setup and Wake remain compatible."
     },
     "service": {
-      "bundleHash": "c3183b45fab8d2d5d7076c5557fd52b370b858fa2eb7fdaf9052ff724e6749d5",
-      "portableBundleHash": "67db9422330a9b4b63e3e2fb31eccc668c08bbd45eeee7997f7238fdba02fc77",
+      "bundleHash": "cc778a5d7cb527dea5a6556e783368790455617fdee6e261021982bfc2e0eed1",
+      "portableBundleHash": "4344620747f2c80bda4e22005a42640155f6d9f93411f09e2f1e7e4e6848871b",
       "bundleVersion": "0.3.245",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
       "serviceContractVersion": "openmeld-service-contract-2026-09-local-install-recovery-v1",

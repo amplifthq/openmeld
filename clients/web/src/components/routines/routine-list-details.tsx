@@ -31,7 +31,7 @@ export function RoutineCreator({
 					profileId={member.humanProfile.profileId}
 					profileKind="human"
 					profileName={name ?? member.user.name}
-					size={24}
+					size={20}
 				/>
 			) : (
 				<UserIcon

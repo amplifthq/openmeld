@@ -1,4 +1,7 @@
 import type { RoutineManagement } from "@openmeld/schemas/types";
+import { resolveStatusToneTextClassName } from "@openmeld/ui/lib/status-tone";
+import { cn } from "@openmeld/ui/lib/utils";
+import { CheckCircleIcon } from "@phosphor-icons/react";
 import { useMutation } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
@@ -41,22 +44,39 @@ export function RoutineLastRun(input: {
 	if (!run) {
 		return <span className="text-muted-foreground">—</span>;
 	}
+	const completedResult = run.status === "completed" && run.publishedSignalId;
 	return (
-		<div className="flex flex-col items-start gap-1.5">
-			<button
-				aria-label={`Run history for ${input.routine.name}`}
-				onClick={input.onHistory}
-				type="button"
-			>
-				<RoutineRunStatusBadge status={run.status} />
-			</button>
+		<div className="flex flex-col items-start gap-1">
+			{completedResult ? (
+				<button
+					aria-label={`Check result for ${input.routine.name}`}
+					className={cn(
+						"inline-flex items-center gap-1 text-xs underline-offset-4 hover:underline disabled:opacity-50",
+						resolveStatusToneTextClassName("ready")
+					)}
+					disabled={result.isPending}
+					onClick={() => result.mutate()}
+					type="button"
+				>
+					<CheckCircleIcon aria-hidden="true" className="size-3.5" />
+					{result.isPending ? "Opening…" : "Check result"}
+				</button>
+			) : (
+				<button
+					aria-label={`Run history for ${input.routine.name}`}
+					onClick={input.onHistory}
+					type="button"
+				>
+					<RoutineRunStatusBadge status={run.status} />
+				</button>
+			)}
 			<time
 				className="whitespace-nowrap text-muted-foreground text-xs"
 				dateTime={new Date(run.scheduledFor).toISOString()}
 			>
 				{formatRoutineTimestamp(run.scheduledFor)}
 			</time>
-			{run.publishedSignalId ? (
+			{run.publishedSignalId && !completedResult ? (
 				<button
 					className="text-sm underline-offset-4 hover:underline disabled:opacity-50"
 					disabled={result.isPending}
