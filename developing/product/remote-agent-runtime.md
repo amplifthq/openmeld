@@ -30,6 +30,14 @@
   pinned Flue package before changing worker interfaces; method names are not
   strategic contract.
 
+## Storage and migration references
+
+Production shared relational storage is PostgreSQL. Numeric migration references
+from the original D1 rollout describe historical schema dependencies already
+absorbed into the native baseline; they are not D1 commands to run now. New
+changes use the native journal and scoped database release in the
+[PostgreSQL workflow](../engineering/postgresql.md). Receiver-first service and client compatibility requirements still apply.
+
 ## Plugin connection action boundary
 
 The existing navigation action capability can offer `plugin_connection` with
@@ -1839,13 +1847,13 @@ Agent native-delivery exception, not the workstation Wake lifecycle:
 - A Run may freeze the `legacy` or Cloudflare `workflow` execution engine. The
   Workflow instance id is the Run id. It durably owns submission retry,
   callback-event waiting, and callback finalization for that Run without a
-  fixed total callback deadline; D1 remains product truth, and the legacy
+  fixed total callback deadline; PostgreSQL remains product truth, and the legacy
   recovery scanner must not also take over that Run.
   Callback validation and final destination publication remain the existing Core
   native-delivery contract rather than Workflow-private behavior. Core records
   Workflow creation, safe restart, blocked recovery, and callback-forwarding
   evidence against the same Run id without logging the callback payload.
-- The Routine definition and Run history stay in D1. Flue session state and
+- The Routine definition and Run history stay in PostgreSQL. Flue session state and
   Durable Object alarms do not become a second Routine registry.
 - The native delivery ledger links the delivery by `routineRunId` and freezes
   exactly one result surface: `conversationKind = "space"` with a target Space,
@@ -2554,7 +2562,7 @@ surface adopts official features where they are free**:
     activation, and resource loading while workspace-written Skills remain
     invisible. The computer connects lazily: the Dynamic Worker starts only
     when a computer or Code Mode tool actually executes. Routine timing is not
-    a Tier-2 harness capability; D1 plus Core Cron owns it.
+    a Tier-2 harness capability; PostgreSQL plus Core Cron owns it.
 
 - **Tier 3 — OpenMeld product tools (Experimental, Core-backed).** The
   first shipped tool slice exposes OpenMeld org actions through Flue
@@ -2762,7 +2770,7 @@ surface adopts official features where they are free**:
   removal never offers a dead link to the removed Project.
 
   This is an additive private Worker RPC and shared-schema change. Deploy the
-  Core D1 migration first, then the Core and API/Web readers that understand
+  Core PostgreSQL migration first, then the Core and API/Web readers that understand
   Center Agent Project audit action set `v8`, and deploy Remote Agent last. New
   Core remains compatible with an old Remote Agent because no Project RPC is
   called. A new Remote Agent against an old Core fails closed with
@@ -3284,7 +3292,7 @@ but not trigger.
    an active concurrent
    loser remains retryable. Core records the terminal delivery state and the
    published Slack timestamp only after Slack returns `ok: true` with a
-   non-empty `ts` and the same claim id wins the D1 finalize. Slack has no
+   non-empty `ts` and the same claim id wins the PostgreSQL finalize. Slack has no
    documented idempotency key for this call, so a network-ambiguous result, a
    failed fenced finalize, or an expired claim becomes `outcome_unknown` and is
    never automatically reposted. This is an explicit at-most-once tradeoff for
@@ -3384,7 +3392,7 @@ but not trigger.
    logs the capability gap and requeues the same probe.
    Queue retry count is not accepted-delivery liveness. Every successful probe
    enqueue or self-requeue renews the ledger's next-probe due time. Core's
-   minute scheduler scans missing or expired due times and uses one bounded D1
+   minute scheduler scans missing or expired due times and uses one bounded PostgreSQL
    compare-and-set lease before enqueueing compensation. A failed enqueue
    releases its exact lease when Core knows the preceding operation stopped. If
    the reconciliation RPC timed out, enqueue failure keeps the processing lease
@@ -3605,9 +3613,9 @@ Routine rollout has three different strict windows:
   still enter bounded ACK recovery during the forward window; it must not be
   mistaken for a deterministic rejection.
 
-Apply D1 migration `0025` before `0026`, `0035` before queued Slack ingress,
-`0036` before new Routine fields, and `0063` before Core can append a Routine
-continuation delivery. Deploy the Core queue consumer before the
+Complete native PostgreSQL migration acceptance before producers. The original
+D1 prerequisites (`0025`, `0026`, `0035`, `0036`, `0063`) are included in the
+native baseline; do not replay them. Deploy the Core queue consumer before the
 Gateway Slack queue producer; Gateway returns retryable non-2xx if enqueue is
 not available. These windows are independent; the W2
 consumer-first exception must not be replaced by the default Core-before-Remote
@@ -3980,7 +3988,7 @@ create parallel authorities or rework workstation RuntimeCoordinator semantics.
   OpenMeld secrets at any tier; widening the vetting bar or the tool tier
   requires Felix.
 - Routines are user-visible and must follow
-  `developing/product/center-agent-routines.md`: D1 plus Core Cron owns timing,
+  `developing/product/center-agent-routines.md`: PostgreSQL plus Core Cron owns timing,
   the destination is explicit, each Run has one initial native delivery and may
   have one resumed Center Agent delivery after its own all-terminal delegated
   work, `routine_runs.native_delivery_id` owns the final result, skipped Runs

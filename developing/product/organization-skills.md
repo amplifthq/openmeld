@@ -166,7 +166,7 @@ attempt, including when the release committed before the operation receipt.
 Reusing the ID for a different source or commit is a conflict. The CLI accepts
 an explicit `--operation-id` so a local agent can safely retry after an
 uncertain network result. The operation receipt stores release identity rather
-than another copy of the Skill bundle in D1.
+than another copy of the Skill bundle in PostgreSQL.
 
 The Skill record holds the active release pointer and enabled state.
 
@@ -517,7 +517,7 @@ configuration or page-specific navigation blocker.
 Core owns Organization Skill identity, authority, enabled state, active release,
 maintainers, provenance, import validation, and audit.
 
-D1 stores relational truth:
+PostgreSQL stores relational truth:
 
 - stable Skill identity and Organization ownership;
 - normalized current name and description for listing;
@@ -533,10 +533,10 @@ release-scoped. Core writes and reads the private bucket through a dedicated
 binding. Web, the browser, CLI, and Remote Agent do not receive bucket authority
 or construct R2 keys.
 
-The complete bundle does not live in D1 rows. R2 object metadata is not
+The complete bundle does not live in PostgreSQL rows. R2 object metadata is not
 relational authority.
 
-Core must make release creation recoverable. The D1 active pointer may advance
+Core must make release creation recoverable. The PostgreSQL active pointer may advance
 only after every immutable object needed by the release exists and matches the
 canonical manifest. An unreferenced completed R2 prefix may be cleaned by a
 bounded repair job; a referenced release must never point at missing or
@@ -554,7 +554,7 @@ For every admitted Center Agent turn, personal Remote Agent turn, or Routine Run
 2. Core returns the exact enabled Organization Skill release catalog, with
    stable Skill ids, release ids, portable metadata, instructions, resource
    paths, and digest, without materializing resource bytes;
-3. Core verifies the stored release manifest against its D1 digest before
+3. Core verifies the stored release manifest against its PostgreSQL digest before
    returning that catalog;
 4. the Flue adapter mounts the verified instructions through Flue's public API;
 5. Flue owns catalog disclosure and `activate_skill`; when the model needs a
@@ -624,7 +624,7 @@ turn and authorizes every action.
 
 Mutation retries use an immutable request signature and operation id. An exact
 replay returns the prior result; conflicting input under one operation id is
-rejected before GitHub, R2, or D1 mutation.
+rejected before GitHub, R2, or PostgreSQL mutation.
 
 Repository imports use the existing member-owned batch plan. The Center Agent
 previews a commit, begins a batch with its exact commit and selected paths, and
@@ -665,7 +665,7 @@ installs each eligible Skill independently. It reports installed, skipped, and
 failed items; one failed package does not undo successful installs. A retry
 with the returned operation ID and pinned `retrySource` replays completed items
 instead of creating duplicate Skills. A retry using a mutable repository URL
-is rejected. Core owns the pinned batch plan and per-item results in D1; Web
+is rejected. Core owns the pinned batch plan and per-item results in PostgreSQL; Web
 and CLI run the eligible items sequentially through the same idempotent import
 operation. A client that loses its connection can query the batch by ID and
 continue pending or failed items without recreating completed releases. The Web
@@ -791,5 +791,5 @@ Before release, prove through user-accessible entry points:
 - activation evidence correlates Skill, release, Center Agent submission, and
   Routine Run when present.
 
-Internal HTTP, D1, R2, or RPC inspection may support diagnosis but is not
+Internal HTTP, PostgreSQL, R2, or RPC inspection may support diagnosis but is not
 real-user smoke evidence.

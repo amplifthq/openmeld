@@ -103,7 +103,7 @@ The agent runs on your machine and replies in the Space. That's the loop.
 
 ## Architecture at a glance
 
-The cloud side runs entirely on **Cloudflare Workers**, with **Durable Objects** holding per-Space state, **D1** as the durable ledger, and **Queues** carrying dispatch. The execution side is the **OpenMeld Service**: a small background service on each of your computers that carries Space work to the local agent tools and reports back. The cloud owns the conversation and the routing; your machine owns the work and stays the trust boundary for it.
+The cloud side uses **Cloudflare Workers** and **Durable Objects** for per-Space state. **Hyperdrive** connects Workers to **PlanetScale PostgreSQL** for shared relational records. The Space outbox carries workstation dispatch; **Queues** serve hosted recovery and other background message families. The execution side is the **OpenMeld Service**: a small background service on each of your computers that carries Space work to the local agent tools and reports back. The cloud owns the conversation and the routing; your machine owns the work and stays the trust boundary for it.
 
 ```text
   Space message (@agent wake)          ── Web or CLI, from anywhere
@@ -152,16 +152,13 @@ corepack install
 Install the Doppler CLI from its
 [official installation guide](https://docs.doppler.com/docs/install-cli), then
 authenticate once with `doppler login`. The normal Docker-free local workflow
-uses two terminals:
+uses PostgreSQL 18; install its local tools through the
+[PostgreSQL workflow](./developing/engineering/postgresql.md#tools-and-local-development):
 
 ```bash
-# Terminal 1
 pnpm install --frozen-lockfile
 pnpm dev:doctor
-pnpm dev:worktree
-
-# Terminal 2, after the Worker stack reports ready
-pnpm dev:web:worktree
+pnpm dev:postgresql
 ```
 
 Use the localhost URLs printed by the launchers; worktrees do not use one fixed

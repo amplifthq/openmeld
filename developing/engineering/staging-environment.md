@@ -17,6 +17,12 @@
 
 ## What Staging Provides
 
+This environment retains its pre-cutover D1 deployment. Current-source shared
+product deployment is blocked by backend admission until staging has its own
+PostgreSQL migration. The historical provisioning/deployment steps below do
+not authorize deploying current Auth/Core against those D1 bindings. Production
+already uses PostgreSQL; the isolated foundation probe is a separate target.
+
 PostgreSQL foundation acceptance runs separately from this shared D1 staging
 environment. Its Amplift database, Hyperdrive configuration and expiring probe
 are owned by [postgresql.md](postgresql.md). Preparing those resources must not

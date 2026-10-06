@@ -91,7 +91,7 @@ heartbeat and alarm owner. A compatible, dispatch-accepting live session first
 establishes expected availability. The existing lease TTL is the reconnect grace;
 initial registration, explicit unknown state, user stop and controlled update do
 not establish a fault. One durable incident and a bounded projection retry slice
-survive Hub restart and D1 failure. Recovery uses the same owner-Service online
+survive Hub restart and PostgreSQL failure. Recovery uses the same owner-Service online
 evidence as Computer connection status, not socket presence, dispatch admission
 or execution compatibility. Confirmed connectivity ends the same incident and
 removes its priority and pending-action contribution without a user visit.
