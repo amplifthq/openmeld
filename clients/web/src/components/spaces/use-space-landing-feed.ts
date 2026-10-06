@@ -61,10 +61,6 @@ const LIVE_RECONNECT_STATUS =
 const LIVE_RECONCILE_STALE_STATUS =
 	"Live updates couldn't check for missed messages. Retrying automatically...";
 const LIVE_RECONNECT_DELAYS_MS = [1000, 2000, 5000, 10_000, 30_000] as const;
-// Grace window before a dropped stream is surfaced as "degraded". A blip that
-// reconnects within this window never flips the UI, killing the flash-on-every-
-// blip noise; only a sustained disconnect escalates to the visible status.
-const LIVE_DEGRADE_GRACE_MS = 2500;
 // Sub-idle cadence for the live-stream keepalive PING (the Space DO answers
 // PONG via setWebSocketAutoResponse) so the proxy-held connection chain never
 // goes idle and gets evicted — idle eviction surfaced as periodic Reconnecting.
@@ -279,7 +275,6 @@ export function useSpaceLandingFeed(input: {
 	const reconnectKeyRef = useRef(0);
 	const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const reconnectAttemptCountRef = useRef(0);
-	const degradeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const liveStateRef = useRef<SpaceLiveState>("connecting");
 	const mountedRef = useRef(false);
 	// Wall-clock timestamp of the last inbound transport frame on the live
@@ -369,7 +364,6 @@ export function useSpaceLandingFeed(input: {
 			return;
 		}
 		clearReconnectTimer(reconnectTimerRef);
-		clearReconnectTimer(degradeTimerRef);
 		reconnectAttemptCountRef.current = 0;
 		advanceReconnectKey();
 	}, [advanceReconnectKey, input.participationEnabled]);
@@ -392,6 +386,7 @@ export function useSpaceLandingFeed(input: {
 		async (afterSubscription = false): Promise<void> => {
 			const startIdentity = feedIdentityRef.current;
 			const startReconnectKey = reconnectKeyRef.current;
+			const subscribedAtStart = readySocketAttemptKeyRef.current;
 			const isCurrentReconcile = (): boolean =>
 				mountedRef.current &&
 				feedIdentityRef.current === startIdentity &&
@@ -400,7 +395,14 @@ export function useSpaceLandingFeed(input: {
 				if (!isCurrentReconcile()) {
 					return;
 				}
-				if (liveStateRef.current === "stale") {
+				if (
+					subscribedAtStart !== null &&
+					subscribedAtStart === readySocketAttemptKeyRef.current &&
+					readySocketAttemptKeyRef.current ===
+						currentSocketAttemptKeyRef.current &&
+					liveStateRef.current === "stale"
+				) {
+					liveStateRef.current = "connected";
 					setLiveState("connected");
 					setLiveErrorMessage(null);
 				}
@@ -409,6 +411,7 @@ export function useSpaceLandingFeed(input: {
 				if (!isCurrentReconcile()) {
 					return;
 				}
+				liveStateRef.current = "stale";
 				setLiveState("stale");
 				setLiveErrorMessage(LIVE_RECONCILE_STALE_STATUS);
 			};
@@ -672,13 +675,11 @@ export function useSpaceLandingFeed(input: {
 		lastInboundFrameTsRef.current = null;
 		clearWakeFinalOutcomeRefreshTimer(wakeFinalOutcomeRefreshTimerRef);
 		clearReconnectTimer(reconnectTimerRef);
-		clearReconnectTimer(degradeTimerRef);
 	}, [input.spaceId]);
 
 	useEffect(() => {
 		return () => {
 			clearReconnectTimer(reconnectTimerRef);
-			clearReconnectTimer(degradeTimerRef);
 			if (statusRefetchTimerRef.current) {
 				clearTimeout(statusRefetchTimerRef.current);
 			}
@@ -793,12 +794,10 @@ export function useSpaceLandingFeed(input: {
 			currentSocketAttemptKeyRef.current = null;
 			readySocketAttemptKeyRef.current = null;
 			clearReconnectTimer(reconnectTimerRef);
-			clearReconnectTimer(degradeTimerRef);
 			setLiveState("connected");
 			setLiveErrorMessage(null);
 			return () => {
 				clearReconnectTimer(reconnectTimerRef);
-				clearReconnectTimer(degradeTimerRef);
 			};
 		}
 
@@ -824,19 +823,6 @@ export function useSpaceLandingFeed(input: {
 			}
 		};
 
-		// Surface "degraded" only if the stream stays down past the grace window.
-		// The timer lives at hook scope (not this attempt's closure) so it spans
-		// reconnect attempts and is cleared by markConnected / lifecycle resets.
-		const armDegradeTimer = () => {
-			if (degradeTimerRef.current || liveStateRef.current === "degraded") {
-				return;
-			}
-			degradeTimerRef.current = setTimeout(() => {
-				degradeTimerRef.current = null;
-				setLiveState("degraded");
-				setLiveErrorMessage(LIVE_RECONNECT_STATUS);
-			}, LIVE_DEGRADE_GRACE_MS);
-		};
 		const scheduleReconnect = () => {
 			if (isDisposed || reconnectKeyRef.current !== reconnectAttempt) {
 				return;
@@ -845,7 +831,9 @@ export function useSpaceLandingFeed(input: {
 				return;
 			}
 
-			armDegradeTimer();
+			liveStateRef.current = "degraded";
+			setLiveState("degraded");
+			setLiveErrorMessage(LIVE_RECONNECT_STATUS);
 
 			const delayMs = resolveLiveReconnectDelayMs(
 				reconnectAttemptCountRef.current
@@ -859,15 +847,19 @@ export function useSpaceLandingFeed(input: {
 				advanceReconnectKey();
 			}, delayMs);
 		};
-		const markConnected = () => {
-			clearReconnectTimer(degradeTimerRef);
+		const markSubscribed = () => {
 			reconnectAttemptCountRef.current = 0;
-			setLiveState("connected");
-			setLiveErrorMessage(null);
+			// A recovered transport still needs to catch up on missed messages.
+			const recovering =
+				liveStateRef.current === "degraded" || liveStateRef.current === "stale";
+			liveStateRef.current = recovering ? "stale" : "connected";
+			setLiveState(liveStateRef.current);
+			if (!recovering) {
+				setLiveErrorMessage(null);
+			}
 		};
 
-		// Retain an interrupted state across attempts until the server accepts
-		// the subscription, so recovery feedback does not blink on every retry.
+		// Keep recovery feedback stable across attempts and the trailing catch-up.
 		const socket = createSpaceLiveTransport({
 			origin: window.location.origin,
 			spaceId: input.spaceId,
@@ -945,7 +937,7 @@ export function useSpaceLandingFeed(input: {
 					);
 			}
 			readySocketAttemptKeyRef.current = socketAttemptKey;
-			markConnected();
+			markSubscribed();
 			if (historyReadyRef.current) {
 				skippedReadyReconcilePendingRef.current = false;
 				reconcileConversation({ afterActiveFlight: true }).catch(

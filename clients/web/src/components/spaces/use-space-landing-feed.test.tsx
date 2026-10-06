@@ -1505,6 +1505,27 @@ describe("useSpaceLandingFeed conversation reconcile", () => {
 		).toEqual(["sig-1", "sig-9"]);
 	});
 
+	it("keeps recovery interrupted until catch-up succeeds after reconnect", async () => {
+		const { view } = renderFeed({
+			seededEnvelopes: [createTextSignal({ id: "sig-1", ts: 10 })],
+		});
+		await openLatestSocket();
+		const catchUp = createDeferred<{ signals: SignalEnvelope[] }>();
+		readSpaceUpdatesMock.mockReturnValue(catchUp.promise);
+		act(() => FakeWebSocket.latest.close());
+		expect(view.result.current.liveState).toBe("degraded");
+		await act(async () => vi.advanceTimersByTimeAsync(1000));
+		await openLatestSocket();
+		expect(view.result.current.liveState).toBe("stale");
+		catchUp.reject({ status: 500, message: "upstream boom" });
+		await flushMicrotasks();
+		expect(view.result.current.liveState).toBe("stale");
+		readSpaceUpdatesMock.mockResolvedValue({ signals: [] });
+		act(() => document.dispatchEvent(new Event("visibilitychange")));
+		await flushMicrotasks();
+		expect(view.result.current.liveState).toBe("connected");
+	});
+
 	it("marks reconcile stale without falling back when a non-anchor catch-up failure occurs", async () => {
 		readSpaceUpdatesMock.mockRejectedValue({
 			status: 500,
