@@ -24,6 +24,7 @@ import {
 } from "@openmeld/ui/components/dialog";
 import { Input } from "@openmeld/ui/components/input";
 import { Label } from "@openmeld/ui/components/label";
+import { Textarea } from "@openmeld/ui/components/textarea";
 import { resolveStatusToneProminentBadgeClassName } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
@@ -977,14 +978,98 @@ function ConnectionControl(input: ConnectionSectionInput) {
 	return <DisconnectedConnectionControl {...input} />;
 }
 
+function CredentialMethodPicker({
+	choices,
+	selected,
+	disabled,
+	onSelect,
+}: {
+	choices: readonly PluginCredentialAuth[];
+	selected: number;
+	disabled: boolean;
+	onSelect: (index: number) => void;
+}) {
+	if (choices.length < 2) {
+		return null;
+	}
+	return (
+		<fieldset className="flex gap-2">
+			<legend className="mb-2 text-sm">Sign-in method</legend>
+			{choices.map((choice, index) => (
+				<Button
+					aria-pressed={index === selected}
+					disabled={disabled}
+					key={choice.authType}
+					onClick={() => onSelect(index)}
+					size="sm"
+					type="button"
+					variant={index === selected ? "secondary" : "outline"}
+				>
+					{choice.authType === "api_key" ? "API key" : "Account credentials"}
+				</Button>
+			))}
+		</fieldset>
+	);
+}
+
+function CredentialField({
+	field,
+	id,
+	disabled,
+	value,
+	onChange,
+}: {
+	field: PluginCredentialAuth["fields"][number];
+	id: string;
+	disabled: boolean;
+	value: string;
+	onChange: (value: string) => void;
+}) {
+	const multiline =
+		field.inputType === "textarea" || field.inputType === "json";
+	const Field = multiline ? Textarea : Input;
+	return (
+		<div className="space-y-1.5">
+			<Label htmlFor={id}>{field.label}</Label>
+			<Field
+				autoComplete="off"
+				disabled={disabled}
+				id={id}
+				onChange={(event) => onChange(event.target.value)}
+				placeholder={field.placeholder}
+				required={field.required !== false}
+				value={value}
+				{...(multiline
+					? {
+							className: field.secret
+								? "[-webkit-text-security:disc]"
+								: undefined,
+							spellCheck: false,
+						}
+					: { type: field.secret ? "password" : "text" })}
+			/>
+			<p className="text-muted-foreground text-xs leading-5">
+				{field.description}
+			</p>
+		</div>
+	);
+}
+
 function DisconnectedConnectionControl(input: ConnectionSectionInput) {
+	const disabled = input.actionsDisabled || !input.canManage;
 	const [values, setValues] = useState<Record<string, string>>({});
 	const [usingCredentialFallback, setUsingCredentialFallback] = useState(false);
+	const [credentialIndex, setCredentialIndex] = useState(0);
 	const primaryAuth = input.connectionConfig.auth;
-	const auth =
+	const baseAuth =
 		primaryAuth.kind === "oauth" && usingCredentialFallback
 			? (primaryAuth.credentialFallback ?? primaryAuth)
 			: primaryAuth;
+	const choices = input.connectionConfig.credentials ?? [];
+	const auth =
+		baseAuth.kind === "credential"
+			? (choices[credentialIndex] ?? baseAuth)
+			: baseAuth;
 	const connectPending = input.connectPendingKind === auth.kind;
 	const statusChecking = input.statusChecking && !connectPending;
 	const connectActionLabel = resolveConnectActionLabel({
@@ -1002,7 +1087,7 @@ function DisconnectedConnectionControl(input: ConnectionSectionInput) {
 							? "Checking connection status"
 							: `Connect ${input.appName}`
 					}
-					disabled={input.actionsDisabled || !input.canManage}
+					disabled={disabled}
 					onClick={() => input.onConnect(auth, {})}
 					size="sm"
 					type="button"
@@ -1017,7 +1102,7 @@ function DisconnectedConnectionControl(input: ConnectionSectionInput) {
 				{auth.credentialFallback ? (
 					<Button
 						className="h-auto px-0 py-0 text-xs"
-						disabled={input.actionsDisabled || !input.canManage}
+						disabled={disabled}
 						onClick={() => setUsingCredentialFallback(true)}
 						type="button"
 						variant="link"
@@ -1036,28 +1121,26 @@ function DisconnectedConnectionControl(input: ConnectionSectionInput) {
 				input.onConnect(auth, values);
 			}}
 		>
+			<CredentialMethodPicker
+				choices={choices}
+				disabled={disabled}
+				onSelect={(index) => {
+					setCredentialIndex(index);
+					setValues({});
+				}}
+				selected={credentialIndex}
+			/>
 			{auth.fields.map((field) => (
-				<div className="space-y-1.5" key={field.key}>
-					<Label htmlFor={`${input.scope}-${field.key}`}>{field.label}</Label>
-					<Input
-						autoComplete="off"
-						disabled={input.actionsDisabled || !input.canManage}
-						id={`${input.scope}-${field.key}`}
-						onChange={(event) =>
-							setValues((current) => ({
-								...current,
-								[field.key]: event.target.value,
-							}))
-						}
-						placeholder={field.placeholder}
-						required
-						type={field.secret ? "password" : "text"}
-						value={values[field.key] ?? ""}
-					/>
-					<p className="text-muted-foreground text-xs leading-5">
-						{field.description}
-					</p>
-				</div>
+				<CredentialField
+					disabled={disabled}
+					field={field}
+					id={`${input.scope}-${field.key}`}
+					key={field.key}
+					onChange={(value) =>
+						setValues((current) => ({ ...current, [field.key]: value }))
+					}
+					value={values[field.key] ?? ""}
+				/>
 			))}
 			<div className="flex flex-wrap items-center gap-3">
 				<Button
@@ -1066,7 +1149,7 @@ function DisconnectedConnectionControl(input: ConnectionSectionInput) {
 							? "Checking connection status"
 							: `Connect ${input.appName}`
 					}
-					disabled={input.actionsDisabled || !input.canManage}
+					disabled={disabled}
 					size="sm"
 					type="submit"
 				>
@@ -1078,7 +1161,7 @@ function DisconnectedConnectionControl(input: ConnectionSectionInput) {
 				{primaryAuth.kind === "oauth" ? (
 					<Button
 						className="h-auto px-0 py-0 text-xs"
-						disabled={input.actionsDisabled || !input.canManage}
+						disabled={disabled}
 						onClick={() => {
 							setValues({});
 							setUsingCredentialFallback(false);

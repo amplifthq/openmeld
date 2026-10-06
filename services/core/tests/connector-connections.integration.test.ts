@@ -53,6 +53,7 @@ import {
   rpcBeginCurrentOrganizationGitHubAppInstallation,
   rpcBeginCurrentOrganizationSharedConnectorAuthorization,
   rpcBeginGitHubAppInstallationVerification,
+  rpcCenterAgentListConnectorServices,
   rpcCenterAgentReadConnectorActionOperation,
   rpcCenterAgentRecordConnectorActionAudit,
   rpcCenterAgentRecordConnectorActionOperation,
@@ -3122,6 +3123,35 @@ describe("Core connector connection ownership", () => {
     expect(selectedForA?.connection.organizationId).toBe(fixture.organizationA);
     expect(selectedForA?.connection.connectionName).toBe(fixture.connectionA);
     expect(selectedForB).toBeNull();
+  });
+  it("discovers new provider identifiers without revealing another member's private connections", async () => {
+    const fixture = await seedConnectorFixture();
+    const center = await seedDesignatedCenterAgent(fixture);
+    await getPostgresDatabase(env).query({
+      text: 'UPDATE "openmeld"."connector_connections" SET service = $1 WHERE connection_name = $2',
+      values: ["new_provider", fixture.connectionA],
+    });
+    const coreEnv = {
+      OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL,
+    } as CoreBindings;
+    expect(
+      await rpcCenterAgentListConnectorServices(coreEnv, {
+        context: center.context,
+        requesterUserId: fixture.memberA,
+      })
+    ).toEqual({ services: ["new_provider"] });
+    expect(
+      await rpcCenterAgentListConnectorServices(coreEnv, {
+        context: center.context,
+        requesterUserId: fixture.otherMemberA,
+      })
+    ).toEqual({ services: [] });
+    expect(
+      await rpcCenterAgentListConnectorServices(coreEnv, {
+        context: center.context,
+        requesterUserId: null,
+      })
+    ).toEqual({ services: [] });
   });
   it("resolves requester membership and connection owner identity through their owner boundaries", async () => {
     const fixture = await seedConnectorFixture();

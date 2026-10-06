@@ -5,6 +5,7 @@ import {
 	PLUGINS,
 	type PluginCategory,
 	type PluginDefinition,
+	pluginFromProvider,
 } from "@openmeld/product-catalog/plugins";
 import { AppLogo } from "@openmeld/ui/components/app-logo";
 import { Badge } from "@openmeld/ui/components/badge";
@@ -20,7 +21,10 @@ import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { ObjectMenuItems } from "#/components/app/object-menu-items";
 import { buildOrganizationPluginPath } from "#/lib/organizations/organization-routes";
-import { organizationPluginConnectionCatalogQueryOptions } from "#/query/organizations/plugin-connections";
+import {
+	organizationPluginConnectionCatalogQueryOptions,
+	organizationPluginProviderCatalogQueryOptions,
+} from "#/query/organizations/plugin-connections";
 import { usePluginScope } from "./plugin-scope-tabs";
 
 export function PluginsCatalogPanel(input: {
@@ -32,8 +36,14 @@ export function PluginsCatalogPanel(input: {
 	const scope = input.isPersonalWorkspace ? "personal" : selectedScope;
 	const [activeCategory, setActiveCategory] = useState<PluginCategory>("All");
 	const [searchQuery, setSearchQuery] = useState("");
+	const [visibleCount, setVisibleCount] = useState(40);
 	const queryClient = useQueryClient();
 	const normalizedSearchQuery = searchQuery.trim().toLocaleLowerCase();
+	const providersQuery = useQuery(
+		organizationPluginProviderCatalogQueryOptions({
+			organizationId: input.organizationId,
+		})
+	);
 	const connectionsQuery = useQuery(
 		organizationPluginConnectionCatalogQueryOptions({
 			organizationId: input.organizationId,
@@ -55,7 +65,9 @@ export function PluginsCatalogPanel(input: {
 		}
 	}
 	const connectionStatusIsPending = connectionsQuery.isPending;
-	const visiblePlugins = PLUGINS.filter((plugin) => {
+	const visiblePlugins = (
+		providersQuery.data?.providers.map(pluginFromProvider) ?? PLUGINS
+	).filter((plugin) => {
 		const matchesCategory =
 			activeCategory === "All" || plugin.category === activeCategory;
 		const matchesSearch =
@@ -82,7 +94,10 @@ export function PluginsCatalogPanel(input: {
 						<Button
 							aria-pressed={activeCategory === category}
 							key={category}
-							onClick={() => setActiveCategory(category)}
+							onClick={() => {
+								setActiveCategory(category);
+								setVisibleCount(40);
+							}}
 							size="xs"
 							type="button"
 							variant={activeCategory === category ? "secondary" : "outline"}
@@ -110,7 +125,10 @@ export function PluginsCatalogPanel(input: {
 						<Input
 							className="pl-8"
 							id="plugin-catalog-search"
-							onChange={(event) => setSearchQuery(event.target.value)}
+							onChange={(event) => {
+								setSearchQuery(event.target.value);
+								setVisibleCount(40);
+							}}
 							placeholder="Search Plugins"
 							type="search"
 							value={searchQuery}
@@ -143,7 +161,7 @@ export function PluginsCatalogPanel(input: {
 					className="grid gap-x-8 gap-y-1 sm:grid-cols-2"
 					role="list"
 				>
-					{visiblePlugins.map((plugin) => (
+					{visiblePlugins.slice(0, visibleCount).map((plugin) => (
 						<FluidCardItem
 							className="bg-transparent"
 							itemId={plugin.service}
@@ -174,6 +192,14 @@ export function PluginsCatalogPanel(input: {
 					</p>
 				</div>
 			)}
+			{visibleCount < visiblePlugins.length ? (
+				<Button
+					onClick={() => setVisibleCount((count) => count + 40)}
+					variant="outline"
+				>
+					Show more Plugins
+				</Button>
+			) : null}
 		</section>
 	);
 }
@@ -238,7 +264,7 @@ export function PluginStatusBadge(input: {
 	if (input.plugin.availability === "planned") {
 		return (
 			<Badge className="border-border bg-muted/40 text-muted-foreground">
-				Planned
+				Setup unavailable
 			</Badge>
 		);
 	}

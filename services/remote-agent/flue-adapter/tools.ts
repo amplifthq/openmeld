@@ -144,7 +144,8 @@ export async function getRemoteAgentFlueTools(input: {
               storage: input.storage,
               submissionId: input.submissionId,
             });
-          }
+          },
+          { storage: input.storage, submissionId: input.submissionId }
         )
       : [];
   const nativeDefinitions = definitions.filter((definition) =>

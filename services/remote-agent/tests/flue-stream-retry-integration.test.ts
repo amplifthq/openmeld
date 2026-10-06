@@ -162,9 +162,11 @@ it.each([
     const answer = await agent.read(receipt);
     await Promise.all([...pending]);
     expect(errors).toEqual([]);
-    const snapshots = frames.map((frame) =>
-      "snapshot" in frame ? frame.snapshot : frame.textSnapshot
-    );
+    const snapshots = frames
+      .filter((frame) => !("kind" in frame) || frame.kind === "text")
+      .map((frame) =>
+        "snapshot" in frame ? frame.snapshot : frame.textSnapshot
+      );
     if (!withNarration) {
       expect(
         snapshots.some((text) => text.includes("Wrong partial answer."))

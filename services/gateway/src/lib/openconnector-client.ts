@@ -109,7 +109,10 @@ export class OpenConnectorClient {
   }
 
   async listProviders(): Promise<ConnectorAppCatalogProvider[]> {
-    const payload = await this.#request("/v1/providers", { method: "GET" });
+    const payload = await this.#request(
+      "/v1/providers?includeConnectionAuth=true",
+      { method: "GET" }
+    );
     return parseOpenConnectorPayload({
       operation: "list providers",
       payload,

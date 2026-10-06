@@ -4,10 +4,19 @@ import {
   resolveRemoteAgentExecutionScope,
 } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
-import { createRemoteAgentCallbackContext } from "../agent-core/callback-context";
+import {
+  createRemoteAgentCallbackContext,
+  putRemoteAgentCallbackContext,
+} from "../agent-core/callback-context";
 import { buildRemoteAgentCoreContext } from "../agent-core/tool-context";
+import { createComputerGitConnectionTool } from "../flue-adapter/computer-git-connection";
 import { authorizeGitTransfer } from "../flue-adapter/git-transfer-authorization";
+import { executionAccessFixture } from "./execution-access-fixture";
 import { createSubmitTurnRequest, TEST_NOW_MS } from "./fixtures";
+import { InMemoryDurableObjectStorage } from "./storage";
+
+const NATIVE_GIT_URL =
+  /^http:\/\/computer\.internal\/[a-f0-9]+\/acme\/private\.git$/u;
 
 function fixture() {
   const request = createSubmitTurnRequest();
@@ -34,7 +43,7 @@ function fixture() {
     disconnectedAtMs: null,
     organizationId: context.organizationId,
     ownerDisplayName: "Requester",
-    scope: "member" as const,
+    scope: "member" as "member" | "shared",
     service: "github" as const,
     status: "active" as "active" | "disconnected",
     updatedAtMs: TEST_NOW_MS,
@@ -83,6 +92,7 @@ function fixture() {
     permission: "read",
   }));
   return {
+    context,
     grant,
     connection,
     authorizeRemoteAgentExecutionAccess,
@@ -91,6 +101,89 @@ function fixture() {
 }
 
 describe("Git transfer authorization", () => {
+  it.each([
+    "requester",
+    "organization",
+  ] as const)("connects native Git through the exact %s Plugin and keeps retries stable", async (actor) => {
+    const f = fixture();
+    const storage = new InMemoryDurableObjectStorage();
+    await putRemoteAgentCallbackContext(storage, f.context);
+    const connection = {
+      ...f.connection,
+      scope: actor === "requester" ? ("member" as const) : ("shared" as const),
+    };
+    const register = vi.fn((_grant: unknown) => Promise.resolve());
+    const authorize = vi.fn(executionAccessFixture(f.context));
+    const tool = createComputerGitConnectionTool({
+      context: f.context,
+      storage,
+      coreWorker: {
+        authorizeRemoteAgentExecutionAccess: authorize,
+        centerAgentResolveConnectorConnection: async () => ({
+          connection,
+          permission: "read",
+          selection: actor === "requester" ? "requester" : "shared",
+        }),
+      },
+      workspaceAccess: {
+        registerGitTransferGrant: register,
+        withWorkspace: () => {
+          throw new Error("Connection must not download repository files");
+        },
+      },
+    });
+    const request = {
+      key: "native-clone",
+      owner: "acme",
+      repo: "private",
+      githubActor: actor,
+    };
+    const first = await tool.execute(request);
+    const retry = await tool.execute(request);
+    expect(first).toMatchObject({
+      backend: "container",
+      connectionScope: connection.scope,
+      url: expect.stringMatching(NATIVE_GIT_URL),
+    });
+    expect(retry).toMatchObject({ url: (first as { url: string }).url });
+    expect(register.mock.calls[0]?.[0]).toMatchObject({
+      connectionScope: connection.scope,
+      requesterUserId: "user_1",
+      owner: "acme",
+      repo: "private",
+    });
+    authorize.mockRejectedValue(new Error("access revoked"));
+    await expect(tool.execute(request)).rejects.toThrow("access revoked");
+    expect(register).toHaveBeenCalledTimes(2);
+  });
+  it("reauthorizes the exact organization connection without substituting the member account", async () => {
+    const f = fixture();
+    const shared = {
+      ...f.connection,
+      scope: "shared" as const,
+      userId: "organization-admin",
+    };
+    f.centerAgentResolveConnectorConnection.mockResolvedValue({
+      connection: shared,
+      selection: "shared",
+      permission: "read",
+    });
+    const grant = { ...f.grant, connectionScope: "shared" as const };
+    await expect(authorizeGitTransfer(f, grant)).resolves.toMatchObject({
+      connection: shared,
+    });
+    expect(f.centerAgentResolveConnectorConnection).toHaveBeenCalledWith(
+      expect.objectContaining({ connectionPreference: "shared" })
+    );
+    f.centerAgentResolveConnectorConnection.mockResolvedValue({
+      connection: f.connection,
+      selection: "requester",
+      permission: "read",
+    });
+    await expect(authorizeGitTransfer(f, grant)).rejects.toThrow(
+      "connection_changed"
+    );
+  });
   it("rechecks the recorded requester and exact source on each host transfer", async () => {
     const f = fixture();
     const grant = {
