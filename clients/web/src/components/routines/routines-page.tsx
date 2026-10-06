@@ -25,7 +25,7 @@ import {
 	FluidDropdownMenuGroup,
 	FluidDropdownMenuItem,
 } from "@openmeld/ui/fluid/dropdown-menu";
-import { TabsSubtle, TabsSubtleItem } from "@openmeld/ui/fluid/tabs-subtle";
+import { TabItem, Tabs, TabsList } from "@openmeld/ui/fluid/tabs";
 import {
 	ClockCounterClockwiseIcon,
 	ClockIcon,
@@ -37,11 +37,13 @@ import {
 	TrashIcon,
 } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryState } from "nuqs";
 import { useState } from "react";
 import { AppEmptyState } from "#/components/app/app-empty-state";
 import { RoutineDeleteDialog } from "#/components/routines/routine-delete-dialog";
 import { RoutineRunsDialog } from "#/components/routines/routine-runs-dialog";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
+import { routineScopeParser } from "#/lib/page-tab-search";
 import {
 	createCurrentRoutine,
 	deleteCurrentRoutine,
@@ -91,7 +93,7 @@ function RoutinesContent(input: {
 	onClearFocus?: () => void;
 }) {
 	const client = useQueryClient();
-	const [scope, setScope] = useState<RoutineScope>("personal");
+	const [scope, setScope] = useQueryState("scope", routineScopeParser);
 	const [search, setSearch] = useState("");
 	const [filter, setFilter] = useState<RoutineFilter>("all");
 	const [sort, setSort] = useState<RoutineSort>("updated");
@@ -195,23 +197,18 @@ function RoutinesContent(input: {
 	};
 	return (
 		<div className="flex flex-1 flex-col gap-5">
-			<div className="flex items-center justify-between gap-4">
-				<h1 className="font-medium text-xl">Routines</h1>
-				<Button onClick={() => openForm("create")} size="sm">
-					<PlusIcon />
-					Create routine
-				</Button>
-			</div>
 			<div className="flex flex-wrap items-center justify-between gap-4">
-				<TabsSubtle
-					aria-label="Routine visibility"
-					idPrefix="routines-scope"
-					onSelect={(index) => setScope(index === 0 ? "personal" : "team")}
-					selectedIndex={scope === "personal" ? 0 : 1}
+				<Tabs
+					onValueChange={(value) =>
+						setScope(value === "team" ? "team" : "personal")
+					}
+					value={scope}
 				>
-					<TabsSubtleItem index={0} label="Personal" />
-					<TabsSubtleItem index={1} label="Team" />
-				</TabsSubtle>
+					<TabsList aria-label="Routine visibility" className="w-fit">
+						<TabItem label="Personal" value="personal" />
+						<TabItem label="Team" value="team" />
+					</TabsList>
+				</Tabs>
 				<div className="flex items-center gap-1">
 					<Input
 						aria-label="Search routines"
@@ -226,6 +223,14 @@ function RoutinesContent(input: {
 						onSort={setSort}
 						sort={sort}
 					/>
+					<Button
+						aria-label="Create routine"
+						onClick={() => openForm("create")}
+						size="sm"
+					>
+						<PlusIcon />
+						Create
+					</Button>
 				</div>
 			</div>
 			{list.isPending ? (

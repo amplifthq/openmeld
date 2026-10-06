@@ -757,8 +757,11 @@ Trigger.
 
 Team → Routines is the canonical entry. Old Center Agent URLs redirect while
 preserving Routine/Run selection. The page uses a shared Fluid Table, Personal
-and Team filters, search, and a centered dashed AppEmptyState. It does not
-require a Center Agent when the user has another eligible executor.
+and Team scope tabs, search, and a centered dashed AppEmptyState. Its segmented
+tabs reuse the same Fluid composition as Team Files. The Team header supplies
+the page title; the content toolbar places search, filters, then Create on the
+right. The `scope` URL query preserves selection on refresh and browser history.
+It does not require a Center Agent when the user has another eligible executor.
 
 Each row exposes Pause or Resume and the current result destination. Team rows
 also show the creator's avatar and name from the authorized member directory;

@@ -5,13 +5,24 @@ import { appShellStaticData } from "#/components/app/shell-layout";
 import { TeamHeader } from "#/components/directory/team-header";
 import { TeamPeopleSidebar } from "#/components/directory/team-people-sidebar";
 import { RoutinesPage } from "#/components/routines/routines-page";
+import { routineScopeParser } from "#/lib/page-tab-search";
 import { getAppSidebarStatesForRoute } from "#/lib/sidebar-width-cookie";
+
+const routineFocusSearch = z.object({
+	routineId: z.string().trim().min(1).max(256).optional(),
+	runId: z.string().trim().min(1).max(256).optional(),
+});
 
 export const Route = createFileRoute("/o/$orgSlug/routines")({
 	staticData: appShellStaticData.people,
-	validateSearch: z.object({
-		routineId: z.string().trim().min(1).max(256).optional(),
-		runId: z.string().trim().min(1).max(256).optional(),
+	validateSearch: (
+		search: Record<string, unknown>
+	): { scope?: "personal" | "team"; routineId?: string; runId?: string } => ({
+		...routineFocusSearch.parse(search),
+		scope:
+			typeof search.scope === "string"
+				? (routineScopeParser.parse(search.scope) ?? undefined)
+				: undefined,
 	}),
 	loader: async () => ({ sidebarStates: await getAppSidebarStatesForRoute() }),
 	component: RoutinesRoute,
@@ -20,7 +31,7 @@ function RoutinesRoute() {
 	const { sidebarStates } = Route.useLoaderData();
 	const { routineId, runId } = Route.useSearch();
 	const { orgSlug } = Route.useParams();
-	const navigate = useNavigate();
+	const navigate = useNavigate({ from: Route.fullPath });
 	return (
 		<AppFullWidthLayout
 			contentLayout="flush"
@@ -37,7 +48,8 @@ function RoutinesRoute() {
 						navigate({
 							to: "/o/$orgSlug/routines",
 							params: { orgSlug },
-							search: {},
+							search: ({ routineId: _routine, runId: _run, ...previous }) =>
+								previous,
 						})
 					}
 				/>

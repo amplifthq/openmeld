@@ -361,6 +361,9 @@ Tabs composition. They reuse the shared proximity hook and surface tokens,
 with raised selection at two levels above the surrounding substrate.
 `TabsList background={false}` removes the track without flattening selection.
 The upstream hover color maps to the existing `interaction-hover` token.
+Conditional children are indexed after React removes empty slots. Value order,
+measurement registration, and the selected indicator use that same rendered
+order; hiding a tab must not leave a hole before the next selectable tab.
 Tab content inherits its selected substrate so nested badges can rise one step.
 The eight-level context and paired class resolver live in `@openmeld/ui/lib`;
 Web's `Elevated` consumes those same primitives.

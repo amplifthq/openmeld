@@ -193,13 +193,17 @@ const TabsList = forwardRef<HTMLDivElement, TabsListProps>(
     const valueOrderCtx = useContext(TabsValueOrderContext);
     const [optimisticIdx, setOptimisticIdx] = useState<number | null>(null);
 
+    const renderedChildren = useMemo(
+      () => Children.toArray(children),
+      [children]
+    );
     const values = useMemo(
       () =>
-        Children.toArray(children)
+        renderedChildren
           .filter(isValidElement)
           .map((child) => (child.props as { value?: string }).value)
           .filter((v): v is string => typeof v === "string"),
-      [children]
+      [renderedChildren]
     );
     const setValueOrder = valueOrderCtx?.setValueOrder;
 
@@ -257,7 +261,9 @@ const TabsList = forwardRef<HTMLDivElement, TabsListProps>(
     const isHoveringSelected = hoveredIndex === activeSelectedIdx;
     const isHovering = hoveredIndex !== null && !isHoveringSelected;
 
-    const indexedChildren = Children.map(children, (child, i) => {
+    // React.Children.map counts hidden/null slots. Index the rendered children
+    // so value order, measurements, and the active indicator share one position.
+    const indexedChildren = renderedChildren.map((child, i) => {
       // Skip plain DOM elements — injecting _index into e.g. a <div>
       // triggers React's unknown-prop warning.
       if (isValidElement(child) && typeof child.type !== "string") {

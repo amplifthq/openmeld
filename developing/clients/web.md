@@ -583,6 +583,22 @@ The original import rejection and diagnostic report remain intact; canceling
 Vite's event would instead resolve the failed import with an undefined module.
 
 The browser URL remains the navigation owner, including its search and hash.
+Page-content tabs use the root TanStack Router `NuqsAdapter` and the literal
+parsers in `lib/page-tab-search.ts`. Routines and Plugins store `scope`; Files,
+Spaces, and Inbox store `view`; Skill details store `content`; Usage stores
+`usageScope`, including when opened in App Settings above another page. A tab
+change pushes one history entry without resetting scroll. The route validator
+and the tab hook accept the same values. Files clears obsolete document/folder
+selectors and Inbox clears the focused item/request atomically with a view
+change. Other supported query fields remain intact.
+
+Canonical path tabs, including Team and conversation headers, retain their
+existing route owner. Form choices, hover previews, file display preferences,
+spreadsheet sheet selection, and temporary dialogs do not become page tabs.
+Skills content tabs retain the mounted draft and allow same-path search/hash
+navigation; navigation to another document still uses the unsaved-change guard.
+Legacy Instructions/Files section hashes redirect to the content query once.
+
 Existing Composer draft persistence remains the draft owner. Unsaved-change
 guards and pending Space sends register recovery blockers using their existing
 facts; recovery leaves those surfaces and native navigation warnings mounted

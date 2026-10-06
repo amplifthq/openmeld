@@ -21,3 +21,6 @@ status. A green time with a check opens a completed answer directly.
 
 Pause or resume directly from each row. See where results go and who created
 each team routine. Filter by status or sort by next run, recent updates, or name.
+
+Personal and Team use the same compact tabs as Files. Search, filters, and
+Create share one toolbar without a repeated page title.
