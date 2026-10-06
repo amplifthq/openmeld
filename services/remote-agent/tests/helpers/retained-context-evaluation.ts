@@ -4,13 +4,13 @@ import {
   fauxAssistantMessage,
   fauxToolCall,
 } from "@earendil-works/pi-ai";
-import { remoteAgentReadToolResultResponseSchema } from "@openmeld/schemas";
 import { toJsonSchema } from "@valibot/to-json-schema";
 import {
   createRemoteAgentCallbackContext,
   putRemoteAgentCallbackContext,
 } from "../../agent-core/callback-context";
 import { buildRemoteAgentSystemPrompt } from "../../agent-core/prompt";
+import { createRetainedToolResultReducer } from "../../flue-adapter/retained-context";
 import {
   createRemoteAgentReadToolResultDefinition,
   prepareRemoteAgentToolResult,
@@ -106,6 +106,8 @@ export async function retainedContextScenario() {
   return {
     context,
     read,
+    dependencies,
+    reduce: createRetainedToolResultReducer(dependencies),
     revoke: () => {
       revoked = true;
     },
@@ -118,47 +120,25 @@ export async function retainedContextScenario() {
 export async function projectRetainedContext(
   scenario: Awaited<ReturnType<typeof retainedContextScenario>>
 ) {
-  const listing = remoteAgentReadToolResultResponseSchema.parse(
-    await scenario.read.execute({})
-  );
-  if (listing.kind !== "list") {
-    throw new Error("Expected retained-result listing");
-  }
-  const eligible = new Set(listing.results.map((result) => result.resultId));
   const projected = structuredClone(scenario.context);
   const results = projected.messages.filter(
     (message) => message.role === "toolResult"
   );
-  const recent = new Set(results.slice(-2));
+  const replacements = await scenario.reduce(results.slice(0, -2));
   let removed = 0;
   for (const message of projected.messages) {
-    if (
-      message.role !== "toolResult" ||
-      message.isError ||
-      recent.has(message) ||
-      message.content.length !== 1
-    ) {
+    if (message.role !== "toolResult" || message.content.length !== 1) {
       continue;
     }
     const block = message.content[0];
     if (block?.type !== "text") {
       continue;
     }
-    const value = JSON.parse(block.text);
-    const reference = value.presentation?.continuation;
-    if (
-      value.resultMetadata?.status !== "completed" ||
-      reference?.tool !== "openmeld_read_tool_result" ||
-      !eligible.has(reference.resultId) ||
-      reference.expiresAtMs <= Date.now()
-    ) {
+    const replacement = replacements.get(message.toolCallId);
+    if (!replacement) {
       continue;
     }
-    const { resultPreview: _preview, ...receipt } = value;
-    if (!_preview) {
-      continue;
-    }
-    block.text = JSON.stringify(receipt);
+    block.text = replacement;
     removed++;
   }
   return { context: projected, removed };

@@ -1,9 +1,10 @@
 # Retained-result context evaluation
 
-This fixture evaluates whether older tool-result previews can be removed while
-the exact result remains recoverable. It does not enable a product optimization.
-No runtime imports the helper. Flue remains the canonical history and compaction
-owner; Core access and retained-result ownership are unchanged.
+This fixture evaluates the proposed runtime policy that removes older tool-result
+previews while the exact result remains recoverable. The Draft PR wires this
+policy into the Hosted agent. It is not accepted for merge: the complete live
+runtime comparison remains incomplete. Flue remains the canonical history and
+compaction owner; Core access and retained-result ownership are unchanged.
 
 ## Reproduce
 
@@ -11,7 +12,7 @@ Install the pinned workspace dependencies and build Remote Agent dependencies.
 Run the deterministic boundary tests without credentials or supplier access:
 
 ```sh
-pnpm --filter @openmeld/remote-agent exec vitest run tests/retained-context-evaluation.test.ts --maxWorkers=1
+pnpm --filter @openmeld/remote-agent exec vitest run tests/retained-context-evaluation.test.ts tests/retained-context-runtime.test.ts tests/working-context.test.ts tests/retained-tool-results.test.ts --maxWorkers=1
 ```
 
 The separate paid DEV experiment is opt-in and excluded from normal CI execution:
@@ -35,6 +36,18 @@ The experiment permits at most 24 supplier requests, each with at most 180 KB
 of request data and 1,024 output tokens. Each variant permits six model rounds.
 Output is stored under this worktree's ignored `dev-tmp/retained-context-evaluation/`.
 That directory is an output destination, never an input dependency.
+
+For the full single-execution Flue comparison, add
+`OPENMELD_RETAINED_CONTEXT_MODE=runtime` to the same command. This mode allows
+64 requests, with agent output capped at 1,024 tokens and summaries at 4,096.
+It uses real Flue SQLite storage in that output directory and real inference.
+Eight synthetic write calls precede eight cursor-dependent observation pages.
+All result references and reads belong to the same execution. The observation
+pages force summaries even when older retained previews can be removed.
+Both variants must finish, preserve the final facts, recover the original code,
+execute each write once, and complete at least two summaries. Cost includes
+all recorded inference and summary requests. This synthetic task does not
+measure real Core RPC latency or cloud storage cost.
 
 ## Compared behavior
 
@@ -114,7 +127,42 @@ changed byte, but its real change frequency is unknown. A personal knowledge
 index changes earlier in its prompt. These are candidates for a cache test,
 not evidence that the existing cache is broken. No prompt was reordered.
 
-## Acceptance and next decision
+## Runtime implementation and incomplete qualification
+
+The branch now includes the Flue-owned preflight projection seam and uses the
+production retained-result reader for eligibility. It reduces only when the
+full context exceeds its budget. It protects the recent token tail and at
+least two latest results. It preserves canonical originals and falls through
+to normal compaction if preview reduction is insufficient. No provider wrapper
+or second history store owns this decision.
+
+The 35 focused tests passed after this implementation. Public Flue dispatch
+tests prove that preview reduction can avoid the first summary, later growth
+still triggers multiple summaries, canonical previews survive the temporary
+reduction, and writes are not repeated. The deterministic multi-dispatch fixture
+uses a static retention identity to isolate projection mechanics. It cannot
+prove cross-execution production access or complete-task cost savings.
+Remote Agent type checking and its Worker build also passed.
+
+The paid qualifications on October 6 did not produce an accepted comparison:
+
+| Attempt | Outcome | Recorded supplier USD | Exclusion reason |
+| --- | --- | ---: | --- |
+| Multi-dispatch qualification | Three completed variants; fourth failed | 0.025614050 | Static fixture retention identity spanned dispatches; invalid production cost comparison |
+| Single execution, batch observations | All four variants failed | 0.008840725 | An indivisible batch exceeded the budget in both policies; other runs timed out |
+| Single execution, cursor pages | All four variants failed | 0.013237755 | Summary timeouts or connection errors interrupted all variants |
+
+These costs include only responses with recorded usage. Failed requests can
+have unrecorded supplier charges. Failed runs are not treated as savings or
+quality results. Local request and outcome files were preserved. The final
+cursor-based experiment is the reproducible acceptance path. It uses a 20,000
+token test budget to exercise repeated pressure; production uses 48,000.
+
+Keep PR #1541 Draft until the cursor-based comparison completes for both
+policies and its full cost and quality results are assessed. Do not repeat paid
+runs while the observed connection failures remain unresolved.
+
+## Evidence boundaries
 
 This replay bypasses Flue's working-context preflight and summarizer. It cannot
 prove avoided summaries, repeated-compaction quality, whole-task savings,
@@ -122,14 +170,14 @@ restart durability, or browser-to-Worker behavior. It does prove that a narrow
 receipt-only projection can recover exact evidence using the existing owner
 and can reduce supplier cost for this synthetic continuation.
 
-Keep this PR separate from #1535's recovery delivery. After that owner settles,
-the next production decision needs a Flue-owned preflight projection seam,
-not a provider wrapper that reduces data after compaction has already run.
-Validate multiple compactions, current corrections, original effect counts,
-cache behavior and total task cost together before enabling a policy. Do not
+PR #1535 is merged, and this branch incorporates that main revision. Validate
+multiple compactions, current corrections, original effect counts, cache
+behavior and total task cost together before accepting the policy. Do not
 add a second history store, retain every small response, extend retention, or
 remove evidence solely because it is old.
 
-Architecture check: this test-only change introduces no product state,
-authority, cross-process contract or alternate runtime path. No product
-Changelog entry is needed.
+Architecture check: Flue owns history and compaction. Existing retained-result
+storage owns exact tool payloads and current authorization. The callback adds
+no persistent state, cross-process contract or alternate runtime path. Existing
+CLI, Service, Core and Web contracts remain unchanged. A draft Changelog entry
+records the proposed Hosted behavior without claiming deployment.

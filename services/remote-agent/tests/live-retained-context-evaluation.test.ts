@@ -1,9 +1,10 @@
-/** Opt-in supplier replay, not a production Flue compaction experiment.
+/** Opt-in supplier replay and public Flue single-execution experiments.
  * See fixtures/retained-context-evaluation.md for the evidence boundary.
  */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { Context, Provider } from "@earendil-works/pi-ai";
+import { instrument } from "@flue/runtime";
 import { expect, it, vi } from "vitest";
 import { parseJsoncObject } from "../../../packages/db/src/tooling/parse-jsonc";
 
@@ -12,12 +13,14 @@ const evaluation = vi.hoisted(() => ({
   variant: "",
   requests: 0,
   directory: "",
+  purpose: "agent",
   rows: [] as {
     variant: string;
     bytes: number;
     status: number;
     elapsedMs: number;
     usage: Record<string, unknown>;
+    purpose: string;
   }[],
 }));
 vi.mock("@flue/runtime", async (original) => {
@@ -33,9 +36,11 @@ vi.mock("@flue/runtime", async (original) => {
 vi.mock("../flue-adapter/ai-usage", () => ({
   createFlueMeteredFetch: () => async (url: string, options: RequestInit) => {
     const bytes = Buffer.byteLength(String(options.body));
-    // This bounded Luna replay permits at most 24 requests, each <= 180 KB,
-    // with 1,024 output tokens. Never run an unbounded optimization loop.
-    if (++evaluation.requests > 24 || bytes > 180_000) {
+    // Replay permits 24 requests; runtime mode permits 64. Each is <= 180 KB.
+    // Agent output is capped at 1,024 tokens and summaries at 4,096 tokens.
+    const requestLimit =
+      process.env.OPENMELD_RETAINED_CONTEXT_MODE === "runtime" ? 64 : 24;
+    if (++evaluation.requests > requestLimit || bytes > 180_000) {
       throw new Error("Evaluation request guard reached");
     }
     const started = Date.now();
@@ -59,6 +64,7 @@ vi.mock("../flue-adapter/ai-usage", () => ({
     }
     evaluation.rows.push({
       variant: evaluation.variant,
+      purpose: evaluation.purpose,
       bytes,
       status: response.status,
       elapsedMs: Date.now() - started,
@@ -83,8 +89,12 @@ import {
   promptPrefixMeasurements,
   retainedContextScenario,
 } from "./helpers/retained-context-evaluation";
+import { runRetainedContextSingleTurn } from "./helpers/retained-context-single-turn";
 
-it.skipIf(process.env.OPENMELD_LIVE_RETAINED_CONTEXT_EVAL !== "1")(
+it.skipIf(
+  process.env.OPENMELD_LIVE_RETAINED_CONTEXT_EVAL !== "1" ||
+    process.env.OPENMELD_RETAINED_CONTEXT_MODE === "runtime"
+)(
   "compares old-result previews with recoverable receipts using real inference",
   async () => {
     expect(process.env.OPENMELD_DEV_DOPPLER_COMPONENT).toBe("remote-agent");
@@ -233,6 +243,137 @@ it.skipIf(process.env.OPENMELD_LIVE_RETAINED_CONTEXT_EVAL !== "1")(
           typeof row.usage.cost === "number" &&
           Number.isFinite(row.usage.cost) &&
           row.usage.cost >= 0
+      )
+    ).toBe(true);
+  },
+  600_000
+);
+
+it.skipIf(
+  process.env.OPENMELD_LIVE_RETAINED_CONTEXT_EVAL !== "1" ||
+    process.env.OPENMELD_RETAINED_CONTEXT_MODE !== "runtime"
+)(
+  "compares one complete execution through repeated real Flue compaction",
+  async () => {
+    expect(process.env.OPENMELD_DEV_DOPPLER_COMPONENT).toBe("remote-agent");
+    evaluation.directory = resolve(
+      `../../dev-tmp/retained-context-evaluation/single-turn-${Date.now()}`
+    );
+    await mkdir(evaluation.directory, { recursive: true });
+    const config = parseJsoncObject(
+      await readFile("wrangler.jsonc", "utf8")
+    ) as { vars: Record<string, string> };
+    const registered = await registerRemoteAgentCloudflareProvider({
+      env: { ...config.vars, ...process.env },
+      modelRoute: {
+        ...TEST_CENTER_AGENT_MODEL_ROUTE,
+        modelId: "openai/gpt-6-luna",
+        displayName: "GPT-6 Luna",
+        contextWindow: 1_050_000,
+        maxOutputTokens: 4096,
+        reasoningLevel: "low",
+      },
+    });
+    const provider = evaluation.provider;
+    const model = provider?.getModels()[0];
+    if (!(provider && model)) {
+      throw new Error("Missing real provider");
+    }
+    instrument({
+      key: Symbol.for("retained-runtime-purpose"),
+      observe(event) {
+        if (event.type === "turn_request") {
+          evaluation.purpose = event.purpose;
+        }
+      },
+      interceptor: (_operation, _context, next) => next(),
+      dispose() {
+        /* No owned resources. */
+      },
+    });
+    const outcomes: {
+      variant: string;
+      passed: boolean;
+      result?: Awaited<ReturnType<typeof runRetainedContextSingleTurn>>;
+      error?: string;
+    }[] = [];
+    for (const variant of [
+      "baseline-1",
+      "receipts-1",
+      "receipts-2",
+      "baseline-2",
+    ]) {
+      evaluation.variant = variant;
+      let result:
+        | Awaited<ReturnType<typeof runRetainedContextSingleTurn>>
+        | undefined;
+      let passed = false;
+      let error: string | undefined;
+      try {
+        result = await runRetainedContextSingleTurn({
+          database: resolve(evaluation.directory, `${variant}.sqlite`),
+          enabled: variant.startsWith("receipts"),
+          summaryModel: registered.modelSpecifier,
+          continuation: async (context) =>
+            await provider
+              .streamSimple(model, context, {
+                apiKey: "unused",
+                maxTokens: 1024,
+                reasoning: "low",
+                sessionId: `${evaluation.directory}-${variant}`,
+              })
+              .result(),
+        });
+        const parsed = JSON.parse(
+          result.answer.slice(
+            result.answer.indexOf("{"),
+            result.answer.lastIndexOf("}") + 1
+          )
+        );
+        passed =
+          parsed.owner === "Nora" &&
+          parsed.budget === 390 &&
+          parsed.deploymentAuthorized === false &&
+          parsed.archiveCode === ORIGINAL_CODE &&
+          parsed.completedWrites === 8 &&
+          parsed.observationCount === 8 &&
+          parsed.firstObservationCode === "OBS-0-VERIFIED" &&
+          parsed.lastObservationCode === "OBS-7-VERIFIED" &&
+          !result.duplicateAttempt &&
+          JSON.stringify(result.writes) === "[0,1,2,3,4,5,6,7]" &&
+          JSON.stringify(result.observations) === "[0,1,2,3,4,5,6,7]";
+      } catch (caught) {
+        error = caught instanceof Error ? caught.message : String(caught);
+      }
+      outcomes.push({
+        variant,
+        passed,
+        ...(result ? { result } : {}),
+        ...(error ? { error } : {}),
+      });
+      await writeFile(
+        resolve(evaluation.directory, "outcomes.json"),
+        JSON.stringify(outcomes, null, 2)
+      );
+    }
+    console.info(
+      "Single-execution context evaluation:",
+      evaluation.directory,
+      outcomes
+    );
+    expect(outcomes.every((outcome) => outcome.passed)).toBe(true);
+    for (const outcome of outcomes) {
+      expect(
+        evaluation.rows.filter(
+          (row) =>
+            row.variant === outcome.variant && row.purpose === "compaction"
+        ).length
+      ).toBeGreaterThanOrEqual(2);
+    }
+    expect(
+      evaluation.rows.every(
+        (row) =>
+          typeof row.usage.cost === "number" && Number.isFinite(row.usage.cost)
       )
     ).toBe(true);
   },
