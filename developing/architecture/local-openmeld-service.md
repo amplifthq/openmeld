@@ -824,6 +824,25 @@ error code when present, without forwarding provider error text as product copy.
 The native contract is documented in the
 [Codex App Server reference](https://learn.chatgpt.com/docs/app-server#steer-an-active-turn).
 
+Claude Code uses the same exact-execution receiver with the Agent SDK's open
+user-message stream and native `priority: "now"`. It never opens a second query
+or resumes another session to deliver input. This requires Claude Code 2.1.290
+or later: older versions can acknowledge a duplicate UUID before consumption.
+The installed executable, not the SDK dependency version, determines eligibility.
+A matching top-level replay message from the active session confirms consumption;
+writing to the input stream alone does not. The receipt's `threadId` is the native
+session ID and `turnId` is the consumed native user-message UUID. Claude does not
+provide Codex's atomic `expectedTurnId` precondition; priority delivery follows
+Claude's current execution boundary. The UI promises immediate delivery to the
+working Agent, not identical provider turn semantics. Repair and delivery-only
+queries reject live input. A priority message can yield the old native turn's
+result before its own replay and continuation. That intermediate result must not
+settle the OpenMeld task; wait for consumption and the continuation's result.
+Stop, the final native result, and query cleanup close input
+and settle unacknowledged submissions as unconfirmed. A receipt timeout does not
+stop the original execution or authorize a resend. Space retains the durable
+queue and the Execution Host retains the existing deduplication responsibility.
+
 The Execution Host's private inherited IPC `executionInput` method accepts an
 exact owner account, Profile, dispatch, attempt and RuntimeCoordinator execution
 and run. The registry receives these identifiers from the existing admitted
