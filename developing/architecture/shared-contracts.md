@@ -5847,6 +5847,57 @@ provider execution. Recovery reads an exact existing operation before current
 catalog and policy checks, and may replay only that same idempotent provider
 operation; recovery never authorizes new destructive work.
 
+The internal `pluginRuntime` list request accepts an optional `actionId`. Core
+uses it for execution admission, and Remote Agent requests the same exact ID
+when it verifies execution metadata again. OpenConnector's additive
+`/v1/actions?service=...&actionId=...` filter preserves current policy checks.
+Remote Agent still checks the ID, service, and executable metadata if an older
+producer returns the complete catalog. No permission or connection result is
+cached. Deploy the Remote Agent receiver before the Core caller that sends this
+optional field. An older strict Remote Agent receiver rejects it. Rollback Core
+first. This changes no CLI, Service, Skills, setup, Wake, or public response
+contract and requires no local-component version bump.
+
+#### Selected Git connection transport integration
+
+`services/remote-agent/connectors/github-connection-transport.ts` owns the
+Plugins host adapter for Git read requests. It is an integration entrypoint,
+not an enabled native Computer command. The Computer owner must bind each
+request to an active operation and its exact repository before calling
+`forwardGitConnectionRequest`. Pass the connection snapshot selected by Core.
+The required `authorize` callback must recheck execution access and resolve
+that same connection through Core with `includeAccessPolicy: true` on every
+advertisement and upload-pack exchange. It returns the existing
+`centerAgentConnectorConnectionSelectionSchema` response. Never use an
+automatic connection preference after the operation selected an identity.
+
+The adapter verifies current read permission, Organization, member ownership,
+scope, alias, active status, and `updatedAtMs` against that snapshot. A changed
+or revoked connection fails the new request. OpenConnector derives the same
+canonical alias from verified Organization/requester IDs and the selected
+scope. Member connections use OAuth or API tokens. Shared GitHub connections
+use the existing App installation token resolver. Credentials stay with
+OpenConnector. The host replaces request credentials, cookies, and selector
+headers rather than forwarding them from the Computer. Both request and
+response remain byte streams. Abort signals propagate to the upstream fetch.
+
+The adapter requires the distinct OpenConnector endpoints
+`/v1/openmeld/git-connections/:owner/:repo/info/refs` and
+`/v1/openmeld/git-connections/:owner/:repo/git-upload-pack`. An older producer
+fails without substituting the legacy personal-only endpoint. The OpenMeld
+deployment overlay allows GitHub only for these fixed read-protocol routes.
+The upstream route still authenticates the configured runtime bearer and
+checks current runtime policy. Ordinary proxy and MCP policy remain blocked.
+
+Integration order: merge the OpenConnector endpoint, update the reviewed pin
+in `config/openconnector/github-working-copy-policy.mjs`, deploy that producer
+with the overlay, then enable the Computer consumer. The current pin does not
+contain the selected-connection endpoint. Keep this consumer disabled until
+that dependency is delivered. Computer owns native `git clone`/`git fetch`,
+process start, progress, cancellation, exit, and cleanup. Its integration must
+verify both member and shared connections, concurrent accounts, revocation,
+and existing independently authenticated CLI use through real commands.
+
 The Core connector-operation read must be deployed before the Remote Agent
 consumer. For the execution-connection snapshot rollout, apply the additive
 database columns first, then deploy the Remote Agent consumer that accepts the

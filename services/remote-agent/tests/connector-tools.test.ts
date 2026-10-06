@@ -766,7 +766,7 @@ describe("Remote Agent generic App tools", () => {
         "Output from this exact execution, including the provider's result estimate.",
     };
     const fetchMock = vi.fn<typeof fetch>((url) => {
-      if (String(url).endsWith("/v1/actions?service=gmail")) {
+      if (String(url).includes("/v1/actions?service=gmail")) {
         return Promise.resolve(
           Response.json({
             data: [action],
@@ -1259,7 +1259,7 @@ describe("Remote Agent generic App tools", () => {
       name: "Get project without declared effect",
     };
     const fetchMock = vi.fn<typeof fetch>((url) => {
-      if (String(url).endsWith("/v1/actions?service=posthog")) {
+      if (String(url).includes("/v1/actions?service=posthog")) {
         return Promise.resolve(
           Response.json({
             data: [action, unspecifiedAction],
@@ -1357,7 +1357,7 @@ describe("Remote Agent generic App tools", () => {
     const providerExecutionId = "provider-execution-routine-replay";
     const connectionName = "org_aaaaaaaaaaaaaaaaaa__shared__posthog";
     const fetchMock = vi.fn<typeof fetch>((url) => {
-      if (String(url).endsWith("/v1/actions?service=posthog")) {
+      if (String(url).includes("/v1/actions?service=posthog")) {
         return Promise.resolve(
           Response.json({
             success: true,
@@ -1477,7 +1477,7 @@ describe("Remote Agent generic App tools", () => {
       name: "Delete project",
     };
     const fetchMock = vi.fn<typeof fetch>((url) => {
-      if (String(url).endsWith("/v1/actions?service=posthog")) {
+      if (String(url).includes("/v1/actions?service=posthog")) {
         return Promise.resolve(
           Response.json({
             data: [action],
@@ -1573,7 +1573,7 @@ describe("Remote Agent generic App tools", () => {
       ...metadata,
     };
     const fetchMock = vi.fn<typeof fetch>((url) => {
-      if (String(url).endsWith("/v1/actions?service=posthog")) {
+      if (String(url).includes("/v1/actions?service=posthog")) {
         return Promise.resolve(
           Response.json({
             data: [action],
@@ -1645,7 +1645,7 @@ describe("Remote Agent generic App tools", () => {
     const operationId = "routine-archive-posthog-project-42";
     const providerExecutionId = "provider-archive-posthog-project-42";
     const fetchMock = vi.fn<typeof fetch>((url) => {
-      if (String(url).endsWith("/v1/actions?service=posthog")) {
+      if (String(url).includes("/v1/actions?service=posthog")) {
         return Promise.resolve(
           Response.json({
             data: [action],
@@ -1743,7 +1743,7 @@ describe("Remote Agent generic App tools", () => {
     const operationId = "delete-posthog-project-42-reordered";
     const providerExecutionId = "provider-delete-posthog-project-42-reordered";
     const fetchMock = vi.fn<typeof fetch>((url) => {
-      if (String(url).endsWith("/v1/actions?service=posthog")) {
+      if (String(url).includes("/v1/actions?service=posthog")) {
         return Promise.resolve(
           Response.json({
             data: [action],
