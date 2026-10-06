@@ -1455,13 +1455,13 @@ The Settings secondary sidebar always shows these two groups:
   Privacy & Safety (or after Center Agent in a Personal Workspace). It opens
   the existing feedback dialog rather than creating a route or a second
   submission contract.
-- **Current Organization name** — **General**, **Center Agent**, **Usage**, **Members**,
+- **Current Organization name** — **General**, **Center Agent**, **AI usage**, **Members**,
   **Invitations**, and **Security**. General owns identity and lifecycle, Center
   Agent owns coordinator identity, connection, model, and audit history,
   Members owns roles, Invitations owns requests and invitation delivery, and
   Security owns information protection. Security is visible only to owners and
-  admins. Usage owns organization consumption and the signed-in member's Remote
-  Agent view. A personal workspace shows General and Usage: organization membership
+  admins. AI usage owns organization consumption and the signed-in member's Remote
+  Agent view. A personal workspace shows General and AI usage: organization membership
   and invitation management do not apply there, and its coordinator belongs to
   Personal. The visible group label is the selected
   Organization's stored name, including for the personal Organization; it is
@@ -1924,11 +1924,12 @@ File access card. Other owned Computers remain visible with guidance to open
 OpenMeld on that Computer; Web does not imply that their local policy can be
 managed remotely. This page never reads, stores, or edits a policy itself.
 
-**Settings → Usage** is a read-only destination available to every active member.
+**Settings → AI usage** is a read-only destination available to every active member.
 Its text-only navigation matches the other Settings items. Fluid **Organization /
 My agents** tabs share the current Organization scope. Organization shows recorded
 Center Agent and Remote Agent costs by model, separately recorded Local Agent
-tokens, and the existing 50-definition Routine limit. My agents selects the
+tokens. Routine counts and limits do not appear here; this destination covers
+AI consumption only. The existing `usage` route remains unchanged. My agents selects the
 signed-in member's non-Center Agent Profiles from the organization directory and
 shows their Remote runtime consumption; it is a subset of organization usage,
 not another allowance. Empty ownership selects no receipts.

@@ -70,7 +70,7 @@ function UsagePage(input: {
 	const [view, setView] = useState("organization");
 	return (
 		<section className="space-y-5">
-			<AppPageHeader description={input.organizationName} title="Usage" />
+			<AppPageHeader description={input.organizationName} title="AI usage" />
 			<Tabs className="space-y-5" onValueChange={setView} value={view}>
 				<TabsList aria-label="Usage scope" className="w-fit">
 					<TabItem label="Organization" value="organization" />

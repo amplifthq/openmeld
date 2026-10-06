@@ -386,7 +386,7 @@ describe("Settings grouped navigation", () => {
 		).toEqual([
 			"General",
 			"Center Agent",
-			"Usage",
+			"AI usage",
 			"Members",
 			"Invitations",
 			"Security",
@@ -506,13 +506,13 @@ describe("Settings grouped navigation", () => {
 			"Center Agent",
 			"Send feedback",
 		]);
-		expect(personalItems.organization).toEqual(["General", "Usage"]);
+		expect(personalItems.organization).toEqual(["General", "AI usage"]);
 		expect(organizationItems).toEqual({
 			badges: [],
 			organization: [
 				"General",
 				"Center Agent",
-				"Usage",
+				"AI usage",
 				"Members",
 				"Invitations",
 				"Security",
@@ -529,7 +529,7 @@ describe("Settings grouped navigation", () => {
 		});
 		expect(personalItems).toEqual({
 			badges: [],
-			organization: ["General", "Usage"],
+			organization: ["General", "AI usage"],
 			organizationLabel: "Felix",
 			personal: [
 				"Account",
