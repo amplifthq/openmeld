@@ -185,6 +185,49 @@ test("historical D1 capture to native PG18 preserves business data and rolls bac
           assert.deepEqual(
             (
               await client.query(
+                "SELECT id,scope,executor_kind,status,next_due_at FROM openmeld.routines ORDER BY id"
+              )
+            ).rows,
+            [
+              {
+                id: "center-routine",
+                scope: "team",
+                executor_kind: "center_agent",
+                status: "paused",
+                next_due_at: null,
+              },
+              {
+                id: "remote-routine",
+                scope: "personal",
+                executor_kind: "remote_agent",
+                status: "paused",
+                next_due_at: null,
+              },
+            ]
+          );
+          assert.deepEqual(
+            (
+              await client.query(
+                "SELECT routine_id,scope_snapshot,created_by_user_id_snapshot,source_signal_id,local_submission_json,local_last_checked_at_ms::text,published_signal_id FROM openmeld.routine_runs ORDER BY routine_id"
+              )
+            ).rows,
+            [
+              ["center-routine", "team", fixture.owner],
+              ["deleted-routine", null, null],
+              ["remote-routine", "personal", fixture.owner],
+            ].map(([id, scope, creator]) => ({
+              routine_id: id,
+              scope_snapshot: scope,
+              created_by_user_id_snapshot: creator,
+              source_signal_id: null,
+              local_submission_json: null,
+              local_last_checked_at_ms: "0",
+              published_signal_id: `result-${id}`,
+            }))
+          );
+          assert.deepEqual(
+            (
+              await client.query(
                 'SELECT id,idempotency_key FROM openmeld."openMeldDaemon_dispatch_ledger" ORDER BY id'
               )
             ).rows,

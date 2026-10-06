@@ -53,13 +53,15 @@ export function registerAccountInvalidationStreamRoute(
         return;
       }
       closed = true;
+      // Reserved local-only codes cannot be sent in a Close frame.
+      const wireCode = [1004, 1005, 1006, 1015].includes(code) ? 1011 : code;
       try {
-        server.close(code, reason);
+        server.close(wireCode, reason);
       } catch {
         // Both endpoints may already have closed.
       }
       try {
-        upstreamSocket.close(code, reason);
+        upstreamSocket.close(wireCode, reason);
       } catch {
         // Both endpoints may already have closed.
       }
@@ -86,9 +88,11 @@ export function registerAccountInvalidationStreamRoute(
         close(1011, "client send failed");
       }
     });
-    server.addEventListener("close", () => close(1000, "client closed"));
-    upstreamSocket.addEventListener("close", () =>
-      close(1000, "upstream closed")
+    server.addEventListener("close", (event) =>
+      close(event.code, event.reason || "client closed")
+    );
+    upstreamSocket.addEventListener("close", (event) =>
+      close(event.code, event.reason || "upstream closed")
     );
     server.addEventListener("error", () => close(1011, "client error"));
     upstreamSocket.addEventListener("error", () =>

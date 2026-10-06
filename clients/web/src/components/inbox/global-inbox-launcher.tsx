@@ -2,23 +2,18 @@
 
 import { Popover } from "@base-ui/react/popover";
 import { Button, buttonVariants } from "@openmeld/ui/components/button";
-import {
-	Tooltip,
-	TooltipContent,
-	TooltipHint,
-	TooltipTrigger,
-} from "@openmeld/ui/components/tooltip";
+import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { resolveStatusToneAttentionItemClassName } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
-import { ArrowsOutSimpleIcon, TrayIcon } from "@phosphor-icons/react";
+import { TrayIcon, XIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { resolveInboxIndicatorClassName } from "#/lib/inbox/attention";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationInboxPath } from "#/lib/organizations/organization-routes";
 import type { OrganizationSummary } from "#/lib/organizations/organization-types";
-import { OrganizationInboxPreview } from "./organization-inbox-preview";
+import { CompactInboxFeed } from "./compact-inbox-feed";
 import { useInboxAttention } from "./use-inbox-attention";
 
 export type GlobalInboxLauncherProps = {
@@ -116,24 +111,16 @@ function OrganizationGlobalInboxLauncher(input: {
 									{attention.status}
 								</output>
 							</div>
-							<Tooltip>
-								<TooltipTrigger
-									render={
-										<Link
-											aria-label="Open full Inbox"
-											className={buttonVariants({
-												size: "icon-sm",
-												variant: "ghost",
-											})}
-											onClick={() => setOpen(false)}
-											to={buildOrganizationInboxPath(currentOrganization.slug)}
-										/>
-									}
+							<TooltipHint content="Close Inbox">
+								<Button
+									aria-label="Close Inbox"
+									onClick={() => setOpen(false)}
+									size="icon-sm"
+									variant="ghost"
 								>
-									<ArrowsOutSimpleIcon aria-hidden="true" />
-								</TooltipTrigger>
-								<TooltipContent side="top">Open full Inbox</TooltipContent>
-							</Tooltip>
+									<XIcon aria-hidden="true" />
+								</Button>
+							</TooltipHint>
 						</header>
 
 						<ScrollArea
@@ -141,12 +128,26 @@ function OrganizationGlobalInboxLauncher(input: {
 							contentClassName="p-2"
 							orientation="vertical"
 						>
-							<OrganizationInboxPreview
-								currentOrganization={currentOrganization}
-								enabled={open}
-								onOpenItem={() => setOpen(false)}
-							/>
+							{open ? (
+								<CompactInboxFeed
+									key={currentOrganization.id}
+									onOpenItem={() => setOpen(false)}
+								/>
+							) : null}
 						</ScrollArea>
+						<footer className="shrink-0 border-border/70 border-t px-3 py-2">
+							<Link
+								className={buttonVariants({
+									size: "sm",
+									variant: "ghost",
+									className: "w-full",
+								})}
+								onClick={() => setOpen(false)}
+								to={buildOrganizationInboxPath(currentOrganization.slug)}
+							>
+								Open full Inbox
+							</Link>
+						</footer>
 					</Popover.Popup>
 				</Popover.Positioner>
 			</Popover.Portal>

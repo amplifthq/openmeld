@@ -23,6 +23,7 @@ const HOSTED_WORKER_SCOPES = new Set([
   "remote-agent",
   "web",
   "website",
+  "docs",
 ]);
 
 export async function runHostedProductionPreflight(input) {

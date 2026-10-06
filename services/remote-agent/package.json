@@ -22,7 +22,7 @@
     "sync:prod": "pnpm run sync:secrets:prod && pnpm run sync:config:prod",
     "sync:stg": "pnpm run sync:secrets:stg && pnpm run sync:config:stg",
     "test": "pnpm run test:node && pnpm run test:workerd && pnpm run test:rpc",
-    "test:rpc": "pnpm run build && node --test tests/built-capability-rpc.test.mjs",
+    "test:rpc": "pnpm run build && node --test tests/built-capability-rpc.test.mjs tests/built-computer-native.test.mjs",
     "test:node": "node ../../tooling/postgresql/local.mjs run pnpm exec vitest run",
     "test:workerd": "vitest run --config vitest.workerd.config.ts",
     "test:watch": "vitest",
@@ -32,7 +32,7 @@
   },
   "dependencies": {
     "@cloudflare/codemode": "0.5.1",
-    "@cloudflare/computer": "0.4.0",
+    "@cloudflare/computer": "0.4.1",
     "@earendil-works/pi-ai": "0.83.0",
     "@flue/runtime": "2.1.0",
     "@modelcontextprotocol/sdk": "^1.29.0",

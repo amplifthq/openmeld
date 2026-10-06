@@ -4,7 +4,7 @@ import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { OrganizationComputerPickerCard } from "#/components/computers/organization-computer-card";
 import { resolveOrganizationComputerGroups } from "#/components/computers/organization-computers";
-import { OrganizationInboxRecentItems } from "#/components/inbox/organization-inbox-preview";
+import { OrganizationInboxRecentItems } from "#/components/inbox/organization-inbox-recent-items";
 import { CenterAgentCompactConversation } from "#/components/organizations/center-agent-compact-conversation";
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import { useAppOrganization } from "#/lib/organizations/organization-context";

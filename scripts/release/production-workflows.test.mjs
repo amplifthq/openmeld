@@ -69,6 +69,7 @@ const COMPONENT_WORKFLOWS = [
     ".github/workflows/deploy-website.yml",
     "production-web-health.mjs",
   ],
+  ["docs", ".github/workflows/deploy-docs.yml", "production-web-health.mjs"],
 ];
 
 const createIsolatedGitEnvironment = () => {
@@ -167,7 +168,7 @@ test("threads one explicit production train through every hosted mutation entry"
   );
   assert.ok(
     validationJob?.includes(
-      'full) selected_scopes="db,auth,web,gateway,core,remote-agent,website"'
+      'full) selected_scopes="db,auth,web,gateway,core,remote-agent,website,docs"'
     )
   );
   assert.ok(validationJob?.includes("production-train-artifact-admission.mjs"));

@@ -18,7 +18,7 @@ export function isSpaceMessageAgentWorking(
 			return false;
 		}
 		const kind = resolveWakeProgressStatus(item.activeWakeProgress)?.kind;
-		return kind === "working" || kind === "replying" || kind === "posting";
+		return kind === "working";
 	}
 	return item.agentStreamState?.status === "streaming";
 }

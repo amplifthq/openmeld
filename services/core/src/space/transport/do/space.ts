@@ -2,6 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import {
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
   resolveWakeStopEligibility,
+  supportsLocalExecutionInput,
 } from "@openmeld/agent-runtime";
 import type { QueryResult } from "@openmeld/db/postgresql";
 import {
@@ -1402,6 +1403,7 @@ function resolveDispatchReplyStalenessMeta(input: {
     newMessagesDuringComposition = countPublicTextSignalsAfterDispatchAnchor(
       input.sql,
       {
+        dispatchId: input.dispatchId,
         afterSignalId: input.sourceSignalId,
         afterTimestampMs: input.enqueuedAtMs,
         excludeProfileId: input.targetProfileId,
@@ -7882,7 +7884,7 @@ export class Space extends DurableObject<CoreBindings> {
           targetMember.profileKindSnapshot !== "agent" ||
           targetMember.ownerUserIdSnapshot !== request.target.ownerUserId ||
           (targetMember.controllerRefSnapshot !== null &&
-            targetMember.controllerRefSnapshot !== "builtin:codex")))
+            !supportsLocalExecutionInput(targetMember.controllerRefSnapshot))))
     ) {
       throw deny();
     }
@@ -7954,7 +7956,9 @@ export class Space extends DurableObject<CoreBindings> {
           targetProfileId: target.targetProfileId,
         })
       : null;
-    if (!execution || execution.agentControllerRef !== "builtin:codex") {
+    if (
+      !(execution && supportsLocalExecutionInput(execution.agentControllerRef))
+    ) {
       throw invalid();
     }
     const ownerUserId = await this.readRuntimeOwnerUserId(
@@ -8478,7 +8482,7 @@ export class Space extends DurableObject<CoreBindings> {
     if (
       target.controllerRefSnapshot !== null &&
       target.controllerRefSnapshot !== HOSTED_CENTER_AGENT_CONTROLLER_REF &&
-      target.controllerRefSnapshot !== "builtin:codex"
+      !supportsLocalExecutionInput(target.controllerRefSnapshot)
     ) {
       throw new SpaceSignalAuthoringError({
         code: "space.execution_input.invalid",
@@ -17375,7 +17379,7 @@ export class Space extends DurableObject<CoreBindings> {
       "reconcile member ownership",
       () => this.ensureAgentOwnerMembershipPolicy(metaRecord)
     );
-    const profileFacts = await this.measureBootstrapBranchTiming(
+    const profileFacts = this.measureBootstrapBranchTiming(
       bootstrapTiming,
       "member_names",
       "refresh member names from Auth",

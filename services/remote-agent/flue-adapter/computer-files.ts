@@ -29,7 +29,10 @@ export class ComputerFiles {
   }
 
   async execute(
-    request: Exclude<CloudComputerOperation, { action: "command" }>
+    request: Extract<
+      CloudComputerOperation,
+      { action: "read" | "write" | "edit" | "list" }
+    >
   ) {
     const path = resolveComputerPath(request.path);
     if (request.action === "read") {
@@ -76,7 +79,7 @@ export class ComputerFiles {
     });
   }
 
-  private async mutate<T>(operation: () => Promise<T>): Promise<T> {
+  async mutate<T>(operation: () => Promise<T>): Promise<T> {
     const result = this.tail.then(operation);
     this.tail = result.catch(() => undefined);
     return await result;

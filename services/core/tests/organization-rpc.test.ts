@@ -197,13 +197,17 @@ afterEach(() => {
 });
 
 describe("organization Core RPC", () => {
-  it("rejects organization directory reads when the active user is not an organization member", async () => {
+  it.each([
+    false,
+    true,
+  ])("rejects organization directory reads when the active user is not an organization member (Center Agent only: %s)", async (centerAgentOnly) => {
     const env = await buildEnv({
       members: [],
     });
 
     await expect(
       rpcGetCurrentOrganizationDirectory(env, {
+        centerAgentOnly,
         context: buildContext({
           activeOrganizationId: "org-a",
           userId: "user-a",
@@ -1463,6 +1467,60 @@ describe("organization Core RPC", () => {
     });
   });
 
+  it("reads only the designated Center Agent without member or unrelated runtime projections", async () => {
+    const db = await createOrganizationRpcDb({
+      agentProfiles: [
+        managedCenterAgentProfileRow(),
+        {
+          organizationId: "org-a",
+          ownerUserId: "user-a",
+          profileHandle: "other",
+          profileId: "agt_00000000-0000-4000-8000-000000000003",
+          profileName: "Other",
+          status: "active",
+        },
+      ],
+      centerAgentDesignations: [
+        centerAgentDesignationRow({
+          agentProfileId: AGENT_PROFILE_ID,
+          designatedBy: "user-a",
+          organizationId: "org-a",
+        }),
+      ],
+      members: [memberRow("member-a", "org-a", "user-a", "owner")],
+    });
+    const memberRead = vi.fn(() =>
+      Promise.reject(new Error("Settings must not read the member directory."))
+    );
+    const env = await buildEnv({
+      db,
+      authWorker: { resolveOrganizationDirectoryMembers: memberRead },
+    });
+    const operationalReads = vi.spyOn(
+      runtimeTransportClient,
+      "readRuntimeTransportAgentProfileOperationalContexts"
+    );
+    const response = await rpcGetCurrentOrganizationDirectory(env, {
+      centerAgentOnly: true,
+      includeMemberLastActiveAt: true,
+      context: buildContext({
+        activeOrganizationId: "org-a",
+        userId: "user-a",
+      }),
+    });
+    expect(response.members).toEqual([]);
+    expect(response.agentProfiles.map((profile) => profile.profileId)).toEqual([
+      AGENT_PROFILE_ID,
+    ]);
+    expect(response.agentProfiles[0]?.isCenterAgent).toBe(true);
+    expect(
+      response.agentProfiles[0]?.readiness.agentExecutionReadiness
+        .agentProfileId
+    ).toBe(AGENT_PROFILE_ID);
+    expect(memberRead).not.toHaveBeenCalled();
+    expect(operationalReads).not.toHaveBeenCalled();
+  });
+
   it("fails closed when Auth returns Directory identity for another Organization", async () => {
     const env = await buildEnv({
       authWorker: {
@@ -1636,44 +1694,43 @@ describe("organization Core RPC", () => {
       ],
     });
     const env = await buildEnv({ db });
-    vi.spyOn(
-      runtimeTransportClient,
-      "lookupRuntimeTransportOwnerService"
-    ).mockResolvedValue({
-      online: true,
-      sessions: [
-        {
-          capabilities: {},
-          connectionGeneration: 2,
-          daemonSessionId: "session-current",
-          deviceId: "device-b",
-          executionCompatibility: {
-            expectedEpoch: "runtime-contract-v2",
-            observedEpoch: "runtime-contract-v1",
-            reasonCode: "daemon.runtime_contract.mismatch",
-            status: "update_required",
+    const lookupOwnerService = vi
+      .spyOn(runtimeTransportClient, "lookupRuntimeTransportOwnerService")
+      .mockResolvedValue({
+        online: true,
+        sessions: [
+          {
+            capabilities: {},
+            connectionGeneration: 2,
+            daemonSessionId: "session-current",
+            deviceId: "device-b",
+            executionCompatibility: {
+              expectedEpoch: "runtime-contract-v2",
+              observedEpoch: "runtime-contract-v1",
+              reasonCode: "daemon.runtime_contract.mismatch",
+              status: "update_required",
+            },
+            lane: "prod",
+            lastHeartbeatMs: 2000,
+            serviceVersion: "0.3.65",
           },
-          lane: "prod",
-          lastHeartbeatMs: 2000,
-          serviceVersion: "0.3.65",
-        },
-        {
-          capabilities: {},
-          connectionGeneration: 1,
-          daemonSessionId: "session-replaced",
-          deviceId: "device-b",
-          executionCompatibility: {
-            expectedEpoch: "runtime-contract-v1",
-            observedEpoch: "runtime-contract-v1",
-            reasonCode: "daemon.runtime_contract.compatible",
-            status: "compatible",
+          {
+            capabilities: {},
+            connectionGeneration: 1,
+            daemonSessionId: "session-replaced",
+            deviceId: "device-b",
+            executionCompatibility: {
+              expectedEpoch: "runtime-contract-v1",
+              observedEpoch: "runtime-contract-v1",
+              reasonCode: "daemon.runtime_contract.compatible",
+              status: "compatible",
+            },
+            lane: "prod",
+            lastHeartbeatMs: 1000,
+            serviceVersion: "0.3.64",
           },
-          lane: "prod",
-          lastHeartbeatMs: 1000,
-          serviceVersion: "0.3.64",
-        },
-      ],
-    });
+        ],
+      });
 
     await expect(
       rpcCenterAgentReadMemberOpenMeldServiceStatus(env, {
@@ -1711,6 +1768,11 @@ describe("organization Core RPC", () => {
       ],
       organizationId: "org-a",
     });
+    expect(
+      lookupOwnerService.mock.calls.every(
+        ([request]) => request.ownerUserId === "user-b"
+      )
+    ).toBe(true);
   });
 
   it("lists computer setup context for the verified represented member", async () => {

@@ -32,7 +32,7 @@ const BUILD_ENV =
 export function productionBuildEnvironment(scope, env, memoryBytes, platform) {
   // Match the coordinated release budget for the same App renderer. A smaller
   // standalone limit can fail before Workerd ever validates the artifact.
-  const defaultHeap = scope === "website" ? 2048 : 5120;
+  const defaultHeap = ["website", "docs"].includes(scope) ? 2048 : 5120;
   return {
     ...rendererBuildEnvironment(env, memoryBytes, platform, defaultHeap),
     CLOUDFLARE_ENV: "prod",
@@ -88,7 +88,7 @@ export async function artifactInputIdentity(
   env = process.env
 ) {
   const hash = createHash("sha256").update(
-    scope === "website" ? "website" : desktopWebBuildIdentity(root)
+    ["website", "docs"].includes(scope) ? scope : desktopWebBuildIdentity(root)
   );
   const files = execFileSync(
     "git",
@@ -104,8 +104,8 @@ export async function artifactInputIdentity(
       "pnpm-workspace.yaml",
       "turbo.json",
       "scripts/vite",
-      ...(scope === "website"
-        ? ["clients/website", "packages", "pnpm-lock.yaml"]
+      ...(["website", "docs"].includes(scope)
+        ? [`clients/${scope}`, "packages", "pnpm-lock.yaml"]
         : []),
     ],
     { cwd: root, encoding: "utf8" }
@@ -125,7 +125,10 @@ export async function artifactInputIdentity(
   }
   for (const directory of [
     root,
-    path.join(root, scope === "website" ? "clients/website" : "clients/web"),
+    path.join(
+      root,
+      ["website", "docs"].includes(scope) ? `clients/${scope}` : "clients/web"
+    ),
   ]) {
     for (const name of (await readdir(directory))
       .filter((name) => ENV_FILE.test(name))
@@ -157,7 +160,10 @@ export async function artifactInputIdentity(
 
 function artifactSnapshotPath(receiptPath, scope, identity) {
   if (
-    !(["web", "website", "desktop"].includes(scope) && SHA256.test(identity))
+    !(
+      ["web", "website", "docs", "desktop"].includes(scope) &&
+      SHA256.test(identity)
+    )
   ) {
     throw new Error(
       "Artifact snapshot requires a valid scope and input identity."
@@ -353,8 +359,8 @@ export async function checkProductionArtifact({
   sourceSha,
   allowDirty = false,
 }) {
-  if (!["web", "website", "desktop"].includes(scope)) {
-    throw new Error("Choose --scope web, website, or desktop.");
+  if (!["web", "website", "docs", "desktop"].includes(scope)) {
+    throw new Error("Choose --scope web, website, docs, or desktop.");
   }
   const head = execFileSync("git", ["rev-parse", "HEAD"], {
     cwd: root,
@@ -380,8 +386,9 @@ export async function checkProductionArtifact({
     sourceSha,
     buildInputs
   );
-  const clientDirectory =
-    scope === "website" ? "clients/website" : "clients/web";
+  const clientDirectory = ["website", "docs"].includes(scope)
+    ? `clients/${scope}`
+    : "clients/web";
   const webRoot = path.join(root, clientDirectory);
   const output = path.join(webRoot, "dist");
   const receiptPath = path.join(
@@ -428,7 +435,7 @@ export async function checkProductionArtifact({
       throw new Error("Workerd preview did not open a local listener.");
     }
     ssr = await checkProductionWeb({
-      scope: scope === "website" ? "website" : "web",
+      scope: scope === "desktop" ? "web" : scope,
       url: `http://127.0.0.1:${address.port}`,
       sourceSha,
       allowDirty,

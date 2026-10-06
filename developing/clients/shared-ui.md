@@ -26,6 +26,10 @@ outputs. `scripts/vite/shared-public-assets.mjs` materializes ignored client
 copies when Vite loads. Edit shared sources, not generated copies. Shared font
 declarations live in `packages/ui/src/styles/fonts.css`.
 
+Docs also consumes the wordmark, fonts, and shared public assets. It retains
+Fumadocs' layout CSS and accessible compound components. See `docs.md` for
+the boundary when composing Fluid primitives with its Base UI version.
+
 ## Boundary
 
 `packages/ui` is the shared home for reusable client UI primitives:
@@ -59,6 +63,16 @@ the compound API and lazy-load the rendering module; product scope, queries,
 and surrounding interactions remain outside the chart primitive. Use Fluid
 surfaces and controls around charts. Preserve null gaps, escaped tooltip text,
 and reduced-motion loading behavior when refreshing registry source.
+
+`lib/brand-chart-colors` owns the shared light/dark chart accents for model
+brands and Local Agent controllers. OpenAI models reuse Codex's blue-purple;
+Anthropic models reuse Claude Code's orange. Web chooses stable model variants
+from model identity, never result order, spending, or the selected period.
+Variants stay within the brand hue; unrecognized brands use neutral gray.
+`BrandChartDot` consumes the same theme pair as the chart, so legends, curves,
+and tooltips agree. Organization and Computer Local Agent charts retain the
+same controller colors and monochrome-logo chart accents. Do not add a
+client-local categorical palette that reassigns these brand colors.
 
 `components/folder-component` adapts Rare UI's folder artwork and demo content.
 It exposes controlled open state, a content slot, numeric scaling, and decorative
@@ -351,6 +365,13 @@ Tabs composition. They reuse the shared proximity hook and surface tokens,
 with raised selection at two levels above the surrounding substrate.
 `TabsList background={false}` removes the track without flattening selection.
 The upstream hover color maps to the existing `interaction-hover` token.
+Conditional children are indexed after React removes empty slots. Value order,
+measurement registration, and the selected indicator use that same rendered
+order; hiding a tab must not leave a hole before the next selectable tab.
+`PageToolbar` owns the shared 48px minimum row height, wrapping, and vertical
+alignment for page navigation and actions. It adds no interaction roles or state;
+the composed Fluid controls retain their keyboard and pointer behavior. Files
+and Routines use this same row instead of independent toolbar geometry.
 Tab content inherits its selected substrate so nested badges can rise one step.
 The eight-level context and paired class resolver live in `@openmeld/ui/lib`;
 Web's `Elevated` consumes those same primitives.
@@ -484,3 +505,12 @@ primitive never infers work from presence or starts its own status queries.
 client can render its owned product identity without moving Profile rules into
 `packages/ui`. Its source, alt text, and initials props remain the generic
 fallback contract when no composed avatar is supplied.
+
+## Searchable Fluid Select
+
+`SelectContent.search` provides an optional controlled search input outside its
+listbox and bounded Fluid ScrollArea. Callers filter domain options; the shared
+primitive owns focus, dismissal, selected-item scroll, and Fluid Hover geometry.
+Reset a transient query through the Select root's `onCloseAutoFocus` without
+preventing normal focus restoration. Do not rebuild a searchable popup in a
+product component.

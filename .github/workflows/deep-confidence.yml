@@ -15,7 +15,7 @@ on:
         description: "Client artifacts to verify when scope is release-artifacts"
         type: choice
         default: web,desktop
-        options: ["web,desktop", web, desktop, website]
+        options: ["web,desktop", web, desktop, website, docs]
 
 concurrency:
   group: deep-confidence-${{ github.ref }}
@@ -163,7 +163,7 @@ jobs:
         run: |
           set -euo pipefail
           case "$OPENMELD_ARTIFACT_SCOPES" in
-            web|desktop|web,desktop|website) ;;
+            web|desktop|web,desktop|website|docs) ;;
             *) echo "Unsupported client artifact scope" >&2; exit 1 ;;
           esac
           if [[ "$OPENMELD_ARTIFACT_SCOPES" == *desktop* ]]; then
@@ -172,8 +172,8 @@ jobs:
           if [[ ",$OPENMELD_ARTIFACT_SCOPES," == *,web,* ]]; then
             node scripts/release/production-artifact-check.mjs --scope web --source-sha "$GITHUB_SHA"
           fi
-          if [[ "$OPENMELD_ARTIFACT_SCOPES" == website ]]; then
-            node scripts/release/production-artifact-check.mjs --scope website --source-sha "$GITHUB_SHA"
+          if [[ "$OPENMELD_ARTIFACT_SCOPES" == website || "$OPENMELD_ARTIFACT_SCOPES" == docs ]]; then
+            node scripts/release/production-artifact-check.mjs --scope "$OPENMELD_ARTIFACT_SCOPES" --source-sha "$GITHUB_SHA"
           fi
       - name: Retain source and artifact receipts
         if: always()

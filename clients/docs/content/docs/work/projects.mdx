@@ -1,0 +1,44 @@
+---
+title: Connect a Project folder
+description: Give your team a shared project name while keeping local folders explicit.
+---
+
+A Project identifies work shared by your Organization. Each computer can connect its own folder or checkout to that Project.
+
+Creating a Project does not clone a repository, install dependencies, or make a local folder ready to run.
+
+## Add a Project
+
+1. Open a Local Agent's working-folder control and choose **From a project**.
+2. Choose **Create project**, or open **Project details** for an existing Project. The Projects management page also offers **Add a Project**.
+3. Enter the name and repository details requested by the form.
+4. Save, then open **View details**.
+
+Two Projects can have the same display name. Check the slug and repository to distinguish them.
+
+## Connect a folder
+
+1. Connect the computer where the folder exists.
+2. Open the Project's details.
+3. Under **This Computer**, choose **Connect folder**.
+4. Choose a folder on the named computer, select a discovered match, or enter its path.
+5. Choose **Check and connect**.
+6. Confirm that the saved connection points to the intended folder.
+
+Selecting a folder in the picker is not the final connection. A discovered match also needs confirmation.
+
+## Choose a default
+
+If you have several clones or worktrees, add each connection deliberately. Use **Make default** for the folder OpenMeld should use by default on that computer.
+
+Check the Local Agent's Default Project and working folder before assigning work. A Project name does not resolve a missing or moved folder.
+
+## When the folder cannot be found
+
+If you moved or removed the folder, update the connection. If verification fails, read the error: an unavailable computer, a Git problem, and “no matching folders” are different conditions.
+
+Removing a connection stops using that connection. It is not a command to delete the repository from your computer.
+
+## Agent Activity
+
+Project connections also define where opt-in [Agent Activity](/docs/work/activity) may observe local sessions. A suggested folder is not permission to collect activity.

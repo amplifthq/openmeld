@@ -1,5 +1,11 @@
 # Shared local product fixtures
 
+These seed/account scripts target the historical local D1 stack. They are not
+compatible with the current PostgreSQL product lane and must not be used as
+PostgreSQL smoke preparation. Start the current product with
+`pnpm dev:postgresql` and create synthetic data through its normal UI. The
+standalone visual previews below remain separate from backend acceptance.
+
 Run from the isolated checkout:
 
 ```sh

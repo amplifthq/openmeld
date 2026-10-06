@@ -50,6 +50,7 @@ import {
   DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu"
 import { Input } from "@openmeld/ui/components/input"
+import { PageToolbar } from "@openmeld/ui/components/page-toolbar"
 import {
   Popover,
   PopoverContent,
@@ -59,7 +60,7 @@ import { ScrollArea as InlineScrollArea, type ScrollAreaProps } from "@openmeld/
 import { Tabs, TabsList, TabsTrigger } from "#/components/extend/ui/tabs"
 import { FileThumbnail } from "#/components/extend/file-thumbnail"
 import { OfficeFileViewer } from "#/components/extend/office-file-viewer"
-import { CaretDownIcon, CaretUpIcon, CalendarIcon, FileZipIcon, ImagesIcon, SquaresFourIcon, ColumnsIcon, CaretLeftIcon, ArrowRightIcon, XIcon, MagnifyingGlassIcon, ArrowsDownUpIcon, CheckIcon, FunnelIcon, CircleNotchIcon } from "@phosphor-icons/react"
+import { CaretDownIcon, CaretUpIcon, CalendarIcon, FileZipIcon, ImagesIcon, SquaresFourIcon, ColumnsIcon, ListBulletsIcon, CaretLeftIcon, ArrowRightIcon, XIcon, MagnifyingGlassIcon, ArrowsDownUpIcon, CheckIcon, FunnelIcon, CircleNotchIcon } from "@phosphor-icons/react"
 
 function ArrowDown01Glyph(props: InlineRegistryIconProps) {
   return (
@@ -79,26 +80,6 @@ function Calendar03Glyph(props: InlineRegistryIconProps) {
 function File01Glyph(props: InlineRegistryIconProps) {
   return (
     <FileZipIcon {...props} />
-  )
-}
-function GalleryThumbnailsGlyph(props: InlineRegistryIconProps) {
-  return (
-    <ImagesIcon {...props} />
-  )
-}
-function GridViewGlyph(props: InlineRegistryIconProps) {
-  return (
-    <SquaresFourIcon {...props} />
-  )
-}
-function LayoutThreeColumnGlyph(props: InlineRegistryIconProps) {
-  return (
-    <ColumnsIcon {...props} />
-  )
-}
-function LeftToRightListBulletGlyph(props: InlineRegistryIconProps) {
-  return (
-    <ColumnsIcon {...props} />
   )
 }
 const LazyPDFViewer = React.lazy(() =>
@@ -1254,10 +1235,10 @@ const VIEW_OPTIONS: Array<{
   label: string
   value: FileSystemView
 }> = [
-  { icon: GridViewGlyph, label: "Grid", value: "icons" },
-  { icon: LeftToRightListBulletGlyph, label: "List", value: "list" },
-  { icon: LayoutThreeColumnGlyph, label: "Columns", value: "columns" },
-  { icon: GalleryThumbnailsGlyph, label: "Gallery", value: "gallery" },
+  { icon: SquaresFourIcon, label: "Grid", value: "icons" },
+  { icon: ListBulletsIcon, label: "List", value: "list" },
+  { icon: ColumnsIcon, label: "Columns", value: "columns" },
+  { icon: ImagesIcon, label: "Gallery", value: "gallery" },
 ]
 export function FileSystem({
   items,
@@ -1933,7 +1914,7 @@ export function FileSystem({
       )}
     >
       <FileSystemIconSpriteSheet />
-      <div className={cn("relative flex min-h-12 shrink-0 flex-wrap items-center justify-between gap-2 px-2", !embedded && "border-b bg-muted/40")}>
+      <PageToolbar className={cn("px-2", !embedded && "border-b bg-muted/40")}>
         <div className="flex min-w-0 items-center gap-0.5">
           {!embedded ? (
             <>
@@ -2033,7 +2014,7 @@ export function FileSystem({
           />
         </div>
         </div>
-      </div>
+      </PageToolbar>
       {breadcrumb || reserveBreadcrumbSpace ? (
         <div className="flex min-h-9 shrink-0 items-center gap-1 px-2 text-sm">
           {breadcrumb ? <nav aria-label="File location">{breadcrumb}</nav> : null}

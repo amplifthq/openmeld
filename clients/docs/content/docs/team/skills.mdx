@@ -1,0 +1,46 @@
+---
+title: Use and manage Skills
+description: Give agents reusable instructions and resources for repeatable work.
+---
+
+A Skill packages a procedure with the reference material it needs. For example, a release-review Skill can explain the checks your team expects and include a report template.
+
+A Skill is not a credential or a new permission grant.
+
+## Find and use a Skill
+
+1. Open **Team → Skills**.
+2. Search for the relevant Skill.
+3. Read its purpose, instructions, and resources.
+4. Check whether it is enabled.
+5. Ask Center Agent to use it for a concrete task.
+
+Name the input and desired result. “Use our release-review Skill on this draft” is more useful than “Use some Skills.”
+
+## Create a Skill
+
+Owners and admins can create Skills.
+
+Choose the create action, then provide a name, description, and instructions. State when the Skill applies, what inputs it needs, what steps to follow, and how to check the result.
+
+Choose **Create skill** to save it. Opening or filling the form alone does not create a Skill.
+
+## Install from GitHub
+
+Use the install action and provide the source URL. If the repository contains several Skills, select one.
+
+Review the repository, path, pinned commit, resources, and warnings before choosing **Install skill**. Treat third-party instructions and scripts as material to review, not as trusted commands merely because they are packaged as a Skill.
+
+## Edit and maintain
+
+Owners and admins can manage any Skill. An assigned **Skill Maintainer** can edit and save that Skill, but cannot thereby install, remove, or change enablement for other Skills.
+
+Wait for **Saved**. If saving fails, keep your edits and resolve the error before leaving.
+
+Saved releases preserve the instructions and resources used at that revision. Check history when behavior changes.
+
+## Disable or remove
+
+Disabling stops active use while retaining the managed Skill. Removal requires confirmation and should be deliberate.
+
+A Skill cannot make an unavailable Plugin, computer, or model available. Check those dependencies separately.

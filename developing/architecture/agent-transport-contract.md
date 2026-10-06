@@ -69,7 +69,7 @@ owners.
   accepted work to local controllers and reports local execution evidence; it
   does not own Space truth, Agent Profile identity, final readiness truth, or
   RuntimeCoordinator execution truth.
-- D1 dispatch records own the durable ledger and query projection for Wake
+- PostgreSQL dispatch records own the durable ledger and query projection for Wake
   execution. They record what happened; they do not decide who owns an
   in-flight execution.
 
@@ -117,7 +117,7 @@ The outbox creation time remains stable across handoffs and redrives so a Wake
 waiting on an execution-target settings lease reaches its bounded, visible
 failure deadline. The queue handoff timestamp is separate and may advance on
 each redrive.
-Concurrent flush callers share one in-flight flush per Space. D1 overload is
+Concurrent flush callers share one in-flight flush per Space. PostgreSQL overload is
 storage backpressure, not evidence of a malformed request or a missing Agent
 account: it does not consume the candidate poison budget. The same durable
 outbox record remains recoverable through the shared alarm. An in-memory
@@ -194,7 +194,7 @@ pending-promotion record and no execution authority exists. Promotion remains
 pending after the Space accepts redrive until this identity reacceptance
 finishes. Any other legacy head that may already be executing returns
 `retry_later` instead of silently adopting or discarding the snapshot.
-`profile_queue_waiting` is a D1 ledger projection, not scheduling authority.
+`profile_queue_waiting` is a PostgreSQL ledger projection, not scheduling authority.
 Seeing that projection must retain the handed-off Space outbox item without
 resubmitting it on an ordinary alarm.
 
@@ -214,7 +214,7 @@ or earlier Profile work. It never restarts on redrive or FIFO promotion. The
 normal Service registration, route report, and recurring heartbeat trigger exact
 Space outbox redrive. The handed-off outbox retains the payload while its ledger
 projects `runtime_coordinator.device_waiting`; ordinary conveyor alarms do not
-create repeated delivery attempts for that owned wait. Queue and D1 remain transport
+create repeated delivery attempts for that owned wait. Queue and PostgreSQL remain transport
 and projections, never scheduling or execution authorities.
 
 Before first execution, Core rechecks current requester and target Space access,
@@ -312,7 +312,7 @@ User-facing Wake progress may project explicit Profile FIFO `queued` copy only
 from the Coordinator-owned head lifecycle `queued` state. Space outbox status,
 Dispatch lookup status, and RuntimeCoordinator `created` or `delivery_pending`
 remain neutral pre-delivery progress. They must not infer that another Wake
-owns the Profile work slot, and the D1 `profile_queue_waiting` projection must
+owns the Profile work slot, and the PostgreSQL `profile_queue_waiting` projection must
 not become a second presentation authority.
 
 When a reserved Wake becomes terminal, the same owner-shard transaction
@@ -419,12 +419,12 @@ owner-shard transaction. That authorization and every future-work settings write
 are ordered by the same owner shard. If a setting
 write wins while the gate is pending or authorized, the same transaction moves
 the exact continuation to `continuation_needs_attention` and writes its Inbox
-intent before D1 settings may change. If head creation wins first, the gate is
+intent before PostgreSQL settings may change. If head creation wins first, the gate is
 already running; the setting may save for later work without changing the
 current execution. Ordinary head admission keeps the established version 1
 wire shape and adds no capability probe or preflight delay. A new cloud caller
 uses a dedicated future-settings mutation RPC; an older shard that lacks it
-rejects the setting write before D1 mutation instead of accepting an unsafe
+rejects the setting write before PostgreSQL mutation instead of accepting an unsafe
 half-rollout. Missing original accepted revision evidence remains inherently
 unsafe and moves to `continuation_needs_attention` rather than being treated as
 unchanged.
@@ -529,7 +529,7 @@ RuntimeCoordinator execution follows one authority path:
 6. Accept lifecycle and result evidence only when it matches the current token.
 7. Decide retry, timeout, late result handling, and final outcome in one state
    machine.
-8. Project trace/audit facts to D1 and publish one Space outcome.
+8. Project trace/audit facts to PostgreSQL and publish one Space outcome.
 
 Important execution rules:
 
@@ -562,7 +562,7 @@ Important execution rules:
   carries `waitReason = controller_conversation_occupied`, the terminal closes as
   `runtime.controller_conversation_occupied` instead, on the same deadline and
   with the same retained late-result recovery. Occupancy is read from the
-  Coordinator's own admission state, never from D1. A conversation released
+  Coordinator's own admission state, never from PostgreSQL. A conversation released
   before the threshold clears that wait reason, so an ordinary stall keeps
   `runtime.progress_stale` and its "reconnect the computer" copy.
 - After transport hibernation, accepted runtime evidence and tool/reasoning
@@ -865,7 +865,7 @@ provider turn requests input
 RuntimeCoordinator is the single cloud owner of pending, responded, delivered,
 expired, cancelled, and terminal interaction state. Space and Gateway authorize
 and forward reads or responses; the Local Service carries request and response
-frames; D1 remains a terminal/diagnostic ledger and must not become an
+frames; PostgreSQL remains a terminal/diagnostic ledger and must not become an
 interaction queue or approval store.
 
 Every request and response is fenced by the current execution token, execution
@@ -996,7 +996,7 @@ remain in `RuntimeTransportHub`.
 Do not infer that RuntimeCoordinator has been physically split because files are
 named `runtime-coordinator-*`. Those files are in-process orchestration and
 authority helpers. Do not casually move RuntimeCoordinator HTTP handlers,
-authority writers, finalization outcome writes, publication blockers, D1
+authority writers, finalization outcome writes, publication blockers, PostgreSQL
 projections, diagnostic events, readiness impact writes, token diagnostics,
 route lookup, delivery, wait-result, socket, session, or service-liveness code.
 Those boundaries need explicit ports and one clear writer before extraction.
@@ -1033,7 +1033,7 @@ Treat the current scheduler as this coupling map:
   choreography remains in `RuntimeTransportHub`, preserving one writer for head
   lifecycle, failure publication, readiness-impact, projection, and diagnostics.
 - Head failure-publication retry alarm orchestration is extracted. The Space
-  failure publication, publication outcome, D1 projection, readiness-impact,
+  failure publication, publication outcome, PostgreSQL projection, readiness-impact,
   diagnostics, and retry/exhaustion writers remain in `RuntimeTransportHub`.
 - Pre-execution handoff alarm orchestration is extracted. Handoff record writes,
   publication status writes, result references, ops decisions, and retry alarm
@@ -1163,12 +1163,12 @@ GET /v1/local-runtime/expected-routes?deviceId=<deviceId>&lane=<lane>
   spans every Space. Web may use that read to disable disruptive actions
   immediately, but it is advisory. The mutation writer must acquire a
   short-lived execution-target mutation admission from the same owner shard and
-  hold it across its D1 or local Service mutation. RuntimeCoordinator stores
+  hold it across its PostgreSQL or local Service mutation. RuntimeCoordinator stores
   Wake-head acceptance, active execution references, and execution-target
   mutation admission through one transactionally coordinated owner-shard model:
   `active` blocks admission, and a new Wake that arrives after admission
   receives a retryable response instead of being accepted against the changing
-  target. D1 remains Binding storage, never in-flight execution authority.
+  target. PostgreSQL remains Binding storage, never in-flight execution authority.
   Unavailable or rebuilding owner-shard authority fails closed. A definitive
   mutation result releases admission; timeout or invalid-response outcomes keep
   the lease until expiry because the local write may still complete. Settings-
@@ -1189,10 +1189,10 @@ GET /v1/local-runtime/expected-routes?deviceId=<deviceId>&lane=<lane>
   contains enabled Bindings for one Agent Profile under more than one owner,
   reconciliation must acquire mutation admission on every affected owner
   shard. Exact legacy disables and canonical target installation or reuse are
-  one D1 batch so a failed target write leaves every prior enabled Binding
+  one PostgreSQL transaction so a failed target write leaves every prior enabled Binding
   intact. Organization Wake authorization is not part of Binding
   reconciliation.
-  The D1 Binding writer is the final mixed-version fence: it rejects a new or
+  The PostgreSQL Binding writer is the final mixed-version fence: it rejects a new or
   re-enabled primary Binding whose owner is not the Agent Profile owner, and it
   rejects a second enabled primary Binding for the same Profile. Installing
   that fence preserves existing legacy rows so Core can reconcile them under
@@ -1215,7 +1215,7 @@ GET /v1/local-runtime/expected-routes?deviceId=<deviceId>&lane=<lane>
   continue to honor those canonical active references.
 - Removing a visibly settled execution head does not release duplicate
   protection. The deterministic terminal execution-token authority rejects an
-  exact head and dispatch replay before admission; D1 history may explain the
+  exact head and dispatch replay before admission; PostgreSQL history may explain the
   old Wake but cannot authorize or reject execution.
 - Consumers use the response inside one operation and must not persist it.
 - Device-scoped derivations (daemon route catalog, projected controllers,
@@ -1889,7 +1889,7 @@ reply or stopped notice wins. Otherwise the new visible publication-failure
 claim fences every late result publication before RuntimeCoordinator records
 terminal failure authority.
 
-Core repairs the Agent Task, stream, D1 execution projection, and
+Core repairs the Agent Task, stream, PostgreSQL execution projection, and
 RuntimeCoordinator terminal authority from the winning Space claim. A visible
 reply or stopped notice remains authoritative. A visible publication-failure
 claim permits the exact Space Wake Agent Task to settle as
@@ -2069,7 +2069,7 @@ claim owner is still finalizing coordination.
 
 Release this additive response contract consumer-first: deploy the shared
 schema and Remote Agent parser before a Core version that may emit
-`publicationStatus: pending`, and apply the shared D1 migration before that
+`publicationStatus: pending`, and apply the shared PostgreSQL migration before that
 Core version. An older Core still returns the accepted legacy shape, which the
 new consumer accepts. CLI, OpenMeld Service, Skills, Gateway, and Web do not
 read or write this internal Center Agent RPC response, so they require no
@@ -2175,7 +2175,7 @@ enqueue, admission, and settlement cannot create multiple model turns.
 
 For a stopped workstation Wake, RuntimeTransportHub persists the stopped
 publication record and a pending terminal-projection index atomically. Its
-bounded-work alarm retries the D1 projection and clears the index only after
+bounded-work alarm retries the PostgreSQL projection and clears the index only after
 Core accepts it. A transient Core failure therefore cannot leave a visibly
 stopped child permanently invisible to its parent subscription.
 
@@ -2230,14 +2230,14 @@ v47 Spaces as well as new Spaces; an existing v47 migration marker must not skip
 this upgrade. Only a zero row with no submission
 may be terminalized as withdrawn before execution. Positive/NULL rows use the
 existing native execution reconciliation; not-found and transport failures keep
-Stop pending. There is no new execution owner, D1 migration, or cancellation
+Stop pending. There is no new execution owner, PostgreSQL migration, or cancellation
 table. Stop reuses the existing cancelled outbox, native ledger, watchdog/probe,
 and final Space message claim. A stopped notice is durable and idempotent.
 
 The conveyor payload lifetime is not the Stop-intent lifetime. Normal Hosted
 handoff cleanup may retire the outbox payload after native ownership is durable.
 For that absent-payload case only, the internal read resolves the exact
-Space/dispatch/Profile native ledger identity and rechecks Space after the D1
+Space/dispatch/Profile native ledger identity and rechecks Space after the PostgreSQL
 await. A known delivery without recorded cancellation returns `not_requested`;
 unknown, mismatched or malformed identities remain `not_found`, and a failed
 read remains retryable. This is not a generic not-found-is-ready fallback.
@@ -2606,7 +2606,7 @@ Use scoped owner documents for detailed rules:
 - Runtime owns Runtime truth.
 - Binding owns execution connection truth.
 - RuntimeCoordinator owns in-flight Wake execution truth.
-- D1 dispatch records own Wake execution ledger and query projection.
+- PostgreSQL dispatch records own Wake execution ledger and query projection.
 - Prepare writes Runtime readiness evidence only.
 - Reference never creates dispatch work.
 - A bare `@Agent Name` in prose never creates dispatch work.
