@@ -259,9 +259,7 @@ function RoutinesContent(input: {
 							{scope === "team" ? <TableHead>Created by</TableHead> : null}
 							<TableHead>Next run</TableHead>
 							<TableHead>Last run</TableHead>
-							<TableHead>
-								<span className="sr-only">Actions</span>
-							</TableHead>
+							<TableHead className="text-right">Actions</TableHead>
 						</TableRow>
 					</TableHeader>
 					<TableBody>
