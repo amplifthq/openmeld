@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-06T09:05:43.271Z",
+  "updatedAt": "2026-10-06T11:47:43.269Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
       "packageVersion": "0.3.245",
       "updatePolicy": "available",
-      "reason": "CLI commands and schemas remain compatible in both directions; updated capability reports and Claude SDK do not require existing users to upgrade."
+      "reason": "Add OpenCode 2 and Antigravity ACP while retaining existing controller transports and wire contracts."
     },
     "service": {
-      "bundleHash": "5c43baccf04a129b4dd758b5bf1ac0e26c062c3f5cb7d203ef2f61319a49928b",
-      "portableBundleHash": "88fef3e5d41461fdaa2afe8f64c239e74632a0247898f456ca3e0726b49f3146",
+      "bundleHash": "920d25a54f5869f8f1ee0853bdf2fe1e5d208cb060ef4414feacf4f29e78f27e",
+      "portableBundleHash": "a92590dc5f223eecf683c5ecc15ecc26a687d7d962e9847f8cb3644015bde14b",
       "bundleVersion": "0.3.245",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
       "serviceContractVersion": "openmeld-service-contract-2026-09-local-install-recovery-v1",
       "updatePolicy": "available",
-      "reason": "Wake and Space action contracts are unchanged; old Services reject unsupported Claude live input explicitly, while new Services require a native consumption receipt."
+      "reason": "Add native local controller protocols with existing Wake, interaction, and Space action contracts."
     },
     "skills": {
       "bundleHash": "c041258bd2098c01e98130579c12a11217b17de6f3c8e0b966a1e1001ad46bd3",

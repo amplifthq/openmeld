@@ -538,13 +538,15 @@ Only an explicit sign-in action may enter an interactive authorization flow.
 
 Antigravity's `agy --print /usage` can enter authentication and open browser
 login pages or request Keychain access. Until a provider-owned no-interaction
-contract is verified, both fresh and background ACI checks run only `--version`.
+contract is verified, both fresh and background ACI checks for the legacy CLI
+run only `--version`. The separately selected official ACP installation uses
+only the credential-free `initialize` handshake during inventory.
 They report authentication as unknown, an explicit warning explaining the
 unavailable checks, and Usage as `unsupported`. They must not claim signed-in
 readiness from installation alone or retain an old numeric quota without current
 account evidence. Status refresh cannot restore Antigravity authentication or
 quota verification in this version; users can inspect them directly in the
-Antigravity CLI. Its existing user-requested execution transport is unchanged.
+Antigravity client. The legacy CLI execution transport remains available.
 The shared Usage support matrix declares Antigravity unsupported so historical
 quota cannot become new capacity authority or authorize automatic recovery.
 
@@ -691,7 +693,7 @@ controller access to local credentials or arbitrary filesystem paths. A file
 read does not record an action or finish the Wake. The configuration forwards the active
 dispatch identity, and fails closed when the action context is absent, expired,
 or mismatched. Fresh and resumed controller conversations use the same tool
-boundary. Codex, Claude Code, Cursor, Grok Build, OpenCode, and OpenClaw use
+boundary. Codex, Claude Code, Cursor, Grok Build, OpenCode, Antigravity ACP, and OpenClaw use
 their controller-native tool extension point and the same
 dispatch-owned action writer. Controllers without a proven structured-tool
 surface continue to use the exact dispatch-scoped CLI fallback.
@@ -703,7 +705,7 @@ and verify tools, resources and resource templates, including delivery-only
 recovery. Narrowing ordinary inventory does not weaken the scoped isolation
 contract or increase initialization timeouts.
 
-Antigravity CLI does not currently expose a proven per-invocation structured-
+Antigravity's legacy CLI does not currently expose a proven per-invocation structured-
 tool configuration surface. During an action-enabled dispatch, the adapter
 therefore appends the dispatch publication contract to the invocation prompt,
 asking for one `reply`, `status`, or `silent` outcome through
@@ -1094,7 +1096,7 @@ client requests fail closed. ACP image/audio input remains unsupported when the
 live capability says so; the separate local-file-path attachment capability
 does not turn into native ACP image support.
 
-Cursor and Grok Build share adapter-core ACP process mechanics: newline JSON-RPC
+Cursor, Grok Build, and Antigravity ACP share adapter-core ACP process mechanics: newline JSON-RPC
 framing, pending-request ownership, lifecycle telemetry, bounded admission,
 session cancellation, and process-tree supervision. Their adapters retain
 vendor-specific launch, authentication, model, mode, extension-request, and
@@ -1112,6 +1114,33 @@ Codex App Server maps current and legacy command/file approvals,
 elicitation into the same contract. Claude Agent SDK maps `canUseTool`,
 `AskUserQuestion`, `ExitPlanMode`, and MCP elicitation. OpenCode uses its local
 server event stream plus official permission and question reply endpoints.
+OpenCode 1 uses `@opencode-ai/sdk/v2`; OpenCode 2 uses `@opencode/client` and
+its native `/api` routes. Server startup identifies the API generation without
+an extra version process during ordinary Wake. OpenCode 2 confirms the submitted
+inbox receipt, execution outcome, and current-turn assistant messages separately;
+an HTTP prompt response or completed wait alone is not a successful execution.
+Its native forms and permission decisions reuse the existing human-interaction
+contract. An already active resumed session is rejected before policy mutation.
+The dispatch MCP server is registered in the owned server's in-memory registry,
+with direct tools and unchanged permission rules. No user configuration is
+written. OpenCode 2.0.24 reports MCP connection before its 100 ms debounced tool
+reload; startup allows 500 ms for that reload because the API has no public
+tool-registry-ready receipt. Real-binary smoke must verify tool execution, not
+only an MCP connection or a text answer.
+
+Antigravity ACP uses the official `agy_acp_server.par` or `agy_acp_server.exe`
+installation and its adjacent `localharness_external` executable. It remains
+a separate selectable installation from the legacy `agy` CLI. Explicit execution
+authenticates with the native cached account (default `oauth-personal`, optionally
+`OPENMELD_ANTIGRAVITY_ACP_AUTH_METHOD`), with browser launch disabled and bounded
+authentication admission. Missing credentials produce a sign-in error.
+The adapter uses native `session/new`, `session/resume`, model configuration,
+advertised modes, dispatch MCP servers, and `session/cancel`. Native choice
+questions and permission requests reuse the current interaction UI; security
+warnings remain visible, and native "always" approval means this session.
+Unsupported modes, reasoning settings, and choices fail explicitly. Installation
+does not imply authenticated model access; background inventory never authenticates.
+
 Provider abort or process exit must release any adapter-local waiter promptly.
 For a Binding with `codex:plan`, the local route resolves a Plan conversation
 policy, verifies the native collaboration-mode catalog, and passes the exact
@@ -3419,12 +3448,18 @@ saved Binding permission mode or OpenCode permission JSON.
 Codex exact-controller recovery copies the canonical conversation into an
 ephemeral App Server fork and applies the conservative repair approval and
 sandbox policy only to that fork. Claude Code repair resumes through an Agent
-SDK or CLI fork and applies its temporary Plan mode only there. OpenCode repair
+SDK or CLI fork and applies its temporary Plan mode only there. OpenCode 1 repair
 uses the official Server session fork and passes the Binding's unchanged
 `OPENCODE_PERMISSION` JSON to the child. Each adapter continues to report the
 validated canonical conversation identity. If the installed controller cannot
 create the required isolated child, repair fails explicitly while ordinary
 Wake, setup, status, and diagnostics remain available.
+
+OpenCode 2 and Antigravity ACP currently reject delivery-only repair explicitly:
+their exposed APIs have no verified exclusive tool scope equivalent to the
+existing repair contract. Ordinary native MCP publication remains supported.
+Do not silently rerun a failed action with broader tools, mutate the canonical
+session's permissions for repair, or claim successful publication from text.
 
 Repair also fails explicitly when the canonical conversation no longer exists.
 The ordinary-Wake context-heal path must not create a new conversation during

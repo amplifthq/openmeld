@@ -37,6 +37,7 @@ import { OPENCODE_CONNECTED_PROVIDER_LIST_RESPONSE } from "./fixtures/opencode-p
 
 const STARTUP_TIMEOUT_EVIDENCE_RE =
   /pid=\d+, elapsedMs=\d+, stdoutBytes=0, stderrBytes=[1-9]\d*, load1m=/u;
+const nativeFetch = globalThis.fetch;
 
 const { createOpencodeClientMock, warnDaemonEventMock } = vi.hoisted(() => ({
   createOpencodeClientMock: vi.fn(),
@@ -157,6 +158,90 @@ describe("agent controller interface inventory", () => {
       }
     } finally {
       await rm(home, { force: true, recursive: true });
+    }
+  });
+
+  it("reports Antigravity ACP without authenticating or creating a session", async () => {
+    const home = await mkdtemp(join(tmpdir(), "openmeld-aci-antigravity-acp-"));
+    const binPath = join(home, "agy_acp_server.par");
+    const logPath = join(home, "requests.jsonl");
+    try {
+      await writeFile(
+        binPath,
+        [
+          "#!/usr/bin/env node",
+          "const {createInterface}=require('node:readline');",
+          "const {appendFileSync}=require('node:fs');",
+          `createInterface({input:process.stdin}).on('line',line=>{const q=JSON.parse(line);appendFileSync(${JSON.stringify(logPath)},q.method+'\\n');if(q.method!=='initialize')process.exit(2);console.log(JSON.stringify({jsonrpc:'2.0',id:q.id,result:{protocolVersion:1,agentCapabilities:{},agentInfo:{name:'antigravity-acp',version:'1.3.0'}}}));});`,
+        ].join("\n")
+      );
+      await chmod(binPath, 0o755);
+      const snapshot = await resolveAgentControllerInterfaceSnapshot({
+        agentControllerRef: "builtin:antigravity",
+        probePolicy: "fresh",
+        state: createBuiltinAgentTargetState(
+          "antigravity",
+          "Antigravity ACP",
+          binPath
+        ),
+      });
+      expect(snapshot).toMatchObject({
+        nativeInterface: "acp",
+        auth: { status: "unknown" },
+        status: "warning",
+        version: "1.3.0",
+        capabilities: { approvals: true, structuredUserInput: true },
+        usageLimits: [{ status: "unsupported" }],
+      });
+      expect((await readFile(logPath, "utf8")).trim().split("\n")).toEqual([
+        "initialize",
+      ]);
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it("reads OpenCode 2 models through its authenticated native API without offering a v1 downgrade", async () => {
+    vi.stubGlobal(
+      "fetch",
+      (input: string | URL | Request, init?: RequestInit) => {
+        const url = input instanceof Request ? input.url : String(input);
+        if (new URL(url).hostname !== "127.0.0.1") {
+          throw new Error(`Unexpected external lookup: ${url}`);
+        }
+        return nativeFetch(input, init);
+      }
+    );
+    const home = await mkdtemp(join(tmpdir(), "openmeld-aci-opencode2-"));
+    const binPath = join(home, "opencode2.cjs");
+    try {
+      // Endpoint/envelope shapes are from @opencode/client 2.0.24 and a native capture.
+      await writeFile(
+        binPath,
+        [
+          "#!/usr/bin/env node",
+          "if(process.argv.includes('--version')){console.log('v2.0.24');process.exit(0);}",
+          "const {createServer}=require('node:http');",
+          "const server=createServer((req,res)=>{if(req.headers.authorization!=='Basic '+Buffer.from('opencode:'+process.env.OPENCODE_PASSWORD).toString('base64')){res.writeHead(401).end();return;}const path=new URL(req.url,'http://localhost').pathname;res.setHeader('content-type','application/json');if(path==='/api/info'){res.end(JSON.stringify({version:'2.0.24',pid:process.pid}));return;}if(path==='/api/model'){res.end(JSON.stringify({data:[{id:'fixture',providerID:'local',name:'Local fixture',enabled:true},{id:'disabled',providerID:'local',name:'Disabled',enabled:false}]}));return;}res.writeHead(404).end();});server.listen(0,'127.0.0.1',()=>console.log('server listening on http://127.0.0.1:'+server.address().port));",
+        ].join("\n")
+      );
+      await chmod(binPath, 0o755);
+      const snapshot = await resolveAgentControllerInterfaceSnapshot({
+        agentControllerRef: "builtin:opencode",
+        probePolicy: "fresh",
+        state: createBuiltinAgentTargetState("opencode", "OpenCode 2", binPath),
+      });
+      expect(snapshot).toMatchObject({
+        auth: { status: "unknown" },
+        status: "ready",
+        version: "2.0.24",
+        models: [{ id: "local/fixture", displayName: "Local fixture" }],
+        usageLimits: [{ status: "unsupported" }],
+      });
+      expect(snapshot.versionAdvisory).toBeUndefined();
+      expect(createOpencodeClientMock).not.toHaveBeenCalled();
+    } finally {
+      await rm(home, { recursive: true, force: true });
     }
   });
 
@@ -553,13 +638,13 @@ describe("agent controller interface inventory", () => {
           type: "cursor_login",
         },
         capabilities: {
-          approvals: false,
+          approvals: true,
           cancel: true,
           interrupt: true,
           modelSelection: true,
           nativeEventStream: true,
           permissionModes: true,
-          structuredUserInput: false,
+          structuredUserInput: true,
         },
         nativeInterface: "acp",
         status: "ready",
@@ -643,13 +728,13 @@ describe("agent controller interface inventory", () => {
           type: "opencode",
         },
         capabilities: {
-          approvals: false,
+          approvals: true,
           cancel: false,
           interrupt: true,
           modelSelection: true,
-          nativeEventStream: false,
-          permissionModes: false,
-          structuredUserInput: false,
+          nativeEventStream: true,
+          permissionModes: true,
+          structuredUserInput: true,
         },
         models: [{ displayName: "GPT-5.4", id: "openai/gpt-5.4" }],
         nativeInterface: "local-cli",
