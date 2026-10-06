@@ -5155,6 +5155,15 @@ send. The `+` menu explains why file selection is unavailable when uploads are
 not authorized or a message is still sending. Send and upload authorization
 remain unchanged. The Composer keeps its access explanation visible after text
 is entered and offers the ordinary Human Join action beside the draft.
+After account, Organization, and Profile identity are resolved, a Space mounts
+its normal conversation Composer while entry, status, members, and history are
+still loading. Restoring saved history must not block route entry. The same
+editor stays mounted when the Space becomes ready, preserving focus, selection,
+and editing history. Unknown membership is not a read-only verdict. Local
+drafting remains available, while Send confirms current entry and posting
+permission through the existing admission boundary. An explicit rejection
+replaces the conversation with the existing access surface. Drafts keep their
+existing account, Profile, Space, and Thread scope when navigating away and back.
 Restored conversations expose an access-check retry even while the first request
 is pending. Retry cancels that request and asks the entry resolver again; it
 preserves the draft and never confirms access locally.
@@ -5205,7 +5214,7 @@ input remain available.
 
 Missing member data is separate from failed member loading. A draft containing
 structured mentions keeps its text and tokens while the initial snapshot loads;
-its send control waits and the Composer shows a muted loading hint. A failed read
+its send control waits without changing the Composer layout. A failed read
 offers Retry. Ordinary text is not blocked by missing mention data. Composer
 feedback stays inside the input surface without a separate bordered warning box.
 
