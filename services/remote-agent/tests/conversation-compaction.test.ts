@@ -108,6 +108,7 @@ describe("Remote Agent conversation compaction", () => {
     );
 
     const expectedEvidence =
+      "Scope: cumulative totals for the active conversation at this checkpoint, including calls whose original messages remain below. Those retained messages are the same events, not additional calls. Do not add their counts again or infer repeated execution from seeing both representations.\n" +
       `- ${SLACK_MESSAGE_TOOL_NAME}: calls=3; non_error_results=3; ` +
       "error_results=0; first=2026-08-18T16:00:01.000Z; " +
       "latest=2026-08-18T16:00:06.000Z";

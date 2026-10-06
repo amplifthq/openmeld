@@ -33,6 +33,9 @@ is not a future release strategy.
    A bounded action-evidence section is regenerated from canonical tool events
    across repeated compactions. Tool counts are evidence of recorded calls and
    results, not proof that every external side effect succeeded.
+   Counts cover the active conversation at the checkpoint, including retained
+   original messages. The scope note prevents a reader from treating the summary
+   and those same retained messages as two executions.
 5. An agent may disable automatic queued-delivery joins. Center Agent does so
    because each admitted turn currently has its own authority and terminal
    callback. Upstream's default join behavior remains unchanged for other
@@ -88,6 +91,13 @@ is not a future release strategy.
    Working-context and recent-tail estimates share the native 1,200-token
    image heuristic; Base64 bytes are not text tokens. Original image bytes
    remain intact and the provider's physical-capacity guard still runs.
+   `workingContextHeadroomTokens` reserves space for new work after deducting
+   fixed instructions, tools and checkpoint allowance. The recent tail still
+   preserves indivisible tool pairs. One working-context checkpoint summarizes
+   earlier history and the unfinished turn in one request. Observations report
+   fixed cost, before/after estimates, target and ceiling; these are estimates,
+   not provider billing measurements. Internal entry metadata is excluded from
+   the model-visible estimate.
 
 Beta registry initialization, async defineAgent, implicit sandbox discovery,
 global provider registration, and permissive orphan-record reduction are not

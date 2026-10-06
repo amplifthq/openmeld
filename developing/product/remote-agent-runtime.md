@@ -2189,6 +2189,47 @@ context-admission contract is complete.
 
 ### Conversation compaction and runtime rollover
 
+#### Recovery and cost acceptance
+
+Center and personal Remote Agents share this harness contract. Context
+maintenance must preserve the current assignment and recoverable evidence,
+not merely reduce one request's size. Evaluate total task usage, maintenance
+cost, repeated reads, and answer quality together. Diagnostics are not another
+execution authority and must not fail productive work on elapsed time alone.
+
+Canonical action counts are cumulative at the checkpoint and include calls
+whose original messages remain in the recent tail. The model-visible evidence
+states this overlap explicitly. Seeing the summary and the same original
+messages does not prove another execution.
+
+A Computer command remains owned by its existing command receipt when model
+context is compacted. The Agent must be able to recover its exact key, inspect
+progress, read results, or request cancellation without launching the work
+again. Recovery must use the existing list/poll/stop operations and their
+current authorization. An uncertain start is inspected before any retry;
+missing model context is not evidence that no process was started.
+
+Acceptance must force compaction between starting and recovering a command,
+verify one native launch, and cover result retrieval and exact cancellation.
+It must also recover a needed tool contract and source evidence after
+compaction, while preserving current access checks. Local browser acceptance
+and deterministic runtime tests provide different evidence; neither alone
+proves real-model cost or final-answer quality.
+
+Recovery uses bounded references rather than another transcript. Calling
+`openmeld_describe_capabilities` without names restores the last selection of
+up to eight names in the current submission. Only names are retained for seven
+days; definitions come from the current authorized catalog. Repeated schema
+restoration consumes the normal tool allowance but is not classified as a
+stalled source read.
+
+Calling `openmeld_read_tool_result` without a result ID lists at most sixteen
+unexpired retained-result references for this execution. It reads the existing
+metadata, not a second index, and rechecks current execution and source access.
+The existing one-hour retention and oversized-result admission rules remain
+unchanged. This is not an archive of every tool response. Computer command
+identity and lifecycle remain owned by the existing Computer command receipts.
+
 Flue remains the sole owner of the message history, summary, and compaction
 execution inside one Remote Agent runtime conversation generation. OpenMeld
 does not maintain a second transcript or run an additional summarizer on
@@ -2196,7 +2237,7 @@ ordinary turns. Core owns only the logical-conversation-to-active-generation
 pointer. That pointer is routing metadata, not transcript, memory, execution,
 or publication truth.
 
-OpenMeld configures compaction with four explicit budgets:
+OpenMeld configures compaction with five explicit budgets:
 
 - model-specific `reserveTokens` starts compaction before the provider context
   limit or a known higher prompt-price band;
@@ -2204,9 +2245,18 @@ OpenMeld configures compaction with four explicit budgets:
   after older messages are summarized;
 - `workingContextTokens = 48,000`, capped by usable model capacity, checks the
   assembled system prompt, tool definitions, and messages before every model
-  call, including tool-loop calls; and
+  call, including tool-loop calls;
+- `workingContextHeadroomTokens = 8,000` (reduced for small models) reserves
+  room for new work when selecting the recent tail. Fixed prompt/tool cost
+  and checkpoint allowance are deducted first. Indivisible tool pairs can
+  exceed this target; the hard working-context ceiling still applies; and
 - `maxSummaryTokens = 4,096` caps each summary completion independently of the
   physical model reserve. Reasoning tokens count toward this limit.
+
+Working-context compaction produces one checkpoint for earlier history and
+the unfinished turn together, with one summary output budget. Its observation
+reports fixed context, before/after estimates, target and ceiling. This is
+maintenance evidence, not exact vendor tokenization or proof of task progress.
 
 The working-context budget uses the shared four-bytes-per-token text estimate
 and Flue's 1,200-token image heuristic, not an exact vendor tokenizer. Base64
