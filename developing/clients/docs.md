@@ -15,10 +15,16 @@ Staging uses `docs.staging.openmeld.ai`. It reads no App session, Organization
 state, database, or authenticated API. Parent-domain cookies can reach this host.
 The renderer ignores them and must not forward them to another service.
 
-The initial site contains official Fumadocs template pages. It has no product
-documentation publication claim and sets `noindex, nofollow`. Content launch
-must replace the examples, review navigation and links, and remove that metadata.
+The site contains public product guides organized by user task: Start, Work,
+Team, Help, and Reference. Production builds allow indexing and expose a sitemap
+generated from the same MDX source. Development and staging remain noindex.
 Do not copy `developing/` or internal operational runbooks into public content.
+
+Write instructions in plain English. Give prerequisites, numbered actions,
+the expected result, and a recovery link where they help the user finish.
+Verify navigation against the current product and its owning source. Explain
+availability differences explicitly; a supported source path does not prove
+that a downloadable binary or a production UI is already available.
 
 ## Content and rendering
 
@@ -30,6 +36,8 @@ server's page-tree and icon registry.
 The framework owns routing. `/docs/*` renders MDX. `/api/search` uses
 Fumadocs' built-in search. `/docs/*.md`, `/llms.txt`, and `/llms-full.txt`
 expose only the same public content. Markdown negotiation varies by `Accept`.
+Page titles, descriptions, and canonical URLs come from each page. Public
+pages must not link readers to the private source repository.
 Build-time crawling prerenders linked HTML pages. Cloudflare removes trailing
 slashes consistently with the router. `/docs` and `/docs/*` run through the
 Worker first to preserve `Accept` negotiation; the root and static assets can
