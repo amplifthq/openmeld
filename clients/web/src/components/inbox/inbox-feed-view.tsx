@@ -10,6 +10,7 @@ import {
 	DropdownMenu,
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
+import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import {
 	FluidDropdownMenuContent,
 	FluidDropdownMenuItem,
@@ -18,6 +19,7 @@ import {
 	SharedLayoutGroup,
 	SharedLayoutItem,
 } from "@openmeld/ui/fluid/shared-layout-group";
+import { cn } from "@openmeld/ui/lib/utils";
 import {
 	BellIcon,
 	CaretDownIcon,
@@ -44,6 +46,7 @@ import {
 import type { useInboxExpansion } from "./use-inbox-expansion";
 
 type FeedViewProps = {
+	compact?: boolean;
 	expansion: ReturnType<typeof useInboxExpansion>;
 	sectionAction: ReactNode;
 	accountId: string;
@@ -54,7 +57,7 @@ type FeedViewProps = {
 	rows: readonly InboxFeedRow[];
 	onOpenItem: (item: InboxItem) => void;
 	onSetRead: (item: InboxItem, read: boolean) => void;
-	onDismiss: (item: InboxItem) => void;
+	onDismiss?: (item: InboxItem) => void;
 	onSelection: (selection: MutateInboxFeedBody) => void;
 	isMutating: boolean;
 };
@@ -63,7 +66,9 @@ export function InboxFeedView(input: FeedViewProps) {
 	const attention = input.rows.filter((row) => row.section !== "activity");
 	const updates = input.rows.filter((row) => row.section === "activity");
 	return (
-		<div className="flex min-w-0 flex-col gap-6">
+		<div
+			className={cn("flex min-w-0 flex-col", input.compact ? "gap-3" : "gap-6")}
+		>
 			{[
 				{ label: "Needs your attention", rows: attention },
 				{ label: "Updates", rows: updates },
@@ -75,7 +80,12 @@ export function InboxFeedView(input: FeedViewProps) {
 						className="min-w-0"
 						key={section.label}
 					>
-						<div className="mb-2 flex min-h-8 items-center justify-between gap-3">
+						<div
+							className={cn(
+								"mb-2 flex items-center justify-between gap-3",
+								input.compact ? "px-2" : "min-h-8"
+							)}
+						>
 							<h2 className="font-medium text-muted-foreground text-xs">
 								{section.label}
 							</h2>
@@ -84,7 +94,10 @@ export function InboxFeedView(input: FeedViewProps) {
 						<SharedLayoutGroup>
 							<ul
 								aria-label={section.label}
-								className="divide-y divide-border/60 overflow-hidden rounded-md border border-border/70 bg-card"
+								className={cn(
+									"divide-y divide-border/60 overflow-hidden rounded-md",
+									!input.compact && "border border-border/70 bg-card"
+								)}
 							>
 								{section.rows.map((row) =>
 									row.group?.kind === "space" ||
@@ -123,6 +136,32 @@ function InboxGroupActions(
 	input: FeedViewProps & { row: InboxFeedRow; label: string }
 ) {
 	const row = input.row;
+	if (input.compact) {
+		return (
+			<TooltipHint content={row.unreadCount ? "Mark as read" : "Read"}>
+				<Button
+					aria-label={
+						row.unreadCount
+							? `Mark ${input.label} as read`
+							: `${input.label}: Read`
+					}
+					className="shrink-0 text-muted-foreground"
+					disabled={input.isMutating || row.unreadCount === 0}
+					onClick={() =>
+						input.onSelection({
+							snapshotId: input.snapshotId,
+							groupKey: row.groupKey,
+							operation: "read",
+						})
+					}
+					size="icon-sm"
+					variant="ghost"
+				>
+					<CheckIcon aria-hidden="true" />
+				</Button>
+			</TooltipHint>
+		);
+	}
 	return (
 		<div className="flex shrink-0 items-center gap-1">
 			<Button
@@ -194,7 +233,14 @@ function InboxCollection(input: FeedViewProps & { row: InboxFeedRow }) {
 				indicatorClassName="[@media(hover:none)]:hidden [@media(pointer:coarse)]:hidden"
 				itemId={row.groupKey}
 			>
-				<div className="flex flex-wrap items-center gap-x-3 px-3 py-3 sm:px-4">
+				<div
+					className={cn(
+						"flex items-center",
+						input.compact
+							? "gap-1 px-2 py-2"
+							: "flex-wrap gap-x-3 px-3 py-3 sm:px-4"
+					)}
+				>
 					<button
 						aria-controls={panelId}
 						aria-expanded={expanded}
@@ -235,13 +281,23 @@ function InboxCollection(input: FeedViewProps & { row: InboxFeedRow }) {
 								{groupSummary(row)}
 							</span>
 							{expanded ? null : (
-								<span className="mt-2 block truncate text-muted-foreground text-sm">
+								<span
+									className={cn(
+										"block truncate text-muted-foreground",
+										input.compact ? "mt-1 text-xs" : "mt-2 text-sm"
+									)}
+								>
 									{row.item.preview}
 								</span>
 							)}
 						</span>
 					</button>
-					<span className="hidden text-muted-foreground text-xs sm:block">
+					<span
+						className={cn(
+							"shrink-0 text-muted-foreground text-xs",
+							!input.compact && "hidden sm:block"
+						)}
+					>
 						<InboxTimestamp occurredAt={row.latestOccurredAt} />
 					</span>
 					<InboxGroupActions {...input} label={label} />
@@ -313,6 +369,7 @@ function InboxFeedItem(input: FeedViewProps & { row: InboxFeedRow }) {
 			contextActions={
 				conversation ? (
 					<FluidDropdownMenuItem
+						disabled={input.isMutating || row.unreadCount === 0}
 						index={0}
 						onClick={() =>
 							input.onSelection({
@@ -326,7 +383,7 @@ function InboxFeedItem(input: FeedViewProps & { row: InboxFeedRow }) {
 					</FluidDropdownMenuItem>
 				) : undefined
 			}
-			density="compact"
+			density={input.compact ? "preview" : "compact"}
 			feedRow={row}
 			focused={false}
 			item={row.item}
