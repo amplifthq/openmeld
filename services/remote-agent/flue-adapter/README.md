@@ -99,6 +99,19 @@ is not a future release strategy.
    not provider billing measurements. Internal entry metadata is excluded from
    the model-visible estimate.
 
+   Under budget pressure, `reduceToolResultPreviews` can first remove older
+   recoverable result previews from an ephemeral inference projection. Flue
+   protects the recent token tail and at least two latest results. OpenMeld
+   validates completed receipts through the existing execution-scoped result
+   reader, including current access and expiry checks. It preserves receipt
+   metadata and recovery references. Failed, running, expired and unretained
+   results keep their previews. Access denial fails closed. Ordinary requests
+   within budget perform no additional result lookup. Flue remeasures the
+   reduced projection and summarizes canonical originals if it still exceeds
+   the budget. It never persists the reduced projection as conversation history.
+   `retained-context-runtime.test.ts` covers this public runtime boundary;
+   `fixtures/retained-context-evaluation.md` records the paid experiment scope.
+
 Beta registry initialization, async defineAgent, implicit sandbox discovery,
 global provider registration, and permissive orphan-record reduction are not
 ported. Flue 2 repairs partial streams at its execution ownership boundary.
