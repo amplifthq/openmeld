@@ -503,25 +503,19 @@ function ComposerFeedback(input: {
 	membersPending: boolean;
 	error: ReactNode;
 }) {
-	if (!input.membersPending) {
+	if (!input.membersPending || input.members?.state !== "error") {
 		return input.error;
 	}
 	return (
 		<output className="text-muted-foreground text-sm">
-			{input.members?.state === "error" ? (
-				<>
-					Couldn't load members.{" "}
-					<button
-						className="underline underline-offset-2"
-						onClick={input.members.onRetry}
-						type="button"
-					>
-						Retry
-					</button>
-				</>
-			) : (
-				"Loading members… You can keep typing."
-			)}
+			Couldn't load members.{" "}
+			<button
+				className="underline underline-offset-2"
+				onClick={input.members.onRetry}
+				type="button"
+			>
+				Retry
+			</button>
 		</output>
 	);
 }

@@ -205,9 +205,9 @@ function setup(restored = true) {
 	render(
 		<QueryClientProvider client={client}>
 			<SpaceEntryGate
+				draftContent={restored ? <Conversation /> : undefined}
 				onAccessRejected={rejected}
 				renderFrame={(content) => content}
-				restoredContent={restored ? <Conversation /> : undefined}
 				signInHref="/login"
 				spaceId="space-123"
 			>
