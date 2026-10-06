@@ -1330,6 +1330,8 @@ registerRoutinesCommands(program, {
       run: async (output) => {
         await runRoutinesCreate({
           ...output,
+          agentProfileId: opts.agent,
+          scope: opts.scope,
           cronExpression: opts.cron,
           dailyTime: opts.daily,
           instructions: opts.instructions,

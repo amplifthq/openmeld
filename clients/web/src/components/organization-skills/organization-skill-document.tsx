@@ -5,13 +5,14 @@ import type {
 } from "@openmeld/schemas/types";
 import { Badge } from "@openmeld/ui/components/badge";
 import { TabsSubtle, TabsSubtleItem } from "@openmeld/ui/fluid/tabs-subtle";
-import { useRouterState } from "@tanstack/react-router";
-import { type SetStateAction, useEffect, useId, useState } from "react";
+import { useQueryState } from "nuqs";
+import { type SetStateAction, useId } from "react";
 import { MarkdownEditor } from "#/components/editor/markdown-editor";
+import { skillContentParser } from "#/lib/page-tab-search";
 import { OrganizationSkillDocumentTitle } from "./organization-skill-document-title";
 import { OrganizationSkillFiles } from "./organization-skill-files";
 
-/** View state is local; every editable surface writes into the owner's single draft. */
+/** The URL selects content; every editable surface writes into the owner's single draft. */
 export function OrganizationSkillDocument(input: {
 	bundle: OrganizationSkillBundle;
 	skill: OrganizationSkill;
@@ -19,19 +20,11 @@ export function OrganizationSkillDocument(input: {
 	saving: boolean;
 	onChange: (update: SetStateAction<OrganizationSkillBundle>) => void;
 }) {
-	const [view, setView] = useState(0);
-	const hash = useRouterState({ select: (state) => state.location.hash });
-	useEffect(() => {
-		if (hash === "skill-files-heading") {
-			setView(1);
-		} else if (hash === "skill-instructions-heading") {
-			setView(0);
-		}
-	}, [hash]);
+	const [view, setView] = useQueryState("content", skillContentParser);
 	const tabsId = useId();
 	const hasFiles = input.bundle.files.length > 0;
 	const showFilesTab = hasFiles || input.skill.permissions.canEdit;
-	const showFiles = showFilesTab && view === 1;
+	const showFiles = showFilesTab && view === "files";
 	return (
 		<>
 			<OrganizationSkillDocumentTitle
@@ -55,7 +48,7 @@ export function OrganizationSkillDocument(input: {
 					aria-label="Skill content"
 					className="gap-5 border-b"
 					idPrefix={tabsId}
-					onSelect={setView}
+					onSelect={(index) => setView(index === 1 ? "files" : "instructions")}
 					selectedIndex={showFiles ? 1 : 0}
 					variant="underline"
 				>

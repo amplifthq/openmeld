@@ -271,19 +271,10 @@ function formatWakeProgressSummaryPart(
 			return `${agentCount} waiting for earlier tasks`;
 		case "working":
 			return `${agentCount} working`;
-		case "replying":
-			return `${agentCount} replying`;
-		case "posting":
-			return count === 1 ? "Posting 1 reply" : `Posting ${count} replies`;
 		case "waiting_for_controller":
 			return `${agentCount} waiting for an earlier task`;
 		case "waiting_for_device":
 			return `${agentCount} waiting for a computer`;
-		case "starting":
-		case "sent":
-		case "connecting":
-		case "retrying":
-			return `${agentCount} working`;
 		default: {
 			const _exhaustive: never = kind;
 			return _exhaustive;

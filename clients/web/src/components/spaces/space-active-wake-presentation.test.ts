@@ -76,8 +76,8 @@ describe("Space working identity", () => {
 		});
 		expect(resolveSpaceActiveWakePresentation(summary).label).toBe(
 			profileName === profileId
-				? "Agent is working"
-				: "Amplift Center Agent is working"
+				? "Agent · Working…"
+				: "Amplift Center Agent · Working…"
 		);
 		expect(
 			resolveSpaceActiveWakePresentation({

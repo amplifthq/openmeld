@@ -1,4 +1,5 @@
 import { type ChildProcessByStdio, spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { homedir, loadavg } from "node:os";
@@ -17,6 +18,7 @@ import {
 import {
   parseOpenCodeGoUsageResponse,
   parseOpenRouterUsageResponse,
+  readOpenCode2Inventory,
 } from "@openmeld/adapter-opencode";
 import type {
   AgentControllerInterfaceAuthSnapshot,
@@ -63,6 +65,26 @@ export async function probeOpenCodeReadiness(input: {
       launchContract: input.launchContract,
       timeoutMs: input.timeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS,
     });
+    if (server.apiMajor === 2) {
+      const models = await readOpenCode2Inventory({
+        baseUrl: server.url,
+        password: server.password,
+        directory: input.workingDirectory,
+        timeoutMs: SDK_READ_TIMEOUT_MS,
+      });
+      return {
+        auth: { status: "unknown" },
+        message: models.length
+          ? null
+          : "OpenCode has no enabled models. Connect a provider in OpenCode.",
+        models,
+        probeCompleted: true,
+        status: models.length ? "ready" : "unavailable",
+        usageLimits: createUnsupportedProviderUsageLimits(
+          new Date().toISOString()
+        ),
+      };
+    }
     const client = createOpencodeClient({
       baseUrl: server.url,
       directory: input.workingDirectory,
@@ -260,6 +282,8 @@ async function resolveOpenCodeProviderApiKey(input: {
 type OpenCodeProbeServer = {
   child: OpenCodeProbeChild;
   url: string;
+  apiMajor: 1 | 2;
+  password: string;
 };
 
 type OpenCodeProbeChild = ChildProcessByStdio<null, Readable, Readable>;
@@ -270,6 +294,9 @@ async function startOpenCodeProbeServer(input: {
   timeoutMs: number;
 }): Promise<OpenCodeProbeServer> {
   const port = await findAvailableLocalPort();
+  const password = randomUUID();
+  const safeOutput = (value: string) =>
+    createProviderOriginalError(value.replaceAll(password, "[redacted]"));
   const invocation = buildCliLaunchInvocation({
     args: ["serve", `--hostname=${OPENCODE_PROBE_HOSTNAME}`, `--port=${port}`],
     launchContract: input.launchContract,
@@ -279,7 +306,7 @@ async function startOpenCodeProbeServer(input: {
     const child = spawn(invocation.bin, invocation.args, {
       cwd: input.workingDirectory,
       detached: process.platform !== "win32",
-      env: process.env,
+      env: { ...process.env, OPENCODE_PASSWORD: password },
       shell: invocation.shell ?? false,
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
@@ -312,8 +339,7 @@ async function startOpenCodeProbeServer(input: {
           [
             `Timed out waiting for OpenCode server start after ${input.timeoutMs}ms.`,
             `Startup evidence: pid=${child.pid ?? "unknown"}, elapsedMs=${Date.now() - spawnedAtMs}, stdoutBytes=${stdoutBytes}, stderrBytes=${stderrBytes}, load1m=${loadavg()[0]?.toFixed(2) ?? "unavailable"}.`,
-            createProviderOriginalError(stderr) ||
-              createProviderOriginalError(stdout),
+            safeOutput(stderr) || safeOutput(stdout),
           ]
             .filter(Boolean)
             .join(" ")
@@ -326,7 +352,12 @@ async function startOpenCodeProbeServer(input: {
       stdout = appendProbeOutput(stdout, chunk);
       const url = parseOpenCodeServerUrlFromOutput(stdout);
       if (url) {
-        finish({ server: { child, url } });
+        const apiMajor = stripAnsi(stdout)
+          .split("\n")
+          .some((line) => line.startsWith("server listening on "))
+          ? 2
+          : 1;
+        finish({ server: { child, url, apiMajor, password } });
       }
     });
     child.stderr.on("data", (chunk) => {
@@ -348,8 +379,8 @@ async function startOpenCodeProbeServer(input: {
             `OpenCode server exited before startup completed (code: ${
               typeof code === "number" ? code : "unknown"
             }).`,
-            stdout.trim() ? `stdout: ${stdout.trim()}` : null,
-            stderr.trim() ? `stderr: ${stderr.trim()}` : null,
+            stdout.trim() ? `stdout: ${safeOutput(stdout)}` : null,
+            stderr.trim() ? `stderr: ${safeOutput(stderr)}` : null,
           ]
             .filter(Boolean)
             .join(" ")
@@ -448,7 +479,12 @@ function findAvailableLocalPort(): Promise<number> {
 
 function parseOpenCodeServerUrlFromOutput(output: string): string | null {
   for (const line of stripAnsi(output).split("\n")) {
-    if (!line.startsWith(OPENCODE_SERVER_READY_PREFIX)) {
+    if (
+      !(
+        line.startsWith(OPENCODE_SERVER_READY_PREFIX) ||
+        line.startsWith("server listening on ")
+      )
+    ) {
       continue;
     }
     const match = line.match(OPENCODE_SERVER_URL_RE);

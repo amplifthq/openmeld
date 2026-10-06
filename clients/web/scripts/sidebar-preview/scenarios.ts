@@ -26,14 +26,8 @@ type SpaceScenario = {
 	activeWakeSummary?: SpaceSidebarActiveWakeSummary;
 };
 const statusLabels: Record<WakeProgressStatusKind, string> = {
-	starting: "Starting Wake",
-	sent: "Wake sent",
 	queued: "Queued",
-	connecting: "Connecting",
 	working: "Agent is working",
-	replying: "Agent is replying",
-	posting: "Posting reply",
-	retrying: "Retrying",
 	needs_input: "Agent needs your input",
 	confirmation_pending: "Result awaiting confirmation",
 	waiting_for_owner: "Waiting for owner",

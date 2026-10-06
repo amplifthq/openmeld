@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-06T08:37:35.056Z",
+  "updatedAt": "2026-10-06T14:56:27.119Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
-      "packageVersion": "0.3.245",
+      "packageVersion": "0.3.246",
       "updatePolicy": "available",
-      "reason": "Native cloud Computer operations are optional and require new cloud receivers; existing commands remain compatible."
+      "reason": "Add native agent input, OpenCode 2 and Antigravity ACP with compatible existing controller and wire contracts."
     },
     "service": {
-      "bundleHash": "0dddf9e5bca4eb647826145c3b218bdb8d6901e107a40fd713be96f27b2c39ce",
-      "portableBundleHash": "2a4298c743ef7bb4dedc08791799db831f7d6db145503a1df88d1dfca0d6303f",
-      "bundleVersion": "0.3.245",
+      "bundleHash": "a0044e4244ac51ffa1a79059e789310345076ce9e4b16bb86a6883ce28c5161c",
+      "portableBundleHash": "efc55e0543aa2312ddb841d35f0c46132562b02c22cd58b6ac5d5341615bb512",
+      "bundleVersion": "0.3.246",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
       "serviceContractVersion": "openmeld-service-contract-2026-09-local-install-recovery-v1",
       "updatePolicy": "available",
-      "reason": "Shared schema additions do not change workstation setup, Wake, execution or reply contracts in either rollout direction."
+      "reason": "Add native controller protocols while preserving Wake, interaction and Space action contracts."
     },
     "skills": {
       "bundleHash": "616672b13c7e061b01651894bcc7591b53730e3f452659adaa2fc0e7399ff36e",

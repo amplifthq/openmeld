@@ -154,6 +154,32 @@ describe("SpaceThreadPanel", () => {
 		expect(composer?.className).not.toContain("border-border");
 	});
 
+	it("keeps known live work visible while Thread history is still loading", () => {
+		const { rerenderThreadPanel } = renderThreadPanel({
+			signals: [],
+			signalsIsLoading: true,
+			ephemeralActivityItems: [
+				{
+					...createWakeProgressItem(),
+					replyThreadRootSignalId: "sig-root",
+				},
+			],
+			onWakeStopRequest: vi.fn(),
+		});
+		const liveRow = document.querySelector('[data-message-id^="active-wake:"]');
+		expect(liveRow).not.toBeNull();
+		expect(screen.queryByText("Loading messages…")).toBeNull();
+		expect(screen.getByRole("button", { name: "Stop @runner" })).toBeTruthy();
+		rerenderThreadPanel({
+			signalsIsLoading: false,
+			signals: [createTextSignal()],
+		});
+		expect(document.querySelector('[data-message-id^="active-wake:"]')).toBe(
+			liveRow
+		);
+		expect(screen.getByRole("button", { name: "Stop @runner" })).toBeTruthy();
+	});
+
 	it("restores only this Thread's active Wakes without importing the root message's main-conversation controls", () => {
 		const context = {
 			messagePreview: "Review the launch",

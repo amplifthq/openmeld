@@ -4,7 +4,7 @@ const ROUTINE_TARGET_SPACES_PATH =
 
 type RoutineContractQuery = { contract?: "practical-v2" };
 type RoutineListContractQuery = {
-  contract?: "management-v1" | "management-v2" | "practical-v2";
+  contract?: "management-v1" | "management-v2" | "practical-v2" | "routines-v3";
 };
 
 export function buildRoutinesPath(
@@ -13,8 +13,10 @@ export function buildRoutinesPath(
   return appendRoutineContract(ROUTINES_PATH, query);
 }
 
-export function buildRoutineTargetSpacesPath(): string {
-  return ROUTINE_TARGET_SPACES_PATH;
+export function buildRoutineTargetSpacesPath(agentProfileId?: string): string {
+  return agentProfileId
+    ? `${ROUTINE_TARGET_SPACES_PATH}?agentProfileId=${encodeURIComponent(agentProfileId)}`
+    : ROUTINE_TARGET_SPACES_PATH;
 }
 
 export function buildRoutinePath(

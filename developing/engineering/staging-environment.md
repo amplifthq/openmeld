@@ -149,6 +149,7 @@ pnpm env:doctor:stg
 pnpm staging:deploy
 pnpm staging:deploy -- --scope web
 pnpm staging:deploy -- --scope website
+pnpm staging:deploy -- --scope docs
 pnpm staging:deploy -- --scope auth
 pnpm staging:deploy -- --scope remote-agent
 pnpm staging:deploy -- --scope remote-agent --containers-rollout=none
@@ -163,11 +164,12 @@ pnpm staging:smoke:computer -- plan
 - `env:doctor:stg` checks Doppler access and required names without printing
   values or changing Cloudflare.
 - `staging:deploy` requires a clean worktree, creates only missing staging
-  prerequisites, applies staging D1 migrations, deploys the six Workers, and
+  prerequisites, applies staging D1 migrations, deploys the seven Workers, and
   verifies resources and public entry points.
   The Worker order is Auth, Core, Gateway, Web, Remote Agent, then Website so stream
-  readers understand new activity fields before the runtime emits them.
-- `staging:deploy -- --scope web`, `--scope website`, `--scope auth`, and `--scope remote-agent` deploy one
+  readers understand new activity fields before the runtime emits them. Docs
+  follows Website and owns no App receiver dependency.
+- `staging:deploy -- --scope web`, `--scope website`, `--scope docs`, `--scope auth`, and `--scope remote-agent` deploy one
   non-database Worker after verifying the existing Staging resources. Use these
   narrow paths for component-only changes so an unrelated Worker cannot block
   or enlarge the deploy. Database-backed component changes still use the full
