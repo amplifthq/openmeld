@@ -2109,6 +2109,14 @@ of a personal registration does not grant use of its credentials. Connections
 remain scoped to one Organization; personal ownership does not imply cross-Org
 credential reuse.
 
+The runtime provider catalog owns service identity and available authentication
+methods. OpenMeld accepts provider service keys through one shared contract,
+renders every supported credential method, and preserves multiline field types.
+Featured catalog entries are presentation metadata, not an execution allowlist.
+Catalog-only providers without an executable connection method cannot be
+connected. Agent discovery lists only active shared connections and the verified
+requester's personal connections, then applies the existing execution policy.
+
 New personal and shared registrations persist explicit `none` for every Agent
 consumer before provider authorization. Provider consent/activation is not an
 Agent grant. The connection owner must explicitly save Agent permissions through

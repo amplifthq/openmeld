@@ -3162,7 +3162,7 @@ export type CompleteGitHubAppInstallationInput =
 export type ListCurrentOrganizationConnectorConnectionsInput = {
   context?: CoreRpcContextInput;
   expectedOrganizationId: string;
-  service: ConnectorService;
+  service?: ConnectorService;
 };
 export type ListCurrentOrganizationConnectorAppRequestsInput = {
   context?: CoreRpcContextInput;
@@ -7813,7 +7813,10 @@ export async function rpcListCurrentOrganizationConnectorConnections(
     activeOrganization,
     db: requireConnectorConnectionDb(env),
     env,
-    service: requireConnectorService(input.service),
+    service:
+      input.service === undefined
+        ? undefined
+        : requireConnectorService(input.service),
   });
 }
 export async function rpcListCurrentOrganizationConnectorAppRequests(
@@ -8020,6 +8023,56 @@ export async function rpcCompleteConnectorDisconnect(
     env,
   });
 }
+export async function rpcCenterAgentListConnectorServices(
+  env: CoreBindings,
+  input: Pick<
+    CenterAgentResolveConnectorConnectionInput,
+    "context" | "requesterUserId" | "includeDelegatedRequester"
+  >
+) {
+  const context = requireRpcContext(input.context);
+  const authorization = await requireRemoteAgentToolCaller({ context, env });
+  const representedUserId = await resolveRemoteAgentConnectorRequester({
+    env,
+    authorization,
+    service: "github",
+    requesterUserId: input.requesterUserId,
+    includeDelegatedRequester: input.includeDelegatedRequester,
+  });
+  let requesterUserId = normalizeOptionalText(input.requesterUserId);
+  if ("personalExecution" in authorization) {
+    requesterUserId =
+      representedUserId ===
+      authorization.personalExecution.request.agentProfileOwnerUserId
+        ? representedUserId
+        : null;
+  }
+  if (requesterUserId) {
+    await requireConnectorRequesterMembership({
+      env,
+      organizationId: authorization.activeOrganization.organizationId,
+      userId: requesterUserId,
+    });
+  }
+  const records = await listConnectorConnections({
+    db: requireConnectorConnectionDb(env),
+    organizationId: authorization.activeOrganization.organizationId,
+  });
+  return {
+    services: [
+      ...new Set(
+        records
+          .filter(
+            (record) =>
+              record.status === "active" &&
+              (record.scope === "shared" || record.userId === requesterUserId)
+          )
+          .map((record) => record.service)
+      ),
+    ],
+  };
+}
+
 export async function rpcCenterAgentResolveConnectorConnection(
   env: CoreBindings,
   input: CenterAgentResolveConnectorConnectionInput
@@ -24014,7 +24067,7 @@ async function listVisibleConnectorConnections(input: {
   activeOrganization: ActiveOrganization;
   db: PostgresDatabase;
   env: CoreBindings;
-  service: ConnectorService;
+  service?: ConnectorService;
 }): Promise<ConnectorConnectionListResponse> {
   const canManageOrganization = memberRoleHasOrganizationPermission(
     input.activeOrganization.role,

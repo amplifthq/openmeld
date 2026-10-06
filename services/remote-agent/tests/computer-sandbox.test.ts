@@ -1,5 +1,4 @@
 import type { WorkspaceClient } from "@cloudflare/computer";
-import { createSandboxSessionEnv } from "@flue/runtime";
 import type { CenterAgentOrganizationDocumentsComputerSnapshotResponse } from "@openmeld/schemas/types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -24,7 +23,6 @@ import {
   ORGANIZATION_DOCUMENTS_COMPUTER_ROOT,
 } from "../flue-adapter/organization-document-computer-snapshot";
 import { ORGANIZATION_DOCUMENT_COMPUTER_TOOL_NAMES } from "../flue-adapter/organization-document-computer-tools";
-import { getRemoteAgentSandboxToolDefinitions } from "../flue-adapter/sandbox-tools";
 import { executionAccessFixture } from "./execution-access-fixture";
 import { createSubmitTurnRequest, TEST_NOW_MS } from "./fixtures";
 
@@ -32,7 +30,8 @@ const cloudflareComputerMock = vi.hoisted(() => ({
   getWorkspace: vi.fn(),
 }));
 
-vi.mock("@cloudflare/computer", () => ({
+vi.mock("@cloudflare/computer", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@cloudflare/computer")>()),
   getWorkspace: cloudflareComputerMock.getWorkspace,
 }));
 
@@ -541,45 +540,47 @@ describe("Organization Documents computer scope", () => {
     ).toBe(true);
   });
 
-  it("uses a fresh disposable workspace client for later Computer operations", async () => {
+  it("routes later model operations to the same Computer owner without holding a Workspace client", async () => {
     const materializationWorkspace = createWorkspaceFake();
-    const toolWorkspace = createWorkspaceFake();
-    cloudflareComputerMock.getWorkspace
-      .mockResolvedValueOnce(materializationWorkspace.workspace)
-      .mockResolvedValueOnce(toolWorkspace.workspace);
+    cloudflareComputerMock.getWorkspace.mockResolvedValueOnce(
+      materializationWorkspace.workspace
+    );
+    const computerOperation = vi.fn(async () => ({
+      kind: "files",
+      result: { isError: false },
+    }));
     const namespace = {
-      get: vi.fn(() => ({})),
+      get: vi.fn(() => ({ computerOperation })),
       idFromName: vi.fn(() => ({})),
     };
     const capability = await createRemoteAgentComputerCapability({
       context: createComputerContext(),
       coreWorker: {
-        centerAgentOrganizationDocumentsComputerSnapshot: vi.fn(() =>
-          Promise.resolve(organizationDocumentsSnapshot())
+        centerAgentOrganizationDocumentsComputerSnapshot: vi.fn(async () =>
+          organizationDocumentsSnapshot()
         ),
       },
       env: { AGENT_COMPUTER: namespace },
       includeOrganizationDocuments: true,
     });
-    const grep = capability.definitions.find(
-      (definition) => definition.name === "grep"
+    const computer = capability.definitions.find(
+      (definition) => definition.name === "computer"
     );
-    if (!grep) {
-      throw new Error("grep tool missing");
+    if (!computer) {
+      throw new Error("Computer tool missing");
     }
-
-    await grep.execute({ pattern: "launch" }, undefined);
-
-    expect(cloudflareComputerMock.getWorkspace).toHaveBeenCalledTimes(2);
+    await computer.execute({
+      action: "files",
+      tool: "grep",
+      input: { path: "/computer", query: "launch" },
+    });
+    expect(computerOperation).toHaveBeenCalledWith({
+      action: "files",
+      tool: "grep",
+      input: { path: "/computer", query: "launch" },
+    });
+    expect(cloudflareComputerMock.getWorkspace).toHaveBeenCalledOnce();
     expect(materializationWorkspace.dispose).toHaveBeenCalledOnce();
-    expect(toolWorkspace.dispose).toHaveBeenCalledOnce();
-    expect(
-      (
-        toolWorkspace.workspace.fs as unknown as {
-          grep: ReturnType<typeof vi.fn>;
-        }
-      ).grep
-    ).toHaveBeenCalledOnce();
   });
 
   it("keeps document contents off shared disk and preserves an explicit checkout across a restricted turn", async () => {
@@ -818,145 +819,6 @@ describe("AgentComputerSandboxApi", () => {
     await stopped;
     expect(kill).toHaveBeenCalledWith("SIGTERM");
     expect(dispose).toHaveBeenCalledOnce();
-  });
-});
-
-describe("bash tool backend selection", () => {
-  it("passes the model-chosen backend through the computer exec channel", async () => {
-    const { workspace } = createWorkspaceFake();
-    const computerExec = vi.fn(() =>
-      Promise.resolve({ exitCode: 0, stderr: "", stdout: "ok\n" })
-    );
-    const definitions = getRemoteAgentSandboxToolDefinitions({
-      computerExec,
-      env: createSandboxSessionEnv(
-        new AgentComputerSandboxApi(workspace),
-        "/computer/spaces/space-1"
-      ),
-      workingDirectory: "/computer/spaces/space-1",
-    });
-    const bash = definitions.find((definition) => definition.name === "bash");
-    if (!bash) {
-      throw new Error("bash tool missing");
-    }
-
-    await bash.execute(
-      { backend: "container", command: "python3 -V", timeout: 60 },
-      undefined
-    );
-
-    expect(computerExec).toHaveBeenCalledWith("python3 -V", {
-      backend: "container",
-      cwd: "/computer/spaces/space-1",
-      signal: undefined,
-      timeoutMs: 60_000,
-    });
-  });
-
-  it("rejects an unknown bash backend value", async () => {
-    const { workspace } = createWorkspaceFake();
-    const definitions = getRemoteAgentSandboxToolDefinitions({
-      computerExec: vi.fn(),
-      env: createSandboxSessionEnv(
-        new AgentComputerSandboxApi(workspace),
-        "/computer/spaces/space-1"
-      ),
-      workingDirectory: "/computer/spaces/space-1",
-    });
-    const bash = definitions.find((definition) => definition.name === "bash");
-    if (!bash) {
-      throw new Error("bash tool missing");
-    }
-
-    await expect(
-      bash.execute({ backend: "warp-drive", command: "ls" }, undefined)
-    ).rejects.toThrow();
-  });
-});
-
-describe("computer-native grep", () => {
-  function createGrepTool(
-    matches: { line: number; path: string; text: string }[]
-  ) {
-    const { workspace } = createWorkspaceFake();
-    const grep = (workspace.fs as unknown as { grep: ReturnType<typeof vi.fn> })
-      .grep;
-    grep.mockResolvedValue(matches);
-    const definitions = getRemoteAgentSandboxToolDefinitions({
-      computerSearch: {
-        grep: (pattern, path, options) =>
-          workspace.fs.grep(pattern, path, options),
-      },
-      env: createSandboxSessionEnv(
-        new AgentComputerSandboxApi(workspace),
-        "/computer/spaces/space-1"
-      ),
-      workingDirectory: "/computer/spaces/space-1",
-    });
-    const tool = definitions.find((definition) => definition.name === "grep");
-    if (!tool) {
-      throw new Error("grep tool missing");
-    }
-    return { grep, tool };
-  }
-
-  it("searches the durable filesystem natively and formats matches", async () => {
-    const { grep, tool } = createGrepTool([
-      { line: 3, path: "/computer/spaces/space-1/a.md", text: "TODO ship" },
-    ]);
-
-    const result = (await tool.execute({ pattern: "TODO" }, undefined)) as {
-      matches: string[];
-      truncated: boolean;
-    };
-
-    expect(grep).toHaveBeenCalledWith(
-      "TODO",
-      "/computer/spaces/space-1",
-      undefined
-    );
-    expect(result.matches).toEqual([
-      "/computer/spaces/space-1/a.md:3:TODO ship",
-    ]);
-    expect(result.truncated).toBe(false);
-  });
-
-  it("escapes literal patterns and resolves relative search paths", async () => {
-    const { grep, tool } = createGrepTool([]);
-
-    await tool.execute(
-      { literal: true, path: "notes", pattern: "a.b(c)" },
-      undefined
-    );
-
-    expect(grep).toHaveBeenCalledWith(
-      "a\\.b\\(c\\)",
-      "/computer/spaces/space-1/notes",
-      undefined
-    );
-  });
-
-  it("filters matches by include pattern and reports truncation", async () => {
-    const matches = Array.from({ length: 120 }, (_, index) => ({
-      line: index + 1,
-      path: `/computer/spaces/space-1/file-${index}.ts`,
-      text: "match",
-    }));
-    matches.push({
-      line: 1,
-      path: "/computer/spaces/space-1/readme.md",
-      text: "match",
-    });
-    const { tool } = createGrepTool(matches);
-
-    const result = (await tool.execute(
-      { include: "*.ts", pattern: "match" },
-      undefined
-    )) as { matches: string[]; truncated: boolean };
-
-    expect(result.matches).toHaveLength(100);
-    expect(result.matches.every((line) => line.includes(".ts:"))).toBe(true);
-    expect(result.truncated).toBe(true);
   });
 });
 
