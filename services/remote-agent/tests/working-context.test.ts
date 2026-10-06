@@ -7,7 +7,7 @@ import {
   fauxProvider,
   fauxToolCall,
 } from "@earendil-works/pi-ai";
-import { defineTool, init, useModel, useTool } from "@flue/runtime";
+import { defineTool, init, observe, useModel, useTool } from "@flue/runtime";
 import { sqlite, start } from "@flue/runtime/node";
 import { object } from "valibot";
 import { expect, it } from "vitest";
@@ -25,6 +25,80 @@ function recalledResult(context: Context) {
   }
   return JSON.parse(text.text);
 }
+
+it("reserves new-work space with a large fixed prompt instead of immediately compacting again", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "flue-headroom-"));
+  const provider = fauxProvider({
+    provider: "headroom",
+    tokensPerSecond: Number.POSITIVE_INFINITY,
+  });
+  const model = provider.getModel();
+  let bounded = false;
+  const measurements: Array<{
+    afterTokens: number;
+    targetTokens: number;
+    fixedTokens: number;
+  }> = [];
+  const unsubscribe = observe((event) => {
+    if (event.type === "compaction" && event.workingContext) {
+      measurements.push(event.workingContext);
+    }
+  });
+  function Headroom() {
+    useModel(`${model.provider}/${model.id}`, {
+      compaction: bounded
+        ? {
+            workingContextTokens: 6000,
+            workingContextHeadroomTokens: 2000,
+            keepRecentTokens: 4000,
+            maxSummaryTokens: 512,
+            reserveTokens: 8192,
+          }
+        : false,
+    });
+    return `Keep the current objective. ${"Stable system rules. ".repeat(400)}`;
+  }
+  const runtime = await start({
+    agents: [Headroom],
+    providers: [provider.provider],
+    db: sqlite(join(directory, "history.sqlite")),
+  });
+  try {
+    const agent = init(Headroom, { id: "headroom" });
+    provider.setResponses(
+      Array.from({ length: 8 }, () => fauxAssistantMessage("Recorded."))
+    );
+    for (let i = 0; i < 8; i++) {
+      await agent.read(
+        await agent.dispatch(`Record ${i}. ${"Archive evidence. ".repeat(150)}`)
+      );
+    }
+    bounded = true;
+    provider.setResponses([
+      fauxAssistantMessage(
+        "Current objective: reconcile the evidence; no deployment authorized."
+      ),
+      fauxAssistantMessage("Ready to continue."),
+      fauxAssistantMessage("New evidence accepted."),
+    ]);
+    await agent.read(await agent.dispatch("Continue the reconciliation."));
+    await agent.read(await agent.dispatch("New evidence. ".repeat(250)));
+    expect(measurements).toHaveLength(1);
+    const measurement = measurements[0];
+    if (!measurement) {
+      throw new Error("Missing compaction measurement");
+    }
+    expect(measurement.fixedTokens).toBeGreaterThan(2000);
+    expect(measurement.afterTokens).toBeLessThanOrEqual(
+      measurement.targetTokens
+    );
+    expect(provider.getPendingResponseCount()).toBe(0);
+  } finally {
+    unsubscribe();
+    await runtime.stop();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 
 it("refuses an irreducible oversized current input before any supplier call", async () => {
   const directory = await mkdtemp(join(tmpdir(), "flue-current-input-"));
@@ -160,16 +234,11 @@ it("checks the next tool-loop call and ignores inflated supplier usage afterward
       }),
       (context) => {
         expect(JSON.stringify(context.messages)).toContain("Older record 0");
-        return fauxAssistantMessage(
-          "Old records unchanged. Current lookup is pending a report."
-        );
-      },
-      (context) => {
         expect(JSON.stringify(context.messages)).toContain(
           "Look up the current result."
         );
         return fauxAssistantMessage(
-          "Report the current lookup result exactly."
+          "Old records unchanged. Current lookup is pending a report."
         );
       },
       (context) => {
@@ -188,7 +257,7 @@ it("checks the next tool-loop call and ignores inflated supplier usage afterward
       (await agent.read(await agent.dispatch("Look up the current result.")))
         .text
     ).toContain("EXACT-734");
-    expect(provider.state.callCount).toBe(8);
+    expect(provider.state.callCount).toBe(7);
   } finally {
     await runtime.stop();
     await rm(directory, { recursive: true, force: true });

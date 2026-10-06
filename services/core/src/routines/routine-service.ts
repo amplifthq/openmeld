@@ -19,6 +19,7 @@ import type {
   ListCenterAgentRoutinesManagementV1Response,
   ListCenterAgentRoutinesResponse,
   ListCenterAgentRoutineTargetSpacesResponse,
+  ListRoutineManagementResponse,
   UpdateCenterAgentRoutineBody,
 } from "@openmeld/schemas/types";
 import {
@@ -27,10 +28,15 @@ import {
 } from "../organization-documents/routine-approved-knowledge-grant-policy";
 import { readRemoteAgentSlackWorkspaceBinding } from "../remote-agent/infrastructure/postgresql/slack-workspace-binding-repo";
 import { createCoreRpcHttpError } from "../rpc/errors";
+import { readRoutineTargetSpaceEligibilityFromSpaceIndex } from "../space-index/space-index-repository";
 import {
   requireMessageChannelRoutineConnection,
   requireMessageChannelRoutineOrigin,
 } from "./message-channel-routine-destination";
+import {
+  listAccessibleRoutineRuns,
+  requireRoutineHistoryAccess,
+} from "./routine-access";
 import {
   canManageRoutine,
   type RoutineAuthority,
@@ -38,11 +44,14 @@ import {
   requireRoutineMutationAuthority,
 } from "./routine-authority";
 import {
+  listRoutineExecutors,
+  requireRoutineExecutor,
+} from "./routine-executor";
+import {
   countRoutineRecords,
   deleteRoutineRecord,
   insertRoutineRecord,
   listRoutineRecords,
-  listRoutineRunRecords,
   type NewStoredRoutine,
   pauseRoutineRecord,
   type RoutineAuditActor,
@@ -59,6 +68,7 @@ import {
 
 const ROUTINE_RUN_DEFAULT_LIMIT = 25;
 export type RoutineActor = {
+  allowPersonal?: boolean;
   attribution: CenterAgentAttribution;
   authority: RoutineAuthority;
   creationDisplayName: string;
@@ -66,6 +76,7 @@ export type RoutineActor = {
 };
 export type RoutineService = ReturnType<typeof createRoutineService>;
 export function createRoutineService(input: {
+  allExecutors?: boolean;
   agentProfileId?: string;
   db: PostgresDatabase;
   generateId?: () => string;
@@ -75,18 +86,136 @@ export function createRoutineService(input: {
   const generateId =
     input.generateId ?? (() => `routine_${crypto.randomUUID()}`);
   const now = input.now ?? Date.now;
-  const targetSpaceEligibility = createRoutineTargetSpaceEligibility({
-    agentProfileId: input.agentProfileId,
-    db: input.db,
-    projectionsDb: input.projectionsDb,
-  });
+  const canRead = async (actor: RoutineActor, routine: StoredRoutine) => {
+    if (routine.scope === "personal" && actor.allowPersonal === false) {
+      return false;
+    }
+    if (routine.createdByUserId === actor.authority.userId) {
+      return true;
+    }
+    if (routine.scope === "personal") {
+      return false;
+    }
+    if (!routine.targetSpaceId) {
+      return false;
+    }
+    const target = await readRoutineTargetSpaceEligibilityFromSpaceIndex({
+      db: input.projectionsDb,
+      organizationId: actor.authority.organizationId,
+      representedHumanUserId: actor.authority.userId,
+      representedHumanProfileId:
+        actor.attribution.onBehalfOf?.profileId ??
+        actor.attribution.actorProfileId,
+      targetSpaceId: routine.targetSpaceId,
+      centerAgentDirectMessagePairKey: null,
+      centerAgentProfileId: null,
+    });
+    return (
+      target?.active === true &&
+      target.sameOrganization &&
+      target.representedHumanVisible
+    );
+  };
+  const withReadableLastRun = async (
+    actor: RoutineActor,
+    routine: StoredRoutine
+  ) => {
+    if (!routine.lastRun) {
+      return routine;
+    }
+    try {
+      await requireRoutineHistoryAccess({
+        db: input.db,
+        organizationId: routine.organizationId,
+        routineId: routine.id,
+        runId: routine.lastRun.id,
+        userId: actor.authority.userId,
+        humanProfileId:
+          actor.attribution.onBehalfOf?.profileId ??
+          actor.attribution.actorProfileId,
+        allowPersonal: actor.allowPersonal,
+      });
+      return routine;
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        "code" in error &&
+        error.code === "routine.not_found"
+      ) {
+        return { ...routine, lastRun: null };
+      }
+      throw error;
+    }
+  };
+  const readAccessibleRoutine = async (
+    actor: RoutineActor,
+    routineId: string
+  ) => {
+    const routine = await requireRoutine({
+      ...input,
+      organizationId: actor.authority.organizationId,
+      routineId,
+    });
+    if (!(await canRead(actor, routine))) {
+      throw routineNotFoundError();
+    }
+    return await withReadableLastRun(actor, routine);
+  };
+  const eligibilityFor = (agentProfileId?: string | null) =>
+    createRoutineTargetSpaceEligibility({
+      ...input,
+      agentProfileId: agentProfileId ?? undefined,
+    });
+  const listVisible = async (actor: RoutineActor) => {
+    const routines = await listRoutineRecords({
+      agentProfileId: input.agentProfileId,
+      db: input.db,
+      organizationId: actor.authority.organizationId,
+    });
+    const visible = await Promise.all(
+      routines.map((routine) => canRead(actor, routine))
+    );
+    return await Promise.all(
+      routines
+        .filter((_routine, index) => visible[index])
+        .map((routine) => withReadableLastRun(actor, routine))
+    );
+  };
   return {
-    async list(actor: RoutineActor): Promise<ListCenterAgentRoutinesResponse> {
+    async listUnified(
+      actor: RoutineActor
+    ): Promise<ListRoutineManagementResponse> {
       const routines = await listRoutineRecords({
-        agentProfileId: input.agentProfileId,
         db: input.db,
         organizationId: actor.authority.organizationId,
+        visibleToUserId: actor.authority.userId,
       });
+      const visible = await Promise.all(
+        routines.map((routine) => canRead(actor, routine))
+      );
+      const readable = await Promise.all(
+        routines
+          .filter((_routine, index) => visible[index])
+          .map((routine) => withReadableLastRun(actor, routine))
+      );
+      return {
+        currentUserId: actor.authority.userId,
+        organizationId: actor.authority.organizationId,
+        routines: readable.map((routine) => ({
+          ...toManagementRoutine(routine, actor.authority),
+          scope: routine.scope ?? "team",
+          agentProfileId: routine.agentProfileId ?? null,
+          executorKind: routine.executorKind ?? "center_agent",
+          executorName: routine.executorName ?? "Center Agent",
+        })),
+        executors: await listRoutineExecutors({
+          db: input.db,
+          ...actor.authority,
+        }),
+      };
+    },
+    async list(actor: RoutineActor): Promise<ListCenterAgentRoutinesResponse> {
+      const routines = await listVisible(actor);
       return {
         currentUserId: actor.authority.userId,
         organizationId: actor.authority.organizationId,
@@ -98,11 +227,7 @@ export function createRoutineService(input: {
     async listManagementV1(
       actor: RoutineActor
     ): Promise<ListCenterAgentRoutinesManagementV1Response> {
-      const routines = await listRoutineRecords({
-        agentProfileId: input.agentProfileId,
-        db: input.db,
-        organizationId: actor.authority.organizationId,
-      });
+      const routines = await listVisible(actor);
       return {
         currentUserId: actor.authority.userId,
         organizationId: actor.authority.organizationId,
@@ -114,11 +239,7 @@ export function createRoutineService(input: {
     async listManagement(
       actor: RoutineActor
     ): Promise<ListCenterAgentRoutinesManagementResponse> {
-      const routines = await listRoutineRecords({
-        agentProfileId: input.agentProfileId,
-        db: input.db,
-        organizationId: actor.authority.organizationId,
-      });
+      const routines = await listVisible(actor);
       return {
         currentUserId: actor.authority.userId,
         organizationId: actor.authority.organizationId,
@@ -129,12 +250,15 @@ export function createRoutineService(input: {
     },
     async listTargetSpaces(
       actor: RoutineActor,
-      representedHuman: RoutineRepresentedHuman
+      representedHuman: RoutineRepresentedHuman,
+      agentProfileId?: string
     ): Promise<ListCenterAgentRoutineTargetSpacesResponse> {
       const organizationId = actor.authority.organizationId;
       return {
         organizationId,
-        spaces: await targetSpaceEligibility.listEligible({
+        spaces: await eligibilityFor(
+          agentProfileId ?? input.agentProfileId
+        ).listEligible({
           limit: CENTER_AGENT_ROUTINE_TARGET_SPACE_LIST_MAX_ITEMS,
           organizationId,
           representedHuman,
@@ -147,7 +271,28 @@ export function createRoutineService(input: {
       body: CreateCenterAgentRoutineBody
     ): Promise<CenterAgentRoutine> {
       requireRoutineCreateAuthority(actor.authority);
-      requirePersonalRoutineCapabilities(input.agentProfileId, body);
+      const agentProfileId = resolveRoutineExecutorSelection(
+        body.agentProfileId,
+        input.agentProfileId
+      );
+      const scope = body.scope ?? (agentProfileId ? "personal" : "team");
+      if (scope === "personal" && actor.allowPersonal === false) {
+        throw createCoreRpcHttpError({
+          status: 403,
+          code: "routine.private_conversation_required",
+          reason:
+            "Manage personal Routines in a private conversation with your Agent.",
+        });
+      }
+      if (
+        !input.allExecutors &&
+        input.agentProfileId &&
+        body.agentProfileId !== undefined &&
+        body.agentProfileId !== input.agentProfileId
+      ) {
+        throw routineNotFoundError();
+      }
+      requirePersonalRoutineCapabilities(agentProfileId, body);
       const authorizedActions = body.authorizedActions ?? [];
       requireRoutineApprovedKnowledgeGrantAuthority({
         currentActions: [],
@@ -177,10 +322,17 @@ export function createRoutineService(input: {
         db: input.db,
         organizationId: actor.authority.organizationId,
         representedHuman,
-        targetSpaceEligibility,
+        targetSpaceEligibility: eligibilityFor(agentProfileId),
+      });
+      const executor = await requireRoutineExecutor({
+        db: input.db,
+        ...actor.authority,
+        agentProfileId,
       });
       const routine: NewStoredRoutine = {
-        agentProfileId: input.agentProfileId ?? null,
+        agentProfileId: agentProfileId ?? null,
+        executorKind: executor.kind,
+        scope,
         messageChannelLocator: body.messageChannelLocator ?? null,
         authorizedActions,
         createdAtMs: nowMs,
@@ -233,12 +385,17 @@ export function createRoutineService(input: {
       routineId: string,
       body: UpdateCenterAgentRoutineBody
     ): Promise<CenterAgentRoutine> {
-      const current = await requireRoutine({
-        agentProfileId: input.agentProfileId,
-        db: input.db,
-        organizationId: actor.authority.organizationId,
-        routineId,
-      });
+      const current = await readAccessibleRoutine(actor, routineId);
+      if (
+        current.agentProfileId &&
+        current.createdByUserId !== actor.authority.userId
+      ) {
+        throw createCoreRpcHttpError({
+          status: 403,
+          code: "routine.forbidden",
+          reason: "Only this Agent's owner can change its instructions.",
+        });
+      }
       requireRoutineMutationAuthority({
         action: "update",
         authority: actor.authority,
@@ -256,7 +413,10 @@ export function createRoutineService(input: {
         ...current,
         ...body,
       };
-      requirePersonalRoutineCapabilities(input.agentProfileId, candidate);
+      requirePersonalRoutineCapabilities(
+        current.agentProfileId ?? undefined,
+        candidate
+      );
       if (
         candidate.destinationKind === "message_channel" &&
         candidate.messageChannelLocator &&
@@ -271,21 +431,28 @@ export function createRoutineService(input: {
           locator: candidate.messageChannelLocator,
         });
       }
-      const schedule = await requireValidSchedule(
-        {
-          cronExpression: candidate.cronExpression,
-          runAtMs: candidate.runAtMs,
-          scheduleKind: candidate.scheduleKind,
-          timezone: candidate.timezone,
-        },
-        nowMs
-      );
+      const scheduleChanged =
+        candidate.cronExpression !== current.cronExpression ||
+        candidate.runAtMs !== current.runAtMs ||
+        candidate.scheduleKind !== current.scheduleKind ||
+        candidate.timezone !== current.timezone;
+      const schedule = scheduleChanged
+        ? await requireValidSchedule(
+            {
+              cronExpression: candidate.cronExpression,
+              runAtMs: candidate.runAtMs,
+              scheduleKind: candidate.scheduleKind,
+              timezone: candidate.timezone,
+            },
+            nowMs
+          )
+        : current;
       await requireValidDestination({
         body: candidate,
         db: input.db,
         organizationId: actor.authority.organizationId,
         representedHuman,
-        targetSpaceEligibility,
+        targetSpaceEligibility: eligibilityFor(current.agentProfileId),
       });
       const updateOutcome = await updateRoutineRecord({
         actor: toAuditActor(actor),
@@ -335,12 +502,7 @@ export function createRoutineService(input: {
       actor: RoutineActor,
       routineId: string
     ): Promise<CenterAgentRoutine> {
-      const current = await requireRoutine({
-        agentProfileId: input.agentProfileId,
-        db: input.db,
-        organizationId: actor.authority.organizationId,
-        routineId,
-      });
+      const current = await readAccessibleRoutine(actor, routineId);
       requireRoutineMutationAuthority({
         action: "update",
         authority: actor.authority,
@@ -381,12 +543,7 @@ export function createRoutineService(input: {
       representedHuman: RoutineRepresentedHuman,
       routineId: string
     ): Promise<CenterAgentRoutine> {
-      const current = await requireRoutine({
-        agentProfileId: input.agentProfileId,
-        db: input.db,
-        organizationId: actor.authority.organizationId,
-        routineId,
-      });
+      const current = await readAccessibleRoutine(actor, routineId);
       requireRoutineMutationAuthority({
         action: "update",
         authority: actor.authority,
@@ -402,7 +559,7 @@ export function createRoutineService(input: {
         db: input.db,
         organizationId: actor.authority.organizationId,
         representedHuman,
-        targetSpaceEligibility,
+        targetSpaceEligibility: eligibilityFor(current.agentProfileId),
       });
       const resumeOutcome = await resumeRoutineRecord({
         actor: toAuditActor(actor),
@@ -437,12 +594,7 @@ export function createRoutineService(input: {
       actor: RoutineActor,
       routineId: string
     ): Promise<DeleteCenterAgentRoutineResponse> {
-      const current = await requireRoutine({
-        agentProfileId: input.agentProfileId,
-        db: input.db,
-        organizationId: actor.authority.organizationId,
-        routineId,
-      });
+      const current = await readAccessibleRoutine(actor, routineId);
       requireRoutineMutationAuthority({
         action: "delete",
         authority: actor.authority,
@@ -483,8 +635,11 @@ export function createRoutineService(input: {
       return {
         organizationId: actor.authority.organizationId,
         routineId,
-        runs: await listRoutineRunRecords({
-          agentProfileId: input.agentProfileId,
+        runs: await listAccessibleRoutineRuns({
+          userId: actor.authority.userId,
+          humanProfileId:
+            actor.attribution.onBehalfOf?.profileId ??
+            actor.attribution.actorProfileId,
           beforeScheduledFor: query.beforeScheduledFor,
           db: input.db,
           limit,
@@ -516,6 +671,7 @@ function requirePersonalRoutineCapabilities(
   }
 }
 async function requireRoutine(input: {
+  allExecutors?: boolean;
   agentProfileId?: string;
   db: PostgresDatabase;
   organizationId: string;
@@ -524,7 +680,8 @@ async function requireRoutine(input: {
   const routine = await readRoutineRecord(input);
   if (
     !routine ||
-    (routine.agentProfileId ?? null) !== (input.agentProfileId ?? null)
+    (!input.allExecutors &&
+      (routine.agentProfileId ?? null) !== (input.agentProfileId ?? null))
   ) {
     throw routineNotFoundError();
   }
@@ -742,6 +899,9 @@ function toRoutine(
 ): CenterAgentRoutine {
   const {
     agentProfileId: _agentProfileId,
+    scope: _scope,
+    executorKind: _executorKind,
+    executorName: _executorName,
     authorizedActions: _authorizedActions,
     creationAttribution: _creationAttribution,
     externalActionPolicy: _externalActionPolicy,
@@ -797,4 +957,14 @@ function toAuditActor(actor: RoutineActor): RoutineAuditActor {
     ...actor.attribution,
     sourceNativeDeliveryId: actor.sourceNativeDeliveryId,
   };
+}
+
+function resolveRoutineExecutorSelection(
+  selected: string | null | undefined,
+  defaultAgent: string | undefined
+) {
+  if (selected === undefined) {
+    return defaultAgent;
+  }
+  return selected ?? undefined;
 }

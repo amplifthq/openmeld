@@ -5,6 +5,7 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { query } from "@anthropic-ai/claude-agent-sdk";
 import { invokeClaudeAgentSdkTransport } from "../dist/index.js";
 
 // Real Claude and SDK; only the provider response is scripted. Synthetic HOME
@@ -179,6 +180,86 @@ test(
     assert.equal(await readFile(marker, "utf8"), "native-access");
     assert.equal(await readFile(hookMarker, "utf8"), "hook-ran");
     assert.ok(catalogs[0].names.includes("Bash"));
+    phase = "live-input";
+    step = 0;
+    let liveInput;
+    let liveReceipt;
+    const liveMessages = [];
+    const live = await invokeClaudeAgentSdkTransport({
+      ...input,
+      taskId: "native-live-input",
+      registerQuery: (registration) => {
+        liveInput = registration.liveInput;
+        return () => {
+          liveInput = undefined;
+        };
+      },
+      createQuery: ({ options, prompt }) => {
+        const runtime = query({
+          options: {
+            ...options,
+            hooks: {
+              ...options.hooks,
+              PreToolUse: [
+                ...(options.hooks?.PreToolUse ?? []),
+                {
+                  matcher: "Bash",
+                  hooks: [
+                    () => {
+                      liveReceipt = liveInput.steer({
+                        taskId: "native-live-input",
+                        inputId: "native-input",
+                        text: "Include the accessibility result.",
+                      });
+                      return Promise.resolve({});
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+          prompt,
+        });
+        return new Proxy(runtime, {
+          get(target, key) {
+            if (key === Symbol.asyncIterator) {
+              return async function* () {
+                for await (const message of target) {
+                  liveMessages.push({
+                    type: message.type,
+                    subtype: message.subtype,
+                    uuid: message.uuid,
+                    isReplay: message.isReplay,
+                    parent_tool_use_id: message.parent_tool_use_id,
+                    session_id: message.session_id,
+                    user_message_uuid: message.user_message_uuid,
+                    user_message_uuids: message.user_message_uuids,
+                  });
+                  yield message;
+                }
+              };
+            }
+            const value = Reflect.get(target, key);
+            return typeof value === "function" ? value.bind(target) : value;
+          },
+        });
+      },
+    });
+    assert.ok(live.sessionId);
+    assert.equal(
+      (await liveReceipt)?.status,
+      "applied",
+      JSON.stringify(liveMessages)
+    );
+    assert.ok(
+      toolResults.some(
+        (entry) =>
+          entry.phase === "live-input" &&
+          JSON.stringify(entry.messages).includes(
+            "Include the accessibility result."
+          )
+      )
+    );
     await rm(marker);
     phase = "denied";
     step = 0;

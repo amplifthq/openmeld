@@ -14,11 +14,20 @@ export type CloudComputer = zod.infer<typeof cloudComputerSchema>;
 
 const path = z.string().min(1).max(4096);
 const key = z.string().min(1).max(256);
+export const cloudComputerBackendSchema = z.enum([
+  "container",
+  "worker-shell",
+  "worker-javascript",
+]);
 export const cloudComputerCommandSchema = z.discriminatedUnion("action", [
   z.strictObject({
     action: z.literal("start"),
     key,
     command: z.string().min(1).max(64_000),
+    backend: cloudComputerBackendSchema.optional(),
+    env: z.record(z.string(), z.string()).optional(),
+    stdin: z.string().max(2_000_000).optional(),
+    input: z.json().optional(),
     timeoutSeconds: z.number().int().min(1).max(3600).optional(),
   }),
   z.strictObject({
@@ -27,10 +36,30 @@ export const cloudComputerCommandSchema = z.discriminatedUnion("action", [
     after: z.number().nonnegative().optional(),
     waitSeconds: z.number().int().min(0).max(20).optional(),
   }),
-  z.strictObject({ action: z.literal("stop"), key }),
+  z.strictObject({
+    action: z.literal("stop"),
+    key,
+    signal: z.enum(["SIGTERM", "SIGKILL", "SIGINT", "SIGHUP"]).optional(),
+  }),
   z.strictObject({ action: z.literal("list") }),
 ]);
 export const cloudComputerOperationSchema = z.discriminatedUnion("action", [
+  z.strictObject({ action: z.literal("describe") }),
+  z.strictObject({
+    action: z.literal("browser"),
+    code: z.string().min(1).max(32_000),
+  }),
+  z.strictObject({
+    action: z.literal("preview"),
+    port: z.number().int().min(1024).max(65_535),
+    path,
+    expectedText: z.string().min(1).max(500),
+  }),
+  z.strictObject({
+    action: z.literal("files"),
+    tool: z.enum(["read", "ls", "find", "grep", "write", "edit", "delete"]),
+    input: z.record(z.string(), z.unknown()),
+  }),
   z.strictObject({ action: z.literal("read"), path }),
   z.strictObject({
     action: z.literal("write"),
@@ -66,6 +95,12 @@ export const cloudComputerWorkerRequestSchema = z.strictObject({
   operation: cloudComputerOperationSchema,
 });
 export const cloudComputerOperationResultSchema = z.union([
+  z.strictObject({
+    kind: z.literal("capabilities"),
+    capabilities: z.record(z.string(), z.unknown()),
+  }),
+  z.strictObject({ kind: z.literal("files"), result: z.unknown() }),
+  z.strictObject({ kind: z.enum(["browser", "preview"]), result: z.unknown() }),
   z.strictObject({ path, content: z.string() }),
   z.strictObject({ path, written: z.literal(true) }),
   z.strictObject({ path, replacements: z.number().int().positive() }),
@@ -80,6 +115,8 @@ export const cloudComputerOperationResultSchema = z.union([
     stderr: z.string().optional(),
     after: z.number().optional(),
     outputPending: z.literal(true).optional(),
+    outputTruncated: z.literal(true).optional(),
+    result: z.json().optional(),
     nextAction: z.string().optional(),
   }),
 ]);

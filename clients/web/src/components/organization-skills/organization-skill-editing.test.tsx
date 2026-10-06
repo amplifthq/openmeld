@@ -5,6 +5,7 @@ import {
 	createRootRoute,
 	createRoute,
 	createRouter,
+	Outlet,
 	RouterProvider,
 	useParams,
 } from "@tanstack/react-router";
@@ -16,8 +17,10 @@ import {
 	screen,
 	waitFor,
 } from "@testing-library/react";
+import { NuqsAdapter } from "nuqs/adapters/tanstack-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { organizationSkillQueryKeys } from "#/query/organizations/organization-skills";
+import { Route as SkillRoute } from "#/routes/o/$orgSlug/skills.$skillId";
 import { createOrganizationSkillFixture as skillSnapshot } from "#/test-support/organization-skill";
 import {
 	createTestQueryClient,
@@ -347,6 +350,51 @@ describe("Organization Skill editing", () => {
 		expect(JSON.stringify(updateSkill.mock.calls[0]?.[0])).not.toContain(
 			"obsolete"
 		);
+	});
+
+	it("keeps the draft across content tab history without blocking same-page navigation", async () => {
+		const { router } = renderEditor([richSnapshot(1)]);
+		await screen.findByLabelText("Name");
+		await appendRichText(richEditor("instructions"), "LOCAL");
+		const instructions = richEditor("instructions");
+		fireEvent.click(screen.getByRole("tab", { name: FILES_TAB_NAME }));
+		await waitFor(() =>
+			expect(router.state.location.search).toMatchObject({ content: "files" })
+		);
+		await waitFor(() =>
+			expect(router.history.location.search).toBe("?content=files")
+		);
+		await waitFor(() => expect(router.state.status).toBe("idle"));
+		expect(screen.queryByRole("dialog")).toBeNull();
+		expect(
+			screen.getByLabelText("Instructions", { selector: "[data-slate-editor]" })
+		).toBe(instructions);
+		expect(instructions.textContent).toBe("instructions v1 obsolete.LOCAL");
+		await act(async () => {
+			await router.invalidate();
+		});
+		await waitFor(() => {
+			expect(router.state.location.search).toMatchObject({ content: "files" });
+			expect(
+				screen
+					.getByRole("tab", { name: FILES_TAB_NAME })
+					.getAttribute("aria-selected")
+			).toBe("true");
+		});
+		act(() => {
+			router.history.back();
+		});
+		await waitFor(() =>
+			expect(
+				screen
+					.getByRole("tab", { name: "Instructions" })
+					.getAttribute("aria-selected")
+			).toBe("true")
+		);
+		expect(instructions.textContent).toBe("instructions v1 obsolete.LOCAL");
+		expect(updateSkill).not.toHaveBeenCalled();
+		fireEvent.click(screen.getByRole("link", { name: "All Skills" }));
+		expect(await screen.findByRole("dialog")).toBeTruthy();
 	});
 
 	it("retains dirty Instructions and reference contents with the v1 baseline after v2 and a conflict", async () => {
@@ -741,10 +789,17 @@ function renderEditor(skills: OrganizationSkill[]) {
 			{ skill }
 		);
 	}
-	const root = createRootRoute();
+	const root = createRootRoute({
+		component: () => (
+			<NuqsAdapter>
+				<Outlet />
+			</NuqsAdapter>
+		),
+	});
 	const detail = createRoute({
 		getParentRoute: () => root,
 		path: "/o/$orgSlug/skills/$skillId",
+		validateSearch: SkillRoute.options.validateSearch,
 		component: () => (
 			<OrganizationSkillDetailPage skillId={detail.useParams().skillId} />
 		),

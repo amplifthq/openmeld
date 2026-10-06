@@ -3497,9 +3497,9 @@ describe("SpaceConversationPanel", () => {
 		const wakeIcon = wakeIndicator.querySelector("canvas");
 
 		expect(screen.queryByText("Sending...")).toBeNull();
-		expect(wakeIndicator.textContent).toContain("Thinking…");
+		expect(wakeIndicator.textContent).toContain("Working…");
 		expect(wakeIcon).toBeTruthy();
-		expect(wakeIcon?.dataset.spaceAgentOrbState).toBe("connecting");
+		expect(wakeIcon?.dataset.spaceAgentOrbState).toBe("solving");
 		expect(
 			wakeRow
 				.closest("[data-message-id]")
@@ -3541,7 +3541,7 @@ describe("SpaceConversationPanel", () => {
 		expect(screen.queryByText("Still sending...")).toBeNull();
 		expect(screen.queryByText("Starting Wake…")).toBeNull();
 		expect(screen.getByTestId("space-wake-thinking-row").textContent).toContain(
-			"Thinking… · 8s"
+			"Working… · 8s"
 		);
 	});
 
@@ -3603,11 +3603,11 @@ describe("SpaceConversationPanel", () => {
 		expect(within(optimisticReply).getByText("Center Agent")).toBeTruthy();
 		expect(
 			within(progressRow).getByRole("status", {
-				name: "Thinking… · 2s",
+				name: "Working… · 2s",
 			}).textContent
-		).toContain("Thinking…");
+		).toContain("Working…");
 		expect(
-			progressRow.querySelector('[data-space-agent-orb-state="connecting"]')
+			progressRow.querySelector('[data-space-agent-orb-state="solving"]')
 		).toBeTruthy();
 		expect(progressInset).toBeNull();
 		expect(
@@ -3650,9 +3650,9 @@ describe("SpaceConversationPanel", () => {
 		expect(persistedSendingReply).toBe(optimisticReply);
 		expect(
 			within(persistedSendingReply as HTMLElement).getByRole("status", {
-				name: "Thinking… · 2s",
+				name: "Working… · 2s",
 			}).textContent
-		).toContain("Thinking…");
+		).toContain("Working…");
 
 		view.rerender(
 			<SpaceConversationPanel
@@ -3710,7 +3710,6 @@ describe("SpaceConversationPanel", () => {
 		vi.useFakeTimers();
 		vi.setSystemTime(Date.UTC(2026, 4, 27, 10, 0, 22));
 		renderSpaceConversationPanel({
-			ephemeralActivityItems: [],
 			isCenterAgentDirectMessage: true,
 			membersSnapshot: createSpaceMembersSnapshot({
 				agents: [
@@ -3721,7 +3720,7 @@ describe("SpaceConversationPanel", () => {
 					}),
 				],
 			}),
-			presentedWakeProgressItems: [
+			ephemeralActivityItems: [
 				createWakeProgressItem({
 					phase: "running",
 					updatedAtMs: Date.UTC(2026, 4, 27, 10, 0, 21),
@@ -3860,6 +3859,14 @@ describe("SpaceConversationPanel", () => {
 		const props = createSpaceConversationPanelProps({
 			agentStreams,
 			centerAgentProfileId: TARGET_PROFILE_ID,
+			membersSnapshot: createSpaceMembersSnapshot({
+				agents: [
+					createSpaceMemberAgentSnapshot({
+						profileId: TARGET_PROFILE_ID,
+						profileName: "Center Agent",
+					}),
+				],
+			}),
 			ephemeralActivityItems: [progress],
 			onWakeStopRequest: vi.fn(),
 			readOnly: false,
@@ -3887,9 +3894,7 @@ describe("SpaceConversationPanel", () => {
 			<SpaceConversationPanel {...props} agentStreams={[]} />
 		);
 
-		const source = screen
-			.getByText("@Center Agent please investigate")
-			.closest("[data-message-row-id='sig-source']");
+		const source = document.querySelector("[data-message-row-id='sig-source']");
 		expect(source).not.toBeNull();
 		expect(
 			within(source as HTMLElement).queryByLabelText("Center Agent · Working…")
@@ -3937,6 +3942,83 @@ describe("SpaceConversationPanel", () => {
 		).toBeNull();
 		expect(
 			document.querySelector('[data-message-id^="active-wake:"]')
+		).toBeNull();
+
+		// Stream-first, progress-first, and focused history use one status row.
+		view.rerender(
+			<SpaceConversationPanel {...props} ephemeralActivityItems={[]} />
+		);
+		expect(
+			within(source as HTMLElement).getByLabelText("Center Agent · Working…")
+		).toBe(status);
+		expect(
+			within(source as HTMLElement).queryByRole("button", {
+				name: "Stop Center Agent",
+			})
+		).toBeNull();
+		expect(screen.queryByText("· Reply in progress")).toBeNull();
+		view.rerender(
+			<SpaceConversationPanel
+				{...props}
+				agentStreams={[]}
+				ephemeralActivityItems={[
+					{ ...progress, replyThreadRootSignalId: "sig-source" },
+				]}
+				historyNavigation={{
+					activeWindow: {
+						identity: "space-1:human-profile-1",
+						envelopes: [],
+						confirmedAtLiveTail: false,
+						hasBefore: false,
+						hasAfter: true,
+					},
+					directory: undefined,
+					directoryError: false,
+					directoryPending: false,
+					error: null,
+					notice: null,
+					errorDirection: undefined,
+					hasHiddenLiveHistory: false,
+					latest: vi.fn(),
+					loadAfter: vi.fn(async () => false),
+					loadBefore: vi.fn(async () => false),
+					open: vi.fn(async () => true),
+					hrefForSignalId: undefined,
+					earlierHref: undefined,
+					latestHref: undefined,
+					newerHref: undefined,
+					pending: true,
+					pendingDirection: "before",
+					retryDirectory: vi.fn(),
+					revealCachedBefore: vi.fn(),
+					visibleLiveEnvelopes: [],
+				}}
+				viewState={{ ...props.viewState, isLoadingEarlierHistory: true }}
+			/>
+		);
+		expect(
+			within(source as HTMLElement).getByLabelText("Center Agent · Working…")
+		).toBe(status);
+		expect(
+			within(source as HTMLElement).getByRole("button", {
+				name: "Stop Center Agent",
+			})
+		).toBeTruthy();
+		view.rerender(
+			<SpaceConversationPanel
+				{...props}
+				ephemeralActivityItems={[
+					{ ...progress, phase: "stopped", terminal: true },
+				]}
+			/>
+		);
+		expect(
+			within(source as HTMLElement).queryByLabelText("Center Agent · Working…")
+		).toBeNull();
+		expect(
+			within(source as HTMLElement).queryByRole("button", {
+				name: "Stop Center Agent",
+			})
 		).toBeNull();
 
 		const finalReply = {
@@ -5289,7 +5371,6 @@ describe("SpaceConversationPanel", () => {
 			<SpaceConversationPanel
 				{...props}
 				ephemeralActivityItems={[]}
-				presentedWakeProgressItems={[]}
 				selfProfileId="another-human-profile"
 			/>
 		);
@@ -5536,7 +5617,6 @@ function createSpaceConversationPanelProps(
 		currentOwnerUserId: null,
 		emptyStateDescription: null,
 		ephemeralActivityItems: [],
-		presentedWakeProgressItems: overrides.ephemeralActivityItems ?? [],
 		historyActionErrorMessage: null,
 		historyErrorMessage: null,
 		firstUnreadSignalId: null,

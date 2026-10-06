@@ -278,6 +278,7 @@ function readVerifiedHistoryBaseline(context, latest) {
       return {
         evidenceSha: previous.evidenceSha,
         recordedAt: previous.metadata.recordedAt,
+        receipt: previous.metadata.receipt,
         sha: previous.metadata.sourceSha,
       };
     }
@@ -545,6 +546,20 @@ function validateCorrelationTransition(current, next, recoveryProved) {
   }
   if (recoveryProved) {
     return previous.status === "failed" && previous.application === "unknown";
+  }
+  // The guarded Core executor proves the previous verified deployment is still
+  // active before retrying, then captures a fresh command-correlated activation.
+  if (
+    current.scope === "core" &&
+    previous.status === "failed" &&
+    previous.application === "unknown" &&
+    !previous.identity &&
+    next.receipt.status === "applied" &&
+    next.receipt.application === "applied" &&
+    next.receipt.identity?.kind === "worker-deployment" &&
+    next.receipt.identity.sourceSha === next.sourceSha
+  ) {
+    return true;
   }
   return (
     previous.status === "failed" &&

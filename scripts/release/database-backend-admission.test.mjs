@@ -130,6 +130,57 @@ test("hosted CLI reuses only the deployed PostgreSQL contract and current live s
         { message: `Changed ${guard}` }
       );
     }
+    const verifiedCore = receipts.get("core");
+    const correlation = {
+      attemptId: "00000000-0000-4000-8000-000000000001",
+      componentIndex: 0,
+      operationKey: "a".repeat(64),
+      startedAt: "2026-01-01T01:00:00.000Z",
+    };
+    const activeIdentity = {
+      ...verifiedCore.receipt.identity,
+      environment: "prod",
+      deploymentId: "prior-deployment",
+      versionId: "prior-version",
+      proof: "command-output",
+    };
+    receipts.set("core", {
+      sha: deployedSha,
+      receipt: { ...correlation, status: "failed", application: "unknown" },
+      verifiedHistoryBaseline: {
+        sha: deployedSha,
+        recordedAt: "2026-01-01T00:00:00.000Z",
+        receipt: {
+          ...correlation,
+          status: "verified",
+          application: "applied",
+          identity: activeIdentity,
+        },
+      },
+    });
+    assert.equal(
+      (
+        await verifyHostedPostgresqlCliDatabase({
+          ...input,
+          verifyDeployment: ({ expected }) => {
+            if (expected.workerName === "openmeld-core-prod") {
+              assert.deepEqual(expected, activeIdentity);
+            }
+          },
+        })
+      ).status,
+      "current"
+    );
+    await assert.rejects(
+      verifyHostedPostgresqlCliDatabase({
+        ...input,
+        verifyDeployment: () => {
+          throw new Error("Active deployment changed");
+        },
+      }),
+      { message: "Active deployment changed" }
+    );
+    receipts.set("core", verifiedCore);
     // A real Git change to native migration input must not be mistaken for a
     // publication-only release, even when all earlier receipts remain green.
     writeFileSync(

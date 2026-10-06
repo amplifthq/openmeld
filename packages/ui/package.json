@@ -48,6 +48,7 @@
     "echarts": "^6.1.0",
     "framer-motion": "^12.35.2",
     "media-chrome": "4.19.2",
+    "motion": "^12.38.0",
     "react-day-picker": "^10.0.1"
   },
   "devDependencies": {

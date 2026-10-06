@@ -18,8 +18,10 @@ import {
   listCenterAgentRoutinesResponseSchema,
   listCenterAgentRoutineTargetSpacesQuerySchema,
   listCenterAgentRoutineTargetSpacesResponseSchema,
+  listRoutineManagementResponseSchema,
   pauseCenterAgentRoutineBodySchema,
   pauseCenterAgentRoutineResponseSchema,
+  ROUTINE_MANAGEMENT_CONTRACT,
   resumeCenterAgentRoutineBodySchema,
   resumeCenterAgentRoutineResponseSchema,
   updateCenterAgentRoutineBodySchema,
@@ -61,6 +63,7 @@ export function registerRoutineRoutes(app: Hono<HonoBindings>): void {
       c,
       execute: async () =>
         await c.var.coreRpc.listRoutineTargetSpaces({
+          ...query.data,
           context: buildCoreRpcContext(c),
         }),
       method: "GET",
@@ -76,7 +79,11 @@ export function registerRoutineRoutes(app: Hono<HonoBindings>): void {
     }
     let responseSchema: z.ZodType<unknown> =
       listCenterAgentRoutinesLegacyV1ResponseSchema;
-    if (query.data.contract === CENTER_AGENT_ROUTINE_MANAGEMENT_CONTRACT) {
+    if (query.data.contract === ROUTINE_MANAGEMENT_CONTRACT) {
+      responseSchema = listRoutineManagementResponseSchema;
+    } else if (
+      query.data.contract === CENTER_AGENT_ROUTINE_MANAGEMENT_CONTRACT
+    ) {
       responseSchema = listCenterAgentRoutinesManagementResponseSchema;
     } else if (
       query.data.contract === CENTER_AGENT_ROUTINE_MANAGEMENT_V1_CONTRACT

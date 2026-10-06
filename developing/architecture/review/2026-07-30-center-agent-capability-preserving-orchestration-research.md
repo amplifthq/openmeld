@@ -1064,7 +1064,7 @@ surfaces. Paths are repository-relative.
 | `developing/product/agent-profiles.md` | Defines Agent Profile identity and Binding semantics | Identity is not capability proof | High |
 | `developing/product/space-collaboration.md` | Defines Wake, Space publication, replies, and collaboration semantics | Preserves Space ownership | High |
 | `developing/product/remote-agent-runtime.md` | Defines Center native runtime, history/compaction, tools, and delivery | Remote Agent owner contract | High |
-| `developing/product/center-agent-routines.md` | Defines Routine/Run authority, targets, delivery, and continuation | Shows all-terminal Routine continuation boundary | High |
+| `developing/product/routines.md` | Defines Routine/Run authority, targets, delivery, and continuation | Shows all-terminal Routine continuation boundary | High |
 | `developing/architecture/agent-transport-contract.md` | Defines Wake execution, RuntimeCoordinator, final outcomes, Stop, and trace | Terminal execution truth must remain intact | High |
 | `developing/architecture/data-and-observability.md` | Defines task coordination, ledgers, projections, and D1 ownership | Acceptance must not turn observability into authority | High |
 | `developing/architecture/shared-contracts.md` | Defines shared schema and ACI projection ownership | Future contract belongs in shared schemas | High |

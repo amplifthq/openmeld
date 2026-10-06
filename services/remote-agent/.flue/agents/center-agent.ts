@@ -116,6 +116,7 @@ import {
   resolveRemoteAgentCompactionReserveTokens,
   resolveRemoteAgentProviderContextCapacity,
 } from "../../flue-adapter/provider-context-capacity";
+import { createRetainedToolResultReducer } from "../../flue-adapter/retained-context";
 import { readRemoteAgentRuntimeDiagnostics } from "../../flue-adapter/runtime-diagnostics";
 import { disabledNoNetworkSandbox } from "../../flue-adapter/sandbox";
 import { createRemoteAgentSqlStorage } from "../../flue-adapter/storage";
@@ -393,7 +394,16 @@ async function prepareCenterAgentRender() {
     steeringSource: executionContext
       ? createRemoteAgentSteeringSource({ context: executionContext, storage })
       : null,
-    compaction: materialization.model.compaction,
+    compaction: {
+      ...materialization.model.compaction,
+      reduceToolResultPreviews: executionContext
+        ? createRetainedToolResultReducer({
+            storage,
+            submissionId: executionContext.submissionId,
+            coreWorker,
+          })
+        : undefined,
+    },
     durability: CENTER_AGENT_DURABILITY,
     model: materialization.model.modelSpecifier,
     thinkingLevel: executionContext?.modelRoute?.reasoningLevel ?? "high",

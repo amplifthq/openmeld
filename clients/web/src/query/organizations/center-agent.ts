@@ -19,6 +19,7 @@ import {
 import { readCurrentOrganizationCenterAgentMemoryPolicy } from "#/lib/organizations/center-agent-memory";
 import {
 	baseQueryOptions,
+	DISPLAY_REVISIT_GC_TIME_MS,
 	ROUTE_REVISIT_GC_TIME_MS,
 } from "#/query/query-config";
 
@@ -83,7 +84,7 @@ export function centerAgentDesignationQueryOptions(input: {
 }) {
 	return queryOptions<GetCenterAgentDesignationResponse, CenterAgentFailure>({
 		enabled: input.enabled,
-		gcTime: baseQueryOptions.gcTime,
+		gcTime: DISPLAY_REVISIT_GC_TIME_MS,
 		queryFn: async ({ signal }) =>
 			await readCurrentCenterAgentDesignation({
 				organizationId: input.organizationId,
@@ -126,7 +127,7 @@ export function centerAgentModelQueryOptions(input: {
 		CenterAgentFailure
 	>({
 		enabled: input.enabled,
-		gcTime: baseQueryOptions.gcTime,
+		gcTime: DISPLAY_REVISIT_GC_TIME_MS,
 		queryFn: async ({ signal }) =>
 			await readCurrentCenterAgentModel({
 				organizationId: input.organizationId,
@@ -192,6 +193,7 @@ export function centerAgentMemoryPolicyQueryOptions(input: {
 }) {
 	return queryOptions<CenterAgentOrganizationMemoryPolicyResponse>({
 		enabled: input.enabled,
+		gcTime: DISPLAY_REVISIT_GC_TIME_MS,
 		queryFn: async () =>
 			await readCurrentOrganizationCenterAgentMemoryPolicy({
 				organizationId: input.organizationId,

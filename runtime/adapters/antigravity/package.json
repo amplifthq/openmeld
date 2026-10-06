@@ -18,6 +18,7 @@
     "check": "biome check --no-errors-on-unmatched ./ && pnpm run typecheck"
   },
   "dependencies": {
+    "@agentclientprotocol/sdk": "1.7.0",
     "@openmeld/adapter-core": "workspace:*",
     "@openmeld/agent-runtime": "workspace:*"
   },

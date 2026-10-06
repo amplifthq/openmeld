@@ -33,6 +33,9 @@ is not a future release strategy.
    A bounded action-evidence section is regenerated from canonical tool events
    across repeated compactions. Tool counts are evidence of recorded calls and
    results, not proof that every external side effect succeeded.
+   Counts cover the active conversation at the checkpoint, including retained
+   original messages. The scope note prevents a reader from treating the summary
+   and those same retained messages as two executions.
 5. An agent may disable automatic queued-delivery joins. Center Agent does so
    because each admitted turn currently has its own authority and terminal
    callback. Upstream's default join behavior remains unchanged for other
@@ -88,6 +91,26 @@ is not a future release strategy.
    Working-context and recent-tail estimates share the native 1,200-token
    image heuristic; Base64 bytes are not text tokens. Original image bytes
    remain intact and the provider's physical-capacity guard still runs.
+   `workingContextHeadroomTokens` reserves space for new work after deducting
+   fixed instructions, tools and checkpoint allowance. The recent tail still
+   preserves indivisible tool pairs. One working-context checkpoint summarizes
+   earlier history and the unfinished turn in one request. Observations report
+   fixed cost, before/after estimates, target and ceiling; these are estimates,
+   not provider billing measurements. Internal entry metadata is excluded from
+   the model-visible estimate.
+
+   Under budget pressure, `reduceToolResultPreviews` can first remove older
+   recoverable result previews from an ephemeral inference projection. Flue
+   protects the recent token tail and at least two latest results. OpenMeld
+   validates completed receipts through the existing execution-scoped result
+   reader, including current access and expiry checks. It preserves receipt
+   metadata and recovery references. Failed, running, expired and unretained
+   results keep their previews. Access denial fails closed. Ordinary requests
+   within budget perform no additional result lookup. Flue remeasures the
+   reduced projection and summarizes canonical originals if it still exceeds
+   the budget. It never persists the reduced projection as conversation history.
+   `retained-context-runtime.test.ts` covers this public runtime boundary;
+   `fixtures/retained-context-evaluation.md` records the paid experiment scope.
 
 Beta registry initialization, async defineAgent, implicit sandbox discovery,
 global provider registration, and permissive orphan-record reduction are not
@@ -95,7 +118,7 @@ ported. Flue 2 repairs partial streams at its execution ownership boundary.
 OpenMeld supplies authorized Computer tools and packaged Skills without a Flue
 sandbox, so shared Computer files cannot silently become instructions.
 
-`patches/@cloudflare__computer@0.4.0.patch` makes a retained command's
+`patches/@cloudflare__computer@0.4.1.patch` makes a retained command's
 `cancel()` await native output-subscription detachment over Workspace RPC.
 Upstream unread-handle cancellation only invokes synchronous disposal, which
 can return before the container releases its single subscriber. A following
@@ -128,7 +151,7 @@ acknowledgement for a silent stream producer. Consequently the native
 replayed after exit; it is never fabricated, and the process is never replayed.
 These tests do not certify the WebSocket transport; staging tests cover that
 additional boundary.
-Upstream 0.4.0 still uses the same unacknowledged unread-handle path; upgrading
+Upstream 0.4.1 still uses the same unacknowledged unread-handle path; upgrading
 alone does not establish this contract.
 
 These nine Flue adaptations are maintained integration code, not a completed
@@ -233,8 +256,10 @@ peer survives cancellation and compound commands preserve quoting and exit codes
 
 The container image includes Node.js 24 and Corepack-managed pnpm, so hosted
 turns can install dependencies, build, and run JavaScript projects in the same
-durable Computer workspace. The worker-shell backend remains network-disabled
-and does not provide Node.js. A development server listening inside this
+durable Computer workspace. All three backends have direct network access.
+The worker-shell backend runs built-in commands. The worker-javascript backend
+runs ECMAScript modules in Workers. Neither provides installed Node.js binaries.
+A development server listening inside this
 container is not automatically reachable from Browser Run; a separately
 authorized private preview route is required for browser smoke of that server.
 

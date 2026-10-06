@@ -1,4 +1,5 @@
 import type {
+  ConnectorAppCatalogProvider,
   ConnectorCredentialAuthType,
   ConnectorService,
 } from "@openmeld/schemas/types";
@@ -23,6 +24,8 @@ type PluginDefinitionBase = {
 };
 
 export type PluginCredentialField = {
+  inputType?: "text" | "password" | "textarea" | "json";
+  required?: boolean;
   description: string;
   key: string;
   label: string;
@@ -45,6 +48,7 @@ export type PluginConnectionAuth =
 
 export type PluginConnection = {
   auth: PluginConnectionAuth;
+  credentials?: readonly PluginCredentialAuth[];
 };
 
 export type PluginDefinition = PluginDefinitionBase &
@@ -115,8 +119,7 @@ export const PLUGINS = [
     connection: {
       auth: { kind: "oauth" },
     },
-    description:
-      "Find and read Drive files and metadata without changing them.",
+    description: "Work with Drive files using the access you grant.",
     homepage: "https://workspace.google.com/products/drive/",
     logoPath: "/app-logos/google-drive.svg",
     name: "Google Drive",
@@ -128,7 +131,7 @@ export const PLUGINS = [
     connection: {
       auth: { kind: "oauth" },
     },
-    description: "Find and read calendars and events without changing them.",
+    description: "Work with calendars and events using the access you grant.",
     homepage: "https://workspace.google.com/products/calendar/",
     logoPath: "/app-logos/google-calendar.svg",
     name: "Google Calendar",
@@ -140,7 +143,7 @@ export const PLUGINS = [
     connection: {
       auth: { kind: "oauth" },
     },
-    description: "Find and read email without sending or changing messages.",
+    description: "Work with email using the access you grant.",
     homepage: "https://workspace.google.com/products/gmail/",
     logoPath: "/app-logos/gmail.svg",
     name: "Gmail",
@@ -341,4 +344,59 @@ export const PLUGINS = [
 
 export function findPluginDefinition(service: string): PluginDefinition | null {
   return PLUGINS.find((plugin) => plugin.service === service) ?? null;
+}
+
+/** Static entries supply editorial presentation, never provider admission. */
+export function pluginFromProvider(
+  provider: ConnectorAppCatalogProvider
+): PluginDefinition {
+  const featured = findPluginDefinition(provider.service);
+  // Older producers have not opted into the connection metadata contract.
+  if (!provider.connectionAuth && featured) {
+    return featured;
+  }
+  const credential = provider.connectionAuth?.credentials[0];
+  let auth: PluginConnectionAuth | null = credential
+    ? { kind: "credential", ...credential }
+    : null;
+  if (provider.connectionAuth?.oauth) {
+    auth = {
+      kind: "oauth",
+      ...(credential
+        ? {
+            credentialFallback: {
+              kind: "credential" as const,
+              ...credential,
+              switchLabel: "Use credentials",
+            },
+          }
+        : {}),
+    };
+  }
+  // GitHub organization installation setup uses its existing dedicated path.
+  let connection: PluginConnection | null = auth
+    ? {
+        auth,
+        credentials: provider.connectionAuth?.credentials.map((option) => ({
+          kind: "credential",
+          ...option,
+        })),
+      }
+    : null;
+  if (provider.service === "github") {
+    connection = GITHUB_PLUGIN.connection;
+  }
+  const presentation = {
+    category: featured?.category ?? ("Productivity" as const),
+    description:
+      featured?.description ??
+      `Connect ${provider.displayName} to use its available actions.`,
+    homepage: provider.homepageUrl ?? "",
+    logoPath: provider.iconUrl ?? featured?.logoPath ?? "",
+    name: provider.displayName,
+    service: provider.service,
+  };
+  return connection
+    ? { ...presentation, availability: "available", connection }
+    : { ...presentation, availability: "planned", connection: null };
 }

@@ -24,7 +24,6 @@ import {
 } from "../eval/weekly-eval-report-service";
 import { retryInboxUrgentEmailDeliveries } from "../inbox/application/inbox-email-delivery-service";
 import type { CoreBindings } from "../lib/bindings";
-
 import { reconcileOrganizationDocumentDraftInbox } from "../organization-documents/organization-document-inbox-reconciler";
 import {
   readOrganizationPersonalClassification,
@@ -46,6 +45,10 @@ import {
   assertRoutineWorkflowConfiguration,
   resolveRoutineExecutionEngineSelection,
 } from "../routines/routine-execution-engine";
+import {
+  recoverLocalRoutineRuns,
+  submitLocalRoutineDelivery,
+} from "../routines/routine-local-delivery";
 import { runRoutineSchedulerTick } from "../routines/routine-scheduler";
 import {
   ensureRoutineRunWorkflowStarted,
@@ -159,10 +162,14 @@ export async function runCoreScheduledTasks(input: {
       nowMs: input.nowMs,
     });
     const runRoutineTick = input.runRoutineTick ?? runRoutineSchedulerTick;
+    await recoverLocalRoutineRuns({ db, env: input.env, nowMs: input.nowMs });
     await runRoutineTick({
       db,
       nowMs: input.nowMs,
       resolveExecutionEngine: (routine) => {
+        if (routine.executorKind === "local_agent") {
+          return "local";
+        }
         const selection = resolveRoutineExecutionEngineSelection({
           env: input.env,
           organizationId: routine.organizationId,
@@ -179,6 +186,12 @@ export async function runCoreScheduledTasks(input: {
         return selection.engine;
       },
       submitRoutineDelivery: async (deliveryInput) => {
+        if (deliveryInput.executionEngine === "local") {
+          return await submitLocalRoutineDelivery({
+            ...deliveryInput,
+            env: input.env,
+          });
+        }
         if (deliveryInput.executionEngine === "workflow") {
           await ensureRoutineRunWorkflowStarted({
             env: input.env,

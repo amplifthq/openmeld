@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import type { AdapterDispatchSpaceToolResult } from "@openmeld/adapter-core";
-import { dispatchSpaceReadResultSchema } from "@openmeld/schemas";
+import {
+  dispatchSpaceReadResultPageSchema,
+  dispatchSpaceReadResultSchema,
+} from "@openmeld/schemas";
+import type { z } from "zod/v4";
 
 // Bound the serialized tool response, not the source content. The source stays
 // intact and readable without a shell or a model-provider spill-file reader.
@@ -56,7 +60,8 @@ export class DispatchReadResults {
 
   async read(
     resultId: string,
-    offset: number
+    offset: number,
+    query?: string
   ): Promise<AdapterDispatchSpaceToolResult> {
     const snapshot = this.#requireSnapshot(resultId, offset);
     // The cached bytes are a delivery optimization, never source authority.
@@ -72,7 +77,38 @@ export class DispatchReadResults {
         "The source is no longer accessible or its selected version changed. No cached page was disclosed. Read the source again."
       );
     }
-    return this.#page(resultId, offset);
+    if (query === undefined) {
+      return this.#page(resultId, offset);
+    }
+    let matchOffset = snapshot.bytes.indexOf(query, offset, "utf8");
+    const matches: NonNullable<
+      z.infer<typeof dispatchSpaceReadResultSchema>["search"]
+    >["matches"] = [];
+    // Include surrounding original text, without treating a hit as the full
+    // source. Cursors also work with ordinary paging when more context is needed.
+    while (matchOffset !== -1 && matches.length < 2) {
+      let start = Math.max(0, matchOffset - 256);
+      while (isUtf8Continuation(snapshot.bytes[start])) {
+        start -= 1;
+      }
+      snapshot.offsets.add(start);
+      const excerpt = dispatchSpaceReadResultPageSchema.parse(
+        this.#page(resultId, start, 3 * 1024).structuredContent?.page
+      );
+      matches.push({ matchOffset, excerpt });
+      matchOffset = snapshot.bytes.indexOf(
+        query,
+        matchOffset + Buffer.byteLength(query),
+        "utf8"
+      );
+    }
+    const nextOffset = matchOffset === -1 ? null : matchOffset;
+    if (nextOffset !== null) {
+      snapshot.offsets.add(nextOffset);
+    }
+    return this.#result({
+      search: { resultId, query, nextOffset, matches },
+    });
   }
 
   #requireSnapshot(resultId: string, offset: number) {
@@ -85,10 +121,14 @@ export class DispatchReadResults {
     return snapshot;
   }
 
-  #page(resultId: string, offset: number): AdapterDispatchSpaceToolResult {
+  #page(
+    resultId: string,
+    offset: number,
+    limit = PAGE_BYTES
+  ): AdapterDispatchSpaceToolResult {
     const snapshot = this.#requireSnapshot(resultId, offset);
     const { bytes } = snapshot;
-    let end = Math.min(offset + PAGE_BYTES, bytes.length);
+    let end = Math.min(offset + limit, bytes.length);
     while (true) {
       // Never split a UTF-8 code point. Returned offsets are the only accepted
       // page boundaries, including when a caller repeats an earlier page.
@@ -105,7 +145,7 @@ export class DispatchReadResults {
           text: bytes.subarray(offset, end).toString("utf8"),
         },
       });
-      if (Buffer.byteLength(JSON.stringify(value)) <= PAGE_BYTES) {
+      if (Buffer.byteLength(JSON.stringify(value)) <= limit) {
         if (nextOffset !== null) {
           snapshot.offsets.add(nextOffset);
         }

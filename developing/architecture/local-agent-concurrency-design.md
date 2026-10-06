@@ -17,6 +17,10 @@ concurrent Codex project tasks and Claude Space-context tasks on macOS.
 Remove when this feature ships and its accepted rules, compatibility requirements,
 and validation evidence have been incorporated into the scoped owner documents.
 
+Storage update: production shared relational persistence moved to PostgreSQL
+on 2026-10-04. This proposal uses that current backend; use the
+[PostgreSQL workflow](../engineering/postgresql.md) for new schema work.
+
 ## One-Page Summary
 
 | Decision | First-version behavior |
@@ -454,7 +458,7 @@ urgent notification merely because work is parallel.
 
 Agent Profile Work Coordinator remains the owner-shard admission and ordering
 authority. RuntimeCoordinator remains the owner of every concrete execution.
-The Space outbox retains request payloads. D1 remains a ledger/read projection.
+The Space outbox retains request payloads. PostgreSQL remains a ledger/read projection.
 Local Service enforces local resource admission; it does not create independent
 work or publish its own scheduling truth.
 
@@ -847,7 +851,7 @@ well as any SDK path advertised separately, before claiming five-way support.
 Use the existing owner-sharded RuntimeCoordinator storage boundary for canonical
 context associations. This keeps context writer claims and work admission in one
 transactional authority. Do not introduce another Durable Object class or a
-parallel D1 scheduler.
+parallel PostgreSQL scheduler.
 
 The proposed context record contains:
 
@@ -879,9 +883,9 @@ the accepted association. It owns local private paths and execution evidence,
 not Profile-level routing truth. Provider conversation proofs remain diagnostic
 evidence; an expired proof for context A must not make context B unavailable.
 
-### D1 decision for the first version
+### PostgreSQL decision for the first version
 
-**No new D1 scheduling or conversation table is required by this proposal.**
+**No new PostgreSQL scheduling or conversation table is required by this proposal.**
 Existing Profile, membership, messages, and Binding target/settings rows remain.
 Keep the old Binding conversation column as historical migration input for old
 records; after a Profile switches, it is read-only and never selects new work.
@@ -896,7 +900,7 @@ because a new ID exists. The work-history API must not enumerate all owner-shard
 context records to reconstruct ordinary historical Wake results.
 
 Versioned Durable Object and local-ledger migrations **are required**, even when
-the first implementation needs no D1 SQL schema migration. The final Contract
+the first implementation needs no PostgreSQL SQL schema migration. The final Contract
 Impact Audit must verify the exact payload and projection changes before making
 that implementation-level claim.
 
@@ -1219,7 +1223,7 @@ Stop, access revocation, supersession, and publication-exhaustion fences remain.
 | [Local Service](local-openmeld-service.md) | Context-keyed dispatch, native fork cutoff and child authority isolation, owned-invocation observations during silent tools, host/resource budgets, throttle evidence, process-tree cleanup, capability gating, restart and unknown-outcome handling. |
 | [Space Collaboration](../product/space-collaboration.md) | Scoped automatic continuation, visible context choice, recent-work brief, author checks, ambiguity handling, progress and late-result presentation with existing fences. |
 | [Shared Contracts](shared-contracts.md) | Versioned auto/new/resume/fork selection, action receipts, provenance, owned-tool lifecycle evidence, visibility-scoped recent-work briefs, capacity evidence, context/admission/result/work-history fields, and mixed-version matrix. |
-| [Data And Observability](data-and-observability.md) | Context-association owner, work-history composition and evidence coverage, D1 projection limits, retention and trace selectors. |
+| [Data And Observability](data-and-observability.md) | Context-association owner, work-history composition and evidence coverage, PostgreSQL projection limits, retention and trace selectors. |
 | [Inbox](../product/inbox.md) | Related-work source projection, eligible recipients, normal importance, deduplication, and access-preserving lineage links. |
 | [Web](../clients/web.md), [CLI](../clients/cli.md), [Projects](../product/projects.md) | Context choices and lineage in existing surfaces, work-history reads, diagnostics, and unchanged local-folder privacy. |
 | [Agent Activity](../product/agent-activity.md) | Distinguish native session fork from Profile creation; Activity remains metadata-only evidence, not work-history outcome authority. |
@@ -1237,7 +1241,7 @@ include Claude Code local-cli five-session behavior, task-tree resource use,
 signal/Service loss, native retry behavior, and long-render final actions; SDK
 results cannot substitute for local-cli evidence. Also confirm
 which existing diagnostic payloads and indexes can support context references
-and bounded work-history reads without a D1 column migration. These are bounded
+and bounded work-history reads without a PostgreSQL column migration. These are bounded
 implementation evidence gates; they do not leave Profile identity or the agreed
 concurrency ceiling undecided.
 
@@ -1266,4 +1270,4 @@ the separately required implementation and delivery evidence make it ready.
 Platform reference: Cloudflare documents transactional, strongly consistent
 per-object storage in its [Durable Object storage API](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/).
 That supports the proposed single owner-shard transaction boundary; it does not
-make D1, local files, provider I/O, and Durable Object writes one transaction.
+make PostgreSQL, local files, provider I/O, and Durable Object writes one transaction.

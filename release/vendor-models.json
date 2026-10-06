@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-02T02:22:15.764Z",
+  "updatedAt": "2026-10-06T15:12:40.000Z",
   "agentControllers": {
     "antigravity": {
       "defaultModelId": "gemini-3.8-flash-high",
@@ -699,9 +699,17 @@
           "minCliVersion": null
         },
         {
+          "id": "opencode-go/space-bunny",
+          "displayName": "Space Bunny",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
+          "minCliVersion": "1.18.34"
+        },
+        {
           "id": "opencode-go/space-bunny-free",
           "displayName": "Space Bunny Free",
-          "unavailable": false,
+          "unavailable": true,
           "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
           "minCliVersion": null
         },
@@ -825,6 +833,14 @@
           "unavailable": false,
           "supportedReasoningLevels": ["none", "high"],
           "minCliVersion": null
+        },
+        {
+          "id": "opencode/ling-3.1-flash-free",
+          "displayName": "OpenCode Ling 3.1 Flash Free",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high"],
+          "minCliVersion": "1.18.34"
         },
         {
           "id": "opencode/ling-3.0-flash-fin-free",

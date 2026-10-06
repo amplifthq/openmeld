@@ -190,7 +190,7 @@ consider subscriber notifications before writing external state.
 The Center Agent reads the committed `changelog/index.json` from the canonical
 GitHub repository's `main` branch through a private Core RPC. Core validates the
 shared schema and keeps only a 60-second in-isolate cache to avoid repeated
-GitHub reads. It does not copy Changelog entries into D1, KV, R2, prompts, or
+GitHub reads. It does not copy Changelog entries into PostgreSQL, KV, R2, prompts, or
 Organization memory. A failed or invalid GitHub response fails visibly instead
 of being replaced with guessed or silently stale update data.
 

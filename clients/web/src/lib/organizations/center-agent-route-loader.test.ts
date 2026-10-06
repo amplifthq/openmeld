@@ -165,6 +165,7 @@ describe("loadCenterAgentRouteData", () => {
 		null,
 		"wrong-session",
 	])("fails an unavailable or mismatched selected session without opening another chat (%s)", async (returnedId) => {
+		const queryClient = createQueryClient();
 		vi.mocked(
 			readCurrentCenterAgentDirectMessageSpaceProjection
 		).mockResolvedValueOnce({
@@ -184,10 +185,43 @@ describe("loadCenterAgentRouteData", () => {
 		});
 		const result = await loadCenterAgentDirectMessageRouteData({
 			organizationId: "org-acme",
-			queryClient: createQueryClient(),
+			queryClient,
 			sessionId: "selected-session",
 		});
 		expect(result?.status).toBe("error");
+		if (returnedId === null) {
+			expect(result).toMatchObject({
+				error: { code: "space.not_found" },
+			});
+		}
+		vi.mocked(
+			readCurrentCenterAgentDirectMessageSpaceProjection
+		).mockResolvedValueOnce({
+			generatedAt: "2026-07-16T03:21:00.000Z",
+			organizationId: "org-acme",
+			projection: {
+				centerAgentProfileId: "agt-center-agent",
+				memberProfileId: "human-1",
+				organizationId: "org-acme",
+				spaceId: "selected-session",
+				kind: "center_agent_direct_message_space",
+				isCenterAgentDirectMessageSpace: true,
+			},
+		});
+		await expect(
+			loadCenterAgentDirectMessageRouteData({
+				forceRefresh: true,
+				organizationId: "org-acme",
+				queryClient,
+				sessionId: "selected-session",
+			})
+		).resolves.toMatchObject({
+			status: "ready",
+			directMessage: { spaceId: "selected-session" },
+		});
+		expect(
+			readCurrentCenterAgentDirectMessageSpaceProjection
+		).toHaveBeenCalledTimes(2);
 		expect(openCurrentCenterAgentDirectMessageSpace).not.toHaveBeenCalled();
 	});
 

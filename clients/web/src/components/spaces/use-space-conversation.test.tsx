@@ -36,7 +36,6 @@ describe("useSpaceConversation", () => {
 			(props: { initialAgentStreams: readonly SpaceAgentStreamSnapshot[] }) =>
 				useSpaceConversation({
 					initialAgentStreams: props.initialAgentStreams,
-					liveConnectionEpoch: 0,
 					spaceId: "space-123",
 					openMeldProfileId: "11111111-1111-4111-8111-111111111111",
 				}),
@@ -89,7 +88,6 @@ describe("useSpaceConversation", () => {
 				useSpaceConversation({
 					initialAgentStreamPresences: props.initialAgentStreamPresences,
 					initialAgentStreams: [],
-					liveConnectionEpoch: 0,
 					spaceId: "space-123",
 					openMeldProfileId: "11111111-1111-4111-8111-111111111111",
 				}),
@@ -144,7 +142,6 @@ describe("useSpaceConversation", () => {
 		const { result } = renderHook(() =>
 			useSpaceConversation({
 				initialAgentStreams: [],
-				liveConnectionEpoch: 0,
 				spaceId: "space-123",
 				openMeldProfileId: "11111111-1111-4111-8111-111111111111",
 			})
@@ -202,7 +199,6 @@ describe("useSpaceConversation", () => {
 		const { result } = renderHook(() =>
 			useSpaceConversation({
 				initialAgentStreams: [],
-				liveConnectionEpoch: 0,
 				spaceId: "space-123",
 				openMeldProfileId: "11111111-1111-4111-8111-111111111111",
 			})
@@ -244,7 +240,6 @@ describe("useSpaceConversation", () => {
 		const { result } = renderHook(() =>
 			useSpaceConversation({
 				initialAgentStreams: [],
-				liveConnectionEpoch: 0,
 				spaceId: "space-123",
 				openMeldProfileId: "11111111-1111-4111-8111-111111111111",
 			})
@@ -266,7 +261,7 @@ describe("useSpaceConversation", () => {
 		]);
 	});
 
-	it("clears transient thinking when the live connection is replaced", () => {
+	it("clears transient thinking on revoked access", () => {
 		vi.useFakeTimers();
 		vi.setSystemTime(10_000);
 		vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) =>
@@ -275,22 +270,19 @@ describe("useSpaceConversation", () => {
 		vi.stubGlobal("cancelAnimationFrame", (handle: number) => {
 			window.clearTimeout(handle);
 		});
-		const { result, rerender } = renderHook(
-			(props: { liveConnectionEpoch: number }) =>
-				useSpaceConversation({
-					initialAgentStreams: [],
-					liveConnectionEpoch: props.liveConnectionEpoch,
-					spaceId: "space-123",
-					openMeldProfileId: "11111111-1111-4111-8111-111111111111",
-				}),
-			{ initialProps: { liveConnectionEpoch: 0 } }
+		const { result } = renderHook(() =>
+			useSpaceConversation({
+				initialAgentStreams: [],
+				spaceId: "space-123",
+				openMeldProfileId: "11111111-1111-4111-8111-111111111111",
+			})
 		);
 
 		act(() => {
 			result.current.handleAgentStreamFrame(
 				createThinkingDeltaFrame({
 					sequence: 3,
-					thinkingSnapshot: "This belongs to the old socket",
+					thinkingSnapshot: "Already received work",
 				})
 			);
 		});
@@ -299,7 +291,11 @@ describe("useSpaceConversation", () => {
 		});
 		expect(result.current.agentStreamProjections[0]).toHaveProperty("thinking");
 
-		rerender({ liveConnectionEpoch: 1 });
+		expect(result.current.agentStreamProjections[0]).toHaveProperty(
+			"thinking",
+			"Already received work"
+		);
+		act(() => result.current.clearTransientStreams());
 
 		expect(result.current.agentStreamProjections[0]).not.toHaveProperty(
 			"thinking"

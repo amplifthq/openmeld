@@ -27,6 +27,45 @@ function insert(database, table, values) {
     .run(...Object.values(values));
 }
 
+function routinesAndRuns(database, now) {
+  for (const [id, agent] of [
+    ["center-routine", null],
+    ["remote-routine", fixture.agent],
+  ]) {
+    insert(database, "routines", {
+      id,
+      organization_id: fixture.organization,
+      name: id,
+      agent_profile_id: agent,
+      instructions: "Summarize the team's work.",
+      cron_expression: "0 9 * * *",
+      timezone: "America/New_York",
+      target_space_id: fixture.space,
+      status: "paused",
+      next_due_at: null,
+      created_by_user_id: fixture.owner,
+      updated_by_user_id: fixture.owner,
+      created_at_ms: now,
+      updated_at_ms: now,
+    });
+  }
+  for (const id of ["center-routine", "remote-routine", "deleted-routine"]) {
+    insert(database, "routine_runs", {
+      id: `run-${id}`,
+      routine_id: id,
+      organization_id: fixture.organization,
+      scheduled_for: now,
+      status: "completed",
+      routine_name_snapshot: id,
+      target_space_id_snapshot: fixture.space,
+      execution_engine: "legacy",
+      published_signal_id: `result-${id}`,
+      started_at_ms: now,
+      finished_at_ms: now + 1000,
+    });
+  }
+}
+
 function profilesAndBindings(database, now) {
   for (const [id, name, kind, owner, organization, role] of [
     [fixture.human, "Migration Owner", "human", fixture.owner, null, null],
@@ -374,6 +413,7 @@ export async function createD1RehearsalFixture(destination) {
     });
     profilesAndBindings(database, now);
     documentsAndSpace(database, now);
+    routinesAndRuns(database, now);
     // Numeric and lexical key ordering differ; reconciliation must retain
     // the INTEGER ordering even when it projects PostgreSQL values as text.
     for (const id of [2, 10]) {

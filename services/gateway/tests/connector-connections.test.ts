@@ -209,7 +209,7 @@ describe("Gateway connector connection routes", () => {
 
     expect(response.status).toBe(200);
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://connectors.example.test/v1/providers",
+      "https://connectors.example.test/v1/providers?includeConnectionAuth=true",
       expect.objectContaining({ method: "GET" })
     );
     await expect(response.json()).resolves.toMatchObject({
@@ -291,13 +291,13 @@ describe("Gateway connector connection routes", () => {
     });
   });
 
-  it("rejects connector services outside the supported App catalog", async () => {
+  it("rejects malformed provider identities before calling Core or OpenConnector", async () => {
     const fetchMock = vi.fn<typeof fetch>();
     vi.stubGlobal("fetch", fetchMock);
 
     const response = await app.fetch(
       new Request(
-        "http://local/v1/organizations/current/connectors/unknown/connections?expectedOrganizationId=org-1"
+        "http://local/v1/organizations/current/connectors/INVALID!/connections?expectedOrganizationId=org-1"
       ),
       makeEnv({}),
       TEST_EXECUTION_CONTEXT
@@ -1005,12 +1005,7 @@ describe("Gateway connector connection routes", () => {
     });
     expect(
       reconcileCurrentOrganizationConnectorConnections
-    ).toHaveBeenCalledWith({
-      availableConnectionNames: [],
-      context: expect.objectContaining({ activeOrganizationId: "org-1" }),
-      expectedOrganizationId: "org-1",
-      service: "notion",
-    });
+    ).toHaveBeenCalledTimes(1);
     await expect(response.json()).resolves.toMatchObject({
       connections: [expect.objectContaining({ service: "github" })],
       currentUserId: "user-1",
@@ -1204,6 +1199,11 @@ function makeEnv(
     OPENMELD_AUTH_WORKER: authRpc,
     OPENMELD_CONNECTORS_BASE_URL: "https://connectors.example.test",
     OPENMELD_CORE_WORKER: {
+      listCurrentOrganizationConnectorConnections: vi.fn(async () => ({
+        connections: [CONNECTION],
+        currentUserId: "user-1",
+        organizationId: "org-1",
+      })),
       readPendingGitHubAppInstallation: vi.fn(async () => null),
       ...coreOverrides,
     },

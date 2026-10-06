@@ -172,6 +172,7 @@ describe("reply staleness SQL", () => {
         insertSignalRecord(state.storage.sql, signal);
       }
       return countPublicTextSignalsAfterDispatchAnchor(state.storage.sql, {
+        dispatchId: "dispatch-staleness",
         afterSignalId: "staleness-anchor",
         afterTimestampMs: 1000,
         excludeProfileId: targetProfileId,
@@ -217,6 +218,7 @@ describe("reply staleness SQL", () => {
         "staleness-fallback-anchor"
       );
       return countPublicTextSignalsAfterDispatchAnchor(state.storage.sql, {
+        dispatchId: "dispatch-staleness",
         afterSignalId: "staleness-fallback-anchor",
         afterTimestampMs: 1000,
         excludeProfileId: targetProfileId,
