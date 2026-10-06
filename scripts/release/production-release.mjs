@@ -59,6 +59,7 @@ const DIRECT_SCOPES = new Set([
   "remote-agent",
   "web",
   "website",
+  "docs",
 ]);
 const CLOUD_SCOPES = [
   "auth",
@@ -67,6 +68,7 @@ const CLOUD_SCOPES = [
   "core",
   "remote-agent",
   "website",
+  "docs",
 ];
 const FULL_SCOPES = ["db", ...CLOUD_SCOPES];
 const SCOPE_ORDER = [
@@ -78,6 +80,7 @@ const SCOPE_ORDER = [
   "core",
   "remote-agent",
   "website",
+  "docs",
 ];
 const REMOTE_AGENT_RECEIVER_FIRST_SCOPE_ORDER = [
   "db",
@@ -736,6 +739,7 @@ const PACKAGE_SCOPE = new Map([
   ["openmeld", "cli"],
   ["openmeld-web", "web"],
   ["openmeld-website", "website"],
+  ["openmeld-docs", "docs"],
 ]);
 const DB_MIGRATION_PATH_PREFIX = "packages/db/drizzle/";
 const DB_SCHEMA_PATH_PREFIXES = [
@@ -758,6 +762,11 @@ const GLOBAL_WORKSPACE_RUNTIME_PATHS = new Set([
   "turbo.json",
 ]);
 const SCOPE_VERIFY_SPECS = {
+  docs: {
+    filter: "openmeld-docs...",
+    label: "Verify Docs",
+    tasks: ["check"],
+  },
   website: {
     filter: "openmeld-website...",
     label: "Verify Website",
@@ -1358,30 +1367,30 @@ function annotateReleaseScope(steps, start, scope) {
 }
 
 function appendRendererDeploySteps(input) {
-  const website = input.scope === "website";
-  const client = website ? "website" : "web";
+  const client = input.scope;
+  const renderer = {
+    web: { label: "Web", url: "https://app.openmeld.ai" },
+    website: { label: "Website", url: "https://openmeld.ai" },
+    docs: { label: "Docs", url: "https://docs.openmeld.ai" },
+  }[client];
   input.steps.push(
-    packageDeployStep(
-      `openmeld-${client}`,
-      website ? "Deploy Website" : "Deploy Web",
-      {
-        args: ["--config", `clients/${client}/wrangler.jsonc`, "--env", "prod"],
-      }
-    ),
+    packageDeployStep(`openmeld-${client}`, `Deploy ${renderer.label}`, {
+      args: ["--config", `clients/${client}/wrangler.jsonc`, "--env", "prod"],
+    }),
     {
       args: [
         "scripts/release/production-web-health.mjs",
         "--scope",
         client,
         "--url",
-        website ? "https://openmeld.ai" : "https://app.openmeld.ai",
+        renderer.url,
         "--source-sha",
         input.releaseSha,
         "--artifact-receipt",
         `dev-tmp/release-artifact-check/${client}.json`,
       ],
       command: "node",
-      label: website ? "Verify Website health" : "Verify Web health",
+      label: `Verify ${renderer.label} health`,
     }
   );
 }
@@ -1418,7 +1427,7 @@ function appendProductionDeployScopeSteps(input) {
     });
     return;
   }
-  if (input.scope === "web" || input.scope === "website") {
+  if (["web", "website", "docs"].includes(input.scope)) {
     appendRendererDeploySteps(input);
     return;
   }
@@ -1538,6 +1547,10 @@ function resolveProductionDeployScopeOrder(
     );
   }
   const preferred = order.filter((scope) => selected.has(scope));
+  // Public docs have no App receiver dependency and follow every selected profile.
+  if (selected.has("docs") && !preferred.includes("docs")) {
+    preferred.push("docs");
+  }
   if (
     !(
       isWorkingFolderRecoveryDiff(changedPaths) ||

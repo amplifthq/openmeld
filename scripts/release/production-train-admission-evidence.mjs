@@ -93,9 +93,13 @@ export async function verifyParentAdmission(input, train, dependencies = {}) {
       throw new Error(`Parent admission ${key} does not match this release.`);
     }
   }
-  const declaredArtifactScopes = ["cli", "desktop", "web", "website"].filter(
-    (scope) => train.scopes.includes(scope)
-  );
+  const declaredArtifactScopes = [
+    "cli",
+    "desktop",
+    "web",
+    "website",
+    "docs",
+  ].filter((scope) => train.scopes.includes(scope));
   if (
     evidence.artifactScopes.some(
       (scope) => !declaredArtifactScopes.includes(scope)

@@ -2284,6 +2284,15 @@ workflow contract tests, but do not by themselves create a local-component
 release. Product-facing and runtime schemas elsewhere in `packages/schemas`
 remain release-sensitive.
 
+The public Docs foundation adds `docs` to the production scope and artifact
+admission enums. The same change updates the trusted planner, scope leases,
+workflow producers, artifact readers, and release-status projection. This is
+a repository delivery-control change; no product HTTP, RPC, CLI, Service,
+Wake, or diagnostic payload changes. Existing local components and cloud
+runtime contracts remain compatible. The Docs renderer has no authenticated
+App or Service dependency. A delivery-control rollback must stop Docs release
+requests before restoring readers that do not recognize the new scope.
+
 ### Prepare Connection Progress Observation Contract
 
 Prepare connection progress uses a versioned, strict observation payload with

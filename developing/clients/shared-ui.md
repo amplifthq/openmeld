@@ -26,6 +26,10 @@ outputs. `scripts/vite/shared-public-assets.mjs` materializes ignored client
 copies when Vite loads. Edit shared sources, not generated copies. Shared font
 declarations live in `packages/ui/src/styles/fonts.css`.
 
+Docs also consumes the wordmark, fonts, and shared public assets. It retains
+Fumadocs' layout CSS and accessible compound components. See `docs.md` for
+the boundary when composing Fluid primitives with its Base UI version.
+
 ## Boundary
 
 `packages/ui` is the shared home for reusable client UI primitives:

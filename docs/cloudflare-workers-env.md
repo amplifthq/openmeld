@@ -55,6 +55,22 @@ release then replaces those placeholders with the real Workers.
    are not integrated until the owning `wrangler.jsonc`, this document, and
    generated Worker types are updated.
 
+## Docs toolchain
+
+The Docs Worker uses the current workspace-pinned Wrangler and compatibility
+date. It adds no new cloud capability that needs a fleet Wrangler upgrade.
+Generate its types with `pnpm --filter openmeld-docs cf-typegen`; existing
+Worker contracts remain unchanged.
+
+## Public Docs Worker
+
+`clients/docs/wrangler.jsonc` owns `openmeld-docs-prod` at `docs.openmeld.ai`
+and `openmeld-docs-stg` at `docs.staging.openmeld.ai`. Cloudflare custom
+domains create the DNS record when the guarded deployment runs. Do not create
+a competing DNS record manually. The package owns no secrets, database, KV,
+R2, or service binding. Logs, traces, and the existing environment-specific
+Analytics Engine binding follow the shared observability policy.
+
 ## Git working-copy connector ingress
 
 Both OpenConnector configurations keep `OOMOL_CONNECT_BLOCKED_PROXIES = "*"`.
@@ -128,14 +144,14 @@ staging-only resource:
 
 | Resource | Staging identity |
 | --- | --- |
-| Workers | `openmeld-website-stg`, `openmeld-web-stg`, `openmeld-auth-stg`, `openmeld-gateway-stg`, `openmeld-core-stg`, `openmeld-remote-agent-stg` |
+| Workers | `openmeld-website-stg`, `openmeld-docs-stg`, `openmeld-web-stg`, `openmeld-auth-stg`, `openmeld-gateway-stg`, `openmeld-core-stg`, `openmeld-remote-agent-stg` |
 | D1 | `openmeld-db-stg` |
 | KV | `openmeld-auth-kv-stg` |
 | Queues | `openmeld-daemon-dispatch-stg`, `openmeld-message-channel-events-stg` |
 | R2 | `openmeld-space-attachments-stg`, `openmeld-organization-skills-stg`, `openmeld-organization-logos-stg`, `openmeld-desktop-downloads-stg` |
 | AI Gateway | Shared operator gateway `openmeld-remote-agent-prod`; request metadata retains the Staging environment and Organization |
 | Remote Agent container | `openmeld-agent-computer-stg` |
-| Public routes | `staging.openmeld.ai`, `app.staging.openmeld.ai`, `auth.staging.openmeld.ai`, `gateway.staging.openmeld.ai` |
+| Public routes | `staging.openmeld.ai`, `docs.staging.openmeld.ai`, `app.staging.openmeld.ai`, `auth.staging.openmeld.ai`, `gateway.staging.openmeld.ai` |
 
 Durable Object namespaces, Workflow identity, Analytics Engine environment
 metadata, and Worker versions are created by the staging Worker deployments.
@@ -154,7 +170,7 @@ Doppler. Provider connections still require separate staging authorization.
 The resource manifest in
 `scripts/cloudflare/provision-openmeld-resources.mjs` is the account-resource
 source of truth. `pnpm staging:deploy` provisions missing resources, bootstraps
-missing Worker identities, applies only staging D1 migrations, deploys all five
+missing Worker identities, applies only staging D1 migrations, deploys all seven
 Workers, and verifies the public entry points. See
 `developing/engineering/staging-environment.md` for the guarded operator flow.
 

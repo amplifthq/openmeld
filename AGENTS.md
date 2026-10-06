@@ -97,6 +97,7 @@ Use these owner documents:
 | Shared schemas, Opportunity RPC contracts, live invalidation frames, Agent Controller Interface snapshots, Agent Task Coordination, Message Channel and App connection contracts, Prepare `setupBootstrap.facts`, shared packages, cross-client reuse, Space password contract | `developing/architecture/shared-contracts.md` |
 | Shared UI primitives, design tokens, Fluid components, and cross-client UI package ownership | `developing/clients/shared-ui.md` |
 | Public website, shared brand assets, website/App origins and retained root protocols | `developing/clients/website.md` |
+| Independent public documentation client, Fumadocs content source and presentation | `developing/clients/docs.md` |
 | Cross-client app shell, unified Settings IA, shell/sidebar terminology, Settings capability gating | `developing/clients/shell-and-settings.md` |
 | OpenMeld Web navigation topology and route placement, Organization-switch preservation, browser read-cache persistence, Center Agent Channels/Apps, Space UX, Wake details, setup handoff, and diagnostic surfaces | `developing/clients/web.md` |
 | OpenMeld CLI command boundaries, Human View / Agent View, setup handoff, trace, lane safety | `developing/clients/cli.md` |

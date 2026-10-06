@@ -30,6 +30,7 @@ test("coordinated release hands trusted parent outputs to every child and retain
     ["core", "core-worker"],
     ["web", "web"],
     ["website", "website"],
+    ["docs", "docs"],
     ["auth", "auth-worker"],
     ["gateway", "gateway-worker"],
     ["remote_agent", "remote-agent-worker"],
@@ -118,6 +119,7 @@ test("coordinated release hands trusted parent outputs to every child and retain
 for (const [scope, title] of [
   ["web", "Web"],
   ["website", "Website"],
+  ["docs", "Docs"],
 ]) {
   test(`${title} handoff downloads only the immutable same-run snapshot and verifies it before preflight or deployment`, () => {
     const parent = workflow("workflows/release-on-main.yml");

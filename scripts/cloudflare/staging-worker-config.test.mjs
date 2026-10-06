@@ -29,6 +29,7 @@ const configs = {
   remoteAgent: readConfig("services/remote-agent/wrangler.jsonc"),
   web: readConfig("clients/web/wrangler.jsonc"),
   website: readConfig("clients/website/wrangler.jsonc"),
+  docs: readConfig("clients/docs/wrangler.jsonc"),
 };
 
 const packageManifests = {
@@ -38,6 +39,7 @@ const packageManifests = {
   remoteAgent: readConfig("services/remote-agent/package.json"),
   web: readConfig("clients/web/package.json"),
   website: readConfig("clients/website/package.json"),
+  docs: readConfig("clients/docs/package.json"),
 };
 
 test("declares one isolated staging environment for every internal Worker", () => {
@@ -67,6 +69,10 @@ test("routes staging public Workers through staging.openmeld.ai", () => {
   assert.deepEqual(configs.website.env.stg.route, {
     custom_domain: true,
     pattern: "staging.openmeld.ai",
+  });
+  assert.deepEqual(configs.docs.env.stg.route, {
+    custom_domain: true,
+    pattern: "docs.staging.openmeld.ai",
   });
   assert.deepEqual(configs.auth.env.stg.route, {
     custom_domain: true,

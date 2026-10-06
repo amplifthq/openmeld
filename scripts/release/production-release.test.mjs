@@ -577,6 +577,7 @@ test("keeps full cloud release separate from immutable CLI publishing", () => {
     "core",
     "remote-agent",
     "website",
+    "docs",
   ]);
   assert.deepEqual(expandRequestedReleaseScopes("full"), [
     "db",
@@ -586,6 +587,7 @@ test("keeps full cloud release separate from immutable CLI publishing", () => {
     "core",
     "remote-agent",
     "website",
+    "docs",
   ]);
   assert.deepEqual(expandRequestedReleaseScopes("cli"), ["cli"]);
 });
@@ -1682,28 +1684,33 @@ test("binds Web health to the exact preflight artifact receipt", () => {
   ]);
 });
 
-test("a Website-only source change deploys and verifies Website without touching the App", () => {
-  const plan = buildProductionReleasePlan({
-    affectedPackages: ["openmeld-website"],
-    changedPaths: ["clients/website/src/routes/index.tsx"],
-    sourceSha: REMOTE_SOURCE_SHA,
-    scope: "auto",
-    base: "previous-release",
+for (const [scope, label, url] of [
+  ["website", "Website", "https://openmeld.ai"],
+  ["docs", "Docs", "https://docs.openmeld.ai"],
+]) {
+  test(`a ${label}-only source change deploys and verifies its Worker without touching the App`, () => {
+    const plan = buildProductionReleasePlan({
+      affectedPackages: [`openmeld-${scope}`],
+      changedPaths: [`clients/${scope}/src/routes/index.tsx`],
+      sourceSha: REMOTE_SOURCE_SHA,
+      scope: "auto",
+      base: "previous-release",
+    });
+    assert.deepEqual(plan.scopes, [scope]);
+    assert.deepEqual(
+      plan.deploySteps.map((step) => step.label),
+      [`Deploy ${label}`, `Verify ${label} health`]
+    );
+    assert.equal(plan.deploySteps[0].args.includes(`openmeld-${scope}`), true);
+    assert.equal(plan.deploySteps[1].args.includes(url), true);
+    assert.equal(
+      plan.deploySteps[1].args.includes(
+        `dev-tmp/release-artifact-check/${scope}.json`
+      ),
+      true
+    );
   });
-  assert.deepEqual(plan.scopes, ["website"]);
-  assert.deepEqual(
-    plan.deploySteps.map((step) => step.label),
-    ["Deploy Website", "Verify Website health"]
-  );
-  assert.equal(plan.deploySteps[0].args.includes("openmeld-website"), true);
-  assert.equal(plan.deploySteps[1].args.includes("https://openmeld.ai"), true);
-  assert.equal(
-    plan.deploySteps[1].args.includes(
-      "dev-tmp/release-artifact-check/website.json"
-    ),
-    true
-  );
-});
+}
 
 test("keeps the Center Agent Task CLI behind every cloud receiver", () => {
   const steps = buildProductionDeployStepSpecs(
