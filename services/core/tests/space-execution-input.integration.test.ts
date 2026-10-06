@@ -28,7 +28,10 @@ import {
   readSpaceExecutionInput,
 } from "../src/space/infrastructure/sql/space-execution-input-repo";
 import { upsertSpaceMetaRecord } from "../src/space/infrastructure/sql/space-meta-repo";
-import { insertSignalRecord } from "../src/space/infrastructure/sql/space-signal-repo";
+import {
+  countPublicTextSignalsAfterDispatchAnchor,
+  insertSignalRecord,
+} from "../src/space/infrastructure/sql/space-signal-repo";
 import type { Space } from "../src/space/transport/do/space";
 
 type InputSpace = {
@@ -750,6 +753,15 @@ describe("Center Agent execution input in the Space owner", () => {
             .exec("SELECT id FROM space_signals WHERE id = ?", signal.id)
             .toArray()
         ).toHaveLength(1);
+        const countUnseen = (dispatchId: string) =>
+          countPublicTextSignalsAfterDispatchAnchor(state.storage.sql, {
+            dispatchId,
+            afterSignalId: "original-wake",
+            afterTimestampMs: 0,
+            excludeProfileId: request.agentProfileId,
+          });
+        expect(countUnseen(request.dispatchId)).toBe(0);
+        expect(countUnseen("another-dispatch")).toBe(1);
       } else {
         expect(
           listQueuedSpaceExecutionInputs(state.storage.sql)[0]?.state

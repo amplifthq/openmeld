@@ -1403,6 +1403,7 @@ function resolveDispatchReplyStalenessMeta(input: {
     newMessagesDuringComposition = countPublicTextSignalsAfterDispatchAnchor(
       input.sql,
       {
+        dispatchId: input.dispatchId,
         afterSignalId: input.sourceSignalId,
         afterTimestampMs: input.enqueuedAtMs,
         excludeProfileId: input.targetProfileId,
