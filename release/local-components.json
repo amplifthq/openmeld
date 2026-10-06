@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-05T18:16:27.157Z",
+  "updatedAt": "2026-10-06T09:05:43.271Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
-      "packageVersion": "0.3.244",
+      "packageVersion": "0.3.245",
       "updatePolicy": "available",
-      "reason": "Existing CLI commands remain compatible with both cloud versions; this release carries additive account-deletion schema exports."
+      "reason": "CLI commands and schemas remain compatible in both directions; updated capability reports and Claude SDK do not require existing users to upgrade."
     },
     "service": {
-      "bundleHash": "b20d300b8fad317ecf3974b6237b6853acc40dfdd651795440fc40c06626d3bf",
-      "portableBundleHash": "0186abf4ee8299d5315da0968ad558b06645225cbcf092fa83654d4551036f64",
-      "bundleVersion": "0.3.244",
+      "bundleHash": "5c43baccf04a129b4dd758b5bf1ac0e26c062c3f5cb7d203ef2f61319a49928b",
+      "portableBundleHash": "88fef3e5d41461fdaa2afe8f64c239e74632a0247898f456ca3e0726b49f3146",
+      "bundleVersion": "0.3.245",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
       "serviceContractVersion": "openmeld-service-contract-2026-09-local-install-recovery-v1",
       "updatePolicy": "available",
-      "reason": "Account-deletion schemas are additive; workstation setup, Wake, execution and reply contracts remain compatible in both directions."
+      "reason": "Wake and Space action contracts are unchanged; old Services reject unsupported Claude live input explicitly, while new Services require a native consumption receipt."
     },
     "skills": {
       "bundleHash": "c041258bd2098c01e98130579c12a11217b17de6f3c8e0b966a1e1001ad46bd3",
