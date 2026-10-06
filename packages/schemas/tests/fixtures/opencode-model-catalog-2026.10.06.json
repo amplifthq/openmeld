@@ -12,6 +12,35 @@
       "OpenCode Go API credential; direct invocation requires an active Go subscription"
     ]
   },
+  "nativeExecution": [
+    {
+      "modelId": "opencode/ling-3.1-flash-free",
+      "variant": "low",
+      "command": "opencode run --pure --agent build --model opencode/ling-3.1-flash-free --variant low --format json",
+      "permissionConfiguration": "native defaults",
+      "observedAt": "2026-10-06T16:23:21.439Z",
+      "response": "LING_REVIEW_OK",
+      "tools": []
+    },
+    {
+      "modelId": "opencode/ling-3.1-flash-free",
+      "variant": "medium",
+      "command": "opencode run --pure --agent build --model opencode/ling-3.1-flash-free --variant medium --format json",
+      "permissionConfiguration": "native defaults",
+      "observedAt": "2026-10-06T16:24:11.123Z",
+      "response": "43",
+      "tools": []
+    },
+    {
+      "modelId": "opencode/ling-3.1-flash-free",
+      "variant": "high",
+      "command": "opencode run --pure --agent build --model opencode/ling-3.1-flash-free --variant high --format json",
+      "permissionConfiguration": "native defaults",
+      "observedAt": "2026-10-06T16:25:13.558Z",
+      "response": "PR1484_NATIVE_READ_7c2f1",
+      "tools": ["read"]
+    }
+  ],
   "rejectedModels": [
     {
       "id": "space-bunny-free",

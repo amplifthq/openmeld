@@ -739,11 +739,13 @@ inventory. This is a route-specific correction, not a retirement of Space Bunny.
 
 Go subscription access remains separate from model inventory. A direct invocation
 on the review account returns HTTP 403 because it has no active Go subscription.
-This account failure does not establish global model unavailability. Native CLI
-invocations of Ling 3.1 return HTTP 403 `FreeTierError` from the OpenCode free-tier
-gateway, including an explicit built-in `build` agent and session title. Inventory
-does not prove provider execution. Keep this upstream rejection as a validation
-limitation rather than claiming a successful prompt or rewriting availability.
+This account failure does not establish global model unavailability. Ling 3.1
+completed native `opencode run --pure` prompts for all three reasoning variants
+with the default permission configuration. The `high` probe also read a local
+nonce file and returned its exact contents. Earlier probes with restricted tool
+permissions returned HTTP 403 `FreeTierError`; those results do not establish
+failure under the native default configuration. The capture retains the successful
+responses and tool-use evidence. Inventory alone does not prove provider execution.
 These are online catalog updates under the existing ID and variant contracts, with no
 offline snapshot, adapter, schema, or local-component release change. Successful
 provider execution and a real OpenMeld Wake remain separate acceptance evidence.
