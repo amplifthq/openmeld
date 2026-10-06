@@ -582,12 +582,12 @@ probe; run authenticated and unauthorized checks; record evidence and remove
 the probe. Future product staging adaptation uses the existing guarded release
 entrypoint after its owners explicitly support the new database contract.
 
-Production promotion remains a separate scoped release through
-[production-release.md](production-release.md). Before enabling it, add the
-reviewed PG target to that existing control plane and its lease, rather than
-creating a competing production deploy command. Require source identity,
-successful upgrade/restore evidence, target-bound credentials, single migration
-executor, mixed-version compatibility and explicit cutover authorization.
+Production uses the existing scoped release control plane and database lease
+in [production-release.md](production-release.md#production-database-release).
+The cutover is complete; routine releases apply native migrations through that
+owner rather than repeat D1 capture/import. Preserve source and target identity,
+immutable migration history, target-bound credentials, one migration executor
+and mixed-version compatibility. New cutovers require separate authorization.
 
 ## Backup and restore
 

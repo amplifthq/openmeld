@@ -1171,6 +1171,43 @@ describe("InboxNotificationListener", () => {
 		act(() => socket.dispatchEvent(new Event("close")));
 		expect(interval()).toBe(1000);
 	});
+	it("backs off short-lived connections until a keepalive succeeds", async () => {
+		vi.useFakeTimers();
+		const sockets = Array.from({ length: 4 }, () =>
+			Object.assign(new EventTarget(), { send: vi.fn(), close: vi.fn() })
+		);
+		const connect = vi.spyOn(
+			accountStream,
+			"createAccountInvalidationTransport"
+		);
+		for (const socket of sockets) {
+			connect.mockReturnValueOnce(socket);
+		}
+		renderListener();
+		act(() => sockets[0]?.dispatchEvent(new Event("open")));
+		const reads = itemsRefetch.mock.calls.length;
+		act(() => sockets[0]?.dispatchEvent(new Event("close")));
+		// Polling already repairs missed changes while disconnected.
+		expect(itemsRefetch).toHaveBeenCalledTimes(reads);
+		await act(() => vi.advanceTimersByTimeAsync(1000));
+		expect(connect).toHaveBeenCalledTimes(2);
+		act(() => sockets[1]?.dispatchEvent(new Event("open")));
+		act(() => sockets[1]?.dispatchEvent(new Event("close")));
+		await act(() => vi.advanceTimersByTimeAsync(1000));
+		expect(connect).toHaveBeenCalledTimes(2);
+		await act(() => vi.advanceTimersByTimeAsync(1000));
+		expect(connect).toHaveBeenCalledTimes(3);
+		act(() => sockets[2]?.dispatchEvent(new Event("open")));
+		await act(() => vi.advanceTimersByTimeAsync(25_000));
+		expect(sockets[2]?.send).toHaveBeenCalledWith("ping");
+		act(() =>
+			sockets[2]?.dispatchEvent(new MessageEvent("message", { data: "pong" }))
+		);
+		act(() => sockets[2]?.dispatchEvent(new Event("close")));
+		await act(() => vi.advanceTimersByTimeAsync(1000));
+		expect(connect).toHaveBeenCalledTimes(4);
+	});
+
 	it("refreshes unopened Space membership from account push without waiting for a poll", async () => {
 		vi.useFakeTimers();
 		notificationSettingsByUserId.set("user-123", false);

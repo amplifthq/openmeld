@@ -134,6 +134,13 @@
       "when": 1791204781698,
       "tag": "0018_account_deletion_guards",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1791267405557,
+      "tag": "0019_activity_recent_reads",
+      "breakpoints": true
     }
   ]
 }

@@ -248,7 +248,7 @@ invitation summary, not its discussion history, before acceptance.
 
 Better Auth remains the Organization invitation and membership writer. Core
 owns the Space invitation intent and policy; the Space owns the membership
-grant and an atomic accepted-or-revoked receipt. D1 status projects that receipt.
+grant and an atomic accepted-or-revoked receipt. PostgreSQL status projects that receipt.
 Acceptance can retry after Organization joining or an acknowledgement failure;
 it cannot use an old accepted invitation to re-add a removed Space member.
 Acceptance rechecks the sender's current authority. Revoke never removes an

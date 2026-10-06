@@ -1,0 +1,1 @@
+CREATE INDEX "agent_activity_events_org_recent_idx" ON "openmeld"."agent_activity_events" USING btree ("organization_id","observed_at_ms" DESC NULLS LAST,"event_id" DESC NULLS LAST);

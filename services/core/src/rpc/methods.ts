@@ -7156,6 +7156,13 @@ async function buildOrganizationComputersResponse(input: {
     generatedAt,
     includeUsageLimits: input.includeUsageLimits,
     lookupMemberComputerInventory: async ({ userId }) => {
+      const memberDevices = devicesByOwner.get(userId) ?? [];
+      const executionTargets = targetsByOwner.get(userId) ?? [];
+      // The registry owns the rows in this projection. Live sessions only
+      // enrich registered devices; an owner without devices has no rows.
+      if (memberDevices.length === 0) {
+        return { devices: memberDevices, executionTargets, liveSessions: [] };
+      }
       let liveSessions: Awaited<
         ReturnType<typeof lookupRuntimeTransportOwnerService>
       > | null = null;
@@ -7174,8 +7181,8 @@ async function buildOrganizationComputersResponse(input: {
         });
       }
       return {
-        devices: devicesByOwner.get(userId) ?? [],
-        executionTargets: targetsByOwner.get(userId) ?? [],
+        devices: memberDevices,
+        executionTargets,
         liveSessions: projectOrganizationComputerLiveSessions({
           generatedAt,
           liveSessions,

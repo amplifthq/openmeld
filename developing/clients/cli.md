@@ -1862,7 +1862,7 @@ The selector must include `clientMessageId` and `targetProfileId` for
 Web-authored Wake diagnosis because one message can Wake multiple Agent
 Profiles.
 
-CLI trace reads the shared observability model. It must not become a direct D1
+CLI trace reads the shared observability model. It must not become a direct PostgreSQL
 reader, direct Durable Object reader, or second trace system.
 
 The current CLI explicitly requests dispatch-trace response contract version
