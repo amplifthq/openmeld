@@ -13,3 +13,7 @@ list. Local work runs directly on the selected Agent's computer.
 The editor uses simple schedule controls, searchable Space and timezone pickers,
 and clear result destinations. Personal definitions and run history stay private.
 Self-Evolution recommendations are hidden.
+
+Open Run history from the list to see each run's status and destination. View
+result takes you straight to its published answer, including older runs sent to
+a different Space.

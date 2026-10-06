@@ -30,7 +30,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { AppEmptyState } from "#/components/app/app-empty-state";
 import { RoutineDeleteDialog } from "#/components/routines/routine-delete-dialog";
-import { RoutineRunStatusBadge } from "#/components/routines/routine-run-presentation";
 import { RoutineRunsDialog } from "#/components/routines/routine-runs-dialog";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
@@ -44,6 +43,7 @@ import {
 import { invalidateRoutineFacts, routinesQueryOptions } from "#/query/routines";
 import { RoutineForm } from "./routine-form";
 import { routineFormUpdate } from "./routine-form-values";
+import { RoutineLastRun } from "./routine-last-run";
 
 export function RoutinesPage(input: {
 	focusRoutineId?: string;
@@ -344,17 +344,10 @@ function RoutineTableRow(props: RoutineRowProps) {
 				{nextRunLabel(routine)}
 			</TableCell>
 			<TableCell>
-				{routine.lastRun ? (
-					<button
-						aria-label={`View runs for ${routine.name}`}
-						onClick={() => onHistory(routine)}
-						type="button"
-					>
-						<RoutineRunStatusBadge status={routine.lastRun.status} />
-					</button>
-				) : (
-					<span className="text-muted-foreground">—</span>
-				)}
+				<RoutineLastRun
+					onHistory={() => onHistory(routine)}
+					routine={routine}
+				/>
 			</TableCell>
 			<RoutineActions {...props} />
 		</TableRow>
@@ -385,7 +378,7 @@ function RoutineActions({
 				</DropdownMenuTrigger>
 				<FluidDropdownMenuContent align="end" gapClick={false}>
 					<FluidDropdownMenuItem index={0} onClick={() => onHistory(routine)}>
-						View runs
+						Run history
 					</FluidDropdownMenuItem>
 					<FluidDropdownMenuItem
 						disabled={

@@ -15,7 +15,7 @@ export function RoutineRunStatusBadge(input: {
 const ROUTINE_RUN_STATUS_PRESENTATION = {
 	claimed: {
 		className: resolveInformationStatusBadgeClassName(),
-		label: "Claimed",
+		label: "Preparing",
 	},
 	completed: {
 		className: resolveStatusToneProminentBadgeClassName("ready"),
@@ -31,7 +31,7 @@ const ROUTINE_RUN_STATUS_PRESENTATION = {
 	},
 	submitted: {
 		className: resolveInformationStatusBadgeClassName(),
-		label: "Submitted",
+		label: "Awaiting result",
 	},
 } as const satisfies Record<
 	CenterAgentRoutineRunStatus,

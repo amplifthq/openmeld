@@ -760,6 +760,14 @@ preserving Routine/Run selection. The page uses a shared Fluid Table, Personal
 and Team filters, search, and a centered dashed AppEmptyState. It does not
 require a Center Agent when the user has another eligible executor.
 
+The name, last-run status, and action menu open Run history. A bounded shared
+Table and ScrollArea show each occurrence's time, status, failure detail, and
+authorized destination name. View result opens the existing Space and focuses
+the published message. Navigation uses the Run's frozen target, never the
+definition's current target; the list fetches the exact last Run before opening
+its result. Missing output has no result link. History does not copy answers or
+create another conversation surface.
+
 The compact editor starts with instructions, visibility, Agent, repeat, time,
 and result destination. Name and timezone are under Advanced. Schedules use
 shared Fluid Select and Calendar controls; custom cron remains available.

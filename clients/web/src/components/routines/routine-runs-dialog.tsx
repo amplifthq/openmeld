@@ -13,11 +13,27 @@ import {
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
 import { SkeletonRows } from "@openmeld/ui/components/skeleton-content";
-import { useInfiniteQuery } from "@tanstack/react-query";
+import {
+	Table,
+	TableBody,
+	TableCell,
+	TableHead,
+	TableHeader,
+	TableRow,
+} from "@openmeld/ui/components/table";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
+import { ClockIcon } from "@phosphor-icons/react";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
+import { AppEmptyState } from "#/components/app/app-empty-state";
+import { useCurrentOrganizationSlug } from "#/lib/organizations/organization-context";
+import { buildOrganizationSpacePath } from "#/lib/organizations/organization-routes";
 import { resolveRoutineErrorMessage } from "#/lib/routines/api";
 import { formatRoutineTimestamp } from "#/lib/routines/presentation";
+import { routineRunResultHref } from "#/lib/routines/run-result";
 import { routineRunsInfiniteQueryOptions } from "#/query/routines";
+import { spaceStatusQueryOptions } from "#/query/spaces/status";
 import { RoutineRunStatusBadge } from "./routine-run-presentation";
 
 export function RoutineRunsDialog(input: {
@@ -27,15 +43,14 @@ export function RoutineRunsDialog(input: {
 	organizationId: string;
 	routine: CenterAgentRoutine | null;
 }) {
-	const routineId = input.routine?.id ?? "closed";
-	const runsQuery = useInfiniteQuery({
+	const query = useInfiniteQuery({
 		...routineRunsInfiniteQueryOptions({
 			enabled: input.open && input.routine !== null,
 			organizationId: input.organizationId,
-			routineId,
+			routineId: input.routine?.id ?? "closed",
 		}),
-		refetchInterval: (query) =>
-			query.state.data?.pages.some((page) =>
+		refetchInterval: (state) =>
+			state.state.data?.pages.some((page) =>
 				page.runs.some(
 					(run) => run.status === "claimed" || run.status === "submitted"
 				)
@@ -43,106 +58,137 @@ export function RoutineRunsDialog(input: {
 				? 5000
 				: false,
 	});
-	const runs = runsQuery.data?.pages.flatMap((page) => page.runs) ?? [];
-	const routineName = input.routine?.name ?? "routine";
+	const runs = query.data?.pages.flatMap((page) => page.runs) ?? [];
 	const focusedRun = runs.find((run) => run.id === input.focusRunId);
-	const focusedRunRef = useRef<HTMLLIElement>(null);
+	const focusedRef = useRef<HTMLTableRowElement>(null);
 	useEffect(() => {
 		if (
-			!input.focusRunId ||
+			!(input.open && input.focusRunId) ||
 			focusedRun ||
-			!runsQuery.isSuccess ||
-			!runsQuery.hasNextPage ||
-			runsQuery.isFetchingNextPage
+			!query.isSuccess ||
+			!query.hasNextPage ||
+			query.isFetchingNextPage ||
+			query.isFetchNextPageError
 		) {
 			return;
 		}
-		runsQuery.fetchNextPage().catch((error) => {
-			console.error("Failed to find the selected Routine run.", error);
-		});
+		query
+			.fetchNextPage()
+			.catch((error) =>
+				console.error("Failed to find the selected Routine run.", error)
+			);
 	}, [
+		input.open,
 		input.focusRunId,
 		focusedRun,
-		runsQuery.isSuccess,
-		runsQuery.hasNextPage,
-		runsQuery.isFetchingNextPage,
-		runsQuery.fetchNextPage,
+		query.isSuccess,
+		query.hasNextPage,
+		query.isFetchingNextPage,
+		query.isFetchNextPageError,
+		query.fetchNextPage,
 	]);
 	useEffect(() => {
 		if (focusedRun) {
-			focusedRunRef.current?.scrollIntoView?.({ block: "nearest" });
+			focusedRef.current?.scrollIntoView?.({ block: "nearest" });
 		}
 	}, [focusedRun]);
-
 	return (
 		<Dialog onOpenChange={input.onOpenChange} open={input.open}>
-			<DialogContent className="sm:max-w-2xl">
+			<DialogContent className="flex max-h-[85dvh] flex-col sm:max-w-3xl">
 				<DialogHeader>
-					<DialogTitle>Runs for {routineName}</DialogTitle>
-					<DialogDescription>
-						Scheduled work is listed newest first. Runs in progress stay visible
-						until they finish.
-					</DialogDescription>
+					<DialogTitle>Run history</DialogTitle>
+					<DialogDescription>{input.routine?.name}</DialogDescription>
 				</DialogHeader>
-				{runsQuery.isPending ? <SkeletonRows label="Loading runs" /> : null}
-				{runsQuery.isError ? (
-					<div className="rounded-md border border-destructive/50 bg-destructive/5 p-4">
-						<p className="break-words text-destructive text-sm" role="alert">
-							{resolveRoutineErrorMessage(runsQuery.error, "runs")}
-						</p>
+				{query.isPending ? <SkeletonRows label="Loading history" /> : null}
+				{query.isError ? (
+					<div className="text-destructive text-sm" role="alert">
+						<p>{resolveRoutineErrorMessage(query.error, "runs")}</p>
 						<Button
-							className="mt-3"
-							disabled={runsQuery.isRefetching}
-							onClick={() => {
-								runsQuery.refetch().catch((error) => {
-									console.error("Failed to refresh Routine runs.", error);
-								});
-							}}
+							className="mt-2"
+							disabled={query.isFetching}
+							onClick={() => query.refetch()}
 							size="sm"
-							type="button"
 							variant="outline"
 						>
 							Retry
 						</Button>
 					</div>
 				) : null}
-				{runsQuery.isSuccess && runs.length === 0 ? (
-					<p className="rounded-md border border-border/70 border-dashed p-5 text-center text-muted-foreground text-sm">
-						No runs yet.
-					</p>
+				{query.isSuccess && runs.length === 0 ? (
+					<AppEmptyState
+						className="my-4"
+						description="Results will appear here after the first run."
+						icon={<ClockIcon className="size-5" />}
+						title="No runs yet"
+					/>
 				) : null}
 				{input.focusRunId &&
-				runsQuery.isSuccess &&
+				query.isSuccess &&
 				!focusedRun &&
-				!runsQuery.hasNextPage ? (
-					<p className="break-words text-muted-foreground text-sm">
-						Run {input.focusRunId} is no longer in the available history.
+				!query.hasNextPage ? (
+					<p className="text-muted-foreground text-sm">
+						This run is no longer available.
 					</p>
 				) : null}
-				{runs.length > 0 ? (
-					<ul className="divide-y divide-border/70 border border-border/70">
-						{runs.map((run) => (
-							<RoutineRunRow
-								focused={run.id === input.focusRunId}
-								key={run.id}
-								ref={run.id === input.focusRunId ? focusedRunRef : undefined}
-								run={run}
-							/>
-						))}
-					</ul>
-				) : null}
-				{runsQuery.hasNextPage ? (
-					<Button
-						disabled={runsQuery.isFetchingNextPage}
-						onClick={() => {
-							runsQuery.fetchNextPage().catch((error) => {
-								console.error("Failed to load more Routine runs.", error);
-							});
-						}}
-						type="button"
-						variant="outline"
+				{runs.length ? (
+					<ScrollArea
+						className="min-h-0 flex-1"
+						viewportClassName="max-h-[55dvh]"
 					>
-						{runsQuery.isFetchingNextPage ? "Loading more" : "Load more"}
+						<Table>
+							<TableHeader>
+								<TableRow>
+									<TableHead>Run</TableHead>
+									<TableHead>Status</TableHead>
+									<TableHead>Sent to</TableHead>
+									<TableHead>
+										<span className="sr-only">Result</span>
+									</TableHead>
+								</TableRow>
+							</TableHeader>
+							<TableBody>
+								{runs.map((run, index) => (
+									<TableRow
+										className={
+											run.id === input.focusRunId ? "bg-accent/40" : undefined
+										}
+										index={index}
+										key={run.id}
+										ref={run.id === input.focusRunId ? focusedRef : undefined}
+									>
+										<TableCell className="min-w-40 align-top">
+											<time dateTime={new Date(run.scheduledFor).toISOString()}>
+												{formatRoutineTimestamp(run.scheduledFor)}
+											</time>
+											{run.finishedAtMs !== null ? (
+												<p className="mt-1 text-muted-foreground text-xs">
+													Finished {formatRoutineTimestamp(run.finishedAtMs)}
+												</p>
+											) : null}
+											{run.failureDetail ? (
+												<p className="mt-2 max-w-64 text-muted-foreground text-xs">
+													{run.failureDetail}
+												</p>
+											) : null}
+										</TableCell>
+										<TableCell className="align-top">
+											<RoutineRunStatusBadge status={run.status} />
+										</TableCell>
+										<RoutineRunDestination run={run} />
+									</TableRow>
+								))}
+							</TableBody>
+						</Table>
+					</ScrollArea>
+				) : null}
+				{query.hasNextPage ? (
+					<Button
+						className="self-center"
+						disabled={query.isFetchingNextPage}
+						onClick={() => query.fetchNextPage()}
+						variant="ghost"
+					>
+						{query.isFetchingNextPage ? "Loading…" : "Load more"}
 					</Button>
 				) : null}
 			</DialogContent>
@@ -150,64 +196,57 @@ export function RoutineRunsDialog(input: {
 	);
 }
 
-function RoutineRunRow(input: {
-	focused: boolean;
-	ref?: React.Ref<HTMLLIElement>;
-	run: CenterAgentRoutineRun;
-}) {
-	return (
-		<li
-			className={`min-w-0 px-4 py-4 ${input.focused ? "bg-accent/40" : ""}`}
-			ref={input.ref}
-		>
-			<div className="flex flex-wrap items-center justify-between gap-2">
-				<div className="min-w-0">
-					{input.focused ? (
-						<p className="font-medium text-foreground text-xs">Selected Run</p>
-					) : null}
-					<p className="font-mono text-muted-foreground text-xs">
-						{input.run.id}
-					</p>
-					<p className="mt-1 text-foreground text-sm">
-						Scheduled{" "}
-						<time dateTime={new Date(input.run.scheduledFor).toISOString()}>
-							{formatRoutineTimestamp(input.run.scheduledFor)}
-						</time>
-					</p>
-				</div>
-				<RoutineRunStatusBadge status={input.run.status} />
-			</div>
-			<div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-muted-foreground text-xs">
-				{input.run.startedAtMs === null ? null : (
-					<span>Started {formatRoutineTimestamp(input.run.startedAtMs)}</span>
-				)}
-				{input.run.finishedAtMs === null ? null : (
-					<span>Finished {formatRoutineTimestamp(input.run.finishedAtMs)}</span>
-				)}
-				<span>{resolvePublishedResultLabel(input.run)}</span>
-			</div>
-			{input.run.status === "failed" ? (
-				<div className="mt-3 border-destructive border-l-2 pl-3 text-destructive text-xs leading-5">
-					{input.run.failureCode ? (
-						<p className="break-words font-mono">{input.run.failureCode}</p>
-					) : null}
-					{input.run.failureDetail ? (
-						<p className="mt-1 break-words">{input.run.failureDetail}</p>
-					) : null}
-				</div>
-			) : null}
-			{input.run.status === "skipped" && input.run.failureDetail ? (
-				<p className="mt-3 break-words border-border border-l-2 pl-3 text-muted-foreground text-xs leading-5">
-					{input.run.failureDetail}
-				</p>
-			) : null}
-		</li>
+function RoutineRunDestination({ run }: { run: CenterAgentRoutineRun }) {
+	const organizationSlug = useCurrentOrganizationSlug();
+	const space = useQuery(
+		spaceStatusQueryOptions({
+			spaceId: run.targetSpaceId ?? "",
+			enabled: run.destinationKind === "space" && Boolean(run.targetSpaceId),
+		})
 	);
-}
-
-function resolvePublishedResultLabel(run: CenterAgentRoutineRun): string {
+	const spaceHref =
+		run.destinationKind === "space" && run.targetSpaceId
+			? buildOrganizationSpacePath({
+					orgSlug: organizationSlug,
+					spaceId: run.targetSpaceId,
+				})
+			: null;
+	const resultHref = routineRunResultHref(organizationSlug, run);
+	let missingResult = "No result";
 	if (run.status === "claimed" || run.status === "submitted") {
-		return "Result pending";
+		missingResult = "Awaiting result";
 	}
-	return run.publishedSignalId ? "Result published" : "No published result";
+	if (run.publishedSignalId) {
+		missingResult = "Result unavailable here";
+	}
+	return (
+		<>
+			<TableCell className="max-w-52 align-top">
+				{spaceHref && !space.isError ? (
+					<Link
+						className="block truncate underline-offset-4 hover:underline"
+						title={space.data?.name}
+						to={spaceHref}
+					>
+						{space.data?.name ?? "Open Space"}
+					</Link>
+				) : (
+					<span className="text-muted-foreground">
+						{run.destinationKind === "space"
+							? "Space unavailable"
+							: "Connected conversation"}
+					</span>
+				)}
+			</TableCell>
+			<TableCell className="whitespace-nowrap text-right align-top">
+				{resultHref && !space.isError ? (
+					<Link className="underline-offset-4 hover:underline" to={resultHref}>
+						View result
+					</Link>
+				) : (
+					<span className="text-muted-foreground text-xs">{missingResult}</span>
+				)}
+			</TableCell>
+		</>
+	);
 }
