@@ -53,7 +53,7 @@ function RootComponent() {
       <head>
         <HeadContent />
       </head>
-      <body className="flex min-h-screen flex-col font-geist-vars">
+      <body className="flex min-h-screen flex-col font-geist-vars font-sans">
         <RootProvider>
           <Outlet />
         </RootProvider>
