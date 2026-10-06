@@ -4,6 +4,8 @@ export type RoutinesCommandInput = {
 };
 
 export type RunRoutinesCreateInput = RoutinesCommandInput & {
+  agentProfileId?: string;
+  scope?: string;
   cronExpression?: string;
   dailyTime?: string;
   instructions?: string;

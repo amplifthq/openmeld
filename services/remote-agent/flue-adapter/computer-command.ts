@@ -2,22 +2,26 @@ import { setTimeout as delay } from "node:timers/promises";
 import type {
   WorkspaceClient,
   WorkspaceRuntimeExecHandle,
+  WorkspaceRuntimeValue,
 } from "@cloudflare/computer";
-import { cloudComputerCleanupResultSchema } from "@openmeld/schemas";
+import {
+  type CloudComputerOperation,
+  cloudComputerCleanupResultSchema,
+  cloudComputerCommandSchema,
+} from "@openmeld/schemas";
 import {
   integer,
-  literal,
   maxValue,
   minLength,
   minValue,
   number,
   optional,
-  parse,
   picklist,
   pipe,
+  record,
   strictObject,
   string,
-  variant,
+  unknown,
 } from "valibot";
 import type {
   RemoteAgentCallbackContext,
@@ -68,32 +72,19 @@ async function readComputerTarget(input: {
   >;
 }
 const MAX_OUTPUT_CHARS = 50_000;
-const commandSchema = variant("action", [
-  strictObject({
-    action: literal("start"),
-    key: pipe(string(), minLength(1)),
-    command: pipe(string(), minLength(1)),
-    timeoutSeconds: optional(
-      pipe(number(), integer(), minValue(1), maxValue(3600))
-    ),
-  }),
-  strictObject({
-    action: literal("poll"),
-    key: pipe(string(), minLength(1)),
-    // Computer may emit a fractional cursor when flushing partial UTF-8.
-    after: optional(pipe(number(), minValue(0))),
-    waitSeconds: optional(pipe(number(), integer(), minValue(0), maxValue(20))),
-  }),
-  strictObject({ action: literal("stop"), key: pipe(string(), minLength(1)) }),
-  strictObject({ action: literal("list") }),
-]);
-
 // Flue requires an object at the tool boundary. The action-specific schema
-// above remains the strict execution validator (including forbidden fields).
+// in packages/schemas is the shared execution validator, including forbidden fields.
 const commandToolSchema = strictObject({
   action: picklist(["start", "poll", "stop", "list"]),
   key: optional(pipe(string(), minLength(1))),
   command: optional(pipe(string(), minLength(1))),
+  backend: optional(
+    picklist(["container", "worker-shell", "worker-javascript"])
+  ),
+  env: optional(record(string(), string())),
+  stdin: optional(string()),
+  input: optional(unknown()),
+  signal: optional(picklist(["SIGTERM", "SIGKILL", "SIGINT", "SIGHUP"])),
   timeoutSeconds: optional(
     pipe(number(), integer(), minValue(1), maxValue(3600))
   ),
@@ -110,6 +101,8 @@ type Command = {
   lossReported?: boolean;
   lostDuringCleanup?: boolean;
   completed?: boolean;
+  terminalResult?: CommandResult;
+  backend?: "container" | "worker-shell" | "worker-javascript";
 };
 type CommandResult = {
   id: string;
@@ -120,6 +113,8 @@ type CommandResult = {
   stderr: string;
   after: number;
   outputPending?: true;
+  outputTruncated?: true;
+  result?: WorkspaceRuntimeValue;
 };
 
 class MissingComputerExecRecordError extends Error {
@@ -145,6 +140,82 @@ function commandPrefix(submissionId: string): string {
   return `${PREFIX}${encodeURIComponent(submissionId)}:`;
 }
 
+type StartCommand = Extract<
+  Extract<CloudComputerOperation, { action: "command" }>["command"],
+  { action: "start" }
+>;
+
+function commandBackend(command: Pick<Command, "backend">) {
+  return command.backend ?? AGENT_COMPUTER_CONTAINER_BACKEND_ID;
+}
+
+function assertCommandMatches(command: Command, fingerprint: string) {
+  if (command.fingerprint !== fingerprint) {
+    throw new Error(
+      "Computer command key already belongs to a different command. Its process was not changed."
+    );
+  }
+  if (command.stopRequested) {
+    throw new Error(
+      "Computer command was already stopped; its key cannot start a new process."
+    );
+  }
+}
+
+async function updateCommand(
+  storage: RemoteAgentStorage,
+  key: string,
+  update: (current: Command) => Command
+): Promise<Command> {
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const current = await storage.get<Command>(key);
+    if (!current) {
+      throw new Error("Computer command receipt is missing.");
+    }
+    const next = update(current);
+    if (
+      next === current ||
+      (await storage.compareAndSetExpiring(
+        key,
+        current,
+        next,
+        Date.now() + 7 * 24 * 60 * 60 * 1000
+      ))
+    ) {
+      return next;
+    }
+  }
+  throw new Error(
+    "Computer command receipt changed concurrently. Read it again before retrying."
+  );
+}
+
+async function commandFingerprint(request: StartCommand, cwd: string) {
+  return Array.from(
+    new Uint8Array(
+      await crypto.subtle.digest(
+        "SHA-256",
+        new TextEncoder().encode(
+          JSON.stringify({
+            command: request.command,
+            cwd,
+            timeoutSeconds: request.timeoutSeconds ?? 300,
+            ...(request.backend &&
+            request.backend !== AGENT_COMPUTER_CONTAINER_BACKEND_ID
+              ? { backend: request.backend }
+              : {}),
+            env: request.env,
+            stdin: request.stdin,
+            input: request.input,
+          })
+        )
+      )
+    )
+  )
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 export function createComputerCommandTool(input: {
   context: Pick<RemoteAgentCallbackContext, "submissionId">;
   storage: RemoteAgentStorage;
@@ -164,14 +235,88 @@ export function createComputerCommandTool(input: {
     }
     return command;
   };
+  const saveCompleted = async (key: string, result: CommandResult) => {
+    if (result.status !== "completed") {
+      return;
+    }
+    await updateCommand(
+      input.storage,
+      `${prefix}${encodeURIComponent(key)}`,
+      (command) =>
+        command.completed
+          ? command
+          : {
+              ...command,
+              completed: true,
+              ...(command.backend === "worker-shell"
+                ? { terminalResult: result }
+                : {}),
+            }
+    );
+  };
+  const launchWasStopped = async (key: string, signal?: AbortSignal) =>
+    Boolean((await read(key)).stopRequested || signal?.aborted);
+  const launchCommand = async (
+    workspace: WorkspaceClient,
+    request: StartCommand,
+    command: Command,
+    signal?: AbortSignal
+  ) => {
+    // Persist identity before dispatch. An uncertain spawn must be inspected,
+    // never replayed: even a missing retained handle cannot prove no effect.
+    await input.assertCanStart?.();
+    const handle = await workspace.runtime.exec(
+      command.backend === AGENT_COMPUTER_CONTAINER_BACKEND_ID
+        ? buildComputerCommandProcess(request.command)
+        : request.command,
+      {
+        id: command.id,
+        backend: command.backend,
+        cwd: input.workingDirectory,
+        encoding: "utf8",
+        timeoutMs: (request.timeoutSeconds ?? 300) * 1000,
+        env: request.env,
+        stdin: request.stdin,
+        input: request.input,
+      }
+    );
+    let result: CommandResult;
+    try {
+      result = await readCommandSlice(
+        handle,
+        command.key,
+        0,
+        1000,
+        command.backend === "worker-shell" ? undefined : signal
+      );
+      // Foreground execution already ended. Preserve its only exit
+      // receipt even when the caller requested cancellation meanwhile.
+      await saveCompleted(command.key, result);
+    } finally {
+      handle[Symbol.dispose]();
+      if (await launchWasStopped(request.key, signal)) {
+        await workspace.runtime.killExec(command.id, {
+          backend: commandBackend(command),
+          signal: "SIGTERM",
+        });
+      }
+    }
+    if (await launchWasStopped(request.key, signal)) {
+      throw new Error("Computer command was stopped during launch.");
+    }
+    return {
+      ...result,
+      nextAction: result.status === "completed" ? "done" : "poll",
+    };
+  };
   const definition: RemoteAgentToolDefinition = {
     name: "computer_command",
     description:
-      "Run long Linux commands using the Computer's retained native process sessions. Each action accepts only its own fields: start {action,key,command,timeoutSeconds?}; poll {action,key,after?,waitSeconds?}; stop {action,key}; list {action}. Do not pass poll fields to start. start launches the command directly (never add shell &, nohup, or a background subprocess), returning an initial output slice; use a unique stable key per command. poll returns bounded output plus an after cursor; repeat until completed. running with outputPending means the native process is alive but its existing output subscription has not detached; continue polling, and retained output will be available after exit. Use separate polls with the default 20-second wait for long work, outside indefinite Code Mode loops. list recovers keys after interruption. stop requests SIGTERM for that exact command; stop_requested does not confirm termination. Commands belong to this execution only. Repeating start with the same key never launches a second process. A transport error can mean launch outcome is unknown: list/poll, never blindly rerun. Continue collecting results until completion or actual cancellation. Use only progress tools available in your current role. Do not end your turn merely to wait for a running command or a possible future Stop. Collect command results before your final answer; actual cancellation and terminal failure clean up unfinished commands. Use bash for short commands.",
+      "Run commands on your personal Computer. start accepts key, command, backend (container by default, worker-shell or worker-javascript), env, stdin, structured input, and timeoutSeconds. JavaScript source exports a default function; its returned JSON is in result. worker-shell completes before returning and cannot be interrupted or reattached. Use container or worker-javascript for long or cancellable execution. Replies keep the last 50,000 characters per stream and flag outputTruncated. Redirect large output to a persistent file. Start once with a stable key, then poll using the returned after cursor until completed. list recovers this invocation's keys. stop sends signal (SIGTERM by default); stop_requested is not confirmed exit. A repeated start never launches twice. After a transport error, inspect the existing key rather than rerun. Continue collecting results before the final answer. Cancellation cleans up only this task's commands. Do not add shell backgrounding to evade command lifecycle. Use computer for files, capability details or a different cwd.",
     input: commandToolSchema,
     async execute(rawInput, options) {
       options?.signal?.throwIfAborted();
-      const request = parse(commandSchema, rawInput);
+      const request = cloudComputerCommandSchema.parse(rawInput);
       if (request.action === "list") {
         return [
           ...(await input.storage.list<Command>({ prefix })).values(),
@@ -180,27 +325,16 @@ export function createComputerCommandTool(input: {
       if (request.action === "start") {
         await input.assertCanStart?.();
         const key = `${prefix}${encodeURIComponent(request.key)}`;
-        const fingerprint = Array.from(
-          new Uint8Array(
-            await crypto.subtle.digest(
-              "SHA-256",
-              new TextEncoder().encode(
-                JSON.stringify({
-                  command: request.command,
-                  cwd: input.workingDirectory,
-                  timeoutSeconds: request.timeoutSeconds ?? 300,
-                })
-              )
-            )
-          )
-        )
-          .map((byte) => byte.toString(16).padStart(2, "0"))
-          .join("");
+        const fingerprint = await commandFingerprint(
+          request,
+          input.workingDirectory
+        );
         const candidate: Command = {
           id: crypto.randomUUID(),
           key: request.key,
           fingerprint,
           createdAt: Date.now(),
+          backend: request.backend ?? AGENT_COMPUTER_CONTAINER_BACKEND_ID,
         };
         const created = await input.storage.putIfAbsentExpiring(
           key,
@@ -208,83 +342,44 @@ export function createComputerCommandTool(input: {
           Date.now() + 7 * 24 * 60 * 60 * 1000
         );
         const command = created ? candidate : await read(request.key);
-        if (command.fingerprint !== fingerprint) {
-          throw new Error(
-            "Computer command key already belongs to a different command. Its process was not changed."
-          );
+        assertCommandMatches(command, fingerprint);
+        if (command.terminalResult) {
+          return command.terminalResult;
         }
-        if (command.stopRequested) {
-          throw new Error(
-            "Computer command was already stopped; its key cannot start a new process."
-          );
-        }
-        return await input.workspaceAccess.withWorkspace(async (workspace) => {
-          if (!created) {
-            return await pollComputerCommand(
-              workspace.runtime,
-              command,
-              0,
-              1000,
-              options?.signal
-            );
-          }
-          // Persist identity before dispatch. An uncertain spawn must be inspected,
-          // never replayed: even a missing retained handle cannot prove no effect.
-          await input.assertCanStart?.();
-          const handle = await workspace.runtime.exec(
-            buildComputerCommandProcess(request.command),
-            {
-              id: command.id,
-              backend: AGENT_COMPUTER_CONTAINER_BACKEND_ID,
-              cwd: input.workingDirectory,
-              encoding: "utf8",
-              timeoutMs: (request.timeoutSeconds ?? 300) * 1000,
-            }
-          );
-          let result: CommandResult;
-          try {
-            result = await readCommandSlice(
-              handle,
-              command.key,
-              0,
-              1000,
-              options?.signal
-            );
-          } finally {
-            handle[Symbol.dispose]();
-            if (
-              (await read(request.key)).stopRequested ||
-              options?.signal?.aborted
-            ) {
-              await workspace.runtime.killExec(command.id, {
-                backend: AGENT_COMPUTER_CONTAINER_BACKEND_ID,
-                signal: "SIGTERM",
-              });
-            }
-          }
-          if (
-            (await read(request.key)).stopRequested ||
-            options?.signal?.aborted
-          ) {
-            throw new Error("Computer command was stopped during launch.");
-          }
-          return {
-            ...result,
-            nextAction: result.status === "completed" ? "done" : "poll",
-          };
-        });
+        return await input.workspaceAccess.withWorkspace((workspace) =>
+          created
+            ? launchCommand(workspace, request, command, options?.signal)
+            : pollComputerCommand(
+                workspace.runtime,
+                command,
+                0,
+                1000,
+                options?.signal
+              )
+        );
       }
       const command = await read(request.key);
+      if (command.terminalResult) {
+        return completedResult(
+          command.terminalResult,
+          request.action === "poll" ? request.after : undefined
+        );
+      }
       return await input.workspaceAccess.withWorkspace(async (workspace) => {
         if (request.action === "stop") {
-          await input.storage.putExpiring(
+          if (command.backend === "worker-shell") {
+            throw new Error(
+              "computer.cancellation_unsupported: worker-shell runs in the foreground and cannot be interrupted. Wait for its result or timeout. Use container or worker-javascript for cancellable work."
+            );
+          }
+          await updateCommand(
+            input.storage,
             `${prefix}${encodeURIComponent(command.key)}`,
-            { ...command, stopRequested: true },
-            Date.now() + 7 * 24 * 60 * 60 * 1000
+            (current) => ({ ...current, stopRequested: true })
           );
           await workspace.runtime.killExec(command.id, {
-            backend: AGENT_COMPUTER_CONTAINER_BACKEND_ID,
-            signal: "SIGTERM",
+            backend: commandBackend(command),
+            signal: request.signal ?? "SIGTERM",
           });
           return {
             id: command.id,
@@ -313,12 +408,7 @@ export function createComputerCommandTool(input: {
             ? (result as Record<string, unknown>)
             : {};
         if (isCompletedCommandReceipt(receipt, rawInput)) {
-          const command = await read(String(rawInput.key));
-          await input.storage.putExpiring(
-            `${prefix}${encodeURIComponent(command.key)}`,
-            { ...command, completed: true },
-            Date.now() + 7 * 24 * 60 * 60 * 1000
-          );
+          await saveCompleted(String(rawInput.key), result as CommandResult);
         }
         console.info("[remote_agent.computer_command_result]", {
           submissionId: input.context.submissionId,
@@ -369,20 +459,31 @@ function isCompletedCommandReceipt(
   return receipt.status === "completed" && typeof input.key === "string";
 }
 
+function completedResult(result: CommandResult, after?: number): CommandResult {
+  return after !== undefined && after >= result.after
+    ? { ...result, stdout: "", stderr: "" }
+    : result;
+}
+
 async function pollComputerCommand(
   runtime: WorkspaceClient["runtime"],
-  command: Pick<Command, "id" | "key">,
+  command: Pick<Command, "id" | "key" | "backend">,
   after: number,
   waitMs: number,
   signal?: AbortSignal
 ): Promise<CommandResult> {
+  if (command.backend === "worker-shell") {
+    throw new Error(
+      "This foreground shell has no saved result. The upstream shell cannot reattach to an execution. Inspect files before deciding any next action; do not repeat the command blindly."
+    );
+  }
   const deadline = Date.now() + waitMs;
   for (;;) {
     signal?.throwIfAborted();
     let handle: WorkspaceRuntimeExecHandle<"utf8">;
     try {
       handle = await runtime.getExec(command.id, {
-        backend: AGENT_COMPUTER_CONTAINER_BACKEND_ID,
+        backend: commandBackend(command),
         encoding: "utf8",
         resume: after,
       });
@@ -426,6 +527,18 @@ async function pollComputerCommand(
       signal
     );
   }
+}
+
+function appendOutput(
+  result: CommandResult,
+  name: "stdout" | "stderr",
+  value: string
+) {
+  const text = result[name] + value;
+  if (text.length > MAX_OUTPUT_CHARS) {
+    result.outputTruncated = true;
+  }
+  result[name] = text.slice(-MAX_OUTPUT_CHARS);
 }
 
 export async function readCommandSlice(
@@ -478,12 +591,12 @@ export async function readCommandSlice(
       }
       if (next.value.name === "stdout" || next.value.name === "stderr") {
         result.after = next.value.seq;
-        const name = next.value.name;
-        result[name] = (result[name] + next.value.value).slice(
-          -MAX_OUTPUT_CHARS
-        );
+        appendOutput(result, next.value.name, next.value.value);
       } else if (next.value.name === "exit") {
         result.exitCode = next.value.code;
+        if (next.value.result !== undefined) {
+          result.result = next.value.result;
+        }
         exitSequence = next.value.seq;
         // Close confirms post-command file sync. Until then, keep the cursor
         // before exit so a bounded poll can replay that receipt and retry sync.
@@ -615,13 +728,14 @@ async function stopAndRecordComputerCommand(input: {
   storage: RemoteAgentStorage;
 }): Promise<number> {
   const key = `${commandPrefix(input.context.submissionId)}${encodeURIComponent(input.command.key)}`;
-  await input.storage.putExpiring(
-    key,
-    { ...input.command, stopRequested: true },
-    Date.now() + 7 * 24 * 60 * 60 * 1000
+  const current = await updateCommand(input.storage, key, (command) =>
+    command.completed ? command : { ...command, stopRequested: true }
   );
+  if (current.completed) {
+    return 0;
+  }
   try {
-    return await inspectAndStopComputerCommand(input.access, input.command);
+    return await inspectAndStopComputerCommand(input.access, current);
   } catch (error) {
     if (error instanceof ConfirmedLostComputerCommandsError) {
       await input.storage.putExpiring(
@@ -653,6 +767,11 @@ async function inspectAndStopComputerCommand(
   access: AgentComputerWorkspaceAccess,
   command: Command
 ): Promise<number> {
+  if (command.backend === "worker-shell") {
+    // Upstream shell cancellation is a no-op. Only the original foreground
+    // call can establish completion. Keep cleanup explicitly unfinished.
+    return 1;
+  }
   return await access.withWorkspace(async (workspace) => {
     let completed = false;
     let recordMissing = false;
@@ -678,7 +797,7 @@ async function inspectAndStopComputerCommand(
     if (!(completed || runtimeLost)) {
       try {
         await workspace.runtime.killExec(command.id, {
-          backend: AGENT_COMPUTER_CONTAINER_BACKEND_ID,
+          backend: commandBackend(command),
           signal: "SIGTERM",
         });
       } catch (error) {

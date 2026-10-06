@@ -42,6 +42,7 @@ const SUCCESSFUL_JOB_SCOPES = [
     scope: "db",
   },
   { patterns: [/Deploy Website/u], scope: "website" },
+  { patterns: [/Deploy Docs/u], scope: "docs" },
   { patterns: [/Deploy Web(?:\s|$)/u], scope: "web" },
   { patterns: [/Deploy Gateway Worker/u], scope: "gateway" },
   { patterns: [/Deploy Auth Worker/u], scope: "auth" },
@@ -191,11 +192,11 @@ export async function collectProductionReleaseStatus(input = {}) {
   const missingSources = [];
   const pendingScopes = [];
   for (const scope of RELEASE_SCOPES) {
-    // Historical source revisions before the split have no Website component.
-    if (
-      scope === "website" &&
-      adapters.hasWebsitePackage(sourceSha) === false
-    ) {
+    const hasPublicPackage = {
+      website: adapters.hasWebsitePackage,
+      docs: adapters.hasDocsPackage,
+    }[scope];
+    if (hasPublicPackage?.(sourceSha) === false) {
       continue;
     }
     const releaseSource = sources.get(scope);
@@ -433,6 +434,30 @@ function describeInitialWebsitePublication(input) {
   };
 }
 
+function describeInitialDocsPublication(input) {
+  if (
+    input.scope !== "docs" ||
+    !input.webReleaseSource?.sha ||
+    input.adapters.hasDocsPackage(input.webReleaseSource.sha) !== false ||
+    input.adapters.hasDocsPackage(input.sourceSha) !== true
+  ) {
+    return null;
+  }
+  return {
+    scope: "docs",
+    state: "pending",
+    evidence: describeComponentEvidence(undefined),
+    changedPaths: ["clients/docs/package.json"],
+    compatibilityDependencies: [],
+    reason:
+      "First Docs publication. The prior App source predates the independent Docs package.",
+  };
+}
+
+function componentImpactCacheKey(sha, scope) {
+  return ["website", "docs"].includes(scope) ? `${sha}:${scope}` : sha;
+}
+
 function describeReleaseComponent(input) {
   const { releaseSource, scope, history, plansByBase, adapters, sourceSha } =
     input;
@@ -459,6 +484,7 @@ function describeReleaseComponent(input) {
   if (!releaseSource) {
     return (
       describeInitialWebsitePublication(input) ??
+      describeInitialDocsPublication(input) ??
       unknown("No successful deployment history was found.")
     );
   }
@@ -469,10 +495,13 @@ function describeReleaseComponent(input) {
   }
   if (releaseSource.receipt && releaseSource.receipt.status !== "verified") {
     const receipt = releaseSource.receipt;
-    const recovery = describeGuardedReceiptRecoveryCandidate(releaseSource);
+    const recovery = describeGuardedReceiptRecoveryCandidate(
+      releaseSource,
+      scope
+    );
     if (recovery) {
       return unknown(
-        "Local release application is retained and eligible to enter guarded health-only recovery. The guarded executor must still match its exact operation and live deployment identity before running health and writing verified evidence.",
+        "Retained evidence permits guarded recovery admission. The executor must still verify the exact operation and live deployment before continuing the retained attempt.",
         { recovery }
       );
     }
@@ -484,18 +513,23 @@ function describeReleaseComponent(input) {
       `Local release is ${receipt.status}/${receipt.application}; ${guidance}`
     );
   }
-  let entry = plansByBase.get(releaseSource.sha);
+  const impactKey = componentImpactCacheKey(releaseSource.sha, scope);
+  let entry = plansByBase.get(impactKey);
   if (!entry) {
     try {
       entry = {
-        plan: adapters.buildImpact({ base: releaseSource.sha, sourceSha }),
+        plan: adapters.buildImpact({
+          base: releaseSource.sha,
+          sourceSha,
+          componentScope: scope,
+        }),
       };
     } catch (error) {
       entry = {
         error: `Source impact from ${releaseSource.sha} failed: ${error.message}`,
       };
     }
-    plansByBase.set(releaseSource.sha, entry);
+    plansByBase.set(impactKey, entry);
   }
   if (entry.error) {
     return unknown(
@@ -1046,6 +1080,16 @@ function defaultAdapters() {
     return checkoutRepository;
   };
   return {
+    hasDocsPackage: (sha) => {
+      try {
+        return (
+          runGit(["ls-tree", sha, "--", "clients/docs/package.json"]).trim()
+            .length > 0
+        );
+      } catch {
+        return null;
+      }
+    },
     hasWebsitePackage: (sha) => {
       try {
         return (
@@ -1065,9 +1109,10 @@ function defaultAdapters() {
         scope: "auto",
         sourceSha,
       }),
-    buildImpact: ({ base, sourceSha }) =>
+    buildImpact: ({ base, sourceSha, componentScope }) =>
       buildProductionReleaseImpact({
         base,
+        componentScope,
         changedPaths: splitLines(
           runGit(["diff", "--name-only", `${base}...${sourceSha}`])
         ),
@@ -1249,6 +1294,7 @@ function scopedReleaseWorkflowMapping(scopes) {
       "core",
       "remote-agent",
       "website",
+      "docs",
     ])
   ) {
     return "Scoped Production Release input: full.";
@@ -1261,6 +1307,7 @@ function scopedReleaseWorkflowMapping(scopes) {
       "core",
       "remote-agent",
       "website",
+      "docs",
     ])
   ) {
     return "Scoped Production Release input: cloud.";

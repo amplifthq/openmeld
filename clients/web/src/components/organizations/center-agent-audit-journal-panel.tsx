@@ -27,7 +27,8 @@ import { useSyncExternalStore } from "react";
 import { resolveCenterAgentErrorMessage } from "#/lib/organizations/center-agent";
 import { formatCenterAgentInteractionClient } from "#/lib/organizations/center-agent-interaction-source";
 import { centerAgentAuditJournalQueryOptions } from "#/query/organizations/center-agent";
-import type { DirectoryAgentProfile } from "./center-agent-profile-presentation";
+
+type DirectoryAgentIdentity = { profileId: string; profileName: string };
 
 type DirectoryMember = OrganizationDirectoryResponse["members"][number];
 type CenterAgentAuditEntry =
@@ -200,7 +201,7 @@ export function CenterAgentAuditJournalPanel(input: {
 	enabled: boolean;
 	members: readonly DirectoryMember[];
 	organizationId: string;
-	profiles: readonly DirectoryAgentProfile[];
+	profiles: readonly DirectoryAgentIdentity[];
 }) {
 	const canShowBrowserTimeZone = useSyncExternalStore(
 		subscribeToBrowserEnvironment,
@@ -281,7 +282,7 @@ function CenterAgentAuditJournalItem(input: {
 	canShowBrowserTimeZone: boolean;
 	entry: CenterAgentAuditEntry;
 	members: readonly DirectoryMember[];
-	profiles: readonly DirectoryAgentProfile[];
+	profiles: readonly DirectoryAgentIdentity[];
 }) {
 	const presentation = resolveCenterAgentActionPresentation(input.entry);
 	const Icon = presentation.icon;
@@ -458,7 +459,7 @@ function resolveAuditActorName(input: {
 
 function resolveAuditResourceName(input: {
 	entry: CenterAgentAuditEntry;
-	profiles: readonly DirectoryAgentProfile[];
+	profiles: readonly DirectoryAgentIdentity[];
 }): string | null {
 	const resource = input.entry.resource;
 	if (!resource) {

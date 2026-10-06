@@ -291,7 +291,7 @@ This workspace already has 500 active Projects. Remove an unused Project before 
 
 ## Cloud Authority, Permissions, And Lifecycle
 
-The Organization-scoped D1 Project record is canonical durable Project truth,
+The Organization-scoped PostgreSQL Project record is canonical durable Project truth,
 and Core is its only product writer and final mutation authority. Every
 mutation is authenticated, scoped to the current Organization, and carries an
 `expectedOrganizationId` fail-closed check. A client-supplied Organization ID
@@ -323,7 +323,7 @@ two server-side atomic fences:
 - archive first: the later event is rejected and not stored;
 - event first: the member creator's later removal returns `has_activity`.
 
-Tests prove those deterministic archive-first and event-first D1/miniflare
+Tests prove those deterministic archive-first and event-first database/Worker
 interleavings. They must not claim to be a concurrent stress test.
 
 When the creator grace rule is no longer available, the product says:
@@ -566,7 +566,7 @@ cache explicitly supplies a fresh, verified name for the same Organization ID;
 otherwise the generic form remains mandatory.
 
 Absolute paths may be forwarded immediately through Core and Gateway to the
-requesting owner-self Web session. They must never enter D1, Agent Activity
+requesting owner-self Web session. They must never enter PostgreSQL, Agent Activity
 events or projections, cloud snapshots, Organization-shared Project data, or
 Center Agent context. Immediate forwarding is not cloud storage.
 
@@ -773,7 +773,7 @@ The additive safe Repository URL field uses its own mixed-version order:
 
 1. deploy Gateway with schemas that accept the optional response field and
    optional create/update input;
-2. apply the D1 migration that adds nullable `repository_url`;
+2. apply the PostgreSQL migration that adds nullable `repository_url`;
 3. deploy Core, omitting the response field for legacy fingerprint-only rows;
 4. deploy Web, which starts sending the safe URL and displaying it; and
 5. verify create, edit, list, and Project discovery before considering the

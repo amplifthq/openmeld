@@ -1,9 +1,9 @@
 # The Center Agent computer's container backend: computerd mounts the
 # AgentComputer workspace over FUSE at /computer, so heavy shell work
 # (python, git, real binaries) sees the same durable file world as the
-# worker-shell isolate — one file world, two engines. Image pattern
+# worker-shell and worker-javascript isolates — one file world, three engines. Image pattern
 # follows cloudflare/computer examples/container.
-FROM ghcr.io/cloudflare/computer-computerd-linux-x64:0.4.0 AS computerd
+FROM ghcr.io/cloudflare/computer-computerd-linux-x64:0.4.1 AS computerd
 
 FROM node:24-trixie-slim
 

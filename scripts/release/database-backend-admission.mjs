@@ -5,7 +5,10 @@ import { isDeepStrictEqual } from "node:util";
 import { parseJsoncObject } from "../../packages/db/src/tooling/parse-jsonc.ts";
 import { readCutoverTarget } from "../../tooling/postgresql/remote-target.mjs";
 import { readGuardedLocalReleaseSources } from "./production-release-evidence.mjs";
-import { describeGuardedReceiptRecoveryCandidate } from "./production-release-receipts.mjs";
+import {
+  describeGuardedReceiptRecoveryCandidate,
+  readUnchangedCoreRetryBaseline,
+} from "./production-release-receipts.mjs";
 import { verifyWorkerDeployment } from "./worker-deployment-evidence.mjs";
 
 const EXACT_SHA_PATTERN = /^[a-f0-9]{40}$/u;
@@ -118,7 +121,14 @@ async function requireActivePostgresqlReceipts(input, registered) {
     { cwd: input.root, gitEnvironment: input.gitEnvironment }
   );
   for (const scope of ["auth", "core"]) {
-    const source = receipts.get(scope);
+    let source = receipts.get(scope);
+    const selectedForRecovery =
+      !input.restoreCrons &&
+      (input.hostedCli ? scope === "core" : input.scopes?.includes(scope));
+    if (scope === "core" && selectedForRecovery) {
+      source =
+        readUnchangedCoreRetryBaseline(source, input.sourceSha) ?? source;
+    }
     const identity = source?.receipt?.identity;
     if (input.restoreCrons && source?.sha !== input.sourceSha) {
       throw new Error(
@@ -129,9 +139,7 @@ async function requireActivePostgresqlReceipts(input, registered) {
       !(
         source?.receipt?.status === "verified" ||
         (isSameSourceGuardedRecovery(source, input.sourceSha) &&
-          ((input.hostedCli && scope === "core") ||
-            (!(input.hostedCli || input.restoreCrons) &&
-              input.scopes?.includes(scope))))
+          selectedForRecovery)
       ) ||
       identity?.kind !== "worker-deployment" ||
       identity.sourceSha !== source.sha ||

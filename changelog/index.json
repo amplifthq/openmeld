@@ -2,6 +2,46 @@
   "schemaVersion": 1,
   "entries": [
     {
+      "id": "docs-development-foundation",
+      "title": "Develop and release the documentation site independently",
+      "kind": "new",
+      "areas": [
+        "documentation",
+        "development"
+      ],
+      "audiences": [
+        "contributors",
+        "operators"
+      ],
+      "publishedAt": "2026-10-06",
+      "evidence": [
+        "pr:1543",
+        "commit:ba042bf55c7ea2ce6911d813aa6b482bdf9d14fe",
+        "workflow:37489038522"
+      ],
+      "body": "Contributors can preview the Fumadocs template in its own workspace.\nDocs has separate Cloudflare environments, artifact checks, and a guarded\nrelease scope. Documentation changes can ship independently of the Website\nand Web App. The initial pages are template examples. Product content follows\nin a separate change."
+    },
+    {
+      "id": "faster-inbox-and-team-loading",
+      "title": "Faster Inbox and Team loading",
+      "kind": "improved",
+      "areas": [
+        "inbox",
+        "team",
+        "spaces"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-06",
+      "evidence": [
+        "pr:1524",
+        "commit:20425528edfe6aec5b11700e52cef34735e284aa",
+        "workflow:37365763256"
+      ],
+      "body": "Inbox starts loading earlier. Inbox, Team, and conversation lists retain loaded\ncontent through an overnight pause in the same browser tab, then refresh when\nyou return.\nBackground refresh keeps visible items in place and finishes before loading\nolder items. Inbox and Team also make fewer sequential database requests.\n\nSpace lists use live updates with less frequent background recovery checks,\nreducing unnecessary requests while the app is idle."
+    },
+    {
       "id": "postgresql-workspace-response-time",
       "title": "More responsive workspace pages",
       "kind": "improved",

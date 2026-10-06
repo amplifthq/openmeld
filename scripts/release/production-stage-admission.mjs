@@ -51,7 +51,9 @@ export function assertProductionStageAdmission(input) {
       required.has(component.scope) &&
       !(
         selected.has(component.scope) &&
-        component.recovery?.kind === "guarded-health-resume" &&
+        (component.recovery?.kind === "guarded-health-resume" ||
+          (component.scope === "core" &&
+            component.recovery?.kind === "guarded-core-upload-retry")) &&
         component.recovery.admission === "candidate" &&
         component.recovery.sourceSha === input.sourceSha
       )

@@ -198,21 +198,21 @@ function resolveWakeStopFallbackStep(
 		case "active":
 			return {
 				description: "The Agent is processing your request.",
-				kind: "starting",
+				kind: "working",
 				label: "Working…",
 				status: "active",
 			};
 		case "stopping":
 			return {
 				description: "Waiting for the Agent to confirm it has stopped.",
-				kind: "retrying",
+				kind: "working",
 				label: "Stopping…",
 				status: "active",
 			};
 		case "retry_later":
 			return {
 				description: "Check your connection and try stopping again.",
-				kind: "retrying",
+				kind: "working",
 				label: "Stop not confirmed",
 				status: "pending",
 			};

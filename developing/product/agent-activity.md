@@ -137,7 +137,7 @@ table is a projection derived from accepted events.
 - The same event id and canonical payload hash is `reused`.
 - The same event id with another payload is permanently rejected as
   `event_id_conflict`.
-- Event acceptance and current-session projection update are one atomic D1
+- Event acceptance and current-session projection update are one atomic PostgreSQL
   operation.
 - Event reporting derives member, device, and runtime authority from the
   authenticated request and registered OpenMeld Service runtime.
@@ -545,7 +545,8 @@ Binding owner continues to adjudicate historical duplicate conversations. An
 old producer continues to report only historical Activity; a new producer
 treats a missing reconciliation route as retryable and never erases the last
 complete Core projection. Rollback stops the new local producer before removing
-readers; retained D1 evidence is never rewritten to simulate rollback.
-The legacy digest rollout still uses migrations 0029, 0030, 0031, then 0032;
-the one-time active-duration backfill runs only after migration 0032 and its
-Core reader are deployed.
+readers; retained PostgreSQL evidence is never rewritten to simulate rollback.
+The original D1 digest rollout used migrations 0029–0032 and a one-time
+active-duration backfill. Those schema prerequisites are included in the native
+PostgreSQL baseline; do not replay the old migration/backfill sequence. New
+changes use the [PostgreSQL workflow](../engineering/postgresql.md).

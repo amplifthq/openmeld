@@ -20,7 +20,7 @@ export default function UsageCostChart(input: {
 			series.key,
 			{
 				label: series.name,
-				colors: { light: [series.color], dark: [series.color] },
+				colors: series.colors,
 				icon: () => <ModelBrandIcon brand={series.brand} />,
 			},
 		])

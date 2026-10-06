@@ -25,11 +25,27 @@ export async function resolveInstalledOpenCodeLaunchCandidates(
     displayName: "OpenCode",
     preferredLaunchContract: input?.preferredLaunchContract,
   });
-  if (!installedCandidates.ok) {
+  const v2 = await resolveInstalledNodeScriptLaunchCandidates({
+    additionalCommandDirectories: resolveOpenCodeCommandDirectories(),
+    commandName: "opencode2",
+    displayName: "OpenCode 2",
+  });
+  if (!(installedCandidates.ok || v2.ok)) {
     return installedCandidates;
   }
+  const discovered = [
+    ...(installedCandidates.ok ? installedCandidates.candidates : []),
+    ...(v2.ok ? v2.candidates : []),
+  ];
   const candidates = await resolveLaunchCandidatesAfterVerification({
-    candidates: installedCandidates.candidates,
+    candidates: [
+      ...new Map(
+        discovered.map((candidate) => [
+          JSON.stringify(candidate.launchContract),
+          candidate,
+        ])
+      ).values(),
+    ],
     verify: async (candidate) =>
       await verifyOpenCodeLaunchContract({
         launchContract: candidate.launchContract,

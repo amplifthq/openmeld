@@ -131,11 +131,12 @@ Live checks:
 For optional cloud execution, `openmeld computer cloud --view agent` reads the
 signed-in account's personal Computer identity. This is separate from the local
 workstation. Center and Remote Agents for the same owner share these files.
-Use `--operation '<json>'` for `read`, `write`, `edit`, `list`, or `command`.
+Use `--operation '<json>'` with `describe` to get the current official file-tool schemas and execution capabilities. Use `files` to invoke those tools, `command` to run Linux, worker-shell or worker-javascript, and `browser`/`preview` when available. Legacy `read`, `write`, `edit` and `list` remain supported.
 For example:
 
 ```bash
-openmeld computer cloud --operation '{"action":"read","path":"/computer/home/report.txt"}' --view agent
+openmeld computer cloud --operation '{"action":"describe"}' --view agent
+openmeld computer cloud --operation '{"action":"files","tool":"read","input":{"path":"/computer/home/report.txt"}}' --view agent
 openmeld computer cloud --operation '{"action":"command","invocationId":"report-task","command":{"action":"start","key":"build","command":"pwd"}}' --view agent
 openmeld computer cloud --operation '{"action":"command","invocationId":"report-task","command":{"action":"poll","key":"build","waitSeconds":1}}' --view agent
 ```

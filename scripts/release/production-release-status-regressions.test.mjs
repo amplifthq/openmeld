@@ -12,11 +12,13 @@ import {
   resolveLatestSuccessfulReleaseSources,
   runProductionReleaseStatus,
 } from "./production-release-status.mjs";
+import { runProductionStageAdmission } from "./production-stage-admission.mjs";
 
 const TARGET = "a".repeat(40),
   OLD = "b".repeat(40),
   BASE = "c".repeat(40),
   WEB = "d".repeat(40);
+const UNRESOLVED = /unresolved/u;
 const run = (id) => ({
   databaseId: id,
   createdAt: `2026-09-18T0${id}:00:00Z`,
@@ -441,5 +443,69 @@ test("reports only exact applied Worker receipts as guarded health resume candid
   assert.deepEqual(
     result.blockers.find((blocker) => blocker.scope === "web").scopes,
     ["web"]
+  );
+});
+
+test("Core upload recovery passes status and stage admission without claiming deployment success", async () => {
+  const receipt = {
+    application: "unknown",
+    attemptId: "00000000-0000-4000-8000-000000000005",
+    componentIndex: 0,
+    operationKey: "4".repeat(64),
+    startedAt: "2026-09-18T12:59:00.000Z",
+    status: "failed",
+  };
+  const source = {
+    sha: TARGET,
+    source: "guarded-local",
+    recordedAt: "2026-09-18T13:00:00Z",
+    receipt,
+    verifiedHistoryBaseline: {
+      sha: OLD,
+      recordedAt: "2026-09-18T12:00:00Z",
+      receipt: {
+        ...receipt,
+        status: "verified",
+        application: "applied",
+        identity: {
+          deploymentId: "prior-deployment",
+          environment: "prod",
+          kind: "worker-deployment",
+          proof: "command-output",
+          sourceSha: OLD,
+          versionId: "prior-version",
+          workerName: "openmeld-core-prod",
+        },
+      },
+    },
+  };
+  const adapters = {
+    buildPlan: () => ({ scopes: ["core"], changedPaths: [] }),
+    readLocalReleaseSources: async () => new Map([["core", source]]),
+  };
+  const { code, result } = await report(adapters);
+  assert.equal(code, 1);
+  const core = result.components.find((c) => c.scope === "core");
+  assert.equal(core.state, "unknown");
+  assert.equal(core.recovery.kind, "guarded-core-upload-retry");
+  const input = {
+    scope: "core",
+    sourceSha: TARGET,
+    collectStatus: async () => result,
+    write: () => undefined,
+  };
+  await runProductionStageAdmission(input);
+  await assert.rejects(
+    runProductionStageAdmission({ ...input, sourceSha: OLD }),
+    UNRESOLVED
+  );
+  source.verifiedHistoryBaseline = undefined;
+  const unresolved = await report(adapters);
+  await assert.rejects(
+    runProductionStageAdmission({
+      ...input,
+      collectStatus: async () => unresolved.result,
+    }),
+    UNRESOLVED
   );
 });

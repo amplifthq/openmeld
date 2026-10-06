@@ -13,6 +13,7 @@ export const OPENMELD_BOOTSTRAP_WORKERS = [
   "openmeld-gateway-prod",
   "openmeld-web-prod",
   "openmeld-website-prod",
+  "openmeld-docs-prod",
 ];
 export const OPENMELD_STAGING_BOOTSTRAP_WORKERS = [
   "openmeld-core-stg",
@@ -21,6 +22,7 @@ export const OPENMELD_STAGING_BOOTSTRAP_WORKERS = [
   "openmeld-gateway-stg",
   "openmeld-web-stg",
   "openmeld-website-stg",
+  "openmeld-docs-stg",
 ];
 
 export const OPENMELD_BOOTSTRAP_SOURCE = `export default {

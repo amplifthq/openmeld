@@ -11,14 +11,16 @@ explicitly; login defaults are not the resource owner.
 
 The architecture is decided: Cloudflare Hyperdrive connects Workers to
 PlanetScale PostgreSQL. Start from current source, not a new vendor comparison
-or the superseded D1 capacity threshold. Production and shared staging remain
-on D1 until a separately authorized cutover.
+or the superseded D1 capacity threshold. Production has used PostgreSQL since
+the 2026-10-04 cutover. Shared staging remains on its deployed D1 revision;
+current-source staging deployment is blocked pending its own migration.
 Use standard PlanetScale Postgres for this foundation. Neki preview enrollment
 does not change the chosen engine or authorize a sharded database migration.
 The staging/local baseline is PostgreSQL 18 at the latest supported stable minor.
-Use older versions only for a demonstrated compatibility constraint. The reserved
-production destination must be aligned and sized before business promotion;
-its initial minimum machine is not the production performance recommendation.
+Use older versions only for a demonstrated compatibility constraint.
+Production capacity changes require measured demand. Keep capacity stable while
+isolating code-path regressions; use the current workflow's metrics and query
+plans before recommending a larger machine.
 
 ## Shortest useful start
 
