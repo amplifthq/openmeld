@@ -259,6 +259,8 @@ async function verifyRetainedComponent(input, previous) {
       steps: input.group.steps.slice(2),
       adapters: input.executionAdapters,
       write: input.write,
+      beforeStep: input.beforeStep,
+      afterStep: input.afterStep,
     });
     return;
   }
