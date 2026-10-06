@@ -1,0 +1,45 @@
+name: Docs Foundation
+
+on:
+  pull_request:
+    paths:
+      - "clients/docs/**"
+      - "packages/ui/**"
+      - "scripts/vite/**"
+      - "scripts/release/**"
+      - ".github/workflows/docs-ci.yml"
+      - ".github/workflows/deploy-docs.yml"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  docs:
+    name: Check Docs and Cloudflare Artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      OPENMELD_HOME: ${{ runner.temp }}/openmeld-docs-ci
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-node-pnpm
+      - name: Check Docs
+        run: pnpm --filter openmeld-docs check
+      - name: Verify production HTML in local Workerd
+        run: node scripts/release/production-artifact-check.mjs --scope docs --source-sha "$GITHUB_SHA"
+      - name: Retain artifact evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-artifact-${{ github.sha }}
+          path: dev-tmp/release-artifact-check/docs.json
+          if-no-files-found: warn

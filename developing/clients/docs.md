@@ -1,0 +1,56 @@
+# Public Documentation
+
+## Agent Context
+
+- Purpose: Own the independent public documentation client.
+- Read this when: Changing the documentation app, content source, UI, or public routes.
+- Update this when: Framework, content, route, presentation, or runtime ownership changes.
+- Do not use this for: Internal engineering docs, App authorization, or release permission.
+- Source of truth: `clients/docs` owns the public docs. Release sequencing belongs to `../engineering/production-release.md`.
+
+## Boundary
+
+`docs.openmeld.ai` uses its own TanStack Start/Vite build and Cloudflare Worker.
+Staging uses `docs.staging.openmeld.ai`. It reads no App session, Organization
+state, database, or authenticated API. Parent-domain cookies can reach this host.
+The renderer ignores them and must not forward them to another service.
+
+The initial site contains official Fumadocs template pages. It has no product
+documentation publication claim and sets `noindex, nofollow`. Content launch
+must replace the examples, review navigation and links, and remove that metadata.
+Do not copy `developing/` or internal operational runbooks into public content.
+
+## Content and rendering
+
+`content/docs` is the MDX source. `src/lib/content.ts` declares the official
+Fumadocs macro. `src/lib/source.ts` owns its server-side source loader and LLM
+projection. Keep those imports separate so browser content does not import the
+server's page-tree and icon registry.
+
+The framework owns routing. `/docs/*` renders MDX. `/api/search` uses
+Fumadocs' built-in search. `/docs/*.md`, `/llms.txt`, and `/llms-full.txt`
+expose only the same public content. Markdown negotiation varies by `Accept`.
+Build-time crawling prerenders linked HTML pages. The Worker retains search,
+Markdown, server functions, and real 404s. Unknown paths must not return an App
+shell. The root Website's existing `/llms.txt` protocol remains Website/App owned.
+
+## Presentation
+
+Use the official Fumadocs Base UI layout, search dialog, navigation, and MDX
+components. `@openmeld/ui` owns the wordmark, fonts, and copied public assets.
+Fumadocs CSS remains scoped to this client. Do not import the complete App shell
+or replace shared tokens globally.
+
+For new product primitives, inspect the shared Fluid component first. Add
+eligible standalone components through the MDX component map. Keep Fumadocs
+compound slots inside their own Base UI roots. Its dependency version differs
+from the App's Base UI, so mixing roots and items requires a verified context
+contract. Preserve roles, focus, keyboard navigation, and reduced motion.
+
+## Validation
+
+The Docs CI workflow checks types and admits the production renderer through
+local Workerd. The guarded artifact checker binds HTML source/build metadata
+to the exact clean artifact, saves its immutable snapshot, and closes its preview.
+Browser smoke must also exercise navigation, search, Markdown, missing pages,
+theme selection, mobile layout, and keyboard dismissal.
