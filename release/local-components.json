@@ -1,28 +1,28 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-06T14:56:27.119Z",
+  "updatedAt": "2026-10-06T17:14:45.031Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
       "packageVersion": "0.3.246",
       "updatePolicy": "available",
-      "reason": "Add native agent input, OpenCode 2 and Antigravity ACP with compatible existing controller and wire contracts."
+      "reason": "Existing setup, Wake, Space actions and diagnostics remain compatible; new Computer callers follow cloud receiver deployment."
     },
     "service": {
-      "bundleHash": "a0044e4244ac51ffa1a79059e789310345076ce9e4b16bb86a6883ce28c5161c",
-      "portableBundleHash": "efc55e0543aa2312ddb841d35f0c46132562b02c22cd58b6ac5d5341615bb512",
+      "bundleHash": "e9b936e089defd0d463ea1337b8f4270e3a10f44fd3f4b07bafb5f5c6a3937ae",
+      "portableBundleHash": "6a75821360a06ff971b26acd98efdb0395cf1495c5f6ea7adbeeded2cb798402",
       "bundleVersion": "0.3.246",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
       "serviceContractVersion": "openmeld-service-contract-2026-09-local-install-recovery-v1",
       "updatePolicy": "available",
-      "reason": "Add native controller protocols while preserving Wake, interaction and Space action contracts."
+      "reason": "Existing accepted work and Service lifecycle contracts remain compatible; new local controller capabilities are optional."
     },
     "skills": {
-      "bundleHash": "616672b13c7e061b01651894bcc7591b53730e3f452659adaa2fc0e7399ff36e",
+      "bundleHash": "bb72e332e8322d3035c65cd1214aca7e1c611a00114d7b955764c419a8731aea",
       "skillContractVersion": "openmeld-skills-contract-2026-09-explicit-space-recipients-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Optional native Computer guidance uses the new CLI after cloud receivers; existing workstation instructions remain valid."
+      "reason": "Context and retained-result tools add optional bounded reads without changing existing actions or delivery authority."
     }
   }
 }
