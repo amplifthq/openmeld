@@ -930,7 +930,7 @@ never recompute, own, write, or re-derive any runtime/readiness state-machine fa
 system (cross-cloud + cross-local, heartbeat-driven, multi-layer) is hard
 won and stable, and is owned entirely by Core and the daemon:
 
-- Profile identity is owned by Auth; Binding by Core (D1 bindings);
+- Profile identity is owned by Auth; Binding by Core (relational Binding records);
   ServiceRuntime / lease / heartbeat (200s TTL) and route registration by the
   Core RuntimeTransportHub DO; in-flight Wake execution by RuntimeCoordinator;
   per-Agent-Profile readiness by Core's `AgentExecutionReadiness` (computed

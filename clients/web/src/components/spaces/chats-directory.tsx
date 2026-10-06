@@ -151,7 +151,7 @@ export function ChatsDirectory() {
 					leadingControl={
 						<ChatCircleTextIcon className="size-4 text-muted-foreground" />
 					}
-					navigation={<SpacesDirectoryNavigation view="messages" />}
+					navigation={<SpacesDirectoryNavigation />}
 					renderFrame={false}
 					title="Spaces"
 				/>

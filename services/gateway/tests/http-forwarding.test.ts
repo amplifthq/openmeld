@@ -1624,6 +1624,22 @@ describe("gateway http forwarding", () => {
     });
   });
 
+  it("forwards the opt-in Center Agent directory scope to Core", async () => {
+    const { env, rpc } = makeEnv();
+    const response = await app.fetch(
+      new Request(
+        "http://local/v1/organizations/current/directory?centerAgentOnly=true"
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(200);
+    expect(rpc.getCurrentOrganizationDirectory).toHaveBeenCalledWith({
+      centerAgentOnly: true,
+      context: EXPECTED_CORE_CONTEXT,
+    });
+  });
+
   it("forwards the lightweight Profile Directory options without requesting runtime state", async () => {
     const { env, rpc } = makeEnv();
     const request = new Request(

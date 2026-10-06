@@ -28,7 +28,10 @@ import {
   readSpaceExecutionInput,
 } from "../src/space/infrastructure/sql/space-execution-input-repo";
 import { upsertSpaceMetaRecord } from "../src/space/infrastructure/sql/space-meta-repo";
-import { insertSignalRecord } from "../src/space/infrastructure/sql/space-signal-repo";
+import {
+  countPublicTextSignalsAfterDispatchAnchor,
+  insertSignalRecord,
+} from "../src/space/infrastructure/sql/space-signal-repo";
 import type { Space } from "../src/space/transport/do/space";
 
 type InputSpace = {
@@ -425,7 +428,18 @@ describe("Center Agent execution input in the Space owner", () => {
     "consume",
     "enqueue",
     "delete-retired-target",
-  ] as const)("settles Local %s through the same durable queue without replaying apply", async (result) => {
+    "claude-applied",
+    "claude-enqueue",
+  ] as const)("settles Local %s through the same durable queue without replaying apply", async (scenario) => {
+    const controllerRef = scenario.startsWith("claude-")
+      ? "builtin:claude-code"
+      : "builtin:codex";
+    let result = scenario;
+    if (scenario === "claude-applied") {
+      result = "applied";
+    } else if (scenario === "claude-enqueue") {
+      result = "enqueue";
+    }
     await fixture(async ({ instance, state, signal, request, context }) => {
       await instance.publishExecutionInput(
         signal,
@@ -459,7 +473,8 @@ describe("Center Agent execution input in the Space owner", () => {
         inputId
       );
       state.storage.sql.exec(
-        "UPDATE space_members SET controller_ref_snapshot = 'builtin:codex' WHERE profile_id = ?",
+        "UPDATE space_members SET controller_ref_snapshot = ? WHERE profile_id = ?",
+        controllerRef,
         request.agentProfileId
       );
       await getPostgresDatabase(env).transaction(async (client) => {
@@ -556,6 +571,7 @@ describe("Center Agent execution input in the Space owner", () => {
         });
       }
       if (result === "enqueue") {
+        const runtimeId = crypto.randomUUID();
         state.storage.sql.exec(
           "DELETE FROM space_execution_input_outbox WHERE input_id = ?",
           inputId
@@ -601,10 +617,10 @@ describe("Center Agent execution input in the Space owner", () => {
             sourceClientMessageId: parent.data.meta.clientMessageId ?? null,
             openMeldServiceRuntimeId: {
               source: "runtime_registry_authority",
-              value: "runtime-local",
+              value: runtimeId,
             },
             bindingId: "binding-local",
-            agentControllerRef: "builtin:codex",
+            agentControllerRef: controllerRef,
             status: "running",
             terminalOutcome: null,
             createdAtMs: 1,
@@ -619,8 +635,8 @@ describe("Center Agent execution input in the Space owner", () => {
           },
         });
         await getPostgresDatabase(env).query({
-          text: "INSERT INTO \"openmeld\".\"openMeldDaemon_runtime_registry_records\" (openmeld_service_runtime_id, owner_kind, owner_id, device_id, lane, created_at_ms, last_registered_at_ms, updated_at_ms) VALUES ('runtime-local', 'owner_account', 'owner', 'device-local', 'canary', 1, 1, 1)",
-          values: [],
+          text: "INSERT INTO \"openmeld\".\"openMeldDaemon_runtime_registry_records\" (openmeld_service_runtime_id, owner_kind, owner_id, device_id, lane, created_at_ms, last_registered_at_ms, updated_at_ms) VALUES ($1, 'owner_account', 'owner', $1, 'canary', 1, 1, 1)",
+          values: [runtimeId],
         });
         const { spaceId: _spaceId, ...binding } = local.target;
         transport.mockResolvedValue({
@@ -737,6 +753,15 @@ describe("Center Agent execution input in the Space owner", () => {
             .exec("SELECT id FROM space_signals WHERE id = ?", signal.id)
             .toArray()
         ).toHaveLength(1);
+        const countUnseen = (dispatchId: string) =>
+          countPublicTextSignalsAfterDispatchAnchor(state.storage.sql, {
+            dispatchId,
+            afterSignalId: "original-wake",
+            afterTimestampMs: 0,
+            excludeProfileId: request.agentProfileId,
+          });
+        expect(countUnseen(request.dispatchId)).toBe(0);
+        expect(countUnseen("another-dispatch")).toBe(1);
       } else {
         expect(
           listQueuedSpaceExecutionInputs(state.storage.sql)[0]?.state

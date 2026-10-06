@@ -11,9 +11,12 @@ import {
 } from "#/lib/organizations/organization-directory";
 import {
 	organizationAgentRuntimeOverviewQueryOptions,
+	organizationDirectoryQueryFilters,
+	organizationDirectoryQueryOptions,
 	organizationMemberOpenMeldServiceStatusesQueryOptions,
 	organizationMemberRoleQueryOptions,
 	organizationProfileDirectoryQueryOptions,
+	organizationQueryKeys,
 	organizationSpaceProfileCandidatesQueryOptions,
 } from "./organization-directory";
 
@@ -30,6 +33,49 @@ beforeEach(() => {
 });
 
 describe("organization profile projections", () => {
+	it("keeps Center Agent settings separate from the full directory and updates both identity caches", async () => {
+		const queryClient = new QueryClient();
+		const fullDirectory = createDirectory({
+			organizationId: "org-acme",
+			role: "owner",
+			userId: "user-123",
+		});
+		vi.mocked(readCurrentOrganizationDirectory).mockResolvedValueOnce({
+			...fullDirectory,
+			members: [],
+		});
+		const settings = organizationDirectoryQueryOptions({
+			enabled: true,
+			organizationId: "org-acme",
+			centerAgentOnly: true,
+		});
+		await queryClient.fetchQuery(settings);
+		expect(
+			queryClient.getQueryData(organizationQueryKeys.directory("org-acme"))
+		).toBeUndefined();
+		queryClient.setQueryData(
+			organizationQueryKeys.directory("org-acme"),
+			fullDirectory
+		);
+		queryClient.setQueryData(
+			organizationQueryKeys.profileIdentityDirectory("org-acme"),
+			fullDirectory
+		);
+		expect(
+			queryClient.getQueriesData(
+				organizationDirectoryQueryFilters({ organizationId: "org-acme" })
+			)
+		).toHaveLength(3);
+		expect(readCurrentOrganizationDirectory).toHaveBeenCalledWith({
+			organizationId: "org-acme",
+			centerAgentOnly: true,
+			signal: expect.any(AbortSignal),
+		});
+		expect(
+			queryClient.getQueryData(organizationQueryKeys.directory("org-acme"))
+		).toEqual(fullDirectory);
+		queryClient.clear();
+	});
 	it("keeps stable identity and changing runtime state in separate caches", () => {
 		const profileDirectory = organizationProfileDirectoryQueryOptions({
 			enabled: true,

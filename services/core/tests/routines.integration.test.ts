@@ -19,10 +19,16 @@ import {
   rpcCenterAgentResumeRoutine,
   rpcCenterAgentUpdateRoutine,
 } from "../src/routines/routine-center-agent-rpc";
+import {
+  recoverLocalRoutineRuns,
+  submitLocalRoutineDelivery,
+} from "../src/routines/routine-local-delivery";
 import { listDueRoutineRecords } from "../src/routines/routine-repository";
 import { runRoutineSchedulerTick } from "../src/routines/routine-scheduler";
 import {
+  rpcAddSpaceMembers,
   rpcCreateRoutine,
+  rpcCreateSpace,
   rpcDeleteRoutine,
   rpcListCenterAgentAuditJournal,
   rpcListRoutineRuns,
@@ -43,6 +49,272 @@ afterEach(async () => {
   }
 });
 describe("Core Center Agent Routines", () => {
+  it("admits a Local Agent run through the Space Wake owner and recovers the same occurrence after definition deletion", async () => {
+    const fixture = await seedRoutineFixture();
+    const db = getPostgresDatabase(env);
+    const nowMs = FIXED_NOW_MS;
+    vi.spyOn(Date, "now").mockReturnValue(nowMs);
+    const agentProfileId = `agt_${crypto.randomUUID()}`;
+    const bindingId = `binding_${crypto.randomUUID()}`;
+    const runtimeId = `runtime_${crypto.randomUUID()}`;
+    const owner = fixture.users.owner;
+    await db.query({
+      text: `INSERT INTO openmeld.openmeld_profiles
+        (profile_id, profile_name, profile_handle, profile_kind, is_default, status,
+         organization_id, owner_user_id, created_by_user_id, source, created_at, updated_at)
+        VALUES ($1,'Routine Local Agent',$1,'agent',0,'active',$2,$3,$3,'auth_bootstrap',$4,$4)`,
+      values: [agentProfileId, fixture.organizationId, owner.userId, nowMs],
+    });
+    await db.query({
+      text: `INSERT INTO openmeld."openMeldDaemon_agent_profile_bindings"
+        (binding_id,owner_kind,owner_id,agent_profile_id,openmeld_service_runtime_id,
+         runtime_kind,agent_controller_ref,binding_state,created_at_ms,updated_at_ms)
+        VALUES ($1,'owner_account',$2,$3,$4,'openmeld_service','builtin:codex','enabled_primary',$5,$5)`,
+      values: [bindingId, owner.userId, agentProfileId, runtimeId, nowMs],
+    });
+    const context = fixture.contextFor("owner");
+    const space = await rpcCreateSpace(env as CoreBindings, {
+      context,
+      name: "Scheduled local work",
+      visibility: "public",
+    });
+    await rpcAddSpaceMembers(env as CoreBindings, {
+      context,
+      spaceId: space.spaceId,
+      members: [
+        {
+          profileId: agentProfileId,
+          profileKind: "agent",
+          profileName: "Routine Local Agent",
+          ownerUserId: owner.userId,
+          ownerName: "owner user",
+          agentControllerRef: "builtin:codex",
+        },
+      ],
+    });
+    const routine = await createRoutineFor(fixture, "owner", {
+      scope: "personal",
+      agentProfileId,
+      targetSpaceId: space.spaceId,
+      cronExpression: "0 14 * * *",
+    });
+    await db.query({
+      text: "UPDATE openmeld.routines SET next_due_at=$1 WHERE id=$2",
+      values: [nowMs, routine.id],
+    });
+    const tick = await runRoutineSchedulerTick({
+      db,
+      nowMs,
+      resolveExecutionEngine: () => "local",
+      submitRoutineDelivery: (input) =>
+        submitLocalRoutineDelivery({ ...input, env: env as CoreBindings }),
+    });
+    expect(tick).toMatchObject({ claimed: 1, submitted: 1, errors: 0 });
+    const before = (
+      await db.query<{
+        id: string;
+        source_signal_id: string;
+        local_submission_json: string;
+        status: string;
+      }>({
+        text: "SELECT id,source_signal_id,local_submission_json,status FROM openmeld.routine_runs WHERE routine_id=$1",
+        values: [routine.id],
+      })
+    ).rows[0];
+    if (!before) {
+      throw new Error("Expected one claimed local run.");
+    }
+    expect(before.source_signal_id).toEqual(expect.any(String));
+    expect(JSON.parse(before.local_submission_json)).toMatchObject({
+      targetProfileId: agentProfileId,
+      spaceId: space.spaceId,
+      deviceWait: {
+        bindingId,
+        openMeldServiceRuntimeId: runtimeId,
+        targetProfileId: agentProfileId,
+      },
+    });
+    // Model a lost response after Space acceptance. The durable occurrence key
+    // must recover that receipt; deletion cannot cause a duplicate Wake.
+    await db.query({
+      text: "UPDATE openmeld.routine_runs SET status='claimed',source_signal_id=NULL WHERE id=$1",
+      values: [before.id],
+    });
+    await rpcDeleteRoutine(env as CoreBindings, {
+      context,
+      routineId: routine.id,
+      contract: "practical-v2",
+    });
+    await recoverLocalRoutineRuns({
+      db,
+      env: env as CoreBindings,
+      nowMs: nowMs + 60_000,
+    });
+    const after = (
+      await db.query({
+        text: "SELECT source_signal_id,status FROM openmeld.routine_runs WHERE id=$1",
+        values: [before.id],
+      })
+    ).rows[0];
+    expect(after).toEqual({
+      source_signal_id: before.source_signal_id,
+      status: "submitted",
+    });
+  });
+  it("keeps personal definitions and retained runs private even from Organization admins", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(FIXED_NOW_MS);
+    const fixture = await seedRoutineFixture();
+    const routine = await createRoutineFor(fixture, "member", {
+      scope: "personal",
+      cronExpression: "0 14 * * *",
+    });
+    const db = getPostgresDatabase(env);
+    await db.query({
+      text: "UPDATE openmeld.routines SET next_due_at=$1 WHERE id=$2",
+      values: [FIXED_NOW_MS, routine.id],
+    });
+    await runRoutineSchedulerTick({
+      db,
+      nowMs: FIXED_NOW_MS,
+      submitRoutineDelivery: async () => ({ status: "pending" }),
+    });
+    for (const role of ["owner", "admin"] as const) {
+      await expect(
+        rpcListRoutines(env as CoreBindings, {
+          context: fixture.contextFor(role),
+          contract: "routines-v3",
+        })
+      ).resolves.toMatchObject({ routines: [] });
+      await expect(
+        rpcPauseRoutine(env as CoreBindings, {
+          context: fixture.contextFor(role),
+          routineId: routine.id,
+          contract: "practical-v2",
+        })
+      ).rejects.toThrow("routine.not_found");
+      await expect(
+        rpcListRoutineRuns(env as CoreBindings, {
+          context: fixture.contextFor(role),
+          routineId: routine.id,
+        })
+      ).rejects.toThrow("routine.not_found");
+    }
+    await expect(
+      rpcListRoutines(env as CoreBindings, {
+        context: fixture.contextFor("member"),
+        contract: "routines-v3",
+      })
+    ).resolves.toMatchObject({
+      routines: [
+        { id: routine.id, scope: "personal", executorKind: "center_agent" },
+      ],
+    });
+    await rpcDeleteRoutine(env as CoreBindings, {
+      context: fixture.contextFor("member"),
+      routineId: routine.id,
+      contract: "practical-v2",
+    });
+    await expect(
+      rpcListRoutineRuns(env as CoreBindings, {
+        context: fixture.contextFor("member"),
+        routineId: routine.id,
+      })
+    ).resolves.toMatchObject({ runs: [{ routineId: routine.id }] });
+    await expect(
+      rpcListRoutineRuns(env as CoreBindings, {
+        context: fixture.contextFor("admin"),
+        routineId: routine.id,
+      })
+    ).rejects.toThrow("routine.not_found");
+  });
+  it("does not reveal old private destinations after a team routine moves to a public Space", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(FIXED_NOW_MS);
+    const fixture = await seedRoutineFixture();
+    const privateSpaceId = `space_private_${crypto.randomUUID()}`;
+    await seedRoutineTargetSpaces(fixture, [
+      {
+        spaceId: privateSpaceId,
+        name: "Private planning",
+        visibility: "private",
+        memberships: [
+          {
+            profileId: fixture.users.owner.humanProfileId,
+            profileKind: "human",
+            ownerUserId: fixture.users.owner.userId,
+          },
+          { profileId: fixture.centerAgentProfileId, profileKind: "agent" },
+        ],
+      },
+    ]);
+    const routine = await createRoutineFor(fixture, "owner", {
+      scope: "team",
+      targetSpaceId: privateSpaceId,
+    });
+    const db = getPostgresDatabase(env);
+    await db.query({
+      text: "UPDATE openmeld.routines SET next_due_at=$1 WHERE id=$2",
+      values: [FIXED_NOW_MS, routine.id],
+    });
+    await runRoutineSchedulerTick({
+      db,
+      nowMs: FIXED_NOW_MS,
+      submitRoutineDelivery: async () => ({ status: "pending" }),
+    });
+    await rpcUpdateRoutine(env as CoreBindings, {
+      context: fixture.contextFor("owner"),
+      routineId: routine.id,
+      targetSpaceId: fixture.targetSpaceId,
+      contract: "practical-v2",
+    });
+    await expect(
+      rpcListRoutineRuns(env as CoreBindings, {
+        context: fixture.contextFor("member"),
+        routineId: routine.id,
+      })
+    ).resolves.toMatchObject({ runs: [] });
+    await expect(
+      rpcListRoutines(env as CoreBindings, {
+        context: fixture.contextFor("member"),
+        contract: "routines-v3",
+      })
+    ).resolves.toMatchObject({ routines: [{ id: routine.id, lastRun: null }] });
+  });
+  it("edits a completed one-time routine without creating another occurrence", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(FIXED_NOW_MS);
+    const fixture = await seedRoutineFixture();
+    const created = await rpcCreateRoutine(env as CoreBindings, {
+      context: fixture.contextFor("owner"),
+      ...cronSpaceRoutineInput(fixture.targetSpaceId, "0 9 * * *", "UTC"),
+      name: "Once",
+      contract: "practical-v2",
+      instructions: "Read the current queue.",
+      scheduleKind: "once",
+      runAtMs: FIXED_NOW_MS + 60_000,
+      cronExpression: null,
+      timezone: null,
+    });
+    await runRoutineSchedulerTick({
+      db: getPostgresDatabase(env),
+      nowMs: FIXED_NOW_MS + 60_000,
+      submitRoutineDelivery: async () => ({ status: "pending" }),
+    });
+    vi.spyOn(Date, "now").mockReturnValue(FIXED_NOW_MS + 120_000);
+    await expect(
+      rpcUpdateRoutine(env as CoreBindings, {
+        context: fixture.contextFor("owner"),
+        routineId: created.routine.id,
+        name: "Reviewed once",
+        contract: "practical-v2",
+      })
+    ).resolves.toMatchObject({
+      routine: {
+        name: "Reviewed once",
+        status: "completed",
+        nextDueAt: null,
+        runAtMs: FIXED_NOW_MS + 60_000,
+      },
+    });
+  });
   it("claims a one-time Routine exactly once and marks its schedule completed", async () => {
     vi.spyOn(Date, "now").mockReturnValue(FIXED_NOW_MS);
     const fixture = await seedRoutineFixture();
@@ -2540,12 +2812,19 @@ describe("Core Center Agent Routines", () => {
       ...{
         text: `
         INSERT INTO "openmeld"."routine_runs" (
-          id, routine_id, organization_id, scheduled_for, status
-        ) VALUES ($1, $2, $3, $4, 'completed')
+          id, routine_id, organization_id, scheduled_for, status, scope_snapshot, created_by_user_id_snapshot, target_space_id_snapshot
+        ) VALUES ($1, $2, $3, $4, 'completed', 'team', $5, $6)
       `,
         values: [],
       },
-      values: [runId, routine.id, fixture.organizationId, FIXED_NOW_MS],
+      values: [
+        runId,
+        routine.id,
+        fixture.organizationId,
+        FIXED_NOW_MS,
+        fixture.users.owner.userId,
+        fixture.targetSpaceId,
+      ],
     });
     await rpcDeleteRoutine(env as CoreBindings, {
       context: fixture.contextFor("owner"),
@@ -2928,6 +3207,8 @@ async function createRoutineFor(
   fixture: RoutineFixture,
   role: FixtureRole,
   overrides: Partial<{
+    scope: "personal" | "team";
+    agentProfileId: string;
     cronExpression: string;
     instructions: string;
     name: string;
@@ -2937,6 +3218,8 @@ async function createRoutineFor(
 ) {
   const response = await rpcCreateRoutine(env as CoreBindings, {
     context: fixture.contextFor(role),
+    scope: overrides.scope,
+    agentProfileId: overrides.agentProfileId,
     ...cronSpaceRoutineInput(
       overrides.targetSpaceId ?? fixture.targetSpaceId,
       overrides.cronExpression ?? "0 9 * * *",
@@ -3165,8 +3448,11 @@ function buildRoutineRunStatement(input: {
         native_delivery_id,
         published_signal_id,
         started_at_ms,
-        finished_at_ms
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        finished_at_ms, scope_snapshot, created_by_user_id_snapshot,
+        target_space_id_snapshot
+      ) SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+        scope, created_by_user_id, target_space_id
+        FROM openmeld.routines WHERE id=$2
     `,
       values: [],
     },

@@ -187,6 +187,7 @@ async function recordConversationCompactionCompletion(input: {
     messagesBefore: input.event.messagesBefore,
     reason: start?.reason ?? null,
     submissionId: input.submissionId,
+    workingContext: input.event.workingContext ?? null,
   };
   console.info("[remote_agent.conversation_compaction.completed]", logContext);
   if (issueCodes.length > 0) {

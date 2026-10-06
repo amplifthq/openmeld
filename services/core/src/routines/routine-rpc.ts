@@ -16,7 +16,9 @@ import {
   listCenterAgentRoutinesRpcInputSchema,
   listCenterAgentRoutineTargetSpacesResponseSchema,
   listCenterAgentRoutineTargetSpacesRpcInputSchema,
+  listRoutineManagementResponseSchema,
   pauseCenterAgentRoutineRpcInputSchema,
+  ROUTINE_MANAGEMENT_CONTRACT,
   resumeCenterAgentRoutineRpcInputSchema,
   updateCenterAgentRoutineRpcInputSchema,
 } from "@openmeld/schemas";
@@ -67,6 +69,12 @@ export async function rpcListRoutines(
     env,
     request.context
   );
+  if (request.contract === ROUTINE_MANAGEMENT_CONTRACT) {
+    return parseRoutineResponse(
+      listRoutineManagementResponseSchema,
+      await service.listUnified(actor)
+    );
+  }
   if (request.contract === CENTER_AGENT_ROUTINE_MANAGEMENT_CONTRACT) {
     return parseRoutineResponse(
       listCenterAgentRoutinesManagementResponseSchema,
@@ -108,7 +116,11 @@ export async function rpcListRoutineTargetSpaces(
   );
   return parseRoutineResponse(
     listCenterAgentRoutineTargetSpacesResponseSchema,
-    await service.listTargetSpaces(actor, representedHuman)
+    await service.listTargetSpaces(
+      actor,
+      representedHuman,
+      request.agentProfileId
+    )
   );
 }
 

@@ -3515,7 +3515,7 @@ function resolveUnavailableGitHubConnectionMessage(input: {
   const action = input.hasNavigationAction
     ? "Use the Plugin connection action below"
     : "Open Plugins → GitHub for this workspace";
-  return `${accessName} is not ready. It may be disconnected or authorization may still be pending. ${action}, check ${accessName}, and try again. OpenMeld did not use a different GitHub identity.`;
+  return `${accessName} is not ready for this Agent. The account may be disconnected, provider authorization may be pending, or this Agent may have no access. ${action}, check the connection and its Agent access settings, and try again. OpenMeld did not use a different GitHub identity.`;
 }
 
 function requireGitHubActor(value: unknown): GitHubActor {

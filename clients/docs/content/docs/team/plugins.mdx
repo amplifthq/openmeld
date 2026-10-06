@@ -1,0 +1,46 @@
+---
+title: Connect Plugins and accounts
+description: Give agents access to the external tools needed for your task.
+---
+
+Plugins let authorized agents read or act in external systems. Connecting a Plugin does not authorize every possible action. Your request and the tool's permissions still matter.
+
+## Choose personal or shared access
+
+**Your connection** uses your external account for authorized work on your behalf.
+
+**Organization access** is a shared connection managed by an owner or admin. Review who connected it and what resources it can reach.
+
+For GitHub, Organization access uses the OpenMeld GitHub App and acts as the OpenMeld bot. It is distinct from **Your GitHub**. Name the intended identity when that matters.
+
+## Connect a supported tool
+
+1. Open **Team → Plugins** or the relevant connected-app setting.
+2. Search for the tool.
+3. Read the available connection options and their scope.
+4. Start the connection and review provider permissions.
+5. Return to OpenMeld and check that it is connected.
+
+The catalog may include tools that offer **Request** instead of **Connect**. Requesting a tool does not make it available.
+
+## Test with a read
+
+Start with a bounded task:
+
+> Using the Organization GitHub connection, list the open issues in the repository I name. Do not change anything.
+
+Check that the result names the correct account or Organization and resource. Then request a specific write if you need one.
+
+Do not paste provider credentials into a conversation to repair a connection.
+
+## Work through Channels and Routines
+
+Personal connections require the correct verified member identity. A Slack account with a matching email is not automatically linked.
+
+GitHub work in Routines uses Organization GitHub App access. Do not assume a Routine can borrow your personal GitHub connection. Some destructive operations are unavailable for unattended work.
+
+## Disconnect or repair
+
+Use the connection's management action. You may need its owner or an Organization admin.
+
+If a refresh fails, retry the connection check before making another change. A previously visible connection is not proof of current authorization.

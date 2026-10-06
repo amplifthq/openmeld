@@ -1,6 +1,16 @@
 import type { z } from "zod/v4";
 
 type RoutineSchemas = typeof import("../../schemas/http/center-agent-routines");
+export type RoutineManagement = z.infer<
+  RoutineSchemas["routineManagementSchema"]
+>;
+export type RoutineScope = z.infer<RoutineSchemas["routineScopeSchema"]>;
+export type RoutineExecutorKind = z.infer<
+  RoutineSchemas["routineExecutorKindSchema"]
+>;
+export type ListRoutineManagementResponse = z.infer<
+  RoutineSchemas["listRoutineManagementResponseSchema"]
+>;
 
 export type CenterAgentRoutine = z.infer<
   RoutineSchemas["centerAgentRoutineSchema"]

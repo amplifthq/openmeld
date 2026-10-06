@@ -1,11 +1,11 @@
 import {
-  CENTER_AGENT_APP_CONNECTOR_SERVICES,
   CENTER_AGENT_OPENMELD_IDENTITY_REQUIRED_CODE,
   centerAgentConnectorConnectionSelectionSchema,
   centerAgentReadConnectorActionOperationResponseSchema,
   centerAgentRecordConnectorActionOperationResponseSchema,
   connectorActionOutcomeUnknownSchema,
   connectorActionTerminalReceiptSchema,
+  connectorServicesResponseSchema,
 } from "@openmeld/schemas";
 import type {
   ConnectorService,
@@ -139,8 +139,11 @@ type ExecuteAppActionRequest = ConnectorActionOperationRequest & {
   service: CenterAgentAppConnectorService;
 };
 
-const connectorServiceInputSchema = picklist(
-  CENTER_AGENT_APP_CONNECTOR_SERVICES
+const connectorServiceInputSchema = pipe(
+  string(),
+  trim(),
+  minLength(1),
+  maxLength(100)
 );
 const listAppActionsInputSchema = object({
   limit: optional(pipe(number(), integer(), minValue(1), maxValue(500))),
@@ -182,29 +185,44 @@ export function getRemoteAgentConnectorToolDefinitions(
           toolName: "openmeld_list_connected_apps",
         });
         const requester = resolveConnectorTurnRequester(toolContext);
-        const apps = await Promise.all(
-          CENTER_AGENT_APP_CONNECTOR_SERVICES.filter(
-            (service) =>
-              !toolContext.delegatedRequester ||
-              toolContext.pluginDelegations?.some(
-                (grant) => grant.service === service
-              )
-          ).map(async (service) => {
-            const selection = await resolveConnectorConnection({
-              connectionPreference: requester.connectionPreference,
-              coreWorker: input.coreWorker,
-              requesterUserId: requester.requesterUserId,
-              service,
-              toolContext,
-            });
-            return {
-              connected: Boolean(selection.connection),
-              name: getConnectedAppDisplayName(service),
-              scope: selection.connection?.scope ?? null,
-              selection: selection.selection,
-              service,
-            };
+        const { services } = connectorServicesResponseSchema.parse(
+          await requireCoreRpc(
+            input.coreWorker.centerAgentListConnectorServices,
+            "centerAgentListConnectorServices"
+          )({
+            context: toolContext.context,
+            requesterUserId: requester.requesterUserId,
+            ...(toolContext.delegatedRequester
+              ? { includeDelegatedRequester: true }
+              : {}),
           })
+        );
+        const apps = await Promise.all(
+          services
+            .filter((service) => service !== "github")
+            .filter(
+              (service) =>
+                !toolContext.delegatedRequester ||
+                toolContext.pluginDelegations?.some(
+                  (grant) => grant.service === service
+                )
+            )
+            .map(async (service) => {
+              const selection = await resolveConnectorConnection({
+                connectionPreference: requester.connectionPreference,
+                coreWorker: input.coreWorker,
+                requesterUserId: requester.requesterUserId,
+                service,
+                toolContext,
+              });
+              return {
+                connected: Boolean(selection.connection),
+                name: getConnectedAppDisplayName(service),
+                scope: selection.connection?.scope ?? null,
+                selection: selection.selection,
+                service,
+              };
+            })
         );
         return {
           apps,

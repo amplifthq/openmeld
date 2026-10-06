@@ -42,6 +42,7 @@ html[data-sidebar-display="icons-only"] [data-slot="app-outer-rail"][data-presen
   --space-conversation-centered-max-width: min(52rem, 90vw);
   --space-conversation-inline-padding: 1rem;
   --app-page-inline-padding: 1.5rem;
+  --app-page-block-padding: 1.25rem;
 }
 
 @media (min-width: 64rem) {

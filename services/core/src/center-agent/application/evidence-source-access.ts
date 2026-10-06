@@ -11,11 +11,17 @@ import type { CoreBindings } from "../../lib/bindings";
 import { readRemoteAgentNativeDeliveryBySubmissionId } from "../../remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import type { ListSignalsResult } from "../../rpc/methods";
 import { resolveSpaceStub } from "../../rpc/space-ref";
-import type { prepareCenterAgentRepresentedMemberRequest } from "./represented-member-request";
+import type { VerifiedCenterAgentRepresentedMember } from "./represented-member-request";
 
-type RepresentedRequest = Awaited<
-  ReturnType<typeof prepareCenterAgentRepresentedMemberRequest>
->;
+type RepresentedRequest = {
+  authorization: {
+    actorProfileId: string;
+    context: OpenMeldRequestContext;
+    activeOrganization: { organizationId: string };
+  };
+  representedHuman: VerifiedCenterAgentRepresentedMember;
+  sourceNativeDeliveryId: string | null;
+};
 
 const MAX_SOURCE_SPACES_PER_READ = 32;
 

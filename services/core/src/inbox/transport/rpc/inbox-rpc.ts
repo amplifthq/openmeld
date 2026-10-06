@@ -573,19 +573,23 @@ async function prepareRequest(
       status: 503,
     });
   }
-  await reconcilePluginActionRequestInbox({
-    db,
-    organizationId: membership.organizationId,
-    userId: membership.userId,
-  });
-  await reconcileTaskContinuationInbox({
-    inboxDb: db,
-    sourceDb: db,
-    identityDb: db,
-    coordinationDb: db,
-    organizationId: membership.organizationId,
-    recipientUserId: membership.userId,
-  });
+  // These source families own distinct Inbox items. Both must finish before
+  // the snapshot, but neither repair depends on the other's result.
+  await Promise.all([
+    reconcilePluginActionRequestInbox({
+      db,
+      organizationId: membership.organizationId,
+      userId: membership.userId,
+    }),
+    reconcileTaskContinuationInbox({
+      inboxDb: db,
+      sourceDb: db,
+      identityDb: db,
+      coordinationDb: db,
+      organizationId: membership.organizationId,
+      recipientUserId: membership.userId,
+    }),
+  ]);
   return {
     db,
     organizationId: membership.organizationId,
