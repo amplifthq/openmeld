@@ -3,6 +3,7 @@ import type {
 	OrganizationProfileDirectoryResponse,
 } from "@openmeld/schemas/types";
 import { Badge } from "@openmeld/ui/components/badge";
+import { BrandChartDot } from "@openmeld/ui/components/brand-chart-dot";
 import { Button } from "@openmeld/ui/components/button";
 import {
 	Card,
@@ -35,11 +36,7 @@ import { LocalAgentTokenUsageCard } from "#/components/computers/computer-token-
 import { ModelBrandIcon } from "#/components/models/model-brand-icon";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { modelCatalogQueryOptions } from "#/query/config/model-catalog";
-import { organizationProfileDirectoryQueryOptions } from "#/query/organizations/organization-directory";
-import {
-	organizationAiUsageQueryOptions,
-	organizationUsageCalendarPeriod,
-} from "#/query/organizations/organization-usage";
+import { organizationUsageCalendarPeriod } from "#/query/organizations/organization-usage";
 import { OrganizationUsageStatus } from "./organization-usage-status";
 import {
 	type UsageModelSeries,
@@ -47,6 +44,7 @@ import {
 	usageMoney,
 	usageNumber,
 } from "./usage-models";
+import { useAgentUsage } from "./use-agent-usage";
 
 const CostChart = lazy(() => import("./usage-cost-chart"));
 
@@ -69,10 +67,10 @@ function UsagePage(input: {
 	const [view, setView] = useState("organization");
 	return (
 		<section className="space-y-5">
-			<AppPageHeader description={input.organizationName} title="Usage" />
+			<AppPageHeader description={input.organizationName} title="AI usage" />
 			<Tabs className="space-y-5" onValueChange={setView} value={view}>
 				<TabsList aria-label="Usage scope" className="w-fit">
-					<TabItem label="Organization" value="organization" />
+					<TabItem label="Organization usage" value="organization" />
 					<TabItem label="My agents" value="my" />
 				</TabsList>
 				<TabPanel className="space-y-5" value="organization">
@@ -80,8 +78,12 @@ function UsagePage(input: {
 					<LocalAgentTokenUsageCard organizationId={input.organizationId} />
 					<OrganizationUsageStatus organizationId={input.organizationId} />
 				</TabPanel>
-				<TabPanel value="my">
+				<TabPanel className="space-y-5" value="my">
 					<RemoteUsageCard {...input} personal />
+					<LocalAgentTokenUsageCard
+						organizationId={input.organizationId}
+						userId={input.userId}
+					/>
 				</TabPanel>
 			</Tabs>
 		</section>
@@ -165,11 +167,7 @@ function RemoteUsageCard(input: {
 					>
 						{series.map((model) => (
 							<li className="inline-flex items-center gap-2" key={model.key}>
-								<span
-									aria-hidden="true"
-									className="size-2 rounded-full"
-									style={{ backgroundColor: model.color }}
-								/>
+								<BrandChartDot colors={model.colors} />
 								<ModelBrandIcon brand={model.brand} />
 								{model.name}
 							</li>
@@ -390,44 +388,21 @@ function useRemoteUsage(
 	input: { organizationId: string; userId: string; personal: boolean },
 	days: number
 ) {
-	const profiles = useQuery(
-		organizationProfileDirectoryQueryOptions({
-			organizationId: input.organizationId,
-			enabled: input.personal,
-		})
-	);
-	const owned = profiles.data?.agentProfiles.filter(
-		(profile) => profile.ownerUserId === input.userId && !profile.isCenterAgent
-	);
 	const catalog = useQuery(modelCatalogQueryOptions());
-	const query = useQuery({
-		...organizationAiUsageQueryOptions({
-			organizationId: input.organizationId,
-			query: {
-				...organizationUsageCalendarPeriod(days),
-				runtime: "remote",
-				groupTimeSeriesBy: "model",
-				...(input.personal
-					? {
-							agentProfileIds: owned?.map((profile) => profile.profileId) ?? [],
-							groupBy: "agent",
-							limit: 50,
-						}
-					: {}),
-			},
-		}),
-		enabled: !input.personal || !!owned,
+	const usage = useAgentUsage({
+		organizationId: input.organizationId,
+		userId: input.personal ? input.userId : undefined,
+		query: {
+			...organizationUsageCalendarPeriod(days),
+			runtime: "remote",
+			groupTimeSeriesBy: "model",
+			...(input.personal
+				? {
+						groupBy: "agent",
+						limit: 50,
+					}
+				: {}),
+		},
 	});
-	const pending = query.isPending || (input.personal && profiles.isPending);
-	const failed = query.isError || (input.personal && profiles.isError);
-	const refreshing =
-		query.isFetching || (input.personal && profiles.isFetching);
-	async function refresh() {
-		if (input.personal) {
-			await profiles.refetch();
-		}
-		await query.refetch();
-	}
-
-	return { owned, catalog, query, pending, failed, refreshing, refresh };
+	return { ...usage, catalog };
 }
