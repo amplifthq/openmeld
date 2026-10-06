@@ -195,4 +195,3 @@ jobs:
           operation: release
           scope: docs
           working_directory: release-source
-
