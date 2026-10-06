@@ -1,4 +1,5 @@
 import type { AiUsageQueryResponse } from "@openmeld/schemas/types";
+import { BrandChartDot } from "@openmeld/ui/components/brand-chart-dot";
 import { Button } from "@openmeld/ui/components/button";
 import {
 	Card,
@@ -25,7 +26,7 @@ import {
 } from "@openmeld/ui/fluid/select";
 import { ArrowClockwiseIcon, CalendarBlankIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
-import { type CSSProperties, lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import {
 	organizationAiUsageQueryOptions,
 	organizationUsageCalendarPeriod,
@@ -236,16 +237,7 @@ export function LocalAgentTokenUsageCard(input: {
 function TokenAgentLabel({ agent }: { agent: LocalAgentTokenSeries }) {
 	return (
 		<span className="inline-flex items-center gap-2 whitespace-nowrap">
-			<span
-				aria-hidden="true"
-				className="size-2 shrink-0 rounded-full bg-(--agent-light) dark:bg-(--agent-dark)"
-				style={
-					{
-						"--agent-light": agent.colors.light[0],
-						"--agent-dark": agent.colors.dark[0],
-					} as CSSProperties
-				}
-			/>
+			<BrandChartDot colors={agent.colors} />
 			{agent.controller ? (
 				<LocalAgentLogo agentId={agent.controller} size="xs" />
 			) : null}

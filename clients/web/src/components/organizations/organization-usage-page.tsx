@@ -3,6 +3,7 @@ import type {
 	OrganizationProfileDirectoryResponse,
 } from "@openmeld/schemas/types";
 import { Badge } from "@openmeld/ui/components/badge";
+import { BrandChartDot } from "@openmeld/ui/components/brand-chart-dot";
 import { Button } from "@openmeld/ui/components/button";
 import {
 	Card,
@@ -165,11 +166,7 @@ function RemoteUsageCard(input: {
 					>
 						{series.map((model) => (
 							<li className="inline-flex items-center gap-2" key={model.key}>
-								<span
-									aria-hidden="true"
-									className="size-2 rounded-full"
-									style={{ backgroundColor: model.color }}
-								/>
+								<BrandChartDot colors={model.colors} />
 								<ModelBrandIcon brand={model.brand} />
 								{model.name}
 							</li>
