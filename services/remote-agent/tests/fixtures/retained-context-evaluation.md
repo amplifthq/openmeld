@@ -1,9 +1,9 @@
 # Retained-result context evaluation
 
 This fixture evaluates the proposed runtime policy that removes older tool-result
-previews while the exact result remains recoverable. The Draft PR wires this
-policy into the Hosted agent. It is not accepted for merge: completed live
-comparisons show mixed cost benefit and output-contract failures. Flue remains the canonical history and
+previews while the exact result remains recoverable. The PR wires this
+policy into the Hosted agent. Completed live comparisons show fewer summaries,
+mixed cost benefit and an existing output-contract limitation. Flue remains the canonical history and
 compaction owner; Core access and retained-result ownership are unchanged.
 
 ## Reproduce
@@ -221,12 +221,15 @@ The candidate also lost the budget type in one completed run. This is a
 separate active-output-contract retention finding, not a transport failure
 or proof that preview reduction introduced the defect.
 
-Decision: retain PR #1541 as a Draft experiment. Do not enable this policy by
-merging it on the strength of the earlier 67% continuation-only result. The
-new evidence supports fewer summaries, but not a stable cost win or complete
-output-contract acceptance. Preserve the strict failure and the canonical
-checkpoint evidence for a focused investigation of active user constraints.
-Do not change production timeouts or add retries to turn these runs green.
+Merge decision, October 7: accept the bounded policy for fewer summary requests
+and the observed reduction in request time. A saving on every task is not a
+requirement. The two pairs do not establish general accuracy or cost gains, and
+the earlier 67% continuation-only result is not a deployment promise.
+The output-contract failures occur with both policies and remain a separate
+follow-up; this change does not claim to fix them. Preserve the strict failures
+and canonical checkpoint evidence. Do not loosen assertions, change production
+timeouts or add retries to turn these runs green. Merge remains subject to
+current-main regression checks and exact Final Candidate certification.
 
 Local trace directories are `single-turn-1791298166592` (interrupted pair),
 `single-turn-1791298700387` (completed reverse pair), and
