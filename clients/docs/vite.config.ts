@@ -43,6 +43,10 @@ export default defineConfig({
   },
   build: { assetsDir: "_docs/assets" },
   ssr: { noExternal: ["fumadocs-core", "fumadocs-ui", "@fumadocs/base-ui"] },
+  // The MDX macro emits imports after scanning. Prebundle it before first SSR.
+  environments: {
+    ssr: { optimizeDeps: { include: ["fumadocs-mdx/runtime/macro"] } },
+  },
   plugins: [
     cloudflare({ viteEnvironment: { name: "ssr" }, inspectorPort: false }),
     fumadocsMdx(),
