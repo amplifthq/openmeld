@@ -2178,7 +2178,7 @@ ordinary turns. Core owns only the logical-conversation-to-active-generation
 pointer. That pointer is routing metadata, not transcript, memory, execution,
 or publication truth.
 
-OpenMeld configures compaction with four explicit budgets:
+OpenMeld configures compaction with five explicit budgets:
 
 - model-specific `reserveTokens` starts compaction before the provider context
   limit or a known higher prompt-price band;
@@ -2186,9 +2186,18 @@ OpenMeld configures compaction with four explicit budgets:
   after older messages are summarized;
 - `workingContextTokens = 48,000`, capped by usable model capacity, checks the
   assembled system prompt, tool definitions, and messages before every model
-  call, including tool-loop calls; and
+  call, including tool-loop calls;
+- `workingContextHeadroomTokens = 8,000` (reduced for small models) reserves
+  room for new work when selecting the recent tail. Fixed prompt/tool cost
+  and checkpoint allowance are deducted first. Indivisible tool pairs can
+  exceed this target; the hard working-context ceiling still applies; and
 - `maxSummaryTokens = 4,096` caps each summary completion independently of the
   physical model reserve. Reasoning tokens count toward this limit.
+
+Working-context compaction produces one checkpoint for earlier history and
+the unfinished turn together, with one summary output budget. Its observation
+reports fixed context, before/after estimates, target and ceiling. This is
+maintenance evidence, not exact vendor tokenization or proof of task progress.
 
 The working-context budget uses the shared four-bytes-per-token text estimate
 and Flue's 1,200-token image heuristic, not an exact vendor tokenizer. Base64
