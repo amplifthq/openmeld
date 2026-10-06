@@ -116,10 +116,6 @@ import { setSpaceWakeProgressPresentationItems } from "#/query/spaces/active-wak
 import { createSpaceConversationDisplaySnapshot } from "#/query/spaces/display-snapshot";
 import { SpaceEntryConfirmationContext } from "./space-entry-confirmation";
 import {
-	SPACE_LIVE_RECONNECTING_LABEL,
-	SPACE_LIVE_STALE_LABEL,
-} from "./space-header";
-import {
 	SpaceWakeProgressVisibleProjectionProvider,
 	useSpaceWakeProgressVisibleProjection,
 } from "./space-wake-progress-visible-projection";
@@ -13211,7 +13207,8 @@ describe("SpaceLanding", () => {
 		expect(membersRefetchMock).toHaveBeenCalledTimes(1);
 	});
 
-	it("degrades on websocket server error frames", async () => {
+	it("delays freshness feedback for websocket server errors", async () => {
+		vi.useFakeTimers();
 		createWebSpaceApiMock.mockReturnValue({
 			getUpdates: vi.fn().mockResolvedValue({
 				signals: [],
@@ -13239,9 +13236,7 @@ describe("SpaceLanding", () => {
 
 		renderSpaceLanding();
 
-		await waitFor(() => {
-			expect(FakeWebSocket.instances).toHaveLength(1);
-		});
+		expect(FakeWebSocket.instances).toHaveLength(1);
 
 		await act(async () => {
 			await FakeWebSocket.instances[0]?.emitOpen();
@@ -13253,11 +13248,17 @@ describe("SpaceLanding", () => {
 			);
 		});
 
-		await waitFor(() => {
-			expect(screen.getByText(SPACE_LIVE_RECONNECTING_LABEL)).toBeTruthy();
-			expect(screen.queryByRole("button", { name: "Reconnect" })).toBeNull();
-			expect(screen.queryByRole("button", { name: "Refresh" })).toBeNull();
+		expect(
+			screen.queryByText("Messages and activity may be out of date.")
+		).toBeNull();
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(15_000);
 		});
+		expect(
+			screen.getByText("Messages and activity may be out of date.")
+		).toBeTruthy();
+		expect(screen.queryByRole("button", { name: "Reconnect" })).toBeNull();
+		expect(screen.queryByRole("button", { name: "Refresh" })).toBeNull();
 	});
 
 	it("automatically reconnects after websocket close with a fresh tail catch-up", async () => {
@@ -13310,7 +13311,9 @@ describe("SpaceLanding", () => {
 		});
 
 		// Within the grace window a dropped stream stays quiet — no status flip.
-		expect(screen.queryByText(SPACE_LIVE_RECONNECTING_LABEL)).toBeNull();
+		expect(
+			screen.queryByText("Messages and activity may be out of date.")
+		).toBeNull();
 		expect(screen.queryByTestId("space-live-status")).toBeNull();
 
 		await act(async () => {
@@ -13319,22 +13322,34 @@ describe("SpaceLanding", () => {
 
 		expect(FakeWebSocket.instances).toHaveLength(2);
 		// Reconnect fired but the grace window has not elapsed — still quiet.
-		expect(screen.queryByText(SPACE_LIVE_RECONNECTING_LABEL)).toBeNull();
+		expect(
+			screen.queryByText("Messages and activity may be out of date.")
+		).toBeNull();
 		expect(screen.queryByTestId("space-live-status")).toBeNull();
 
 		await act(async () => {
 			await vi.advanceTimersByTimeAsync(1500);
 		});
 
-		// Grace elapsed without recovery — the degraded status now surfaces.
-		expect(screen.getByText(SPACE_LIVE_RECONNECTING_LABEL)).toBeTruthy();
+		// Internal recovery stays quiet until the presentation grace elapses.
+		expect(
+			screen.queryByText("Messages and activity may be out of date.")
+		).toBeNull();
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(15_000);
+		});
+		expect(
+			screen.getByText("Messages and activity may be out of date.")
+		).toBeTruthy();
 
 		await act(async () => {
 			await FakeWebSocket.instances[1]?.emitOpen();
 		});
 
 		expect(getUpdatesMock).toHaveBeenCalledTimes(1);
-		expect(screen.queryByText(SPACE_LIVE_RECONNECTING_LABEL)).toBeNull();
+		expect(
+			screen.queryByText("Messages and activity may be out of date.")
+		).toBeNull();
 	});
 
 	it("reconnects from the last authoritative history/updates cursor despite newer live frames", async () => {
@@ -13527,12 +13542,28 @@ describe("SpaceLanding", () => {
 		// No reconnect and no recovered tail message: the open socket stays live,
 		// while freshness is honestly marked as stale until a retry succeeds.
 		expect(FakeWebSocket.instances).toHaveLength(1);
-		expect(screen.queryByText(SPACE_LIVE_RECONNECTING_LABEL)).toBeNull();
-		expect(screen.getByText(SPACE_LIVE_STALE_LABEL)).toBeTruthy();
+		expect(
+			screen.queryByText("Messages and activity may be out of date.")
+		).toBeNull();
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(15_000);
+		});
+		expect(
+			screen.getByText("Messages and activity may be out of date.")
+		).toBeTruthy();
 		expect(screen.queryByText("Recovered tail message")).toBeNull();
+		getUpdatesMock.mockResolvedValue({ signals: [] });
+		await act(async () => {
+			fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+			await Promise.resolve();
+		});
+		expect(FakeWebSocket.instances).toHaveLength(1);
+		expect(
+			screen.queryByText("Messages and activity may be out of date.")
+		).toBeNull();
 	});
 
-	it("reconnects immediately when the live status indicator is clicked", async () => {
+	it("retries from the freshness notice without claiming recovery", async () => {
 		vi.useFakeTimers();
 		const getUpdatesMock = vi.fn().mockResolvedValue({ signals: [] });
 		createWebSpaceApiMock.mockReturnValue({
@@ -13570,19 +13601,30 @@ describe("SpaceLanding", () => {
 		await act(async () => {
 			await vi.advanceTimersByTimeAsync(1500);
 		});
-		expect(screen.getByText(SPACE_LIVE_RECONNECTING_LABEL)).toBeTruthy();
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(15_000);
+		});
+		expect(
+			screen.getByText("Messages and activity may be out of date.")
+		).toBeTruthy();
 
 		const socketsBeforeRetry = FakeWebSocket.instances.length;
 		await act(async () => {
-			fireEvent.click(
-				screen.getByRole("button", { name: "Reconnect live updates now" })
-			);
+			fireEvent.click(screen.getByRole("button", { name: "Retry" }));
 			await Promise.resolve();
 		});
 
 		// A fresh socket opens right away — no waiting out the backoff timer.
 		expect(FakeWebSocket.instances.length).toBe(socketsBeforeRetry + 1);
-		expect(screen.queryByText(SPACE_LIVE_RECONNECTING_LABEL)).toBeNull();
+		expect(
+			screen.getByText("Messages and activity may be out of date.")
+		).toBeTruthy();
+		await act(async () => {
+			await FakeWebSocket.instances.at(-1)?.emitOpen();
+		});
+		expect(
+			screen.queryByText("Messages and activity may be out of date.")
+		).toBeNull();
 	});
 
 	it("reconnects immediately when the tab returns to the foreground while degraded", async () => {
@@ -13623,7 +13665,12 @@ describe("SpaceLanding", () => {
 		await act(async () => {
 			await vi.advanceTimersByTimeAsync(1500);
 		});
-		expect(screen.getByText(SPACE_LIVE_RECONNECTING_LABEL)).toBeTruthy();
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(15_000);
+		});
+		expect(
+			screen.getByText("Messages and activity may be out of date.")
+		).toBeTruthy();
 
 		const socketsBeforeForeground = FakeWebSocket.instances.length;
 		await act(async () => {
