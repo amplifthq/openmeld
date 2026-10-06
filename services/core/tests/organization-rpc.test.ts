@@ -197,13 +197,17 @@ afterEach(() => {
 });
 
 describe("organization Core RPC", () => {
-  it("rejects organization directory reads when the active user is not an organization member", async () => {
+  it.each([
+    false,
+    true,
+  ])("rejects organization directory reads when the active user is not an organization member (Center Agent only: %s)", async (centerAgentOnly) => {
     const env = await buildEnv({
       members: [],
     });
 
     await expect(
       rpcGetCurrentOrganizationDirectory(env, {
+        centerAgentOnly,
         context: buildContext({
           activeOrganizationId: "org-a",
           userId: "user-a",
@@ -1461,6 +1465,60 @@ describe("organization Core RPC", () => {
       code: "organization.directory_unavailable",
       status: 503,
     });
+  });
+
+  it("reads only the designated Center Agent without member or unrelated runtime projections", async () => {
+    const db = await createOrganizationRpcDb({
+      agentProfiles: [
+        managedCenterAgentProfileRow(),
+        {
+          organizationId: "org-a",
+          ownerUserId: "user-a",
+          profileHandle: "other",
+          profileId: "agt_00000000-0000-4000-8000-000000000003",
+          profileName: "Other",
+          status: "active",
+        },
+      ],
+      centerAgentDesignations: [
+        centerAgentDesignationRow({
+          agentProfileId: AGENT_PROFILE_ID,
+          designatedBy: "user-a",
+          organizationId: "org-a",
+        }),
+      ],
+      members: [memberRow("member-a", "org-a", "user-a", "owner")],
+    });
+    const memberRead = vi.fn(() =>
+      Promise.reject(new Error("Settings must not read the member directory."))
+    );
+    const env = await buildEnv({
+      db,
+      authWorker: { resolveOrganizationDirectoryMembers: memberRead },
+    });
+    const operationalReads = vi.spyOn(
+      runtimeTransportClient,
+      "readRuntimeTransportAgentProfileOperationalContexts"
+    );
+    const response = await rpcGetCurrentOrganizationDirectory(env, {
+      centerAgentOnly: true,
+      includeMemberLastActiveAt: true,
+      context: buildContext({
+        activeOrganizationId: "org-a",
+        userId: "user-a",
+      }),
+    });
+    expect(response.members).toEqual([]);
+    expect(response.agentProfiles.map((profile) => profile.profileId)).toEqual([
+      AGENT_PROFILE_ID,
+    ]);
+    expect(response.agentProfiles[0]?.isCenterAgent).toBe(true);
+    expect(
+      response.agentProfiles[0]?.readiness.agentExecutionReadiness
+        .agentProfileId
+    ).toBe(AGENT_PROFILE_ID);
+    expect(memberRead).not.toHaveBeenCalled();
+    expect(operationalReads).not.toHaveBeenCalled();
   });
 
   it("fails closed when Auth returns Directory identity for another Organization", async () => {

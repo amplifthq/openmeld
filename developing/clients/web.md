@@ -1642,7 +1642,17 @@ global App Settings destination (grouped under the current Organization's name,
 or under **Personal** in a Personal Workspace) at `/o/{orgSlug}/settings/center-agent`.
 The historical `/o/{orgSlug}/center-agent/settings` path redirects here.
 It contains Model, the Audit Log, and the reversible
-Organization-wide operating control in **Danger Zone**. Only the immutable
+Organization-wide operating control in **Danger Zone**. The initial read uses
+the Directory's `centerAgentOnly=true` scope, which resolves runtime readiness
+only for the designated Center Agent and omits the member directory. Model and
+organization memory queries start in the settings owner before identity loads;
+their sections share the same query caches. The Audit Log loads the existing
+identity-only Profile Directory on demand for actor and resource names, without
+requesting unrelated Agent runtime state. Scoped and full Directory caches stay
+separate and share identity mutation invalidation. Retained settings data does
+not change freshness or operating-control authorization.
+
+Only the immutable
 Organization creator may pause or resume the Center Agent; owner/admin roles do
 not grant this authority. The active state presents **Pause Center Agent** and
 requires a confirmation that pausing stops every current task across OpenMeld,
