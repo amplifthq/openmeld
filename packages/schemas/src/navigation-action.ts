@@ -1,5 +1,5 @@
 import * as z from "zod/v4";
-import { CONNECTOR_SERVICES } from "./schemas/http/connector-connections";
+import { connectorServiceSchema } from "./schemas/http/connector-connections";
 
 const nonEmptyStringSchema = z.string().trim().min(1);
 const LOCAL_WEB_URL = "http://localhost";
@@ -39,7 +39,7 @@ export const computerSetupNavigationTargetSchema = z.discriminatedUnion(
 export const openMeldNavigationTargetSchema = z.union([
   z.strictObject({
     kind: z.literal("plugin_connection"),
-    service: z.enum(CONNECTOR_SERVICES),
+    service: connectorServiceSchema,
     // A presentation request, never permission to connect or use an account.
     scope: z.enum(["member", "shared", "choose"]),
   }),

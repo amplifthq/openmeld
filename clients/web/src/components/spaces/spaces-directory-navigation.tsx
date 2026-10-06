@@ -1,37 +1,25 @@
 import { TabsSubtle, TabsSubtleItem } from "@openmeld/ui/fluid/tabs-subtle";
-import { useNavigate } from "@tanstack/react-router";
+import { useQueryState } from "nuqs";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
+import { spacesViewParser } from "#/lib/page-tab-search";
 
 const views = [undefined, "messages", "discover"] as const;
-export function SpacesDirectoryNavigation({
-	view,
-	onSpaceViewChange,
-}: {
-	view?: "discover" | "messages";
-	onSpaceViewChange?: (view: "discover" | undefined) => void;
-}) {
-	const navigate = useNavigate();
+export function SpacesDirectoryNavigation() {
+	const [view, setView] = useQueryState("view", spacesViewParser);
 	const { currentOrganization } = useAppOrganization();
+	const visibleView =
+		view === "spaces" || (view === "discover" && currentOrganization.isPersonal)
+			? undefined
+			: view;
 	return (
 		<TabsSubtle
 			aria-label="Spaces view"
 			className="h-full shrink-0 gap-5"
 			idPrefix="spaces-directory"
 			onSelect={(index) => {
-				const next = views[index];
-				if (next !== "messages" && onSpaceViewChange) {
-					onSpaceViewChange(next);
-					return;
-				}
-				navigate({
-					to: "/o/$orgSlug/spaces",
-					params: { orgSlug: currentOrganization.slug },
-					search: {
-						view: next,
-					},
-				}).catch(console.error);
+				setView(views[index] ?? "spaces");
 			}}
-			selectedIndex={views.indexOf(view)}
+			selectedIndex={views.indexOf(visibleView)}
 			variant="underline"
 		>
 			<TabsSubtleItem index={0} label="Your Spaces" labelClassName="text-sm" />

@@ -40,10 +40,18 @@ describe("space conversation stream state", () => {
 			sequence: 1,
 			thinkingSnapshot: "Live reasoning",
 		});
-		const streaming = applySpaceConversationStreamFrame({
+		let streaming = applySpaceConversationStreamFrame({
 			current: [],
 			frame,
 			observedRevision: 1,
+		});
+		streaming = applySpaceConversationStreamFrame({
+			current: streaming,
+			frame: createProgressDeltaFrame({
+				sequence: 10,
+				progressSnapshot: "Checking results",
+			}),
+			observedRevision: 2,
 		});
 		const disabled = applySpaceConversationStreamFrame({
 			current: streaming,
@@ -61,6 +69,16 @@ describe("space conversation stream state", () => {
 			reasoningState: { status: "disabled" },
 		});
 		expect(disabled[0]).not.toHaveProperty("thinking");
+		expect(disabled[0]).toMatchObject({
+			sequence: 10,
+			progress: "Checking results",
+		});
+		const staleReplay = applySpaceConversationStreamFrame({
+			current: disabled,
+			frame,
+			observedRevision: 3,
+		});
+		expect(staleReplay).toBe(disabled);
 		expect(
 			clearSpaceConversationTransientStreams(disabled)[0]
 		).not.toHaveProperty("reasoningState");

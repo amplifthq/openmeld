@@ -1,10 +1,21 @@
 "use client";
 
 import { CENTER_AGENT_ROUTINE_NAME_MAX_CHARS } from "@openmeld/schemas";
-import type { SpaceFileDescriptor } from "@openmeld/schemas/types";
-import { useEffect, useRef } from "react";
-import { CenterAgentRoutineFormDialog } from "#/components/organizations/center-agent-routine-form-dialog";
-import { useCenterAgentRoutineManagement } from "#/components/organizations/use-center-agent-routine-management";
+import type {
+	CreateCenterAgentRoutineBody,
+	SpaceFileDescriptor,
+} from "@openmeld/schemas/types";
+import { Button } from "@openmeld/ui/components/button";
+import {
+	Dialog,
+	DialogContent,
+	DialogHeader,
+	DialogTitle,
+} from "@openmeld/ui/components/dialog";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { RoutineForm } from "#/components/routines/routine-form";
+import { createCurrentRoutine } from "#/lib/routines/api";
+import { invalidateRoutineFacts, routinesQueryOptions } from "#/query/routines";
 
 export function SpaceFileMaintenanceDialog(input: {
 	file: SpaceFileDescriptor;
@@ -13,21 +24,55 @@ export function SpaceFileMaintenanceDialog(input: {
 	orgSlug: string;
 	onClose: () => void;
 }) {
-	const management = useCenterAgentRoutineManagement({
-		organizationId: input.organizationId,
+	const queryClient = useQueryClient();
+	const routines = useQuery(
+		routinesQueryOptions({
+			enabled: true,
+			organizationId: input.organizationId,
+		})
+	);
+	const mutation = useMutation({
+		mutationFn: async (body: CreateCenterAgentRoutineBody) =>
+			await createCurrentRoutine({
+				...body,
+				organizationId: input.organizationId,
+			}),
+		onSuccess: async () => {
+			await invalidateRoutineFacts({
+				queryClient,
+				organizationId: input.organizationId,
+			});
+			input.onClose();
+		},
 	});
-	const prepared = useRef(false);
-	useEffect(() => {
-		if (!prepared.current) {
-			prepared.current = true;
-			management.prepareTargetSpaces();
-		}
-	}, [management.prepareTargetSpaces]);
-	const preparation = management.targetPreparationMutation;
-	const mutation = management.createMutation;
+	if (!routines.data) {
+		return (
+			<Dialog
+				onOpenChange={(open) => {
+					if (!open) {
+						input.onClose();
+					}
+				}}
+				open
+			>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>Create routine</DialogTitle>
+					</DialogHeader>
+					<p>
+						{routines.isError ? "Could not load Agents." : "Loading Agents…"}
+					</p>
+					{routines.isError ? (
+						<Button onClick={() => routines.refetch()}>Retry</Button>
+					) : null}
+				</DialogContent>
+			</Dialog>
+		);
+	}
 	return (
-		<CenterAgentRoutineFormDialog
-			errorMessage={mutation.error?.message ?? null}
+		<RoutineForm
+			error={mutation.error?.message ?? null}
+			executors={routines.data.executors}
 			initialValues={{
 				name: `Maintain ${input.file.name}`.slice(
 					0,
@@ -44,25 +89,14 @@ export function SpaceFileMaintenanceDialog(input: {
 					"If there is no new confirmed content change, do not save a new version or send an update notification. Missing source references alone do not justify a new version; add them alongside the next confirmed content change. Do not rewrite the file just to record that you checked it. After a real update, the file's configured notifications handle delivery; do not broadcast a second copy or Wake additional Agents.",
 				].join("\n\n"),
 			}}
-			mode="create"
-			onOpenChange={(open) => {
-				if (!(open || mutation.isPending)) {
-					input.onClose();
-				}
+			onClose={input.onClose}
+			onSubmit={async (values) => {
+				await mutation.mutateAsync(values);
 			}}
-			onSubmit={(values) =>
-				mutation.mutate(values, { onSuccess: input.onClose })
-			}
 			open
 			organizationId={input.organizationId}
-			orgSlug={input.orgSlug}
-			submitting={mutation.isPending}
-			targetSpacePreparation={{
-				isReady: preparation.isSuccess,
-				isPending: preparation.isPending || preparation.status === "idle",
-				errorMessage: preparation.error?.message ?? null,
-				onRetry: management.prepareTargetSpaces,
-			}}
+			pending={mutation.isPending}
+			scope="team"
 		/>
 	);
 }

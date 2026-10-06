@@ -25,6 +25,14 @@ export type AgentControllerRef = {
 
 export type RuntimeAgentTargetKind = AgentControllerRefKind;
 
+// Product eligibility only. The active execution and native adapter still
+// validate identity, lifecycle, and installed-version support at application.
+export function supportsLocalExecutionInput(
+  ref: string | null | undefined
+): boolean {
+  return ref === "builtin:codex" || ref === "builtin:claude-code";
+}
+
 export type RuntimeAdapterCapabilityIdentity = {
   adapterId: string | null | undefined;
 };

@@ -2,7 +2,7 @@
 // OpenConnector keys its app cache by allowedProxies AND blockedProxies. Keep its
 // ordinary API/MCP environment unchanged and unblock only this validated call.
 export const OPENMELD_GIT_PROXY_UPSTREAM_SHA =
-  "31be0d205cfd3f2b0a8f9ab5e3a54558976ed500";
+  "2e8bad6c4b03f00c85a7bdd6df819bb4159e7ded";
 export const OPENMELD_GIT_PROXY_PATH = "/v1/openmeld/github-working-copy";
 const REPOSITORY_PATH = /^\/repos\/([A-Za-z0-9_-]+)\/([A-Za-z0-9_.-]+)(.*)$/u;
 const SHA = /^[a-f0-9]{40}$/u;
@@ -11,6 +11,37 @@ const TASK_PATH = /^\/git\/refs?\/heads\/openmeld%2Fwork-[a-f0-9]{32}$/u;
 const OBJECT_PATH = /^\/git\/(blobs|trees)\/[a-f0-9]{40}$/u;
 const SAFE_REF = /^[A-Za-z0-9_][A-Za-z0-9_./-]{0,199}$/u;
 const MAX_BODY_BYTES = 16 * 1024 * 1024;
+const GIT_CONNECTION_STREAM_PATH =
+  /^\/v1\/openmeld\/git-connections\/[A-Za-z0-9][A-Za-z0-9_.-]{0,99}\/[A-Za-z0-9][A-Za-z0-9_.-]{0,99}\/(info\/refs|git-upload-pack)$/u;
+
+function isGitConnectionStreamRequest(request, url) {
+  const endpoint = GIT_CONNECTION_STREAM_PATH.exec(url.pathname)?.[1];
+  if (endpoint === "info/refs") {
+    return (
+      request.method === "GET" &&
+      url.searchParams.size === 1 &&
+      url.searchParams.get("service") === "git-upload-pack"
+    );
+  }
+  return (
+    endpoint === "git-upload-pack" &&
+    request.method === "POST" &&
+    !url.search &&
+    request.headers
+      .get("content-type")
+      ?.split(";", 1)[0]
+      ?.trim()
+      .toLowerCase() === "application/x-git-upload-pack-request"
+  );
+}
+
+function gitHubRequestPolicy(env) {
+  return {
+    ...env,
+    OOMOL_CONNECT_ALLOWED_PROXIES: "github",
+    OOMOL_CONNECT_BLOCKED_PROXIES: "",
+  };
+}
 
 function keys(value, allowed) {
   return (
@@ -164,6 +195,11 @@ export function withGitWorkingCopyPolicy(upstream) {
     ...upstream,
     async fetch(request, env, context) {
       const url = new URL(request.url);
+      if (isGitConnectionStreamRequest(request, url)) {
+        // Preserve streaming bodies. The upstream route verifies the exact
+        // configured runtime bearer, identity, alias and current runtime policy.
+        return await upstream.fetch(request, gitHubRequestPolicy(env), context);
+      }
       if (url.pathname !== OPENMELD_GIT_PROXY_PATH) {
         return await upstream.fetch(request, env, context);
       }
@@ -196,15 +232,7 @@ export function withGitWorkingCopyPolicy(upstream) {
       });
       // Upstream still authenticates the runtime token, exact connection grant
       // and provider account. This does not mint or broaden any token grant.
-      return await upstream.fetch(
-        forwarded,
-        {
-          ...env,
-          OOMOL_CONNECT_ALLOWED_PROXIES: "github",
-          OOMOL_CONNECT_BLOCKED_PROXIES: "",
-        },
-        context
-      );
+      return await upstream.fetch(forwarded, gitHubRequestPolicy(env), context);
     },
   };
 }

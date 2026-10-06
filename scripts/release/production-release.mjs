@@ -59,6 +59,7 @@ const DIRECT_SCOPES = new Set([
   "remote-agent",
   "web",
   "website",
+  "docs",
 ]);
 const CLOUD_SCOPES = [
   "auth",
@@ -67,6 +68,7 @@ const CLOUD_SCOPES = [
   "core",
   "remote-agent",
   "website",
+  "docs",
 ];
 const FULL_SCOPES = ["db", ...CLOUD_SCOPES];
 const SCOPE_ORDER = [
@@ -78,6 +80,7 @@ const SCOPE_ORDER = [
   "core",
   "remote-agent",
   "website",
+  "docs",
 ];
 const REMOTE_AGENT_RECEIVER_FIRST_SCOPE_ORDER = [
   "db",
@@ -736,6 +739,7 @@ const PACKAGE_SCOPE = new Map([
   ["openmeld", "cli"],
   ["openmeld-web", "web"],
   ["openmeld-website", "website"],
+  ["openmeld-docs", "docs"],
 ]);
 const DB_MIGRATION_PATH_PREFIX = "packages/db/drizzle/";
 const DB_SCHEMA_PATH_PREFIXES = [
@@ -758,6 +762,11 @@ const GLOBAL_WORKSPACE_RUNTIME_PATHS = new Set([
   "turbo.json",
 ]);
 const SCOPE_VERIFY_SPECS = {
+  docs: {
+    filter: "openmeld-docs...",
+    label: "Verify Docs",
+    tasks: ["check"],
+  },
   website: {
     filter: "openmeld-website...",
     label: "Verify Website",
@@ -1358,30 +1367,30 @@ function annotateReleaseScope(steps, start, scope) {
 }
 
 function appendRendererDeploySteps(input) {
-  const website = input.scope === "website";
-  const client = website ? "website" : "web";
+  const client = input.scope;
+  const renderer = {
+    web: { label: "Web", url: "https://app.openmeld.ai" },
+    website: { label: "Website", url: "https://openmeld.ai" },
+    docs: { label: "Docs", url: "https://docs.openmeld.ai" },
+  }[client];
   input.steps.push(
-    packageDeployStep(
-      `openmeld-${client}`,
-      website ? "Deploy Website" : "Deploy Web",
-      {
-        args: ["--config", `clients/${client}/wrangler.jsonc`, "--env", "prod"],
-      }
-    ),
+    packageDeployStep(`openmeld-${client}`, `Deploy ${renderer.label}`, {
+      args: ["--config", `clients/${client}/wrangler.jsonc`, "--env", "prod"],
+    }),
     {
       args: [
         "scripts/release/production-web-health.mjs",
         "--scope",
         client,
         "--url",
-        website ? "https://openmeld.ai" : "https://app.openmeld.ai",
+        renderer.url,
         "--source-sha",
         input.releaseSha,
         "--artifact-receipt",
         `dev-tmp/release-artifact-check/${client}.json`,
       ],
       command: "node",
-      label: website ? "Verify Website health" : "Verify Web health",
+      label: `Verify ${renderer.label} health`,
     }
   );
 }
@@ -1418,7 +1427,7 @@ function appendProductionDeployScopeSteps(input) {
     });
     return;
   }
-  if (input.scope === "web" || input.scope === "website") {
+  if (["web", "website", "docs"].includes(input.scope)) {
     appendRendererDeploySteps(input);
     return;
   }
@@ -1538,11 +1547,17 @@ function resolveProductionDeployScopeOrder(
     );
   }
   const preferred = order.filter((scope) => selected.has(scope));
+  // Public docs have no App receiver dependency and follow every selected profile.
+  if (selected.has("docs") && !preferred.includes("docs")) {
+    preferred.push("docs");
+  }
   if (
     !(
       isWorkingFolderRecoveryDiff(changedPaths) ||
       isNpmSetupArtifactDiff(changedPaths) ||
       isRemoteAiUsageDiff(changedPaths) ||
+      isCenterAgentEvidenceDiff(changedPaths) ||
+      isSpaceMessageSearchReceiverFirstDiff(changedPaths) ||
       isInboxNotificationObservationDiff(changedPaths)
     )
   ) {
@@ -1610,6 +1625,9 @@ function resolveProductionDeployOrderProfile(
       ),
       taskInboxRetired
     );
+    if (otherProfile === "core-worker-response-reader-first") {
+      return otherProfile;
+    }
     if (otherProfile !== "default-auth-receiver-first") {
       throw new Error(
         `Space message search/evidence receiver order conflicts with ${otherProfile}; review and split incompatible releases.`
@@ -2386,6 +2404,31 @@ function isReviewedProviderConnectionMissingResponseAddition(input) {
   }
 }
 
+function isWorkspaceProxyExportOnlyChange(input) {
+  if (!(input.base && input.sourceSha)) {
+    return false;
+  }
+  try {
+    const file = "services/remote-agent/.flue/cloudflare.ts";
+    const before = input.readGitFile(input.base, file);
+    const after = input.readGitFile(input.sourceSha, file);
+    return (
+      before !== after &&
+      after
+        .replace(
+          'export { WorkspaceServiceProxy } from "@cloudflare/computer";',
+          'export { WorkspaceProxy, WorkspaceServiceProxy } from "@cloudflare/computer";'
+        )
+        .replace(
+          'export { WorkspaceProxy } from "../flue-adapter/computer-workspace-proxy";\n',
+          ""
+        ) === before
+    );
+  } catch {
+    return false;
+  }
+}
+
 function resolveProductionReleaseContext(input) {
   const changedPaths = input.changedPaths ?? resolveChangedPaths(input.base);
   const sourceSha = input.sourceSha ?? readHeadSha();
@@ -2424,6 +2467,11 @@ function resolveProductionReleaseContext(input) {
       (file) =>
         file !== "services/remote-agent/.flue/cloudflare.ts" &&
         file !== "services/remote-agent/.flue/agents/center-agent.ts"
+    );
+  }
+  if (isWorkspaceProxyExportOnlyChange(compatibilityContext)) {
+    compatibilityChangedPaths = compatibilityChangedPaths.filter(
+      (file) => file !== "services/remote-agent/.flue/cloudflare.ts"
     );
   }
   const taskInboxRetired = inspectTaskInboxRetirement({
@@ -2478,6 +2526,20 @@ function describeProductionReleaseImpact(context) {
 // affected components cannot safely be deployed together. Only the planner
 // and stage admission own that ordering decision.
 export function buildProductionReleaseImpact(input) {
+  if (["website", "docs"].includes(input.componentScope)) {
+    const changedPaths = input.changedPaths ?? resolveChangedPaths(input.base);
+    return {
+      changedPaths,
+      scopes: resolveAutomaticReleaseScopes({
+        affectedPackages:
+          input.affectedPackages ?? resolveAffectedPackages(changedPaths),
+        changedPaths,
+      }).filter((scope) => scope === input.componentScope),
+      compatibilityDependencies: [],
+      compatibilityBridges: [],
+      compatibilityReceiverWitnesses: [],
+    };
+  }
   return describeProductionReleaseImpact(
     resolveProductionReleaseContext(input)
   );

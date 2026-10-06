@@ -125,6 +125,7 @@ export async function rpcPluginAction(
   const catalog = await callRuntime(env, {
     operation: "list",
     service: action.service,
+    ...(action.operation === "actions" ? {} : { actionId: action.actionId }),
   });
   if (catalog.status !== "catalog") {
     throw failure(

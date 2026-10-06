@@ -21,8 +21,8 @@ import {
 } from "#/lib/sidebar-width-cookie";
 
 export const Route = createFileRoute("/o/$orgSlug/skills")({
-	// Search is currently local UI state. No Center Agent session selectors or
-	// personal/organization scope selector belong to this catalog.
+	// No Center Agent session selectors or personal/organization scope selector
+	// belong to this catalog. Detail routes own their content tab query.
 	validateSearch: () => ({}),
 	staticData: appShellStaticData.skills,
 	loader: async () => ({ sidebarStates: await getAppSidebarStatesForRoute() }),

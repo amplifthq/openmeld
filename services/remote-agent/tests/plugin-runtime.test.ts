@@ -4,6 +4,31 @@ import capturedActions from "./fixtures/openconnector-runtime-actions.json";
 
 describe("shared plugin runtime", () => {
   it.each([
+    ["posthog.list_projects", ["posthog.list_projects"]],
+    ["posthog.create_dashboard", []],
+    ["posthog.missing", []],
+  ])("filters exact metadata from an older producer for %s", async (actionId, expected) => {
+    const transport = vi.fn<typeof fetch>(async () =>
+      Response.json(capturedActions)
+    );
+    const result = await executePluginRuntime(
+      { operation: "list", service: "posthog", actionId },
+      {
+        baseUrl: "https://connector.example",
+        runtimeToken: "test-runtime-token",
+        fetch: transport,
+      }
+    );
+    expect(result.status).toBe("catalog");
+    if (result.status !== "catalog") {
+      throw new Error("Expected catalog");
+    }
+    expect(result.actions.map((action) => action.id)).toEqual(expected);
+    expect(transport.mock.calls[0]?.[0]).toBe(
+      `https://connector.example/v1/actions?service=posthog&actionId=${actionId}`
+    );
+  });
+  it.each([
     [
       "wrong action identity",
       {
@@ -42,7 +67,7 @@ describe("shared plugin runtime", () => {
     // Mutate only the documented pinned-producer success envelope's identity
     // or schema. An invalid receipt may follow a real completed side effect.
     const transport = vi.fn<typeof fetch>(async (request) =>
-      String(request).endsWith("/v1/actions?service=github")
+      String(request).includes("/v1/actions?service=github")
         ? Response.json({
             success: true,
             message: "OK",
@@ -120,7 +145,7 @@ describe("shared plugin runtime", () => {
     expect(result.status).toBe("failed");
     expect(transport).toHaveBeenCalledTimes(1);
     expect(transport.mock.calls[0]?.[0]).toBe(
-      "https://connector.example/v1/actions?service=posthog"
+      "https://connector.example/v1/actions?service=posthog&actionId=posthog.list_projects"
     );
   });
 
@@ -147,7 +172,7 @@ describe("shared plugin runtime", () => {
       properties: { id: { type: "integer" }, body: { type: "string" } },
     };
     const transport = vi.fn<typeof fetch>(async (request) =>
-      String(request).endsWith("/v1/actions?service=github")
+      String(request).includes("/v1/actions?service=github")
         ? Response.json({
             success: true,
             message: "OK",

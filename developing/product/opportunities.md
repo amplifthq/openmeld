@@ -113,7 +113,7 @@ becomes an execution token or a general authorization path.
 
 ## Ownership and privacy
 
-Core D1 is the source of truth for Opportunity identity, current decision,
+Core PostgreSQL is the source of truth for Opportunity identity, current decision,
 recipient, safe evidence, and creation/decision provenance. Core is the only
 writer. The durable record is scoped by both `organizationId` and
 `recipientUserId`; list and decision operations return not found for another

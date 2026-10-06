@@ -11,8 +11,10 @@ import {
   listCenterAgentRoutinesManagementResponseSchema,
   listCenterAgentRoutinesResponseSchema,
   listCenterAgentRoutineTargetSpacesResponseSchema,
+  listRoutineManagementResponseSchema,
   pauseCenterAgentRoutineBodySchema,
   pauseCenterAgentRoutineResponseSchema,
+  ROUTINE_MANAGEMENT_CONTRACT,
   resumeCenterAgentRoutineBodySchema,
   resumeCenterAgentRoutineResponseSchema,
   updateCenterAgentRoutineBodySchema,
@@ -39,6 +41,15 @@ const MANAGEMENT_ROUTINE_CONTRACT_QUERY = {
 export const createRoutinesApi: CreateRoutinesApi = (
   client: OpenMeldApiClientFoundation
 ) => ({
+  listAllRoutines: async (input = {}) =>
+    await client.requestJson({
+      ...requestOptions(input),
+      invalidMessage: "invalid Routine list response",
+      method: "GET",
+      operation: "routine.list",
+      schema: listRoutineManagementResponseSchema,
+      url: buildRoutinesPath({ contract: ROUTINE_MANAGEMENT_CONTRACT }),
+    }),
   listRoutines: async (input = {}) =>
     await client.requestJson({
       ...requestOptions(input),
@@ -66,13 +77,15 @@ export const createRoutinesApi: CreateRoutinesApi = (
       method: "GET",
       operation: "routine.target_spaces.list",
       schema: listCenterAgentRoutineTargetSpacesResponseSchema,
-      url: buildRoutineTargetSpacesPath(),
+      url: buildRoutineTargetSpacesPath(input.agentProfileId),
     }),
 
   createRoutine: async (input) => {
     const body = requireValidInput(
       createCenterAgentRoutineBodySchema,
       {
+        agentProfileId: input.agentProfileId,
+        scope: input.scope,
         authorizedActions: input.authorizedActions,
         cronExpression: input.cronExpression,
         destinationKind: input.destinationKind,

@@ -3,13 +3,17 @@ import { AppFullWidthLayout } from "#/components/app/app-full-width-layout";
 import { appShellStaticData } from "#/components/app/shell-layout";
 import { TeamHeader } from "#/components/directory/team-header";
 import { TeamPeopleSidebar } from "#/components/directory/team-people-sidebar";
+import { pluginScopeParser } from "#/lib/page-tab-search";
 import { getAppSidebarStatesForRoute } from "#/lib/sidebar-width-cookie";
 
 export const Route = createFileRoute("/o/$orgSlug/plugins")({
 	validateSearch: (
 		search: Record<string, unknown>
 	): { scope: "personal" | "organization"; request?: string } => ({
-		scope: search.scope === "personal" ? "personal" : "organization",
+		scope:
+			typeof search.scope === "string"
+				? (pluginScopeParser.parse(search.scope) ?? "organization")
+				: "organization",
 		...(typeof search.request === "string" &&
 		search.request.trim().length > 0 &&
 		search.request.length <= 512

@@ -2,13 +2,13 @@ import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import type { CenterAgentRoutineTargetSpace } from "@openmeld/schemas/types";
 import { buildDirectMessagePairKey } from "@openmeld/space";
 import { readCenterAgentDesignationRecord } from "../center-agent/center-agent-repository";
-import { requirePersonalRemoteAgentBinding } from "../remote-agent/application/personal-remote-agent-binding";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import {
   listRoutineTargetSpacesFromSpaceIndex,
   readRoutineTargetSpaceEligibilityFromSpaceIndex,
   readSpaceIndexOrganizationJoinTarget,
 } from "../space-index/space-index-repository";
+import { requireRoutineExecutor } from "./routine-executor";
 import { isActiveCenterAgentProfile } from "./routine-repository";
 export type RoutineRepresentedHuman = {
   profileId: string;
@@ -138,11 +138,11 @@ async function resolveRoutineTargetEligibilityContext(input: {
   representedHuman: RoutineRepresentedHuman;
 }): Promise<RoutineTargetEligibilityContextResolution> {
   if (input.agentProfileId) {
-    await requirePersonalRemoteAgentBinding({
+    await requireRoutineExecutor({
       db: input.db,
       organizationId: input.organizationId,
       agentProfileId: input.agentProfileId,
-      ownerUserId: input.representedHuman.userId,
+      userId: input.representedHuman.userId,
     });
     return {
       status: "available",
