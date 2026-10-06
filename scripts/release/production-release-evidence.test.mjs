@@ -569,6 +569,7 @@ test("extends legacy receipts, retries the same event idempotently and rejects c
 test("native database verification completes the original failed Git receipt", async () => {
   const fixture = createGitFixture();
   let interrupted = true;
+  let sourceChanged = false;
   let tick = 0;
   const effects = [];
   const common = { cwd: fixture.repository, remote: fixture.remote };
@@ -580,6 +581,11 @@ test("native database verification completes the original failed Git receipt", a
       }),
       readEvidence: () => readGuardedLocalReleaseSources(common),
       executeSteps: executeProductionDeploySteps,
+      beforeStep: () => {
+        if (sourceChanged) {
+          throw new Error("fixture deploy failed: source changed");
+        }
+      },
       executionAdapters: {
         runStep: (step) => {
           effects.push(step.label);
@@ -596,6 +602,11 @@ test("native database verification completes the original failed Git receipt", a
   try {
     await assert.rejects(run, DEPLOY_ERROR);
     const failed = readGuardedLocalReleaseSources(common).get("db");
+    sourceChanged = true;
+    await assert.rejects(run, DEPLOY_ERROR);
+    assert.deepEqual(effects, ["PostgreSQL database: migrate"]);
+    assert.deepEqual(readGuardedLocalReleaseSources(common).get("db"), failed);
+    sourceChanged = false;
     await assert.rejects(run, DEPLOY_ERROR);
     assert.deepEqual(readGuardedLocalReleaseSources(common).get("db"), failed);
     interrupted = false;
