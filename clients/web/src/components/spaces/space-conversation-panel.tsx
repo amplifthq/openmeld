@@ -55,6 +55,7 @@ import {
 } from "#/lib/spaces/api";
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
 import type { ComposerFileDraftCleanup } from "#/lib/spaces/composer-file-drafts";
+import type { SpaceConversationVisibleStreamProjection } from "#/lib/spaces/conversation-stream";
 import type { SpaceEphemeralActivityItem } from "#/lib/spaces/dispatch-activity";
 import { useHistorySliderPreference } from "#/lib/spaces/history-slider-preference";
 import { isSpaceMessageAgentWorking } from "#/lib/spaces/message-state";
@@ -77,7 +78,10 @@ import {
 	resolveSpaceMessageWakeProgressFallbackEntries,
 	resolveSpaceMessageWakeProgressState,
 } from "#/lib/spaces/wake-progress-presentation";
-import { resolveWakeProgressStatus } from "#/lib/spaces/wake-progress-status";
+import {
+	presentWorkingStatus,
+	resolveWakeProgressStatus,
+} from "#/lib/spaces/wake-progress-status";
 import {
 	buildSpaceWakeOutcomeIndex,
 	resolveSpaceMessageWakeStopTarget,
@@ -264,7 +268,7 @@ const SpaceGraph = lazy(() =>
 );
 
 type SpaceConversationPanelResolvedProps = {
-	agentStreams?: readonly import("#/lib/spaces/conversation-stream").SpaceConversationVisibleStreamProjection[];
+	agentStreams?: readonly SpaceConversationVisibleStreamProjection[];
 	historyNavigation?: SpaceHistoryNavigationController;
 	activeSpaceView: SpaceView;
 	allowedActions: readonly string[];
@@ -301,7 +305,6 @@ type SpaceConversationPanelResolvedProps = {
 	emptyStateAlignment?: "start" | "center";
 	emptyStateTitle?: string;
 	ephemeralActivityItems: readonly SpaceEphemeralActivityItem[];
-	presentedWakeProgressItems: readonly SpaceEphemeralActivityItem[];
 	firstUnreadSignalId: string | null;
 	files?: ReactNode;
 	tasks?: ReactNode;
@@ -702,7 +705,6 @@ function SpaceConversationPanelContent(
 		onOpenThread,
 		onOpenUnreadThread: input.onOpenUnreadThread,
 		onSpaceViewChange: input.onSpaceViewChange,
-		presentedWakeProgressItems: input.presentedWakeProgressItems,
 		selfProfileId: input.selfProfileId,
 		spaceId: input.spaceId,
 		spaceViewIdPrefix: input.spaceViewIdPrefix,
@@ -1023,13 +1025,7 @@ function renderPanelConversationBody(input: {
 	const navigation = input.navigation;
 	const presentation = input.presentation;
 	return renderConversationBody({
-		activeThreadRootSignalIds: new Set(
-			(panel.agentStreams ?? []).flatMap((stream) =>
-				stream.status === "streaming" && stream.replyThreadRootSignalId
-					? [stream.replyThreadRootSignalId]
-					: []
-			)
-		),
+		threadStreamsByRootSignalId: presentation.threadStreamsByRootSignalId,
 		agentRecoveryPlansByProfileId: panel.agentRecoveryPlansByProfileId,
 		anchoredOutcomeNoticesBySourceSignalId:
 			presentation.anchoredOutcomeNoticesBySourceSignalId,
@@ -1191,10 +1187,6 @@ function useSpaceConversationPresentationController(
 		() => input.ephemeralActivityItems.filter(belongsInMainConversation),
 		[input.ephemeralActivityItems, belongsInMainConversation]
 	);
-	const presentedMainWakeProgressItems = useMemo(
-		() => input.presentedWakeProgressItems.filter(belongsInMainConversation),
-		[input.presentedWakeProgressItems, belongsInMainConversation]
-	);
 	const profileEntriesById = useMemo(
 		() => buildSpaceMemberDirectoryEntryByProfileId(input.membersSnapshot),
 		[input.membersSnapshot]
@@ -1220,7 +1212,7 @@ function useSpaceConversationPresentationController(
 		() =>
 			buildActiveWakeConversationItems({
 				agentStreams: input.agentStreams,
-				activityItems: presentedMainWakeProgressItems,
+				activityItems: mainActivityItems,
 				profileEntriesById,
 				spaceId: input.spaceId,
 				threadId: null,
@@ -1229,7 +1221,7 @@ function useSpaceConversationPresentationController(
 		[
 			baseMainTimelineItems,
 			input.agentStreams,
-			presentedMainWakeProgressItems,
+			mainActivityItems,
 			input.spaceId,
 			profileEntriesById,
 		]
@@ -1307,9 +1299,6 @@ function useSpaceConversationPresentationController(
 	const threadWakeProgressByRootSignalId = useMemo(() => {
 		const byRoot = new Map<string, SpaceEphemeralActivityItem[]>();
 		for (const progress of input.ephemeralActivityItems) {
-			if (!isActiveWakeProgressItem(progress)) {
-				continue;
-			}
 			const selectedRoot = resolveWakeReplyThreadRoot({
 				progress,
 				agentStreams: input.agentStreams,
@@ -1329,6 +1318,21 @@ function useSpaceConversationPresentationController(
 		}
 		return byRoot;
 	}, [input.ephemeralActivityItems, input.agentStreams, input.threads]);
+	const threadStreamsByRootSignalId = useMemo(() => {
+		const byRoot = new Map<
+			string,
+			SpaceConversationVisibleStreamProjection[]
+		>();
+		for (const stream of input.agentStreams ?? []) {
+			if (stream.status !== "streaming" || !stream.replyThreadRootSignalId) {
+				continue;
+			}
+			const items = byRoot.get(stream.replyThreadRootSignalId) ?? [];
+			items.push(stream);
+			byRoot.set(stream.replyThreadRootSignalId, items);
+		}
+		return byRoot;
+	}, [input.agentStreams]);
 	const threadPreviewByThreadId = useMemo(
 		() => buildThreadPreviewByThreadId(input.threadPreviews),
 		[input.threadPreviews]
@@ -1441,6 +1445,7 @@ function useSpaceConversationPresentationController(
 		spaceGraphLayout,
 		starterComputerSetupOpen,
 		threadPreviewByThreadId,
+		threadStreamsByRootSignalId,
 		threadWakeProgressByRootSignalId,
 		threadsByRootSignalId,
 		wakeOutcomeIndex,
@@ -1467,7 +1472,6 @@ function useSpaceConversationNavigationController(input: {
 	onOpenThread: (threadId: string) => void;
 	onOpenUnreadThread?: SpaceConversationPanelResolvedProps["onOpenUnreadThread"];
 	onSpaceViewChange: (view: SpaceView) => void;
-	presentedWakeProgressItems: readonly SpaceEphemeralActivityItem[];
 	selfProfileId: string;
 	spaceId?: string;
 	spaceViewIdPrefix: string;
@@ -1941,7 +1945,6 @@ function resolveInitialMainFocusSignalId(
 		| "ephemeralActivityItems"
 		| "initialFocusInteractionId"
 		| "initialFocusSignalId"
-		| "presentedWakeProgressItems"
 	>
 ): string | undefined {
 	if (input.initialFocusSignalId) {
@@ -1951,7 +1954,7 @@ function resolveInitialMainFocusSignalId(
 		return undefined;
 	}
 	return (
-		[...input.ephemeralActivityItems, ...input.presentedWakeProgressItems].find(
+		input.ephemeralActivityItems.find(
 			(item) =>
 				item.pendingInteraction?.interactionId ===
 				input.initialFocusInteractionId
@@ -2177,7 +2180,10 @@ function ComposerError(input: { panel: SpaceConversationPanelResolvedProps }) {
 
 function renderConversationBody(input: {
 	isDirectMessage: boolean;
-	activeThreadRootSignalIds: ReadonlySet<string>;
+	threadStreamsByRootSignalId: ReadonlyMap<
+		string,
+		readonly SpaceConversationVisibleStreamProjection[]
+	>;
 	agentRecoveryPlansByProfileId: ReadonlyMap<
 		string,
 		AgentProfileReplyRecoveryPlan
@@ -2438,7 +2444,6 @@ function renderConversationBody(input: {
 						actionableAgentInteractionPlacement={
 							input.actionableAgentInteractionPlacement
 						}
-						activeThreadRootSignalIds={input.activeThreadRootSignalIds}
 						addressingWakeProgressItems={input.addressingWakeProgressItems}
 						agentRecoveryPlansByProfileId={input.agentRecoveryPlansByProfileId}
 						anchoredOutcomeNoticesBySourceSignalId={
@@ -2487,6 +2492,7 @@ function renderConversationBody(input: {
 						spaceReferencesById={input.spaceReferencesById}
 						taskCreationSourceSignalId={input.taskCreationSourceSignalId}
 						threadPreviewByThreadId={input.threadPreviewByThreadId}
+						threadStreamsByRootSignalId={input.threadStreamsByRootSignalId}
 						threadsByRootSignalId={input.threadsByRootSignalId}
 						threadWakeProgressByRootSignalId={
 							input.threadWakeProgressByRootSignalId
@@ -2553,7 +2559,10 @@ function resolveConversationEntryKey(entry: SpaceConversationEntry): string {
 
 type ConversationBubbleRunInput = {
 	isDirectMessage: boolean;
-	activeThreadRootSignalIds: ReadonlySet<string>;
+	threadStreamsByRootSignalId: ReadonlyMap<
+		string,
+		readonly SpaceConversationVisibleStreamProjection[]
+	>;
 	agentRecoveryPlansByProfileId: ReadonlyMap<
 		string,
 		AgentProfileReplyRecoveryPlan
@@ -3086,7 +3095,6 @@ function ConversationBubbleContent(input: {
 			})}
 			<MessageBubbleReactions />
 			<ThreadPreview
-				isReplyInProgress={parent.activeThreadRootSignalIds.has(input.item.id)}
 				membersSnapshot={parent.membersSnapshot}
 				onOpenThread={parent.onOpenThread}
 				onWakeStopRequest={parent.onWakeStopRequest}
@@ -3104,6 +3112,8 @@ function ConversationBubbleContent(input: {
 				stopRequestStatusBySelectorKey={
 					parent.wakeStopRequestStatusBySelectorKey
 				}
+				streams={parent.threadStreamsByRootSignalId.get(input.item.id) ?? []}
+				targetLabelsByProfileId={parent.wakeStopTargetLabelsByProfileId}
 				thread={parent.threadsByRootSignalId.get(input.item.id) ?? null}
 				threadHref={
 					parent.readOnly && parent.spaceId
@@ -3802,7 +3812,8 @@ function LoadNewerMessagesControl(input: {
 }
 
 function ThreadPreview(input: {
-	isReplyInProgress: boolean;
+	streams: readonly SpaceConversationVisibleStreamProjection[];
+	targetLabelsByProfileId: ReadonlyMap<string, string>;
 	profileId: string;
 	membersSnapshot: SpaceMembersSnapshot | null;
 	unreadCount: number;
@@ -3832,6 +3843,7 @@ function ThreadPreview(input: {
 	}).slice(-2);
 	const activeProgressItems = input.progressItems.filter(
 		(progress) =>
+			isActiveWakeProgressItem(progress) &&
 			!previewItems.some(
 				(item) =>
 					item.wakeDispatchId === progress.dispatchId &&
@@ -3840,8 +3852,47 @@ function ThreadPreview(input: {
 	);
 	const progressStatuses = activeProgressItems.flatMap((progress) => {
 		const status = resolveWakeProgressStatus(progress);
-		return status ? [{ progress, status }] : [];
+		return status
+			? [
+					{
+						key:
+							progress.dispatchId ??
+							`${progress.sourceSignalId}:${progress.targetProfileId}`,
+						status,
+					},
+				]
+			: [];
 	});
+	// A live stream can arrive first. It shares the Working presentation, but
+	// never grants Stop or replaces a matching Wake snapshot (including terminal).
+	progressStatuses.push(
+		...input.streams.flatMap((stream) => {
+			if (
+				input.progressItems.some(
+					(progress) =>
+						progress.targetProfileId === stream.profileId &&
+						(progress.dispatchId
+							? progress.dispatchId === stream.dispatchId
+							: progress.sourceSignalId === stream.triggerMessageId)
+				) ||
+				previewItems.some(
+					(item) =>
+						item.wakeDispatchId === stream.dispatchId &&
+						item.actorProfileId === stream.profileId
+				)
+			) {
+				return [];
+			}
+			return [
+				{
+					key: stream.dispatchId,
+					status: presentWorkingStatus(
+						input.targetLabelsByProfileId.get(stream.profileId) ?? "Agent"
+					),
+				},
+			];
+		})
+	);
 	const wakeStopTargets = activeProgressItems.map((item) =>
 		resolveWakeStopTargetForProgressItem({
 			item,
@@ -3849,12 +3900,7 @@ function ThreadPreview(input: {
 		})
 	);
 	const replyCount = input.preview?.replyCount ?? 0;
-	if (
-		input.preview &&
-		replyCount === 0 &&
-		progressStatuses.length === 0 &&
-		!input.isReplyInProgress
-	) {
+	if (input.preview && replyCount === 0 && progressStatuses.length === 0) {
 		return null;
 	}
 	const replyCountText = formatThreadReplyCount(replyCount);
@@ -3993,9 +4039,6 @@ function ThreadPreview(input: {
 				>
 					<ChatCircleIcon aria-hidden="true" className="size-3.5" />
 					<span>Open thread</span>
-					{input.isReplyInProgress && input.progressItems.length === 0 ? (
-						<span className="text-muted-foreground">· Reply in progress</span>
-					) : null}
 					{showCount ? (
 						<span
 							className={
@@ -4006,14 +4049,11 @@ function ThreadPreview(input: {
 						</span>
 					) : null}
 				</ThreadTarget>
-				{progressStatuses.map(({ progress, status }) => (
+				{progressStatuses.map(({ key, status }) => (
 					<output
 						aria-label={status.label}
 						className="inline-flex min-w-0 items-center gap-1 text-muted-foreground text-xs leading-5"
-						key={
-							progress.dispatchId ??
-							`${progress.sourceSignalId}:${progress.targetProfileId}`
-						}
+						key={key}
 					>
 						<SpaceAgentOrb state={WAKE_STATUS_ORB_STATE[status.kind]} />
 						<span>{status.label}</span>

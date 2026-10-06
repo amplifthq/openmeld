@@ -434,7 +434,7 @@ function useActiveWakeTargetProfileIds(
 		() =>
 			controller.mode === "ready"
 				? resolveActiveWakeWaitingTargetProfileIds(
-						controller.ephemeralActivityItems,
+						controller.presentedWakeProgressItems,
 						controller.threadEphemeralActivityItems
 					)
 				: new Set<string>(),
@@ -444,7 +444,7 @@ function useActiveWakeTargetProfileIds(
 		() =>
 			controller.mode === "ready"
 				? resolveActiveWakeDisplayTargetProfileIds(
-						controller.ephemeralActivityItems,
+						controller.presentedWakeProgressItems,
 						controller.threadEphemeralActivityItems
 					)
 				: new Set<string>(),
@@ -2297,7 +2297,7 @@ function SpaceLandingConversation({
 				isDirectMessage,
 			})}
 			emptyStateTitle={isDirectMessage ? undefined : EMPTY_SPACE_TITLE}
-			ephemeralActivityItems={controller.ephemeralActivityItems}
+			ephemeralActivityItems={controller.presentedWakeProgressItems}
 			files={
 				<Suspense fallback={<DelayedSpaceFilesFallback />}>
 					<SpaceFilesPanel
@@ -2365,7 +2365,6 @@ function SpaceLandingConversation({
 			orgSlug={input.orgSlug}
 			pendingActionSurface={pendingActionSurface}
 			prepareSetupHref={prepareSetupHref}
-			presentedWakeProgressItems={controller.presentedWakeProgressItems}
 			profileControl={composerProfileControl}
 			readOnlyComposerPlaceholder={readOnlyComposerPlaceholder}
 			renderSetupGuidance={(presentation) => {
