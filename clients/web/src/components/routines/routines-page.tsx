@@ -25,7 +25,16 @@ import {
 	FluidDropdownMenuItem,
 } from "@openmeld/ui/fluid/dropdown-menu";
 import { TabsSubtle, TabsSubtleItem } from "@openmeld/ui/fluid/tabs-subtle";
-import { ClockIcon, DotsThreeIcon, PlusIcon } from "@phosphor-icons/react";
+import {
+	ClockCounterClockwiseIcon,
+	ClockIcon,
+	DotsThreeIcon,
+	PauseCircleIcon,
+	PencilSimpleIcon,
+	PlayCircleIcon,
+	PlusIcon,
+	TrashIcon,
+} from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { AppEmptyState } from "#/components/app/app-empty-state";
@@ -378,6 +387,7 @@ function RoutineActions({
 				</DropdownMenuTrigger>
 				<FluidDropdownMenuContent align="end" gapClick={false}>
 					<FluidDropdownMenuItem index={0} onClick={() => onHistory(routine)}>
+						<ClockCounterClockwiseIcon aria-hidden="true" />
 						Run history
 					</FluidDropdownMenuItem>
 					<FluidDropdownMenuItem
@@ -389,6 +399,7 @@ function RoutineActions({
 						index={1}
 						onClick={() => onEdit(routine)}
 					>
+						<PencilSimpleIcon aria-hidden="true" />
 						Edit
 					</FluidDropdownMenuItem>
 					<FluidDropdownMenuItem
@@ -403,6 +414,11 @@ function RoutineActions({
 						index={2}
 						onClick={() => onStatus(routine)}
 					>
+						{routine.status === "enabled" ? (
+							<PauseCircleIcon aria-hidden="true" />
+						) : (
+							<PlayCircleIcon aria-hidden="true" />
+						)}
 						{routine.status === "enabled" ? "Pause" : "Resume"}
 					</FluidDropdownMenuItem>
 					<DropdownMenuSeparator />
@@ -414,6 +430,7 @@ function RoutineActions({
 								onDelete(routine);
 							}}
 						>
+							<TrashIcon aria-hidden="true" />
 							Delete
 						</FluidDropdownMenuItem>
 					</FluidDropdownMenuGroup>
