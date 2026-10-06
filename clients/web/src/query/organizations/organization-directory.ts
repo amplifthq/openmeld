@@ -42,6 +42,11 @@ export const organizationQueryKeys = {
 			...organizationQueryKeys.organization(organizationId),
 			"directory",
 		] as const,
+	centerAgentDirectory: (organizationId: string) =>
+		[
+			...organizationQueryKeys.directory(organizationId),
+			"center-agent",
+		] as const,
 	profileDirectory: (organizationId: string) =>
 		[
 			...organizationQueryKeys.organization(organizationId),
@@ -93,7 +98,9 @@ export function organizationDirectoryQueryFilters(input?: {
 	return {
 		predicate: (query: { queryKey: QueryKey }) =>
 			(query.queryKey.length === 3 ||
-				(query.queryKey.length === 4 && query.queryKey[3] === "identity")) &&
+				(query.queryKey.length === 4 &&
+					(query.queryKey[3] === "identity" ||
+						query.queryKey[3] === "center-agent"))) &&
 			query.queryKey[0] === organizationQueryKeys.all[0] &&
 			(input?.organizationId === undefined ||
 				query.queryKey[1] === input.organizationId) &&
@@ -192,18 +199,25 @@ export type OrganizationSpaceProfileCandidates = {
 export function organizationDirectoryQueryOptions(input: {
 	enabled: boolean;
 	organizationId: string;
+	centerAgentOnly?: boolean;
 }) {
 	return queryOptions<
 		OrganizationDirectoryResponse,
 		OrganizationDirectoryFailure
 	>({
 		enabled: input.enabled,
-		gcTime: ROUTE_REVISIT_GC_TIME_MS,
-		queryFn: async () =>
+		gcTime: input.centerAgentOnly
+			? DISPLAY_REVISIT_GC_TIME_MS
+			: ROUTE_REVISIT_GC_TIME_MS,
+		queryFn: async ({ signal }) =>
 			await readCurrentOrganizationDirectory({
 				organizationId: input.organizationId,
+				centerAgentOnly: input.centerAgentOnly,
+				signal,
 			}),
-		queryKey: organizationQueryKeys.directory(input.organizationId),
+		queryKey: input.centerAgentOnly
+			? organizationQueryKeys.centerAgentDirectory(input.organizationId)
+			: organizationQueryKeys.directory(input.organizationId),
 		refetchOnWindowFocus: true,
 		refetchInterval: 5 * 60_000,
 		refetchIntervalInBackground: false,

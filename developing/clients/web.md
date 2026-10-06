@@ -1046,8 +1046,9 @@ moves the window; clicking it enters editing. Text uses the same interaction and
 starts at its content size. New information cards use intrinsic height, while
 conversation windows retain a bounded viewport. Manual resizing remains available.
 Desk Inbox shows the six most recent items, including read records, using the
-shared Inbox list and read mutation. The Toolbar preview remains an attention
-view of unread updates and unresolved requests, with a link to full history.
+shared Inbox list and read mutation. The Toolbar preview uses the canonical
+grouped Inbox feed, including read history and unresolved requests, with
+continuous pagination and a fixed **Open full Inbox** link.
 People & Agents embeds the Space candidate selector, with independent selection
 of each person or agent. Each selection adds a Profile card instead of a directory
 widget. The card uses the shared Profile identity header and offers a Chat action.
@@ -1455,13 +1456,13 @@ The Settings secondary sidebar always shows these two groups:
   Privacy & Safety (or after Center Agent in a Personal Workspace). It opens
   the existing feedback dialog rather than creating a route or a second
   submission contract.
-- **Current Organization name** — **General**, **Center Agent**, **Usage**, **Members**,
+- **Current Organization name** — **General**, **Center Agent**, **AI usage**, **Members**,
   **Invitations**, and **Security**. General owns identity and lifecycle, Center
   Agent owns coordinator identity, connection, model, and audit history,
   Members owns roles, Invitations owns requests and invitation delivery, and
   Security owns information protection. Security is visible only to owners and
-  admins. Usage owns organization consumption and the signed-in member's Remote
-  Agent view. A personal workspace shows General and Usage: organization membership
+  admins. AI usage owns organization consumption and the signed-in member's Remote
+  Agent view. A personal workspace shows General and AI usage: organization membership
   and invitation management do not apply there, and its coordinator belongs to
   Personal. The visible group label is the selected
   Organization's stored name, including for the personal Organization; it is
@@ -1642,7 +1643,17 @@ global App Settings destination (grouped under the current Organization's name,
 or under **Personal** in a Personal Workspace) at `/o/{orgSlug}/settings/center-agent`.
 The historical `/o/{orgSlug}/center-agent/settings` path redirects here.
 It contains Model, the Audit Log, and the reversible
-Organization-wide operating control in **Danger Zone**. Only the immutable
+Organization-wide operating control in **Danger Zone**. The initial read uses
+the Directory's `centerAgentOnly=true` scope, which resolves runtime readiness
+only for the designated Center Agent and omits the member directory. Model and
+organization memory queries start in the settings owner before identity loads;
+their sections share the same query caches. The Audit Log loads the existing
+identity-only Profile Directory on demand for actor and resource names, without
+requesting unrelated Agent runtime state. Scoped and full Directory caches stay
+separate and share identity mutation invalidation. Retained settings data does
+not change freshness or operating-control authorization.
+
+Only the immutable
 Organization creator may pause or resume the Center Agent; owner/admin roles do
 not grant this authority. The active state presents **Pause Center Agent** and
 requires a confirmation that pausing stops every current task across OpenMeld,
@@ -1924,13 +1935,14 @@ File access card. Other owned Computers remain visible with guidance to open
 OpenMeld on that Computer; Web does not imply that their local policy can be
 managed remotely. This page never reads, stores, or edits a policy itself.
 
-**Settings → Usage** is a read-only destination available to every active member.
-Its text-only navigation matches the other Settings items. Fluid **Organization /
-My agents** tabs share the current Organization scope. Organization shows recorded
+**Settings → AI usage** is a read-only destination available to every active member.
+Its text-only navigation matches the other Settings items. Fluid **Organization usage /
+My agents** tabs share the current Organization scope. Organization usage shows recorded
 Center Agent and Remote Agent costs by model, separately recorded Local Agent
-tokens, and the existing 50-definition Routine limit. My agents selects the
+tokens. Routine counts and limits do not appear here; this destination covers
+AI consumption only. The existing `usage` route remains unchanged. My agents selects the
 signed-in member's non-Center Agent Profiles from the organization directory and
-shows their Remote runtime consumption; it is a subset of organization usage,
+shows their Remote runtime costs and Local Agent tokens; it is a subset of organization usage,
 not another allowance. Empty ownership selects no receipts.
 
 Both cost views reuse the shared chart, model brand icons, and Fluid controls.
@@ -1938,7 +1950,8 @@ They start at seven local calendar days, with a 30-day selector, refresh, model
 totals, and personal Agent totals in Details. Costs carry a green **Free** badge;
 provider estimates and missing costs are not presented as invoiced charges.
 Local token charts reuse the Computer chart without a Computer filter and remain
-separate from costs. A daily allowance appears only when explicitly configured,
+separate from costs. My agents applies the same owned-profile filter to both charts.
+A daily allowance appears only when explicitly configured,
 with the existing UTC reset. No billing controls, export, or task drilldown is
 introduced. These views read the existing Web → Gateway → Core projections.
 
@@ -3302,6 +3315,12 @@ explicit refresh failure rather than treating missing activity as an empty
 current state.
 
 ### Routines
+
+The page title carries a compact created-count/limit indicator, such as **3/50**,
+from the existing organization usage overview. Its hover and keyboard-focus
+tooltip explains that paused Routines count toward the limit and all slots can
+be enabled. Routine mutations and the page Refresh action refresh the count.
+There is no separate quota card in Routines or AI usage.
 
 **Center Agent → Routines** is present in every workspace. Every organization
 member may read Routines and create a Routine that schedules the Center Agent to

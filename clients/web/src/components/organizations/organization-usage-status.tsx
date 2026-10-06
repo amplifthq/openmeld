@@ -50,6 +50,12 @@ export function OrganizationUsageStatus(input: { organizationId: string }) {
 			organizationId: input.organizationId,
 		})
 	);
+	if (
+		usageQuery.isSuccess &&
+		usageQuery.data.aiSpend.dailyLimitNanoUsd === null
+	) {
+		return null;
+	}
 
 	return (
 		<section className="space-y-3">
@@ -70,7 +76,6 @@ export function OrganizationUsageStatus(input: { organizationId: string }) {
 						{usageQuery.data.aiSpend.dailyLimitNanoUsd !== null ? (
 							<AiSpendCard data={usageQuery.data.aiSpend} />
 						) : null}
-						<RoutinesUsageCard data={usageQuery.data.routines} />
 					</AgentConfigurationGrid>
 				) : null}
 			</div>
@@ -152,72 +157,21 @@ function formatAiSpend(nanoUsd: number): string {
 			}).format(usd);
 }
 
-function RoutinesUsageCard(input: {
-	data: {
-		count: number;
-		limit: number;
-	};
-}) {
-	return (
-		<AgentConfigurationReadoutCard
-			itemId="center-agent-routines"
-			label="Routines"
-		>
-			<div className="flex flex-col gap-3">
-				<RoutineUsageRow limit={input.data.limit} value={input.data.count} />
-				<p className="text-muted-foreground text-xs">
-					All {input.data.limit} Routines can be enabled.
-				</p>
-				{input.data.count === 0 ? (
-					<p className="text-muted-foreground text-xs">
-						No routines created yet.
-					</p>
-				) : null}
-			</div>
-		</AgentConfigurationReadoutCard>
-	);
-}
-
-function RoutineUsageRow(input: { limit: number; value: number }) {
-	return (
-		<div className="space-y-2">
-			<div className="flex items-center justify-between gap-4 text-xs">
-				<p className="font-medium text-foreground">Created</p>
-				<p className="text-muted-foreground tabular-nums">
-					{input.value} / {input.limit}
-				</p>
-			</div>
-			<Progress
-				aria-label="Routines created"
-				aria-valuetext={`${input.value} of ${input.limit}`}
-				max={input.limit}
-				value={input.value}
-			/>
-		</div>
-	);
-}
-
 function UsageLoadingState() {
 	return (
 		<section aria-busy="true" aria-live="polite" className="space-y-3">
 			<p className="text-muted-foreground text-sm">Loading usage.</p>
 			<AgentConfigurationGrid>
-				{["ai-spend", "routines"].map((key) => (
-					<AgentConfigurationReadoutCard
-						itemId={key}
-						key={key}
-						label="Loading usage"
-					>
-						<div>
-							<Skeleton className="h-4 w-36" />
-							<Skeleton className="h-3 w-64 max-w-full" />
-						</div>
-						<div className="space-y-4">
-							<Skeleton className="h-8 w-24" />
-							<Skeleton className="h-1.5 w-full" />
-						</div>
-					</AgentConfigurationReadoutCard>
-				))}
+				<AgentConfigurationReadoutCard itemId="ai-spend" label="Loading usage">
+					<div>
+						<Skeleton className="h-4 w-36" />
+						<Skeleton className="h-3 w-64 max-w-full" />
+					</div>
+					<div className="space-y-4">
+						<Skeleton className="h-8 w-24" />
+						<Skeleton className="h-1.5 w-full" />
+					</div>
+				</AgentConfigurationReadoutCard>
 			</AgentConfigurationGrid>
 		</section>
 	);

@@ -3079,6 +3079,7 @@ export type SetAgentProfileCreationDefaultsInput =
   };
 export type GetCurrentOrganizationDirectoryInput = {
   agentProfileWorkRecoveryVersion?: 2;
+  centerAgentOnly?: boolean;
   context?: CoreRpcContextInput;
   includeMemberLastActiveAt?: boolean;
 };
@@ -6243,17 +6244,23 @@ export async function rpcGetCurrentOrganizationDirectory(
   const organizationId = activeOrganization.organizationId;
   const requestId = context.actorContext.requestId;
   const [members, eligibleAgentProfiles] = await Promise.all([
-    resolveOrganizationDirectoryMembersWithActivity({
-      env,
-      includeMemberLastActiveAt: input.includeMemberLastActiveAt === true,
-      organizationId,
-      requestId,
-    }),
+    input.centerAgentOnly
+      ? Promise.resolve([])
+      : resolveOrganizationDirectoryMembersWithActivity({
+          env,
+          includeMemberLastActiveAt: input.includeMemberLastActiveAt === true,
+          organizationId,
+          requestId,
+        }),
     resolveEligibleOrganizationAgentProfiles({
       env,
       organizationId,
       requestId,
-    }),
+    }).then((profiles) =>
+      input.centerAgentOnly
+        ? profiles.filter((profile) => profile.isCenterAgent)
+        : profiles
+    ),
   ]);
   const runtimeOverview = await resolveOrganizationAgentRuntimeOverview({
     agentProfileWorkRecoveryVersion: input.agentProfileWorkRecoveryVersion,

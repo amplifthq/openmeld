@@ -123,7 +123,7 @@ type InboxItemRowProps = {
 	contextActions?: ReactNode;
 	feedRow?: InboxFeedRow;
 	children?: ReactNode;
-	density: "compact" | "default";
+	density: "compact" | "default" | "preview";
 	focused: boolean;
 	item: InboxItem;
 	onDismiss?: (item: InboxItem) => void;
@@ -163,7 +163,31 @@ function useInboxRowNavigation(input: InboxItemRowProps) {
 	return { sourceNavigation, informational, onOpen };
 }
 
+const ROW_DENSITY_STYLES = {
+	default: {
+		actions: "pe-4 pb-2 sm:pb-0",
+		layout:
+			"grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center",
+		metadata: "mt-2",
+		preview: "",
+	},
+	compact: {
+		actions: "pe-4 pb-2 sm:pb-0",
+		layout:
+			"grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center",
+		metadata: "mt-1",
+		preview: "",
+	},
+	preview: {
+		actions: "pe-2",
+		layout: "grid grid-cols-[minmax(0,1fr)_auto] items-center",
+		metadata: "mt-1",
+		preview: "line-clamp-1 text-xs",
+	},
+};
+
 export function InboxItemRow(input: InboxItemRowProps) {
+	const densityStyles = ROW_DENSITY_STYLES[input.density];
 	const item = presentInboxItem(input.item, useConversationNames());
 	const inlineInvitation =
 		input.density === "default" &&
@@ -214,16 +238,11 @@ export function InboxItemRow(input: InboxItemRowProps) {
 						data-inbox-read-state={unread ? "unread" : "read"}
 						itemId={item.id}
 					>
-						<div
-							className={cn({
-								"grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center":
-									input.trailingActions,
-							})}
-						>
+						<div className={cn(input.trailingActions && densityStyles.layout)}>
 							<InboxItemSourceLink
 								className={cn(
 									"flex min-w-0 items-start gap-3 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
-									input.density === "compact"
+									input.density !== "default"
 										? "min-h-16 px-3 py-3 pe-14"
 										: "min-h-20 px-4 py-4 pe-16 sm:gap-4",
 									inlineInvitation && "min-h-0 gap-4 pb-1",
@@ -245,7 +264,7 @@ export function InboxItemRow(input: InboxItemRowProps) {
 									<InboxItemStatusDot dot={input.feedRow?.dot} item={item} />
 								</span>
 								<InboxLeadingAvatar
-									compact={input.density === "compact"}
+									compact={input.density !== "default"}
 									inlineInvitation={inlineInvitation}
 									item={item}
 								/>
@@ -271,7 +290,8 @@ export function InboxItemRow(input: InboxItemRowProps) {
 									<span
 										className={cn(
 											"mt-1 line-clamp-2 break-words text-muted-foreground text-sm leading-5",
-											inlineInvitation && "hidden"
+											inlineInvitation && "hidden",
+											densityStyles.preview
 										)}
 									>
 										{input.previewOverride ?? item.preview}
@@ -279,7 +299,7 @@ export function InboxItemRow(input: InboxItemRowProps) {
 									<span
 										className={cn(
 											"flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground text-xs",
-											input.density === "compact" ? "mt-1" : "mt-2",
+											densityStyles.metadata,
 											inlineInvitation && "hidden"
 										)}
 									>
@@ -294,7 +314,7 @@ export function InboxItemRow(input: InboxItemRowProps) {
 								onInteract={handleOpen}
 							/>
 							{input.trailingActions ? (
-								<div className="flex justify-end pe-4 pb-2 sm:pb-0">
+								<div className={cn("flex justify-end", densityStyles.actions)}>
 									{input.trailingActions}
 								</div>
 							) : null}

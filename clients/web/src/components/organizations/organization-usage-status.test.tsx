@@ -1,5 +1,11 @@
 import type { OrganizationUsageOverviewResponse } from "@openmeld/schemas/types";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TestQueryClientProvider } from "#/test-support/query-client";
 import { OrganizationUsageStatus } from "./organization-usage-status";
@@ -26,14 +32,14 @@ describe("OrganizationUsageStatus", () => {
 		expect(screen.getByText("Loading usage.")).toBeTruthy();
 	});
 
-	it("shows current model costs and Routine usage with local and UTC reset time", async () => {
+	it("shows the AI allowance with local and UTC reset time, without Routine counts", async () => {
 		readOverviewMock.mockResolvedValue(usageOverview());
 
 		renderUsagePage();
 
 		expect(await screen.findByText("$0.12 / $1.00")).toBeTruthy();
-		expect(screen.getByText("7 / 50")).toBeTruthy();
-		expect(screen.getByText("All 50 Routines can be enabled.")).toBeTruthy();
+		expect(screen.queryByText("Routines")).toBeNull();
+		expect(screen.queryByText("7 / 50")).toBeNull();
 		const expectedLocalResetTime = new Date(
 			"2026-07-17T00:00:00.000Z"
 		).toLocaleTimeString("en-US", {
@@ -44,10 +50,10 @@ describe("OrganizationUsageStatus", () => {
 		expect(
 			screen.getByText(`Resets at ${expectedLocalResetTime} (00:00 UTC)`)
 		).toBeTruthy();
-		expect(screen.getAllByRole("progressbar")).toHaveLength(2);
+		expect(screen.getAllByRole("progressbar")).toHaveLength(1);
 	});
 
-	it("keeps Routines visible without inventing an allowance when no limit is configured", async () => {
+	it("leaves no empty section when no AI allowance is configured", async () => {
 		readOverviewMock.mockResolvedValue(
 			usageOverview({
 				aiSpend: { usedNanoUsd: 0, dailyLimitNanoUsd: null },
@@ -55,11 +61,8 @@ describe("OrganizationUsageStatus", () => {
 			})
 		);
 
-		renderUsagePage();
-
-		expect(await screen.findByText("No routines created yet.")).toBeTruthy();
-		expect(screen.queryByText("Daily AI allowance")).toBeNull();
-		expect(screen.getAllByRole("progressbar")).toHaveLength(1);
+		const view = renderUsagePage();
+		await waitFor(() => expect(view.container.childElementCount).toBe(0));
 	});
 
 	it("shows a retryable error state", async () => {
