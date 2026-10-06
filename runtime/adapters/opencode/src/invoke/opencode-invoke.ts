@@ -14,7 +14,6 @@ import type {
 } from "@openmeld/adapter-core";
 import { invokeWithSingleContextHeal } from "@openmeld/adapter-core";
 import { isLikelyOpenCodeContextLostError } from "../context/opencode-context-heal.js";
-import { invokeOpenCodeCliTransport } from "../transport/opencode-cli-transport.js";
 import { invokeOpenCodeServerTransport } from "../transport/opencode-server-transport.js";
 
 export type OpenCodeInvokeResult = {
@@ -135,40 +134,23 @@ async function invokeOpenCodeOnce(input: {
   streamingMode?: AdapterStreamingMode;
 }): Promise<OpenCodeInvokeResult> {
   try {
-    if (input.onInteractionRequest || input.sessionId) {
-      return await invokeOpenCodeServerTransport({
-        launchContract: input.launchContract,
-        openCodeTimeoutMs: input.openCodeTimeoutMs,
-        openCodeWorkdir: input.openCodeWorkdir,
-        conversationPolicy: input.conversationPolicy,
-        env: input.env,
-        executionMode: input.executionMode,
-        instructionPrompt: input.instructionPrompt,
-        onInteractionRequest: input.onInteractionRequest,
-        ...(input.onPreview ? { onPreview: input.onPreview } : {}),
-        ...(input.onProcessControlEvent
-          ? { onProcessControlEvent: input.onProcessControlEvent }
-          : {}),
-        ...(input.onRuntimeEvent
-          ? { onRuntimeEvent: input.onRuntimeEvent }
-          : {}),
-        prompt: input.prompt,
-        sessionId: input.sessionId,
-        streamingMode: input.streamingMode,
-      });
-    }
-    return await invokeOpenCodeCliTransport({
+    return await invokeOpenCodeServerTransport({
       launchContract: input.launchContract,
       openCodeTimeoutMs: input.openCodeTimeoutMs,
       openCodeWorkdir: input.openCodeWorkdir,
       conversationPolicy: input.conversationPolicy,
       env: input.env,
+      executionMode: input.executionMode,
+      instructionPrompt: input.instructionPrompt,
+      onInteractionRequest: input.onInteractionRequest,
+      ...(input.onPreview ? { onPreview: input.onPreview } : {}),
       ...(input.onProcessControlEvent
         ? { onProcessControlEvent: input.onProcessControlEvent }
         : {}),
       ...(input.onRuntimeEvent ? { onRuntimeEvent: input.onRuntimeEvent } : {}),
       prompt: input.prompt,
       sessionId: input.sessionId,
+      streamingMode: input.streamingMode,
     });
   } catch (error) {
     if (error instanceof OpenCodeRuntimeError) {

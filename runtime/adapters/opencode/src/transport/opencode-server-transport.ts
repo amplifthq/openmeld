@@ -1,4 +1,5 @@
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import { connect, createServer } from "node:net";
 import { loadavg } from "node:os";
@@ -31,6 +32,7 @@ import {
   readAdapterAiUsageObservation,
   spawnAgentControllerProcess,
 } from "@openmeld/adapter-core";
+import { runCliDriver } from "@openmeld/adapter-core/drivers/cli-driver";
 import { isLikelyOpenCodeContextLostError } from "../context/opencode-context-heal.js";
 import { prepareOpenCodeDeliveryOnlyTurn } from "./opencode-delivery-only.js";
 import { classifyOpenCodeFailureMessage } from "./opencode-failure.js";
@@ -38,8 +40,14 @@ import {
   type OpenCodeInteractionFailure,
   OpenCodeInteractionHandler,
 } from "./opencode-interactions.js";
+import { createOpenCode2Client } from "./opencode2-server.js";
+import {
+  assertOpenCode2Directory,
+  runOpenCode2Turn,
+} from "./opencode2-transport.js";
 
 const SERVER_HOSTNAME = "127.0.0.1";
+const OPENCODE_V1_VERSION_RE = /^v?1\./u;
 const SERVER_HEALTH_TIMEOUT_MS = 5000;
 const SERVER_STARTUP_TIMEOUT_MS = 15_000;
 const SERVER_MAX_START_ATTEMPTS = 2;
@@ -49,7 +57,7 @@ const SERVER_PROCESS_KILL_GRACE_MS = 1000;
 const SERVER_PROCESS_CLOSE_TIMEOUT_MS = 2000;
 const MAX_STDERR_CHARS = 16_000;
 const SERVER_READY_LINE_PATTERN =
-  /^opencode server listening on (https?:\/\/[^\s]+)$/;
+  /^(?:opencode )?server listening on (https?:\/\/[^\s]+)$/;
 
 type RuntimeLifecycle = {
   exitCode: number | null;
@@ -86,7 +94,7 @@ type OpenCodeServerTransportInput = {
   streamingMode?: AdapterStreamingMode;
 };
 
-type OpenCodeServerLifecycleInput = Pick<
+type OpenCodeServerLifecycleInput = { pure?: boolean } & Pick<
   OpenCodeServerTransportInput,
   | "env"
   | "launchContract"
@@ -153,34 +161,60 @@ export async function invokeOpenCodeServerTransport(
       : null;
   let result:
     | {
+        aiUsage?: AdapterDispatchTelemetry["aiUsage"];
         output: string;
         previewEmitted: boolean;
         sessionId: string;
       }
     | undefined;
   try {
-    const executionSessionId = canonicalRepairSessionId
-      ? await forkOpenCodeSessionWithClient({
-          client,
-          openCodeWorkdir: input.openCodeWorkdir,
-          sourceSessionId: canonicalRepairSessionId,
-        })
-      : normalizeOptionalText(input.sessionId);
-    result = await runOpenCodeServerTurn({
-      env: input.env,
-      onRuntimeEvent: input.onRuntimeEvent,
-      client,
-      conversationPolicy: input.conversationPolicy,
-      instructionPrompt: input.instructionPrompt,
-      observedSessionId: canonicalRepairSessionId,
-      onInteractionRequest: input.onInteractionRequest,
-      onPreview: input.onPreview,
-      openCodeWorkdir: input.openCodeWorkdir,
-      prompt,
-      server,
-      sessionId: executionSessionId,
-      streamingMode: input.streamingMode ?? "final",
-    });
+    if (server.apiMajor === 2) {
+      if (canonicalRepairSessionId) {
+        throw new OpenCodeServerTransportError({
+          code: "delivery_scope.unsupported",
+          errorType: "config",
+          message:
+            "OpenCode 2 reply repair requires an attested restricted tool scope.",
+        });
+      }
+      const abort = new AbortController();
+      try {
+        result = await Promise.race([
+          runOpenCode2Turn({
+            ...input,
+            client: createOpenCode2Client(serverUrl, server.apiPassword),
+            directory: input.openCodeWorkdir,
+            signal: abort.signal,
+          }),
+          server.waitForFailure(),
+        ]);
+      } finally {
+        abort.abort();
+      }
+    } else {
+      const executionSessionId = canonicalRepairSessionId
+        ? await forkOpenCodeSessionWithClient({
+            client,
+            openCodeWorkdir: input.openCodeWorkdir,
+            sourceSessionId: canonicalRepairSessionId,
+          })
+        : normalizeOptionalText(input.sessionId);
+      result = await runOpenCodeServerTurn({
+        env: input.env,
+        onRuntimeEvent: input.onRuntimeEvent,
+        client,
+        conversationPolicy: input.conversationPolicy,
+        instructionPrompt: input.instructionPrompt,
+        observedSessionId: canonicalRepairSessionId,
+        onInteractionRequest: input.onInteractionRequest,
+        onPreview: input.onPreview,
+        openCodeWorkdir: input.openCodeWorkdir,
+        prompt,
+        server,
+        sessionId: executionSessionId,
+        streamingMode: input.streamingMode ?? "final",
+      });
+    }
   } catch (error) {
     const failure = toOpenCodeServerTransportError(error, server.readStderr());
     failure.telemetry = server.buildTelemetry({
@@ -204,12 +238,15 @@ export async function invokeOpenCodeServerTransport(
   return {
     output: result.output,
     sessionId: canonicalRepairSessionId ?? result.sessionId,
-    telemetry: server.buildTelemetry({
-      invokedAtMs,
-      previewEmitted: result.previewEmitted,
-      resumedContext: normalizeOptionalText(input.sessionId) !== null,
-      streamingMode: input.streamingMode ?? "final",
-    }),
+    telemetry: {
+      ...server.buildTelemetry({
+        invokedAtMs,
+        previewEmitted: result.previewEmitted,
+        resumedContext: normalizeOptionalText(input.sessionId) !== null,
+        streamingMode: input.streamingMode ?? "final",
+      }),
+      ...(result.aiUsage ? { aiUsage: result.aiUsage } : {}),
+    },
   };
 }
 
@@ -238,6 +275,26 @@ export async function forkOpenCodeServerSession(input: {
     deadlineMs,
   });
   try {
+    if (server.apiMajor === 2) {
+      const client = createOpenCode2Client(serverUrl, server.apiPassword);
+      const options = { signal: AbortSignal.timeout(15_000) };
+      const source = await client.session.get(
+        { sessionID: sourceSessionId },
+        options
+      );
+      await assertOpenCode2Directory(source, input.openCodeWorkdir);
+      const fork = await client.session.fork(
+        { sessionID: sourceSessionId },
+        options
+      );
+      if (input.title) {
+        await client.session.update(
+          { sessionID: fork.id, title: input.title },
+          options
+        );
+      }
+      return { sessionId: fork.id };
+    }
     const client = createOpencodeClient({
       baseUrl: serverUrl,
       directory: input.openCodeWorkdir,
@@ -318,6 +375,27 @@ async function forkOpenCodeSessionWithClient(input: {
 async function startHealthyOpenCodeServer(
   input: OpenCodeServerLifecycleInput & { deadlineMs: number | null }
 ): Promise<{ server: OpenCodeServerProcess; serverUrl: string }> {
+  const pure = isDispatchSpaceActionDeliveryOnly(input.env);
+  if (pure) {
+    const invocation = buildCliLaunchInvocation({
+      launchContract: input.launchContract,
+      args: ["--version"],
+    });
+    const version = await runCliDriver({
+      ...invocation,
+      cwd: input.openCodeWorkdir,
+      env: input.env,
+      timeoutMs: SERVER_STARTUP_TIMEOUT_MS,
+    });
+    if (!OPENCODE_V1_VERSION_RE.test(version.stdoutText.trim())) {
+      throw new OpenCodeServerTransportError({
+        code: "delivery_scope.unsupported",
+        errorType: "config",
+        message:
+          "OpenCode reply repair requires the verified OpenCode 1 pure-server contract.",
+      });
+    }
+  }
   let lastError: OpenCodeServerTransportError | null = null;
   const startupEvidence: string[] = [];
 
@@ -336,6 +414,7 @@ async function startHealthyOpenCodeServer(
     );
     const attempt = await runOpenCodeServerStartAttempt({
       ...input,
+      pure,
       openCodeTimeoutMs: remainingTimeoutMs,
       startupTimeoutMs,
     });
@@ -411,11 +490,21 @@ async function runOpenCodeServerStartAttempt(
     return await closeFailedOpenCodeServer({ error, phase: "startup", server });
   }
   try {
-    await assertOpenCodeServerHealthy({
-      deadlineMs: input.deadlineMs,
-      directory: input.openCodeWorkdir,
-      serverUrl,
-    });
+    if (server.apiMajor === 2) {
+      const info = await createOpenCode2Client(
+        serverUrl,
+        server.apiPassword
+      ).server.info({ signal: AbortSignal.timeout(SERVER_HEALTH_TIMEOUT_MS) });
+      if (!info.version.startsWith("2.")) {
+        throw new Error("OpenCode returned an unsupported server API version.");
+      }
+    } else {
+      await assertOpenCodeServerHealthy({
+        deadlineMs: input.deadlineMs,
+        directory: input.openCodeWorkdir,
+        serverUrl,
+      });
+    }
     return { server, serverUrl, status: "success" };
   } catch (error) {
     return await closeFailedOpenCodeServer({ error, phase: "health", server });
@@ -1297,6 +1386,9 @@ function throwInteractionFailure(failure: OpenCodeInteractionFailure): never {
 }
 
 class OpenCodeServerProcess {
+  apiMajor: 1 | 2 = 1;
+  readonly apiPassword = randomUUID();
+  readonly #pure: boolean;
   readonly #aiUsage = new Map<
     string,
     NonNullable<AdapterDispatchTelemetry["aiUsage"]>[number]
@@ -1344,6 +1436,7 @@ class OpenCodeServerProcess {
   };
 
   constructor(input: {
+    pure?: boolean;
     env?: Record<string, string | undefined>;
     launchContract: RuntimeAgentControllerLaunchContract;
     onProcessControlEvent?: AdapterRuntimeProcessCallback;
@@ -1352,6 +1445,7 @@ class OpenCodeServerProcess {
     openCodeWorkdir: string;
     startupTimeoutMs: number;
   }) {
+    this.#pure = input.pure === true;
     this.#env = input.env;
     this.#launchContract = input.launchContract;
     this.#onProcessControlEvent = input.onProcessControlEvent;
@@ -1369,11 +1463,9 @@ class OpenCodeServerProcess {
     const invocation = buildCliLaunchInvocation({
       args: [
         "serve",
-        ...(isDispatchSpaceActionDeliveryOnly(this.#env) ? ["--pure"] : []),
+        ...(this.#pure ? ["--pure"] : []),
         `--hostname=${SERVER_HOSTNAME}`,
         `--port=${port}`,
-        "--print-logs",
-        "--log-level=INFO",
       ],
       launchContract: this.#launchContract,
     });
@@ -1384,6 +1476,7 @@ class OpenCodeServerProcess {
       env: {
         ...process.env,
         ...(this.#env ?? {}),
+        OPENCODE_PASSWORD: this.apiPassword,
       },
       shell: invocation.shell ?? false,
     });
@@ -1779,6 +1872,7 @@ class OpenCodeServerProcess {
         return;
       }
       this.#startupResolve?.(reportedUrl);
+      this.apiMajor = line.startsWith("opencode ") ? 1 : 2;
       this.#readyLineObserved = true;
       this.#startupResolve = null;
       this.#startupReject = null;
@@ -1923,6 +2017,22 @@ function toOpenCodeServerTransportError(
   error: unknown,
   stderr: string
 ): OpenCodeServerTransportError {
+  if (
+    !(error instanceof OpenCodeServerTransportError) &&
+    error instanceof Error &&
+    "code" in error &&
+    typeof error.code === "string" &&
+    "errorType" in error &&
+    typeof error.errorType === "string"
+  ) {
+    return new OpenCodeServerTransportError({
+      ...error,
+      code: error.code,
+      errorType: error.errorType as AdapterErrorType,
+      message: error.message,
+      originalError: createProviderOriginalError(error.message) ?? undefined,
+    });
+  }
   if (
     error instanceof Error &&
     toRecord(error)?.code === "space.action.delivery_only_unverified"
