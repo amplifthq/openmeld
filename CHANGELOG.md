@@ -31,6 +31,18 @@ reducing unnecessary requests while the app is idle.
 
 Evidence: pr:1524, commit:20425528edfe6aec5b11700e52cef34735e284aa, workflow:37365763256
 
+### Get started with OpenMeld's product guides
+
+New · docs
+
+OpenMeld Docs now guides you from your first browser task to connecting a
+computer and working with your team. Find instructions for Agents, Spaces,
+Tasks, Files, Projects, Routines, integrations, and account settings, with
+troubleshooting steps when you get stuck. Search the guides or read the same
+content as Markdown in your AI tools.
+
+Evidence: pr:1546, commit:41d1dce22cfb4101634b4f183cbf35f09cc9af13, workflow:37502815505
+
 ## October 5, 2026
 
 ### More responsive workspace pages
