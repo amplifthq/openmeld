@@ -859,9 +859,8 @@ export function useSpaceLandingFeed(input: {
 			setLiveErrorMessage(null);
 		};
 
-		setLiveState("connecting");
-		setLiveErrorMessage(null);
-
+		// Retain an interrupted state across attempts until the server accepts
+		// the subscription, so recovery feedback does not blink on every retry.
 		const socket = createSpaceLiveTransport({
 			origin: window.location.origin,
 			spaceId: input.spaceId,
@@ -1076,7 +1075,13 @@ export function useSpaceLandingFeed(input: {
 		agentStreamProjections,
 		liveErrorMessage,
 		liveState,
-		reconnectNow,
+		retryLiveUpdates: () => {
+			if (liveStateRef.current === "stale") {
+				reconcileConversation().catch(() => undefined);
+			} else {
+				reconnectNow();
+			}
+		},
 		mergePersistedIncoming: (incoming: readonly SignalEnvelope[]) => {
 			if (
 				queryClient.getQueryData(

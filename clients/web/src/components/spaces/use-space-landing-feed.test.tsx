@@ -1185,7 +1185,7 @@ describe("useSpaceLandingFeed conversation reconcile", () => {
 		await flushMicrotasks();
 
 		act(() => {
-			view.result.current.reconnectNow();
+			view.result.current.retryLiveUpdates();
 		});
 		await flushMicrotasks();
 		await openLatestSocket();
@@ -1617,7 +1617,7 @@ describe("useSpaceLandingFeed conversation reconcile", () => {
 		await flushMicrotasks();
 
 		act(() => {
-			view.result.current.reconnectNow();
+			view.result.current.retryLiveUpdates();
 		});
 		await flushMicrotasks();
 
