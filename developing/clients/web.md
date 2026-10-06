@@ -4701,9 +4701,21 @@ severity. Web must never deep-link to a retired authorization surface.
 
 Thread placement is conversation placement. It is not execution truth.
 
+Latest, focused-message, and history-window views consume the same presented
+Wake progress. Navigation may select a different history page; it must not
+clear the progress or authorized Stop controls on a visible Thread entrance.
+A public stream arriving before its Wake snapshot uses the same named Working
+presentation without inventing lifecycle or Stop eligibility. Matching Wake
+snapshots and durable outcomes take precedence over that stream. Thread history
+loading does not hide already available live work. History and progress reads
+remain independent; neither waits for the other to render.
+
 Direct Messages and ordinary Spaces share the same unfinished Agent answer row.
-Before execution starts, its compact progress reads **Thinking…**; active work
-reads **Working…**. The elapsed request time begins with submission. The row's
+Its compact progress reads **Working…** continuously through sending,
+connecting, active work, reply streaming, and publication. This is request
+progress, not a claim that execution admission has completed. Authoritative
+waiting, input-required, confirmation-pending, and terminal outcomes retain
+their distinct meaning. The elapsed request time begins with submission. The row's
 avatar and identity header name the Agent once, while source-level summaries
 still name each target when multiple Agents are involved. The work disclosure
 opens only when reasoning, public progress, or tool steps arrive; reasoning

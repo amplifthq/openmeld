@@ -1189,7 +1189,6 @@ export type SpaceLandingConversationController = {
 	composerHasAuthoredMentions: boolean;
 	composerReplyToSignalId: string | null;
 	composerText: string;
-	ephemeralActivityItems: readonly SpaceEphemeralActivityItem[];
 	presentedWakeProgressItems: readonly SpaceEphemeralActivityItem[];
 	ownActiveWakesHaveMore: boolean;
 	historyNavigation: SpaceHistoryNavigationController;
@@ -2718,7 +2717,6 @@ export function useSpaceLandingController(input: {
 		composerReplyToSignalId: mentionAuthoring.replyTo?.signalId ?? null,
 		composerText: mentionAuthoring.composerText,
 		...resolveNavigationPresentation(historyNavigation, {
-			presentedWakeProgressItems,
 			hasEarlierHistory,
 			historyActionErrorMessage,
 			isLoadingEarlierHistory,
@@ -4955,16 +4953,12 @@ function useActiveSpaceHistorySync(input: {
 function resolveNavigationPresentation(
 	navigation: SpaceHistoryNavigationController,
 	live: {
-		presentedWakeProgressItems: readonly SpaceEphemeralActivityItem[];
 		hasEarlierHistory: boolean;
 		historyActionErrorMessage: string | null;
 		isLoadingEarlierHistory: boolean;
 	}
 ) {
 	return {
-		ephemeralActivityItems: navigation.activeWindow
-			? []
-			: live.presentedWakeProgressItems,
 		hasEarlierHistory:
 			navigation.activeWindow?.hasBefore ??
 			(navigation.hasHiddenLiveHistory || live.hasEarlierHistory),
