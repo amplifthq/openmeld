@@ -662,6 +662,13 @@ context reads or other business tools. When a context read fails before any
 Space Action submission, the Agent should report the blocker through the
 permitted completion action rather than invent results or silently finish.
 Shared text attachments use the dispatch `read_file` tool when available.
+Large local Space reads retain their complete in-memory result and expose
+bounded pages. Agents may use `read_result.query` to locate literal text in that
+original JSON without replaying every earlier page. Search excerpts remain
+untrusted task data. They neither summarize nor replace history, and broader
+questions still require additional searches or complete reads. Every search
+revalidates source access and version through the same owner as paging; results
+remain scoped to the active Wake and tool connection.
 Dispatch MCP tool processes retain the carrier's `OPENMELD_HOME`,
 `OPENMELD_AUTH_URL` and `OPENMELD_GATEWAY_URL` when present, alongside its
 environment preset. The shared adapter configuration forwards these non-secret
