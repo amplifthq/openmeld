@@ -1,3 +1,4 @@
+import { supportsLocalExecutionInput } from "@openmeld/agent-runtime";
 import type { StructuredApiClientFailure } from "@openmeld/api-client";
 import { toStructuredApiClientFailure } from "@openmeld/api-client";
 import { normalizeSpacePasswordText } from "@openmeld/schemas";
@@ -435,7 +436,7 @@ function resolveQueuedExecutionInput(input: {
 }) {
 	const localProfileIds =
 		input.members?.agents
-			.filter((agent) => agent.agentControllerRef === "builtin:codex")
+			.filter((agent) => supportsLocalExecutionInput(agent.agentControllerRef))
 			.map((agent) => agent.profileId) ?? [];
 	if (input.hasFiles) {
 		return undefined;

@@ -112,8 +112,11 @@ const createFakeClaudeAgentQueryFactory = (input) => {
     let closed = false;
     const runtime = (async function* () {
       captured.promptMessages = [];
-      for await (const message of prompt) {
-        captured.promptMessages.push(message);
+      // The SDK consumes input concurrently with output. A live prompt stream
+      // stays open until the native result; draining it first would deadlock.
+      const first = await prompt[Symbol.asyncIterator]().next();
+      if (!first.done) {
+        captured.promptMessages.push(first.value);
       }
       const interruptPromise = input.waitForInterrupt
         ? new Promise((resolve) => {

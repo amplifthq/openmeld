@@ -85,6 +85,7 @@ export {
   invokeOpenCodeServerTransport,
   OpenCodeServerTransportError,
 } from "./transport/opencode-server-transport.js";
+export { readOpenCode2Inventory } from "./transport/opencode2-server.js";
 export {
   type OpenCodeGoUsageResponse,
   parseOpenCodeGoUsageResponse,
