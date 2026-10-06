@@ -1046,8 +1046,9 @@ moves the window; clicking it enters editing. Text uses the same interaction and
 starts at its content size. New information cards use intrinsic height, while
 conversation windows retain a bounded viewport. Manual resizing remains available.
 Desk Inbox shows the six most recent items, including read records, using the
-shared Inbox list and read mutation. The Toolbar preview remains an attention
-view of unread updates and unresolved requests, with a link to full history.
+shared Inbox list and read mutation. The Toolbar preview uses the canonical
+grouped Inbox feed, including read history and unresolved requests, with
+continuous pagination and a fixed **Open full Inbox** link.
 People & Agents embeds the Space candidate selector, with independent selection
 of each person or agent. Each selection adds a Profile card instead of a directory
 widget. The card uses the shared Profile identity header and offers a Chat action.
@@ -1455,13 +1456,13 @@ The Settings secondary sidebar always shows these two groups:
   Privacy & Safety (or after Center Agent in a Personal Workspace). It opens
   the existing feedback dialog rather than creating a route or a second
   submission contract.
-- **Current Organization name** — **General**, **Center Agent**, **Usage**, **Members**,
+- **Current Organization name** — **General**, **Center Agent**, **AI usage**, **Members**,
   **Invitations**, and **Security**. General owns identity and lifecycle, Center
   Agent owns coordinator identity, connection, model, and audit history,
   Members owns roles, Invitations owns requests and invitation delivery, and
   Security owns information protection. Security is visible only to owners and
-  admins. Usage owns organization consumption and the signed-in member's Remote
-  Agent view. A personal workspace shows General and Usage: organization membership
+  admins. AI usage owns organization consumption and the signed-in member's Remote
+  Agent view. A personal workspace shows General and AI usage: organization membership
   and invitation management do not apply there, and its coordinator belongs to
   Personal. The visible group label is the selected
   Organization's stored name, including for the personal Organization; it is
@@ -1642,7 +1643,17 @@ global App Settings destination (grouped under the current Organization's name,
 or under **Personal** in a Personal Workspace) at `/o/{orgSlug}/settings/center-agent`.
 The historical `/o/{orgSlug}/center-agent/settings` path redirects here.
 It contains Model, the Audit Log, and the reversible
-Organization-wide operating control in **Danger Zone**. Only the immutable
+Organization-wide operating control in **Danger Zone**. The initial read uses
+the Directory's `centerAgentOnly=true` scope, which resolves runtime readiness
+only for the designated Center Agent and omits the member directory. Model and
+organization memory queries start in the settings owner before identity loads;
+their sections share the same query caches. The Audit Log loads the existing
+identity-only Profile Directory on demand for actor and resource names, without
+requesting unrelated Agent runtime state. Scoped and full Directory caches stay
+separate and share identity mutation invalidation. Retained settings data does
+not change freshness or operating-control authorization.
+
+Only the immutable
 Organization creator may pause or resume the Center Agent; owner/admin roles do
 not grant this authority. The active state presents **Pause Center Agent** and
 requires a confirmation that pausing stops every current task across OpenMeld,
@@ -1924,13 +1935,14 @@ File access card. Other owned Computers remain visible with guidance to open
 OpenMeld on that Computer; Web does not imply that their local policy can be
 managed remotely. This page never reads, stores, or edits a policy itself.
 
-**Settings → Usage** is a read-only destination available to every active member.
-Its text-only navigation matches the other Settings items. Fluid **Organization /
-My agents** tabs share the current Organization scope. Organization shows recorded
+**Settings → AI usage** is a read-only destination available to every active member.
+Its text-only navigation matches the other Settings items. Fluid **Organization usage /
+My agents** tabs share the current Organization scope. Organization usage shows recorded
 Center Agent and Remote Agent costs by model, separately recorded Local Agent
-tokens, and the existing 50-definition Routine limit. My agents selects the
+tokens. Routine counts and limits do not appear here; this destination covers
+AI consumption only. The existing `usage` route remains unchanged. My agents selects the
 signed-in member's non-Center Agent Profiles from the organization directory and
-shows their Remote runtime consumption; it is a subset of organization usage,
+shows their Remote runtime costs and Local Agent tokens; it is a subset of organization usage,
 not another allowance. Empty ownership selects no receipts.
 
 Both cost views reuse the shared chart, model brand icons, and Fluid controls.
@@ -1938,7 +1950,8 @@ They start at seven local calendar days, with a 30-day selector, refresh, model
 totals, and personal Agent totals in Details. Costs carry a green **Free** badge;
 provider estimates and missing costs are not presented as invoiced charges.
 Local token charts reuse the Computer chart without a Computer filter and remain
-separate from costs. A daily allowance appears only when explicitly configured,
+separate from costs. My agents applies the same owned-profile filter to both charts.
+A daily allowance appears only when explicitly configured,
 with the existing UTC reset. No billing controls, export, or task drilldown is
 introduced. These views read the existing Web → Gateway → Core projections.
 
@@ -3303,6 +3316,12 @@ current state.
 
 ### Routines
 
+The page title carries a compact created-count/limit indicator, such as **3/50**,
+from the existing organization usage overview. Its hover and keyboard-focus
+tooltip explains that paused Routines count toward the limit and all slots can
+be enabled. Routine mutations and the page Refresh action refresh the count.
+There is no separate quota card in Routines or AI usage.
+
 **Center Agent → Routines** is present in every workspace. Every organization
 member may read Routines and create a Routine that schedules the Center Agent to
 work once or recurringly in one explicit destination. A member manages Routines with their own
@@ -3560,6 +3579,9 @@ The account invalidation stream accelerates cross-Space Inbox and Space Index
 refreshes in Web and Desktop. Its frames carry no item or preview data. The
 client re-reads the owning projection on each frame and reconnect; bounded
 polling covers missed frames and older Desktop builds.
+Short-lived stream connections retain reconnect backoff until a keepalive
+round trip succeeds. Disconnect resumes polling; reconnect refreshes the owning
+projections. A disconnect alone does not trigger another full directory read.
 
 Authenticated route loaders may warm these same Query keys during SSR and let
 the existing TanStack Router SSR Query integration hydrate them on direct entry.
@@ -4230,11 +4252,15 @@ retain the per-conversation preview read.
 
 The Space and DM title never shows a green live-connection dot: a healthy
 message stream says nothing about Human presence or Agent Wakeability. Initial
-connection and healthy live updates have no visible status indicator. Only
-interrupted updates show an amber `Reconnecting…` indicator with manual retry;
-catching up on missed messages shows amber `Syncing…`. The accessible live
-region continues to announce connection changes. These states do not derive
-Computer connectivity or override Core-owned Agent readiness.
+connection, routine history loading, and short recovery attempts stay silent,
+including for screen readers. The title has no loading or connection badge.
+After live updates or catch-up remain interrupted for 15 seconds, the Messages
+area shows one muted notice: **Messages and activity may be out of date.**
+**Retry** retries catch-up when stale or reconnects an interrupted transport.
+Keep the notice stable across retries until recovery is confirmed. Existing
+history errors take precedence; Files and Tasks do not repeat this notice.
+These states do not derive Computer connectivity or override Core-owned Agent
+readiness or execution outcomes.
 
 **Space settings** uses the shared Fluid Dialog and Settings navigation, with
 General, Members, Share & Access, and Advanced sections. General contains the
@@ -4949,7 +4975,14 @@ arrive. A missing presence field is a mixed-version response, not proof of an
 active stream. Live frames update the seeded projection without overwriting a
 newer sequence. A bounded reasoning tail can be replayed from the live Space
 instance, subject to the existing audience and Local Agent owner preferences;
-it is absent from durable bootstrap and browser caches. A successfully published Agent reply may carry a durable
+it is absent from durable bootstrap and browser caches.
+Thinking and public progress keep independent bounded replay tails and client
+sequence checks, so a later progress frame cannot suppress reasoning recovery
+or a privacy-disable update. The same mounted conversation keeps received work
+across socket replacement; access-revocation closes still clear transient work.
+After tab suspension, probe the connection before declaring it stalled. Neither
+stream recovery nor keepalive probes block history, bootstrap, or message reads.
+A successfully published Agent reply may carry a durable
 privacy-bounded work projection and public progress. Web renders the reply body
 first and then one collapsed Work summary so historical steps cannot displace
 the answer. Reopening it shows all retained grouped steps and public updates
@@ -5148,6 +5181,15 @@ send. The `+` menu explains why file selection is unavailable when uploads are
 not authorized or a message is still sending. Send and upload authorization
 remain unchanged. The Composer keeps its access explanation visible after text
 is entered and offers the ordinary Human Join action beside the draft.
+After account, Organization, and Profile identity are resolved, a Space mounts
+its normal conversation Composer while entry, status, members, and history are
+still loading. Restoring saved history must not block route entry. The same
+editor stays mounted when the Space becomes ready, preserving focus, selection,
+and editing history. Unknown membership is not a read-only verdict. Local
+drafting remains available, while Send confirms current entry and posting
+permission through the existing admission boundary. An explicit rejection
+replaces the conversation with the existing access surface. Drafts keep their
+existing account, Profile, Space, and Thread scope when navigating away and back.
 Restored conversations expose an access-check retry even while the first request
 is pending. Retry cancels that request and asks the entry resolver again; it
 preserves the draft and never confirms access locally.
@@ -5198,7 +5240,7 @@ input remain available.
 
 Missing member data is separate from failed member loading. A draft containing
 structured mentions keeps its text and tokens while the initial snapshot loads;
-its send control waits and the Composer shows a muted loading hint. A failed read
+its send control waits without changing the Composer layout. A failed read
 offers Retry. Ordinary text is not blocked by missing mention data. Composer
 feedback stays inside the input surface without a separate bordered warning box.
 
@@ -5310,7 +5352,7 @@ directly to that recorded result; Graph must not preserve a redundant
 and system notices keep their recorded event semantics.
 
 At the latest messages, the Space header presents a two-row hierarchy. The first
-row contains the Space name, access mode, live connection indicator, and
+row contains the Space name, access mode, and
 right-aligned actions. The second row contains the available Space views
 (Messages, Tasks, and Files) below the Space name. Those view labels align with
 the Space name and use a flat active underline that overlays the header divider.

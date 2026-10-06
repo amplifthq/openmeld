@@ -60,6 +60,16 @@ and surrounding interactions remain outside the chart primitive. Use Fluid
 surfaces and controls around charts. Preserve null gaps, escaped tooltip text,
 and reduced-motion loading behavior when refreshing registry source.
 
+`lib/brand-chart-colors` owns the shared light/dark chart accents for model
+brands and Local Agent controllers. OpenAI models reuse Codex's blue-purple;
+Anthropic models reuse Claude Code's orange. Web chooses stable model variants
+from model identity, never result order, spending, or the selected period.
+Variants stay within the brand hue; unrecognized brands use neutral gray.
+`BrandChartDot` consumes the same theme pair as the chart, so legends, curves,
+and tooltips agree. Organization and Computer Local Agent charts retain the
+same controller colors and monochrome-logo chart accents. Do not add a
+client-local categorical palette that reassigns these brand colors.
+
 `components/folder-component` adapts Rare UI's folder artwork and demo content.
 It exposes controlled open state, a content slot, numeric scaling, and decorative
 composition for an external accessible trigger. Repeated instances use unique

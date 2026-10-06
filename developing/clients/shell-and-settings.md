@@ -281,8 +281,8 @@ The Web shell is a stable two-layer composition built from the shared
   outer rail. Center Agent and Inbox remain adjacent at the far-right edge.
   Computer opens the current device detail directly and carries its actionable
   status tone; it never opens a Computer picker.
-  Inbox opens its responsive attention preview and maximizes to the canonical
-  full Inbox page. Center Agent opens a compact synchronized view of the same
+  Inbox opens its responsive grouped preview with a fixed **Open full Inbox**
+  link to the canonical page. Center Agent opens a compact synchronized view of the same
   canonical Chat or Task and maximizes to that exact route; it never creates a
   new session or conversation store. An unavailable control must not leave a
   placeholder or dead action.

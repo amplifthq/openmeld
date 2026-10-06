@@ -857,6 +857,7 @@ import {
   rpcCenterAgentListAgentProfileCreationDefaults,
   rpcCenterAgentListAgentTasks,
   rpcCenterAgentListComputers,
+  rpcCenterAgentListConnectorServices,
   rpcCenterAgentListLocalAgentConnectionCandidates,
   rpcCenterAgentListLocalAgentInstallations,
   rpcCenterAgentListOpportunities,
@@ -3249,6 +3250,16 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   ): Promise<CenterAgentConnectorConnectionSelection> {
     return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
       rpcCenterAgentResolveConnectorConnection(this.env, input)
+    );
+  }
+  centerAgentListConnectorServices(
+    input: Pick<
+      CenterAgentResolveConnectorConnectionInput,
+      "context" | "requesterUserId" | "includeDelegatedRequester"
+    >
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentListConnectorServices(this.env, input)
     );
   }
   authorizeRemoteAgentExecutionAccess(input: unknown) {

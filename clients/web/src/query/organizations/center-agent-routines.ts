@@ -15,6 +15,7 @@ import {
 	listCurrentCenterAgentRoutineTargetSpaces,
 } from "#/lib/organizations/center-agent-routines";
 import { centerAgentDirectMessageOpenQueryOptions } from "#/query/organizations/center-agent";
+import { organizationUsageQueryKeys } from "#/query/organizations/organization-usage";
 import { baseQueryOptions } from "#/query/query-config";
 
 export const centerAgentRoutineQueryKeys = {
@@ -147,6 +148,9 @@ export async function invalidateCenterAgentRoutineFacts(input: {
 	routineId?: string;
 }): Promise<void> {
 	await Promise.all([
+		input.queryClient.invalidateQueries({
+			queryKey: organizationUsageQueryKeys.overview(input.organizationId),
+		}),
 		input.queryClient.invalidateQueries({
 			queryKey: centerAgentRoutineQueryKeys.list(input.organizationId),
 		}),

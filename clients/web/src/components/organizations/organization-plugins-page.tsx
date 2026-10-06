@@ -3,6 +3,7 @@
 import {
 	findPluginDefinition,
 	type PluginDefinition,
+	pluginFromProvider,
 } from "@openmeld/product-catalog/plugins";
 import { useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
@@ -11,6 +12,7 @@ import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { canManageOrganizationArea } from "#/lib/organizations/organization-permissions";
 import type { OrganizationSummary } from "#/lib/organizations/organization-types";
 import { organizationMemberRoleQueryOptions } from "#/query/organizations/organization-directory";
+import { organizationPluginProviderCatalogQueryOptions } from "#/query/organizations/plugin-connections";
 import {
 	OrganizationPluginDetailPage,
 	OrganizationPluginNotFoundPage,
@@ -27,9 +29,27 @@ export function OrganizationPluginsPage({
 	connectionRequestId?: string;
 }) {
 	const { currentOrganization } = useAppOrganization();
-	const selectedPlugin = selectedService
-		? findPluginDefinition(selectedService)
-		: null;
+	const catalog = useQuery(
+		organizationPluginProviderCatalogQueryOptions({
+			organizationId: currentOrganization.id,
+		})
+	);
+	const provider = catalog.data?.providers.find(
+		(item) => item.service === selectedService
+	);
+	const selectedPlugin = provider
+		? pluginFromProvider(provider)
+		: findPluginDefinition(selectedService ?? "");
+	if (selectedService && !selectedPlugin && catalog.isPending) {
+		return <output>Loading Plugin…</output>;
+	}
+	if (selectedService && !selectedPlugin && catalog.isError) {
+		return (
+			<p role="alert">
+				Unable to load this Plugin. Reload the page to try again.
+			</p>
+		);
+	}
 
 	if (selectedService && !selectedPlugin) {
 		return (

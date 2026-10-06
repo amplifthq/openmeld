@@ -55,8 +55,8 @@ import {
   createComputerCommandTool,
 } from "./computer-command";
 import type { createAgentComputerFileHandoff } from "./computer-file-handoff";
-import { resolveComputerPath } from "./computer-files";
 import { personalComputerProviderName } from "./computer-identity";
+import { createNativeComputerTool } from "./computer-native";
 import { getComputerSpaceFileTools } from "./computer-space-files";
 import { getComputerVideoInspectionTool } from "./computer-video-inspection";
 import type { AgentComputer } from "./computer-workspace";
@@ -65,10 +65,6 @@ import { getGitHubWorkingCopyTools } from "./github-working-copy-tools";
 import type { createMemberProfileReportComputerFileStore } from "./member-profile-report-computer-files";
 import { getOrganizationDocumentComputerToolDefinitions } from "./organization-document-computer-tools";
 import { disabledNoNetworkSandbox } from "./sandbox";
-import {
-  getRemoteAgentSandboxToolDefinitions,
-  type RemoteAgentComputerSearch,
-} from "./sandbox-tools";
 import { materializeSpaceWork } from "./space-work-materialization";
 import { emitRemoteAgentToolUsage } from "./tool-usage-observability";
 
@@ -251,20 +247,9 @@ export async function createRemoteAgentComputerCapability(input: {
   const transcriptionAi = input.env.AI;
   return {
     definitions: [
-      ...getRemoteAgentSandboxToolDefinitions({
-        computerEdit: (request) => {
-          if (!workspaceAccess.computerOperation) {
-            throw new Error("computer.operations_unavailable");
-          }
-          return workspaceAccess.computerOperation({
-            ...request,
-            action: "edit",
-            path: resolveComputerPath(request.path, workingDirectory),
-          });
-        },
-        computerExec: (command, options) => api.exec(command, options),
-        computerSearch: buildComputerSearch(workspaceAccess),
-        env: sessionEnv,
+      createNativeComputerTool({
+        workspaceAccess,
+        invocationId: input.context.submissionId,
         workingDirectory,
       }),
       ...organizationDocumentDefinitions,
@@ -565,17 +550,6 @@ export class AgentComputerSandboxApi implements SandboxApi {
       }
     });
   }
-}
-
-function buildComputerSearch(
-  workspaceAccess: AgentComputerWorkspaceAccess
-): RemoteAgentComputerSearch {
-  return {
-    grep: (pattern, path, options) =>
-      workspaceAccess.withWorkspace(
-        async (workspace) => await workspace.fs.grep(pattern, path, options)
-      ),
-  };
 }
 
 export function instrumentRemoteAgentComputerSandboxApi(input: {

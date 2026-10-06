@@ -133,6 +133,7 @@ export type RemoteAgentProviderStageObservation = {
 
 export type RemoteAgentModelRuntimeConfig = {
   compaction: {
+    workingContextHeadroomTokens: number;
     keepRecentTokens: number;
     reserveTokens: number;
     workingContextTokens: number;
@@ -474,6 +475,10 @@ export async function resolveRemoteAgentModelRuntimeConfigForRegistration(input:
   if (input.modelRoute) {
     return {
       compaction: {
+        workingContextHeadroomTokens: Math.min(
+          8000,
+          Math.floor(input.modelRoute.contextWindow / 8)
+        ),
         workingContextTokens: Math.min(
           REMOTE_AGENT_WORKING_CONTEXT_TOKENS,
           input.modelRoute.contextWindow -
@@ -628,6 +633,10 @@ function buildRemoteAgentModelRuntimeConfig(input: {
   );
   return {
     compaction: {
+      workingContextHeadroomTokens: Math.min(
+        8000,
+        Math.floor(contextWindow / 8)
+      ),
       workingContextTokens: Math.min(
         REMOTE_AGENT_WORKING_CONTEXT_TOKENS,
         contextWindow - resolveRemoteAgentCompactionReserveTokens(contextWindow)

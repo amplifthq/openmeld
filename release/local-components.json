@@ -1,28 +1,28 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-05T18:16:27.157Z",
+  "updatedAt": "2026-10-06T08:37:35.056Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
-      "packageVersion": "0.3.244",
+      "packageVersion": "0.3.245",
       "updatePolicy": "available",
-      "reason": "Existing CLI commands remain compatible with both cloud versions; this release carries additive account-deletion schema exports."
+      "reason": "Native cloud Computer operations are optional and require new cloud receivers; existing commands remain compatible."
     },
     "service": {
-      "bundleHash": "b20d300b8fad317ecf3974b6237b6853acc40dfdd651795440fc40c06626d3bf",
-      "portableBundleHash": "0186abf4ee8299d5315da0968ad558b06645225cbcf092fa83654d4551036f64",
-      "bundleVersion": "0.3.244",
+      "bundleHash": "0dddf9e5bca4eb647826145c3b218bdb8d6901e107a40fd713be96f27b2c39ce",
+      "portableBundleHash": "2a4298c743ef7bb4dedc08791799db831f7d6db145503a1df88d1dfca0d6303f",
+      "bundleVersion": "0.3.245",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
       "serviceContractVersion": "openmeld-service-contract-2026-09-local-install-recovery-v1",
       "updatePolicy": "available",
-      "reason": "Account-deletion schemas are additive; workstation setup, Wake, execution and reply contracts remain compatible in both directions."
+      "reason": "Shared schema additions do not change workstation setup, Wake, execution or reply contracts in either rollout direction."
     },
     "skills": {
-      "bundleHash": "c041258bd2098c01e98130579c12a11217b17de6f3c8e0b966a1e1001ad46bd3",
+      "bundleHash": "616672b13c7e061b01651894bcc7591b53730e3f452659adaa2fc0e7399ff36e",
       "skillContractVersion": "openmeld-skills-contract-2026-09-explicit-space-recipients-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "The added cloud Computer guidance is optional and ships with its CLI command after the cloud receivers; existing workstation instructions remain compatible."
+      "reason": "Optional native Computer guidance uses the new CLI after cloud receivers; existing workstation instructions remain valid."
     }
   }
 }

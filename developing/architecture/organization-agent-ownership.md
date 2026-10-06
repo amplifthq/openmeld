@@ -132,11 +132,12 @@ production steps during local acceptance. Nighttime is not proof of zero work.
    keep the release stopped; the batch owner must arrange a compatible
    preparatory fix or wait for a verified terminal outcome.
 4. Keep every inventoried agent paused throughout migration and deployment.
-   Execute the guarded `db` scope first. Migrations are committed **one file at
-   a time**, not as one transaction covering 0162–0164; an interrupted later
-   file leaves earlier files applied. Keep old writers unused throughout the
-   window, inspect the pending list, and resume the guarded migration instead
-   of restoring personal owners. Verify Profile/Binding IDs, human pins,
+   Execute the guarded native PostgreSQL `db` scope first. The original D1
+   migration numbers 0162–0164 are historical schema references absorbed into
+   the native baseline. The official Drizzle migrator commits pending native
+   SQL and journal entries together in one transaction. Inspect the native
+   journal and resume through that owner after a failure; do not restore
+   personal owners or replay the old D1 migration sequence. Verify Profile/Binding IDs, human pins,
    designation state, audit/context associations and conversation generations;
    no migration-created deletion outbox rows are acceptable.
 5. From the same release SHA, deploy guarded `auth`, then `remote-agent` scopes;
@@ -145,8 +146,9 @@ production steps during local acceptance. Nighttime is not proof of zero work.
    projection, so do not schedule an earlier standalone Core deploy against the
    old CLI channel. Deploy `gateway` and `web` after that succeeds. Use explicit
    scoped guarded calls, rather than assuming `cloud`/`full` order fits this
-   migration: local full runs D1, CLI/Core, then other Workers, and cloud's
-   default order is Auth, Web, Gateway, Core, Remote Agent. The paused window
+   migration: local full runs the native database scope, CLI/Core, then other Workers.
+   Hosted Auth/Core/database release remains blocked for this backend; see
+   [the release owner](../engineering/production-release.md). The paused window
    permits the intermediate mixed versions; they are not a supported live
    configuration. The batch owner owns version/manifest stamping and exact-SHA
    validation. Keep automatic health and version/channel alignment checks.

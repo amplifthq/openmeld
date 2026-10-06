@@ -248,7 +248,7 @@ invitation summary, not its discussion history, before acceptance.
 
 Better Auth remains the Organization invitation and membership writer. Core
 owns the Space invitation intent and policy; the Space owns the membership
-grant and an atomic accepted-or-revoked receipt. D1 status projects that receipt.
+grant and an atomic accepted-or-revoked receipt. PostgreSQL status projects that receipt.
 Acceptance can retry after Organization joining or an acknowledgement failure;
 it cannot use an old accepted invitation to re-add a removed Space member.
 Acceptance rechecks the sender's current authority. Revoke never removes an
@@ -424,8 +424,14 @@ never evidence that a running Agent is stuck.
 Local Agent reasoning is ephemeral. It is not a Space message, Work summary, Agent Activity,
 search input, notification, export, transcript, execution journal, or diagnostic
 body. OpenMeld retains no reasoning text in storage or browser persistence.
-The live tail is cleared on disconnect, navigation, privacy disable, and terminal
-outcome. Provider-owned local session retention is outside this OpenMeld promise.
+The mounted conversation retains already received live work across transport
+reconnection so a brief interruption does not collapse the reader's work view.
+This is in-memory presentation only, not evidence of continued execution or a
+durable transcript. Navigation, profile changes, access revocation, an observed
+privacy-disable frame, and terminal outcomes clear the tail. During lost
+connectivity, privacy and outcome updates take effect when received; the existing
+stale-updates notice covers prolonged interruptions. Provider-owned local session
+retention is outside this OpenMeld promise.
 
 An ambient `Working` indicator identifies current Wake activity in that Space,
 not the author of an older reply or a historical **Work summary**. When Core has

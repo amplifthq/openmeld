@@ -35,7 +35,7 @@ describe("OpenConnectorClient", () => {
       expect.objectContaining({ displayName: "GitHub", service: "github" }),
     ]);
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://connectors.example.test/v1/providers",
+      "https://connectors.example.test/v1/providers?includeConnectionAuth=true",
       expect.objectContaining({ method: "GET" })
     );
   });

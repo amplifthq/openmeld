@@ -2,6 +2,7 @@ import {
 	FEISHU_CHANNEL_IDENTITY,
 	findPluginDefinition,
 	LARK_CHANNEL_IDENTITY,
+	pluginFromProvider,
 } from "@openmeld/product-catalog/plugins";
 import { describe, expect, it } from "vitest";
 
@@ -15,16 +16,91 @@ describe("Message channel identities", () => {
 });
 
 describe("Plugin catalog connection paths", () => {
-	it("describes every Google Plugin as read-only", () => {
-		expect(findPluginDefinition("gmail")?.description).toBe(
-			"Find and read email without sending or changing messages."
-		);
-		expect(findPluginDefinition("googlecalendar")?.description).toBe(
-			"Find and read calendars and events without changing them."
-		);
-		expect(findPluginDefinition("googledrive")?.description).toBe(
-			"Find and read Drive files and metadata without changing them."
-		);
+	it("connects a catalog provider without a static product entry and preserves optional fields", () => {
+		const provider = {
+			service: "new_provider",
+			displayName: "New Provider",
+			authTypes: ["api_key"],
+			categories: [],
+			homepageUrl: null,
+			iconUrl: null,
+			connectionAuth: {
+				oauth: false,
+				credentials: [
+					{
+						authType: "api_key" as const,
+						fields: [
+							{
+								key: "apiKey",
+								label: "API key",
+								description: "",
+								secret: true,
+								required: true,
+							},
+							{
+								key: "region",
+								label: "Region",
+								description: "",
+								secret: false,
+								required: false,
+							},
+						],
+					},
+				],
+			},
+		};
+		expect(findPluginDefinition(provider.service)).toBeNull();
+		expect(
+			pluginFromProvider({
+				...provider,
+				connectionAuth: {
+					oauth: false,
+					credentials: [
+						...provider.connectionAuth.credentials,
+						{
+							authType: "custom_credential",
+							fields: [
+								{
+									key: "privateKey",
+									label: "Private key",
+									description: "PEM",
+									secret: true,
+									required: true,
+									inputType: "textarea",
+								},
+							],
+						},
+					],
+				},
+			})
+		).toMatchObject({
+			connection: {
+				credentials: [
+					{ authType: "api_key" },
+					{
+						authType: "custom_credential",
+						fields: [{ inputType: "textarea", secret: true }],
+					},
+				],
+			},
+		});
+		expect(pluginFromProvider(provider)).toMatchObject({
+			availability: "available",
+			connection: {
+				auth: {
+					kind: "credential",
+					fields: expect.arrayContaining([
+						expect.objectContaining({ key: "region", required: false }),
+					]),
+				},
+			},
+		});
+		expect(
+			pluginFromProvider({
+				...provider,
+				connectionAuth: { oauth: false, credentials: [] },
+			})
+		).toMatchObject({ availability: "planned", connection: null });
 	});
 
 	it("connects Figma through OpenMeld's public OAuth plugin", () => {
