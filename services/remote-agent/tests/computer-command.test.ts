@@ -1,11 +1,20 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type {
   WorkspaceClient,
   WorkspaceRuntimeEvent,
   WorkspaceRuntimeExecHandle,
 } from "@cloudflare/computer";
-import { defineTool } from "@flue/runtime";
+import {
+  fauxAssistantMessage,
+  fauxProvider,
+  fauxToolCall,
+} from "@earendil-works/pi-ai";
+import { defineTool, init, useModel, useTool } from "@flue/runtime";
+import { sqlite, start } from "@flue/runtime/node";
 import { buildPersonalRemoteAgentConversationId } from "@openmeld/schemas";
-import { type GenericSchema, parse } from "valibot";
+import { type GenericSchema, object, parse } from "valibot";
 import { describe, expect, it, vi } from "vitest";
 import {
   createRemoteAgentCallbackContext,
@@ -26,7 +35,10 @@ import { cancelFlueRemoteAgentExecution } from "../flue-adapter/execution-cancel
 import { finishRemoteAgentComputerCommands } from "../flue-adapter/execution-cleanup";
 import { checkRemoteAgentExecutionFinish } from "../flue-adapter/execution-finish";
 import { reconcileRemoteAgentExecution } from "../flue-adapter/execution-reconciliation";
-import { executeRemoteAgentToolDefinition } from "../flue-adapter/tool-execution";
+import {
+  executeRemoteAgentToolDefinition,
+  toFlueJsonValue,
+} from "../flue-adapter/tool-execution";
 import {
   createSubmitTurnRequest,
   createSubmitTurnRequestV2,
@@ -140,6 +152,158 @@ function fixture() {
 }
 
 describe("retained Computer commands", () => {
+  it.each([
+    false,
+    true,
+  ])("recovers a command after real Flue compaction without relaunching (personal=%s)", async (personal) => {
+    const f = fixture();
+    const directory = await mkdtemp(join(tmpdir(), "computer-compaction-"));
+    const provider = fauxProvider({
+      provider: `computer-compaction-${personal}`,
+      tokensPerSecond: Number.POSITIVE_INFINITY,
+    });
+    const model = provider.getModel();
+    let step = 0;
+    let compactions = 0;
+    let recoveredKey = "";
+    let recoveredId = "";
+    const command = f.tool("same-execution", personal);
+    const native = defineTool({
+      name: command.name,
+      description: command.description,
+      input: command.input as GenericSchema<Record<string, unknown>>,
+      run: async ({ data }) => ({
+        output: toFlueJsonValue(await command.execute(data)),
+      }),
+    });
+    const evidence = defineTool({
+      name: "evidence",
+      description: "Read fixture evidence.",
+      input: object({}),
+      run: () => ({ output: "Unchanged evidence. ".repeat(700) }),
+    });
+    function CommandRecovery() {
+      useModel(`${model.provider}/${model.id}`, {
+        compaction: {
+          workingContextTokens: 6000,
+          workingContextHeadroomTokens: 1500,
+          keepRecentTokens: 512,
+          maxSummaryTokens: 512,
+          reserveTokens: 8192,
+        },
+      });
+      useTool(native);
+      useTool(evidence);
+      return "Complete the command and recover its original key with list after context compaction.";
+    }
+    const runtime = await start({
+      agents: [CommandRecovery],
+      providers: [provider.provider],
+      db: sqlite(join(directory, "history.sqlite")),
+    });
+    try {
+      provider.setResponses(
+        Array.from({ length: 14 }, () => (ctx) => {
+          if (
+            ctx.systemPrompt?.startsWith(
+              "You are a context summarization assistant"
+            )
+          ) {
+            compactions++;
+            // Deliberately omit IDs: recovery must not depend on summary quality.
+            return fauxAssistantMessage(
+              "A Computer command was started. Recover its receipt and collect its result."
+            );
+          }
+          const call = (name: string, args: Record<string, unknown>) =>
+            fauxAssistantMessage(fauxToolCall(name, args), {
+              stopReason: "toolUse",
+            });
+          switch (step++) {
+            case 0:
+              return call("computer_command", {
+                action: "start",
+                key: "original-job",
+                command: "sleep 300",
+              });
+            case 1:
+            case 2:
+              return call("evidence", {});
+            case 3:
+              expect(compactions).toBeGreaterThan(0);
+              return call("computer_command", { action: "list" });
+            case 4: {
+              const last = ctx.messages.findLast(
+                (message) => message.role === "toolResult"
+              );
+              const text = last?.content.find((block) => block.type === "text");
+              if (text?.type !== "text") {
+                throw new Error("Missing command list");
+              }
+              const [receipt] = JSON.parse(text.text);
+              recoveredKey = receipt.key;
+              recoveredId = receipt.id;
+              return call("computer_command", {
+                action: "poll",
+                key: recoveredKey,
+                waitSeconds: 0,
+              });
+            }
+            case 5:
+              return call("computer_command", {
+                action: "stop",
+                key: recoveredKey,
+              });
+            case 6:
+              f.getExec.mockImplementation((id) =>
+                Promise.resolve(
+                  handle(
+                    id,
+                    [
+                      { id, seq: 1, name: "stdout", value: "FINAL RESULT" },
+                      { id, seq: 2, name: "exit", code: 0 },
+                    ],
+                    true
+                  )
+                )
+              );
+              return call("computer_command", {
+                action: "poll",
+                key: recoveredKey,
+                waitSeconds: 0,
+              });
+            default:
+              expect(JSON.stringify(ctx.messages.at(-1))).toContain(
+                "FINAL RESULT"
+              );
+              return fauxAssistantMessage(
+                "The original command is stopped and its result was collected."
+              );
+          }
+        })
+      );
+      const agent = init(CommandRecovery, { id: "same-conversation" });
+      const result = await agent.read(
+        await agent.dispatch(
+          "Start one command, gather evidence, then cancel the command and collect its result."
+        )
+      );
+      expect(result.text).toContain("result was collected");
+      expect(f.exec).toHaveBeenCalledTimes(1);
+      expect(recoveredKey).toBe("original-job");
+      expect(f.killExec).toHaveBeenCalledWith(
+        recoveredId,
+        expect.objectContaining({ signal: "SIGTERM" })
+      );
+      expect(f.getExec).toHaveBeenCalledWith(recoveredId, expect.anything());
+      await expect(
+        f.tool("another-execution", personal).execute({ action: "list" })
+      ).resolves.toEqual([]);
+    } finally {
+      await runtime.stop();
+      await rm(directory, { recursive: true, force: true });
+    }
+  }, 30_000);
   it("finishes cleanup for a current invocation that never acquired a Computer", async () => {
     await expect(
       stopRemoteAgentComputerCommands({

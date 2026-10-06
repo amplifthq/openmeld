@@ -84,9 +84,13 @@ it("reserves new-work space with a large fixed prompt instead of immediately com
     await agent.read(await agent.dispatch("Continue the reconciliation."));
     await agent.read(await agent.dispatch("New evidence. ".repeat(250)));
     expect(measurements).toHaveLength(1);
-    expect(measurements[0].fixedTokens).toBeGreaterThan(2000);
-    expect(measurements[0].afterTokens).toBeLessThanOrEqual(
-      measurements[0].targetTokens
+    const measurement = measurements[0];
+    if (!measurement) {
+      throw new Error("Missing compaction measurement");
+    }
+    expect(measurement.fixedTokens).toBeGreaterThan(2000);
+    expect(measurement.afterTokens).toBeLessThanOrEqual(
+      measurement.targetTokens
     );
     expect(provider.getPendingResponseCount()).toBe(0);
   } finally {

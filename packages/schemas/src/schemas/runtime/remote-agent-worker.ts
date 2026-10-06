@@ -821,6 +821,7 @@ const remoteAgentRuntimeScheduleDiagnosticSchema = z.strictObject({
 });
 
 const remoteAgentRuntimeCallbackContextDiagnosticSchema = z.strictObject({
+  conversationCompaction: conversationCompactionMarkerSchema.optional(),
   callbackAttempts: z.number().int().nonnegative(),
   callbackCompletedAt: z.iso.datetime({ offset: true }).nullable(),
   callbackNextAttemptAt: z.iso.datetime({ offset: true }).nullable(),

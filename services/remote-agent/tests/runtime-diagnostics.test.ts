@@ -180,6 +180,7 @@ describe("Remote Agent runtime diagnostics", () => {
             updated_at_ms: 130,
             value_json: JSON.stringify({
               callbackAttempts: 1,
+              conversationCompaction: { v: 1, count: 3, completedAtMs: 129 },
               callbackCompletedAt: null,
               callbackNextAttemptAt: "1970-01-01T00:00:05.000Z",
               callbackStatus: "retryable",
@@ -213,6 +214,7 @@ describe("Remote Agent runtime diagnostics", () => {
       activeRuns: [{ createdAtMs: 115, id: "run-1", name: "flue:dispatch" }],
       callbackContexts: [
         {
+          conversationCompaction: { v: 1, count: 3, completedAtMs: 129 },
           callbackAttempts: 1,
           callbackCompletedAt: null,
           callbackNextAttemptAt: "1970-01-01T00:00:05.000Z",

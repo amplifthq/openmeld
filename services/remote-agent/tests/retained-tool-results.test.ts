@@ -66,6 +66,36 @@ const largeValue = () => ({
   log: `${"first 🐈\n".repeat(11_000)}UNIQUE_MIDDLE_FAILURE${"last 🚀\n".repeat(11_000)}`,
 });
 
+it("recovers a forgotten result ID from authorized metadata without repeating the source call", async () => {
+  const f = await fixture();
+  await prepareRemoteAgentToolResult({
+    ...f,
+    toolName: "example",
+    value: largeValue(),
+  });
+  const recreated = createRemoteAgentReadToolResultDefinition(f);
+  const list = remoteAgentReadToolResultResponseSchema.parse(
+    await recreated.execute({})
+  );
+  expect(list.kind).toBe("list");
+  if (list.kind !== "list") {
+    throw new Error("Expected recoverable references");
+  }
+  expect(list.results).toHaveLength(1);
+  const reference = list.results[0];
+  if (!reference) {
+    throw new Error("Missing recovered reference");
+  }
+  expect(reference.toolName).toBe("example");
+  const result = await recreated.execute({
+    resultId: reference.resultId,
+    query: "UNIQUE_MIDDLE_FAILURE",
+  });
+  expect(JSON.stringify(result)).toContain("UNIQUE_MIDDLE_FAILURE");
+  f.authorize.mockRejectedValue(new Error("revoked"));
+  await expect(recreated.execute({})).rejects.toThrow("revoked");
+});
+
 describe("retained tool results", () => {
   afterEach(() => {
     vi.useRealTimers();
