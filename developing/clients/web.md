@@ -1925,13 +1925,13 @@ OpenMeld on that Computer; Web does not imply that their local policy can be
 managed remotely. This page never reads, stores, or edits a policy itself.
 
 **Settings → AI usage** is a read-only destination available to every active member.
-Its text-only navigation matches the other Settings items. Fluid **Organization /
-My agents** tabs share the current Organization scope. Organization shows recorded
+Its text-only navigation matches the other Settings items. Fluid **Organization usage /
+My agents** tabs share the current Organization scope. Organization usage shows recorded
 Center Agent and Remote Agent costs by model, separately recorded Local Agent
 tokens. Routine counts and limits do not appear here; this destination covers
 AI consumption only. The existing `usage` route remains unchanged. My agents selects the
 signed-in member's non-Center Agent Profiles from the organization directory and
-shows their Remote runtime consumption; it is a subset of organization usage,
+shows their Remote runtime costs and Local Agent tokens; it is a subset of organization usage,
 not another allowance. Empty ownership selects no receipts.
 
 Both cost views reuse the shared chart, model brand icons, and Fluid controls.
@@ -1939,7 +1939,8 @@ They start at seven local calendar days, with a 30-day selector, refresh, model
 totals, and personal Agent totals in Details. Costs carry a green **Free** badge;
 provider estimates and missing costs are not presented as invoiced charges.
 Local token charts reuse the Computer chart without a Computer filter and remain
-separate from costs. A daily allowance appears only when explicitly configured,
+separate from costs. My agents applies the same owned-profile filter to both charts.
+A daily allowance appears only when explicitly configured,
 with the existing UTC reset. No billing controls, export, or task drilldown is
 introduced. These views read the existing Web → Gateway → Core projections.
 
@@ -3303,6 +3304,12 @@ explicit refresh failure rather than treating missing activity as an empty
 current state.
 
 ### Routines
+
+The page title carries a compact created-count/limit indicator, such as **3/50**,
+from the existing organization usage overview. Its hover and keyboard-focus
+tooltip explains that paused Routines count toward the limit and all slots can
+be enabled. Routine mutations and the page Refresh action refresh the count.
+There is no separate quota card in Routines or AI usage.
 
 **Center Agent → Routines** is present in every workspace. Every organization
 member may read Routines and create a Routine that schedules the Center Agent to

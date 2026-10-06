@@ -9,6 +9,7 @@ import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
 import { SkeletonRows } from "@openmeld/ui/components/skeleton-content";
 import { Switch } from "@openmeld/ui/components/switch";
+import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import {
 	SharedLayoutGroup,
 	SharedLayoutItem,
@@ -25,6 +26,7 @@ import { resolveCenterAgentRoutineErrorMessage } from "#/lib/organizations/cente
 import { mayShowCachedReadData } from "#/lib/query-display";
 import { useDelayedPending } from "#/lib/use-delayed-pending";
 import { centerAgentRoutinesQueryOptions } from "#/query/organizations/center-agent-routines";
+import { organizationUsageOverviewQueryOptions } from "#/query/organizations/organization-usage";
 import { CenterAgentRoutineDeleteDialog } from "./center-agent-routine-delete-dialog";
 import {
 	CenterAgentRoutineFormDialog,
@@ -306,6 +308,7 @@ function CenterAgentRoutinesPanelContent(input: {
 					console.error("Failed to refresh Center Agent routines.", error);
 				});
 			}}
+			organizationId={input.organizationId}
 			showActions={Boolean(routinesQuery.data?.routines.length)}
 		/>
 	);
@@ -463,15 +466,25 @@ function CenterAgentRoutinesPageHeader(input: {
 	onCreate: () => void;
 	onRefresh: () => void;
 	showActions: boolean;
+	organizationId: string;
 }) {
+	const usageQuery = useQuery(
+		organizationUsageOverviewQueryOptions({
+			organizationId: input.organizationId,
+		})
+	);
+	const usage = usageQuery.isSuccess ? usageQuery.data.routines : undefined;
 	return (
 		<AppPageHeader
 			action={
 				input.showActions ? (
 					<>
 						<Button
-							disabled={input.isRefreshing}
-							onClick={input.onRefresh}
+							disabled={input.isRefreshing || usageQuery.isRefetching}
+							onClick={() => {
+								input.onRefresh();
+								usageQuery.refetch();
+							}}
 							type="button"
 							variant="outline"
 						>
@@ -489,6 +502,21 @@ function CenterAgentRoutinesPageHeader(input: {
 			}
 			id="routines-title"
 			title="Routines"
+			titleAccessory={
+				usage ? (
+					<TooltipHint
+						content={`You can create up to ${usage.limit} routines in this workspace and enable all of them. Paused routines also count toward the limit.`}
+					>
+						<button
+							aria-label={`${usage.count} of ${usage.limit} routines`}
+							className="cursor-help rounded-sm px-1 py-1 text-muted-foreground text-xs tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-ring"
+							type="button"
+						>
+							{usage.count}/{usage.limit}
+						</button>
+					</TooltipHint>
+				) : undefined
+			}
 		/>
 	);
 }
