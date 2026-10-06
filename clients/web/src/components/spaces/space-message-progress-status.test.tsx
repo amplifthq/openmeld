@@ -50,7 +50,7 @@ describe("SpaceMessageProgressStatus", () => {
 			/>
 		);
 		expect(screen.getByTestId("space-wake-thinking-row").textContent).toContain(
-			"Thinking…"
+			"Working…"
 		);
 		expect(screen.queryByTestId("space-agent-tool-activity")).toBeNull();
 		expect(screen.queryByText("Waiting for reasoning output…")).toBeNull();
@@ -608,7 +608,7 @@ function createWakePreviewEntry(): SpaceMessageWakeThinkingEntry {
 		phase: "writing",
 		step: {
 			description: "OpenMeld is receiving live output from the agent.",
-			kind: "replying",
+			kind: "working",
 			label: "Working…",
 			status: "active",
 		},

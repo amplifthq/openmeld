@@ -3,6 +3,7 @@ import {
   hasRuntimeAdapterCapabilityForRef,
   parseAgentControllerRef,
   resolveWakeStopEligibility,
+  supportsLocalExecutionInput,
 } from "@openmeld/agent-runtime";
 import {
   getPostgresDatabase,
@@ -13821,7 +13822,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         command.targetProfileId !== scope.targetProfileId ||
         delivery.spaceId !== scope.spaceId ||
         delivery.sourceSignal.profileId !== scope.authorProfileId ||
-        delivery.executionIdentity.core.agentControllerRef !== "builtin:codex"
+        !supportsLocalExecutionInput(
+          delivery.executionIdentity.core.agentControllerRef
+        )
       ) {
         return null;
       }

@@ -353,7 +353,7 @@ describe("Remote Agent Routine management tools", () => {
       ...routineListResponse(),
       routines: [
         {
-          ...routineRecord(),
+          ...routineManagementRecord(),
           name: "Morning feedback review",
         },
       ],
@@ -457,9 +457,10 @@ describe("Remote Agent Routine management tools", () => {
     const validTools = getRemoteAgentOpenMeldToolDefinitions({
       coreWorker: {
         centerAgentListRoutines: vi.fn().mockResolvedValue({
-          currentUserId: "user_1",
-          organizationId: "org_123",
-          routines: [{ ...routineRecord(), lastRun: quarantineLastRun }],
+          ...routineListResponse(),
+          routines: [
+            { ...routineManagementRecord(), lastRun: quarantineLastRun },
+          ],
         }),
       },
       storage,
@@ -474,11 +475,10 @@ describe("Remote Agent Routine management tools", () => {
     const invalidTools = getRemoteAgentOpenMeldToolDefinitions({
       coreWorker: {
         centerAgentListRoutines: vi.fn().mockResolvedValue({
-          currentUserId: "user_1",
-          organizationId: "org_123",
+          ...routineListResponse(),
           routines: [
             {
-              ...routineRecord(),
+              ...routineManagementRecord(),
               lastRun: {
                 ...quarantineLastRun,
                 failureCode: null,
@@ -502,14 +502,10 @@ describe("Remote Agent Routine management tools", () => {
     const routine = routineRecord();
     const scenarios = [
       {
-        expectedInput: {},
+        expectedInput: { contract: "routines-v3" },
         input: {},
         method: "centerAgentListRoutines",
-        response: {
-          currentUserId: "user_1",
-          organizationId: "org_123",
-          routines: [routine],
-        },
+        response: routineListResponse(),
         tool: "openmeld_list_routines",
       },
       {
@@ -1136,6 +1132,29 @@ function routineListResponse(routines = [routineRecord()]) {
   return {
     currentUserId: "user_1",
     organizationId: "org_123",
-    routines,
+    routines: routines.map((routine) => ({
+      ...routineManagementRecord(),
+      ...routine,
+    })),
+    executors: [
+      { agentProfileId: null, kind: "center_agent", name: "Center Agent" },
+    ],
+  };
+}
+
+function routineManagementRecord() {
+  return {
+    ...routineRecord(),
+    scope: "team",
+    agentProfileId: null,
+    executorKind: "center_agent",
+    executorName: "Center Agent",
+    capabilityState: {
+      approvedKnowledge: false,
+      canRepair: false,
+      externalActionPolicy: "standard",
+      slackChannelReport: false,
+    },
+    creationAttribution: { displayName: "Test member" },
   };
 }

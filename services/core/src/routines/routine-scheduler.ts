@@ -203,7 +203,7 @@ async function processDueRoutine(input: {
       input.summary.failed += 1;
     }
   } catch (error) {
-    if (executionEngine === "workflow") {
+    if (executionEngine === "workflow" || executionEngine === "local") {
       input.summary.errors += 1;
       input.summary.pending += 1;
       console.warn("[core.routine.scheduler.workflow_start_pending]", {

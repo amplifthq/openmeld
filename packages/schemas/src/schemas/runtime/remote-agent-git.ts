@@ -80,6 +80,7 @@ export const remoteAgentGitTransferGrantSchema = z.strictObject({
   operationId: remoteAgentGitKeySchema,
   organizationId: z.string().min(1).max(512),
   requesterUserId: z.string().min(1).max(512),
+  connectionScope: z.enum(["member", "shared"]).optional(),
   owner: segment,
   repo: segment,
   authorization: remoteAgentExecutionAccessRequestSchema,

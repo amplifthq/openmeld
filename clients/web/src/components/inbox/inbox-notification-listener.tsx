@@ -62,6 +62,15 @@ const INBOX_NOTIFICATION_RETRY_INTERVAL_MS = 10_000;
 const INBOX_NOTIFICATION_PENDING_FETCH_CONCURRENCY = 6;
 const EMPTY_RECOVERED_PENDING_ITEMS: NotificationInboxItem[] = [];
 
+function parseAccountInvalidationFrame(data: string) {
+	try {
+		const frame = accountInvalidationFrameSchema.safeParse(JSON.parse(data));
+		return frame.success ? frame.data : null;
+	} catch {
+		return null;
+	}
+}
+
 function resolveTrayComputerStatusTone(
 	computer: ReturnType<typeof useCurrentComputer>
 ): "connected" | "offline" | "attention" {
@@ -274,7 +283,6 @@ export function InboxNotificationListener(input: {
 				if (stopped) {
 					return;
 				}
-				retryCount = 0;
 				setConnectedStreamScope(streamScope);
 				refreshInbox();
 				refreshSpaces();
@@ -293,17 +301,17 @@ export function InboxNotificationListener(input: {
 				) {
 					return;
 				}
-				let value: unknown;
-				try {
-					value = JSON.parse(event.data);
-				} catch {
+				// An upgrade alone does not prove a stable connection. Keep backing
+				// off short-lived connections until an end-to-end keepalive succeeds.
+				if (event.data === "pong") {
+					retryCount = 0;
 					return;
 				}
-				const frame = accountInvalidationFrameSchema.safeParse(value);
-				if (!frame.success) {
+				const frame = parseAccountInvalidationFrame(event.data);
+				if (!frame) {
 					return;
 				}
-				if (frame.data.type === "inbox.changed") {
+				if (frame.type === "inbox.changed") {
 					refreshInbox();
 				} else {
 					scheduleSpaceRefresh();
@@ -318,13 +326,11 @@ export function InboxNotificationListener(input: {
 					return;
 				}
 				setConnectedStreamScope(null);
-				refreshInbox();
-				refreshSpaces();
 				reconnectTimer = setTimeout(
 					connect,
 					Math.min(30_000, 1000 * 2 ** retryCount)
 				);
-				retryCount += 1;
+				retryCount = Math.min(5, retryCount + 1);
 			});
 		};
 		connect();

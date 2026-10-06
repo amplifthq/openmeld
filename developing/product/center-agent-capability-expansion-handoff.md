@@ -8,7 +8,7 @@
 - Do not use this for: New permissions, capture policy, execution recovery, deployment, or a cumulative backlog of earlier review suggestions.
 - Source of truth: The four v2 PR comments define this handoff; current scoped owner documents and explicit later owner decisions govern product and architecture contracts.
 
-Status: **IMPLEMENTED — INDEPENDENT REVIEW AND SMOKE PENDING**. Remove this handoff when the implemented scope ships and its durable contracts and evidence have moved to the owning documents and PR. Keep #1199 Draft until the current candidate passes the separately requested Codex review, local checks, and user-entry smoke. The owner authorizes Codex to push the verified candidate and mark this existing PR Ready once those conditions pass; merge, deployment, and production replay remain unauthorized.
+Status: **HISTORICAL HANDOFF — PR #1199 MERGED on 2026-09-21**. Remove this handoff when its remaining acceptance evidence and durable contracts have moved to the owning documents and PR. The candidate, D1 test receipts and task authorization below describe that original delivery; they are not current implementation or release instructions. Current owner documents govern new work, including the PostgreSQL workflow after the 2026-10-04 cutover.
 
 ## Read in order
 

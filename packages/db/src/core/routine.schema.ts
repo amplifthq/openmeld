@@ -14,6 +14,8 @@ export const routines = applicationTable(
     // Null preserves the Organization's designated Center Agent executor.
     // Personal Routines keep an immutable, explicit Agent Profile identity.
     agentProfileId: text("agent_profile_id"),
+    scope: text("scope").default("team").notNull(),
+    executorKind: text("executor_kind").default("center_agent").notNull(),
     instructions: text("instructions").notNull(),
     authorizedActionsJson: text("authorized_actions_json")
       .default("[]")
@@ -42,6 +44,11 @@ export const routines = applicationTable(
     updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
+    check("routines_scope_check", sql`"scope" in ('personal', 'team')`),
+    check(
+      "routines_executor_kind_check",
+      sql`"executor_kind" in ('center_agent', 'remote_agent', 'local_agent')`
+    ),
     index("routines_status_next_due_idx").on(table.status, table.nextDueAt),
     index("routines_org_status_next_due_idx").on(
       table.organizationId,
@@ -130,6 +137,8 @@ export const routineRuns = applicationTable(
     failureCode: text("failure_code"),
     failureDetail: text("failure_detail"),
     routineNameSnapshot: text("routine_name_snapshot"),
+    scopeSnapshot: text("scope_snapshot"),
+    createdByUserIdSnapshot: text("created_by_user_id_snapshot"),
     agentProfileIdSnapshot: text("agent_profile_id_snapshot"),
     destinationKindSnapshot: text("destination_kind_snapshot"),
     messageChannelDestinationJsonSnapshot: text(
@@ -149,6 +158,11 @@ export const routineRuns = applicationTable(
       .notNull(),
     continuationDelegationId: text("continuation_delegation_id"),
     nativeDeliveryId: text("native_delivery_id"),
+    sourceSignalId: text("source_signal_id"),
+    localSubmissionJson: text("local_submission_json"),
+    localLastCheckedAtMs: bigint("local_last_checked_at_ms", { mode: "number" })
+      .notNull()
+      .default(0),
     publishedSignalId: text("published_signal_id"),
     failurePublicationAttemptCount: bigint(
       "failure_publication_attempt_count",
@@ -213,7 +227,7 @@ export const routineRuns = applicationTable(
     ),
     check(
       "routine_runs_execution_engine_check",
-      sql`"execution_engine" is null or "execution_engine" in ('legacy', 'workflow')`
+      sql`"execution_engine" is null or "execution_engine" in ('legacy', 'workflow', 'local')`
     ),
     check(
       "routine_runs_finished_at_valid_check",

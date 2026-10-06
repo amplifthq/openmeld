@@ -721,6 +721,35 @@ These changes use the existing online catalog, model ID, and variant contracts;
 the offline snapshot, adapters, defaults, and local-component release remain
 unchanged.
 
+#### October 6 provider follow-up
+
+OpenCode 1.18.34's refreshed provider inventory reports
+`opencode/ling-3.1-flash-free` with `low`, `medium`, and `high` variants, and
+`opencode-go/space-bunny` with `low`, `medium`, `high`, `xhigh`, and `max`.
+The provider-shaped capture is retained in
+`packages/schemas/tests/fixtures/opencode-model-catalog-2026.10.06.json`.
+Both entries use the observed 1.18.34 compatibility floor when live model
+inventory is unavailable. Defaults and existing Profile selections do not change.
+
+The same installed harness rejects the former `opencode-go/space-bunny-free`
+ID with `ProviderModelNotFoundError`. Keep that historical ID unavailable rather
+than renaming it to the paid Go route or rewriting stored selections. The separate
+`opencode/space-bunny-free` route remains available in the refreshed free-provider
+inventory. This is a route-specific correction, not a retirement of Space Bunny.
+
+Go subscription access remains separate from model inventory. A direct invocation
+on the review account returns HTTP 403 because it has no active Go subscription.
+This account failure does not establish global model unavailability. Ling 3.1
+completed native `opencode run --pure` prompts for all three reasoning variants
+with the default permission configuration. The `high` probe also read a local
+nonce file and returned its exact contents. Earlier probes with restricted tool
+permissions returned HTTP 403 `FreeTierError`; those results do not establish
+failure under the native default configuration. The capture retains the successful
+responses and tool-use evidence. Inventory alone does not prove provider execution.
+These are online catalog updates under the existing ID and variant contracts, with no
+offline snapshot, adapter, schema, or local-component release change. Successful
+provider execution and a real OpenMeld Wake remain separate acceptance evidence.
+
 ---
 
 ### 5.9 Claude Opus 5.5

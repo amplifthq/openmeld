@@ -1,5 +1,4 @@
 import {
-  CONNECTOR_SERVICES,
   connectorAppCatalogResponseSchema,
   connectorAppRequestListResponseSchema,
   connectorAppRequestResponseSchema,
@@ -960,8 +959,16 @@ async function reconcileCatalogConnections(
     c.env
   ).listConnections();
   const context = buildCoreRpcContext(c);
+  const stored =
+    await c.var.coreRpc.listCurrentOrganizationConnectorConnections({
+      context,
+      expectedOrganizationId: input.expectedOrganizationId,
+    });
+  const services = [
+    ...new Set(stored.connections.map((connection) => connection.service)),
+  ];
   const serviceResponses = await Promise.all(
-    CONNECTOR_SERVICES.map(
+    services.map(
       async (service) =>
         await c.var.coreRpc.reconcileCurrentOrganizationConnectorConnections({
           availableConnectionNames: connectorConnections
@@ -976,10 +983,7 @@ async function reconcileCatalogConnections(
         })
     )
   );
-  const identity = serviceResponses[0];
-  if (!identity) {
-    throw new Error("The App connector service catalog is empty.");
-  }
+  const identity = stored;
   return {
     connections: serviceResponses.flatMap((response) => response.connections),
     currentUserId: identity.currentUserId,

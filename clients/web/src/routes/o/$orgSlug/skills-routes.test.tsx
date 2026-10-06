@@ -18,6 +18,7 @@ import {
 	screen,
 	waitFor,
 } from "@testing-library/react";
+import { NuqsAdapter } from "nuqs/adapters/tanstack-router";
 import type { ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppFullWidthLayout } from "#/components/app/app-full-width-layout";
@@ -145,18 +146,21 @@ afterEach(() => {
 
 describe("Team Skills routes", () => {
 	it.each([
-		["skill-history-heading", "Version history"],
-		["skill-details-heading", "Properties"],
-		["skill-files-heading", "Files (1)"],
-	])("opens the relocated surface for the existing %s anchor", async (hash, name) => {
-		const { router } = renderRoutes(`/o/acme/skills/skill-one#${hash}`, {
+		["#skill-history-heading", "Version history"],
+		["#skill-details-heading", "Properties"],
+		["#skill-files-heading", "Files (1)"],
+		["?content=files", "Files (1)"],
+	])("opens the selected surface from %s", async (suffix, name) => {
+		const { router } = renderRoutes(`/o/acme/skills/skill-one${suffix}`, {
 			skills: [
 				createOrganizationSkillFixture({ referenceContent: "A checklist." }),
 			],
 		});
-		if (hash === "skill-files-heading") {
+		if (name === "Files (1)") {
 			await screen.findByRole("tab", { name, selected: true });
 			await screen.findByText("references/checklist.md");
+			expect(router.state.location.search).toMatchObject({ content: "files" });
+			expect(router.state.location.hash).toBe("");
 		} else {
 			await screen.findByRole("dialog", { name });
 		}
@@ -171,8 +175,8 @@ describe("Team Skills routes", () => {
 		const { router } = renderRoutes(url);
 		await screen.findByRole("tab", { name: "Skills", selected: true });
 		expect(screen.getAllByRole("tab")).toEqual(
-			["People", "Agents", "Plugins", "Skills"].map((name) =>
-				screen.getByRole("tab", { name })
+			["People", "Agents", "Plugins", "Skills", "Files", "Routines"].map(
+				(name) => screen.getByRole("tab", { name })
 			)
 		);
 		expect(
@@ -667,7 +671,13 @@ function renderRoutes(
 			{ skill }
 		);
 	}
-	const root = createRootRoute();
+	const root = createRootRoute({
+		component: () => (
+			<NuqsAdapter>
+				<Outlet />
+			</NuqsAdapter>
+		),
+	});
 	const org = createRoute({
 		getParentRoute: () => root,
 		path: "/o/$orgSlug",

@@ -287,13 +287,13 @@ index 0000000000000000000000000000000000000000..3abc3bc6a00d2fd717fb9093182fc444
 +  };
 +}
 diff --git a/dist/conversation-stream-store-B2RVviYM.mjs b/dist/conversation-stream-store-B2RVviYM.mjs
-index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..e35627a79df85b629d63fd3a2dea4aaa50a9b240 100644
+index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..edae9caa13036f6219cf62f1637e77b5f6c0a8cf 100644
 --- a/dist/conversation-stream-store-B2RVviYM.mjs
 +++ b/dist/conversation-stream-store-B2RVviYM.mjs
 @@ -1,4 +1,6 @@
  import { c as encodeBase64, d as abortErrorFor, f as composeTimeoutSignal, m as raceToolWithDeadline, p as createCallHandle, r as createCwdSandbox, s as decodeBase64, u as abandonToolOnAbort } from "./sandbox-CR3o1Qmd.mjs";
 +import { buildCanonicalActionEvidence, collectRecordedSubmissionMetadata, projectSubmissionRetryTextPrefix } from "./dispatch-Dohpn4Ea.mjs";
-+import { measureWorkingContext } from "./working-context.mjs";
++import { measureWorkingContext, workingContextBudget } from "./working-context.mjs";
  import { A as createEditTool, D as READ_SKILL_RESOURCE_TOOL_NAME, E as redactObservationDetailImages, F as createTaskTool, I as createWriteTool, L as formatBashResult, M as createGrepTool, N as createPackagedSkillReadTool, O as createActivateSkillTool, P as createReadTool, R as overlayPackagedSkills, S as renderWithFrame, T as redactEventImages, _ as packageSkillDefinition, a as buildPromptText, b as getSkillReferenceDirectory, c as buildWorkspaceSkillPrompt, d as parseSkillMarkdown, f as getPreparedToolAdapter, g as isSkillDefinition, i as buildPackagedSkillPrompt, j as createGlobTool, k as createBashTool, l as createResultTools, n as GIVE_UP_TOOL_NAME, o as buildResultFollowUpPrompt, r as ResultUnavailableError, s as buildSkillByPathlessNamePrompt, t as FINISH_TOOL_NAME, u as prepareResultTool, w as IMAGE_DATA_OMITTED } from "./result-D9Q9s-LD.mjs";
  import { $ as generateIncarnationId, A as SubmissionConflictError, F as ToolNameConflictError, J as createConversationIdentity, K as serializeEventError, M as SubmissionRetryExhaustedError, N as SubmissionTimeoutError, O as SubagentNotDeclaredError, S as SessionBusyError, T as SkillNotRegisteredError, W as normalizeLogAttributes, X as generateAttemptId, Y as deriveKeyedSubmissionId, Z as generateBlockId, a as AttachmentNotAvailableError, c as ConversationRecordInvariantError, ct as generateToolCallId, d as FlueError, ft as interceptExecution, h as OperationFailedError, j as SubmissionInterruptedError, k as SubmissionAbortedError, l as ConversationStreamStoreError, lt as generateTurnId, n as AgentInstanceNotFoundError, nt as generateInvocationId, ot as generateSubmissionId, p as InvalidRequestError, rt as generateOperationId, st as generateTaskId, t as AgentInstanceExistsError, tt as generateInstanceUid, u as DelegationDepthExceededError, z as classifyError } from "./errors-CsDcT_C4.mjs";
  import { $ as MAX_READ_LIMIT, B as DEFAULT_COMPACTION_SETTINGS, C as DeliveredMessageSchema, Ct as generateConversationEntryId, E as assertDurability, F as getActiveConversationPathSince, G as prepareCompaction, H as compact, I as getLatestConversationCompaction, J as emptyUsage, K as shouldCompact, L as countConsecutiveRetryableModelErrors, N as aggregateConversationUsageSince, P as classifyConversationSubmission, R as findTrailingPartialToolBatch, St as encodeCanonicalId, Tt as toolStepRecordId, U as deriveCompactionDefaults, V as calculateContextTokens, W as isAssistantContextOverflow, Y as fromProviderUsage, _t as assertAppendMessage, bt as fnv1a64, ct as toolOutcomeKey, d as resolveAgentInitialDataSchema, et as agentStreamPath, ft as createSessionStorageKey, gt as renderSignalMessage, ht as createUserContextMessage, it as buildConversationContextEntries, lt as toolResultEntryId, mt as parseSessionStorageKey, nt as parseOffset, ot as getActiveConversationPath, q as addUsage, rt as buildConversationContext, tt as formatOffset, w as MAX_IMAGE_DATA_LENGTH, wt as generateConversationRecordId, xt as RESERVED_SIGNAL_TYPES, yt as runResponseMetadataHooks, z as isRetryableModelError } from "./dispatch-Dohpn4Ea.mjs";
@@ -408,7 +408,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..e35627a79df85b629d63fd3a2dea4aaa
  						}));
  					} else if (assistant && aEvent.type === "text_end") {
  						const block = assistant.blocks.get(aEvent.contentIndex);
-@@ -2546,9 +2560,32 @@ var Session = class {
+@@ -2546,9 +2560,58 @@ var Session = class {
  		return {
  			enabled: true,
  			reserveTokens: cc.reserveTokens ?? defaults.reserveTokens,
@@ -429,6 +429,13 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..e35627a79df85b629d63fd3a2dea4aaa
 +		});
 +		if (measure() <= config.workingContextTokens) return messages;
 +		if (signal?.aborted) throw abortErrorFor(signal);
++		// This is an ephemeral provider projection. Never replace canonical or
++		// loop state: expiry/revocation must not strand a persisted shortened body.
++		const reduced = await this.reduceWorkingToolResults(messages, signal);
++		if (signal?.aborted) throw abortErrorFor(signal);
++		if (measureWorkingContext({ systemPrompt: this.agentLoop.state.systemPrompt,
++			tools: this.agentLoop.state.tools.map(({ name, description, parameters }) => ({ name, description, parameters })),
++			messages: reduced }) <= config.workingContextTokens) return reduced;
 +		await this.flushCanonical();
 +		if (signal?.aborted) throw abortErrorFor(signal);
 +		if (!await this.runCompaction("threshold")) throw new Error("[flue] Working context could not be compacted within its configured budget.");
@@ -439,10 +446,29 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..e35627a79df85b629d63fd3a2dea4aaa
 +		if (measure() > config.workingContextTokens) throw new Error("[flue] Compacted working context still exceeds its configured budget.");
 +		return messages;
 +	}
++	async reduceWorkingToolResults(messages, signal) {
++		const config = this.config.compaction;
++		if (!config?.reduceToolResultPreviews) return messages;
++		let boundary = messages.length, tokens = 0, recentResults = 0;
++		while (boundary > 0 && (tokens < (config.keepRecentTokens ?? 8000) || recentResults < 2)) {
++			const message = messages[--boundary];
++			tokens += measureWorkingContext({ messages: [message] });
++			if (message.role === "toolResult") recentResults++;
++		}
++		const candidates = messages.slice(0, boundary).filter((message) => message.role === "toolResult" && !message.isError && message.content.length === 1 && message.content[0].type === "text");
++		if (!candidates.length) return messages;
++		const replacements = await config.reduceToolResultPreviews(structuredClone(candidates), signal);
++		return messages.map((message, index) => {
++			if (index >= boundary || !candidates.includes(message) || !replacements.has(message.toolCallId)) return message;
++			const text = replacements.get(message.toolCallId);
++			if (typeof text !== "string" || new TextEncoder().encode(text).byteLength >= new TextEncoder().encode(message.content[0].text).byteLength) throw new Error("[flue] Tool-result reduction must return smaller text.");
++			return { ...message, content: [{ type: "text", text }] };
++		});
++	}
  	async initializeCanonicalContext() {
  		await this.rebuildCanonicalContext();
  	}
-@@ -2574,7 +2611,7 @@ var Session = class {
+@@ -2574,7 +2637,7 @@ var Session = class {
  	}
  	processSubmissionInput(input, options) {
  		return createCallHandle(void 0, async (signal) => {
@@ -451,7 +477,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..e35627a79df85b629d63fd3a2dea4aaa
  		});
  	}
  	/**
-@@ -3544,7 +3581,8 @@ var Session = class {
+@@ -3544,7 +3607,8 @@ var Session = class {
  		const activateSkillTool = Object.keys(this.liveSkills).length > 0 ? createActivateSkillTool((name) => this.activateSkillForTool(name)) : void 0;
  		const packagedRead = Object.values(packagedSkills).some((skill) => Object.keys(skill.files).some((path) => path !== "SKILL.md")) ? createPackagedSkillReadTool(packagedSkills) : void 0;
  		const frameworkTools = () => [
@@ -461,7 +487,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..e35627a79df85b629d63fd3a2dea4aaa
  			...activateSkillTool ? [activateSkillTool] : [],
  			...packagedRead ? [packagedRead] : []
  		];
-@@ -3747,7 +3785,7 @@ var Session = class {
+@@ -3747,7 +3811,7 @@ var Session = class {
  			}
  		}
  	}
@@ -470,7 +496,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..e35627a79df85b629d63fd3a2dea4aaa
  		const operationSignal = signal && this.scopeSignal ? AbortSignal.any([signal, this.scopeSignal]) : signal ?? this.scopeSignal;
  		return this.runExclusive(operation, async () => {
  			if (operationSignal?.aborted) throw abortErrorFor(operationSignal);
-@@ -3783,12 +3821,25 @@ var Session = class {
+@@ -3783,12 +3847,25 @@ var Session = class {
  				return result;
  			} catch (error) {
  				const surfaced = operationSignal?.aborted ? abortErrorFor(operationSignal) : error;
@@ -496,7 +522,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..e35627a79df85b629d63fd3a2dea4aaa
  					error: serializeEventError(surfaced)
  				}, operation === "prompt" || operation === "skill" ? {
  					agentInput: this.activeAgentInput,
-@@ -4015,7 +4066,7 @@ var Session = class {
+@@ -4015,7 +4092,7 @@ var Session = class {
  	async rebuildCanonicalContext() {
  		const conversation = await this.requireConversation();
  		const resolved = await this.resolveCanonicalContextAttachments(conversation);
@@ -505,7 +531,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..e35627a79df85b629d63fd3a2dea4aaa
  			const image = resolved.get(attachment.id);
  			if (!image) throw new AttachmentNotAvailableError({ attachmentId: attachment.id });
  			return image;
-@@ -4050,7 +4101,7 @@ var Session = class {
+@@ -4050,7 +4127,7 @@ var Session = class {
  		};
  		const throwIfHalted = () => {
  			if (options.signal.aborted) throw abortErrorFor(options.signal);
@@ -514,7 +540,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..e35627a79df85b629d63fd3a2dea4aaa
  		};
  		while (true) {
  			const overflow = assistant !== void 0 && isAssistantContextOverflow(assistant, this.agentLoop.state.model.contextWindow ?? 0);
-@@ -4133,6 +4184,10 @@ var Session = class {
+@@ -4133,6 +4210,10 @@ var Session = class {
  	}
  	async checkCompaction(assistantMessage) {
  		if (assistantMessage.stopReason === "aborted" || assistantMessage.stopReason === "error") return;
@@ -525,7 +551,20 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..e35627a79df85b629d63fd3a2dea4aaa
  		const model = this.agentLoop.state.model;
  		const settings = this.resolveCompactionSettings(model);
  		if (!settings.enabled) return;
-@@ -4162,7 +4217,7 @@ var Session = class {
+@@ -4159,16 +4240,34 @@ var Session = class {
+ 			const sessionModel = this.agentLoop.state.model;
+ 			const settings = this.resolveCompactionSettings(sessionModel);
+ 			const compactionConfig = this.config.compaction === false ? void 0 : this.config.compaction;
++			const workingBudget = compactionConfig?.workingContextTokens ? workingContextBudget({
++				systemPrompt: this.agentLoop.state.systemPrompt,
++				tools: this.agentLoop.state.tools.map(({ name, description, parameters }) => ({ name, description, parameters }))
++			}, compactionConfig.workingContextTokens, compactionConfig.workingContextHeadroomTokens) : undefined;
++			const measure = () => measureWorkingContext({
++				systemPrompt: this.agentLoop.state.systemPrompt,
++				tools: this.agentLoop.state.tools.map(({ name, description, parameters }) => ({ name, description, parameters })),
++				messages: this.agentLoop.state.messages
++			});
++			const workingTokensBefore = workingBudget ? measure() : undefined;
  			const summarizationModel = compactionConfig?.model ? this.resolveModelForCall(compactionConfig.model) : sessionModel;
  			const canonicalConversation = await this.requireConversation();
  			const resolvedAttachments = await this.resolveCanonicalContextAttachments(canonicalConversation);
@@ -534,15 +573,37 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..e35627a79df85b629d63fd3a2dea4aaa
  				const image = resolvedAttachments.get(attachment.id);
  				if (!image) throw new AttachmentNotAvailableError({ attachmentId: attachment.id });
  				return image;
-@@ -4183,6 +4238,7 @@ var Session = class {
+ 			} });
+ 			const messages = contextEntries.map((entry) => entry.message);
+ 			const latestCompaction = getLatestConversationCompaction(canonicalConversation);
++			const canonicalActionEvidence = buildCanonicalActionEvidence(canonicalConversation);
++			if (workingBudget && compactionConfig.workingContextHeadroomTokens) {
++				// Budget the complete checkpoint and fixed prompt before selecting a
++				// recent tail. Tool pairs remain indivisible at the normal cut seam.
++				const checkpointTokens = (settings.maxSummaryTokens ?? 4096) + Math.ceil(new TextEncoder().encode(canonicalActionEvidence).byteLength / 4);
++				settings.keepRecentTokens = Math.max(0, Math.min(settings.keepRecentTokens,
++					workingBudget.targetTokens - workingBudget.fixedTokens - checkpointTokens));
++			}
+ 			const preparation = prepareCompaction(messages, settings, latestCompaction ? {
+ 				summary: latestCompaction.summary,
+ 				firstKeptIndex: 1,
+@@ -4183,6 +4282,7 @@ var Session = class {
  				this.internalLog("info", "[flue:compaction] Nothing to compact (first kept message has no entry)");
  				return false;
  			}
-+			preparation.canonicalActionEvidence = buildCanonicalActionEvidence(canonicalConversation);
++			preparation.canonicalActionEvidence = canonicalActionEvidence;
  			this.internalLog("info", `[flue:compaction] Summarizing ${preparation.messagesToSummarize.length} messages` + (preparation.isSplitTurn ? ` (split turn: ${preparation.turnPrefixMessages.length} prefix messages)` : "") + `, keeping messages from index ${preparation.firstKeptIndex}`);
  			const estimatedTokens = preparation.tokensBefore;
  			this.emit({
-@@ -4536,7 +4592,7 @@ var Session = class {
+@@ -4250,6 +4350,7 @@ var Session = class {
+ 				messagesAfter,
+ 				durationMs: durationSince(compactionStartMs),
+ 				isError: false,
++				...workingBudget ? { workingContext: { ...workingBudget, beforeTokens: workingTokensBefore, afterTokens: measure() } } : {},
+ 				usage: result.usage
+ 			});
+ 			terminalPending = false;
+@@ -4536,7 +4637,7 @@ var Session = class {
  	resolveSubmissionDurability(startedAt, timeoutAt) {
  		return {
  			maxAttempts: this.config.durability?.maxAttempts ?? 10,
@@ -551,7 +612,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..e35627a79df85b629d63fd3a2dea4aaa
  		};
  	}
  	async runPersistedContextInput(options) {
-@@ -4578,12 +4634,19 @@ var Session = class {
+@@ -4578,12 +4679,19 @@ var Session = class {
  					signal: options.signal
  				});
  				await this.flushResponseOutput();
@@ -572,7 +633,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..e35627a79df85b629d63fd3a2dea4aaa
  				this.activeSubmissionAttemptId = void 0;
  				this.activeJoinSource = void 0;
  				this.activeJoinSignal = void 0;
-@@ -4976,7 +5039,18 @@ async function materializeSubmissionAttachments(input, conversationId, attachmen
+@@ -4976,7 +5084,18 @@ async function materializeSubmissionAttachments(input, conversationId, attachmen
  }
  function createAgentSubmissionSessionHandler(agent, input, execute) {
  	return async (ctx) => {
@@ -592,7 +653,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..e35627a79df85b629d63fd3a2dea4aaa
  	};
  }
  /**
-@@ -4997,10 +5071,26 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
+@@ -4997,10 +5116,26 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
  	const { input } = submission;
  	const attempt = submissionAttemptRef(submission);
  	if (!attempt) return void 0;
@@ -620,7 +681,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..e35627a79df85b629d63fd3a2dea4aaa
  	} catch (renderError) {
  		if (submission.timeoutAt > 0 && Date.now() >= submission.timeoutAt) {
  			await failInterruptedSubmission(submissions, submission, attempt, agent, "exceeded_timeout", () => new SubmissionTimeoutError(), createContext, conversationWriter, emitCoordinatorEvent);
-@@ -5014,7 +5104,7 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
+@@ -5014,7 +5149,7 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
  		return;
  	}
  	if (submission.abortRequestedAt !== void 0) {
@@ -629,7 +690,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..e35627a79df85b629d63fd3a2dea4aaa
  		return;
  	}
  	if (submission.attemptCount >= submission.maxAttempts) {
-@@ -5040,6 +5130,16 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
+@@ -5040,6 +5175,16 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
  	}
  	await submissions.requeueSubmission(attempt);
  }
@@ -646,7 +707,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..e35627a79df85b629d63fd3a2dea4aaa
  /**
  * The wall-clock deadline after which a queued submission that never became
  * claimable (materialization permanently failing, agent definition
-@@ -5056,7 +5156,7 @@ function unreadySubmissionDeadline(submission, agent) {
+@@ -5056,7 +5201,7 @@ function unreadySubmissionDeadline(submission, agent) {
  		assertDurability(agent.durability, `[agent "${submission.input.agent}"]`);
  		timeoutMs = agent.durability?.timeoutMs ?? 36e5;
  	} catch {}
@@ -655,7 +716,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..e35627a79df85b629d63fd3a2dea4aaa
  }
  /**
  * Settle a queued submission that can never be claimed — a durable abort on
-@@ -5071,6 +5171,10 @@ function unreadySubmissionDeadline(submission, agent) {
+@@ -5071,6 +5216,10 @@ function unreadySubmissionDeadline(submission, agent) {
  */
  async function settleUnclaimableSubmission(submissions, submission, outcome, error, emitCoordinatorEvent) {
  	if (!await submissions.settleQueuedSubmission(submission.submissionId, outcome, error)) return false;
@@ -666,7 +727,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..e35627a79df85b629d63fd3a2dea4aaa
  	const errorInfo = { errorInfo: classifyError(error) };
  	emitCoordinatorEvent({
  		type: "submission_settled",
-@@ -5084,8 +5188,30 @@ async function settleUnclaimableSubmission(submissions, submission, outcome, err
+@@ -5084,8 +5233,30 @@ async function settleUnclaimableSubmission(submissions, submission, outcome, err
  		kind: submission.kind,
  		operation: "materialize_submission",
  		outcome: "terminated",
@@ -697,7 +758,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..e35627a79df85b629d63fd3a2dea4aaa
  	return true;
  }
  /** Synthetic request for the submission's kind: an agent route for direct prompts, the dispatch path for dispatches. */
-@@ -5117,11 +5243,32 @@ async function processSubmission(opts) {
+@@ -5117,11 +5288,32 @@ async function processSubmission(opts) {
  		attemptCount: submission.attemptCount,
  		maxAttempts: submission.maxAttempts
  	});
@@ -734,7 +795,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..e35627a79df85b629d63fd3a2dea4aaa
  	};
  	const execute = () => createAgentSubmissionSessionHandler(agent, input, (session) => {
  		const handle = session.processSubmissionInput(input, {
-@@ -5151,17 +5298,7 @@ async function processSubmission(opts) {
+@@ -5151,17 +5343,7 @@ async function processSubmission(opts) {
  		return;
  	}
  	try {
@@ -753,7 +814,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..e35627a79df85b629d63fd3a2dea4aaa
  	} catch (error) {
  		if (opts.isShutdownAbort?.(error)) throw error;
  		if (opts.signal?.reason instanceof SubmissionAbortedError) {
-@@ -5181,7 +5318,11 @@ async function failInterruptedSubmission(submissions, submission, attempt, agent
+@@ -5181,7 +5363,11 @@ async function failInterruptedSubmission(submissions, submission, attempt, agent
  	const ctx = createContext(input.submissionId);
  	let interruptedTools;
  	try {
@@ -766,7 +827,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..e35627a79df85b629d63fd3a2dea4aaa
  			submissionId: submission.submissionId,
  			kind: submission.kind,
  			reason,
-@@ -5215,10 +5356,10 @@ async function failInterruptedSubmission(submissions, submission, attempt, agent
+@@ -5215,10 +5401,10 @@ async function failInterruptedSubmission(submissions, submission, attempt, agent
  * through the two-phase outbox with `outcome: 'aborted'` — the durable
  * terminal record a reconnecting waiter observes.
  */
@@ -780,7 +841,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..e35627a79df85b629d63fd3a2dea4aaa
  			kind: submission.kind,
  			reason: "aborted",
 diff --git a/dist/dispatch-Dohpn4Ea.mjs b/dist/dispatch-Dohpn4Ea.mjs
-index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..28d7c68d29e223a9c906fedf1016ef7ca4291576 100644
+index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..5cb8261e1eb49ca92219d85ec75ddd60f1ff7fdf 100644
 --- a/dist/dispatch-Dohpn4Ea.mjs
 +++ b/dist/dispatch-Dohpn4Ea.mjs
 @@ -1,9 +1,11 @@
@@ -882,8 +943,8 @@ index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..28d7c68d29e223a9c906fedf1016ef7c
 +	const ordered = [...byToolName.entries()].sort((left, right) => right[1].latestAt.localeCompare(left[1].latestAt) || left[0].localeCompare(right[0]));
 +	if (ordered.length === 0) return "- (none)";
 +	const visible = ordered.slice(0, CANONICAL_ACTION_EVIDENCE_MAX_TOOLS);
-+	const lines = [];
-+	let projectedChars = 0;
++	const lines = ["Scope: cumulative totals for the active conversation at this checkpoint, including calls whose original messages remain below. Those retained messages are the same events, not additional calls. Do not add their counts again or infer repeated execution from seeing both representations."];
++	let projectedChars = lines[0].length + 1;
 +	let omitted = ordered.length - visible.length;
 +	for (let index = 0; index < visible.length; index += 1) {
 +		const [toolName, evidence] = visible[index];
@@ -1077,11 +1138,20 @@ index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..28d7c68d29e223a9c906fedf1016ef7c
  	let summary;
  	let aggregateUsage;
  	const addCallUsage = (usage) => {
-@@ -1861,18 +1944,20 @@ async function compact(preparation, model, signal, observer) {
+@@ -1860,19 +1943,28 @@ async function compact(preparation, model, signal, observer) {
+ 		if (!normalized) return;
  		aggregateUsage = aggregateUsage ? addUsage(aggregateUsage, normalized) : normalized;
  	};
- 	if (isSplitTurn && turnPrefixMessages.length > 0) {
+-	if (isSplitTurn && turnPrefixMessages.length > 0) {
 -		const [historyResult, turnPrefixResult] = await Promise.all([messagesToSummarize.length > 0 ? generateSummary(messagesToSummarize, model, settings.reserveTokens, signal, previousSummary, observer) : Promise.resolve({
++	if (settings.recallAvailable) {
++		// One bounded checkpoint owns both earlier history and the current turn.
++		// A second independent prefix summary doubles maintenance and can lose
++		// the relationship between prior findings and the unfinished request.
++		const result = await generateSummary([...messagesToSummarize, ...turnPrefixMessages], model, settings.reserveTokens, signal, previousSummary, canonicalActionEvidence, observer, settings.maxSummaryTokens, true);
++		addCallUsage(result.usage);
++		summary = result.text;
++	} else if (isSplitTurn && turnPrefixMessages.length > 0) {
 +		const [historyResult, turnPrefixResult] = await Promise.all([messagesToSummarize.length > 0 ? generateSummary(messagesToSummarize, model, settings.reserveTokens, signal, previousSummary, canonicalActionEvidence, observer, settings.maxSummaryTokens, settings.recallAvailable) : Promise.resolve({
  			text: "No prior history.",
  			usage: void 0
@@ -1101,7 +1171,7 @@ index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..28d7c68d29e223a9c906fedf1016ef7c
  	const { readFiles, modifiedFiles } = computeFileLists(fileOps);
  	summary += formatFileOperations(readFiles, modifiedFiles);
  	return {
-@@ -2220,6 +2305,17 @@ function supersededAssistantErrorEntryIds(conversation) {
+@@ -2220,6 +2312,17 @@ function supersededAssistantErrorEntryIds(conversation) {
  	}
  	return superseded;
  }
@@ -1119,7 +1189,7 @@ index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..28d7c68d29e223a9c906fedf1016ef7c
  function projectConversationUi(conversation, streamOffset) {
  	const messages = [];
  	const byId = /* @__PURE__ */ new Map();
-@@ -2879,6 +2975,44 @@ async function readSubmissionReply(options) {
+@@ -2879,6 +2982,44 @@ async function readSubmissionReply(options) {
  	};
  	return replyFromSnapshot(snapshot, options.submissionId);
  }
@@ -1164,20 +1234,23 @@ index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..28d7c68d29e223a9c906fedf1016ef7c
  /**
  * Extract a submission's reply from a materialized conversation snapshot.
  * Shared by {@link readSubmissionReply} and the Cloudflare client, which reads
-@@ -2932,9 +3066,11 @@ function assertThinkingLevel(value, label) {
+@@ -2932,9 +3073,14 @@ function assertThinkingLevel(value, label) {
  function assertCompaction(definition, label) {
  	if (definition === void 0 || definition === false) return;
  	if (typeof definition !== "object" || definition === null || Array.isArray(definition)) throw new Error(`[flue] ${label} compaction must be a configuration object or \`false\`.`);
 -	for (const key of Object.keys(definition)) if (key !== "reserveTokens" && key !== "keepRecentTokens" && key !== "model") throw new Error(`[flue] ${label} compaction received unknown field "${key}".`);
-+	for (const key of Object.keys(definition)) if (!["reserveTokens", "keepRecentTokens", "model", "workingContextTokens", "maxSummaryTokens"].includes(key)) throw new Error(`[flue] ${label} compaction received unknown field "${key}".`);
++	for (const key of Object.keys(definition)) if (!["reserveTokens", "keepRecentTokens", "model", "workingContextTokens", "workingContextHeadroomTokens", "maxSummaryTokens", "reduceToolResultPreviews"].includes(key)) throw new Error(`[flue] ${label} compaction received unknown field "${key}".`);
++	if (definition.reduceToolResultPreviews !== undefined && typeof definition.reduceToolResultPreviews !== "function") throw new Error(`[flue] ${label} compaction.reduceToolResultPreviews must be a function.`);
  	assertTokenCount(definition.reserveTokens, `${label} compaction.reserveTokens`);
  	assertTokenCount(definition.keepRecentTokens, `${label} compaction.keepRecentTokens`);
 +	assertPositiveInteger(definition.workingContextTokens, `${label} compaction.workingContextTokens`);
++	assertTokenCount(definition.workingContextHeadroomTokens, `${label} compaction.workingContextHeadroomTokens`);
++	if (definition.workingContextHeadroomTokens !== undefined && !(definition.workingContextTokens > definition.workingContextHeadroomTokens)) throw new Error(`[flue] ${label} working-context headroom must be smaller than its limit.`);
 +	assertPositiveInteger(definition.maxSummaryTokens, `${label} compaction.maxSummaryTokens`);
  	if (definition.model !== void 0 && typeof definition.model !== "string") throw new Error(`[flue] ${label} compaction.model must be a string.`);
  }
  function assertDurability(definition, label) {
-@@ -2942,7 +3078,7 @@ function assertDurability(definition, label) {
+@@ -2942,7 +3088,7 @@ function assertDurability(definition, label) {
  	if (typeof definition !== "object" || definition === null || Array.isArray(definition)) throw new Error(`[flue] ${label} durability must be a configuration object.`);
  	for (const key of Object.keys(definition)) if (key !== "maxAttempts" && key !== "timeoutMs") throw new Error(`[flue] ${label} durability received unknown field "${key}".`);
  	assertPositiveInteger(definition.maxAttempts, `${label} durability.maxAttempts`);
@@ -1250,21 +1323,27 @@ index 9a8b8c34e42e58ae0debd0159e144cd7be2e4b84..a2e26a2a13ff6b31e4997ca6da5bbf57
  		return this.sql.exec(`UPDATE flue_agent_submissions
  					 SET status = 'queued', attempt_id = NULL, input_applied_at = NULL, started_at = NULL, owner_id = NULL, lease_expires_at = 0
 diff --git a/dist/types-BAqOl5NC.d.mts b/dist/types-BAqOl5NC.d.mts
-index 49effc41c60e5f07d406e315146add31fb6b3ae8..b43e71c22b7d29f6a9c6c26220414c3a499e3b12 100644
+index 49effc41c60e5f07d406e315146add31fb6b3ae8..b17e0cd0570318f96ef498db8e4b81f7b4a27f76 100644
 --- a/dist/types-BAqOl5NC.d.mts
 +++ b/dist/types-BAqOl5NC.d.mts
-@@ -537,6 +537,10 @@ interface FlueFs {
+@@ -537,6 +537,16 @@ interface FlueFs {
    }): Promise<void>;
  }
  interface CompactionConfig {
++  /** Optional authorized replacement text for older tool results under budget pressure.
++   * Flue protects the recent tail and retains canonical originals for summaries/replay.
++   */
++  reduceToolResultPreviews?: (results: readonly LlmToolResultMessage[], signal?: AbortSignal) => Promise<ReadonlyMap<string, string>>;
 +  /** OpenMeld: estimated total working context checked before each model call. */
 +  workingContextTokens?: number;
++  /** Space reserved for new work when selecting the recent tail. */
++  workingContextHeadroomTokens?: number;
 +  /** OpenMeld: independent per-summary output ceiling, including reasoning. */
 +  maxSummaryTokens?: number;
    /**
     * Token headroom to reserve in the context window. Compaction triggers
     * when used tokens exceed `contextWindow - reserveTokens`.
-@@ -741,7 +745,45 @@ interface AgentProps {
+@@ -741,7 +751,45 @@ interface AgentProps {
   * IssueTriage.durability = { maxAttempts: 5, timeoutMs: 7_200_000 };
   * ```
   */
@@ -1310,7 +1389,7 @@ index 49effc41c60e5f07d406e315146add31fb6b3ae8..b43e71c22b7d29f6a9c6c26220414c3a
    /**
     * The agent's durable identity — keys conversation storage everywhere and
     * the Durable Object class on Cloudflare. Defaults to the function's own
-@@ -1278,6 +1320,13 @@ type FlueEventVariant = {
+@@ -1278,6 +1326,13 @@ type FlueEventVariant = {
  } | {
    type: 'text_delta';
    text: string;
@@ -1324,12 +1403,20 @@ index 49effc41c60e5f07d406e315146add31fb6b3ae8..b43e71c22b7d29f6a9c6c26220414c3a
  } | {
    type: 'thinking_start';
    contentIndex?: number;
+@@ -1338,6 +1393,7 @@ type FlueEventVariant = {
+   estimatedTokens: number;
+ } | {
+   type: 'compaction';
++  workingContext?: { beforeTokens: number; afterTokens: number; fixedTokens: number; targetTokens: number; limitTokens: number };
+   messagesBefore: number;
+   messagesAfter: number;
+   durationMs: number;
 diff --git a/dist/working-context.mjs b/dist/working-context.mjs
 new file mode 100644
-index 0000000000000000000000000000000000000000..311fdd9a1fed779eb0bcc623f48d50f0bf16c2fa
+index 0000000000000000000000000000000000000000..febd0320b9635cf4f5bc797a761feb2169d8af8d
 --- /dev/null
 +++ b/dist/working-context.mjs
-@@ -0,0 +1,19 @@
+@@ -0,0 +1,26 @@
 +// Keep the native compactor's image heuristic in one place. This is an
 +// economic projection, not vendor tokenization or physical image admission.
 +export const COMPACTION_IMAGE_TOKENS = 1200;
@@ -1337,10 +1424,12 @@ index 0000000000000000000000000000000000000000..311fdd9a1fed779eb0bcc623f48d50f0
 +export function measureWorkingContext(input) {
 +  let imageTokens = 0;
 +  const messages = input.messages.map((message) => {
-+    if (!Array.isArray(message.content)) return message;
++    const { role, content, toolCallId, toolName, isError } = message;
++    const visible = { role, content, toolCallId, toolName, isError };
++    if (!Array.isArray(content)) return visible;
 +    return {
-+      ...message,
-+      content: message.content.map((block) => {
++      ...visible,
++      content: content.map((block) => {
 +        if (block.type !== "image") return block;
 +        imageTokens += COMPACTION_IMAGE_TOKENS;
 +        return { type: "image", mimeType: block.mimeType };
@@ -1348,4 +1437,9 @@ index 0000000000000000000000000000000000000000..311fdd9a1fed779eb0bcc623f48d50f0
 +    };
 +  });
 +  return Math.ceil(new TextEncoder().encode(JSON.stringify({ ...input, messages })).byteLength / 4) + imageTokens;
++}
++
++export function workingContextBudget(input, limit, headroom = 0) {
++  const fixedTokens = measureWorkingContext({ ...input, messages: [] });
++  return { limitTokens: limit, targetTokens: limit - headroom, fixedTokens };
 +}

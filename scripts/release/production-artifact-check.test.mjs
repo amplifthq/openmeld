@@ -177,6 +177,30 @@ test("Web admission rejects an auth page with an unresolved server function", as
   );
 });
 
+test("Docs health checks public HTML without an App login redirect and rejects stale artifacts", async () => {
+  const sourceSha = "a".repeat(40);
+  const requested = [];
+  const html = `<html><head><meta name="openmeld-source-sha" content="${sourceSha}"/><meta name="openmeld-build-id" content="docs-build"/><meta name="openmeld-build-dirty" content="false"/></head><body>Docs<script src="/_docs/assets/a.js"></script></body></html>`;
+  const options = {
+    scope: "docs",
+    url: "https://docs.example",
+    sourceSha,
+    expectedBuildId: "docs-build",
+    fetchImpl: (url) => {
+      requested.push(url.pathname);
+      return new Response(html, { headers: { "content-type": "text/html" } });
+    },
+  };
+  assert.equal((await checkProductionWeb(options)).buildId, "docs-build");
+  assert.deepEqual(requested, ["/", "/docs"]);
+  await assert.rejects(
+    checkProductionWeb({ ...options, expectedBuildId: "old-build" }),
+    {
+      message: "Web SSR build identity does not match the verified artifact.",
+    }
+  );
+});
+
 test("Web health waits briefly for the deployed SSR page to serve the verified artifact", async () => {
   const sourceSha = "a".repeat(40);
   const page = (sha, buildId) =>

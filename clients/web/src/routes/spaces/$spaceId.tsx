@@ -1005,7 +1005,6 @@ function PublicSpacePanels({ input }: { input: PublicSpaceOpenViewProps }) {
 				onSend={noopPromise}
 				onSendStarterPrompt={noopPromise}
 				onSpaceViewChange={input.onSpaceViewChange}
-				presentedWakeProgressItems={EMPTY_EPHEMERAL_ACTIVITY_ITEMS}
 				selfProfileId={PUBLIC_VIEWER_PROFILE_ID}
 				spaceId={input.spaceId}
 				spaceReferencesById={input.spaceReferencesById}

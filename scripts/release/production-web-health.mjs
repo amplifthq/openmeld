@@ -7,6 +7,7 @@ const BODY = /<body[\s>]/iu;
 const SCRIPT = /<script[\s>]/iu;
 const SOURCE_SHA = /^[a-f0-9]{40}$/u;
 const SSR_ROUTES = ["/login", "/forgot-password", "/check-email"];
+const DOCS_SSR_ROUTES = ["/", "/docs"];
 const WEBSITE_SSR_ROUTES = ["/", "/privacy", "/terms", "/guides/local-agents"];
 const BUILD_META =
   /<meta\s+[^>]*name="(openmeld-[a-z-]+)"[^>]*content="([^"]*)"[^>]*>/gu;
@@ -65,7 +66,7 @@ export async function checkProductionWeb({
   if (!SOURCE_SHA.test(sourceSha)) {
     throw new Error("An exact Web source SHA is required.");
   }
-  if (!["web", "website"].includes(scope)) {
+  if (!["web", "website", "docs"].includes(scope)) {
     throw new Error("Unknown renderer health scope.");
   }
   if (scope === "web") {
@@ -86,7 +87,12 @@ export async function checkProductionWeb({
     await response.body?.cancel();
   }
   let rootPage;
-  for (const route of scope === "website" ? WEBSITE_SSR_ROUTES : SSR_ROUTES) {
+  const routes = {
+    web: SSR_ROUTES,
+    website: WEBSITE_SSR_ROUTES,
+    docs: DOCS_SSR_ROUTES,
+  }[scope];
+  for (const route of routes) {
     const target = new URL(route, url);
     target.searchParams.set("release-health", sourceSha);
     const response = await fetchImpl(target, {

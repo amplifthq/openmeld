@@ -97,17 +97,20 @@ export function releaseComponentOperationKey(input) {
     .digest("hex");
 }
 
-export function describeGuardedReceiptRecoveryCandidate(source) {
+export function describeGuardedReceiptRecoveryCandidate(source, scope) {
   const receipt = productionComponentReceiptSchema.safeParse(source?.receipt);
+  const retry =
+    scope === "core" && readUnchangedCoreRetryBaseline(source, source?.sha);
   if (
     !(
       EXACT_SOURCE_SHA.test(source?.sha ?? "") &&
       receipt.success &&
       ["applied", "failed"].includes(receipt.data.status)
     ) ||
-    receipt.data.application !== "applied" ||
-    receipt.data.identity?.kind !== "worker-deployment" ||
-    receipt.data.identity.sourceSha !== source.sha
+    (!retry &&
+      (receipt.data.application !== "applied" ||
+        receipt.data.identity?.kind !== "worker-deployment" ||
+        receipt.data.identity.sourceSha !== source.sha))
   ) {
     return null;
   }
@@ -115,10 +118,32 @@ export function describeGuardedReceiptRecoveryCandidate(source) {
     admission: "candidate",
     attemptId: receipt.data.attemptId,
     componentIndex: receipt.data.componentIndex,
-    kind: "guarded-health-resume",
+    kind: retry ? "guarded-core-upload-retry" : "guarded-health-resume",
     operationKey: receipt.data.operationKey,
     sourceSha: source.sha,
   };
+}
+
+export function readUnchangedCoreRetryBaseline(source, sourceSha) {
+  const baseline = source?.verifiedHistoryBaseline;
+  const receipt = productionComponentReceiptSchema.safeParse(source?.receipt);
+  const prior = productionComponentReceiptSchema.safeParse(baseline?.receipt);
+  if (
+    source?.sha !== sourceSha ||
+    !receipt.success ||
+    receipt.data.status !== "failed" ||
+    receipt.data.application !== "unknown" ||
+    receipt.data.identity ||
+    !prior.success ||
+    prior.data.status !== "verified" ||
+    prior.data.identity?.kind !== "worker-deployment" ||
+    prior.data.identity.workerName !== "openmeld-core-prod" ||
+    prior.data.identity.sourceSha !== baseline.sha ||
+    !(Date.parse(baseline.recordedAt) <= Date.parse(receipt.data.startedAt))
+  ) {
+    return null;
+  }
+  return baseline;
 }
 
 export function selectGuardedReceiptRecovery(input, retained) {
@@ -158,6 +183,21 @@ export function selectGuardedReceiptRecovery(input, retained) {
     ),
   });
   if (pending.length) {
+    const baseline =
+      input.group.scope === "core" &&
+      readUnchangedCoreRetryBaseline(previous, input.sourceSha);
+    if (
+      baseline &&
+      input.target?.workerName === "openmeld-core-prod" &&
+      receipt.operationKey === input.operationKey &&
+      !input.redeploy
+    ) {
+      return {
+        ...previous,
+        retry: true,
+        workerIdentity: baseline.receipt.identity,
+      };
+    }
     if (
       sameTarget &&
       ["applied", "failed"].includes(receipt.status) &&
@@ -194,11 +234,31 @@ async function verifyRetainedComponent(input, previous) {
       );
     }
   }
-  await verifyWorkerDeployment({ ...input, expected: previous.workerIdentity });
+  await verifyWorkerDeployment({
+    ...input,
+    ...(previous.retry
+      ? {
+          sourceSha: previous.workerIdentity.sourceSha,
+          target: {
+            ...input.target,
+            projectionTag: previous.workerIdentity.projectionTag,
+          },
+        }
+      : {}),
+    expected: previous.workerIdentity,
+  });
 }
 
 async function resumeComponent(input) {
   const receipt = input.previous.receipt;
+  if (input.previous.retry) {
+    await executeComponent({
+      ...input,
+      attemptId: receipt.attemptId,
+      componentIndex: receipt.componentIndex,
+    });
+    return;
+  }
   if (receipt.status === "verified") {
     return;
   }
@@ -266,7 +326,9 @@ async function executeComponent(input) {
   const scopes = group.scope === "cli" ? ["cli", "core"] : [group.scope];
   let application = "unknown";
   let identities = new Map();
-  const startedAt = new Date().toISOString();
+  const startedAt = input.previous?.retry
+    ? input.previous.receipt.startedAt
+    : new Date().toISOString();
   const capture = input.target ? createWorkerDeploymentCapture(input) : null;
   const record = async (status) => {
     const receipts = Object.fromEntries(
@@ -319,7 +381,9 @@ async function executeComponent(input) {
           }
           await input.beforeStep?.(step);
           if (!started) {
-            await record("started");
+            if (!input.previous?.retry) {
+              await record("started");
+            }
             started = true;
           }
         },

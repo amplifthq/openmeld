@@ -9,16 +9,25 @@ import {
 	buildOrganizationFilesPath,
 	buildOrganizationPeoplePath,
 	buildOrganizationPluginsPath,
+	buildOrganizationRoutinesPath,
 	buildOrganizationSkillsPath,
 } from "#/lib/organizations/organization-routes";
 
-const TEAM_VIEWS = ["people", "agents", "plugins", "skills", "files"] as const;
+const TEAM_VIEWS = [
+	"people",
+	"agents",
+	"plugins",
+	"skills",
+	"files",
+	"routines",
+] as const;
 const TEAM_DESTINATIONS = [
 	buildOrganizationPeoplePath,
 	buildOrganizationAgentsPath,
 	buildOrganizationPluginsPath,
 	buildOrganizationSkillsPath,
 	buildOrganizationFilesPath,
+	buildOrganizationRoutinesPath,
 ] as const;
 
 export function TeamHeader(input: {
@@ -57,6 +66,7 @@ export function TeamHeader(input: {
 					<TabsSubtleItem index={2} label="Plugins" labelClassName="text-sm" />
 					<TabsSubtleItem index={3} label="Skills" labelClassName="text-sm" />
 					<TabsSubtleItem index={4} label="Files" labelClassName="text-sm" />
+					<TabsSubtleItem index={5} label="Routines" labelClassName="text-sm" />
 				</TabsSubtle>
 			}
 			renderFrame={false}

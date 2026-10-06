@@ -1,5 +1,6 @@
 import {
   ORGANIZATION_DIRECTORY_AGENT_PROFILE_WORK_RECOVERY_VERSION_QUERY_PARAMETER,
+  ORGANIZATION_DIRECTORY_CENTER_AGENT_ONLY_QUERY_PARAMETER,
   ORGANIZATION_DIRECTORY_INCLUDE_AGENT_AVATARS_QUERY_PARAMETER,
   ORGANIZATION_DIRECTORY_INCLUDE_HUMAN_PROFILE_LAST_USED_AT_QUERY_PARAMETER,
   ORGANIZATION_DIRECTORY_INCLUDE_MEMBER_LAST_ACTIVE_AT_QUERY_PARAMETER,
@@ -346,6 +347,11 @@ export function registerOrganizationRoutes(app: Hono<HonoBindings>): void {
         }),
       execute: async () =>
         await c.var.coreRpc.getCurrentOrganizationDirectory({
+          ...(c.req.query(
+            ORGANIZATION_DIRECTORY_CENTER_AGENT_ONLY_QUERY_PARAMETER
+          ) === "true"
+            ? { centerAgentOnly: true }
+            : {}),
           ...(agentProfileWorkRecoveryVersion
             ? { agentProfileWorkRecoveryVersion }
             : {}),
