@@ -1,28 +1,28 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-05T18:16:27.157Z",
+  "updatedAt": "2026-10-06T07:27:30.340Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
-      "packageVersion": "0.3.244",
+      "packageVersion": "0.3.245",
       "updatePolicy": "available",
-      "reason": "Existing CLI commands remain compatible with both cloud versions; this release carries additive account-deletion schema exports."
+      "reason": "Adds unified routine management; existing setup and Wake remain compatible."
     },
     "service": {
-      "bundleHash": "b20d300b8fad317ecf3974b6237b6853acc40dfdd651795440fc40c06626d3bf",
-      "portableBundleHash": "0186abf4ee8299d5315da0968ad558b06645225cbcf092fa83654d4551036f64",
-      "bundleVersion": "0.3.244",
+      "bundleHash": "c3183b45fab8d2d5d7076c5557fd52b370b858fa2eb7fdaf9052ff724e6749d5",
+      "portableBundleHash": "67db9422330a9b4b63e3e2fb31eccc668c08bbd45eeee7997f7238fdba02fc77",
+      "bundleVersion": "0.3.245",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
       "serviceContractVersion": "openmeld-service-contract-2026-09-local-install-recovery-v1",
       "updatePolicy": "available",
-      "reason": "Account-deletion schemas are additive; workstation setup, Wake, execution and reply contracts remain compatible in both directions."
+      "reason": "Shared bundle rebuild; local execution continues to use the existing Wake contract."
     },
     "skills": {
-      "bundleHash": "c041258bd2098c01e98130579c12a11217b17de6f3c8e0b966a1e1001ad46bd3",
+      "bundleHash": "2e53ad2084dd4bfc1dc58cfafba207f0739873319c97c783d75d1d3b6d1b4858",
       "skillContractVersion": "openmeld-skills-contract-2026-09-explicit-space-recipients-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "The added cloud Computer guidance is optional and ships with its CLI command after the cloud receivers; existing workstation instructions remain compatible."
+      "reason": "Documents unified routine management without changing the skill contract."
     }
   }
 }
