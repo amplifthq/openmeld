@@ -23,6 +23,8 @@ export function resolveRoutinesCliOutputMode(input: {
 }
 
 export type RoutineCreateOptions = RoutineOutputOptions & {
+  agent?: string;
+  scope?: string;
   cron?: string;
   daily?: string;
   instructions?: string;
@@ -60,7 +62,7 @@ export function registerRoutinesCommands(
 ): Command {
   const routines = program
     .command("routines")
-    .description("Manage scheduled Center Agent Routines.");
+    .description("Manage personal and team Routines for any Agent.");
 
   routines
     .command("list")
@@ -72,9 +74,14 @@ export function registerRoutinesCommands(
 
   routines
     .command("create")
-    .description("Create a scheduled Center Agent Routine.")
+    .description("Create a scheduled Routine.")
+    .option(
+      "--agent <profile-id>",
+      "Agent Profile ID, or center for the Center Agent"
+    )
+    .option("--scope <scope>", "Visibility: personal or team", "personal")
     .option("--name <name>", "Human-readable Routine name")
-    .option("--instructions <text>", "Instructions for the Center Agent")
+    .option("--instructions <text>", "Instructions for the Agent")
     .option("--cron <expression>", "Raw five-field cron expression")
     .option("--daily <HH:MM>", "Daily time in strict 24-hour HH:MM format")
     .option(

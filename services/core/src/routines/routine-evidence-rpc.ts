@@ -15,15 +15,16 @@ import type {
   CenterAgentRoutineRunEvidence,
 } from "@openmeld/schemas/types";
 import { createCenterAgentEvidenceSourceAccess } from "../center-agent/application/evidence-source-access";
-import { prepareCenterAgentRepresentedMemberRequest } from "../center-agent/application/represented-member-request";
 import type { CoreBindings } from "../lib/bindings";
 import { attachCenterAgentTurnRuntimeEvidence } from "../remote-agent/application/center-agent-turn-diagnostics";
 import { listRemoteAgentRoutineDeliveryDiagnosticRecords } from "../remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import {
-  listRoutineRunRecords,
-  readRoutineRunExecutionRecord,
-} from "./routine-repository";
+  listAccessibleRoutineRuns,
+  requireRoutineHistoryAccess,
+} from "./routine-access";
+import { readRoutineRunExecutionRecord } from "./routine-repository";
+import { prepareRoutineEvidenceRequest } from "./routine-request-preparation";
 import { parseRoutinePayload } from "./routine-rpc-contract";
 
 type SourceAccess = Awaited<
@@ -39,17 +40,19 @@ export async function rpcCenterAgentListRoutineRuns(
     input
   );
   const { prepared, db, organizationId } = await prepareRead(env, request);
+  const access = await createCenterAgentEvidenceSourceAccess({ env, prepared });
   const limit = request.limit ?? 20;
-  // Reuse the existing historical owner, including its deleted-definition and
-  // Center-versus-personal executor scope. One extra row proves continuation.
-  const records = await listRoutineRunRecords({
+  const records = await listAccessibleRoutineRuns({
+    allowPersonal: access.audience === "requester_private",
     db,
     organizationId,
     routineId: request.routineId,
+    userId: prepared.representedHuman.userId,
+    humanProfileId: prepared.representedHuman.profileId,
     beforeScheduledFor: request.beforeScheduledFor,
     limit: limit + 1,
   });
-  const access = await createCenterAgentEvidenceSourceAccess({ env, prepared });
+
   const runs = await Promise.all(
     records.slice(0, limit).map((run) => projectRun(run, access))
   );
@@ -72,27 +75,49 @@ export async function rpcCenterAgentReadRoutineRunDiagnostics(
     centerAgentReadRoutineRunDiagnosticsRpcInputSchema,
     input
   );
-  const { db, organizationId } = await prepareRead(env, request);
+  const {
+    db,
+    organizationId,
+    prepared: initialAuthority,
+  } = await prepareRead(env, request);
   const record = await readRoutineRunExecutionRecord({
     db,
     runId: request.runId,
   });
-  if (
-    !record ||
-    record.organizationId !== organizationId ||
-    record.agentProfileIdSnapshot !== null
-  ) {
+  if (!record || record.organizationId !== organizationId) {
     throw createCoreRpcHttpError({
       code: "routine.not_found",
       reason: "Routine Run was not found.",
       status: 404,
     });
   }
+  const initialAccess = await createCenterAgentEvidenceSourceAccess({
+    env,
+    prepared: initialAuthority,
+  });
+  await requireRoutineHistoryAccess({
+    allowPersonal: initialAccess.audience === "requester_private",
+    db,
+    organizationId,
+    routineId: record.routineId,
+    runId: record.id,
+    userId: initialAuthority.representedHuman.userId,
+    humanProfileId: initialAuthority.representedHuman.profileId,
+  });
   const nativeDelivery = await readNativeEvidence(env, organizationId, record);
   // Runtime reads cross a service boundary. Recheck both the represented
   // member and current reply audience before exposing destination references.
   const { prepared } = await prepareRead(env, request);
   const access = await createCenterAgentEvidenceSourceAccess({ env, prepared });
+  await requireRoutineHistoryAccess({
+    allowPersonal: access.audience === "requester_private",
+    db,
+    organizationId,
+    routineId: record.routineId,
+    runId: record.id,
+    userId: prepared.representedHuman.userId,
+    humanProfileId: prepared.representedHuman.profileId,
+  });
   return centerAgentReadRoutineRunDiagnosticsResponseSchema.parse({
     organizationId,
     observedAtMs: Date.now(),
@@ -110,7 +135,7 @@ async function prepareRead(
     | CenterAgentReadRoutineRunDiagnosticsRpcInput
     | CenterAgentListRoutineRunsToolRpcInput
 ) {
-  const prepared = await prepareCenterAgentRepresentedMemberRequest(
+  const prepared = await prepareRoutineEvidenceRequest(
     env,
     request.context,
     request.speakerMember

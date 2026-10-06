@@ -1,10 +1,10 @@
-# Center Agent Routines
+# Routines
 
 ## Agent Context
 
-- Owner: Center Agent Routine and Run product semantics and cross-owner
+- Owner: Routine and Run product semantics and cross-owner
   invariants.
-- Purpose: Define the Center Agent Routine and Run product contract, including
+- Purpose: Define the Routine and Run product contract, including
   organization ownership, authority, scheduling, native delivery, result
   surfaces, client surfaces, and operational boundaries.
 - Read this when: You are changing a Routine definition, Run lifecycle,
@@ -23,77 +23,35 @@
   Remote Agent provider configuration, production tenant setup, or evidence
   that an official-organization Routine has been configured or run.
 - Source of truth: This file owns the durable product and cross-owner contract
-  for Center Agent Routines. Source code, shared schemas, and migrations remain
+  for Routines. Source code, shared schemas, and migrations remain
   the implementation truth and must be reconciled with this file in the same
   change when behavior moves.
 
 ## Current Implementation Status
 
-### Personal Remote Agent Routines
+Routines is a Team product at `/o/{orgSlug}/routines`. Personal and Team views
+share one definition store, minute scheduler, atomic claim, Run history, API,
+and compact editor. Visibility and executor are separate choices:
 
-Personal Remote Agents reuse the same Routine definitions, minute scheduler,
-atomic occurrence claim, Workflow execution, Run history, and native result
-publication. The owner can create, list, update, pause, resume, and delete that
-Agent's Routines through its chat tools. Personal Routine management is not yet
-exposed in the Center Agent Web or CLI Routine surfaces.
+- `personal`: only the creator can read or manage the definition and its history;
+- `team`: members with access to the destination can read it; the creator and
+  Organization admins can manage it within the executor's authority;
+- null `agentProfileId`: use the current designated Center Agent;
+- an explicit owned Agent Profile: use its enabled Remote Agent or Local Agent
+  binding. Changing scope or executor requires a new Routine.
 
-- A personal definition stores its immutable `agent_profile_id`; each claimed
-  Run freezes `agent_profile_id_snapshot`. A null executor preserves the
-  designated Center Agent behavior for existing Routines.
-- Personal tools require the verified owner of the admitted Agent execution.
-  Another member cannot schedule work using that owner's authority. Lists and
-  mutations are scoped to the exact Agent; Center tools and existing human
-  Routine routes remain scoped to Center Routines.
-- Targets are the owner's DM with that Agent or an eligible organization Space.
-  The owner and Agent must retain access at admission. A disabled or reassigned
-  Agent, revoked membership, or mismatched Run executor prevents execution.
-- Runs use the personal Agent's current model, conversation identity, shared
-  tool policy, and Computer scope. They do not recall Center Agent memory.
-  The delegated owner remains the verified tool requester; the personal Agent
-  remains the visible result author.
-- Personal Routines cannot use Channels or grant Center-only unattended actions.
-  Existing standard/read-only policy, destructive-action restrictions, limits,
-  pause semantics, and duplicate-publication protection still apply.
+The v3 management projection lists all authorized executors and Routines.
+Legacy projections remain available to older clients. Existing Center definitions
+migrate as Team; existing explicit Remote Agent definitions migrate as personal.
+Migration does not retime schedules or recreate definitions.
 
-Deploy migration `0166`, then the new Core and Remote Agent together before
-opening personal Routine creation. The Remote receiver must understand the
-personal Routine author contract. Before rolling Core back to a version that
-does not understand personal executors, pause personal Routines and drain their
-in-flight Runs; an old scheduler must never scan enabled personal definitions.
-No Local Service or CLI upgrade is required for this capability.
+Center and Remote execution retain Workflow/native delivery. Local execution
+uses the existing Space Wake path, directly targeting the selected Local Agent.
+There is no Center Agent delegation hop, second scheduler, or Service-owned
+Routine database. Model and reasoning configuration come from the selected Agent.
 
-As of 2026-07-23, the repository implements the Center Agent Routines MVP
-product contract end to end:
-
-- shared strict Routine, Run, target-space, turn-envelope, private-tool, and
-  CLI JSON contracts;
-- D1 Routine and Run ownership through migrations `0025`, `0026`, `0028`,
-  `0036`, the Routine native-delivery chain migration `0063`, and the
-  unattended-action/continuation fence migration `0064`;
-- the Core minute Cron scheduler, atomic occurrence claim, catch-up and
-  quarantine behavior, and Remote Agent native delivery;
-- Workflow-first Run execution with an explicit Legacy rollback engine;
-- the Web Routine management and Run-history client, the eight CLI commands,
-  and the six verified member-attributed Center Agent management tools; and
-- one-time and recurring schedules;
-- an OpenMeld Space or the durable originating Slack thread as the explicit
-  success and failure destination; and
-- one executable capability catalog and one exact enabled Organization Skill
-  release snapshot inherited by interactive Center Agent and unattended
-  Routine turns by default, with only the explicit capability-owned exceptions
-  below and the same delegated-member authorization, attribution, audit, and
-  fail-closed contracts.
-
-The approved Web navigation places **Routines** under the Center Agent product's
-stable secondary navigation. It is a daily use-and-creation surface, not global
-configuration and not a root product peer. Current navigation placement is
-owned by `developing/clients/web.md`.
-
-Implemented repository capability is not evidence that a particular deployed
-environment has the required migrations, bindings, or release, that an
-official Organization has a configured Routine, or that a real production Run
-has completed. Production configuration and dogfood evidence must be reported
-separately from this product contract.
+Implemented capability is not evidence of production deployment or a completed
+run on a user's installed computer. Report those separately.
 
 ## Product Promise And Vocabulary
 
@@ -111,8 +69,8 @@ then English. Initial Run failures use the same fallback rather than always
 using English. Deterministic pre-admission failure notices preserve the original
 reason and use that selected language when a localized presentation exists.
 
-A **Routine** is an organization-owned instruction that asks the designated
-Center Agent to do work once or on an explicit recurring schedule. A **Run** is one
+A **Routine** is an organization-scoped instruction that asks a selected Agent
+to do work once or on an explicit recurring schedule. A **Run** is one
 durable scheduling or execution record. It normally represents one occurrence;
 one aggregate `skipped` Run may instead summarize a bounded range of missed
 occurrences after an overdue gap.
@@ -122,7 +80,7 @@ The user-facing promise is:
 ```text
 An organization member defines a Routine
 -> Core claims one eligible occurrence or records one aggregate skipped Run
--> the designated Center Agent executes the unattended instruction
+-> the selected Agent executes the unattended instruction
 -> the explicit OpenMeld Space or Slack thread receives one result or one explicit failure
 -> skipped Runs remain visible in Routine history without adding destination noise
 ```
@@ -160,100 +118,18 @@ repository, or channel. Humility comes from distinguishing facts,
 interpretations, and unknowns, while usefulness comes from naming a concrete
 action already completed or a well-supported next contribution.
 
-### Center Agent Self-Evolution
+### Recommendations
 
-**Center Agent Self-Evolution** is the built-in onboarding Routine for
-continuous Organization learning. It is a product template over the existing
-Routine, App, Message Channel, Project, Organization Documents, and Space
-contracts. It is not a new scheduler, runtime, memory system, Agent framework,
-or special Routine kind.
-
-Web recommends the template only when the current Organization has at least one
-active App connection or one connected Slack Message Channel. Local Service
-presence and Organization member count do not qualify the recommendation.
-Owners and admins may enable it because the Routine receives the existing
-`organization_documents.save_approved_knowledge` grant. Other members may see
-the recommendation but cannot grant unattended approved-knowledge writes.
-
-Setup lets the approver choose:
-
-- one or more currently connected App or Slack sources as the instruction's
-  learning scope;
-- all active Projects or one target Project;
-- a daily, weekly, or custom recurring schedule and timezone; and
-- one eligible OpenMeld Space as the complete learning archive; and
-- optionally, one Slack channel for a concise team report.
-
-The source selection is durable instruction scope, not a new security boundary.
-The existing App, Channel, represented-member, provider-scope, and tool
-contracts remain the only access authority. App connections expose only their
-implemented model-visible actions. A Slack Message Channel exposes only the
-authorized channel, member, and history reads already owned by the Channel
-contract. The Routine must treat the data returned by those tools as its access
-boundary and must not imply broader Slack access.
-
-The built-in Routine stores `externalActionPolicy = read_only`; this is an
-execution boundary, not only prompt wording. Remote Agent permits declared
-read actions and blocks external App, GitHub, and Slack writes before an
-operation claim, connection resolution where applicable, or provider call.
-Generic App actions whose current catalog metadata does not explicitly declare
-`effect = read` fail closed. The policy does not block the Routine's approved
-Organization Document grant, its one final result in the frozen OpenMeld
-Space, or an optional Slack team report when the same Routine definition also
-contains the bounded `slack.publish_channel_report` grant. Core rechecks that
-stored grant from the canonical Routine and Run before any Slack call; the
-instruction text alone never authorizes publication. It may maintain approved
-knowledge only in a dedicated **Center Agent Self-Evolution** folder:
-
-- **Organization Understanding** keeps the current durable picture;
-- **Opportunity Ledger** tracks evidence-backed opportunities, confidence,
-  expected value, audience or owner, next step, status, and review time; and
-- **Learning Log — YYYY-MM** records material observations and changed beliefs
-  in time order.
-
-The Space report is the complete user-facing learning result. When the optional
-Slack report is enabled, Slack receives only a concise summary of what changed,
-the strongest opportunities, useful missing capabilities, the Documents
-updated, and an invitation to continue in the thread. It never receives the
-full Organization Documents. The report follows the current intended audience
-and selected Slack evidence when they clearly establish a language, then uses
-the optional Organization working-language hint, with English as the final
-fallback. The Agent makes this semantic decision during the Run; a Routine does
-not add its own detector, model call, or stored language state.
-
-The Routine may recommend connecting another App, Slack, or Local Service only
-when current evidence supports a concrete benefit. It does not create another
-Routine in this slice. Routine generation, evaluation, and a Routine-building
-Skill remain separate future work.
-
-The **Opportunity Ledger** is approved Organization Document content, not the
-typed member-private Opportunity product defined in
-`developing/product/opportunities.md`. Phase 1 performs no import, export, or
-automatic synchronization between them. A Self-Evolution Run cannot call the
-Opportunity recommend, list, or decision tools and cannot turn a document row
-into an Inbox item or member decision.
-
-The Web recognizes the built-in template through a stable instruction marker
-plus its stable product name. A user-created Routine that only reuses the
-display name is not treated as the built-in template. This avoids a new
-database discriminator while preserving honest presentation.
-
-Recognition does not prove that the template can perform its visible promise.
-The Core-owned management projection reports whether the stored definition has
-approved-knowledge access, the bounded Slack report grant, and read-only
-external actions, plus whether the represented member can repair that
-combination. Web calls the Routine configured only when those facts match the
-marker-bound instructions. A mismatch remains the same generic Routine but is
-shown as **Needs repair**. Ordinary edits, including a Slack channel-name
-change, omit capability fields and preserve the stored definition; Web writes
-them only after the user explicitly changes whether Slack reporting is enabled
-or confirms an authorized permission repair.
+Self-Evolution recommendations and special setup UI are hidden. Existing
+learning Routines remain ordinary manageable Routines. Generic edits preserve
+their stored capability grants and external-action policy; hiding a recommendation
+does not revoke previously authorized work or add new grants.
 
 ## Organization Scope And Definition
 
-Every Routine belongs to exactly one organization. Its creator is attribution
-and member-management scope, not the owner of the product object. A creator
-leaving the organization does not move or automatically stop the Routine.
+Every Routine belongs to exactly one Organization and has an immutable creator
+and visibility scope. The executor must reauthorize the creator at admission.
+Leaving the Organization does not transfer that authority to an admin.
 
 The stored definition includes:
 
@@ -307,16 +183,17 @@ name, instructions, schedule, or timezone.
 
 ## Authority And Member Attribution
 
-All active organization members may list Routines, read Run history, and create
-a Routine.
+Active Organization members can create Routines. Personal definitions and
+retained Run history are creator-only, including against Organization admins.
+Team definitions require current destination access. Each historical Run checks
+its own frozen destination; moving a definition cannot reveal earlier private
+results. Unknown deleted historical ownership fails closed.
 
-Mutation authority is:
-
-| Operation                     | `member`                           | `owner` / `admin`               |
-| ----------------------------- | ---------------------------------- | ------------------------------- |
-| List Routines and Runs        | All organization Routines          | All organization Routines       |
-| Create                        | Allowed                            | Allowed                         |
-| Update, pause, resume, delete | Only Routines created by that user | Any Routine in the organization |
+The creator can update, pause, resume, and delete their Routines. Admins can
+manage readable Team Routines, but cannot edit or resume another user's explicit
+Agent Routine using that user's execution authority. They can pause or delete it.
+Hosted tools can expose personal data only in a verified requester-private
+conversation. A shared conversation cannot borrow the speaker's private list.
 
 Core owns this authorization and fails closed. Client controls and model
 instructions are not authority.
@@ -335,7 +212,7 @@ openmeld_resume_routine
 
 These tools are member-attributed delegation, not autonomous Center Agent
 privilege. The Remote Agent derives a verified human speaker from the durable
-interactive turn. Core then verifies the current designated Center Agent, the
+interactive turn. Core then verifies the admitted Center or owned Remote Agent, the
 speaker's current active organization membership, and the represented member's
 role and creator scope before calling the same Routine service used by human
 clients. A missing, unverified, stale, non-member, or mismatched speaker fails
@@ -378,7 +255,7 @@ that member could make through Web or CLI.
 
 ## Durable Ownership And Scheduling
 
-D1 is the only product truth for Routine definitions and Run history:
+PostgreSQL is the only product truth for Routine definitions and Run history:
 
 - `routines` stores definitions and the `nextDueAt` read projection.
 - `routine_runs` stores durable records for individually claimed occurrences
@@ -429,7 +306,7 @@ Core receives one Workers Cron Trigger each minute. On a Routine tick it:
 2. retries due visible failure publications;
 3. fails stale Runs that never advanced beyond `claimed`;
 4. scans a bounded global batch of enabled definitions whose `nextDueAt` is due;
-5. creates one Run and advances `nextDueAt` in one D1 atomic batch; and
+5. creates one Run and advances `nextDueAt` in one PostgreSQL transaction; and
 6. admits the claimed Run to Remote Agent native delivery.
 
 Routine execution is Workflow-first without changing that scheduling
@@ -444,7 +321,7 @@ from Workflow to Legacy.
 
 | Responsibility | Owner | Evidence required before moving on |
 | --- | --- | --- |
-| One scheduled occurrence | Core scheduler and atomic D1 claim | Unique Routine/occurrence Run and advanced schedule |
+| One scheduled occurrence | Core scheduler and atomic PostgreSQL claim | Unique Routine/occurrence Run and advanced schedule |
 | Durable admission retries | Run Workflow using shared native delivery | Confirmed submission id, or an explicit terminal/blocked outcome |
 | Agent execution and progress | Remote Agent native runtime | Exact execution lifecycle; a scheduler or wait timeout cannot override it |
 | Callback validation and publication | Shared native-delivery service | Matching identity, frozen destination, and idempotent publication receipt |
@@ -459,7 +336,7 @@ not an equivalent simplification. No new scheduler or execution framework is
 introduced for future Team or Local Agent support. A future Local executor must
 use RuntimeCoordinator for execution rather than copying the hosted runtime.
 
-Both engines keep D1 as Routine and Run product truth and use the same Remote
+Both engines keep PostgreSQL as Routine and Run product truth and use the same Remote
 Agent admission, Run idempotency key, callback validation, target snapshot, and
 Space publication code. The `legacy` engine uses Core's bounded pre-ACK
 recovery scans and the compatibility Queue for admission and publication
@@ -478,7 +355,7 @@ destination result. If the resumed turn is deterministically rejected before
 execution, Core must deliver the exact `terminal_failure` continuation event
 before projecting the Run terminal. The Workflow owns a retryable continuation
 failure finalization step that validates the failed native delivery and
-idempotently projects the D1 Run and downstream terminal effects. Caller-side
+idempotently projects the PostgreSQL Run and downstream terminal effects. Caller-side
 projection is only a latency optimization; an accepted event remains sufficient
 for the Workflow to finish after that caller write fails. A failed event send
 leaves the Run submitted; replay resends that event from the frozen terminal
@@ -509,10 +386,10 @@ ledger.
 
 New Workflow instances retain successful terminal state for one day and
 errored or terminated state for 30 days. The short success window bounds
-routine storage after D1 and the destination hold the durable outcome. The
+routine storage after PostgreSQL and the destination hold the durable outcome. The
 full paid-plan error window preserves operator inspection for failures that
 must remain fail closed. Terminal-state retention does not limit an active
-callback wait or shorten D1 Run history.
+callback wait or shorten PostgreSQL Run history.
 
 Workflow recovery scans use a bounded, least-recently-checked batch. Checking
 an already waiting instance is not starting another execution. Apply the
@@ -638,7 +515,7 @@ execution when the initial turn registered
 `resume_parent_when_all_terminal`. Regardless of that internal work, the Run
 has at most one visible destination result. The fences are layered:
 
-- D1 occurrence uniqueness and atomic initial Run/native-delivery linking
+- PostgreSQL occurrence uniqueness and atomic initial Run/native-delivery linking
   prevent a second logical Run;
 - a Routine Run may own an ordered native-delivery chain under one
   `routineRunId`; `routine_runs.native_delivery_id` points to the only delivery
@@ -661,7 +538,7 @@ has at most one visible destination result. The fences are layered:
   compatibility deadline probe for an accepted execution is ignored;
 - explicit cancellation targets one durable worker submission and cannot stop
   unrelated work in the same conversation;
-- callback and failure branches combine D1 claims or terminal compare-and-swap
+- callback and failure branches combine PostgreSQL claims or terminal compare-and-swap
   with the destination-specific publication fence; Space deduplicates by Run
   id, while Slack uses its native-delivery publication claim and records
   provider-ambiguous outcomes without automatic reposting; and
@@ -671,7 +548,7 @@ has at most one visible destination result. The fences are layered:
 Ambiguous worker submission is not immediate permission to fail or resubmit a
 new model turn. Core persists the worker request before the call, revalidates
 the current Routine admission boundary during bounded recovery, and replays the
-same Run identity. The private D1 staging value uses a versioned storage
+same Run identity. The private PostgreSQL staging value uses a versioned storage
 envelope around the shared worker-request schema. Core may read an unversioned
 historical value only when it still satisfies the current strict shared schema.
 If an older value can no longer be decoded safely, Core must not fabricate
@@ -692,7 +569,7 @@ authoritative terminal decision and keep later evidence diagnostic-only.
 Routine turns do not use the transient Space reply stream. Core publishes the
 single durable result or failure after the turn settles.
 
-## Unattended Prompt And Tool Policy
+## Hosted Unattended Prompt And Tool Policy
 
 The Routine turn envelope uses a distinct `sender.kind = "routine"` and
 `trigger.source = "routine"`. It carries the Routine id, Run id, scheduled
@@ -873,26 +750,30 @@ and the six member-attributed Routine tools.
 The Remote Agent's Agents SDK/Flue alarm mechanism remains callback-only. Its
 only scheduled callback retries delivery of worker completion callbacks to
 Core. It must not store or schedule Routine definitions or create new Routine
-turns. Routine scheduling belongs exclusively to D1 plus the Core minute Cron
+turns. Routine scheduling belongs exclusively to PostgreSQL plus the Core minute Cron
 Trigger.
 
 ## Web, CLI, And Conversation Surfaces
 
-Web exposes Routines at `/o/{orgSlug}/center-agent/routines` inside the Center
-Agent product's stable secondary navigation. The page reads the current Center
-Agent designation before it
-requests Routines. When the Organization has no designation, Web shows one
-short explanation and links to `/o/{orgSlug}`; it does not render
-the Routine management surface. Once designated, Web reads the canonical
-Routine, Run, permission, and eligible-target projections.
-`canManage` controls update, pause, resume, and delete; read-only members still
-see Runs. A cached target list is not authority. If the stored target is no
-longer eligible, Web shows it as unavailable and requires an explicit eligible
-replacement before saving.
+Team → Routines is the canonical entry. Old Center Agent URLs redirect while
+preserving Routine/Run selection. The page uses a shared Fluid Table, Personal
+and Team filters, search, and a centered dashed AppEmptyState. It does not
+require a Center Agent when the user has another eligible executor.
 
-Web creates and edits one-time or recurring Space Routines. It displays
-Slack-thread Routines and their Runs, but does not offer a destination-losing
-edit control until Web has a durable Slack-thread picker.
+The compact editor starts with instructions, visibility, Agent, repeat, time,
+and result destination. Name and timezone are under Advanced. Schedules use
+shared Fluid Select and Calendar controls; custom cron remains available.
+Space and timezone selectors support search in a bounded Fluid ScrollArea.
+The private destination says “Your chat with [Agent name]” and explains whether
+an existing chat is reused or a new one is created when the user saves.
+Opening the form does not create a chat. Team visibility does not grant Space
+access; personal instructions can still intentionally publish to a shared Space.
+
+Edits send only changed owned fields. Editing instructions or a name does not
+retime the next occurrence, restart a completed one-time schedule, or erase
+capability grants. Connected-conversation destinations remain intact unless the
+user explicitly selects another destination. Claimed/submitted histories poll
+owner truth; pause stops future scheduling, not a running execution.
 
 CLI exposes exactly eight commands:
 
@@ -907,7 +788,9 @@ openmeld routines delete
 openmeld routines runs
 ```
 
-Create accepts either `--run-at <ISO-8601>` for one future Run or one raw
+Create accepts `--scope personal|team` (default personal) and
+`--agent <profile-id>|center`. List returns authorized executor choices so Agents
+can discover exact IDs instead of guessing. Create accepts either `--run-at <ISO-8601>` for one future Run or one raw
 five-field schedule expression/the shared daily `HH:MM` helper plus an explicit
 timezone. CLI creation and destination changes require an explicit target
 Space. Delete prompts
@@ -929,7 +812,7 @@ before Core authorizes it.
 ## Observability And Audit
 
 Each successful create, update, pause, resume, or delete writes one durable
-audit row in the same D1 batch as the mutation. A direct human Web or CLI path
+audit row in the same PostgreSQL transaction as the mutation. A direct human Web or CLI path
 records the current human profile as `actorProfileId` with `onBehalfOf = null`.
 A Center Agent tool path records the designated Center Agent profile as
 `actorProfileId` and the verified represented human in `onBehalfOf`. When that
@@ -975,7 +858,8 @@ instructions, prompt bodies, credentials, or arbitrary worker payloads.
 history for an exact Routine. It reuses the existing historical owner, including
 retained Runs after definition deletion, and provides `nextBeforeScheduledFor`
 for older occurrences. `openmeld_list_routines.lastRun` remains unchanged.
-Personal Agent Runs are not included by this Center Agent reader.
+The same history reader supports all executors under the personal/team and
+source-audience rules above.
 
 `openmeld_read_routine_run_diagnostics` takes only an exact Run ID; Core resolves
 the Organization, linked native deliveries, and the persisted current
@@ -1002,12 +886,57 @@ never submits, recovers, replays, retries, repairs, stops, or publishes work.
 The admission and execution recovery implementation merged in #1198 remains the
 single owner of those effects.
 
-## Mixed-Version Deployment Windows
+## Local Agent Execution
+
+Core freezes one submission per claimed local Run: the creator's verified human
+identity, Organization, target Space, Agent Profile, instructions, and exact
+binding/runtime device-wait intent. It posts through the existing idempotent
+Space signal API with `clientMessageId = run.id`. The Space durable outbox and
+RuntimeCoordinator own admission and execution; OpenMeld Service is the carrier.
+
+A one-hour start window bounds unstarted work. A previous active local Run skips
+the next occurrence to avoid overlapping work. Once accepted, elapsed wall time
+cannot fail a Run. Recovery rotates a bounded batch and retries the same frozen
+submission after an uncertain response, even if the definition was deleted.
+It never substitutes another Agent, computer, or cloud executor.
+
+Routine history mirrors RuntimeCoordinator's immutable terminal projection and
+the canonical pre-head failure-publication result. Transport acknowledgements,
+message existence, or an old dispatch ledger state are not success. Local Runs
+remain submitted while their owner reports active work or device waiting.
+
+### v3 contract and rollout audit
+
+PostgreSQL migrations 0019–0022 add scope, executor kind, frozen history access,
+and local receipt/recovery columns. Apply them before Core. Deploy the v3 Core
+and Gateway receivers before Web, Remote Agent tools, and the new CLI request
+`contract=routines-v3`. Older opt-in response shapes remain strict and unchanged.
+Private history is filtered before pagination; unknown deleted legacy ownership
+is not treated as permission.
+
+The Local Service, setup, Wake transport, dispatch actions, trace, diagnostics,
+and self-rescue command contracts are unchanged. Existing installed Services can
+execute the same binding-bound Wake. The CLI and managed command reference gain
+optional discovery/create choices and need an available artifact update, not a
+forced Service update. Old Core cannot serve the new v3 list; new callers fail
+closed rather than inventing fields. Roll back callers before those receivers.
+Before rolling Core back past scope/local support, pause new personal Center and
+local definitions and drain in-flight local Runs; an old scheduler cannot safely
+interpret them. Retain additive migrations during rollback.
+
+Architecture acceptance: Routine storage owns schedules and history only. Space
+owns Wake publication and its outbox, RuntimeCoordinator owns accepted execution,
+and Service remains the carrier. No second Wakeability or execution truth is added.
+
+## Hosted Mixed-Version Deployment Windows
+
+The numbered migration history below predates the PostgreSQL cutover. Current
+releases apply the PostgreSQL journal and the v3 ordering above.
 
 Routine rollout has three different strict mixed-version windows. Do not collapse
 them into one generic Remote Agent deploy order.
 
-1. Apply D1 migration `0025` before `0026`, and apply `0035` before enabling
+1. Historical D1 rollout: apply migration `0025` before `0026`, and apply `0035` before enabling
    queued Slack ingress.
 2. Apply additive migration `0028_routine_run_workflow` before selecting the
    Workflow engine. Existing non-skipped Runs are frozen to `legacy`; skipped
@@ -1094,7 +1023,7 @@ diagnostics remain read models, not a budget enforcement engine.
   outcome meaning.
 - `developing/product/remote-agent-runtime.md` owns native delivery, worker
   callback, and Remote Agent tool-runtime boundaries.
-- `developing/architecture/data-and-observability.md` owns D1, ledger,
+- `developing/architecture/data-and-observability.md` owns PostgreSQL, ledger,
   projection, audit, and diagnostic boundaries.
 - `developing/architecture/shared-contracts.md` owns strict Routine HTTP/RPC,
   turn-envelope, and CLI JSON schemas.
@@ -1112,7 +1041,7 @@ not by itself evidence that every writer and publication branch complies.
 - One organization owns each Routine.
 - Each individually claimed occurrence has at most one Run; one aggregate
   `skipped` Run may summarize a bounded overdue range.
-- D1 is the only Routine definition and Run-history truth.
+- PostgreSQL is the only Routine definition and Run-history store.
 - `nextDueAt` is a projection, not a second scheduler truth.
 - A destination is explicit, organization-scoped, and frozen for one
   claimed Run across execution and every result-publication path.
@@ -1126,8 +1055,8 @@ not by itself evidence that every writer and publication branch complies.
 - One occurrence causes at most one model turn and one visible destination result.
 - Failed Runs produce an explicit destination failure; skipped Runs stay
   visible in management history without a destination message.
-- Routine native delivery does not enter RuntimeCoordinator or fabricate a
-  user Wake.
+- Hosted native delivery does not enter RuntimeCoordinator. Local Routine
+  delivery uses the existing authenticated Space Wake owner and RuntimeCoordinator.
 - Agents SDK/Flue alarms retry callbacks only; Core Cron owns Routine timing.
-- New Runs use Workflow by default; Legacy is an explicit future-Run rollback,
+- Hosted Runs use Workflow by default; Legacy is an explicit future-Run rollback,
   and an already claimed Run never crosses engines.

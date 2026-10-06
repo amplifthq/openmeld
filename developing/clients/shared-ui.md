@@ -494,3 +494,12 @@ primitive never infers work from presence or starts its own status queries.
 client can render its owned product identity without moving Profile rules into
 `packages/ui`. Its source, alt text, and initials props remain the generic
 fallback contract when no composed avatar is supplied.
+
+## Searchable Fluid Select
+
+`SelectContent.search` provides an optional controlled search input outside its
+listbox and bounded Fluid ScrollArea. Callers filter domain options; the shared
+primitive owns focus, dismissal, selected-item scroll, and Fluid Hover geometry.
+Reset a transient query through the Select root's `onCloseAutoFocus` without
+preventing normal focus restoration. Do not rebuild a searchable popup in a
+product component.

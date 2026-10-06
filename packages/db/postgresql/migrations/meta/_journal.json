@@ -134,6 +134,34 @@
       "when": 1791204781698,
       "tag": "0018_account_deletion_guards",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1791266988768,
+      "tag": "0019_many_quicksilver",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1791267099625,
+      "tag": "0020_lonely_sentry",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1791267988661,
+      "tag": "0021_groovy_dark_phoenix",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1791269111134,
+      "tag": "0022_tiresome_marvel_zombies",
+      "breakpoints": true
     }
   ]
 }

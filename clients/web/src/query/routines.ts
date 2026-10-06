@@ -1,7 +1,7 @@
 import type {
 	ListCenterAgentRoutineRunsResponse,
-	ListCenterAgentRoutinesManagementResponse,
 	ListCenterAgentRoutineTargetSpacesResponse,
+	ListRoutineManagementResponse,
 } from "@openmeld/schemas/types";
 import {
 	infiniteQueryOptions,
@@ -9,103 +9,83 @@ import {
 	queryOptions,
 } from "@tanstack/react-query";
 import {
-	type CenterAgentRoutinesFailure,
-	listCurrentCenterAgentRoutineRuns,
-	listCurrentCenterAgentRoutines,
-	listCurrentCenterAgentRoutineTargetSpaces,
-} from "#/lib/organizations/center-agent-routines";
-import { centerAgentDirectMessageOpenQueryOptions } from "#/query/organizations/center-agent";
+	listCurrentRoutineRuns,
+	listCurrentRoutines,
+	listCurrentRoutineTargetSpaces,
+	type RoutinesFailure,
+} from "#/lib/routines/api";
 import { organizationUsageQueryKeys } from "#/query/organizations/organization-usage";
 import { baseQueryOptions } from "#/query/query-config";
 
-export const centerAgentRoutineQueryKeys = {
-	all: ["center-agent-routines"] as const,
+export const routineQueryKeys = {
+	all: ["routines"] as const,
 	organization: (organizationId: string) =>
-		[...centerAgentRoutineQueryKeys.all, organizationId] as const,
+		[...routineQueryKeys.all, organizationId] as const,
 	list: (organizationId: string) =>
+		[...routineQueryKeys.organization(organizationId), "list"] as const,
+	targetSpaces: (organizationId: string, agentProfileId?: string) =>
 		[
-			...centerAgentRoutineQueryKeys.organization(organizationId),
-			"list",
-		] as const,
-	targetSpaces: (organizationId: string) =>
-		[
-			...centerAgentRoutineQueryKeys.organization(organizationId),
+			...routineQueryKeys.organization(organizationId),
 			"target-spaces",
+			agentProfileId ?? "center",
 		] as const,
 	runs: (organizationId: string, routineId: string) =>
 		[
-			...centerAgentRoutineQueryKeys.organization(organizationId),
+			...routineQueryKeys.organization(organizationId),
 			"runs",
 			routineId,
 		] as const,
 };
 
-export const CENTER_AGENT_ROUTINE_RUN_PAGE_LIMIT = 5;
+export const ROUTINE_RUN_PAGE_LIMIT = 5;
 
-export function centerAgentRoutinesQueryOptions(input: {
+export function routinesQueryOptions(input: {
 	enabled: boolean;
 	organizationId: string;
 }) {
-	return queryOptions<
-		ListCenterAgentRoutinesManagementResponse,
-		CenterAgentRoutinesFailure
-	>({
+	return queryOptions<ListRoutineManagementResponse, RoutinesFailure>({
 		enabled: input.enabled,
 		gcTime: baseQueryOptions.gcTime,
 		queryFn: async ({ signal }) =>
-			await listCurrentCenterAgentRoutines({
+			await listCurrentRoutines({
 				organizationId: input.organizationId,
 				signal,
 			}),
-		queryKey: centerAgentRoutineQueryKeys.list(input.organizationId),
+		queryKey: routineQueryKeys.list(input.organizationId),
 		refetchOnWindowFocus: false,
 		retry: baseQueryOptions.retry,
 		staleTime: 10_000,
 	});
 }
 
-export function centerAgentRoutineTargetSpacesQueryOptions(input: {
+export function routineTargetSpacesQueryOptions(input: {
 	enabled: boolean;
 	organizationId: string;
+	agentProfileId?: string;
 }) {
 	return queryOptions<
 		ListCenterAgentRoutineTargetSpacesResponse,
-		CenterAgentRoutinesFailure
+		RoutinesFailure
 	>({
 		enabled: input.enabled,
 		gcTime: baseQueryOptions.gcTime,
 		queryFn: async ({ signal }) =>
-			await listCurrentCenterAgentRoutineTargetSpaces({
+			await listCurrentRoutineTargetSpaces({
 				organizationId: input.organizationId,
+				agentProfileId: input.agentProfileId,
 				signal,
 			}),
-		queryKey: centerAgentRoutineQueryKeys.targetSpaces(input.organizationId),
+		queryKey: routineQueryKeys.targetSpaces(
+			input.organizationId,
+			input.agentProfileId
+		),
 		refetchOnWindowFocus: false,
 		retry: baseQueryOptions.retry,
 		staleTime: 10_000,
 	});
 }
 
-export async function prepareCenterAgentRoutineTargetSpaces(input: {
-	organizationId: string;
-	queryClient: QueryClient;
-}): Promise<ListCenterAgentRoutineTargetSpacesResponse> {
-	await input.queryClient.fetchQuery({
-		...centerAgentDirectMessageOpenQueryOptions({
-			organizationId: input.organizationId,
-		}),
-		staleTime: 0,
-	});
-	return await input.queryClient.fetchQuery({
-		...centerAgentRoutineTargetSpacesQueryOptions({
-			enabled: true,
-			organizationId: input.organizationId,
-		}),
-		staleTime: 0,
-	});
-}
-
-export function centerAgentRoutineRunsInfiniteQueryOptions(input: {
+export function routineRunsInfiniteQueryOptions(input: {
 	enabled: boolean;
 	organizationId: string;
 	routineId: string;
@@ -114,7 +94,7 @@ export function centerAgentRoutineRunsInfiniteQueryOptions(input: {
 		enabled: input.enabled,
 		gcTime: baseQueryOptions.gcTime,
 		getNextPageParam: (lastPage: ListCenterAgentRoutineRunsResponse) =>
-			lastPage.runs.length === CENTER_AGENT_ROUTINE_RUN_PAGE_LIMIT
+			lastPage.runs.length === ROUTINE_RUN_PAGE_LIMIT
 				? lastPage.runs.at(-1)?.scheduledFor
 				: undefined,
 		initialPageParam: undefined as number | undefined,
@@ -125,24 +105,21 @@ export function centerAgentRoutineRunsInfiniteQueryOptions(input: {
 			pageParam: number | undefined;
 			signal: AbortSignal;
 		}) =>
-			await listCurrentCenterAgentRoutineRuns({
+			await listCurrentRoutineRuns({
 				...(pageParam === undefined ? {} : { beforeScheduledFor: pageParam }),
-				limit: CENTER_AGENT_ROUTINE_RUN_PAGE_LIMIT,
+				limit: ROUTINE_RUN_PAGE_LIMIT,
 				organizationId: input.organizationId,
 				routineId: input.routineId,
 				signal,
 			}),
-		queryKey: centerAgentRoutineQueryKeys.runs(
-			input.organizationId,
-			input.routineId
-		),
+		queryKey: routineQueryKeys.runs(input.organizationId, input.routineId),
 		refetchOnWindowFocus: false,
 		retry: baseQueryOptions.retry,
 		staleTime: 10_000,
 	});
 }
 
-export async function invalidateCenterAgentRoutineFacts(input: {
+export async function invalidateRoutineFacts(input: {
 	organizationId: string;
 	queryClient: QueryClient;
 	routineId?: string;
@@ -152,12 +129,12 @@ export async function invalidateCenterAgentRoutineFacts(input: {
 			queryKey: organizationUsageQueryKeys.overview(input.organizationId),
 		}),
 		input.queryClient.invalidateQueries({
-			queryKey: centerAgentRoutineQueryKeys.list(input.organizationId),
+			queryKey: routineQueryKeys.list(input.organizationId),
 		}),
 		...(input.routineId
 			? [
 					input.queryClient.invalidateQueries({
-						queryKey: centerAgentRoutineQueryKeys.runs(
+						queryKey: routineQueryKeys.runs(
 							input.organizationId,
 							input.routineId
 						),

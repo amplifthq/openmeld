@@ -11,7 +11,7 @@ import {
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
 
-export function CenterAgentRoutineDeleteDialog(input: {
+export function RoutineDeleteDialog(input: {
 	errorMessage: string | null;
 	onConfirm: () => void;
 	onOpenChange: (open: boolean) => void;

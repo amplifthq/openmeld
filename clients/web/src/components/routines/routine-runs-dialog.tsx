@@ -15,12 +15,12 @@ import {
 import { SkeletonRows } from "@openmeld/ui/components/skeleton-content";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
-import { formatRoutineTimestamp } from "#/lib/organizations/center-agent-routine-presentation";
-import { resolveCenterAgentRoutineErrorMessage } from "#/lib/organizations/center-agent-routines";
-import { centerAgentRoutineRunsInfiniteQueryOptions } from "#/query/organizations/center-agent-routines";
-import { RoutineRunStatusBadge } from "./center-agent-routine-presentation";
+import { resolveRoutineErrorMessage } from "#/lib/routines/api";
+import { formatRoutineTimestamp } from "#/lib/routines/presentation";
+import { routineRunsInfiniteQueryOptions } from "#/query/routines";
+import { RoutineRunStatusBadge } from "./routine-run-presentation";
 
-export function CenterAgentRoutineRunsDialog(input: {
+export function RoutineRunsDialog(input: {
 	focusRunId?: string | null;
 	onOpenChange: (open: boolean) => void;
 	open: boolean;
@@ -28,13 +28,21 @@ export function CenterAgentRoutineRunsDialog(input: {
 	routine: CenterAgentRoutine | null;
 }) {
 	const routineId = input.routine?.id ?? "closed";
-	const runsQuery = useInfiniteQuery(
-		centerAgentRoutineRunsInfiniteQueryOptions({
+	const runsQuery = useInfiniteQuery({
+		...routineRunsInfiniteQueryOptions({
 			enabled: input.open && input.routine !== null,
 			organizationId: input.organizationId,
 			routineId,
-		})
-	);
+		}),
+		refetchInterval: (query) =>
+			query.state.data?.pages.some((page) =>
+				page.runs.some(
+					(run) => run.status === "claimed" || run.status === "submitted"
+				)
+			)
+				? 5000
+				: false,
+	});
 	const runs = runsQuery.data?.pages.flatMap((page) => page.runs) ?? [];
 	const routineName = input.routine?.name ?? "routine";
 	const focusedRun = runs.find((run) => run.id === input.focusRunId);
@@ -80,7 +88,7 @@ export function CenterAgentRoutineRunsDialog(input: {
 				{runsQuery.isError ? (
 					<div className="rounded-md border border-destructive/50 bg-destructive/5 p-4">
 						<p className="break-words text-destructive text-sm" role="alert">
-							{resolveCenterAgentRoutineErrorMessage(runsQuery.error, "runs")}
+							{resolveRoutineErrorMessage(runsQuery.error, "runs")}
 						</p>
 						<Button
 							className="mt-3"

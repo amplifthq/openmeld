@@ -34,7 +34,7 @@ foundation, hosted Center Agent MVP surfaces, and Remote Agent R1 on the Flue
 harness with native delivery, Space reply streaming, Slack channel support, and
 Center Agent memory. Center Agent Routines are a separate
 first-class product surface owned by
-`developing/product/center-agent-routines.md`. The former Session Sync
+`developing/product/routines.md`. The former Session Sync
 direction is now the Agent Activity product owned by
 `developing/product/agent-activity.md`. The Center Agent Web homes and retired
 management-panel mapping are approved target state as of 2026-07-13 and land
@@ -906,7 +906,7 @@ context, mutates Space state, or grants execution authority.
 Center
 Agent Routines are the bounded recurring-work exception and follow their own
 authority, target, scheduling, and native-delivery contract in
-`developing/product/center-agent-routines.md`; do not use them to widen the
+`developing/product/routines.md`; do not use them to widen the
 general concierge tool surface.
 
 ### Goal fulfillment and delegated continuation
@@ -1324,7 +1324,7 @@ metadata or shows raw provider ids. BYOK is not part of this release.
   create, list, update, delete, pause, or resume a Routine; Core applies that
   member's exact owner/admin/member creator scope through the same Routine
   service used by human clients. See
-  `developing/product/center-agent-routines.md`.
+  `developing/product/routines.md`.
 - Every privileged Center Agent action lands in an audit journal from day one:
   actor (the Center Agent), org, action, on-behalf-of attribution.
 - Attribution: when the Center Agent acts on someone's ask (for example waking
@@ -1418,7 +1418,7 @@ Scheduling is an execution mode for existing Center Agent capabilities, not a
 separate agent or authority path. Core reauthorizes the Routine's delegated
 member at Run admission. The default catalog-inheritance rule and its explicit
 Agent Task continuation exception are owned by
-`developing/product/center-agent-routines.md` and
+`developing/product/routines.md` and
 `developing/product/projects.md`; this Organization owner adds no second
 catalog policy. Routine management tools remain available under the represented
 member's authority, and no catalog decision bypasses capability-owned role,
@@ -1438,7 +1438,7 @@ all other App, GitHub, and Message Channel writes remain blocked by the stored
 read-only policy. Its selected-source list is instruction scope, not additional
 connection authority. It cannot create or modify other Routines in the current
 slice. Full product semantics are owned by
-`developing/product/center-agent-routines.md`.
+`developing/product/routines.md`.
 
 ### Channels and Plugins
 
@@ -2876,7 +2876,7 @@ Generic shareable invite links were removed from this out-of-scope list by the
    and Runs with explicit Space or Slack-thread destinations,
    represented-member management, Core-owned scheduling, and Remote Agent
    native delivery. Its contract lives in
-   `developing/product/center-agent-routines.md`; official-organization
+   `developing/product/routines.md`; official-organization
    configuration and a real dogfood Run remain external validation.
 6. **Center Agent task coordination** — multi-child barriers, partial
    outcome snapshots, failure-only fallback activation, and Parent Stop
@@ -2942,7 +2942,7 @@ A coding agent working in this scope must not:
 8. Grant the Center Agent autonomous destructive or non-additive authority.
    Member-attributed Routine management is allowed only through the verified
    speaker and shared Core authority contract in
-   `developing/product/center-agent-routines.md`; it is not a precedent for a
+   `developing/product/routines.md`; it is not a precedent for a
    broader exception.
 9. Build a DM subsystem (DM = lazy private Space).
 10. Collect prompts, prompt-derived summaries, transcripts, replies, file

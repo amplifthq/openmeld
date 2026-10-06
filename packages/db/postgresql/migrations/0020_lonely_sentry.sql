@@ -1,0 +1,3 @@
+ALTER TABLE "openmeld"."routine_runs" DROP CONSTRAINT "routine_runs_execution_engine_check";--> statement-breakpoint
+ALTER TABLE "openmeld"."routine_runs" ADD COLUMN "local_submission_json" text;--> statement-breakpoint
+ALTER TABLE "openmeld"."routine_runs" ADD CONSTRAINT "routine_runs_execution_engine_check" CHECK ("execution_engine" is null or "execution_engine" in ('legacy', 'workflow', 'local'));

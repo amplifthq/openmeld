@@ -4081,7 +4081,7 @@ This document owns data ownership and observability boundaries.
 Use scoped owner documents for related rules:
 
 - `developing/product/product-model.md`: product promise and user-visible loop.
-- `developing/product/center-agent-routines.md`: Routine and Run product
+- `developing/product/routines.md`: Routine and Run product
   semantics, authority, scheduling, and result-surface rules.
 - `developing/architecture/agent-transport-contract.md`: execution authority,
   readiness, Wake finalization, and final outcome contract.
