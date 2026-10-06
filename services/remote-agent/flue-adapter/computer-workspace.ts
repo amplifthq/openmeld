@@ -35,6 +35,7 @@ import {
 import type { BrowserBinding } from "agents/browser";
 import { createBrowserTools } from "agents/browser/ai";
 import type { RemoteAgentCoreWorkerBinding } from "../agent-core/callback-context";
+import { forwardGitConnectionRequest } from "../connectors/github-connection-transport";
 import {
   ACCOUNT_ERASED_KEY,
   eraseAccountStorage,
@@ -52,6 +53,7 @@ import {
   type PreviewBrowserBinding,
   validateComputerPreviewPort,
 } from "./computer-preview";
+import { COMPUTER_GIT_PATH } from "./computer-workspace-proxy";
 import { authorizeGitTransfer } from "./git-transfer-authorization";
 import {
   gitUploadPackBytes,
@@ -104,8 +106,6 @@ type AgentComputerEnv = {
 const GIT_TRANSFER_GRANT_PREFIX = "openmeld:git-transfer-grant:";
 const GIT_PACK_JOB_PREFIX = "openmeld:git-pack-job:";
 const GIT_PACK_RETRY_AFTER_MS = 13 * 60 * 1000;
-const GIT_EGRESS_PATH =
-  /^\/([A-Za-z0-9_-]{1,64})\/([A-Za-z0-9][A-Za-z0-9_.-]{0,99})\/([A-Za-z0-9][A-Za-z0-9_.-]{0,99})\.git\/(info\/refs|git-upload-pack)$/u;
 
 function parseGitEgressRoute(request: Request):
   | {
@@ -117,7 +117,7 @@ function parseGitEgressRoute(request: Request):
     }
   | Response {
   const target = new URL(request.url);
-  const match = GIT_EGRESS_PATH.exec(target.pathname);
+  const match = COMPUTER_GIT_PATH.exec(target.pathname);
   if (!match) {
     return new Response("Git transfer path is unavailable.", { status: 404 });
   }
@@ -342,6 +342,7 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
       previous &&
       (previous.organizationId !== grant.organizationId ||
         previous.requesterUserId !== grant.requesterUserId ||
+        previous.connectionScope !== grant.connectionScope ||
         previous.owner !== grant.owner ||
         previous.repo !== grant.repo ||
         previous.scopeKey !== grant.scopeKey ||
@@ -536,53 +537,33 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
         status: 403,
       });
     }
+    let selected: Awaited<ReturnType<typeof authorizeGitTransfer>>;
     try {
-      await authorizeGitTransfer(this.env.OPENMELD_CORE_WORKER, grant);
+      selected = await authorizeGitTransfer(
+        this.env.OPENMELD_CORE_WORKER,
+        grant
+      );
     } catch {
       return new Response("Git transfer authorization expired.", {
         status: 403,
       });
     }
-    const base = this.env.OPENMELD_CONNECTORS_BASE_URL;
-    const token = this.env.OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN;
-    if (!(base && token)) {
-      return new Response("Git transfer runtime is unavailable.", {
-        status: 503,
-      });
-    }
-    const connectorUrl = new URL(
-      `/v1/openmeld/git/${owner}/${repo}/${endpoint}`,
-      base
-    );
-    if (endpoint === "info/refs") {
-      connectorUrl.search = route.search;
-    }
-    const headers = new Headers({
-      authorization: `Bearer ${token}`,
-      "x-openmeld-organization-id": grant.organizationId,
-      "x-openmeld-requester-user-id": grant.requesterUserId,
-      "x-openmeld-operation-id": operationId,
-      "x-openmeld-repository": `${owner}/${repo}`,
+    const response = await forwardGitConnectionRequest({
+      request,
+      endpoint: endpoint as "info/refs" | "git-upload-pack",
+      owner,
+      repo,
+      operationId,
+      organizationId: grant.organizationId,
+      requesterUserId: grant.requesterUserId,
+      connection: selected.connection,
+      authorize: () =>
+        authorizeGitTransfer(this.env.OPENMELD_CORE_WORKER, grant),
+      connectorExecution: {
+        baseUrl: this.env.OPENMELD_CONNECTORS_BASE_URL,
+        runtimeToken: this.env.OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN,
+      },
     });
-    const gitProtocol = request.headers.get("git-protocol");
-    if (gitProtocol) {
-      headers.set("git-protocol", gitProtocol);
-    }
-    if (request.method === "POST") {
-      headers.set("content-type", "application/x-git-upload-pack-request");
-    }
-    const uploadBody =
-      request.method === "POST" && request.body
-        ? observeGitStream(request.body, { operationId, direction: "upload" })
-        : undefined;
-    const response = await fetch(connectorUrl, {
-      method: request.method,
-      headers,
-      body: uploadBody,
-      redirect: "manual",
-      signal: request.signal,
-      ...(request.method === "POST" ? { duplex: "half" } : {}),
-    } as RequestInit);
     if (!(response.ok && response.body)) {
       await response.body?.cancel();
       return new Response("Git transfer failed.", {
@@ -716,6 +697,9 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
   override async fetch(request: Request): Promise<Response> {
     await requireRetainedAccountStorage(this.ctx.storage);
     const url = new URL(request.url);
+    if (COMPUTER_GIT_PATH.test(url.pathname)) {
+      return await this.forwardComputerEgress(request);
+    }
     if (url.pathname === "/api") {
       return await this.#containerBackend.handleFetch(request);
     }

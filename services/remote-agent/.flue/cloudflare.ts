@@ -10,9 +10,10 @@ export { CodemodeRuntime } from "@cloudflare/codemode";
 // Account-owned personal Computers, the
 // loopback WorkerEntrypoint its worker-shell isolate dials back through,
 // and the WorkspaceProxy that carries the container's /api egress home.
-export { WorkspaceProxy, WorkspaceServiceProxy } from "@cloudflare/computer";
+export { WorkspaceServiceProxy } from "@cloudflare/computer";
 export { ComputerPreviewOutbound } from "../flue-adapter/computer-preview";
 export { AgentComputer } from "../flue-adapter/computer-workspace";
+export { WorkspaceProxy } from "../flue-adapter/computer-workspace-proxy";
 
 import {
   accountDeletionComputerSchema,

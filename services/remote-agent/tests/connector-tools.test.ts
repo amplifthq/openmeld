@@ -516,7 +516,12 @@ describe("Remote Agent generic App tools", () => {
           : { connection: null, selection: null }
     );
     const tools = getRemoteAgentConnectorToolDefinitions({
-      coreWorker: { centerAgentResolveConnectorConnection },
+      coreWorker: {
+        centerAgentResolveConnectorConnection,
+        centerAgentListConnectorServices: async () => ({
+          services: ["posthog"],
+        }),
+      },
       storage: await createStorage(request),
       submissionId: ACK.submissionId,
     });

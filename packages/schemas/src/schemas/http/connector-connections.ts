@@ -73,7 +73,13 @@ const connectorAppRequestedCapabilitiesSchema = z
   .array(z.string().trim().min(1).max(80))
   .max(12);
 
-export const connectorServiceSchema = z.enum(CONNECTOR_SERVICES);
+/** Provider identity comes from OpenConnector, not a product-maintained list. */
+export const connectorServiceSchema = z
+  .string()
+  .regex(/^[a-z][a-z0-9_-]{0,99}$/u);
+export const connectorServicesResponseSchema = z.object({
+  services: z.array(connectorServiceSchema),
+});
 export const connectorConnectionStatusSchema = z.enum(
   CONNECTOR_CONNECTION_STATUSES
 );
@@ -171,6 +177,29 @@ export const connectorAppRequestListResponseSchema = z.strictObject({
 });
 
 export const connectorAppCatalogProviderSchema = z.strictObject({
+  connectionAuth: z
+    .object({
+      oauth: z.boolean(),
+      credentials: z.array(
+        z.object({
+          authType: z.enum(["api_key", "custom_credential"]),
+          fields: z.array(
+            z.object({
+              key: z.string(),
+              label: z.string(),
+              description: z.string(),
+              placeholder: z.string().optional(),
+              secret: z.boolean(),
+              inputType: z
+                .enum(["text", "password", "textarea", "json"])
+                .optional(),
+              required: z.boolean(),
+            })
+          ),
+        })
+      ),
+    })
+    .optional(),
   authTypes: z.array(z.string().trim().min(1).max(80)).max(12),
   categories: z
     .array(

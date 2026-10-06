@@ -279,6 +279,23 @@ does.
 
 ### Private Git working copies
 
+For ordinary native Git work, use `computer_git_connection` with the explicitly
+selected requester or Organization Plugin account, then run `git clone` or
+`git fetch` through the Computer's container command engine. The tool returns a
+temporary repository URL scoped to this Computer and execution. It does not
+download files or install credentials. The Workspace proxy routes Git's HTTP
+exchanges through the existing Plugin transport, which rechecks current access
+and keeps provider credentials inside OpenConnector. Public Git and accounts
+configured independently inside the Computer need no Plugin transport.
+
+Native Git preserves upstream history and uses Git's normal transfer protocol.
+The Plugin transport supports reads; existing GitHub write actions remain the
+publication interface. A later execution requests a fresh connection before a
+fetch. The persistent repository remains on the user's Computer.
+
+The following snapshot workflow serves bounded API-based publication. It is
+not the preferred path for a native clone and is not a full-history clone.
+
 The isolated Computer offers `github_checkout_repository` and
 `github_publish_checkout`. They compose with existing Computer edit/command
 tools and the existing Draft PR action; they are not a mandatory coding plan.

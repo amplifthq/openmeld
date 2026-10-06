@@ -1,16 +1,18 @@
 ---
 id: plugin-git-connection-transport
-title: Prepare Git transport for personal and organization Plugins
+title: Use connected accounts with native Git
 kind: improved
 areas: ["plugins"]
 audiences: ["developers"]
 ---
 
-Plugins provides a host adapter for Git read streams through a selected personal
-or organization GitHub connection. It checks current connection access on each
-exchange and keeps provider credentials inside OpenConnector. Computer command
-integration and the updated OpenConnector deployment are required before users
-can use this path.
+Agents can clone and fetch private GitHub repositories on your cloud Computer
+through an existing personal or organization Plugin connection. Git transfers
+the repository directly. Provider credentials stay inside OpenConnector.
+
+The Plugin catalog now uses each provider's available connection methods,
+including alternate credential methods and multiline keys. New providers do not
+need a separate OpenMeld service list entry.
 
 Action execution requests metadata by exact Action ID instead of transferring
 the full service catalog when the connector supports the filter.
