@@ -1,0 +1,42 @@
+---
+title: Desktop installation and updates
+description: Find the correct preview build and recover common startup problems.
+---
+
+## Choose the matching build
+
+Use the [official download page](https://app.openmeld.ai/desktop). The current preview lists Apple silicon, Windows x64, and Windows ARM64 selectors.
+
+Download only a build that the page actually offers. If your platform has no published build, use the browser.
+
+On a Mac, check **Apple menu → About This Mac**. On Windows, check **Settings → System → About**.
+
+## The download or installer failed
+
+Retry from the official page. Check available disk space and the exact installer error.
+
+On a Mac, open the DMG and drag the app into Applications before launching it. On Windows, open the installer and follow its instructions for your account.
+
+If the operating system reports a security or signature problem, keep the warning and report it. Do not disable security protections or use an unofficial repackaged download.
+
+## Sign-in did not finish
+
+Use the same account as OpenMeld Web. Complete the browser sign-in step and return to Desktop when prompted.
+
+If the desktop sign-in flow cannot finish, check whether the same account can use [the web app](https://app.openmeld.ai). This distinguishes account access from a Desktop handoff problem.
+
+## Updates
+
+Review the available update controls in Desktop. Installation, download, restart, and successful launch are separate steps.
+
+The current Windows x64 internal preview does not support automatic updates. Check the official download page for a newer build. Use the browser if your organization does not permit unsigned preview software.
+
+After updating, open the app and check that your workspace loads. Do not assume a downloaded update is already running.
+
+Desktop and OpenMeld Tools can have separate update states. Inspect the connected computer when local agent work is the problem.
+
+## Keep working in the browser
+
+You can use the web app while a Desktop issue is investigated. Local execution still depends on the assigned computer and its Tools connection.
+
+When reporting a problem, include the operating system, processor type, Desktop version, error, and time. See [Find a fix](/docs/help/troubleshooting).

@@ -3,12 +3,6 @@ import { createGetUrl } from "fumadocs-core/source";
 export const appName = "OpenMeld Docs";
 export const docsRoute = "/docs";
 
-export const gitConfig = {
-  user: "amplifthq",
-  repo: "openmeld",
-  branch: "main",
-};
-
 const getDocsUrl = createGetUrl(docsRoute);
 const MARKDOWN_EXTENSION = /\.md$/u;
 

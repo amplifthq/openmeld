@@ -1,0 +1,54 @@
+---
+title: Use OpenMeld from a terminal
+description: Install through computer setup, then discover commands for your installed version.
+---
+
+The OpenMeld CLI is the command-line interface. It lets people and local agents work with OpenMeld from a terminal.
+
+If you are new to terminals, start with [Connect your computer](/docs/start/connect-computer). Use the setup command generated for your account and operating system. Do not install a similarly named package from an unrelated source.
+
+## Check the installation
+
+Open a new terminal after setup:
+
+```sh
+openmeld --version
+openmeld --help
+```
+
+The first command prints the installed version. The second shows its supported commands.
+
+## Common entry points
+
+| Command | Purpose |
+| --- | --- |
+| `openmeld start` | Enter the guided starting workflow. |
+| `openmeld setup` | Set up or align this computer with your account. |
+| `openmeld service status` | Inspect the local Service state. |
+| `openmeld doctor --view agent` | Read structured setup and diagnostic information. |
+
+Setup can change local configuration. Doctor's default diagnostic path is read-only; repair options are separate.
+
+## Discover the exact command
+
+Use the help provided by your installed version:
+
+```sh
+openmeld files --help
+openmeld skills --help
+openmeld routines --help
+```
+
+Files, Skills, and Routines remain subject to the same workspace and permission rules as the app. A command existing does not grant access.
+
+## Human and Agent views
+
+Human output is intended for a person reading a terminal. Supported commands can expose `--view agent` for structured output and explicit automation arguments.
+
+Use each command's help for required flags. Do not turn an example identifier into a real Organization, Space, or file target without checking it.
+
+## Keep secrets out of shared material
+
+Setup commands can include short-lived authorization. CLI diagnostics can include operational context. Review output before pasting it into a shared conversation or support report.
+
+For local problems, see [Computer help](/docs/help/computer).
