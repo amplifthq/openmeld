@@ -1,5 +1,5 @@
 import type { RoutineManagement } from "@openmeld/schemas/types";
-import { resolveStatusToneTextClassName } from "@openmeld/ui/lib/status-tone";
+import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { cn } from "@openmeld/ui/lib/utils";
 import { CheckCircleIcon } from "@phosphor-icons/react";
 import { useMutation } from "@tanstack/react-query";
@@ -8,7 +8,10 @@ import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { listCurrentRoutineRuns } from "#/lib/routines/api";
 import { formatRoutineTimestamp } from "#/lib/routines/presentation";
 import { routineRunResultHref } from "#/lib/routines/run-result";
-import { RoutineRunStatusBadge } from "./routine-run-presentation";
+import {
+	RoutineRunStatusBadge,
+	resolveRoutineRunStatusTextClassName,
+} from "./routine-run-presentation";
 
 export function RoutineLastRun(input: {
 	routine: RoutineManagement;
@@ -44,50 +47,37 @@ export function RoutineLastRun(input: {
 	if (!run) {
 		return <span className="text-muted-foreground">—</span>;
 	}
-	const completedResult = run.status === "completed" && run.publishedSignalId;
+	const completedResult =
+		run.status === "completed" && Boolean(run.publishedSignalId);
 	return (
-		<div className="flex flex-col items-start gap-1">
-			{completedResult ? (
+		<div>
+			<TooltipHint content={completedResult ? "Check result" : "Run history"}>
 				<button
-					aria-label={`Check result for ${input.routine.name}`}
+					aria-busy={completedResult && result.isPending}
+					aria-label={`${completedResult ? "Check result" : "Run history"} for ${input.routine.name}`}
 					className={cn(
-						"inline-flex items-center gap-1 text-xs underline-offset-4 hover:underline disabled:opacity-50",
-						resolveStatusToneTextClassName("ready")
+						"group inline-flex items-center gap-1.5 whitespace-nowrap text-sm disabled:opacity-50",
+						resolveRoutineRunStatusTextClassName(run.status)
 					)}
-					disabled={result.isPending}
-					onClick={() => result.mutate()}
+					disabled={completedResult && result.isPending}
+					onClick={completedResult ? () => result.mutate() : input.onHistory}
 					type="button"
 				>
-					<CheckCircleIcon aria-hidden="true" className="size-3.5" />
-					{result.isPending ? "Opening…" : "Check result"}
+					<time
+						className="underline-offset-4 group-hover:underline"
+						dateTime={new Date(run.scheduledFor).toISOString()}
+					>
+						{formatRoutineTimestamp(run.scheduledFor)}
+					</time>
+					{completedResult ? (
+						<CheckCircleIcon aria-hidden="true" className="size-3.5 shrink-0" />
+					) : (
+						<RoutineRunStatusBadge status={run.status} />
+					)}
 				</button>
-			) : (
-				<button
-					aria-label={`Run history for ${input.routine.name}`}
-					onClick={input.onHistory}
-					type="button"
-				>
-					<RoutineRunStatusBadge status={run.status} />
-				</button>
-			)}
-			<time
-				className="whitespace-nowrap text-muted-foreground text-xs"
-				dateTime={new Date(run.scheduledFor).toISOString()}
-			>
-				{formatRoutineTimestamp(run.scheduledFor)}
-			</time>
-			{run.publishedSignalId && !completedResult ? (
-				<button
-					className="text-sm underline-offset-4 hover:underline disabled:opacity-50"
-					disabled={result.isPending}
-					onClick={() => result.mutate()}
-					type="button"
-				>
-					{result.isPending ? "Opening…" : "View result"}
-				</button>
-			) : null}
+			</TooltipHint>
 			{result.isError ? (
-				<p className="max-w-56 text-destructive text-xs" role="alert">
+				<p className="mt-1 max-w-56 text-destructive text-xs" role="alert">
 					{result.error.message}
 				</p>
 			) : null}

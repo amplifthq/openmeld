@@ -767,10 +767,11 @@ filters active, paused, finished, or last-run-failed routines and sorts by recen
 updates, next run, or name. These controls use existing management projections
 and mutation authorization; they do not introduce another state owner.
 
-The name, non-result last-run status, and action menu open Run history. A completed
-last run with published output combines its success marker and result action into
-Check result. Compact status badges and 24-hour timestamps keep the list readable;
-current-year timestamps omit the year. A bounded shared
+The name, non-result last-run time/status, and action menu open Run history.
+Last run uses one line with the time first. Completed output is a green timestamp
+with a check icon; its shared tooltip says Check result and clicking opens the
+published answer. Other statuses use the matching time color followed by the same
+compact badge recipe. Compact 24-hour timestamps omit the current year. A bounded shared
 Table and ScrollArea show each occurrence's time, status, failure detail, and
 authorized destination name. View result opens the existing Space and focuses
 the published message. Navigation uses the Run's frozen target, never the
