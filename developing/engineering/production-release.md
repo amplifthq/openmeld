@@ -1317,6 +1317,13 @@ may be possible; it never authorizes a second deploy or makes an unknown result
 verified. Identity drift keeps the component blocked for evidence-backed
 reconciliation or a legal forward fix.
 
+A native PostgreSQL stage can lose its connection after its transaction commits.
+For the exact retained source and operation, guarded recovery runs only the
+registered target's read-only journal and runtime-grant verification. It retains
+the original attempt and runs under the database lease. Verification failure
+keeps the failed receipt; success completes it without repeating migration or
+grant commands. This recovery does not apply to legacy D1 operations.
+
 Useful examples:
 
 ```sh

@@ -219,6 +219,59 @@ test("retries rejected Core under the original attempt only while the prior depl
   assert.equal(result.latest.get("core").operationKey, rejected.operationKey);
 });
 
+test("native database recovery verifies the journal and grants without repeating mutations", async () => {
+  const options = {
+    scopes: ["db"],
+    steps: buildProductionDeployStepSpecs(["db"], {
+      databaseBackend: "postgresql",
+    }),
+    failureAt: "PostgreSQL database: migrate",
+  };
+  const result = fixture(options);
+  await assert.rejects(result.run, FAILURE);
+  const original = { ...result.latest.get("db") };
+  const recovery = describeGuardedReceiptRecoveryCandidate(
+    { sha: SOURCE, receipt: original },
+    "db"
+  );
+  assert.equal(recovery.kind, "guarded-health-resume");
+
+  options.failureAt = "PostgreSQL database: verify";
+  await assert.rejects(result.run, FAILURE);
+  assert.deepEqual(result.latest.get("db"), original);
+
+  options.failureAt = undefined;
+  await result.run();
+  assert.deepEqual(result.effects, [
+    "PostgreSQL database: migrate",
+    "PostgreSQL database: verify",
+    "PostgreSQL database: verify",
+  ]);
+  assert.deepEqual(result.latest.get("db"), {
+    ...original,
+    status: "verified",
+    application: "applied",
+    identity: { kind: "release-source" },
+  });
+  assert.equal(result.released.filter((scope) => scope === "db").length, 3);
+});
+
+test("native database recovery rejects a different operation before verification", async () => {
+  const options = {
+    scopes: ["db"],
+    steps: buildProductionDeployStepSpecs(["db"], {
+      databaseBackend: "postgresql",
+    }),
+    failureAt: "PostgreSQL database: migrate",
+  };
+  const result = fixture(options);
+  await assert.rejects(result.run, FAILURE);
+  result.latest.get("db").operationKey = "0".repeat(64);
+  options.failureAt = undefined;
+  await assert.rejects(result.run, UNRESOLVED_ERROR);
+  assert.deepEqual(result.effects, ["PostgreSQL database: migrate"]);
+});
+
 test("a failed applied receipt resumes health under the same lease without redeploying", async () => {
   const options = { scopes: ["web"], failureAt: "Verify Web health" };
   const result = fixture(options);
