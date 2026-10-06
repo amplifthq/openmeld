@@ -454,6 +454,10 @@ function describeInitialDocsPublication(input) {
   };
 }
 
+function componentImpactCacheKey(sha, scope) {
+  return ["website", "docs"].includes(scope) ? `${sha}:${scope}` : sha;
+}
+
 function describeReleaseComponent(input) {
   const { releaseSource, scope, history, plansByBase, adapters, sourceSha } =
     input;
@@ -509,18 +513,23 @@ function describeReleaseComponent(input) {
       `Local release is ${receipt.status}/${receipt.application}; ${guidance}`
     );
   }
-  let entry = plansByBase.get(releaseSource.sha);
+  const impactKey = componentImpactCacheKey(releaseSource.sha, scope);
+  let entry = plansByBase.get(impactKey);
   if (!entry) {
     try {
       entry = {
-        plan: adapters.buildImpact({ base: releaseSource.sha, sourceSha }),
+        plan: adapters.buildImpact({
+          base: releaseSource.sha,
+          sourceSha,
+          componentScope: scope,
+        }),
       };
     } catch (error) {
       entry = {
         error: `Source impact from ${releaseSource.sha} failed: ${error.message}`,
       };
     }
-    plansByBase.set(releaseSource.sha, entry);
+    plansByBase.set(impactKey, entry);
   }
   if (entry.error) {
     return unknown(
@@ -1100,9 +1109,10 @@ function defaultAdapters() {
         scope: "auto",
         sourceSha,
       }),
-    buildImpact: ({ base, sourceSha }) =>
+    buildImpact: ({ base, sourceSha, componentScope }) =>
       buildProductionReleaseImpact({
         base,
+        componentScope,
         changedPaths: splitLines(
           runGit(["diff", "--name-only", `${base}...${sourceSha}`])
         ),

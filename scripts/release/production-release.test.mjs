@@ -29,6 +29,7 @@ import {
   buildCoreCurrentCliProjectionPreflightStepSpecs,
   buildProductionDeployStepSpecs,
   buildProductionPreflightStepSpecs,
+  buildProductionReleaseImpact,
   buildProductionReleasePlan,
   buildProductionVerifyStepSpecs,
   executeProductionDeploySteps,
@@ -71,6 +72,89 @@ const FULL_BACKLOG_PATHS = [
 const EVIDENCE_ORDER_ERROR = /evidence tools require the Core RPC receiver/u;
 const SPACE_MESSAGE_SEARCH_SCOPE_ERROR =
   /Web callers require the Gateway and Core short-query receivers/u;
+const INCOMPATIBLE_DEPENDENCIES = /incompatible.*dependencies/iu;
+
+test("orders the October product backlog without treating a proxy export as a request change", () => {
+  const base = "20425528edfe6aec5b11700e52cef34735e284aa";
+  const sourceSha = "064d93ae1af570ecc0ced8aa212bff5e27ba60b2";
+  const changedPaths = execFileSync(
+    "git",
+    ["diff", "--name-only", base, sourceSha],
+    {
+      encoding: "utf8",
+    }
+  )
+    .trim()
+    .split("\n");
+  const plan = buildProductionReleasePlan({
+    base,
+    sourceSha,
+    changedPaths,
+    scope: "auth,core,gateway,web,remote-agent,cli",
+  });
+  assert.deepEqual(plan.deployScopeOrder, [
+    "auth",
+    "core",
+    "gateway",
+    "web",
+    "remote-agent",
+    "cli",
+  ]);
+  assert.ok(
+    plan.compatibilityDependencies.some(
+      ([a, b]) => a === "core" && b === "remote-agent"
+    )
+  );
+  assert.ok(
+    !plan.compatibilityDependencies.some(
+      ([a, b]) => a === "remote-agent" && b === "core"
+    )
+  );
+  assert.throws(
+    () =>
+      buildProductionReleasePlan({
+        base,
+        sourceSha,
+        changedPaths,
+        scope: "auth,core,gateway,web,remote-agent,cli",
+        readGitFile: (ref, file) =>
+          execFileSync("git", ["show", `${ref}:${file}`], {
+            encoding: "utf8",
+          }) +
+          (ref === sourceSha &&
+          file === "services/remote-agent/.flue/cloudflare.ts"
+            ? "\n// unknown receiver edit\n"
+            : ""),
+      }),
+    INCOMPATIBLE_DEPENDENCIES
+  );
+});
+
+test("independent Website and Docs impact does not require unrelated historical App compatibility", () => {
+  const changedPaths = execFileSync(
+    "git",
+    [
+      "diff",
+      "--name-only",
+      "d799f3f66b6465564f4a9f11709a16292541db2d",
+      "064d93ae1af570ecc0ced8aa212bff5e27ba60b2",
+    ],
+    { encoding: "utf8" }
+  )
+    .trim()
+    .split("\n");
+  for (const componentScope of ["website", "docs"]) {
+    const impact = buildProductionReleaseImpact({
+      base: "d799f3f66b6465564f4a9f11709a16292541db2d",
+      sourceSha: "064d93ae1af570ecc0ced8aa212bff5e27ba60b2",
+      componentScope,
+      changedPaths,
+      affectedPackages: [`openmeld-${componentScope}`],
+    });
+    assert.deepEqual(impact.scopes, [componentScope]);
+    assert.deepEqual(impact.compatibilityDependencies, []);
+  }
+});
 
 test("local execution honors control interpreter, arguments, and product root", async () => {
   const root = realpathSync(
