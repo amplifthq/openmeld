@@ -33,6 +33,10 @@ html {
   scrollbar-gutter: stable;
 }
 
+.docs-home a:focus-visible { outline: 2px solid currentColor; outline-offset: 5px; }
+.docs-guide:hover { background: var(--color-fd-muted); }
+.docs-topic:hover h3, .docs-home footer a:hover { text-decoration: underline; text-underline-offset: 4px; }
+
 html > body[data-scroll-locked] {
   margin-right: 0px !important;
   --removed-body-scroll-bar-size: 0px !important;

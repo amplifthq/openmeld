@@ -29,9 +29,15 @@ export const Route = createRootRoute({
       },
       {
         name: "description",
-        content: "OpenMeld documentation template preview.",
+        content:
+          "Learn how to work with AI teammates in OpenMeld. Get started, connect your tools, share work, and find help.",
       },
-      { name: "robots", content: "noindex, nofollow" },
+      {
+        name: "robots",
+        content: import.meta.env.VITE_DOCS_INDEXABLE
+          ? "index, follow"
+          : "noindex, nofollow",
+      },
       { name: "openmeld-source-sha", content: __OPENMELD_DOCS_BUILD__.sha },
       { name: "openmeld-build-id", content: __OPENMELD_DOCS_BUILD__.id },
       {

@@ -1,0 +1,47 @@
+---
+title: Connect Slack, Lark, or Feishu
+description: Talk to Center Agent from a messaging service your team already uses.
+---
+
+A Channel is a messaging entrance to Center Agent. It is different from a [Plugin](/docs/team/plugins), which lets agents use an external tool while doing work.
+
+## Before connecting
+
+You need a shared Organization. Personal Workspaces show Channel options for discovery but cannot connect a workspace-level Channel.
+
+Use an account with the required OpenMeld and provider administration permissions. Check that you are connecting the intended messaging workspace.
+
+## Connect Slack
+
+1. Open **Center Agent → Channels**.
+2. Choose Slack's connection action.
+3. Review the workspace and permissions in Slack.
+4. Complete the provider flow.
+5. Return to OpenMeld and confirm the connected status.
+
+Closing the authorization window is not connection success. If setup fails, use the status and recovery action shown in Channels.
+
+## Connect Lark or Feishu
+
+Choose the matching provider in **Channels** and follow its setup instructions. Complete all requested provider configuration.
+
+A connection can remain **configuring** until its event and message-card callbacks are verified. Do not treat an app created in the provider console as proof that messages reach OpenMeld.
+
+## Try the connection
+
+Open the connected messaging service and send Center Agent a small, non-sensitive request. Check that the reply returns to the same conversation.
+
+For a first test, ask it to turn three notes into a checklist. Test tool actions separately after the basic message path works.
+
+## Connect your identity when needed
+
+An internal member can use Organization-shared capabilities without first linking an OpenMeld account. Personal resources and role-sensitive actions can require a verified account connection.
+
+When prompted, open **Connect my account and continue**. Check the messaging account and signed-in OpenMeld account before confirming. The continuation should return to the original conversation.
+
+## Keep each connection separate
+
+One Organization can connect different supported providers. Repairing or disconnecting one does not disconnect the others.
+
+Connection availability and provider permissions can change. Use the live Channels page for the current state.
+
