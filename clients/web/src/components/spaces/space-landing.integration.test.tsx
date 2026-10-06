@@ -2476,7 +2476,10 @@ describe("SpaceLanding", () => {
 		expect(screen.queryByText("Couldn't Load This Space")).toBeNull();
 	});
 
-	it("keeps a cold-start draft available and carries it into the confirmed Space", async () => {
+	it.each([
+		false,
+		true,
+	])("keeps the same editor and draft when a cold Space finishes loading (Center Agent: %s)", async (isCenterAgentDirectMessage) => {
 		const postNormalMessageMock = vi.fn();
 		createWebSpaceApiMock.mockReturnValue({
 			postNormalMessage: postNormalMessageMock,
@@ -2499,19 +2502,12 @@ describe("SpaceLanding", () => {
 			}),
 		});
 
-		const rendered = renderSpaceLanding();
-		const loadingComposer = screen.getByRole("textbox", {
-			name: "Message this space",
-		});
+		const rendered = renderSpaceLanding({ isCenterAgentDirectMessage });
+		const loadingComposer = screen.getByRole("textbox");
 		expect(loadingComposer).toBeInstanceOf(HTMLDivElement);
 		expect(loadingComposer.getAttribute("contenteditable")).toBe("true");
 		expect(document.querySelector('textarea[name="space-message"]')).toBeNull();
-		expect(
-			screen.queryByRole("button", { name: "Choose files to send" })
-		).toBeNull();
-		expect(
-			screen.queryByRole("button", { name: "Mention a member" })
-		).toBeNull();
+		expect(screen.queryByRole("button", { name: "Add" })).toBeTruthy();
 		loadingComposer.focus();
 		await setComposerValue(loadingComposer, "Draft from the first frame");
 		expect(
@@ -2520,9 +2516,24 @@ describe("SpaceLanding", () => {
 					name: "Send message",
 				}) as HTMLButtonElement
 			).disabled
-		).toBe(true);
-		fireEvent.keyDown(loadingComposer, { key: "Enter" });
+		).toBe(false);
 		expect(postNormalMessageMock).not.toHaveBeenCalled();
+
+		mockSpaceQueries({
+			status: createQueryResult({ isSuccess: true, data: createSpaceStatus() }),
+			members: createQueryResult({ isPending: true }),
+			history: createQueryResult({ isPending: true }),
+		});
+		rendered.rerender(
+			<SpaceLanding
+				isCenterAgentDirectMessage={isCenterAgentDirectMessage}
+				orgSlug="acme"
+				profileId={DEFAULT_SPACE_PROFILE_ID}
+				spaceId="space-123"
+			/>
+		);
+		expect(screen.getByRole("textbox")).toBe(loadingComposer);
+		expect(loadingComposer.getAttribute("contenteditable")).toBe("true");
 
 		mockSpaceQueries({
 			status: createQueryResult({
@@ -2540,6 +2551,7 @@ describe("SpaceLanding", () => {
 		});
 		rendered.rerender(
 			<SpaceLanding
+				isCenterAgentDirectMessage={isCenterAgentDirectMessage}
 				orgSlug="acme"
 				profileId={DEFAULT_SPACE_PROFILE_ID}
 				spaceId="space-123"
@@ -2547,9 +2559,8 @@ describe("SpaceLanding", () => {
 		);
 
 		await waitFor(() => {
-			const confirmedComposer = screen.getByRole("textbox", {
-				name: "Message this space",
-			});
+			const confirmedComposer = screen.getByRole("textbox");
+			expect(confirmedComposer).toBe(loadingComposer);
 			expect(readComposerValue(confirmedComposer)).toBe(
 				"Draft from the first frame"
 			);
@@ -11027,7 +11038,7 @@ describe("SpaceLanding", () => {
 			screen.getByText("Visible from the saved browser view")
 		).toBeTruthy();
 		expect(
-			screen.getByRole("link", { name: "Open thread (7 replies)" })
+			screen.getByRole("button", { name: "Open thread (7 replies)" })
 		).toBeTruthy();
 		expect(
 			within(

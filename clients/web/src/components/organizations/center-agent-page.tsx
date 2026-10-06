@@ -295,8 +295,11 @@ function CenterAgentDirectMessageEntry(input: {
 				initialSpaceView={input.initialSpaceView}
 				isCenterAgentDirectMessage
 				isPersonalContext={currentOrganization.isPersonal === true}
-				loadingFallback={(controller) =>
-					optimisticConversation(controller.composerFiles)
+				loadingFallback={
+					input.sessionId && !pendingMessage
+						? undefined
+						: (controller) =>
+								optimisticConversation(controller.composerFileSession)
 				}
 				onInitialPendingMessageConsumed={() => {
 					clearCenterAgentPendingMessage(queryClient, pendingScope);

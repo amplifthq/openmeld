@@ -161,7 +161,7 @@ export function buildSettingsSections(
 		},
 		{
 			id: "usage",
-			title: "Usage",
+			title: "AI usage",
 			to: settingsRoutes.usage,
 			requires: ["CLOUD_ACCOUNT"],
 			render: () => (

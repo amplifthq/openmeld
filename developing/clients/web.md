@@ -1456,13 +1456,13 @@ The Settings secondary sidebar always shows these two groups:
   Privacy & Safety (or after Center Agent in a Personal Workspace). It opens
   the existing feedback dialog rather than creating a route or a second
   submission contract.
-- **Current Organization name** — **General**, **Center Agent**, **Usage**, **Members**,
+- **Current Organization name** — **General**, **Center Agent**, **AI usage**, **Members**,
   **Invitations**, and **Security**. General owns identity and lifecycle, Center
   Agent owns coordinator identity, connection, model, and audit history,
   Members owns roles, Invitations owns requests and invitation delivery, and
   Security owns information protection. Security is visible only to owners and
-  admins. Usage owns organization consumption and the signed-in member's Remote
-  Agent view. A personal workspace shows General and Usage: organization membership
+  admins. AI usage owns organization consumption and the signed-in member's Remote
+  Agent view. A personal workspace shows General and AI usage: organization membership
   and invitation management do not apply there, and its coordinator belongs to
   Personal. The visible group label is the selected
   Organization's stored name, including for the personal Organization; it is
@@ -1935,13 +1935,14 @@ File access card. Other owned Computers remain visible with guidance to open
 OpenMeld on that Computer; Web does not imply that their local policy can be
 managed remotely. This page never reads, stores, or edits a policy itself.
 
-**Settings → Usage** is a read-only destination available to every active member.
-Its text-only navigation matches the other Settings items. Fluid **Organization /
-My agents** tabs share the current Organization scope. Organization shows recorded
+**Settings → AI usage** is a read-only destination available to every active member.
+Its text-only navigation matches the other Settings items. Fluid **Organization usage /
+My agents** tabs share the current Organization scope. Organization usage shows recorded
 Center Agent and Remote Agent costs by model, separately recorded Local Agent
-tokens, and the existing 50-definition Routine limit. My agents selects the
+tokens. Routine counts and limits do not appear here; this destination covers
+AI consumption only. The existing `usage` route remains unchanged. My agents selects the
 signed-in member's non-Center Agent Profiles from the organization directory and
-shows their Remote runtime consumption; it is a subset of organization usage,
+shows their Remote runtime costs and Local Agent tokens; it is a subset of organization usage,
 not another allowance. Empty ownership selects no receipts.
 
 Both cost views reuse the shared chart, model brand icons, and Fluid controls.
@@ -1949,7 +1950,8 @@ They start at seven local calendar days, with a 30-day selector, refresh, model
 totals, and personal Agent totals in Details. Costs carry a green **Free** badge;
 provider estimates and missing costs are not presented as invoiced charges.
 Local token charts reuse the Computer chart without a Computer filter and remain
-separate from costs. A daily allowance appears only when explicitly configured,
+separate from costs. My agents applies the same owned-profile filter to both charts.
+A daily allowance appears only when explicitly configured,
 with the existing UTC reset. No billing controls, export, or task drilldown is
 introduced. These views read the existing Web → Gateway → Core projections.
 
@@ -3313,6 +3315,12 @@ explicit refresh failure rather than treating missing activity as an empty
 current state.
 
 ### Routines
+
+The page title carries a compact created-count/limit indicator, such as **3/50**,
+from the existing organization usage overview. Its hover and keyboard-focus
+tooltip explains that paused Routines count toward the limit and all slots can
+be enabled. Routine mutations and the page Refresh action refresh the count.
+There is no separate quota card in Routines or AI usage.
 
 **Center Agent → Routines** is present in every workspace. Every organization
 member may read Routines and create a Routine that schedules the Center Agent to
@@ -5158,6 +5166,15 @@ send. The `+` menu explains why file selection is unavailable when uploads are
 not authorized or a message is still sending. Send and upload authorization
 remain unchanged. The Composer keeps its access explanation visible after text
 is entered and offers the ordinary Human Join action beside the draft.
+After account, Organization, and Profile identity are resolved, a Space mounts
+its normal conversation Composer while entry, status, members, and history are
+still loading. Restoring saved history must not block route entry. The same
+editor stays mounted when the Space becomes ready, preserving focus, selection,
+and editing history. Unknown membership is not a read-only verdict. Local
+drafting remains available, while Send confirms current entry and posting
+permission through the existing admission boundary. An explicit rejection
+replaces the conversation with the existing access surface. Drafts keep their
+existing account, Profile, Space, and Thread scope when navigating away and back.
 Restored conversations expose an access-check retry even while the first request
 is pending. Retry cancels that request and asks the entry resolver again; it
 preserves the draft and never confirms access locally.
@@ -5208,7 +5225,7 @@ input remain available.
 
 Missing member data is separate from failed member loading. A draft containing
 structured mentions keeps its text and tokens while the initial snapshot loads;
-its send control waits and the Composer shows a muted loading hint. A failed read
+its send control waits without changing the Composer layout. A failed read
 offers Retry. Ordinary text is not blocked by missing mention data. Composer
 feedback stays inside the input surface without a separate bordered warning box.
 

@@ -67,7 +67,7 @@ vi.mock("#/components/app/start-flow-state", () => ({
 vi.mock("#/components/spaces/space-landing", () => ({
 	SpaceLanding: (props: {
 		loadingFallback?: (controller: {
-			composerFiles: ReturnType<typeof useSpaceComposerFiles>;
+			composerFileSession: ReturnType<typeof useSpaceComposerFiles>;
 		}) => ReactNode;
 	}) => {
 		const composerFiles = useSpaceComposerFiles({
@@ -77,7 +77,7 @@ vi.mock("#/components/spaces/space-landing", () => ({
 		});
 		spaceLandingSpy(props);
 		return renderSpaceLandingLoadingFallback ? (
-			props.loadingFallback?.({ composerFiles })
+			props.loadingFallback?.({ composerFileSession: composerFiles })
 		) : (
 			<div data-testid="space-landing" />
 		);

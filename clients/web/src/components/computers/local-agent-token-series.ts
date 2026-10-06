@@ -4,6 +4,10 @@ import {
 	resolveBuiltinAgentControllerBrand,
 } from "@openmeld/schemas";
 import type { AiUsageQueryResponse } from "@openmeld/schemas/types";
+import {
+	type BrandChartColors,
+	localAgentChartColors,
+} from "@openmeld/ui/lib/brand-chart-colors";
 
 const catalog = projectLocalAgentCatalogFromCapabilities({
 	capabilities: [],
@@ -13,7 +17,7 @@ export type LocalAgentTokenSeries = {
 	controller: string | null;
 	key: string;
 	label: string;
-	colors: { light: string[]; dark: string[] };
+	colors: BrandChartColors;
 };
 
 export function localAgentTokenSeries(
@@ -30,24 +34,6 @@ export function localAgentTokenSeries(
 		.sort((a, b) => compareAgentControllerRefsForDisplay(a ?? "", b ?? ""))
 		.map((controller, index) => {
 			const brand = resolveBuiltinAgentControllerBrand(controller);
-			// Monochrome logos have no unique hue: fixed secondary colors keep traces distinct.
-			const monochromeAccents: Record<string, string> = {
-				cursor: "#c49a47",
-				opencode: "#2aafa0",
-			};
-			const accent =
-				monochromeAccents[brand?.controllerId ?? ""] ??
-				brand?.accentHex ??
-				"#929aa8";
-			const light = `#${[1, 3, 5]
-				.map((offset) =>
-					Math.round(
-						Number.parseInt(accent.slice(offset, offset + 2), 16) * 0.72
-					)
-						.toString(16)
-						.padStart(2, "0")
-				)
-				.join("")}`;
 			return {
 				controller,
 				key: `agent_${index}`,
@@ -56,7 +42,7 @@ export function localAgentTokenSeries(
 						?.displayName ??
 					controller ??
 					"Unattributed",
-				colors: { light: [light], dark: [accent] },
+				colors: localAgentChartColors(controller),
 			};
 		});
 }

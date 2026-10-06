@@ -20,7 +20,6 @@ import {
 } from "@openmeld/space";
 import { Button } from "@openmeld/ui/components/button";
 import { useMediaQuery } from "@openmeld/ui/hooks/use-media-query";
-import { ArrowUpIcon } from "@phosphor-icons/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import type { ComponentProps, CSSProperties, ReactNode } from "react";
@@ -124,10 +123,9 @@ import { DirectMessageConversionDialog } from "./direct-message-conversion-dialo
 import { isManualOnlyAgentRecoveryPlan } from "./space-agent-manual-participation";
 import { SpaceAgentProfileEditProvider } from "./space-agent-profile-edit-context";
 import type { SpaceAgentProfileBindingRecoveryPlan } from "./space-agent-recovery-action";
-import { SpaceComposer } from "./space-composer";
 import type { SpaceAutomaticWakeComposerHintKind } from "./space-composer-copy";
 import { SpaceConversationPanel } from "./space-conversation-panel";
-import { SpaceHeader } from "./space-header";
+import { SpaceHeader, SpaceWindowHeader } from "./space-header";
 import { SpaceLandingErrorBoundary } from "./space-landing-error-boundary";
 import { SpaceLiveNotice } from "./space-live-notice";
 import {
@@ -685,7 +683,7 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 	// Normalize the optional Space name (string | undefined) to string | null for
 	// the onboarding banner's create-first-agent launcher. Memoized so the guard
 	// and nullish coalescing live in this nested scope rather than SpaceLanding's
-	// body. controller.status only exists once the controller is "ready".
+	// body. A loading conversation can also carry a display-only status.
 	const spaceName = useMemo(
 		() =>
 			controller.mode === "ready" ? (controller.status.name ?? null) : null,
@@ -1412,9 +1410,9 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 }
 
 type SpaceLandingState = ReturnType<typeof useSpaceLandingState>;
-type ReadySpaceLandingController = Extract<
+type SpaceConversationController = Extract<
 	SpaceLandingState["controller"],
-	{ mode: "ready" }
+	{ mode: "ready" | "loading" }
 >;
 
 export function SpaceLanding(input: SpaceLandingInput) {
@@ -1442,24 +1440,10 @@ function SpaceLandingContent(input: SpaceLandingInput) {
 	const state = useSpaceLandingState(input);
 	const { controller } = state;
 	useSpaceOpenPaint(input.spaceId, spaceOpenFailureMilestone(controller.mode));
-	if (controller.mode === "loading") {
-		return (
-			(typeof input.loadingFallback === "function"
-				? input.loadingFallback(controller)
-				: input.loadingFallback) ?? (
-				<SpaceLandingLoadingShell
-					composer={<SpaceColdLoadingComposer controller={controller} />}
-					membersOpen={
-						state.isDesktopMembersPanel &&
-						state.membersOpen &&
-						!state.currentSpaceIsCenterAgentDirectMessage
-					}
-					membersPanelWidth={state.membersPanelWidth.width}
-					spaceId={input.spaceId}
-					threadOpen={Boolean(input.initialFocusThreadRootSignalId)}
-				/>
-			)
-		);
+	if (controller.mode === "loading" && input.loadingFallback) {
+		return typeof input.loadingFallback === "function"
+			? input.loadingFallback(controller)
+			: input.loadingFallback;
 	}
 
 	if (controller.mode === "password") {
@@ -1489,64 +1473,10 @@ function SpaceLandingContent(input: SpaceLandingInput) {
 	}
 
 	return (
-		<SpaceLandingReady controller={controller} input={input} state={state} />
-	);
-}
-
-function SpaceColdLoadingComposer(input: {
-	controller: Extract<SpaceLandingState["controller"], { mode: "loading" }>;
-}) {
-	const controller = input.controller;
-	return (
-		<SpaceComposer
-			actions={{
-				onBlur: controller.onComposerBlur,
-				onEditorChange: controller.onComposerEditorChange,
-				onFocus: controller.onComposerFocus,
-				onSubmit: () => undefined,
-			}}
-			availability={{
-				canSendMessage: false,
-				fileLimitReached: false,
-				isSendingMessage: false,
-				sendBlocked: true,
-			}}
-			capabilities={{ attachments: false, mentions: false }}
-			centerAgentProfileId={null}
-			composerRef={controller.textareaRef}
-			content={{
-				addressingTargets: controller.composerAddressingTargets,
-				authoredMentions: controller.composerAuthoredMentions,
-				files: [],
-				mentionPickerItems: controller.composerMentionPickerItems,
-				text: controller.composerText,
-			}}
-			context={{
-				conversationKind: "space",
-				placement: "conversation",
-				readOnlyPlaceholder: "Write a message while OpenMeld opens this space…",
-			}}
-			slots={{
-				primaryAction: (
-					<Button
-						aria-label="Send message"
-						disabled
-						size="icon-sm"
-						type="button"
-					>
-						<ArrowUpIcon aria-hidden="true" weight="bold" />
-					</Button>
-				),
-				status: (
-					<p
-						aria-live="polite"
-						className="min-w-0 flex-1 truncate text-muted-foreground text-xs leading-5"
-					>
-						You can keep writing. Sending will be available after this Space
-						opens.
-					</p>
-				),
-			}}
+		<SpaceLandingConversationShell
+			controller={controller}
+			input={input}
+			state={state}
 		/>
 	);
 }
@@ -1592,12 +1522,12 @@ function useThreadRootMainFocus(input: SpaceLandingInput) {
 	};
 }
 
-function SpaceLandingReady({
+function SpaceLandingConversationShell({
 	controller,
 	input,
 	state,
 }: {
-	controller: ReadySpaceLandingController;
+	controller: SpaceConversationController;
 	input: SpaceLandingInput;
 	state: SpaceLandingState;
 }) {
@@ -1650,7 +1580,7 @@ function SpaceLandingReady({
 			isDesktopMembersPanel={isDesktopMembersPanel}
 			memberCount={
 				controller.isCurrentAccessConfirmed
-					? controller.status.members.totalCount
+					? controller.status?.members.totalCount
 					: null
 			}
 			onOpenChange={handleMembersOpenChange}
@@ -1787,7 +1717,7 @@ function SpaceLandingReady({
 					bodyClassName="flex"
 					bodySlotName={resolveSpaceLandingBodySlotName(input.presentation)}
 					header={
-						<SpaceHeader
+						<SpaceLandingHeader
 							accessModeErrorMessage={controller.accessModeErrorMessage}
 							canManageSpaceAccess={currentSpaceControls.canManageSpaceAccess}
 							canManageSpaceName={currentSpaceControls.canManageSpaceName}
@@ -1797,7 +1727,7 @@ function SpaceLandingReady({
 								currentSpaceIsCenterAgentDirectMessage && input.orgSlug
 									? (title) => (
 											<CenterAgentChatHistory
-												spaceId={controller.status.spaceId}
+												spaceId={controller.spaceId}
 												title={title}
 												titleAction={input.conversationTitleAction?.(title)}
 											/>
@@ -1827,7 +1757,7 @@ function SpaceLandingReady({
 							notificationControl={
 								<SpaceNotificationMenu
 									isGuest={input.isGuest}
-									spaceId={controller.status.spaceId}
+									spaceId={controller.spaceId}
 								/>
 							}
 							onDeleteSpace={controller.onDeleteSpace}
@@ -1901,9 +1831,6 @@ function SpaceLandingReady({
 								}
 								composerProfileControl={composerProfileControl}
 								controller={controller}
-								currentProfileIsActiveSpaceMember={
-									currentProfileIsActiveSpaceMember
-								}
 								currentProfileName={currentProfileName}
 								currentSpaceControls={currentSpaceControls}
 								historyErrorMessage={historyErrorMessage}
@@ -1965,7 +1892,7 @@ function useSpaceLandingViewerState({
 	controller,
 	state,
 }: {
-	controller: ReadySpaceLandingController;
+	controller: SpaceConversationController;
 	state: SpaceLandingState;
 }) {
 	const currentHumanViewer = resolveCurrentSpaceHumanViewer({
@@ -1985,7 +1912,7 @@ function useSpaceLandingViewerState({
 			snapshot: controller.membersSnapshot,
 		});
 	const agentOwnerDirectMessageJoin = useAgentOwnerDirectMessageJoin({
-		currentSpaceName: controller.status.name,
+		currentSpaceName: controller.status?.name,
 		onJoin: state.handleConvertDirectMessageToSpace,
 		observer: agentOwnerDirectMessageObserver,
 	});
@@ -2009,7 +1936,7 @@ function useSpaceLandingPendingAgentActions({
 	controller,
 	state,
 }: {
-	controller: ReadySpaceLandingController;
+	controller: SpaceConversationController;
 	state: SpaceLandingState;
 }) {
 	const agentProfileEditContext = resolveAgentProfileEditDialogContext({
@@ -2042,7 +1969,7 @@ function useSpaceLandingPendingAgentActions({
 }
 
 function resolveSpaceHistoryErrorMessage(
-	controller: ReadySpaceLandingController
+	controller: SpaceConversationController
 ): string | null {
 	if (!(controller.historyError && controller.timelineItems.length === 0)) {
 		return null;
@@ -2057,7 +1984,7 @@ function SpaceLandingMembersControl(input: {
 	spaceId: string;
 	profileId: string;
 	isDesktopMembersPanel: boolean;
-	memberCount: number | null;
+	memberCount: number | null | undefined;
 	onOpenChange: (open: boolean) => void;
 	open: boolean;
 }) {
@@ -2122,13 +2049,30 @@ function SpaceFileNavigationGuards(input: {
 	);
 }
 
+function SpaceLandingHeader({
+	status,
+	...props
+}: Omit<ComponentProps<typeof SpaceHeader>, "status"> & {
+	status: SpaceConversationController["status"];
+}) {
+	if (!status) {
+		return (
+			<SpaceWindowHeader
+				navigation={<span className="text-sm">Messages</span>}
+				renderFrame={false}
+				title={props.conversationTitle ?? ""}
+			/>
+		);
+	}
+	return <SpaceHeader {...props} status={status} />;
+}
+
 function SpaceLandingConversation({
 	automaticWakeConversationKind,
 	agentOwnerDirectMessageObserver,
 	composerPrimaryAction,
 	composerProfileControl,
 	controller,
-	currentProfileIsActiveSpaceMember,
 	currentProfileName,
 	currentSpaceControls,
 	historyErrorMessage,
@@ -2145,8 +2089,7 @@ function SpaceLandingConversation({
 	>;
 	composerPrimaryAction?: ReactNode;
 	composerProfileControl: ReactNode;
-	controller: ReadySpaceLandingController;
-	currentProfileIsActiveSpaceMember: boolean;
+	controller: SpaceConversationController;
 	currentProfileName: string | null;
 	currentSpaceControls: ReturnType<typeof resolveCurrentSpaceControls>;
 	historyErrorMessage: string | null;
@@ -2252,8 +2195,6 @@ function SpaceLandingConversation({
 		controller.currentProfileMembershipState === "nonmember"
 	) {
 		readOnlyComposerPlaceholder = `Join as ${currentProfileName ?? "your profile"} to participate in this Space.`;
-	} else if (controller.currentProfileMembershipState === "unknown") {
-		readOnlyComposerPlaceholder = "Loading conversation…";
 	}
 	return (
 		<SpaceConversationPanel
@@ -2261,7 +2202,7 @@ function SpaceLandingConversation({
 			activeSpaceView={spaceView}
 			agentRecoveryPlansByProfileId={agentRecoveryPlansByProfileId}
 			agentStreams={controller.agentStreams}
-			allowedActions={controller.status.allowedActions}
+			allowedActions={controller.status?.allowedActions ?? []}
 			allowSendWhileAccessSettles={!controller.isCurrentAccessConfirmed}
 			automaticWakeConversationKind={automaticWakeConversationKind}
 			centerAgentProfileId={centerAgentState.centerAgentProfileId}
@@ -2336,7 +2277,7 @@ function SpaceLandingConversation({
 			onAgentRecoveryAction={handleAgentRecoveryAction}
 			onClearComposerReplyTo={controller.onClearComposerReplyTo}
 			onComposeExpiredDeviceWait={
-				controller.status.allowedActions.includes("post_message")
+				controller.status?.allowedActions.includes("post_message")
 					? controller.onComposeExpiredDeviceWait
 					: undefined
 			}
@@ -2462,7 +2403,7 @@ function SpaceLandingConversation({
 				isSendingMessage: controller.isSendingMessage,
 				readOnly:
 					controller.isCurrentAccessConfirmed &&
-					!currentProfileIsActiveSpaceMember,
+					controller.currentProfileMembershipState === "nonmember",
 				threadsIsLoading: controller.threadsIsLoading,
 				unreadStateReady: controller.unreadStateReady,
 			}}
@@ -2847,7 +2788,7 @@ function SpaceLandingSecondaryPanels({
 		typeof resolveAgentProfileEditDialogContext
 	>;
 	composerProfileControl: ReactNode;
-	controller: ReadySpaceLandingController;
+	controller: SpaceConversationController;
 	currentProfileIsActiveSpaceMember: boolean;
 	currentSpaceControls: ReturnType<typeof resolveCurrentSpaceControls>;
 	input: SpaceLandingInput;
@@ -2913,7 +2854,7 @@ function SpaceLandingSecondaryPanels({
 			? controller.membersSnapshot
 			: null,
 		spaceId: controller.spaceId,
-		spaceName: controller.status.name,
+		spaceName: controller.status?.name,
 	};
 	return (
 		<>
@@ -2979,7 +2920,7 @@ function SpaceLandingSecondaryPanels({
 				onAgentRecoveryAction={handleAgentRecoveryAction}
 				onClose={controller.onCloseThread}
 				onComposeExpiredDeviceWait={
-					controller.status.allowedActions.includes("post_message")
+					controller.status?.allowedActions.includes("post_message")
 						? controller.onThreadComposeExpiredDeviceWait
 						: undefined
 				}
@@ -3160,8 +3101,11 @@ function SpaceLoadFailure(input: {
 }
 
 function resolveAutomaticWakeConversationKind(
-	status: GetSpaceStatusResponse
+	status: GetSpaceStatusResponse | null
 ): SpaceAutomaticWakeComposerHintKind | null {
+	if (!status) {
+		return null;
+	}
 	const state = {
 		activeMemberCount: status.members.totalCount,
 		agentMemberCount: status.members.agentCount,
@@ -3221,7 +3165,7 @@ function useRedirectAwayFromDeletedSpace(input: {
 
 function prepareWelcomeDraft(
 	input: {
-		controller: ReadySpaceLandingController;
+		controller: SpaceConversationController;
 		storageScope: string;
 	},
 	response: {
