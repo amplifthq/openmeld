@@ -17,9 +17,11 @@ import {
   openMeldRuntimeProfileIdSchema,
   spaceFileEntryIdSchema,
   spaceFileRevisionNumberSchema,
+  spaceMessageEvidenceRequestSchema,
   spaceMessageFileReferenceSchema,
   spaceTaskIdSchema,
   spaceTaskMutationReceiptSchema,
+  spaceThreadEvidenceRequestSchema,
 } from "@openmeld/schemas";
 import { z } from "zod/v4";
 import { runExecutionContextWorkspaceProjectShell } from "../local-service/dispatch/execution-context-workspace";
@@ -38,7 +40,11 @@ import {
 } from "./action-command";
 import { openDirectMessage } from "./direct-message";
 import { readDispatchSpaceFile } from "./dispatch-file-read";
-import { readDispatchSpaceHistory } from "./dispatch-history-read";
+import {
+  readDispatchSpaceEvidence,
+  readDispatchSpaceHistory,
+  readDispatchSpaceThreadEvidence,
+} from "./dispatch-history-read";
 import {
   readDispatchDocuments,
   readDispatchSkill,
@@ -57,6 +63,16 @@ export const DISPATCH_SPACE_TOOL_INSTRUCTIONS =
 export type DispatchPublicProgressResult = {
   status: "accepted" | "duplicate" | "unavailable";
 };
+
+const PAGED_READ_TOOLS = new Set([
+  "read_history",
+  "read_evidence",
+  "read_thread",
+  "read_file",
+  "list_tasks",
+  "read_documents",
+  "read_skills",
+]);
 
 /** Every carrier uses the same schemas, validation, authority and recorder. */
 class DispatchSpaceTools implements AdapterDispatchSpaceTools {
@@ -98,13 +114,7 @@ class DispatchSpaceTools implements AdapterDispatchSpaceTools {
       config.inputSchema instanceof z.ZodObject
         ? config.inputSchema
         : z.strictObject(config.inputSchema);
-    const pagedRead = [
-      "read_history",
-      "read_file",
-      "list_tasks",
-      "read_documents",
-      "read_skills",
-    ].includes(name);
+    const pagedRead = PAGED_READ_TOOLS.has(name);
     this.tools.push({
       ...config,
       name,
@@ -112,7 +122,7 @@ class DispatchSpaceTools implements AdapterDispatchSpaceTools {
       ...(pagedRead
         ? {
             outputSchema: dispatchSpaceReadResultSchema,
-            description: `${config.description} Small reads return result; large reads return page. Continue with read_result using page.resultId and page.nextOffset; no local file is needed.`,
+            description: `${config.description} Small reads return result; large reads return page. Use read_result with a query to locate relevant original text, or page.nextOffset to continue reading. No local file is needed.`,
           }
         : {}),
     });
@@ -156,13 +166,7 @@ class DispatchSpaceTools implements AdapterDispatchSpaceTools {
         );
       }, this.#env);
     }
-    const pagedRead = [
-      "read_history",
-      "read_file",
-      "list_tasks",
-      "read_documents",
-      "read_skills",
-    ].includes(name);
+    const pagedRead = PAGED_READ_TOOLS.has(name);
     if (pagedRead || name === "read_result") {
       try {
         readDispatchSpaceActionContextFromEnv(this.#env);
@@ -177,7 +181,9 @@ class DispatchSpaceTools implements AdapterDispatchSpaceTools {
             "The Wake changed or closed during this read. No result is available."
           );
         }
-        return pagedRead ? this.#readResults.wrap(result) : result;
+        return pagedRead
+          ? this.#readResults.wrap(result, () => handler(args))
+          : result;
       } catch (error) {
         return {
           isError: true,
@@ -200,9 +206,9 @@ class DispatchSpaceTools implements AdapterDispatchSpaceTools {
     this.registerTool(
       "read_result",
       {
-        title: "Continue reading a large Space tool result",
+        title: "Read or search a large Space tool result",
         description:
-          "Read the next page of a large read_history, read_file, or list_tasks result. Pass the returned resultId and nextOffset exactly; append page.text in order to reconstruct the complete JSON. No local path or shell is needed. The snapshot belongs only to this active Wake and tool connection; after expiry or eviction, read the source again. Does not publish or repeat an operation.",
+          "Read original JSON from a large Space tool result. For targeted lookup, pass query (case-sensitive literal text in serialized JSON, not regex) and offset 0. Search returns up to two matches with surrounding original text, not a complete answer or summary. Use search.nextOffset with the same query for later matches, including corrections; null means no further exact matches. Each match.excerpt.nextOffset with no query reads more surrounding text. Empty matches do not prove absence of related facts: try other terms or read complete pages for broader questions. Omit query to page through the full JSON: start at 0, then append page.text using each nextOffset. Offsets are UTF-8 bytes and must be 0 or a returned offset. No local path or shell is needed. The snapshot belongs only to this active Wake and tool connection; after expiry or eviction, read the source again. Source access and version are rechecked on every call. Does not publish or repeat an operation.",
         inputSchema: dispatchSpaceReadResultRequestSchema,
         outputSchema: dispatchSpaceReadResultSchema,
         annotations: {
@@ -212,7 +218,8 @@ class DispatchSpaceTools implements AdapterDispatchSpaceTools {
           openWorldHint: false,
         },
       },
-      async ({ resultId, offset }) => this.#readResults.read(resultId, offset)
+      async ({ resultId, offset, query }) =>
+        this.#readResults.read(resultId, offset, query)
     );
   }
 
@@ -372,6 +379,52 @@ export function createDispatchSpaceTools(
           ],
         };
       }
+    }
+  );
+
+  server.registerTool(
+    "read_evidence",
+    {
+      title: "Read an exact Space message version",
+      description:
+        "Read one selected message in the current Space, up to 4,000 characters per source page. Use its sourceSignalId and version; continue with the returned nextOffset and the same version. Every read checks current source access. An unavailable version fails explicitly.",
+      inputSchema: spaceMessageEvidenceRequestSchema,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (input) => {
+      const result = await readDispatchSpaceEvidence(input, env);
+      return {
+        structuredContent: result,
+        content: [{ type: "text", text: JSON.stringify(result) }],
+      };
+    }
+  );
+
+  server.registerTool(
+    "read_thread",
+    {
+      title: "Read an exact Space thread version",
+      description:
+        "Read up to 20 messages and 4,000 characters from a named thread in this Space. Continue with nextOffset and the same sourceRef.version; changed or inaccessible versions fail explicitly. Read truncated messages with read_evidence using their exact sourceRef. Every page checks current access.",
+      inputSchema: spaceThreadEvidenceRequestSchema,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (input) => {
+      const result = await readDispatchSpaceThreadEvidence(input, env);
+      return {
+        structuredContent: result,
+        content: [{ type: "text", text: JSON.stringify(result) }],
+      };
     }
   );
 

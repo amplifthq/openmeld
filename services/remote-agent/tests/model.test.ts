@@ -88,6 +88,9 @@ describe("remote agent model routing", () => {
       })
     ).resolves.toEqual({
       compaction: {
+        workingContextTokens: 48_000,
+        workingContextHeadroomTokens: 8000,
+        maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
         reserveTokens: 40_000,
       },
@@ -118,6 +121,9 @@ describe("remote agent model routing", () => {
       })
     ).resolves.toEqual({
       compaction: {
+        workingContextTokens: 48_000,
+        workingContextHeadroomTokens: 8000,
+        maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
         reserveTokens: 340_000,
       },
@@ -644,6 +650,9 @@ describe("remote agent model routing", () => {
       })
     ).resolves.toEqual({
       compaction: {
+        workingContextTokens: 48_000,
+        workingContextHeadroomTokens: 8000,
+        maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
         reserveTokens: 64_000,
       },
@@ -672,6 +681,9 @@ describe("remote agent model routing", () => {
       })
     ).resolves.toEqual({
       compaction: {
+        workingContextTokens: 48_000,
+        workingContextHeadroomTokens: 8000,
+        maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
         reserveTokens: 64_000,
       },
@@ -960,6 +972,9 @@ describe("remote agent model routing", () => {
       })
     ).resolves.toEqual({
       compaction: {
+        workingContextTokens: 48_000,
+        workingContextHeadroomTokens: 8000,
+        maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
         reserveTokens: 340_000,
       },
@@ -986,6 +1001,9 @@ describe("remote agent model routing", () => {
       })
     ).resolves.toEqual({
       compaction: {
+        workingContextTokens: 48_000,
+        workingContextHeadroomTokens: 8000,
+        maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
         reserveTokens: 340_000,
       },
@@ -1014,6 +1032,9 @@ describe("remote agent model routing", () => {
       })
     ).resolves.toEqual({
       compaction: {
+        workingContextTokens: 48_000,
+        workingContextHeadroomTokens: 8000,
+        maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
         // Compacts before the top provider's 1,048,576-token limit, not the
         // larger catalog context length.
@@ -1059,6 +1080,9 @@ describe("remote agent model routing", () => {
       })
     ).resolves.toMatchObject({
       compaction: {
+        workingContextTokens: 48_000,
+        workingContextHeadroomTokens: 8000,
+        maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
         reserveTokens: 50_000,
       },
@@ -1092,6 +1116,9 @@ describe("remote agent model routing", () => {
       })
     ).resolves.toMatchObject({
       compaction: {
+        workingContextTokens: 48_000,
+        workingContextHeadroomTokens: 8000,
+        maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
         reserveTokens: 340_000,
       },
@@ -1126,6 +1153,9 @@ describe("remote agent model routing", () => {
       })
     ).resolves.toMatchObject({
       compaction: {
+        workingContextTokens: 48_000,
+        workingContextHeadroomTokens: 8000,
+        maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
         reserveTokens: 50_000,
       },
@@ -1209,6 +1239,9 @@ describe("remote agent model routing", () => {
       })
     ).resolves.toEqual({
       compaction: {
+        workingContextTokens: 48_000,
+        workingContextHeadroomTokens: 8000,
+        maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
         reserveTokens: 40_000,
       },

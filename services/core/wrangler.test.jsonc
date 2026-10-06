@@ -54,15 +54,11 @@
       }
     ]
   },
-  "d1_databases": [
-    {
-      "binding": "OPENMELD_DB",
-      "database_name": "openmeld-db-test",
-      "database_id": "openmeld-db-test",
-      "migrations_dir": "../../packages/db/drizzle"
-    }
-  ],
   "r2_buckets": [
+    {
+      "binding": "OPENMELD_ACCOUNT_AVATARS",
+      "bucket_name": "openmeld-account-avatars-test"
+    },
     {
       "binding": "OPENMELD_SPACE_ATTACHMENTS",
       "bucket_name": "openmeld-space-attachments-test"
@@ -74,7 +70,7 @@
   ],
   // Intentionally keep queue bindings out of integration tests so space-api
   // suites avoid async queue side effects leaking across isolated-storage
-  // boundaries. Space mutation tests still need OPENMELD_DB because SpaceIndex is
+  // boundaries. Space mutation tests still need PostgreSQL because SpaceIndex is
   // now part of the mutation contract.
   "migrations": [
     {

@@ -214,7 +214,12 @@ describe("CenterAgentRoutinesPanel", () => {
 			vi.mocked(fetch).mock.calls.map(([resource, init]) => {
 				return resolveRequestRoute(resource, init);
 			})
-		).toEqual([`GET ${window.location.origin}${ROUTINES_PATH}`]);
+		).toEqual(
+			expect.arrayContaining([
+				`GET ${window.location.origin}${ROUTINES_PATH}`,
+				`GET ${window.location.origin}/v1/organizations/current/usage/overview`,
+			])
+		);
 
 		expect(
 			await screen.findByRole("heading", { name: "No routines yet" })
@@ -229,6 +234,7 @@ describe("CenterAgentRoutinesPanel", () => {
 			)
 		).toBeTruthy();
 		expect(screen.getByRole("button", { name: "Create routine" })).toBeTruthy();
+		expect(await screen.findByLabelText("0 of 50 routines")).toBeTruthy();
 	});
 
 	it("renders shared schedule copy, honest run states, and no mutation controls for read-only routines", async () => {
@@ -480,6 +486,7 @@ describe("CenterAgentRoutinesPanel", () => {
 					)
 				)
 		).toHaveLength(2);
+		expect(await screen.findByLabelText("1 of 50 routines")).toBeTruthy();
 	});
 
 	it("shows mutation controls only from canManage and uses explicit edit, pause, and delete API operations", async () => {
@@ -1454,13 +1461,35 @@ function centerAgentDirectMessageResponse(): Response {
 function createRouteFetch(
 	routes: Map<string, () => Promise<Response> | Response>
 ): typeof fetch {
+	let routineCount = 0;
 	return vi.fn(async (resource: URL | RequestInfo, init?: RequestInit) => {
 		const route = resolveRequestRoute(resource, init);
+		if (
+			route ===
+			`GET ${window.location.origin}/v1/organizations/current/usage/overview`
+		) {
+			return jsonResponse({
+				aiSpend: {
+					usedNanoUsd: 0,
+					dailyLimitNanoUsd: null,
+					missingCostRequests: 0,
+					exhausted: false,
+					resetsAt: "2026-10-07T00:00:00.000Z",
+				},
+				routines: { count: routineCount, limit: 50 },
+			});
+		}
 		const createResponse = routes.get(route);
 		if (!createResponse) {
 			throw new Error(`Unexpected Web API request: ${route}`);
 		}
 		const response = await createResponse();
+		if (
+			response.ok &&
+			route === `POST ${window.location.origin}${ROUTINES_PATH}`
+		) {
+			routineCount += 1;
+		}
 		return route === `GET ${window.location.origin}${ROUTINES_PATH}`
 			? await projectRoutineManagementListResponse(response)
 			: response;

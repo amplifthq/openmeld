@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import type { DaemonServiceLane } from "@openmeld/schemas/types";
 import {
   type ComputerConnectionIncident,
@@ -28,21 +29,23 @@ type RecordState = {
 type Observation = Pick<
   RuntimeTransportSessionState,
   "ownerUserId" | "deviceId" | "lane" | "lastHeartbeatMs" | "stopCause"
-> & { online: boolean; ready: boolean; registrationKey: string };
+> & {
+  online: boolean;
+  ready: boolean;
+  registrationKey: string;
+};
 type Pending = {
   incident: ComputerConnectionIncident;
   nextAttemptAtMs: number;
 };
-
 /** A notification source inside the transport owner, not another liveness or Wake authority. */
 export function createComputerConnectionIncidents(input: {
   storage: DurableObjectStorage;
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs?: () => number;
 }) {
   const now = input.nowMs ?? Date.now;
   let tail: Promise<unknown> = Promise.resolve();
-
   async function reconcile(
     observations: Map<string, Observation>,
     observedAtMs: number
@@ -105,7 +108,6 @@ export function createComputerConnectionIncidents(input: {
     });
     await flushPending();
   }
-
   async function flushPending() {
     // Finite retry slice. Pending terminal facts survive another outage and restart.
     const pending = await input.storage.list<Pending>({
@@ -133,7 +135,6 @@ export function createComputerConnectionIncidents(input: {
       }
     }
   }
-
   return {
     observe(sessions: Iterable<RuntimeTransportSessionState>): Promise<void> {
       const observedAtMs = now();
@@ -185,7 +186,6 @@ export function createComputerConnectionIncidents(input: {
     },
   };
 }
-
 function advanceComputerIncident(
   previous: RecordState,
   observation: Observation | undefined,
@@ -254,7 +254,6 @@ function advanceComputerIncident(
     },
   };
 }
-
 function endIncident(
   incident: ComputerConnectionIncident | null,
   state: "restored" | "deactivated",

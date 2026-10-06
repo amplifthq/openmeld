@@ -1,9 +1,6 @@
 "use client";
 
-import type {
-	CenterAgentUpdateProfileBody,
-	OrganizationDirectoryResponse,
-} from "@openmeld/schemas/types";
+import type { CenterAgentUpdateProfileBody } from "@openmeld/schemas/types";
 import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
 import {
@@ -54,12 +51,16 @@ import {
 } from "#/lib/organizations/organization-routes";
 import {
 	centerAgentDesignationQueryOptions,
+	centerAgentMemoryPolicyQueryOptions,
+	centerAgentModelQueryOptions,
 	centerAgentOperatingStateQueryOptions,
 	centerAgentQueryKeys,
 } from "#/query/organizations/center-agent";
 import {
+	organizationDirectoryQueryFilters,
 	organizationDirectoryQueryOptions,
 	organizationMemberRoleQueryOptions,
+	organizationProfileDirectoryQueryOptions,
 	organizationQueryKeys,
 } from "#/query/organizations/organization-directory";
 import { organizationDocumentsQueryOptions } from "#/query/organizations/organization-documents";
@@ -86,6 +87,7 @@ export function CenterAgentSettingsPage() {
 	const { currentOrganization, currentUserId } = useAppOrganization();
 	const directoryQuery = useQuery(
 		organizationDirectoryQueryOptions({
+			centerAgentOnly: true,
 			enabled: true,
 			organizationId: currentOrganization.id,
 		})
@@ -118,7 +120,6 @@ export function CenterAgentSettingsPage() {
 			agentProfiles={directoryQuery.data?.agentProfiles ?? []}
 			isDirectoryPending={directoryQuery.isPending}
 			isPersonalWorkspace={isPersonalOrganization}
-			members={directoryQuery.data?.members ?? []}
 			memoryRoleState={{
 				canManage: canManageMemory,
 				errorMessage: roleErrorMessage,
@@ -180,7 +181,6 @@ export function CenterAgentSettingsContent(input: {
 	isDirectoryPending: boolean;
 	isPersonalWorkspace: boolean;
 	memoryRoleState: CenterAgentSettingsRoleState;
-	members: readonly OrganizationDirectoryResponse["members"][number][];
 	organizationId: string;
 	organizationName: string;
 	orgSlug: string;
@@ -204,6 +204,26 @@ export function CenterAgentSettingsContent(input: {
 		(document) => document.kind === "brief"
 	);
 	const designation = designationQuery.data?.designation ?? null;
+	// Start independent settings reads before the identity section can mount.
+	// The child sections reuse these exact query keys and cached responses.
+	useQuery(
+		centerAgentModelQueryOptions({
+			enabled: designation !== null,
+			organizationId: input.organizationId,
+		})
+	);
+	useQuery(
+		centerAgentMemoryPolicyQueryOptions({
+			enabled: !input.isPersonalWorkspace,
+			organizationId: input.organizationId,
+		})
+	);
+	const auditDirectoryQuery = useQuery(
+		organizationProfileDirectoryQueryOptions({
+			enabled: auditOpen,
+			organizationId: input.organizationId,
+		})
+	);
 	const operatingStateQuery = useQuery(
 		centerAgentOperatingStateQueryOptions({
 			enabled: designation !== null,
@@ -314,9 +334,16 @@ export function CenterAgentSettingsContent(input: {
 					avatarInvalidationScope
 				);
 			}
-			queryClient.setQueryData(
-				organizationQueryKeys.directory(input.organizationId),
-				(current: OrganizationDirectoryResponse | undefined) =>
+			queryClient.setQueriesData<{
+				agentProfiles: Pick<
+					DirectoryAgentProfile,
+					"profileId" | "profileHandle" | "profileName" | "updatedAt"
+				>[];
+			}>(
+				organizationDirectoryQueryFilters({
+					organizationId: input.organizationId,
+				}),
+				(current) =>
 					current === undefined
 						? current
 						: {
@@ -567,9 +594,11 @@ export function CenterAgentSettingsContent(input: {
 						{auditOpen ? (
 							<CenterAgentAuditJournalPanel
 								enabled
-								members={input.members}
+								members={auditDirectoryQuery.data?.members ?? []}
 								organizationId={input.organizationId}
-								profiles={input.agentProfiles}
+								profiles={
+									auditDirectoryQuery.data?.agentProfiles ?? input.agentProfiles
+								}
 							/>
 						) : null}
 					</section>

@@ -103,7 +103,7 @@ export function OrganizationPluginDetailPage(input: {
 				<section className="rounded-md border border-border/70 bg-card px-4 py-5 sm:px-5">
 					<h2 className="font-medium text-foreground text-sm">Availability</h2>
 					<p className="mt-1 max-w-2xl text-muted-foreground text-sm leading-6">
-						{input.plugin.name} is planned and cannot be connected yet.
+						{input.plugin.name} does not have a configured sign-in method yet.
 					</p>
 				</section>
 			)}

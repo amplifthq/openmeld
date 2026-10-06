@@ -1,3 +1,4 @@
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import {
   centerAgentListAgentActivitySessionsToolRpcInputSchema,
   centerAgentReadAgentActivityToolRpcInputSchema,
@@ -9,7 +10,7 @@ import type {
   CenterAgentReadAgentActivityToolRpcInput,
 } from "@openmeld/schemas/types";
 import { prepareCenterAgentOrganizationMemberRequest } from "../center-agent/application/anonymous-member-request";
-import { agentActivityDb, type CoreBindings } from "../lib/bindings";
+import type { CoreBindings } from "../lib/bindings";
 import { createProjectService } from "../projects/project-service";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import { projectAgentActivityOverview } from "./activity-overview";
@@ -35,7 +36,7 @@ export async function rpcCenterAgentReadAgentActivity(
     context,
     speakerMember
   );
-  const db = agentActivityDb(env);
+  const db = getPostgresDatabase(env);
   if (!db) {
     throw createCoreRpcHttpError({
       code: "agent_activity.store_unavailable",
@@ -93,7 +94,7 @@ export async function rpcCenterAgentListAgentActivitySessions(
     context,
     speakerMember
   );
-  const db = agentActivityDb(env);
+  const db = getPostgresDatabase(env);
   if (!db) {
     throw createCoreRpcHttpError({
       code: "agent_activity.store_unavailable",

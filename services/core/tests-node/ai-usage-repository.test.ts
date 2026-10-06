@@ -13,9 +13,9 @@ import { readAiUsageAllowance } from "../src/usage/ai-usage-policy";
 import { queryAiUsage, recordAiUsage } from "../src/usage/ai-usage-repository";
 import { rpcRecordRemoteAiUsage } from "../src/usage/ai-usage-rpc";
 import {
-  applyDrizzleMigrationForTable,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+  createPostgresHarness,
+  postgresTestBinding,
+} from "./helpers/postgresql-harness.test-support";
 
 const nowMs = Date.parse("2026-10-01T12:00:00Z");
 const record: AiUsageRecord = {
@@ -46,10 +46,9 @@ const record: AiUsageRecord = {
   controller: null,
 };
 const query = { fromMs: nowMs - 1, toMs: nowMs + 1 };
-
 describe("Organization AI consumption", () => {
   it("retains compaction attribution without changing the public agent-purpose aggregate", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     try {
       for (const purpose of [
         "agent",
@@ -73,12 +72,11 @@ describe("Organization AI consumption", () => {
         requests: 3,
         reportedCostNanoUsd: 1_500_000_000,
       });
-      const rows = await harness.db
-        .prepare(
-          "SELECT DISTINCT purpose FROM ai_usage_records ORDER BY purpose"
-        )
-        .all();
-      expect(rows.results).toEqual([
+      const rows = await harness.db.query({
+        text: 'SELECT DISTINCT purpose FROM "openmeld"."ai_usage_records" ORDER BY purpose',
+        values: [],
+      });
+      expect(rows.rows).toEqual([
         { purpose: "agent" },
         { purpose: "compaction" },
         { purpose: "compaction_prefix" },
@@ -89,18 +87,18 @@ describe("Organization AI consumption", () => {
         "agent",
       ]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
   it.each([
     "missing_database",
     "database_failed",
   ])("blocks inference when the real admission receiver has %s", async (failure) => {
-    const harness = createHarness();
+    const harness = await createHarness();
     const fetch = vi.fn();
-    const prepare = vi.spyOn(harness.db, "prepare").mockImplementation(() => {
-      throw new Error("D1 unavailable");
-    });
+    const prepare = vi
+      .spyOn(PostgresDatabase.prototype, "query")
+      .mockRejectedValue(new Error("PostgreSQL unavailable"));
     try {
       const request = createMeteredRemoteFetch({
         coreWorker: {
@@ -108,7 +106,9 @@ describe("Organization AI consumption", () => {
             rpcRecordRemoteAiUsage(
               (failure === "missing_database"
                 ? {}
-                : { OPENMELD_DB: harness.db }) as CoreBindings,
+                : {
+                    OPENMELD_POSTGRESQL: postgresTestBinding(harness.db),
+                  }) as CoreBindings,
               input
             ),
         },
@@ -130,11 +130,11 @@ describe("Organization AI consumption", () => {
       expect(fetch).not.toHaveBeenCalled();
     } finally {
       prepare.mockRestore();
-      harness.close();
+      await harness.close();
     }
   });
   it("backfills a legacy-Core inference through the real receiver exactly once after a lost settlement ACK", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     const storage = new InMemoryDurableObjectStorage();
     let legacy = true;
     let loseAck = true;
@@ -146,7 +146,9 @@ describe("Organization AI consumption", () => {
           );
         }
         const result = await rpcRecordRemoteAiUsage(
-          { OPENMELD_DB: harness.db } as CoreBindings,
+          {
+            OPENMELD_POSTGRESQL: postgresTestBinding(harness.db),
+          } as CoreBindings,
           input
         );
         if (loseAck) {
@@ -199,11 +201,11 @@ describe("Organization AI consumption", () => {
         await storage.get(`openmeld:ai-usage:deferred:${receipt.eventId}`)
       ).toEqual(audit);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
   it("keeps selected Agent costs and model buckets inside the organization, including an empty selection", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     try {
       await recordAiUsage(harness.db, record);
       await recordAiUsage(harness.db, {
@@ -269,11 +271,11 @@ describe("Organization AI consumption", () => {
         ).models
       ).toEqual([]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
   it("buckets native receipts at calendar boundaries without losing missing usage or crossing scope", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     // New York's spring transition contains a 23-hour day, followed by two full days.
     const edges: [number, number, number, number] = [
       Date.parse("2026-03-08T05:00:00Z"),
@@ -406,11 +408,11 @@ describe("Organization AI consumption", () => {
         })
       ).rejects.toThrow("Buckets must increase strictly");
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
   it("isolates one local controller on one enrolled computer across model and task reads", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     try {
       for (const [eventId, organizationId, computerId, controller] of [
         ["codex", "org-1", "computer-1", "builtin:codex"],
@@ -447,11 +449,11 @@ describe("Organization AI consumption", () => {
       ]);
       expect(result.coverage?.reportedRequests).toBe(1);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
   it("ranks observed tasks and Agents without conflating retries, unknown cost, or other organizations", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     try {
       if (!record.tokens) {
         throw new Error("Fixture requires native tokens");
@@ -530,12 +532,11 @@ describe("Organization AI consumption", () => {
         observedExecutionRetries: null,
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("exposes old pending, missing supplier evidence, and collection failures separately", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     try {
       for (const [index, status] of (
         ["pending", "unavailable", "collection_failed"] as const
@@ -593,11 +594,11 @@ describe("Organization AI consumption", () => {
       });
       expect(repaired.models[0]?.requests).toBe(3);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
   it("settles a pending receipt once without changing its execution attribution", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     try {
       await recordAiUsage(harness.db, {
         ...record,
@@ -625,12 +626,11 @@ describe("Organization AI consumption", () => {
         },
       ]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("deduplicates delivery, preserves missing evidence, and isolates organization and task queries", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     try {
       await Promise.all([
         recordAiUsage(harness.db, record),
@@ -675,12 +675,11 @@ describe("Organization AI consumption", () => {
         })
       ).rejects.toThrow("identity conflicts");
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("defaults to unlimited and applies a configured daily allowance only to platform spend", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     try {
       await recordAiUsage(harness.db, record);
       await recordAiUsage(harness.db, {
@@ -695,9 +694,9 @@ describe("Organization AI consumption", () => {
         usedNanoUsd: 500_000_000,
         exhausted: false,
       });
-      harness.run({
-        sql: "INSERT INTO organization_ai_usage_policies VALUES (?, ?, ?)",
-        params: ["org-1", 500_000_000, nowMs],
+      await harness.query({
+        text: 'INSERT INTO "openmeld"."organization_ai_usage_policies" VALUES ($1, $2, $3)',
+        values: ["org-1", 500_000_000, nowMs],
       });
       expect(await readAiUsageAllowance(input)).toMatchObject({
         exhausted: true,
@@ -706,22 +705,20 @@ describe("Organization AI consumption", () => {
         await readAiUsageAllowance({ ...input, nowMs: nowMs + 86_400_000 })
       ).toMatchObject({ usedNanoUsd: 0, exhausted: false });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });
-
-function createHarness() {
-  const harness = createSqliteD1Harness();
+async function createHarness() {
+  const harness = await createPostgresHarness();
   // Identity is a foreign-key fixture; usage tables use their real migrations.
-  harness.run({ sql: "CREATE TABLE organizations (id TEXT PRIMARY KEY)" });
   for (const organizationId of ["org-1", "org-2"]) {
-    harness.run({
-      sql: "INSERT INTO organizations (id) VALUES (?)",
-      params: [organizationId],
+    await harness.query({
+      text: 'INSERT INTO "openmeld"."organizations" (id, name, slug, created_at) VALUES ($1, $1, $1, 0)',
+      values: [organizationId],
     });
   }
-  applyDrizzleMigrationForTable(harness, "ai_usage_records");
-  applyDrizzleMigrationForTable(harness, "organization_ai_usage_policies");
   return harness;
 }
+
+import { PostgresDatabase } from "@openmeld/db/postgresql";

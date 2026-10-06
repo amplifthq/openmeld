@@ -52,6 +52,7 @@ export type DispatchLifecyclePhase = Parameters<
   typeof sendDispatchLifecycleFrame
 >[0]["phase"];
 export type DispatchLocalJournalPhase =
+  | "bootstrap_read_completed"
   | "bootstrap_context_ready"
   | "ledger_context_ready"
   | "preflight_ready"
@@ -64,6 +65,7 @@ export type DispatchLocalJournalPhase =
   | "send_target_reference_ready"
   | "task_started";
 export type DispatchBootstrapContextPhase =
+  | "bootstrap_read_completed"
   | "bootstrap_context_ready"
   | "send_target_reference_ready";
 export type DispatchRejectionPayloadInput = {

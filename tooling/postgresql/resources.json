@@ -1,0 +1,72 @@
+{
+  "accountId": "e74a33891b4c7a16b1fe853c41011f52",
+  "organization": "amplift",
+  "engine": "postgresql",
+  "majorVersion": "18",
+  "region": "us-east",
+  "environments": {
+    "staging": {
+      "database": "openmeld-postgresql-stg",
+      "branch": "main",
+      "majorVersion": "18",
+      "databaseId": "jacdfxhph47k",
+      "branchId": "aol2e3kwz867",
+      "host": "aws-us-east-1-5.pg.psdb.cloud",
+      "hyperdriveName": "openmeld-postgresql-stg",
+      "hyperdriveId": "6af2d43ec8d8498b9607c653ca231e73",
+      "status": "foundation-verified",
+      "cluster": "PS_5_AWS_ARM",
+      "replicas": 0,
+      "migrationRole": "pscale_api_m7rr7fm14at8",
+      "migrationRoleId": "m7rr7fm14at8",
+      "runtimeRole": "pscale_api_0hf13zdprg79",
+      "runtimeRoleId": "0hf13zdprg79",
+      "probe": {
+        "url": "https://openmeld-postgresql-probe-stg.jingyueyusen.workers.dev",
+        "versionId": "e26c0da0-3ce9-4270-afb4-f5e31620a1d0",
+        "sourceSha256": "08bf437bee0ee0fc939a84a4b990de62afe42cb9d36c29c2152524330fd33800",
+        "status": "verified-and-removed",
+        "verifiedAt": "2026-10-04T04:06:31.399Z",
+        "productTransportVerifiedAt": "2026-10-04T04:06:05.866Z",
+        "businessOwnersVerifiedAt": "2026-10-04T04:06:31.400Z",
+        "removedAt": "2026-10-04T04:06:59.043Z"
+      }
+    },
+    "production": {
+      "sourceD1": {
+        "databaseName": "openmeld-db-prod",
+        "databaseId": "15f16284-5240-4675-b626-3b7144e1d684"
+      },
+      "database": "openmeld-postgresql-prod",
+      "branch": "main",
+      "databaseId": "p5r3cbx0r9j8",
+      "branchId": "g8wx6cv1bblk",
+      "host": "aws-us-east-1-4.pg.psdb.cloud",
+      "hyperdriveName": "openmeld-postgresql-prod",
+      "hyperdriveId": "dba7d43fe644409c8e1cc24c5260f289",
+      "status": "ready-empty",
+      "cluster": "PS_5_AWS_ARM",
+      "replicas": 0,
+      "majorVersion": "18",
+      "migrationRole": "pscale_api_1keat4v804sw",
+      "migrationRoleId": "1keat4v804sw",
+      "runtimeRole": "pscale_api_d9pt7j9ntkw9",
+      "runtimeRoleId": "d9pt7j9ntkw9"
+    }
+  },
+  "previousProduction": {
+    "database": "openmeld-postgresql-prod-pg17",
+    "databaseId": "l8l2j7szu3zm",
+    "branchId": "dwhzma965m4x",
+    "runtimeRole": "pscale_api_3tkoepi8cel5",
+    "status": "deleted-after-pg18-configuration"
+  },
+  "previousStaging": {
+    "database": "openmeld-postgresql-stg-pg17",
+    "databaseId": "dswvmdigwr55",
+    "branchId": "uj1foiuc9ew0",
+    "runtimeRole": "pscale_api_9oyrdxs3f3s7",
+    "backupId": "ee12amordiu0",
+    "status": "deleted-after-pg18-configuration"
+  }
+}

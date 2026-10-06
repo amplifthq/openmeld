@@ -15,11 +15,56 @@ import {
   upsertSpaceMemberRecord,
 } from "../src/space/infrastructure/sql/space-member-repo";
 import { ensureSpaceSqlSchema } from "../src/space/infrastructure/sql/space-schema-repo";
+import { createProjectionPostgresBinding } from "../test-support/postgresql-query.test-support";
 
 const NOW_ISO = "2026-06-19T00:00:00.000Z";
 const AGENT_PROFILE_ID = "agt_11111111-1111-4111-8111-111111111111";
 
 describe("space members profile details projection", () => {
+  it("loads account avatars while names refresh and returns the refreshed member identity", async () => {
+    const harness = createSqlStorageHarness();
+    const names = Promise.withResolvers<undefined>();
+    const avatarStarted = Promise.withResolvers<void>();
+    const member = {
+      ...createAgentMemberRecord(),
+      profileId: "human-1",
+      profileKindSnapshot: "human" as const,
+      controllerRefSnapshot: null,
+      profileNameSnapshot: "Old name",
+    };
+    try {
+      ensureSpaceSqlSchema(harness.sql);
+      upsertSpaceMemberRecord(harness.sql, member);
+      const env = {
+        OPENMELD_POSTGRESQL: createProjectionPostgresBinding(() => {
+          avatarStarted.resolve();
+          return [{ id: "owner-1", image: "https://example.com/avatar.png" }];
+        }),
+      } as CoreBindings;
+      const snapshot = listSpaceMembersSnapshotUseCase({
+        env,
+        includeAgentReadiness: false,
+        profileFacts: names.promise,
+        sql: harness.sql,
+        spaceId: "space-1",
+        liveSessions: [],
+        nowIso: NOW_ISO,
+      });
+      await avatarStarted.promise;
+      upsertSpaceMemberRecord(harness.sql, {
+        ...member,
+        profileNameSnapshot: "Current name",
+      });
+      names.resolve(undefined);
+      expect((await snapshot).humans[0]).toMatchObject({
+        profileName: "Current name",
+        avatarUrl: "https://example.com/avatar.png",
+      });
+    } finally {
+      names.resolve(undefined);
+      harness.close();
+    }
+  });
   it("uses explicit Human visits, not newer socket entries or read cursors, and persists monotonic activity", async () => {
     const harness = createSqlStorageHarness();
     const profileId = "351a30e5-0787-44ac-8731-ab6bc5c9be05";
@@ -214,6 +259,7 @@ function createCoreEnv(input: {
   lineage: Record<string, string | null>;
 }): CoreBindings {
   return {
+    OPENMELD_POSTGRESQL: createProjectionPostgresBinding(() => []),
     OPENMELD_AUTH_WORKER: {
       listProfileLineage: vi.fn().mockResolvedValue({
         ok: true,

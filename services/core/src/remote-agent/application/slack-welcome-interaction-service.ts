@@ -1,4 +1,8 @@
 import {
+  getPostgresDatabase,
+  type PostgresDatabase,
+} from "@openmeld/db/postgresql";
+import {
   centerAgentInviteSlackTeammatesRpcInputSchema,
   centerAgentInviteSlackTeammatesRpcResponseSchema,
   ensureOrganizationJoinLinkOnBehalfOfRpcResponseSchema,
@@ -13,7 +17,7 @@ import type {
 } from "@openmeld/schemas/types";
 import { prepareCenterAgentRepresentedMemberRequest } from "../../center-agent/application/represented-member-request";
 import type { CoreBindings } from "../../lib/bindings";
-import { localStateDb, wakeEvidenceDb } from "../../lib/bindings";
+
 import { readOrganizationAccountIdentityProjection } from "../../organizations/organization-context";
 import { resolveOrganizationDirectoryMembers } from "../../organizations/organization-directory";
 import {
@@ -22,13 +26,13 @@ import {
 } from "../../organizations/organization-join-link-read-service";
 import { createCoreRpcHttpError } from "../../rpc/errors";
 import { callRequiredAuthWorkerRpc } from "../../rpc/required-auth-worker-rpc";
-import { readRemoteAgentNativeDeliveryByDeliveryId } from "../infrastructure/d1/native-delivery-ledger-repo";
+import { readRemoteAgentNativeDeliveryByDeliveryId } from "../infrastructure/postgresql/native-delivery-ledger-repo";
 import {
   claimSlackTeammateInvitationDelivery,
   completeSlackTeammateInvitationDelivery,
-} from "../infrastructure/d1/slack-teammate-invitation-delivery-repo";
-import { readSlackUserIdentityLink } from "../infrastructure/d1/slack-user-identity-link-repo";
-import { readRemoteAgentSlackWorkspaceBinding } from "../infrastructure/d1/slack-workspace-binding-repo";
+} from "../infrastructure/postgresql/slack-teammate-invitation-delivery-repo";
+import { readSlackUserIdentityLink } from "../infrastructure/postgresql/slack-user-identity-link-repo";
+import { readRemoteAgentSlackWorkspaceBinding } from "../infrastructure/postgresql/slack-workspace-binding-repo";
 import { persistConfirmedPublicationCheckpoint } from "./confirmed-publication-checkpoint";
 import { resolveSlackBotToken } from "./slack-bot-token";
 import {
@@ -63,8 +67,10 @@ type SlackWelcomeActorResult =
       context: Awaited<ReturnType<typeof resolveVerifiedSlackActor>>;
       ok: true;
     }
-  | { error: unknown; ok: false };
-
+  | {
+      error: unknown;
+      ok: false;
+    };
 export async function handleCenterAgentSlackTeammateInvitations(
   env: CoreBindings,
   rawInput: CenterAgentInviteSlackTeammatesRpcInput
@@ -81,7 +87,7 @@ export async function handleCenterAgentSlackTeammateInvitations(
     }
   );
   const sourceNativeDeliveryId = represented.sourceNativeDeliveryId;
-  const deliveryDb = wakeEvidenceDb(env);
+  const deliveryDb = getPostgresDatabase(env);
   const delivery =
     sourceNativeDeliveryId && deliveryDb
       ? await readRemoteAgentNativeDeliveryByDeliveryId({
@@ -96,7 +102,6 @@ export async function handleCenterAgentSlackTeammateInvitations(
     slackUserId: input.slackUserId,
     sourceNativeDeliveryId,
   });
-
   const interaction = slackWelcomeInteractionRpcInputSchema.parse({
     action: "submit_teammate_invites",
     interactionId: input.interactionId,
@@ -123,7 +128,6 @@ export async function handleCenterAgentSlackTeammateInvitations(
     publishRequesterSummary: false,
   });
 }
-
 type SlackTeammateInvitationDeliveryEvidence = {
   conversationKind: string;
   deliveryId: string;
@@ -131,7 +135,9 @@ type SlackTeammateInvitationDeliveryEvidence = {
   slackTeamId: string | null;
   workerSubmitRequest: {
     turnEnvelope: {
-      contextScopePlan?: { interactionEnvironment?: string } | null;
+      contextScopePlan?: {
+        interactionEnvironment?: string;
+      } | null;
       interactionEnvironment?: string;
       sender: {
         kind: string;
@@ -144,14 +150,19 @@ type SlackTeammateInvitationDeliveryEvidence = {
         profileId?: string;
         verified?: boolean;
       };
-      trigger: { source: string; teamId?: string };
+      trigger: {
+        source: string;
+        teamId?: string;
+      };
     };
   } | null;
 };
-
 export function requireRemoteAgentSlackTeammateInvitationDeliveryEvidence(input: {
   delivery: SlackTeammateInvitationDeliveryEvidence | null;
-  representedHuman: { profileId: string; userId: string };
+  representedHuman: {
+    profileId: string;
+    userId: string;
+  };
   slackTeamId: string;
   slackUserId: string;
   sourceNativeDeliveryId: string | null;
@@ -195,7 +206,6 @@ export function requireRemoteAgentSlackTeammateInvitationDeliveryEvidence(input:
     });
   }
 }
-
 export async function handleSlackWelcomeInteraction(
   env: CoreBindings,
   rawInput: SlackWelcomeInteractionRpcInput
@@ -208,7 +218,6 @@ export async function handleSlackWelcomeInteraction(
   }
   return slackWelcomeInteractionRpcResponseSchema.parse({ handled: true });
 }
-
 async function handleVerifiedSlackWelcomeInteraction(
   env: CoreBindings,
   input: SlackWelcomeInteractionRpcInput
@@ -245,7 +254,6 @@ async function handleVerifiedSlackWelcomeInteraction(
     });
   }
 }
-
 async function presentSlackWelcomeModal(input: {
   env: CoreBindings;
   input: SlackWelcomeModalInput;
@@ -276,7 +284,6 @@ async function presentSlackWelcomeModal(input: {
     slackTeamId: input.input.slackTeamId,
     slackUserId: input.input.slackUserId,
   });
-
   const actorResult = await waitForSlackWelcomeActor(actorResultPromise);
   if (!actorResult.ok) {
     const failureCode = readSlackWelcomeInteractionErrorCode(actorResult.error);
@@ -299,7 +306,6 @@ async function presentSlackWelcomeModal(input: {
     });
     return;
   }
-
   await updateSlackWelcomeModalOrIgnoreClosed({
     botToken: actorResult.context.botToken,
     gatewayRequestId,
@@ -312,7 +318,6 @@ async function presentSlackWelcomeModal(input: {
     viewId: opened.viewId,
   });
 }
-
 async function waitForSlackWelcomeActor(
   actorResultPromise: Promise<SlackWelcomeActorResult>
 ): Promise<SlackWelcomeActorResult> {
@@ -338,7 +343,6 @@ async function waitForSlackWelcomeActor(
     }
   }
 }
-
 async function updateSlackWelcomeModalOrIgnoreClosed(input: {
   botToken: string;
   gatewayRequestId: string;
@@ -364,7 +368,6 @@ async function updateSlackWelcomeModalOrIgnoreClosed(input: {
     throw error;
   }
 }
-
 function buildSlackTriggerPresentationSignal(
   input: SlackWelcomeModalInput
 ): AbortSignal {
@@ -380,7 +383,6 @@ function buildSlackTriggerPresentationSignal(
   }
   return AbortSignal.timeout(Math.max(1, Math.floor(remainingMs)));
 }
-
 function buildSlackWelcomeCheckingModal(): Record<string, unknown> {
   return {
     blocks: [
@@ -397,7 +399,6 @@ function buildSlackWelcomeCheckingModal(): Record<string, unknown> {
     type: "modal",
   };
 }
-
 function buildSlackWelcomeAccessFailureModal(
   error: unknown
 ): Record<string, unknown> {
@@ -418,7 +419,6 @@ function buildSlackWelcomeAccessFailureModal(
     type: "modal",
   };
 }
-
 async function notifySlackWelcomeInteractionFailure(input: {
   env: CoreBindings;
   error: unknown;
@@ -457,7 +457,6 @@ async function notifySlackWelcomeInteractionFailure(input: {
     throw input.error;
   }
 }
-
 function buildSlackWelcomeInteractionFailureMessage(error: unknown): string {
   if (
     readSlackWelcomeInteractionErrorCode(error) ===
@@ -473,7 +472,6 @@ function buildSlackWelcomeInteractionFailureMessage(error: unknown): string {
   }
   return "Center Agent couldn’t finish that action. Try once more. If it still doesn’t work, reconnect Slack in OpenMeld, then come back here.";
 }
-
 function readSlackWelcomeInteractionErrorCode(error: unknown): string | null {
   const visited = new Set<unknown>();
   let current = error;
@@ -499,7 +497,6 @@ function readSlackWelcomeInteractionErrorCode(error: unknown): string | null {
   }
   return null;
 }
-
 function readSlackWelcomeInteractionErrorCodeFromMessage(
   value: unknown
 ): string | null {
@@ -508,7 +505,6 @@ function readSlackWelcomeInteractionErrorCodeFromMessage(
   }
   return RPC_ERROR_CODE_PATTERN.exec(value)?.[1] ?? null;
 }
-
 function buildChannelIntroductionModal(): Record<string, unknown> {
   return {
     callback_id: CHANNEL_INTRODUCTION_MODAL_CALLBACK_ID,
@@ -538,23 +534,24 @@ function buildChannelIntroductionModal(): Record<string, unknown> {
     type: "modal",
   };
 }
-
 async function resolveOptionalOrganizationInviteUrl(input: {
   actorUserId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   organizationId: string;
 }): Promise<string | null> {
   const invitation = await resolveOrganizationInvitation(input);
   return invitation?.url ?? null;
 }
-
 async function resolveOrganizationInvitation(input: {
   actorUserId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   organizationId: string;
-}): Promise<{ organizationName: string; url: string } | null> {
+}): Promise<{
+  organizationName: string;
+  url: string;
+} | null> {
   const activeLink = await readActiveOrganizationJoinLink({
     db: input.db,
     organizationId: input.organizationId,
@@ -599,18 +596,16 @@ async function resolveOrganizationInvitation(input: {
   }
   throw new Error(result.message);
 }
-
 type SlackWelcomeConnection = {
   botToken: string;
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
 };
-
 async function resolveSlackWelcomeConnection(input: {
   env: CoreBindings;
   input: SlackWelcomeInteractionRpcInput;
 }): Promise<SlackWelcomeConnection> {
-  const db = localStateDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (!db) {
     throw new Error("Slack connection state is unavailable.");
   }
@@ -633,7 +628,6 @@ async function resolveSlackWelcomeConnection(input: {
     organizationId: binding.organizationId,
   };
 }
-
 async function resolveVerifiedSlackActor(input: {
   connection?: SlackWelcomeConnection;
   env: CoreBindings;
@@ -641,7 +635,7 @@ async function resolveVerifiedSlackActor(input: {
 }): Promise<{
   actorUserId: string;
   botToken: string;
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
 }> {
   const connection =
@@ -682,15 +676,16 @@ async function resolveVerifiedSlackActor(input: {
     ...connection,
   };
 }
-
 async function sendSelectedTeammateInvitations(input: {
   actorUserId: string;
   botToken: string;
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   input: Extract<
     SlackWelcomeInteractionRpcInput,
-    { action: "submit_teammate_invites" }
+    {
+      action: "submit_teammate_invites";
+    }
   >;
   organizationId: string;
   publishRequesterSummary: boolean;
@@ -737,10 +732,11 @@ async function sendSelectedTeammateInvitations(input: {
   const organizationMemberEmails = new Set(
     organizationMembers.map((member) => normalizeEmail(member.user.email))
   );
-
   type InvitationOutcome = Extract<
     CenterAgentInviteSlackTeammatesRpcResponse,
-    { status: "completed" }
+    {
+      status: "completed";
+    }
   >["outcomes"][number];
   const outcomes: InvitationOutcome[] = input.input.targetSlackUserIds.flatMap(
     (targetSlackUserId) =>
@@ -816,14 +812,16 @@ async function sendSelectedTeammateInvitations(input: {
   }
   return response;
 }
-
 async function deliverPrivateTeammateInvitation(input: {
   actorSlackUserId: string;
   actorUserId: string;
   botToken: string;
-  db: D1Database;
+  db: PostgresDatabase;
   interactionId: string;
-  invitation: { organizationName: string; url: string };
+  invitation: {
+    organizationName: string;
+    url: string;
+  };
   inviterName: string;
   organizationId: string;
   slackTeamId: string;
@@ -845,7 +843,9 @@ async function deliverPrivateTeammateInvitation(input: {
   if (!claim) {
     return "already_claimed";
   }
-  let publication: { id: string };
+  let publication: {
+    id: string;
+  };
   try {
     const message = buildPrivateTeammateInvitationMessage({
       inviterName: input.inviterName,
@@ -911,7 +911,6 @@ async function deliverPrivateTeammateInvitation(input: {
   }
   return "delivered";
 }
-
 function buildTeammateInviteModal(): Record<string, unknown> {
   return {
     callback_id: INVITE_MODAL_CALLBACK_ID,
@@ -941,7 +940,6 @@ function buildTeammateInviteModal(): Record<string, unknown> {
     type: "modal",
   };
 }
-
 async function listSlackWorkspaceMembersUntilTargetsResolved(input: {
   botToken: string;
   targetSlackUserIds: ReadonlySet<string>;
@@ -968,7 +966,6 @@ async function listSlackWorkspaceMembersUntilTargetsResolved(input: {
   } while (cursor);
   return memberById;
 }
-
 export function buildPrivateTeammateInvitationMessage(input: {
   inviterName: string;
   organizationName: string;
@@ -982,7 +979,6 @@ OpenMeld is a place where people and agents work as one team. I help keep useful
 
 After you join, open your Human Profile in People and connect this Slack account. Then I’ll start getting to know your role and current work from the context your team has connected. I’ll make a first Profile Report and show you what I found. You can talk to me right here anytime.`;
 }
-
 function buildPrivateTeammateInvitationBlocks(input: {
   inviteUrl: string;
   message: string;
@@ -1004,7 +1000,6 @@ function buildPrivateTeammateInvitationBlocks(input: {
     },
   ];
 }
-
 function buildInvitationSummary(input: {
   alreadyMembers: readonly string[];
   delivered: readonly string[];
@@ -1055,13 +1050,14 @@ function buildInvitationSummary(input: {
     .filter(Boolean)
     .join(" ");
 }
-
 function buildInvitationSummaryFromOutcomes(input: {
   inviteUrl: string;
   organizationName: string;
   outcomes: Extract<
     CenterAgentInviteSlackTeammatesRpcResponse,
-    { status: "completed" }
+    {
+      status: "completed";
+    }
   >["outcomes"];
 }): string {
   const namesFor = (
@@ -1096,7 +1092,6 @@ function buildInvitationSummaryFromOutcomes(input: {
   });
   return [summary, notFoundNote].filter(Boolean).join(" ");
 }
-
 function buildAlreadyMemberInvitationNote(input: {
   alreadyMembers: readonly string[];
   organizationName: string;
@@ -1107,7 +1102,6 @@ function buildAlreadyMemberInvitationNote(input: {
   const verb = input.alreadyMembers.length === 1 ? "is" : "are";
   return `${formatNameList(input.alreadyMembers)} ${verb} already in ${input.organizationName}, so I didn’t send another invite.`;
 }
-
 function buildManualInvitationNote(input: {
   inviteUrl: string;
   needsManualInvite: readonly string[];
@@ -1117,7 +1111,6 @@ function buildManualInvitationNote(input: {
   }
   return `Slack didn’t share an email for ${formatNameList(input.needsManualInvite)}, so I didn’t send a private invite that could connect to the wrong OpenMeld account. Send them this invite link instead: ${input.inviteUrl}. After they join, they can message Center Agent here.`;
 }
-
 function isFullyDeliveredInvitationSummary(input: {
   alreadyMembers: readonly string[];
   delivered: readonly string[];
@@ -1133,11 +1126,9 @@ function isFullyDeliveredInvitationSummary(input: {
     input.alreadyMembers.length === 0
   );
 }
-
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
-
 function formatNameList(names: readonly string[]): string {
   return new Intl.ListFormat("en", {
     style: "long",

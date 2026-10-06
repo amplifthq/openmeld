@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import type { AuthRpcSendInboxUrgentEmailResult } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -5,16 +6,12 @@ import {
   type SendInboxUrgentEmail,
 } from "../src/inbox/application/inbox-email-delivery-service";
 import { ensureInboxItem } from "../src/inbox/application/inbox-item-service";
-import {
-  applyDrizzleMigrationsForTables,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 describe("Inbox urgent email delivery", () => {
   const allowOrganizationAccess = async () => "allowed" as const;
-
   it("requires a current owner or admin before sending an authorization reminder", async () => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
       await ensureInboxItem({
         db: harness.db,
@@ -50,24 +47,26 @@ describe("Inbox urgent email delivery", () => {
       expect(result.suppressed).toBe(1);
       expect(send).not.toHaveBeenCalled();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("suppresses queued Agent creation approval email during the launch hold", async () => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
       const seeded = await seedUrgentItem(harness.db, "held-request");
-      await harness.db
-        .prepare("UPDATE inbox_items SET source_target_json = ? WHERE id = ?")
-        .bind(
+      await harness.db.query({
+        ...{
+          text: 'UPDATE "openmeld"."inbox_items" SET source_target_json = $1 WHERE id = $2',
+          values: [],
+        },
+        values: [
           JSON.stringify({
             kind: "agent_profile_creation_request",
             requestId: "held-request",
           }),
-          seeded.itemId
-        )
-        .run();
+          seeded.itemId,
+        ],
+      });
       const send = vi.fn<SendInboxUrgentEmail>();
       await expect(
         retryInboxUrgentEmailDeliveries({
@@ -79,12 +78,11 @@ describe("Inbox urgent email delivery", () => {
       ).resolves.toEqual({ attempted: 1, failed: 0, sent: 0, suppressed: 1 });
       expect(send).not.toHaveBeenCalled();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("sends transactional invitation review email even when urgent email preferences are off", async () => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
       const item = await ensureInboxItem({
         db: harness.db,
@@ -107,9 +105,9 @@ describe("Inbox urgent email delivery", () => {
           preview: "A teammate is waiting to join.",
         },
       });
-      harness.run({
-        params: ["user-1", 0, 1500, 1500],
-        sql: "INSERT INTO inbox_notification_preferences (user_id, urgent_email_enabled, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?)",
+      await harness.query({
+        values: ["user-1", 0, 1500, 1500],
+        text: 'INSERT INTO "openmeld"."inbox_notification_preferences" (user_id, urgent_email_enabled, created_at_ms, updated_at_ms) VALUES ($1, $2, $3, $4)',
       });
       const send = vi.fn<SendInboxUrgentEmail>(async (input) => ({
         deliveryId: input.deliveryId,
@@ -133,12 +131,11 @@ describe("Inbox urgent email delivery", () => {
         })
       );
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("does not resend after a confirmed sent ledger state", async () => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
       const seeded = await seedUrgentItem(harness.db, "delivery-source-1");
       const send = vi.fn<SendInboxUrgentEmail>(async (input) => ({
@@ -146,7 +143,6 @@ describe("Inbox urgent email delivery", () => {
         messageId: "message-1",
         status: "sent",
       }));
-
       const first = await retryInboxUrgentEmailDeliveries({
         db: harness.db,
         nowMs: 2000,
@@ -159,7 +155,6 @@ describe("Inbox urgent email delivery", () => {
         resolveOrganizationAccess: allowOrganizationAccess,
         send,
       });
-
       expect(first).toEqual({
         attempted: 1,
         failed: 0,
@@ -189,20 +184,18 @@ describe("Inbox urgent email delivery", () => {
         state: "sent",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("suppresses delivery when the account preference is disabled", async () => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
       const seeded = await seedUrgentItem(harness.db, "delivery-source-2");
-      harness.run({
-        params: ["user-1", 0, 1500, 1500],
-        sql: "INSERT INTO inbox_notification_preferences (user_id, urgent_email_enabled, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?)",
+      await harness.query({
+        values: ["user-1", 0, 1500, 1500],
+        text: 'INSERT INTO "openmeld"."inbox_notification_preferences" (user_id, urgent_email_enabled, created_at_ms, updated_at_ms) VALUES ($1, $2, $3, $4)',
       });
       const send = vi.fn<SendInboxUrgentEmail>();
-
       await expect(
         retryInboxUrgentEmailDeliveries({
           db: harness.db,
@@ -219,12 +212,11 @@ describe("Inbox urgent email delivery", () => {
         suppressed_reason: "preference_disabled",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("redrives a transient failure after backoff", async () => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
       const seeded = await seedUrgentItem(harness.db, "delivery-source-3");
       const outcomes: AuthRpcSendInboxUrgentEmailResult[] = [
@@ -247,7 +239,6 @@ describe("Inbox urgent email delivery", () => {
         }
         return Promise.resolve(outcome);
       });
-
       await retryInboxUrgentEmailDeliveries({
         db: harness.db,
         nowMs: 2000,
@@ -286,27 +277,24 @@ describe("Inbox urgent email delivery", () => {
         state: "sent",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("suppresses items resolved before their email claim", async () => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
       const seeded = await seedUrgentItem(harness.db, "delivery-source-4");
-      harness.run({
-        params: [1500, 1500, seeded.itemId],
-        sql: "UPDATE inbox_items SET resolution_status = 'resolved', resolved_at_ms = ?, updated_at_ms = ? WHERE id = ?",
+      await harness.query({
+        values: [1500, 1500, seeded.itemId],
+        text: 'UPDATE "openmeld"."inbox_items" SET resolution_status = \'resolved\', resolved_at_ms = $1, updated_at_ms = $2 WHERE id = $3',
       });
       const send = vi.fn<SendInboxUrgentEmail>();
-
       await retryInboxUrgentEmailDeliveries({
         db: harness.db,
         nowMs: 2000,
         resolveOrganizationAccess: allowOrganizationAccess,
         send,
       });
-
       expect(send).not.toHaveBeenCalled();
       await expect(
         readDelivery(harness.db, seeded.deliveryId)
@@ -315,27 +303,25 @@ describe("Inbox urgent email delivery", () => {
         suppressed_reason: "source_resolved",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("suppresses an urgent Space interaction after membership is revoked", async () => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
       const seeded = await seedUrgentItem(
         harness.db,
         "delivery-source-revoked"
       );
-      harness.run({
-        params: [1500, 1500, "space-1", "profile-user-1"],
-        sql: `
-          UPDATE space_index_memberships
-          SET status = 'removed', removed_at_ms = ?, source_updated_at_ms = ?
-          WHERE space_id = ? AND profile_id = ?
+      await harness.query({
+        values: [1500, 1500, "space-1", "profile-user-1"],
+        text: `
+          UPDATE "openmeld"."space_index_memberships"
+          SET status = 'removed', removed_at_ms = $1, source_updated_at_ms = $2
+          WHERE space_id = $3 AND profile_id = $4
         `,
       });
       const send = vi.fn<SendInboxUrgentEmail>();
-
       await expect(
         retryInboxUrgentEmailDeliveries({
           db: harness.db,
@@ -352,19 +338,17 @@ describe("Inbox urgent email delivery", () => {
         suppressed_reason: "source_access_revoked",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("suppresses urgent email after Organization membership is revoked", async () => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
       const seeded = await seedUrgentItem(
         harness.db,
         "delivery-source-organization-revoked"
       );
       const send = vi.fn<SendInboxUrgentEmail>();
-
       await expect(
         retryInboxUrgentEmailDeliveries({
           db: harness.db,
@@ -381,19 +365,17 @@ describe("Inbox urgent email delivery", () => {
         suppressed_reason: "source_access_revoked",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("retries urgent email when Organization access cannot be verified", async () => {
-    const harness = createInboxHarness();
+    const harness = await createInboxHarness();
     try {
       const seeded = await seedUrgentItem(
         harness.db,
         "delivery-source-organization-unavailable"
       );
       const send = vi.fn<SendInboxUrgentEmail>();
-
       await expect(
         retryInboxUrgentEmailDeliveries({
           db: harness.db,
@@ -410,12 +392,11 @@ describe("Inbox urgent email delivery", () => {
         state: "pending",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });
-
-async function seedUrgentItem(db: D1Database, sourceKey: string) {
+async function seedUrgentItem(db: PostgresDatabase, sourceKey: string) {
   const result = await ensureInboxItem({
     candidate: {
       attention: "action_required",
@@ -444,49 +425,29 @@ async function seedUrgentItem(db: D1Database, sourceKey: string) {
   }
   return { deliveryId: result.deliveryId, itemId: result.itemId };
 }
-
-async function readDelivery(db: D1Database, deliveryId: string) {
+async function readDelivery(db: PostgresDatabase, deliveryId: string) {
   return await db
-    .prepare(
-      "SELECT state, attempt_count, next_attempt_at_ms, message_id, last_error_code, suppressed_reason FROM inbox_email_deliveries WHERE id = ?"
-    )
-    .bind(deliveryId)
-    .first();
+    .query({
+      ...{
+        text: 'SELECT state, attempt_count, next_attempt_at_ms, message_id, last_error_code, suppressed_reason FROM "openmeld"."inbox_email_deliveries" WHERE id = $1',
+        values: [],
+      },
+      values: [deliveryId],
+    })
+    .then((result) => result.rows[0] ?? null);
 }
-
-function createInboxHarness() {
-  const harness = createSqliteD1Harness();
-  harness.run({
-    sql: "CREATE TABLE openmeld_profiles (profile_id TEXT PRIMARY KEY NOT NULL, profile_kind TEXT NOT NULL, organization_id TEXT, owner_user_id TEXT NOT NULL, managed_role TEXT)",
+async function createInboxHarness() {
+  const harness = await createPostgresHarness();
+  await harness.query({
+    values: ["org-1", "Amplift", "amplift", 1000],
+    text: 'INSERT INTO "openmeld"."organizations" (id, name, slug, created_at) VALUES ($1, $2, $3, $4)',
   });
-  harness.run({
-    sql: "CREATE TABLE center_agent_designations (organization_id TEXT PRIMARY KEY NOT NULL, agent_profile_id TEXT NOT NULL)",
+  await harness.query({
+    values: ["user-1", "Felix", "felix@amplift.ai"],
+    text: 'INSERT INTO "openmeld"."users" (id, name, email) VALUES ($1, $2, $3)',
   });
-  harness.run({
-    sql: "CREATE TABLE organizations (id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL, slug TEXT NOT NULL, created_at INTEGER NOT NULL)",
-  });
-  harness.run({
-    sql: "CREATE TABLE users (id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL, email TEXT NOT NULL)",
-  });
-  applyDrizzleMigrationsForTables(harness, [
-    "center_agent_tasks",
-    "center_agent_task_authorized_readers",
-    "inbox_items",
-    "inbox_email_deliveries",
-    "inbox_notification_preferences",
-    "space_index_spaces",
-    "space_index_memberships",
-  ]);
-  harness.run({
-    params: ["org-1", "Amplift", "amplift", 1000],
-    sql: "INSERT INTO organizations (id, name, slug, created_at) VALUES (?, ?, ?, ?)",
-  });
-  harness.run({
-    params: ["user-1", "Felix", "felix@amplift.ai"],
-    sql: "INSERT INTO users (id, name, email) VALUES (?, ?, ?)",
-  });
-  harness.run({
-    params: [
+  await harness.query({
+    values: [
       "space-1",
       "org-1",
       "private",
@@ -495,8 +456,8 @@ function createInboxHarness() {
       1000,
       "space-projection",
     ],
-    sql: `
-      INSERT INTO space_index_spaces (
+    text: `
+      INSERT INTO "openmeld"."space_index_spaces" (
         space_id,
         organization_id,
         organization_visibility,
@@ -504,11 +465,11 @@ function createInboxHarness() {
         source_updated_at_ms,
         projected_at_ms,
         projection_event_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7)
     `,
   });
-  harness.run({
-    params: [
+  await harness.query({
+    values: [
       "space-1",
       "profile-user-1",
       "Felix",
@@ -518,8 +479,8 @@ function createInboxHarness() {
       1000,
       "membership-projection",
     ],
-    sql: `
-      INSERT INTO space_index_memberships (
+    text: `
+      INSERT INTO "openmeld"."space_index_memberships" (
         space_id,
         profile_id,
         profile_kind_snapshot,
@@ -531,7 +492,7 @@ function createInboxHarness() {
         source_updated_at_ms,
         projected_at_ms,
         projection_event_id
-      ) VALUES (?, ?, 'human', ?, ?, 'active', 'joined_directly', ?, ?, ?, ?)
+      ) VALUES ($1, $2, 'human', $3, $4, 'active', 'joined_directly', $5, $6, $7, $8)
     `,
   });
   return harness;

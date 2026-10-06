@@ -13,7 +13,7 @@ import {
 } from "../remote-agent/application/center-agent-context-scope";
 import { submitRemoteAgentMessageChannelNativeDelivery } from "../remote-agent/application/message-channel-native-delivery-service";
 import { submitRemoteAgentSlackNativeDelivery } from "../remote-agent/application/native-delivery-service";
-import { selectPluginChannelAccount } from "../remote-agent/infrastructure/d1/plugin-channel-metadata-repo";
+import { selectPluginChannelAccount } from "../remote-agent/infrastructure/postgresql/plugin-channel-metadata-repo";
 import { selectActiveConnectorConnection } from "./connector-connection-repository";
 import { requireRemotePluginConnection } from "./plugin-access";
 import {

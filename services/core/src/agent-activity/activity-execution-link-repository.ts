@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import type { AgentActivityProvider } from "@openmeld/schemas/types";
 
 type ExecutionLinkCandidate = {
@@ -10,12 +11,10 @@ type ExecutionLinkCandidate = {
   runtime_coordinator_execution_id: string;
   openmeld_service_runtime_id: string;
 };
-
 type StoredExecutionLink = ExecutionLinkCandidate & {
   created_at_ms: number;
   id: string;
 };
-
 export async function linkAcceptedAgentActivityExecutions(input: {
   activitySession?: {
     deviceId: string;
@@ -24,7 +23,7 @@ export async function linkAcceptedAgentActivityExecutions(input: {
     provider: AgentActivityProvider;
     providerSessionId: string;
   };
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs: number;
   runtimeCoordinatorExecutionId?: string;
 }) {
@@ -32,19 +31,17 @@ export async function linkAcceptedAgentActivityExecutions(input: {
   let created = 0;
   for (const candidate of candidates) {
     const id = `activity_execution_link:${candidate.runtime_coordinator_execution_id}`;
-    const insert = await input.db
-      .prepare(
-        `
-          INSERT INTO agent_activity_execution_links (
+    const insert = await input.db.query({
+      text: `
+          INSERT INTO "openmeld"."agent_activity_execution_links" (
             id, organization_id, activity_session_id,
             runtime_coordinator_execution_id, device_id,
             openmeld_service_runtime_id, binding_id, agent_controller_ref,
             provider_conversation_id, created_at_ms
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
           ON CONFLICT DO NOTHING
-        `
-      )
-      .bind(
+        `,
+      values: [
         id,
         candidate.organization_id,
         candidate.activity_session_id,
@@ -54,24 +51,24 @@ export async function linkAcceptedAgentActivityExecutions(input: {
         candidate.binding_id,
         candidate.agent_controller_ref,
         candidate.provider_conversation_id,
-        input.nowMs
-      )
-      .run();
-    created += Math.max(0, Math.trunc(Number(insert.meta.changes ?? 0)));
+        input.nowMs,
+      ],
+    });
+    created += Math.max(0, Math.trunc(Number(insert.rowCount ?? 0)));
     const stored = await input.db
-      .prepare(
-        `
+      .query<StoredExecutionLink>({
+        text: `
           SELECT id, organization_id, activity_session_id,
             runtime_coordinator_execution_id, device_id,
             openmeld_service_runtime_id, binding_id, agent_controller_ref,
             provider_conversation_id, created_at_ms
-          FROM agent_activity_execution_links
-          WHERE runtime_coordinator_execution_id = ?
+          FROM "openmeld"."agent_activity_execution_links"
+          WHERE runtime_coordinator_execution_id = $1
           LIMIT 1
-        `
-      )
-      .bind(candidate.runtime_coordinator_execution_id)
-      .first<StoredExecutionLink>();
+        `,
+        values: [candidate.runtime_coordinator_execution_id],
+      })
+      .then((result) => result.rows[0] ?? null);
     if (!(stored && isCanonicalStoredLink(stored, candidate, id))) {
       throw new Error(
         "Agent Activity execution link conflicts with canonical RuntimeCoordinator authority."
@@ -80,13 +77,11 @@ export async function linkAcceptedAgentActivityExecutions(input: {
   }
   return created;
 }
-
 async function readLinkCandidates(
   input: Parameters<typeof linkAcceptedAgentActivityExecutions>[0]
 ) {
-  const result = await input.db
-    .prepare(
-      `
+  const result = await input.db.query<ExecutionLinkCandidate>({
+    text: `
         SELECT
           sessions.organization_id,
           sessions.id AS activity_session_id,
@@ -96,14 +91,14 @@ async function readLinkCandidates(
           executions.binding_id,
           executions.agent_controller_ref,
           sessions.provider_session_id AS provider_conversation_id
-        FROM openMeldDaemon_runtime_coordinator_executions executions
-        INNER JOIN openMeldDaemon_dispatch_result_inbox inbox
+        FROM "openmeld"."openMeldDaemon_runtime_coordinator_executions" executions
+        INNER JOIN "openmeld"."openMeldDaemon_dispatch_result_inbox" inbox
           ON inbox.runtime_coordinator_execution_id =
             executions.runtime_coordinator_execution_id
-        INNER JOIN openMeldDaemon_runtime_registry_records runtimes
+        INNER JOIN "openmeld"."openMeldDaemon_runtime_registry_records" runtimes
           ON runtimes.openmeld_service_runtime_id =
             executions.openmeld_service_runtime_id
-        INNER JOIN openMeldDaemon_agent_profile_bindings bindings
+        INNER JOIN "openmeld"."openMeldDaemon_agent_profile_bindings" bindings
           ON bindings.binding_id = executions.binding_id
           AND bindings.owner_kind = 'owner_account'
           AND bindings.owner_id = runtimes.owner_id
@@ -113,23 +108,17 @@ async function readLinkCandidates(
             executions.openmeld_service_runtime_id
           AND bindings.agent_controller_ref = executions.agent_controller_ref
           AND bindings.binding_state = 'enabled_primary'
-        INNER JOIN space_index_spaces spaces
+        INNER JOIN "openmeld"."space_index_spaces" spaces
           ON spaces.space_id = executions.space_id
-        INNER JOIN agent_activity_sessions sessions
+        INNER JOIN "openmeld"."agent_activity_sessions" sessions
           ON sessions.organization_id = spaces.organization_id
           AND sessions.member_user_id = runtimes.owner_id
           AND sessions.device_id = runtimes.device_id
           AND sessions.openmeld_service_runtime_id =
             executions.openmeld_service_runtime_id
           AND sessions.provider_session_id = coalesce(
-            json_extract(
-              inbox.result_payload_json,
-              '$.payload.agentControllerConversation.agentControllerConversationId'
-            ),
-            json_extract(
-              inbox.result_payload_json,
-              '$.payload.agentControllerConversationId'
-            )
+            ((inbox.result_payload_json)::jsonb #>> '{payload,agentControllerConversation,agentControllerConversationId}'),
+            ((inbox.result_payload_json)::jsonb #>> '{payload,agentControllerConversationId}')
           )
           AND bindings.agent_controller_conversation_id =
             sessions.provider_session_id
@@ -140,7 +129,7 @@ async function readLinkCandidates(
               AND sessions.provider = 'codex'
               AND EXISTS (
                 SELECT 1
-                FROM openMeldDaemon_provider_conversation_proofs proofs
+                FROM "openmeld"."openMeldDaemon_provider_conversation_proofs" proofs
                 WHERE proofs.status = 'passed'
                   AND proofs.provider = 'codex'
                   AND proofs.binding_id = executions.binding_id
@@ -160,21 +149,17 @@ async function readLinkCandidates(
             OR (executions.agent_controller_ref = 'builtin:cursor'
               AND sessions.provider = 'cursor')
           )
-          AND json_extract(
-            inbox.result_payload_json,
-            '$.payload.agentControllerConversation.agentControllerRef'
-          ) = executions.agent_controller_ref
-          AND (? IS NULL OR executions.runtime_coordinator_execution_id = ?)
-          AND (? IS NULL OR sessions.organization_id = ?)
-          AND (? IS NULL OR sessions.member_user_id = ?)
-          AND (? IS NULL OR sessions.device_id = ?)
-          AND (? IS NULL OR sessions.provider = ?)
-          AND (? IS NULL OR sessions.provider_session_id = ?)
-        ORDER BY inbox.accepted_at_ms DESC
+          AND ((inbox.result_payload_json)::jsonb #>> '{payload,agentControllerConversation,agentControllerRef}') = executions.agent_controller_ref
+          AND ($1::text IS NULL OR executions.runtime_coordinator_execution_id = $2)
+          AND ($3::text IS NULL OR sessions.organization_id = $4)
+          AND ($5::text IS NULL OR sessions.member_user_id = $6)
+          AND ($7::text IS NULL OR sessions.device_id = $8)
+          AND ($9::text IS NULL OR sessions.provider = $10)
+          AND ($11::text IS NULL OR sessions.provider_session_id = $12)
+        ORDER BY inbox.accepted_at_ms DESC NULLS LAST
         LIMIT 100
-      `
-    )
-    .bind(
+      `,
+    values: [
       input.runtimeCoordinatorExecutionId ?? null,
       input.runtimeCoordinatorExecutionId ?? null,
       input.activitySession?.organizationId ?? null,
@@ -186,12 +171,11 @@ async function readLinkCandidates(
       input.activitySession?.provider ?? null,
       input.activitySession?.provider ?? null,
       input.activitySession?.providerSessionId ?? null,
-      input.activitySession?.providerSessionId ?? null
-    )
-    .all<ExecutionLinkCandidate>();
-  return result.results ?? [];
+      input.activitySession?.providerSessionId ?? null,
+    ],
+  });
+  return result.rows ?? [];
 }
-
 function isCanonicalStoredLink(
   stored: StoredExecutionLink,
   candidate: ExecutionLinkCandidate,

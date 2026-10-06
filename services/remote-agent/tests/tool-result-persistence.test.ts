@@ -51,7 +51,7 @@ const INSTANCE_ID = "space-tool-result-budget";
 const MODEL_ID = "tool-result-budget-model";
 const PROVIDER_ID = "tool-result-budget-provider";
 const STREAM_PATH = `agents/${AGENT_NAME}/${INSTANCE_ID}`;
-const TOOL_NAME = "read";
+const TOOL_NAME = "computer";
 const CANONICAL_BATCH_SAFE_BUDGET_BYTES = 512 * 1024;
 
 describe("Remote Agent canonical tool result persistence", () => {

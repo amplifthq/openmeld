@@ -185,6 +185,19 @@ isolation, and CI/release workflow belong in
 
 ## Command Model
 
+`openmeld computer cloud` resolves the authenticated account's personal cloud
+Computer. `--operation <json>` uses the shared Computer operation schema.
+Start with `{"action":"describe"}` for official file-tool schemas and execution
+capabilities. `files` takes a tool name and input object. `command` supports
+container, worker-shell and worker-javascript plus environment, launch-time stdin
+and structured JavaScript input/results. `browser` and `preview` use the existing
+private browser capability when configured. Existing file actions stay supported.
+Local Agents can use the same persistent files as that account's hosted Agents
+without mounting or exposing their workstation. Keep command invocation IDs and
+keys stable across retries; poll or list after uncertain outcomes. Computer
+identity, command observations and publication remain server-owned. This command
+does not manage OpenMeld Service or change the active local Computer connection.
+
 `openmeld org invitation-requests` uses the signed-in account and the same Auth
 contract as Web. `create --email ... [--space ...]` proposes an invitation;
 `link [--space ...]` ensures an approval-required share link; `request --token ...`
@@ -1849,7 +1862,7 @@ The selector must include `clientMessageId` and `targetProfileId` for
 Web-authored Wake diagnosis because one message can Wake multiple Agent
 Profiles.
 
-CLI trace reads the shared observability model. It must not become a direct D1
+CLI trace reads the shared observability model. It must not become a direct PostgreSQL
 reader, direct Durable Object reader, or second trace system.
 
 The current CLI explicitly requests dispatch-trace response contract version

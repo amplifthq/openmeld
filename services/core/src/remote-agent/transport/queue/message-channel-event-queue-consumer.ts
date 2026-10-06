@@ -1,10 +1,7 @@
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { messageChannelIngressEnvelopeSchema } from "@openmeld/schemas";
 import type { MessageChannelIngressEnvelope } from "@openmeld/schemas/types";
-import {
-  type CoreBindings,
-  identityDb,
-  localStateDb,
-} from "../../../lib/bindings";
+import type { CoreBindings } from "../../../lib/bindings";
 import { emitCoreCloudflareRuntimeEvidence } from "../../../shared/observability/cloudflare-runtime-evidence";
 import {
   processRemoteAgentMessageChannelEvent,
@@ -40,11 +37,7 @@ export async function handleRemoteAgentMessageChannelEventQueueMessage(input: {
     status: "started",
   });
   try {
-    const db = localStateDb(input.env);
-    const memberIdentityDb = identityDb(input.env);
-    if (!(db && memberIdentityDb)) {
-      throw new Error("Message Channel Queue databases are unavailable");
-    }
+    const db = getPostgresDatabase(input.env);
     const registry = createConfiguredMessageChannelProviderRegistry({
       db,
       env: input.env,
@@ -56,7 +49,7 @@ export async function handleRemoteAgentMessageChannelEventQueueMessage(input: {
       db,
       env: input.env,
       envelope: parsed.data,
-      identityDb: memberIdentityDb,
+      identityDb: db,
       queueAttempts: input.message.attempts,
       queueMessageId: input.message.id,
       registry,

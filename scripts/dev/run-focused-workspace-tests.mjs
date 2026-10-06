@@ -15,27 +15,34 @@ async function runSelectedTests(workspace, runners, selected) {
   const consumed = new Set();
   for (const { config, runner, specifications } of runners) {
     if (!specifications.length) {
+      await runner.close();
       continue;
     }
     console.log(
       `[focused-tests] ${workspace}: ${config ?? "default config"} (${specifications.length} selected files)`
     );
-    await runner.init();
-    const result = await runner.runTestSpecifications(specifications);
-    if (
-      result.unhandledErrors.length ||
-      result.testModules.some((module) => !module.ok())
-    ) {
-      throw new Error(
-        `Selected tests failed in ${workspace}: ${config ?? "default config"}.`
-      );
-    }
-    for (const module of result.testModules) {
-      // A deliberately skipped module was consumed by its owner, not excluded.
-      if (!["passed", "skipped"].includes(module.state())) {
-        throw new Error(`Selected test ${module.moduleId} did not finish.`);
+    // Workers pools retain module-level project state. Release each owner before
+    // another configuration runs, so their runtime lifetimes never overlap.
+    try {
+      await runner.init();
+      const result = await runner.runTestSpecifications(specifications);
+      if (
+        result.unhandledErrors.length ||
+        result.testModules.some((module) => !module.ok())
+      ) {
+        throw new Error(
+          `Selected tests failed in ${workspace}: ${config ?? "default config"}.`
+        );
       }
-      consumed.add(modulePath(module.moduleId));
+      for (const module of result.testModules) {
+        // A deliberately skipped module was consumed by its owner, not excluded.
+        if (!["passed", "skipped"].includes(module.state())) {
+          throw new Error(`Selected test ${module.moduleId} did not finish.`);
+        }
+        consumed.add(modulePath(module.moduleId));
+      }
+    } finally {
+      await runner.close();
     }
   }
   const missing = [...selected].filter((file) => !consumed.has(file));

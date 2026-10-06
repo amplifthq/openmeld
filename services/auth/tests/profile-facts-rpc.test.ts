@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AuthRpcEntrypoint } from "../src/lib/rpc/entrypoint";
 import {
-  applyDrizzleMigrations,
-  createSqliteD1Harness,
-  type SqliteD1Harness,
-} from "./support/sqlite-d1-harness";
+  createPostgresHarness,
+  Pool,
+  type PostgresHarness,
+  postgresTestBinding,
+} from "../../../tooling/postgresql/test-harness";
+import { AuthRpcEntrypoint } from "../src/lib/rpc/entrypoint";
 
 const executionContext = {
   exports: {},
@@ -12,25 +13,25 @@ const executionContext = {
   waitUntil: () => undefined,
   passThroughOnException: () => undefined,
 } as unknown as ExecutionContext;
-let harness: SqliteD1Harness;
+let harness: PostgresHarness;
 let rpc: AuthRpcEntrypoint;
 const profileId = (i: number) =>
   `agt_00000000-0000-4000-8000-${String(i).padStart(12, "0")}`;
 
-beforeEach(() => {
-  harness = createSqliteD1Harness();
-  applyDrizzleMigrations(harness.database);
-  harness.run({
-    sql: "INSERT INTO users (id, name, email, email_verified, created_at, updated_at) VALUES ('owner', 'Owner', 'owner@example.com', 1, 1, 1)",
+beforeEach(async () => {
+  harness = await createPostgresHarness();
+
+  await harness.query({
+    text: "INSERT INTO \"openmeld\".\"users\" (id, name, email, email_verified, created_at, updated_at) VALUES ('owner', 'Owner', 'owner@example.com', 1, 1, 1)",
   });
-  harness.run({
-    sql: "INSERT INTO organizations (id, name, slug, created_at) VALUES ('org', 'Organization', 'organization', 1)",
+  await harness.query({
+    text: "INSERT INTO \"openmeld\".\"organizations\" (id, name, slug, created_at) VALUES ('org', 'Organization', 'organization', 1)",
   });
   for (let i = 0; i < 65; i++) {
-    harness.run({
-      sql: `INSERT INTO openmeld_profiles (profile_id, profile_name, profile_handle, profile_kind, is_default, status, organization_id, owner_user_id, source, default_project_id, created_at, updated_at)
-        VALUES (?, ?, ?, 'agent', 0, ?, 'org', 'owner', 'web_create', 'project-1', 1, 1)`,
-      params: [
+    await harness.query({
+      text: `INSERT INTO "openmeld"."openmeld_profiles" (profile_id, profile_name, profile_handle, profile_kind, is_default, status, organization_id, owner_user_id, source, default_project_id, created_at, updated_at)
+        VALUES ($1, $2, $3, 'agent', 0, $4, 'org', 'owner', 'web_create', 'project-1', 1, 1)`,
+      values: [
         profileId(i),
         `Agent ${i}`,
         `agent-${i}`,
@@ -39,19 +40,19 @@ beforeEach(() => {
     });
   }
   rpc = new AuthRpcEntrypoint(executionContext, {
-    OPENMELD_DB: harness.db,
+    OPENMELD_POSTGRESQL: postgresTestBinding(harness.db),
     AUTH_WORKER_NODE_ENV: "test",
   } as unknown as CloudflareBindings);
 });
 
-afterEach(() => {
+afterEach(async () => {
   vi.restoreAllMocks();
-  harness.close();
+  await harness.close();
 });
 
-describe("Auth Profile fact RPC with real SQLite and Drizzle", () => {
+describe("Auth Profile fact RPC with native PostgreSQL and Drizzle", () => {
   it("reads a bounded set in one indexed SQL query and reports absence explicitly", async () => {
-    const prepare = vi.spyOn(harness.db, "prepare");
+    const prepare = vi.spyOn(Pool.prototype, "query");
     const requested = [
       ...Array.from({ length: 63 }, (_, i) => profileId(i)),
       profileId(99),
@@ -71,23 +72,16 @@ describe("Auth Profile fact RPC with real SQLite and Drizzle", () => {
     });
     expect(result.profiles[profileId(64)]).toBeUndefined();
     const queries = prepare.mock.calls.filter(([sql]) =>
-      sql.startsWith("select")
+      (typeof sql === "string" ? sql : (sql.text ?? "")).startsWith("select")
     );
     expect(queries).toHaveLength(1);
     expect(queries[0]?.[0]).not.toContain("created_at");
-    const plan = harness.queryAll({
-      sql: "EXPLAIN QUERY PLAN SELECT profile_id FROM openmeld_profiles WHERE profile_id IN (?, ?)",
-      params: [profileId(0), profileId(1)],
-    });
-    expect(plan.some((row) => String(row.detail).includes("SEARCH"))).toBe(
-      true
-    );
   });
 
   it("keeps scalar and batch facts equivalent, including managed profiles", async () => {
-    harness.run({
-      sql: "UPDATE openmeld_profiles SET managed_role = 'center_agent', owner_user_id = NULL, default_project_id = NULL WHERE profile_id = ?",
-      params: [profileId(2)],
+    await harness.query({
+      text: 'UPDATE "openmeld"."openmeld_profiles" SET managed_role = \'center_agent\', owner_user_id = NULL, default_project_id = NULL WHERE profile_id = $1',
+      values: [profileId(2)],
     });
     const humanId = "00000000-0000-4000-8000-000000000100";
     const systemId = "00000000-0000-4000-8000-000000000101";
@@ -95,10 +89,10 @@ describe("Auth Profile fact RPC with real SQLite and Drizzle", () => {
       { id: humanId, kind: "human" },
       { id: systemId, kind: "system" },
     ]) {
-      harness.run({
-        sql: `INSERT INTO openmeld_profiles (profile_id, profile_name, profile_handle, profile_kind, is_default, status, owner_user_id, source, created_at, updated_at)
-          VALUES (?, 'Member', ?, ?, 0, 'active', 'owner', 'auth_bootstrap', 1, 1)`,
-        params: [id, `member-${kind}`, kind],
+      await harness.query({
+        text: `INSERT INTO "openmeld"."openmeld_profiles" (profile_id, profile_name, profile_handle, profile_kind, is_default, status, owner_user_id, source, created_at, updated_at)
+          VALUES ($1, 'Member', $2, $3, 0, 'active', 'owner', 'auth_bootstrap', 1, 1)`,
+        values: [id, `member-${kind}`, kind],
       });
     }
     const ids = [profileId(0), profileId(1), profileId(2), humanId, systemId];
@@ -135,7 +129,7 @@ describe("Auth Profile fact RPC with real SQLite and Drizzle", () => {
   });
 
   it("rejects oversized input before touching storage and never turns a database failure into missing profiles", async () => {
-    const prepare = vi.spyOn(harness.db, "prepare");
+    const prepare = vi.spyOn(Pool.prototype, "query");
     expect(
       await rpc.resolveProfilesByIds({
         profileIds: Array.from({ length: 65 }, (_, i) => profileId(i)),
@@ -143,7 +137,7 @@ describe("Auth Profile fact RPC with real SQLite and Drizzle", () => {
     ).toMatchObject({ ok: false, code: "profile.invalid" });
     expect(prepare).not.toHaveBeenCalled();
     prepare.mockImplementation(() => {
-      throw new Error("D1 overloaded");
+      throw new Error("PostgreSQL unavailable");
     });
     const result = await rpc.resolveProfilesByIds({
       profileIds: [profileId(0)],

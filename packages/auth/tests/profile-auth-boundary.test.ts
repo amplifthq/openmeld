@@ -22,7 +22,9 @@ const FORBIDDEN_AUTH_BOUNDARY_PATTERNS = [
 ] as const;
 
 const FORBIDDEN_DIRECT_PROFILE_STORAGE_PATTERNS = [
-  /\bfrom\s+["']@openmeld\/db(?:\/[^"']*)?["']/,
+  /\bfrom\s+["']@openmeld\/db(?:\/(?!postgresql["'])[^"']*)?["']/,
+  /\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+(?:"openmeld"\.)?["`]?openmeld_profiles\b/iu,
+  /\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+(?:"openmeld"\.)?["`]?openMeldDaemon_agent_profile_bindings\b/iu,
   /\bfrom\s+["']\.\.\/db\/openmeld-profile\.schema["']/,
   /\bfrom\s+["']\.\.\/db\/profile-space-history\.schema["']/,
   /\bfrom\s+["']\.\.\/db\/schema["']/,

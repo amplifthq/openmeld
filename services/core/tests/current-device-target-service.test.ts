@@ -70,6 +70,11 @@ const CURRENT_LOCAL_COMPONENTS_STATUS = {
   schemaVersion: 1,
   generatedAt: "2026-07-01T00:00:00.000Z",
   entrypoint: "setup",
+  installationSource: {
+    distribution: "npm",
+    channel: "stable",
+    platform: "darwin-arm64",
+  },
   summaryLabel: "Everything is up to date",
   summaryDescription:
     "OpenMeld local components are aligned for this computer.",
@@ -2278,7 +2283,15 @@ describe("current device target service", () => {
             online: true,
             sessions: [
               {
-                capabilities: {},
+                capabilities: {
+                  localComponents: {
+                    ...CURRENT_LOCAL_COMPONENTS_STATUS,
+                    service: {
+                      ...CURRENT_LOCAL_COMPONENTS_STATUS.service,
+                      installedBundleVersion: null,
+                    },
+                  },
+                },
                 connectionGeneration: 1,
                 daemonSessionId: "daemon-session-1",
                 deviceId: "device-owner-1",

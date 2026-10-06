@@ -31,8 +31,16 @@ account, and input. Only after their authorization, repeat the same command
 and operation ID with `--confirm <confirmation-token>`. The token expires and
 does not authorize changed input or changed connection permissions.
 
-Keep one operation ID for one logical action, including retries after transport
-failure. A repeated operation returns its recorded status without reexecuting.
+Keep one operation ID for one logical action. Repeating a command without
+`--replay` returns its recorded status. Only a receipt with `replay.allowed=true`
+permits one `--replay` with the original operation ID, account and unchanged input
+inside the original 24-hour window. Core consumes that allowance durably before
+calling the provider; parallel calls and process recovery do not restore it.
+Missing permission, an expired window or a used allowance forbids another write.
 `outcome_unknown` is not a failure to submit: do not create a new operation ID
-to force a retry. Check the provider outcome before proposing another action.
+to force a retry. Within one Wake the same effect remains the same operation.
+An explicit later request is a separate task and may create a new effect.
+Use a reliable read of the exact target and original account to check the result.
+`not_found`, a timeout, or absence from one page does not prove non-execution;
+report uncertainty when the read cannot establish the outcome.
 Credentials stay on the server. Access changes are managed in Plugins.

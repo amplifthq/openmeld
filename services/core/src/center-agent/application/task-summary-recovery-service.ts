@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   buildAgentTaskKey,
   type centerAgentContinueTaskSummaryResponseSchema,
@@ -15,14 +16,14 @@ import type {
 } from "@openmeld/schemas/types";
 import { digestCanonicalJson } from "@openmeld/utils";
 import { enqueueAgentTaskContinuationMessages } from "../../agent-task-coordination/application/agent-task-terminal-outcome-service";
-import { readAgentDelegation } from "../../agent-task-coordination/infrastructure/d1/agent-delegation-repo";
+import { readAgentDelegation } from "../../agent-task-coordination/infrastructure/postgresql/agent-delegation-repo";
 import {
   type AgentTaskCompletionSubscriptionRecord,
   readAgentTaskCompletionSubscription,
   readAgentTaskTerminalOutcome,
   recordTaskSummaryRecoveryIntent,
   registerManualTaskSummaryRecovery,
-} from "../../agent-task-coordination/infrastructure/d1/agent-task-coordination-repo";
+} from "../../agent-task-coordination/infrastructure/postgresql/agent-task-coordination-repo";
 import type { CoreBindings } from "../../lib/bindings";
 import { requestRemoteAgentWorkerCancellation } from "../../remote-agent/application/native-delivery-cancellation-service";
 import { resolveRemoteAgentNativeDeliveryRuntimeConversationId } from "../../remote-agent/application/remote-agent-conversation-continuity";
@@ -32,12 +33,11 @@ import {
   type RemoteAgentNativeDeliveryRecord,
   readRemoteAgentNativeDeliveryByDeliveryId,
   readRemoteAgentNativeDeliveryByIdempotencyKey,
-} from "../../remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+} from "../../remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import { readCoreRpcHttpStatus } from "../../rpc/errors";
 import { resolveSpaceStub } from "../../rpc/space-ref";
-
 export async function isTaskSummaryRecoveryAuthorized(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   observer: RemoteAgentNativeDeliveryRecord;
   operatorUserId: string;
@@ -73,11 +73,10 @@ export async function isTaskSummaryRecoveryAuthorized(input: {
     })
   ).allowed;
 }
-
 /** Starts a fresh summary continuation, never a replay of the child request. */
 export async function continueTaskSummary(input: {
   actorProfileId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   inspectOnly: boolean;
   includePublishedResult?: boolean;
@@ -276,7 +275,6 @@ export async function continueTaskSummary(input: {
     reasonCode: null,
   };
 }
-
 function resolveSummaryFenceRejection(
   fence: Awaited<ReturnType<typeof readRemoteAgentWorkerAdmissionStop>>,
   old: RemoteAgentNativeDeliveryRecord,
@@ -294,7 +292,6 @@ function resolveSummaryFenceRejection(
     ? null
     : "task_summary_recovery.stopped";
 }
-
 function resolveOwnedSummaryRecoveryId(
   source: SummarySource,
   recoveryId: string,
@@ -306,7 +303,6 @@ function resolveOwnedSummaryRecoveryId(
     ? recoveryId
     : undefined;
 }
-
 async function readSummaryRecoveryAccessRejection(
   input: Parameters<typeof isTaskSummaryRecoveryAuthorized>[0]
 ): Promise<string | null> {
@@ -325,7 +321,6 @@ async function readSummaryRecoveryAccessRejection(
     ? "task_summary_recovery.stopped"
     : null;
 }
-
 async function readSummaryReceiverRejection(
   input: Parameters<typeof readRemoteAgentWorkerAdmissionStop>[0],
   recoveryId?: string
@@ -364,7 +359,6 @@ async function readSummaryReceiverRejection(
   }
   return null;
 }
-
 async function readExistingSummaryRecovery(
   input: Parameters<typeof continueTaskSummary>[0] & {
     observer: RemoteAgentNativeDeliveryRecord;
@@ -455,7 +449,6 @@ async function readExistingSummaryRecovery(
     ? { ...completed, publishedResult }
     : receipt("unavailable", "task_summary_recovery.result_unavailable");
 }
-
 async function readVerifiedSummaryPublication(input: {
   env: CoreBindings;
   observer: RemoteAgentNativeDeliveryRecord;
@@ -509,7 +502,6 @@ async function readVerifiedSummaryPublication(input: {
     throw error;
   }
 }
-
 function resolveSummaryExecutionRejection(
   reconciled: ReturnType<
     typeof remoteAgentWorkerExecutionQueryResponseSchema.parse
@@ -532,12 +524,21 @@ function resolveSummaryExecutionRejection(
     ? "task_summary_recovery.retained_result_recovery_required"
     : "task_summary_recovery.execution_running";
 }
-
 type SummarySource = AgentTaskCompletionSubscriptionRecord & {
-  continuation: Extract<AgentTaskContinuation, { kind: "resume_agent" }>;
+  continuation: Extract<
+    AgentTaskContinuation,
+    {
+      kind: "resume_agent";
+    }
+  >;
   continuationIdempotencyKey: string;
   outcome: AgentTaskTerminalOutcome;
-  observerTask: Extract<AgentTaskHandle, { kind: "native_delivery" }>;
+  observerTask: Extract<
+    AgentTaskHandle,
+    {
+      kind: "native_delivery";
+    }
+  >;
 };
 function isSummarySource(
   source: AgentTaskCompletionSubscriptionRecord | null,
@@ -564,11 +565,19 @@ export async function readVerifiedSummaryResults(input: {
   source: Pick<AgentTaskCompletionSubscriptionRecord, "subscriptionId">;
   delegation: NonNullable<Awaited<ReturnType<typeof readAgentDelegation>>>;
   publicationSpaceId?: string;
-}): Promise<Array<{ spaceId: string; signalId: string }>> {
+}): Promise<
+  Array<{
+    spaceId: string;
+    signalId: string;
+  }>
+> {
   const { observer, source, delegation } = input;
   // Verify existing Space results at their owning reader, with current human
   // access, before offering a summary. Missing results are never guessed.
-  const verifiedResults: Array<{ spaceId: string; signalId: string }> = [];
+  const verifiedResults: Array<{
+    spaceId: string;
+    signalId: string;
+  }> = [];
   for (const child of delegation.children) {
     const signalId = child.terminalOutcome?.publishedSignalId;
     if (
@@ -632,10 +641,9 @@ export async function readVerifiedSummaryResults(input: {
   }
   return verifiedResults;
 }
-
 /** Public failure links stay in the current Space and retain owner validation. */
 export async function readInterruptedTaskResults(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   delivery: Pick<
     RemoteAgentNativeDeliveryRecord,
@@ -647,7 +655,12 @@ export async function readInterruptedTaskResults(input: {
     | "spaceId"
     | "profileId"
   >;
-}): Promise<Array<{ spaceId: string; signalId: string }>> {
+}): Promise<
+  Array<{
+    spaceId: string;
+    signalId: string;
+  }>
+> {
   const { delivery } = input;
   const request =
     delivery.workerSubmitRequest ?? delivery.executionRecoverySubmitRequest;
@@ -724,13 +737,17 @@ export async function readInterruptedTaskResults(input: {
     ? results
     : [];
 }
-
 async function isClaimedChildResult(input: {
   space: NonNullable<ReturnType<typeof resolveSpaceStub>>;
   context: Parameters<
     NonNullable<ReturnType<typeof resolveSpaceStub>>["rpcGetDispatchLookup"]
   >[0]["context"];
-  task: Extract<AgentTaskHandle, { kind: "space_wake" }>;
+  task: Extract<
+    AgentTaskHandle,
+    {
+      kind: "space_wake";
+    }
+  >;
   signalId: string;
   profileId: string;
 }): Promise<boolean> {

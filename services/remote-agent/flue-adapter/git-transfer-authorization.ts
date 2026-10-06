@@ -12,7 +12,8 @@ import type { RemoteAgentCoreWorkerBinding } from "../agent-core/callback-contex
 export async function authorizeGitTransfer(
   core: RemoteAgentCoreWorkerBinding,
   grant: RemoteAgentGitTransferGrant
-): Promise<void> {
+) {
+  const shared = grant.connectionScope === "shared";
   const authorize = core.authorizeRemoteAgentExecutionAccess;
   const resolveConnection = core.centerAgentResolveConnectorConnection;
   if (!(authorize && resolveConnection)) {
@@ -49,7 +50,7 @@ export async function authorizeGitTransfer(
     await resolveConnection({
       context: grant.authorization.context,
       requesterUserId: grant.requesterUserId,
-      connectionPreference: "requester",
+      connectionPreference: shared ? "shared" : "requester",
       service: "github",
       includeAccessPolicy: true,
       ...(grant.authorization.includeDelegatedRequester
@@ -59,16 +60,17 @@ export async function authorizeGitTransfer(
   );
   const source = grant.authorization.sources?.[0];
   if (
-    selected.selection !== "requester" ||
+    selected.selection !== (shared ? "shared" : "requester") ||
     !selected.connection ||
     (selected.permission !== "read" && selected.permission !== "write") ||
     selected.connection.status !== "active" ||
-    selected.connection.scope !== "member" ||
+    selected.connection.scope !== (shared ? "shared" : "member") ||
     selected.connection.organizationId !== grant.organizationId ||
-    selected.connection.userId !== grant.requesterUserId ||
+    (!shared && selected.connection.userId !== grant.requesterUserId) ||
     selected.connection.connectionName !== source?.connectionName ||
     selected.connection.updatedAtMs !== source.connectionUpdatedAtMs
   ) {
     throw new Error("github.checkout.requester_connection_changed");
   }
+  return { ...selected, connection: selected.connection };
 }

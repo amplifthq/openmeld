@@ -1,3 +1,4 @@
+import type { PostgresDatabase, QueryResult } from "@openmeld/db/postgresql";
 import {
   INBOX_LIST_DEFAULT_LIMIT,
   INBOX_LIST_MAX_LIMIT,
@@ -28,8 +29,8 @@ import {
 import { isReadPositionWithinAllowedFutureSkew } from "../../shared/read-position";
 import { personalAgentOwnerAccessSql } from "./inbox-agent-owner-access";
 import {
+  INBOX_OPEN_REQUEST,
   INBOX_OPEN_REVIEW,
-  INBOX_PRIORITY,
   INBOX_UNREAD_PRIORITY_UPDATE,
   inboxMentionSql,
 } from "./inbox-attention-predicates";
@@ -45,12 +46,14 @@ const BASE64_URL_PATTERN = /^[A-Za-z0-9_-]+$/u;
 const BASE64_PADDING_PATTERN = /=+$/u;
 const CURRENT_SOURCE_ACCESS_FILTER =
   buildCurrentInboxSourceAccessSql("inbox_items");
+// Read history contributes to none of these counts unless its request is open.
+const INBOX_SUMMARY_CANDIDATE_FILTER = `read_at_ms IS NULL OR (${INBOX_OPEN_REQUEST})`;
 const INBOX_SPACE_TARGET_FILTER = `
-  json_extract(source_target_json, '$.kind') IN (
+  ((source_target_json)::jsonb #>> '{kind}') IN (
     'space',
     'center_agent'
   )
-  AND json_extract(source_target_json, '$.spaceId') IS NOT NULL
+  AND ((source_target_json)::jsonb #>> '{spaceId}') IS NOT NULL
 `;
 export const INBOX_SPACE_MESSAGE_FILTER = `
   source_kind = 'space_signal'
@@ -67,11 +70,11 @@ export const INBOX_ATTENTION_PRESENTATION_FILTER = `
     AND ${INBOX_SPACE_TARGET_FILTER}
     AND EXISTS (
       SELECT 1
-      FROM inbox_conversation_notification_preferences AS attention_preference
+      FROM "openmeld"."inbox_conversation_notification_preferences" AS attention_preference
       WHERE attention_preference.user_id = inbox_items.recipient_user_id
         AND attention_preference.organization_id = inbox_items.organization_id
         AND attention_preference.space_id =
-          json_extract(inbox_items.source_target_json, '$.spaceId')
+          ((inbox_items.source_target_json)::jsonb #>> '{spaceId}')
         AND attention_preference.mode = 'muted'
     )
   )
@@ -79,14 +82,14 @@ export const INBOX_ATTENTION_PRESENTATION_FILTER = `
 const INBOX_NOTIFICATION_EFFECTIVE_MODE_SQL = `COALESCE(
   (
     SELECT mode
-    FROM inbox_conversation_notification_preferences
+    FROM "openmeld"."inbox_conversation_notification_preferences"
     WHERE user_id = inbox_items.recipient_user_id
       AND organization_id = inbox_items.organization_id
-      AND space_id = json_extract(inbox_items.source_target_json, '$.spaceId')
+      AND space_id = inbox_items.source_target_json::jsonb ->> 'spaceId'
   ),
   (
     SELECT mode
-    FROM inbox_message_notification_defaults
+    FROM "openmeld"."inbox_message_notification_defaults"
     WHERE user_id = inbox_items.recipient_user_id
   ),
   'mentions_and_replies'
@@ -96,7 +99,7 @@ const INBOX_NOTIFICATION_PREVIEW_FILTER = `
   AND resolution_status != 'resolved'
   AND attention = 'update'
   AND source_kind = 'space_signal'
-  AND json_extract(source_target_json, '$.kind') IN ('space', 'center_agent')
+  AND source_target_json::jsonb ->> 'kind' IN ('space', 'center_agent')
   AND kind IN (
     'space_message',
     'space_mention',
@@ -117,10 +120,10 @@ const INBOX_NOTIFICATION_PREVIEW_FILTER = `
     )
     OR (
       kind = 'space_message'
-      AND json_extract(source_target_json, '$.kind') = 'space'
+      AND source_target_json::jsonb ->> 'kind' = 'space'
       AND (
-        COALESCE(json_extract(source_target_json, '$.directMessage'), 0) = 1
-        OR COALESCE(json_extract(source_target_json, '$.replyToRecipient'), 0) = 1
+        source_target_json::jsonb -> 'directMessage' = 'true'::jsonb
+        OR source_target_json::jsonb -> 'replyToRecipient' = 'true'::jsonb
       )
     )
   )
@@ -128,46 +131,48 @@ const INBOX_NOTIFICATION_PREVIEW_FILTER = `
 const INBOX_CENTER_AGENT_MESSAGE_FILTER = `
   source_kind = 'space_signal'
   AND attention = 'update'
-  AND json_extract(source_target_json, '$.kind') = 'center_agent'
-  AND json_extract(source_target_json, '$.spaceId') IS NOT NULL
+  AND ((source_target_json)::jsonb #>> '{kind}') = 'center_agent'
+  AND ((source_target_json)::jsonb #>> '{spaceId}') IS NOT NULL
 `;
-const INBOX_CURRENT_DIRECT_MESSAGE_SPACE_ROW_FILTER = `
-  unread_space.space_purpose IS ?
+const inboxDirectMessageSpaceRowSql = (purposeParameter: string) => `
+  unread_space.space_purpose IS NOT DISTINCT FROM ${purposeParameter}
   AND unread_space.direct_message_converted_at_ms IS NULL
   AND COALESCE(
     unread_space.active_member_count,
     (
       SELECT count(*)
-      FROM space_index_memberships AS unread_space_member
+      FROM "openmeld"."space_index_memberships" AS unread_space_member
       WHERE unread_space_member.space_id = unread_space.space_id
         AND unread_space_member.status = 'active'
     )
   ) = 2
 `;
-const INBOX_CURRENT_DIRECT_MESSAGE_SPACE_FILTER = `
+const inboxDirectMessageSpaceSql = (purposeParameter: string) => `
   EXISTS (
     SELECT 1
-    FROM space_index_spaces AS unread_space
+    FROM "openmeld"."space_index_spaces" AS unread_space
     WHERE unread_space.space_id =
-        json_extract(inbox_items.source_target_json, '$.spaceId')
+        ((inbox_items.source_target_json)::jsonb #>> '{spaceId}')
       AND unread_space.organization_id = inbox_items.organization_id
       AND unread_space.status = 'active'
-      AND ${INBOX_CURRENT_DIRECT_MESSAGE_SPACE_ROW_FILTER}
+      AND ${inboxDirectMessageSpaceRowSql(purposeParameter)}
   )
 `;
-const INBOX_ORDINARY_SPACE_FILTER = `
+const inboxOrdinarySpaceSql = (
+  welcomeParameter: string,
+  directMessageParameter: string
+) => `
   EXISTS (
     SELECT 1
-    FROM space_index_spaces AS unread_space
+    FROM "openmeld"."space_index_spaces" AS unread_space
     WHERE unread_space.space_id =
-        json_extract(inbox_items.source_target_json, '$.spaceId')
+        ((inbox_items.source_target_json)::jsonb #>> '{spaceId}')
       AND unread_space.organization_id = inbox_items.organization_id
       AND unread_space.status = 'active'
-      AND unread_space.space_purpose IS NOT ?
-      AND NOT (${INBOX_CURRENT_DIRECT_MESSAGE_SPACE_ROW_FILTER})
+      AND unread_space.space_purpose IS DISTINCT FROM ${welcomeParameter}
+      AND NOT (${inboxDirectMessageSpaceRowSql(directMessageParameter)})
   )
 `;
-
 export type InboxItemRow = {
   attention: InboxItem["attention"];
   context_label: string | null;
@@ -188,26 +193,26 @@ export type InboxItemRow = {
   title: string;
   updated_at_ms: number;
 };
-
 type InboxListCursor = {
   id: string;
   occurredAtMs: number;
 };
-
 export class InboxServiceError extends Error {
   readonly code: string;
   readonly status: number;
-
-  constructor(input: { code: string; message: string; status: number }) {
+  constructor(input: {
+    code: string;
+    message: string;
+    status: number;
+  }) {
     super(input.message);
     this.name = "InboxServiceError";
     this.code = input.code;
     this.status = input.status;
   }
 }
-
 export function createInboxService(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   includeAccountItems?: boolean;
   nowMs?: () => number;
   canManageOrganization?: boolean;
@@ -218,133 +223,155 @@ export function createInboxService(input: {
     "inbox_items",
     input.canManageOrganization === true
   );
-
   return {
     async centerAgentSummary(summaryInput: {
       organizationId: string;
       recipientUserId: string;
-    }): Promise<{ organizationId: string; unreadCount: number }> {
+    }): Promise<{
+      organizationId: string;
+      unreadCount: number;
+    }> {
       requireIdentifier(summaryInput.organizationId, "organizationId");
       requireIdentifier(summaryInput.recipientUserId, "recipientUserId");
       const row = await input.db
-        .prepare(
-          `
+        .query<{
+          unread_count: number;
+        }>({
+          text: `
             SELECT count(*) AS unread_count
-            FROM inbox_items
-            WHERE organization_id = ?
-              AND recipient_user_id = ?
+            FROM "openmeld"."inbox_items"
+            WHERE organization_id = $1
+              AND recipient_user_id = $2
               AND cleared_at_ms IS NULL
               AND read_at_ms IS NULL
               AND ${INBOX_CENTER_AGENT_MESSAGE_FILTER}
               AND ${CURRENT_SOURCE_ACCESS_FILTER}
-              AND ${INBOX_CURRENT_DIRECT_MESSAGE_SPACE_FILTER}
-          `
-        )
-        .bind(
-          summaryInput.organizationId,
-          summaryInput.recipientUserId,
-          OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE
-        )
-        .first<{ unread_count: number }>();
+              AND ${inboxDirectMessageSpaceSql("$3")}
+          `,
+          values: [
+            summaryInput.organizationId,
+            summaryInput.recipientUserId,
+            OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
+          ],
+        })
+        .then((result) => result.rows[0] ?? null);
       return {
         organizationId: summaryInput.organizationId,
         unreadCount: countValue(row?.unread_count),
       };
     },
-
     async spaceSummary(summaryInput: {
       organizationId: string;
       recipientUserId: string;
     }): Promise<SpaceInboxSummaryResponse> {
       requireIdentifier(summaryInput.organizationId, "organizationId");
       requireIdentifier(summaryInput.recipientUserId, "recipientUserId");
-      const result = await input.db
-        .prepare(
-          `
+      const result = await input.db.query<{
+        latest_unread_occurred_at_ms: number;
+        space_id: string;
+        unread_count: number;
+      }>({
+        text: `
             SELECT
-              json_extract(source_target_json, '$.spaceId') AS space_id,
+              ((source_target_json)::jsonb #>> '{spaceId}') AS space_id,
               count(*) AS unread_count,
               max(occurred_at_ms) AS latest_unread_occurred_at_ms
-            FROM inbox_items
-            WHERE organization_id = ?
-              AND recipient_user_id = ?
+            FROM "openmeld"."inbox_items"
+            WHERE organization_id = $1
+              AND recipient_user_id = $2
               AND cleared_at_ms IS NULL
               AND read_at_ms IS NULL
               AND ${INBOX_SPACE_MESSAGE_FILTER}
               AND ${CURRENT_SOURCE_ACCESS_FILTER}
-            GROUP BY json_extract(source_target_json, '$.spaceId')
-            ORDER BY latest_unread_occurred_at_ms DESC, space_id ASC
-            LIMIT ?
-          `
-        )
-        .bind(
+            GROUP BY ((source_target_json)::jsonb #>> '{spaceId}')
+            ORDER BY latest_unread_occurred_at_ms DESC NULLS LAST, space_id ASC NULLS FIRST
+            LIMIT $3
+          `,
+        values: [
           summaryInput.organizationId,
           summaryInput.recipientUserId,
-          INBOX_SPACE_SUMMARY_MAX_SPACES
-        )
-        .all<{
-          latest_unread_occurred_at_ms: number;
-          space_id: string;
-          unread_count: number;
-        }>();
+          INBOX_SPACE_SUMMARY_MAX_SPACES,
+        ],
+      });
       const ordinarySpaceUnreadRow = await input.db
-        .prepare(
-          `
+        .query<{
+          unread_count: number;
+        }>({
+          text: `
             SELECT count(*) AS unread_count
-            FROM inbox_items
-            WHERE organization_id = ?
-              AND recipient_user_id = ?
+            FROM "openmeld"."inbox_items"
+            WHERE organization_id = $1
+              AND recipient_user_id = $2
               AND cleared_at_ms IS NULL
               AND read_at_ms IS NULL
               AND ${INBOX_SPACE_MESSAGE_FILTER}
               AND ${CURRENT_SOURCE_ACCESS_FILTER}
-              AND ${INBOX_ORDINARY_SPACE_FILTER}
-          `
-        )
-        .bind(
-          summaryInput.organizationId,
-          summaryInput.recipientUserId,
-          OPENMELD_WELCOMING_SPACE_PURPOSE,
-          OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE
-        )
-        .first<{ unread_count: number }>();
-      const attentionResult = await input.db
-        .prepare(`
-        SELECT json_extract(source_target_json, '$.spaceId') AS space_id,
+              AND ${inboxOrdinarySpaceSql("$3", "$4")}
+          `,
+          values: [
+            summaryInput.organizationId,
+            summaryInput.recipientUserId,
+            OPENMELD_WELCOMING_SPACE_PURPOSE,
+            OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
+          ],
+        })
+        .then((result) => result.rows[0] ?? null);
+      const attentionResult = await input.db.query<{
+        space_id: string;
+        actions: number;
+        urgent: number;
+      }>({
+        text: `
+        SELECT ((source_target_json)::jsonb #>> '{spaceId}') AS space_id,
           sum(CASE WHEN attention = 'action_required' AND resolution_status = 'open' THEN 1 ELSE 0 END) AS actions,
-          sum(CASE WHEN ${UNREAD_URGENT_UPDATE_FILTER} AND COALESCE(json_extract(source_target_json, '$.agentOwnerActivity'), 0) != 1 THEN 1 ELSE 0 END) AS urgent
-        FROM inbox_items
-        WHERE organization_id = ? AND recipient_user_id = ?
+          sum(CASE WHEN ${UNREAD_URGENT_UPDATE_FILTER} AND coalesce(source_target_json::jsonb -> 'agentOwnerActivity', 'false'::jsonb) != 'true'::jsonb THEN 1 ELSE 0 END) AS urgent
+        FROM "openmeld"."inbox_items"
+        WHERE organization_id = $1 AND recipient_user_id = $2
           AND cleared_at_ms IS NULL AND ${CURRENT_SOURCE_ACCESS_FILTER}
-          AND json_extract(source_target_json, '$.spaceId') IS NOT NULL
+          AND ((source_target_json)::jsonb #>> '{spaceId}') IS NOT NULL
           AND ((attention = 'action_required' AND resolution_status = 'open')
             OR (${UNREAD_URGENT_UPDATE_FILTER}))
-        GROUP BY json_extract(source_target_json, '$.spaceId')
-      `)
-        .bind(summaryInput.organizationId, summaryInput.recipientUserId)
-        .all<{ space_id: string; actions: number; urgent: number }>();
+        GROUP BY ((source_target_json)::jsonb #>> '{spaceId}')
+      `,
+        values: [summaryInput.organizationId, summaryInput.recipientUserId],
+      });
       const chatCounts = await input.db
-        .prepare(`
+        .query<{
+          unread: number;
+          actions: number;
+          urgent: number;
+        }>({
+          text: `
+        -- Evaluate recipient access once. Inlining this relation can make the
+        -- planner repeat its permission checks for every direct-message Space.
+        WITH accessible_inbox AS MATERIALIZED (
+          SELECT organization_id, source_target_json, source_kind,
+            read_at_ms, attention, resolution_status, importance, kind
+          FROM "openmeld"."inbox_items"
+          WHERE organization_id = $1 AND recipient_user_id = $2
+            AND cleared_at_ms IS NULL
+            AND (${INBOX_SUMMARY_CANDIDATE_FILTER})
+            AND ${CURRENT_SOURCE_ACCESS_FILTER}
+        )
         SELECT
           sum(CASE WHEN read_at_ms IS NULL AND ${INBOX_SPACE_MESSAGE_FILTER} THEN 1 ELSE 0 END) AS unread,
           sum(CASE WHEN attention = 'action_required' AND resolution_status = 'open' THEN 1 ELSE 0 END) AS actions,
-          sum(CASE WHEN ${UNREAD_URGENT_UPDATE_FILTER} AND COALESCE(json_extract(source_target_json, '$.agentOwnerActivity'), 0) != 1 THEN 1 ELSE 0 END) AS urgent
-        FROM inbox_items
-        WHERE organization_id = ? AND recipient_user_id = ?
-          AND cleared_at_ms IS NULL AND ${CURRENT_SOURCE_ACCESS_FILTER}
-          AND ${INBOX_CURRENT_DIRECT_MESSAGE_SPACE_FILTER}
-      `)
-        .bind(
-          summaryInput.organizationId,
-          summaryInput.recipientUserId,
-          OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE
-        )
-        .first<{ unread: number; actions: number; urgent: number }>();
+          sum(CASE WHEN ${UNREAD_URGENT_UPDATE_FILTER} AND coalesce(source_target_json::jsonb -> 'agentOwnerActivity', 'false'::jsonb) != 'true'::jsonb THEN 1 ELSE 0 END) AS urgent
+        FROM accessible_inbox AS inbox_items
+        WHERE ${inboxDirectMessageSpaceSql("$3")}
+      `,
+          values: [
+            summaryInput.organizationId,
+            summaryInput.recipientUserId,
+            OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
+          ],
+        })
+        .then((result) => result.rows[0] ?? null);
       return {
         chatUnreadCount: countValue(chatCounts?.unread),
         chatUnresolvedActionCount: countValue(chatCounts?.actions),
         chatUnreadUrgentUpdateCount: countValue(chatCounts?.urgent),
-        attention: (attentionResult.results ?? []).map((row) => ({
+        attention: (attentionResult.rows ?? []).map((row) => ({
           spaceId: row.space_id,
           unresolvedActionCount: countValue(row.actions),
           unreadUrgentUpdateCount: countValue(row.urgent),
@@ -353,7 +380,7 @@ export function createInboxService(input: {
           ordinarySpaceUnreadRow?.unread_count
         ),
         organizationId: summaryInput.organizationId,
-        spaces: (result.results ?? []).map((row) => ({
+        spaces: (result.rows ?? []).map((row) => ({
           latestUnreadOccurredAtMs: nonnegativeIntegerValue(
             row.latest_unread_occurred_at_ms
           ),
@@ -362,7 +389,6 @@ export function createInboxService(input: {
         })),
       };
     },
-
     async spaceUnreadTargets(targetInput: {
       includeItemIds?: boolean;
       organizationId: string;
@@ -373,62 +399,60 @@ export function createInboxService(input: {
       requireIdentifier(targetInput.recipientUserId, "recipientUserId");
       requireIdentifier(targetInput.spaceId, "spaceId");
       const filters = `
-        organization_id = ?
-        AND recipient_user_id = ?
+        organization_id = $1
+        AND recipient_user_id = $2
         AND cleared_at_ms IS NULL
         AND read_at_ms IS NULL
         AND ${INBOX_SPACE_MESSAGE_FILTER}
-        AND json_extract(source_target_json, '$.spaceId') = ?
+        AND ((source_target_json)::jsonb #>> '{spaceId}') = $3
         AND ${CURRENT_SOURCE_ACCESS_FILTER}
       `;
       const countRow = await input.db
-        .prepare(
-          `SELECT count(*) AS unread_count FROM inbox_items WHERE ${filters}`
-        )
-        .bind(
-          targetInput.organizationId,
-          targetInput.recipientUserId,
-          targetInput.spaceId
-        )
-        .first<{ unread_count: number }>();
-      const targetResult = await input.db
-        .prepare(
-          `
+        .query<{
+          unread_count: number;
+        }>({
+          text: `SELECT count(*) AS unread_count FROM "openmeld"."inbox_items" WHERE ${filters}`,
+          values: [
+            targetInput.organizationId,
+            targetInput.recipientUserId,
+            targetInput.spaceId,
+          ],
+        })
+        .then((result) => result.rows[0] ?? null);
+      const targetResult = await input.db.query<{
+        occurred_at_ms: number;
+        source_target_json: string;
+      }>({
+        text: `
             SELECT id, occurred_at_ms, source_target_json
-            FROM inbox_items
+            FROM "openmeld"."inbox_items"
             WHERE ${filters}
-              AND json_extract(source_target_json, '$.signalId') IS NOT NULL
-            ORDER BY occurred_at_ms ASC, id ASC
-            LIMIT ?
-          `
-        )
-        .bind(
+              AND ((source_target_json)::jsonb #>> '{signalId}') IS NOT NULL
+            ORDER BY occurred_at_ms ASC NULLS FIRST, id ASC NULLS FIRST
+            LIMIT $4
+          `,
+        values: [
           targetInput.organizationId,
           targetInput.recipientUserId,
           targetInput.spaceId,
-          INBOX_SPACE_UNREAD_TARGETS_MAX_ITEMS + 1
-        )
-        .all<{
-          occurred_at_ms: number;
-          source_target_json: string;
-        }>();
+          INBOX_SPACE_UNREAD_TARGETS_MAX_ITEMS + 1,
+        ],
+      });
       const scopeRows = targetInput.includeItemIds
-        ? await input.db
-            .prepare(
-              `SELECT json_extract(source_target_json, '$.threadRootSignalId') AS thread_root_signal_id, count(*) AS unread_count FROM inbox_items WHERE ${filters} GROUP BY json_extract(source_target_json, '$.threadRootSignalId')`
-            )
-            .bind(
+        ? await input.db.query<{
+            thread_root_signal_id: string | null;
+            unread_count: number;
+          }>({
+            text: `SELECT ((source_target_json)::jsonb #>> '{threadRootSignalId}') AS thread_root_signal_id, count(*) AS unread_count FROM "openmeld"."inbox_items" WHERE ${filters} GROUP BY ((source_target_json)::jsonb #>> '{threadRootSignalId}')`,
+            values: [
               targetInput.organizationId,
               targetInput.recipientUserId,
-              targetInput.spaceId
-            )
-            .all<{
-              thread_root_signal_id: string | null;
-              unread_count: number;
-            }>()
+              targetInput.spaceId,
+            ],
+          })
         : null;
       const totalUnreadCount = countValue(countRow?.unread_count);
-      const rows = (targetResult.results ?? []) as Array<{
+      const rows = (targetResult.rows ?? []) as Array<{
         id: string;
         occurred_at_ms: number;
         source_target_json: string;
@@ -461,7 +485,7 @@ export function createInboxService(input: {
       return {
         ...(scopeRows
           ? {
-              scopes: (scopeRows.results ?? []).map((row) => ({
+              scopes: (scopeRows.rows ?? []).map((row) => ({
                 threadRootSignalId: row.thread_root_signal_id,
                 unreadCount: countValue(row.unread_count),
               })),
@@ -476,7 +500,6 @@ export function createInboxService(input: {
         totalUnreadCount,
       };
     },
-
     async dismiss(dismissInput: {
       itemId: string;
       organizationId: string;
@@ -486,61 +509,62 @@ export function createInboxService(input: {
       requireIdentifier(dismissInput.organizationId, "organizationId");
       requireIdentifier(dismissInput.recipientUserId, "recipientUserId");
       const timestamp = readNowMs(nowMs);
-      const [itemResult] = await input.db.batch([
-        input.db
-          .prepare(
-            `
-              UPDATE inbox_items
+      const [itemResult] = await input.db.transaction(
+        async (client) =>
+          [
+            await client.query({
+              text: `
+              UPDATE "openmeld"."inbox_items"
               SET
-                cleared_at_ms = coalesce(cleared_at_ms, ?),
-                updated_at_ms = max(updated_at_ms, ?)
-              WHERE id = ?
-                AND ${ITEM_SCOPE_FILTER}
-                AND recipient_user_id = ?
+                cleared_at_ms = coalesce(cleared_at_ms, $1),
+                updated_at_ms = GREATEST(updated_at_ms, $2)
+              WHERE id = $3
+                AND ${inboxItemScopeSql(input.includeAccountItems, "$4")}
+                AND recipient_user_id = $5
                 AND cleared_at_ms IS NULL
                 AND ${CURRENT_SOURCE_ACCESS_FILTER}
-            `
-          )
-          .bind(
-            timestamp,
-            timestamp,
-            dismissInput.itemId,
-            dismissInput.organizationId,
-            dismissInput.recipientUserId
-          ),
-        input.db
-          .prepare(
-            `
-              UPDATE inbox_email_deliveries
+            `,
+              values: [
+                timestamp,
+                timestamp,
+                dismissInput.itemId,
+                dismissInput.organizationId,
+                dismissInput.recipientUserId,
+              ],
+            }),
+            await client.query({
+              text: `
+              UPDATE "openmeld"."inbox_email_deliveries"
               SET
                 state = 'suppressed',
                 suppressed_reason = 'item_cleared',
-                suppressed_at_ms = ?,
+                suppressed_at_ms = $1,
                 claim_id = NULL,
                 claim_expires_at_ms = NULL,
-                updated_at_ms = max(updated_at_ms, ?)
-              WHERE inbox_item_id = ?
+                updated_at_ms = GREATEST(updated_at_ms, $2)
+              WHERE inbox_item_id = $3
                 AND state = 'pending'
                 AND EXISTS (
                   SELECT 1
-                  FROM inbox_items
-                  WHERE id = ?
-                    AND ${ITEM_SCOPE_FILTER}
-                    AND recipient_user_id = ?
+                  FROM "openmeld"."inbox_items"
+                  WHERE id = $4
+                    AND ${inboxItemScopeSql(input.includeAccountItems, "$5")}
+                    AND recipient_user_id = $6
                     AND cleared_at_ms IS NOT NULL
                     AND ${CURRENT_SOURCE_ACCESS_FILTER}
                 )
-            `
-          )
-          .bind(
-            timestamp,
-            timestamp,
-            dismissInput.itemId,
-            dismissInput.itemId,
-            dismissInput.organizationId,
-            dismissInput.recipientUserId
-          ),
-      ]);
+            `,
+              values: [
+                timestamp,
+                timestamp,
+                dismissInput.itemId,
+                dismissInput.itemId,
+                dismissInput.organizationId,
+                dismissInput.recipientUserId,
+              ],
+            }),
+          ] as const
+      );
       if (!itemResult) {
         throw new Error("Inbox dismiss mutation did not return a result");
       }
@@ -563,7 +587,6 @@ export function createInboxService(input: {
       }
       return { dismissedItemId: dismissInput.itemId };
     },
-
     async get(getInput: {
       itemId: string;
       organizationId: string;
@@ -589,22 +612,24 @@ export function createInboxService(input: {
       }
       return { item };
     },
-
     async getPreferences(preferenceInput: {
       userId: string;
     }): Promise<InboxNotificationPreferencesResponse> {
       requireIdentifier(preferenceInput.userId, "userId");
       const row = await input.db
-        .prepare(
-          `
+        .query<{
+          urgent_email_enabled: number;
+          updated_at_ms: number;
+        }>({
+          text: `
             SELECT urgent_email_enabled, updated_at_ms
-            FROM inbox_notification_preferences
-            WHERE user_id = ?
+            FROM "openmeld"."inbox_notification_preferences"
+            WHERE user_id = $1
             LIMIT 1
-          `
-        )
-        .bind(preferenceInput.userId)
-        .first<{ urgent_email_enabled: number; updated_at_ms: number }>();
+          `,
+          values: [preferenceInput.userId],
+        })
+        .then((result) => result.rows[0] ?? null);
       if (!row) {
         return { updatedAt: null, urgentEmailEnabled: true };
       }
@@ -613,7 +638,6 @@ export function createInboxService(input: {
         urgentEmailEnabled: row.urgent_email_enabled === 1,
       };
     },
-
     async list(listInput: {
       cursor?: string;
       limit?: number;
@@ -633,7 +657,7 @@ export function createInboxService(input: {
       const cursor = decodeCursor(listInput.cursor);
       const filters = [
         ITEM_SCOPE_FILTER,
-        "recipient_user_id = ?",
+        "recipient_user_id = $2",
         "cleared_at_ms IS NULL",
         CURRENT_SOURCE_ACCESS_FILTER,
       ];
@@ -649,13 +673,14 @@ export function createInboxService(input: {
         filters.push(INBOX_NOTIFICATION_PREVIEW_FILTER);
       }
       if (cursor) {
-        filters.push("(occurred_at_ms < ? OR (occurred_at_ms = ? AND id < ?))");
+        filters.push(
+          "(occurred_at_ms < $3 OR (occurred_at_ms = $4 AND id < $5))"
+        );
         bindings.push(cursor.occurredAtMs, cursor.occurredAtMs, cursor.id);
       }
       bindings.push(limit + 1);
-      const result = await input.db
-        .prepare(
-          `
+      const result = await input.db.query<InboxItemRow>({
+        text: `
             SELECT
               id,
               organization_id,
@@ -675,15 +700,14 @@ export function createInboxService(input: {
               occurred_at_ms,
               created_at_ms,
               updated_at_ms
-            FROM inbox_items
+            FROM "openmeld"."inbox_items"
             WHERE ${filters.join(" AND ")}
-            ORDER BY occurred_at_ms DESC, id DESC
-            LIMIT ?
-          `
-        )
-        .bind(...bindings)
-        .all<InboxItemRow>();
-      const rows = result.results ?? [];
+            ORDER BY occurred_at_ms DESC NULLS LAST, id DESC NULLS LAST
+            LIMIT $${bindings.length}
+          `,
+        values: [...bindings],
+      });
+      const rows = result.rows ?? [];
       const itemRows = rows.slice(0, limit);
       const items = itemRows.map(mapInboxItemRow);
       const lastRow = itemRows.at(-1);
@@ -699,7 +723,6 @@ export function createInboxService(input: {
         organizationId: listInput.organizationId,
       };
     },
-
     async markAllRead(markAllInput: {
       organizationId: string;
       presentation?: InboxPresentation;
@@ -708,13 +731,12 @@ export function createInboxService(input: {
       requireIdentifier(markAllInput.organizationId, "organizationId");
       requireIdentifier(markAllInput.recipientUserId, "recipientUserId");
       const timestamp = readNowMs(nowMs);
-      const result = await input.db
-        .prepare(
-          `
-            UPDATE inbox_items
-            SET read_at_ms = ?, updated_at_ms = max(updated_at_ms, ?)
-            WHERE organization_id = ?
-              AND recipient_user_id = ?
+      const result = await input.db.query({
+        text: `
+            UPDATE "openmeld"."inbox_items"
+            SET read_at_ms = $1, updated_at_ms = GREATEST(updated_at_ms, $2)
+            WHERE organization_id = $3
+              AND recipient_user_id = $4
               AND cleared_at_ms IS NULL
               AND read_at_ms IS NULL
               AND ${CURRENT_SOURCE_ACCESS_FILTER}
@@ -723,24 +745,25 @@ export function createInboxService(input: {
                   ? `AND ${INBOX_ATTENTION_PRESENTATION_FILTER}`
                   : ""
               }
-          `
-        )
-        .bind(
+          `,
+        values: [
           timestamp,
           timestamp,
           markAllInput.organizationId,
-          markAllInput.recipientUserId
-        )
-        .run();
+          markAllInput.recipientUserId,
+        ],
+      });
       return { markedReadCount: changedRows(result) };
     },
-
     async markCenterAgentReadThrough(readInput: {
       organizationId: string;
       recipientUserId: string;
       spaceId: string;
       throughOccurredAtMs: number;
-    }): Promise<{ markedReadCount: number; readThroughAt: string }> {
+    }): Promise<{
+      markedReadCount: number;
+      readThroughAt: string;
+    }> {
       return await markSpaceInboxReadThrough({
         ...readInput,
         db: input.db,
@@ -752,14 +775,16 @@ export function createInboxService(input: {
         unavailableMessage: "Center Agent conversation was not found.",
       });
     },
-
     async markSpaceReadThrough(readInput: {
       organizationId: string;
       recipientUserId: string;
       spaceId: string;
       threadRootSignalId?: string;
       throughOccurredAtMs: number;
-    }): Promise<{ markedReadCount: number; readThroughAt: string }> {
+    }): Promise<{
+      markedReadCount: number;
+      readThroughAt: string;
+    }> {
       return await markSpaceInboxReadThrough({
         ...readInput,
         db: input.db,
@@ -771,7 +796,6 @@ export function createInboxService(input: {
         unavailableMessage: "Space was not found.",
       });
     },
-
     async markRead(markInput: {
       itemId: string;
       organizationId: string;
@@ -782,32 +806,30 @@ export function createInboxService(input: {
       requireIdentifier(markInput.organizationId, "organizationId");
       requireIdentifier(markInput.recipientUserId, "recipientUserId");
       const timestamp = readNowMs(nowMs);
-      const result = await input.db
-        .prepare(
-          `
-            UPDATE inbox_items
+      const result = await input.db.query({
+        text: `
+            UPDATE "openmeld"."inbox_items"
             SET
               read_at_ms = CASE
-                WHEN ? = 1 THEN coalesce(read_at_ms, ?)
+                WHEN $1 = 1 THEN coalesce(read_at_ms, $2)
                 ELSE NULL
               END,
-              updated_at_ms = max(updated_at_ms, ?)
-            WHERE id = ?
-              AND ${ITEM_SCOPE_FILTER}
-              AND recipient_user_id = ?
+              updated_at_ms = GREATEST(updated_at_ms, $3)
+            WHERE id = $4
+              AND ${inboxItemScopeSql(input.includeAccountItems, "$5")}
+              AND recipient_user_id = $6
               AND cleared_at_ms IS NULL
               AND ${CURRENT_SOURCE_ACCESS_FILTER}
-          `
-        )
-        .bind(
+          `,
+        values: [
           markInput.read ? 1 : 0,
           timestamp,
           timestamp,
           markInput.itemId,
           markInput.organizationId,
-          markInput.recipientUserId
-        )
-        .run();
+          markInput.recipientUserId,
+        ],
+      });
       if (changedRows(result) === 0) {
         const existing = await readInboxItem({
           canManageOrganization: input.canManageOrganization,
@@ -839,7 +861,6 @@ export function createInboxService(input: {
       }
       return { item };
     },
-
     async summary(summaryInput: {
       organizationId: string;
       presentation?: InboxPresentation;
@@ -848,37 +869,7 @@ export function createInboxService(input: {
       requireIdentifier(summaryInput.organizationId, "organizationId");
       requireIdentifier(summaryInput.recipientUserId, "recipientUserId");
       const row = await input.db
-        .prepare(
-          `
-            SELECT
-              coalesce(sum(CASE WHEN read_at_ms IS NULL THEN 1 ELSE 0 END), 0)
-                AS unread_count,
-              coalesce(sum(CASE WHEN ${INBOX_PRIORITY} THEN 1 ELSE 0 END), 0) AS priority_count,
-              coalesce(sum(CASE WHEN ${INBOX_OPEN_REVIEW} THEN 1 ELSE 0 END), 0) AS review_count,
-              coalesce(sum(CASE WHEN ${INBOX_UNREAD_PRIORITY_UPDATE} THEN 1 ELSE 0 END), 0) AS priority_update_count,
-              coalesce(sum(CASE
-                WHEN attention = 'action_required' AND resolution_status = 'open'
-                THEN 1 ELSE 0 END), 0) AS action_count,
-              coalesce(sum(CASE WHEN ${UNREAD_URGENT_UPDATE_FILTER}
-                THEN 1 ELSE 0 END), 0) AS urgent_update_count,
-              coalesce(sum(CASE WHEN ${UNREAD_MENTION_UPDATE_FILTER}
-                THEN 1 ELSE 0 END), 0) AS mention_count,
-              coalesce(sum(CASE WHEN ${ORDINARY_UNREAD_ATTENTION_FILTER}
-                THEN 1 ELSE 0 END), 0) AS ordinary_unread_count
-            FROM inbox_items
-            WHERE ${ITEM_SCOPE_FILTER}
-              AND recipient_user_id = ?
-              AND cleared_at_ms IS NULL
-              AND ${CURRENT_SOURCE_ACCESS_FILTER}
-              ${
-                summaryInput.presentation === "attention"
-                  ? `AND ${INBOX_ATTENTION_PRESENTATION_FILTER}`
-                  : ""
-              }
-          `
-        )
-        .bind(summaryInput.organizationId, summaryInput.recipientUserId)
-        .first<{
+        .query<{
           action_count: number;
           priority_count: number;
           review_count: number;
@@ -887,7 +878,38 @@ export function createInboxService(input: {
           ordinary_unread_count: number;
           unread_count: number;
           urgent_update_count: number;
-        }>();
+        }>({
+          text: `
+            WITH classified AS MATERIALIZED (
+              SELECT read_at_ms IS NULL AS unread,
+                attention = 'action_required' AND resolution_status = 'open' AS open_action,
+                importance = 'urgent' AS urgent,
+                (${INBOX_OPEN_REVIEW}) AS open_review,
+                (${INBOX_UNREAD_PRIORITY_UPDATE}) AS priority_update,
+                (${UNREAD_URGENT_UPDATE_FILTER}) AS urgent_update,
+                (${UNREAD_MENTION_UPDATE_FILTER}) AS mention_update
+              FROM "openmeld"."inbox_items"
+              WHERE ${ITEM_SCOPE_FILTER}
+                AND recipient_user_id = $2
+                AND cleared_at_ms IS NULL
+                AND (${INBOX_SUMMARY_CANDIDATE_FILTER})
+                AND ${CURRENT_SOURCE_ACCESS_FILTER}
+                ${summaryInput.presentation === "attention" ? `AND ${INBOX_ATTENTION_PRESENTATION_FILTER}` : ""}
+            )
+            SELECT
+              count(*) FILTER (WHERE unread) AS unread_count,
+              count(*) FILTER (WHERE (open_action AND urgent) OR priority_update) AS priority_count,
+              count(*) FILTER (WHERE open_review) AS review_count,
+              count(*) FILTER (WHERE priority_update) AS priority_update_count,
+              count(*) FILTER (WHERE open_action) AS action_count,
+              count(*) FILTER (WHERE urgent_update) AS urgent_update_count,
+              count(*) FILTER (WHERE mention_update) AS mention_count,
+              count(*) FILTER (WHERE unread AND NOT open_action AND NOT urgent_update AND NOT mention_update) AS ordinary_unread_count
+            FROM classified
+          `,
+          values: [summaryInput.organizationId, summaryInput.recipientUserId],
+        })
+        .then((result) => result.rows[0] ?? null);
       return {
         organizationId: summaryInput.organizationId,
         totalUnreadCount: countValue(row?.unread_count),
@@ -911,34 +933,31 @@ export function createInboxService(input: {
           : {}),
       };
     },
-
     async updatePreferences(preferenceInput: {
       urgentEmailEnabled: boolean;
       userId: string;
     }): Promise<InboxNotificationPreferencesResponse> {
       requireIdentifier(preferenceInput.userId, "userId");
       const timestamp = readNowMs(nowMs);
-      await input.db
-        .prepare(
-          `
-            INSERT INTO inbox_notification_preferences (
+      await input.db.query({
+        text: `
+            INSERT INTO "openmeld"."inbox_notification_preferences" (
               user_id,
               urgent_email_enabled,
               created_at_ms,
               updated_at_ms
-            ) VALUES (?, ?, ?, ?)
+            ) VALUES ($1, $2, $3, $4)
             ON CONFLICT(user_id) DO UPDATE SET
               urgent_email_enabled = excluded.urgent_email_enabled,
               updated_at_ms = excluded.updated_at_ms
-          `
-        )
-        .bind(
+          `,
+        values: [
           preferenceInput.userId,
           preferenceInput.urgentEmailEnabled ? 1 : 0,
           timestamp,
-          timestamp
-        )
-        .run();
+          timestamp,
+        ],
+      });
       return {
         updatedAt: new Date(timestamp).toISOString(),
         urgentEmailEnabled: preferenceInput.urgentEmailEnabled,
@@ -946,9 +965,8 @@ export function createInboxService(input: {
     },
   };
 }
-
 async function markSpaceInboxReadThrough(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   invalidWatermarkMessage: string;
   itemScope: "center_agent" | "space";
   mutationDescription: string;
@@ -960,7 +978,10 @@ async function markSpaceInboxReadThrough(input: {
   throughOccurredAtMs: number;
   unavailableCode: string;
   unavailableMessage: string;
-}): Promise<{ markedReadCount: number; readThroughAt: string }> {
+}): Promise<{
+  markedReadCount: number;
+  readThroughAt: string;
+}> {
   requireIdentifier(input.organizationId, "organizationId");
   requireIdentifier(input.recipientUserId, "recipientUserId");
   requireIdentifier(input.spaceId, "spaceId");
@@ -978,13 +999,13 @@ async function markSpaceInboxReadThrough(input: {
   }
   const centerAgentDesignationJoin =
     input.itemScope === "center_agent"
-      ? `LEFT JOIN center_agent_designations AS center_agent_designation
+      ? `LEFT JOIN "openmeld"."center_agent_designations" AS center_agent_designation
           ON center_agent_designation.organization_id =
             inbox_space.organization_id`
       : "";
   const centerAgentSpaceFilter =
     input.itemScope === "center_agent"
-      ? `inbox_space.space_purpose = ?
+      ? `inbox_space.space_purpose = $4
         AND inbox_space.direct_message_pair_key IN (
           center_agent_designation.agent_profile_id || ':' ||
             inbox_space_membership.profile_id,
@@ -993,33 +1014,35 @@ async function markSpaceInboxReadThrough(input: {
         )`
       : "1 = 1";
   const membership = await input.db
-    .prepare(
-      `
+    .query<{
+      allowed: number;
+    }>({
+      text: `
         SELECT 1 AS allowed
-        FROM space_index_spaces AS inbox_space
-        INNER JOIN space_index_memberships AS inbox_space_membership
+        FROM "openmeld"."space_index_spaces" AS inbox_space
+        INNER JOIN "openmeld"."space_index_memberships" AS inbox_space_membership
           ON inbox_space_membership.space_id = inbox_space.space_id
         ${centerAgentDesignationJoin}
-        WHERE inbox_space.space_id = ?
-          AND inbox_space.organization_id = ?
+        WHERE inbox_space.space_id = $1
+          AND inbox_space.organization_id = $2
           AND inbox_space.status = 'active'
-          AND inbox_space_membership.owner_user_id_snapshot = ?
+          AND inbox_space_membership.owner_user_id_snapshot = $3
           AND (inbox_space_membership.profile_kind_snapshot = 'human'
-            OR (${input.itemScope === "space" ? personalAgentOwnerAccessSql("inbox_space.space_id", "inbox_space_membership.owner_user_id_snapshot") : "0"}))
+            OR (${input.itemScope === "space" ? personalAgentOwnerAccessSql("inbox_space.space_id", "inbox_space_membership.owner_user_id_snapshot") : "FALSE"}))
           AND inbox_space_membership.status = 'active'
           AND ${centerAgentSpaceFilter}
         LIMIT 1
-      `
-    )
-    .bind(
-      input.spaceId,
-      input.organizationId,
-      input.recipientUserId,
-      ...(input.itemScope === "center_agent"
-        ? [OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE]
-        : [])
-    )
-    .first<{ allowed: number }>();
+      `,
+      values: [
+        input.spaceId,
+        input.organizationId,
+        input.recipientUserId,
+        ...(input.itemScope === "center_agent"
+          ? [OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE]
+          : []),
+      ],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!membership) {
     throw new InboxServiceError({
       code: input.unavailableCode,
@@ -1036,14 +1059,13 @@ async function markSpaceInboxReadThrough(input: {
   let itemThreadFilter = "";
   if (input.itemScope === "space") {
     itemThreadFilter = threadScoped
-      ? "AND json_extract(source_target_json, '$.threadRootSignalId') = ?"
-      : "AND json_type(source_target_json, '$.threadRootSignalId') IS NULL";
+      ? "AND source_target_json::jsonb ->> 'threadRootSignalId' = $7"
+      : "AND source_target_json::jsonb -> 'threadRootSignalId' IS NULL";
   }
   const watermarkStatement = threadScoped
-    ? input.db
-        .prepare(
-          `
-            INSERT INTO inbox_space_thread_read_watermarks (
+    ? {
+        text: `
+            INSERT INTO "openmeld"."inbox_space_thread_read_watermarks" (
               organization_id,
               recipient_user_id,
               space_id,
@@ -1052,14 +1074,14 @@ async function markSpaceInboxReadThrough(input: {
               read_at_ms,
               created_at_ms,
               updated_at_ms
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             ON CONFLICT(
               organization_id,
               recipient_user_id,
               space_id,
               thread_root_signal_id
             ) DO UPDATE SET
-              through_occurred_at_ms = max(
+              through_occurred_at_ms = GREATEST(
                 inbox_space_thread_read_watermarks.through_occurred_at_ms,
                 excluded.through_occurred_at_ms
               ),
@@ -1069,13 +1091,12 @@ async function markSpaceInboxReadThrough(input: {
                 THEN excluded.read_at_ms
                 ELSE inbox_space_thread_read_watermarks.read_at_ms
               END,
-              updated_at_ms = max(
+              updated_at_ms = GREATEST(
                 inbox_space_thread_read_watermarks.updated_at_ms,
                 excluded.updated_at_ms
               )
-          `
-        )
-        .bind(
+          `,
+        values: [
           input.organizationId,
           input.recipientUserId,
           input.spaceId,
@@ -1083,12 +1104,12 @@ async function markSpaceInboxReadThrough(input: {
           input.throughOccurredAtMs,
           timestamp,
           timestamp,
-          timestamp
-        )
-    : input.db
-        .prepare(
-          `
-            INSERT INTO inbox_center_agent_read_watermarks (
+          timestamp,
+        ],
+      }
+    : {
+        text: `
+            INSERT INTO "openmeld"."inbox_center_agent_read_watermarks" (
               organization_id,
               recipient_user_id,
               space_id,
@@ -1096,10 +1117,10 @@ async function markSpaceInboxReadThrough(input: {
               read_at_ms,
               created_at_ms,
               updated_at_ms
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7)
             ON CONFLICT(organization_id, recipient_user_id, space_id)
             DO UPDATE SET
-              through_occurred_at_ms = max(
+              through_occurred_at_ms = GREATEST(
                 inbox_center_agent_read_watermarks.through_occurred_at_ms,
                 excluded.through_occurred_at_ms
               ),
@@ -1109,51 +1130,53 @@ async function markSpaceInboxReadThrough(input: {
                 THEN excluded.read_at_ms
                 ELSE inbox_center_agent_read_watermarks.read_at_ms
               END,
-              updated_at_ms = max(
+              updated_at_ms = GREATEST(
                 inbox_center_agent_read_watermarks.updated_at_ms,
                 excluded.updated_at_ms
               )
-          `
-        )
-        .bind(
+          `,
+        values: [
           input.organizationId,
           input.recipientUserId,
           input.spaceId,
           input.throughOccurredAtMs,
           timestamp,
           timestamp,
-          timestamp
-        );
-  const [, itemResult] = await input.db.batch([
-    watermarkStatement,
-    input.db
-      .prepare(
-        `
-          UPDATE inbox_items
+          timestamp,
+        ],
+      };
+  const [, itemResult] = await input.db.transaction(
+    async (client) =>
+      [
+        await client.query(watermarkStatement),
+        await client.query({
+          text: `
+          UPDATE "openmeld"."inbox_items"
           SET
-            read_at_ms = coalesce(read_at_ms, ?),
-            updated_at_ms = max(updated_at_ms, ?)
-          WHERE organization_id = ?
-            AND recipient_user_id = ?
+            read_at_ms = coalesce(read_at_ms, $1),
+            updated_at_ms = GREATEST(updated_at_ms, $2)
+          WHERE organization_id = $3
+            AND recipient_user_id = $4
             AND cleared_at_ms IS NULL
             AND read_at_ms IS NULL
-            AND occurred_at_ms <= ?
+            AND occurred_at_ms <= $5
             AND ${itemTargetFilter}
-            AND json_extract(source_target_json, '$.spaceId') = ?
+            AND ((source_target_json)::jsonb #>> '{spaceId}') = $6
             ${itemThreadFilter}
             AND ${CURRENT_SOURCE_ACCESS_FILTER}
-        `
-      )
-      .bind(
-        timestamp,
-        timestamp,
-        input.organizationId,
-        input.recipientUserId,
-        input.throughOccurredAtMs,
-        input.spaceId,
-        ...(threadScoped ? [input.threadRootSignalId as string] : [])
-      ),
-  ]);
+        `,
+          values: [
+            timestamp,
+            timestamp,
+            input.organizationId,
+            input.recipientUserId,
+            input.throughOccurredAtMs,
+            input.spaceId,
+            ...(threadScoped ? [input.threadRootSignalId as string] : []),
+          ],
+        }),
+      ] as const
+  );
   if (!itemResult) {
     throw new Error(`${input.mutationDescription} did not return a result`);
   }
@@ -1162,11 +1185,10 @@ async function markSpaceInboxReadThrough(input: {
     readThroughAt: toIsoTimestamp(timestamp, "read_at_ms"),
   };
 }
-
 async function hasAccessibleInboxItem(input: {
   canManageOrganization?: boolean;
   includeAccountItems?: boolean;
-  db: D1Database;
+  db: PostgresDatabase;
   itemId: string;
   organizationId: string;
   recipientUserId: string;
@@ -1176,26 +1198,27 @@ async function hasAccessibleInboxItem(input: {
     input.canManageOrganization === true
   );
   const row = await input.db
-    .prepare(
-      `
+    .query<{
+      id: string;
+    }>({
+      text: `
         SELECT id
-        FROM inbox_items
-        WHERE id = ?
-          AND ${inboxItemScopeSql(input.includeAccountItems)}
-          AND recipient_user_id = ?
+        FROM "openmeld"."inbox_items"
+        WHERE id = $1
+          AND ${inboxItemScopeSql(input.includeAccountItems, "$2")}
+          AND recipient_user_id = $3
           AND ${CURRENT_SOURCE_ACCESS_FILTER}
         LIMIT 1
-      `
-    )
-    .bind(input.itemId, input.organizationId, input.recipientUserId)
-    .first<{ id: string }>();
+      `,
+      values: [input.itemId, input.organizationId, input.recipientUserId],
+    })
+    .then((result) => result.rows[0] ?? null);
   return row !== null;
 }
-
 async function readInboxItem(input: {
   canManageOrganization?: boolean;
   includeAccountItems?: boolean;
-  db: D1Database;
+  db: PostgresDatabase;
   itemId: string;
   organizationId: string;
   recipientUserId: string;
@@ -1205,8 +1228,8 @@ async function readInboxItem(input: {
     input.canManageOrganization === true
   );
   const row = await input.db
-    .prepare(
-      `
+    .query<InboxItemRow>({
+      text: `
         SELECT
           id,
           organization_id,
@@ -1226,26 +1249,27 @@ async function readInboxItem(input: {
           occurred_at_ms,
           created_at_ms,
           updated_at_ms
-        FROM inbox_items
-        WHERE id = ?
-          AND ${inboxItemScopeSql(input.includeAccountItems)}
-          AND recipient_user_id = ?
+        FROM "openmeld"."inbox_items"
+        WHERE id = $1
+          AND ${inboxItemScopeSql(input.includeAccountItems, "$2")}
+          AND recipient_user_id = $3
           AND cleared_at_ms IS NULL
           AND ${CURRENT_SOURCE_ACCESS_FILTER}
         LIMIT 1
-      `
-    )
-    .bind(input.itemId, input.organizationId, input.recipientUserId)
-    .first<InboxItemRow>();
+      `,
+      values: [input.itemId, input.organizationId, input.recipientUserId],
+    })
+    .then((result) => result.rows[0] ?? null);
   return row ? mapInboxItemRow(row) : null;
 }
-
-function inboxItemScopeSql(includeAccountItems = false): string {
+function inboxItemScopeSql(
+  includeAccountItems = false,
+  organizationParameter = "$1"
+): string {
   return includeAccountItems
-    ? "(organization_id = ? OR organization_id IS NULL)"
-    : "organization_id = ?";
+    ? `(organization_id = ${organizationParameter} OR organization_id IS NULL)`
+    : `organization_id = ${organizationParameter}`;
 }
-
 export function mapInboxItemRow(row: InboxItemRow): InboxItem {
   let sourceTargetValue: unknown;
   try {
@@ -1312,20 +1336,12 @@ export function mapInboxItemRow(row: InboxItemRow): InboxItem {
     updatedAt: toIsoTimestamp(row.updated_at_ms, "updated_at_ms"),
   });
 }
-
 // Disjoint from open actions: an urgent action is counted once, as an action.
 const UNREAD_URGENT_UPDATE_FILTER =
   "importance = 'urgent' AND attention = 'update' AND resolution_status != 'resolved' AND read_at_ms IS NULL";
 const UNREAD_MENTION_UPDATE_FILTER = `(${inboxMentionSql()}) AND importance = 'normal' AND attention = 'update' AND read_at_ms IS NULL`;
 const LEGACY_UNREAD_MENTION_UPDATE_FILTER =
   "kind IN ('space_mention', 'space_reference') AND importance = 'normal' AND attention = 'update' AND read_at_ms IS NULL";
-const ORDINARY_UNREAD_ATTENTION_FILTER = `
-  read_at_ms IS NULL
-  AND NOT (attention = 'action_required' AND resolution_status = 'open')
-  AND NOT (${UNREAD_URGENT_UPDATE_FILTER})
-  AND NOT (${UNREAD_MENTION_UPDATE_FILTER})
-`;
-
 function appendViewFilter(
   filters: string[],
   view: InboxView,
@@ -1368,7 +1384,6 @@ function appendViewFilter(
     );
   }
 }
-
 function normalizeLimit(value: number | undefined): number {
   const limit = value ?? INBOX_LIST_DEFAULT_LIMIT;
   if (
@@ -1382,12 +1397,10 @@ function normalizeLimit(value: number | undefined): number {
   }
   return limit;
 }
-
 function encodeCursor(cursor: InboxListCursor): string {
   const json = JSON.stringify(cursor);
   return bytesToBase64Url(new TextEncoder().encode(json));
 }
-
 function decodeCursor(value: string | undefined): InboxListCursor | null {
   if (value === undefined) {
     return null;
@@ -1418,7 +1431,6 @@ function decodeCursor(value: string | undefined): InboxListCursor | null {
     });
   }
 }
-
 function bytesToBase64Url(bytes: Uint8Array): string {
   let binary = "";
   for (const byte of bytes) {
@@ -1429,7 +1441,6 @@ function bytesToBase64Url(bytes: Uint8Array): string {
     .replaceAll("/", "_")
     .replace(BASE64_PADDING_PATTERN, "");
 }
-
 function base64UrlToBytes(value: string): Uint8Array {
   if (!BASE64_URL_PATTERN.test(value)) {
     throw new Error("Cursor is not base64url");
@@ -1439,15 +1450,12 @@ function base64UrlToBytes(value: string): Uint8Array {
   const binary = atob(base64 + padding);
   return Uint8Array.from(binary, (character) => character.charCodeAt(0));
 }
-
-function changedRows(result: D1Result<unknown>): number {
-  return Math.max(0, Math.trunc(Number(result.meta.changes ?? 0)));
+function changedRows(result: QueryResult<Record<string, unknown>>): number {
+  return Math.max(0, Math.trunc(Number(result.rowCount ?? 0)));
 }
-
 function countValue(value: unknown): number {
   return nonnegativeIntegerValue(value ?? 0);
 }
-
 function nonnegativeIntegerValue(value: unknown): number {
   const numberValue = Number(value);
   if (!(Number.isSafeInteger(numberValue) && numberValue >= 0)) {
@@ -1455,7 +1463,6 @@ function nonnegativeIntegerValue(value: unknown): number {
   }
   return numberValue;
 }
-
 function readNowMs(nowMs: () => number): number {
   const value = nowMs();
   if (!(Number.isSafeInteger(value) && value >= 0)) {
@@ -1463,13 +1470,11 @@ function readNowMs(nowMs: () => number): number {
   }
   return value;
 }
-
 function requireIdentifier(value: string, fieldName: string): void {
   if (!(value.trim() && value.length <= 256)) {
     throw invalidInputError(`${fieldName} must be a non-empty identifier.`);
   }
 }
-
 function invalidInputError(message: string): InboxServiceError {
   return new InboxServiceError({
     code: "inbox.invalid_input",
@@ -1477,7 +1482,6 @@ function invalidInputError(message: string): InboxServiceError {
     status: 400,
   });
 }
-
 function toIsoTimestamp(value: number, fieldName: string): string {
   if (!(Number.isSafeInteger(value) && value >= 0)) {
     throw new Error(`Inbox ${fieldName} is invalid`);

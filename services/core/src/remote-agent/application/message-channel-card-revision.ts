@@ -1,5 +1,5 @@
-import type { MessageChannelCardHistory } from "../infrastructure/d1/message-channel-card-history";
-import type { RemoteAgentNativeDeliveryRecord } from "../infrastructure/d1/native-delivery-ledger-repo";
+import type { MessageChannelCardHistory } from "../infrastructure/postgresql/message-channel-card-history";
+import type { RemoteAgentNativeDeliveryRecord } from "../infrastructure/postgresql/native-delivery-ledger-repo";
 import type { MessageChannelCardMutationResult } from "./message-channel-adapters";
 import {
   hashMessageChannelCardText,

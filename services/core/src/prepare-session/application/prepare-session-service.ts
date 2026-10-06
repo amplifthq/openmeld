@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   prepareStepDiagnosticsBundleSchema,
   redactPrepareStepDiagnosticsBundle,
@@ -33,7 +34,7 @@ import {
   readPrepareSessionRecordByTokenDigest,
   revokePrepareSessionTokenRecords,
   updatePrepareSessionSnapshotIfRevision,
-} from "../infrastructure/d1/prepare-session-repo";
+} from "../infrastructure/postgresql/prepare-session-repo";
 import {
   createPrepareOpaqueToken,
   digestPrepareOpaqueToken,
@@ -41,7 +42,6 @@ import {
 
 const DEFAULT_PREPARE_SESSION_TTL_MS = PREPARE_SESSION_TTL_MS;
 const DEFAULT_PREPARE_TOKEN_TTL_MS = PREPARE_TOKEN_TTL_MS;
-
 const PREPARE_STEP_ORDER: readonly PrepareStepId[] = [
   "computer",
   "connect_terminal",
@@ -52,14 +52,12 @@ const PREPARE_STEP_ORDER: readonly PrepareStepId[] = [
   "verify_setup",
   "ready",
 ];
-
 const PREPARE_TERMINAL_STEP_ORDER: readonly PrepareStepId[] = [
   "refresh_service",
   "prepare_selected_agents",
   "report_runtime",
   "verify_setup",
 ];
-
 const PREPARE_STEP_COPY: Record<
   PrepareStepId,
   {
@@ -102,37 +100,31 @@ const PREPARE_STEP_COPY: Record<
       "This computer finished setup. Wake availability is checked separately.",
   },
 };
-
 export class PrepareSessionNotFoundError extends Error {
   constructor() {
     super("prepare session not found");
   }
 }
-
 export class PrepareSessionRevisionConflictError extends Error {
   constructor() {
     super("prepare session revision conflict");
   }
 }
-
 export class PrepareSessionTokenInvalidError extends Error {
   constructor() {
     super("prepare session token is invalid or expired");
   }
 }
-
 export class PrepareSessionTerminalConnectionStaleError extends Error {
   constructor() {
     super("prepare terminal connection is stale");
   }
 }
-
 export class PrepareSessionSetupBootstrapNotReadyError extends Error {
   constructor() {
     super("prepare session is not ready for setup bootstrap result");
   }
 }
-
 export class PrepareSessionNavigationActionAlreadyStartedError extends Error {
   constructor() {
     super(
@@ -140,9 +132,8 @@ export class PrepareSessionNavigationActionAlreadyStartedError extends Error {
     );
   }
 }
-
 export async function createPrepareSessionUseCase(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   ownerUserId: string;
   request: CreatePrepareSessionRequest;
   now?: Date;
@@ -201,9 +192,8 @@ export async function createPrepareSessionUseCase(input: {
     opaqueTokenExpiresAt: new Date(tokenExpiresAtMs).toISOString(),
   };
 }
-
 export async function readPrepareSessionSnapshotUseCase(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   prepareSessionId: string;
 }): Promise<PrepareSessionSnapshot> {
   const record = await readPrepareSessionRecord(input);
@@ -212,9 +202,8 @@ export async function readPrepareSessionSnapshotUseCase(input: {
   }
   return record.snapshot;
 }
-
 export async function resolvePrepareSessionTokenUseCase(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   opaqueToken: PrepareOpaqueToken;
   now?: Date;
   hashOpaqueToken?: (token: PrepareOpaqueToken) => Promise<string>;
@@ -232,9 +221,8 @@ export async function resolvePrepareSessionTokenUseCase(input: {
   }
   return record.snapshot;
 }
-
 export async function mintPrepareSessionReconnectTokenUseCase(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   prepareSessionId: string;
   ownerUserId: string;
   now?: Date;
@@ -251,7 +239,6 @@ export async function mintPrepareSessionReconnectTokenUseCase(input: {
   if (snapshot.ownerUserId !== input.ownerUserId) {
     throw new PrepareSessionNotFoundError();
   }
-
   const now = input.now ?? new Date();
   const opaqueToken = input.createOpaqueToken?.() ?? createPrepareOpaqueToken();
   const tokenDigest = await (input.hashOpaqueToken ?? digestPrepareOpaqueToken)(
@@ -285,9 +272,8 @@ export async function mintPrepareSessionReconnectTokenUseCase(input: {
     opaqueTokenExpiresAt: new Date(tokenExpiresAtMs).toISOString(),
   };
 }
-
 export async function registerPrepareTerminalConnectionUseCase(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   prepareSessionId: string;
   connectionId: string;
   now?: Date;
@@ -339,9 +325,8 @@ export async function registerPrepareTerminalConnectionUseCase(input: {
   });
   return next;
 }
-
 export async function disconnectPrepareTerminalConnectionUseCase(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   prepareSessionId: string;
   connectionEpoch: number;
   reasonCode: string;
@@ -383,15 +368,13 @@ export async function disconnectPrepareTerminalConnectionUseCase(input: {
   });
   return next;
 }
-
 function isConnectTerminalBlocked(snapshot: PrepareSessionSnapshot): boolean {
   return snapshot.steps.some(
     (step) => step.id === "connect_terminal" && step.state === "blocked"
   );
 }
-
 export async function writeWebAgentSelectionUseCase(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   write: WebAgentSelectionWrite;
   now?: Date;
 }): Promise<PrepareSessionSnapshot> {
@@ -407,9 +390,8 @@ export async function writeWebAgentSelectionUseCase(input: {
     now: input.now,
   });
 }
-
 export async function writeTerminalAgentSelectionUseCase(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   write: TerminalAgentSelectionWrite;
   now?: Date;
 }): Promise<PrepareSessionSnapshot> {
@@ -427,11 +409,10 @@ export async function writeTerminalAgentSelectionUseCase(input: {
     now: input.now,
   });
 }
-
 async function writeAgentSelectionFromSnapshot(input: {
   actor: "terminal" | "web";
   connectionEpoch?: number;
-  db: D1Database;
+  db: PostgresDatabase;
   snapshot: PrepareSessionSnapshot;
   write: WebAgentSelectionWrite;
   now?: Date;
@@ -490,9 +471,8 @@ async function writeAgentSelectionFromSnapshot(input: {
   });
   return next;
 }
-
 export async function writeTerminalLocalAgentCatalogUseCase(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   write: TerminalLocalAgentCatalogWrite;
   now?: Date;
 }): Promise<PrepareSessionSnapshot> {
@@ -501,7 +481,6 @@ export async function writeTerminalLocalAgentCatalogUseCase(input: {
     prepareSessionId: input.write.prepareSessionId,
   });
   assertCurrentTerminalConnection(snapshot, input.write.connectionEpoch);
-
   const now = input.now ?? new Date();
   const next = updateSnapshot(snapshot, now, (draft) => {
     draft.localAgentCatalog = input.write.localAgentCatalog;
@@ -533,9 +512,8 @@ export async function writeTerminalLocalAgentCatalogUseCase(input: {
   });
   return next;
 }
-
 export async function writeSetupBootstrapResultUseCase(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   ownerUserId: string;
   write: PrepareSetupBootstrapWrite;
   now?: Date;
@@ -550,7 +528,6 @@ export async function writeSetupBootstrapResultUseCase(input: {
   if (snapshot.lifecycleStatus !== "completed" || snapshot.phase !== "ready") {
     throw new PrepareSessionSetupBootstrapNotReadyError();
   }
-
   const now = input.now ?? new Date();
   const next = updateSnapshot(snapshot, now, (draft) => {
     draft.setupBootstrap = structuredClone(input.write.setupBootstrap);
@@ -572,9 +549,8 @@ export async function writeSetupBootstrapResultUseCase(input: {
   });
   return next;
 }
-
 export async function writeTerminalStepUseCase(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   write: TerminalStepWrite;
   now?: Date;
 }): Promise<PrepareSessionSnapshot> {
@@ -586,7 +562,6 @@ export async function writeTerminalStepUseCase(input: {
   if (snapshot.sessionRevision !== input.write.expectedRevision) {
     throw new PrepareSessionRevisionConflictError();
   }
-
   const now = input.now ?? new Date();
   const next = updateSnapshot(snapshot, now, (draft) => {
     draft.terminalConnection = {
@@ -621,12 +596,10 @@ export async function writeTerminalStepUseCase(input: {
       setStepState(draft, input.write.stepId, "active", now);
       return;
     }
-
     if (input.write.status === "completed") {
       completeTerminalStep(draft, input.write.stepId, now);
       return;
     }
-
     blockPrepareSession({
       snapshot: draft,
       stepId: input.write.stepId,
@@ -658,7 +631,6 @@ export async function writeTerminalStepUseCase(input: {
   }
   return next;
 }
-
 function emitPrepareStepFailureDiagnosticsLog(input: {
   snapshot: PrepareSessionSnapshot;
   write: TerminalStepWrite;
@@ -683,14 +655,14 @@ function emitPrepareStepFailureDiagnosticsLog(input: {
     ...diagnostics,
   });
 }
-
 type PrepareStepFailureDiagnosticsLogFields =
-  | { diagnostics: PrepareStepDiagnosticsBundle }
+  | {
+      diagnostics: PrepareStepDiagnosticsBundle;
+    }
   | {
       diagnosticsRejected: "invalid_json" | "schema_invalid";
       diagnosticsLength: number;
     };
-
 function parsePrepareStepFailureDiagnosticsForLog(
   diagnosticsText: string
 ): PrepareStepFailureDiagnosticsLogFields {
@@ -714,7 +686,6 @@ function parsePrepareStepFailureDiagnosticsForLog(
     diagnostics: redactPrepareStepDiagnosticsBundle(parsed.data),
   };
 }
-
 function applyTerminalRuntimeIdentity(input: {
   snapshot: PrepareSessionSnapshot;
   stepId: PrepareStepId;
@@ -748,12 +719,10 @@ function applyTerminalRuntimeIdentity(input: {
     });
     return false;
   }
-
   input.snapshot.deviceId = deviceId;
   input.snapshot.runtimeLane = runtimeLane;
   return true;
 }
-
 function terminalStepCompletionRequiresRuntimeIdentity(input: {
   stepId: PrepareStepId;
   write: Pick<TerminalStepWrite, "status">;
@@ -765,7 +734,6 @@ function terminalStepCompletionRequiresRuntimeIdentity(input: {
       input.stepId === "verify_setup")
   );
 }
-
 function applyTerminalStepOrderGuard(input: {
   snapshot: PrepareSessionSnapshot;
   status: TerminalStepWrite["status"];
@@ -781,7 +749,6 @@ function applyTerminalStepOrderGuard(input: {
   if (isStepActive(input.snapshot, input.stepId)) {
     return true;
   }
-
   blockPrepareSession({
     snapshot: input.snapshot,
     stepId: input.stepId,
@@ -792,13 +759,11 @@ function applyTerminalStepOrderGuard(input: {
   });
   return false;
 }
-
 function isTerminalOwnedPrepareStep(stepId: PrepareStepId): boolean {
   return PREPARE_TERMINAL_STEP_ORDER.includes(stepId);
 }
-
 export async function failPrepareSessionUseCase(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   prepareSessionId: string;
   reasonCode: string;
   message: string;
@@ -839,9 +804,8 @@ export async function failPrepareSessionUseCase(input: {
   });
   return next;
 }
-
 export function cancelPrepareSessionUseCase(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   prepareSessionId: string;
   now?: Date;
 }): Promise<PrepareSessionSnapshot> {
@@ -853,9 +817,8 @@ export function cancelPrepareSessionUseCase(input: {
     message: "Prepare session cancelled.",
   });
 }
-
 export function expirePrepareSessionUseCase(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   prepareSessionId: string;
   now?: Date;
 }): Promise<PrepareSessionSnapshot> {
@@ -867,16 +830,14 @@ export function expirePrepareSessionUseCase(input: {
     message: "Prepare session expired.",
   });
 }
-
 export async function readPrepareDiagnosticUseCase(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   prepareSessionId: string;
 }): Promise<PrepareDiagnosticResponse> {
   const snapshot = await readPrepareSessionSnapshotUseCase(input);
   const events = await listPrepareSessionEvents(input);
   return { snapshot, events };
 }
-
 function buildInitialPrepareSessionSnapshot(input: {
   prepareSessionId: string;
   ownerUserId: string;
@@ -927,7 +888,6 @@ function buildInitialPrepareSessionSnapshot(input: {
     expiresAt,
   };
 }
-
 function buildStep(input: {
   stepId: PrepareStepId;
   state: PrepareStepState;
@@ -946,7 +906,6 @@ function buildStep(input: {
     updatedAt: nowIso,
   };
 }
-
 function updateSnapshot(
   current: PrepareSessionSnapshot,
   now: Date,
@@ -958,7 +917,6 @@ function updateSnapshot(
   mutate(draft);
   return draft;
 }
-
 function setStepState(
   snapshot: PrepareSessionSnapshot,
   stepId: PrepareStepId,
@@ -982,7 +940,6 @@ function setStepState(
     };
   });
 }
-
 function resumePrepareSessionAfterTerminalConnect(
   snapshot: PrepareSessionSnapshot,
   now: Date
@@ -1008,11 +965,9 @@ function resumePrepareSessionAfterTerminalConnect(
     resumeTerminalOwnedSteps(snapshot, now);
     return;
   }
-
   snapshot.phase = "waiting_for_agent_selection";
   setStepState(snapshot, "choose_local_agents", "waiting_for_user", now);
 }
-
 function resumeTerminalOwnedSteps(
   snapshot: PrepareSessionSnapshot,
   now: Date
@@ -1027,15 +982,15 @@ function resumeTerminalOwnedSteps(
     setStepState(snapshot, "ready", "complete", now);
     return;
   }
-
   snapshot.phase = phaseForActiveStep(nextStepId);
   setStepState(snapshot, nextStepId, "active", now);
 }
-
 function resetTerminalOwnedSteps(
   snapshot: PrepareSessionSnapshot,
   now: Date,
-  options: { preserveServiceAlignment?: boolean } = {}
+  options: {
+    preserveServiceAlignment?: boolean;
+  } = {}
 ): void {
   const preserveServiceAlignment =
     options.preserveServiceAlignment !== false &&
@@ -1061,7 +1016,6 @@ function resetTerminalOwnedSteps(
     );
   }
 }
-
 function resetIncompleteStepsAfterConnectTerminal(
   snapshot: PrepareSessionSnapshot,
   now: Date
@@ -1088,7 +1042,6 @@ function resetIncompleteStepsAfterConnectTerminal(
     return step?.state === "blocked";
   });
 }
-
 function isStepComplete(
   snapshot: PrepareSessionSnapshot,
   stepId: PrepareStepId
@@ -1097,7 +1050,6 @@ function isStepComplete(
     (step) => step.id === stepId && step.state === "complete"
   );
 }
-
 function isStepActive(
   snapshot: PrepareSessionSnapshot,
   stepId: PrepareStepId
@@ -1106,7 +1058,6 @@ function isStepActive(
     (step) => step.id === stepId && step.state === "active"
   );
 }
-
 function completeTerminalStep(
   snapshot: PrepareSessionSnapshot,
   stepId: PrepareStepId,
@@ -1138,12 +1089,10 @@ function completeTerminalStep(
     setStepState(snapshot, "ready", "complete", now);
     return;
   }
-
   if (isTerminalOwnedPrepareStep(stepId)) {
     resumeTerminalOwnedSteps(snapshot, now);
     return;
   }
-
   const nextStepId = nextStepAfter(stepId);
   if (!nextStepId) {
     return;
@@ -1159,7 +1108,6 @@ function completeTerminalStep(
     now
   );
 }
-
 function advancePrepareSessionWithoutLocalAgents(
   snapshot: PrepareSessionSnapshot,
   now: Date
@@ -1210,7 +1158,6 @@ function advancePrepareSessionWithoutLocalAgents(
     now
   );
 }
-
 function setStepStateWithSummary(
   snapshot: PrepareSessionSnapshot,
   stepId: PrepareStepId,
@@ -1222,7 +1169,6 @@ function setStepStateWithSummary(
     step.id === stepId ? { ...step, summary } : step
   );
 }
-
 function blockPrepareSession(input: {
   snapshot: PrepareSessionSnapshot;
   stepId: PrepareStepId;
@@ -1275,7 +1221,6 @@ function blockPrepareSession(input: {
     )
   );
 }
-
 function clearBlockersForStep(
   snapshot: PrepareSessionSnapshot,
   stepId: PrepareStepId
@@ -1284,7 +1229,6 @@ function clearBlockersForStep(
     (blocker) => blocker.stepId !== stepId
   );
 }
-
 function haveSameLocalAgentIds(
   left: readonly string[],
   right: readonly string[]
@@ -1295,12 +1239,10 @@ function haveSameLocalAgentIds(
   const rightSet = new Set(right);
   return left.every((id) => rightSet.has(id));
 }
-
 function nextStepAfter(stepId: PrepareStepId): PrepareStepId | null {
   const index = PREPARE_STEP_ORDER.indexOf(stepId);
   return index >= 0 ? (PREPARE_STEP_ORDER[index + 1] ?? null) : null;
 }
-
 function eventTypeForTerminalStepWrite(
   status: TerminalStepWrite["status"]
 ): PrepareSessionEvent["eventType"] {
@@ -1317,7 +1259,6 @@ function eventTypeForTerminalStepWrite(
     }
   }
 }
-
 function normalizeOptionalText(value: unknown): string | null {
   if (typeof value !== "string") {
     return null;
@@ -1325,7 +1266,6 @@ function normalizeOptionalText(value: unknown): string | null {
   const normalized = value.trim();
   return normalized.length > 0 ? normalized : null;
 }
-
 function initialStepState(stepId: PrepareStepId): PrepareStepState {
   switch (stepId) {
     case "computer":
@@ -1345,7 +1285,6 @@ function initialStepState(stepId: PrepareStepId): PrepareStepState {
     }
   }
 }
-
 function phaseForActiveStep(stepId: PrepareStepId): PrepareSessionPhase {
   switch (stepId) {
     case "computer":
@@ -1370,9 +1309,8 @@ function phaseForActiveStep(stepId: PrepareStepId): PrepareSessionPhase {
     }
   }
 }
-
 async function closePrepareSession(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   prepareSessionId: string;
   lifecycleStatus: "cancelled" | "expired";
   phase: "expired" | "failed";
@@ -1407,9 +1345,8 @@ async function closePrepareSession(input: {
   });
   return next;
 }
-
 async function writeSnapshotAndEvent(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   previous: PrepareSessionSnapshot;
   next: PrepareSessionSnapshot;
   event: PrepareSessionEvent;
@@ -1431,7 +1368,6 @@ async function writeSnapshotAndEvent(input: {
     event: input.event,
   });
 }
-
 function buildPrepareSessionEvent(input: {
   snapshot: PrepareSessionSnapshot;
   eventType: PrepareSessionEvent["eventType"];
@@ -1457,7 +1393,6 @@ function buildPrepareSessionEvent(input: {
     createdAt: input.now.toISOString(),
   };
 }
-
 function assertCurrentTerminalConnection(
   snapshot: PrepareSessionSnapshot,
   connectionEpoch: number

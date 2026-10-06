@@ -6,7 +6,6 @@ import { requestId } from "hono/request-id";
 import { secureHeaders } from "hono/secure-headers";
 import { trimTrailingSlash } from "hono/trailing-slash";
 import { registerAccountInvalidationRoute } from "./account-invalidation/account-invalidation-route";
-import { warnOnSharedDbMigrationDriftOnce } from "./db/migration-drift";
 import type { HonoBindings } from "./lib/bindings";
 import { resolveActiveOrganizationMembership } from "./organizations/organization-context";
 import { registerConfigRoutes } from "./routes/config";
@@ -56,16 +55,6 @@ export function createHttpApp() {
       return corsMiddleware(c, next);
     })
     .use("*", requestId())
-    .use("*", async (c, next) => {
-      try {
-        warnOnSharedDbMigrationDriftOnce(c.env, (promise) => {
-          c.executionCtx.waitUntil(promise);
-        });
-      } catch {
-        // The dev-only drift probe must never affect request handling.
-      }
-      await next();
-    })
     .use("*", async (c, next) => {
       const startedAt = Date.now();
       const runtimeEvidence = readCloudflareRequestEvidence(c.req.raw);

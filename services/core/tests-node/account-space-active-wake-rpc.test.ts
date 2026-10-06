@@ -5,23 +5,18 @@ import {
   rpcListAccountSpaceActiveWakeSummary,
 } from "../src/rpc/methods";
 import {
-  applyDrizzleMigrationsForTables,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+  createPostgresHarness,
+  postgresTestBinding,
+} from "./helpers/postgresql-harness.test-support";
 
 describe("account Space active Wake summary RPC", () => {
   it("keeps an older Gateway request scoped by Core configuration", async () => {
-    const harness = createSqliteD1Harness();
-    applyDrizzleMigrationsForTables(harness, [
-      "space_index_spaces",
-      "space_index_memberships",
-    ]);
+    const harness = await createPostgresHarness();
+
     try {
       const env = {
-        OPENMELD_DB: harness.db,
+        OPENMELD_POSTGRESQL: postgresTestBinding(harness.db),
         OPENMELD_GATEWAY_URL: "https://GATEWAY.OPENMELD.TEST/path",
-        OPENMELD_LOCAL_STATE_DB: harness.db,
-        OPENMELD_WAKE_EVIDENCE_DB: harness.db,
       } as CoreBindings;
       await expect(
         rpcListAccountSpaceActiveWakeSummary(env, {
@@ -35,25 +30,20 @@ describe("account Space active Wake summary RPC", () => {
         })
       ).toBe("gateway.openmeld.test");
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("attributes a live Wake from the removed target membership snapshot", async () => {
-    const harness = createSqliteD1Harness();
-    applyDrizzleMigrationsForTables(harness, [
-      "space_index_spaces",
-      "space_index_memberships",
-      "openMeldDaemon_runtime_coordinator_executions",
-      "openMeldRemoteAgent_native_delivery_ledger",
-    ]);
+    const harness = await createPostgresHarness();
+
     const nowMs = Date.now();
     const deletedProfileId = "agt_418831cf-a76d-4073-b606-de76b2f315ce";
     try {
-      harness.run({
-        params: [nowMs, nowMs, "space-projection"],
-        sql: `
-          INSERT INTO space_index_spaces (
+      await harness.query({
+        values: [nowMs, nowMs, "space-projection"],
+        text: `
+          INSERT INTO "openmeld"."space_index_spaces" (
             space_id,
             organization_id,
             organization_visibility,
@@ -63,7 +53,7 @@ describe("account Space active Wake summary RPC", () => {
             projected_at_ms,
             projection_event_id
           )
-          VALUES ('space-1', 'org-1', 'private', 'active', 'SEO Tracker', ?, ?, ?)
+          VALUES ('space-1', 'org-1', 'private', 'active', 'SEO Tracker', $1, $2, $3)
         `,
       });
       for (const membership of [
@@ -84,8 +74,8 @@ describe("account Space active Wake summary RPC", () => {
           status: "removed",
         },
       ]) {
-        harness.run({
-          params: [
+        await harness.query({
+          values: [
             membership.profileId,
             membership.profileKind,
             membership.profileName,
@@ -97,8 +87,8 @@ describe("account Space active Wake summary RPC", () => {
             nowMs,
             `membership-${membership.profileId}`,
           ],
-          sql: `
-            INSERT INTO space_index_memberships (
+          text: `
+            INSERT INTO "openmeld"."space_index_memberships" (
               space_id,
               profile_id,
               profile_kind_snapshot,
@@ -112,14 +102,14 @@ describe("account Space active Wake summary RPC", () => {
               projected_at_ms,
               projection_event_id
             )
-            VALUES ('space-1', ?, ?, ?, ?, ?, 'member', ?, ?, ?, ?, ?)
+            VALUES ('space-1', $1, $2, $3, $4, $5, 'member', $6, $7, $8, $9, $10)
           `,
         });
       }
-      harness.run({
-        params: [deletedProfileId, nowMs - 1000, nowMs],
-        sql: `
-          INSERT INTO openMeldDaemon_runtime_coordinator_executions (
+      await harness.query({
+        values: [deletedProfileId, nowMs - 1000, nowMs],
+        text: `
+          INSERT INTO "openmeld"."openMeldDaemon_runtime_coordinator_executions" (
             runtime_coordinator_execution_id,
             model_version,
             space_id,
@@ -139,25 +129,22 @@ describe("account Space active Wake summary RPC", () => {
             'runtime_coordinator_execution.v1',
             'space-1',
             'dispatch-live',
-            ?,
+            $1,
             'client-live',
             'runtime_registry_authority',
             'runtime-1',
             'binding-1',
             'builtin:codex',
             'running',
-            ?,
-            ?
+            $2,
+            $3
           )
         `,
       });
 
       const env = {
-        OPENMELD_DB: harness.db,
+        OPENMELD_POSTGRESQL: postgresTestBinding(harness.db),
         OPENMELD_GATEWAY_URL: "https://gateway.openmeld.test",
-        OPENMELD_LOCAL_STATE_DB: harness.db,
-        OPENMELD_PROJECTIONS_DB: harness.db,
-        OPENMELD_WAKE_EVIDENCE_DB: harness.db,
       } as CoreBindings;
       await expect(
         rpcListAccountSpaceActiveWakeSummary(env, {
@@ -223,7 +210,7 @@ describe("account Space active Wake summary RPC", () => {
         "Clico Codex"
       );
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });

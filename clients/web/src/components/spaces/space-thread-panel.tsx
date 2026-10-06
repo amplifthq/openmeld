@@ -98,7 +98,7 @@ import {
 } from "./space-composer";
 import {
 	resolveSpaceComposerConversationKind,
-	type SpaceAgentDirectConversationComposerHintKind,
+	type SpaceAutomaticWakeComposerHintKind,
 } from "./space-composer-copy";
 import type { SpaceComposerSendOptions } from "./space-composer-device-wait";
 import type {
@@ -257,7 +257,7 @@ type SpaceThreadPanelProps = {
 	open?: boolean;
 	wakeRecommendationsEnabled?: boolean;
 	activeThread: SpaceThread | null;
-	agentDirectConversationKind: SpaceAgentDirectConversationComposerHintKind | null;
+	automaticWakeConversationKind: SpaceAutomaticWakeComposerHintKind | null;
 	agentStreams: readonly SpaceConversationVisibleStreamProjection[];
 	agentRecoveryPlansByProfileId: ReadonlyMap<
 		string,
@@ -959,8 +959,8 @@ function renderThreadComposer(
 	}
 	return (
 		<ThreadComposer
-			agentDirectConversationKind={input.agentDirectConversationKind}
 			agentRecoveryPlansByProfileId={input.agentRecoveryPlansByProfileId}
+			automaticWakeConversationKind={input.automaticWakeConversationKind}
 			blockedWakeProfileId={input.composerBlockedWakeProfileId}
 			canSendMessage={input.activeThread !== null}
 			centerAgentProfileId={input.centerAgentProfileId ?? null}
@@ -1225,7 +1225,13 @@ function ThreadTimeline(input: {
 					/>
 					<MessageScrollerContent className="gap-0">
 						{input.items.map((item) => {
-							if (isSpaceOutcomeNoticeItem(item)) {
+							if (
+								isSpaceOutcomeNoticeItem(item) &&
+								!(
+									item.systemNoticeType === "wake_stopped" &&
+									item.actorProfileKind === "agent"
+								)
+							) {
 								return (
 									<MessageScrollerItem key={item.id} messageId={item.id}>
 										<div
@@ -1856,7 +1862,7 @@ function ThreadComposer(input: {
 	canSendMessage: boolean;
 	composerMembers?: SpaceComposerProps["members"];
 	pendingActionSurface?: ReactNode;
-	agentDirectConversationKind: SpaceAgentDirectConversationComposerHintKind | null;
+	automaticWakeConversationKind: SpaceAutomaticWakeComposerHintKind | null;
 	agentRecoveryPlansByProfileId: ReadonlyMap<
 		string,
 		AgentProfileReplyRecoveryPlan
@@ -1941,7 +1947,7 @@ function ThreadComposer(input: {
 			}}
 			context={{
 				conversationKind: resolveSpaceComposerConversationKind({
-					isAgentDirectMessage: Boolean(input.agentDirectConversationKind),
+					hasAutomaticWakeTarget: Boolean(input.automaticWakeConversationKind),
 					isCenterAgentDirectMessage: input.isCenterAgentDirectMessage,
 					isDirectMessage: input.isDirectMessage,
 				}),

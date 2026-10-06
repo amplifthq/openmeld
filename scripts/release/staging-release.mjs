@@ -2,6 +2,7 @@
 
 import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { assertProductDatabaseReleaseSupported } from "./database-backend-admission.mjs";
 import { executeWithProductionScopeLeases } from "./production-release.mjs";
 import {
   admitWebsiteDomainRelease,
@@ -217,6 +218,7 @@ async function runStagingRelease(input) {
     return;
   }
   if (input.command === "deploy") {
+    assertProductDatabaseReleaseSupported();
     assertCleanWorktree();
     if (!process.env.CLOUDFLARE_API_TOKEN) {
       runStep(

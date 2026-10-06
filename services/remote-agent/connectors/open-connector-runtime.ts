@@ -18,12 +18,17 @@ export type ConnectorExecutionConfig = {
 const TRAILING_SLASH_PATTERN = /\/+$/u;
 const OPENCONNECTOR_ACTION_SEARCH_LIMIT = 50;
 export async function listOpenConnectorActions(input: {
+  actionId?: string;
   connectorExecution?: ConnectorExecutionConfig;
   service: ConnectorService;
 }): Promise<OpenConnectorRuntimeAction[]> {
   const runtime = requireConnectorRuntime(input.connectorExecution);
+  const query = new URLSearchParams({ service: input.service });
+  if (input.actionId) {
+    query.set("actionId", input.actionId);
+  }
   const response = await runtime.fetch(
-    `${runtime.baseUrl}/v1/actions?service=${encodeURIComponent(input.service)}`,
+    `${runtime.baseUrl}/v1/actions?${query}`,
     {
       headers: { authorization: `Bearer ${runtime.runtimeToken}` },
       method: "GET",
@@ -56,7 +61,12 @@ export async function listOpenConnectorActions(input: {
           `OpenConnector returned action ${action.id} for an unexpected service.`
         );
       }
-      return action.execution.locallyExecutable;
+      // Older producers ignore the additive filter. Preserve exact selection
+      // locally without caching policy-dependent action metadata.
+      return (
+        action.execution.locallyExecutable &&
+        (!input.actionId || action.id === input.actionId)
+      );
     });
 }
 

@@ -1,11 +1,11 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import { remoteAgentWorkerRuntimeDiagnosticsResponseSchema } from "@openmeld/schemas";
 import type { RemoteAgentWorkerRuntimeDiagnosticsResponse } from "@openmeld/schemas/types";
 import type { CoreBindings } from "../../lib/bindings";
-import { readRemoteAgentNativeDeliveryByExecution } from "../infrastructure/d1/native-delivery-ledger-repo";
+import { readRemoteAgentNativeDeliveryByExecution } from "../infrastructure/postgresql/native-delivery-ledger-repo";
 import { resolveRemoteAgentNativeDeliveryRuntimeConversationId } from "./remote-agent-conversation-continuity";
-
 export async function readRemoteAgentRuntimeDiagnosticsForDispatch(input: {
-  db: D1Database | undefined;
+  db: PostgresDatabase | undefined;
   dispatchId: string;
   remoteAgentWorker: CoreBindings["OPENMELD_REMOTE_AGENT_WORKER"] | undefined;
   spaceId: string;
@@ -36,7 +36,6 @@ export async function readRemoteAgentRuntimeDiagnosticsForDispatch(input: {
     spaceId: input.spaceId,
   });
 }
-
 export async function readRemoteAgentRuntimeDiagnosticsForConversation(input: {
   remoteAgentWorker: CoreBindings["OPENMELD_REMOTE_AGENT_WORKER"] | undefined;
   runtimeConversationId: string;

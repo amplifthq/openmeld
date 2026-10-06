@@ -1,12 +1,10 @@
 import { relations, sql } from "drizzle-orm";
+import { bigint, check, index, text, uniqueIndex } from "drizzle-orm/pg-core";
 import {
-  check,
-  index,
-  integer,
-  sqliteTable,
-  text,
-  uniqueIndex,
-} from "drizzle-orm/sqlite-core";
+  applicationTable,
+  currentTimestampMilliseconds,
+} from "../postgresql/schema.ts";
+import { epochMilliseconds } from "../postgresql/schema-types.ts";
 import { openMeldProfiles } from "./openmeld-profile.schema.ts";
 
 export const OPENMELD_PROFILE_SPACE_HISTORY_STATUSES = [
@@ -25,7 +23,7 @@ export const OPENMELD_PROFILE_SPACE_CREATOR_KINDS = [
 export type OpenMeldProfileSpaceCreatorKind =
   (typeof OPENMELD_PROFILE_SPACE_CREATOR_KINDS)[number];
 
-export const openMeldProfileSpaceHistory = sqliteTable(
+export const openMeldProfileSpaceHistory = applicationTable(
   "openmeld_profile_space_history",
   {
     profileId: text("profile_id")
@@ -36,20 +34,20 @@ export const openMeldProfileSpaceHistory = sqliteTable(
     spaceName: text("space_name"),
     creatorProfileId: text("creator_profile_id"),
     creatorKind: text("creator_kind").$type<OpenMeldProfileSpaceCreatorKind>(),
-    spaceCreatedAt: integer("space_created_at", { mode: "timestamp_ms" }),
-    spaceUpdatedAt: integer("space_updated_at", { mode: "timestamp_ms" }),
-    lastJoinedAt: integer("last_joined_at", { mode: "timestamp_ms" }).notNull(),
-    lastSeenTs: integer("last_seen_ts"),
-    pinnedAt: integer("pinned_at", { mode: "timestamp_ms" }),
+    spaceCreatedAt: epochMilliseconds("space_created_at"),
+    spaceUpdatedAt: epochMilliseconds("space_updated_at"),
+    lastJoinedAt: epochMilliseconds("last_joined_at").notNull(),
+    lastSeenTs: bigint("last_seen_ts", { mode: "number" }),
+    pinnedAt: epochMilliseconds("pinned_at"),
     status: text("status")
       .$type<OpenMeldProfileSpaceHistoryStatus>()
       .notNull()
       .default("active"),
-    createdAt: integer("created_at", { mode: "timestamp_ms" })
-      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+    createdAt: epochMilliseconds("created_at")
+      .default(currentTimestampMilliseconds)
       .notNull(),
-    updatedAt: integer("updated_at", { mode: "timestamp_ms" })
-      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+    updatedAt: epochMilliseconds("updated_at")
+      .default(currentTimestampMilliseconds)
       .$onUpdate(() => /* @__PURE__ */ new Date())
       .notNull(),
   },

@@ -1,4 +1,5 @@
 import { env, runInDurableObject } from "cloudflare:test";
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CoreBindings } from "../src/lib/bindings";
 import { encryptLarkPlatformCredential } from "../src/remote-agent/application/lark-platform-credential-crypto";
@@ -13,43 +14,46 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.clearAllMocks();
 });
-
 describe("Lark persistent connector durable handoff", () => {
   it("acknowledges durable acceptance before Queue delivery and recovers the same event after Queue failure", async () => {
     const id = crypto.randomUUID();
     const stub = env.OPENMELD_LARK_CHANNEL_CONNECTOR.getByName(id);
     await runInDurableObject(stub, async (_instance, state) => {
       const cryptoKey = btoa("0123456789abcdef0123456789abcdef");
-      const db = env.OPENMELD_DB;
-      await db
-        .prepare(
-          "INSERT INTO users (id, name, email, email_verified, created_at, updated_at) VALUES (?, 'Connector fixture', ?, 1, 0, 0)"
-        )
-        .bind(id, `${id}@example.com`)
-        .run();
-      await db
-        .prepare(
-          "INSERT INTO organizations (id, name, slug, created_at) VALUES (?, 'Connector fixture', ?, 0)"
-        )
-        .bind(id, id)
-        .run();
-      await db
-        .prepare(
-          `INSERT INTO openMeldRemoteAgent_lark_platform_channel_connections (connection_id, organization_id, provider, app_id, tenant_key, bot_open_id, transport, status, installed_by_user_id, permission_bundle_version, granted_capability_groups_json, connection_generation, created_at_ms, updated_at_ms) VALUES (?, ?, 'lark', ?, ?, 'ou_bot_test', 'websocket', 'connected', ?, 'test', '["conversation.text"]', 1, 0, 0)`
-        )
-        .bind(id, id, message.header.app_id, message.header.tenant_key, id)
-        .run();
+      const db = getPostgresDatabase(env);
+      await db.query({
+        ...{
+          text: 'INSERT INTO "openmeld"."users" (id, name, email, email_verified, created_at, updated_at) VALUES ($1, \'Connector fixture\', $2, 1, 0, 0)',
+          values: [],
+        },
+        values: [id, `${id}@example.com`],
+      });
+      await db.query({
+        ...{
+          text: 'INSERT INTO "openmeld"."organizations" (id, name, slug, created_at) VALUES ($1, \'Connector fixture\', $2, 0)',
+          values: [],
+        },
+        values: [id, id],
+      });
+      await db.query({
+        ...{
+          text: `INSERT INTO "openmeld"."openMeldRemoteAgent_lark_platform_channel_connections" (connection_id, organization_id, provider, app_id, tenant_key, bot_open_id, transport, status, installed_by_user_id, permission_bundle_version, granted_capability_groups_json, connection_generation, created_at_ms, updated_at_ms) VALUES ($1, $2, 'lark', $3, $4, 'ou_bot_test', 'websocket', 'connected', $5, 'test', '["conversation.text"]', 1, 0, 0)`,
+          values: [],
+        },
+        values: [id, id, message.header.app_id, message.header.tenant_key, id],
+      });
       const encrypted = await encryptLarkPlatformCredential({
         credential: "fixture-secret",
         credentialName: "app secret",
         cryptoKey,
       });
-      await db
-        .prepare(
-          "INSERT INTO openMeldRemoteAgent_lark_platform_channel_credentials (connection_id, encrypted_app_secret, credential_format_version, created_at_ms, updated_at_ms) VALUES (?, ?, 1, 0, 0)"
-        )
-        .bind(id, encrypted)
-        .run();
+      await db.query({
+        ...{
+          text: 'INSERT INTO "openmeld"."openMeldRemoteAgent_lark_platform_channel_credentials" (connection_id, encrypted_app_secret, credential_format_version, created_at_ms, updated_at_ms) VALUES ($1, $2, 1, 0, 0)',
+          values: [],
+        },
+        values: [id, encrypted],
+      });
       // biome-ignore lint/correctness/noUndeclaredVariables: Cloudflare runtime global provided by generated Worker types.
       const pair = new WebSocketPair();
       pair[1].accept();
@@ -151,12 +155,13 @@ describe("Lark persistent connector durable handoff", () => {
           }),
           Date.now()
         );
-        await db
-          .prepare(
-            "UPDATE openMeldRemoteAgent_lark_platform_channel_connections SET connection_generation = 2 WHERE connection_id = ?"
-          )
-          .bind(id)
-          .run();
+        await db.query({
+          ...{
+            text: 'UPDATE "openmeld"."openMeldRemoteAgent_lark_platform_channel_connections" SET connection_generation = 2 WHERE connection_id = $1',
+            values: [],
+          },
+          values: [id],
+        });
         await connector.alarm();
         expect(queue.send).toHaveBeenCalledTimes(2);
         expect(
@@ -180,11 +185,20 @@ describe("Lark persistent connector durable handoff", () => {
         await connector.disconnect();
         pair[1].close();
         fetchSpy.mockRestore();
-        await db
-          .prepare("DELETE FROM organizations WHERE id = ?")
-          .bind(id)
-          .run();
-        await db.prepare("DELETE FROM users WHERE id = ?").bind(id).run();
+        await db.query({
+          ...{
+            text: 'DELETE FROM "openmeld"."organizations" WHERE id = $1',
+            values: [],
+          },
+          values: [id],
+        });
+        await db.query({
+          ...{
+            text: 'DELETE FROM "openmeld"."users" WHERE id = $1',
+            values: [],
+          },
+          values: [id],
+        });
       }
     });
   }, 25_000);

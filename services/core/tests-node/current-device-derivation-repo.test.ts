@@ -1,27 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { resolveCurrentDeviceFromBindings } from "../src/start/infrastructure/d1/current-device-derivation-repo";
-import {
-  applyDrizzleMigrationForTable,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+import { resolveCurrentDeviceFromBindings } from "../src/start/infrastructure/postgresql/current-device-derivation-repo";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 const T0 = Date.parse("2026-04-10T00:00:00.000Z");
 
-function createHarnessWithBindingTables() {
-  const harness = createSqliteD1Harness();
-  applyDrizzleMigrationForTable(
-    harness,
-    "openMeldDaemon_agent_profile_bindings"
-  );
-  applyDrizzleMigrationForTable(
-    harness,
-    "openMeldDaemon_runtime_registry_records"
-  );
+async function createHarnessWithBindingTables() {
+  const harness = await createPostgresHarness();
+
   return harness;
 }
 
-function insertBinding(
-  harness: ReturnType<typeof createSqliteD1Harness>,
+async function insertBinding(
+  harness: Awaited<ReturnType<typeof createPostgresHarness>>,
   input: {
     bindingId: string;
     ownerUserId: string;
@@ -29,11 +19,22 @@ function insertBinding(
     openMeldServiceRuntimeId: string;
     bindingState?: string;
   }
-): void {
+): Promise<void> {
+  await harness.query({
+    text: `INSERT INTO "openmeld"."users" (id,name,email) VALUES ($1,'Owner',$1::text||'@example.com') ON CONFLICT (id) DO NOTHING`,
+    values: [input.ownerUserId],
+  });
+  await harness.query({
+    text: `INSERT INTO "openmeld"."organizations" (id,name,slug,created_at) VALUES ('org-1','Organization','org-1',1700000000000) ON CONFLICT (id) DO NOTHING`,
+  });
+  await harness.query({
+    text: `INSERT INTO "openmeld"."openmeld_profiles" (profile_id,profile_name,profile_handle,profile_kind,organization_id,owner_user_id,source) VALUES ($1,'Agent',$1,'agent','org-1',$2,'migration') ON CONFLICT (profile_id) DO NOTHING`,
+    values: [input.agentProfileId, input.ownerUserId],
+  });
   const bindingState = input.bindingState ?? "enabled_primary";
-  harness.run({
-    sql: `
-      INSERT INTO openMeldDaemon_agent_profile_bindings (
+  await harness.query({
+    text: `
+      INSERT INTO "openmeld"."openMeldDaemon_agent_profile_bindings" (
         binding_id,
         owner_kind,
         owner_id,
@@ -45,9 +46,9 @@ function insertBinding(
         updated_at_ms,
         disabled_at_ms
       )
-      VALUES (?, 'owner_account', ?, ?, ?, 'builtin:codex', ?, ?, ?, ?)
+      VALUES ($1, 'owner_account', $2, $3, $4, 'builtin:codex', $5, $6, $7, $8)
     `,
-    params: [
+    values: [
       input.bindingId,
       input.ownerUserId,
       input.agentProfileId,
@@ -60,8 +61,8 @@ function insertBinding(
   });
 }
 
-function insertRuntimeRecord(
-  harness: ReturnType<typeof createSqliteD1Harness>,
+async function insertRuntimeRecord(
+  harness: Awaited<ReturnType<typeof createPostgresHarness>>,
   input: {
     openMeldServiceRuntimeId: string;
     ownerUserId: string;
@@ -69,10 +70,10 @@ function insertRuntimeRecord(
     lane?: string;
     lastRegisteredAtMs?: number;
   }
-): void {
-  harness.run({
-    sql: `
-      INSERT INTO openMeldDaemon_runtime_registry_records (
+): Promise<void> {
+  await harness.query({
+    text: `
+      INSERT INTO "openmeld"."openMeldDaemon_runtime_registry_records" (
         openmeld_service_runtime_id,
         owner_kind,
         owner_id,
@@ -82,9 +83,9 @@ function insertRuntimeRecord(
         last_registered_at_ms,
         updated_at_ms
       )
-      VALUES (?, 'owner_account', ?, ?, ?, ?, ?, ?)
+      VALUES ($1, 'owner_account', $2, $3, $4, $5, $6, $7)
     `,
-    params: [
+    values: [
       input.openMeldServiceRuntimeId,
       input.ownerUserId,
       input.deviceId,
@@ -98,15 +99,15 @@ function insertRuntimeRecord(
 
 describe("current device derivation from Bindings", () => {
   it("resolves the device of the owner's enabled-primary Binding runtime", async () => {
-    const harness = createHarnessWithBindingTables();
+    const harness = await createHarnessWithBindingTables();
     try {
-      insertBinding(harness, {
+      await insertBinding(harness, {
         bindingId: "binding-1",
         ownerUserId: "owner-1",
-        agentProfileId: "agt-1",
+        agentProfileId: "agt_00000000-0000-4000-8000-000000000001",
         openMeldServiceRuntimeId: "runtime-1",
       });
-      insertRuntimeRecord(harness, {
+      await insertRuntimeRecord(harness, {
         openMeldServiceRuntimeId: "runtime-1",
         ownerUserId: "owner-1",
         deviceId: "device-1",
@@ -123,21 +124,21 @@ describe("current device derivation from Bindings", () => {
         runtimeLane: "dev-local",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("returns missing when the owner has no enabled-primary Binding", async () => {
-    const harness = createHarnessWithBindingTables();
+    const harness = await createHarnessWithBindingTables();
     try {
-      insertBinding(harness, {
+      await insertBinding(harness, {
         bindingId: "binding-1",
         ownerUserId: "owner-1",
-        agentProfileId: "agt-1",
+        agentProfileId: "agt_00000000-0000-4000-8000-000000000001",
         openMeldServiceRuntimeId: "runtime-1",
         bindingState: "disabled_historical",
       });
-      insertRuntimeRecord(harness, {
+      await insertRuntimeRecord(harness, {
         openMeldServiceRuntimeId: "runtime-1",
         ownerUserId: "owner-1",
         deviceId: "device-1",
@@ -150,17 +151,17 @@ describe("current device derivation from Bindings", () => {
         })
       ).resolves.toEqual({ availability: "missing" });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("returns missing when the Binding runtime has no registry record", async () => {
-    const harness = createHarnessWithBindingTables();
+    const harness = await createHarnessWithBindingTables();
     try {
-      insertBinding(harness, {
+      await insertBinding(harness, {
         bindingId: "binding-1",
         ownerUserId: "owner-1",
-        agentProfileId: "agt-1",
+        agentProfileId: "agt_00000000-0000-4000-8000-000000000001",
         openMeldServiceRuntimeId: "runtime-unregistered",
       });
 
@@ -171,32 +172,32 @@ describe("current device derivation from Bindings", () => {
         })
       ).resolves.toEqual({ availability: "missing" });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("prefers the most recently registered runtime across Binding devices", async () => {
-    const harness = createHarnessWithBindingTables();
+    const harness = await createHarnessWithBindingTables();
     try {
-      insertBinding(harness, {
+      await insertBinding(harness, {
         bindingId: "binding-old",
         ownerUserId: "owner-1",
-        agentProfileId: "agt-old",
+        agentProfileId: "agt_00000000-0000-4000-8000-000000000002",
         openMeldServiceRuntimeId: "runtime-old",
       });
-      insertRuntimeRecord(harness, {
+      await insertRuntimeRecord(harness, {
         openMeldServiceRuntimeId: "runtime-old",
         ownerUserId: "owner-1",
         deviceId: "device-old",
         lastRegisteredAtMs: T0,
       });
-      insertBinding(harness, {
+      await insertBinding(harness, {
         bindingId: "binding-new",
         ownerUserId: "owner-1",
-        agentProfileId: "agt-new",
+        agentProfileId: "agt_00000000-0000-4000-8000-000000000003",
         openMeldServiceRuntimeId: "runtime-new",
       });
-      insertRuntimeRecord(harness, {
+      await insertRuntimeRecord(harness, {
         openMeldServiceRuntimeId: "runtime-new",
         ownerUserId: "owner-1",
         deviceId: "device-new",
@@ -214,48 +215,48 @@ describe("current device derivation from Bindings", () => {
         runtimeLane: "dev-local",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("skips forgotten devices and falls back to the next Binding device", async () => {
-    const harness = createHarnessWithBindingTables();
+    const harness = await createHarnessWithBindingTables();
     try {
-      insertBinding(harness, {
+      await insertBinding(harness, {
         bindingId: "binding-forgotten",
         ownerUserId: "owner-1",
-        agentProfileId: "agt-forgotten",
+        agentProfileId: "agt_00000000-0000-4000-8000-000000000004",
         openMeldServiceRuntimeId: "runtime-forgotten",
       });
-      insertRuntimeRecord(harness, {
+      await insertRuntimeRecord(harness, {
         openMeldServiceRuntimeId: "runtime-forgotten",
         ownerUserId: "owner-1",
         deviceId: "device-forgotten",
         lastRegisteredAtMs: T0 + 60_000,
       });
-      insertBinding(harness, {
+      await insertBinding(harness, {
         bindingId: "binding-kept",
         ownerUserId: "owner-1",
-        agentProfileId: "agt-kept",
+        agentProfileId: "agt_00000000-0000-4000-8000-000000000005",
         openMeldServiceRuntimeId: "runtime-kept",
       });
-      insertRuntimeRecord(harness, {
+      await insertRuntimeRecord(harness, {
         openMeldServiceRuntimeId: "runtime-kept",
         ownerUserId: "owner-1",
         deviceId: "device-kept",
         lastRegisteredAtMs: T0,
       });
-      harness.run({
-        sql: `
-          INSERT INTO openMeldDaemon_forgotten_devices (
+      await harness.query({
+        text: `
+          INSERT INTO "openmeld"."openMeldDaemon_forgotten_devices" (
             owner_user_id,
             device_id,
             forgotten_at_ms,
             updated_at_ms
           )
-          VALUES ('owner-1', 'device-forgotten', ?, ?)
+          VALUES ('owner-1', 'device-forgotten', $1, $2)
         `,
-        params: [T0 + 120_000, T0 + 120_000],
+        values: [T0 + 120_000, T0 + 120_000],
       });
 
       await expect(
@@ -269,20 +270,20 @@ describe("current device derivation from Bindings", () => {
         runtimeLane: "dev-local",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("does not resolve another owner's Binding devices", async () => {
-    const harness = createHarnessWithBindingTables();
+    const harness = await createHarnessWithBindingTables();
     try {
-      insertBinding(harness, {
+      await insertBinding(harness, {
         bindingId: "binding-other",
         ownerUserId: "owner-other",
-        agentProfileId: "agt-other",
+        agentProfileId: "agt_00000000-0000-4000-8000-000000000006",
         openMeldServiceRuntimeId: "runtime-other",
       });
-      insertRuntimeRecord(harness, {
+      await insertRuntimeRecord(harness, {
         openMeldServiceRuntimeId: "runtime-other",
         ownerUserId: "owner-other",
         deviceId: "device-other",
@@ -295,7 +296,7 @@ describe("current device derivation from Bindings", () => {
         })
       ).resolves.toEqual({ availability: "missing" });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });

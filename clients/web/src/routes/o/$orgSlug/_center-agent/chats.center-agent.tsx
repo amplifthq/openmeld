@@ -79,7 +79,6 @@ function CenterAgentChatRoute() {
 			initialFocusSignalId={focusSignalId}
 			initialFocusThreadRootSignalId={focusThreadRootSignalId}
 			initialSpaceView={view}
-			key={session ?? "default"}
 			sessionId={session}
 		/>
 	);

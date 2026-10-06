@@ -1,45 +1,26 @@
 import { agentActivityOverviewResponseSchema } from "@openmeld/schemas";
 import type { CenterAgentReadAgentActivityToolRpcInput } from "@openmeld/schemas/types";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   rpcCenterAgentReadAgentActivity,
   rpcCenterAgentReadAgentActivityOverview,
 } from "../../core/src/agent-activity/activity-center-agent-rpc";
 import { AGENT_ACTIVITY_OVERVIEW_MAX_BYTES } from "../../core/src/agent-activity/activity-overview";
-import { applyDrizzleMigrationsForTables } from "../../core/tests-node/helpers/sqlite-d1-harness.test-support";
 import { buildRemoteAgentCoreContext } from "../agent-core/tool-context";
 import { isRemoteAgentToolResultWithinLimit } from "../agent-core/tool-result-boundary";
 import { createEvidenceFixture } from "./center-agent-evidence.test-support";
 import { executeEvidenceCodeMode } from "./evidence-code-mode.test-support";
 import { TEST_NOW_MS } from "./fixtures";
 
-const fixtures: Awaited<ReturnType<typeof createEvidenceFixture>>[] = [];
-afterEach(() => {
-  for (const fixture of fixtures.splice(0)) {
-    fixture.harness.close();
-  }
-});
-
 async function fixture() {
   const f = await createEvidenceFixture();
-  fixtures.push(f);
-  applyDrizzleMigrationsForTables(f.harness, [
-    "projects",
-    "agent_activity_sessions",
-    "agent_activity_events",
-    "agent_activity_digests",
-    "agent_activity_daily_aggregates",
-    "agent_activity_daily_session_keys",
-    "agent_activity_execution_links",
-  ]);
   for (let index = 0; index < 80; index += 1) {
     const id = `project-${String(index).padStart(3, "0")}`;
     const sessionId = `session-${index}`;
     const observedAt = TEST_NOW_MS + index;
-    f.harness.run({
-      sql: `INSERT INTO projects (id, organization_id, name, slug, created_by_user_id, created_at_ms, updated_at_ms)
-        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      params: [
+    await f.harness.query({
+      text: 'INSERT INTO openmeld."projects" (id, organization_id, name, slug, created_by_user_id, created_at_ms, updated_at_ms)\n        VALUES ($1, $2, $3, $4, $5, $6, $7)',
+      values: [
         id,
         f.request.organizationId,
         `项目 ${index}`,
@@ -49,13 +30,9 @@ async function fixture() {
         observedAt,
       ],
     });
-    f.harness.run({
-      sql: `INSERT INTO agent_activity_sessions (
-        id, organization_id, project_id, member_user_id, device_id, openmeld_service_runtime_id,
-        provider, client_kind, provider_session_id, title, status, last_observed_at_ms, expires_at_ms,
-        provider_metadata_json, last_event_id, last_accepted_sequence, created_at_ms, updated_at_ms
-      ) VALUES (?, ?, ?, ?, 'device', 'runtime', 'codex', 'codex-cli', ?, ?, 'idle', ?, ?, '{}', ?, 1, ?, ?)`,
-      params: [
+    await f.harness.query({
+      text: "INSERT INTO openmeld.\"agent_activity_sessions\" (\n        id, organization_id, project_id, member_user_id, device_id, openmeld_service_runtime_id,\n        provider, client_kind, provider_session_id, title, status, last_observed_at_ms, expires_at_ms,\n        provider_metadata_json, last_event_id, last_accepted_sequence, created_at_ms, updated_at_ms\n      ) VALUES ($1, $2, $3, $4, 'device', 'runtime', 'codex', 'codex-cli', $5, $6, 'idle', $7, $8, '{}', $9, 1, $10, $11)",
+      values: [
         sessionId,
         f.request.organizationId,
         id,
@@ -69,12 +46,9 @@ async function fixture() {
         observedAt,
       ],
     });
-    f.harness.run({
-      sql: `INSERT INTO agent_activity_digests (
-        id, organization_id, project_id, source_cursor_accepted_sequence, window_started_at_ms,
-        window_ended_at_ms, event_count, citations_json, summary, status, created_at_ms, expires_at_ms
-      ) VALUES (?, ?, ?, 1, ?, ?, 1, ?, ?, 'completed', ?, ?)`,
-      params: [
+    await f.harness.query({
+      text: "INSERT INTO openmeld.\"agent_activity_digests\" (\n        id, organization_id, project_id, source_cursor_accepted_sequence, window_started_at_ms,\n        window_ended_at_ms, event_count, citations_json, summary, status, created_at_ms, expires_at_ms\n      ) VALUES ($1, $2, $3, 1, $4, $5, 1, $6, $7, 'completed', $8, $9)",
+      values: [
         `digest-${index}`,
         f.request.organizationId,
         id,
@@ -168,9 +142,9 @@ describe("bounded Center Agent activity overview", () => {
     });
     expect(overview.digests).toEqual([]);
     expect(overview.coverage.digestsExcludedBySessionFilters).toBe(true);
-    f.harness.run({
-      sql: "DELETE FROM members WHERE id = ?",
-      params: [f.speaker.id],
+    await f.harness.query({
+      text: 'DELETE FROM openmeld."members" WHERE id = $1',
+      values: [f.speaker.id],
     });
     await expect(
       f.execute(f.binding, "openmeld_read_agent_activity")

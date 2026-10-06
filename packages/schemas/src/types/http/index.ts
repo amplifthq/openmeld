@@ -7,6 +7,12 @@ export type {
   SpaceAgentWorkloadInput,
 } from "../../schemas/http/agent-workload";
 export type {
+  PluginActionRequestCommand,
+  PluginActionRequestCommandRpc,
+  PluginActionRequestIntent,
+  PluginActionRequestView,
+} from "../../schemas/http/plugin-action-requests";
+export type {
   AccountDisplayName,
   SelectLastSelectedOrganizationBody,
   SelectLastSelectedOrganizationErrorCode,
@@ -286,6 +292,8 @@ export type {
   CenterAgentUpdateSpaceSettingsResponse,
   CenterAgentWakeAgentProfilesInSpaceBody,
   CenterAgentWakeAgentProfilesInSpaceResponse,
+  CenterAgentWakeAgentProfilesInSpacesBody,
+  CenterAgentWakeAgentProfilesInSpacesResponse,
   CenterAgentWakePublicationCommand,
   CenterAgentWatchAgentTaskBody,
   CenterAgentWatchAgentTaskResponse,
@@ -546,6 +554,7 @@ export type {
   CopyFileRootRevisionBody,
   CopyFileRootRevisionResponse,
   CopyFileRootToSpaceBody,
+  CopyOwnMessageExcerptBody,
   FileRoot,
   FileRootEntry,
   FileRootFileDescriptor,

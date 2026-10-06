@@ -4,10 +4,7 @@ import {
   reconcileAgentModelInboxProjection,
 } from "../src/inbox/application/agent-model-inbox";
 import { createInboxService } from "../src/inbox/application/inbox-service";
-import {
-  applyDrizzleMigrationsForTables,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 const original: AgentModelInboxSnapshot = {
   organizationId: "org_one",
@@ -23,7 +20,7 @@ const original: AgentModelInboxSnapshot = {
 
 describe("model recovery Inbox projection", () => {
   it("deduplicates refreshes, preserves read history and never creates an email", async () => {
-    const h = harness();
+    const h = await harness();
     try {
       const input = {
         db: h.db,
@@ -53,8 +50,8 @@ describe("model recovery Inbox projection", () => {
       await inbox.markRead({ ...reader, itemId: item.id, read: true });
       await reconcileAgentModelInboxProjection({ ...input, nowMs: 3000 });
       expect(
-        h.queryAll({
-          sql: "SELECT resolution_status, read_at_ms, preview FROM inbox_items",
+        await h.queryAll({
+          text: 'SELECT resolution_status, read_at_ms, preview FROM "openmeld"."inbox_items"',
         })
       ).toEqual([
         {
@@ -71,15 +68,17 @@ describe("model recovery Inbox projection", () => {
         (await inbox.list({ ...reader, view: "needs_action" })).items
       ).toHaveLength(1);
       expect(
-        h.queryAll({ sql: "SELECT * FROM inbox_email_deliveries" })
+        await h.queryAll({
+          text: 'SELECT * FROM "openmeld"."inbox_email_deliveries"',
+        })
       ).toEqual([]);
     } finally {
-      h.close();
+      await h.close();
     }
   });
 
   it("exposes owner-only notices only while the exact personal Agent still belongs to that recipient and Organization", async () => {
-    const h = harness();
+    const h = await harness();
     try {
       await reconcileAgentModelInboxProjection({
         db: h.db,
@@ -102,8 +101,8 @@ describe("model recovery Inbox projection", () => {
           totalUnreadCount: 0,
         });
       }
-      h.run({
-        sql: "UPDATE openmeld_profiles SET owner_user_id = 'user_other' WHERE profile_id = 'agt_11111111-1111-4111-8111-111111111111'",
+      await h.query({
+        text: "UPDATE \"openmeld\".\"openmeld_profiles\" SET owner_user_id = 'user_other' WHERE profile_id = 'agt_11111111-1111-4111-8111-111111111111'",
       });
       expect((await inbox.list(reader)).items).toEqual([]);
       expect(await inbox.summary(reader)).toMatchObject({
@@ -112,37 +111,54 @@ describe("model recovery Inbox projection", () => {
       });
       // Access revocation preserves the historical row instead of deleting it.
       expect(
-        h.queryAll({ sql: "SELECT resolution_status FROM inbox_items" })
+        await h.queryAll({
+          text: 'SELECT resolution_status FROM "openmeld"."inbox_items"',
+        })
       ).toEqual([{ resolution_status: "open" }]);
     } finally {
-      h.close();
+      await h.close();
     }
   });
 
   it("keeps a same-model issue on unknown account evidence, clears after a user change and supports a later recurrence", async () => {
-    const h = harness();
+    const h = await harness();
     try {
-      let source = original;
+      let source = {
+        ...original,
+        verdict: "clear" as AgentModelInboxSnapshot["verdict"],
+      };
       const input = { db: h.db, nowMs: 2000, readCurrent: async () => source };
+      // A healthy or unknown report with no existing notice must stay empty,
+      // while a later blocked report must still create its own episode.
+      for (const verdict of ["clear", "unknown"] as const) {
+        source = { ...original, verdict };
+        await reconcileAgentModelInboxProjection(input);
+        expect(
+          await h.queryAll({ text: 'SELECT * FROM "openmeld"."inbox_items"' })
+        ).toEqual([]);
+      }
+      source = original;
       await reconcileAgentModelInboxProjection(input);
       source = { ...original, verdict: "unknown" };
       await reconcileAgentModelInboxProjection({ ...input, nowMs: 2500 });
       expect(
-        h.queryAll({ sql: "SELECT resolution_status FROM inbox_items" })
+        await h.queryAll({
+          text: 'SELECT resolution_status FROM "openmeld"."inbox_items"',
+        })
       ).toEqual([{ resolution_status: "open" }]);
       source = { ...original, identity: "binding/model-B", verdict: "clear" };
       await reconcileAgentModelInboxProjection({ ...input, nowMs: 3000 });
       expect(
-        h.queryAll({
-          sql: "SELECT resolution_status, read_at_ms FROM inbox_items",
+        await h.queryAll({
+          text: 'SELECT resolution_status, read_at_ms FROM "openmeld"."inbox_items"',
         })
       ).toEqual([{ resolution_status: "resolved", read_at_ms: null }]);
       source = original;
       await reconcileAgentModelInboxProjection({ ...input, nowMs: 4000 });
       await reconcileAgentModelInboxProjection({ ...input, nowMs: 5000 });
       expect(
-        h.queryAll({
-          sql: "SELECT resolution_status FROM inbox_items ORDER BY created_at_ms",
+        await h.queryAll({
+          text: 'SELECT resolution_status FROM "openmeld"."inbox_items" ORDER BY created_at_ms',
         })
       ).toEqual([
         { resolution_status: "resolved" },
@@ -150,12 +166,12 @@ describe("model recovery Inbox projection", () => {
       ]);
       expect(original.identity).toBe("binding/model-A/review-1");
     } finally {
-      h.close();
+      await h.close();
     }
   });
 
   it("does not publish a stale model observation after the user changed models", async () => {
-    const h = harness();
+    const h = await harness();
     try {
       const readCurrent = vi
         .fn()
@@ -170,14 +186,16 @@ describe("model recovery Inbox projection", () => {
         nowMs: 2000,
         readCurrent,
       });
-      expect(h.queryAll({ sql: "SELECT * FROM inbox_items" })).toEqual([]);
+      expect(
+        await h.queryAll({ text: 'SELECT * FROM "openmeld"."inbox_items"' })
+      ).toEqual([]);
     } finally {
-      h.close();
+      await h.close();
     }
   });
 
   it("clears only this Profile's model issue, not another Agent's pending work", async () => {
-    const h = harness();
+    const h = await harness();
     try {
       await reconcileAgentModelInboxProjection({
         db: h.db,
@@ -199,8 +217,8 @@ describe("model recovery Inbox projection", () => {
         readCurrent: async () => ({ ...original, verdict: "clear" }),
       });
       expect(
-        h.queryAll({
-          sql: "SELECT json_extract(source_target_json, '$.profileId') AS profileId, resolution_status FROM inbox_items ORDER BY profileId",
+        await h.queryAll({
+          text: 'SELECT ((source_target_json)::jsonb #>> \'{profileId}\') AS "profileId", resolution_status FROM "openmeld"."inbox_items" ORDER BY "profileId"',
         })
       ).toEqual([
         {
@@ -213,54 +231,35 @@ describe("model recovery Inbox projection", () => {
         },
       ]);
     } finally {
-      h.close();
+      await h.close();
     }
   });
 });
 
-function harness() {
-  const h = createSqliteD1Harness();
-  h.run({
-    sql: "CREATE TABLE organizations (id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL, slug TEXT NOT NULL, created_at INTEGER NOT NULL)",
+async function harness() {
+  const h = await createPostgresHarness();
+
+  await h.query({
+    text: "INSERT INTO \"openmeld\".\"organizations\" (id, name, slug, created_at) VALUES ('org_one','Org','org',1000)",
   });
-  h.run({
-    sql: "CREATE TABLE users (id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL, email TEXT NOT NULL)",
+  await h.query({
+    text: "INSERT INTO \"openmeld\".\"users\" (id, name, email) VALUES ('user_owner','Owner','owner@example.com')",
   });
-  applyDrizzleMigrationsForTables(h, [
-    "openmeld_profiles",
-    "center_agent_designations",
-    "center_agent_tasks",
-    "center_agent_task_authorized_readers",
-    "inbox_items",
-    "inbox_email_deliveries",
-    "inbox_notification_preferences",
-    "inbox_message_notification_defaults",
-    "inbox_conversation_notification_preferences",
-    "inbox_center_agent_read_watermarks",
-    "space_index_spaces",
-    "space_index_memberships",
-  ]);
-  h.run({
-    sql: "INSERT INTO organizations (id, name, slug, created_at) VALUES ('org_one','Org','org',1000)",
+  await h.query({
+    text: "INSERT INTO \"openmeld\".\"organizations\" (id, name, slug, created_at) VALUES ('org_other','Other Org','other-org',1000)",
   });
-  h.run({
-    sql: "INSERT INTO users (id, name, email) VALUES ('user_owner','Owner','owner@example.com')",
-  });
-  h.run({
-    sql: "INSERT INTO organizations (id, name, slug, created_at) VALUES ('org_other','Other Org','other-org',1000)",
-  });
-  h.run({
-    sql: "INSERT INTO users (id, name, email) VALUES ('user_other','Other','other@example.com')",
+  await h.query({
+    text: "INSERT INTO \"openmeld\".\"users\" (id, name, email) VALUES ('user_other','Other','other@example.com')",
   });
   for (const profileId of [
     original.profileId,
     "agt_22222222-2222-4222-8222-222222222222",
   ]) {
-    h.run({
-      sql: `INSERT INTO openmeld_profiles
+    await h.query({
+      text: `INSERT INTO "openmeld"."openmeld_profiles"
       (profile_id, profile_name, profile_handle, profile_kind, is_default, status, organization_id, owner_user_id, source, created_at, updated_at)
-      VALUES (?, 'Research', ?, 'agent', 0, 'active', 'org_one', 'user_owner', 'cli_create', 1000, 1000)`,
-      params: [profileId, profileId],
+      VALUES ($1, 'Research', $2, 'agent', 0, 'active', 'org_one', 'user_owner', 'cli_create', 1000, 1000)`,
+      values: [profileId, profileId],
     });
   }
   return h;

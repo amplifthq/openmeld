@@ -28,7 +28,8 @@ import {
 } from "./release-stage-probes.mjs";
 
 const CLI_BINARY_PLATFORM = "darwin-arm64";
-const ARTIFACT_PROBE_TIMEOUT_MS = 60_000;
+const ARTIFACT_BODY_PROBE_TIMEOUT_MS = 180_000;
+const ARTIFACT_HEADER_PROBE_TIMEOUT_MS = 60_000;
 const COMPLETION_PROBE_TIMEOUT_MS = 30_000;
 const NPM_PROPAGATION_DELAYS_MS = [
   10_000,
@@ -55,6 +56,7 @@ export async function runResumableCliRelease(input) {
     fetch: input.adapters?.fetch ?? input.fetch ?? fetch,
     runCommand: input.adapters?.runCommand ?? runReadOnlyCommand,
     runStep: input.adapters?.runStep ?? input.release.runStep,
+    deployCore: input.adapters?.deployCore,
     prepareNpmArtifact:
       input.adapters?.prepareNpmArtifact ?? prepareNpmCliArtifact,
     verifyNpmArtifact:
@@ -328,7 +330,7 @@ async function publishPreparedCliRelease(input) {
   runBinaryReleaseStage(input);
   const npmPublishedThisRun = runNpmReleaseStage(input);
   runReleaseTagStage(input);
-  runCoreProjectionStage(input);
+  await runCoreProjectionStage(input);
 
   let final = await probeCliReleaseStages({
     adapters: input.adapters,
@@ -505,7 +507,7 @@ function runReleaseTagStage(input) {
   }
 }
 
-function runCoreProjectionStage(input) {
+async function runCoreProjectionStage(input) {
   printStageDecision(
     "Core release projection",
     input.initial.core,
@@ -515,6 +517,15 @@ function runCoreProjectionStage(input) {
     return;
   }
   try {
+    if (input.adapters.deployCore) {
+      await input.adapters.deployCore({
+        cwd: input.cwd,
+        env: input.env,
+        tag: input.target.coreTag,
+        verifyLocalComponents: true,
+      });
+      return;
+    }
     input.adapters.runStep({
       ...input.release.buildCoreDeployStepSpec({
         targetTag: input.target.coreTag,
@@ -585,7 +596,9 @@ export async function probeCliBinaryStage(input) {
       const controller = new AbortController();
       const timeout = setTimeout(
         () => controller.abort(),
-        ARTIFACT_PROBE_TIMEOUT_MS
+        archive
+          ? ARTIFACT_BODY_PROBE_TIMEOUT_MS
+          : ARTIFACT_HEADER_PROBE_TIMEOUT_MS
       );
       try {
         const response = await input.adapters.fetch(url, {

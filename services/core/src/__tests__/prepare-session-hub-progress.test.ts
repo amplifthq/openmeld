@@ -1,5 +1,6 @@
 import type { PrepareSessionSnapshot } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
+import { createProjectionPostgresBinding } from "../../test-support/postgresql-query.test-support";
 import { PrepareSessionHub } from "../prepare-session/transport/do/prepare-session-hub";
 
 const SESSION_ID = "prepare-session-progress";
@@ -43,6 +44,7 @@ type HubHarness = {
 function createHub(sockets: FakeSocket[]) {
   const hub = Object.create(PrepareSessionHub.prototype) as HubHarness;
   Object.assign(hub, {
+    env: { OPENMELD_POSTGRESQL: createProjectionPostgresBinding(() => []) },
     ctx: { getWebSockets: () => sockets },
     activeTerminalBindings: new Map([
       [SESSION_ID, { connectionEpoch: 2, lastProgressSequence: null }],

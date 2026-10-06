@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -21,7 +27,9 @@ import {
   publishGuardedLocalReleaseEvidence,
   readGuardedLocalReleaseSources,
 } from "./production-release-evidence.mjs";
+import { RELEASE_SCOPES } from "./production-release-history.mjs";
 import { executeRecordedProductionDeploySteps } from "./production-release-receipts.mjs";
+import { readLatestSuccessfulReleaseSources } from "./production-release-status.mjs";
 
 const PARTIAL_RECOVERY_ERROR = /failed partial|original|attempt/iu;
 const INVALID_RECOVERY_RECEIPT = /receipt|verified|identity/iu;
@@ -62,6 +70,71 @@ test("publishes exact guarded local release sources for later status checks", ()
         },
       }
     );
+  } finally {
+    rmSync(fixture.root, { force: true, recursive: true });
+  }
+});
+
+test("reads hosted receipts with repository-scoped auth when checkout origin omits .git", () => {
+  const fixture = createGitFixture();
+  const token = "fixture-receipt-token";
+  const repositoryUrl = "https://github.com/amplifthq/openmeld.git";
+  const realGit = execFileSync("which", ["git"], { encoding: "utf8" }).trim();
+  try {
+    publishGuardedLocalReleaseEvidence({
+      cwd: fixture.repository,
+      remote: fixture.remote,
+      scopes: ["core"],
+      sourceSha: fixture.sourceSha,
+    });
+    execFileSync(
+      "git",
+      ["remote", "set-url", "origin", repositoryUrl.slice(0, -4)],
+      {
+        cwd: fixture.repository,
+      }
+    );
+    const configPath = path.join(fixture.repository, ".git/config");
+    const originalConfig = readFileSync(configPath, "utf8");
+    const bin = path.join(fixture.root, "bin");
+    mkdirSync(bin);
+    // Keep real Git URL matching and receipt parsing; replace only the network.
+    writeFileSync(
+      path.join(bin, "git"),
+      [
+        `#!${process.execPath}`,
+        "const { execFileSync, spawnSync } = require('node:child_process');",
+        "const assert = require('node:assert/strict');",
+        `const realGit = ${JSON.stringify(realGit)};`,
+        "const args = process.argv.slice(2);",
+        "const index = args[0] === 'ls-remote' ? 2 : args[0] === 'fetch' ? 3 : null;",
+        "if (index !== null) {",
+        "  const url = args[index] === 'origin' ? execFileSync(realGit, ['remote', 'get-url', 'origin'], { encoding: 'utf8' }).trim() : args[index];",
+        "  const auth = spawnSync(realGit, ['config', '--get-urlmatch', 'http.extraheader', url], { encoding: 'utf8' });",
+        "  assert.equal(auth.status, 0, 'matching repository-scoped credential missing');",
+        `  assert.ok(auth.stdout.includes(${JSON.stringify(`AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`)}));`,
+        "  assert.equal(process.env.OPENMELD_PRODUCTION_LEASE_GITHUB_TOKEN, undefined);",
+        `  args[index] = ${JSON.stringify(fixture.remote)};`,
+        "}",
+        "const result = spawnSync(realGit, args, { encoding: 'utf8' });",
+        "process.stdout.write(result.stdout ?? '');",
+        "process.stderr.write(result.stderr ?? '');",
+        "process.exit(result.status ?? 1);",
+      ].join("\n"),
+      { mode: 0o755 }
+    );
+    const sources = readGuardedLocalReleaseSources({
+      cwd: fixture.repository,
+      environment: {
+        ...process.env,
+        PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+        OPENMELD_PRODUCTION_LEASE_GITHUB_REPOSITORY: "amplifthq/openmeld",
+        OPENMELD_PRODUCTION_LEASE_GITHUB_SERVER_URL: "https://github.com",
+        OPENMELD_PRODUCTION_LEASE_GITHUB_TOKEN: token,
+      },
+    });
+    assert.equal(sources.get("core")?.sha, fixture.sourceSha);
+    assert.equal(readFileSync(configPath, "utf8"), originalConfig);
   } finally {
     rmSync(fixture.root, { force: true, recursive: true });
   }
@@ -157,6 +230,238 @@ const UNRESOLVED_ERROR = /unresolved|reconcil/iu;
 const RECEIPT_ATTEMPT = "00000000-0000-4000-8000-000000000001";
 const RECEIPT_ERROR = /cannot|older|requires|invalid|Completed|cover exactly/u;
 const DEPLOY_ERROR = /fixture deploy failed/u;
+
+for (const status of ["applied", "failed"]) {
+  test(`a real verified receipt chain bounds history while retaining the latest ${status} Core identity`, async () => {
+    const fixture = createGitFixture();
+    const common = {
+      cwd: fixture.repository,
+      remote: fixture.remote,
+      scopes: ["core"],
+    };
+    const baselineTime = "2026-09-27T11:00:00.000Z";
+    const identity = (sourceSha) => ({
+      kind: "worker-deployment",
+      workerName: "openmeld-core-prod",
+      environment: "prod",
+      deploymentId: `deployment-${sourceSha}`,
+      versionId: `version-${sourceSha}`,
+      sourceSha,
+      projectionTag: "cli-0.3.242",
+      proof: "command-output",
+    });
+    const baselineReceipt = {
+      attemptId: RECEIPT_ATTEMPT,
+      componentIndex: 0,
+      operationKey: "a".repeat(64),
+      startedAt: "2026-09-27T10:00:00.000Z",
+      status: "verified",
+      application: "applied",
+      identity: identity(fixture.sourceSha),
+    };
+    try {
+      publishGuardedLocalReleaseEvidence({
+        ...common,
+        sourceSha: fixture.sourceSha,
+        receipts: { core: baselineReceipt },
+        now: baselineTime,
+      });
+      const baseline = readGuardedLocalReleaseSources(common).get("core");
+      const nextSource = fixture.commit("next Core source\n");
+      const receipt = {
+        ...baselineReceipt,
+        attemptId: "00000000-0000-4000-8000-000000000002",
+        operationKey: "b".repeat(64),
+        startedAt: "2026-09-27T12:00:00.000Z",
+      };
+      const publish = (event, time) =>
+        publishGuardedLocalReleaseEvidence({
+          ...common,
+          sourceSha: nextSource,
+          receipts: { core: event },
+          now: time,
+        });
+      publish(
+        {
+          ...receipt,
+          status: "started",
+          application: "unknown",
+          identity: undefined,
+        },
+        "2026-09-27T12:00:00.000Z"
+      );
+      const applied = {
+        ...receipt,
+        status: "applied",
+        identity: identity(nextSource),
+      };
+      publish(
+        {
+          ...receipt,
+          status: "failed",
+          application: "unknown",
+          identity: undefined,
+        },
+        "2026-09-27T12:00:30.000Z"
+      );
+      publish(applied, "2026-09-27T12:01:00.000Z");
+      if (status === "failed") {
+        publish({ ...applied, status }, "2026-09-27T12:02:00.000Z");
+      }
+      const current = readGuardedLocalReleaseSources(common).get("core");
+      assert.deepEqual(current.receipt, { ...applied, status });
+      assert.equal(current.sha, nextSource);
+      assert.deepEqual(current.verifiedHistoryBaseline, {
+        evidenceSha: baseline.evidenceSha,
+        recordedAt: baselineTime,
+        receipt: baselineReceipt,
+        sha: fixture.sourceSha,
+      });
+      const jobsRead = [];
+      const issues = [];
+      const initialSources = new Map(
+        RELEASE_SCOPES.map((scope) => [
+          scope,
+          {
+            source: "github",
+            sha: fixture.sourceSha,
+            recordedAt: baselineTime,
+          },
+        ])
+      );
+      initialSources.set("core", current);
+      const sources = await readLatestSuccessfulReleaseSources({
+        initialSources,
+        issues,
+        repo: "fixture/repo",
+        runs: [
+          {
+            databaseId: 1,
+            status: "completed",
+            updatedAt: "2026-09-26T12:00:00Z",
+          },
+          { databaseId: 2, status: "completed", updatedAt: baselineTime },
+          {
+            databaseId: 3,
+            status: "completed",
+            updatedAt: "2026-09-27T11:30:00Z",
+          },
+          {
+            databaseId: 4,
+            status: "in_progress",
+            updatedAt: "2026-09-26T12:00:00Z",
+          },
+          { databaseId: 5, status: "completed" },
+        ],
+        readReleaseJobs: (id) => {
+          jobsRead.push(id);
+          if (id === 1) {
+            throw new Error("old history should not be needed");
+          }
+          return { complete: true, jobs: [] };
+        },
+        readJobReleaseSha: () => {
+          throw new Error("no successful jobs");
+        },
+        sourceIsAncestor: () => true,
+      });
+      assert.deepEqual(jobsRead.sort(), [2, 3, 4, 5]);
+      assert.deepEqual(issues, []);
+      assert.deepEqual(sources.get("core"), current);
+    } finally {
+      rmSync(fixture.root, { force: true, recursive: true });
+    }
+  });
+}
+
+const INVALID_EVIDENCE_HISTORY =
+  /metadata|source tree|backward|ambiguous argument/u;
+for (const corruption of ["scope", "tree", "chronology", "missing-parent"]) {
+  test(`rejects a ${corruption} corruption instead of trusting a historical verified receipt`, () => {
+    const fixture = createGitFixture();
+    const common = {
+      cwd: fixture.repository,
+      remote: fixture.remote,
+      scopes: ["web"],
+      sourceSha: fixture.sourceSha,
+    };
+    const git = (...args) =>
+      execFileSync("git", args, {
+        cwd: fixture.repository,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      }).trim();
+    const commitEvidence = (metadata, parents, treeSha = fixture.sourceSha) =>
+      git(
+        "commit-tree",
+        `${treeSha}^{tree}`,
+        ...parents.flatMap((sha) => ["-p", sha]),
+        "-m",
+        JSON.stringify(metadata)
+      );
+    try {
+      publishGuardedLocalReleaseEvidence({
+        ...common,
+        now: "2026-09-27T10:00:00.000Z",
+        receipts: {
+          web: {
+            attemptId: RECEIPT_ATTEMPT,
+            componentIndex: 0,
+            status: "verified",
+            application: "applied",
+            identity: {
+              kind: "worker",
+              versions: [{ versionId: "web-1", percentage: 100 }],
+            },
+          },
+        },
+      });
+      const baseline = readGuardedLocalReleaseSources(common).get("web");
+      const metadata = JSON.parse(
+        git("show", "-s", "--format=%B", baseline.evidenceSha)
+      );
+      const previous = {
+        ...metadata,
+        ...(corruption === "scope" ? { scope: "core" } : {}),
+        ...(corruption === "chronology"
+          ? { recordedAt: "2026-09-27T13:00:00.000Z" }
+          : {}),
+      };
+      const treeSha =
+        corruption === "tree"
+          ? fixture.commit("different source tree\n")
+          : fixture.sourceSha;
+      const priorSha = commitEvidence(previous, [fixture.sourceSha], treeSha);
+      const currentSha = commitEvidence(
+        {
+          ...metadata,
+          evidenceId: "new-attempt",
+          recordedAt: "2026-09-27T12:00:00.000Z",
+          receipt: {
+            attemptId: "00000000-0000-4000-8000-000000000002",
+            componentIndex: 0,
+            status: "started",
+            application: "unknown",
+          },
+        },
+        corruption === "missing-parent" ? [] : [priorSha]
+      );
+      git(
+        "push",
+        "--quiet",
+        "--force",
+        fixture.remote,
+        `${currentSha}:refs/heads/openmeld-production-release-evidence/web`
+      );
+      assert.throws(
+        () => readGuardedLocalReleaseSources(common),
+        INVALID_EVIDENCE_HISTORY
+      );
+    } finally {
+      rmSync(fixture.root, { force: true, recursive: true });
+    }
+  });
+}
 
 test("extends legacy receipts, retries the same event idempotently and rejects changed or backward events", () => {
   const fixture = createGitFixture();

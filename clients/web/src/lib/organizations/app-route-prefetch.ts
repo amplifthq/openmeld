@@ -11,6 +11,10 @@ import { readSpaceThreadPanelSelection } from "#/lib/spaces/thread-panel-storage
 import { accountSidebarQueryOptions } from "#/query/account/sidebar-preferences";
 import { centerAgentDirectMessageSpaceProjectionQueryOptions } from "#/query/organizations/center-agent";
 import {
+	type InboxFeedFilters,
+	organizationInboxFeedQueryOptions,
+} from "#/query/organizations/inbox-feed";
+import {
 	organizationProfileDirectoryQueryOptions,
 	organizationSpacesQueryOptions,
 } from "#/query/organizations/organization-directory";
@@ -40,6 +44,22 @@ type OrganizationRoutePrefetchInput = {
 	queryPersistence: BrowserQueryPersistenceController;
 	routeFamily: string;
 };
+
+export async function prefetchInboxRouteData(
+	input: OrganizationRoutePrefetchInput & { filters: InboxFeedFilters }
+): Promise<void> {
+	const scope = await resolveAuthorizedPrefetchScope(input);
+	if (!scope) {
+		return;
+	}
+	await input.queryClient.prefetchInfiniteQuery(
+		organizationInboxFeedQueryOptions({
+			...input.filters,
+			organizationId: scope.currentOrganization.id,
+			accountId: scope.currentUserId,
+		})
+	);
+}
 
 export async function prefetchPeopleRouteData(
 	input: OrganizationRoutePrefetchInput

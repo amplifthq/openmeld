@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { REMOTE_AGENT_CODE_MODE_TOOL_NAME } from "../flue-adapter/code-mode";
-import { REMOTE_AGENT_SANDBOX_TOOL_NAMES } from "../flue-adapter/sandbox-tools";
 import { resolveRemoteAgentToolWorkActivity } from "../flue-adapter/tool-work-activity";
 
 describe("Remote Agent user-visible work semantics", () => {
@@ -18,7 +17,7 @@ describe("Remote Agent user-visible work semantics", () => {
   });
 
   it("covers concrete Sandbox work and hides commands it cannot describe", () => {
-    for (const toolName of REMOTE_AGENT_SANDBOX_TOOL_NAMES) {
+    for (const toolName of ["read", "write", "edit", "grep", "glob"]) {
       if (toolName === "bash") {
         continue;
       }
@@ -203,6 +202,14 @@ describe("Remote Agent user-visible work semantics", () => {
   });
 
   it("describes Organization Skill work precisely", () => {
+    expect(
+      resolveRemoteAgentToolWorkActivity(
+        "openmeld_install_organization_skill",
+        {
+          action: "begin_import_batch",
+        }
+      )
+    ).toEqual({ v: 1, key: "organization.skills.read" });
     expect(
       resolveRemoteAgentToolWorkActivity("openmeld_read_organization_skills", {
         action: "list",

@@ -1,4 +1,6 @@
 import { env } from "cloudflare:test";
+import type { QueryResult } from "@openmeld/db/postgresql";
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH } from "@openmeld/schemas";
 import type {
   ComputerFileAccessPolicyResponse,
@@ -28,27 +30,51 @@ describe("PeopleComputer explicit control RPC", () => {
     const f = await fixture();
     const organizationId = crypto.randomUUID();
     const now = Date.now();
-    await env.OPENMELD_DB.batch([
-      env.OPENMELD_DB.prepare(
-        "INSERT INTO organizations (id, name, slug, created_at) VALUES (?, 'Project target test', ?, ?)"
-      ).bind(organizationId, `project-${organizationId}`, now),
-      env.OPENMELD_DB.prepare(
-        "INSERT INTO users (id, name, email, email_verified, created_at, updated_at) VALUES (?, 'Project member', ?, 1, ?, ?)"
-      ).bind(f.userId, `${f.userId}@example.com`, now, now),
-      env.OPENMELD_DB.prepare(
-        "INSERT INTO members (id, organization_id, user_id, role, created_at) VALUES (?, ?, ?, 'member', ?)"
-      ).bind(crypto.randomUUID(), organizationId, f.userId, now),
-      env.OPENMELD_DB.prepare(
-        "INSERT INTO openmeld_profiles (profile_id, profile_name, profile_handle, profile_kind, is_default, status, owner_user_id, created_by_user_id, source, created_at, updated_at) VALUES (?, 'Project member', ?, 'human', 1, 'active', ?, ?, 'auth_bootstrap', ?, ?)"
-      ).bind(
-        f.context.actorContext.openMeldProfileId,
-        `member-${organizationId}`,
-        f.userId,
-        f.userId,
-        now,
-        now
-      ),
-    ]);
+    await getPostgresDatabase(env).transaction(async (client) =>
+      (async () => {
+        const results: QueryResult[] = [];
+        for (const query of [
+          {
+            ...{
+              text: 'INSERT INTO "openmeld"."organizations" (id, name, slug, created_at) VALUES ($1, \'Project target test\', $2, $3)',
+              values: [],
+            },
+            values: [organizationId, `project-${organizationId}`, now],
+          },
+          {
+            ...{
+              text: 'INSERT INTO "openmeld"."users" (id, name, email, email_verified, created_at, updated_at) VALUES ($1, \'Project member\', $2, 1, $3, $4)',
+              values: [],
+            },
+            values: [f.userId, `${f.userId}@example.com`, now, now],
+          },
+          {
+            ...{
+              text: 'INSERT INTO "openmeld"."members" (id, organization_id, user_id, role, created_at) VALUES ($1, $2, $3, \'member\', $4)',
+              values: [],
+            },
+            values: [crypto.randomUUID(), organizationId, f.userId, now],
+          },
+          {
+            ...{
+              text: "INSERT INTO \"openmeld\".\"openmeld_profiles\" (profile_id, profile_name, profile_handle, profile_kind, is_default, status, owner_user_id, created_by_user_id, source, created_at, updated_at) VALUES ($1, 'Project member', $2, 'human', 1, 'active', $3, $4, 'auth_bootstrap', $5, $6)",
+              values: [],
+            },
+            values: [
+              f.context.actorContext.openMeldProfileId,
+              `member-${organizationId}`,
+              f.userId,
+              f.userId,
+              now,
+              now,
+            ],
+          },
+        ]) {
+          results.push(await client.query(query));
+        }
+        return results;
+      })()
+    );
     const request = {
       ...f.target,
       context: { ...f.context, activeOrganizationId: organizationId },
@@ -83,14 +109,15 @@ describe("PeopleComputer explicit control RPC", () => {
         },
       }),
     ]);
-
     // The account's preferred computer is B. Every explicit operation stays on A,
     // including subsequent writes after that preference changes again.
-    await env.OPENMELD_DB.prepare(
-      "INSERT INTO openMeldDaemon_current_device_targets (owner_user_id, device_id, runtime_lane, updated_at_ms) VALUES (?, 'computer-b', 'prod', ?)"
-    )
-      .bind(f.userId, now)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: "INSERT INTO \"openmeld\".\"openMeldDaemon_current_device_targets\" (owner_user_id, device_id, runtime_lane, updated_at_ms) VALUES ($1, 'computer-b', 'prod', $2)",
+        values: [],
+      },
+      values: [f.userId, now],
+    });
     const created = await rpcCreateProject(f.coreEnv, {
       context: request.context,
       expectedOrganizationId: organizationId,
@@ -123,11 +150,13 @@ describe("PeopleComputer explicit control RPC", () => {
       status: "connected",
       canonicalPath: mutation.declaredPath,
     });
-    await env.OPENMELD_DB.prepare(
-      "UPDATE openMeldDaemon_current_device_targets SET device_id = 'computer-c' WHERE owner_user_id = ?"
-    )
-      .bind(f.userId)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'UPDATE "openmeld"."openMeldDaemon_current_device_targets" SET device_id = \'computer-c\' WHERE owner_user_id = $1',
+        values: [],
+      },
+      values: [f.userId],
+    });
     await rpcSetPeopleComputerProjectDefaultConnection(f.coreEnv, {
       ...request,
       projectId: created.project.id,
@@ -215,7 +244,6 @@ describe("PeopleComputer explicit control RPC", () => {
       }),
     ]);
   });
-
   it("rejects foreign and disconnected file-access targets before exposing or changing policy", async () => {
     const f = await fixture();
     await expect(
@@ -237,7 +265,6 @@ describe("PeopleComputer explicit control RPC", () => {
     ).rejects.toThrow("disconnected in this environment");
     expect(f.commands).toEqual([]);
   });
-
   it("rejects file access when a replacement Service no longer advertises policy control", async () => {
     const f = await fixture();
     if (!(f.ownerService.online && f.ownerService.sessions[0])) {
@@ -277,7 +304,6 @@ describe("PeopleComputer explicit control RPC", () => {
       }),
     ]);
   });
-
   it("rejects a foreign device and another environment without issuing any command", async () => {
     const f = await fixture();
     await expect(
@@ -296,7 +322,6 @@ describe("PeopleComputer explicit control RPC", () => {
     ).rejects.toThrow("disconnected in this environment");
     expect(f.commands).toEqual([]);
   });
-
   it("does not use an older session's update capability after replacement", async () => {
     const f = await fixture();
     if (!f.ownerService.online) {
@@ -321,7 +346,6 @@ describe("PeopleComputer explicit control RPC", () => {
     ).rejects.toThrow("Reconnect Computer");
     expect(f.commands).toEqual([]);
   });
-
   it("does not interpret a failed connection lookup as permission to use another target", async () => {
     const f = await fixture();
     f.fetch.mockRejectedValueOnce(new Error("Transport unavailable"));
@@ -334,16 +358,17 @@ describe("PeopleComputer explicit control RPC", () => {
     expect(f.commands).toEqual([]);
   });
 });
-
 async function fixture() {
   const userId = `people-control-${crypto.randomUUID()}`;
   const deviceId = `device-${crypto.randomUUID()}`;
   const now = Date.now();
-  await env.OPENMELD_DB.prepare(
-    "INSERT INTO openMeldDaemon_owned_devices (owner_user_id, device_id, observed_display_name, platform_family, device_type, first_seen_at_ms, last_observed_at_ms, updated_at_ms) VALUES (?, ?, 'Service-only Mac', 'macOS', 'laptop', ?, ?, ?)"
-  )
-    .bind(userId, deviceId, now, now, now)
-    .run();
+  await getPostgresDatabase(env).query({
+    ...{
+      text: "INSERT INTO \"openmeld\".\"openMeldDaemon_owned_devices\" (owner_user_id, device_id, observed_display_name, platform_family, device_type, first_seen_at_ms, last_observed_at_ms, updated_at_ms) VALUES ($1, $2, 'Service-only Mac', 'macOS', 'laptop', $3, $4, $5)",
+      values: [],
+    },
+    values: [userId, deviceId, now, now, now],
+  });
   const context: OpenMeldRequestContext = {
     actorContext: {
       callerPrincipalId: userId,
@@ -459,7 +484,7 @@ async function fixture() {
     throw new Error(`Unexpected transport path: ${path}`);
   });
   const coreEnv = {
-    OPENMELD_DB: env.OPENMELD_DB,
+    OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL,
     OPENMELD_RUNTIME_TRANSPORT: {
       idFromName: (name: string) => {
         if (name !== userId) {

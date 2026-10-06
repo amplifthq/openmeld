@@ -1,13 +1,13 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import type {
   AgentTaskHandle,
   AgentTaskNeedsAttentionObservation,
 } from "@openmeld/schemas/types";
 import type { CoreBindings } from "../../lib/bindings";
-import { recordAgentTaskNeedsAttentionObservation } from "../infrastructure/d1/agent-task-coordination-repo";
+import { recordAgentTaskNeedsAttentionObservation } from "../infrastructure/postgresql/agent-task-coordination-repo";
 import { enqueueAgentTaskContinuationMessages } from "./agent-task-terminal-outcome-service";
-
 export async function recordAndEnqueueAgentTaskNeedsAttentionObservation(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   nowMs: number;
   observation: AgentTaskNeedsAttentionObservation;

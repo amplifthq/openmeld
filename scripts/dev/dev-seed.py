@@ -10,7 +10,7 @@ from fixtures import people, spaces, messages, sidebar, inbox
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--only", choices=["people", "spaces", "messages", "inbox"],
+    parser.add_argument("--only", choices=["people", "spaces", "messages", "inbox", "plugin-requests"],
                         help="Seed one area and its dependencies (default: all).")
     parser.add_argument("--account", help="Refresh an existing lane-local test account by email.")
     args = parser.parse_args()
@@ -29,6 +29,8 @@ def main():
     sidebar.seed(context)
     if args.only == "inbox":
         inbox.seed(context)
+    if args.only == "plugin-requests":
+        inbox.seed_plugin_requests(context)
     manifest_path = root / "clients/web/scripts/sidebar-preview/runtime-states.generated.json"
     previous = json.loads(manifest_path.read_text()) if manifest_path.exists() else {}
     manifest = next((item.copy() for item in previous.get("organizations", [])

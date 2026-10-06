@@ -35,8 +35,8 @@ export function SpaceEntryGate(input: {
 	redirectToOrganization?: boolean;
 	backHref?: string;
 	children: (resolution: GetSpaceEntryResolutionResponse) => ReactNode;
-	/** Already identity-scoped, display-only app content; never used by public entry. */
-	restoredContent?: ReactNode;
+	/** Identity-scoped app shell and local drafting. Writes must confirm access. Never used by public entry. */
+	draftContent?: ReactNode;
 	pendingContent?: ReactNode;
 	onAccessRejected?: () => void;
 	openMeldProfileId?: string;
@@ -163,10 +163,10 @@ export function SpaceEntryGate(input: {
 		);
 	}
 
-	if (!(rejected || resolutionQuery.data) && input.restoredContent) {
+	if (!(rejected || resolutionQuery.data) && input.draftContent) {
 		return (
 			<SpaceEntryConfirmationContext value={confirmation}>
-				{input.restoredContent}
+				{input.draftContent}
 			</SpaceEntryConfirmationContext>
 		);
 	}

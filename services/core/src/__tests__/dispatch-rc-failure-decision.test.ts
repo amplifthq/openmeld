@@ -3,7 +3,7 @@ import { handleRuntimeCoordinatorQueueFailureDecision } from "../dispatch/applic
 
 // Blocker 2 (round 2): a D1 schema fault must not be re-queued by the
 // RuntimeCoordinator retry_later path. Production sets forceTerminal to
-// `isD1SchemaError(errorMessage)` (services/core/src/dispatch/application/dispatch-queue-service.ts) —
+// `isPostgresSchemaError(errorMessage)` (services/core/src/dispatch/application/dispatch-queue-service.ts) —
 // strictly narrower than non_retryable, so other non-retryable errors with a
 // transient RC handoff still pend. This unit test pins the pure-function
 // contract directly: forceTerminal=true on a retry_later decision falls through

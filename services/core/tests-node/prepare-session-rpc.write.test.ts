@@ -2,7 +2,10 @@ import type { OpenMeldRequestContext } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
 import type { CoreBindings } from "../src/lib/bindings";
 import { rpcCreatePrepareSession } from "../src/prepare-session/transport/rpc/prepare-session-rpc";
-import { createSqliteD1Harness } from "./helpers/sqlite-d1-harness.test-support";
+import {
+  createPostgresHarness,
+  postgresTestBinding,
+} from "./helpers/postgresql-harness.test-support";
 
 const OWNER_CONTEXT: OpenMeldRequestContext = {
   actorContext: {
@@ -16,7 +19,7 @@ const OWNER_CONTEXT: OpenMeldRequestContext = {
 
 describe("prepare session RPC write", () => {
   it("returns a conflict when a Navigation Action already created setup", async () => {
-    const harness = createSqliteD1Harness();
+    const harness = await createPostgresHarness();
     const input = {
       context: OWNER_CONTEXT,
       humanProfileId: OWNER_CONTEXT.actorContext.openMeldProfileId,
@@ -29,13 +32,17 @@ describe("prepare session RPC write", () => {
     };
     try {
       await rpcCreatePrepareSession(
-        { OPENMELD_LOCAL_STATE_DB: harness.db } as CoreBindings,
+        {
+          OPENMELD_POSTGRESQL: postgresTestBinding(harness.db),
+        } as CoreBindings,
         input
       );
 
       await expect(
         rpcCreatePrepareSession(
-          { OPENMELD_LOCAL_STATE_DB: harness.db } as CoreBindings,
+          {
+            OPENMELD_POSTGRESQL: postgresTestBinding(harness.db),
+          } as CoreBindings,
           input
         )
       ).rejects.toMatchObject({
@@ -43,16 +50,16 @@ describe("prepare session RPC write", () => {
         status: 409,
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("rejects a reconnect target that the authenticated owner does not own", async () => {
-    const harness = createSqliteD1Harness();
+    const harness = await createPostgresHarness();
     try {
-      harness.run({
-        sql: `
-          INSERT INTO openMeldDaemon_connected_computers
+      await harness.query({
+        text: `
+          INSERT INTO "openmeld"."openMeldDaemon_connected_computers"
             (owner_user_id, connected_computer_id, created_at_ms, updated_at_ms)
           VALUES ('owner-2', 'computer-other-owner', 1, 1)
         `,
@@ -60,7 +67,9 @@ describe("prepare session RPC write", () => {
 
       await expect(
         rpcCreatePrepareSession(
-          { OPENMELD_LOCAL_STATE_DB: harness.db } as CoreBindings,
+          {
+            OPENMELD_POSTGRESQL: postgresTestBinding(harness.db),
+          } as CoreBindings,
           {
             connectedComputerId: "computer-other-owner",
             context: OWNER_CONTEXT,
@@ -74,12 +83,12 @@ describe("prepare session RPC write", () => {
         status: 409,
       });
       expect(
-        harness.queryFirst<{ count: number }>({
-          sql: "SELECT COUNT(*) AS count FROM openMeldDaemon_prepare_sessions",
+        await harness.queryFirst<{ count: number }>({
+          text: 'SELECT COUNT(*) AS count FROM "openmeld"."openMeldDaemon_prepare_sessions"',
         })
       ).toEqual({ count: 0 });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });

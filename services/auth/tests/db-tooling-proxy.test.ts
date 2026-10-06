@@ -192,8 +192,9 @@ describe("auth db tooling proxies", () => {
       // biome-ignore lint/suspicious/noTemplateCurlyInString: this asserts the literal GitHub Actions expression text in the composite action.
       "DB_RELEASE_WORKING_DIRECTORY: ${{ inputs.working_directory }}"
     );
+    expect(sharedDbAction).toContain('cd "$DB_RELEASE_WORKING_DIRECTORY"');
     expect(sharedDbAction).toContain(
-      'run: pnpm --dir "$DB_RELEASE_WORKING_DIRECTORY" run db:release:prod'
+      'node "$GITHUB_ACTION_PATH/../../../scripts/release/production-db.mjs"'
     );
     expect(releaseOnMainWorkflow).not.toContain("space_index_ready");
     expect(releaseOnMainWorkflow).not.toContain("deploy:space-index-ready");
@@ -205,10 +206,12 @@ describe("auth db tooling proxies", () => {
     }
   });
 
-  it("keeps auth runtime smoke wrangler config aligned to the shared migration home", () => {
+  it("keeps auth runtime smoke on native PostgreSQL without a D1 fallback", () => {
     const wranglerTestConfig = parseJsoncObject<{
-      d1_databases: Array<{
-        migrations_dir?: string;
+      d1_databases?: unknown[];
+      hyperdrive: Array<{
+        binding: string;
+        localConnectionString?: string;
       }>;
     }>(
       fs.readFileSync(
@@ -217,10 +220,15 @@ describe("auth db tooling proxies", () => {
       )
     );
 
-    expect(wranglerTestConfig.d1_databases).toHaveLength(1);
-    expect(wranglerTestConfig.d1_databases[0]?.migrations_dir).toBe(
-      "../../packages/db/drizzle"
+    expect(wranglerTestConfig.d1_databases).toBeUndefined();
+    expect(wranglerTestConfig.hyperdrive).toHaveLength(1);
+    expect(wranglerTestConfig.hyperdrive[0]?.binding).toBe(
+      "OPENMELD_POSTGRESQL"
     );
+    // The runtime harness injects its fresh isolated PostgreSQL URL.
+    expect(
+      wranglerTestConfig.hyperdrive[0]?.localConnectionString
+    ).toBeUndefined();
   });
 
   it("keeps auth local dev KV local", () => {

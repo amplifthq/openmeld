@@ -598,6 +598,19 @@ Neither event collection nor account queries start a conversation or model call.
 
 ### Agent Instruction Delivery
 
+Within one dispatch preparation, Documents, Skills, and Space instructions share
+one freshly resolved Agent identity and one authorized Space metadata response.
+Document and Skill directories load concurrently after that scope is established.
+Do not retain this context across Wakes or reuse it for later context-tool reads:
+those reads must check current authorization and Skill enablement. Explicit
+handoff Skill releases remain pinned. A failed directory read does not discard
+the other directory or the authorized Space metadata.
+
+The local dispatch journal records `bootstrap_read_completed` with the operation,
+duration, and loaded/failed status. These measurements describe preparation only;
+provider acceptance, useful first text, and final publication are separate
+milestones. Timing records do not contain directory contents or credentials.
+
 For a new Codex Session created by an ordinary Wake, Service derives an optional
 bounded title from the Agent Profile name and the current Wake text, before
 bootstrap instructions are rendered. After Codex accepts the first turn, its
@@ -624,6 +637,15 @@ language advisory remain per-turn input. A preference change therefore does not
 change the stable instruction epoch. Provider adapters must not maintain a
 second copy of either category or run a separate language detector/model call.
 
+Space Action submission rules are also stable instructions, conditional on the
+current Wake requiring a reply or silence action. The permitted completion
+action remains explicit in every Wake, including when both briefs are hidden.
+Native instruction delivery omits repeated submission rules from that turn's
+input; the complete fallback retains them. The content-derived epoch changes
+when those rules change, so older or unproven conversations receive the complete
+fallback. No history is summarized or removed and no native conversation is
+replaced for this optimization.
+
 The stable workflow applies only to OpenMeld Wakes. User messages, Space Guides,
 attachments, and history remain task context rather than runtime instructions
 or new permissions. Current completion guidance requires the permitted action
@@ -640,6 +662,13 @@ context reads or other business tools. When a context read fails before any
 Space Action submission, the Agent should report the blocker through the
 permitted completion action rather than invent results or silently finish.
 Shared text attachments use the dispatch `read_file` tool when available.
+Large local Space reads retain their complete in-memory result and expose
+bounded pages. Agents may use `read_result.query` to locate literal text in that
+original JSON without replaying every earlier page. Search excerpts remain
+untrusted task data. They neither summarize nor replace history, and broader
+questions still require additional searches or complete reads. Every search
+revalidates source access and version through the same owner as paging; results
+remain scoped to the active Wake and tool connection.
 Dispatch MCP tool processes retain the carrier's `OPENMELD_HOME`,
 `OPENMELD_AUTH_URL` and `OPENMELD_GATEWAY_URL` when present, alongside its
 environment preset. The shared adapter configuration forwards these non-secret
@@ -682,6 +711,13 @@ boundary. Codex, Claude Code, Cursor, Grok Build, OpenCode, and OpenClaw use
 their controller-native tool extension point and the same
 dispatch-owned action writer. Controllers without a proven structured-tool
 surface continue to use the exact dispatch-scoped CLI fallback.
+
+Codex native-tool admission reads MCP tools and authentication status when it
+only needs to exclude an alternate OpenMeld carrier. Unrelated resource discovery
+must not block that turn. Scoped MCP carriers still request the full inventory
+and verify tools, resources and resource templates, including delivery-only
+recovery. Narrowing ordinary inventory does not weaken the scoped isolation
+contract or increase initialization timeouts.
 
 Antigravity CLI does not currently expose a proven per-invocation structured-
 tool configuration surface. During an action-enabled dispatch, the adapter
@@ -979,7 +1015,7 @@ state.
 
 Absolute paths may cross Web, Gateway, Core, RuntimeTransportHub, and Service
 only in the authenticated Computer owner's immediate request-response. They
-must not be written to D1, Organization data, Agent Activity, cloud snapshots,
+must not be written to PostgreSQL, Organization data, Agent Activity, cloud snapshots,
 Center Agent context, browser persistence, logs, traces, or failure receipts.
 Service store failures expose only stable `computer.file_access.*` codes and
 path-free messages across process boundaries. The local typed error retains its
@@ -1201,6 +1237,13 @@ use a context-specific local lane and ledger key. The Service must not search
 the Profile's other contexts as a fallback or heal a missing scoped conversation
 by silently starting another one. Ledger v2 reads valid v1 state without resetting
 its native conversation mappings. Corrupt scoped evidence fails closed.
+
+New Codex and Claude contexts with `permissionSource: agent_settings` use the
+ordinary native tool, settings, hooks, MCP, and permission-mode path. The starting
+Project folder does not create a filesystem boundary. Computer File Access still
+applies when configured. Only explicit or retained bounded Claude project tasks
+prepare a container and replace native shell tools; creating a new conversation
+alone must not do either. Delivery-only correction retains its narrow purpose.
 
 The existing local slot owner enforces the five-context Profile cap and local
 resource exclusions. Isolated task folders have distinct canonical roots and
@@ -1764,7 +1807,7 @@ Legacy current-target Project operations remain available to existing clients.
 An operation response may contain an absolute local path only for immediate
 forwarding through Core and Gateway to the authenticated owner who initiated
 that request. Immediate forwarding is not storage. Local paths must never be
-written to D1, Agent Activity events or projections, cloud snapshots,
+written to PostgreSQL, Agent Activity events or projections, cloud snapshots,
 Organization-shared Project records, or Center Agent context. Logs, traces,
 failure receipts, and diagnostics that cross the local trust boundary use
 Project ID, device ID, candidate ID, and binding generation instead of the
@@ -1873,7 +1916,7 @@ is unavailable.
 
 Selected paths may cross Web, Gateway, Core, RuntimeTransportHub, and Service
 only in the authenticated owner's immediate request-response. They must never
-enter command arguments, D1, browser persistence, logs, traces, failure
+enter command arguments, PostgreSQL, browser persistence, logs, traces, failure
 receipts, diagnostics, Agent Activity, Organization state, or Center Agent
 context. Scripts are supplied through stdin where the platform requires them,
 and the adapter returns its typed result through supervised stdout. Selected

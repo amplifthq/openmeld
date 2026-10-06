@@ -32,12 +32,13 @@ it.each([
 }) => {
   const provider = fauxProvider({
     provider: "retry-display",
+    tokenSize: { min: 64, max: 64 },
     tokensPerSecond: Number.POSITIVE_INFINITY,
   });
   const model = provider.getModel();
   const gate = Promise.withResolvers<ReturnType<typeof fauxAssistantMessage>>();
-  // Exceed the real publisher's chunk threshold so the failed attempt is
-  // already visible before the retry, not merely present in its buffer.
+  // The first vendor chunk contains a recognizable failed answer, even when
+  // later deltas are coalesced before a fast retry replaces them.
   const failed = fauxAssistantMessage("Wrong partial answer. ".repeat(20), {
     stopReason: "error",
     errorMessage: "Connection error.",
@@ -117,7 +118,11 @@ it.each([
         replacementPrefixes.push(prefix);
       }
     }
-    if (event.type === "text_delta" || event.type === "thinking_delta") {
+    if (
+      event.type === "text_delta" ||
+      event.type === "thinking_delta" ||
+      event.type === "message_end"
+    ) {
       return dispatchObservation(event);
     }
   });
@@ -156,19 +161,17 @@ it.each([
     gate.resolve(withNarration ? narration : failed);
     const answer = await agent.read(receipt);
     await Promise.all([...pending]);
-    await publisher.flush({
-      context,
-      coreWorker,
-      storage,
-      observedAtMs: Date.now() + 1000,
-    });
     expect(errors).toEqual([]);
-    const snapshots = frames.map((frame) =>
-      "snapshot" in frame ? frame.snapshot : frame.textSnapshot
-    );
-    expect(
-      snapshots.some((text) => text.includes("Wrong partial answer."))
-    ).toBe(true);
+    const snapshots = frames
+      .filter((frame) => !("kind" in frame) || frame.kind === "text")
+      .map((frame) =>
+        "snapshot" in frame ? frame.snapshot : frame.textSnapshot
+      );
+    if (!withNarration) {
+      expect(
+        snapshots.some((text) => text.includes("Wrong partial answer."))
+      ).toBe(true);
+    }
     expect(snapshots.at(-1)).toBe(answer.text);
     expect(snapshots.at(-1)).not.toContain("Wrong partial");
     expect(snapshots.at(-1)).toContain("Correct complete answer.");

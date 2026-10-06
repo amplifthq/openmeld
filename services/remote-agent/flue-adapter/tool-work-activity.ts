@@ -174,6 +174,7 @@ const TOOL_WORK_BY_NAME = new Map<string, AgentWorkActivityKey>([
   ["openmeld_update_routine", "routine.update"],
   ["openmeld_update_space_settings", "space.settings.update"],
   ["openmeld_wake_agent_profiles_in_space", "space.agents.wake"],
+  ["openmeld_wake_agent_profiles_in_spaces", "space.agents.wake"],
   ["openmeld_watch_agent_task", "task.watch"],
   ["web_fetch", "webpage.read"],
   ["web_search", "web.search"],
@@ -272,6 +273,34 @@ const WEBSITE_SUBJECT_TOOL_NAMES = new Set([
   "web_fetch",
 ]);
 
+function resolveComputerWorkActivity(
+  toolInput: unknown,
+  toolResult: unknown
+): AgentWorkActivity | null {
+  const request = toRecord(toolInput);
+  if (request?.action === "files") {
+    const names: Record<string, string> = {
+      ls: "read",
+      find: "glob",
+      delete: "edit",
+    };
+    const name = typeof request.tool === "string" ? request.tool : "";
+    return resolveRemoteAgentToolWorkActivity(
+      names[name] ?? name,
+      request.input,
+      toolResult
+    );
+  }
+  if (request?.action === "command") {
+    return resolveRemoteAgentToolWorkActivity(
+      "computer_command",
+      request.input,
+      toolResult
+    );
+  }
+  return null;
+}
+
 export function resolveRemoteAgentToolWorkActivity(
   toolName: unknown,
   toolInput: unknown,
@@ -280,8 +309,22 @@ export function resolveRemoteAgentToolWorkActivity(
   if (typeof toolName !== "string") {
     return null;
   }
+  if (toolName === "computer") {
+    return resolveComputerWorkActivity(toolInput, toolResult);
+  }
+  if (toolName === "computer_command") {
+    const request = toRecord(toolInput);
+    return request?.action === "start" &&
+      request.backend !== "worker-javascript"
+      ? resolveCommandAgentWorkActivity(readCommand(request))
+      : null;
+  }
   const key =
-    TOOL_WORK_BY_NAME.get(toolName) ?? GITHUB_TOOL_WORK_BY_NAME.get(toolName);
+    toolName === "openmeld_install_organization_skill" &&
+    toRecord(toolInput)?.action === "begin_import_batch"
+      ? "organization.skills.read"
+      : (TOOL_WORK_BY_NAME.get(toolName) ??
+        GITHUB_TOOL_WORK_BY_NAME.get(toolName));
   if (key) {
     const subject = resolveSafeToolSubject(toolName, toolInput);
     if (CONNECTED_APP_SUBJECT_TOOL_NAMES.has(toolName) && !subject) {

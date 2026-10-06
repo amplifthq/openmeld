@@ -2,6 +2,135 @@
   "schemaVersion": 1,
   "entries": [
     {
+      "id": "faster-inbox-and-team-loading",
+      "title": "Faster Inbox and Team loading",
+      "kind": "improved",
+      "areas": [
+        "inbox",
+        "team",
+        "spaces"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-06",
+      "evidence": [
+        "pr:1524",
+        "commit:20425528edfe6aec5b11700e52cef34735e284aa",
+        "workflow:37365763256"
+      ],
+      "body": "Inbox starts loading earlier. Inbox, Team, and conversation lists retain loaded\ncontent through an overnight pause in the same browser tab, then refresh when\nyou return.\nBackground refresh keeps visible items in place and finishes before loading\nolder items. Inbox and Team also make fewer sequential database requests.\n\nSpace lists use live updates with less frequent background recovery checks,\nreducing unnecessary requests while the app is idle."
+    },
+    {
+      "id": "postgresql-workspace-response-time",
+      "title": "More responsive workspace pages",
+      "kind": "improved",
+      "areas": [
+        "inbox",
+        "spaces",
+        "organizations",
+        "accounts"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-05",
+      "evidence": [
+        "pr:1513",
+        "commit:d799f3f66b6465564f4a9f11709a16292541db2d",
+        "workflow:37296182775",
+        "workflow:37299205735"
+      ],
+      "body": "Inbox and Team pages do less repeated work when loading counts, agents, and computers. Live notifications avoid frequent empty requests while their connection is active. Refreshing the app keeps the current account photo while checking for its latest avatar."
+    },
+    {
+      "id": "file-download-byte-integrity",
+      "title": "Download Files reliably through the CLI",
+      "kind": "fixed",
+      "areas": [
+        "files",
+        "cli"
+      ],
+      "audiences": [
+        "users",
+        "integrators"
+      ],
+      "publishedAt": "2026-10-04",
+      "release": "v0.3.241",
+      "evidence": [
+        "pr:1500",
+        "commit:6a63bd5a001137eed6f01248b01f402e2380f714",
+        "commit:0d8867a3e491b82450e2803f866ba799cd12b5d4",
+        "workflow:37203295108"
+      ],
+      "body": "CLI reads and downloads preserve the original bytes of My Files, Team Files, and Space Files. File responses now prevent edge compression from removing the length information required by the CLI's integrity check."
+    },
+    {
+      "id": "message-actions-clipping",
+      "title": "Keep message actions fully visible",
+      "kind": "fixed",
+      "areas": [
+        "spaces",
+        "web",
+        "desktop"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-10-04",
+      "evidence": [
+        "pr:1503",
+        "pr:1507",
+        "commit:88b0a3114b9894af5b748da492c62759bd4a2a81",
+        "commit:a956440cb31b9388c9f6469d5b6b7162eb9bf458",
+        "desktop-candidate:5b005262390436c05458e67a87b2051d99835eae687f3412d2fe78b6c2c20eab"
+      ],
+      "body": "Message actions remain fully visible above wide message bubbles, including\nconsecutive messages with an error. The error details and other actions are\nno longer cut off at the top of the message."
+    },
+    {
+      "id": "native-reply-inbox",
+      "title": "Keep remote Agent replies visible in Inbox",
+      "kind": "fixed",
+      "areas": [
+        "inbox",
+        "agents"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-04",
+      "release": "v0.3.241",
+      "evidence": [
+        "pr:1502",
+        "pr:1506",
+        "commit:585184c808cf88810acd332eef7b366883d08cfa",
+        "commit:1f311a527f036ee3fcc9493a9702abd23f8b986d"
+      ],
+      "body": "Replies and failure notices from remote Agents now reach the member who started the request in a Space. Other members do not receive an update unless they are addressed or participate in the relevant thread."
+    },
+    {
+      "id": "postgresql-foundation",
+      "title": "Run OpenMeld on PostgreSQL",
+      "kind": "new",
+      "areas": [
+        "database",
+        "development"
+      ],
+      "audiences": [
+        "contributors",
+        "operators"
+      ],
+      "publishedAt": "2026-10-04",
+      "release": "v0.3.241",
+      "evidence": [
+        "pr:1460",
+        "commit:d6978e1bec2ce90e27340f075a352ca978402c66",
+        "commit:a2a57cb3fd04b2555575b60ace25a6d6dca315a4",
+        "workflow:37203295108"
+      ],
+      "body": "OpenMeld now stores shared production data in PlanetScale PostgreSQL 18 through Cloudflare Hyperdrive. The cutover preserves existing accounts, organizations, Projects, Agent Profiles, and Inbox records. Space history and files retain their existing storage owners.\n\nContributors can run the complete local product on an isolated PostgreSQL database and rehearse D1 imports with synthetic data. The database preserves accounts and messages across restarts. Native migration, permission, concurrency, and recovery checks cover the shared database contracts.\n\nThe guarded production migration checks every imported field, the frozen-source write barrier, the native migration journal, and runtime permissions. Operators retain the frozen source and native backup evidence. Scheduled work resumes through an explicit restore action after product acceptance.\n\nAfter the PostgreSQL cutover is complete, operators can publish the CLI through the existing GitHub Actions workflow and npm Trusted Publishing. Publication requires matching database and live service release evidence. The workflow does not need a local npm login, database migration credentials, or a private data snapshot."
+    },
+    {
       "id": "agent-initiated-direct-messages",
       "title": "Agents can start Direct Messages",
       "kind": "new",
@@ -110,6 +239,27 @@
       "body": "Desktop 0.1.18 brings the latest conversation, Inbox, and Skills improvements\nto Mac and the Windows x64 preview, alongside OpenMeld Tools 0.3.238.\n\nThe Mac release is signed by OpenMeld and notarized by Apple. Existing installations can\nupdate from Settings without signing in again. Windows x64 remains an unsigned\ninternal preview with a downloadable installer and no automatic updates."
     },
     {
+      "id": "desktop-connected-computer-state",
+      "title": "Desktop recognizes an already connected computer",
+      "kind": "fixed",
+      "areas": [
+        "desktop",
+        "computers"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-10-03",
+      "release": "v0.3.240",
+      "evidence": [
+        "pr:1483",
+        "commit:15549cc047d90f90edfbe2a1209919681a1e7e24",
+        "workflow:37138467122",
+        "https://openmeld.ai/desktop?candidate=d26801c5b9439dfe0f47eea747d50c22157b2ff729c31fd4b0b864d40faa3d69"
+      ],
+      "body": "Desktop’s Computer entry checks this Mac’s existing connection before offering\nsetup. Connected computers show their connection status, and a completed\nreconnection returns to connection management instead of offering Connect again.\nAfter disconnecting, Desktop no longer describes the signed-out computer as\nconnected to another account."
+    },
+    {
       "id": "consistent-inline-mention-badges",
       "title": "Keep mention badges consistent before and after sending",
       "kind": "fixed",
@@ -147,6 +297,27 @@
         "workflow:37112710810"
       ],
       "body": "Restored or stopped computer connections and resolved system requests now appear\nunder System updates instead of crowding the Inbox with separate rows. Requests\nthat still need attention and important execution outcomes remain separate."
+    },
+    {
+      "id": "center-agent-chat-welcome",
+      "title": "Keep welcome greetings out of Center Agent chat history",
+      "kind": "fixed",
+      "areas": [
+        "center-agent",
+        "spaces"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-10-03",
+      "release": "v0.3.240",
+      "evidence": [
+        "pr:1483",
+        "commit:15549cc047d90f90edfbe2a1209919681a1e7e24",
+        "commit:a76ffd7eb654e78ad0be127cea8deb944c18d10f",
+        "commit:5f5ec1d00ab8dc7f6d7bf8e00a912cd03a93abb2"
+      ],
+      "body": "Opening or preparing a Center Agent chat no longer adds a template greeting to\nthe conversation. Starting guidance stays in the chat introduction, so an\nexisting conversation cannot receive a welcome message that looks like an\nunsolicited Agent reply. Previous messages remain available."
     },
     {
       "id": "space-reading-position-ownership",
@@ -379,6 +550,27 @@
       "body": "Development cleanup preserves nested registered workspaces instead of deleting\ntheir local files with a parent directory. Core deployments check that the\nrelease source's database migrations have completed before changing production.\nFocused validation runs selected unit and integration tests with their owning\nconfigurations and reports an error when a selected file cannot be run."
     },
     {
+      "id": "center-agent-reasoning-save",
+      "title": "Save Center Agent reasoning effort",
+      "kind": "fixed",
+      "areas": [
+        "center-agent",
+        "settings"
+      ],
+      "audiences": [
+        "admins"
+      ],
+      "publishedAt": "2026-10-03",
+      "release": "v0.3.240",
+      "evidence": [
+        "pr:1486",
+        "commit:15549cc047d90f90edfbe2a1209919681a1e7e24",
+        "commit:a76ffd7eb654e78ad0be127cea8deb944c18d10f",
+        "commit:5f5ec1d00ab8dc7f6d7bf8e00a912cd03a93abb2"
+      ],
+      "body": "Center Agent model settings now save your selected reasoning effort and keep it\nafter you reload. Choosing an effort while using OpenMeld default saves it with\nthe current model. You can return to OpenMeld default to follow the recommended\nmodel and reasoning effort again."
+    },
+    {
       "id": "immediate-agent-stop",
       "title": "Stop an Agent as soon as you send",
       "kind": "improved",
@@ -403,6 +595,28 @@
         "workflow:37113245618"
       ],
       "body": "Stop is available from the first optimistic message, including new-chat\npreparation. A single click shows Stopping immediately, keeps the partial\nanswer, and waits for confirmation before showing Stopped. Unconfirmed stops\nremain retryable when the connection fails.\n\nConversation progress uses Thinking instead of exposing internal Wake and\nconnection steps, while useful tool activity, waiting, and approval states\nremain visible. CLI and personal Remote Agents can stop the same exact request\nbefore its first progress snapshot exists."
+    },
+    {
+      "id": "one-to-one-space-wake-and-progress",
+      "title": "Talk directly to the only Agent in a Space",
+      "kind": "improved",
+      "areas": [
+        "spaces",
+        "agents"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-03",
+      "release": "v0.3.240",
+      "evidence": [
+        "pr:1487",
+        "commit:15549cc047d90f90edfbe2a1209919681a1e7e24",
+        "commit:a76ffd7eb654e78ad0be127cea8deb944c18d10f",
+        "commit:5f5ec1d00ab8dc7f6d7bf8e00a912cd03a93abb2",
+        "workflow:37138463357"
+      ],
+      "body": "In a Space with one person and one Agent, messages can reach the Agent without\nan @mention. Adding another member restores explicit addressing; one-person,\none-Agent Threads keep their independent automatic addressing.\n\nWorking status stays visible while a Center Agent chooses where to reply.\nThinking updates no longer create an empty Thread before an answer appears in\nthe main conversation.\n\nCenter and Remote Agents can choose main or Thread to match your instructions\nand the task, and change that choice before final publication. Live work and\nthe reply draft follow the current choice together.\n\nReplies show live work and elapsed time in the conversation. Short answers\nappear as soon as they arrive, without waiting for conversation compaction."
     },
     {
       "id": "native-continuation-trace",

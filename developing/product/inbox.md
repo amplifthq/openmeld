@@ -91,7 +91,7 @@ heartbeat and alarm owner. A compatible, dispatch-accepting live session first
 establishes expected availability. The existing lease TTL is the reconnect grace;
 initial registration, explicit unknown state, user stop and controlled update do
 not establish a fault. One durable incident and a bounded projection retry slice
-survive Hub restart and D1 failure. Recovery uses the same owner-Service online
+survive Hub restart and PostgreSQL failure. Recovery uses the same owner-Service online
 evidence as Computer connection status, not socket presence, dispatch admission
 or execution compatibility. Confirmed connectivity ends the same incident and
 removes its priority and pending-action contribution without a user visit.
@@ -401,7 +401,9 @@ records Dismiss in `clearedAt`; the item row is not hard-deleted. The retained
 recipient/source uniqueness row is the durable replay fence that prevents a
 source reconciler from recreating the item or resending delivery. Dismiss is
 idempotent and authorized against the recipient's current source access.
-Organization and account deletion still follow their canonical cascade. A
+Organization deletion follows its canonical cascade. Account deletion explicitly
+purges the recipient's Inbox through the durable cleanup owner while retaining a
+non-signable identity tombstone for shared work attribution. A
 future payload-retention pass must first preserve a content-free source receipt
 or tombstone.
 
@@ -634,20 +636,28 @@ are disjoint: open action/review, unread urgent update, unread mention, and othe
 unread update. Core computes the projection over the complete accessible Inbox;
 clients never reconstruct it from a loaded page.
 
-The compact preview uses the same summary breakdown. It separately queries
-**Needs action**, **Needs review**, **Urgent updates**, **Mentions**, and unread
-**Recent updates**, in that order, without duplicating an item across groups.
-The `urgent_updates` list view
-uses the same predicate as the urgent update count, so older urgent updates
-cannot be displaced by a page of newer ordinary messages. The `mentions` view
-selects unread structured Human mentions independently of recency. The
-`recent_updates` view independently selects unread items outside all stronger
-attention groups so a page of actions, urgent updates, or mentions cannot starve
-ordinary updates either. That mentions exclusion applies only to the opt-in
-`presentation=attention` projection; legacy/raw `recent_updates` callers keep
-mentions because they do not query the separate group. The bounded preview
-reserves room for each group; full Inbox remains the complete list. It may say
-**All caught up** only when there are no unresolved actions and no unread items.
+The toolbar preview uses the canonical `GET /v1/inbox/feed` with the full
+Inbox's All category and Space grouping. It shares the **Needs your attention**
+and **Updates** sections, source access, ordering, expansion preferences and
+read mutations. Open requests remain visible after reading; read history remains
+browsable. Resolved system history stays inside **System updates**, and Space
+updates retain their conversation groups. Clients never group a truncated page
+of individual events or derive summary counts from the displayed rows.
+
+The preview fetches twelve grouped rows per page and loads the next page when
+the scroll sentinel becomes visible. Expanded collections use the shared
+bounded member pages and **Show more** control in the same scroll area.
+Initial loading, initial failure, refresh failure and pagination failure remain
+distinct; failed refreshes and pagination retain loaded content with a retry.
+Expired snapshots disable group mutations until refreshed. Opening the preview
+or expanding a group does not mark it read. Group read actions retain frozen
+snapshot membership and never resolve pending work.
+
+Compact rows bound their title and summary, with accessible read actions.
+The fixed footer always offers **Open full Inbox** for search, filters and
+removal; the header provides **Close Inbox**. The Core summary alone supplies
+the header status and may say **All caught up** only when there are no unresolved
+actions and no unread items. An empty feed says **No updates yet**.
 
 ### Space message unread behavior
 
@@ -1047,10 +1057,10 @@ adapters without changing Inbox truth.
 - Inbox stays out of the primary product rail. A bottom-right global launcher
   remains available across the authorized Web shell and shows the
   high-attention count.
-- Activating the launcher opens a responsive compact preview. The preview keeps
-  source navigation and read-on-open behavior, shows **Needs action**, **Needs review**, and
-  **Recent updates** together when both exist, and its maximize action opens the
-  canonical full Inbox page.
+- Activating the launcher opens a responsive compact version of the canonical
+  grouped feed, with source navigation, read-on-open, group read actions and
+  continuous pagination. **Open full Inbox** remains visible below the scroll
+  area and opens the canonical page.
 - Unread Center Agent replies show the rail dot in every rail tier and clear
   only through the visible-message read-through contract.
 - Explicit Center Agent response requests classify normal versus urgent from

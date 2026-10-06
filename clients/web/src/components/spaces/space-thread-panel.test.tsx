@@ -292,7 +292,7 @@ describe("SpaceThreadPanel", () => {
 
 	it("hides redundant mention guidance in an Agent DM thread", () => {
 		renderThreadPanel({
-			agentDirectConversationKind: "direct_message",
+			automaticWakeConversationKind: "one_human_agent",
 		});
 
 		expect(
@@ -382,7 +382,7 @@ describe("SpaceThreadPanel", () => {
 			],
 		});
 		const activityTrigger = screen.getByRole("button", {
-			name: "Thinking…. Work summary: Reviewing source files…",
+			name: "Working…. Work summary: Reviewing source files…",
 		});
 		expect(activityTrigger.getAttribute("aria-expanded")).toBe("true");
 		const progressRow = activityTrigger.closest(
@@ -1076,22 +1076,20 @@ describe("SpaceThreadPanel", () => {
 		expect(sourceMessage?.getAttribute("data-align")).toBe("start");
 	});
 
-	it("gives a stopped Wake a muted outcome row in the thread instead of a destructive one", () => {
+	it("shows Stopped in the Agent reply surface inside a thread", () => {
 		renderThreadPanel({
 			signals: [
 				createSystemNoticeSignal({
 					id: "sig-thread-stopped",
+					actorProfileId: TARGET_PROFILE_ID,
 					noticeType: "wake_stopped",
 					text: "Wake was stopped for Runner.",
 				}),
 			],
 		});
 
-		const marker = screen
-			.getByText("Wake was stopped for Runner.")
-			.closest("[data-slot='marker']");
-		expect(marker?.className).toContain("text-muted-foreground");
-		expect(marker?.className).not.toContain("text-destructive");
+		expect(screen.getByText("(Request stopped)")).toBeTruthy();
+		expect(screen.queryByTestId("space-outcome-row")).toBeNull();
 	});
 
 	it("shows the outcome row text but hides the Message details action for a read-only thread viewer", () => {
@@ -1248,6 +1246,7 @@ describe("SpaceThreadPanel", () => {
 					selector: {
 						by: "client_message",
 						clientMessageId: "client-message-1",
+						dispatchId: "dispatch-1",
 						targetProfileId: TARGET_PROFILE_ID,
 					},
 					status: "active",
@@ -1424,7 +1423,7 @@ function renderThreadPanel(
 			updatedAt: "2026-04-11T00:00:00.000Z",
 		},
 		agentRecoveryPlansByProfileId: new Map(),
-		agentDirectConversationKind: null,
+		automaticWakeConversationKind: null,
 		agentStreams: [],
 		composerBlockedWakeProfileId: null,
 		composerErrorMessage: null,
@@ -1741,7 +1740,7 @@ function createWakeProgressItem(input?: {
 		clientMessageId: "client-message-1",
 		dispatchId: "dispatch-1",
 		failureReasonCode: null,
-		message: "@runner · Thinking… on this computer...",
+		message: "@runner · Working… on this computer...",
 		phase: "running",
 		sourceSignalId: "sig-thread-wake",
 		targetLabel: "@runner",

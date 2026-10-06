@@ -1,3 +1,9 @@
+import {
+  PostgresDatabase,
+  type QueryConfig,
+  type QueryResultRow,
+  withPostgresRequest,
+} from "@openmeld/db/postgresql";
 import { selectLastSelectedOrganizationErrorResponseSchema } from "@openmeld/schemas";
 import { HTTPException } from "hono/http-exception";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -63,17 +69,24 @@ const localAuthUserStoreMock = {
   hasUserById: vi.fn(),
 };
 
-// D1Database shape: db.prepare(sql).bind(...values).first<T>(). Organization
-// membership and Center Agent Organization-name lookups exercise this mock.
+// Pure Auth read projections use the native vendor result contract.
 const dbMock = {
-  prepare: vi.fn(),
+  query:
+    vi.fn<
+      (query: QueryConfig) => Promise<ReturnType<typeof nativeQueryResult>>
+    >(),
 };
 
 vi.mock("@openmeld/auth/server", async () => {
   const profileErrorsActual = await vi.importActual<
     typeof import("../../../packages/auth/src/profiles/profile-errors")
   >("../../../packages/auth/src/profiles/profile-errors");
+  const { createAuthDatabase } =
+    await vi.importActual<typeof import("@openmeld/db/auth")>(
+      "@openmeld/db/auth"
+    );
   return {
+    createAuthDatabase,
     AUTH_SERVICE_NAME: "openmeld-auth",
     AdditionalHumanProfileCreationDisabledError:
       profileErrorsActual.AdditionalHumanProfileCreationDisabledError,
@@ -131,7 +144,11 @@ vi.mock("../src/lib/better-auth/local-auth-user-store", () => ({
 import { AdditionalHumanProfileCreationDisabledError } from "@openmeld/auth/server";
 import { createHonoApp } from "../src/lib/hono/create-hono-app";
 import { AuthRpcEntrypoint } from "../src/lib/rpc/entrypoint";
+import { createAuthWorkerTestApp } from "./support/auth-worker-entrypoint.test-support";
 
+function nativeQueryResult(rows: QueryResultRow[]) {
+  return { rows, rowCount: rows.length, fields: [], command: "SELECT", oid: 0 };
+}
 const TEST_EXECUTION_CONTEXT = {
   waitUntil: () => undefined,
   passThroughOnException: () => undefined,
@@ -141,7 +158,9 @@ const TEST_EXECUTION_CONTEXT = {
 
 const TEST_ENV = {
   AUTH_WORKER_NODE_ENV: "test",
-  OPENMELD_DB: dbMock,
+  OPENMELD_POSTGRESQL: {
+    connectionString: "postgresql://projection@127.0.0.1:1/projection",
+  },
 } as unknown as CloudflareBindings;
 
 describe("auth session resolution", () => {
@@ -176,7 +195,14 @@ describe("auth session resolution", () => {
     waitlistServiceMock.joinWaitlist.mockReset();
     localAuthUserStoreMock.hasUserById.mockReset();
     localAuthUserStoreMock.hasUserById.mockResolvedValue(true);
-    dbMock.prepare.mockReset();
+    dbMock.query.mockReset();
+    dbMock.query.mockResolvedValue(nativeQueryResult([]));
+    vi.spyOn(PostgresDatabase.prototype, "query").mockImplementation(
+      async (query, values) =>
+        dbMock.query(
+          typeof query === "string" ? { text: query, values } : query
+        )
+    );
   });
 
   afterEach(() => {
@@ -188,7 +214,7 @@ describe("auth session resolution", () => {
       expect(requestStateActive).toBe(true);
       return null;
     });
-    const app = createHonoApp();
+    const app = createAuthWorkerTestApp();
 
     const response = await app.fetch(
       new Request("http://local/v1/profiles"),
@@ -202,7 +228,7 @@ describe("auth session resolution", () => {
 
   it("returns 401 when profile routes are genuinely unauthenticated", async () => {
     authMock.api.getSession.mockResolvedValue(null);
-    const app = createHonoApp();
+    const app = createAuthWorkerTestApp();
 
     const response = await app.fetch(
       new Request("http://local/v1/profiles"),
@@ -232,7 +258,7 @@ describe("auth session resolution", () => {
       },
     });
     localAuthUserStoreMock.hasUserById.mockResolvedValue(false);
-    const app = createHonoApp();
+    const app = createAuthWorkerTestApp();
 
     const response = await app.fetch(
       new Request("http://local/v1/profiles"),
@@ -303,8 +329,12 @@ describe("auth session resolution", () => {
     const first = vi.fn().mockResolvedValue({
       organization_id: "org-amplift",
     });
-    const bind = vi.fn(() => ({ first }));
-    dbMock.prepare.mockReturnValue({ bind });
+    const bind = vi.fn();
+    dbMock.query.mockImplementation(async ({ values }) => {
+      bind(...(values ?? []));
+      const row = await first();
+      return nativeQueryResult(row ? [row] : []);
+    });
     const rpc = new AuthRpcEntrypoint(TEST_EXECUTION_CONTEXT, TEST_ENV);
 
     await expect(
@@ -336,7 +366,7 @@ describe("auth session resolution", () => {
       ok: false,
     });
     expect(authMock.api.getSession).not.toHaveBeenCalled();
-    expect(dbMock.prepare).not.toHaveBeenCalled();
+    expect(dbMock.query).not.toHaveBeenCalled();
   });
 
   it("rejects retired direct Profile selector fields before reading a session", async () => {
@@ -352,7 +382,7 @@ describe("auth session resolution", () => {
       ok: false,
     });
     expect(authMock.api.getSession).not.toHaveBeenCalled();
-    expect(dbMock.prepare).not.toHaveBeenCalled();
+    expect(dbMock.query).not.toHaveBeenCalled();
     expect(profileServiceMock.resolveProfileForOwner).not.toHaveBeenCalled();
   });
 
@@ -369,8 +399,12 @@ describe("auth session resolution", () => {
       },
     });
     const first = vi.fn().mockResolvedValue(null);
-    const bind = vi.fn(() => ({ first }));
-    dbMock.prepare.mockReturnValue({ bind });
+    const bind = vi.fn();
+    dbMock.query.mockImplementation(async ({ values }) => {
+      bind(...(values ?? []));
+      const row = await first();
+      return nativeQueryResult(row ? [row] : []);
+    });
     const rpc = new AuthRpcEntrypoint(TEST_EXECUTION_CONTEXT, TEST_ENV);
 
     await expect(
@@ -391,7 +425,7 @@ describe("auth session resolution", () => {
     authMock.api.getSession.mockRejectedValue(
       new Error("session db unavailable")
     );
-    const app = createHonoApp();
+    const app = createAuthWorkerTestApp();
 
     const response = await app.fetch(
       new Request("http://local/v1/profiles"),
@@ -415,7 +449,7 @@ describe("auth session resolution", () => {
     authMock.api.getSession.mockRejectedValue(
       new Error("session upstream unavailable")
     );
-    const app = createHonoApp();
+    const app = createAuthWorkerTestApp();
 
     const response = await app.fetch(
       new Request("http://local/v1/account/last-selected-organization", {
@@ -477,7 +511,7 @@ describe("auth session resolution", () => {
         },
       ]
     );
-    const app = createHonoApp();
+    const app = createAuthWorkerTestApp();
 
     const response = await app.fetch(
       new Request("http://local/v1/profiles"),
@@ -539,7 +573,7 @@ describe("auth session resolution", () => {
         },
       ]
     );
-    const app = createHonoApp();
+    const app = createAuthWorkerTestApp();
 
     const response = await app.fetch(
       new Request("http://local/v1/profiles"),
@@ -559,7 +593,7 @@ describe("auth session resolution", () => {
     authMock.api.getSession.mockRejectedValue(
       new Error("session db unavailable")
     );
-    const app = createHonoApp();
+    const app = createAuthWorkerTestApp();
 
     const response = await app.fetch(
       new Request("http://local/v1/profiles/agents", {
@@ -597,8 +631,12 @@ describe("auth session resolution", () => {
     const membershipFirst = vi.fn().mockResolvedValue({
       organization_id: "organization-amplift",
     });
-    const membershipBind = vi.fn(() => ({ first: membershipFirst }));
-    dbMock.prepare.mockReturnValue({ bind: membershipBind });
+    const membershipBind = vi.fn();
+    dbMock.query.mockImplementation(async ({ values }) => {
+      membershipBind(...(values ?? []));
+      const row = await membershipFirst();
+      return nativeQueryResult(row ? [row] : []);
+    });
     profileServiceMock.createAgentProfile.mockResolvedValue({
       profileId: "agt_11111111-1111-4111-8111-111111111111",
       profileName: "Research Agent",
@@ -615,7 +653,7 @@ describe("auth session resolution", () => {
       createdAt: new Date("2026-08-18T00:00:00.000Z"),
       updatedAt: new Date("2026-08-18T00:00:00.000Z"),
     });
-    const app = createHonoApp();
+    const app = createAuthWorkerTestApp();
 
     const response = await app.fetch(
       new Request("http://local/v1/profiles/agents", {
@@ -678,7 +716,7 @@ describe("auth session resolution", () => {
       createdAt: new Date("2026-08-18T00:00:00.000Z"),
       updatedAt: new Date("2026-08-18T00:00:00.000Z"),
     });
-    const app = createHonoApp();
+    const app = createAuthWorkerTestApp();
 
     const response = await app.fetch(
       new Request("http://local/v1/profiles/agents", {
@@ -721,7 +759,7 @@ describe("auth session resolution", () => {
     waitlistServiceMock.joinWaitlist.mockResolvedValue({
       status: "created",
     });
-    const app = createHonoApp();
+    const app = createAuthWorkerTestApp();
 
     const healthResponse = await app.fetch(
       new Request("http://local/health"),
@@ -767,10 +805,14 @@ describe("auth session resolution", () => {
       });
     });
 
-    const response = await app.fetch(
-      new Request("http://local/__tests/http-exception"),
-      TEST_ENV,
-      TEST_EXECUTION_CONTEXT
+    const response = await withPostgresRequest(
+      TEST_ENV.OPENMELD_POSTGRESQL,
+      () =>
+        app.fetch(
+          new Request("http://local/__tests/http-exception"),
+          TEST_ENV,
+          TEST_EXECUTION_CONTEXT
+        )
     );
 
     expect(response.status).toBe(418);
@@ -1108,11 +1150,9 @@ describe("auth session resolution", () => {
   });
 
   it("ensures the Center Agent profile with its Organization name", async () => {
-    dbMock.prepare.mockReturnValue({
-      bind: vi.fn().mockReturnValue({
-        first: vi.fn().mockResolvedValue({ name: "OpenMeld Official" }),
-      }),
-    });
+    dbMock.query.mockResolvedValue(
+      nativeQueryResult([{ name: "OpenMeld Official" }])
+    );
     profileServiceMock.ensureManagedAgentProfile.mockResolvedValue({
       profileId: "agt_22222222-2222-4222-8222-222222222222",
       profileName: "OpenMeld Official Center Agent",
@@ -1145,8 +1185,10 @@ describe("auth session resolution", () => {
       }),
     });
     expect(authMock.api.getSession).not.toHaveBeenCalled();
-    expect(dbMock.prepare).toHaveBeenCalledWith(
-      expect.stringContaining("FROM organizations")
+    expect(dbMock.query).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining('FROM "openmeld"."organizations"'),
+      })
     );
     expect(profileServiceMock.ensureManagedAgentProfile).toHaveBeenCalledWith({
       createdByUserId: null,
@@ -1163,8 +1205,12 @@ describe("auth session resolution", () => {
       organization_name: "Previous Org",
       role: "member",
     });
-    const bind = vi.fn().mockReturnValue({ first });
-    dbMock.prepare.mockReturnValue({ bind });
+    const bind = vi.fn();
+    dbMock.query.mockImplementation(async ({ values }) => {
+      bind(...(values ?? []));
+      const row = await first();
+      return nativeQueryResult(row ? [row] : []);
+    });
     const rpc = new AuthRpcEntrypoint(TEST_EXECUTION_CONTEXT, TEST_ENV);
 
     await expect(
@@ -1195,8 +1241,12 @@ describe("auth session resolution", () => {
       id: "user-123",
       name: "Connector owner",
     });
-    const bind = vi.fn().mockReturnValue({ first });
-    dbMock.prepare.mockReturnValue({ bind });
+    const bind = vi.fn();
+    dbMock.query.mockImplementation(async ({ values }) => {
+      bind(...(values ?? []));
+      const row = await first();
+      return nativeQueryResult(row ? [row] : []);
+    });
     const rpc = new AuthRpcEntrypoint(TEST_EXECUTION_CONTEXT, TEST_ENV);
 
     await expect(
@@ -1243,8 +1293,12 @@ describe("auth session resolution", () => {
       user_id: "user-123",
       user_name: "Ari",
     });
-    const bind = vi.fn().mockReturnValue({ first });
-    dbMock.prepare.mockReturnValue({ bind });
+    const bind = vi.fn();
+    dbMock.query.mockImplementation(async ({ values }) => {
+      bind(...(values ?? []));
+      const row = await first();
+      return nativeQueryResult(row ? [row] : []);
+    });
     const rpc = new AuthRpcEntrypoint(TEST_EXECUTION_CONTEXT, TEST_ENV);
 
     await expect(
@@ -1272,8 +1326,10 @@ describe("auth session resolution", () => {
         slug: "ari",
       },
     });
-    expect(dbMock.prepare).toHaveBeenCalledWith(
-      expect.stringContaining("human_profiles.organization_id IS NULL")
+    expect(dbMock.query).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining("human_profiles.organization_id IS NULL"),
+      })
     );
     expect(bind).toHaveBeenCalledWith("user-123", "org-123");
   });
@@ -1293,8 +1349,12 @@ describe("auth session resolution", () => {
       user_id: "user-123",
       user_name: "Ari",
     });
-    const bind = vi.fn().mockReturnValue({ first });
-    dbMock.prepare.mockReturnValue({ bind });
+    const bind = vi.fn();
+    dbMock.query.mockImplementation(async ({ values }) => {
+      bind(...(values ?? []));
+      const row = await first();
+      return nativeQueryResult(row ? [row] : []);
+    });
     const rpc = new AuthRpcEntrypoint(TEST_EXECUTION_CONTEXT, TEST_ENV);
 
     await expect(
@@ -1312,8 +1372,12 @@ describe("auth session resolution", () => {
       },
       ok: true,
     });
-    expect(dbMock.prepare).toHaveBeenCalledWith(
-      expect.stringContaining("selected_profile.organization_id IS NULL")
+    expect(dbMock.query).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining(
+          "selected_profile.organization_id IS NULL"
+        ),
+      })
     );
     expect(bind).toHaveBeenCalledWith(
       "22222222-2222-4222-8222-222222222222",
@@ -1336,8 +1400,9 @@ describe("auth session resolution", () => {
       user_id: "user-123",
       user_name: "Ari",
     });
-    dbMock.prepare.mockReturnValue({
-      bind: vi.fn().mockReturnValue({ first }),
+    dbMock.query.mockImplementation(async () => {
+      const row = await first();
+      return nativeQueryResult(row ? [row] : []);
     });
     const rpc = new AuthRpcEntrypoint(TEST_EXECUTION_CONTEXT, TEST_ENV);
 
@@ -1376,8 +1441,11 @@ describe("auth session resolution", () => {
         },
       ],
     });
-    const bind = vi.fn().mockReturnValue({ all });
-    dbMock.prepare.mockReturnValue({ bind });
+    const bind = vi.fn();
+    dbMock.query.mockImplementation(async ({ values }) => {
+      bind(...(values ?? []));
+      return nativeQueryResult((await all()).results);
+    });
     const rpc = new AuthRpcEntrypoint(TEST_EXECUTION_CONTEXT, TEST_ENV);
 
     await expect(
@@ -1396,8 +1464,10 @@ describe("auth session resolution", () => {
       ok: true,
       organizationId: "org-123",
     });
-    expect(dbMock.prepare).toHaveBeenCalledWith(
-      expect.stringContaining("human_profiles.organization_id IS NULL")
+    expect(dbMock.query).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining("human_profiles.organization_id IS NULL"),
+      })
     );
     expect(bind).toHaveBeenCalledWith("org-123");
   });
@@ -1422,9 +1492,9 @@ describe("auth session resolution", () => {
         },
       ],
     });
-    dbMock.prepare.mockReturnValue({
-      bind: vi.fn().mockReturnValue({ all }),
-    });
+    dbMock.query.mockImplementation(async () =>
+      nativeQueryResult((await all()).results)
+    );
     const rpc = new AuthRpcEntrypoint(TEST_EXECUTION_CONTEXT, TEST_ENV);
 
     await expect(
@@ -1444,15 +1514,15 @@ describe("auth session resolution", () => {
     const additionalAll = vi.fn().mockResolvedValue({
       results: [directoryAgentProfileRow(additionalProfileId, "org-personal")],
     });
-    const organizationBind = vi.fn().mockReturnValue({
-      all: organizationAll,
+    const organizationBind = vi.fn();
+    const additionalBind = vi.fn();
+    dbMock.query.mockImplementation(async ({ text, values }) => {
+      const additional = text.includes("profiles.organization_id <> $1");
+      (additional ? additionalBind : organizationBind)(...(values ?? []));
+      return nativeQueryResult(
+        (await (additional ? additionalAll : organizationAll)()).results
+      );
     });
-    const additionalBind = vi.fn().mockReturnValue({ all: additionalAll });
-    dbMock.prepare.mockImplementation((sql: string) => ({
-      bind: sql.includes("profiles.organization_id <> ?")
-        ? additionalBind
-        : organizationBind,
-    }));
     const rpc = new AuthRpcEntrypoint(TEST_EXECUTION_CONTEXT, TEST_ENV);
 
     await expect(
@@ -1471,8 +1541,12 @@ describe("auth session resolution", () => {
       "org-123",
       JSON.stringify([additionalProfileId])
     );
-    expect(dbMock.prepare).toHaveBeenCalledWith(
-      expect.stringContaining("FROM json_each(?)")
+    expect(dbMock.query).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining(
+          "FROM jsonb_array_elements_text($2::jsonb)"
+        ),
+      })
     );
   });
 
@@ -1482,15 +1556,14 @@ describe("auth session resolution", () => {
       (_, index) =>
         `agt_00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`
     );
-    const organizationBind = vi.fn().mockReturnValue({
-      all: vi.fn().mockResolvedValue({ results: [] }),
+    const organizationBind = vi.fn();
+    const additionalBind = vi.fn();
+    dbMock.query.mockImplementation(async ({ text, values }) => {
+      (text.includes("jsonb_array_elements_text($2::jsonb)")
+        ? additionalBind
+        : organizationBind)(...(values ?? []));
+      return await nativeQueryResult([]);
     });
-    const additionalBind = vi.fn().mockReturnValue({
-      all: vi.fn().mockResolvedValue({ results: [] }),
-    });
-    dbMock.prepare.mockImplementation((sql: string) => ({
-      bind: sql.includes("json_each(?)") ? additionalBind : organizationBind,
-    }));
     const rpc = new AuthRpcEntrypoint(TEST_EXECUTION_CONTEXT, TEST_ENV);
 
     await expect(

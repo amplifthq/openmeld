@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   centerAgentSessionListCursorSchema,
   type ListCenterAgentSessionsResponse,
@@ -5,10 +6,9 @@ import {
 } from "@openmeld/schemas";
 import { createCoreRpcHttpError } from "../../rpc/errors";
 import { listCenterAgentSessionIndexRows } from "../../space-index/space-index-repository";
-
 /** The caller resolves these identities from current Core membership/designation. */
 export async function listAuthorizedCenterAgentSessions(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   memberProfileId: string;
   centerAgentProfileId: string;

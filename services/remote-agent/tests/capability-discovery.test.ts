@@ -6,6 +6,7 @@ import {
   REMOTE_AGENT_CAPABILITY_DESCRIBE_TOOL_NAME,
   REMOTE_AGENT_CAPABILITY_SEARCH_TOOL_NAME,
 } from "../flue-adapter/capability-discovery";
+import { InMemoryDurableObjectStorage } from "./storage";
 
 const DEFINITIONS: RemoteAgentToolDefinition[] = [
   {
@@ -41,6 +42,49 @@ const DEFINITIONS: RemoteAgentToolDefinition[] = [
 ];
 
 describe("Remote Agent capability discovery", () => {
+  it("restores selected contracts after recreation without retaining removed capabilities", async () => {
+    const storage = new InMemoryDurableObjectStorage();
+    const select = (
+      definitions: RemoteAgentToolDefinition[],
+      submissionId = "one"
+    ) => {
+      const tool = createRemoteAgentCapabilityDiscoveryDefinitions(
+        definitions,
+        undefined,
+        {
+          storage,
+          submissionId,
+        }
+      ).find(
+        (tool) => tool.name === REMOTE_AGENT_CAPABILITY_DESCRIBE_TOOL_NAME
+      );
+      if (!tool) {
+        throw new Error("Missing capability recovery tool");
+      }
+      return tool;
+    };
+    await select(DEFINITIONS).execute({
+      names: ["openmeld_list_app_actions", "github_create_issue"],
+    });
+    const restored = select(
+      DEFINITIONS.filter((tool) => tool.name !== "github_create_issue")
+    );
+    for (let i = 0; i < 4; i++) {
+      await expect(restored.execute({})).resolves.toMatchObject({
+        capabilities: [
+          {
+            name: "openmeld_list_app_actions",
+            inputSchema: { required: ["service"] },
+          },
+        ],
+        unknownNames: ["github_create_issue"],
+      });
+    }
+    expect(restored.progressTracking).toBeUndefined();
+    await expect(
+      select(DEFINITIONS, "other-execution").execute({})
+    ).resolves.toEqual({ capabilities: [], unknownNames: [] });
+  });
   it("searches a fixed turn catalog without returning every schema", async () => {
     const definitions =
       createRemoteAgentCapabilityDiscoveryDefinitions(DEFINITIONS);

@@ -1,15 +1,9 @@
 import { sql } from "drizzle-orm";
-import {
-  check,
-  index,
-  integer,
-  primaryKey,
-  sqliteTable,
-  text,
-} from "drizzle-orm/sqlite-core";
+import { bigint, check, index, primaryKey, text } from "drizzle-orm/pg-core";
 import { organizations, users } from "../auth/auth.schema.ts";
+import { applicationTable } from "../postgresql/schema.ts";
 
-export const organizationMemberPresenceSessions = sqliteTable(
+export const organizationMemberPresenceSessions = applicationTable(
   "organization_member_presence_sessions",
   {
     organizationId: text("organization_id")
@@ -20,10 +14,12 @@ export const organizationMemberPresenceSessions = sqliteTable(
       .references(() => users.id, { onDelete: "cascade" }),
     sessionId: text("session_id").notNull(),
     humanProfileId: text("human_profile_id").notNull(),
-    sequence: integer("sequence").notNull(),
-    lastInteractionAtMs: integer("last_interaction_at_ms").notNull(),
-    expiresAtMs: integer("expires_at_ms").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    sequence: bigint("sequence", { mode: "number" }).notNull(),
+    lastInteractionAtMs: bigint("last_interaction_at_ms", {
+      mode: "number",
+    }).notNull(),
+    expiresAtMs: bigint("expires_at_ms", { mode: "number" }).notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     primaryKey({
@@ -37,7 +33,7 @@ export const organizationMemberPresenceSessions = sqliteTable(
   ]
 );
 
-export const organizationMemberActivity = sqliteTable(
+export const organizationMemberActivity = applicationTable(
   "organization_member_activity",
   {
     organizationId: text("organization_id")
@@ -47,8 +43,8 @@ export const organizationMemberActivity = sqliteTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     humanProfileId: text("human_profile_id").notNull(),
-    lastActiveAtMs: integer("last_active_at_ms").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    lastActiveAtMs: bigint("last_active_at_ms", { mode: "number" }).notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     primaryKey({ columns: [table.organizationId, table.userId] }),

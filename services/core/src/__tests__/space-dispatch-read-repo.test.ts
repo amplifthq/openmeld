@@ -4,6 +4,7 @@ import {
   SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION,
 } from "@openmeld/schemas";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createProjectionPostgresDatabase } from "../../test-support/postgresql-query.test-support";
 import {
   DISPATCH_CONVERSATION_LIFECYCLE_DECISION_CODE,
   DISPATCH_EXECUTION_LIFECYCLE_DECISION_CODE,
@@ -13,15 +14,15 @@ import {
   DISPATCH_STRUCTURED_ACTION_FAILURE_DECISION_CODE,
 } from "../dispatch/application/dispatch-trace-decision-codes";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
-import * as dispatchLedgerD1 from "../dispatch/infrastructure/d1/dispatch-ledger-d1";
-import { listRecentOpenMeldDaemonOpsDecisions } from "../dispatch/infrastructure/d1/dispatch-ledger-d1";
+import * as dispatchLedgerPostgresql from "../dispatch/infrastructure/postgresql/dispatch-ledger-postgresql";
+import { listRecentOpenMeldDaemonOpsDecisions } from "../dispatch/infrastructure/postgresql/dispatch-ledger-postgresql";
 import {
   readDispatchLedgerStatus,
   readDispatchResultConversationFacts,
   readSpaceDispatchLookup,
   readSpaceDispatchLookupByClientMessageId,
   readSpaceDispatchTrace,
-} from "../space/infrastructure/d1/space-dispatch-read-repo";
+} from "../space/infrastructure/postgresql/space-dispatch-read-repo";
 
 describe("space dispatch read repo", () => {
   afterEach(() => {
@@ -33,7 +34,7 @@ describe("space dispatch read repo", () => {
     // vi.mock module factories do not reach the worker-entry module graph in
     // vitest-pool-workers, so spy on the shared module namespace instead.
     vi.spyOn(
-      dispatchLedgerD1,
+      dispatchLedgerPostgresql,
       "listRecentOpenMeldDaemonOpsDecisions"
     ).mockResolvedValue([]);
   });
@@ -169,13 +170,16 @@ describe("space dispatch read repo", () => {
       result.trace?.nativeDelivery
     );
     expect(readRuntimeCoordinatorHeadLifecycleTrace).not.toHaveBeenCalled();
-    expect(
-      vi
-        .mocked(db.prepare)
-        .mock.calls.find(([query]) =>
-          String(query).includes("deliveries.delivery_id AS deliveryId")
-        )?.[0]
-    ).not.toContain("openMeldDaemon_agent_profile_bindings");
+    const nativeDeliveryQuery = vi
+      .mocked(db.query)
+      .mock.calls.map(([query]) =>
+        typeof query === "string" ? query : query.text
+      )
+      .find((text) => text.includes('deliveries.delivery_id AS "deliveryId"'));
+    expect(nativeDeliveryQuery).toBeDefined();
+    expect(nativeDeliveryQuery).not.toContain(
+      "openMeldDaemon_agent_profile_bindings"
+    );
   });
 
   it("locates a historical hosted failure through the native-delivery publication signal", async () => {
@@ -253,31 +257,27 @@ describe("space dispatch read repo", () => {
 
   it("qualifies joined ledger status reads through the shared repo", async () => {
     let capturedQuery = "";
-    const db = {
-      prepare: vi.fn((query: string) => {
-        capturedQuery = query;
-        return {
-          bind: vi.fn().mockReturnValue({
-            first: vi.fn().mockResolvedValue({
-              status: "queued",
-              lastAttemptAtMs: 1_700_000_000_000,
-              latestAttemptStatus: "dispatching",
-              latestAttemptErrorCode: null,
-              daemonSessionId: "daemon-session-1",
-              connectionGeneration: 1,
-              leaseEpoch: 2,
-            }),
-          }),
-        };
-      }),
-    } as unknown as D1Database;
+    const db = createProjectionPostgresDatabase(({ text }) => {
+      capturedQuery = text;
+      return [
+        {
+          status: "queued",
+          lastAttemptAtMs: 1_700_000_000_000,
+          latestAttemptStatus: "dispatching",
+          latestAttemptErrorCode: null,
+          daemonSessionId: "daemon-session-1",
+          connectionGeneration: 1,
+          leaseEpoch: 2,
+        },
+      ];
+    });
 
     const result = await readDispatchLedgerStatus({
       db,
       idempotencyKey: "idem-1",
     });
 
-    expect(capturedQuery).toContain("WHERE ledger.idempotency_key = ?");
+    expect(capturedQuery).toContain("WHERE ledger.idempotency_key = $1");
     expect(result).toEqual({
       status: "queued",
       lastAttemptAtMs: 1_700_000_000_000,
@@ -290,27 +290,19 @@ describe("space dispatch read repo", () => {
   });
 
   it("normalizes lookup rows through the shared repo", async () => {
-    const db = {
-      prepare: vi.fn(() => ({
-        bind: vi.fn().mockReturnValue({
-          all: vi.fn().mockResolvedValue({
-            results: [
-              {
-                dispatchId: "dispatch-1",
-                sourceSignalId: "sig-source-1",
-                targetProfileId: "agt-target-1",
-                dispatchStatus: "dispatching",
-                attemptCount: 2,
-                latestAttemptId: "attempt-2",
-                latestAttemptStatus: "waiting_result",
-                latestAttemptErrorCode: null,
-                latestAttemptErrorMessage: null,
-              },
-            ],
-          }),
-        }),
-      })),
-    } as unknown as D1Database;
+    const db = createProjectionPostgresDatabase(() => [
+      {
+        dispatchId: "dispatch-1",
+        sourceSignalId: "sig-source-1",
+        targetProfileId: "agt-target-1",
+        dispatchStatus: "dispatching",
+        attemptCount: 2,
+        latestAttemptId: "attempt-2",
+        latestAttemptStatus: "waiting_result",
+        latestAttemptErrorCode: null,
+        latestAttemptErrorMessage: null,
+      },
+    ]);
 
     const result = await readSpaceDispatchLookup({
       clientMessageId: "client-message-1",
@@ -346,33 +338,23 @@ describe("space dispatch read repo", () => {
   it("reads dispatch lookup rows by durable source client message id", async () => {
     let capturedQuery = "";
     let capturedBindings: unknown[] = [];
-    const db = {
-      prepare: vi.fn((query: string) => {
-        capturedQuery = query;
-        return {
-          bind: vi.fn((...args: unknown[]) => {
-            capturedBindings = args;
-            return {
-              all: vi.fn().mockResolvedValue({
-                results: [
-                  {
-                    dispatchId: "dispatch-1",
-                    sourceSignalId: "sig-source-1",
-                    targetProfileId: "agt-target-1",
-                    dispatchStatus: "dispatching",
-                    attemptCount: 2,
-                    latestAttemptId: "attempt-2",
-                    latestAttemptStatus: "waiting_result",
-                    latestAttemptErrorCode: null,
-                    latestAttemptErrorMessage: null,
-                  },
-                ],
-              }),
-            };
-          }),
-        };
-      }),
-    } as unknown as D1Database;
+    const db = createProjectionPostgresDatabase(({ text, values }) => {
+      capturedQuery = text;
+      capturedBindings = values ?? [];
+      return [
+        {
+          dispatchId: "dispatch-1",
+          sourceSignalId: "sig-source-1",
+          targetProfileId: "agt-target-1",
+          dispatchStatus: "dispatching",
+          attemptCount: 2,
+          latestAttemptId: "attempt-2",
+          latestAttemptStatus: "waiting_result",
+          latestAttemptErrorCode: null,
+          latestAttemptErrorMessage: null,
+        },
+      ];
+    });
 
     const result = await readSpaceDispatchLookupByClientMessageId({
       clientMessageId: "client-message-1",
@@ -381,8 +363,8 @@ describe("space dispatch read repo", () => {
       targetProfileId: "agt-target-1",
     });
 
-    expect(capturedQuery).toContain("ledger.source_client_message_id = ?");
-    expect(capturedQuery).not.toContain("ledger.source_event_id = ?");
+    expect(capturedQuery).toContain("ledger.source_client_message_id = $2");
+    expect(capturedQuery).not.toContain("ledger.source_event_id = $2");
     expect(capturedBindings).toEqual([
       "space-1",
       "client-message-1",
@@ -412,9 +394,9 @@ describe("space dispatch read repo", () => {
   });
 
   it("fails closed before querying when clientMessageId lookup key is empty", async () => {
-    const db = {
-      prepare: vi.fn(),
-    } as unknown as D1Database;
+    const db = createProjectionPostgresDatabase(() => {
+      throw new Error("An empty lookup must not reach the database");
+    });
 
     await expect(
       readSpaceDispatchLookupByClientMessageId({
@@ -425,7 +407,7 @@ describe("space dispatch read repo", () => {
       })
     ).rejects.toThrow("clientMessageId is required");
 
-    expect(db.prepare).not.toHaveBeenCalled();
+    expect(db.query).not.toHaveBeenCalled();
   });
 
   it("builds a dispatch trace snapshot from shared read-side queries", async () => {
@@ -1773,224 +1755,182 @@ const createTraceDb = (
     runtimeCoordinatorExecutionRow?: Record<string, unknown>;
   } = {}
 ) =>
-  ({
-    prepare: vi.fn((query: string) => {
-      if (query.includes("openMeldDaemon_agent_profile_bindings")) {
-        return {
-          bind: vi.fn().mockReturnValue({
-            first: vi.fn().mockResolvedValue(
-              input.nativeDeliveryRow
-                ? {
-                    ...input.nativeDeliveryRow,
-                    storedAgentControllerRef:
-                      input.mutableBindingControllerRef?.current ?? null,
-                  }
-                : null
-            ),
-          }),
-        };
+  createProjectionPostgresDatabase(({ text }) => {
+    if (text.includes("openMeldDaemon_agent_profile_bindings")) {
+      return input.nativeDeliveryRow
+        ? [
+            {
+              ...input.nativeDeliveryRow,
+              storedAgentControllerRef:
+                input.mutableBindingControllerRef?.current ?? null,
+            },
+          ]
+        : [];
+    }
+    if (
+      text.includes('FROM "openmeld"."openMeldDaemon_dispatch_ledger"') &&
+      text.includes("WHERE dispatch_id = $1")
+    ) {
+      return [
+        {
+          dispatchId: "dispatch-1",
+          idempotencyKey: "idem-1",
+          sourceEventId: "sig-source-1",
+          sourceClientMessageId: "client-message-1",
+          dispatchOwnerKind: "owner_account",
+          dispatchOwnerId: "owner-1",
+          targetProfileId: "agt-target-1",
+          status: input.dispatchStatus ?? "dispatching",
+          spaceId: "space-1",
+          firstSeenAtMs: 1_700_000_001_000,
+          lastAttemptAtMs: 1_700_000_002_000,
+          attemptCount: 1,
+          latestAttemptId: "attempt-1",
+        },
+      ];
+    }
+    if (text.includes('FROM "openmeld"."openMeldDaemon_dispatch_attempts"')) {
+      return [
+        {
+          attemptId: "attempt-1",
+          dispatchId: "dispatch-1",
+          idempotencyKey: "idem-1",
+          attemptNo: 1,
+          status: input.attemptStatus ?? "waiting_result",
+          daemonSessionId: "daemon-session-1",
+          connectionGeneration: 2,
+          leaseEpoch: 4,
+          createdAtMs: 1_700_000_002_000,
+          startedAtMs: 1_700_000_003_000,
+          finishedAtMs: null,
+          errorCode: null,
+          errorMessage: null,
+        },
+      ];
+    }
+    if (
+      text.includes(
+        'FROM "openmeld"."openMeldRemoteAgent_native_delivery_ledger"'
+      )
+    ) {
+      return input.nativeDeliveryRow ? [input.nativeDeliveryRow] : [];
+    }
+    if (text.includes('FROM "openmeld"."openMeldDaemon_dispatch_results"')) {
+      if (input.resultReadError) {
+        throw input.resultReadError;
       }
-      if (
-        query.includes("FROM openMeldDaemon_dispatch_ledger") &&
-        query.includes("WHERE dispatch_id = ?")
-      ) {
-        return {
-          bind: vi.fn().mockReturnValue({
-            first: vi.fn().mockResolvedValue({
+      const row =
+        input.resultRow === undefined
+          ? {
+              resultRef: "result-1",
               dispatchId: "dispatch-1",
-              idempotencyKey: "idem-1",
-              sourceEventId: "sig-source-1",
-              sourceClientMessageId: "client-message-1",
-              dispatchOwnerKind: "owner_account",
-              dispatchOwnerId: "owner-1",
-              targetProfileId: "agt-target-1",
-              status: input.dispatchStatus ?? "dispatching",
               spaceId: "space-1",
-              firstSeenAtMs: 1_700_000_001_000,
-              lastAttemptAtMs: 1_700_000_002_000,
-              attemptCount: 1,
-              latestAttemptId: "attempt-1",
-            }),
-          }),
-        };
-      }
-
-      if (query.includes("FROM openMeldDaemon_dispatch_attempts")) {
-        return {
-          bind: vi.fn().mockReturnValue({
-            first: vi.fn().mockResolvedValue({
-              attemptId: "attempt-1",
-              dispatchId: "dispatch-1",
-              idempotencyKey: "idem-1",
-              attemptNo: 1,
-              status: input.attemptStatus ?? "waiting_result",
-              daemonSessionId: "daemon-session-1",
-              connectionGeneration: 2,
-              leaseEpoch: 4,
-              createdAtMs: 1_700_000_002_000,
-              startedAtMs: 1_700_000_003_000,
-              finishedAtMs: null,
-              errorCode: null,
-              errorMessage: null,
-            }),
-          }),
-        };
-      }
-
-      if (query.includes("FROM openMeldRemoteAgent_native_delivery_ledger")) {
-        return {
-          bind: vi.fn().mockReturnValue({
-            first: vi.fn().mockResolvedValue(input.nativeDeliveryRow ?? null),
-          }),
-        };
-      }
-
-      if (query.includes("FROM openMeldDaemon_dispatch_results")) {
-        if (input.resultReadError) {
-          return {
-            bind: vi.fn().mockReturnValue({
-              first: vi.fn().mockRejectedValue(input.resultReadError),
-            }),
-          };
-        }
-        const resultRow =
-          input.resultRow === undefined
-            ? {
-                resultRef: "result-1",
-                dispatchId: "dispatch-1",
-                spaceId: "space-1",
-                actorProfileId: "agt-target-1",
-                replyToSignalId: "sig-source-1",
-                resultKind: "final_text",
-                publicOutcome: "succeeded",
-                publishedSignalId: "sig-reply-1",
-                statusType: null,
-                createdAtMs: 1_700_000_004_000,
-                ...input.resultRowPatch,
-              }
-            : input.resultRow;
-        return {
-          bind: vi.fn().mockReturnValue({
-            first: vi.fn().mockResolvedValue(resultRow),
-          }),
-        };
-      }
-
-      if (query.includes("FROM openMeldDaemon_dispatch_result_inbox")) {
-        if (input.resultInboxReadError) {
-          return {
-            bind: vi.fn().mockReturnValue({
-              first: vi.fn().mockRejectedValue(input.resultInboxReadError),
-            }),
-          };
-        }
-        const nextResultInboxRow = input.resultInboxRows?.shift();
-        if (input.resultInboxRows && nextResultInboxRow === null) {
-          return {
-            bind: vi.fn().mockReturnValue({
-              first: vi.fn().mockResolvedValue(null),
-            }),
-          };
-        }
-        return {
-          bind: vi.fn().mockReturnValue({
-            first: vi.fn().mockResolvedValue({
-              resultKey: "dispatch-1::attempt-1",
-              dispatchId: "dispatch-1",
-              attemptId: "attempt-1",
-              taskId: "task-1",
-              targetProfileId: "agt-target-1",
-              daemonSessionId: "daemon-session-1",
-              leaseEpoch: 4,
-              submittedConnectionGeneration: 3,
-              resultPayloadJson: JSON.stringify({
-                code: "service.task_result",
-                payload: {
-                  agentId: "agt-target-1",
-                  attemptId: "attempt-1",
-                  deduped: false,
-                  output: "done",
-                  sourceEventId: "sig-source-1",
-                  status: "success",
-                  taskId: "task-1",
-                },
-                v: OPENMELD_DAEMON_TASK_RESULT_SCHEMA_VERSION,
-              }),
-              acceptedAtMs: 1_700_000_003_500,
-              publishState: "reply_published",
+              actorProfileId: "agt-target-1",
+              replyToSignalId: "sig-source-1",
+              resultKind: "final_text",
+              publicOutcome: "succeeded",
               publishedSignalId: "sig-reply-1",
-              publicationErrorCode: null,
-              updatedAtMs: 1_700_000_004_000,
-              ...(nextResultInboxRow ?? {}),
-              ...input.resultInboxRowPatch,
-            }),
-          }),
-        };
+              statusType: null,
+              createdAtMs: 1_700_000_004_000,
+              ...input.resultRowPatch,
+            }
+          : input.resultRow;
+      return row ? [row] : [];
+    }
+    if (
+      text.includes('FROM "openmeld"."openMeldDaemon_dispatch_result_inbox"')
+    ) {
+      if (input.resultInboxReadError) {
+        throw input.resultInboxReadError;
       }
-
-      if (
-        query.includes("FROM openMeldDaemon_runtime_coordinator_executions")
-      ) {
-        return {
-          bind: vi.fn().mockReturnValue({
-            first: vi.fn().mockResolvedValue(
-              input.runtimeCoordinatorExecutionRow
-                ? {
-                    attempt_id: "attempt-1",
-                    binding_id: "binding-1",
-                    agent_controller_ref: "builtin:codex",
-                    claim_lease_id: null,
-                    connection_generation: 2,
-                    created_at_ms: 1_700_000_002_250,
-                    daemon_session_id: "daemon-session-1",
-                    dispatch_id: "dispatch-1",
-                    lease_epoch: 4,
-                    model_version: "openmeld.runtime_coordinator.execution.v1",
-                    runtime_coordinator_execution_id: "rce-dispatch-1",
-                    openmeld_service_runtime_id: "runtime-1",
-                    openmeld_service_runtime_id_source:
-                      "runtime_registry_authority",
-                    source_client_message_id: "client-message-1",
-                    space_id: "space-1",
-                    status: "delivery_accepted",
-                    target_profile_id: "agt-target-1",
-                    terminal_outcome_json: null,
-                    updated_at_ms: 1_700_000_002_500,
-                    ...input.runtimeCoordinatorExecutionRow,
-                  }
-                : null
-            ),
-          }),
-        };
+      const nextRow = input.resultInboxRows?.shift();
+      if (input.resultInboxRows && nextRow === null) {
+        return [];
       }
-
-      if (
-        query.includes(
-          "FROM openMeldDaemon_runtime_coordinator_execution_events"
-        )
-      ) {
-        return {
-          bind: vi.fn().mockReturnValue({
-            all: vi.fn().mockResolvedValue({
-              results: (input.runtimeCoordinatorEventRows ?? []).map((row) => ({
-                event_id: "event-1",
-                event_type: "runtime_evidence_observed",
-                idempotency_key: "event-idempotency-1",
-                observed_at_ms: 1_700_000_003_000,
-                payload_json: "{}",
-                reason_code: null,
-                runtime_coordinator_execution_id: "rce-dispatch-1",
-                status_after: null,
-                ...row,
-              })),
-            }),
+      return [
+        {
+          resultKey: "dispatch-1::attempt-1",
+          dispatchId: "dispatch-1",
+          attemptId: "attempt-1",
+          taskId: "task-1",
+          targetProfileId: "agt-target-1",
+          daemonSessionId: "daemon-session-1",
+          leaseEpoch: 4,
+          submittedConnectionGeneration: 3,
+          resultPayloadJson: JSON.stringify({
+            code: "service.task_result",
+            payload: {
+              agentId: "agt-target-1",
+              attemptId: "attempt-1",
+              deduped: false,
+              output: "done",
+              sourceEventId: "sig-source-1",
+              status: "success",
+              taskId: "task-1",
+            },
+            v: OPENMELD_DAEMON_TASK_RESULT_SCHEMA_VERSION,
           }),
-        };
-      }
-
-      throw new Error(`unexpected query: ${query}`);
-    }),
-  }) as unknown as D1Database;
+          acceptedAtMs: 1_700_000_003_500,
+          publishState: "reply_published",
+          publishedSignalId: "sig-reply-1",
+          publicationErrorCode: null,
+          updatedAtMs: 1_700_000_004_000,
+          ...(nextRow ?? {}),
+          ...input.resultInboxRowPatch,
+        },
+      ];
+    }
+    if (
+      text.includes(
+        'FROM "openmeld"."openMeldDaemon_runtime_coordinator_executions"'
+      )
+    ) {
+      return input.runtimeCoordinatorExecutionRow
+        ? [
+            {
+              attempt_id: "attempt-1",
+              binding_id: "binding-1",
+              agent_controller_ref: "builtin:codex",
+              claim_lease_id: null,
+              connection_generation: 2,
+              created_at_ms: 1_700_000_002_250,
+              daemon_session_id: "daemon-session-1",
+              dispatch_id: "dispatch-1",
+              lease_epoch: 4,
+              model_version: "openmeld.runtime_coordinator.execution.v1",
+              runtime_coordinator_execution_id: "rce-dispatch-1",
+              openmeld_service_runtime_id: "runtime-1",
+              openmeld_service_runtime_id_source: "runtime_registry_authority",
+              source_client_message_id: "client-message-1",
+              space_id: "space-1",
+              status: "delivery_accepted",
+              target_profile_id: "agt-target-1",
+              terminal_outcome_json: null,
+              updated_at_ms: 1_700_000_002_500,
+              ...input.runtimeCoordinatorExecutionRow,
+            },
+          ]
+        : [];
+    }
+    if (
+      text.includes(
+        'FROM "openmeld"."openMeldDaemon_runtime_coordinator_execution_events"'
+      )
+    ) {
+      return (input.runtimeCoordinatorEventRows ?? []).map((row) => ({
+        event_id: "event-1",
+        event_type: "runtime_evidence_observed",
+        idempotency_key: "event-idempotency-1",
+        observed_at_ms: 1_700_000_003_000,
+        payload_json: "{}",
+        reason_code: null,
+        runtime_coordinator_execution_id: "rce-dispatch-1",
+        status_after: null,
+        ...row,
+      }));
+    }
+    throw new Error(`Unexpected query: ${text}`);
+  });
 
 const createDecisionRecord = (input: {
   decisionCode: string;

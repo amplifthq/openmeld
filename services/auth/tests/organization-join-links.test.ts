@@ -1,21 +1,22 @@
 import { randomUUID } from "node:crypto";
 import {
-  createD1Db,
+  createAuthDatabase,
   createDrizzleOrganizationJoinLinkRepository,
 } from "@openmeld/auth/server";
+import { withPostgresRequest } from "@openmeld/db/postgresql";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  createPostgresHarness,
+  type PostgresHarness,
+  postgresTestBinding,
+} from "../../../tooling/postgresql/test-harness";
 import type { AuthBindings } from "../src/lib/bindings";
-import { createHonoApp } from "../src/lib/hono/create-hono-app";
 import { AuthRpcEntrypoint } from "../src/lib/rpc/entrypoint";
+import { createAuthWorkerTestApp } from "./support/auth-worker-entrypoint.test-support";
 import {
   organizationJoinLinkSchema as legacyJoinLinkSchema,
   previewOrganizationJoinLinkResponseSchema as legacyPreviewSchema,
 } from "./support/legacy-join-link-contract";
-import {
-  applyDrizzleMigrations,
-  createSqliteD1Harness,
-  type SqliteD1Harness,
-} from "./support/sqlite-d1-harness";
 
 const AUTH_BASE_URL = "http://localhost:8788";
 const WEB_APP_URL = "http://localhost:3000";
@@ -29,19 +30,19 @@ const TEST_EXECUTION_CONTEXT = {
   waitUntil: () => undefined,
 } as unknown as ExecutionContext;
 
-type TestContext = ReturnType<typeof createTestContext>;
+type TestContext = Awaited<ReturnType<typeof createTestContext>>;
 
 const contexts: TestContext[] = [];
 
-afterEach(() => {
+afterEach(async () => {
   for (const context of contexts.splice(0)) {
-    context.harness.close();
+    await context.harness.close();
   }
 });
 
 describe("organization join link HTTP API", () => {
   it("prepares one link, preserves revocation and expiry, and explicitly renews it", async () => {
-    const context = createTestContext();
+    const context = await createTestContext();
     context.env.OPENMELD_CORE_WORKER = {
       organizationJoinRequest: async () => ({ ok: true, requests: [] }),
     } as unknown as AuthBindings["OPENMELD_CORE_WORKER"];
@@ -49,7 +50,7 @@ describe("organization join link HTTP API", () => {
       email: "prepare-owner@example.com",
       name: "Owner",
     });
-    const organizationId = insertSharedOrganization(context.harness, {
+    const organizationId = await insertSharedOrganization(context.harness, {
       memberships: [{ role: "owner", userId: owner.userId }],
       name: "Prepare team",
       slug: "prepare-team",
@@ -106,15 +107,14 @@ describe("organization join link HTTP API", () => {
       })
     );
     expect(next.token).not.toBe(renewed.token);
-    context.harness.database
-      .prepare(
-        "UPDATE organization_join_links SET expires_at = ? WHERE token = ?"
-      )
-      .run(Date.now() - 1, next.token);
+    await context.harness.query({
+      text: 'UPDATE "openmeld"."organization_join_links" SET expires_at = $1 WHERE token = $2',
+      values: [Date.now() - 1, next.token],
+    });
     expect((await prepare()).joinLink).toBeNull();
   });
   it("separates administrator direct links from member request links and joins exactly once", async () => {
-    const context = createTestContext();
+    const context = await createTestContext();
     const owner = await createSignedInUser(context, {
       email: "direct-owner@example.com",
       name: "Owner",
@@ -127,7 +127,7 @@ describe("organization join link HTTP API", () => {
       email: "direct-newcomer@example.com",
       name: "Newcomer",
     });
-    const organizationId = insertSharedOrganization(context.harness, {
+    const organizationId = await insertSharedOrganization(context.harness, {
       memberships: [
         { role: "owner", userId: owner.userId },
         { role: "member", userId: member.userId },
@@ -200,13 +200,12 @@ describe("organization join link HTTP API", () => {
       role: "member",
     });
     expect(
-      readMembershipRole(context.harness, organizationId, newcomer.userId)
+      await readMembershipRole(context.harness, organizationId, newcomer.userId)
     ).toBe("member");
-    context.harness.database
-      .prepare(
-        "UPDATE organization_join_links SET expires_at = ? WHERE token = ?"
-      )
-      .run(Date.now() - 1, direct.token);
+    await context.harness.query({
+      text: 'UPDATE "openmeld"."organization_join_links" SET expires_at = $1 WHERE token = $2',
+      values: [Date.now() - 1, direct.token],
+    });
     expect(await previewJoinLink(context, direct.token)).toEqual({
       ok: true,
       active: false,
@@ -217,7 +216,7 @@ describe("organization join link HTTP API", () => {
   });
 
   it("invalidates a direct link when its creator loses invitation permission", async () => {
-    const context = createTestContext();
+    const context = await createTestContext();
     const owner = await createSignedInUser(context, {
       email: "former-owner@example.com",
       name: "Owner",
@@ -226,7 +225,7 @@ describe("organization join link HTTP API", () => {
       email: "blocked-newcomer@example.com",
       name: "Newcomer",
     });
-    const organizationId = insertSharedOrganization(context.harness, {
+    const organizationId = await insertSharedOrganization(context.harness, {
       memberships: [{ role: "owner", userId: owner.userId }],
       name: "Permission team",
       slug: "permission-team",
@@ -239,11 +238,10 @@ describe("organization join link HTTP API", () => {
         mode: "direct",
       })
     );
-    context.harness.database
-      .prepare(
-        "UPDATE members SET role = 'member' WHERE organization_id = ? AND user_id = ?"
-      )
-      .run(organizationId, owner.userId);
+    await context.harness.query({
+      text: 'UPDATE "openmeld"."members" SET role = \'member\' WHERE organization_id = $1 AND user_id = $2',
+      values: [organizationId, owner.userId],
+    });
     expect(await previewJoinLink(context, direct.token)).toEqual({
       ok: true,
       active: false,
@@ -252,11 +250,11 @@ describe("organization join link HTTP API", () => {
       (await acceptJoinLink(context, direct.token, newcomer.headers)).status
     ).toBe(404);
     expect(
-      readMembershipRole(context.harness, organizationId, newcomer.userId)
+      await readMembershipRole(context.harness, organizationId, newcomer.userId)
     ).toBeNull();
   });
   it("lets an owner create and an admin reuse one active link without resetting it", async () => {
-    const context = createTestContext();
+    const context = await createTestContext();
     const owner = await createSignedInUser(context, {
       email: "owner@example.com",
       name: "Owner",
@@ -265,7 +263,7 @@ describe("organization join link HTTP API", () => {
       email: "admin@example.com",
       name: "Admin",
     });
-    const organizationId = insertSharedOrganization(context.harness, {
+    const organizationId = await insertSharedOrganization(context.harness, {
       memberships: [
         { role: "owner", userId: owner.userId },
         { role: "admin", userId: admin.userId },
@@ -302,7 +300,7 @@ describe("organization join link HTTP API", () => {
   });
 
   it("lets members share a request link but rejects personal Organizations", async () => {
-    const context = createTestContext();
+    const context = await createTestContext();
     const owner = await createSignedInUser(context, {
       email: "owner@example.com",
       name: "Owner",
@@ -311,7 +309,7 @@ describe("organization join link HTTP API", () => {
       email: "member@example.com",
       name: "Member",
     });
-    const organizationId = insertSharedOrganization(context.harness, {
+    const organizationId = await insertSharedOrganization(context.harness, {
       memberships: [
         { role: "owner", userId: owner.userId },
         { role: "member", userId: member.userId },
@@ -327,7 +325,7 @@ describe("organization join link HTTP API", () => {
       })
     ).resolves.toMatchObject({ ok: true });
 
-    const personalOrganizationId = readPersonalOrganizationId(
+    const personalOrganizationId = await readPersonalOrganizationId(
       context.harness,
       owner.userId
     );
@@ -344,7 +342,7 @@ describe("organization join link HTTP API", () => {
   });
 
   it("rejects a caller-supplied role instead of trusting it", async () => {
-    const context = createTestContext();
+    const context = await createTestContext();
     const owner = await createSignedInUser(context, {
       email: "owner@example.com",
       name: "Owner",
@@ -353,7 +351,7 @@ describe("organization join link HTTP API", () => {
       email: "member@example.com",
       name: "Member",
     });
-    const organizationId = insertSharedOrganization(context.harness, {
+    const organizationId = await insertSharedOrganization(context.harness, {
       memberships: [
         { role: "owner", userId: owner.userId },
         { role: "member", userId: member.userId },
@@ -376,7 +374,7 @@ describe("organization join link HTTP API", () => {
   });
 
   it("lets members read a link while only owner and admin can reset or revoke it", async () => {
-    const context = createTestContext();
+    const context = await createTestContext();
     const owner = await createSignedInUser(context, {
       email: "owner@example.com",
       name: "Owner",
@@ -389,7 +387,7 @@ describe("organization join link HTTP API", () => {
       email: "member@example.com",
       name: "Member",
     });
-    const organizationId = insertSharedOrganization(context.harness, {
+    const organizationId = await insertSharedOrganization(context.harness, {
       memberships: [
         { role: "owner", userId: owner.userId },
         { role: "admin", userId: admin.userId },
@@ -420,12 +418,10 @@ describe("organization join link HTTP API", () => {
     const legacyPreview = await previewJoinLink(context, created.token);
     expect(legacyPreviewSchema.safeParse(legacyPreview).success).toBe(true);
     // The scope is stored server-side, never trusted from the preview caller.
-    await context.harness.db
-      .prepare(
-        "UPDATE organization_join_links SET space_id = ? WHERE token = ?"
-      )
-      .bind("client-launch", created.token)
-      .run();
+    await context.harness.query({
+      text: 'UPDATE "openmeld"."organization_join_links" SET space_id = $1 WHERE token = $2',
+      values: ["client-launch", created.token],
+    });
     const scopedLegacyPreview = await previewJoinLink(context, created.token);
     expect(legacyPreviewSchema.safeParse(scopedLegacyPreview).success).toBe(
       true
@@ -442,12 +438,10 @@ describe("organization join link HTTP API", () => {
       active: true,
       spaceId: "client-launch",
     });
-    await context.harness.db
-      .prepare(
-        "UPDATE organization_join_links SET space_id = NULL WHERE token = ?"
-      )
-      .bind(created.token)
-      .run();
+    await context.harness.query({
+      text: 'UPDATE "openmeld"."organization_join_links" SET space_id = NULL WHERE token = $1',
+      values: [created.token],
+    });
     expect(created.token).toMatch(ORGANIZATION_JOIN_LINK_TOKEN_PATTERN);
     expect(created).toMatchObject({
       createdBy: owner.userId,
@@ -542,55 +536,59 @@ describe("organization join link HTTP API", () => {
   });
 
   it("keeps the active link when a reset insert fails", async () => {
-    const context = createTestContext();
+    const context = await createTestContext();
     const owner = await createSignedInUser(context, {
       email: "owner@example.com",
       name: "Owner",
     });
-    const organizationId = insertSharedOrganization(context.harness, {
+    const organizationId = await insertSharedOrganization(context.harness, {
       memberships: [{ role: "owner", userId: owner.userId }],
       name: "Acme Research",
       slug: "acme-research",
     });
     const activeLinkId = `join_link_${randomUUID()}`;
     const activeToken = `joinlink_${"a".repeat(64)}`;
-    context.harness.run({
-      params: [activeLinkId, organizationId, activeToken, owner.userId],
-      sql: `
-        INSERT INTO organization_join_links (
+    await context.harness.query({
+      values: [activeLinkId, organizationId, activeToken, owner.userId],
+      text: `
+        INSERT INTO "openmeld"."organization_join_links" (
           id,
           organization_id,
           token,
           role,
           created_by
-        ) VALUES (?, ?, ?, 'member', ?)
+        ) VALUES ($1, $2, $3, 'member', $4)
       `,
     });
-    const repository = createDrizzleOrganizationJoinLinkRepository(
-      createD1Db(context.harness.db)
-    );
+    return withPostgresRequest(context.harness.binding, async () => {
+      const repository = createDrizzleOrganizationJoinLinkRepository(
+        createAuthDatabase()
+      );
 
-    await expect(
-      repository.resetActive({
-        mode: "request",
-        expiresAt: new Date(Date.now() + 86_400_000),
-        createdBy: owner.userId,
-        id: `join_link_${randomUUID()}`,
-        organizationId,
+      await expect(
+        repository.resetActive({
+          mode: "request",
+          expiresAt: new Date(Date.now() + 86_400_000),
+          createdBy: owner.userId,
+          id: `join_link_${randomUUID()}`,
+          organizationId,
+          token: activeToken,
+        })
+      ).rejects.toMatchObject({
+        cause: expect.objectContaining({ code: "23505" }),
+      });
+      await expect(
+        repository.findActiveByOrganizationId(organizationId)
+      ).resolves.toMatchObject({
+        id: activeLinkId,
+        revokedAt: null,
         token: activeToken,
-      })
-    ).rejects.toThrow("UNIQUE constraint failed");
-    await expect(
-      repository.findActiveByOrganizationId(organizationId)
-    ).resolves.toMatchObject({
-      id: activeLinkId,
-      revokedAt: null,
-      token: activeToken,
+      });
     });
   });
 
   it("never enrolls a nonmember through the legacy accept endpoint", async () => {
-    const context = createTestContext();
+    const context = await createTestContext();
     const owner = await createSignedInUser(context, {
       email: "owner@example.com",
       name: "Owner",
@@ -599,7 +597,7 @@ describe("organization join link HTTP API", () => {
       email: "joiner@example.com",
       name: "Joiner",
     });
-    const organizationId = insertSharedOrganization(context.harness, {
+    const organizationId = await insertSharedOrganization(context.harness, {
       memberships: [{ role: "owner", userId: owner.userId }],
       name: "Acme Research",
       slug: "acme-research",
@@ -622,7 +620,11 @@ describe("organization join link HTTP API", () => {
       "organization.join_link.approval_required"
     );
     expect(
-      readMembershipRole(context.harness, organizationId, joiningUser.userId)
+      await readMembershipRole(
+        context.harness,
+        organizationId,
+        joiningUser.userId
+      )
     ).toBeNull();
 
     const secondAcceptResponse = await acceptJoinLink(
@@ -637,7 +639,7 @@ describe("organization join link HTTP API", () => {
   });
 
   it("requires approval even when the account belongs to other organizations", async () => {
-    const context = createTestContext();
+    const context = await createTestContext();
     const owner = await createSignedInUser(context, {
       email: "owner@example.com",
       name: "Owner",
@@ -647,17 +649,17 @@ describe("organization join link HTTP API", () => {
       name: "Joiner",
     });
     for (let index = 2; index <= 5; index += 1) {
-      insertSharedOrganization(context.harness, {
+      await insertSharedOrganization(context.harness, {
         memberships: [{ role: "member", userId: joiningUser.userId }],
         name: `Existing Organization ${index}`,
         slug: `existing-organization-${index}`,
       });
     }
     expect(
-      readOrganizationMembershipCount(context.harness, joiningUser.userId)
+      await readOrganizationMembershipCount(context.harness, joiningUser.userId)
     ).toBe(5);
 
-    const organizationId = insertSharedOrganization(context.harness, {
+    const organizationId = await insertSharedOrganization(context.harness, {
       memberships: [{ role: "owner", userId: owner.userId }],
       name: "Sixth Organization",
       slug: "sixth-organization",
@@ -678,16 +680,20 @@ describe("organization join link HTTP API", () => {
 
     expect(response.status).toBe(400);
     expect(
-      readMembershipRole(context.harness, organizationId, joiningUser.userId)
+      await readMembershipRole(
+        context.harness,
+        organizationId,
+        joiningUser.userId
+      )
     ).toBeNull();
     expect(
-      readOrganizationMembershipCount(context.harness, joiningUser.userId)
+      await readOrganizationMembershipCount(context.harness, joiningUser.userId)
     ).toBe(5);
   });
 
   it("rate limits join-link acceptance per client IP before adding a member", async () => {
     const limit = vi.fn(async () => ({ success: false }));
-    const context = createTestContext({
+    const context = await createTestContext({
       joinLinkAcceptRateLimit: { limit } as RateLimit,
     });
     const owner = await createSignedInUser(context, {
@@ -698,7 +704,7 @@ describe("organization join link HTTP API", () => {
       email: "joiner@example.com",
       name: "Joiner",
     });
-    const organizationId = insertSharedOrganization(context.harness, {
+    const organizationId = await insertSharedOrganization(context.harness, {
       memberships: [{ role: "owner", userId: owner.userId }],
       name: "Acme Research",
       slug: "acme-research",
@@ -727,12 +733,16 @@ describe("organization join link HTTP API", () => {
     });
     expect(limit).toHaveBeenCalledWith({ key: "ip:203.0.113.10" });
     expect(
-      readMembershipRole(context.harness, organizationId, joiningUser.userId)
+      await readMembershipRole(
+        context.harness,
+        organizationId,
+        joiningUser.userId
+      )
     ).toBeNull();
   });
 
   it("keeps an existing admin role when that user accepts", async () => {
-    const context = createTestContext();
+    const context = await createTestContext();
     const owner = await createSignedInUser(context, {
       email: "owner@example.com",
       name: "Owner",
@@ -741,7 +751,7 @@ describe("organization join link HTTP API", () => {
       email: "admin@example.com",
       name: "Admin",
     });
-    const organizationId = insertSharedOrganization(context.harness, {
+    const organizationId = await insertSharedOrganization(context.harness, {
       memberships: [
         { role: "owner", userId: owner.userId },
         { role: "admin", userId: admin.userId },
@@ -770,12 +780,12 @@ describe("organization join link HTTP API", () => {
       role: "admin",
     });
     expect(
-      readMembershipRole(context.harness, organizationId, admin.userId)
+      await readMembershipRole(context.harness, organizationId, admin.userId)
     ).toBe("admin");
   });
 
   it("rejects unverified users with an actionable error code", async () => {
-    const context = createTestContext();
+    const context = await createTestContext();
     const owner = await createSignedInUser(context, {
       email: "owner@example.com",
       name: "Owner",
@@ -784,7 +794,7 @@ describe("organization join link HTTP API", () => {
       email: "unverified@example.com",
       name: "Unverified",
     });
-    const organizationId = insertSharedOrganization(context.harness, {
+    const organizationId = await insertSharedOrganization(context.harness, {
       memberships: [{ role: "owner", userId: owner.userId }],
       name: "Acme Research",
       slug: "acme-research",
@@ -796,7 +806,7 @@ describe("organization join link HTTP API", () => {
         organizationId,
       })
     );
-    setEmailVerified(context.harness, joiningUser.email, false);
+    await setEmailVerified(context.harness, joiningUser.email, false);
 
     const response = await acceptJoinLink(
       context,
@@ -809,12 +819,16 @@ describe("organization join link HTTP API", () => {
       "organization.join_link.email_verification_required"
     );
     expect(
-      readMembershipRole(context.harness, organizationId, joiningUser.userId)
+      await readMembershipRole(
+        context.harness,
+        organizationId,
+        joiningUser.userId
+      )
     ).toBeNull();
   });
 
   it("rejects creating or accepting a personal organization link", async () => {
-    const context = createTestContext();
+    const context = await createTestContext();
     const personalOwner = await createSignedInUser(context, {
       email: "personal-owner@example.com",
       name: "Personal Owner",
@@ -823,7 +837,7 @@ describe("organization join link HTTP API", () => {
       email: "joiner@example.com",
       name: "Joiner",
     });
-    const personalOrganizationId = readPersonalOrganizationId(
+    const personalOrganizationId = await readPersonalOrganizationId(
       context.harness,
       personalOwner.userId
     );
@@ -839,23 +853,23 @@ describe("organization join link HTTP API", () => {
     );
 
     const personalToken = `joinlink_${"a".repeat(64)}`;
-    context.harness.run({
-      params: [
+    await context.harness.query({
+      values: [
         randomUUID(),
         personalOrganizationId,
         personalToken,
         personalOwner.userId,
         Date.now(),
       ],
-      sql: `
-        insert into organization_join_links (
+      text: `
+        insert into "openmeld"."organization_join_links" (
           id,
           organization_id,
           token,
           role,
           created_by,
           created_at
-        ) values (?, ?, ?, 'member', ?, ?)
+        ) values ($1, $2, $3, 'member', $4, $5)
       `,
     });
 
@@ -869,7 +883,7 @@ describe("organization join link HTTP API", () => {
       "organization.personal_no_members"
     );
     expect(
-      readMembershipRole(
+      await readMembershipRole(
         context.harness,
         personalOrganizationId,
         joiningUser.userId
@@ -878,7 +892,7 @@ describe("organization join link HTTP API", () => {
   });
 
   it("rejects cookie-authenticated mutations without a trusted origin", async () => {
-    const context = createTestContext();
+    const context = await createTestContext();
     const owner = await createSignedInUser(context, {
       email: "owner@example.com",
       name: "Owner",
@@ -887,7 +901,7 @@ describe("organization join link HTTP API", () => {
       email: "joiner@example.com",
       name: "Joiner",
     });
-    const organizationId = insertSharedOrganization(context.harness, {
+    const organizationId = await insertSharedOrganization(context.harness, {
       memberships: [{ role: "owner", userId: owner.userId }],
       name: "Acme Research",
       slug: "acme-research",
@@ -941,7 +955,11 @@ describe("organization join link HTTP API", () => {
       "auth.invalid_origin"
     );
     expect(
-      readMembershipRole(context.harness, organizationId, joiningUser.userId)
+      await readMembershipRole(
+        context.harness,
+        organizationId,
+        joiningUser.userId
+      )
     ).toBeNull();
   });
 });
@@ -977,11 +995,11 @@ function ensureJoinLinkOnBehalfOf(
   return rpc.ensureOrganizationJoinLinkOnBehalfOf(input);
 }
 
-function createTestContext(
+async function createTestContext(
   input: { joinLinkAcceptRateLimit?: RateLimit } = {}
 ) {
-  const harness = createSqliteD1Harness();
-  applyDrizzleMigrations(harness.database);
+  const harness = await createPostgresHarness();
+
   const env = {
     AUTH_BRAND_NAME: "OpenMeld",
     AUTH_COOKIE_DOMAIN: "localhost",
@@ -1000,11 +1018,11 @@ function createTestContext(
         limit: vi.fn(async () => ({ success: true })),
       },
     OPENMELD_AUTH_KV: {},
-    OPENMELD_DB: harness.db,
+    OPENMELD_POSTGRESQL: postgresTestBinding(harness.db),
     WEB_APP_URL,
   } as unknown as AuthBindings;
   const context = {
-    app: createHonoApp(),
+    app: createAuthWorkerTestApp(),
     env,
     harness,
   };
@@ -1027,7 +1045,7 @@ async function createSignedInUser(
     );
   }
 
-  setEmailVerified(context.harness, input.email, true);
+  await setEmailVerified(context.harness, input.email, true);
   const signInResponse = await postJson(context, "/api/auth/sign-in/email", {
     email: input.email,
     password: PASSWORD,
@@ -1038,9 +1056,9 @@ async function createSignedInUser(
     );
   }
 
-  const user = context.harness.queryFirst<{ id: string }>({
-    params: [input.email],
-    sql: "select id from users where email = ?",
+  const user = await context.harness.queryFirst<{ id: string }>({
+    values: [input.email],
+    text: 'select id from "openmeld"."users" where email = $1',
   });
   if (!user) {
     throw new Error(`Expected user row for ${input.email}`);
@@ -1053,64 +1071,64 @@ async function createSignedInUser(
   };
 }
 
-function insertSharedOrganization(
-  harness: SqliteD1Harness,
+async function insertSharedOrganization(
+  harness: PostgresHarness,
   input: {
     memberships: { role: "admin" | "member" | "owner"; userId: string }[];
     name: string;
     slug: string;
   }
-): string {
+): Promise<string> {
   const organizationId = randomUUID();
   const now = Date.now();
-  harness.run({
-    params: [organizationId, input.name, input.slug, now],
-    sql: `
-      insert into organizations (id, name, slug, created_at)
-      values (?, ?, ?, ?)
+  await harness.query({
+    values: [organizationId, input.name, input.slug, now],
+    text: `
+      insert into "openmeld"."organizations" (id, name, slug, created_at)
+      values ($1, $2, $3, $4)
     `,
   });
   for (const membership of input.memberships) {
-    harness.run({
-      params: [
+    await harness.query({
+      values: [
         randomUUID(),
         organizationId,
         membership.userId,
         membership.role,
         now,
       ],
-      sql: `
-        insert into members (id, organization_id, user_id, role, created_at)
-        values (?, ?, ?, ?, ?)
+      text: `
+        insert into "openmeld"."members" (id, organization_id, user_id, role, created_at)
+        values ($1, $2, $3, $4, $5)
       `,
     });
   }
   return organizationId;
 }
 
-function setEmailVerified(
-  harness: SqliteD1Harness,
+async function setEmailVerified(
+  harness: PostgresHarness,
   email: string,
   verified: boolean
-): void {
-  harness.run({
-    params: [verified ? 1 : 0, email],
-    sql: "update users set email_verified = ? where email = ?",
+): Promise<void> {
+  await harness.query({
+    values: [verified ? 1 : 0, email],
+    text: 'update "openmeld"."users" set email_verified = $1 where email = $2',
   });
 }
 
-function readPersonalOrganizationId(
-  harness: SqliteD1Harness,
+async function readPersonalOrganizationId(
+  harness: PostgresHarness,
   userId: string
-): string {
-  const organization = harness.queryFirst<{ id: string }>({
-    params: [userId],
-    sql: `
+): Promise<string> {
+  const organization = await harness.queryFirst<{ id: string }>({
+    values: [userId],
+    text: `
       select organizations.id
-      from organizations
-      inner join members on members.organization_id = organizations.id
-      where members.user_id = ?
-        and json_extract(organizations.metadata, '$.personal') = 1
+      from "openmeld"."organizations"
+      inner join "openmeld"."members" on members.organization_id = organizations.id
+      where members.user_id = $1
+        and ((organizations.metadata)::jsonb #>> '{personal}') = 'true'
     `,
   });
   if (!organization) {
@@ -1119,32 +1137,36 @@ function readPersonalOrganizationId(
   return organization.id;
 }
 
-function readMembershipRole(
-  harness: SqliteD1Harness,
+async function readMembershipRole(
+  harness: PostgresHarness,
   organizationId: string,
   userId: string
-): string | null {
+): Promise<string | null> {
   return (
-    harness.queryFirst<{ role: string }>({
-      params: [organizationId, userId],
-      sql: `
+    (
+      await harness.queryFirst<{ role: string }>({
+        values: [organizationId, userId],
+        text: `
         select role
-        from members
-        where organization_id = ? and user_id = ?
+        from "openmeld"."members"
+        where organization_id = $1 and user_id = $2
       `,
-    })?.role ?? null
+      })
+    )?.role ?? null
   );
 }
 
-function readOrganizationMembershipCount(
-  harness: SqliteD1Harness,
+async function readOrganizationMembershipCount(
+  harness: PostgresHarness,
   userId: string
-): number {
+): Promise<number> {
   return (
-    harness.queryFirst<{ count: number }>({
-      params: [userId],
-      sql: "select count(*) as count from members where user_id = ?",
-    })?.count ?? 0
+    (
+      await harness.queryFirst<{ count: number }>({
+        values: [userId],
+        text: 'select count(*) as count from "openmeld"."members" where user_id = $1',
+      })
+    )?.count ?? 0
   );
 }
 

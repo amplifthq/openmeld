@@ -1,6 +1,6 @@
 import {
   AccountDisplayNameValidationError,
-  createD1Db,
+  createAuthDatabase,
   createDrizzleOpenMeldProfileRepository,
   createDrizzleProfileSpaceHistoryRepository,
   createDrizzleSpaceDeletionTombstoneRepository,
@@ -13,25 +13,12 @@ import { getAccountDisplayNameService } from "../account/service";
 import type { AuthBindings } from "../bindings";
 import type { AppContext } from "../context";
 import { projectSpaceIndexMembershipOverlay } from "./overlay-reconcile";
-
-const serviceCache = new WeakMap<
-  D1Database,
-  Map<boolean, ReturnType<typeof createOpenMeldProfileServiceFactory>>
->();
-
 export function getOpenMeldProfileService(
   env: AuthBindings
 ): OpenMeldProfileService {
   const additionalHumanProfileCreationEnabled =
     env.OPENMELD_ADDITIONAL_HUMAN_PROFILE_CREATION_ENABLED === "true";
-  const cached = serviceCache
-    .get(env.OPENMELD_DB)
-    ?.get(additionalHumanProfileCreationEnabled);
-  if (cached) {
-    return cached;
-  }
-
-  const db = createD1Db(env.OPENMELD_DB);
+  const db = createAuthDatabase();
   const service = createOpenMeldProfileServiceFactory(
     createDrizzleOpenMeldProfileRepository(db),
     {
@@ -63,7 +50,7 @@ export function getOpenMeldProfileService(
         createDrizzleSpaceDeletionTombstoneRepository(db),
       updateDefaultHumanProfileDisplayName: async (input) => {
         try {
-          const result = await getAccountDisplayNameService(env).update({
+          const result = await getAccountDisplayNameService().update({
             displayName: input.displayName,
             expectedDefaultHumanProfileId: input.profileId,
             ownerUserId: input.ownerUserId,
@@ -78,12 +65,8 @@ export function getOpenMeldProfileService(
       },
     }
   );
-  const servicesByCapability = serviceCache.get(env.OPENMELD_DB) ?? new Map();
-  servicesByCapability.set(additionalHumanProfileCreationEnabled, service);
-  serviceCache.set(env.OPENMELD_DB, servicesByCapability);
   return service;
 }
-
 export const profileServiceMiddleware = createMiddleware<AppContext>(
   async (c, next) => {
     c.set("profileService", getOpenMeldProfileService(c.env));

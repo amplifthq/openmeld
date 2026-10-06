@@ -6,6 +6,7 @@ import {
   type SandboxFactory,
   type ShellResult,
 } from "@flue/runtime";
+import { cloudComputerCommandSchema } from "@openmeld/schemas";
 import {
   maxLength,
   maxValue,
@@ -23,14 +24,16 @@ import type {
   RemoteAgentStorage,
 } from "../agent-core/callback-context";
 import { callCoreRpc } from "../agent-core/core-rpc";
-import { requireRemoteAgentExecutionAccess } from "../agent-core/execution-access";
+import {
+  readRemoteAgentExecutionAccess,
+  requireRemoteAgentExecutionAccess,
+} from "../agent-core/execution-access";
 import {
   type RemoteAgentImagePreparer,
   understandRemoteAgentImages,
 } from "../agent-core/image-understanding";
 import type { RemoteAgentModelEnv } from "../agent-core/model";
 import {
-  mergeRemoteAgentResultSources,
   readRemoteAgentResultSources,
   tagRemoteAgentResultSources,
 } from "../agent-core/result-access";
@@ -47,10 +50,13 @@ import {
   createReacquiringOrganizationDocumentWorkingCopyStore,
   materializeAgentComputerWorkspace,
 } from "./agent-computer-workspace-access";
-import { createComputerCommandTool } from "./computer-command";
-import { readComputerDataSources } from "./computer-data-sources";
+import {
+  bindComputerCommandTarget,
+  createComputerCommandTool,
+} from "./computer-command";
 import type { createAgentComputerFileHandoff } from "./computer-file-handoff";
-import { resolveRemoteAgentComputerName } from "./computer-identity";
+import { personalComputerProviderName } from "./computer-identity";
+import { createNativeComputerTool } from "./computer-native";
 import { getComputerSpaceFileTools } from "./computer-space-files";
 import { getComputerVideoInspectionTool } from "./computer-video-inspection";
 import type { AgentComputer } from "./computer-workspace";
@@ -58,10 +64,7 @@ import { AGENT_COMPUTER_SHELL_BACKEND_ID } from "./computer-workspace";
 import { getGitHubWorkingCopyTools } from "./github-working-copy-tools";
 import type { createMemberProfileReportComputerFileStore } from "./member-profile-report-computer-files";
 import { getOrganizationDocumentComputerToolDefinitions } from "./organization-document-computer-tools";
-import {
-  getRemoteAgentSandboxToolDefinitions,
-  type RemoteAgentComputerSearch,
-} from "./sandbox-tools";
+import { disabledNoNetworkSandbox } from "./sandbox";
 import { materializeSpaceWork } from "./space-work-materialization";
 import { emitRemoteAgentToolUsage } from "./tool-usage-observability";
 
@@ -106,31 +109,43 @@ export async function createRemoteAgentComputerCapability(input: {
   storage?: RemoteAgentStorage;
 }): Promise<{
   definitions: RemoteAgentToolDefinition[];
-  fileHandoff: ReturnType<typeof createAgentComputerFileHandoff>;
-  memberProfileReportFiles: ReturnType<
-    typeof createMemberProfileReportComputerFileStore
-  >;
+  fileHandoff: ReturnType<typeof createAgentComputerFileHandoff> | undefined;
+  memberProfileReportFiles:
+    | ReturnType<typeof createMemberProfileReportComputerFileStore>
+    | undefined;
   sandbox: SandboxFactory;
 }> {
-  if (input.context.computerIsolationVersion !== 2) {
+  if (input.context.computerIsolationVersion !== 3) {
     throw new Error(
-      "remote_agent.computer_scope_upgrade_required: Start a new request to use an isolated Computer. Existing commands retain their original cleanup address."
+      "remote_agent.computer_scope_upgrade_required: Start a new request to use your personal Computer. Existing commands retain their original cleanup address."
     );
   }
-  await requireRemoteAgentExecutionAccess(input);
+  const { computer } = await readRemoteAgentExecutionAccess({
+    ...input,
+    includeComputer: true,
+  });
+  if (computer === undefined) {
+    throw new Error("computer.identity_unavailable");
+  }
+  if (computer === null) {
+    return {
+      definitions: [],
+      fileHandoff: undefined,
+      memberProfileReportFiles: undefined,
+      sandbox: disabledNoNetworkSandbox(),
+    };
+  }
   const namespace = input.env.AGENT_COMPUTER as AgentComputerNamespace;
-  const computerId = namespace.idFromName(
-    resolveRemoteAgentComputerName(input.context)
-  );
-  const dataSources = namespace.get(
-    computerId
-  ) as DurableObjectStub<AgentComputer>;
-  const readSources = () => readComputerDataSources({ dataSources });
-  const authorize = async () =>
-    await requireRemoteAgentExecutionAccess({
-      ...input,
-      sources: await readSources(),
+  const computerName = personalComputerProviderName(computer.id);
+  const computerId = namespace.idFromName(computerName);
+  if (input.storage) {
+    await bindComputerCommandTarget({
+      storage: input.storage,
+      submissionId: input.context.submissionId,
+      computerName,
     });
+  }
+  const authorize = async () => await requireRemoteAgentExecutionAccess(input);
   await authorize();
   const workspaceAccess = createAgentComputerWorkspaceAccess({
     computerId,
@@ -232,10 +247,9 @@ export async function createRemoteAgentComputerCapability(input: {
   const transcriptionAi = input.env.AI;
   return {
     definitions: [
-      ...getRemoteAgentSandboxToolDefinitions({
-        computerExec: (command, options) => api.exec(command, options),
-        computerSearch: buildComputerSearch(workspaceAccess),
-        env: sessionEnv,
+      createNativeComputerTool({
+        workspaceAccess,
+        invocationId: input.context.submissionId,
         workingDirectory,
       }),
       ...organizationDocumentDefinitions,
@@ -247,7 +261,6 @@ export async function createRemoteAgentComputerCapability(input: {
             connectorExecution: input.connectorExecution,
             storage: input.storage,
             computer: nativeApi,
-            dataSources,
             workingDirectory,
             workspaceAccess,
           })
@@ -293,24 +306,37 @@ export async function createRemoteAgentComputerCapability(input: {
                   }),
                 ]
               : []),
-            createComputerCommandTool({
-              context: input.context,
-              storage: input.storage,
-              workspaceAccess,
-              workingDirectory,
-            }),
+            {
+              ...createComputerCommandTool({
+                context: input.context,
+                storage: input.storage,
+                workspaceAccess,
+                workingDirectory,
+              }),
+              execute: async (
+                command: Record<string, unknown>,
+                options?: { signal?: AbortSignal }
+              ) => {
+                options?.signal?.throwIfAborted();
+                if (!workspaceAccess.computerOperation) {
+                  throw new Error("computer.operations_unavailable");
+                }
+                return await workspaceAccess.computerOperation({
+                  action: "command",
+                  invocationId: input.context.submissionId,
+                  cwd: workingDirectory,
+                  command: cloudComputerCommandSchema.parse(command),
+                });
+              },
+            },
           ]
         : []),
     ].map((definition) => ({
       ...definition,
+      description: `${definition.description}\nComputer ${computer.id} belongs to human account ${computer.ownerUserId}. Other Agents and tasks for this account share its files. Current task directory: ${workingDirectory}. Use separate files or Git worktrees for concurrent changes. Decide what to use and share from the original requester, delegation, task and destination audience; filesystem access is not an instruction to disclose personal files.`,
       execute: async (value, options) => {
-        const before = await readSources();
         const result = await definition.execute(value, options);
-        const sources = mergeRemoteAgentResultSources(
-          before,
-          await readSources(),
-          readRemoteAgentResultSources(result)
-        );
+        const sources = readRemoteAgentResultSources(result);
         await requireRemoteAgentExecutionAccess({ ...input, sources });
         const tagged =
           sources.length && (result === null || typeof result !== "object")
@@ -393,6 +419,10 @@ export class AgentComputerSandboxApi implements SandboxApi {
   }
 
   async writeFile(path: string, content: string | Uint8Array): Promise<void> {
+    if (this.workspaceAccess.writeComputerFile) {
+      await this.workspaceAccess.writeComputerFile(path, content);
+      return;
+    }
     await this.workspaceAccess.withWorkspace(async (workspace) => {
       const parent = parentDirectory(path);
       if (parent) {
@@ -520,17 +550,6 @@ export class AgentComputerSandboxApi implements SandboxApi {
       }
     });
   }
-}
-
-function buildComputerSearch(
-  workspaceAccess: AgentComputerWorkspaceAccess
-): RemoteAgentComputerSearch {
-  return {
-    grep: (pattern, path, options) =>
-      workspaceAccess.withWorkspace(
-        async (workspace) => await workspace.fs.grep(pattern, path, options)
-      ),
-  };
 }
 
 export function instrumentRemoteAgentComputerSandboxApi(input: {

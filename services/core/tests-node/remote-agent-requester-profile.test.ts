@@ -1,61 +1,87 @@
-import { DatabaseSync, type SQLInputValue } from "node:sqlite";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished } from "vitest";
 import { isActiveRemoteAgentRequesterProfile } from "../src/remote-agent/application/personal-remote-agent-space-tools";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
-const databases: DatabaseSync[] = [];
-function fixture() {
-  const database = new DatabaseSync(":memory:");
-  databases.push(database);
-  database.exec(`
-    CREATE TABLE openmeld_profiles (profile_id TEXT PRIMARY KEY, organization_id TEXT, owner_user_id TEXT, status TEXT, profile_kind TEXT, managed_role TEXT);
-    CREATE TABLE members (organization_id TEXT, user_id TEXT);
-    CREATE TABLE center_agent_designations (organization_id TEXT PRIMARY KEY, agent_profile_id TEXT, duty TEXT, designated_by TEXT, operating_state TEXT, paused_at INTEGER, paused_by_user_id TEXT, created_at INTEGER);
-    INSERT INTO openmeld_profiles VALUES ('center', 'org-a', NULL, 'active', 'agent', 'center_agent');
-    INSERT INTO openmeld_profiles VALUES ('human', 'org-a', 'user-a', 'active', 'human', NULL);
-    INSERT INTO members VALUES ('org-a', 'user-a');
-    INSERT INTO center_agent_designations VALUES ('org-a', 'center', NULL, 'user-a', 'active', NULL, NULL, 1);
-  `);
-  const db = {
-    prepare: (sql: string) => ({
-      bind: (...values: SQLInputValue[]) => ({
-        first: () =>
-          Promise.resolve(database.prepare(sql).get(...values) ?? null),
-      }),
-    }),
-  } as unknown as D1Database;
-  const allowed = (profileId: string | null, organizationId = "org-a") =>
-    isActiveRemoteAgentRequesterProfile({ db, profileId, organizationId });
-  return { database, allowed };
-}
-afterEach(() => {
-  for (const db of databases.splice(0)) {
-    db.close();
+const CENTER = "agt_11111111-1111-4111-8111-111111111111";
+const REPLACEMENT = "agt_22222222-2222-4222-8222-222222222222";
+const HUMAN = "33333333-3333-4333-8333-333333333333";
+async function fixture() {
+  const harness = await createPostgresHarness();
+  onTestFinished(() => harness.close());
+  await harness.query({
+    text: 'INSERT INTO "openmeld"."users" (id, name, email) VALUES ($1, $2, $3)',
+    values: ["user-a", "Member", "member@example.com"],
+  });
+  await harness.query({
+    text: 'INSERT INTO "openmeld"."organizations" (id, name, slug, created_at) VALUES ($1, $2, $3, $4)',
+    values: ["org-a", "Organization", "org-a", 1000],
+  });
+  await harness.query({
+    text: 'INSERT INTO "openmeld"."members" (id, organization_id, user_id, role, created_at) VALUES ($1, $2, $3, $4, $5)',
+    values: ["member-a", "org-a", "user-a", "member", 1000],
+  });
+  for (const [id, handle, kind, owner, role] of [
+    [CENTER, "center", "agent", null, "center_agent"],
+    [REPLACEMENT, "replacement", "agent", null, "center_agent"],
+    [HUMAN, "human", "human", "user-a", null],
+  ]) {
+    await harness.query({
+      text: 'INSERT INTO "openmeld"."openmeld_profiles" (profile_id, profile_name, profile_handle, profile_kind, organization_id, owner_user_id, managed_role, source, status) VALUES ($1, $2, $2, $3, $4, $5, $6, $7, $8)',
+      values: [
+        id,
+        handle,
+        kind,
+        kind === "human" ? null : "org-a",
+        owner,
+        role,
+        "migration",
+        id === REPLACEMENT ? "disabled" : "active",
+      ],
+    });
   }
-});
+  await harness.query({
+    text: 'INSERT INTO "openmeld"."center_agent_designations" (organization_id, agent_profile_id, designated_by) VALUES ($1, $2, $3)',
+    values: ["org-a", CENTER, "user-a"],
+  });
+  const allowed = (profileId: string | null, organizationId = "org-a") =>
+    isActiveRemoteAgentRequesterProfile({
+      db: harness.db,
+      profileId,
+      organizationId,
+    });
+  return { harness, allowed };
+}
 
-describe("current Wake requester identity against real SQL", () => {
+describe("current Wake requester identity against PostgreSQL", () => {
   it("admits the active designated Center without assigning it a human owner", async () => {
-    const f = fixture();
-    expect(await f.allowed("center")).toBe(true);
-    expect(await f.allowed("human")).toBe(true);
+    const f = await fixture();
+    expect(await f.allowed(CENTER)).toBe(true);
+    expect(await f.allowed(HUMAN)).toBe(true);
     expect(await f.allowed(null)).toBe(false);
-    expect(await f.allowed("center", "org-b")).toBe(false);
+    expect(await f.allowed(CENTER, "org-b")).toBe(false);
   });
   it("rejects an old designation, paused Center, disabled Profile and revoked member", async () => {
-    const f = fixture();
-    f.database.exec(
-      "UPDATE center_agent_designations SET agent_profile_id = 'replacement'"
-    );
-    expect(await f.allowed("center")).toBe(false);
-    f.database.exec(
-      "UPDATE center_agent_designations SET agent_profile_id = 'center', operating_state = 'paused'"
-    );
-    expect(await f.allowed("center")).toBe(false);
-    f.database.exec(
-      "UPDATE center_agent_designations SET operating_state = 'active'; UPDATE openmeld_profiles SET status = 'disabled' WHERE profile_id = 'center'"
-    );
-    expect(await f.allowed("center")).toBe(false);
-    f.database.exec("DELETE FROM members");
-    expect(await f.allowed("human")).toBe(false);
+    const f = await fixture();
+    await f.harness.query({
+      text: 'UPDATE "openmeld"."center_agent_designations" SET agent_profile_id = $1',
+      values: [REPLACEMENT],
+    });
+    expect(await f.allowed(CENTER)).toBe(false);
+    await f.harness.query({
+      text: 'UPDATE "openmeld"."center_agent_designations" SET agent_profile_id = $1, operating_state = $2, paused_at = $3',
+      values: [CENTER, "paused", 2000],
+    });
+    expect(await f.allowed(CENTER)).toBe(false);
+    await f.harness.query({
+      text: 'UPDATE "openmeld"."center_agent_designations" SET operating_state = $1, paused_at = NULL',
+      values: ["active"],
+    });
+    await f.harness.query({
+      text: 'UPDATE "openmeld"."openmeld_profiles" SET status = $1 WHERE profile_id = $2',
+      values: ["disabled", CENTER],
+    });
+    expect(await f.allowed(CENTER)).toBe(false);
+    await f.harness.query({ text: 'DELETE FROM "openmeld"."members"' });
+    expect(await f.allowed(HUMAN)).toBe(false);
   });
 });

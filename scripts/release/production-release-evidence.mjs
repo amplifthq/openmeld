@@ -3,7 +3,10 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { productionReleaseEvidenceSchema } from "../../packages/schemas/src/schemas/release/production-release-evidence.ts";
 import { productionReleaseScopeSchema } from "../../packages/schemas/src/schemas/release/production-scope-lease.ts";
-import { createProductionScopeLeaseGitEnvironment } from "./production-scope-lease.mjs";
+import {
+  createProductionScopeLeaseGitEnvironment,
+  resolveHostedLeaseRemote,
+} from "./production-scope-lease.mjs";
 
 const EXACT_SHA_PATTERN = /^[0-9a-f]{40}$/u;
 const EVIDENCE_REF_PREFIX = "refs/heads/openmeld-production-release-evidence";
@@ -140,29 +143,36 @@ export function readGuardedLocalReleaseSources(input = {}) {
     gitEnvironment: input.gitEnvironment,
   };
   return new Map(
-    [...readGuardedLocalReleaseEvidence(context)].map(([scope, evidence]) => [
-      scope,
-      {
-        recordedAt: evidence.metadata.recordedAt,
-        ...(evidence.metadata.receipt
-          ? {
-              receipt: evidence.metadata.receipt,
-              evidenceSha: evidence.evidenceSha,
-            }
-          : {}),
-        sha: evidence.metadata.sourceSha,
-        source: "guarded-local",
-        url: evidence.reconciliation
-          ? `https://github.com/${evidence.reconciliation.repository}/actions/runs/${evidence.reconciliation.runId}`
-          : undefined,
-        ...(evidence.reconciliation
-          ? {
-              reconciliation: evidence.reconciliation,
-              reconciliationEvidenceSha: evidence.reconciliationProofSha,
-            }
-          : {}),
-      },
-    ])
+    [...readGuardedLocalReleaseEvidence(context)].map(([scope, evidence]) => {
+      const verifiedHistoryBaseline = readVerifiedHistoryBaseline(
+        context,
+        evidence
+      );
+      return [
+        scope,
+        {
+          recordedAt: evidence.metadata.recordedAt,
+          ...(evidence.metadata.receipt
+            ? {
+                receipt: evidence.metadata.receipt,
+                evidenceSha: evidence.evidenceSha,
+              }
+            : {}),
+          sha: evidence.metadata.sourceSha,
+          source: "guarded-local",
+          url: evidence.reconciliation
+            ? `https://github.com/${evidence.reconciliation.repository}/actions/runs/${evidence.reconciliation.runId}`
+            : undefined,
+          ...(evidence.reconciliation
+            ? {
+                reconciliation: evidence.reconciliation,
+                reconciliationEvidenceSha: evidence.reconciliationProofSha,
+              }
+            : {}),
+          ...(verifiedHistoryBaseline ? { verifiedHistoryBaseline } : {}),
+        },
+      ];
+    })
   );
 }
 
@@ -196,35 +206,84 @@ function readGuardedLocalReleaseEvidence(context, selectedScopes) {
       shaValue
     );
     runGit(context, ["fetch", "--quiet", "--no-tags", context.remote, ref]);
-    const message = runGit(context, [
-      "show",
-      "-s",
-      "--format=%B",
-      evidenceSha,
-    ]).stdout.trim();
-    const metadata = parseEvidenceMetadata({ evidenceSha, message, scope });
-    runGit(context, ["cat-file", "-e", `${metadata.sourceSha}^{commit}`]);
-    const evidenceTree = runGit(context, [
-      "rev-parse",
-      `${evidenceSha}^{tree}`,
-    ]).stdout.trim();
-    const sourceTree = runGit(context, [
-      "rev-parse",
-      `${metadata.sourceSha}^{tree}`,
-    ]).stdout.trim();
-    if (evidenceTree !== sourceTree) {
-      throw new Error(
-        `Guarded local release evidence ${evidenceSha} does not preserve the exact released source tree.`
-      );
-    }
     evidenceByScope.set(scope, {
-      evidenceSha,
-      metadata,
       ref,
-      ...readReconciliationProof(context, evidenceSha, metadata),
+      ...readEvidenceCommit(context, evidenceSha, scope),
     });
   }
   return evidenceByScope;
+}
+
+function readEvidenceCommit(context, evidenceSha, scope) {
+  const message = runGit(context, [
+    "show",
+    "-s",
+    "--format=%B",
+    evidenceSha,
+  ]).stdout.trim();
+  const metadata = parseEvidenceMetadata({ evidenceSha, message, scope });
+  runGit(context, ["cat-file", "-e", `${metadata.sourceSha}^{commit}`]);
+  const evidenceTree = runGit(context, [
+    "rev-parse",
+    `${evidenceSha}^{tree}`,
+  ]).stdout.trim();
+  const sourceTree = runGit(context, [
+    "rev-parse",
+    `${metadata.sourceSha}^{tree}`,
+  ]).stdout.trim();
+  if (evidenceTree !== sourceTree) {
+    throw new Error(
+      `Guarded local release evidence ${evidenceSha} does not preserve the exact released source tree.`
+    );
+  }
+  return {
+    evidenceSha,
+    metadata,
+    ...readReconciliationProof(context, evidenceSha, metadata),
+  };
+}
+
+function readVerifiedHistoryBaseline(context, latest) {
+  if (
+    !latest.metadata.receipt ||
+    latest.metadata.receipt.status === "verified"
+  ) {
+    return undefined;
+  }
+  let current = latest;
+  for (;;) {
+    // The first parent is receipt chronology; a second parent is a recovery
+    // proof. The first receipt points directly to its released source commit.
+    const parentSha = runGit(context, [
+      "rev-parse",
+      `${current.evidenceSha}^1`,
+    ]).stdout.trim();
+    if (parentSha === current.metadata.sourceSha) {
+      return undefined;
+    }
+    const previous = readEvidenceCommit(
+      context,
+      parentSha,
+      latest.metadata.scope
+    );
+    if (
+      Date.parse(previous.metadata.recordedAt) >
+      Date.parse(current.metadata.recordedAt)
+    ) {
+      throw new Error(
+        "Guarded local release evidence history moves backward in time."
+      );
+    }
+    if (previous.metadata.receipt?.status === "verified") {
+      return {
+        evidenceSha: previous.evidenceSha,
+        recordedAt: previous.metadata.recordedAt,
+        receipt: previous.metadata.receipt,
+        sha: previous.metadata.sourceSha,
+      };
+    }
+    current = previous;
+  }
 }
 
 function createReconciliationProofMetadata(
@@ -317,11 +376,12 @@ function readReconciliationProof(context, evidenceSha, metadata) {
 }
 
 function resolveContext(input) {
+  const environment = input.environment ?? process.env;
   const context = {
     cwd: path.resolve(input.cwd ?? process.cwd()),
-    environment: input.environment ?? process.env,
+    environment,
     now: input.now ? new Date(input.now) : new Date(),
-    remote: input.remote ?? "origin",
+    remote: input.remote ?? resolveHostedLeaseRemote(environment) ?? "origin",
     gitEnvironment: input.gitEnvironment,
   };
   if (Number.isNaN(context.now.getTime())) {
@@ -486,6 +546,20 @@ function validateCorrelationTransition(current, next, recoveryProved) {
   }
   if (recoveryProved) {
     return previous.status === "failed" && previous.application === "unknown";
+  }
+  // The guarded Core executor proves the previous verified deployment is still
+  // active before retrying, then captures a fresh command-correlated activation.
+  if (
+    current.scope === "core" &&
+    previous.status === "failed" &&
+    previous.application === "unknown" &&
+    !previous.identity &&
+    next.receipt.status === "applied" &&
+    next.receipt.application === "applied" &&
+    next.receipt.identity?.kind === "worker-deployment" &&
+    next.receipt.identity.sourceSha === next.sourceSha
+  ) {
+    return true;
   }
   return (
     previous.status === "failed" &&

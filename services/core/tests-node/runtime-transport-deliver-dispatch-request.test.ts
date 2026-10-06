@@ -163,9 +163,11 @@ describe("RuntimeTransport dispatch delivery request", () => {
       ...input,
       defaultProjectId: "project-1",
       workingLanguage: { languageTag: "zh-Hans", mode: "selected" },
+      requesterIsAgentOwner: true,
     });
 
     expect(request.payload.defaultProjectId).toBe("project-1");
+    expect(request.payload.requesterIsAgentOwner).toBe(true);
     expect(request.payload.workingLanguage).toEqual({
       languageTag: "zh-Hans",
       mode: "selected",
@@ -198,6 +200,7 @@ describe("RuntimeTransport dispatch delivery request", () => {
         capabilities: {},
       },
     });
+    expect(legacyRequest.payload).not.toHaveProperty("requesterIsAgentOwner");
     expect(
       legacyRequest.payload.sourceSignalSnapshot?.attachments
     ).toBeUndefined();

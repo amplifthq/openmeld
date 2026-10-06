@@ -1,28 +1,28 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-03T10:37:01.604Z",
+  "updatedAt": "2026-10-06T08:37:35.056Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
-      "packageVersion": "0.3.239",
+      "packageVersion": "0.3.245",
       "updatePolicy": "available",
-      "reason": "Task knowledge readers with current main App origins"
+      "reason": "Native cloud Computer operations are optional and require new cloud receivers; existing commands remain compatible."
     },
     "service": {
-      "bundleHash": "1e7d7b8895f0e19ae81da06613d41c1ec77c88ff69e3c1f48e71338e7371cfcf",
-      "portableBundleHash": "e8a573ef4a7820b4fe154a56e4ef117dc79c0eae685a80004770a5cecac3b058",
-      "bundleVersion": "0.3.239",
+      "bundleHash": "0dddf9e5bca4eb647826145c3b218bdb8d6901e107a40fd713be96f27b2c39ce",
+      "portableBundleHash": "2a4298c743ef7bb4dedc08791799db831f7d6db145503a1df88d1dfca0d6303f",
+      "bundleVersion": "0.3.245",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
       "serviceContractVersion": "openmeld-service-contract-2026-09-local-install-recovery-v1",
       "updatePolicy": "available",
-      "reason": "Task-scoped knowledge readers with current main integration"
+      "reason": "Shared schema additions do not change workstation setup, Wake, execution or reply contracts in either rollout direction."
     },
     "skills": {
-      "bundleHash": "74569de82e8b0aa6803bd418ae8eab60063a4bda19e0173a66628b4d93d9fa98",
+      "bundleHash": "616672b13c7e061b01651894bcc7591b53730e3f452659adaa2fc0e7399ff36e",
       "skillContractVersion": "openmeld-skills-contract-2026-09-explicit-space-recipients-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "The revised guide and DM commands require CLI 0.3.238, while existing Skills remain usable. Publish the matching CLI before distributing the new Skill to local users."
+      "reason": "Optional native Computer guidance uses the new CLI after cloud receivers; existing workstation instructions remain valid."
     }
   }
 }

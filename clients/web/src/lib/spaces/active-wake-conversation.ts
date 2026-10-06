@@ -118,6 +118,25 @@ export function buildActiveWakeConversationItems(input: {
 	}
 }
 
+export function projectAgentStreamReplyPlacements<
+	T extends Pick<
+		SpaceConversationVisibleStreamProjection,
+		"profileId" | "dispatchId" | "triggerMessageId" | "replyThreadRootSignalId"
+	>,
+>(streams: readonly T[], progressItems: readonly WakeProgressItem[]): T[] {
+	return streams.map((stream) => {
+		const placement = progressItems.find(
+			(progress) =>
+				progress.targetProfileId === stream.profileId &&
+				progress.dispatchId === stream.dispatchId &&
+				progress.sourceSignalId === stream.triggerMessageId
+		)?.replyThreadRootSignalId;
+		return placement === undefined
+			? stream
+			: { ...stream, replyThreadRootSignalId: placement };
+	});
+}
+
 export function resolveWakeReplyThreadRoot(input: {
 	progress: WakeProgressItem;
 	agentStreams?: readonly Pick<
@@ -125,6 +144,9 @@ export function resolveWakeReplyThreadRoot(input: {
 		"profileId" | "dispatchId" | "triggerMessageId" | "replyThreadRootSignalId"
 	>[];
 }): string | null | undefined {
+	if (input.progress.replyThreadRootSignalId !== undefined) {
+		return input.progress.replyThreadRootSignalId;
+	}
 	return input.agentStreams?.find(
 		(stream) =>
 			stream.profileId === input.progress.targetProfileId &&
@@ -238,7 +260,7 @@ function createActiveWakePlaceholder(input: {
 		attachments: [],
 		clientMessageId: null,
 		createdAtMs: source?.createdAtMs ?? progress.startedAtMs ?? 0,
-		deliveryState: source?.deliveryState ?? "sent",
+		deliveryState: "sent",
 		id: `active-wake:${identity}:${progress.targetProfileId}`,
 		isAgentFinalReply: true,
 		newMessagesDuringComposition: null,

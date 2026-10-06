@@ -5,6 +5,7 @@ import {
 	SettingsAccountSecuritySection,
 	SettingsAccountSessionsSection,
 } from "@openmeld/ui/components/settings-account";
+import { DeleteAccountSection } from "#/components/account/delete-account-section";
 import { OneTimeTokenCard } from "#/components/account/one-time-token-card";
 import { PasswordChangeCard } from "#/components/account/password-change-card";
 import { ProvidersManagementCard } from "#/components/account/providers-management-card";
@@ -20,12 +21,8 @@ import { getDesktopPlatform } from "#/desktop/platform";
  * identity, sign-in/providers, sessions, CLI tokens. See
  * developing/clients/shell-and-settings.md §3 (the four nouns) + §4 (hybrid IA).
  *
- * This is a purely presentational re-homing of the former account page:
- * the six account cards move under Settings UNCHANGED — each card keeps its own
- * React Query mutation, dirty/saving state, and per-card autonomous save (§7).
- * The cards are grouped into `SettingsSection`s so the flat Account leaf carries
- * scroll anchors (the `id` each section exposes) for future scroll-spy; no
- * data-layer change, no liveness/availability/Wake/readiness semantics.
+ * Each card owns its mutation and save state. Account deletion uses a separate
+ * confirmation dialog and the server-owned account lifecycle.
  */
 export function AccountSection() {
 	const desktop = getDesktopPlatform();
@@ -62,6 +59,7 @@ export function AccountSection() {
 						<SettingsAccountSessionsSection>
 							<SessionsManagementCard />
 						</SettingsAccountSessionsSection>
+						<DeleteAccountSection />
 					</>
 				)}
 			</SettingsAccountRoot>

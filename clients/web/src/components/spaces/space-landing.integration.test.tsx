@@ -116,10 +116,6 @@ import { setSpaceWakeProgressPresentationItems } from "#/query/spaces/active-wak
 import { createSpaceConversationDisplaySnapshot } from "#/query/spaces/display-snapshot";
 import { SpaceEntryConfirmationContext } from "./space-entry-confirmation";
 import {
-	SPACE_LIVE_RECONNECTING_LABEL,
-	SPACE_LIVE_STALE_LABEL,
-} from "./space-header";
-import {
 	SpaceWakeProgressVisibleProjectionProvider,
 	useSpaceWakeProgressVisibleProjection,
 } from "./space-wake-progress-visible-projection";
@@ -2480,7 +2476,10 @@ describe("SpaceLanding", () => {
 		expect(screen.queryByText("Couldn't Load This Space")).toBeNull();
 	});
 
-	it("keeps a cold-start draft available and carries it into the confirmed Space", async () => {
+	it.each([
+		false,
+		true,
+	])("keeps the same editor and draft when a cold Space finishes loading (Center Agent: %s)", async (isCenterAgentDirectMessage) => {
 		const postNormalMessageMock = vi.fn();
 		createWebSpaceApiMock.mockReturnValue({
 			postNormalMessage: postNormalMessageMock,
@@ -2503,19 +2502,12 @@ describe("SpaceLanding", () => {
 			}),
 		});
 
-		const rendered = renderSpaceLanding();
-		const loadingComposer = screen.getByRole("textbox", {
-			name: "Message this space",
-		});
+		const rendered = renderSpaceLanding({ isCenterAgentDirectMessage });
+		const loadingComposer = screen.getByRole("textbox");
 		expect(loadingComposer).toBeInstanceOf(HTMLDivElement);
 		expect(loadingComposer.getAttribute("contenteditable")).toBe("true");
 		expect(document.querySelector('textarea[name="space-message"]')).toBeNull();
-		expect(
-			screen.queryByRole("button", { name: "Choose files to send" })
-		).toBeNull();
-		expect(
-			screen.queryByRole("button", { name: "Mention a member" })
-		).toBeNull();
+		expect(screen.queryByRole("button", { name: "Add" })).toBeTruthy();
 		loadingComposer.focus();
 		await setComposerValue(loadingComposer, "Draft from the first frame");
 		expect(
@@ -2524,9 +2516,24 @@ describe("SpaceLanding", () => {
 					name: "Send message",
 				}) as HTMLButtonElement
 			).disabled
-		).toBe(true);
-		fireEvent.keyDown(loadingComposer, { key: "Enter" });
+		).toBe(false);
 		expect(postNormalMessageMock).not.toHaveBeenCalled();
+
+		mockSpaceQueries({
+			status: createQueryResult({ isSuccess: true, data: createSpaceStatus() }),
+			members: createQueryResult({ isPending: true }),
+			history: createQueryResult({ isPending: true }),
+		});
+		rendered.rerender(
+			<SpaceLanding
+				isCenterAgentDirectMessage={isCenterAgentDirectMessage}
+				orgSlug="acme"
+				profileId={DEFAULT_SPACE_PROFILE_ID}
+				spaceId="space-123"
+			/>
+		);
+		expect(screen.getByRole("textbox")).toBe(loadingComposer);
+		expect(loadingComposer.getAttribute("contenteditable")).toBe("true");
 
 		mockSpaceQueries({
 			status: createQueryResult({
@@ -2544,6 +2551,7 @@ describe("SpaceLanding", () => {
 		});
 		rendered.rerender(
 			<SpaceLanding
+				isCenterAgentDirectMessage={isCenterAgentDirectMessage}
 				orgSlug="acme"
 				profileId={DEFAULT_SPACE_PROFILE_ID}
 				spaceId="space-123"
@@ -2551,9 +2559,8 @@ describe("SpaceLanding", () => {
 		);
 
 		await waitFor(() => {
-			const confirmedComposer = screen.getByRole("textbox", {
-				name: "Message this space",
-			});
+			const confirmedComposer = screen.getByRole("textbox");
+			expect(confirmedComposer).toBe(loadingComposer);
 			expect(readComposerValue(confirmedComposer)).toBe(
 				"Draft from the first frame"
 			);
@@ -3727,7 +3734,7 @@ describe("SpaceLanding", () => {
 			const thinkingIndicator = screen.getByTestId(
 				"space-wake-thinking-indicator"
 			);
-			expect(thinkingIndicator.textContent).toContain("runner · Thinking…");
+			expect(thinkingIndicator.textContent).toContain("runner · Working…");
 		});
 	});
 
@@ -3841,7 +3848,7 @@ describe("SpaceLanding", () => {
 		const thinkingIndicator = screen.getByTestId(
 			"space-wake-thinking-indicator"
 		);
-		expect(thinkingIndicator.textContent).toContain("runner · Thinking…");
+		expect(thinkingIndicator.textContent).toContain("runner · Working…");
 
 		await act(async () => {
 			resolveDetailedWakeProgress({
@@ -4519,7 +4526,7 @@ describe("SpaceLanding", () => {
 			const thinkingIndicator = screen.getByTestId(
 				"space-wake-thinking-indicator"
 			);
-			expect(thinkingIndicator.textContent).toContain("runner · Thinking…");
+			expect(thinkingIndicator.textContent).toContain("runner · Working…");
 		});
 	});
 
@@ -11031,7 +11038,7 @@ describe("SpaceLanding", () => {
 			screen.getByText("Visible from the saved browser view")
 		).toBeTruthy();
 		expect(
-			screen.getByRole("link", { name: "Open thread (7 replies)" })
+			screen.getByRole("button", { name: "Open thread (7 replies)" })
 		).toBeTruthy();
 		expect(
 			within(
@@ -13200,7 +13207,8 @@ describe("SpaceLanding", () => {
 		expect(membersRefetchMock).toHaveBeenCalledTimes(1);
 	});
 
-	it("degrades on websocket server error frames", async () => {
+	it("delays freshness feedback for websocket server errors", async () => {
+		vi.useFakeTimers();
 		createWebSpaceApiMock.mockReturnValue({
 			getUpdates: vi.fn().mockResolvedValue({
 				signals: [],
@@ -13228,9 +13236,7 @@ describe("SpaceLanding", () => {
 
 		renderSpaceLanding();
 
-		await waitFor(() => {
-			expect(FakeWebSocket.instances).toHaveLength(1);
-		});
+		expect(FakeWebSocket.instances).toHaveLength(1);
 
 		await act(async () => {
 			await FakeWebSocket.instances[0]?.emitOpen();
@@ -13242,11 +13248,17 @@ describe("SpaceLanding", () => {
 			);
 		});
 
-		await waitFor(() => {
-			expect(screen.getByText(SPACE_LIVE_RECONNECTING_LABEL)).toBeTruthy();
-			expect(screen.queryByRole("button", { name: "Reconnect" })).toBeNull();
-			expect(screen.queryByRole("button", { name: "Refresh" })).toBeNull();
+		expect(
+			screen.queryByText("Messages and activity may be out of date.")
+		).toBeNull();
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(15_000);
 		});
+		expect(
+			screen.getByText("Messages and activity may be out of date.")
+		).toBeTruthy();
+		expect(screen.queryByRole("button", { name: "Reconnect" })).toBeNull();
+		expect(screen.queryByRole("button", { name: "Refresh" })).toBeNull();
 	});
 
 	it("automatically reconnects after websocket close with a fresh tail catch-up", async () => {
@@ -13299,7 +13311,9 @@ describe("SpaceLanding", () => {
 		});
 
 		// Within the grace window a dropped stream stays quiet — no status flip.
-		expect(screen.queryByText(SPACE_LIVE_RECONNECTING_LABEL)).toBeNull();
+		expect(
+			screen.queryByText("Messages and activity may be out of date.")
+		).toBeNull();
 		expect(screen.queryByTestId("space-live-status")).toBeNull();
 
 		await act(async () => {
@@ -13308,22 +13322,34 @@ describe("SpaceLanding", () => {
 
 		expect(FakeWebSocket.instances).toHaveLength(2);
 		// Reconnect fired but the grace window has not elapsed — still quiet.
-		expect(screen.queryByText(SPACE_LIVE_RECONNECTING_LABEL)).toBeNull();
+		expect(
+			screen.queryByText("Messages and activity may be out of date.")
+		).toBeNull();
 		expect(screen.queryByTestId("space-live-status")).toBeNull();
 
 		await act(async () => {
 			await vi.advanceTimersByTimeAsync(1500);
 		});
 
-		// Grace elapsed without recovery — the degraded status now surfaces.
-		expect(screen.getByText(SPACE_LIVE_RECONNECTING_LABEL)).toBeTruthy();
+		// Internal recovery stays quiet until the presentation grace elapses.
+		expect(
+			screen.queryByText("Messages and activity may be out of date.")
+		).toBeNull();
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(15_000);
+		});
+		expect(
+			screen.getByText("Messages and activity may be out of date.")
+		).toBeTruthy();
 
 		await act(async () => {
 			await FakeWebSocket.instances[1]?.emitOpen();
 		});
 
 		expect(getUpdatesMock).toHaveBeenCalledTimes(1);
-		expect(screen.queryByText(SPACE_LIVE_RECONNECTING_LABEL)).toBeNull();
+		expect(
+			screen.queryByText("Messages and activity may be out of date.")
+		).toBeNull();
 	});
 
 	it("reconnects from the last authoritative history/updates cursor despite newer live frames", async () => {
@@ -13516,12 +13542,28 @@ describe("SpaceLanding", () => {
 		// No reconnect and no recovered tail message: the open socket stays live,
 		// while freshness is honestly marked as stale until a retry succeeds.
 		expect(FakeWebSocket.instances).toHaveLength(1);
-		expect(screen.queryByText(SPACE_LIVE_RECONNECTING_LABEL)).toBeNull();
-		expect(screen.getByText(SPACE_LIVE_STALE_LABEL)).toBeTruthy();
+		expect(
+			screen.queryByText("Messages and activity may be out of date.")
+		).toBeNull();
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(15_000);
+		});
+		expect(
+			screen.getByText("Messages and activity may be out of date.")
+		).toBeTruthy();
 		expect(screen.queryByText("Recovered tail message")).toBeNull();
+		getUpdatesMock.mockResolvedValue({ signals: [] });
+		await act(async () => {
+			fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+			await Promise.resolve();
+		});
+		expect(FakeWebSocket.instances).toHaveLength(1);
+		expect(
+			screen.queryByText("Messages and activity may be out of date.")
+		).toBeNull();
 	});
 
-	it("reconnects immediately when the live status indicator is clicked", async () => {
+	it("retries from the freshness notice without claiming recovery", async () => {
 		vi.useFakeTimers();
 		const getUpdatesMock = vi.fn().mockResolvedValue({ signals: [] });
 		createWebSpaceApiMock.mockReturnValue({
@@ -13559,19 +13601,30 @@ describe("SpaceLanding", () => {
 		await act(async () => {
 			await vi.advanceTimersByTimeAsync(1500);
 		});
-		expect(screen.getByText(SPACE_LIVE_RECONNECTING_LABEL)).toBeTruthy();
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(15_000);
+		});
+		expect(
+			screen.getByText("Messages and activity may be out of date.")
+		).toBeTruthy();
 
 		const socketsBeforeRetry = FakeWebSocket.instances.length;
 		await act(async () => {
-			fireEvent.click(
-				screen.getByRole("button", { name: "Reconnect live updates now" })
-			);
+			fireEvent.click(screen.getByRole("button", { name: "Retry" }));
 			await Promise.resolve();
 		});
 
 		// A fresh socket opens right away — no waiting out the backoff timer.
 		expect(FakeWebSocket.instances.length).toBe(socketsBeforeRetry + 1);
-		expect(screen.queryByText(SPACE_LIVE_RECONNECTING_LABEL)).toBeNull();
+		expect(
+			screen.getByText("Messages and activity may be out of date.")
+		).toBeTruthy();
+		await act(async () => {
+			await FakeWebSocket.instances.at(-1)?.emitOpen();
+		});
+		expect(
+			screen.queryByText("Messages and activity may be out of date.")
+		).toBeNull();
 	});
 
 	it("reconnects immediately when the tab returns to the foreground while degraded", async () => {
@@ -13612,7 +13665,12 @@ describe("SpaceLanding", () => {
 		await act(async () => {
 			await vi.advanceTimersByTimeAsync(1500);
 		});
-		expect(screen.getByText(SPACE_LIVE_RECONNECTING_LABEL)).toBeTruthy();
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(15_000);
+		});
+		expect(
+			screen.getByText("Messages and activity may be out of date.")
+		).toBeTruthy();
 
 		const socketsBeforeForeground = FakeWebSocket.instances.length;
 		await act(async () => {
@@ -15148,18 +15206,15 @@ describe("SpaceLanding", () => {
 		expect(
 			await screen.findByText("The message could not be sent.")
 		).toBeTruthy();
-		expect(
-			readComposerValue(
-				screen.getByRole("textbox", {
-					name: "Message this space",
-				})
-			)
-		).toBe("");
+		expect(readComposerValue(screen.getByRole("textbox"))).toBe("");
 		expect(screen.getByText("Keep this draft")).toBeTruthy();
 		expect(onConsumed).toHaveBeenCalledTimes(1);
 	});
 
-	it("shows local Wake progress immediately for Direct Message automatic Wake", async () => {
+	it.each([
+		OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
+		"ordinary_private_space",
+	])("shows local Wake progress immediately for automatic Wake in %s", async (spacePurpose) => {
 		let resolvePost:
 			| ((signal: ReturnType<typeof createTextSignal>) => void)
 			| null = null;
@@ -15177,7 +15232,7 @@ describe("SpaceLanding", () => {
 				isSuccess: true,
 				data: {
 					...createSpaceStatus(),
-					spacePurpose: OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
+					spacePurpose,
 				},
 			}),
 			members: createQueryResult({
@@ -15223,7 +15278,7 @@ describe("SpaceLanding", () => {
 		const wakeThinkingIndicator = screen.getByTestId(
 			"space-wake-thinking-indicator"
 		);
-		expect(wakeThinkingIndicator.textContent).toContain("runner · Thinking…");
+		expect(wakeThinkingIndicator.textContent).toContain("runner · Working…");
 
 		await act(async () => {
 			resolvePost?.(
@@ -16100,7 +16155,7 @@ describe("SpaceLanding", () => {
 		const wakeThinkingIndicator = screen.getByTestId(
 			"space-wake-thinking-indicator"
 		);
-		expect(wakeThinkingIndicator.textContent).toContain("watcher · Thinking…");
+		expect(wakeThinkingIndicator.textContent).toContain("watcher · Working…");
 		fireEvent.click(wakeThinkingIndicator);
 		expect(
 			await screen.findByRole("heading", { name: "Message details" })

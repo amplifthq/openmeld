@@ -257,19 +257,43 @@ export function mergeWakeProgressItems(input: {
       continue;
     }
 
-    if (!existing || shouldReplaceWakeProgressItem({ existing, incoming })) {
-      if (existingEntry && key !== buildWakeProgressItemKey(incoming)) {
-        itemsByKey.delete(key);
-        itemsByKey.set(buildWakeProgressItemKey(incoming), incoming);
-      } else {
-        itemsByKey.set(key, incoming);
-      }
+    const lifecycle =
+      !existing || shouldReplaceWakeProgressItem({ existing, incoming })
+        ? incoming
+        : existing;
+    const next = mergeWakeReplyPlacement(lifecycle, existing, incoming);
+    if (existingEntry && key !== buildWakeProgressItemKey(next)) {
+      itemsByKey.delete(key);
     }
+    itemsByKey.set(buildWakeProgressItemKey(next), next);
   }
 
   return [...itemsByKey.values()].sort(
     (left, right) => left.updatedAtMs - right.updatedAtMs
   );
+}
+
+function mergeWakeReplyPlacement(
+  lifecycle: WakeProgressItem,
+  existing: WakeProgressItem | null,
+  incoming: WakeProgressItem
+): WakeProgressItem {
+  // Placement can change without a lifecycle transition. Preserve the newest
+  // Space-owned selection across out-of-order polling and stream updates.
+  const placement =
+    existing?.replyThreadRootSignalId !== undefined &&
+    (incoming.replyThreadRootSignalId === undefined ||
+      (existing.replyPlacementRevision ?? 0) >
+        (incoming.replyPlacementRevision ?? 0))
+      ? existing
+      : incoming;
+  return placement.replyThreadRootSignalId === undefined
+    ? lifecycle
+    : {
+        ...lifecycle,
+        replyThreadRootSignalId: placement.replyThreadRootSignalId,
+        replyPlacementRevision: placement.replyPlacementRevision,
+      };
 }
 
 export function applyWakeProgressSignals(input: {

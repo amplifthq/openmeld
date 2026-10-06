@@ -4,10 +4,20 @@ import {
 } from "@openmeld/schemas";
 import type { RemoteAgentCallbackContext } from "../agent-core/callback-context";
 
+export function personalComputerProviderName(computerId: string): string {
+  if (!computerId.trim()) {
+    throw new Error("computer.identity_required");
+  }
+  return `personal-computer:${computerId}`;
+}
+
 /** Resolve execution and cleanup against the same admitted isolation scope. */
 export function resolveRemoteAgentComputerName(
   context: RemoteAgentCallbackContext
 ): string {
+  if (context.computerIsolationVersion === 3) {
+    throw new Error("computer.persisted_command_target_required");
+  }
   if (context.computerIsolationVersion === 2) {
     return `agent-computer:audience-v2:${remoteAgentExecutionScopeKey(resolveRemoteAgentExecutionScope(context))}`;
   }
@@ -26,7 +36,7 @@ export function resolveRemoteAgentComputerName(
 
 /**
  * Legacy names remain solely for already-admitted command cleanup. Current
- * Computer capabilities always use resolveRemoteAgentComputerName's audience key.
+ * Computer capabilities always use personalComputerProviderName's account key.
  */
 const AGENT_COMPUTER_NAME_PREFIX = "agent-computer:";
 
