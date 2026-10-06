@@ -566,6 +566,58 @@ test("extends legacy receipts, retries the same event idempotently and rejects c
   }
 });
 
+test("native database verification completes the original failed Git receipt", async () => {
+  const fixture = createGitFixture();
+  let interrupted = true;
+  let tick = 0;
+  const effects = [];
+  const common = { cwd: fixture.repository, remote: fixture.remote };
+  const run = () =>
+    executeRecordedProductionDeploySteps({
+      sourceSha: fixture.sourceSha,
+      steps: buildProductionDeployStepSpecs(["db"], {
+        databaseBackend: "postgresql",
+      }),
+      readEvidence: () => readGuardedLocalReleaseSources(common),
+      executeSteps: executeProductionDeploySteps,
+      executionAdapters: {
+        runStep: (step) => {
+          effects.push(step.label);
+          if (interrupted) {
+            throw new Error("fixture deploy failed");
+          }
+        },
+      },
+      publishEvidence: (event) =>
+        publishGuardedLocalReleaseEvidence({ ...event, ...common }),
+      now: () => new Date(Date.UTC(2026, 8, 18, 12, 0, tick++)).toISOString(),
+      write: () => undefined,
+    });
+  try {
+    await assert.rejects(run, DEPLOY_ERROR);
+    const failed = readGuardedLocalReleaseSources(common).get("db");
+    await assert.rejects(run, DEPLOY_ERROR);
+    assert.deepEqual(readGuardedLocalReleaseSources(common).get("db"), failed);
+    interrupted = false;
+    await run();
+    const completed = readGuardedLocalReleaseSources(common).get("db");
+    assert.deepEqual(effects, [
+      "PostgreSQL database: migrate",
+      "PostgreSQL database: verify",
+      "PostgreSQL database: verify",
+    ]);
+    assert.deepEqual(completed.receipt, {
+      ...failed.receipt,
+      status: "verified",
+      application: "applied",
+      identity: { kind: "release-source" },
+    });
+    assert.equal(completed.sha, failed.sha);
+  } finally {
+    rmSync(fixture.root, { force: true, recursive: true });
+  }
+});
+
 test("a partial release remains reconstructable from real isolated Git receipts", async () => {
   const fixture = createGitFixture();
   let tick = 0;
