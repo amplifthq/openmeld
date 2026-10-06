@@ -49,11 +49,11 @@ export const Route = createRootRoute({
 
 function RootComponent() {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html className="font-geist-vars" lang="en" suppressHydrationWarning>
       <head>
         <HeadContent />
       </head>
-      <body className="flex min-h-screen flex-col font-geist-vars font-sans">
+      <body className="flex min-h-screen flex-col font-sans">
         <RootProvider>
           <Outlet />
         </RootProvider>
