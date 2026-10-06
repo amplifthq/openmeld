@@ -1832,6 +1832,10 @@ When a final Agent Profile reply was composed while newer public text messages
 arrived, the persisted reply may carry a server-derived count and clients may
 show a quiet `written before N newer messages` marker. The count is timeline
 context, not a failure, execution state, or claim that the reply is wrong.
+The count excludes queued messages with a confirmed native steering receipt
+for that exact dispatch and target Agent Profile. Those messages reached the
+running execution. Enqueue, uncertain delivery, and another execution's receipt
+do not establish that the Agent received a message.
 Agents and clients must not author or infer this metadata themselves.
 
 Agent-authored final communication has two choices: `reply` (`post_message`)

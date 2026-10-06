@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@opencode-ai/sdk": "^1.18.34",
+    "@opencode/client": "2.0.24",
     "@openmeld/adapter-core": "workspace:*",
     "@openmeld/agent-runtime": "workspace:*"
   },
