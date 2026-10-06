@@ -2149,6 +2149,28 @@ context-admission contract is complete.
 
 ### Conversation compaction and runtime rollover
 
+#### Recovery and cost acceptance
+
+Center and personal Remote Agents share this harness contract. Context
+maintenance must preserve the current assignment and recoverable evidence,
+not merely reduce one request's size. Evaluate total task usage, maintenance
+cost, repeated reads, and answer quality together. Diagnostics are not another
+execution authority and must not fail productive work on elapsed time alone.
+
+A Computer command remains owned by its existing command receipt when model
+context is compacted. The Agent must be able to recover its exact key, inspect
+progress, read results, or request cancellation without launching the work
+again. Recovery must use the existing list/poll/stop operations and their
+current authorization. An uncertain start is inspected before any retry;
+missing model context is not evidence that no process was started.
+
+Acceptance must force compaction between starting and recovering a command,
+verify one native launch, and cover result retrieval and exact cancellation.
+It must also recover a needed tool contract and source evidence after
+compaction, while preserving current access checks. Local browser acceptance
+and deterministic runtime tests provide different evidence; neither alone
+proves real-model cost or final-answer quality.
+
 Flue remains the sole owner of the message history, summary, and compaction
 execution inside one Remote Agent runtime conversation generation. OpenMeld
 does not maintain a second transcript or run an additional summarizer on
