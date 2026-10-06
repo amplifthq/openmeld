@@ -637,6 +637,15 @@ language advisory remain per-turn input. A preference change therefore does not
 change the stable instruction epoch. Provider adapters must not maintain a
 second copy of either category or run a separate language detector/model call.
 
+Space Action submission rules are also stable instructions, conditional on the
+current Wake requiring a reply or silence action. The permitted completion
+action remains explicit in every Wake, including when both briefs are hidden.
+Native instruction delivery omits repeated submission rules from that turn's
+input; the complete fallback retains them. The content-derived epoch changes
+when those rules change, so older or unproven conversations receive the complete
+fallback. No history is summarized or removed and no native conversation is
+replaced for this optimization.
+
 The stable workflow applies only to OpenMeld Wakes. User messages, Space Guides,
 attachments, and history remain task context rather than runtime instructions
 or new permissions. Current completion guidance requires the permitted action
