@@ -1,25 +1,25 @@
 import type { CompactionConfig } from "@flue/runtime";
 import { remoteAgentReadToolResultResponseSchema } from "@openmeld/schemas";
-import { z } from "zod/v4";
+import { literal, looseObject, number, string } from "zod/v4";
 import type {
   RemoteAgentCoreWorkerBinding,
   RemoteAgentStorage,
 } from "../agent-core/callback-context";
 import { createRemoteAgentReadToolResultDefinition } from "./retained-tool-results";
 
-const completedPreview = z.looseObject({
-  toolName: z.string(),
-  toolExecution: z.literal("returned"),
-  resultMetadata: z.looseObject({ status: z.literal("completed") }),
-  presentation: z.looseObject({
-    kind: z.literal("partial"),
-    continuation: z.looseObject({
-      tool: z.literal("openmeld_read_tool_result"),
-      resultId: z.string().regex(/^[a-f0-9]{64}$/u),
-      expiresAtMs: z.number(),
+const completedPreview = looseObject({
+  toolName: string(),
+  toolExecution: literal("returned"),
+  resultMetadata: looseObject({ status: literal("completed") }),
+  presentation: looseObject({
+    kind: literal("partial"),
+    continuation: looseObject({
+      tool: literal("openmeld_read_tool_result"),
+      resultId: string().regex(/^[a-f0-9]{64}$/u),
+      expiresAtMs: number(),
     }),
   }),
-  resultPreview: z.looseObject({ format: z.literal("json_excerpts") }),
+  resultPreview: looseObject({ format: literal("json_excerpts") }),
 });
 
 /** Called only by Flue under context pressure, outside its protected recent tail.
