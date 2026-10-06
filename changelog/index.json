@@ -145,7 +145,9 @@
         "commit:28242f81d13293ddb3154ac27fe36137f4cef7eb",
         "pr:1554",
         "commit:0b048940e491d46ab4a03d7317b4259b1176ef26",
-        "worker-version:59b1b4ec-4357-41aa-a156-ec9bd1aab1bc"
+        "worker-version:59b1b4ec-4357-41aa-a156-ec9bd1aab1bc",
+        "pr:1556",
+        "commit:9e377afcb9686978faeb332493a8c03d76646f5a"
       ],
       "body": "Center Agents and hosted Remote Agents can recover their most recently selected\ntools and available retained results after a conversation is shortened. Context\ncompaction reserves room for new work and uses one summary request per working\ncheckpoint. Computer tasks keep their existing identity for progress checks,\nresult retrieval, and cancellation."
     },
@@ -291,7 +293,9 @@
         "commit:28242f81d13293ddb3154ac27fe36137f4cef7eb",
         "pr:1554",
         "commit:0b048940e491d46ab4a03d7317b4259b1176ef26",
-        "worker-version:59b1b4ec-4357-41aa-a156-ec9bd1aab1bc"
+        "worker-version:59b1b4ec-4357-41aa-a156-ec9bd1aab1bc",
+        "pr:1556",
+        "commit:9e377afcb9686978faeb332493a8c03d76646f5a"
       ],
       "body": "Hosted agents can omit older completed tool-output previews when their working\ncontext is full. They keep completion details and references for reading the\noriginal output when needed. Recent results stay visible, and normal history\ncompaction still runs when the context needs more space."
     },
