@@ -5423,7 +5423,7 @@ The field is rollout-optional so a new Remote Agent consumer can deploy before
 Core emits it; omission means `standard`. Core persists the policy on the
 Routine and copies it into the frozen worker request. `read_only` is consumed
 only as the narrow external-action fence owned by
-`developing/product/center-agent-routines.md`; it does not authorize reads,
+`developing/product/routines.md`; it does not authorize reads,
 replace capability-owned checks, or become a second general permission model.
 Deploy the Remote Agent consumer first, apply the Routine-column migration,
 then deploy the Core producer.
@@ -8640,7 +8640,7 @@ Use scoped owner documents for related rules:
 
 - `developing/product/product-model.md`: product promise and user-facing model.
 - `developing/product/agent-profiles.md`: Agent Profile product semantics.
-- `developing/product/center-agent-routines.md`: Routine and Run product
+- `developing/product/routines.md`: Routine and Run product
   semantics, authority, scheduling, and result surfaces.
 - `developing/architecture/agent-transport-contract.md`: execution authority,
   readiness, Wake execution, and final outcome contract.

@@ -960,10 +960,10 @@ provider creates them. The CLI remains startable on its declared Node 20 floor;
 OpenCode SQLite reconciliation is optional capability detection, while the
 managed OpenCode plugin is the low-latency primary path.
 
-### Center Agent Routines
+### Routines
 
 `openmeld routines` is the terminal surface for the active organization's
-Center Agent Routines. It exposes exactly eight commands:
+personal and Team Routines. It exposes exactly eight commands:
 
 ```text
 list
@@ -978,10 +978,13 @@ runs
 
 `show` selects one Routine from the canonical strict list response; it does not
 require or imply a separate HTTP endpoint. `runs` reads the shared paginated Run
-projection. All active organization members may read Routines and Runs. Core's
-owner/admin/member creator-scope remains the mutation authority; CLI must not
-infer it from local state.
+projection. List/show request the v3 management contract, including scope,
+executor, and available executor choices. Core enforces creator-only personal
+reads and destination-scoped Team reads; CLI never infers authority locally.
 
+Create accepts `--scope personal|team` (default personal) and
+`--agent <profile-id>|center`. List exposes authorized executor choices; an Agent
+uses an exact returned ID. The selected Agent supplies model and reasoning settings.
 Create requires a name, instructions, and explicit target Space. It accepts
 either `--run-at <ISO-8601>` with an explicit timezone offset for one future
 Run, or one raw five-field schedule expression/`--daily HH:MM` plus an explicit
@@ -1042,7 +1045,7 @@ contract is not translated into a successful practical response, and a new
 producer must not add unknown required response fields to the no-contract v1
 projection.
 Deployment order and the separate W2/W5 Remote Agent windows live in
-`developing/product/center-agent-routines.md` and
+`developing/product/routines.md` and
 `developing/engineering/development-workflow.md`.
 
 ### Space File Commands
@@ -1989,7 +1992,7 @@ Use scoped owner documents for deeper rules:
 - `developing/product/product-model.md`: product promise and main loop.
 - `developing/product/agent-profiles.md`: Agent Profile identity and recovery
   semantics.
-- `developing/product/center-agent-routines.md`: Routine and Run semantics,
+- `developing/product/routines.md`: Routine and Run semantics,
   authority, scheduling, and result surfaces.
 - `developing/product/space-collaboration.md`: Space addressing, threads, and
   visible outcome semantics.

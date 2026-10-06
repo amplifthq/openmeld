@@ -2,7 +2,10 @@ import {
   createDailyRoutineSchedule,
   validateRoutineSchedule,
 } from "@openmeld/routine-schedule";
-import { CENTER_AGENT_ROUTINE_RUN_LIST_MAX_LIMIT } from "@openmeld/schemas";
+import {
+  CENTER_AGENT_ROUTINE_RUN_LIST_MAX_LIMIT,
+  routineScopeSchema,
+} from "@openmeld/schemas";
 import type {
   CreateCenterAgentRoutineBody,
   UpdateCenterAgentRoutineBody,
@@ -39,8 +42,20 @@ export function buildCreateRoutineBody(
     nextStep: "Pass `--target-space <space-id>`.",
   });
   const schedule = buildRequiredRoutineSchedule(input);
+  const scope = routineScopeSchema.safeParse(input.scope ?? "personal");
+  if (!scope.success) {
+    throw new RoutineCommandError({
+      code: "routine.scope_invalid",
+      message: "Routine visibility must be personal or team.",
+      nextStep: "Pass `--scope personal` or `--scope team`.",
+      title: "Invalid Routine Visibility",
+    });
+  }
   return {
     ...schedule,
+    agentProfileId:
+      input.agentProfileId === "center" ? null : input.agentProfileId,
+    scope: scope.data,
     destinationKind: "space",
     instructions,
     name,

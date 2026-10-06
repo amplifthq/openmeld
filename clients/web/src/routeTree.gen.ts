@@ -77,6 +77,7 @@ import { Route as OOrgSlugOrganizationsRouteImport } from './routes/o/$orgSlug/o
 import { Route as OOrgSlugPeopleRouteImport } from './routes/o/$orgSlug/people'
 import { Route as OOrgSlugPluginsRouteImport } from './routes/o/$orgSlug/plugins'
 import { Route as OOrgSlugProjectsRouteImport } from './routes/o/$orgSlug/projects'
+import { Route as OOrgSlugRoutinesRouteImport } from './routes/o/$orgSlug/routines'
 import { Route as OOrgSlugSettingsRouteImport } from './routes/o/$orgSlug/settings'
 import { Route as OOrgSlugSkillsRouteImport } from './routes/o/$orgSlug/skills'
 import { Route as SlackIdentityStartRouteImport } from './routes/slack/identity/start'
@@ -524,6 +525,11 @@ const OOrgSlugPluginsRoute = OOrgSlugPluginsRouteImport.update({
 const OOrgSlugProjectsRoute = OOrgSlugProjectsRouteImport.update({
   id: '/projects',
   path: '/projects',
+  getParentRoute: () => OOrgSlugRoute,
+} as any)
+const OOrgSlugRoutinesRoute = OOrgSlugRoutinesRouteImport.update({
+  id: '/routines',
+  path: '/routines',
   getParentRoute: () => OOrgSlugRoute,
 } as any)
 const OOrgSlugSettingsRoute = OOrgSlugSettingsRouteImport.update({
@@ -1181,6 +1187,7 @@ export interface FileRoutesByFullPath {
   '/o/$orgSlug/people': typeof OOrgSlugPeopleRoute
   '/o/$orgSlug/plugins': typeof OOrgSlugPluginsRouteWithChildren
   '/o/$orgSlug/projects': typeof OOrgSlugProjectsRouteWithChildren
+  '/o/$orgSlug/routines': typeof OOrgSlugRoutinesRoute
   '/o/$orgSlug/settings': typeof OOrgSlugSettingsRouteWithChildren
   '/o/$orgSlug/skills': typeof OOrgSlugSkillsRouteWithChildren
   '/slack/identity/start': typeof SlackIdentityStartRoute
@@ -1349,6 +1356,7 @@ export interface FileRoutesByTo {
   '/o/$orgSlug/onboarding': typeof OOrgSlugOnboardingRoute
   '/o/$orgSlug/organizations': typeof OOrgSlugOrganizationsRoute
   '/o/$orgSlug/people': typeof OOrgSlugPeopleRoute
+  '/o/$orgSlug/routines': typeof OOrgSlugRoutinesRoute
   '/slack/identity/start': typeof SlackIdentityStartRoute
   '/slack/oauth/result': typeof SlackOauthResultRoute
   '/slack/oauth/start': typeof SlackOauthStartRoute
@@ -1520,6 +1528,7 @@ export interface FileRoutesById {
   '/o/$orgSlug/people': typeof OOrgSlugPeopleRoute
   '/o/$orgSlug/plugins': typeof OOrgSlugPluginsRouteWithChildren
   '/o/$orgSlug/projects': typeof OOrgSlugProjectsRouteWithChildren
+  '/o/$orgSlug/routines': typeof OOrgSlugRoutinesRoute
   '/o/$orgSlug/settings': typeof OOrgSlugSettingsRouteWithChildren
   '/o/$orgSlug/skills': typeof OOrgSlugSkillsRouteWithChildren
   '/slack/identity/start': typeof SlackIdentityStartRoute
@@ -1696,6 +1705,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/people'
     | '/o/$orgSlug/plugins'
     | '/o/$orgSlug/projects'
+    | '/o/$orgSlug/routines'
     | '/o/$orgSlug/settings'
     | '/o/$orgSlug/skills'
     | '/slack/identity/start'
@@ -1864,6 +1874,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/onboarding'
     | '/o/$orgSlug/organizations'
     | '/o/$orgSlug/people'
+    | '/o/$orgSlug/routines'
     | '/slack/identity/start'
     | '/slack/oauth/result'
     | '/slack/oauth/start'
@@ -2034,6 +2045,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/people'
     | '/o/$orgSlug/plugins'
     | '/o/$orgSlug/projects'
+    | '/o/$orgSlug/routines'
     | '/o/$orgSlug/settings'
     | '/o/$orgSlug/skills'
     | '/slack/identity/start'
@@ -2681,6 +2693,13 @@ declare module '@tanstack/react-router' {
       path: '/projects'
       fullPath: '/o/$orgSlug/projects'
       preLoaderRoute: typeof OOrgSlugProjectsRouteImport
+      parentRoute: typeof OOrgSlugRoute
+    }
+    '/o/$orgSlug/routines': {
+      id: '/o/$orgSlug/routines'
+      path: '/routines'
+      fullPath: '/o/$orgSlug/routines'
+      preLoaderRoute: typeof OOrgSlugRoutinesRouteImport
       parentRoute: typeof OOrgSlugRoute
     }
     '/o/$orgSlug/settings': {
@@ -3772,6 +3791,7 @@ interface OOrgSlugRouteChildren {
   OOrgSlugPeopleRoute: typeof OOrgSlugPeopleRoute
   OOrgSlugPluginsRoute: typeof OOrgSlugPluginsRouteWithChildren
   OOrgSlugProjectsRoute: typeof OOrgSlugProjectsRouteWithChildren
+  OOrgSlugRoutinesRoute: typeof OOrgSlugRoutinesRoute
   OOrgSlugSettingsRoute: typeof OOrgSlugSettingsRouteWithChildren
   OOrgSlugSkillsRoute: typeof OOrgSlugSkillsRouteWithChildren
   OOrgSlugAgentsNewRoute: typeof OOrgSlugAgentsNewRoute
@@ -3806,6 +3826,7 @@ const OOrgSlugRouteChildren: OOrgSlugRouteChildren = {
   OOrgSlugPeopleRoute: OOrgSlugPeopleRoute,
   OOrgSlugPluginsRoute: OOrgSlugPluginsRouteWithChildren,
   OOrgSlugProjectsRoute: OOrgSlugProjectsRouteWithChildren,
+  OOrgSlugRoutinesRoute: OOrgSlugRoutinesRoute,
   OOrgSlugSettingsRoute: OOrgSlugSettingsRouteWithChildren,
   OOrgSlugSkillsRoute: OOrgSlugSkillsRouteWithChildren,
   OOrgSlugAgentsNewRoute: OOrgSlugAgentsNewRoute,

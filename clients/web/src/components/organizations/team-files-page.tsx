@@ -69,6 +69,7 @@ import {
 } from "@phosphor-icons/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
+import { parseAsString, useQueryStates } from "nuqs";
 import {
 	type DragEvent,
 	lazy,
@@ -104,6 +105,7 @@ import {
 import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationFilesPath } from "#/lib/organizations/organization-routes";
+import { fileViewParser } from "#/lib/page-tab-search";
 import { useSelectedHumanProfile } from "#/lib/profiles/use-selected-human-profile";
 import { accountSpaceItemsQueryOptions } from "#/query/spaces/account-spaces";
 
@@ -124,19 +126,40 @@ const NEW_TEXT_FILE_CONTEXT_LABELS = {
 	csv: "New CSV file",
 } as const;
 
-export function TeamFilesPage(
-	input: {
-		initialLocation?: FileRootLocation;
-		initialView?: "active" | "trash";
-	} = {}
-) {
+function useFilesView() {
+	const [search, setSearch] = useQueryStates({
+		view: fileViewParser,
+		folder: parseAsString,
+		create: parseAsString,
+		document: parseAsString,
+		kind: parseAsString,
+		subjectUserId: parseAsString,
+	});
+	const changeView = (view: "team" | "my" | "trash" | "trash-my") =>
+		setSearch({
+			view,
+			folder: null,
+			create: null,
+			document: null,
+			kind: null,
+			subjectUserId: null,
+		});
+	return [search.view, changeView] as const;
+}
+
+export function TeamFilesPage() {
 	const { currentOrganization } = useAppOrganization();
+	const [fileView, changeView] = useFilesView();
+	const location = fileView === "my" || fileView === "trash-my" ? "my" : "team";
+	const view =
+		fileView === "trash" || fileView === "trash-my" ? "trash" : "active";
 	return (
 		<TeamFilesBrowser
 			currentOrganization={currentOrganization}
-			initialLocation={input.initialLocation ?? "team"}
-			initialView={input.initialView ?? "active"}
-			key={`${currentOrganization.id}:${input.initialLocation ?? "team"}:${input.initialView ?? "active"}`}
+			key={`${currentOrganization.id}:${fileView}`}
+			location={location}
+			onViewChange={changeView}
+			view={view}
 		/>
 	);
 }
@@ -149,7 +172,7 @@ export function TeamKnowledgeFilesPage(input: {
 	subjectUserId?: string;
 }) {
 	const { currentOrganization } = useAppOrganization();
-	const navigate = useNavigate();
+	const [, changeView] = useFilesView();
 	const tabs = (
 		<Tabs
 			className={
@@ -158,17 +181,8 @@ export function TeamKnowledgeFilesPage(input: {
 					: "shrink-0"
 			}
 			onValueChange={(value) => {
-				if (value === "trash") {
-					navigate({
-						to: buildOrganizationFilesPath(currentOrganization.slug),
-						search: { view: "trash" },
-					}).catch(console.error);
-				}
-				if (value === "team" || value === "my") {
-					navigate({
-						to: buildOrganizationFilesPath(currentOrganization.slug),
-						search: value === "my" ? { view: "my" } : {},
-					}).catch(console.error);
+				if (value === "trash" || value === "team" || value === "my") {
+					changeView(value);
 				}
 			}}
 			value="team"
@@ -189,8 +203,8 @@ export function TeamKnowledgeFilesPage(input: {
 				className="min-h-0 flex-1"
 				contentClassName={
 					input.documentId || input.create
-						? "px-[var(--app-page-inline-padding)] py-5"
-						: "px-[calc(var(--app-page-inline-padding)-0.5rem)] py-5"
+						? "px-[var(--app-page-inline-padding)] py-[var(--app-page-block-padding)]"
+						: "px-[calc(var(--app-page-inline-padding)-0.5rem)] py-[var(--app-page-block-padding)]"
 				}
 			>
 				{input.documentId ? (
@@ -219,16 +233,14 @@ function TeamFilesBrowser(input: {
 	currentOrganization: ReturnType<
 		typeof useAppOrganization
 	>["currentOrganization"];
-	initialLocation: FileRootLocation;
-	initialView: "active" | "trash";
+	location: FileRootLocation;
+	view: "active" | "trash";
+	onViewChange: (view: "team" | "my" | "trash" | "trash-my") => unknown;
 }) {
 	const { currentOrganization } = input;
 	const navigate = useNavigate();
-	const [location, setLocation] = useState<FileRootLocation>(
-		input.initialLocation
-	);
+	const { location, view } = input;
 	const [parentId, setParentId] = useState<string | null>(null);
-	const [view, setView] = useState<"active" | "trash">(input.initialView);
 	const [folderDialogOpen, setFolderDialogOpen] = useState(false);
 	const [newTextFileKind, setNewTextFileKind] = useState<
 		"markdown" | "text" | "csv" | null
@@ -403,22 +415,15 @@ function TeamFilesBrowser(input: {
 		nextLocation: FileRootLocation,
 		nextView: "active" | "trash"
 	) => {
-		setLocation(nextLocation);
 		setParentId(null);
-		setView(nextView);
 		setActionError(null);
 		setSelectedId(null);
 		setSelectedKnowledgeFolder(false);
-		let search: { view?: "my" | "trash" | "trash-my" } = {};
+		let fileView: "team" | "my" | "trash" | "trash-my" = nextLocation;
 		if (nextView === "trash") {
-			search = { view: nextLocation === "my" ? "trash-my" : "trash" };
-		} else if (nextLocation === "my") {
-			search = { view: "my" };
+			fileView = nextLocation === "my" ? "trash-my" : "trash";
 		}
-		navigate({
-			to: buildOrganizationFilesPath(currentOrganization.slug),
-			search,
-		}).catch(console.error);
+		input.onViewChange(fileView);
 	};
 	const copyDestination: FileRootLocation = location === "team" ? "my" : "team";
 	const rootLabel = location === "my" ? "My files" : "Team files";
@@ -621,7 +626,7 @@ function TeamFilesBrowser(input: {
 						: `Uploading ${uploadProgress.name} · ${uploadProgress.percent}%`}
 				</output>
 			) : null}
-			<div className="min-h-0 flex-1 px-[calc(var(--app-page-inline-padding)_-_0.5rem)] py-5">
+			<div className="min-h-0 flex-1 px-[calc(var(--app-page-inline-padding)_-_0.5rem)] py-[var(--app-page-block-padding)]">
 				<ContextMenu
 					key={`${currentOrganization.id}:${location}:${parentId ?? "root"}:${view}`}
 				>
