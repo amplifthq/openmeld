@@ -10,6 +10,7 @@ import type {
   CenterAgentRoutineToolSpeaker,
   OpenMeldRequestContext,
 } from "@openmeld/schemas/types";
+import { createCenterAgentEvidenceSourceAccess } from "../center-agent/application/evidence-source-access";
 import { prepareCenterAgentRepresentedMemberRequest } from "../center-agent/application/represented-member-request";
 import type { CoreBindings } from "../lib/bindings";
 import { resolveActiveOrganizationMembership } from "../organizations/organization-context";
@@ -72,7 +73,7 @@ export async function prepareHumanRoutineRequest(
       profileId: context.actorContext.openMeldProfileId,
       userId: membership.userId,
     },
-    service: createRoutineService(stores),
+    service: createRoutineService({ ...stores, allExecutors: true }),
   };
 }
 export async function prepareCenterAgentRoutineRequest(
@@ -90,7 +91,7 @@ export async function prepareCenterAgentRoutineRequest(
       speakerMember
     );
     if (
-      !member.profileId ||
+      !(member.profileId && member.memberId && member.userId) ||
       member.userId !== context.actorContext.ownerUserId
     ) {
       throw createCoreRpcHttpError({
@@ -101,6 +102,22 @@ export async function prepareCenterAgentRoutineRequest(
     }
     return {
       actor: {
+        allowPersonal:
+          (
+            await createCenterAgentEvidenceSourceAccess({
+              env,
+              prepared: {
+                authorization,
+                representedHuman: {
+                  ...member,
+                  profileId: member.profileId,
+                  memberId: member.memberId,
+                  userId: member.userId,
+                },
+                sourceNativeDeliveryId: member.sourceNativeDeliveryId,
+              },
+            })
+          ).audience === "requester_private",
         attribution: {
           actorProfileId: authorization.actorProfileId,
           onBehalfOf: {
@@ -120,6 +137,7 @@ export async function prepareCenterAgentRoutineRequest(
       representedHuman: { profileId: member.profileId, userId: member.userId },
       service: createRoutineService({
         ...requireRoutineStores(env),
+        allExecutors: true,
         agentProfileId: authorization.actorProfileId,
       }),
     };
@@ -140,6 +158,17 @@ export async function prepareCenterAgentRoutineRequest(
   const stores = requireRoutineStores(env);
   return {
     actor: {
+      allowPersonal:
+        (
+          await createCenterAgentEvidenceSourceAccess({
+            env,
+            prepared: {
+              authorization: centerAgent,
+              representedHuman,
+              sourceNativeDeliveryId,
+            },
+          })
+        ).audience === "requester_private",
       attribution: {
         actorProfileId: centerAgent.actorProfileId,
         onBehalfOf: {
@@ -160,7 +189,44 @@ export async function prepareCenterAgentRoutineRequest(
       profileId: representedHuman.profileId,
       userId: representedHuman.userId,
     },
-    service: createRoutineService(stores),
+    service: createRoutineService({ ...stores, allExecutors: true }),
+  };
+}
+export async function prepareRoutineEvidenceRequest(
+  env: CoreBindings,
+  context: OpenMeldRequestContext,
+  speakerMember: CenterAgentRoutineToolSpeaker
+) {
+  if (
+    context.actorContext.agentControllerRef !==
+    HOSTED_REMOTE_AGENT_CONTROLLER_REF
+  ) {
+    return await prepareCenterAgentRepresentedMemberRequest(
+      env,
+      context,
+      speakerMember
+    );
+  }
+  const { authorization, member } = await prepareRemoteAgentMemberRequest(
+    env,
+    context,
+    speakerMember
+  );
+  if (
+    !(member.profileId && member.memberId && member.userId) ||
+    member.userId !== context.actorContext.ownerUserId
+  ) {
+    throw memberActorRequiredError();
+  }
+  return {
+    authorization,
+    representedHuman: {
+      ...member,
+      profileId: member.profileId,
+      memberId: member.memberId,
+      userId: member.userId,
+    },
+    sourceNativeDeliveryId: member.sourceNativeDeliveryId,
   };
 }
 async function requireHumanProfileAuthority(input: {

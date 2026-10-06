@@ -24,14 +24,14 @@ describe("resolveWakeProgressStatus", () => {
 		).toBe("Agent · Working…");
 	});
 	it.each([
-		["sending", "runner · Thinking…", "starting"],
-		["request_sent", "runner · Thinking…", "sent"],
+		["sending", "runner · Working…", "working"],
+		["request_sent", "runner · Working…", "working"],
 		["queued", "runner · Waiting for earlier tasks", "queued"],
-		["connecting", "runner · Thinking…", "connecting"],
-		["retrying", "runner · Working…", "retrying"],
+		["connecting", "runner · Working…", "working"],
+		["retrying", "runner · Working…", "working"],
 		["running", "runner · Working…", "working"],
-		["writing", "runner · Replying…", "replying"],
-		["publishing", "runner · Replying…", "posting"],
+		["writing", "runner · Working…", "working"],
+		["publishing", "runner · Working…", "working"],
 	] as const)("presents %s without exposing transport details", (phase, label, kind) => {
 		expect(
 			resolveWakeProgressStatus(createWakeProgressItem({ phase }))

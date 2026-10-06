@@ -7,14 +7,8 @@ import type { WakeProgressItem } from "@openmeld/schemas/types";
 const LEADING_MENTION_MARKER_PATTERN = /^@/u;
 
 export type WakeProgressStatusKind =
-	| "starting"
-	| "sent"
 	| "queued"
-	| "connecting"
 	| "working"
-	| "replying"
-	| "posting"
-	| "retrying"
 	| "needs_input"
 	| "confirmation_pending"
 	| "waiting_for_owner"
@@ -33,12 +27,6 @@ export const WAKE_PROGRESS_STATUS_PRIORITY = {
 	needs_input: 0,
 	confirmation_pending: 0,
 	working: 1,
-	replying: 1,
-	posting: 1,
-	starting: 2,
-	sent: 2,
-	connecting: 2,
-	retrying: 2,
 	queued: 3,
 	waiting_for_controller: 3,
 	waiting_for_device: 3,
@@ -138,19 +126,13 @@ export function resolveWakeProgressStatus(
 
 	switch (item.phase) {
 		case "sending":
-			return {
-				description: "The Agent is processing your request.",
-				kind: "starting",
-				label: formatLabel("Thinking…"),
-				status: "active",
-			};
 		case "request_sent":
-			return {
-				description: "The Agent is processing your request.",
-				kind: "sent",
-				label: formatLabel("Thinking…"),
-				status: "active",
-			};
+		case "connecting":
+		case "running":
+		case "writing":
+		case "publishing":
+		case "retrying":
+			return presentWorkingStatus(item.targetLabel, options);
 		case "queued":
 			return {
 				description: "The Agent will start when its earlier work finishes.",
@@ -158,46 +140,27 @@ export function resolveWakeProgressStatus(
 				label: formatLabel("Waiting for earlier tasks"),
 				status: "active",
 			};
-		case "connecting":
-			return {
-				description: "The Agent is processing your request.",
-				kind: "connecting",
-				label: formatLabel("Thinking…"),
-				status: "active",
-			};
-		case "running":
-			return {
-				description: "The Agent is processing your request.",
-				kind: "working",
-				label: formatLabel("Working…"),
-				status: "active",
-			};
-		case "writing":
-			return {
-				description: "The Agent has started its reply.",
-				kind: "replying",
-				label: formatLabel("Replying…"),
-				status: "active",
-			};
-		case "publishing":
-			return {
-				description: "The Agent is finishing its reply.",
-				kind: "posting",
-				label: formatLabel("Replying…"),
-				status: "active",
-			};
-		case "retrying":
-			return {
-				description: "The Agent is processing your request.",
-				kind: "retrying",
-				label: formatLabel("Working…"),
-				status: "active",
-			};
 		default: {
 			const _exhaustive: never = item.phase;
 			return _exhaustive;
 		}
 	}
+}
+
+/** Shared appearance for an active Wake or an admitted live reply stream. */
+export function presentWorkingStatus(
+	targetLabel: string,
+	options: { showTargetName?: boolean } = {}
+): WakeProgressStatusPresentation {
+	return {
+		description: "The request is in progress.",
+		kind: "working",
+		label:
+			options.showTargetName === false
+				? "Working…"
+				: `${formatWakeTargetName(targetLabel)} · Working…`,
+		status: "active",
+	};
 }
 
 function formatWakeTargetName(targetLabel: string): string {

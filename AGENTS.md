@@ -81,7 +81,7 @@ Use these owner documents:
 | Organization tenancy, Center Agent identity/designation/delegation policy, Channels and Apps product semantics, Organization Documents and draft review, Information Protection, session sync, MVP scope and red lines | `developing/product/organizations-and-center-agent.md` |
 | Projects: Organization-scoped identity, permissions, local connections, discovery, repository fingerprints, Default Project resolution, and Project-aware Wake failures | `developing/product/projects.md` |
 | Agent Activity, local session observation, metadata privacy, presence, digests, retention, snapshots, canonical Project references, and Center Agent awareness | `developing/product/agent-activity.md` |
-| Center Agent Routines: Routine/Run semantics, authority, scheduling, target Space, native delivery, tool policy, and client surfaces | `developing/product/center-agent-routines.md` |
+| Routines: personal/team visibility, executors, scheduling, history, target Space, tool policy, and client surfaces | `developing/product/routines.md` |
 | Files: Team, member-private, and Space roots; audience, authorization, revisions, copies, and managed content boundaries | `developing/product/files.md` |
 | Organization Skills: portable Agent Skills bundles, permissions, immutable releases, GitHub import, Center Agent/Flue use, Web management, CLI loading, and local-agent delegation | `developing/product/organization-skills.md` |
 | Feedback Inbox, Feedback Issue, submission privacy, delivery modes, handling boundaries | `developing/product/feedback-loop.md` |
@@ -97,6 +97,7 @@ Use these owner documents:
 | Shared schemas, Opportunity RPC contracts, live invalidation frames, Agent Controller Interface snapshots, Agent Task Coordination, Message Channel and App connection contracts, Prepare `setupBootstrap.facts`, shared packages, cross-client reuse, Space password contract | `developing/architecture/shared-contracts.md` |
 | Shared UI primitives, design tokens, Fluid components, and cross-client UI package ownership | `developing/clients/shared-ui.md` |
 | Public website, shared brand assets, website/App origins and retained root protocols | `developing/clients/website.md` |
+| Independent public documentation client, Fumadocs content source and presentation | `developing/clients/docs.md` |
 | Cross-client app shell, unified Settings IA, shell/sidebar terminology, Settings capability gating | `developing/clients/shell-and-settings.md` |
 | OpenMeld Web navigation topology and route placement, Organization-switch preservation, browser read-cache persistence, Center Agent Channels/Apps, Space UX, Wake details, setup handoff, and diagnostic surfaces | `developing/clients/web.md` |
 | OpenMeld CLI command boundaries, Human View / Agent View, setup handoff, trace, lane safety | `developing/clients/cli.md` |

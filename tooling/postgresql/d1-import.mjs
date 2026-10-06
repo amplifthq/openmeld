@@ -45,6 +45,21 @@ function sourceColumn(column) {
   if (column.source === "inbox_rowid") {
     return 'rowid AS "sequence"';
   }
+  if (column.source === "new_zero") {
+    return `0 AS ${quote(column.name)}`;
+  }
+  if (column.source === "routine_scope") {
+    return `CASE WHEN agent_profile_id IS NULL THEN 'team' ELSE 'personal' END AS ${quote(column.name)}`;
+  }
+  if (column.source === "routine_executor") {
+    return `CASE WHEN agent_profile_id IS NULL THEN 'center_agent' ELSE 'remote_agent' END AS ${quote(column.name)}`;
+  }
+  if (column.source === "routine_scope_snapshot") {
+    return `(SELECT CASE WHEN routine.agent_profile_id IS NULL THEN 'team' ELSE 'personal' END FROM routines AS routine WHERE routine.id = routine_runs.routine_id AND routine.organization_id = routine_runs.organization_id) AS ${quote(column.name)}`;
+  }
+  if (column.source === "routine_creator_snapshot") {
+    return `(SELECT routine.created_by_user_id FROM routines AS routine WHERE routine.id = routine_runs.routine_id AND routine.organization_id = routine_runs.organization_id) AS ${quote(column.name)}`;
+  }
   return quote(column.name);
 }
 
@@ -280,6 +295,47 @@ function nativeColumns(table, targetColumns) {
       hidden: 0,
       source: "inbox_rowid",
     });
+  }
+  if (table.name === "routines") {
+    columns.push(
+      { name: "scope", type: "TEXT", hidden: 0, source: "routine_scope" },
+      {
+        name: "executor_kind",
+        type: "TEXT",
+        hidden: 0,
+        source: "routine_executor",
+      }
+    );
+  }
+  if (table.name === "routine_runs") {
+    // Deleted legacy definitions leave ownership unknown. Do not invent access
+    // or an execution receipt for historical runs.
+    columns.push(
+      {
+        name: "scope_snapshot",
+        type: "TEXT",
+        hidden: 0,
+        source: "routine_scope_snapshot",
+      },
+      {
+        name: "created_by_user_id_snapshot",
+        type: "TEXT",
+        hidden: 0,
+        source: "routine_creator_snapshot",
+      },
+      ...["source_signal_id", "local_submission_json"].map((name) => ({
+        name,
+        type: "TEXT",
+        hidden: 0,
+        source: "new_nullable",
+      })),
+      {
+        name: "local_last_checked_at_ms",
+        type: "INTEGER",
+        hidden: 0,
+        source: "new_zero",
+      }
+    );
   }
   if (table.name === "openMeldRemoteAgent_native_delivery_ledger") {
     // Native-only submission mutexes have no historical owner to import.

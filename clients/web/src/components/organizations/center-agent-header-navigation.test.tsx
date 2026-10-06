@@ -30,9 +30,9 @@ describe("CenterAgentHeaderTabs", () => {
 				organizationSlug="acme"
 			/>
 		);
-		fireEvent.click(screen.getByRole("tab", { name: "Routines" }));
+		fireEvent.click(screen.getByRole("tab", { name: "Channels" }));
 		expect(navigateSpy).toHaveBeenLastCalledWith({
-			to: "/o/acme/center-agent/routines?draft=new",
+			to: "/o/acme/center-agent/channels?draft=new",
 		});
 		fireEvent.click(screen.getByRole("tab", { name: "Messages" }));
 		expect(navigateSpy).toHaveBeenLastCalledWith({
@@ -52,7 +52,6 @@ describe("CenterAgentHeaderTabs", () => {
 			screen.getByRole("tab", { name: "Messages" }),
 			screen.getByRole("tab", { name: "Graph" }),
 			screen.getByRole("tab", { name: "Files" }),
-			screen.getByRole("tab", { name: "Routines" }),
 			screen.getByRole("tab", { name: "Channels" }),
 			screen.getByRole("tab", { name: "Memory" }),
 		]);
@@ -60,6 +59,7 @@ describe("CenterAgentHeaderTabs", () => {
 			screen.getByRole("tab", { name: "Memory" }).getAttribute("aria-selected")
 		).toBe("true");
 		expect(screen.queryByRole("tab", { name: "Skills" })).toBeNull();
+		expect(screen.queryByRole("tab", { name: "Routines" })).toBeNull();
 	});
 
 	it("opens each Center Agent management tab", () => {
@@ -71,17 +71,13 @@ describe("CenterAgentHeaderTabs", () => {
 			/>
 		);
 
-		fireEvent.click(screen.getByRole("tab", { name: "Routines" }));
 		fireEvent.click(screen.getByRole("tab", { name: "Channels" }));
 		fireEvent.click(screen.getByRole("tab", { name: "Memory" }));
 
 		expect(navigateSpy).toHaveBeenNthCalledWith(1, {
-			to: "/o/acme/center-agent/routines",
-		});
-		expect(navigateSpy).toHaveBeenNthCalledWith(2, {
 			to: "/o/acme/center-agent/channels",
 		});
-		expect(navigateSpy).toHaveBeenNthCalledWith(3, {
+		expect(navigateSpy).toHaveBeenNthCalledWith(2, {
 			to: "/o/acme/center-agent/memory",
 		});
 	});

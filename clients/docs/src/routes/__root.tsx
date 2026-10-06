@@ -1,0 +1,64 @@
+import {
+  createRootRoute,
+  HeadContent,
+  Outlet,
+  Scripts,
+} from "@tanstack/react-router";
+import { RootProvider } from "fumadocs-ui/provider/tanstack";
+
+declare const __OPENMELD_DOCS_BUILD__: {
+  id: string;
+  sha: string;
+  dirty: boolean;
+};
+
+import appCss from "@/styles/app.css?url";
+
+export const Route = createRootRoute({
+  head: () => ({
+    meta: [
+      {
+        charSet: "utf-8",
+      },
+      {
+        name: "viewport",
+        content: "width=device-width, initial-scale=1",
+      },
+      {
+        title: "OpenMeld Docs",
+      },
+      {
+        name: "description",
+        content: "OpenMeld documentation template preview.",
+      },
+      { name: "robots", content: "noindex, nofollow" },
+      { name: "openmeld-source-sha", content: __OPENMELD_DOCS_BUILD__.sha },
+      { name: "openmeld-build-id", content: __OPENMELD_DOCS_BUILD__.id },
+      {
+        name: "openmeld-build-dirty",
+        content: String(__OPENMELD_DOCS_BUILD__.dirty),
+      },
+    ],
+    links: [
+      { rel: "stylesheet", href: appCss },
+      { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
+    ],
+  }),
+  component: RootComponent,
+});
+
+function RootComponent() {
+  return (
+    <html className="font-geist-vars" lang="en" suppressHydrationWarning>
+      <head>
+        <HeadContent />
+      </head>
+      <body className="flex min-h-screen flex-col font-sans">
+        <RootProvider>
+          <Outlet />
+        </RootProvider>
+        <Scripts />
+      </body>
+    </html>
+  );
+}

@@ -54,7 +54,7 @@ async function fixture() {
     ["latest-run", 2000, "failed"],
   ] as const) {
     await f.harness.query({
-      text: "INSERT INTO openmeld.\"routine_runs\" (\n        id, routine_id, organization_id, scheduled_for, status, failure_code, failure_detail,\n        target_space_id_snapshot, destination_kind_snapshot, routine_name_snapshot,\n        execution_engine, started_at_ms\n      ) VALUES ($1, 'routine-1', $2, $3, $4, $5, $6, $7, 'space', 'Original report', 'workflow', $8)",
+      text: "INSERT INTO openmeld.\"routine_runs\" (\n        id, routine_id, organization_id, scheduled_for, status, failure_code, failure_detail,\n        target_space_id_snapshot, destination_kind_snapshot, routine_name_snapshot,\n        execution_engine, started_at_ms, scope_snapshot, created_by_user_id_snapshot\n      ) VALUES ($1, 'routine-1', $2, $3, $4, $5, $6, $7, 'space', 'Original report', 'workflow', $8, 'team', $9)",
       values: [
         id,
         f.request.organizationId,
@@ -64,6 +64,7 @@ async function fixture() {
         PRIVATE_TEXT,
         EVIDENCE_SPACE_ID,
         TEST_NOW_MS,
+        f.speaker.ownerUserId,
       ],
     });
   }
@@ -449,7 +450,7 @@ describe("Routine evidence through normal member tools", () => {
     const f = await fixture();
     await expect(f.read("missing")).rejects.toMatchObject({ status: 404 });
     await f.harness.query({
-      text: "UPDATE openmeld.\"routine_runs\" SET agent_profile_id_snapshot = $1 WHERE id = 'old-run'",
+      text: "UPDATE openmeld.\"routine_runs\" SET agent_profile_id_snapshot = $1, scope_snapshot='personal', created_by_user_id_snapshot='another-member' WHERE id = 'old-run'",
       values: [f.request.agentProfileId],
     });
     await expect(f.read()).rejects.toMatchObject({ status: 404 });

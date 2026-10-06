@@ -19,7 +19,7 @@
 - Do not use this for: Center Agent identity/designation/permission semantics
   (`developing/product/organizations-and-center-agent.md` owns them),
   Routine product semantics or scheduling
-  (`developing/product/center-agent-routines.md` owns them),
+  (`developing/product/routines.md` owns them),
   Direct Message Space semantics (`developing/product/space-collaboration.md`
   owns them), presentation rules
   (`developing/product/presentation-progressive-disclosure.md`), or local
@@ -777,7 +777,7 @@ verified owner and exact Agent identity. The shared Core scheduler runs them
 through personal v4 conversations and returns results to the owner's DM or an
 eligible Space. Routine admission verifies the frozen delegated owner rather
 than requiring the Center Agent as the request author. See
-`center-agent-routines.md` for authority, lifecycle, and rollout requirements.
+`routines.md` for authority, lifecycle, and rollout requirements.
 
 Rollout is Core first, then Remote Agent: the latter now uses the additive
 `authorize` personal-tool operation before invoking shared capabilities. Old
@@ -1895,7 +1895,7 @@ contracts remain the only action authority.
 ### Routine native delivery and tool parity (updated 2026-07-17)
 
 Center Agent Routines are a user-visible product surface owned by
-`developing/product/center-agent-routines.md`. Their execution uses the Remote
+`developing/product/routines.md`. Their execution uses the Remote
 Agent native-delivery exception, not the workstation Wake lifecycle:
 
 - Core's minute Cron owns due scanning and submits one Run with the Run id as
@@ -1937,7 +1937,7 @@ Agent native-delivery exception, not the workstation Wake lifecycle:
   including Slack channel list, member, and history reads. Explicit
   capability-owned exceptions keep Agent Task discovery or watch tools out of
   Routine turns, as owned by
-  `developing/product/center-agent-routines.md` and
+  `developing/product/routines.md` and
   `developing/product/projects.md`. The durable Routine envelope supplies the
   reauthorized delegated member used by each exposed capability's existing
   current-member, connection, attribution, audit, and Core authority checks.
@@ -2769,7 +2769,7 @@ surface adopts official features where they are free**:
   includes Routine management and the complete model-visible GitHub catalog.
   The current explicit exception hides the Agent Task discovery or watch tools
   named in
-  `developing/product/center-agent-routines.md`; the read-only Project list and
+  `developing/product/routines.md`; the read-only Project list and
   Slack channel list, member, and history reads remain inherited. Catalog
   inheritance does not bypass any capability-owned rule: current
   delegated-member authorization, connection scope, attribution,
@@ -3362,7 +3362,7 @@ but not trigger.
    trigger semantics and is not rewritten for R1; runtime selection happens
    only at the execution-side fork after the planner has selected a target.
    A Routine Run is the separate Core-owned scheduled admission defined in
-   `developing/product/center-agent-routines.md`; it targets the designated
+   `developing/product/routines.md`; it targets the designated
    hosted Center Agent directly and must not enter or weaken workstation
    RuntimeCoordinator semantics.
    For an interactive Space Wake already selected for the hosted Binding,
@@ -3387,7 +3387,7 @@ but not trigger.
    permits only the frozen destination recorded for that Run, and never mirrors
    across surfaces or fabricates a source message. Every publication branch
    must satisfy the frozen-target invariant owned by
-   `developing/product/center-agent-routines.md`. Slack terminal publication —
+   `developing/product/routines.md`. Slack terminal publication —
    successful replies and failed-callback notices — uses a fenced, nonterminal
    ledger claim before `chat.postMessage`. Only the claim holder may publish;
    an active concurrent
@@ -4026,7 +4026,7 @@ posture, in force from day one:
 - CLI: `openmeld center-agent` status surfaces show the remote runtime
   read-only in MVP; managing the switch from CLI is post-MVP.
 - Routine Web, CLI, and interactive Center Agent surfaces are owned by
-  `developing/product/center-agent-routines.md`; this document owns only their
+  `developing/product/routines.md`; this document owns only their
   Remote Agent execution and tool-runtime boundary.
 
 ## Expansion Path
@@ -4036,7 +4036,7 @@ organization-owned one-time or recurring work, explicit Space or durable Slack
 thread destinations, Core scheduling, and unattended Remote Agent native
 delivery with ordinary Center Agent capability inheritance. They are not a Flue-private
 scheduled-task registry. Their product contract lives in
-`developing/product/center-agent-routines.md`.
+`developing/product/routines.md`.
 
 Remaining expansion still requires its own design and ticket pass:
 
@@ -4089,7 +4089,7 @@ create parallel authorities or rework workstation RuntimeCoordinator semantics.
   OpenMeld secrets at any tier; widening the vetting bar or the tool tier
   requires Felix.
 - Routines are user-visible and must follow
-  `developing/product/center-agent-routines.md`: PostgreSQL plus Core Cron owns timing,
+  `developing/product/routines.md`: PostgreSQL plus Core Cron owns timing,
   the destination is explicit, each Run has one initial native delivery and may
   have one resumed Center Agent delivery after its own all-terminal delegated
   work, `routine_runs.native_delivery_id` owns the final result, skipped Runs

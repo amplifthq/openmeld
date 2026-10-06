@@ -1,0 +1,39 @@
+@import "tailwindcss";
+@import "fumadocs-ui/css/neutral.css";
+@import "fumadocs-ui/css/preset.css";
+@import "@openmeld/ui/fonts.css";
+@source "../../../../packages/ui/src/components/openmeld-wordmark.tsx";
+
+@theme inline {
+  --font-sans: var(--font-ui-sans);
+  --font-mono: var(--font-ui-mono);
+  --color-foreground: var(--color-fd-foreground);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --animate-fd-roll-in: fd-fade-in 150ms ease;
+    --animate-fd-dialog-in: fd-fade-in 150ms ease;
+    --animate-fd-dialog-out: fd-fade-out 150ms ease;
+    --animate-fd-popover-in: fd-fade-in 150ms ease;
+    --animate-fd-popover-out: fd-fade-out 150ms ease;
+    --animate-fd-sidebar-in: fd-fade-in 150ms ease;
+    --animate-fd-sidebar-out: fd-fade-out 150ms ease;
+  }
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-property: color, background-color, opacity !important;
+  }
+  .animate-pulse { animation: none; }
+}
+
+html {
+  scrollbar-gutter: stable;
+}
+
+html > body[data-scroll-locked] {
+  margin-right: 0px !important;
+  --removed-body-scroll-bar-size: 0px !important;
+}

@@ -30,11 +30,13 @@ import {
 import { TabItem, TabPanel, Tabs, TabsList } from "@openmeld/ui/fluid/tabs";
 import { ArrowClockwiseIcon, CalendarBlankIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
+import { useQueryState } from "nuqs";
 import { lazy, Suspense, useState } from "react";
 import { AppPageHeader } from "#/components/app/app-page-header";
 import { LocalAgentTokenUsageCard } from "#/components/computers/computer-token-usage";
 import { ModelBrandIcon } from "#/components/models/model-brand-icon";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
+import { usageScopeParser } from "#/lib/page-tab-search";
 import { modelCatalogQueryOptions } from "#/query/config/model-catalog";
 import { organizationUsageCalendarPeriod } from "#/query/organizations/organization-usage";
 import { OrganizationUsageStatus } from "./organization-usage-status";
@@ -64,11 +66,17 @@ function UsagePage(input: {
 	organizationName: string;
 	userId: string;
 }) {
-	const [view, setView] = useState("organization");
+	const [view, setView] = useQueryState("usageScope", usageScopeParser);
 	return (
 		<section className="space-y-5">
 			<AppPageHeader description={input.organizationName} title="AI usage" />
-			<Tabs className="space-y-5" onValueChange={setView} value={view}>
+			<Tabs
+				className="space-y-5"
+				onValueChange={(value) =>
+					setView(value === "my" ? "my" : "organization")
+				}
+				value={view}
+			>
 				<TabsList aria-label="Usage scope" className="w-fit">
 					<TabItem label="Organization usage" value="organization" />
 					<TabItem label="My agents" value="my" />

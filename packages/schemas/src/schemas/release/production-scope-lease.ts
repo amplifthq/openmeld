@@ -9,6 +9,7 @@ export const PRODUCTION_RELEASE_SCOPE_VALUES = [
   "remote-agent",
   "web",
   "website",
+  "docs",
 ] as const;
 
 export const PRODUCTION_SCOPE_LEASE_SCHEMA_VERSION = 1 as const;

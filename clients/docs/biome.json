@@ -1,0 +1,18 @@
+{
+  "root": false,
+  "extends": "//",
+  "files": {
+    "includes": [
+      "**/src/**/*",
+      "**/vite.config.ts",
+      "!**/src/routeTree.gen.ts",
+      "!**/worker-configuration.d.ts",
+      "!**/src/styles/app.css"
+    ]
+  },
+  "linter": {
+    "rules": {
+      "style": { "noHeadElement": "off", "useFilenamingConvention": "off" }
+    }
+  }
+}

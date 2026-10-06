@@ -129,6 +129,27 @@ const D1_BINDING_NAMES = [
 
 const workerPackages = [
   {
+    name: "openmeld-docs",
+    packageJsonPath: "clients/docs/package.json",
+    wranglerConfigPath: "clients/docs/wrangler.jsonc",
+    generatedTypesPath: "clients/docs/worker-configuration.d.ts",
+    requiredScripts: [
+      "cf-typegen",
+      "deploy:stg",
+      "sync:config:prod",
+      "sync:config:stg",
+      "sync:prod",
+      "sync:stg",
+    ],
+    secretOwned: false,
+    stagingSecretOwned: false,
+    requiredConfigEnvironments: ["stg", "prod"],
+    expectedGeneratedBindings: ["OPENMELD_OBSERVABILITY"],
+    forbiddenGeneratedBindings: [...D1_BINDING_NAMES, "APP", "AUTH_SERVICE"],
+    expectedD1Bindings: () => [],
+    expectedR2Bindings: () => [],
+  },
+  {
     name: "openmeld-website",
     packageJsonPath: "clients/website/package.json",
     wranglerConfigPath: "clients/website/wrangler.jsonc",

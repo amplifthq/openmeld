@@ -101,7 +101,7 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 		expect(state.issueEntries).toEqual([]);
 	});
 
-	it("uses natural posting copy when a Wake is publishing a completed reply", () => {
+	it("keeps Working visible until the completed reply is published", () => {
 		const state = resolveSpaceMessageWakeProgressState({
 			item: createTimelineItem(),
 			items: [
@@ -116,10 +116,9 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 		expect(state.thinkingEntries).toEqual([
 			expect.objectContaining({
 				elapsedStartedAtMs: 1,
-				text: "runner · Replying…",
+				text: "runner · Working…",
 			}),
 		]);
-		expect(state.thinkingEntries[0]?.text).not.toBe("runner · Working…");
 	});
 
 	it("shows an outcome-unknown publication as a problem without a retry spinner", () => {
@@ -185,7 +184,7 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 		expect(state.thinkingEntries).toEqual([
 			expect.objectContaining({
 				kind: "progress",
-				text: "runner · Replying…",
+				text: "runner · Working…",
 			}),
 		]);
 	});

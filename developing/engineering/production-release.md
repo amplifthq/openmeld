@@ -414,6 +414,18 @@ merge must deploy. Missing deployment history blocks the current delivery only
 when it belongs to a current-change scope; the same missing fact remains visible
 under the global backlog without changing the scoped command's exit result.
 
+## Public Docs releases
+
+Docs-only releases use `--scope docs`, an independent artifact receipt and
+snapshot, and the `openmeld-docs-prod` Worker at `docs.openmeld.ai`. The hosted
+job restores only its immutable same-run Docs snapshot. Root and `/docs` HTML
+must match the admitted source and build identity. First publication is pending
+only when the last successful Web source predates `clients/docs`; unexplained
+missing history after that boundary blocks release. Docs needs no App session,
+database migration, or local-component publication. Its custom domain is
+attached by the guarded Worker deployment. See [Public Documentation](../clients/docs.md)
+for content and renderer ownership.
+
 ## Website/App origin migration
 
 Normal Website-only releases use `--scope website`, an independent artifact
@@ -508,6 +520,7 @@ The local release tool accepts these direct scopes:
 db
 web
 website
+docs
 gateway
 auth
 core
@@ -517,7 +530,7 @@ cli
 
 It also accepts comma-separated scopes, `cloud`, and `full`.
 
-- `cloud` means Auth, Web, Gateway, Core, Remote Agent, then Website.
+- `cloud` means Auth, Web, Gateway, Core, Remote Agent, Website, then Docs.
 - `full` means Database followed by `cloud`.
 - `full` never publishes CLI. CLI is immutable publication and must always be
   selected explicitly.
@@ -1196,7 +1209,7 @@ that is absent from that train. Trusted current-main control verifies a client
 artifact before the stage that publishes it. An independent `db` stage does not
 build Web even when Web is declared for a later stage in the same train.
 
-Artifact admission checks only the CLI, Web, and Desktop artifacts selected for
+Artifact admission checks only the CLI, Web, Website, Docs, and Desktop artifacts selected for
 the current stage. Declaring these components elsewhere in the train does not
 build them before an unrelated Worker or Database deployment. CLI admission
 uses the existing immutable npm probe: an already published package must pass
@@ -1259,7 +1272,9 @@ admitted Web output before its existing preflight, deploy and health gates.
 For a parent handoff, the child uses the same renderer heap budget that the
 parent used to build the snapshot; otherwise build-input identity must reject
 the artifact even when its downloaded bytes are intact.
-Other components do not download Web bytes. Desktop publication and CLI
+Website and Docs follow the same independent snapshot handoff for their own
+renderer directories and public-page health routes. Docs does not require the
+App's runtime session or secrets. Other components do not download Web bytes. Desktop publication and CLI
 publication remain separate paths with their existing checks.
 
 Missing, malformed or mismatched parent evidence, or a missing/corrupt Web
@@ -1438,6 +1453,8 @@ auth
 core
 core-current-cli-projection
 remote-agent
+website
+docs
 cloud
 full
 ```
@@ -1450,8 +1467,8 @@ full
 - `database-auth` and `database-core` are the normal migration bundles. They
   keep the database and its owning Worker in one ordered workflow without
   redeploying the fleet.
-- `cloud` deploys only the five cloud components.
-- `full` runs Database, Auth, Web, Gateway, Core, and Remote Agent in order.
+- `cloud` deploys Auth, Web, Gateway, Core, Remote Agent, Website, and Docs.
+- `full` runs Database, then the selected cloud components in that order.
 - CLI publishing is not available in this workflow.
 
 The separate CLI Release workflow also deploys the Core projection required by
@@ -1909,6 +1926,8 @@ Release automation performs only cheap component health checks:
 | Component    | Automated post-deploy evidence                                                    |
 | ------------ | --------------------------------------------------------------------------------- |
 | Web          | Root SSR returns HTML whose source and build metadata match the exact SHA and preflight artifact receipt |
+| Website      | Public-page SSR source and build metadata match its independent artifact receipt |
+| Docs         | Root and `/docs` SSR source and build metadata match its independent artifact receipt |
 | Gateway      | `https://gateway.openmeld.ai/health` responds successfully                        |
 | Auth         | `https://auth.openmeld.ai/health` responds successfully                           |
 | Core         | Cloudflare reports the production deployment                                      |

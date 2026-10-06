@@ -7,7 +7,6 @@ import {
 	buildOrganizationAgentsPath,
 	buildOrganizationAppearanceSettingsPath,
 	buildOrganizationCenterAgentChatPath,
-	buildOrganizationCenterAgentRoutinesPath,
 	buildOrganizationCenterAgentSettingsPath,
 	buildOrganizationChannelsPath,
 	buildOrganizationComputerPath,
@@ -39,6 +38,7 @@ import {
 	buildOrganizationProjectActivityPath,
 	buildOrganizationProjectPath,
 	buildOrganizationProjectsPath,
+	buildOrganizationRoutinesPath,
 	buildOrganizationSkillPath,
 	buildOrganizationSkillsPath,
 	resolveOrganizationSwitchPath,
@@ -169,9 +169,7 @@ describe("primary organization routes", () => {
 	});
 
 	it("keeps Routines inside the Center Agent product", () => {
-		expect(buildOrganizationCenterAgentRoutinesPath("acme")).toBe(
-			"/o/acme/center-agent/routines"
-		);
+		expect(buildOrganizationRoutinesPath("acme")).toBe("/o/acme/routines");
 	});
 
 	it("builds organization-level Skill routes with encoded identity segments", () => {
@@ -241,7 +239,7 @@ describe("resolveOrganizationSwitchPath", () => {
 		[
 			"Center Agent Routines",
 			"/o/acme/center-agent/routines",
-			"/o/beta/center-agent/routines",
+			"/o/beta/routines",
 		],
 		["Center Agent Skills", "/o/acme/center-agent/skills", "/o/beta/skills"],
 		[

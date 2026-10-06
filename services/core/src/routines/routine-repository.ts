@@ -18,6 +18,8 @@ import type {
   CenterAgentRoutineExternalActionPolicy,
   CenterAgentRoutineLastRunSummary,
   CenterAgentRoutineRun,
+  RoutineExecutorKind,
+  RoutineScope,
 } from "@openmeld/schemas/types";
 import type { RoutineExecutionEngine } from "./routine-execution-engine";
 
@@ -28,6 +30,9 @@ type RoutineAuditAction =
   | "resume_routine"
   | "update_routine";
 export type StoredRoutine = Omit<CenterAgentRoutine, "canManage"> & {
+  scope?: RoutineScope;
+  executorKind?: RoutineExecutorKind;
+  executorName?: string;
   agentProfileId?: string | null;
   authorizedActions: CenterAgentRoutineAuthorizedAction[];
   creationAttribution: CenterAgentRoutineCreationAttribution | null;
@@ -47,6 +52,9 @@ export type RoutineRunExecutionRecord = CenterAgentRoutineRun & {
   routineNameSnapshot: string | null;
 };
 type RoutineRow = {
+  scope: RoutineScope;
+  executor_kind: RoutineExecutorKind;
+  executor_name: string | null;
   agent_profile_id: string | null;
   id: string;
   organization_id: string;
@@ -152,6 +160,9 @@ const ROUTINE_RECORD_SELECT = `
   SELECT
     routine.id AS id,
     routine.agent_profile_id AS agent_profile_id,
+    routine.scope AS scope,
+    routine.executor_kind AS executor_kind,
+    (SELECT profile_name FROM "openmeld"."openmeld_profiles" WHERE profile_id = routine.agent_profile_id) AS executor_name,
     routine.organization_id AS organization_id,
     routine.name AS name,
     routine.instructions AS instructions,
@@ -210,6 +221,7 @@ export type RoutineOccurrenceClaimOutcome =
       status: "lost_race";
     };
 export async function listRoutineRecords(input: {
+  visibleToUserId?: string;
   agentProfileId?: string | null;
   db: PostgresDatabase;
   organizationId: string;
@@ -218,10 +230,15 @@ export async function listRoutineRecords(input: {
     text: `
         ${ROUTINE_RECORD_SELECT}
         WHERE routine.organization_id = $1
-          AND routine.agent_profile_id IS NOT DISTINCT FROM $2
+          AND (($3::text IS NOT NULL AND (routine.scope = 'team' OR routine.created_by_user_id = $3))
+            OR ($3::text IS NULL AND routine.agent_profile_id IS NOT DISTINCT FROM $2 AND routine.scope = CASE WHEN $2::text IS NULL THEN 'team' ELSE 'personal' END))
         ORDER BY routine.updated_at_ms DESC NULLS LAST, routine.id DESC NULLS LAST
       `,
-    values: [input.organizationId, input.agentProfileId ?? null],
+    values: [
+      input.organizationId,
+      input.agentProfileId ?? null,
+      input.visibleToUserId ?? null,
+    ],
   });
   return (result.rows ?? []).map(mapRoutineRow);
 }
@@ -351,6 +368,7 @@ export async function insertRoutineRecord(input: {
           updated_by_user_id,
           created_at_ms,
           updated_at_ms
+          , scope, executor_kind
         )
         SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, ((jsonb_build_object('displayName', $20::text))::jsonb || (COALESCE(
             (
@@ -370,7 +388,7 @@ export async function insertRoutineRecord(input: {
               LIMIT 1
             ),
             '{}'
-          ))::jsonb)::text, 'enabled', $23, $24, $25, $26, $27
+          ))::jsonb)::text, 'enabled', $23, $24, $25, $26, $27, $30, $31
         WHERE (
           SELECT COUNT(*) FROM "openmeld"."routines" WHERE organization_id = $28
         ) < $29
@@ -405,6 +423,10 @@ export async function insertRoutineRecord(input: {
       input.routine.updatedAtMs,
       input.routine.organizationId,
       input.limit,
+      input.routine.scope ??
+        (input.routine.agentProfileId ? "personal" : "team"),
+      input.routine.executorKind ??
+        (input.routine.agentProfileId ? "remote_agent" : "center_agent"),
     ],
   };
   const audit = prepareConditionalRoutineAuditStatement({
@@ -590,6 +612,7 @@ export async function deleteRoutineRecord(input: {
     : "not_deleted";
 }
 export async function listRoutineRunRecords(input: {
+  visibility?: { userId: string; spaceIds: string[]; allowPersonal?: boolean };
   agentProfileId?: string;
   beforeScheduledFor?: number;
   db: PostgresDatabase;
@@ -627,6 +650,9 @@ export async function listRoutineRunRecords(input: {
           AND routine_id = $2
           AND agent_profile_id_snapshot IS NOT DISTINCT FROM $3
           AND scheduled_for < $4
+          AND ($6::text IS NULL OR created_by_user_id_snapshot=$6
+            OR (scope_snapshot='team' AND target_space_id_snapshot=ANY($7::text[])))
+          AND ($8::boolean OR scope_snapshot IS DISTINCT FROM 'personal')
         ORDER BY scheduled_for DESC NULLS LAST, id DESC NULLS LAST
         LIMIT $5
       `,
@@ -636,6 +662,9 @@ export async function listRoutineRunRecords(input: {
       input.agentProfileId ?? null,
       beforeScheduledFor,
       input.limit,
+      input.visibility?.userId ?? null,
+      input.visibility?.spaceIds ?? [],
+      input.visibility?.allowPersonal !== false,
     ],
   });
   return (result.rows ?? []).map(mapRoutineRunRow);
@@ -692,7 +721,9 @@ async function readRoutineRunRow(input: {
           native_delivery_id,
           published_signal_id,
           started_at_ms,
-          finished_at_ms
+          finished_at_ms,
+          scope_snapshot,
+          created_by_user_id_snapshot
         FROM "openmeld"."routine_runs"
         WHERE id = $1
         LIMIT 1
@@ -807,11 +838,13 @@ export async function claimRoutineOccurrenceAndAdvance(input: {
           slack_thread_label_snapshot,
           execution_engine,
           started_at_ms,
-          finished_at_ms
+          finished_at_ms,
+          scope_snapshot,
+          created_by_user_id_snapshot
         )
         SELECT $1, id, organization_id, $2, $3, $4, $5, name, agent_profile_id, message_channel_destination_json, destination_kind,
           target_space_id, slack_team_id, slack_channel_id, slack_thread_ts,
-          slack_conversation_id, slack_thread_label, $6, $7, $8
+          slack_conversation_id, slack_thread_label, $6, $7, $8, scope, created_by_user_id
         FROM "openmeld"."routines"
         WHERE id = $9
           AND organization_id = $10
@@ -904,12 +937,14 @@ export async function quarantineInvalidRoutineSchedule(input: {
           slack_conversation_id_snapshot,
           slack_thread_label_snapshot,
           started_at_ms,
-          finished_at_ms
+          finished_at_ms,
+          scope_snapshot,
+          created_by_user_id_snapshot
         )
         SELECT $1, id, organization_id, $2, 'skipped', 'routine.schedule_invalid',
           $3, name, agent_profile_id, message_channel_destination_json, destination_kind, target_space_id, slack_team_id,
           slack_channel_id, slack_thread_ts, slack_conversation_id,
-          slack_thread_label, $4, $5
+          slack_thread_label, $4, $5, scope, created_by_user_id
         FROM "openmeld"."routines"
         WHERE id = $6
           AND organization_id = $7
@@ -1355,6 +1390,9 @@ async function mutateRoutineWithAudit(
 }
 function mapRoutineRow(row: RoutineRow): StoredRoutine {
   return {
+    scope: row.scope,
+    executorKind: row.executor_kind,
+    executorName: row.executor_name ?? "Center Agent",
     agentProfileId: row.agent_profile_id,
     authorizedActions: centerAgentRoutineAuthorizedActionsSchema.parse(
       JSON.parse(row.authorized_actions_json) as unknown
@@ -1455,7 +1493,7 @@ function parseRoutineExecutionEngine(
   if (value === null) {
     return null;
   }
-  if (value === "legacy" || value === "workflow") {
+  if (value === "legacy" || value === "workflow" || value === "local") {
     return value;
   }
   throw new Error(`Routine Run has invalid execution engine ${value}`);
