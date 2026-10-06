@@ -2157,6 +2157,11 @@ not merely reduce one request's size. Evaluate total task usage, maintenance
 cost, repeated reads, and answer quality together. Diagnostics are not another
 execution authority and must not fail productive work on elapsed time alone.
 
+Canonical action counts are cumulative at the checkpoint and include calls
+whose original messages remain in the recent tail. The model-visible evidence
+states this overlap explicitly. Seeing the summary and the same original
+messages does not prove another execution.
+
 A Computer command remains owned by its existing command receipt when model
 context is compacted. The Agent must be able to recover its exact key, inspect
 progress, read results, or request cancellation without launching the work

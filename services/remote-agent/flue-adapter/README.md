@@ -33,6 +33,9 @@ is not a future release strategy.
    A bounded action-evidence section is regenerated from canonical tool events
    across repeated compactions. Tool counts are evidence of recorded calls and
    results, not proof that every external side effect succeeded.
+   Counts cover the active conversation at the checkpoint, including retained
+   original messages. The scope note prevents a reader from treating the summary
+   and those same retained messages as two executions.
 5. An agent may disable automatic queued-delivery joins. Center Agent does so
    because each admitted turn currently has its own authority and terminal
    callback. Upstream's default join behavior remains unchanged for other

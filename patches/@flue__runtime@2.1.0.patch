@@ -815,7 +815,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..b52139b659d2c6168d58b1e7d5d97db4
  			kind: submission.kind,
  			reason: "aborted",
 diff --git a/dist/dispatch-Dohpn4Ea.mjs b/dist/dispatch-Dohpn4Ea.mjs
-index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..78c8a343d59508a5e3829a01a94910c566bfadd9 100644
+index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..77783f624b5c9efa181bacdd14ec046bb19ece4b 100644
 --- a/dist/dispatch-Dohpn4Ea.mjs
 +++ b/dist/dispatch-Dohpn4Ea.mjs
 @@ -1,9 +1,11 @@
@@ -917,8 +917,8 @@ index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..78c8a343d59508a5e3829a01a94910c5
 +	const ordered = [...byToolName.entries()].sort((left, right) => right[1].latestAt.localeCompare(left[1].latestAt) || left[0].localeCompare(right[0]));
 +	if (ordered.length === 0) return "- (none)";
 +	const visible = ordered.slice(0, CANONICAL_ACTION_EVIDENCE_MAX_TOOLS);
-+	const lines = [];
-+	let projectedChars = 0;
++	const lines = ["Scope: cumulative totals for the active conversation at this checkpoint, including calls whose original messages remain below. Those retained messages are the same events, not additional calls. Do not add their counts again or infer repeated execution from seeing both representations."];
++	let projectedChars = lines[0].length + 1;
 +	let omitted = ordered.length - visible.length;
 +	for (let index = 0; index < visible.length; index += 1) {
 +		const [toolName, evidence] = visible[index];
