@@ -88,6 +88,13 @@ is not a future release strategy.
    Working-context and recent-tail estimates share the native 1,200-token
    image heuristic; Base64 bytes are not text tokens. Original image bytes
    remain intact and the provider's physical-capacity guard still runs.
+   `workingContextHeadroomTokens` reserves space for new work after deducting
+   fixed instructions, tools and checkpoint allowance. The recent tail still
+   preserves indivisible tool pairs. One working-context checkpoint summarizes
+   earlier history and the unfinished turn in one request. Observations report
+   fixed cost, before/after estimates, target and ceiling; these are estimates,
+   not provider billing measurements. Internal entry metadata is excluded from
+   the model-visible estimate.
 
 Beta registry initialization, async defineAgent, implicit sandbox discovery,
 global provider registration, and permissive orphan-record reduction are not

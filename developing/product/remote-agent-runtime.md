@@ -2171,6 +2171,20 @@ compaction, while preserving current access checks. Local browser acceptance
 and deterministic runtime tests provide different evidence; neither alone
 proves real-model cost or final-answer quality.
 
+Recovery uses bounded references rather than another transcript. Calling
+`openmeld_describe_capabilities` without names restores the last selection of
+up to eight names in the current submission. Only names are retained for seven
+days; definitions come from the current authorized catalog. Repeated schema
+restoration consumes the normal tool allowance but is not classified as a
+stalled source read.
+
+Calling `openmeld_read_tool_result` without a result ID lists at most sixteen
+unexpired retained-result references for this execution. It reads the existing
+metadata, not a second index, and rechecks current execution and source access.
+The existing one-hour retention and oversized-result admission rules remain
+unchanged. This is not an archive of every tool response. Computer command
+identity and lifecycle remain owned by the existing Computer command receipts.
+
 Flue remains the sole owner of the message history, summary, and compaction
 execution inside one Remote Agent runtime conversation generation. OpenMeld
 does not maintain a second transcript or run an additional summarizer on
