@@ -2461,6 +2461,10 @@ public `OrganizationDirectoryResponse` adds only the optional member-level
 and CLI clients continue to receive the prior strict shape during rollout.
 
 The broad `OrganizationDirectoryResponse` remains a compatibility contract.
+Its opt-in `centerAgentOnly=true` scope preserves member authorization and the
+response schema, omits members, and resolves runtime readiness only for the
+designated Center Agent. Omitted or unknown query parameters retain the full
+directory behavior. Web keeps the scoped result under a distinct cache key.
 Current Web People and Agents use two narrower Core-owned read projections so
 identity is never blocked by runtime fan-out. `OrganizationProfileDirectoryResponse`
 contains Auth-owned member and Agent Profile identity, Center Agent designation,
