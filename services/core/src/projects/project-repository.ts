@@ -38,12 +38,15 @@ export type ArchiveProjectOutcome =
   | "conflict"
   | "has_activity"
   | "not_found";
+// A newest-event probe uses the existing project/time index even before VACUUM
+// marks recent pages all-visible. An unordered EXISTS can choose a sequential
+// scan, then read the entire event table for every project with no activity.
 const PROJECT_ACTIVITY_EVIDENCE = `
-  EXISTS (
-    SELECT 1 FROM "openmeld"."agent_activity_events" events
+  (SELECT true FROM "openmeld"."agent_activity_events" events
     WHERE events.organization_id = projects.organization_id
       AND events.project_id = projects.id
-  )
+    ORDER BY events.observed_at_ms DESC LIMIT 1
+  ) IS TRUE
   OR EXISTS (
     SELECT 1 FROM "openmeld"."agent_activity_sessions" sessions
     WHERE sessions.organization_id = projects.organization_id
@@ -63,15 +66,6 @@ const PROJECT_ACTIVITY_EVIDENCE = `
     SELECT 1 FROM "openmeld"."agent_activity_daily_session_keys" daily_session_keys
     WHERE daily_session_keys.organization_id = projects.organization_id
       AND daily_session_keys.project_id = projects.id
-  )
-  OR EXISTS (
-    SELECT 1
-    FROM "openmeld"."agent_activity_execution_links" execution_links
-    INNER JOIN "openmeld"."agent_activity_sessions" linked_sessions
-      ON linked_sessions.id = execution_links.activity_session_id
-    WHERE execution_links.organization_id = projects.organization_id
-      AND linked_sessions.organization_id = projects.organization_id
-      AND linked_sessions.project_id = projects.id
   )
 `;
 const PROJECT_SELECT = `
