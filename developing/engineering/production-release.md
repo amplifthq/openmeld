@@ -680,6 +680,13 @@ non-directional, so request-only changes do not accidentally select this
 profile. This response-reader requirement takes precedence when the same diff
 also contains Center Agent Task or Context Manifest paths.
 
+Space search and evidence receivers compose with this Core-first profile.
+An exact entrypoint-only replacement of the Cloudflare `WorkspaceProxy`
+re-export with the local proxy does not change native request admission and
+does not impose Remote-before-Core ordering. Any other entrypoint edit retains
+the ordinary request dependency. Independent Website and Docs source-impact
+checks do not apply historical App protocol constraints to their publications.
+
 The hosted public-progress bridge is a narrow reviewed exception: if the
 versioned worker schema differs only by its output-limit reason constant and
 the additive progress callback kind, and the target Remote Agent contains the
