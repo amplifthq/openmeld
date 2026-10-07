@@ -34,6 +34,49 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
+it.each([
+	"running",
+	"writing",
+	"connecting",
+	"queued",
+	"occupied",
+] as const)("Send now only steers a running response: %s", async (phase) => {
+	render(
+		<SpaceInputQueue
+			onEdit={vi.fn()}
+			profileId="author"
+			progressItems={[
+				{
+					dispatchId: "original-response",
+					targetProfileId: "agt_codex",
+					terminal: false,
+					phase: phase === "occupied" ? "connecting" : phase,
+					waitReasonCode:
+						phase === "occupied"
+							? "runtime.agent_controller_conversation.occupied"
+							: null,
+				},
+			]}
+			spaceId="space"
+		/>
+	);
+	const send = screen.getByRole("button", { name: "Send now" });
+	const canSendNow = phase === "running" || phase === "writing";
+	expect((send as HTMLButtonElement).disabled).toBe(!canSendNow);
+	fireEvent.click(send);
+	if (canSendNow) {
+		await waitFor(() =>
+			expect(queue.mutate).toHaveBeenCalledExactlyOnceWith({
+				action: "steer",
+				inputId: item.inputId,
+				target: item.target,
+			})
+		);
+	} else {
+		expect(queue.mutate).not.toHaveBeenCalled();
+	}
+});
+
 async function edit() {
 	fireEvent.click(
 		screen.getByRole("button", { name: "Queued message options" })
@@ -53,12 +96,22 @@ it("waits for removal and uses the latest composer callback when an edit complet
 	const oldDraft = vi.fn();
 	const latestDraft = vi.fn();
 	const view = render(
-		<SpaceInputQueue onEdit={oldDraft} profileId="author" spaceId="space" />
+		<SpaceInputQueue
+			onEdit={oldDraft}
+			profileId="author"
+			progressItems={[]}
+			spaceId="space"
+		/>
 	);
 	await edit();
 	expect(oldDraft).not.toHaveBeenCalled();
 	view.rerender(
-		<SpaceInputQueue onEdit={latestDraft} profileId="author" spaceId="space" />
+		<SpaceInputQueue
+			onEdit={latestDraft}
+			profileId="author"
+			progressItems={[]}
+			spaceId="space"
+		/>
 	);
 	await act(() => {
 		acknowledge();
@@ -77,7 +130,12 @@ it("keeps a failed edit recoverable without resending the original queue item", 
 		.mockResolvedValueOnce(undefined);
 	const onEdit = vi.fn();
 	render(
-		<SpaceInputQueue onEdit={onEdit} profileId="author" spaceId="space" />
+		<SpaceInputQueue
+			onEdit={onEdit}
+			profileId="author"
+			progressItems={[]}
+			spaceId="space"
+		/>
 	);
 	await edit();
 	expect((await screen.findByRole("alert")).textContent).toBe("Response lost");

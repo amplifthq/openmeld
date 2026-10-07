@@ -14,3 +14,7 @@ resending messages whose delivery is uncertain.
 Codex work can continue automatically after an occupied-conversation wait when
 OpenMeld confirms that no turn started and the task cannot modify shared files.
 Tasks that need an owner's decision keep the existing recovery choices.
+
+Shared Spaces keep each person's follow-ups attached to their own response.
+Send now is available only while that response is running. Waiting for another
+app is shown separately from waiting for earlier tasks.

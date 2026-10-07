@@ -3863,9 +3863,15 @@ describe("SpaceLanding", () => {
 	});
 
 	it.each([
-		"Center",
-		"Local",
-	] as const)("queues text during a confirmed %s response without publishing or steering it", async (controller) => {
+		{ controller: "Center", sameAuthor: true, otherThread: false },
+		{ controller: "Local", sameAuthor: true, otherThread: false },
+		{ controller: "Local", sameAuthor: false, otherThread: false },
+		{ controller: "Local", sameAuthor: true, otherThread: true },
+	] as const)("routes follow-ups for $controller with sameAuthor=$sameAuthor and otherThread=$otherThread", async ({
+		controller,
+		sameAuthor,
+		otherThread,
+	}) => {
 		vi.stubGlobal(
 			"IntersectionObserver",
 			class {
@@ -3883,6 +3889,17 @@ describe("SpaceLanding", () => {
 			targetLabel: "Center Agent",
 			targetProfileId: DEFAULT_AGENT_PROFILE_ID,
 			updatedAtMs: RECENT_ACTIVITY_TS + 10,
+			...(otherThread
+				? {
+						sourceContext: {
+							profileId: DEFAULT_SPACE_PROFILE_ID,
+							profileKind: "human" as const,
+							profileName: "Mira",
+							messagePreview: "Analyze customers.",
+							threadId: "other-thread",
+						},
+					}
+				: {}),
 		});
 		setSpaceWakeProgressPresentationItems({
 			items: [item],
@@ -3938,6 +3955,15 @@ describe("SpaceLanding", () => {
 						createTextSignal({
 							id: "original-signal",
 							text: "Analyze customers.",
+							...(sameAuthor
+								? {}
+								: {
+										profile: {
+											kind: "human" as const,
+											profileId: "22222222-2222-2222-2222-222222222222",
+											profileName: "Another member",
+										},
+									}),
 							ts: RECENT_ACTIVITY_TS,
 						}),
 					],
@@ -3951,6 +3977,17 @@ describe("SpaceLanding", () => {
 		});
 		await setComposerValue(screen.getByRole("textbox"), "Only North America.");
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+		if (!sameAuthor || otherThread) {
+			await waitFor(() => expect(postNormalMessage).toHaveBeenCalled());
+			expect(
+				vi
+					.mocked(readOrUpdateSpaceInputQueue)
+					.mock.calls.some(
+						([, request]) => request.mutation?.action === "enqueue"
+					)
+			).toBe(false);
+			return;
+		}
 		await waitFor(() =>
 			expect(readOrUpdateSpaceInputQueue).toHaveBeenCalledWith(
 				expect.anything(),

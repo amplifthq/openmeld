@@ -1082,6 +1082,16 @@ have not been published or admitted as Wakes yet. They remain editable pending
 Space input until ordinary publication or an explicit Steer consumes them.
 Different Agent Profiles remain independently admissible and may work in parallel.
 
+Composer follow-ups attach only to one confirmed active response started by the
+current author in the same discussion. Another member's request is published as
+independent work; it must not enter that author's pending-input queue or steer
+their turn. Send now applies an input to the exact running turn. It is disabled
+while that response is starting, queued, waiting for another app, or waiting for
+an interaction. It does not publish another Wake or grant scheduling priority.
+Provider occupancy is labeled `Waiting for another app`; Coordinator admission
+waiting keeps `Waiting for earlier tasks`. A conversation fork does not grant
+another requester access to its history or bypass a shared-folder writer lock.
+
 For migrated Profiles this replaces the former one-slot FIFO and Profile-wide
 native conversation model. The primary Binding still owns the connection and
 launch settings. Migration freezes a finite legacy boundary, preserves accepted

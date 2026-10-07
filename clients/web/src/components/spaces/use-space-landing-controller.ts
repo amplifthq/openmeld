@@ -425,13 +425,19 @@ function buildComposerFileSubmission(input: {
 }
 
 function resolveQueuedExecutionInput(input: {
+	profileId: string;
+	timelineItems: readonly SpaceTimelineItem[];
 	centerAgentProfileId?: string | null;
 	members: SpaceMembersSnapshot | null;
 	activationTargets: readonly string[];
 	hasFiles: boolean;
 	items: readonly Pick<
 		WakeProgressItem,
-		"terminal" | "dispatchId" | "targetProfileId"
+		| "terminal"
+		| "dispatchId"
+		| "targetProfileId"
+		| "sourceContext"
+		| "sourceSignalId"
 	>[];
 }) {
 	const localProfileIds =
@@ -461,7 +467,11 @@ function resolveQueuedExecutionInput(input: {
 		(item) =>
 			!item.terminal &&
 			item.dispatchId &&
-			item.targetProfileId === targetProfileId
+			item.targetProfileId === targetProfileId &&
+			!item.sourceContext?.threadId &&
+			(item.sourceContext?.profileId ??
+				input.timelineItems.find((source) => source.id === item.sourceSignalId)
+					?.actorProfileId) === input.profileId
 	);
 	const response = responses.length === 1 ? responses[0] : undefined;
 	return response?.dispatchId
@@ -2966,6 +2976,8 @@ export function useSpaceLandingController(input: {
 				};
 			pendingSubmission = preparedSubmission;
 			const queueTarget = resolveQueuedExecutionInput({
+				profileId: input.profileId,
+				timelineItems,
 				centerAgentProfileId: input.centerAgentProfileId,
 				members: membersSnapshot,
 				activationTargets:

@@ -17,6 +17,7 @@ import { CSS } from "@dnd-kit/utilities";
 import type {
 	SpaceInputQueueMutation,
 	SpaceInputQueueResponse,
+	WakeProgressItem,
 } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import {
@@ -57,6 +58,15 @@ const MotionTray = motion.create(SpaceComposerTray);
 const rowTransition = { ...springs.slow, bounce: 0 };
 
 export function SpaceInputQueue(input: {
+	progressItems: readonly Pick<
+		WakeProgressItem,
+		| "dispatchId"
+		| "targetProfileId"
+		| "terminal"
+		| "phase"
+		| "waitReasonCode"
+		| "pendingInteraction"
+	>[];
 	spaceId: string;
 	profileId: string;
 	onEdit: (text: string) => void;
@@ -171,6 +181,17 @@ export function SpaceInputQueue(input: {
 									<AnimatePresence initial={false} mode="popLayout" propagate>
 										{queue.items.map((item) => (
 											<QueuedMessage
+												canSendNow={input.progressItems.some(
+													(progress) =>
+														progress.dispatchId === item.target.dispatchId &&
+														progress.targetProfileId ===
+															item.target.targetProfileId &&
+														(progress.phase === "running" ||
+															progress.phase === "writing") &&
+														!progress.terminal &&
+														!progress.waitReasonCode &&
+														!progress.pendingInteraction
+												)}
 												index={pendingIds.indexOf(item.inputId)}
 												item={item}
 												key={item.inputId}
@@ -227,6 +248,7 @@ function queuedMessageStatus(item: Item): string | null {
 }
 
 function QueuedMessage({
+	canSendNow,
 	item,
 	saving,
 	mutate,
@@ -236,6 +258,7 @@ function QueuedMessage({
 	keyboardReorder,
 	ref,
 }: {
+	canSendNow: boolean;
 	item: Item;
 	saving: boolean;
 	mutate: (mutation: SpaceInputQueueMutation, editing?: Item) => Promise<void>;
@@ -337,10 +360,16 @@ function QueuedMessage({
 						expanded && "max-sm:justify-self-end"
 					)}
 				>
-					<TooltipHint content="Send this message while the agent is working">
+					<TooltipHint
+						content={
+							canSendNow
+								? "Send this message while the agent is working"
+								: "Available when this response is running"
+						}
+					>
 						<Button
 							className="gap-1 px-1.5 transition-colors"
-							disabled={disabled || item.blocked}
+							disabled={disabled || item.blocked || !canSendNow}
 							onClick={() =>
 								mutate({
 									action: "steer",
