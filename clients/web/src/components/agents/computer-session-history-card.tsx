@@ -4,6 +4,7 @@ import {
 	createAgentActivityApi,
 	createSessionHistoryApi,
 } from "@openmeld/api-client";
+import { sessionHistoryProviderSchema } from "@openmeld/schemas";
 import type {
 	AgentActivityInventoryCoverage,
 	AgentActivityInventorySession,
@@ -108,7 +109,6 @@ function useConversationAccess(input: Props, open: boolean) {
 			try {
 				const result = await createAgentActivityApi(foundation).readSessions({
 					computerId: input.computerId,
-					provider: "codex",
 					limit: 50,
 					...(next ? { cursor: next } : {}),
 				});
@@ -181,6 +181,9 @@ function useConversationAccess(input: Props, open: boolean) {
 				operation: "read_session",
 				projectId: session.project.id,
 				sessionId: session.nativeSessionId,
+				provider: sessionHistoryProviderSchema.parse(
+					session.localAgent.provider
+				),
 				offset,
 				limit: 20,
 			});
@@ -270,8 +273,8 @@ export function ComputerSessionHistoryCard(input: Props) {
 						<SheetHeader className="pr-12">
 							<SheetTitle>Conversations &amp; access history</SheetTitle>
 							<SheetDescription>
-								Conversations on this computer and recent reads. Currently
-								supports Codex.
+								Codex, Claude Code, OpenCode, and Grok Build. Cursor and
+								Antigravity history is not available yet.
 							</SheetDescription>
 						</SheetHeader>
 						<ScrollArea
@@ -315,7 +318,6 @@ function AccessSettings({ state }: { state: State }) {
 				id="conversation-access-help"
 			>
 				Read local conversations yourself or through agents acting for you.
-				Currently supports Codex.
 			</p>
 			{saving || !(settings || settingsError) ? (
 				<output className="block text-muted-foreground text-xs">
@@ -447,13 +449,13 @@ function ConversationList({ state }: { state: State }) {
 			!sessionsError &&
 			!notice ? (
 				<p className="text-muted-foreground text-sm">
-					No Codex conversations found in connected projects.
+					No conversations found in connected projects.
 				</p>
 			) : null}
 			<ul className="divide-y">
 				{sessions.map((session) => (
 					<ConversationRow
-						key={`${session.project.id}/${session.nativeSessionId}`}
+						key={`${session.localAgent.provider}/${session.project.id}/${session.nativeSessionId}`}
 						session={session}
 						state={state}
 					/>
@@ -480,6 +482,9 @@ function ConversationRow({
 	session: AgentActivityInventorySession;
 }) {
 	const { settings, saving, read } = state;
+	const supported = sessionHistoryProviderSchema.safeParse(
+		session.localAgent.provider
+	).success;
 	const allowed =
 		settings?.policy.enabled &&
 		settings.policy.connections.some(
@@ -501,14 +506,15 @@ function ConversationRow({
 					{session.nativeSessionTitle ?? "Untitled conversation"}
 				</p>
 				<p className="text-muted-foreground text-xs">
-					Codex · {session.project.name}
+					{session.localAgent.name} · {session.project.name}
+					{supported ? "" : " · History unavailable"}
 					{session.dataState === "stale" ? " · Last known conversation" : ""}
 					{settings?.policy.enabled && !allowed ? " · Project access off" : ""}
 				</p>
 			</div>
 			<Button
 				aria-label={`Read ${session.nativeSessionTitle ?? "conversation"}`}
-				disabled={!allowed || saving}
+				disabled={!(allowed && supported) || saving}
 				onClick={() => read(session)}
 				size="sm"
 				variant="secondary"
@@ -571,6 +577,7 @@ function AccessLogRow({
 	const session = sessions.find(
 		(item) =>
 			item.nativeSessionId === entry.sessionId &&
+			item.localAgent.provider === (entry.provider ?? "codex") &&
 			item.project.id === entry.projectId
 	);
 	const humanReader =
@@ -610,7 +617,7 @@ function AccessLogRow({
 				</time>
 			</div>
 			<p className="truncate">
-				{session?.nativeSessionTitle ?? "Codex conversation"}
+				{session?.nativeSessionTitle ?? "Local conversation"}
 			</p>
 			<p className="text-muted-foreground text-xs">
 				{entry.count} {entry.count === 1 ? "message" : "messages"} ·{" "}
@@ -628,7 +635,7 @@ function ConversationReader({ state }: { state: State }) {
 					{selected?.nativeSessionTitle ?? "Conversation"}
 				</SheetTitle>
 				<SheetDescription>
-					{selected?.project.name} · Read-only Codex conversation
+					{selected?.localAgent.name} · {selected?.project.name} · Read only
 				</SheetDescription>
 			</SheetHeader>
 			<ScrollArea
@@ -646,7 +653,7 @@ function ConversationReader({ state }: { state: State }) {
 						key={`${selected?.nativeSessionId}/${index}`}
 					>
 						<p className="font-medium text-xs">
-							{message.role === "user" ? "You" : "Codex"}
+							{message.role === "user" ? "You" : selected?.localAgent.name}
 						</p>
 						<p className="whitespace-pre-wrap break-words text-sm leading-relaxed">
 							{message.text}
@@ -698,15 +705,18 @@ function LoadError(input: { message: string; retry: () => Promise<void> }) {
 		</div>
 	);
 }
-function inventoryNotice(coverage: AgentActivityInventoryCoverage[]) {
+function inventoryNotice(sources: AgentActivityInventoryCoverage[]) {
+	const coverage = sources.filter(
+		(source) => sessionHistoryProviderSchema.safeParse(source.provider).success
+	);
 	if (coverage.some((source) => source.state === "error")) {
-		return "Codex discovery failed. Check Codex on this computer, then refresh. Listed conversations may be out of date.";
+		return "Some conversations could not be found. Check the local agents on this computer, then refresh.";
 	}
 	if (coverage.some((source) => source.state === "disconnected")) {
 		return "A project is disconnected. Reconnect it to update its conversations.";
 	}
 	if (coverage.some((source) => source.state === "unsupported")) {
-		return "Update OpenMeld on this computer to discover Codex conversations.";
+		return "Some local agents do not support conversation discovery on this computer.";
 	}
 	if (
 		coverage.length === 0 ||

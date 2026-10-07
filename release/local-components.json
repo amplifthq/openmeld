@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-07T14:45:52.569Z",
+  "updatedAt": "2026-10-07T16:01:25.317Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
       "packageVersion": "0.3.248",
       "updatePolicy": "available",
-      "reason": "Computer inventory filtering requires updated receivers; existing setup and Wake commands are unchanged."
+      "reason": "Read authorized local agent conversations across providers"
     },
     "service": {
-      "bundleHash": "d80ef058ed9e6e33cf1a67ca5b9fba40ea5e6ff9abd158f57f3351378f83a499",
-      "portableBundleHash": "6cbb26fdc55a09c4f945bcb74f8db95d91e43401235ff877eaf12b2bdccfc4cd",
+      "bundleHash": "9e03e28e76de609cf3b2384fefa4e52464310eedd5bdc1fc971d6f5c11f64693",
+      "portableBundleHash": "0a7599a216a8a04f31e252f0934741baf1458edf0ef75af49343f99b7dfed4bc",
       "bundleVersion": "0.3.248",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
       "serviceContractVersion": "openmeld-service-contract-2026-09-local-install-recovery-v1",
       "updatePolicy": "available",
-      "reason": "Conversation access v2 requires matching Core and Gateway receivers; v1 history is unsupported while setup and Wake remain compatible. Legacy history grants require fresh owner consent."
+      "reason": "Read authorized local agent conversations across providers"
     },
     "skills": {
       "bundleHash": "7a89eb86c43daf33e04984b7f04cbfd9752ec8bcf617004f85bee8007359ddb6",

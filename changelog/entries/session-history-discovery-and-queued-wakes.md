@@ -23,3 +23,8 @@ immediately. Conversation browsing and recent access open in one full-height
 drawer, with messages in the same drawer.
 Existing per-Agent grants stay off until you enable the new
 setting; other members still cannot read your history.
+
+The same access settings now cover Claude Code, OpenCode, and Grok Build
+conversations as well as Codex. Each conversation shows its source. People and
+agents use the same read-only operation. Cursor and Antigravity history remains
+unavailable.

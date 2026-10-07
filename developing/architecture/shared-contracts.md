@@ -8835,7 +8835,7 @@ the current execution token and exact dispatch/binding scope. Hosted calls need
 the active native delivery and its frozen, verified human root. Only verified
 one-hop delegation is supported; missing provenance fails closed.
 
-The additive `x-openmeld-session-history: session-history-v2` handshake is
+The additive `x-openmeld-session-history: session-history-v3` handshake is
 independent of File access. An old Service returns unsupported and receives no
 new frame. Requests use `daemon.session_history.request`; replies use
 `daemon.session_history.request_result`. Pending operations and response bodies
@@ -8848,6 +8848,14 @@ store format on the next mutation; old binaries fail closed on that format.
 Old v1 Services are not admitted to the v2 history channel. Deploy Core/Gateway
 before the updated Service and Web. Rolling back requires matching clients and
 receivers; never reinterpret an existing v2 grant as a legacy allowlist.
+
+Version 3 adds the provider discriminator to reads, results, and access audit.
+Codex, Claude Code, OpenCode, and Grok Build share the same authorization path.
+An omitted provider means Codex only, preserving prior callers and local audit
+records; it never guesses a provider from a native ID. v1/v2 Services are not
+admitted to the v3 history channel. The local policy store remains v2 because
+its grant semantics are unchanged. New clients must wait for receiver rollout;
+rollback receivers and callers together. No transcript is added to storage.
 
 Contract impact: deploy receiving Core/Gateway and hosted tools before exposing
 new clients. Existing CLI/Service/Skills continue their previous setup, Wake,

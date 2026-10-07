@@ -145,6 +145,30 @@ describe("controlled session history", () => {
       kind: "audit",
       entries: [{ outcome: "allowed", count: 1 }],
     });
+    // Same native ID, different provider: routing and audit must retain both.
+    expect(await f.send({ ...read, provider: "claude-code" })).toMatchObject({
+      kind: "session",
+      provider: "claude-code",
+    });
+    expect(f.readHistory).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        sessionId: read.sessionId,
+        provider: "claude-code",
+      })
+    );
+    expect(await f.send({ operation: "read_audit" })).toMatchObject({
+      kind: "audit",
+      entries: expect.arrayContaining([
+        expect.objectContaining({
+          provider: "codex",
+          sessionId: read.sessionId,
+        }),
+        expect.objectContaining({
+          provider: "claude-code",
+          sessionId: read.sessionId,
+        }),
+      ]),
+    });
     expect(
       await f.send(
         { operation: "read_audit" },

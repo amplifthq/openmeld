@@ -566,7 +566,8 @@ allowlist. Removing and reconnecting a folder requires a new grant. Upgrading
 legacy per-Agent settings leaves access off until the owner enables it again;
 an existing narrow grant must not silently expand.
 
-The first version reads bounded Codex user and assistant messages through the
+The first version reads bounded Codex, Claude Code, OpenCode, and Grok Build
+user and assistant messages through the
 source Computer's live Service. Sessions do not need an OpenMeld Agent Profile.
 It does not resume sessions, import transcripts, expose reasoning or tool output,
 or support arbitrary filesystem reads. Explicit File access restrictions also
@@ -585,8 +586,9 @@ beside File access. Service stores settings and bounded access metadata locally.
 The card keeps the master switch and Project selection directly editable.
 Only infrequent conversation browsing and access history live in the drawer.
 Settings load with the page; conversation titles and recent access load when
-the drawer opens. Provider names belong on conversation rows; the current
-Codex-only read support is explicit.
+the drawer opens. Provider names belong on conversation rows. Cursor and
+Antigravity do not yet offer a verified retained-history read path and remain
+explicitly unsupported; resume/load operations must not substitute for reads.
 Switches save immediately, with confirmed state and inline failure recovery.
 The drawer uses one shared Fluid Scroll Area filling its remaining height,
 without nested fixed-height lists. Project selection on the card remains
@@ -596,7 +598,7 @@ close or return to the list. Reading replaces the drawer contents, without a
 nested dialog. There are no separate browse or reveal-audit gates inside it.
 Computer-scoped inventory queries filter sessions and source coverage before
 pagination. Discovery failure or incomplete coverage must remain visible; an
-empty page does not establish that the Computer has no Codex sessions. Personal
+empty page does not establish that the Computer has no sessions. Personal
 Remote Agents receive the same inventory and history tools, subject to their
 existing per-call Space authorization and the history access policy above.
 The history service does not persist transcript bodies, index them in cloud
@@ -605,7 +607,10 @@ downstream agent conversation or model provider can retain a tool result or a
 published answer; on-demand access does not change those retention rules.
 
 Reads return at most 50 messages, with at most 8,000 characters per message.
-The native response is bounded to 8 MiB; larger sessions fail explicitly. Access
+The native response is bounded to 8 MiB; larger sessions fail explicitly.
+OpenCode reads at most 1,000 text parts and honors its undo boundary. Grok Build
+reads the current persisted ACP envelope format; sessions containing rewind
+markers fail closed until replay semantics are supported. Access
 history retains the latest 200 requests locally, including the verified human
 root, reader, immediate delegator, destination, range, and outcome. Revocation
 stops subsequent reads and in-flight reads whose authorization changes before

@@ -9,7 +9,7 @@ import { resolveLocalProjectConnectionForPath } from "../../agent-activity/proje
 import { listProjectBindings } from "../../agent-activity/project-bindings";
 import { isSameOrDescendantPath } from "../../lib/path-containment";
 import { readComputerFileAccessPolicy } from "../file-access/computer-file-access-store";
-import { readCodexHistory } from "./codex-history-reader";
+import { readSessionHistory } from "./history-reader";
 import {
   appendSessionHistoryAudit,
   readSessionHistoryStore,
@@ -30,7 +30,7 @@ export async function handleSessionHistoryFrame(input: {
   ownerUserId: string;
   computerFileAccessStorePath: string;
   rootDir?: string;
-  readHistory?: typeof readCodexHistory;
+  readHistory?: typeof readSessionHistory;
 }) {
   const { requestId, request: envelope } = input.frame.payload;
   const { request, requester, organizationId } = envelope;
@@ -64,7 +64,7 @@ export async function handleSessionHistoryFrame(input: {
             kind: "error",
             code: "failed",
             message:
-              "Session history could not be read. Check the Computer connection and Codex installation.",
+              "Conversation could not be read. Check the local agent on this computer, then try again.",
           };
     if (request.operation === "read_session") {
       // Never persist provider errors, source text, or tool output.
@@ -89,6 +89,7 @@ export async function handleSessionHistoryFrame(input: {
       atMs: Date.now(),
       requester,
       projectId: request.projectId,
+      provider: request.provider ?? "codex",
       sessionId: request.sessionId,
       offset: request.offset,
       outcome,
@@ -209,7 +210,8 @@ export async function handleSessionHistoryFrame(input: {
     if (!store.policy.enabled) {
       throw new HistoryDenied();
     }
-    const history = await (input.readHistory ?? readCodexHistory)({
+    const history = await (input.readHistory ?? readSessionHistory)({
+      provider: request.provider,
       sessionId: request.sessionId,
       authorizePath,
     });
@@ -229,6 +231,7 @@ export async function handleSessionHistoryFrame(input: {
     }
     return {
       kind: "session",
+      provider: request.provider ?? "codex",
       sessionId: request.sessionId,
       requester,
       messages,

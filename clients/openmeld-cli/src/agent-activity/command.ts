@@ -69,6 +69,7 @@ export async function runAgentActivityHistory(
     lane: string;
     projectId: string;
     session: string;
+    provider?: string;
     offset?: string;
     limit?: string;
   }
@@ -78,6 +79,7 @@ export async function runAgentActivityHistory(
       operation: "read_session",
       projectId: input.projectId,
       sessionId: input.session,
+      provider: input.provider,
       offset: Number(input.offset ?? 0),
       limit: Number(input.limit ?? 20),
     });
