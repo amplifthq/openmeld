@@ -77,6 +77,7 @@ import {
 	SpaceMemberAvatars,
 } from "./space-member-avatars";
 import { SpaceUnreadLink } from "./space-unread-link";
+import { useMessagePreviews } from "./use-message-previews";
 import { useSpaceDirectoryFilters } from "./use-space-directory-filters";
 import { useSpaceListIndicators } from "./use-space-list-indicators";
 import { WelcomeSpaceLabel } from "./welcome-space-guide";
@@ -103,6 +104,10 @@ export function SpaceDirectory(input: {
 		currentOrganization.id
 	);
 	const sidebar = useSidebarPreferences(currentOrganization.id);
+	const { showMessagePreviews } = useMessagePreviews(
+		input.profileId,
+		currentOrganization.id
+	);
 	const preferences = sidebar.preferences;
 	const [searches, setSearches] = useState(["", ""]);
 	const [searchOpen, setSearchOpen] = useState([false, false]);
@@ -430,6 +435,7 @@ export function SpaceDirectory(input: {
 													preferences={preferences}
 													preview={previews.get(item.spaceId)}
 													save={sidebar.save}
+													showMessagePreviews={showMessagePreviews}
 													summary={indicators.activeWakeSummaryBySpaceId.get(
 														item.spaceId
 													)}
@@ -633,6 +639,7 @@ function UnindexedJoinedRow(input: {
 
 type DirectoryInput = React.ComponentProps<typeof SpaceDirectory>;
 function JoinedRow(input: {
+	showMessagePreviews: boolean;
 	layout: DirectoryLayout;
 	item: AccountSpaceItem;
 	index: number;
@@ -725,7 +732,7 @@ function JoinedRow(input: {
 									/>
 								</div>
 							)}
-							{messagePreviews.length > 0 && (
+							{input.showMessagePreviews && messagePreviews.length > 0 && (
 								<div className="relative z-10 flex min-w-0 flex-col gap-1">
 									{messagePreviews.slice(0, 1).map((message) => (
 										<TooltipHint content={message.text} key={message.signalId}>

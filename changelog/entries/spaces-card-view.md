@@ -16,3 +16,8 @@ preview without Markdown formatting marks.
 
 Your browser remembers the Space view you choose and each person's grouped or
 expanded Agent view.
+
+Use Show message previews in the sidebar settings to show or hide message
+previews across the sidebar and cards. Your browser remembers the choice.
+Rows without previews keep their titles and actions centered, and title hints
+open beside the full row without covering its text.

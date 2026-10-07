@@ -219,6 +219,13 @@ competing highlights. Spaces and its contextual sidebar heading always open
 Discover, in that order (Discover is absent in personal workspaces).
 
 Your Spaces and Direct messages default to Cards and offer Table in the directory toolbar.
+The sidebar's View and filters menu includes Show message previews. It defaults
+to on and persists per Human Profile and Organization in the browser preference
+store. One setting controls the sidebar and both directory card views; it does
+not change Table previews or suppress actionable needs-input status. Hidden or
+absent message previews reserve no sidebar line or card footer. Single-line
+sidebar rows center their icon, title, and actions, and title tooltips anchor
+to the full row's trailing edge rather than the avatar.
 Both presentations consume the same saved sections, ordering, filters,
 membership previews, unread destinations, and current work indicators. Cards
 use eight 40px member slots, reducing to six, four or two on narrow cards. The avatar

@@ -51,6 +51,7 @@ import { SpaceUnreadLink } from "./space-unread-link";
 import { SpacesDirectoryNavigation } from "./spaces-directory-navigation";
 import { useChatFilters } from "./use-chat-filters";
 import { useChats } from "./use-chats";
+import { useMessagePreviews } from "./use-message-previews";
 
 function useChatsDirectoryReadState(model: ReturnType<typeof useChats>) {
 	const waitingForProfile =
@@ -91,6 +92,10 @@ export function ChatsDirectory() {
 	});
 	const now = useNowMs(60_000);
 	const { layout, setLayout } = useSpaceLayout(model.profileId, model.org.id);
+	const { showMessagePreviews } = useMessagePreviews(
+		model.profileId,
+		model.org.id
+	);
 	const previewById = new Map(
 		model.chats.map((chat, index) => [chat.spaceId, model.previews[index]])
 	);
@@ -295,6 +300,7 @@ export function ChatsDirectory() {
 										key={chat.spaceId}
 										model={model}
 										sectionId={section.id}
+										showMessagePreviews={showMessagePreviews}
 									/>
 								))}
 								{section.chats.length === 0 && (
@@ -411,11 +417,13 @@ export function ChatsDirectory() {
 }
 
 function ChatDirectoryCard({
+	showMessagePreviews,
 	model,
 	chat,
 	sectionId,
 }: {
 	model: ReturnType<typeof useChats>;
+	showMessagePreviews: boolean;
 	chat: Chat;
 	sectionId: string;
 }) {
@@ -482,7 +490,7 @@ function ChatDirectoryCard({
 								{resolveInboxAttentionLabel(tone)}
 							</span>
 						)}
-						{previews.length > 0 && (
+						{showMessagePreviews && previews.length > 0 && (
 							<div className="relative z-10 flex min-w-0 flex-col gap-1">
 								{previews.slice(0, 1).map((preview) => (
 									<TooltipHint content={preview.text} key={preview.signalId}>

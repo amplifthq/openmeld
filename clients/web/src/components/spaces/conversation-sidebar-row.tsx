@@ -76,6 +76,7 @@ import {
 import { SpaceUnreadLink } from "./space-unread-link";
 
 type ConversationSidebarRowProps = {
+	showMessagePreviews?: boolean;
 	attentionTone: "danger" | "warning" | null;
 	index: number;
 	profileId: string;
@@ -157,10 +158,36 @@ function ConversationSidebarRowTime({ timestamp }: { timestamp: number }) {
 	);
 }
 
+function renderConversationPreview(
+	input: ConversationSidebarRowProps & ConversationRowPreview,
+	needsInput: boolean | undefined,
+	statusLabel: string | undefined
+) {
+	if (needsInput) {
+		return (
+			<span className={CONVERSATION_PREVIEW_CLASS_NAME}>{statusLabel}</span>
+		);
+	}
+	if (input.previewSignalId) {
+		return (
+			<ConversationPreviewLink
+				signalId={input.previewSignalId}
+				text={input.previewText}
+				title={input.title}
+				url={input.url}
+			/>
+		);
+	}
+	return (
+		<span className={CONVERSATION_PREVIEW_CLASS_NAME}>{input.previewText}</span>
+	);
+}
+
 function ConversationSidebarRowContent(
 	input: ConversationSidebarRowProps & ConversationRowPreview
 ) {
 	const { timestamp, previewText } = input;
+	const rowAnchor = useRef<HTMLDivElement>(null);
 	const presentation = input.activeWakeSummary
 		? resolveSpaceActiveWakePresentation(input.activeWakeSummary)
 		: null;
@@ -169,6 +196,8 @@ function ConversationSidebarRowContent(
 	const needsInput = input.activeWakeSummary?.statuses?.some(
 		(status) => status.kind === "needs_input"
 	);
+	const hasPreviewLine =
+		needsInput || (input.showMessagePreviews !== false && !!previewText);
 	const drag = useSortableSidebarItem({
 		section: input.section,
 		itemId: input.conversation.spaceId,
@@ -177,7 +206,11 @@ function ConversationSidebarRowContent(
 	});
 	const row = (
 		<FluidNavMenuItem
-			className="group/chat relative"
+			className={
+				hasPreviewLine
+					? "group/chat relative"
+					: "group/chat relative [&>[data-sidebar=menu-actions]]:top-1/2 [&>[data-sidebar=menu-actions]]:-translate-y-1/2 [&>[data-sidebar=menu-badge]]:top-1/2 [&>[data-sidebar=menu-badge]]:-translate-y-1/2"
+			}
 			index={input.index}
 			ref={drag.ref}
 			style={drag.style}
@@ -191,6 +224,7 @@ function ConversationSidebarRowContent(
 			>
 				<div
 					className={`relative flex min-h-12 w-full min-w-0 items-center gap-2 px-2 py-1.5 text-sm ${input.selected ? "font-medium text-sidebar-accent-foreground" : "text-muted-foreground"}`}
+					ref={rowAnchor}
 				>
 					<Tooltip>
 						<TooltipTrigger
@@ -220,6 +254,7 @@ function ConversationSidebarRowContent(
 							/>
 						</TooltipTrigger>
 						<TooltipContent
+							anchor={rowAnchor}
 							className="max-w-sm flex-col items-start whitespace-normal text-left"
 							side="right"
 						>
@@ -252,18 +287,12 @@ function ConversationSidebarRowContent(
 									/>
 								)}
 							</span>
-							{input.previewSignalId && !needsInput ? (
-								<ConversationPreviewLink
-									signalId={input.previewSignalId}
-									text={previewText}
-									title={input.title}
-									url={input.url}
-								/>
-							) : (
-								<span className={CONVERSATION_PREVIEW_CLASS_NAME}>
-									{needsInput ? presentation?.label : previewText}
-								</span>
-							)}
+							{hasPreviewLine &&
+								renderConversationPreview(
+									input,
+									needsInput,
+									presentation?.label
+								)}
 						</span>
 					</span>
 				</div>
