@@ -40,7 +40,7 @@ import {
 	ChannelShowcase,
 	ComputerBento,
 	HeroAgents,
-	WebMetalBadge,
+	PlatformMetalBadge,
 } from "./landing-showcases";
 import "./landing-page.css";
 
@@ -51,7 +51,7 @@ function OpenAppButton({ compact = false }: { compact?: boolean }) {
 			className={`meld-button meld-button-web ${compact ? "meld-button-compact" : ""}`}
 			href={appUrl("/")}
 		>
-			Open App <WebMetalBadge />
+			Open App <PlatformMetalBadge>Web</PlatformMetalBadge>
 		</a>
 	);
 }
@@ -61,6 +61,7 @@ function DownloadButton() {
 			<DropdownMenuTrigger className="meld-button">
 				<DownloadSimpleIcon aria-hidden size={18} />
 				Download
+				<PlatformMetalBadge>Desktop</PlatformMetalBadge>
 				<CaretDownIcon aria-hidden size={14} />
 			</DropdownMenuTrigger>
 			<FluidDropdownMenuContent

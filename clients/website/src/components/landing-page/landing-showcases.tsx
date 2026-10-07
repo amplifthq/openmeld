@@ -31,21 +31,37 @@ const MetalFx = lazy(() =>
 	import("metal-fx").then((module) => ({ default: module.MetalFx }))
 );
 
-export function WebMetalBadge() {
+function badgeMask(
+	context: CanvasRenderingContext2D,
+	width: number,
+	height: number
+) {
+	context.beginPath();
+	context.roundRect(0, 0, width, height, height / 2);
+	context.fill();
+}
+
+export function PlatformMetalBadge({ children }: { children: string }) {
 	const [mounted, setMounted] = useState(false);
 	const reduced = useReducedMotion();
 	useEffect(() => setMounted(true), []);
-	const badge = <span className="meld-web-badge">Web</span>;
+	const badge = <span className="meld-platform-badge">{children}</span>;
 	if (!mounted || reduced) {
 		return badge;
 	}
 	return (
 		<Suspense fallback={badge}>
 			<MetalFx
+				borderRadius={999}
 				className="meld-metal-badge"
-				glowGain={0.35}
+				glowGain={0.45}
+				glowMode="ring"
+				mask={badgeMask}
+				normalizeHostStyles={false}
 				preset="chromatic"
+				shaderScale={1.6}
 				strength={0.8}
+				style={{ background: "#ffffff", borderRadius: 999 }}
 				theme="light"
 			>
 				{badge}
