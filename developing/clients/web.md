@@ -215,7 +215,7 @@ labels stay outside that background. The Organization avatar fills its 36px
 shape-aware trigger. Account, theme, and Settings remain reachable
 from the account menu. Its 32px avatar trigger retains its left and bottom inset.
 Separate Fluid hover groups own account identity, Search, actions, and sign-out.
-A compact Light/Dark/System selector has its own divided row and keeps the menu
+A compact Light/Dark/System selector follows Download Desktop App without a divider and keeps the menu
 open when changed. Settings > Appearance reuses the same selector and icon set;
 the existing theme provider owns persistence and system appearance. Spaces and its contextual sidebar heading always open
 `/o/{orgSlug}/spaces`. The directory contains Your Spaces, Direct messages, and

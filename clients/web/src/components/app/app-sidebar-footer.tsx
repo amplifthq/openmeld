@@ -21,6 +21,7 @@ import {
 	DesktopTowerIcon,
 	GlobeHemisphereWestIcon,
 	MagnifyingGlassIcon,
+	PaletteIcon,
 	SignOutIcon,
 } from "@phosphor-icons/react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
@@ -232,10 +233,10 @@ export function AppSidebarFooter({
 										index={invitationEntry.nextMenuIndex + 2}
 										webPath={currentWebPath}
 									/>
-									<DropdownMenuSeparator className="my-1" />
 								</FluidDropdownMenuGroup>
-								<div className="flex items-center justify-between px-2 py-1 text-xs">
-									<span>Theme</span>
+								<div className="flex h-8 items-center gap-2 px-2 text-xs">
+									<PaletteIcon aria-hidden="true" className="size-4 shrink-0" />
+									<span className="flex-1">Theme</span>
 									<ThemeSelector inMenu />
 								</div>
 								<DropdownMenuSeparator />

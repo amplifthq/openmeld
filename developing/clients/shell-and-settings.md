@@ -50,8 +50,8 @@ the global App Settings destination, grouped under the current Organization
 The Web application rail places the Organization selector above compact history,
 search, and Inbox controls. The work-area header toggles the middle column. Its
 footer uses the Fluid user dropdown with account switching, Search, Settings,
-theme selection, and Log out. Search and theme selection have separate divided
-sections; theme selection reuses Appearance's compact selector. Authentication, history, and theme
+theme selection, and Log out. Search has a separate divided section; theme
+selection follows Download Desktop App and reuses Appearance's compact selector. Authentication, history, and theme
 ownership remain in the existing Web hooks and router.
 
 One shell and one Settings framework let Web and the Electron GUI reuse shared

@@ -8,5 +8,6 @@ audiences: ["users"]
 
 The sidebar keeps its main navigation and a smaller account avatar. Open the
 account menu for Search, Settings, and a compact Light, Dark, or System theme
-selector. Search shows the Command K shortcut. The same theme selector is
+selector. Search shows the Command K shortcut with keycaps that follow your
+corner style. The same theme selector is
 available in Settings > Appearance, and changing themes keeps the menu open.
